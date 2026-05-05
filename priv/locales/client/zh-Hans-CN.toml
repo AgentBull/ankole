@@ -4,7 +4,14 @@ close = "关闭"
 [web.sessions.new]
 title = "登录"
 brand = "BullX"
-placeholder = "登录页面占位内容。验证码提交将发送到 {$form_action}。"
+heading = "登录后继续"
+provider_title = "服务商登录"
+provider_description = "使用已配置的飞书或 Lark 接入平台。"
+no_providers = "当前没有可用的 Web 登录服务商。"
+auth_code_title = "一次性验证码"
+auth_code_description = "使用私聊中通过 /web_auth 收到的验证码。"
+auth_code_label = "登录验证码"
+auth_code_submit = "登录"
 
 [web.setup]
 title = "初始化设置向导"
@@ -44,7 +51,6 @@ message_context_ttl_ms = "消息上下文 TTL ms"
 card_action_dedupe_ttl_ms = "卡片操作去重 TTL ms"
 inline_media_max_bytes = "内联媒体最大字节数"
 stream_update_interval_ms = "流式更新间隔 ms"
-state_max_age_seconds = "State 最大秒数"
 
 [web.setup.gateway.actions]
 check = "测试连通性"
@@ -81,9 +87,10 @@ external_org_members_description = "开启后，此接入平台会把填写的 T
 tenant_key_summary = "Tenant Key {$tenant_key}"
 
 [web.setup.gateway.web_login]
-allowed = "允许 Web 登录"
-allowed_description = "开启后，此接入平台可通过服务商登录或 /web_auth 验证码作为 Web 登录凭证。"
+disabled = "禁止作为 Web 登录凭证"
+disabled_description = "开启后，此Channel将无法用于Web控制台的登录认证。"
 disabled_summary = "Web 登录已禁用"
+callback_url = "只读 OAuth 回调地址"
 
 [web.setup.gateway.errors]
 channel_id_required = "Channel ID 不能为空。"
@@ -276,6 +283,13 @@ heading = "操作员控制台"
 api_title = "API"
 openapi_json = "OpenAPI JSON"
 swagger_ui = "Swagger UI"
+
+[web.control_panel.no_access]
+title = "无控制台访问权限"
+subtitle = "控制台"
+heading = "无控制台访问权限"
+description = "当前账号已登录，但不属于拥有 Web Console 写权限的用户组。"
+sign_out = "退出登录"
 
 [web.control_panel.sections.sessions]
 title = "会话"

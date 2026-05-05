@@ -4,7 +4,14 @@ close = "Close"
 [web.sessions.new]
 title = "Sign In"
 brand = "BullX"
-placeholder = "Login screen placeholder. Auth-code submission will post to {$form_action}."
+heading = "Sign in to continue"
+provider_title = "Provider login"
+provider_description = "Use a configured Feishu or Lark channel."
+no_providers = "No Web login provider is available."
+auth_code_title = "One-time code"
+auth_code_description = "Use the code sent by /web_auth in a private chat."
+auth_code_label = "Authentication code"
+auth_code_submit = "Sign in"
 
 [web.setup]
 title = "Initial setup wizard"
@@ -44,7 +51,6 @@ message_context_ttl_ms = "Message context TTL ms"
 card_action_dedupe_ttl_ms = "Card action dedupe TTL ms"
 inline_media_max_bytes = "Inline media max bytes"
 stream_update_interval_ms = "Stream update interval ms"
-state_max_age_seconds = "State max age seconds"
 
 [web.setup.gateway.actions]
 check = "Test connectivity"
@@ -81,9 +87,10 @@ external_org_members_description = "When enabled, this channel writes the Tenant
 tenant_key_summary = "Tenant Key {$tenant_key}"
 
 [web.setup.gateway.web_login]
-allowed = "Allow Web login"
-allowed_description = "When enabled, this channel can be used as a Web login credential through provider login or /web_auth codes."
+disabled = "Disable as Web login credential"
+disabled_description = "When enabled, provider login and /web_auth codes are blocked for this channel."
 disabled_summary = "Web login disabled"
+callback_url = "Read-only OAuth callback URL"
 
 [web.setup.gateway.errors]
 channel_id_required = "Channel ID is required."
@@ -276,6 +283,13 @@ heading = "Operator console"
 api_title = "API"
 openapi_json = "OpenAPI JSON"
 swagger_ui = "Swagger UI"
+
+[web.control_panel.no_access]
+title = "No Control Panel Access"
+subtitle = "Control Panel"
+heading = "No Control Panel access"
+description = "This account is signed in, but it is not a member of a group with Web Console write permission."
+sign_out = "Sign out"
 
 [web.control_panel.sections.sessions]
 title = "Sessions"

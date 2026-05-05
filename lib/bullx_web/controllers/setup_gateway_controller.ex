@@ -20,6 +20,7 @@ defmodule BullXWeb.SetupGatewayController do
       |> assign_prop(:check_path, ~p"/setup/gateway/adapters/check")
       |> assign_prop(:save_path, ~p"/setup/gateway/adapters")
       |> assign_prop(:back_path, ~p"/setup/llm")
+      |> assign_prop(:web_login_callback_origin, BullXWeb.Sessions.callback_origin())
       |> render_inertia("setup/App")
     else
       {:error, %Plug.Conn{} = conn} -> conn

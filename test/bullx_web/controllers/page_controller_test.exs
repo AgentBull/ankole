@@ -3,6 +3,7 @@ defmodule BullXWeb.PageControllerTest do
 
   alias BullXAccounts.ActivationCode
   alias BullXAccounts.User
+  alias BullXAccounts.UserGroup
 
   test "GET / redirects to setup when users is empty and a bootstrap code is pending",
        %{conn: conn} do
@@ -33,6 +34,7 @@ defmodule BullXWeb.PageControllerTest do
 
   test "GET / renders the control-panel SPA when signed in", %{conn: conn} do
     user = insert_user!(display_name: "Alice")
+    grant_control_panel_access!(user)
 
     conn =
       conn
@@ -42,9 +44,28 @@ defmodule BullXWeb.PageControllerTest do
     assert html_response(conn, 200) =~ "control-panel/App"
   end
 
+  test "GET / renders a no-access page for signed-in users without Web Console permission", %{
+    conn: conn
+  } do
+    user = insert_user!(display_name: "Alice")
+
+    conn =
+      conn
+      |> init_test_session(%{user_id: user.id})
+      |> get(~p"/")
+
+    assert html_response(conn, 200) =~ "control-panel/NoAccess"
+  end
+
   defp insert_user!(attrs) do
     %User{}
     |> User.changeset(Map.new(attrs))
     |> Repo.insert!()
+  end
+
+  defp grant_control_panel_access!(%User{} = user) do
+    BullXAccounts.AuthZ.Bootstrap.run()
+    admin = Repo.get_by!(UserGroup, name: "admin")
+    :ok = BullXAccounts.add_user_to_group(user, admin)
   end
 end

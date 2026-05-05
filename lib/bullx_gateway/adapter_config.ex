@@ -34,8 +34,7 @@ defmodule BullXGateway.AdapterConfig do
       "message_context_ttl_ms" => :timer.hours(24) * 30,
       "card_action_dedupe_ttl_ms" => :timer.minutes(15),
       "inline_media_max_bytes" => 524_288,
-      "stream_update_interval_ms" => 100,
-      "state_max_age_seconds" => 600
+      "stream_update_interval_ms" => 100
     }
   }
 
@@ -560,9 +559,6 @@ defmodule BullXGateway.AdapterConfig do
   defp get_runtime_advanced_value(config, "stream_update_interval_ms", default),
     do: get_value(config, :stream_update_interval_ms, default)
 
-  defp get_runtime_advanced_value(config, "state_max_age_seconds", default),
-    do: get_value(config, :state_max_age_seconds, default)
-
   defp normalize_nested_map(value) do
     case stringify_nested(value) do
       %{} = map -> map
@@ -649,8 +645,7 @@ defmodule BullXGateway.AdapterConfig do
       message_context_ttl_ms: advanced["message_context_ttl_ms"],
       card_action_dedupe_ttl_ms: advanced["card_action_dedupe_ttl_ms"],
       inline_media_max_bytes: advanced["inline_media_max_bytes"],
-      stream_update_interval_ms: advanced["stream_update_interval_ms"],
-      state_max_age_seconds: advanced["state_max_age_seconds"]
+      stream_update_interval_ms: advanced["stream_update_interval_ms"]
     }
   end
 

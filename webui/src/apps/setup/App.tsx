@@ -35,7 +35,6 @@ interface AdapterAdvanced {
   card_action_dedupe_ttl_ms: number
   inline_media_max_bytes: number
   stream_update_interval_ms: number
-  state_max_age_seconds: number
 }
 
 interface AdapterCredentials {
@@ -108,6 +107,13 @@ interface PostJsonResponse {
 }
 
 const SECRET_FIELDS: SecretField[] = ["app_secret"]
+const ADVANCED_FIELDS: Array<keyof AdapterAdvanced> = [
+  "dedupe_ttl_ms",
+  "message_context_ttl_ms",
+  "card_action_dedupe_ttl_ms",
+  "inline_media_max_bytes",
+  "stream_update_interval_ms",
+]
 
 const FALLBACK_ENTRY: AdapterEntry = {
   id: "feishu:",
@@ -132,7 +138,6 @@ const FALLBACK_ENTRY: AdapterEntry = {
     card_action_dedupe_ttl_ms: 900000,
     inline_media_max_bytes: 524288,
     stream_update_interval_ms: 100,
-    state_max_age_seconds: 600,
   },
   secret_status: {
     app_secret: "missing",
@@ -146,6 +151,7 @@ interface SetupAppProps {
   check_path: string
   save_path: string
   back_path: string
+  web_login_callback_origin?: string
 }
 
 export default function SetupApp({
@@ -155,6 +161,7 @@ export default function SetupApp({
   check_path,
   save_path,
   back_path,
+  web_login_callback_origin = "",
 }: SetupAppProps) {
   const { t } = useTranslation()
   const translate = t as Translate
@@ -369,6 +376,7 @@ export default function SetupApp({
         catalog={adapter_catalog}
         entries={entries}
         editing={editingIndex !== null}
+        webLoginCallbackOrigin={web_login_callback_origin}
         onApply={applyDraft}
       />
     </SetupLayout>
@@ -480,6 +488,7 @@ interface AdapterSheetProps {
   catalog: AdapterCatalogEntry[]
   entries: AdapterEntry[]
   editing: boolean
+  webLoginCallbackOrigin: string
   onApply: () => void
 }
 
@@ -492,6 +501,7 @@ function AdapterSheet({
   catalog,
   entries,
   editing,
+  webLoginCallbackOrigin,
   onApply,
 }: AdapterSheetProps) {
   const { t } = useTranslation()
@@ -511,6 +521,7 @@ function AdapterSheet({
       ]
   const docUrl = configDocUrl(draft, catalogOptions)
   const supportsExternalOrgMembers = connectorSupportsAuthnPolicy(draft.adapter, catalogOptions, "external_org_members")
+  const callbackUrl = callbackUrlFor(webLoginCallbackOrigin, draft.channel_id)
   const fieldErrors = React.useMemo(() => errorsByField(errors), [errors])
   const formErrors = React.useMemo(() => errorsWithoutFields(errors), [errors])
 
@@ -639,18 +650,29 @@ function AdapterSheet({
                   </Field>
                 </div>
 
-                <div className="flex items-start justify-between gap-4 border border-border bg-background-secondary p-4">
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium">{translate("web.setup.gateway.web_login.allowed")}</p>
-                    <p className="mt-1 text-sm leading-5 text-muted-foreground">
-                      {translate("web.setup.gateway.web_login.allowed_description")}
-                    </p>
+                <div className="grid gap-4 border border-border bg-background-secondary p-4">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium">{translate("web.setup.gateway.web_login.disabled")}</p>
+                      <p className="mt-1 text-sm leading-5 text-muted-foreground">
+                        {translate("web.setup.gateway.web_login.disabled_description")}
+                      </p>
+                    </div>
+                    <Switch
+                      checked={draft.web_login_disabled}
+                      onCheckedChange={(checked: boolean) => update(["web_login_disabled"], checked)}
+                      aria-label={translate("web.setup.gateway.web_login.disabled")}
+                    />
                   </div>
-                  <Switch
-                    checked={!draft.web_login_disabled}
-                    onCheckedChange={(checked: boolean) => update(["web_login_disabled"], !checked)}
-                    aria-label={translate("web.setup.gateway.web_login.allowed")}
-                  />
+
+                  {callbackUrl ? (
+                    <div className="grid gap-2 border-t border-border pt-4">
+                      <p className="text-xs text-muted-foreground">
+                        {translate("web.setup.gateway.web_login.callback_url")}
+                      </p>
+                      <code className="block break-all bg-background px-3 py-2 text-xs">{callbackUrl}</code>
+                    </div>
+                  ) : null}
                 </div>
               </FormSection>
 
@@ -735,16 +757,7 @@ function AdapterSheet({
                   }>
                   <CollapsibleContent>
                     <div ref={advancedContentRef} className="grid gap-4 pt-1 md:grid-cols-3">
-                      {(
-                        [
-                          "dedupe_ttl_ms",
-                          "message_context_ttl_ms",
-                          "card_action_dedupe_ttl_ms",
-                          "inline_media_max_bytes",
-                          "stream_update_interval_ms",
-                          "state_max_age_seconds",
-                        ] as Array<keyof AdapterAdvanced>
-                      ).map(field => (
+                      {ADVANCED_FIELDS.map(field => (
                         <Field key={field} label={translate(`web.setup.gateway.fields.${field}`)}>
                           <Input
                             type="number"
@@ -1005,10 +1018,7 @@ function mergeEntry(entry: Partial<AdapterEntry>): AdapterEntry {
         ...(source.authn?.external_org_members || {}),
       },
     },
-    advanced: {
-      ...fallback.advanced,
-      ...(source.advanced || {}),
-    },
+    advanced: mergeAdvanced(source.advanced),
     secret_status: {
       ...fallback.secret_status,
       ...(source.secret_status || {}),
@@ -1045,11 +1055,15 @@ function prepareEntryForSave(entry: AdapterEntry): AdapterEntry {
       app_id: normalized.credentials.app_id.trim(),
       app_secret: normalized.credentials.app_secret.trim(),
     },
-    advanced: Object.fromEntries(
-      Object.entries(normalized.advanced).map(([key, value]) => [key, numberValue(value)]),
-    ) as unknown as AdapterAdvanced,
+    advanced: mergeAdvanced(normalized.advanced),
     secret_status: normalized.secret_status,
   }
+}
+
+function mergeAdvanced(source: Partial<AdapterAdvanced> | undefined): AdapterAdvanced {
+  return Object.fromEntries(
+    ADVANCED_FIELDS.map(field => [field, numberValue(source?.[field] ?? FALLBACK_ENTRY.advanced[field])]),
+  ) as AdapterAdvanced
 }
 
 function setPath<T>(object: T, path: string[], value: unknown): T {
@@ -1207,6 +1221,15 @@ function transportLabel(_adapter: string): string {
 function domainLabel(domain: string): string {
   if (domain === "lark") return "Lark"
   return "Feishu"
+}
+
+function callbackUrlFor(origin: string, channelId: string): string {
+  const normalized = channelId.trim()
+  const normalizedOrigin = origin.trim().replace(/\/+$/, "")
+
+  if (!normalized || !normalizedOrigin) return ""
+
+  return `${normalizedOrigin}/sessions/${encodeURIComponent(normalized)}/callback`
 }
 
 function clone<T>(value: T): T {

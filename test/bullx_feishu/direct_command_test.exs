@@ -24,8 +24,7 @@ defmodule BullXFeishu.DirectCommandTest do
         app_id: "cli_test",
         app_secret: "secret_test",
         gateway_module: GatewayStub,
-        accounts_module: AccountsStub,
-        sso: %{login_url: "https://bullx.test/sessions/feishu"}
+        accounts_module: AccountsStub
       })
 
     {:ok, config: config, cache: Cache.new()}
@@ -66,7 +65,7 @@ defmodule BullXFeishu.DirectCommandTest do
 
     assert_receive {:delivery, delivery}
     assert delivery.content.body["text"] =~ "WEB123"
-    assert delivery.content.body["text"] =~ "https://bullx.test/sessions/feishu"
+    assert delivery.content.body["text"] =~ "/sessions/new"
   end
 
   test "/web_auth refuses when adapter channel disables web login", %{

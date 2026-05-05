@@ -24,7 +24,7 @@ defmodule BullXWeb.SessionController do
 
   def delete(conn, _params) do
     conn
-    |> renew_session()
+    |> BullXWeb.Sessions.renew_session()
     |> put_flash(:info, "Signed out.")
     |> redirect(to: ~p"/sessions/new")
   end
@@ -41,7 +41,7 @@ defmodule BullXWeb.SessionController do
 
   defp sign_in(conn, user) do
     conn
-    |> renew_session()
+    |> BullXWeb.Sessions.renew_session()
     |> put_session(:user_id, user.id)
     |> put_flash(:info, "Signed in.")
     |> redirect(to: ~p"/")
@@ -71,18 +71,11 @@ defmodule BullXWeb.SessionController do
 
   defp normalize_auth_code(_auth_code), do: :error
 
-  defp renew_session(conn) do
-    Plug.CSRFProtection.delete_csrf_token()
-
-    conn
-    |> configure_session(renew: true)
-    |> clear_session()
-  end
-
   defp render_new(conn) do
     conn
     |> assign(:page_title, "Sign In")
     |> assign_prop(:form_action, ~p"/sessions")
+    |> assign_prop(:login_providers, BullXWeb.Sessions.login_providers())
     |> render_inertia("sessions/New")
   end
 end

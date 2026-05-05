@@ -15,7 +15,6 @@ defmodule BullXFeishu.Config do
   @default_card_action_dedupe_ttl_ms :timer.minutes(15)
   @default_inline_media_max_bytes 524_288
   @default_stream_update_interval_ms 100
-  @default_state_max_age_seconds 600
 
   @derive {Inspect, except: [:app_secret, :client]}
   defstruct [
@@ -33,13 +32,12 @@ defmodule BullXFeishu.Config do
     card_action_dedupe_ttl_ms: @default_card_action_dedupe_ttl_ms,
     inline_media_max_bytes: @default_inline_media_max_bytes,
     stream_update_interval_ms: @default_stream_update_interval_ms,
-    sso: %{enabled: false, scopes: ["openid", "profile", "email", "phone"]},
+    sso: %{scopes: ["openid", "profile", "email", "phone"]},
     req_options: [],
     headers: [],
     gateway_module: BullXGateway,
     accounts_module: BullXAccounts,
     endpoint: BullXWeb.Endpoint,
-    state_max_age_seconds: @default_state_max_age_seconds,
     start_transport?: true
   ]
 
@@ -93,8 +91,6 @@ defmodule BullXFeishu.Config do
       gateway_module: Map.get(resolved, :gateway_module, BullXGateway),
       accounts_module: Map.get(resolved, :accounts_module, BullXAccounts),
       endpoint: Map.get(resolved, :endpoint, BullXWeb.Endpoint),
-      state_max_age_seconds:
-        non_negative_integer(resolved, :state_max_age_seconds, @default_state_max_age_seconds),
       start_transport?: Map.get(resolved, :start_transport?, true)
     }
 
@@ -124,9 +120,6 @@ defmodule BullXFeishu.Config do
 
     Client.new(config.app_id, config.app_secret, opts)
   end
-
-  @spec sso_enabled?(t()) :: boolean()
-  def sso_enabled?(%__MODULE__{sso: %{enabled: enabled}}), do: enabled == true
 
   @spec web_login_allowed?(t()) :: boolean()
   def web_login_allowed?(%__MODULE__{web_login_disabled: disabled}), do: disabled != true
@@ -160,20 +153,17 @@ defmodule BullXFeishu.Config do
     {:error, payload_error("Feishu domain must be :feishu or :lark", "domain")}
   end
 
-  defp normalize_sso(nil), do: %{enabled: false, scopes: ["openid", "profile", "email", "phone"]}
+  defp normalize_sso(nil), do: %{scopes: ["openid", "profile", "email", "phone"]}
 
   defp normalize_sso(sso) when is_map(sso) do
     sso = resolve(sso)
 
     %{
-      enabled: Map.get(sso, :enabled, false),
-      redirect_uri: present_string(Map.get(sso, :redirect_uri)),
-      scopes: Map.get(sso, :scopes, ["openid", "profile", "email", "phone"]),
-      login_url: present_string(Map.get(sso, :login_url))
+      scopes: normalize_scopes(Map.get(sso, :scopes, ["openid", "profile", "email", "phone"]))
     }
   end
 
-  defp normalize_sso(_), do: %{enabled: false, scopes: ["openid", "profile", "email", "phone"]}
+  defp normalize_sso(_), do: %{scopes: ["openid", "profile", "email", "phone"]}
 
   defp resolve(map) when is_map(map) do
     Map.new(map, fn {key, value} -> {key, resolve_value(value)} end)
@@ -210,6 +200,15 @@ defmodule BullXFeishu.Config do
   defp normalize_domain(value) when is_binary(value), do: String.trim(value)
 
   defp normalize_domain(value), do: value
+
+  defp normalize_scopes(scopes) when is_list(scopes) do
+    scopes
+    |> Enum.filter(&is_binary/1)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+  end
+
+  defp normalize_scopes(_scopes), do: ["openid", "profile", "email", "phone"]
 
   defp non_negative_integer(map, key, default) do
     case Map.get(map, key, default) do

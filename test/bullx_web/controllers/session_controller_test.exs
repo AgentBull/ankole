@@ -33,6 +33,26 @@ defmodule BullXWeb.SessionControllerTest do
     assert html_response(conn, 200) =~ "sessions/New"
   end
 
+  test "GET /sessions/new exposes enabled Feishu Web login channels", %{conn: conn} do
+    put_gateway_adapters!([
+      {{:feishu, "default"}, BullXFeishu.Adapter,
+       %{app_id: "cli_test", app_secret: "secret_test"}},
+      {{:feishu, "disabled"}, BullXFeishu.Adapter,
+       %{app_id: "cli_test", app_secret: "secret_test", web_login_disabled: true}}
+    ])
+
+    insert_user!(display_name: "Alice")
+
+    response =
+      conn
+      |> get(~p"/sessions/new")
+      |> html_response(200)
+
+    assert response =~ "login_providers"
+    assert response =~ "/sessions/default"
+    refute response =~ "/sessions/disabled"
+  end
+
   test "GET /sessions/new redirects home when already signed in", %{conn: conn} do
     user = insert_user!(display_name: "Alice")
 
@@ -112,5 +132,18 @@ defmodule BullXWeb.SessionControllerTest do
     %UserChannelBinding{}
     |> UserChannelBinding.changeset(attrs)
     |> Repo.insert!()
+  end
+
+  defp put_gateway_adapters!(adapters) do
+    previous = Application.get_env(:bullx, :gateway)
+
+    Application.put_env(:bullx, :gateway, adapters: adapters)
+
+    on_exit(fn ->
+      case previous do
+        nil -> Application.delete_env(:bullx, :gateway)
+        value -> Application.put_env(:bullx, :gateway, value)
+      end
+    end)
   end
 end

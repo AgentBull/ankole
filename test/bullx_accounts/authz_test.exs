@@ -4,6 +4,7 @@ defmodule BullXAccounts.AuthZTest do
   import ExUnit.CaptureLog
 
   alias BullXAccounts.AuthZ.Cache
+  alias BullXAccounts.PermissionGrant
   alias BullXAccounts.User
   alias BullXAccounts.UserGroup
   alias BullXAccounts.UserGroupMembership
@@ -489,6 +490,8 @@ defmodule BullXAccounts.AuthZTest do
 
   describe "admin group" do
     test "AuthZ bootstrap creates the built-in admin group idempotently" do
+      Repo.delete_all(PermissionGrant)
+      Repo.delete_all(UserGroupMembership)
       Repo.delete_all(UserGroup)
 
       BullXAccounts.AuthZ.Bootstrap.run()
@@ -502,7 +505,48 @@ defmodule BullXAccounts.AuthZTest do
       assert admin.type == :static
 
       assert Repo.aggregate(UserGroupMembership, :count) == 0
-      assert Repo.aggregate(BullXAccounts.PermissionGrant, :count) == 0
+
+      assert [%PermissionGrant{} = grant] =
+               Repo.all(from g in PermissionGrant, where: g.group_id == ^admin.id)
+
+      assert grant.resource_pattern == "web_console:*"
+      assert grant.action == "write"
+      assert grant.condition == "true"
+    end
+
+    test "AuthZ bootstrap repairs and deduplicates the admin web console grant" do
+      Repo.delete_all(PermissionGrant)
+      {:ok, admin, _status} = BullXAccounts.AuthZ.ensure_built_in_admin_group()
+
+      {:ok, bad_grant} =
+        BullXAccounts.create_permission_grant(%{
+          group_id: admin.id,
+          resource_pattern: "web_console:*",
+          action: "write",
+          condition: "false"
+        })
+
+      {:ok, duplicate} =
+        BullXAccounts.create_permission_grant(%{
+          group_id: admin.id,
+          resource_pattern: "web_console:*",
+          action: "write",
+          condition: "true"
+        })
+
+      BullXAccounts.AuthZ.Bootstrap.run()
+
+      grants =
+        Repo.all(
+          from g in PermissionGrant,
+            where:
+              g.group_id == ^admin.id and g.resource_pattern == "web_console:*" and
+                g.action == "write"
+        )
+
+      assert [%PermissionGrant{id: id, condition: "true"}] = grants
+      assert id == bad_grant.id
+      refute Repo.get(PermissionGrant, duplicate.id)
     end
 
     test "the built-in admin group cannot be deleted via the public API" do

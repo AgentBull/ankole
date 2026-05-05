@@ -3,6 +3,8 @@ defmodule BullXWeb.FeishuAuthControllerTest do
 
   alias BullXAccounts.{User, UserChannelBinding}
 
+  @callback_url "http://localhost:4000/sessions/default/callback"
+
   setup do
     previous_gateway = Application.get_env(:bullx, :gateway)
 
@@ -25,14 +27,31 @@ defmodule BullXWeb.FeishuAuthControllerTest do
     {:ok, client: client}
   end
 
-  test "GET /sessions/feishu redirects to Feishu authorization URL", %{conn: conn} do
-    conn = get(conn, ~p"/sessions/feishu?channel_id=default&return_to=/")
+  test "GET /sessions/:channel_id redirects to Feishu authorization URL and stores cookie state",
+       %{conn: conn} do
+    conn = %{conn | scheme: :http, host: "internal-host", port: 4000}
+    conn = get(conn, ~p"/sessions/default?return_to=/")
 
-    assert redirected_to(conn, 302) =~ "https://accounts.feishu.cn/open-apis/authen/v1/index"
-    assert redirected_to(conn, 302) =~ "app_id=cli_test"
+    redirect = redirected_to(conn, 302)
+    query = auth_redirect_query(redirect)
+
+    assert redirect =~ "https://accounts.feishu.cn/open-apis/authen/v1/authorize"
+    assert query["client_id"] == "cli_test"
+    assert query["redirect_uri"] == @callback_url
+    assert query["response_type"] == "code"
+    assert is_binary(query["state"])
+
+    assert %{
+             "provider" => "feishu",
+             "channel_id" => "default",
+             "return_to" => "/",
+             "nonce" => nonce
+           } = get_session(conn, :session_controller_state)
+
+    assert nonce == query["state"]
   end
 
-  test "GET /sessions/feishu refuses provider login when channel disables web login", %{
+  test "GET /sessions/:channel_id refuses provider login when channel disables web login", %{
     conn: conn,
     client: client
   } do
@@ -43,9 +62,10 @@ defmodule BullXWeb.FeishuAuthControllerTest do
       ]
     )
 
-    conn = get(conn, ~p"/sessions/feishu?channel_id=default&return_to=/")
+    conn = get(conn, ~p"/sessions/default?return_to=/")
 
     assert redirected_to(conn) == ~p"/sessions/new"
+    assert get_session(conn, :session_controller_state) == nil
   end
 
   test "SSO callback refuses login when channel disables web login", %{client: client} do
@@ -56,37 +76,33 @@ defmodule BullXWeb.FeishuAuthControllerTest do
       ]
     )
 
-    state =
-      Phoenix.Token.sign(BullXWeb.Endpoint, "bullx_feishu_sso_state", %{
-        "provider" => "feishu",
-        "channel_id" => "default",
-        "return_to" => "/"
-      })
-
     assert {:error, :web_login_disabled} =
-             BullXFeishu.SSO.login_from_callback(%{"code" => "CODE", "state" => state})
+             BullXFeishu.SSO.login_from_callback(%{
+               "channel_id" => "default",
+               "redirect_uri" => @callback_url,
+               "code" => "CODE"
+             })
   end
 
   test "callback logs in a bound Feishu user and discards provider tokens", %{conn: conn} do
     user = insert_user!(display_name: "Alice")
     insert_binding!(user, adapter: "feishu", channel_id: "default", external_id: "feishu:ou_user")
 
-    {:ok, url} =
-      BullXFeishu.SSO.authorization_url(%{"channel_id" => "default", "return_to" => "/"})
-
-    state =
-      url
-      |> URI.parse()
-      |> Map.fetch!(:query)
-      |> URI.decode_query()
-      |> Map.fetch!("state")
+    state = "STATE"
+    parent = self()
 
     Req.Test.stub(__MODULE__, fn conn ->
       case conn.request_path do
-        "/open-apis/authen/v1/oidc/access_token" ->
+        "/open-apis/authen/v2/oauth/token" ->
+          {:ok, body, conn} = Plug.Conn.read_body(conn)
+          send(parent, {:token_body, Jason.decode!(body)})
+
           Req.Test.json(conn, %{
             "code" => 0,
-            "data" => %{"access_token" => "u-token", "refresh_token" => "r-token"}
+            "access_token" => "u-token",
+            "refresh_token" => "r-token",
+            "token_type" => "Bearer",
+            "expires_in" => 7200
           })
 
         "/open-apis/authen/v1/user_info" ->
@@ -99,10 +115,49 @@ defmodule BullXWeb.FeishuAuthControllerTest do
       end
     end)
 
-    conn = get(conn, ~p"/sessions/feishu/callback?code=CODE&state=#{state}")
+    conn =
+      conn
+      |> init_test_session(%{
+        session_controller_state: %{
+          "provider" => "feishu",
+          "channel_id" => "default",
+          "return_to" => "/",
+          "nonce" => state,
+          "issued_at" => System.system_time(:second)
+        }
+      })
+      |> get(~p"/sessions/default/callback?code=CODE&state=#{state}")
 
     assert redirected_to(conn) == ~p"/"
     assert get_session(conn, :user_id) == user.id
+    assert get_session(conn, :session_controller_state) == nil
+
+    assert_received {:token_body,
+                     %{
+                       "grant_type" => "authorization_code",
+                       "client_id" => "cli_test",
+                       "client_secret" => "secret_test",
+                       "code" => "CODE",
+                       "redirect_uri" => @callback_url
+                     }}
+  end
+
+  test "callback rejects mismatched cookie state", %{conn: conn} do
+    conn =
+      conn
+      |> init_test_session(%{
+        session_controller_state: %{
+          "provider" => "feishu",
+          "channel_id" => "other",
+          "return_to" => "/",
+          "nonce" => "STATE",
+          "issued_at" => System.system_time(:second)
+        }
+      })
+      |> get(~p"/sessions/default/callback?code=CODE&state=STATE")
+
+    assert redirected_to(conn) == ~p"/sessions/new"
+    assert get_session(conn, :user_id) == nil
   end
 
   defp insert_user!(attrs) do
@@ -128,13 +183,16 @@ defmodule BullXWeb.FeishuAuthControllerTest do
       %{
         app_id: "cli_test",
         app_secret: "secret_test",
-        client: client,
-        sso: %{
-          enabled: true,
-          redirect_uri: "http://localhost:4002/sessions/feishu/callback"
-        }
+        client: client
       },
       attrs
     )
+  end
+
+  defp auth_redirect_query(url) do
+    url
+    |> URI.parse()
+    |> Map.fetch!(:query)
+    |> URI.decode_query()
   end
 end

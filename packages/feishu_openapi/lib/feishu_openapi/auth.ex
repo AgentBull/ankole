@@ -18,8 +18,7 @@ defmodule FeishuOpenAPI.Auth do
   @tenant_access_token_internal "/open-apis/auth/v3/tenant_access_token/internal"
   @tenant_access_token_marketplace "/open-apis/auth/v3/tenant_access_token"
   @app_ticket_resend_path "/open-apis/auth/v3/app_ticket/resend"
-  @oidc_access_token "/open-apis/authen/v1/oidc/access_token"
-  @oidc_refresh_access_token "/open-apis/authen/v1/oidc/refresh_access_token"
+  @oauth_token "/open-apis/authen/v2/oauth/token"
 
   @type token_resp :: %{token: String.t(), expire: integer()}
   @type user_token_resp :: %{
@@ -107,14 +106,32 @@ defmodule FeishuOpenAPI.Auth do
   @doc """
   Exchange an OAuth authorization code for a `user_access_token`.
 
-  Uses the OIDC endpoint described in the official auth docs.
+  Uses Feishu's standard OAuth token endpoint. Options:
+
+    * `:redirect_uri` - the callback URL used to request the authorization code.
+    * `:grant_type` - defaults to `"authorization_code"`.
   """
-  @spec user_access_token(Client.t(), String.t(), String.t()) ::
+  @spec user_access_token(Client.t(), String.t(), keyword() | String.t()) ::
           {:ok, user_token_resp()} | {:error, Error.t()}
-  def user_access_token(%Client{} = client, code, grant_type \\ "authorization_code")
+  def user_access_token(client, code, opts \\ [])
+
+  def user_access_token(%Client{} = client, code, grant_type)
       when is_binary(code) and is_binary(grant_type) do
-    FeishuOpenAPI.post(client, @oidc_access_token,
-      body: %{grant_type: grant_type, code: code},
+    user_access_token(client, code, grant_type: grant_type)
+  end
+
+  def user_access_token(%Client{} = client, code, opts) when is_binary(code) and is_list(opts) do
+    body =
+      %{
+        grant_type: Keyword.get(opts, :grant_type, "authorization_code"),
+        client_id: client.app_id,
+        client_secret: Client.app_secret(client),
+        code: code
+      }
+      |> maybe_put(:redirect_uri, Keyword.get(opts, :redirect_uri))
+
+    FeishuOpenAPI.post(client, @oauth_token,
+      body: body,
       access_token_type: nil
     )
     |> normalize_user_token()
@@ -123,12 +140,26 @@ defmodule FeishuOpenAPI.Auth do
   @doc """
   Refresh a `user_access_token` using its `refresh_token`.
   """
-  @spec refresh_user_access_token(Client.t(), String.t(), String.t()) ::
+  @spec refresh_user_access_token(Client.t(), String.t(), keyword() | String.t()) ::
           {:ok, user_token_resp()} | {:error, Error.t()}
-  def refresh_user_access_token(%Client{} = client, refresh_token, grant_type \\ "refresh_token")
+  def refresh_user_access_token(client, refresh_token, opts \\ [])
+
+  def refresh_user_access_token(%Client{} = client, refresh_token, grant_type)
       when is_binary(refresh_token) and is_binary(grant_type) do
-    FeishuOpenAPI.post(client, @oidc_refresh_access_token,
-      body: %{grant_type: grant_type, refresh_token: refresh_token},
+    refresh_user_access_token(client, refresh_token, grant_type: grant_type)
+  end
+
+  def refresh_user_access_token(%Client{} = client, refresh_token, opts)
+      when is_binary(refresh_token) and is_list(opts) do
+    body = %{
+      grant_type: Keyword.get(opts, :grant_type, "refresh_token"),
+      client_id: client.app_id,
+      client_secret: Client.app_secret(client),
+      refresh_token: refresh_token
+    }
+
+    FeishuOpenAPI.post(client, @oauth_token,
+      body: body,
       access_token_type: nil
     )
     |> normalize_user_token()
@@ -168,27 +199,11 @@ defmodule FeishuOpenAPI.Auth do
 
   defp normalize_user_token({:ok, %{"code" => 0, "data" => data}})
        when is_map(data) do
-    case Map.get(data, "access_token") do
-      access_token when is_binary(access_token) ->
-        {:ok,
-         %{
-           access_token: access_token,
-           refresh_token: Map.get(data, "refresh_token"),
-           token_type: Map.get(data, "token_type"),
-           expires_in: Map.get(data, "expires_in"),
-           refresh_expires_in: Map.get(data, "refresh_expires_in"),
-           scope: Map.get(data, "scope"),
-           raw: data
-         }}
+    normalize_user_token_data(data, %{"code" => 0, "data" => data})
+  end
 
-      _ ->
-        {:error,
-         %Error{
-           code: :unexpected_shape,
-           msg: "unexpected auth response",
-           raw_body: %{"code" => 0, "data" => data}
-         }}
-    end
+  defp normalize_user_token({:ok, %{"code" => 0} = body}) do
+    normalize_user_token_data(body, body)
   end
 
   defp normalize_user_token({:ok, %{} = body}) do
@@ -201,4 +216,33 @@ defmodule FeishuOpenAPI.Auth do
   end
 
   defp normalize_user_token({:error, _} = err), do: err
+
+  defp normalize_user_token_data(data, raw_body) when is_map(data) do
+    case Map.get(data, "access_token") do
+      access_token when is_binary(access_token) ->
+        {:ok,
+         %{
+           access_token: access_token,
+           refresh_token: Map.get(data, "refresh_token"),
+           token_type: Map.get(data, "token_type"),
+           expires_in: Map.get(data, "expires_in"),
+           refresh_expires_in:
+             Map.get(data, "refresh_expires_in") || Map.get(data, "refresh_token_expires_in"),
+           scope: Map.get(data, "scope"),
+           raw: data
+         }}
+
+      _ ->
+        {:error,
+         %Error{
+           code: :unexpected_shape,
+           msg: "unexpected auth response",
+           raw_body: raw_body
+         }}
+    end
+  end
+
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, _key, ""), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 end

@@ -45,6 +45,8 @@ defmodule BullXWeb.SetupGatewayControllerTest do
     assert response =~ "adapter_catalog"
     assert response =~ "back_path"
     assert response =~ "/setup/llm"
+    assert response =~ "web_login_callback_origin"
+    assert response =~ BullXWeb.Endpoint.url()
   end
 
   test "POST /setup/gateway/adapters/check requires the setup session", %{conn: conn} do

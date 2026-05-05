@@ -11,18 +11,12 @@ defmodule BullXFeishu.SSO do
   alias BullXFeishu.Config
   alias FeishuOpenAPI.Auth
 
-  @state_salt "bullx_feishu_sso_state"
-
-  @spec authorization_url(map(), keyword()) :: {:ok, String.t()} | {:error, term()}
-  def authorization_url(params, opts \\ []) when is_map(params) do
-    channel_id = channel_id(params)
-    return_to = safe_return_to(Map.get(params, "return_to"))
-
+  @spec authorization_url(String.t(), String.t(), String.t(), keyword()) ::
+          {:ok, String.t()} | {:error, term()}
+  def authorization_url(channel_id, redirect_uri, state, opts \\ [])
+      when is_binary(channel_id) and is_binary(redirect_uri) and is_binary(state) do
     with {:ok, config} <- config_for_channel(channel_id, opts),
-         :ok <- ensure_web_login_allowed(config),
-         :ok <- ensure_sso_enabled(config),
-         {:ok, redirect_uri} <- redirect_uri(config),
-         state <- signed_state(config, channel_id, return_to) do
+         :ok <- ensure_web_login_allowed(config) do
       {:ok, build_authorization_url(config, redirect_uri, state)}
     end
   end
@@ -30,19 +24,25 @@ defmodule BullXFeishu.SSO do
   @spec login_from_callback(map(), keyword()) ::
           {:ok, %{user: BullXAccounts.User.t(), return_to: String.t()}} | {:error, term()}
   def login_from_callback(params, opts \\ []) when is_map(params) do
-    with {:ok, state} <- verify_state(Map.get(params, "state"), opts),
-         {:ok, code} <- callback_code(params),
-         {:ok, config} <- config_for_channel(state["channel_id"], opts),
+    channel_id = Map.get(params, "channel_id")
+    redirect_uri = Map.get(params, "redirect_uri")
+
+    with {:ok, code} <- callback_code(params),
+         {:ok, config} <- config_for_channel(channel_id, opts),
          :ok <- ensure_web_login_allowed(config),
-         {:ok, tokens} <- Auth.user_access_token(Config.client!(config), code),
+         {:ok, tokens} <-
+           Auth.user_access_token(Config.client!(config), code, redirect_uri: redirect_uri),
          {:ok, userinfo} <- fetch_userinfo(config, tokens.access_token),
          {:ok, input} <- provider_input(userinfo, config),
          {:ok, user, _binding} <- config.accounts_module.login_from_provider(input) do
-      {:ok, %{user: user, return_to: safe_return_to(state["return_to"])}}
+      {:ok, %{user: user, return_to: callback_return_to(params)}}
     end
   end
 
-  defp config_for_channel(channel_id, opts) do
+  @spec config_for_channel(String.t(), keyword()) :: {:ok, Config.t()} | {:error, term()}
+  def config_for_channel(channel_id, opts \\ [])
+
+  def config_for_channel(channel_id, opts) when is_binary(channel_id) and channel_id != "" do
     case Keyword.get(opts, :config) do
       %Config{} = config ->
         {:ok, config}
@@ -54,6 +54,8 @@ defmodule BullXFeishu.SSO do
         configured_channel(channel_id)
     end
   end
+
+  def config_for_channel(_channel_id, _opts), do: {:error, :invalid_channel_id}
 
   defp configured_channel(channel_id) do
     GatewayConfig.adapters()
@@ -68,13 +70,6 @@ defmodule BullXFeishu.SSO do
     end
   end
 
-  defp ensure_sso_enabled(%Config{} = config) do
-    case Config.sso_enabled?(config) do
-      true -> :ok
-      false -> {:error, :sso_disabled}
-    end
-  end
-
   defp ensure_web_login_allowed(%Config{} = config) do
     case Config.web_login_allowed?(config) do
       true -> :ok
@@ -82,36 +77,11 @@ defmodule BullXFeishu.SSO do
     end
   end
 
-  defp redirect_uri(%Config{sso: %{redirect_uri: uri}}) when is_binary(uri), do: {:ok, uri}
-  defp redirect_uri(%Config{}), do: {:error, :missing_redirect_uri}
-
-  defp signed_state(%Config{} = config, channel_id, return_to) do
-    payload = %{
-      "provider" => "feishu",
-      "channel_id" => channel_id,
-      "return_to" => return_to,
-      "issued_at" => System.system_time(:second),
-      "nonce" => Base.url_encode64(:crypto.strong_rand_bytes(16), padding: false)
-    }
-
-    Phoenix.Token.sign(config.endpoint, @state_salt, payload)
-  end
-
-  defp verify_state(state, _opts) when not is_binary(state), do: {:error, :invalid_state}
-
-  defp verify_state(state, opts) do
-    endpoint = Keyword.get(opts, :endpoint, BullXWeb.Endpoint)
-    max_age = Keyword.get(opts, :state_max_age_seconds, 600)
-
-    case Phoenix.Token.verify(endpoint, @state_salt, state, max_age: max_age) do
-      {:ok, %{"provider" => "feishu"} = payload} -> {:ok, payload}
-      {:ok, _payload} -> {:error, :invalid_state}
-      {:error, reason} -> {:error, {:invalid_state, reason}}
-    end
-  end
-
   defp callback_code(%{"code" => code}) when is_binary(code) and code != "", do: {:ok, code}
   defp callback_code(_), do: {:error, :missing_code}
+
+  defp callback_return_to(%{"return_to" => return_to}) when is_binary(return_to), do: return_to
+  defp callback_return_to(_params), do: "/"
 
   defp fetch_userinfo(%Config{} = config, access_token) do
     case FeishuOpenAPI.get(Config.client!(config), "/open-apis/authen/v1/user_info",
@@ -165,37 +135,19 @@ defmodule BullXFeishu.SSO do
   defp build_authorization_url(%Config{} = config, redirect_uri, state) do
     query =
       URI.encode_query(%{
-        "app_id" => config.app_id,
+        "client_id" => config.app_id,
         "redirect_uri" => redirect_uri,
         "response_type" => "code",
         "scope" => Enum.join(config.sso.scopes, " "),
         "state" => state
       })
 
-    authorize_base(config.domain) <> "/open-apis/authen/v1/index?" <> query
+    authorize_base(config.domain) <> "/open-apis/authen/v1/authorize?" <> query
   end
 
   defp authorize_base(:feishu), do: "https://accounts.feishu.cn"
   defp authorize_base(:lark), do: "https://accounts.larksuite.com"
   defp authorize_base(domain) when is_binary(domain), do: String.trim_trailing(domain, "/")
-
-  defp channel_id(%{"channel_id" => channel_id}) when is_binary(channel_id) and channel_id != "",
-    do: channel_id
-
-  defp channel_id(_), do: "default"
-
-  defp safe_return_to(path) when is_binary(path) do
-    uri = URI.parse(path)
-
-    cond do
-      uri.scheme != nil or uri.host != nil -> "/"
-      not String.starts_with?(path, "/") -> "/"
-      String.starts_with?(path, "//") -> "/"
-      true -> path
-    end
-  end
-
-  defp safe_return_to(_), do: "/"
 
   defp first_string(map, keys) do
     Enum.find_value(keys, fn key ->

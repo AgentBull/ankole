@@ -24,18 +24,24 @@ defmodule FeishuOpenAPI.AuthTest do
 
   test "user_access_token normalizes the OIDC response", %{client: client} do
     Req.Test.stub(FeishuOpenAPI.AuthTest, fn conn ->
-      assert conn.request_path == "/open-apis/authen/v1/oidc/access_token"
+      assert conn.request_path == "/open-apis/authen/v2/oauth/token"
+      {:ok, body, conn} = Plug.Conn.read_body(conn)
+
+      assert %{
+               "grant_type" => "authorization_code",
+               "client_id" => "cli_auth",
+               "client_secret" => "secret_x",
+               "code" => "code_x"
+             } = Jason.decode!(body)
 
       Req.Test.json(conn, %{
         "code" => 0,
-        "data" => %{
-          "access_token" => "eyJ...",
-          "refresh_token" => "refresh_x",
-          "token_type" => "Bearer",
-          "expires_in" => 7200,
-          "refresh_expires_in" => 2_592_000,
-          "scope" => "contact:user.base:readonly"
-        }
+        "access_token" => "eyJ...",
+        "refresh_token" => "refresh_x",
+        "token_type" => "Bearer",
+        "expires_in" => 7200,
+        "refresh_token_expires_in" => 2_592_000,
+        "scope" => "contact:user.base:readonly"
       })
     end)
 
@@ -52,16 +58,22 @@ defmodule FeishuOpenAPI.AuthTest do
 
   test "refresh_user_access_token normalizes the OIDC response", %{client: client} do
     Req.Test.stub(FeishuOpenAPI.AuthTest, fn conn ->
-      assert conn.request_path == "/open-apis/authen/v1/oidc/refresh_access_token"
+      assert conn.request_path == "/open-apis/authen/v2/oauth/token"
+      {:ok, body, conn} = Plug.Conn.read_body(conn)
+
+      assert %{
+               "grant_type" => "refresh_token",
+               "client_id" => "cli_auth",
+               "client_secret" => "secret_x",
+               "refresh_token" => "refresh_x"
+             } = Jason.decode!(body)
 
       Req.Test.json(conn, %{
         "code" => 0,
-        "data" => %{
-          "access_token" => "eyJ.new",
-          "refresh_token" => "refresh_new",
-          "token_type" => "Bearer",
-          "expires_in" => 7200
-        }
+        "access_token" => "eyJ.new",
+        "refresh_token" => "refresh_new",
+        "token_type" => "Bearer",
+        "expires_in" => 7200
       })
     end)
 

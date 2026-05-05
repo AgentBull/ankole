@@ -39,7 +39,7 @@ defmodule FeishuOpenAPI.UserTokenManagerTest do
       })
 
     Req.Test.stub(FeishuOpenAPI.UserTokenManagerTest, fn conn ->
-      assert conn.request_path == "/open-apis/authen/v1/oidc/refresh_access_token"
+      assert conn.request_path == "/open-apis/authen/v2/oauth/token"
       {:ok, body, conn} = Plug.Conn.read_body(conn)
       send(parent, {:refresh_body, Jason.decode!(body)})
 
@@ -84,7 +84,7 @@ defmodule FeishuOpenAPI.UserTokenManagerTest do
 
     Req.Test.stub(FeishuOpenAPI.UserTokenManagerTest, fn conn ->
       case conn.request_path do
-        "/open-apis/authen/v1/oidc/refresh_access_token" ->
+        "/open-apis/authen/v2/oauth/token" ->
           Req.Test.json(conn, %{
             "code" => 0,
             "data" => %{
@@ -135,7 +135,7 @@ defmodule FeishuOpenAPI.UserTokenManagerTest do
       })
 
     Req.Test.stub(FeishuOpenAPI.UserTokenManagerTest, fn conn ->
-      assert conn.request_path == "/open-apis/authen/v1/oidc/refresh_access_token"
+      assert conn.request_path == "/open-apis/authen/v2/oauth/token"
       Agent.update(counter, &(&1 + 1))
       Process.sleep(150)
 

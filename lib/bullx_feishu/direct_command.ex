@@ -189,10 +189,9 @@ defmodule BullXFeishu.DirectCommand do
     }
   end
 
-  defp web_login_url(%Config{sso: %{login_url: login_url}}) when is_binary(login_url),
-    do: login_url
-
-  defp web_login_url(%Config{channel_id: channel_id}) do
-    "/sessions/feishu?channel_id=#{URI.encode_www_form(channel_id)}"
+  defp web_login_url(%Config{endpoint: endpoint}) do
+    endpoint.url()
+    |> String.trim_trailing("/")
+    |> Kernel.<>("/sessions/new")
   end
 end

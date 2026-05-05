@@ -7,15 +7,9 @@ defmodule BullXFeishu.ConfigTest do
     System.put_env("BULLX_TEST_FEISHU_APP_ID", "cli_test")
     System.put_env("BULLX_TEST_FEISHU_APP_SECRET", "secret_test")
 
-    System.put_env(
-      "BULLX_TEST_FEISHU_REDIRECT_URI",
-      "https://bullx.test/sessions/feishu/callback"
-    )
-
     on_exit(fn ->
       System.delete_env("BULLX_TEST_FEISHU_APP_ID")
       System.delete_env("BULLX_TEST_FEISHU_APP_SECRET")
-      System.delete_env("BULLX_TEST_FEISHU_REDIRECT_URI")
     end)
 
     :ok
@@ -29,8 +23,7 @@ defmodule BullXFeishu.ConfigTest do
                domain: "lark",
                dedupe_ttl_ms: 123,
                sso: %{
-                 enabled: true,
-                 redirect_uri: {:system, "BULLX_TEST_FEISHU_REDIRECT_URI"}
+                 scopes: ["openid", "profile"]
                }
              })
 
@@ -40,7 +33,7 @@ defmodule BullXFeishu.ConfigTest do
     assert Config.web_login_allowed?(config)
     assert config.domain == :lark
     assert config.dedupe_ttl_ms == 123
-    assert config.sso.redirect_uri == "https://bullx.test/sessions/feishu/callback"
+    assert config.sso.scopes == ["openid", "profile"]
   end
 
   test "redacts secrets from exported config maps" do
