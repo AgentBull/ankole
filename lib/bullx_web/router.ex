@@ -33,6 +33,7 @@ defmodule BullXWeb.Router do
     get "/setup/activate-owner", SetupController, :activate_owner
     get "/setup/activate-owner/status", SetupController, :activation_status
     post "/setup/gateway/adapters/check", SetupGatewayController, :check
+    post "/setup/gateway/adapters/generated-secret", SetupGatewayController, :generated_secret
     post "/setup/gateway/adapters", SetupGatewayController, :save
     get "/setup/sessions/new", SetupSessionController, :new
     post "/setup/sessions", SetupSessionController, :create
@@ -56,6 +57,7 @@ defmodule BullXWeb.Router do
     pipe_through :api
 
     get "/.well-known/service-desc", OpenApiSpex.Plug.RenderSpec, []
+    post "/gateway/telegram/:channel_id/webhook", BullXWeb.TelegramWebhookController, :update
   end
 
   # Enable Swoosh mailbox preview and Swagger UI in development

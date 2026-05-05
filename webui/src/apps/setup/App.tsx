@@ -8,7 +8,10 @@ import {
   RiDeleteBinLine,
   RiEditLine,
   RiExternalLinkLine,
+  RiFileCopyLine,
+  RiKeyLine,
   RiPlugLine,
+  RiRefreshLine,
   RiSaveLine,
 } from "@remixicon/react"
 import React from "react"
@@ -26,7 +29,7 @@ import SetupLayout from "./Layout"
 
 type Translate = (key: string, options?: { values?: Record<string, unknown>; defaultValue?: string }) => string
 
-type SecretField = "app_secret" | "bot_token" | "client_secret"
+type SecretField = "app_secret" | "bot_token" | "client_secret" | "transport.secret_token"
 type SecretStatus = "missing" | "stored"
 
 interface AdapterAdvanced {
@@ -38,6 +41,11 @@ interface AdapterAdvanced {
   thread_ownership_cache_ttl_ms?: number
   stream_chunk_soft_limit?: number
   application_commands_sync_policy?: string
+  commands_sync_policy?: string
+  poll_timeout_s?: number
+  poll_limit?: number
+  poll_retry_max?: number
+  flood_wait_max_ms?: number
 }
 
 interface AdapterCredentials {
@@ -46,6 +54,7 @@ interface AdapterCredentials {
   application_id?: string
   bot_token?: string
   client_secret?: string
+  bot_username?: string
 }
 
 interface AdapterAuthnExternalOrgMembers {
@@ -65,15 +74,24 @@ interface AdapterEntry {
   web_login_disabled: boolean
   domain: string
   authn: AdapterAuthn
-  attention?: {
-    allowed_channel_ids: string[]
-    ignored_channel_ids: string[]
-    require_mention: boolean
-  }
   auto_thread?: {
     enabled: boolean
     auto_archive_duration_minutes: number
     no_thread_channel_ids: string[]
+  }
+  transport?: {
+    mode: string
+    set_webhook: boolean
+    secret_token: string
+  }
+  attention?: {
+    allowed_channel_ids?: string[]
+    ignored_channel_ids?: string[]
+    allowed_chat_ids?: string[]
+    ignored_chat_ids?: string[]
+    ignored_thread_ids?: string[]
+    require_mention: boolean
+    free_response_chat_ids?: string[]
   }
   credentials: AdapterCredentials
   advanced: AdapterAdvanced
@@ -91,6 +109,13 @@ interface AdapterCatalogEntry {
   default_entry?: Partial<AdapterEntry>
   authn_policies?: AdapterAuthnPolicy[]
   config_doc_url?: string
+  fields?: AdapterFieldDescriptor[]
+}
+
+interface AdapterFieldDescriptor {
+  path: string[]
+  type: string
+  secret?: boolean
 }
 
 interface AdapterError {
@@ -120,9 +145,10 @@ interface PostJsonResponse {
   redirect_to?: string
   connectivity_token?: string
   result?: unknown
+  adapter?: AdapterEntry
+  value?: string
 }
 
-const SECRET_FIELDS: SecretField[] = ["app_secret", "bot_token", "client_secret"]
 const FEISHU_ADVANCED_FIELDS: Array<keyof AdapterAdvanced> = [
   "dedupe_ttl_ms",
   "message_context_ttl_ms",
@@ -136,7 +162,17 @@ const DISCORD_ADVANCED_FIELDS: Array<keyof AdapterAdvanced> = [
   "stream_update_interval_ms",
   "stream_chunk_soft_limit",
 ]
+const TELEGRAM_ADVANCED_FIELDS: Array<keyof AdapterAdvanced> = [
+  "dedupe_ttl_ms",
+  "poll_timeout_s",
+  "poll_limit",
+  "poll_retry_max",
+  "flood_wait_max_ms",
+  "stream_update_interval_ms",
+  "stream_chunk_soft_limit",
+]
 const DISCORD_SYNC_POLICIES = ["safe", "off"] as const
+const TELEGRAM_SYNC_POLICIES = ["replace", "off"] as const
 
 const FALLBACK_ENTRY: AdapterEntry = {
   id: "feishu:",
@@ -157,11 +193,16 @@ const FALLBACK_ENTRY: AdapterEntry = {
     application_id: "",
     bot_token: "",
     client_secret: "",
+    bot_username: "",
   },
   attention: {
     allowed_channel_ids: [],
     ignored_channel_ids: [],
+    allowed_chat_ids: [],
+    ignored_chat_ids: [],
+    ignored_thread_ids: [],
     require_mention: true,
+    free_response_chat_ids: [],
   },
   auto_thread: {
     enabled: true,
@@ -177,11 +218,22 @@ const FALLBACK_ENTRY: AdapterEntry = {
     thread_ownership_cache_ttl_ms: 86400000,
     stream_chunk_soft_limit: 1850,
     application_commands_sync_policy: "safe",
+    commands_sync_policy: "replace",
+    poll_timeout_s: 30,
+    poll_limit: 100,
+    poll_retry_max: 10,
+    flood_wait_max_ms: 5000,
+  },
+  transport: {
+    mode: "polling",
+    set_webhook: true,
+    secret_token: "",
   },
   secret_status: {
     app_secret: "missing",
     bot_token: "missing",
     client_secret: "missing",
+    "transport.secret_token": "missing",
   },
 }
 
@@ -190,6 +242,7 @@ interface SetupAppProps {
   adapter_catalog?: AdapterCatalogEntry[]
   adapters?: AdapterEntry[]
   check_path: string
+  generated_secret_path?: string
   save_path: string
   back_path: string
   web_login_callback_origin?: string
@@ -200,6 +253,7 @@ export default function SetupApp({
   adapter_catalog = [],
   adapters = [],
   check_path,
+  generated_secret_path = "",
   save_path,
   back_path,
   web_login_callback_origin = "",
@@ -315,6 +369,12 @@ export default function SetupApp({
         result: response.result,
       },
     }))
+
+    if (response.adapter) {
+      setEntries(current =>
+        current.map(entry => (entry.id === prepared.id ? mergeGeneratedSecrets(entry, response.adapter!) : entry)),
+      )
+    }
   }
 
   const saveAdapters = async () => {
@@ -418,6 +478,7 @@ export default function SetupApp({
         entries={entries}
         editing={editingIndex !== null}
         webLoginCallbackOrigin={web_login_callback_origin}
+        generatedSecretPath={generated_secret_path}
         onApply={applyDraft}
       />
     </SetupLayout>
@@ -530,6 +591,7 @@ interface AdapterSheetProps {
   entries: AdapterEntry[]
   editing: boolean
   webLoginCallbackOrigin: string
+  generatedSecretPath: string
   onApply: () => void
 }
 
@@ -543,6 +605,7 @@ function AdapterSheet({
   entries,
   editing,
   webLoginCallbackOrigin,
+  generatedSecretPath,
   onApply,
 }: AdapterSheetProps) {
   const { t } = useTranslation()
@@ -563,6 +626,12 @@ function AdapterSheet({
   const docUrl = configDocUrl(draft, catalogOptions)
   const supportsExternalOrgMembers = connectorSupportsAuthnPolicy(draft.adapter, catalogOptions, "external_org_members")
   const callbackUrl = callbackUrlFor(webLoginCallbackOrigin, draft.adapter, draft.channel_id)
+  const telegramWebhookUrl = telegramWebhookUrlFor(
+    webLoginCallbackOrigin,
+    draft.adapter,
+    draft.channel_id,
+    draft.transport.mode,
+  )
   const fieldErrors = React.useMemo(() => errorsByField(errors), [errors])
   const formErrors = React.useMemo(() => errorsWithoutFields(errors), [errors])
 
@@ -716,6 +785,14 @@ function AdapterSheet({
                       <code className="block break-all bg-background px-3 py-2 text-xs">{callbackUrl}</code>
                     </div>
                   ) : null}
+                  {telegramWebhookUrl ? (
+                    <div className="grid gap-2 border-t border-border pt-4">
+                      <p className="text-xs text-muted-foreground">
+                        {translate("web.setup.gateway.telegram.webhook_url")}
+                      </p>
+                      <code className="block break-all bg-background px-3 py-2 text-xs">{telegramWebhookUrl}</code>
+                    </div>
+                  ) : null}
                 </div>
               </FormSection>
 
@@ -770,6 +847,17 @@ function AdapterSheet({
                 </FormSection>
               ) : null}
 
+              {draft.adapter === "telegram" ? (
+                <FormSection title={translate("web.setup.gateway.sections.behavior")}>
+                  <TelegramBehaviorFields
+                    draft={draft}
+                    update={update}
+                    catalog={catalogOptions}
+                    generatedSecretPath={generatedSecretPath}
+                  />
+                </FormSection>
+              ) : null}
+
               <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
                 <FormSection
                   title={
@@ -810,6 +898,29 @@ function AdapterSheet({
                             </SelectTrigger>
                             <SelectContent>
                               {DISCORD_SYNC_POLICIES.map(policy => (
+                                <SelectItem key={policy} value={policy}>
+                                  {policy}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </Field>
+                      ) : null}
+
+                      {draft.adapter === "telegram" ? (
+                        <Field label={translate("web.setup.gateway.fields.commands_sync_policy")}>
+                          <Select
+                            value={telegramSyncPolicyValue(draft.advanced.commands_sync_policy)}
+                            onValueChange={(value: string | null) =>
+                              update(["advanced", "commands_sync_policy"], telegramSyncPolicyValue(value))
+                            }>
+                            <SelectTrigger className="w-full">
+                              <span data-slot="select-value">
+                                {telegramSyncPolicyValue(draft.advanced.commands_sync_policy)}
+                              </span>
+                            </SelectTrigger>
+                            <SelectContent>
+                              {TELEGRAM_SYNC_POLICIES.map(policy => (
                                 <SelectItem key={policy} value={policy}>
                                   {policy}
                                 </SelectItem>
@@ -921,6 +1032,28 @@ function CredentialFields({ draft, update, fieldErrors }: CredentialFieldsProps)
   const { t } = useTranslation()
   const translate = t as Translate
 
+  if (draft.adapter === "telegram") {
+    return (
+      <div className="grid gap-4 sm:grid-cols-2">
+        <SecretFieldInput
+          label={translate("web.setup.gateway.fields.bot_token")}
+          value={draft.credentials.bot_token || ""}
+          status={draft.secret_status?.bot_token}
+          onChange={value => update(["credentials", "bot_token"], value)}
+          required
+          error={fieldErrors["credentials.bot_token"]}
+        />
+        <Field label={translate("web.setup.gateway.fields.bot_username")}>
+          <Input
+            value={draft.credentials.bot_username || ""}
+            onChange={event => update(["credentials", "bot_username"], event.target.value)}
+            autoComplete="off"
+          />
+        </Field>
+      </div>
+    )
+  }
+
   if (draft.adapter === "discord") {
     return (
       <div className="grid gap-4 sm:grid-cols-2">
@@ -975,6 +1108,187 @@ function CredentialFields({ draft, update, fieldErrors }: CredentialFieldsProps)
         required
         error={fieldErrors["credentials.app_secret"]}
       />
+    </div>
+  )
+}
+
+interface TelegramBehaviorFieldsProps {
+  draft: AdapterEntry
+  update: (path: string[], value: unknown) => void
+  catalog: AdapterCatalogEntry[]
+  generatedSecretPath: string
+}
+
+function TelegramBehaviorFields({ draft, update, catalog, generatedSecretPath }: TelegramBehaviorFieldsProps) {
+  const { t } = useTranslation()
+  const translate = t as Translate
+  const attention = draft.attention || FALLBACK_ENTRY.attention!
+  const transport = draft.transport || FALLBACK_ENTRY.transport!
+  const webhookSecretField = generatedSecretField(catalog, draft.adapter, ["transport", "secret_token"])
+
+  return (
+    <div className="grid gap-4">
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field label={translate("web.setup.gateway.fields.transport_mode")}>
+          <Select
+            value={transport.mode === "webhook" ? "webhook" : "polling"}
+            onValueChange={(value: string | null) =>
+              update(["transport", "mode"], value === "webhook" ? "webhook" : "polling")
+            }>
+            <SelectTrigger className="w-full">
+              <span data-slot="select-value">{transport.mode === "webhook" ? "webhook" : "polling"}</span>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="polling">polling</SelectItem>
+              <SelectItem value="webhook">webhook</SelectItem>
+            </SelectContent>
+          </Select>
+        </Field>
+
+        <div className="flex items-start justify-between gap-4 border border-border bg-background-secondary p-4">
+          <div className="min-w-0">
+            <p className="text-sm font-medium">{translate("web.setup.gateway.telegram.set_webhook")}</p>
+            <p className="mt-1 text-sm leading-5 text-muted-foreground">
+              {translate("web.setup.gateway.telegram.set_webhook_description")}
+            </p>
+          </div>
+          <Switch
+            checked={transport.set_webhook !== false}
+            onCheckedChange={(checked: boolean) => update(["transport", "set_webhook"], checked)}
+            aria-label={translate("web.setup.gateway.telegram.set_webhook")}
+          />
+        </div>
+      </div>
+
+      {transport.mode === "webhook" && webhookSecretField ? (
+        <GeneratedSecretField
+          entry={draft}
+          field={webhookSecretField}
+          generatedSecretPath={generatedSecretPath}
+          update={update}
+        />
+      ) : null}
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field label={translate("web.setup.gateway.fields.allowed_chat_ids")}>
+          <Input
+            value={stringListValue(attention.allowed_chat_ids)}
+            onChange={event => update(["attention", "allowed_chat_ids"], parseStringList(event.target.value))}
+            autoComplete="off"
+          />
+        </Field>
+        <Field label={translate("web.setup.gateway.fields.ignored_chat_ids")}>
+          <Input
+            value={stringListValue(attention.ignored_chat_ids)}
+            onChange={event => update(["attention", "ignored_chat_ids"], parseStringList(event.target.value))}
+            autoComplete="off"
+          />
+        </Field>
+        <Field label={translate("web.setup.gateway.fields.ignored_thread_ids")}>
+          <Input
+            value={stringListValue(attention.ignored_thread_ids)}
+            onChange={event => update(["attention", "ignored_thread_ids"], parseStringList(event.target.value))}
+            autoComplete="off"
+          />
+        </Field>
+        <Field label={translate("web.setup.gateway.fields.free_response_chat_ids")}>
+          <Input
+            value={stringListValue(attention.free_response_chat_ids)}
+            onChange={event => update(["attention", "free_response_chat_ids"], parseStringList(event.target.value))}
+            autoComplete="off"
+          />
+        </Field>
+      </div>
+    </div>
+  )
+}
+
+interface GeneratedSecretFieldProps {
+  entry: AdapterEntry
+  field: AdapterFieldDescriptor
+  generatedSecretPath: string
+  update: (path: string[], value: unknown) => void
+}
+
+function GeneratedSecretField({ entry, field, generatedSecretPath, update }: GeneratedSecretFieldProps) {
+  const { t } = useTranslation()
+  const translate = t as Translate
+  const [busy, setBusy] = React.useState(false)
+  const [error, setError] = React.useState("")
+  const value = stringAtPath(entry, field.path)
+  const status = entry.secret_status?.[field.path.join(".") as SecretField]
+  const canCopy = Boolean(value)
+
+  const generate = async () => {
+    if (!generatedSecretPath) {
+      setError(translate("web.setup.gateway.generated_secret.unavailable"))
+      return
+    }
+
+    setBusy(true)
+    setError("")
+
+    const response = await postJson(generatedSecretPath, {
+      adapter: entry.adapter,
+      path: field.path,
+    })
+
+    setBusy(false)
+
+    if (response.redirect_to) {
+      window.location.assign(response.redirect_to)
+      return
+    }
+
+    if (response.ok && response.value) {
+      update(field.path, response.value)
+      return
+    }
+
+    setError(response.errors?.[0]?.message || translate("web.setup.gateway.generated_secret.failed"))
+  }
+
+  const copy = async () => {
+    if (!value) return
+    await navigator.clipboard?.writeText(value)
+  }
+
+  return (
+    <div className="grid gap-3 border border-border bg-background-secondary p-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <p className="text-sm font-medium">{translate("web.setup.gateway.generated_secret.telegram_title")}</p>
+          <p className="mt-1 text-sm leading-5 text-muted-foreground">
+            {translate("web.setup.gateway.generated_secret.telegram_description")}
+          </p>
+        </div>
+        <div className="flex shrink-0 flex-wrap gap-2">
+          {canCopy ? (
+            <Button type="button" size="sm" variant="outline" onClick={copy}>
+              <RiFileCopyLine data-icon="inline-start" />
+              <span>{translate("web.setup.gateway.generated_secret.copy")}</span>
+            </Button>
+          ) : null}
+          <Button type="button" size="sm" variant="outline" disabled={busy} onClick={generate}>
+            {canCopy ? <RiRefreshLine data-icon="inline-start" /> : <RiKeyLine data-icon="inline-start" />}
+            <span>
+              {canCopy
+                ? translate("web.setup.gateway.generated_secret.rotate")
+                : translate("web.setup.gateway.generated_secret.generate")}
+            </span>
+          </Button>
+        </div>
+      </div>
+
+      {value ? (
+        <Input value={value} readOnly autoComplete="off" />
+      ) : status === "stored" ? (
+        <Badge variant="secondary" className="w-fit">
+          {translate("web.setup.gateway.secret_stored_badge")}
+        </Badge>
+      ) : null}
+
+      {error ? <p className="text-xs leading-4 text-destructive">{error}</p> : null}
     </div>
   )
 }
@@ -1212,6 +1526,10 @@ function mergeEntry(entry: Partial<AdapterEntry>): AdapterEntry {
       ...fallback.auto_thread!,
       ...(source.auto_thread || {}),
     },
+    transport: {
+      ...fallback.transport!,
+      ...(source.transport || {}),
+    },
     advanced: mergeAdvanced(source.advanced),
     secret_status: {
       ...fallback.secret_status,
@@ -1219,11 +1537,32 @@ function mergeEntry(entry: Partial<AdapterEntry>): AdapterEntry {
     },
   }
 
-  for (const field of SECRET_FIELDS) {
+  for (const field of ["app_secret", "bot_token", "client_secret"] as const) {
     merged.credentials[field] = merged.credentials[field] || ""
   }
 
   return merged
+}
+
+function mergeGeneratedSecrets(entry: AdapterEntry, serverEntry: AdapterEntry): AdapterEntry {
+  const merged = mergeEntry(entry)
+  const server = mergeEntry(serverEntry)
+  const secretToken = server.transport?.secret_token || ""
+
+  if (!secretToken) return merged
+
+  return {
+    ...merged,
+    transport: {
+      ...merged.transport!,
+      secret_token: secretToken,
+    },
+    secret_status: {
+      ...merged.secret_status,
+      "transport.secret_token":
+        server.secret_status?.["transport.secret_token"] || merged.secret_status?.["transport.secret_token"],
+    },
+  }
 }
 
 function prepareEntryForSave(entry: AdapterEntry): AdapterEntry {
@@ -1251,11 +1590,21 @@ function prepareEntryForSave(entry: AdapterEntry): AdapterEntry {
       application_id: (normalized.credentials.application_id || "").trim(),
       bot_token: (normalized.credentials.bot_token || "").trim(),
       client_secret: (normalized.credentials.client_secret || "").trim(),
+      bot_username: (normalized.credentials.bot_username || "").trim(),
+    },
+    transport: {
+      mode: normalized.transport?.mode === "webhook" ? "webhook" : "polling",
+      set_webhook: normalized.transport?.set_webhook !== false,
+      secret_token: (normalized.transport?.secret_token || "").trim(),
     },
     attention: {
       allowed_channel_ids: normalizeStringList(normalized.attention?.allowed_channel_ids),
       ignored_channel_ids: normalizeStringList(normalized.attention?.ignored_channel_ids),
-      require_mention: true,
+      allowed_chat_ids: normalizeStringList(normalized.attention?.allowed_chat_ids),
+      ignored_chat_ids: normalizeStringList(normalized.attention?.ignored_chat_ids),
+      ignored_thread_ids: normalizeStringList(normalized.attention?.ignored_thread_ids),
+      require_mention: normalized.attention?.require_mention !== false,
+      free_response_chat_ids: normalizeStringList(normalized.attention?.free_response_chat_ids),
     },
     auto_thread: {
       enabled: normalized.auto_thread?.enabled !== false,
@@ -1269,7 +1618,7 @@ function prepareEntryForSave(entry: AdapterEntry): AdapterEntry {
 
 function mergeAdvanced(source: Partial<AdapterAdvanced> | undefined): AdapterAdvanced {
   const advanced = Object.fromEntries(
-    [...FEISHU_ADVANCED_FIELDS, ...DISCORD_ADVANCED_FIELDS].map(field => [
+    [...FEISHU_ADVANCED_FIELDS, ...DISCORD_ADVANCED_FIELDS, ...TELEGRAM_ADVANCED_FIELDS].map(field => [
       field,
       numberValue(source?.[field] ?? FALLBACK_ENTRY.advanced[field]),
     ]),
@@ -1277,6 +1626,9 @@ function mergeAdvanced(source: Partial<AdapterAdvanced> | undefined): AdapterAdv
 
   advanced.application_commands_sync_policy = syncPolicyValue(
     source?.application_commands_sync_policy ?? FALLBACK_ENTRY.advanced.application_commands_sync_policy,
+  )
+  advanced.commands_sync_policy = telegramSyncPolicyValue(
+    source?.commands_sync_policy ?? FALLBACK_ENTRY.advanced.commands_sync_policy,
   )
 
   return advanced
@@ -1357,7 +1709,21 @@ function validateEntry(entry: AdapterEntry, t: Translate): AdapterError[] {
     })
   }
 
-  if (entry.adapter === "discord") {
+  if (entry.adapter === "telegram") {
+    if (!hasSecret(entry, "bot_token")) {
+      errors.push({
+        field: "credentials.bot_token",
+        message: t("web.setup.gateway.errors.telegram_bot_token_required"),
+      })
+    }
+
+    if (entry.transport?.mode === "webhook" && !hasSecret(entry, "transport.secret_token")) {
+      errors.push({
+        field: "transport.secret_token",
+        message: t("web.setup.gateway.errors.telegram_webhook_secret_required"),
+      })
+    }
+  } else if (entry.adapter === "discord") {
     if (!(entry.credentials.application_id || "").trim()) {
       errors.push({
         field: "credentials.application_id",
@@ -1380,14 +1746,14 @@ function validateEntry(entry: AdapterEntry, t: Translate): AdapterError[] {
     }
   }
 
-  if (entry.adapter !== "discord" && !(entry.credentials.app_id || "").trim()) {
+  if (entry.adapter === "feishu" && !(entry.credentials.app_id || "").trim()) {
     errors.push({
       field: "credentials.app_id",
       message: t("web.setup.gateway.errors.app_id_required"),
     })
   }
 
-  if (entry.adapter !== "discord" && !hasSecret(entry, "app_secret")) {
+  if (entry.adapter === "feishu" && !hasSecret(entry, "app_secret")) {
     errors.push({
       field: "credentials.app_secret",
       message: t("web.setup.gateway.errors.app_secret_required"),
@@ -1421,6 +1787,10 @@ function errorField(error: AdapterError): string | undefined {
 }
 
 function hasSecret(entry: AdapterEntry, field: SecretField): boolean {
+  if (field === "transport.secret_token") {
+    return Boolean((entry.transport?.secret_token || "").trim() || entry.secret_status?.[field] === "stored")
+  }
+
   return Boolean((entry.credentials[field] || "").trim() || entry.secret_status?.[field] === "stored")
 }
 
@@ -1431,6 +1801,10 @@ function numberValue(value: unknown): number {
 
 function syncPolicyValue(value: unknown): string {
   return value === "off" ? "off" : "safe"
+}
+
+function telegramSyncPolicyValue(value: unknown): string {
+  return value === "off" ? "off" : "replace"
 }
 
 function stringListValue(values: string[] | undefined): string {
@@ -1476,12 +1850,48 @@ function connectorSupportsAuthnPolicy(adapter: string, catalog: AdapterCatalogEn
   return policies.some(policy => policy.type === policyType)
 }
 
-function adapterLabel(adapter: string, catalog: AdapterCatalogEntry[] = []): string {
-  return catalogEntryFor(catalog, adapter)?.label || (adapter === "feishu" ? "Feishu / Lark" : adapter)
+function generatedSecretField(
+  catalog: AdapterCatalogEntry[],
+  adapter: string,
+  path: string[],
+): AdapterFieldDescriptor | undefined {
+  return catalogEntryFor(catalog, adapter)?.fields?.find(
+    field => isGeneratedSecretType(field.type) && samePath(field.path, path),
+  )
 }
 
-function transportLabel(_adapter: string): string {
-  return _adapter === "discord" ? "Gateway" : "WebSocket"
+function isGeneratedSecretType(type: string): boolean {
+  return type === "generated_secret" || type === ":generated_secret"
+}
+
+function samePath(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((part, index) => part === right[index])
+}
+
+function stringAtPath(entry: AdapterEntry, path: string[]): string {
+  const value = path.reduce<unknown>((cursor, key) => {
+    if (cursor && typeof cursor === "object") return (cursor as Record<string, unknown>)[key]
+    return undefined
+  }, entry)
+
+  return typeof value === "string" ? value : ""
+}
+
+function adapterLabel(adapter: string, catalog: AdapterCatalogEntry[] = []): string {
+  return (
+    catalogEntryFor(catalog, adapter)?.label || (adapter === "feishu" ? "Feishu / Lark" : adapterLabelFallback(adapter))
+  )
+}
+
+function adapterLabelFallback(adapter: string): string {
+  if (adapter === "telegram") return "Telegram"
+  return adapter
+}
+
+function transportLabel(adapter: string): string {
+  if (adapter === "discord") return "Gateway"
+  if (adapter === "telegram") return "Polling/Webhook"
+  return "WebSocket"
 }
 
 function domainLabel(domain: string): string {
@@ -1494,13 +1904,25 @@ function callbackUrlFor(origin: string, adapter: string, channelId: string): str
   const normalizedAdapter = adapter.trim() || "feishu"
   const normalizedOrigin = origin.trim().replace(/\/+$/, "")
 
+  if (normalizedAdapter === "telegram") return ""
   if (!normalized || !normalizedOrigin) return ""
 
   return `${normalizedOrigin}/sessions/${encodeURIComponent(normalizedAdapter)}/${encodeURIComponent(normalized)}/callback`
 }
 
 function advancedFieldsFor(adapter: string): Array<keyof AdapterAdvanced> {
-  return adapter === "discord" ? DISCORD_ADVANCED_FIELDS : FEISHU_ADVANCED_FIELDS
+  if (adapter === "discord") return DISCORD_ADVANCED_FIELDS
+  if (adapter === "telegram") return TELEGRAM_ADVANCED_FIELDS
+  return FEISHU_ADVANCED_FIELDS
+}
+
+function telegramWebhookUrlFor(origin: string, adapter: string, channelId: string, transportMode: string): string {
+  const normalized = channelId.trim()
+  const normalizedOrigin = origin.trim().replace(/\/+$/, "")
+
+  if (adapter !== "telegram" || transportMode !== "webhook" || !normalized || !normalizedOrigin) return ""
+
+  return `${normalizedOrigin}/gateway/telegram/${encodeURIComponent(normalized)}/webhook`
 }
 
 function clone<T>(value: T): T {

@@ -54,6 +54,7 @@ defmodule BullX.MixProject do
       {:swoosh, "~> 1.16"},
       {:feishu_openapi, path: "packages/feishu_openapi"},
       {:nostrum, github: "Kraigie/nostrum", ref: "03b06ba1c5094b83991097b1ce76b5fe2740324c"},
+      {:telegram, github: "visciang/telegram", tag: "2.1.1"},
       {:req, "~> 0.5"},
       {:telemetry_metrics, "~> 1.0"},
       {:telemetry_poller, "~> 1.0"},

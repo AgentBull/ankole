@@ -152,3 +152,39 @@ stream_cancelled = "The streamed response was cancelled."
 unsupported_message = "[unsupported Discord message]"
 profile_unavailable = "Discord user profile is unavailable."
 thread_create_failed = "Could not create a Discord thread for this request."
+
+[gateway.telegram.auth]
+activation_required = "Please activate this Telegram account by sending /preauth <code> in a private chat with the bot."
+activation_success = "Activation complete. This Telegram account is now linked to BullX."
+activation_code_invalid = "That activation code is invalid or expired."
+activation_failed = "Activation failed. Please try again or ask an operator for a new code."
+already_linked = "This Telegram account is already linked."
+web_auth_created = "Use this login code: {$code}\nOpen {$login_url} to finish signing in."
+web_auth_not_bound = "This Telegram account is not linked yet. Activate it with /preauth <code> first."
+web_auth_disabled = "Web login is disabled for this Telegram channel."
+web_auth_failed = "Telegram login could not be started. Please try again later."
+denied = "This account is not allowed to use BullX."
+direct_command_dm_only = "Please message the bot privately to link or sign in."
+
+[gateway.telegram.ping]
+pong = "PONG!"
+
+[gateway.telegram.ask]
+prompt_required = "Please include a question after /ask."
+
+[gateway.telegram.delivery]
+fallback_text = "[message]"
+stream_generating = "Generating..."
+stream_failed = "The streamed response failed."
+stream_cancelled = "The streamed response was cancelled."
+
+[gateway.telegram.errors]
+unsupported_message = "[unsupported Telegram message]"
+profile_unavailable = "Telegram user profile is unavailable."
+
+[gateway.telegram.media]
+image = "[Telegram image]"
+audio = "[Telegram audio]"
+video = "[Telegram video]"
+file = "[Telegram file]"
+card = "[Telegram card]"

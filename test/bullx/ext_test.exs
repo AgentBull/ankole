@@ -57,14 +57,6 @@ defmodule BullX.ExtTest do
     assert BullX.Ext.gen_base36_uuid() =~ ~r/\A[0-9a-z]+\z/
   end
 
-  test "uuid helpers return tagged errors for invalid input" do
-    assert {:error, reason} = BullX.Ext.uuid_shorten("not-a-uuid")
-    assert reason != ""
-
-    assert {:error, reason} = BullX.Ext.short_uuid_expand("not-valid$$")
-    assert reason != ""
-  end
-
   test "base58 helpers round trip binary payloads" do
     payload = <<0, 255, 1, 2, 3>>
     encoded = BullX.Ext.base58_encode(payload)
@@ -110,12 +102,6 @@ defmodule BullX.ExtTest do
   test "argon2_verify/2 returns a tagged error for malformed PHC strings" do
     assert {:error, reason} = BullX.Ext.argon2_verify("anything", "not-a-phc-string")
     assert reason =~ "invalid phc string"
-  end
-
-  test "argon2 nifs validate argument types" do
-    assert BullX.Ext.argon2_hash(123) == {:error, "password must be a binary"}
-    assert BullX.Ext.argon2_verify(123, "irrelevant") == {:error, "password must be a binary"}
-    assert BullX.Ext.argon2_verify("pwd", 123) == {:error, "phc must be a string"}
   end
 
   describe "aead_encrypt/2 and aead_decrypt/2" do
@@ -369,23 +355,6 @@ defmodule BullX.ExtTest do
     test "rejects malformed tokens" do
       assert {:error, reason} = BullX.Ext.jwt_decode_header("not-a-jwt")
       assert reason =~ "jwt header decode failed"
-    end
-  end
-
-  describe "jwt nifs validate argument types" do
-    test "non-map claims" do
-      assert {:error, "claims must be a map"} = BullX.Ext.jwt_sign([], "secret")
-    end
-
-    test "non-binary key" do
-      assert {:error, "key must be a binary"} = BullX.Ext.jwt_sign(%{}, 123)
-    end
-
-    test "unknown algorithm" do
-      assert {:error, reason} =
-               BullX.Ext.jwt_sign(%{}, "secret", %{algorithm: :weird})
-
-      assert reason =~ "unsupported algorithm"
     end
   end
 

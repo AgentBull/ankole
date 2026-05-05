@@ -18,6 +18,7 @@ defmodule BullXWeb.SetupGatewayController do
       |> assign_prop(:adapter_catalog, AdapterConfig.catalog(BullXWeb.I18n.HTML.lang()))
       |> assign_prop(:adapters, AdapterConfig.load_public_entries())
       |> assign_prop(:check_path, ~p"/setup/gateway/adapters/check")
+      |> assign_prop(:generated_secret_path, ~p"/setup/gateway/adapters/generated-secret")
       |> assign_prop(:save_path, ~p"/setup/gateway/adapters")
       |> assign_prop(:back_path, ~p"/setup/llm")
       |> assign_prop(:web_login_callback_origin, BullXWeb.Sessions.callback_origin())
@@ -37,7 +38,7 @@ defmodule BullXWeb.SetupGatewayController do
          {:ok, result} <- AdapterConfig.connectivity_check(entry) do
       json(conn, %{
         ok: true,
-        adapter: AdapterConfig.public_entry(entry),
+        adapter: AdapterConfig.public_entry(entry, reveal_generated_secrets?: true),
         result: result,
         connectivity_token: sign_connectivity_token(conn, entry)
       })
@@ -53,6 +54,30 @@ defmodule BullXWeb.SetupGatewayController do
 
       {:error, reason} ->
         validation_error(conn, [generic_error(reason)])
+    end
+  end
+
+  def generated_secret(conn, params) do
+    with {:ok, conn} <- require_setup_session(conn),
+         {:ok, adapter} <- generated_secret_adapter(params),
+         {:ok, path} <- generated_secret_path(params),
+         true <- AdapterConfig.generated_secret_field?(adapter, path) do
+      json(conn, %{ok: true, value: BullX.Config.GeneratedSecret.generate()})
+    else
+      {:error, %Plug.Conn{} = conn} ->
+        conn
+
+      false ->
+        validation_error(conn, [
+          %{
+            "kind" => "config",
+            "message" => "generated secret field is not supported",
+            "details" => %{"field" => "path"}
+          }
+        ])
+
+      {:error, %{} = error} ->
+        validation_error(conn, [error])
     end
   end
 
@@ -125,6 +150,40 @@ defmodule BullXWeb.SetupGatewayController do
          "details" => %{"field" => "adapters"}
        }
      ]}
+  end
+
+  defp generated_secret_adapter(%{"adapter" => adapter}) when is_binary(adapter) do
+    {:ok, adapter}
+  end
+
+  defp generated_secret_adapter(_params) do
+    {:error,
+     %{
+       "kind" => "payload",
+       "message" => "adapter is required",
+       "details" => %{"field" => "adapter"}
+     }}
+  end
+
+  defp generated_secret_path(%{"path" => path}) when is_list(path) do
+    path =
+      path
+      |> Enum.map(&to_string/1)
+      |> Enum.reject(&(&1 == ""))
+
+    case path do
+      [_ | _] -> {:ok, path}
+      [] -> generated_secret_path(%{})
+    end
+  end
+
+  defp generated_secret_path(_params) do
+    {:error,
+     %{
+       "kind" => "payload",
+       "message" => "path is required",
+       "details" => %{"field" => "path"}
+     }}
   end
 
   defp sign_connectivity_token(conn, entry) do

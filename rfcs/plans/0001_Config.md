@@ -219,6 +219,7 @@ At the bootstrap phase, the same dotenv load order is also used by the shared co
 - Add a top-level `BullX.Config.Supervisor` under `BullX.Application`.
 - Add a config-script helper under `config/support/` for dotenv loading and typed bootstrap env parsing.
 - Add Zoi-backed value constraints for both runtime dynamic settings and bootstrap env parsing.
+- Add narrow `type: :generated_secret` support for control-plane configuration surfaces that must create a secret on behalf of an external platform.
 - Add test coverage for:
   - database > env > application config > default precedence
   - invalid database value falling back to env/application config/default
@@ -236,7 +237,6 @@ At the bootstrap phase, the same dotenv load order is also used by the shared co
 - PostgreSQL `LISTEN/NOTIFY`.
 - Cross-node cache invalidation across a multi-node BullX cluster. BullX does not support multi-node deployments in this RFC; single-node operation is the only supported topology. Multi-node is deferred to a future RFC.
 - Migrating every existing BullX setting to the new runtime DSL.
-- A metadata catalog of all editable keys for operators.
 - A full declaration registry that lets arbitrary raw database writes be validated against all known setting schemas before persistence.
 
 The low-level writer stores raw strings for plain settings and AEAD-encrypted ciphertext for secret settings. Type casting and Zoi validation happen on **read** through the runtime resolution pipeline, and on **bootstrap parse** through the shared config helper.
@@ -266,6 +266,7 @@ lib/bullx/
     ├── cache.ex                          (NEW — ETS-backed cache process)
     ├── crypto.ex                         (NEW — AEAD encrypt/decrypt for secret values)
     ├── database_binding.ex               (NEW — PostgreSQL/ETS Skogsra binding)
+    ├── generated_secret.ex               (NEW — generated secret helper and type)
     ├── secret_keys.ex                    (NEW — compile-time secret key registry)
     ├── secrets.ex                        (NEW — bootstrap-only declarations in the shared DSL)
     ├── supervisor.ex                     (NEW — top-level config supervisor)
@@ -294,6 +295,7 @@ test/bullx/
 └── config/
     ├── cache_test.exs                    (NEW)
     ├── dotenv_test.exs                   (NEW)
+    ├── generated_secret_test.exs         (NEW)
     ├── precedence_test.exs               (NEW)
     └── writer_test.exs                   (NEW)
 
@@ -403,6 +405,7 @@ Important constraints:
 - The public BullX DSL is intentionally **single-name**: the generated function name and BullX config key are the same by default. An optional `key:` escape hatch exists for rare cases, but redundant `function_name, keys` pairs are not the normal authoring model.
 - The DSL must support an optional `zoi:` option whose value is a Zoi schema or a zero-arity function returning a Zoi schema.
 - The DSL must support an optional `secret: true` flag. When set, `BullX.Config.put/2` encrypts the value before storage and the cache decrypts it on load. The encryption is transparent to all consumers — reads always return plaintext.
+- The DSL must support the BullX-specific type alias `type: :generated_secret`. `BullX.Config` expands this alias to `BullX.Config.GeneratedSecret` before delegating to Skogsra.
 - This RFC does **not** add production settings yet; end-to-end behavior is proven through a test-only declaration module in `test/support`.
 
 Example declaration:
@@ -538,6 +541,62 @@ The migration creates:
 - Exposes `secret?(key) :: boolean()`.
 
 The `__bullx_secret_keys__/0` function is generated on every `use BullX.Config` module by the `@before_compile BullX.Config` callback. It returns the list of DB key strings that were declared with `secret: true` in that module.
+
+### 7.5c `BullX.Config.GeneratedSecret`
+
+`lib/bullx/config/generated_secret.ex` provides the implementation behind the BullX DSL type `:generated_secret`.
+
+A generated secret is a value BullX creates for an external platform to verify BullX-originated configuration such as a webhook verifier. The operator supplies the platform credential; BullX supplies the generated secret.
+
+Declaration contract:
+
+```elixir
+bullx_env :external_webhook_secret_token,
+  type: :generated_secret,
+  secret: true
+```
+
+`type: :generated_secret` defines generation and validation semantics. `secret: true` is orthogonal: it controls encryption at rest, write-only public payload behavior, and redaction.
+
+Required API:
+
+```elixir
+defmodule BullX.Config.GeneratedSecret do
+  use Skogsra.Type
+
+  @spec generate(keyword()) :: String.t()
+  def generate(opts \\ [])
+
+  @impl Skogsra.Type
+  def cast(value)
+end
+```
+
+Required behavior:
+
+- `generate/1` creates a high-entropy URL-safe string from cryptographic random bytes.
+- The default entropy is at least 256 bits.
+- `cast/1` accepts only non-empty binary values that satisfy the generated-secret character and length constraints.
+- `cast/1` does **not** generate missing values.
+- Missing generated secrets are filled by the owning control-plane normalization path before persistence, not by runtime reads.
+- Generated secrets that are persisted through `BullX.Config.put/2` are encrypted whenever their containing config key is declared with `secret: true`.
+
+Configuration surfaces that need field descriptors expose the generated-secret type directly:
+
+```elixir
+%{
+  "path" => ["transport", "secret_token"],
+  "type" => :generated_secret,
+  "secret" => true
+}
+```
+
+Semantics:
+
+- `type: :generated_secret` means the UI must not render the field as an operator-supplied credential.
+- `secret: true` means the field is write-only after persistence and is redacted in public payloads.
+- A UI may expose copy and rotate actions for generated secrets. Rotation calls `BullX.Config.GeneratedSecret.generate/1`; it does not accept arbitrary replacement text.
+- Derived values such as callback URLs remain read-only information outside the persisted config value.
 
 ### 7.6 `BullX.Config.Cache`
 
@@ -685,7 +744,10 @@ Important non-goal:
 
 - `Writer` does not validate the value against a declared type at write time.
 - `Writer` does not resolve Zoi schemas before persistence.
+- `Writer` does not generate missing generated secrets.
 - Invalid strings may be persisted; they are ignored at read time by the bindings.
+
+Generated secret creation belongs to the control-plane boundary that owns the configuration shape. That boundary must generate or rotate the value before calling `BullX.Config.put/2`.
 
 **Known limitation:** `put/2` and `delete/1` call `Cache.refresh/1` after the database operation. If `BullX.Config.Cache` is in a crash-restart cycle at that moment, the refresh call will fail and the database and ETS cache will be transiently inconsistent. The inconsistency self-heals on the next `Cache` restart because `init/1` reloads all rows from PostgreSQL. No retry or rollback logic is required in `Writer`.
 
@@ -845,6 +907,11 @@ defmodule BullX.Config.TestSettings do
     type: :binary,
     default: "safe",
     zoi: Zoi.enum(["safe", "fast", "strict"])
+
+  @envdoc false
+  bullx_env :test_generated_secret,
+    type: :generated_secret,
+    secret: true
 end
 ```
 
@@ -916,6 +983,17 @@ Modify the existing file to add a new assertion that:
 
 Do **not** add `BullX.Config.Supervisor` to the existing "zero children" assertion; unlike the empty subsystem supervisors from RFC-0, it intentionally has one child in this RFC.
 
+### 9.7 `test/bullx/config/generated_secret_test.exs`
+
+This file must prove:
+
+- `BullX.Config.GeneratedSecret.generate/1` returns a non-empty URL-safe binary.
+- generated values contain at least 256 bits of entropy by default.
+- `BullX.Config.GeneratedSecret.cast/1` accepts generated values.
+- `cast/1` rejects empty, malformed, or too-short values.
+- `cast/1` does not create a replacement value when input is missing.
+- a `bullx_env` declaration with `type: :generated_secret` uses `BullX.Config.GeneratedSecret` for casting.
+
 ## 10. Documentation
 
 ### 10.1 `.env.example`
@@ -969,6 +1047,7 @@ The executing agent must not:
 - introduce Phoenix UI work under `lib/bullx_web/`
 - leave direct `System.get_env/1` parsing duplicated across `config/*.exs`
 - duplicate Zoi validation logic instead of routing it through shared config validation helpers
+- generate random configuration values from Skogsra cast/read paths
 
 The executing agent must preserve these invariants:
 
@@ -979,6 +1058,7 @@ The executing agent must preserve these invariants:
 - runtime dynamic settings may additionally constrain legal values with Zoi after type casting
 - runtime dynamic config reads are served from ETS
 - write-path refresh is explicit and local to the node; multi-node deployments are not supported and `BullX.Config.put/2` makes no guarantees about other nodes
+- generated secrets are created by explicit control-plane write paths, then persisted and redacted like other secrets
 
 **Multi-node note:** In a hypothetical multi-node deployment, `BullX.Config.put/2` refreshes only the calling node's ETS cache. Other nodes continue serving stale values until restarted or explicitly refreshed. This is a known non-goal. Operators running multi-node BullX must restart all nodes after a config change, or wait for a future RFC that addresses cross-node invalidation.
 
@@ -999,5 +1079,6 @@ A coding agent has completed this RFC when all of the following hold:
 11. The existing files under `config/` still drive BullX bootstrap behavior, but all env-derived logic inside them is routed through the shared bootstrap helper rather than scattered direct parsing.
 12. For a runtime dynamic variable declared with `bullx_env` and a `zoi:` schema, a Zoi-invalid database or environment value is rejected and the next fallback source is used.
 13. For a bootstrap value loaded through `BullX.Config.Bootstrap`, a Zoi-invalid value raises a descriptive startup error instead of being silently accepted.
+14. `BullX.Config.GeneratedSecret.generate/1` creates valid high-entropy generated secrets, `cast/1` validates but never generates values, and `type: :generated_secret` is usable from the BullX config DSL.
 
 If any criterion fails, the RFC is not complete.

@@ -45,6 +45,7 @@ defmodule BullXWeb.SetupGatewayControllerTest do
     assert response =~ "adapter_catalog"
     assert response =~ "back_path"
     assert response =~ "/setup/llm"
+    assert response =~ "generated_secret_path"
     assert response =~ "web_login_callback_origin"
     assert response =~ BullXWeb.Endpoint.url()
   end
@@ -85,6 +86,38 @@ defmodule BullXWeb.SetupGatewayControllerTest do
     assert response["ok"] == false
     assert [%{"kind" => "connectivity"}] = response["errors"]
     refute Repo.get(AppConfig, @config_key)
+  end
+
+  test "POST /setup/gateway/adapters/generated-secret creates supported generated secrets", %{
+    conn: conn
+  } do
+    conn =
+      conn
+      |> setup_session()
+      |> post(~p"/setup/gateway/adapters/generated-secret", %{
+        "adapter" => "telegram",
+        "path" => ["transport", "secret_token"]
+      })
+
+    response = json_response(conn, 200)
+
+    assert response["ok"] == true
+    assert {:ok, _secret} = BullX.Config.GeneratedSecret.cast(response["value"])
+  end
+
+  test "POST /setup/gateway/adapters/generated-secret rejects unsupported fields", %{conn: conn} do
+    conn =
+      conn
+      |> setup_session()
+      |> post(~p"/setup/gateway/adapters/generated-secret", %{
+        "adapter" => "telegram",
+        "path" => ["credentials", "bot_token"]
+      })
+
+    response = json_response(conn, 422)
+
+    assert response["ok"] == false
+    assert [%{"kind" => "config"}] = response["errors"]
   end
 
   test "POST /setup/gateway/adapters persists JSON and refreshes runtime config with a valid token",

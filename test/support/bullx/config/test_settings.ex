@@ -27,4 +27,11 @@ defmodule BullX.Config.TestSettings do
     default: nil,
     secret: true
   )
+
+  @envdoc false
+  bullx_env(:test_generated_secret,
+    type: :generated_secret,
+    default: nil,
+    secret: true
+  )
 end

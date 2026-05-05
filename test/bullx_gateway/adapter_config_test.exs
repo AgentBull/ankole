@@ -41,6 +41,20 @@ defmodule BullXGateway.AdapterConfigTest do
 
     assert %{
              "config_doc_url" =>
+               "https://github.com/AgentBull/bullx/blob/main/docs/channels/telegram.zh-Hans-CN.md",
+             "authn_policies" => [],
+             "fields" => [
+               %{
+                 "path" => ["transport", "secret_token"],
+                 "type" => :generated_secret,
+                 "secret" => true
+               }
+             ],
+             "default_entry" => %{"channel_id" => ""}
+           } = Enum.find(catalog, &(&1["adapter"] == "telegram"))
+
+    assert %{
+             "config_doc_url" =>
                "https://github.com/AgentBull/bullx/blob/main/docs/channels/feishu.en-US.md"
            } = Enum.find(AdapterConfig.catalog("ja-JP"), &(&1["adapter"] == "feishu"))
   end
@@ -60,6 +74,23 @@ defmodule BullXGateway.AdapterConfigTest do
     assert config.bot_token == "bot_token_test"
     assert config.client_secret == "client_secret_test"
     assert config.application_commands.sync_policy == "safe"
+  end
+
+  test "encodes Telegram setup entries and generates webhook secret before runtime specs" do
+    entry = telegram_entry(%{"transport" => %{"mode" => "webhook", "set_webhook" => true}})
+
+    assert {:ok, _encoded, [normalized]} = AdapterConfig.encode_for_storage([entry])
+
+    assert {:ok, [{{:telegram, "alerts"}, BullXTelegram.Adapter, config}]} =
+             AdapterConfig.runtime_specs([normalized])
+
+    assert normalized["credentials"]["bot_token"] == "telegram_token_test"
+    assert normalized["transport"]["mode"] == "webhook"
+    assert normalized["transport"]["secret_token"] != ""
+    assert config.bot_token == "telegram_token_test"
+    assert config.transport.secret_token == normalized["transport"]["secret_token"]
+    assert config.commands.sync_policy == "replace"
+    assert config.flood_wait_max_ms == 5000
   end
 
   test "disabled drafts are persisted but omitted from runtime specs" do
@@ -137,6 +168,44 @@ defmodule BullXGateway.AdapterConfigTest do
     assert merged["credentials"]["client_secret"] == "client_secret_test"
   end
 
+  test "public Telegram entries redact bot token and generated webhook secret" do
+    assert {:ok, stored} =
+             AdapterConfig.normalize_entry(
+               telegram_entry(%{"transport" => %{"mode" => "webhook", "set_webhook" => true}})
+             )
+
+    public = AdapterConfig.public_entry(stored)
+
+    assert public["credentials"]["bot_token"] == ""
+    assert public["transport"]["secret_token"] == ""
+    assert public["secret_status"]["bot_token"] == "stored"
+    assert public["secret_status"]["transport.secret_token"] == "stored"
+
+    assert {:ok, merged} = AdapterConfig.normalize_entry(public, existing_entries: [stored])
+
+    assert merged["credentials"]["bot_token"] == "telegram_token_test"
+    assert merged["transport"]["secret_token"] == stored["transport"]["secret_token"]
+  end
+
+  test "public Telegram entries can reveal generated secrets before persistence" do
+    assert {:ok, stored} =
+             AdapterConfig.normalize_entry(
+               telegram_entry(%{"transport" => %{"mode" => "webhook", "set_webhook" => true}})
+             )
+
+    public = AdapterConfig.public_entry(stored, reveal_generated_secrets?: true)
+
+    assert public["credentials"]["bot_token"] == ""
+    assert public["transport"]["secret_token"] == stored["transport"]["secret_token"]
+    assert public["secret_status"]["transport.secret_token"] == "stored"
+  end
+
+  test "generated secret metadata is validated through the adapter catalog" do
+    assert AdapterConfig.generated_secret_field?("telegram", ["transport", "secret_token"])
+    refute AdapterConfig.generated_secret_field?("telegram", ["credentials", "bot_token"])
+    refute AdapterConfig.generated_secret_field?("discord", ["transport", "secret_token"])
+  end
+
   test "legacy Feishu webhook credentials are discarded for websocket-only adapters" do
     assert {:ok, normalized} =
              AdapterConfig.normalize_entry(
@@ -195,6 +264,23 @@ defmodule BullXGateway.AdapterConfigTest do
           "application_id" => "app_test",
           "bot_token" => "bot_token_test",
           "client_secret" => "client_secret_test"
+        }
+      },
+      attrs
+    )
+  end
+
+  defp telegram_entry(attrs) do
+    Map.merge(
+      %{
+        "id" => "telegram:alerts",
+        "adapter" => "telegram",
+        "channel_id" => "alerts",
+        "enabled" => true,
+        "web_login_disabled" => false,
+        "credentials" => %{
+          "bot_token" => "telegram_token_test",
+          "bot_username" => "BullXBot"
         }
       },
       attrs

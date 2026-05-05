@@ -31,6 +31,7 @@ defmodule BullX.Config do
   defmacro bullx_env(name, opts \\ []) do
     {key, opts} = Keyword.pop(opts, :key, name)
     {secret, opts} = Keyword.pop(opts, :secret, false)
+    opts = normalize_opts(opts)
 
     merged_opts =
       Keyword.merge(
@@ -74,4 +75,14 @@ defmodule BullX.Config do
     key_parts = key |> List.wrap() |> Enum.map(&Atom.to_string/1)
     Enum.join(["bullx" | key_parts], ".")
   end
+
+  defp normalize_opts(opts) do
+    case Keyword.fetch(opts, :type) do
+      {:ok, type} -> Keyword.put(opts, :type, normalize_type(type))
+      :error -> opts
+    end
+  end
+
+  defp normalize_type(:generated_secret), do: quote(do: BullX.Config.GeneratedSecret)
+  defp normalize_type(type), do: type
 end

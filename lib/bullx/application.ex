@@ -11,6 +11,7 @@ defmodule BullX.Application do
       BullXWeb.Telemetry,
       BullX.Repo,
       BullX.Config.Supervisor,
+      {Finch, name: BullX.TelegramFinch},
       BullXAccounts.AuthZ.Cache,
       BullXAccounts.AuthZ.Bootstrap,
       BullXAccounts.Bootstrap,
