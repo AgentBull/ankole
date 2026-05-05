@@ -102,6 +102,7 @@ activation_failed = "Activation failed. Please try again or ask an operator for 
 already_linked = "This Feishu account is already linked."
 web_auth_created = "Use this login code: {$code}\nOpen {$login_url} to finish signing in."
 web_auth_not_bound = "This Feishu account is not linked yet. Activate it with /preauth <code> first."
+web_auth_disabled = "Web login is disabled for this Feishu channel."
 web_auth_failed = "Feishu login could not be started. Please try again later."
 login_not_bound = "This Feishu account is not linked yet. Activate it from Feishu with /preauth <code> first."
 denied = "This account is not allowed to use BullX."

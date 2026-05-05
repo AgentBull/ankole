@@ -26,6 +26,7 @@ defmodule BullXFeishu.Config do
     :bot_open_id,
     :bot_user_id,
     :client,
+    web_login_disabled: false,
     domain: :feishu,
     dedupe_ttl_ms: @default_dedupe_ttl_ms,
     message_context_ttl_ms: @default_message_context_ttl_ms,
@@ -64,6 +65,7 @@ defmodule BullXFeishu.Config do
       channel_id: channel_id,
       app_id: present_string(Map.get(resolved, :app_id)),
       app_secret: present_secret(Map.get(resolved, :app_secret)),
+      web_login_disabled: boolean(Map.get(resolved, :web_login_disabled, false), false),
       domain: normalize_domain(Map.get(resolved, :domain, :feishu)),
       bot_open_id: present_string(Map.get(resolved, :bot_open_id)),
       bot_user_id: present_string(Map.get(resolved, :bot_user_id)),
@@ -125,6 +127,9 @@ defmodule BullXFeishu.Config do
 
   @spec sso_enabled?(t()) :: boolean()
   def sso_enabled?(%__MODULE__{sso: %{enabled: enabled}}), do: enabled == true
+
+  @spec web_login_allowed?(t()) :: boolean()
+  def web_login_allowed?(%__MODULE__{web_login_disabled: disabled}), do: disabled != true
 
   @spec redacted(t() | map()) :: map()
   def redacted(%__MODULE__{} = config) do
@@ -212,6 +217,13 @@ defmodule BullXFeishu.Config do
       _ -> default
     end
   end
+
+  defp boolean(value, _default) when value in [true, false], do: value
+  defp boolean("true", _default), do: true
+  defp boolean("false", _default), do: false
+  defp boolean("1", _default), do: true
+  defp boolean("0", _default), do: false
+  defp boolean(_value, default), do: default
 
   defp payload_error(message, field) do
     %{"kind" => "payload", "message" => message, "details" => %{"field" => field}}

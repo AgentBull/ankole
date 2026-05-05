@@ -47,7 +47,12 @@ defmodule BullXFeishu.DirectCommandTest do
     assert delivery.content.body["text"] == "PONG!"
   end
 
-  test "/preauth maps account result to localized reply", %{config: config, cache: cache} do
+  test "/preauth stays available when adapter channel disables web login", %{
+    config: config,
+    cache: cache
+  } do
+    config = %{config | web_login_disabled: true}
+
     assert {:ok, _result, _cache} =
              DirectCommand.handle(command("preauth", "VALID"), config, cache)
 
@@ -62,6 +67,20 @@ defmodule BullXFeishu.DirectCommandTest do
     assert_receive {:delivery, delivery}
     assert delivery.content.body["text"] =~ "WEB123"
     assert delivery.content.body["text"] =~ "https://bullx.test/sessions/feishu"
+  end
+
+  test "/web_auth refuses when adapter channel disables web login", %{
+    config: config,
+    cache: cache
+  } do
+    config = %{config | web_login_disabled: true}
+
+    assert {:ok, _result, _cache} =
+             DirectCommand.handle(command("web_auth", ""), config, cache)
+
+    assert_receive {:delivery, delivery}
+    assert delivery.content.body["text"] =~ "Web login is disabled"
+    refute delivery.content.body["text"] =~ "WEB123"
   end
 
   defp command(name, args) do

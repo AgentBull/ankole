@@ -12,9 +12,11 @@ defmodule BullXGateway.AdapterConfigTest do
              AdapterConfig.cast(encoded)
 
     assert normalized["credentials"]["app_secret"] == "secret_test"
+    assert normalized["web_login_disabled"] == false
     assert normalized["authn"]["external_org_members"]["tenant_key"] == "tenant_test"
     assert config.app_id == "cli_test"
     assert config.app_secret == "secret_test"
+    assert config.web_login_disabled == false
     refute Map.has_key?(config, :authn)
     assert config.domain == :feishu
     assert config.stream_update_interval_ms == 100
@@ -48,6 +50,19 @@ defmodule BullXGateway.AdapterConfigTest do
     assert {:ok, _encoded, [normalized]} = AdapterConfig.encode_for_storage([entry])
     assert normalized["enabled"] == false
     assert {:ok, []} = AdapterConfig.runtime_specs([normalized])
+  end
+
+  test "web_login_disabled is adapter-level config and reaches runtime config" do
+    entry = feishu_entry(%{"web_login_disabled" => true})
+
+    assert {:ok, _encoded, [normalized]} = AdapterConfig.encode_for_storage([entry])
+    assert normalized["web_login_disabled"] == true
+    refute Map.has_key?(normalized["authn"], "web_login")
+
+    assert {:ok, [{{:feishu, "ops-main"}, BullXFeishu.Adapter, config}]} =
+             AdapterConfig.runtime_specs([normalized])
+
+    assert config.web_login_disabled == true
   end
 
   test "enabled adapter channels must be unique" do

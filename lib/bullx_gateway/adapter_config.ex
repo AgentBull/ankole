@@ -17,6 +17,7 @@ defmodule BullXGateway.AdapterConfig do
     "adapter" => "feishu",
     "channel_id" => "",
     "enabled" => true,
+    "web_login_disabled" => false,
     "domain" => "feishu",
     "authn" => %{
       "external_org_members" => %{
@@ -289,6 +290,7 @@ defmodule BullXGateway.AdapterConfig do
     |> Map.put("id", "feishu:#{channel_id}")
     |> Map.put("channel_id", channel_id)
     |> Map.put("enabled", true)
+    |> Map.put("web_login_disabled", get_value(config, :web_login_disabled, false) == true)
     |> Map.put("domain", atom_to_string(domain))
     |> Map.put("credentials", %{
       "app_id" => get_value(config, :app_id, ""),
@@ -307,6 +309,8 @@ defmodule BullXGateway.AdapterConfig do
         "adapter" => "feishu",
         "channel_id" => channel_id,
         "enabled" => normalize_boolean(Map.get(entry, "enabled"), defaults["enabled"]),
+        "web_login_disabled" =>
+          normalize_boolean(Map.get(entry, "web_login_disabled"), defaults["web_login_disabled"]),
         "domain" => normalize_domain(Map.get(entry, "domain")),
         "authn" => normalize_authn_map(Map.get(entry, "authn", %{})),
         "credentials" => credentials,
@@ -639,6 +643,7 @@ defmodule BullXGateway.AdapterConfig do
     %{
       app_id: credentials["app_id"],
       app_secret: credentials["app_secret"],
+      web_login_disabled: entry["web_login_disabled"],
       domain: runtime_domain(entry["domain"]),
       dedupe_ttl_ms: advanced["dedupe_ttl_ms"],
       message_context_ttl_ms: advanced["message_context_ttl_ms"],

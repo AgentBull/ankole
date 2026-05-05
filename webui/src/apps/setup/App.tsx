@@ -57,6 +57,7 @@ interface AdapterEntry {
   adapter: string
   channel_id: string
   enabled: boolean
+  web_login_disabled: boolean
   domain: string
   authn: AdapterAuthn
   credentials: AdapterCredentials
@@ -113,6 +114,7 @@ const FALLBACK_ENTRY: AdapterEntry = {
   adapter: "feishu",
   channel_id: "",
   enabled: true,
+  web_login_disabled: false,
   domain: "feishu",
   authn: {
     external_org_members: {
@@ -393,6 +395,7 @@ function AdapterRow({ entry, catalog, check, checking, onCheck, onEdit, onRemove
   const metadata = [
     prepared.channel_id || translate("web.setup.gateway.fields.channel_id"),
     domainLabel(prepared.domain),
+    prepared.web_login_disabled ? translate("web.setup.gateway.web_login.disabled_summary") : null,
     tenantPolicy.enabled && tenantPolicy.tenant_key
       ? translate("web.setup.gateway.authorization.tenant_key_summary", {
           values: { tenant_key: tenantPolicy.tenant_key },
@@ -634,6 +637,20 @@ function AdapterSheet({
                       </SelectContent>
                     </Select>
                   </Field>
+                </div>
+
+                <div className="flex items-start justify-between gap-4 border border-border bg-background-secondary p-4">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium">{translate("web.setup.gateway.web_login.allowed")}</p>
+                    <p className="mt-1 text-sm leading-5 text-muted-foreground">
+                      {translate("web.setup.gateway.web_login.allowed_description")}
+                    </p>
+                  </div>
+                  <Switch
+                    checked={!draft.web_login_disabled}
+                    onCheckedChange={(checked: boolean) => update(["web_login_disabled"], !checked)}
+                    aria-label={translate("web.setup.gateway.web_login.allowed")}
+                  />
                 </div>
               </FormSection>
 
@@ -1016,6 +1033,7 @@ function prepareEntryForSave(entry: AdapterEntry): AdapterEntry {
     adapter,
     channel_id: channelId,
     enabled: normalized.enabled !== false,
+    web_login_disabled: normalized.web_login_disabled === true,
     domain: normalized.domain,
     authn: {
       external_org_members: {

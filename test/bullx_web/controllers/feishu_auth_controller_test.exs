@@ -11,16 +11,7 @@ defmodule BullXWeb.FeishuAuthControllerTest do
 
     Application.put_env(:bullx, :gateway,
       adapters: [
-        {{:feishu, "default"}, BullXFeishu.Adapter,
-         %{
-           app_id: "cli_test",
-           app_secret: "secret_test",
-           client: client,
-           sso: %{
-             enabled: true,
-             redirect_uri: "http://localhost:4002/sessions/feishu/callback"
-           }
-         }}
+        {{:feishu, "default"}, BullXFeishu.Adapter, feishu_gateway_config(client)}
       ]
     )
 
@@ -39,6 +30,41 @@ defmodule BullXWeb.FeishuAuthControllerTest do
 
     assert redirected_to(conn, 302) =~ "https://accounts.feishu.cn/open-apis/authen/v1/index"
     assert redirected_to(conn, 302) =~ "app_id=cli_test"
+  end
+
+  test "GET /sessions/feishu refuses provider login when channel disables web login", %{
+    conn: conn,
+    client: client
+  } do
+    Application.put_env(:bullx, :gateway,
+      adapters: [
+        {{:feishu, "default"}, BullXFeishu.Adapter,
+         feishu_gateway_config(client, %{web_login_disabled: true})}
+      ]
+    )
+
+    conn = get(conn, ~p"/sessions/feishu?channel_id=default&return_to=/")
+
+    assert redirected_to(conn) == ~p"/sessions/new"
+  end
+
+  test "SSO callback refuses login when channel disables web login", %{client: client} do
+    Application.put_env(:bullx, :gateway,
+      adapters: [
+        {{:feishu, "default"}, BullXFeishu.Adapter,
+         feishu_gateway_config(client, %{web_login_disabled: true})}
+      ]
+    )
+
+    state =
+      Phoenix.Token.sign(BullXWeb.Endpoint, "bullx_feishu_sso_state", %{
+        "provider" => "feishu",
+        "channel_id" => "default",
+        "return_to" => "/"
+      })
+
+    assert {:error, :web_login_disabled} =
+             BullXFeishu.SSO.login_from_callback(%{"code" => "CODE", "state" => state})
   end
 
   test "callback logs in a bound Feishu user and discards provider tokens", %{conn: conn} do
@@ -95,5 +121,20 @@ defmodule BullXWeb.FeishuAuthControllerTest do
     %UserChannelBinding{}
     |> UserChannelBinding.changeset(attrs)
     |> Repo.insert!()
+  end
+
+  defp feishu_gateway_config(client, attrs \\ %{}) do
+    Map.merge(
+      %{
+        app_id: "cli_test",
+        app_secret: "secret_test",
+        client: client,
+        sso: %{
+          enabled: true,
+          redirect_uri: "http://localhost:4002/sessions/feishu/callback"
+        }
+      },
+      attrs
+    )
   end
 end

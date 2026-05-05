@@ -80,6 +80,11 @@ external_org_members = "授权指定飞书组织内的所有成员使用BullX"
 external_org_members_description = "开启后，此接入平台会把填写的 Tenant Key 作为可信租户断言，并维护全局账号匹配规则。"
 tenant_key_summary = "Tenant Key {$tenant_key}"
 
+[web.setup.gateway.web_login]
+allowed = "允许 Web 登录"
+allowed_description = "开启后，此接入平台可通过服务商登录或 /web_auth 验证码作为 Web 登录凭证。"
+disabled_summary = "Web 登录已禁用"
+
 [web.setup.gateway.errors]
 channel_id_required = "Channel ID 不能为空。"
 app_id_required = "Feishu app_id 不能为空。"

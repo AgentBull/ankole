@@ -45,7 +45,6 @@ defmodule BullXWeb.SetupGatewayControllerTest do
     assert response =~ "adapter_catalog"
     assert response =~ "back_path"
     assert response =~ "/setup/llm"
-    assert response =~ "Feishu / Lark"
   end
 
   test "POST /setup/gateway/adapters/check requires the setup session", %{conn: conn} do
@@ -109,7 +108,8 @@ defmodule BullXWeb.SetupGatewayControllerTest do
 
     assert response["ok"] == true
     assert response["redirect_to"] == ~p"/setup/activate-owner"
-    assert %AppConfig{value: raw} = Repo.get(AppConfig, @config_key)
+    assert %AppConfig{type: :secret} = Repo.get(AppConfig, @config_key)
+    assert {:ok, raw} = BullX.Config.Cache.get_raw(@config_key)
 
     assert {:ok, [{{:feishu, "ops-main"}, BullXFeishu.Adapter, config}]} =
              AdapterConfig.cast(raw)

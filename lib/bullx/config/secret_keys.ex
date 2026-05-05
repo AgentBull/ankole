@@ -31,17 +31,34 @@ defmodule BullX.Config.SecretKeys do
   end
 
   defp build do
-    :code.all_loaded()
-    |> Enum.flat_map(fn {mod, _} ->
-      mod_str = Atom.to_string(mod)
-
-      if String.starts_with?(mod_str, @bullx_prefix) and
-           function_exported?(mod, :__bullx_secret_keys__, 0) do
-        mod.__bullx_secret_keys__()
-      else
-        []
-      end
-    end)
+    configured_modules()
+    |> Enum.flat_map(&secret_keys_for/1)
     |> MapSet.new()
+  end
+
+  defp configured_modules do
+    :code.all_loaded()
+    |> Enum.map(fn {mod, _} -> mod end)
+    |> MapSet.new()
+    |> MapSet.union(application_modules())
+  end
+
+  defp application_modules do
+    case :application.get_key(:bullx, :modules) do
+      {:ok, modules} -> MapSet.new(modules)
+      _other -> MapSet.new()
+    end
+  end
+
+  defp secret_keys_for(mod) when is_atom(mod) do
+    mod_str = Atom.to_string(mod)
+
+    with true <- String.starts_with?(mod_str, @bullx_prefix),
+         {:module, ^mod} <- Code.ensure_loaded(mod),
+         true <- function_exported?(mod, :__bullx_secret_keys__, 0) do
+      mod.__bullx_secret_keys__()
+    else
+      _other -> []
+    end
   end
 end

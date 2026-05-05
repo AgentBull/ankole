@@ -57,64 +57,33 @@ defmodule BullXWeb.SetupSessionControllerTest do
     assert BullX.Config.I18n.i18n_default_locale!() == "zh-Hans-CN"
   end
 
-  test "POST /setup/sessions silently ignores an unsupported locale and still passes the gate",
-       %{conn: conn} do
-    Repo.delete_all(ActivationCode)
-    {:ok, %{code: plaintext}} = BullXAccounts.create_or_refresh_bootstrap_activation_code()
-
-    log =
-      capture_log(fn ->
-        params = %{"bootstrap_code" => plaintext, "locale" => "fr-FR"}
-        conn = post(conn, ~p"/setup/sessions", params)
-
-        assert redirected_to(conn) == ~p"/setup"
-        assert is_binary(get_session(conn, :bootstrap_activation_code_hash))
-      end)
-
-    assert log =~ "Setup gate ignoring unsupported locale"
-
-    refute BullX.Config.I18n.i18n_default_locale!() == "fr-FR"
-  end
-
-  test "POST /setup/sessions warns and ignores a blank locale after a valid code", %{
+  test "POST /setup/sessions ignores invalid locale submissions after a valid code", %{
     conn: conn
   } do
     Repo.delete_all(ActivationCode)
     {:ok, %{code: plaintext}} = BullXAccounts.create_or_refresh_bootstrap_activation_code()
-
     before_locale = BullX.Config.I18n.i18n_default_locale!()
 
-    log =
-      capture_log(fn ->
-        params = %{"bootstrap_code" => plaintext, "locale" => " "}
-        conn = post(conn, ~p"/setup/sessions", params)
+    cases = [
+      {%{"bootstrap_code" => plaintext, "locale" => "fr-FR"},
+       "Setup gate ignoring unsupported locale"},
+      {%{"bootstrap_code" => plaintext, "locale" => " "},
+       "Setup gate ignoring blank or missing locale"},
+      {%{"bootstrap_code" => plaintext}, "Setup gate ignoring blank or missing locale"}
+    ]
 
-        assert redirected_to(conn) == ~p"/setup"
-        assert is_binary(get_session(conn, :bootstrap_activation_code_hash))
-      end)
+    Enum.each(cases, fn {params, expected_log} ->
+      log =
+        capture_log(fn ->
+          conn = post(conn, ~p"/setup/sessions", params)
 
-    assert log =~ "Setup gate ignoring blank or missing locale"
-    assert BullX.Config.I18n.i18n_default_locale!() == before_locale
-  end
+          assert redirected_to(conn) == ~p"/setup"
+          assert is_binary(get_session(conn, :bootstrap_activation_code_hash))
+        end)
 
-  test "POST /setup/sessions warns and ignores a missing locale after a valid code", %{
-    conn: conn
-  } do
-    Repo.delete_all(ActivationCode)
-    {:ok, %{code: plaintext}} = BullXAccounts.create_or_refresh_bootstrap_activation_code()
-
-    before_locale = BullX.Config.I18n.i18n_default_locale!()
-
-    log =
-      capture_log(fn ->
-        conn = post(conn, ~p"/setup/sessions", %{"bootstrap_code" => plaintext})
-
-        assert redirected_to(conn) == ~p"/setup"
-        assert is_binary(get_session(conn, :bootstrap_activation_code_hash))
-      end)
-
-    assert log =~ "Setup gate ignoring blank or missing locale"
-    assert BullX.Config.I18n.i18n_default_locale!() == before_locale
+      assert log =~ expected_log
+      assert BullX.Config.I18n.i18n_default_locale!() == before_locale
+    end)
   end
 
   test "POST /setup/sessions does not write session or config when the code is invalid", %{

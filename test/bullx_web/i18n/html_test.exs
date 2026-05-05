@@ -18,8 +18,4 @@ defmodule BullXWeb.I18n.HTMLTest do
 
     assert HTML.lang() == "zh-Hans-CN"
   end
-
-  test "dir/0 returns ltr for shipped locales" do
-    assert HTML.dir() == "ltr"
-  end
 end

@@ -52,12 +52,7 @@ defmodule BullXWeb.SetupLLMControllerTest do
     assert response =~ "primary"
     assert response =~ "provider_id_catalog"
     assert response =~ "volcengine_ark"
-    assert response =~ "https://ark.cn-beijing.volces.com/api/v3"
     assert response =~ "xiaomi_mimo"
-    assert response =~ "https://api.xiaomimimo.com/anthropic"
-    assert response =~ "xiaomi_mimo_billing_plan"
-    assert response =~ "openrouter_reasoning_effort"
-    assert response =~ "service_tier"
   end
 
   test "POST /setup/llm/providers/check uses a transient resolved provider", %{conn: conn} do

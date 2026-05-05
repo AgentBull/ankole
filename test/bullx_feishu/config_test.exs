@@ -37,6 +37,7 @@ defmodule BullXFeishu.ConfigTest do
     assert config.channel == {:feishu, "default"}
     assert config.app_id == "cli_test"
     assert config.app_secret == "secret_test"
+    assert Config.web_login_allowed?(config)
     assert config.domain == :lark
     assert config.dedupe_ttl_ms == 123
     assert config.sso.redirect_uri == "https://bullx.test/sessions/feishu/callback"

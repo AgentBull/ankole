@@ -19,6 +19,7 @@ defmodule BullXFeishu.SSO do
     return_to = safe_return_to(Map.get(params, "return_to"))
 
     with {:ok, config} <- config_for_channel(channel_id, opts),
+         :ok <- ensure_web_login_allowed(config),
          :ok <- ensure_sso_enabled(config),
          {:ok, redirect_uri} <- redirect_uri(config),
          state <- signed_state(config, channel_id, return_to) do
@@ -32,6 +33,7 @@ defmodule BullXFeishu.SSO do
     with {:ok, state} <- verify_state(Map.get(params, "state"), opts),
          {:ok, code} <- callback_code(params),
          {:ok, config} <- config_for_channel(state["channel_id"], opts),
+         :ok <- ensure_web_login_allowed(config),
          {:ok, tokens} <- Auth.user_access_token(Config.client!(config), code),
          {:ok, userinfo} <- fetch_userinfo(config, tokens.access_token),
          {:ok, input} <- provider_input(userinfo, config),
@@ -67,7 +69,17 @@ defmodule BullXFeishu.SSO do
   end
 
   defp ensure_sso_enabled(%Config{} = config) do
-    if Config.sso_enabled?(config), do: :ok, else: {:error, :sso_disabled}
+    case Config.sso_enabled?(config) do
+      true -> :ok
+      false -> {:error, :sso_disabled}
+    end
+  end
+
+  defp ensure_web_login_allowed(%Config{} = config) do
+    case Config.web_login_allowed?(config) do
+      true -> :ok
+      false -> {:error, :web_login_disabled}
+    end
   end
 
   defp redirect_uri(%Config{sso: %{redirect_uri: uri}}) when is_binary(uri), do: {:ok, uri}

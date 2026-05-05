@@ -113,25 +113,12 @@ defmodule BullXFeishu.DirectCommand do
     external_id = command.actor.id
 
     text =
-      case config.accounts_module.issue_user_channel_auth_code(
-             :feishu,
-             config.channel_id,
-             external_id
-           ) do
-        {:ok, code} ->
-          BullX.I18n.t("gateway.feishu.auth.web_auth_created", %{
-            code: code,
-            login_url: web_login_url(config)
-          })
+      case Config.web_login_allowed?(config) do
+        true ->
+          issue_web_auth_code(config, external_id)
 
-        {:error, :not_bound} ->
-          BullX.I18n.t("gateway.feishu.auth.web_auth_not_bound")
-
-        {:error, :user_banned} ->
-          BullX.I18n.t("gateway.feishu.auth.denied")
-
-        {:error, _} ->
-          BullX.I18n.t("gateway.feishu.auth.web_auth_failed")
+        false ->
+          BullX.I18n.t("gateway.feishu.auth.web_auth_disabled")
       end
 
     reply_and_cache(command, config, cache, text, "web_auth")
@@ -145,6 +132,29 @@ defmodule BullXFeishu.DirectCommand do
       BullX.I18n.t("gateway.feishu.errors.unsupported_message"),
       command.name
     )
+  end
+
+  defp issue_web_auth_code(config, external_id) do
+    case config.accounts_module.issue_user_channel_auth_code(
+           :feishu,
+           config.channel_id,
+           external_id
+         ) do
+      {:ok, code} ->
+        BullX.I18n.t("gateway.feishu.auth.web_auth_created", %{
+          code: code,
+          login_url: web_login_url(config)
+        })
+
+      {:error, :not_bound} ->
+        BullX.I18n.t("gateway.feishu.auth.web_auth_not_bound")
+
+      {:error, :user_banned} ->
+        BullX.I18n.t("gateway.feishu.auth.denied")
+
+      {:error, _} ->
+        BullX.I18n.t("gateway.feishu.auth.web_auth_failed")
+    end
   end
 
   defp reply_and_cache(command, config, cache, text, command_name) do

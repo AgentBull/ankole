@@ -302,6 +302,8 @@ The Web control plane supports two login paths.
 
 A Gateway channel may declare that its adapter supports Web login provider capability. The provider protocol can be OIDC-like, SAML-like, or platform-private. BullXAccounts does not implement a generic OIDC/SAML provider abstraction in this RFC.
 
+Each configured Gateway adapter channel has a top-level `web_login_disabled` boolean. The default is `false`, preserving the default posture that a configured channel may be used as a Web login credential. If `web_login_disabled = true`, BullXWeb must not offer or complete provider login for that adapter channel, even when the adapter's provider capability is otherwise configured.
+
 The adapter must normalize provider-returned identity data to the same channel identity/profile semantics used by IM-side binding:
 
 - `adapter`
@@ -333,6 +335,8 @@ BullXAccounts creates a short-lived one-time user channel auth code and sends it
 User channel auth codes are Device Code Flow-like, but they are an internal BullX mechanism. They prove that an already bound active user controls the current channel. They do not register or bind unbound actors.
 
 `/web_auth` is valid only when `{adapter, channel_id, external_id}` resolves to an active BullX user. If the actor is unbound, the adapter should use automatic matching or `/preauth <code>` activation flow instead. If the user is banned, no auth code is issued.
+
+The adapter command handler must also honor the same top-level `web_login_disabled` channel configuration used by provider login. If `web_login_disabled = true`, `/web_auth` must not issue a user channel auth code for that adapter channel. This does not disable `/preauth <code>` activation and does not change channel binding or matching rules.
 
 Auth-code characters are uppercase letters and digits with visually confusing characters removed. Length is a code constant. TTL is `BullX.Config` runtime configuration. The system stores only `code_hash`. Successful consumption deletes the row immediately.
 
@@ -498,6 +502,8 @@ Initial settings:
 - `accounts_activation_code_ttl_seconds`: positive integer. Default: `86400`.
 - `accounts_web_auth_code_ttl_seconds`: positive integer. Default: `300`.
 
+Gateway adapter channel configuration additionally carries the top-level `web_login_disabled` boolean. It defaults to `false` per adapter channel and gates only Web login credentials for that channel: provider login and `/web_auth` auth-code issuance. It does not belong under AuthN match policy configuration and does not affect `/preauth` activation.
+
 With the defaults, a fresh deployment is closed to arbitrary automatic user creation unless a trusted match rule is configured. The startup bootstrap check creates and logs one activation code so the setup operator can still activate through `/preauth`.
 
 All settings follow RFC 0001 resolution semantics: PostgreSQL override, OS environment, application config, then default. Invalid higher-priority values are skipped rather than treated as terminal failures.
@@ -660,11 +666,12 @@ Tests must prove:
     - Operator-issued activation codes (without the bootstrap marker) do not satisfy or interfere with the bootstrap check.
 17. Provider login follows the same binding/creation/activation decisions as channel matching.
 18. `/web_auth` issuance fails for unbound or banned actors.
-19. User channel auth codes expire by TTL and are deleted on successful consumption.
-20. Web login stores only session identity and reloads the durable user on authenticated requests.
-21. Invalid email format and invalid phone number format are rejected at the changeset level; a valid phone is normalized to canonical E.164 before storage.
-22. `DELETE /sessions` clears the session and redirects to `/sessions/new`.
-23. The setup gate enforces both halves of the bootstrap flow:
+19. Provider login and `/web_auth` issuance both fail for an adapter channel with `web_login_disabled = true`; `/preauth` activation remains available.
+20. User channel auth codes expire by TTL and are deleted on successful consumption.
+21. Web login stores only session identity and reloads the durable user on authenticated requests.
+22. Invalid email format and invalid phone number format are rejected at the changeset level; a valid phone is normalized to canonical E.164 before storage.
+23. `DELETE /sessions` clears the session and redirects to `/sessions/new`.
+24. The setup gate enforces both halves of the bootstrap flow:
     - `GET /` redirects to `/setup` only when both `setup_required?/0` and `bootstrap_activation_code_pending?/0` are true; otherwise it falls through to the normal control-plane behavior.
     - `GET /setup` renders the setup React SPA when `:bootstrap_activation_code_hash` in the cookie session matches a still-valid bootstrap row, and redirects to `/setup/sessions/new` after dropping the stale session key when it does not.
     - `POST /setup/sessions` with a valid bootstrap code stores the matched row's `code_hash` in the cookie session and redirects to `/setup`. With an invalid code, it neither writes the cookie nor persists the locale, and re-renders the gate with an error flash.

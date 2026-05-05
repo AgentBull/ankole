@@ -80,6 +80,11 @@ external_org_members = "Allow all members of a specified Feishu organization to 
 external_org_members_description = "When enabled, this channel writes the Tenant Key as a trusted tenant assertion and maintains the global account match rule."
 tenant_key_summary = "Tenant Key {$tenant_key}"
 
+[web.setup.gateway.web_login]
+allowed = "Allow Web login"
+allowed_description = "When enabled, this channel can be used as a Web login credential through provider login or /web_auth codes."
+disabled_summary = "Web login disabled"
+
 [web.setup.gateway.errors]
 channel_id_required = "Channel ID is required."
 app_id_required = "Feishu app_id is required."
