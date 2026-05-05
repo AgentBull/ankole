@@ -16,6 +16,11 @@ config :bullx,
 
 config :req_llm, load_dotenv: false
 
+config :nostrum,
+  ffmpeg: false,
+  youtubedl: false,
+  streamlink: false
+
 # Configure the endpoint
 config :bullx, BullXWeb.Endpoint,
   url: [host: "localhost"],

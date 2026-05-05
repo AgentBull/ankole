@@ -10,7 +10,8 @@ defmodule BullXGateway.AdapterConfig do
   """
 
   @config_key "bullx.gateway.adapters"
-  @secret_fields ~w(app_secret)
+  @feishu_secret_fields ~w(app_secret)
+  @discord_secret_fields ~w(bot_token client_secret)
 
   @feishu_defaults %{
     "id" => "feishu:",
@@ -38,6 +39,36 @@ defmodule BullXGateway.AdapterConfig do
     }
   }
 
+  @discord_defaults %{
+    "id" => "discord:",
+    "adapter" => "discord",
+    "channel_id" => "",
+    "enabled" => true,
+    "web_login_disabled" => false,
+    "credentials" => %{
+      "application_id" => "",
+      "bot_token" => "",
+      "client_secret" => ""
+    },
+    "attention" => %{
+      "allowed_channel_ids" => [],
+      "ignored_channel_ids" => [],
+      "require_mention" => true
+    },
+    "auto_thread" => %{
+      "enabled" => true,
+      "auto_archive_duration_minutes" => 1440,
+      "no_thread_channel_ids" => []
+    },
+    "advanced" => %{
+      "dedupe_ttl_ms" => :timer.minutes(5),
+      "thread_ownership_cache_ttl_ms" => :timer.hours(24),
+      "stream_update_interval_ms" => 1000,
+      "stream_chunk_soft_limit" => 1850,
+      "application_commands_sync_policy" => "safe"
+    }
+  }
+
   @type entry :: map()
   @type runtime_spec :: {BullXGateway.Delivery.channel(), module(), map()}
 
@@ -46,6 +77,7 @@ defmodule BullXGateway.AdapterConfig do
 
   @spec default_entry(String.t()) :: entry()
   def default_entry("feishu"), do: Map.put(@feishu_defaults, "id", unique_entry_id("feishu"))
+  def default_entry("discord"), do: Map.put(@discord_defaults, "id", unique_entry_id("discord"))
   def default_entry(_adapter), do: default_entry("feishu")
 
   @spec catalog(String.t() | atom()) :: [map()]
@@ -65,6 +97,15 @@ defmodule BullXGateway.AdapterConfig do
           }
         ],
         "default_entry" => default_entry("feishu")
+      },
+      %{
+        "adapter" => "discord",
+        "label" => "Discord",
+        "module" => inspect(BullXDiscord.Adapter),
+        "transport" => "gateway",
+        "config_doc_url" => BullXGateway.Adapter.config_doc_url(BullXDiscord.Adapter, locale),
+        "authn_policies" => [],
+        "default_entry" => default_entry("discord")
       }
     ]
   end
@@ -182,6 +223,17 @@ defmodule BullXGateway.AdapterConfig do
     end
   end
 
+  def runtime_spec(%{"adapter" => "discord", "channel_id" => channel_id} = entry) do
+    channel = {:discord, channel_id}
+    config = discord_runtime_config(entry)
+
+    with {:ok, _cfg} <- BullXDiscord.Config.normalize(channel, config) do
+      {:ok, {channel, BullXDiscord.Adapter, config}}
+    else
+      {:error, error} -> {:error, adapter_error(error)}
+    end
+  end
+
   def runtime_spec(%{"adapter" => adapter}) do
     {:error, validation_error("config", "unsupported adapter #{inspect(adapter)}", "adapter")}
   end
@@ -242,7 +294,7 @@ defmodule BullXGateway.AdapterConfig do
     credentials = Map.get(entry, "credentials", %{})
 
     secret_status =
-      Map.new(@secret_fields, fn field ->
+      Map.new(secret_fields(entry), fn field ->
         status =
           case present_binary?(Map.get(credentials, field)) do
             true -> "stored"
@@ -253,7 +305,7 @@ defmodule BullXGateway.AdapterConfig do
       end)
 
     redacted_credentials =
-      Enum.reduce(@secret_fields, credentials, fn field, acc ->
+      Enum.reduce(secret_fields(entry), credentials, fn field, acc ->
         Map.put(acc, field, "")
       end)
 
@@ -277,6 +329,10 @@ defmodule BullXGateway.AdapterConfig do
       when adapter in [:feishu, "feishu"] and is_binary(channel_id) and is_map(config) ->
         [entry_from_feishu_runtime_config(channel_id, config)]
 
+      {{adapter, channel_id}, BullXDiscord.Adapter, config}
+      when adapter in [:discord, "discord"] and is_binary(channel_id) and is_map(config) ->
+        [entry_from_discord_runtime_config(channel_id, config)]
+
       _other ->
         []
     end)
@@ -296,6 +352,22 @@ defmodule BullXGateway.AdapterConfig do
       "app_secret" => get_value(config, :app_secret, "")
     })
     |> Map.put("advanced", normalize_runtime_advanced_map(config))
+  end
+
+  defp entry_from_discord_runtime_config(channel_id, config) do
+    @discord_defaults
+    |> Map.put("id", "discord:#{channel_id}")
+    |> Map.put("channel_id", channel_id)
+    |> Map.put("enabled", true)
+    |> Map.put("web_login_disabled", get_value(config, :web_login_disabled, false) == true)
+    |> Map.put("credentials", %{
+      "application_id" => get_value(config, :application_id, ""),
+      "bot_token" => get_value(config, :bot_token, ""),
+      "client_secret" => get_value(config, :client_secret, "")
+    })
+    |> Map.put("attention", normalize_runtime_attention_map(config))
+    |> Map.put("auto_thread", normalize_runtime_auto_thread_map(config))
+    |> Map.put("advanced", normalize_runtime_discord_advanced_map(config))
   end
 
   defp normalize_known_entry(entry, "feishu", channel_id) do
@@ -319,8 +391,32 @@ defmodule BullXGateway.AdapterConfig do
     validate_required_for_enabled(normalized)
   end
 
+  defp normalize_known_entry(entry, "discord", channel_id) do
+    credentials = normalize_discord_credentials(Map.get(entry, "credentials", %{}))
+    defaults = @discord_defaults
+
+    normalized =
+      %{
+        "id" => present_or_default(Map.get(entry, "id"), "discord:#{channel_id}"),
+        "adapter" => "discord",
+        "channel_id" => channel_id,
+        "enabled" => normalize_boolean(Map.get(entry, "enabled"), defaults["enabled"]),
+        "web_login_disabled" =>
+          normalize_boolean(Map.get(entry, "web_login_disabled"), defaults["web_login_disabled"]),
+        "credentials" => credentials,
+        "attention" => normalize_attention_map(Map.get(entry, "attention", %{})),
+        "auto_thread" => normalize_auto_thread_map(Map.get(entry, "auto_thread", %{})),
+        "advanced" => normalize_discord_advanced_map(Map.get(entry, "advanced", %{}))
+      }
+
+    validate_required_for_enabled(normalized)
+  end
+
   defp normalize_adapter(%{"adapter" => adapter}) when adapter in ["feishu", :feishu],
     do: {:ok, "feishu"}
+
+  defp normalize_adapter(%{"adapter" => adapter}) when adapter in ["discord", :discord],
+    do: {:ok, "discord"}
 
   defp normalize_adapter(%{"adapter" => adapter}) do
     {:error, validation_error("config", "unsupported adapter #{inspect(adapter)}", "adapter")}
@@ -330,7 +426,9 @@ defmodule BullXGateway.AdapterConfig do
 
   defp validate_required_for_enabled(%{"enabled" => false} = entry), do: {:ok, entry}
 
-  defp validate_required_for_enabled(%{"credentials" => credentials} = entry) do
+  defp validate_required_for_enabled(
+         %{"adapter" => "feishu", "credentials" => credentials} = entry
+       ) do
     cond do
       not present_binary?(credentials["app_id"]) ->
         {:error, validation_error("config", "Feishu app_id is required", "credentials.app_id")}
@@ -349,6 +447,43 @@ defmodule BullXGateway.AdapterConfig do
 
       entry["domain"] not in ["feishu", "lark"] ->
         {:error, validation_error("config", "Feishu domain must be feishu or lark", "domain")}
+
+      true ->
+        {:ok, entry}
+    end
+  end
+
+  defp validate_required_for_enabled(
+         %{"adapter" => "discord", "credentials" => credentials} = entry
+       ) do
+    cond do
+      not present_binary?(credentials["application_id"]) ->
+        {:error,
+         validation_error(
+           "config",
+           "Discord application_id is required",
+           "credentials.application_id"
+         )}
+
+      not present_binary?(credentials["bot_token"]) ->
+        {:error,
+         validation_error("config", "Discord bot_token is required", "credentials.bot_token")}
+
+      entry["web_login_disabled"] != true and not present_binary?(credentials["client_secret"]) ->
+        {:error,
+         validation_error(
+           "config",
+           "Discord client_secret is required",
+           "credentials.client_secret"
+         )}
+
+      entry["attention"]["require_mention"] != true ->
+        {:error,
+         validation_error(
+           "config",
+           "Discord free-response attention is not enabled",
+           "attention.require_mention"
+         )}
 
       true ->
         {:ok, entry}
@@ -446,7 +581,14 @@ defmodule BullXGateway.AdapterConfig do
     |> Map.put("channel_id", channel_id)
   end
 
+  defp defaults_for("discord", channel_id) when is_binary(channel_id) do
+    @discord_defaults
+    |> Map.put("id", "discord:#{channel_id}")
+    |> Map.put("channel_id", channel_id)
+  end
+
   defp defaults_for("feishu", _channel_id), do: @feishu_defaults
+  defp defaults_for("discord", _channel_id), do: @discord_defaults
   defp defaults_for(_adapter, _channel_id), do: @feishu_defaults
 
   defp merge_default_entry(entry, defaults) when is_map(defaults) do
@@ -480,7 +622,7 @@ defmodule BullXGateway.AdapterConfig do
     existing_credentials = Map.get(existing, "credentials", %{})
 
     credentials =
-      Enum.reduce(@secret_fields, submitted_credentials, fn field, acc ->
+      Enum.reduce(secret_fields(entry), submitted_credentials, fn field, acc ->
         case present_binary?(Map.get(acc, field)) do
           true -> acc
           false -> maybe_put_existing_secret(acc, field, Map.get(existing_credentials, field))
@@ -509,6 +651,16 @@ defmodule BullXGateway.AdapterConfig do
     })
   end
 
+  defp normalize_discord_credentials(value) do
+    value = normalize_nested_map(value)
+
+    Map.merge(@discord_defaults["credentials"], %{
+      "application_id" => normalized_string(value["application_id"]),
+      "bot_token" => normalized_string(value["bot_token"]),
+      "client_secret" => normalized_string(value["client_secret"])
+    })
+  end
+
   defp normalize_advanced_map(value) when is_map(value) do
     value = normalize_nested_map(value)
     defaults = @feishu_defaults["advanced"]
@@ -519,6 +671,53 @@ defmodule BullXGateway.AdapterConfig do
   end
 
   defp normalize_advanced_map(_value), do: @feishu_defaults["advanced"]
+
+  defp normalize_discord_advanced_map(value) when is_map(value) do
+    value = normalize_nested_map(value)
+    defaults = @discord_defaults["advanced"]
+
+    defaults
+    |> Map.take([
+      "dedupe_ttl_ms",
+      "thread_ownership_cache_ttl_ms",
+      "stream_update_interval_ms",
+      "stream_chunk_soft_limit"
+    ])
+    |> Map.new(fn {key, default} ->
+      {key, non_negative_integer(value[key], default)}
+    end)
+    |> Map.put(
+      "application_commands_sync_policy",
+      normalize_discord_sync_policy(value["application_commands_sync_policy"])
+    )
+  end
+
+  defp normalize_discord_advanced_map(_value), do: @discord_defaults["advanced"]
+
+  defp normalize_attention_map(value) when is_map(value) do
+    value = normalize_nested_map(value)
+
+    %{
+      "allowed_channel_ids" => normalize_string_list(value["allowed_channel_ids"]),
+      "ignored_channel_ids" => normalize_string_list(value["ignored_channel_ids"]),
+      "require_mention" => normalize_boolean(value["require_mention"], true)
+    }
+  end
+
+  defp normalize_attention_map(_value), do: @discord_defaults["attention"]
+
+  defp normalize_auto_thread_map(value) when is_map(value) do
+    value = normalize_nested_map(value)
+
+    %{
+      "enabled" => normalize_boolean(value["enabled"], true),
+      "auto_archive_duration_minutes" =>
+        non_negative_integer(value["auto_archive_duration_minutes"], 1440),
+      "no_thread_channel_ids" => normalize_string_list(value["no_thread_channel_ids"])
+    }
+  end
+
+  defp normalize_auto_thread_map(_value), do: @discord_defaults["auto_thread"]
 
   defp normalize_authn_map(value) when is_map(value) do
     value = normalize_nested_map(value)
@@ -544,6 +743,42 @@ defmodule BullXGateway.AdapterConfig do
 
   defp normalize_runtime_advanced_map(_config), do: @feishu_defaults["advanced"]
 
+  defp normalize_runtime_discord_advanced_map(config) when is_map(config) do
+    defaults = @discord_defaults["advanced"]
+
+    defaults
+    |> Map.take([
+      "dedupe_ttl_ms",
+      "thread_ownership_cache_ttl_ms",
+      "stream_update_interval_ms",
+      "stream_chunk_soft_limit"
+    ])
+    |> Map.new(fn {key, default} ->
+      {key,
+       non_negative_integer(get_runtime_discord_advanced_value(config, key, default), default)}
+    end)
+    |> Map.put(
+      "application_commands_sync_policy",
+      normalize_discord_sync_policy(
+        get_runtime_discord_advanced_value(config, "application_commands_sync_policy", "safe")
+      )
+    )
+  end
+
+  defp normalize_runtime_discord_advanced_map(_config), do: @discord_defaults["advanced"]
+
+  defp normalize_runtime_attention_map(config) when is_map(config) do
+    config
+    |> get_value(:attention, %{})
+    |> normalize_attention_map()
+  end
+
+  defp normalize_runtime_auto_thread_map(config) when is_map(config) do
+    config
+    |> get_value(:auto_thread, %{})
+    |> normalize_auto_thread_map()
+  end
+
   defp get_runtime_advanced_value(config, "dedupe_ttl_ms", default),
     do: get_value(config, :dedupe_ttl_ms, default)
 
@@ -558,6 +793,24 @@ defmodule BullXGateway.AdapterConfig do
 
   defp get_runtime_advanced_value(config, "stream_update_interval_ms", default),
     do: get_value(config, :stream_update_interval_ms, default)
+
+  defp get_runtime_discord_advanced_value(config, "dedupe_ttl_ms", default),
+    do: get_value(config, :dedupe_ttl_ms, default)
+
+  defp get_runtime_discord_advanced_value(config, "thread_ownership_cache_ttl_ms", default),
+    do: get_value(config, :thread_ownership_cache_ttl_ms, default)
+
+  defp get_runtime_discord_advanced_value(config, "stream_update_interval_ms", default),
+    do: get_value(config, :stream_update_interval_ms, default)
+
+  defp get_runtime_discord_advanced_value(config, "stream_chunk_soft_limit", default),
+    do: get_value(config, :stream_chunk_soft_limit, default)
+
+  defp get_runtime_discord_advanced_value(config, "application_commands_sync_policy", default) do
+    config
+    |> get_value(:application_commands, %{})
+    |> get_value(:sync_policy, default)
+  end
 
   defp normalize_nested_map(value) do
     case stringify_nested(value) do
@@ -649,6 +902,36 @@ defmodule BullXGateway.AdapterConfig do
     }
   end
 
+  defp discord_runtime_config(entry) do
+    credentials = entry["credentials"]
+    advanced = entry["advanced"]
+
+    %{
+      application_id: credentials["application_id"],
+      bot_token: credentials["bot_token"],
+      client_secret: credentials["client_secret"],
+      web_login_disabled: entry["web_login_disabled"],
+      attention: %{
+        allowed_channel_ids: entry["attention"]["allowed_channel_ids"],
+        ignored_channel_ids: entry["attention"]["ignored_channel_ids"],
+        require_mention: entry["attention"]["require_mention"]
+      },
+      auto_thread: %{
+        enabled: entry["auto_thread"]["enabled"],
+        auto_archive_duration_minutes: entry["auto_thread"]["auto_archive_duration_minutes"],
+        no_thread_channel_ids: entry["auto_thread"]["no_thread_channel_ids"]
+      },
+      dedupe_ttl_ms: advanced["dedupe_ttl_ms"],
+      thread_ownership_cache_ttl_ms: advanced["thread_ownership_cache_ttl_ms"],
+      stream_update_interval_ms: advanced["stream_update_interval_ms"],
+      stream_chunk_soft_limit: advanced["stream_chunk_soft_limit"],
+      application_commands: %{
+        sync_policy: advanced["application_commands_sync_policy"]
+      },
+      sso: %{scopes: ["identify", "email"]}
+    }
+  end
+
   defp runtime_domain("feishu"), do: :feishu
   defp runtime_domain("lark"), do: :lark
   defp runtime_domain(value), do: value
@@ -694,6 +977,22 @@ defmodule BullXGateway.AdapterConfig do
   defp atom_to_string(value) when is_atom(value), do: Atom.to_string(value)
   defp atom_to_string(value) when is_binary(value), do: value
   defp atom_to_string(value), do: to_string(value)
+
+  defp normalize_string_list(values) when is_list(values) do
+    values
+    |> Enum.map(&normalized_string/1)
+    |> Enum.reject(&(&1 == ""))
+  end
+
+  defp normalize_string_list(_values), do: []
+
+  defp normalize_discord_sync_policy(value) when value in ["safe", "off"], do: value
+  defp normalize_discord_sync_policy(value) when value in [:safe, :off], do: Atom.to_string(value)
+  defp normalize_discord_sync_policy(_value), do: "safe"
+
+  defp secret_fields(%{"adapter" => "discord"}), do: @discord_secret_fields
+  defp secret_fields(%{"adapter" => "feishu"}), do: @feishu_secret_fields
+  defp secret_fields(_entry), do: @feishu_secret_fields
 
   defp external_org_members_enabled?(%{
          "authn" => %{"external_org_members" => %{"enabled" => true}}

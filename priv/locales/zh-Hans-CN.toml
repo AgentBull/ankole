@@ -113,3 +113,34 @@ reply_target_missing_sent_to_scope = "原回复目标不存在，已发送到当
 [gateway.feishu.errors]
 unsupported_message = "[不支持的飞书消息]"
 profile_unavailable = "无法获取飞书用户资料。"
+
+[gateway.discord.auth]
+activation_required = "请在与机器人的 Discord 私聊中发送 /preauth <code> 激活这个账号。"
+activation_success = "激活完成。这个 Discord 账号已关联到 BullX。"
+activation_code_invalid = "激活码无效或已过期。"
+activation_failed = "激活失败。请重试，或向管理员获取新的激活码。"
+already_linked = "这个 Discord 账号已经关联。"
+web_auth_created = "登录验证码：{$code}\n打开 {$login_url} 完成登录。"
+web_auth_not_bound = "这个 Discord 账号尚未关联。请先使用 /preauth <code> 激活。"
+web_auth_disabled = "此 Discord 接入平台已禁用 Web 登录。"
+web_auth_failed = "无法启动 Discord 登录。请稍后重试。"
+login_not_bound = "这个 Discord 账号尚未关联。请先在 Discord 中使用 /preauth <code> 激活。"
+denied = "这个账号不能使用 BullX。"
+direct_command_dm_only = "请私聊机器人完成关联或登录。"
+
+[gateway.discord.ping]
+pong = "PONG!"
+
+[gateway.discord.ask]
+accepted = "BullX 将在此会话中处理。"
+
+[gateway.discord.delivery]
+fallback_text = "[消息]"
+stream_generating = "正在生成..."
+stream_failed = "流式回复失败。"
+stream_cancelled = "流式回复已取消。"
+
+[gateway.discord.errors]
+unsupported_message = "[不支持的 Discord 消息]"
+profile_unavailable = "无法获取 Discord 用户资料。"
+thread_create_failed = "无法为此次请求创建 Discord thread。"

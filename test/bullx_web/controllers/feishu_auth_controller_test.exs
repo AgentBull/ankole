@@ -3,7 +3,7 @@ defmodule BullXWeb.FeishuAuthControllerTest do
 
   alias BullXAccounts.{User, UserChannelBinding}
 
-  @callback_url "http://localhost:4000/sessions/default/callback"
+  @callback_url "http://localhost:4000/sessions/feishu/default/callback"
 
   setup do
     previous_gateway = Application.get_env(:bullx, :gateway)
@@ -30,7 +30,7 @@ defmodule BullXWeb.FeishuAuthControllerTest do
   test "GET /sessions/:channel_id redirects to Feishu authorization URL and stores cookie state",
        %{conn: conn} do
     conn = %{conn | scheme: :http, host: "internal-host", port: 4000}
-    conn = get(conn, ~p"/sessions/default?return_to=/")
+    conn = get(conn, ~p"/sessions/feishu/default?return_to=/")
 
     redirect = redirected_to(conn, 302)
     query = auth_redirect_query(redirect)
@@ -62,7 +62,7 @@ defmodule BullXWeb.FeishuAuthControllerTest do
       ]
     )
 
-    conn = get(conn, ~p"/sessions/default?return_to=/")
+    conn = get(conn, ~p"/sessions/feishu/default?return_to=/")
 
     assert redirected_to(conn) == ~p"/sessions/new"
     assert get_session(conn, :session_controller_state) == nil
@@ -126,7 +126,7 @@ defmodule BullXWeb.FeishuAuthControllerTest do
           "issued_at" => System.system_time(:second)
         }
       })
-      |> get(~p"/sessions/default/callback?code=CODE&state=#{state}")
+      |> get(~p"/sessions/feishu/default/callback?code=CODE&state=#{state}")
 
     assert redirected_to(conn) == ~p"/"
     assert get_session(conn, :user_id) == user.id
@@ -154,7 +154,7 @@ defmodule BullXWeb.FeishuAuthControllerTest do
           "issued_at" => System.system_time(:second)
         }
       })
-      |> get(~p"/sessions/default/callback?code=CODE&state=STATE")
+      |> get(~p"/sessions/feishu/default/callback?code=CODE&state=STATE")
 
     assert redirected_to(conn) == ~p"/sessions/new"
     assert get_session(conn, :user_id) == nil

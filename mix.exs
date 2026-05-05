@@ -53,6 +53,7 @@ defmodule BullX.MixProject do
       {:yaml_elixir, "~> 2.12"},
       {:swoosh, "~> 1.16"},
       {:feishu_openapi, path: "packages/feishu_openapi"},
+      {:nostrum, github: "Kraigie/nostrum", ref: "03b06ba1c5094b83991097b1ce76b5fe2740324c"},
       {:req, "~> 0.5"},
       {:telemetry_metrics, "~> 1.0"},
       {:telemetry_poller, "~> 1.0"},

@@ -1,4 +1,4 @@
-defmodule BullXWeb.FeishuAuthController do
+defmodule BullXWeb.DiscordAuthController do
   use BullXWeb, :controller
 
   @session_key :session_controller_state
@@ -9,11 +9,11 @@ defmodule BullXWeb.FeishuAuthController do
     state = random_state()
 
     with :ok <- ensure_channel_id_available(channel_id),
-         redirect_uri <- BullXWeb.Sessions.callback_url("feishu", channel_id),
-         {:ok, url} <- BullXFeishu.SSO.authorization_url(channel_id, redirect_uri, state) do
+         redirect_uri <- BullXWeb.Sessions.callback_url("discord", channel_id),
+         {:ok, url} <- BullXDiscord.SSO.authorization_url(channel_id, redirect_uri, state) do
       conn
       |> put_session(@session_key, %{
-        "provider" => "feishu",
+        "provider" => "discord",
         "channel_id" => channel_id,
         "return_to" => return_to,
         "nonce" => state,
@@ -23,7 +23,7 @@ defmodule BullXWeb.FeishuAuthController do
     else
       {:error, _reason} ->
         conn
-        |> put_flash(:error, BullX.I18n.t("gateway.feishu.auth.web_auth_failed"))
+        |> put_flash(:error, BullX.I18n.t("gateway.discord.auth.web_auth_failed"))
         |> redirect(to: ~p"/sessions/new")
     end
   end
@@ -31,7 +31,7 @@ defmodule BullXWeb.FeishuAuthController do
   def callback(conn, %{"channel_id" => channel_id} = params) do
     with :ok <- ensure_channel_id_available(channel_id),
          {:ok, pending} <- verify_pending_state(conn, channel_id, Map.get(params, "state")),
-         redirect_uri <- BullXWeb.Sessions.callback_url("feishu", channel_id),
+         redirect_uri <- BullXWeb.Sessions.callback_url("discord", channel_id),
          login_params <-
            Map.merge(params, %{
              "channel_id" => channel_id,
@@ -39,7 +39,7 @@ defmodule BullXWeb.FeishuAuthController do
              "return_to" => pending["return_to"]
            }),
          {:ok, %{user: user, return_to: return_to}} <-
-           BullXFeishu.SSO.login_from_callback(login_params) do
+           BullXDiscord.SSO.login_from_callback(login_params) do
       conn
       |> BullXWeb.Sessions.renew_session()
       |> put_session(:user_id, user.id)
@@ -49,17 +49,17 @@ defmodule BullXWeb.FeishuAuthController do
       {:error, :not_bound} ->
         conn
         |> delete_session(@session_key)
-        |> login_failed(BullX.I18n.t("gateway.feishu.auth.login_not_bound"))
+        |> login_failed(BullX.I18n.t("gateway.discord.auth.login_not_bound"))
 
       {:error, :user_banned} ->
         conn
         |> delete_session(@session_key)
-        |> login_failed(BullX.I18n.t("gateway.feishu.auth.denied"))
+        |> login_failed(BullX.I18n.t("gateway.discord.auth.denied"))
 
       {:error, _reason} ->
         conn
         |> delete_session(@session_key)
-        |> login_failed(BullX.I18n.t("gateway.feishu.auth.web_auth_failed"))
+        |> login_failed(BullX.I18n.t("gateway.discord.auth.web_auth_failed"))
     end
   end
 
@@ -79,7 +79,7 @@ defmodule BullXWeb.FeishuAuthController do
   defp verify_pending_state(conn, channel_id, state) when is_binary(state) do
     case get_session(conn, @session_key) do
       %{
-        "provider" => "feishu",
+        "provider" => "discord",
         "channel_id" => ^channel_id,
         "nonce" => ^state,
         "issued_at" => issued_at

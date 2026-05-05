@@ -8,10 +8,12 @@ defmodule BullXWeb.Sessions do
 
   import Plug.Conn, only: [clear_session: 1, configure_session: 2]
 
+  alias BullXDiscord.Config, as: DiscordConfig
   alias BullXFeishu.Config, as: FeishuConfig
 
   @login_providers_cache_key {__MODULE__, :login_providers}
   @reserved_channel_ids ~w(new)
+  @providers ~w(feishu discord)
 
   @spec callback_origin() :: String.t()
   def callback_origin do
@@ -19,9 +21,10 @@ defmodule BullXWeb.Sessions do
     |> String.trim_trailing("/")
   end
 
-  @spec callback_url(String.t()) :: String.t()
-  def callback_url(channel_id) when is_binary(channel_id) do
-    callback_origin() <> ~p"/sessions/#{channel_id}/callback"
+  @spec callback_url(String.t() | atom(), String.t()) :: String.t()
+  def callback_url(provider, channel_id) when is_binary(channel_id) do
+    provider = normalize_provider(provider)
+    callback_origin() <> provider_callback_path(provider, channel_id)
   end
 
   @spec login_providers() :: [map()]
@@ -86,7 +89,26 @@ defmodule BullXWeb.Sessions do
           provider: "feishu",
           channel_id: channel_id,
           label: provider_label(config),
-          href: ~p"/sessions/#{channel_id}"
+          href: ~p"/sessions/feishu/#{channel_id}"
+        }
+      ]
+    else
+      _other -> []
+    end
+  end
+
+  defp login_provider({{adapter, channel_id}, BullXDiscord.Adapter, config})
+       when adapter in [:discord, "discord"] and is_binary(channel_id) do
+    with true <- route_safe_channel_id?(channel_id),
+         {:ok, config} <- DiscordConfig.normalize({:discord, channel_id}, config),
+         true <- DiscordConfig.web_login_allowed?(config) do
+      [
+        %{
+          id: "discord:#{channel_id}",
+          provider: "discord",
+          channel_id: channel_id,
+          label: "Discord · #{channel_id}",
+          href: ~p"/sessions/discord/#{channel_id}"
         }
       ]
     else
@@ -100,4 +122,14 @@ defmodule BullXWeb.Sessions do
     do: "Lark · #{channel_id}"
 
   defp provider_label(%FeishuConfig{channel_id: channel_id}), do: "Feishu · #{channel_id}"
+
+  defp normalize_provider(provider) when is_atom(provider), do: Atom.to_string(provider)
+  defp normalize_provider(provider) when provider in @providers, do: provider
+  defp normalize_provider(_provider), do: "feishu"
+
+  defp provider_callback_path("discord", channel_id),
+    do: ~p"/sessions/discord/#{channel_id}/callback"
+
+  defp provider_callback_path(_provider, channel_id),
+    do: ~p"/sessions/feishu/#{channel_id}/callback"
 end

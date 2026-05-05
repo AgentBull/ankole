@@ -33,12 +33,21 @@ defmodule BullXWeb.SessionControllerTest do
     assert html_response(conn, 200) =~ "sessions/New"
   end
 
-  test "GET /sessions/new exposes enabled Feishu Web login channels", %{conn: conn} do
+  test "GET /sessions/new exposes enabled provider Web login channels", %{conn: conn} do
     put_gateway_adapters!([
       {{:feishu, "default"}, BullXFeishu.Adapter,
        %{app_id: "cli_test", app_secret: "secret_test"}},
       {{:feishu, "disabled"}, BullXFeishu.Adapter,
-       %{app_id: "cli_test", app_secret: "secret_test", web_login_disabled: true}}
+       %{app_id: "cli_test", app_secret: "secret_test", web_login_disabled: true}},
+      {{:discord, "community"}, BullXDiscord.Adapter,
+       %{application_id: "app", bot_token: "bot", client_secret: "secret"}},
+      {{:discord, "discord-disabled"}, BullXDiscord.Adapter,
+       %{
+         application_id: "app",
+         bot_token: "bot",
+         client_secret: "secret",
+         web_login_disabled: true
+       }}
     ])
 
     insert_user!(display_name: "Alice")
@@ -49,8 +58,10 @@ defmodule BullXWeb.SessionControllerTest do
       |> html_response(200)
 
     assert response =~ "login_providers"
-    assert response =~ "/sessions/default"
-    refute response =~ "/sessions/disabled"
+    assert response =~ "/sessions/feishu/default"
+    assert response =~ "/sessions/discord/community"
+    refute response =~ "/sessions/feishu/disabled"
+    refute response =~ "/sessions/discord/discord-disabled"
   end
 
   test "GET /sessions/new redirects home when already signed in", %{conn: conn} do

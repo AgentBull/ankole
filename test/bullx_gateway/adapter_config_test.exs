@@ -23,21 +23,43 @@ defmodule BullXGateway.AdapterConfigTest do
   end
 
   test "catalog exposes localized adapter setup documentation with en-US fallback" do
-    assert [
-             %{
-               "config_doc_url" =>
-                 "https://github.com/AgentBull/bullx/blob/main/docs/channels/feishu.zh-Hans-CN.md",
-               "authn_policies" => [%{"type" => "external_org_members"}],
-               "default_entry" => %{"channel_id" => ""}
-             }
-           ] = AdapterConfig.catalog("zh-Hans-CN")
+    catalog = AdapterConfig.catalog("zh-Hans-CN")
 
-    assert [
-             %{
-               "config_doc_url" =>
-                 "https://github.com/AgentBull/bullx/blob/main/docs/channels/feishu.en-US.md"
-             }
-           ] = AdapterConfig.catalog("ja-JP")
+    assert %{
+             "config_doc_url" =>
+               "https://github.com/AgentBull/bullx/blob/main/docs/channels/feishu.zh-Hans-CN.md",
+             "authn_policies" => [%{"type" => "external_org_members"}],
+             "default_entry" => %{"channel_id" => ""}
+           } = Enum.find(catalog, &(&1["adapter"] == "feishu"))
+
+    assert %{
+             "config_doc_url" =>
+               "https://github.com/AgentBull/bullx/blob/main/docs/channels/discord.zh-Hans-CN.md",
+             "authn_policies" => [],
+             "default_entry" => %{"channel_id" => ""}
+           } = Enum.find(catalog, &(&1["adapter"] == "discord"))
+
+    assert %{
+             "config_doc_url" =>
+               "https://github.com/AgentBull/bullx/blob/main/docs/channels/feishu.en-US.md"
+           } = Enum.find(AdapterConfig.catalog("ja-JP"), &(&1["adapter"] == "feishu"))
+  end
+
+  test "encodes Discord setup entries and casts them back to runtime adapter specs" do
+    entry = discord_entry()
+
+    assert {:ok, _encoded, [normalized]} = AdapterConfig.encode_for_storage([entry])
+
+    assert {:ok, [{{:discord, "community"}, BullXDiscord.Adapter, config}]} =
+             AdapterConfig.runtime_specs([normalized])
+
+    assert normalized["credentials"]["bot_token"] == "bot_token_test"
+    assert normalized["credentials"]["client_secret"] == "client_secret_test"
+    assert normalized["attention"]["require_mention"] == true
+    assert config.application_id == "app_test"
+    assert config.bot_token == "bot_token_test"
+    assert config.client_secret == "client_secret_test"
+    assert config.application_commands.sync_policy == "safe"
   end
 
   test "disabled drafts are persisted but omitted from runtime specs" do
@@ -99,6 +121,22 @@ defmodule BullXGateway.AdapterConfigTest do
     assert merged["credentials"]["app_secret"] == "secret_test"
   end
 
+  test "public Discord entries redact bot token and OAuth client secret" do
+    assert {:ok, stored} = AdapterConfig.normalize_entry(discord_entry())
+
+    public = AdapterConfig.public_entry(stored)
+
+    assert public["credentials"]["bot_token"] == ""
+    assert public["credentials"]["client_secret"] == ""
+    assert public["secret_status"]["bot_token"] == "stored"
+    assert public["secret_status"]["client_secret"] == "stored"
+
+    assert {:ok, merged} = AdapterConfig.normalize_entry(public, existing_entries: [stored])
+
+    assert merged["credentials"]["bot_token"] == "bot_token_test"
+    assert merged["credentials"]["client_secret"] == "client_secret_test"
+  end
+
   test "legacy Feishu webhook credentials are discarded for websocket-only adapters" do
     assert {:ok, normalized} =
              AdapterConfig.normalize_entry(
@@ -139,6 +177,24 @@ defmodule BullXGateway.AdapterConfigTest do
         "credentials" => %{
           "app_id" => "cli_test",
           "app_secret" => "secret_test"
+        }
+      },
+      attrs
+    )
+  end
+
+  defp discord_entry(attrs \\ %{}) do
+    Map.merge(
+      %{
+        "id" => "discord:community",
+        "adapter" => "discord",
+        "channel_id" => "community",
+        "enabled" => true,
+        "web_login_disabled" => false,
+        "credentials" => %{
+          "application_id" => "app_test",
+          "bot_token" => "bot_token_test",
+          "client_secret" => "client_secret_test"
         }
       },
       attrs

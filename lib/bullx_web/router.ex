@@ -39,8 +39,10 @@ defmodule BullXWeb.Router do
     get "/sessions/new", SessionController, :new
     post "/sessions", SessionController, :create
     delete "/sessions", SessionController, :delete
-    get "/sessions/:channel_id/callback", FeishuAuthController, :callback
-    get "/sessions/:channel_id", FeishuAuthController, :new
+    get "/sessions/feishu/:channel_id/callback", FeishuAuthController, :callback
+    get "/sessions/feishu/:channel_id", FeishuAuthController, :new
+    get "/sessions/discord/:channel_id/callback", DiscordAuthController, :callback
+    get "/sessions/discord/:channel_id", DiscordAuthController, :new
   end
 
   scope "/", BullXWeb do

@@ -46,11 +46,21 @@ domain = "Platform"
 tenant_key = "Tenant Key"
 app_id = "App ID"
 app_secret = "App secret"
+application_id = "Application ID"
+bot_token = "Bot token"
+client_secret = "OAuth client secret"
 dedupe_ttl_ms = "Dedupe TTL ms"
 message_context_ttl_ms = "Message context TTL ms"
 card_action_dedupe_ttl_ms = "Card action dedupe TTL ms"
 inline_media_max_bytes = "Inline media max bytes"
 stream_update_interval_ms = "Stream update interval ms"
+thread_ownership_cache_ttl_ms = "Thread ownership cache TTL ms"
+stream_chunk_soft_limit = "Stream chunk soft limit"
+application_commands_sync_policy = "Application command sync"
+auto_archive_duration_minutes = "Thread auto-archive minutes"
+no_thread_channel_ids = "No-thread channel IDs"
+allowed_channel_ids = "Allowed channel IDs"
+ignored_channel_ids = "Ignored channel IDs"
 
 [web.setup.gateway.actions]
 check = "Test connectivity"
@@ -79,6 +89,7 @@ adapter = "Connector"
 channel = "Channel"
 credentials = "Credentials"
 authorization = "Authorization"
+behavior = "Behavior"
 advanced = "Advanced"
 
 [web.setup.gateway.authorization]
@@ -92,10 +103,17 @@ disabled_description = "When enabled, provider login and /web_auth codes are blo
 disabled_summary = "Web login disabled"
 callback_url = "Read-only OAuth callback URL"
 
+[web.setup.gateway.discord]
+auto_thread_enabled = "Auto-create BullX threads"
+auto_thread_enabled_description = "When enabled, guild mentions and /ask open a dedicated Discord thread for the BullX conversation."
+
 [web.setup.gateway.errors]
 channel_id_required = "Channel ID is required."
 app_id_required = "Feishu app_id is required."
 app_secret_required = "Feishu app_secret is required."
+application_id_required = "Discord application_id is required."
+bot_token_required = "Discord bot_token is required."
+client_secret_required = "Discord client_secret is required unless Web login is disabled."
 tenant_key_required = "Tenant Key is required when organization member authorization is enabled."
 duplicate_channel = "Duplicate enabled channel: {$channel}"
 

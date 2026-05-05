@@ -26,20 +26,26 @@ import SetupLayout from "./Layout"
 
 type Translate = (key: string, options?: { values?: Record<string, unknown>; defaultValue?: string }) => string
 
-type SecretField = "app_secret"
+type SecretField = "app_secret" | "bot_token" | "client_secret"
 type SecretStatus = "missing" | "stored"
 
 interface AdapterAdvanced {
   dedupe_ttl_ms: number
-  message_context_ttl_ms: number
-  card_action_dedupe_ttl_ms: number
-  inline_media_max_bytes: number
+  message_context_ttl_ms?: number
+  card_action_dedupe_ttl_ms?: number
+  inline_media_max_bytes?: number
   stream_update_interval_ms: number
+  thread_ownership_cache_ttl_ms?: number
+  stream_chunk_soft_limit?: number
+  application_commands_sync_policy?: string
 }
 
 interface AdapterCredentials {
-  app_id: string
-  app_secret: string
+  app_id?: string
+  app_secret?: string
+  application_id?: string
+  bot_token?: string
+  client_secret?: string
 }
 
 interface AdapterAuthnExternalOrgMembers {
@@ -59,6 +65,16 @@ interface AdapterEntry {
   web_login_disabled: boolean
   domain: string
   authn: AdapterAuthn
+  attention?: {
+    allowed_channel_ids: string[]
+    ignored_channel_ids: string[]
+    require_mention: boolean
+  }
+  auto_thread?: {
+    enabled: boolean
+    auto_archive_duration_minutes: number
+    no_thread_channel_ids: string[]
+  }
   credentials: AdapterCredentials
   advanced: AdapterAdvanced
   secret_status: Partial<Record<SecretField, SecretStatus>>
@@ -106,14 +122,21 @@ interface PostJsonResponse {
   result?: unknown
 }
 
-const SECRET_FIELDS: SecretField[] = ["app_secret"]
-const ADVANCED_FIELDS: Array<keyof AdapterAdvanced> = [
+const SECRET_FIELDS: SecretField[] = ["app_secret", "bot_token", "client_secret"]
+const FEISHU_ADVANCED_FIELDS: Array<keyof AdapterAdvanced> = [
   "dedupe_ttl_ms",
   "message_context_ttl_ms",
   "card_action_dedupe_ttl_ms",
   "inline_media_max_bytes",
   "stream_update_interval_ms",
 ]
+const DISCORD_ADVANCED_FIELDS: Array<keyof AdapterAdvanced> = [
+  "dedupe_ttl_ms",
+  "thread_ownership_cache_ttl_ms",
+  "stream_update_interval_ms",
+  "stream_chunk_soft_limit",
+]
+const DISCORD_SYNC_POLICIES = ["safe", "off"] as const
 
 const FALLBACK_ENTRY: AdapterEntry = {
   id: "feishu:",
@@ -131,6 +154,19 @@ const FALLBACK_ENTRY: AdapterEntry = {
   credentials: {
     app_id: "",
     app_secret: "",
+    application_id: "",
+    bot_token: "",
+    client_secret: "",
+  },
+  attention: {
+    allowed_channel_ids: [],
+    ignored_channel_ids: [],
+    require_mention: true,
+  },
+  auto_thread: {
+    enabled: true,
+    auto_archive_duration_minutes: 1440,
+    no_thread_channel_ids: [],
   },
   advanced: {
     dedupe_ttl_ms: 300000,
@@ -138,9 +174,14 @@ const FALLBACK_ENTRY: AdapterEntry = {
     card_action_dedupe_ttl_ms: 900000,
     inline_media_max_bytes: 524288,
     stream_update_interval_ms: 100,
+    thread_ownership_cache_ttl_ms: 86400000,
+    stream_chunk_soft_limit: 1850,
+    application_commands_sync_policy: "safe",
   },
   secret_status: {
     app_secret: "missing",
+    bot_token: "missing",
+    client_secret: "missing",
   },
 }
 
@@ -402,7 +443,7 @@ function AdapterRow({ entry, catalog, check, checking, onCheck, onEdit, onRemove
   const tenantPolicy = prepared.authn.external_org_members
   const metadata = [
     prepared.channel_id || translate("web.setup.gateway.fields.channel_id"),
-    domainLabel(prepared.domain),
+    prepared.adapter === "feishu" ? domainLabel(prepared.domain) : adapterLabel(prepared.adapter, catalog),
     prepared.web_login_disabled ? translate("web.setup.gateway.web_login.disabled_summary") : null,
     tenantPolicy.enabled && tenantPolicy.tenant_key
       ? translate("web.setup.gateway.authorization.tenant_key_summary", {
@@ -521,7 +562,7 @@ function AdapterSheet({
       ]
   const docUrl = configDocUrl(draft, catalogOptions)
   const supportsExternalOrgMembers = connectorSupportsAuthnPolicy(draft.adapter, catalogOptions, "external_org_members")
-  const callbackUrl = callbackUrlFor(webLoginCallbackOrigin, draft.channel_id)
+  const callbackUrl = callbackUrlFor(webLoginCallbackOrigin, draft.adapter, draft.channel_id)
   const fieldErrors = React.useMemo(() => errorsByField(errors), [errors])
   const formErrors = React.useMemo(() => errorsWithoutFields(errors), [errors])
 
@@ -635,19 +676,21 @@ function AdapterSheet({
                     />
                   </Field>
 
-                  <Field label={translate("web.setup.gateway.fields.domain")}>
-                    <Select
-                      value={draft.domain}
-                      onValueChange={(value: string | null) => update(["domain"], value ?? "")}>
-                      <SelectTrigger className="w-full">
-                        <span data-slot="select-value">{domainLabel(draft.domain)}</span>
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="feishu">Feishu</SelectItem>
-                        <SelectItem value="lark">Lark</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </Field>
+                  {draft.adapter === "feishu" ? (
+                    <Field label={translate("web.setup.gateway.fields.domain")}>
+                      <Select
+                        value={draft.domain}
+                        onValueChange={(value: string | null) => update(["domain"], value ?? "")}>
+                        <SelectTrigger className="w-full">
+                          <span data-slot="select-value">{domainLabel(draft.domain)}</span>
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="feishu">Feishu</SelectItem>
+                          <SelectItem value="lark">Lark</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </Field>
+                  ) : null}
                 </div>
 
                 <div className="grid gap-4 border border-border bg-background-secondary p-4">
@@ -718,29 +761,14 @@ function AdapterSheet({
               ) : null}
 
               <FormSection title={translate("web.setup.gateway.sections.credentials")}>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <Field
-                    label={translate("web.setup.gateway.fields.app_id")}
-                    required
-                    error={fieldErrors["credentials.app_id"]}>
-                    <Input
-                      value={draft.credentials.app_id}
-                      onChange={event => update(["credentials", "app_id"], event.target.value)}
-                      autoComplete="off"
-                      aria-invalid={Boolean(fieldErrors["credentials.app_id"]) || undefined}
-                      required
-                    />
-                  </Field>
-                  <SecretFieldInput
-                    label={translate("web.setup.gateway.fields.app_secret")}
-                    value={draft.credentials.app_secret}
-                    status={draft.secret_status?.app_secret}
-                    onChange={value => update(["credentials", "app_secret"], value)}
-                    required
-                    error={fieldErrors["credentials.app_secret"]}
-                  />
-                </div>
+                <CredentialFields draft={draft} update={update} fieldErrors={fieldErrors} />
               </FormSection>
+
+              {draft.adapter === "discord" ? (
+                <FormSection title={translate("web.setup.gateway.sections.behavior")}>
+                  <DiscordBehaviorFields draft={draft} update={update} />
+                </FormSection>
+              ) : null}
 
               <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
                 <FormSection
@@ -757,16 +785,39 @@ function AdapterSheet({
                   }>
                   <CollapsibleContent>
                     <div ref={advancedContentRef} className="grid gap-4 pt-1 md:grid-cols-3">
-                      {ADVANCED_FIELDS.map(field => (
+                      {advancedFieldsFor(draft.adapter).map(field => (
                         <Field key={field} label={translate(`web.setup.gateway.fields.${field}`)}>
                           <Input
                             type="number"
                             min="0"
-                            value={draft.advanced[field]}
+                            value={numberValue(draft.advanced[field] ?? FALLBACK_ENTRY.advanced[field])}
                             onChange={event => update(["advanced", field], numberValue(event.target.value))}
                           />
                         </Field>
                       ))}
+
+                      {draft.adapter === "discord" ? (
+                        <Field label={translate("web.setup.gateway.fields.application_commands_sync_policy")}>
+                          <Select
+                            value={syncPolicyValue(draft.advanced.application_commands_sync_policy)}
+                            onValueChange={(value: string | null) =>
+                              update(["advanced", "application_commands_sync_policy"], syncPolicyValue(value))
+                            }>
+                            <SelectTrigger className="w-full">
+                              <span data-slot="select-value">
+                                {syncPolicyValue(draft.advanced.application_commands_sync_policy)}
+                              </span>
+                            </SelectTrigger>
+                            <SelectContent>
+                              {DISCORD_SYNC_POLICIES.map(policy => (
+                                <SelectItem key={policy} value={policy}>
+                                  {policy}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </Field>
+                      ) : null}
                     </div>
                   </CollapsibleContent>
                 </FormSection>
@@ -856,6 +907,141 @@ function Field({ label, children, required = false, error }: FieldProps) {
       </Label>
       {children}
       {error ? <p className="text-xs leading-4 text-destructive">{error}</p> : null}
+    </div>
+  )
+}
+
+interface CredentialFieldsProps {
+  draft: AdapterEntry
+  update: (path: string[], value: unknown) => void
+  fieldErrors: Record<string, string>
+}
+
+function CredentialFields({ draft, update, fieldErrors }: CredentialFieldsProps) {
+  const { t } = useTranslation()
+  const translate = t as Translate
+
+  if (draft.adapter === "discord") {
+    return (
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field
+          label={translate("web.setup.gateway.fields.application_id")}
+          required
+          error={fieldErrors["credentials.application_id"]}>
+          <Input
+            value={draft.credentials.application_id || ""}
+            onChange={event => update(["credentials", "application_id"], event.target.value)}
+            autoComplete="off"
+            aria-invalid={Boolean(fieldErrors["credentials.application_id"]) || undefined}
+            required
+          />
+        </Field>
+        <SecretFieldInput
+          label={translate("web.setup.gateway.fields.bot_token")}
+          value={draft.credentials.bot_token || ""}
+          status={draft.secret_status?.bot_token}
+          onChange={value => update(["credentials", "bot_token"], value)}
+          required
+          error={fieldErrors["credentials.bot_token"]}
+        />
+        <SecretFieldInput
+          label={translate("web.setup.gateway.fields.client_secret")}
+          value={draft.credentials.client_secret || ""}
+          status={draft.secret_status?.client_secret}
+          onChange={value => update(["credentials", "client_secret"], value)}
+          required={!draft.web_login_disabled}
+          error={fieldErrors["credentials.client_secret"]}
+        />
+      </div>
+    )
+  }
+
+  return (
+    <div className="grid gap-4 sm:grid-cols-2">
+      <Field label={translate("web.setup.gateway.fields.app_id")} required error={fieldErrors["credentials.app_id"]}>
+        <Input
+          value={draft.credentials.app_id || ""}
+          onChange={event => update(["credentials", "app_id"], event.target.value)}
+          autoComplete="off"
+          aria-invalid={Boolean(fieldErrors["credentials.app_id"]) || undefined}
+          required
+        />
+      </Field>
+      <SecretFieldInput
+        label={translate("web.setup.gateway.fields.app_secret")}
+        value={draft.credentials.app_secret || ""}
+        status={draft.secret_status?.app_secret}
+        onChange={value => update(["credentials", "app_secret"], value)}
+        required
+        error={fieldErrors["credentials.app_secret"]}
+      />
+    </div>
+  )
+}
+
+interface DiscordBehaviorFieldsProps {
+  draft: AdapterEntry
+  update: (path: string[], value: unknown) => void
+}
+
+function DiscordBehaviorFields({ draft, update }: DiscordBehaviorFieldsProps) {
+  const { t } = useTranslation()
+  const translate = t as Translate
+  const attention = draft.attention || FALLBACK_ENTRY.attention!
+  const autoThread = draft.auto_thread || FALLBACK_ENTRY.auto_thread!
+
+  return (
+    <div className="grid gap-4">
+      <div className="flex items-start justify-between gap-4 border border-border bg-background-secondary p-4">
+        <div className="min-w-0">
+          <p className="text-sm font-medium">{translate("web.setup.gateway.discord.auto_thread_enabled")}</p>
+          <p className="mt-1 text-sm leading-5 text-muted-foreground">
+            {translate("web.setup.gateway.discord.auto_thread_enabled_description")}
+          </p>
+        </div>
+        <Switch
+          checked={autoThread.enabled !== false}
+          onCheckedChange={(checked: boolean) => update(["auto_thread", "enabled"], checked)}
+          aria-label={translate("web.setup.gateway.discord.auto_thread_enabled")}
+        />
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field label={translate("web.setup.gateway.fields.auto_archive_duration_minutes")}>
+          <Input
+            type="number"
+            min="1"
+            value={numberValue(autoThread.auto_archive_duration_minutes)}
+            onChange={event =>
+              update(["auto_thread", "auto_archive_duration_minutes"], numberValue(event.target.value))
+            }
+          />
+        </Field>
+
+        <Field label={translate("web.setup.gateway.fields.no_thread_channel_ids")}>
+          <Input
+            value={stringListValue(autoThread.no_thread_channel_ids)}
+            onChange={event => update(["auto_thread", "no_thread_channel_ids"], parseStringList(event.target.value))}
+            autoComplete="off"
+          />
+        </Field>
+
+        <Field label={translate("web.setup.gateway.fields.allowed_channel_ids")}>
+          <Input
+            value={stringListValue(attention.allowed_channel_ids)}
+            onChange={event => update(["attention", "allowed_channel_ids"], parseStringList(event.target.value))}
+            autoComplete="off"
+          />
+        </Field>
+
+        <Field label={translate("web.setup.gateway.fields.ignored_channel_ids")}>
+          <Input
+            value={stringListValue(attention.ignored_channel_ids)}
+            onChange={event => update(["attention", "ignored_channel_ids"], parseStringList(event.target.value))}
+            autoComplete="off"
+          />
+        </Field>
+      </div>
     </div>
   )
 }
@@ -1018,6 +1204,14 @@ function mergeEntry(entry: Partial<AdapterEntry>): AdapterEntry {
         ...(source.authn?.external_org_members || {}),
       },
     },
+    attention: {
+      ...fallback.attention!,
+      ...(source.attention || {}),
+    },
+    auto_thread: {
+      ...fallback.auto_thread!,
+      ...(source.auto_thread || {}),
+    },
     advanced: mergeAdvanced(source.advanced),
     secret_status: {
       ...fallback.secret_status,
@@ -1052,8 +1246,21 @@ function prepareEntryForSave(entry: AdapterEntry): AdapterEntry {
       },
     },
     credentials: {
-      app_id: normalized.credentials.app_id.trim(),
-      app_secret: normalized.credentials.app_secret.trim(),
+      app_id: (normalized.credentials.app_id || "").trim(),
+      app_secret: (normalized.credentials.app_secret || "").trim(),
+      application_id: (normalized.credentials.application_id || "").trim(),
+      bot_token: (normalized.credentials.bot_token || "").trim(),
+      client_secret: (normalized.credentials.client_secret || "").trim(),
+    },
+    attention: {
+      allowed_channel_ids: normalizeStringList(normalized.attention?.allowed_channel_ids),
+      ignored_channel_ids: normalizeStringList(normalized.attention?.ignored_channel_ids),
+      require_mention: true,
+    },
+    auto_thread: {
+      enabled: normalized.auto_thread?.enabled !== false,
+      auto_archive_duration_minutes: numberValue(normalized.auto_thread?.auto_archive_duration_minutes || 1440),
+      no_thread_channel_ids: normalizeStringList(normalized.auto_thread?.no_thread_channel_ids),
     },
     advanced: mergeAdvanced(normalized.advanced),
     secret_status: normalized.secret_status,
@@ -1061,9 +1268,18 @@ function prepareEntryForSave(entry: AdapterEntry): AdapterEntry {
 }
 
 function mergeAdvanced(source: Partial<AdapterAdvanced> | undefined): AdapterAdvanced {
-  return Object.fromEntries(
-    ADVANCED_FIELDS.map(field => [field, numberValue(source?.[field] ?? FALLBACK_ENTRY.advanced[field])]),
-  ) as AdapterAdvanced
+  const advanced = Object.fromEntries(
+    [...FEISHU_ADVANCED_FIELDS, ...DISCORD_ADVANCED_FIELDS].map(field => [
+      field,
+      numberValue(source?.[field] ?? FALLBACK_ENTRY.advanced[field]),
+    ]),
+  ) as unknown as AdapterAdvanced
+
+  advanced.application_commands_sync_policy = syncPolicyValue(
+    source?.application_commands_sync_policy ?? FALLBACK_ENTRY.advanced.application_commands_sync_policy,
+  )
+
+  return advanced
 }
 
 function setPath<T>(object: T, path: string[], value: unknown): T {
@@ -1141,14 +1357,37 @@ function validateEntry(entry: AdapterEntry, t: Translate): AdapterError[] {
     })
   }
 
-  if (!entry.credentials.app_id.trim()) {
+  if (entry.adapter === "discord") {
+    if (!(entry.credentials.application_id || "").trim()) {
+      errors.push({
+        field: "credentials.application_id",
+        message: t("web.setup.gateway.errors.application_id_required"),
+      })
+    }
+
+    if (!hasSecret(entry, "bot_token")) {
+      errors.push({
+        field: "credentials.bot_token",
+        message: t("web.setup.gateway.errors.bot_token_required"),
+      })
+    }
+
+    if (!entry.web_login_disabled && !hasSecret(entry, "client_secret")) {
+      errors.push({
+        field: "credentials.client_secret",
+        message: t("web.setup.gateway.errors.client_secret_required"),
+      })
+    }
+  }
+
+  if (entry.adapter !== "discord" && !(entry.credentials.app_id || "").trim()) {
     errors.push({
       field: "credentials.app_id",
       message: t("web.setup.gateway.errors.app_id_required"),
     })
   }
 
-  if (!hasSecret(entry, "app_secret")) {
+  if (entry.adapter !== "discord" && !hasSecret(entry, "app_secret")) {
     errors.push({
       field: "credentials.app_secret",
       message: t("web.setup.gateway.errors.app_secret_required"),
@@ -1182,12 +1421,39 @@ function errorField(error: AdapterError): string | undefined {
 }
 
 function hasSecret(entry: AdapterEntry, field: SecretField): boolean {
-  return Boolean(entry.credentials[field]?.trim() || entry.secret_status?.[field] === "stored")
+  return Boolean((entry.credentials[field] || "").trim() || entry.secret_status?.[field] === "stored")
 }
 
 function numberValue(value: unknown): number {
   const parsed = Number.parseInt(String(value), 10)
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0
+}
+
+function syncPolicyValue(value: unknown): string {
+  return value === "off" ? "off" : "safe"
+}
+
+function stringListValue(values: string[] | undefined): string {
+  return normalizeStringList(values).join(", ")
+}
+
+function parseStringList(value: string): string[] {
+  return value
+    .split(/[,\n]/)
+    .map(item => item.trim())
+    .filter(Boolean)
+}
+
+function normalizeStringList(values: unknown): string[] {
+  if (Array.isArray(values)) {
+    return values.map(value => String(value).trim()).filter(Boolean)
+  }
+
+  if (typeof values === "string") {
+    return parseStringList(values)
+  }
+
+  return []
 }
 
 function nextEntryId(adapter: string): string {
@@ -1215,7 +1481,7 @@ function adapterLabel(adapter: string, catalog: AdapterCatalogEntry[] = []): str
 }
 
 function transportLabel(_adapter: string): string {
-  return "WebSocket"
+  return _adapter === "discord" ? "Gateway" : "WebSocket"
 }
 
 function domainLabel(domain: string): string {
@@ -1223,13 +1489,18 @@ function domainLabel(domain: string): string {
   return "Feishu"
 }
 
-function callbackUrlFor(origin: string, channelId: string): string {
+function callbackUrlFor(origin: string, adapter: string, channelId: string): string {
   const normalized = channelId.trim()
+  const normalizedAdapter = adapter.trim() || "feishu"
   const normalizedOrigin = origin.trim().replace(/\/+$/, "")
 
   if (!normalized || !normalizedOrigin) return ""
 
-  return `${normalizedOrigin}/sessions/${encodeURIComponent(normalized)}/callback`
+  return `${normalizedOrigin}/sessions/${encodeURIComponent(normalizedAdapter)}/${encodeURIComponent(normalized)}/callback`
+}
+
+function advancedFieldsFor(adapter: string): Array<keyof AdapterAdvanced> {
+  return adapter === "discord" ? DISCORD_ADVANCED_FIELDS : FEISHU_ADVANCED_FIELDS
 }
 
 function clone<T>(value: T): T {
