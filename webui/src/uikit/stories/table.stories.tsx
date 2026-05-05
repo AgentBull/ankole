@@ -42,19 +42,12 @@ export const Default: Story = {
         </TableRow>
       </TableHeader>
       <TableBody>
-        {ROWS.map((row) => (
+        {ROWS.map(row => (
           <TableRow key={row.invoice}>
             <TableCell className="font-medium">{row.invoice}</TableCell>
             <TableCell>
               <Badge
-                variant={
-                  row.status === "Paid"
-                    ? "default"
-                    : row.status === "Pending"
-                      ? "secondary"
-                      : "destructive"
-                }
-              >
+                variant={row.status === "Paid" ? "default" : row.status === "Pending" ? "secondary" : "destructive"}>
                 {row.status}
               </Badge>
             </TableCell>

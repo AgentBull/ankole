@@ -1,6 +1,3 @@
-import React from "react"
-import { JsonEditor } from "json-edit-react"
-import { useTranslation } from "react-i18next"
 import {
   RiAddLine,
   RiArrowDownSLine,
@@ -14,43 +11,21 @@ import {
   RiPlugLine,
   RiSaveLine,
 } from "@remixicon/react"
+import { JsonEditor } from "json-edit-react"
+import React from "react"
+import { useTranslation } from "react-i18next"
 import { Badge } from "@/uikit/components/badge"
-import {
-  Card,
-  CardContent,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@/uikit/components/card"
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/uikit/components/collapsible"
 import { Button } from "@/uikit/components/button"
+import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/uikit/components/card"
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/uikit/components/collapsible"
 import { Input } from "@/uikit/components/input"
 import { Label } from "@/uikit/components/label"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-} from "@/uikit/components/select"
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
-} from "@/uikit/components/sheet"
+import { Select, SelectContent, SelectItem, SelectTrigger } from "@/uikit/components/select"
+import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from "@/uikit/components/sheet"
 import { Switch } from "@/uikit/components/switch"
 import SetupLayout from "../Layout"
 
-type Translate = (
-  key: string,
-  options?: { values?: Record<string, unknown>; defaultValue?: string },
-) => string
+type Translate = (key: string, options?: { values?: Record<string, unknown>; defaultValue?: string }) => string
 
 type AliasName = "default" | "fast" | "heavy" | "compression"
 type SecretStatus = "missing" | "stored"
@@ -166,8 +141,10 @@ interface PostJsonResponse {
   result?: unknown
 }
 
-const JSON_EDITOR_ICON_CLASS = "inline-flex size-6 items-center justify-center border border-transparent text-muted-foreground transition-colors hover:bg-muted hover:text-primary"
-const JSON_EDITOR_DANGER_ICON_CLASS = "inline-flex size-6 items-center justify-center border border-transparent text-muted-foreground transition-colors hover:bg-muted hover:text-destructive"
+const JSON_EDITOR_ICON_CLASS =
+  "inline-flex size-6 items-center justify-center border border-transparent text-muted-foreground transition-colors hover:bg-muted hover:text-primary"
+const JSON_EDITOR_DANGER_ICON_CLASS =
+  "inline-flex size-6 items-center justify-center border border-transparent text-muted-foreground transition-colors hover:bg-muted hover:text-destructive"
 const JSON_EDITOR_ICONS = {
   add: (
     <span className={JSON_EDITOR_ICON_CLASS}>
@@ -267,12 +244,9 @@ export default function SetupLLMApp({
 }: SetupLLMAppProps) {
   const { t } = useTranslation()
   const translate = t as Translate
-  const providerCatalog = React.useMemo(
-    () => normalizeProviderCatalog(provider_id_catalog),
-    [provider_id_catalog],
-  )
-  const [providerRows, setProviderRows] = React.useState<ProviderRow[]>(
-    () => normalizeProviders(providers, providerCatalog),
+  const providerCatalog = React.useMemo(() => normalizeProviderCatalog(provider_id_catalog), [provider_id_catalog])
+  const [providerRows, setProviderRows] = React.useState<ProviderRow[]>(() =>
+    normalizeProviders(providers, providerCatalog),
   )
   const [aliasRows, setAliasRows] = React.useState<AliasRows>(() => normalizeAliases(alias_bindings))
   const [checks, setChecks] = React.useState<ChecksMap>({})
@@ -296,17 +270,12 @@ export default function SetupLLMApp({
     () => validateAliases(aliasRows, preparedProviders, translate),
     [aliasRows, preparedProviders, translate],
   )
-  const canSave =
-    preparedProviders.length > 0
-    && providerErrors.length === 0
-    && aliasErrors.length === 0
-    && !saving
+  const canSave = preparedProviders.length > 0 && providerErrors.length === 0 && aliasErrors.length === 0 && !saving
   const inheritSources = React.useMemo<InheritSource[]>(
-    () => providerRows
-      .map((row, index) => ({ ...row, name: preparedProviders[index]?.name || row.name }))
-      .filter(row => row.id != null
-        && row.name
-        && row.secret_status?.api_key === "stored"),
+    () =>
+      providerRows
+        .map((row, index) => ({ ...row, name: preparedProviders[index]?.name || row.name }))
+        .filter(row => row.id != null && row.name && row.secret_status?.api_key === "stored"),
     [providerRows, preparedProviders],
   )
   const liveDraftErrors = React.useMemo<LLMError[]>(() => {
@@ -317,12 +286,14 @@ export default function SetupLLMApp({
       .filter((_row, index) => index !== editingIndex)
       .map(row => prepareProviderForSave(row, providerCatalog).name)
     if (!taken.includes(prepared.name)) return []
-    return [{
-      field: "name",
-      message: translate("web.setup.llm.errors.duplicate_provider", {
-        values: { name: prepared.name },
-      }),
-    }]
+    return [
+      {
+        field: "name",
+        message: translate("web.setup.llm.errors.duplicate_provider", {
+          values: { name: prepared.name },
+        }),
+      },
+    ]
   }, [draft, providerRows, providerCatalog, editingIndex, sheetOpen, translate])
 
   const openNewSheet = () => {
@@ -348,15 +319,13 @@ export default function SetupLLMApp({
       return
     }
 
-    const previousName = editingIndex === null ? null : providerRows[editingIndex]?.name ?? null
+    const previousName = editingIndex === null ? null : (providerRows[editingIndex]?.name ?? null)
     const nextProvider = providerFromPrepared(prepared, draft, providerCatalog)
 
     setProviderRows(current => {
       if (editingIndex === null) return [...current, nextProvider]
 
-      return current.map((provider, index) => (
-        index === editingIndex ? nextProvider : provider
-      ))
+      return current.map((provider, index) => (index === editingIndex ? nextProvider : provider))
     })
 
     setAliasRows(current => retargetAliases(current, previousName, nextProvider.name))
@@ -469,12 +438,8 @@ export default function SetupLLMApp({
         <Card size="sm" className="w-full max-w-5xl gap-0 bg-card py-0">
           <CardHeader className="border-b border-border px-5 py-4 sm:px-6">
             <div className="min-w-0">
-              <p className="text-xs font-medium text-primary">
-                {translate("web.setup.llm.step")}
-              </p>
-              <CardTitle className="mt-1 text-xl font-semibold">
-                {translate("web.setup.llm.heading")}
-              </CardTitle>
+              <p className="text-xs font-medium text-primary">{translate("web.setup.llm.step")}</p>
+              <CardTitle className="mt-1 text-xl font-semibold">{translate("web.setup.llm.heading")}</CardTitle>
             </div>
           </CardHeader>
 
@@ -518,9 +483,7 @@ export default function SetupLLMApp({
             <section className="grid gap-4">
               <div className="min-w-0">
                 <h2 className="text-sm font-semibold">{translate("web.setup.llm.aliases.title")}</h2>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  {translate("web.setup.llm.aliases.description")}
-                </p>
+                <p className="mt-1 text-sm text-muted-foreground">{translate("web.setup.llm.aliases.description")}</p>
               </div>
 
               <div className="grid gap-3">
@@ -530,10 +493,12 @@ export default function SetupLLMApp({
                     aliasName={aliasName}
                     binding={aliasRows[aliasName]}
                     providerNames={preparedProviders.map(provider => provider.name).filter(Boolean)}
-                    onChange={binding => setAliasRows(current => ({
-                      ...current,
-                      [aliasName]: binding,
-                    }))}
+                    onChange={binding =>
+                      setAliasRows(current => ({
+                        ...current,
+                        [aliasName]: binding,
+                      }))
+                    }
                   />
                 ))}
               </div>
@@ -553,7 +518,7 @@ export default function SetupLLMApp({
         open={sheetOpen}
         onOpenChange={setSheetOpen}
         draft={draft}
-        setDraft={(next) => {
+        setDraft={next => {
           setDraft(next)
           setDraftErrors([])
         }}
@@ -593,7 +558,8 @@ function ProviderRowView({
   const prepared = prepareProviderForSave(provider, providerCatalog)
   const invalid = validateProvider(prepared, translate).length > 0
   const apiKeySupported = providerApiKeySupported(prepared.provider_id, providerCatalog)
-  const providerName = providerLabel(prepared.provider_id, providerCatalog, translate) || translate("web.setup.llm.fields.provider_id")
+  const providerName =
+    providerLabel(prepared.provider_id, providerCatalog, translate) || translate("web.setup.llm.fields.provider_id")
   const metadata = [
     prepared.model_id || translate("web.setup.llm.fields.model_id"),
     prepared.base_url ? translate("web.setup.llm.status.custom_base_url") : null,
@@ -616,13 +582,7 @@ function ProviderRowView({
 
       <div className="flex flex-wrap items-center justify-start gap-2 sm:justify-end">
         <CheckBadge invalid={invalid} checking={checking} check={check} />
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          disabled={invalid || checking}
-          onClick={onCheck}
-        >
+        <Button type="button" size="sm" variant="outline" disabled={invalid || checking} onClick={onCheck}>
           <RiPlugLine data-icon="inline-start" />
           <span>{translate("web.setup.llm.actions.test")}</span>
         </Button>
@@ -631,8 +591,7 @@ function ProviderRowView({
           size="icon-sm"
           variant="ghost"
           aria-label={translate("web.setup.llm.actions.edit")}
-          onClick={onEdit}
-        >
+          onClick={onEdit}>
           <RiEditLine />
         </Button>
         <Button
@@ -640,8 +599,7 @@ function ProviderRowView({
           size="icon-sm"
           variant="ghost"
           aria-label={translate("web.setup.llm.actions.remove")}
-          onClick={onRemove}
-        >
+          onClick={onRemove}>
           <RiDeleteBinLine />
         </Button>
       </div>
@@ -658,9 +616,7 @@ function EmptyProviders({ onAdd }: { onAdd: () => void }) {
       <div className="grid justify-items-center gap-4">
         <div>
           <p className="text-base font-medium">{translate("web.setup.llm.providers.empty_title")}</p>
-          <p className="mt-2 text-sm text-muted-foreground">
-            {translate("web.setup.llm.providers.empty_description")}
-          </p>
+          <p className="mt-2 text-sm text-muted-foreground">{translate("web.setup.llm.providers.empty_description")}</p>
         </div>
         <Button type="button" onClick={onAdd}>
           <RiAddLine data-icon="inline-start" />
@@ -678,12 +634,7 @@ interface AliasRowProps {
   onChange: (binding: AliasBinding) => void
 }
 
-function AliasRow({
-  aliasName,
-  binding,
-  providerNames,
-  onChange,
-}: AliasRowProps) {
+function AliasRow({ aliasName, binding, providerNames, onChange }: AliasRowProps) {
   const { t } = useTranslation()
   const translate = t as Translate
   const providerOptions = providerNames.length ? providerNames : [""]
@@ -705,19 +656,13 @@ function AliasRow({
     <div className="grid gap-3 border border-border bg-background-secondary p-4 lg:grid-cols-[9rem_minmax(0,1fr)_minmax(11rem,14rem)_minmax(12rem,16rem)] lg:items-center">
       <div className="min-w-0">
         <p className="font-mono text-sm font-medium">:{aliasName}</p>
-        <p className="mt-1 text-xs text-muted-foreground">
-          {translate(`web.setup.llm.aliases.roles.${aliasName}`)}
-        </p>
+        <p className="mt-1 text-xs text-muted-foreground">{translate(`web.setup.llm.aliases.roles.${aliasName}`)}</p>
       </div>
 
-      <div className="min-w-0 text-sm text-muted-foreground">
-        {aliasSummary(aliasName, binding, translate)}
-      </div>
+      <div className="min-w-0 text-sm text-muted-foreground">{aliasSummary(aliasName, binding, translate)}</div>
 
       {aliasName === "default" ? (
-        <div className="text-sm text-muted-foreground">
-          {translate("web.setup.llm.aliases.provider_required")}
-        </div>
+        <div className="text-sm text-muted-foreground">{translate("web.setup.llm.aliases.provider_required")}</div>
       ) : (
         <Select value={mode} onValueChange={setMode}>
           <SelectTrigger className="w-full">
@@ -729,9 +674,7 @@ function AliasRow({
                 {aliasModeLabel(aliasName, `alias:${targetAlias}`, translate)}
               </SelectItem>
             ))}
-            <SelectItem value="provider">
-              {translate("web.setup.llm.aliases.modes.provider")}
-            </SelectItem>
+            <SelectItem value="provider">{translate("web.setup.llm.aliases.modes.provider")}</SelectItem>
           </SelectContent>
         </Select>
       )}
@@ -739,8 +682,7 @@ function AliasRow({
       {mode === "provider" ? (
         <Select
           value={target}
-          onValueChange={(value: string | null) => onChange({ kind: "provider", target: value ?? "" })}
-        >
+          onValueChange={(value: string | null) => onChange({ kind: "provider", target: value ?? "" })}>
           <SelectTrigger className="w-full">
             <span data-slot="select-value">{target || translate("web.setup.llm.aliases.select_provider")}</span>
           </SelectTrigger>
@@ -828,9 +770,9 @@ function ProviderSheet({
       ...(nextApiKeySupported
         ? {}
         : {
-          api_key: "",
-          secret_status: { ...(draft.secret_status || {}), api_key: "missing" as SecretStatus },
-        }),
+            api_key: "",
+            secret_status: { ...(draft.secret_status || {}), api_key: "missing" as SecretStatus },
+          }),
     })
   }
 
@@ -863,8 +805,7 @@ function ProviderSheet({
             ? "h-auto! max-h-[min(42rem,calc(100vh-2rem))]! w-[min(48rem,calc(100vw-2rem))]!"
             : "h-[min(46rem,calc(100vh-2rem))]! w-[min(60rem,calc(100vw-2rem))]!",
         ].join(" ")}
-        showCloseButton={false}
-      >
+        showCloseButton={false}>
         <SheetHeader className="shrink-0 border-b border-border px-5 py-4 sm:px-6">
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0">
@@ -872,15 +813,16 @@ function ProviderSheet({
                 {mode === "select"
                   ? translate("web.setup.llm.sheet.select_title")
                   : editing
-                  ? translate("web.setup.llm.sheet.edit_title")
-                  : translate("web.setup.llm.sheet.add_title")}
+                    ? translate("web.setup.llm.sheet.edit_title")
+                    : translate("web.setup.llm.sheet.add_title")}
               </SheetTitle>
               <SheetDescription>
                 {mode === "select" ? (
                   ""
                 ) : (
                   <>
-                    {providerLabel(draft.provider_id, catalogOptions, translate) || translate("web.setup.llm.fields.provider_id")}
+                    {providerLabel(draft.provider_id, catalogOptions, translate) ||
+                      translate("web.setup.llm.fields.provider_id")}
                     {" · "}
                     {draft.model_id || translate("web.setup.llm.fields.model_id")}
                   </>
@@ -892,8 +834,7 @@ function ProviderSheet({
               size="icon-sm"
               variant="ghost"
               aria-label={translate("app.close")}
-              onClick={() => onOpenChange(false)}
-            >
+              onClick={() => onOpenChange(false)}>
               <RiCloseLine />
             </Button>
           </div>
@@ -911,9 +852,7 @@ function ProviderSheet({
               ) : null}
               <div className="grid gap-3">
                 {inheritSources.length > 0 ? (
-                  <h3 className="text-sm font-semibold">
-                    {translate("web.setup.llm.sheet.choose_provider_type")}
-                  </h3>
+                  <h3 className="text-sm font-semibold">{translate("web.setup.llm.sheet.choose_provider_type")}</h3>
                 ) : null}
                 <ProviderTypeChooser catalog={catalogOptions} onChoose={chooseProvider} />
               </div>
@@ -927,8 +866,7 @@ function ProviderSheet({
                   <Field
                     label={translate("web.setup.llm.fields.name")}
                     required={Boolean(fieldErrors.name)}
-                    error={fieldErrors.name}
-                  >
+                    error={fieldErrors.name}>
                     <Input
                       value={draft.name}
                       onChange={event => update("name", event.target.value)}
@@ -939,18 +877,12 @@ function ProviderSheet({
                     />
                   </Field>
 
-                  <Field
-                    label={translate("web.setup.llm.fields.provider_id")}
-                    required
-                    error={fieldErrors.provider_id}
-                  >
-                    <Select
-                      value={draft.provider_id}
-                      onValueChange={updateProviderId}
-                    >
+                  <Field label={translate("web.setup.llm.fields.provider_id")} required error={fieldErrors.provider_id}>
+                    <Select value={draft.provider_id} onValueChange={updateProviderId}>
                       <SelectTrigger className="w-full">
                         <span data-slot="select-value">
-                          {providerLabel(draft.provider_id, catalogOptions, translate) || translate("web.setup.llm.fields.provider_id")}
+                          {providerLabel(draft.provider_id, catalogOptions, translate) ||
+                            translate("web.setup.llm.fields.provider_id")}
                         </span>
                       </SelectTrigger>
                       <SelectContent>
@@ -967,11 +899,7 @@ function ProviderSheet({
 
               <FormSection title={translate("web.setup.llm.sections.model")}>
                 <div className="grid gap-4 sm:grid-cols-2">
-                  <Field
-                    label={translate("web.setup.llm.fields.model_id")}
-                    required
-                    error={fieldErrors.model_id}
-                  >
+                  <Field label={translate("web.setup.llm.fields.model_id")} required error={fieldErrors.model_id}>
                     <Input
                       value={draft.model_id}
                       onChange={event => update("model_id", event.target.value)}
@@ -1018,8 +946,7 @@ function ProviderSheet({
                         ].join(" ")}
                       />
                     </CollapsibleTrigger>
-                  }
-                >
+                  }>
                   <CollapsibleContent>
                     <div className="grid gap-5 pt-1">
                       <div className="grid gap-4 md:grid-cols-2">
@@ -1061,14 +988,12 @@ function ProviderSheet({
             </Button>
             <Button type="button" variant="outline" onClick={onTest} disabled={testing}>
               <RiPlugLine data-icon="inline-start" />
-              <span>{testing ? translate("web.setup.llm.status.checking") : translate("web.setup.llm.actions.test")}</span>
+              <span>
+                {testing ? translate("web.setup.llm.status.checking") : translate("web.setup.llm.actions.test")}
+              </span>
             </Button>
             <Button type="button" onClick={onApply}>
-              {editing ? (
-                <RiSaveLine data-icon="inline-start" />
-              ) : (
-                <RiAddLine data-icon="inline-start" />
-              )}
+              {editing ? <RiSaveLine data-icon="inline-start" /> : <RiAddLine data-icon="inline-start" />}
               <span>
                 {editing ? translate("web.setup.llm.sheet.save_changes") : translate("web.setup.llm.providers.add")}
               </span>
@@ -1095,18 +1020,13 @@ function ExistingProvidersChooser({ sources, catalog, onChoose }: ExistingProvid
     <Collapsible open={open} onOpenChange={setOpen}>
       <CollapsibleTrigger className="flex w-full cursor-pointer items-center justify-between gap-3 border border-border bg-background-secondary px-4 py-3 text-left transition-colors hover:border-primary hover:bg-muted focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 focus-visible:outline-none">
         <span className="min-w-0">
-          <span className="block text-sm font-semibold">
-            {translate("web.setup.llm.sheet.from_existing_title")}
-          </span>
+          <span className="block text-sm font-semibold">{translate("web.setup.llm.sheet.from_existing_title")}</span>
           <span className="mt-0.5 block text-xs text-muted-foreground">
             {translate("web.setup.llm.sheet.from_existing_description")}
           </span>
         </span>
         <RiArrowDownSLine
-          className={[
-            "size-4 shrink-0 text-muted-foreground transition-transform",
-            open ? "rotate-180" : "",
-          ].join(" ")}
+          className={["size-4 shrink-0 text-muted-foreground transition-transform", open ? "rotate-180" : ""].join(" ")}
         />
       </CollapsibleTrigger>
       <CollapsibleContent>
@@ -1114,31 +1034,23 @@ function ExistingProvidersChooser({ sources, catalog, onChoose }: ExistingProvid
           className={[
             "mt-3 grid self-start gap-3",
             sources.length > 1 ? "sm:grid-cols-2" : "sm:grid-cols-[minmax(0,24rem)]",
-          ].join(" ")}
-        >
+          ].join(" ")}>
           {sources.map(source => (
             <button
               key={source.name}
               type="button"
               className="group grid min-h-20 gap-3 border border-border bg-background-secondary p-4 text-left transition-colors hover:border-primary hover:bg-muted focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 focus-visible:outline-none"
-              onClick={() => onChoose(source)}
-            >
+              onClick={() => onChoose(source)}>
               <span className="flex items-center justify-between gap-4">
-                <span className="min-w-0 truncate text-sm font-semibold">
-                  {source.name}
-                </span>
+                <span className="min-w-0 truncate text-sm font-semibold">{source.name}</span>
                 <RiArrowRightSLine className="size-5 shrink-0 text-muted-foreground group-hover:text-primary" />
               </span>
               <span className="flex flex-wrap gap-2">
                 <Badge variant="outline">
                   {providerLabel(source.provider_id, catalog, translate) || source.provider_id}
                 </Badge>
-                {source.model_id ? (
-                  <Badge variant="outline">{source.model_id}</Badge>
-                ) : null}
-                <Badge variant="secondary">
-                  {translate("web.setup.llm.sheet.api_key_stored_badge")}
-                </Badge>
+                {source.model_id ? <Badge variant="outline">{source.model_id}</Badge> : null}
+                <Badge variant="secondary">{translate("web.setup.llm.sheet.api_key_stored_badge")}</Badge>
               </span>
             </button>
           ))}
@@ -1162,15 +1074,13 @@ function ProviderTypeChooser({ catalog, onChoose }: ProviderTypeChooserProps) {
       className={[
         "grid self-start gap-3",
         catalog.length > 1 ? "sm:grid-cols-2" : "sm:grid-cols-[minmax(0,24rem)]",
-      ].join(" ")}
-    >
+      ].join(" ")}>
       {catalog.map(item => (
         <button
           key={item.id}
           type="button"
           className="group grid min-h-28 gap-4 border border-border bg-background-secondary p-4 text-left transition-colors hover:border-primary hover:bg-muted focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 focus-visible:outline-none"
-          onClick={() => onChoose(item)}
-        >
+          onClick={() => onChoose(item)}>
           <span className="flex items-center justify-between gap-4">
             <span className="min-w-0 truncate text-base font-semibold">
               {providerLabel(item.id, catalog, translate)}
@@ -1193,12 +1103,7 @@ interface ProviderOptionFieldViewProps {
   error?: string
 }
 
-function ProviderOptionFieldView({
-  field,
-  value,
-  onChange,
-  error,
-}: ProviderOptionFieldViewProps) {
+function ProviderOptionFieldView({ field, value, onChange, error }: ProviderOptionFieldViewProps) {
   const { t } = useTranslation()
   const translate = t as Translate
   const label = providerOptionLabel(field, translate)
@@ -1219,17 +1124,11 @@ function ProviderOptionFieldView({
               ) : null}
             </p>
             {description ? (
-              <p className="mt-1 line-clamp-3 text-xs leading-5 text-muted-foreground">
-                {description}
-              </p>
+              <p className="mt-1 line-clamp-3 text-xs leading-5 text-muted-foreground">{description}</p>
             ) : null}
             {error ? <p className="mt-2 text-xs text-destructive">{error}</p> : null}
           </div>
-          <Switch
-            checked={Boolean(effectiveValue)}
-            onCheckedChange={onChange}
-            aria-label={label}
-          />
+          <Switch checked={Boolean(effectiveValue)} onCheckedChange={onChange} aria-label={label} />
         </div>
       </div>
     )
@@ -1238,10 +1137,7 @@ function ProviderOptionFieldView({
   if (field.input_type === "select") {
     return (
       <Field label={label} required={field.required} error={error}>
-        <Select
-          value={stringValue(effectiveValue)}
-          onValueChange={onChange}
-        >
+        <Select value={stringValue(effectiveValue)} onValueChange={onChange}>
           <SelectTrigger className="w-full">
             <span data-slot="select-value">
               {effectiveValue === undefined || effectiveValue === null || effectiveValue === ""
@@ -1266,11 +1162,7 @@ function ProviderOptionFieldView({
     return (
       <div className="md:col-span-2">
         <Field label={label} required={field.required} error={error}>
-          <ProviderOptionJsonEditor
-            field={field}
-            value={effectiveValue}
-            onChange={onChange}
-          />
+          <ProviderOptionJsonEditor field={field} value={effectiveValue} onChange={onChange} />
           {description ? <FieldDescription>{description}</FieldDescription> : null}
         </Field>
       </div>
@@ -1313,8 +1205,7 @@ function ProviderOptionJsonEditor({ field, value, onChange }: ProviderOptionJson
           disabled={!canClear}
           aria-label={translate("web.setup.llm.actions.clear")}
           title={translate("web.setup.llm.actions.clear")}
-          onClick={() => onChange("")}
-        >
+          onClick={() => onChange("")}>
           <RiCloseLine />
         </Button>
       </div>
@@ -1365,9 +1256,7 @@ function Field({ label, required, error, children }: FieldProps) {
       <Label>
         <span>{label}</span>
         {required ? (
-          <span className="ml-1 text-xs font-normal text-muted-foreground">
-            {translate("web.setup.llm.required")}
-          </span>
+          <span className="ml-1 text-xs font-normal text-muted-foreground">{translate("web.setup.llm.required")}</span>
         ) : null}
       </Label>
       {children}
@@ -1377,11 +1266,7 @@ function Field({ label, required, error, children }: FieldProps) {
 }
 
 function FieldDescription({ children }: { children: React.ReactNode }) {
-  return (
-    <p className="line-clamp-3 text-xs leading-5 text-muted-foreground">
-      {children}
-    </p>
-  )
+  return <p className="line-clamp-3 text-xs leading-5 text-muted-foreground">{children}</p>
 }
 
 interface SecretFieldProps {
@@ -1519,14 +1404,13 @@ function normalizeProviderCatalog(
     .filter(item => item.id)
 }
 
-function normalizeProviders(
-  providers: ProviderRowInput[],
-  catalog: ProviderCatalogEntry[],
-): ProviderRow[] {
-  return providers.map(provider => editableProvider({
-    ...provider,
-    provider_id: provider.provider_id || catalog[0]?.id || "",
-  }))
+function normalizeProviders(providers: ProviderRowInput[], catalog: ProviderCatalogEntry[]): ProviderRow[] {
+  return providers.map(provider =>
+    editableProvider({
+      ...provider,
+      provider_id: provider.provider_id || catalog[0]?.id || "",
+    }),
+  )
 }
 
 function editableProvider(provider: ProviderRowInput): ProviderRow {
@@ -1547,7 +1431,9 @@ function editableProvider(provider: ProviderRowInput): ProviderRow {
 
 function newProvider(catalog: ProviderCatalogEntry[]): ProviderRow {
   const normalized = catalog
-  return newProviderForCatalogEntry(normalized[0] || { id: "", label: "", default_base_url: "", api_key_supported: true, provider_options: [] })
+  return newProviderForCatalogEntry(
+    normalized[0] || { id: "", label: "", default_base_url: "", api_key_supported: true, provider_options: [] },
+  )
 }
 
 function newProviderForCatalogEntry(catalogEntry: ProviderCatalogEntry | undefined): ProviderRow {
@@ -1585,9 +1471,7 @@ function providerFromPrepared(
 ): ProviderRow {
   const apiKeySupported = providerApiKeySupported(prepared.provider_id, catalog)
   const typedKey = apiKeySupported && typeof draft.api_key === "string" && draft.api_key.trim() !== ""
-  const inheritsFrom = apiKeySupported && !typedKey && draft.api_key_inherits_from
-    ? draft.api_key_inherits_from
-    : null
+  const inheritsFrom = apiKeySupported && !typedKey && draft.api_key_inherits_from ? draft.api_key_inherits_from : null
   const apiKeyStatus: SecretStatus = apiKeySupported
     ? typedKey || inheritsFrom
       ? "stored"
@@ -1609,10 +1493,7 @@ function providerFromPrepared(
   }
 }
 
-function prepareProviderForSave(
-  provider: ProviderRow,
-  catalog: ProviderCatalogEntry[] = [],
-): PreparedProvider {
+function prepareProviderForSave(provider: ProviderRow, catalog: ProviderCatalogEntry[] = []): PreparedProvider {
   const options = parseProviderOptions(provider, catalog)
   const providerId = trimmed(provider.provider_id)
   const modelId = trimmed(provider.model_id)
@@ -1640,7 +1521,9 @@ function prepareProviderForSave(
   return attrs
 }
 
-function cleanProviderPayload(provider: PreparedProvider): Omit<PreparedProvider, "provider_options_error" | "provider_options_field_errors"> {
+function cleanProviderPayload(
+  provider: PreparedProvider,
+): Omit<PreparedProvider, "provider_options_error" | "provider_options_field_errors"> {
   const {
     provider_options_error: _providerOptionsError,
     provider_options_field_errors: _providerOptionsFieldErrors,
@@ -1651,7 +1534,12 @@ function cleanProviderPayload(provider: PreparedProvider): Omit<PreparedProvider
 }
 
 type ParsedOptionsOk = { ok: true; value: Record<string, unknown>; field_errors?: undefined; error?: undefined }
-type ParsedOptionsErr = { ok: false; error: string; field_errors?: Array<{ field: string; error: string }>; value?: undefined }
+type ParsedOptionsErr = {
+  ok: false
+  error: string
+  field_errors?: Array<{ field: string; error: string }>
+  value?: undefined
+}
 type ParsedOptions = ParsedOptionsOk | ParsedOptionsErr
 
 function parseProviderOptions(provider: ProviderRow, catalog: ProviderCatalogEntry[] = []): ParsedOptions {
@@ -1890,13 +1778,11 @@ function normalizeAliases(rows: AliasBinding[] | Record<string, AliasBinding> | 
     if (row.kind === "provider") {
       aliases[aliasName] = { kind: "provider", target: row.target || "" }
     } else if (
-      aliasName !== "default"
-      && (
-        row.kind === "alias"
-        || row.kind === "default"
-        || row.source === "default_provider"
-        || row.source === "fallback_provider"
-      )
+      aliasName !== "default" &&
+      (row.kind === "alias" ||
+        row.kind === "default" ||
+        row.source === "default_provider" ||
+        row.source === "fallback_provider")
     ) {
       aliases[aliasName] = {
         kind: "alias",
@@ -1908,22 +1794,26 @@ function normalizeAliases(rows: AliasBinding[] | Record<string, AliasBinding> | 
   return aliases
 }
 
-function aliasPayload(aliases: AliasRows): Record<AliasName, { kind: AliasBinding["kind"] | undefined; target: string | undefined }> {
-  return Object.fromEntries(ALIASES.map(aliasName => {
-    const binding = aliases[aliasName]
+function aliasPayload(
+  aliases: AliasRows,
+): Record<AliasName, { kind: AliasBinding["kind"] | undefined; target: string | undefined }> {
+  return Object.fromEntries(
+    ALIASES.map(aliasName => {
+      const binding = aliases[aliasName]
 
-    if (aliasName !== "default" && binding?.kind === "alias") {
-      return [
-        aliasName,
-        {
-          kind: "alias",
-          target: aliasTargetForBinding(aliasName, binding),
-        },
-      ]
-    }
+      if (aliasName !== "default" && binding?.kind === "alias") {
+        return [
+          aliasName,
+          {
+            kind: "alias",
+            target: aliasTargetForBinding(aliasName, binding),
+          },
+        ]
+      }
 
-    return [aliasName, { kind: binding?.kind, target: binding?.target }]
-  })) as Record<AliasName, { kind: AliasBinding["kind"] | undefined; target: string | undefined }>
+      return [aliasName, { kind: binding?.kind, target: binding?.target }]
+    }),
+  ) as Record<AliasName, { kind: AliasBinding["kind"] | undefined; target: string | undefined }>
 }
 
 function aliasSummary(aliasName: AliasName, binding: AliasBinding | undefined, t: Translate): string {
@@ -1943,28 +1833,32 @@ function aliasSummary(aliasName: AliasName, binding: AliasBinding | undefined, t
 function retargetAliases(aliases: AliasRows, previousName: string | null, nextName: string): AliasRows {
   if (!previousName || previousName === nextName) return aliases
 
-  return Object.fromEntries(ALIASES.map(aliasName => {
-    const binding = aliases[aliasName]
+  return Object.fromEntries(
+    ALIASES.map(aliasName => {
+      const binding = aliases[aliasName]
 
-    if (binding?.kind === "provider" && binding.target === previousName) {
-      return [aliasName, { ...binding, target: nextName }]
-    }
+      if (binding?.kind === "provider" && binding.target === previousName) {
+        return [aliasName, { ...binding, target: nextName }]
+      }
 
-    return [aliasName, binding]
-  })) as AliasRows
+      return [aliasName, binding]
+    }),
+  ) as AliasRows
 }
 
 function removeAliasTargets(aliases: AliasRows, removedName: string): AliasRows {
-  return Object.fromEntries(ALIASES.map(aliasName => {
-    const binding = aliases[aliasName]
+  return Object.fromEntries(
+    ALIASES.map(aliasName => {
+      const binding = aliases[aliasName]
 
-    if (binding?.kind === "provider" && binding.target === removedName) {
-      if (aliasName === "default") return [aliasName, { kind: "", target: "" }]
-      return [aliasName, { kind: "alias", target: defaultAliasTarget(aliasName) }]
-    }
+      if (binding?.kind === "provider" && binding.target === removedName) {
+        if (aliasName === "default") return [aliasName, { kind: "", target: "" }]
+        return [aliasName, { kind: "alias", target: defaultAliasTarget(aliasName) }]
+      }
 
-    return [aliasName, binding]
-  })) as AliasRows
+      return [aliasName, binding]
+    }),
+  ) as AliasRows
 }
 
 function defaultAliasTarget(aliasName: AliasName): AliasName {

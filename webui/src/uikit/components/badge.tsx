@@ -15,17 +15,15 @@ const badgeVariants = cva(
           "bg-gray-20 text-gray-100 hover:bg-gray-30 [a]:hover:text-gray-100 dark:bg-gray-70 dark:text-gray-10 dark:hover:bg-gray-60",
         destructive:
           "bg-red-20 text-red-70 hover:bg-red-30 focus-visible:ring-destructive/20 [a]:hover:text-red-80 dark:bg-red-80 dark:text-red-20 dark:hover:bg-red-70 dark:focus-visible:ring-destructive/40",
-        outline:
-          "border-gray-40 bg-transparent text-foreground hover:bg-muted [a]:hover:text-foreground",
-        ghost:
-          "bg-transparent text-muted-foreground hover:bg-muted hover:text-foreground",
+        outline: "border-gray-40 bg-transparent text-foreground hover:bg-muted [a]:hover:text-foreground",
+        ghost: "bg-transparent text-muted-foreground hover:bg-muted hover:text-foreground",
         link: "h-auto min-w-0 max-w-none rounded-none bg-transparent px-0 text-primary underline-offset-4 hover:underline",
       },
     },
     defaultVariants: {
       variant: "default",
     },
-  }
+  },
 )
 
 function Badge({
@@ -40,7 +38,7 @@ function Badge({
       {
         className: cn(badgeVariants({ variant }), className),
       },
-      props
+      props,
     ),
     render,
     state: {

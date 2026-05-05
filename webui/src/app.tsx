@@ -29,7 +29,7 @@ if (inertiaPage) {
   createInertiaApp({
     page: inertiaPage,
     http: { xsrfHeaderName: "x-csrf-token" },
-    title: title => title ? `${title} · BullX` : "BullX",
+    title: title => (title ? `${title} · BullX` : "BullX"),
     resolve: async name => {
       const path = `./${name}.tsx`
 
@@ -51,8 +51,8 @@ if (inertiaPage) {
 
 function initialInertiaPage(element: HTMLElement | null) {
   const json =
-    document.querySelector<HTMLScriptElement>('script[data-page="app"][type="application/json"]')?.textContent
-    || element?.dataset.page
+    document.querySelector<HTMLScriptElement>('script[data-page="app"][type="application/json"]')?.textContent ||
+    element?.dataset.page
 
   return json ? JSON.parse(json) : null
 }

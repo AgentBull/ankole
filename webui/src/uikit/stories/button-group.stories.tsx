@@ -1,18 +1,8 @@
+import { RiArrowLeftSLine, RiArrowRightSLine, RiBold, RiItalic, RiUnderline } from "@remixicon/react"
 import type { Meta, StoryObj } from "@storybook/react"
-import {
-  RiArrowLeftSLine,
-  RiArrowRightSLine,
-  RiBold,
-  RiItalic,
-  RiUnderline,
-} from "@remixicon/react"
 
 import { Button } from "@/uikit/components/button"
-import {
-  ButtonGroup,
-  ButtonGroupSeparator,
-  ButtonGroupText,
-} from "@/uikit/components/button-group"
+import { ButtonGroup, ButtonGroupSeparator, ButtonGroupText } from "@/uikit/components/button-group"
 
 const meta = {
   title: "Components/ButtonGroup",
@@ -30,7 +20,7 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const Default: Story = {
-  render: (args) => (
+  render: args => (
     <ButtonGroup {...args}>
       <Button variant="outline">Previous</Button>
       <Button variant="outline">Next</Button>
@@ -40,7 +30,7 @@ export const Default: Story = {
 
 export const Vertical: Story = {
   args: { orientation: "vertical" },
-  render: (args) => (
+  render: args => (
     <ButtonGroup {...args}>
       <Button variant="outline">Top</Button>
       <Button variant="outline">Middle</Button>

@@ -1,10 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react"
 
-import {
-  Progress,
-  ProgressLabel,
-  ProgressValue,
-} from "@/uikit/components/progress"
+import { Progress, ProgressLabel, ProgressValue } from "@/uikit/components/progress"
 
 const meta = {
   title: "Components/Progress",
@@ -20,7 +16,7 @@ type Story = StoryObj<typeof meta>
 
 export const Default: Story = {
   args: { value: 60 },
-  render: (args) => (
+  render: args => (
     <div className="w-72">
       <Progress {...args} />
     </div>
@@ -29,7 +25,7 @@ export const Default: Story = {
 
 export const WithLabel: Story = {
   args: { value: 42 },
-  render: (args) => (
+  render: args => (
     <div className="w-72">
       <Progress {...args}>
         <ProgressLabel>Uploading</ProgressLabel>
@@ -41,7 +37,7 @@ export const WithLabel: Story = {
 
 export const Indeterminate: Story = {
   args: { value: null },
-  render: (args) => (
+  render: args => (
     <div className="w-72">
       <Progress {...args} />
     </div>

@@ -1,5 +1,5 @@
-import type { Meta, StoryObj } from "@storybook/react"
 import { RiCheckLine } from "@remixicon/react"
+import type { Meta, StoryObj } from "@storybook/react"
 
 import { Badge } from "@/uikit/components/badge"
 
@@ -46,7 +46,5 @@ export const WithIcon: Story = {
 }
 
 export const AsLink: Story = {
-  render: () => (
-    <Badge render={<a href="#" />}>Click me</Badge>
-  ),
+  render: () => <Badge render={<a href="/" />}>Click me</Badge>,
 }

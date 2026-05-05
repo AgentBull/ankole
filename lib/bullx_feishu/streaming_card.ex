@@ -139,7 +139,7 @@ defmodule BullXFeishu.StreamingCard do
 
     %{
       state
-      | pending_text: merge_streaming_text(base_text, text),
+      | pending_text: base_text <> text,
         pending_chars: state.pending_chars + String.length(text)
     }
   end
@@ -287,38 +287,6 @@ defmodule BullXFeishu.StreamingCard do
       "ios" => value,
       "pc" => value
     }
-  end
-
-  defp merge_streaming_text(previous, next) when next in [nil, ""], do: previous
-  defp merge_streaming_text("", next), do: next
-  defp merge_streaming_text(previous, next) when previous == next, do: previous
-
-  defp merge_streaming_text(previous, next) do
-    cond do
-      String.starts_with?(next, previous) -> next
-      String.contains?(next, previous) -> next
-      String.starts_with?(previous, next) -> previous
-      String.contains?(previous, next) -> previous
-      true -> append_with_overlap(previous, next)
-    end
-  end
-
-  defp append_with_overlap(previous, next) do
-    overlap = max_overlap(previous, next)
-    previous <> String.slice(next, overlap, String.length(next) - overlap)
-  end
-
-  defp max_overlap(previous, next) do
-    max_size = min(String.length(previous), String.length(next))
-
-    case max_size do
-      0 -> 0
-      _ -> Enum.find(max_size..1//-1, 0, &overlaps?(previous, next, &1))
-    end
-  end
-
-  defp overlaps?(previous, next, size) do
-    String.ends_with?(previous, String.slice(next, 0, size))
   end
 
   defp truncate_summary(text) do

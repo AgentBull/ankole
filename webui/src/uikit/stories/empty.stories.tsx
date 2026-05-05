@@ -1,15 +1,8 @@
-import type { Meta, StoryObj } from "@storybook/react"
 import { RiInboxLine, RiSearchLine } from "@remixicon/react"
+import type { Meta, StoryObj } from "@storybook/react"
 
 import { Button } from "@/uikit/components/button"
-import {
-  Empty,
-  EmptyContent,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from "@/uikit/components/empty"
+import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/uikit/components/empty"
 
 const meta = {
   title: "Components/Empty",
@@ -43,9 +36,7 @@ export const WithAction: Story = {
           <RiSearchLine />
         </EmptyMedia>
         <EmptyTitle>No results</EmptyTitle>
-        <EmptyDescription>
-          Try adjusting your filters or check back later.
-        </EmptyDescription>
+        <EmptyDescription>Try adjusting your filters or check back later.</EmptyDescription>
       </EmptyHeader>
       <EmptyContent>
         <Button variant="outline">Reset filters</Button>

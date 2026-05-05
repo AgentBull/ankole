@@ -58,10 +58,7 @@ export const Mf2ReactPreset = {
       ...reactOptions,
       transSupportBasicHtmlNodes: true,
       transKeepBasicHtmlNodesFor: [
-        ...new Set([
-          ...(Array.isArray(keepBasicHtmlNodesFor) ? keepBasicHtmlNodesFor : []),
-          ...reactBasicTags,
-        ]),
+        ...new Set([...(Array.isArray(keepBasicHtmlNodesFor) ? keepBasicHtmlNodesFor : []), ...reactBasicTags]),
       ],
     }
   },

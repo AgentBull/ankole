@@ -1,29 +1,12 @@
-import React from "react"
 import { useForm, usePage } from "@inertiajs/react"
-import { useTranslation } from "react-i18next"
 import { RiArrowRightLine } from "@remixicon/react"
+import type React from "react"
+import { useTranslation } from "react-i18next"
 import i18n from "@/i18n/i18n"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@/uikit/components/card"
 import { Button } from "@/uikit/components/button"
-import {
-  InputOTP,
-  InputOTPGroup,
-  InputOTPSeparator,
-  InputOTPSlot,
-} from "@/uikit/components/input-otp"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-} from "@/uikit/components/select"
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/uikit/components/card"
+import { InputOTP, InputOTPGroup, InputOTPSeparator, InputOTPSlot } from "@/uikit/components/input-otp"
+import { Select, SelectContent, SelectItem, SelectTrigger } from "@/uikit/components/select"
 import SetupLayout from "../Layout"
 
 const LOCALE_LABELS: Record<string, string> = {
@@ -47,14 +30,13 @@ function localeLabel(code: string): string {
 }
 
 function normalizeActivationCode(value: string): string {
-  return value.replace(/[^a-zA-Z0-9]/g, "").toUpperCase().slice(0, 8)
+  return value
+    .replace(/[^a-zA-Z0-9]/g, "")
+    .toUpperCase()
+    .slice(0, 8)
 }
 
-export default function SetupSessionNew({
-  form_action,
-  current_locale,
-  available_locales,
-}: SetupSessionNewProps) {
+export default function SetupSessionNew({ form_action, current_locale, available_locales }: SetupSessionNewProps) {
   const { t } = useTranslation()
   const { props } = usePage<FlashProps>()
   const flashError = props?.flash?.error
@@ -84,36 +66,26 @@ export default function SetupSessionNew({
       title={t("web.setup.sessions.new.title")}
       headerActions={
         <Select value={data.locale} onValueChange={handleLocaleChange}>
-          <SelectTrigger
-            size="sm"
-            aria-label={t("web.setup.sessions.new.locale_label")}
-            className="bg-field"
-          >
-            <span
-              data-slot="select-value"
-              className="flex flex-1 items-center gap-2 text-left"
-            >
+          <SelectTrigger size="sm" aria-label={t("web.setup.sessions.new.locale_label")} className="bg-field">
+            <span data-slot="select-value" className="flex flex-1 items-center gap-2 text-left">
               {localeLabel(data.locale)}
             </span>
           </SelectTrigger>
           <SelectContent align="end">
-            {available_locales.map((code) => (
+            {available_locales.map(code => (
               <SelectItem key={code} value={code}>
                 {localeLabel(code)}
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
-      }
-    >
+      }>
       <section className="grid flex-1 place-items-center py-10 lg:py-0">
         <div className="w-full max-w-md">
           <Card className="bg-card">
             <CardHeader>
               <CardTitle>{t("web.setup.sessions.new.heading")}</CardTitle>
-              <CardDescription>
-                {t("web.setup.sessions.new.description")}
-              </CardDescription>
+              <CardDescription>{t("web.setup.sessions.new.description")}</CardDescription>
             </CardHeader>
 
             <form onSubmit={handleSubmit} className="space-y-12">
@@ -132,8 +104,7 @@ export default function SetupSessionNew({
                   pasteTransformer={normalizeActivationCode}
                   required
                   containerClassName="w-full justify-between gap-1 bg-field px-2 py-1 sm:gap-2 sm:px-3"
-                  className="h-12 font-mono"
-                >
+                  className="h-12 font-mono">
                   <InputOTPGroup className="flex-1 justify-between gap-0 sm:gap-1">
                     <InputOTPSlot className="size-7 sm:size-10" index={0} />
                     <InputOTPSlot className="size-7 sm:size-10" index={1} />
@@ -152,23 +123,15 @@ export default function SetupSessionNew({
                 {flashError ? (
                   <p
                     className="border-l-4 border-destructive bg-background-secondary px-4 py-3 text-sm leading-5 text-destructive"
-                    role="alert"
-                  >
+                    role="alert">
                     {flashError}
                   </p>
                 ) : null}
               </CardContent>
               <CardFooter className="flex justify-end">
-                <Button
-                  type="submit"
-                  disabled={processing}
-                  className="w-full justify-between sm:w-32"
-                >
+                <Button type="submit" disabled={processing} className="w-full justify-between sm:w-32">
                   <span>{t("web.setup.sessions.new.submit")}</span>
-                  <RiArrowRightLine
-                    data-icon="inline-end"
-                    aria-hidden="true"
-                  />
+                  <RiArrowRightLine data-icon="inline-end" aria-hidden="true" />
                 </Button>
               </CardFooter>
             </form>

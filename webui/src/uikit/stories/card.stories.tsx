@@ -28,13 +28,11 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const Default: Story = {
-  render: (args) => (
+  render: args => (
     <Card {...args} className="w-[420px]">
       <CardHeader>
         <CardTitle>Account</CardTitle>
-        <CardDescription>
-          Manage your account settings and preferences.
-        </CardDescription>
+        <CardDescription>Manage your account settings and preferences.</CardDescription>
       </CardHeader>
       <CardContent>
         <p className="text-sm leading-relaxed text-muted-foreground">
@@ -61,24 +59,20 @@ export const WithAction: Story = {
           </Button>
         </CardAction>
       </CardHeader>
-      <CardContent className="text-sm text-muted-foreground">
-        Pro plan • $20/month
-      </CardContent>
+      <CardContent className="text-sm text-muted-foreground">Pro plan • $20/month</CardContent>
     </Card>
   ),
 }
 
 export const Small: Story = {
   args: { size: "sm" },
-  render: (args) => (
+  render: args => (
     <Card {...args} className="w-[320px]">
       <CardHeader>
         <CardTitle>Compact card</CardTitle>
         <CardDescription>Reduced padding and gap.</CardDescription>
       </CardHeader>
-      <CardContent className="text-sm">
-        Useful inside dashboards and sidebars.
-      </CardContent>
+      <CardContent className="text-sm">Useful inside dashboards and sidebars.</CardContent>
     </Card>
   ),
 }

@@ -1,11 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react"
 
-import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from "@/uikit/components/tabs"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/uikit/components/tabs"
 
 const meta = {
   title: "Components/Tabs",
@@ -23,7 +18,7 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const Default: Story = {
-  render: (args) => (
+  render: args => (
     <Tabs {...args} defaultValue="account" className="w-[420px]">
       <TabsList>
         <TabsTrigger value="account">Account</TabsTrigger>
@@ -66,7 +61,7 @@ export const Line: Story = {
 
 export const Vertical: Story = {
   args: { orientation: "vertical" },
-  render: (args) => (
+  render: args => (
     <Tabs {...args} defaultValue="general" className="h-48">
       <TabsList>
         <TabsTrigger value="general">General</TabsTrigger>

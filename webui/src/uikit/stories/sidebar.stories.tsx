@@ -1,11 +1,5 @@
+import { RiCalendarLine, RiHome2Line, RiInboxLine, RiSearchLine, RiSettings3Line } from "@remixicon/react"
 import type { Meta, StoryObj } from "@storybook/react"
-import {
-  RiCalendarLine,
-  RiHome2Line,
-  RiInboxLine,
-  RiSearchLine,
-  RiSettings3Line,
-} from "@remixicon/react"
 
 import {
   Sidebar,
@@ -48,16 +42,14 @@ export const Default: Story = {
     <SidebarProvider>
       <Sidebar>
         <SidebarHeader>
-          <div className="px-2 py-1.5 text-sm font-semibold tracking-widest uppercase">
-            BullX
-          </div>
+          <div className="px-2 py-1.5 text-sm font-semibold tracking-widest uppercase">BullX</div>
         </SidebarHeader>
         <SidebarContent>
           <SidebarGroup>
             <SidebarGroupLabel>Application</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
-                {ITEMS.map((item) => (
+                {ITEMS.map(item => (
                   <SidebarMenuItem key={item.title}>
                     <SidebarMenuButton render={<a href={item.url} />}>
                       <item.icon />
@@ -76,13 +68,9 @@ export const Default: Story = {
       <SidebarInset>
         <header className="flex h-12 items-center gap-2 border-b px-4">
           <SidebarTrigger />
-          <span className="text-sm font-semibold tracking-wider uppercase">
-            Dashboard
-          </span>
+          <span className="text-sm font-semibold tracking-wider uppercase">Dashboard</span>
         </header>
-        <main className="p-6 text-sm text-muted-foreground">
-          Sidebar content goes here.
-        </main>
+        <main className="p-6 text-sm text-muted-foreground">Sidebar content goes here.</main>
       </SidebarInset>
     </SidebarProvider>
   ),
@@ -96,7 +84,7 @@ export const Floating: Story = {
           <SidebarGroup>
             <SidebarGroupContent>
               <SidebarMenu>
-                {ITEMS.map((item) => (
+                {ITEMS.map(item => (
                   <SidebarMenuItem key={item.title}>
                     <SidebarMenuButton tooltip={item.title} render={<a href={item.url} />}>
                       <item.icon />
@@ -113,9 +101,7 @@ export const Floating: Story = {
         <header className="flex h-12 items-center gap-2 border-b px-4">
           <SidebarTrigger />
         </header>
-        <main className="p-6 text-sm text-muted-foreground">
-          Floating sidebar variant.
-        </main>
+        <main className="p-6 text-sm text-muted-foreground">Floating sidebar variant.</main>
       </SidebarInset>
     </SidebarProvider>
   ),

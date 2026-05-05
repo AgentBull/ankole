@@ -1,8 +1,8 @@
-# Rsbuild, Rstest, and Rslint Frontend Tooling
+# Rsbuild, Rstest, and Biome Frontend Tooling
 
 ## Scope
 
-Replace the BullX frontend toolchain's Vite integration with Rsbuild, migrate frontend unit tests to Rstest, and add Rslint as the JavaScript/TypeScript lint framework.
+Replace the BullX frontend toolchain's Vite integration with Rsbuild, migrate frontend unit tests to Rstest, and add Biome as the JavaScript/TypeScript lint framework.
 
 This affects the Phoenix control-plane asset boundary only:
 
@@ -10,7 +10,7 @@ This affects the Phoenix control-plane asset boundary only:
 - `turbo.json`
 - `rsbuild.config.ts`
 - `rstest.config.ts`
-- `rslint.config.ts`
+- `biome.json`
 - `webui/src/**`
 - `config/*.exs`
 - `lib/bullx_web/**`
@@ -41,12 +41,12 @@ No OTP supervision boundary changes. The Phoenix endpoint still owns the dev wat
 - Phoenix development asset loading changes from a Vite dev-server module path to Rsbuild's emitted dev assets.
 - Phoenix production asset loading changes from a Vite manifest chunk map to Rsbuild's `entries.*.initial` manifest shape.
 - Frontend unit tests change from `bun:test` APIs to `@rstest/core`.
-- Frontend linting becomes an explicit `rslint` script with a root `rslint.config.ts`.
+- Frontend linting becomes an explicit `biome check` script with a root `biome.json`.
 - The frontend application source root changes from `assets/js` to `webui/src`.
 
 ### Invariants
 
-- `webui/src/app.jsx` is the React/Inertia entry.
+- `webui/src/app.tsx` is the React/Inertia entry.
 - SPA pages live under `webui/src/apps/`.
 - Production assets remain served from `/assets`.
 - `mix assets.deploy` still runs compilation, the JS asset build, and `phx.digest`.

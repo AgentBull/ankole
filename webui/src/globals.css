@@ -19,7 +19,7 @@
   font-display: swap;
 }
 
-@custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 
 @theme static {
   --color-white: #ffffff;
@@ -231,8 +231,7 @@
   color-scheme: light;
 
   --font-ibm-plex-sans: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
-  --font-ibm-plex-mono: "IBM Plex Mono", "SFMono-Regular", Consolas,
-    "Liberation Mono", monospace;
+  --font-ibm-plex-mono: "IBM Plex Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   --font-ibm-plex-serif: "IBM Plex Serif", Georgia, "Times New Roman", serif;
   --font-ibm-plex-sans-cn: "IBMPlexSansCN";
   --font-ibm-plex-mono-cn: "IBMPlexMonoCN";
@@ -321,10 +320,8 @@
 }
 
 :where(:lang(zh), [lang|="zh"]) {
-  --font-family-sans: var(--font-ibm-plex-sans-cn),
-    var(--font-ibm-plex-sans);
-  --font-family-mono: var(--font-ibm-plex-mono-cn),
-    var(--font-ibm-plex-mono);
+  --font-family-sans: var(--font-ibm-plex-sans-cn), var(--font-ibm-plex-sans);
+  --font-family-mono: var(--font-ibm-plex-mono-cn), var(--font-ibm-plex-mono);
 }
 
 [data-theme="dark"] {
@@ -416,7 +413,9 @@
   body {
     @apply bg-background text-foreground;
     font-family: var(--font-family-sans);
-    font-feature-settings: "liga" 1, "kern" 1;
+    font-feature-settings:
+      "liga" 1,
+      "kern" 1;
   }
 
   code,

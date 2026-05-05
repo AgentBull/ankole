@@ -21,7 +21,7 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const Default: Story = {
-  render: (args) => (
+  render: args => (
     <div className="w-72">
       <Input {...args} />
     </div>
@@ -39,7 +39,7 @@ export const WithLabel: Story = {
 
 export const Disabled: Story = {
   args: { disabled: true, value: "Read only" },
-  render: (args) => (
+  render: args => (
     <div className="w-72">
       <Input {...args} />
     </div>

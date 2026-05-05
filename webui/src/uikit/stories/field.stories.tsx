@@ -52,9 +52,7 @@ export const Horizontal: Story = {
           <Checkbox id="terms" />
           <FieldContent>
             <FieldTitle>Accept terms</FieldTitle>
-            <FieldDescription>
-              I agree to the terms of service.
-            </FieldDescription>
+            <FieldDescription>I agree to the terms of service.</FieldDescription>
           </FieldContent>
         </Field>
       </FieldGroup>

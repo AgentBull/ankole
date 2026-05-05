@@ -1,11 +1,6 @@
-import { useState } from "react"
+import { RiDeleteBinLine, RiFileCopyLine, RiSettings3Line, RiUser3Line } from "@remixicon/react"
 import type { Meta, StoryObj } from "@storybook/react"
-import {
-  RiDeleteBinLine,
-  RiFileCopyLine,
-  RiSettings3Line,
-  RiUser3Line,
-} from "@remixicon/react"
+import { useState } from "react"
 
 import { Button } from "@/uikit/components/button"
 import {
@@ -77,16 +72,10 @@ export const WithCheckbox: Story = {
         <DropdownMenuContent>
           <DropdownMenuLabel>Appearance</DropdownMenuLabel>
           <DropdownMenuSeparator />
-          <DropdownMenuCheckboxItem
-            checked={bookmarks}
-            onCheckedChange={setBookmarks}
-          >
+          <DropdownMenuCheckboxItem checked={bookmarks} onCheckedChange={setBookmarks}>
             Show bookmarks
           </DropdownMenuCheckboxItem>
-          <DropdownMenuCheckboxItem
-            checked={urls}
-            onCheckedChange={setUrls}
-          >
+          <DropdownMenuCheckboxItem checked={urls} onCheckedChange={setUrls}>
             Show full URLs
           </DropdownMenuCheckboxItem>
         </DropdownMenuContent>

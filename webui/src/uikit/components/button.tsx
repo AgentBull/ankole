@@ -1,6 +1,6 @@
-import * as React from "react"
 import { Button as ButtonPrimitive } from "@base-ui/react/button"
 import { cva, type VariantProps } from "class-variance-authority"
+import * as React from "react"
 
 import { cn } from "@/uikit/lib/utils"
 
@@ -21,8 +21,7 @@ const buttonVariants = cva(
         link: "h-auto! min-w-0! bg-transparent px-0! py-0! text-primary underline underline-offset-4 hover:text-primary/80 hover:underline",
       },
       size: {
-        default:
-          "h-12 gap-2 pl-4 pr-16 has-data-[icon=inline-end]:pr-4 has-data-[icon=inline-start]:pl-4",
+        default: "h-12 gap-2 pl-4 pr-16 has-data-[icon=inline-end]:pr-4 has-data-[icon=inline-start]:pl-4",
         xs: "h-8 gap-2 pl-3 pr-10 text-xs leading-4 has-data-[icon=inline-end]:pr-3 has-data-[icon=inline-start]:pl-3 [&_svg:not([class*='size-'])]:size-3.5",
         sm: "h-10 gap-2 pl-4 pr-12 has-data-[icon=inline-end]:pr-4 has-data-[icon=inline-start]:pl-4",
         lg: "h-12 gap-2 pl-4 pr-16 has-data-[icon=inline-end]:pr-4 has-data-[icon=inline-start]:pl-4",
@@ -36,7 +35,7 @@ const buttonVariants = cva(
       variant: "default",
       size: "default",
     },
-  }
+  },
 )
 
 function Button({
@@ -46,7 +45,7 @@ function Button({
   size = "default",
   ...props
 }: ButtonPrimitive.Props & VariantProps<typeof buttonVariants>) {
-  const childNodes = React.Children.toArray(children).filter((child) => {
+  const childNodes = React.Children.toArray(children).filter(child => {
     if (typeof child === "string") return child.trim().length > 0
     return child !== null && child !== undefined && child !== false
   })
@@ -65,10 +64,9 @@ function Button({
       className={cn(
         buttonVariants({ variant, size }),
         isImplicitIconButton && "size-12 max-w-none justify-center p-0",
-        className
+        className,
       )}
-      {...props}
-    >
+      {...props}>
       {children}
     </ButtonPrimitive>
   )

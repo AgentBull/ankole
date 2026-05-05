@@ -14,9 +14,7 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const Default: Story = {
-  render: () => (
-    <Button onClick={() => toast("Event has been created")}>Show toast</Button>
-  ),
+  render: () => <Button onClick={() => toast("Event has been created")}>Show toast</Button>,
 }
 
 export const Variants: Story = {
@@ -37,13 +35,12 @@ export const Variants: Story = {
       <Button
         variant="outline"
         onClick={() =>
-          toast.promise(new Promise((resolve) => setTimeout(resolve, 1500)), {
+          toast.promise(new Promise(resolve => setTimeout(resolve, 1500)), {
             loading: "Loading…",
             success: "Done",
             error: "Failed",
           })
-        }
-      >
+        }>
         Promise
       </Button>
     </div>
@@ -60,8 +57,7 @@ export const WithAction: Story = {
             onClick: () => toast.success("Restored"),
           },
         })
-      }
-    >
+      }>
       Show with action
     </Button>
   ),

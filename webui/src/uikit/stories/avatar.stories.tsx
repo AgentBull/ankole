@@ -1,5 +1,5 @@
-import type { Meta, StoryObj } from "@storybook/react"
 import { RiCheckLine } from "@remixicon/react"
+import type { Meta, StoryObj } from "@storybook/react"
 
 import {
   Avatar,
@@ -10,8 +10,7 @@ import {
   AvatarImage,
 } from "@/uikit/components/avatar"
 
-const SAMPLE_IMAGE =
-  "https://api.dicebear.com/9.x/glass/svg?seed=storybook"
+const SAMPLE_IMAGE = "https://api.dicebear.com/9.x/glass/svg?seed=storybook"
 
 const meta = {
   title: "Components/Avatar",
@@ -29,7 +28,7 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const Default: Story = {
-  render: (args) => (
+  render: args => (
     <Avatar {...args}>
       <AvatarImage src={SAMPLE_IMAGE} alt="User" />
       <AvatarFallback>BX</AvatarFallback>
@@ -38,7 +37,7 @@ export const Default: Story = {
 }
 
 export const Fallback: Story = {
-  render: (args) => (
+  render: args => (
     <Avatar {...args}>
       <AvatarFallback>JD</AvatarFallback>
     </Avatar>

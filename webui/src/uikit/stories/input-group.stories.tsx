@@ -1,9 +1,5 @@
+import { RiEyeLine, RiMailLine, RiSearchLine } from "@remixicon/react"
 import type { Meta, StoryObj } from "@storybook/react"
-import {
-  RiMailLine,
-  RiSearchLine,
-  RiEyeLine,
-} from "@remixicon/react"
 
 import {
   InputGroup,

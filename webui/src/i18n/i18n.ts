@@ -1,9 +1,8 @@
+import enUS from "@locales/en-US.toml"
+import zhHansCN from "@locales/zh-Hans-CN.toml"
 import i18n from "i18next"
 import { initReactI18next } from "react-i18next"
 import { Mf2PostProcessor, Mf2ReactPreset } from "./mf2"
-
-import enUS from "@locales/en-US.toml"
-import zhHansCN from "@locales/zh-Hans-CN.toml"
 
 const resources = {
   "en-US": { translation: enUS },

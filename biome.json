@@ -1,0 +1,133 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.4.11/schema.json",
+  "root": true,
+  "files": {
+    "maxSize": 2097152
+  },
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
+  },
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 120,
+    "lineEnding": "lf"
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": true,
+      "style": {
+        "noNonNullAssertion": "off",
+        "useConst": "error",
+        "useTemplate": "error"
+      },
+      "suspicious": {
+        "noExplicitAny": "off",
+        "noArrayIndexKey": "off",
+        "noAssignInExpressions": "error",
+        "noDocumentCookie": "off",
+        "noConsole": {
+          "options": {
+            "allow": ["warn", "error"]
+          },
+          "level": "error"
+        }
+      },
+      "a11y": {
+        "useKeyWithClickEvents": "off",
+        "useSemanticElements": "off",
+        "noSvgWithoutTitle": "off",
+        "noStaticElementInteractions": "off",
+        "useAnchorContent": "off"
+      },
+      "complexity": {
+        "noForEach": "off",
+        "noUselessSwitchCase": "warn",
+        "noUselessTypeConstraint": "warn",
+        "useLiteralKeys": "off"
+      },
+      "security": {
+        "noDangerouslySetInnerHtml": "off"
+      }
+    }
+  },
+  "css": {
+    "parser": {
+      "tailwindDirectives": true
+    }
+  },
+  "html": {
+    "formatter": {
+      "enabled": true,
+      "indentStyle": "space",
+      "indentWidth": 2,
+      "lineWidth": 120,
+      "attributePosition": "auto",
+      "bracketSameLine": true
+    },
+    "linter": {
+      "enabled": true
+    }
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "double",
+      "semicolons": "asNeeded",
+      "trailingCommas": "all",
+      "bracketSpacing": true,
+      "bracketSameLine": true,
+      "arrowParentheses": "asNeeded"
+    }
+  },
+  "assist": {
+    "enabled": true,
+    "actions": {
+      "source": {
+        "organizeImports": "on"
+      }
+    }
+  },
+  "overrides": [
+    {
+      "includes": ["webui/src/**/*"],
+      "linter": {
+        "domains": {
+          "react": "recommended"
+        }
+      }
+    },
+    {
+      "includes": ["webui/src/uikit/**/*"],
+      "linter": {
+        "rules": {
+          "a11y": {
+            "noSvgWithoutTitle": "off",
+            "useKeyWithClickEvents": "warn",
+            "noStaticElementInteractions": "warn",
+            "noInteractiveElementToNoninteractiveRole": "warn",
+            "noNoninteractiveElementToInteractiveRole": "warn",
+            "useAriaPropsForRole": "off",
+            "useSemanticElements": "off",
+            "useFocusableInteractive": "warn",
+            "noLabelWithoutControl": "off",
+            "useButtonType": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["webui/src/**/*.stories.tsx", "webui/src/**/*.test.tsx", "webui/src/**/*.test.ts"],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noConsole": "off"
+          }
+        }
+      }
+    }
+  ]
+}

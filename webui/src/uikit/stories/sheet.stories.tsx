@@ -29,9 +29,7 @@ export const Default: Story = {
       <SheetContent>
         <SheetHeader>
           <SheetTitle>Edit profile</SheetTitle>
-          <SheetDescription>
-            Make changes to your profile here. Save when you're done.
-          </SheetDescription>
+          <SheetDescription>Make changes to your profile here. Save when you're done.</SheetDescription>
         </SheetHeader>
         <div className="grid gap-4 px-8 py-4">
           <div className="grid gap-2">
@@ -54,19 +52,13 @@ export const Default: Story = {
 export const Sides: Story = {
   render: () => (
     <div className="grid grid-cols-2 gap-3">
-      {(["top", "right", "bottom", "left"] as const).map((side) => (
+      {(["top", "right", "bottom", "left"] as const).map(side => (
         <Sheet key={side}>
-          <SheetTrigger
-            render={<Button variant="outline" className="capitalize" />}
-          >
-            {side}
-          </SheetTrigger>
+          <SheetTrigger render={<Button variant="outline" className="capitalize" />}>{side}</SheetTrigger>
           <SheetContent side={side}>
             <SheetHeader>
               <SheetTitle className="capitalize">{side} sheet</SheetTitle>
-              <SheetDescription>
-                Slides in from the {side} edge of the viewport.
-              </SheetDescription>
+              <SheetDescription>Slides in from the {side} edge of the viewport.</SheetDescription>
             </SheetHeader>
           </SheetContent>
         </Sheet>

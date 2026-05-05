@@ -1,13 +1,7 @@
 import { Head } from "@inertiajs/react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/uikit/components/button"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/uikit/components/card"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/uikit/components/card"
 
 const sections = ["sessions", "approvals", "observability"] as const
 
@@ -23,11 +17,7 @@ interface ControlPanelAppProps {
   swagger_ui_path: string | null
 }
 
-export default function ControlPanelApp({
-  app_name,
-  current_user,
-  swagger_ui_path,
-}: ControlPanelAppProps) {
+export default function ControlPanelApp({ app_name, current_user, swagger_ui_path }: ControlPanelAppProps) {
   const { t } = useTranslation()
 
   return (
@@ -53,9 +43,7 @@ export default function ControlPanelApp({
         <section className="grid flex-1 content-center gap-6 py-8 lg:grid-cols-[1fr_22rem]">
           <div className="space-y-6">
             <div>
-              <p className="text-sm font-medium uppercase text-primary">
-                {t("web.control_panel.status")}
-              </p>
+              <p className="text-sm font-medium uppercase text-primary">{t("web.control_panel.status")}</p>
               <h1 className="mt-3 max-w-3xl text-4xl font-semibold leading-tight sm:text-5xl">
                 {t("web.control_panel.heading")}
               </h1>
@@ -85,8 +73,7 @@ export default function ControlPanelApp({
               <Button
                 className="w-full justify-between"
                 nativeButton={false}
-                render={<a href="/.well-known/service-desc" />}
-              >
+                render={<a href="/.well-known/service-desc" />}>
                 {t("web.control_panel.openapi_json")}
                 <span aria-hidden="true">/.well-known/service-desc</span>
               </Button>
@@ -95,8 +82,7 @@ export default function ControlPanelApp({
                   variant="outline"
                   className="w-full justify-between"
                   nativeButton={false}
-                  render={<a href={swagger_ui_path} />}
-                >
+                  render={<a href={swagger_ui_path} />}>
                   {t("web.control_panel.swagger_ui")}
                   <span aria-hidden="true">{swagger_ui_path}</span>
                 </Button>

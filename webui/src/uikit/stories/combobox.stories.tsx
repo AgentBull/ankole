@@ -36,12 +36,12 @@ type Story = StoryObj<typeof meta>
 export const Default: Story = {
   render: () => (
     <div className="w-72">
-      <Combobox items={FRUITS} itemToStringValue={(item) => item.value}>
+      <Combobox items={FRUITS} itemToStringValue={item => item.value}>
         <ComboboxInput placeholder="Pick a fruit…" />
         <ComboboxContent>
           <ComboboxList>
             <ComboboxEmpty>No results</ComboboxEmpty>
-            {FRUITS.map((fruit) => (
+            {FRUITS.map(fruit => (
               <ComboboxItem key={fruit.value} value={fruit}>
                 {fruit.label}
               </ComboboxItem>
@@ -58,16 +58,12 @@ export const Multiple: Story = {
     const anchor = useComboboxAnchor()
     return (
       <div ref={anchor} className="w-80">
-        <Combobox
-          multiple
-          items={FRUITS}
-          itemToStringValue={(item) => item.value}
-        >
+        <Combobox multiple items={FRUITS} itemToStringValue={item => item.value}>
           <ComboboxChips>
             <ComboboxValue>
               {(value: typeof FRUITS) => (
                 <>
-                  {value?.map((item) => (
+                  {value?.map(item => (
                     <ComboboxChip key={item.value}>{item.label}</ComboboxChip>
                   ))}
                   <ComboboxChipsInput placeholder="Add…" />
@@ -78,7 +74,7 @@ export const Multiple: Story = {
           <ComboboxContent anchor={anchor}>
             <ComboboxList>
               <ComboboxEmpty>No matches</ComboboxEmpty>
-              {FRUITS.map((fruit) => (
+              {FRUITS.map(fruit => (
                 <ComboboxItem key={fruit.value} value={fruit}>
                   {fruit.label}
                 </ComboboxItem>

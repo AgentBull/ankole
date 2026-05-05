@@ -1,5 +1,5 @@
+import { RiAddLine, RiArrowRightSLine, RiDeleteBinLine } from "@remixicon/react"
 import type { Meta, StoryObj } from "@storybook/react"
-import { RiArrowRightSLine, RiAddLine, RiDeleteBinLine } from "@remixicon/react"
 
 import { Button } from "@/uikit/components/button"
 
@@ -12,14 +12,7 @@ const meta = {
   argTypes: {
     variant: {
       control: "select",
-      options: [
-        "default",
-        "outline",
-        "secondary",
-        "ghost",
-        "destructive",
-        "link",
-      ],
+      options: ["default", "outline", "secondary", "ghost", "destructive", "link"],
     },
     size: {
       control: "select",

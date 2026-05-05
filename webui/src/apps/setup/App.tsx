@@ -1,5 +1,3 @@
-import React from "react"
-import { useTranslation } from "react-i18next"
 import {
   RiAddLine,
   RiArrowDownSLine,
@@ -13,43 +11,20 @@ import {
   RiPlugLine,
   RiSaveLine,
 } from "@remixicon/react"
+import React from "react"
+import { useTranslation } from "react-i18next"
 import { Badge } from "@/uikit/components/badge"
-import {
-  Card,
-  CardContent,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@/uikit/components/card"
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/uikit/components/collapsible"
 import { Button } from "@/uikit/components/button"
+import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/uikit/components/card"
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/uikit/components/collapsible"
 import { Input } from "@/uikit/components/input"
 import { Label } from "@/uikit/components/label"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-} from "@/uikit/components/select"
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetFooter,
-  SheetHeader,
-  SheetTitle,
-} from "@/uikit/components/sheet"
+import { Select, SelectContent, SelectItem, SelectTrigger } from "@/uikit/components/select"
+import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from "@/uikit/components/sheet"
 import { Switch } from "@/uikit/components/switch"
 import SetupLayout from "./Layout"
 
-type Translate = (
-  key: string,
-  options?: { values?: Record<string, unknown>; defaultValue?: string },
-) => string
+type Translate = (key: string, options?: { values?: Record<string, unknown>; defaultValue?: string }) => string
 
 type SecretField = "app_secret"
 type SecretStatus = "missing" | "stored"
@@ -191,19 +166,10 @@ export default function SetupApp({
   const [draft, setDraft] = React.useState<AdapterEntry>(() => newEntry(adapter_catalog))
   const [draftErrors, setDraftErrors] = React.useState<AdapterError[]>([])
 
-  const listErrors = React.useMemo(
-    () => validateEntries(entries, translate),
-    [entries, translate],
-  )
+  const listErrors = React.useMemo(() => validateEntries(entries, translate), [entries, translate])
   const enabledEntries = entries.filter(entry => entry.enabled !== false)
-  const allEnabledChecked = enabledEntries.every(
-    entry => checks[entry.id]?.status === "success",
-  )
-  const canSave =
-    enabledEntries.length > 0
-    && listErrors.length === 0
-    && allEnabledChecked
-    && !saving
+  const allEnabledChecked = enabledEntries.every(entry => checks[entry.id]?.status === "success")
+  const canSave = enabledEntries.length > 0 && listErrors.length === 0 && allEnabledChecked && !saving
 
   const clearChecks = React.useCallback((ids: string | Array<string | null | undefined>) => {
     const idList = Array.isArray(ids) ? ids : [ids]
@@ -240,14 +206,12 @@ export default function SetupApp({
       return
     }
 
-    const previousId = editingIndex === null ? null : entries[editingIndex]?.id ?? null
+    const previousId = editingIndex === null ? null : (entries[editingIndex]?.id ?? null)
 
     setEntries(current => {
       if (editingIndex === null) return [...current, prepared]
 
-      return current.map((entry, index) => (
-        index === editingIndex ? prepared : entry
-      ))
+      return current.map((entry, index) => (index === editingIndex ? prepared : entry))
     })
 
     clearChecks([previousId, prepared.id].filter((value): value is string => Boolean(value)))
@@ -338,21 +302,15 @@ export default function SetupApp({
         <Card size="sm" className="w-full max-w-4xl gap-0 bg-card py-0">
           <CardHeader className="border-b border-border px-5 py-4 sm:px-6">
             <div className="min-w-0">
-              <p className="text-xs font-medium text-primary">
-                {translate("web.setup.gateway.step")}
-              </p>
-              <CardTitle className="mt-1 text-xl font-semibold">
-                {translate("web.setup.gateway.heading")}
-              </CardTitle>
+              <p className="text-xs font-medium text-primary">{translate("web.setup.gateway.step")}</p>
+              <CardTitle className="mt-1 text-xl font-semibold">{translate("web.setup.gateway.heading")}</CardTitle>
             </div>
           </CardHeader>
 
           <CardContent className="px-5 py-5 sm:px-6">
             <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="min-w-0">
-                <p className="mt-1 text-sm text-muted-foreground">
-                  {translate("web.setup.gateway.description")}
-                </p>
+                <p className="mt-1 text-sm text-muted-foreground">{translate("web.setup.gateway.description")}</p>
               </div>
               {entries.length > 0 ? (
                 <Button type="button" onClick={openNewSheet}>
@@ -385,19 +343,13 @@ export default function SetupApp({
           </CardContent>
 
           <CardFooter className="flex-col items-stretch justify-between gap-3 border-t border-border px-5 py-4 sm:flex-row sm:items-center sm:px-6">
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={() => window.location.assign(back_path)}
-            >
+            <Button type="button" variant="ghost" onClick={() => window.location.assign(back_path)}>
               <RiArrowLeftLine data-icon="inline-start" />
               <span>{translate("web.setup.gateway.actions.back_to_llm")}</span>
             </Button>
             <Button type="button" onClick={saveAdapters} disabled={!canSave}>
               <RiSaveLine data-icon="inline-start" />
-              <span>
-                {saving ? translate("web.setup.gateway.saving") : translate("web.setup.gateway.save")}
-              </span>
+              <span>{saving ? translate("web.setup.gateway.saving") : translate("web.setup.gateway.save")}</span>
             </Button>
           </CardFooter>
         </Card>
@@ -407,7 +359,7 @@ export default function SetupApp({
         open={sheetOpen}
         onOpenChange={setSheetOpen}
         draft={draft}
-        setDraft={(next) => {
+        setDraft={next => {
           setDraft(next)
           setDraftErrors([])
         }}
@@ -431,15 +383,7 @@ interface AdapterRowProps {
   onRemove: () => void
 }
 
-function AdapterRow({
-  entry,
-  catalog,
-  check,
-  checking,
-  onCheck,
-  onEdit,
-  onRemove,
-}: AdapterRowProps) {
+function AdapterRow({ entry, catalog, check, checking, onCheck, onEdit, onRemove }: AdapterRowProps) {
   const { t } = useTranslation()
   const translate = t as Translate
   const prepared = prepareEntryForSave(entry)
@@ -451,8 +395,8 @@ function AdapterRow({
     domainLabel(prepared.domain),
     tenantPolicy.enabled && tenantPolicy.tenant_key
       ? translate("web.setup.gateway.authorization.tenant_key_summary", {
-        values: { tenant_key: tenantPolicy.tenant_key },
-      })
+          values: { tenant_key: tenantPolicy.tenant_key },
+        })
       : null,
   ].filter(Boolean)
 
@@ -460,14 +404,10 @@ function AdapterRow({
     <div className="grid gap-4 border border-border bg-background-secondary p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
       <div className="min-w-0">
         <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <p className="min-w-0 truncate text-sm font-medium">
-            {adapterLabel(prepared.adapter, catalog)}
-          </p>
+          <p className="min-w-0 truncate text-sm font-medium">{adapterLabel(prepared.adapter, catalog)}</p>
           <Badge variant="outline">{transportLabel(prepared.adapter)}</Badge>
         </div>
-        <p className="mt-2 truncate text-xs leading-5 text-muted-foreground">
-          {metadata.join(" · ")}
-        </p>
+        <p className="mt-2 truncate text-xs leading-5 text-muted-foreground">{metadata.join(" · ")}</p>
       </div>
 
       <div className="flex flex-wrap items-center justify-start gap-2 sm:justify-end">
@@ -483,8 +423,7 @@ function AdapterRow({
           size="sm"
           variant="outline"
           disabled={!prepared.enabled || invalid || checking}
-          onClick={onCheck}
-        >
+          onClick={onCheck}>
           <RiPlugLine data-icon="inline-start" />
           <span>{translate("web.setup.gateway.actions.check")}</span>
         </Button>
@@ -493,8 +432,7 @@ function AdapterRow({
           size="icon-sm"
           variant="ghost"
           aria-label={translate("web.setup.gateway.actions.edit")}
-          onClick={onEdit}
-        >
+          onClick={onEdit}>
           <RiEditLine />
         </Button>
         <Button
@@ -502,8 +440,7 @@ function AdapterRow({
           size="icon-sm"
           variant="ghost"
           aria-label={translate("web.setup.gateway.actions.remove")}
-          onClick={onRemove}
-        >
+          onClick={onRemove}>
           <RiDeleteBinLine />
         </Button>
       </div>
@@ -520,9 +457,7 @@ function EmptyState({ onAdd }: { onAdd: () => void }) {
       <div className="grid justify-items-center gap-4">
         <div>
           <p className="text-base font-medium">{translate("web.setup.gateway.empty_title")}</p>
-          <p className="mt-2 text-sm text-muted-foreground">
-            {translate("web.setup.gateway.empty_description")}
-          </p>
+          <p className="mt-2 text-sm text-muted-foreground">{translate("web.setup.gateway.empty_description")}</p>
         </div>
         <Button type="button" onClick={onAdd}>
           <RiAddLine data-icon="inline-start" />
@@ -563,18 +498,16 @@ function AdapterSheet({
   const advancedContentRef = React.useRef<HTMLDivElement | null>(null)
   const catalogOptions: AdapterCatalogEntry[] = catalog.length
     ? catalog
-    : [{
-      adapter: "feishu",
-      label: "Feishu / Lark",
-      default_entry: FALLBACK_ENTRY,
-      authn_policies: [{ type: "external_org_members" }],
-    }]
+    : [
+        {
+          adapter: "feishu",
+          label: "Feishu / Lark",
+          default_entry: FALLBACK_ENTRY,
+          authn_policies: [{ type: "external_org_members" }],
+        },
+      ]
   const docUrl = configDocUrl(draft, catalogOptions)
-  const supportsExternalOrgMembers = connectorSupportsAuthnPolicy(
-    draft.adapter,
-    catalogOptions,
-    "external_org_members",
-  )
+  const supportsExternalOrgMembers = connectorSupportsAuthnPolicy(draft.adapter, catalogOptions, "external_org_members")
   const fieldErrors = React.useMemo(() => errorsByField(errors), [errors])
   const formErrors = React.useMemo(() => errorsWithoutFields(errors), [errors])
 
@@ -619,8 +552,7 @@ function AdapterSheet({
             ? "h-auto! max-h-[min(42rem,calc(100vh-2rem))]! w-[min(48rem,calc(100vw-2rem))]!"
             : "h-[min(42rem,calc(100vh-2rem))]! w-[min(56rem,calc(100vw-2rem))]!",
         ].join(" ")}
-        showCloseButton={false}
-      >
+        showCloseButton={false}>
         <SheetHeader className="shrink-0 border-b border-border px-5 py-5 sm:px-6">
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0">
@@ -628,12 +560,12 @@ function AdapterSheet({
                 {mode === "select"
                   ? translate("web.setup.gateway.sheet.select_title")
                   : editing
-                  ? translate("web.setup.gateway.sheet.edit_title")
-                  : translate("web.setup.gateway.sheet.add_title")}
+                    ? translate("web.setup.gateway.sheet.edit_title")
+                    : translate("web.setup.gateway.sheet.add_title")}
               </SheetTitle>
               <SheetDescription>
-                {mode == "select" ? (
-                 ''
+                {mode === "select" ? (
+                  ""
                 ) : (
                   <>
                     {adapterLabel(draft.adapter, catalogOptions)}
@@ -649,8 +581,7 @@ function AdapterSheet({
                   type="button"
                   size="sm"
                   variant="outline"
-                  onClick={() => window.open(docUrl, "_blank", "noopener,noreferrer")}
-                >
+                  onClick={() => window.open(docUrl, "_blank", "noopener,noreferrer")}>
                   <RiExternalLinkLine data-icon="inline-start" />
                   <span>{translate("web.setup.gateway.docs")}</span>
                 </Button>
@@ -660,8 +591,7 @@ function AdapterSheet({
                 size="icon-sm"
                 variant="ghost"
                 aria-label={translate("app.close")}
-                onClick={() => onOpenChange(false)}
-              >
+                onClick={() => onOpenChange(false)}>
                 <RiCloseLine />
               </Button>
             </div>
@@ -680,8 +610,7 @@ function AdapterSheet({
                   <Field
                     label={translate("web.setup.gateway.fields.channel_id")}
                     required
-                    error={fieldErrors.channel_id}
-                  >
+                    error={fieldErrors.channel_id}>
                     <Input
                       value={draft.channel_id}
                       onChange={event => update(["channel_id"], event.target.value)}
@@ -695,8 +624,7 @@ function AdapterSheet({
                   <Field label={translate("web.setup.gateway.fields.domain")}>
                     <Select
                       value={draft.domain}
-                      onValueChange={(value: string | null) => update(["domain"], value ?? "")}
-                    >
+                      onValueChange={(value: string | null) => update(["domain"], value ?? "")}>
                       <SelectTrigger className="w-full">
                         <span data-slot="select-value">{domainLabel(draft.domain)}</span>
                       </SelectTrigger>
@@ -723,10 +651,9 @@ function AdapterSheet({
                       </div>
                       <Switch
                         checked={Boolean(draft.authn.external_org_members.enabled)}
-                        onCheckedChange={(checked: boolean) => update(
-                          ["authn", "external_org_members", "enabled"],
-                          checked,
-                        )}
+                        onCheckedChange={(checked: boolean) =>
+                          update(["authn", "external_org_members", "enabled"], checked)
+                        }
                         aria-label={translate("web.setup.gateway.authorization.external_org_members")}
                       />
                     </div>
@@ -735,19 +662,14 @@ function AdapterSheet({
                       <Field
                         label={translate("web.setup.gateway.fields.tenant_key")}
                         required
-                        error={fieldErrors["authn.external_org_members.tenant_key"]}
-                      >
+                        error={fieldErrors["authn.external_org_members.tenant_key"]}>
                         <Input
                           value={draft.authn.external_org_members.tenant_key}
-                          onChange={event => update(
-                            ["authn", "external_org_members", "tenant_key"],
-                            event.target.value,
-                          )}
-                          autoComplete="off"
-                          aria-invalid={
-                            Boolean(fieldErrors["authn.external_org_members.tenant_key"])
-                            || undefined
+                          onChange={event =>
+                            update(["authn", "external_org_members", "tenant_key"], event.target.value)
                           }
+                          autoComplete="off"
+                          aria-invalid={Boolean(fieldErrors["authn.external_org_members.tenant_key"]) || undefined}
                           required
                         />
                       </Field>
@@ -761,8 +683,7 @@ function AdapterSheet({
                   <Field
                     label={translate("web.setup.gateway.fields.app_id")}
                     required
-                    error={fieldErrors["credentials.app_id"]}
-                  >
+                    error={fieldErrors["credentials.app_id"]}>
                     <Input
                       value={draft.credentials.app_id}
                       onChange={event => update(["credentials", "app_id"], event.target.value)}
@@ -794,8 +715,7 @@ function AdapterSheet({
                         ].join(" ")}
                       />
                     </CollapsibleTrigger>
-                  }
-                >
+                  }>
                   <CollapsibleContent>
                     <div ref={advancedContentRef} className="grid gap-4 pt-1 md:grid-cols-3">
                       {(
@@ -831,11 +751,7 @@ function AdapterSheet({
               {translate("web.setup.gateway.sheet.cancel")}
             </Button>
             <Button type="button" onClick={onApply}>
-              {editing ? (
-                <RiSaveLine data-icon="inline-start" />
-              ) : (
-                <RiAddLine data-icon="inline-start" />
-              )}
+              {editing ? <RiSaveLine data-icon="inline-start" /> : <RiAddLine data-icon="inline-start" />}
               <span>
                 {editing
                   ? translate("web.setup.gateway.sheet.save_changes")
@@ -860,15 +776,13 @@ function AdapterTypeChooser({ catalog, onChoose }: AdapterTypeChooserProps) {
       className={[
         "grid self-start gap-3",
         catalog.length > 1 ? "sm:grid-cols-2" : "sm:grid-cols-[minmax(0,24rem)]",
-      ].join(" ")}
-    >
+      ].join(" ")}>
       {catalog.map(item => (
         <button
           key={item.adapter}
           type="button"
           className="group grid min-h-28 gap-4 border border-border bg-background-secondary p-4 text-left transition-colors hover:border-primary hover:bg-muted focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 focus-visible:outline-none"
-          onClick={() => onChoose(item)}
-        >
+          onClick={() => onChoose(item)}>
           <span className="flex items-center justify-between gap-4">
             <span className="min-w-0 truncate text-base font-semibold">
               {item.label || adapterLabel(item.adapter, catalog)}
@@ -908,16 +822,10 @@ function Field({ label, children, required = false, error }: FieldProps) {
     <div className="grid gap-1.5">
       <Label className="items-baseline">
         <span>{label}</span>
-        {required ? (
-          <span className="text-muted-foreground">
-            {translate("web.setup.gateway.required")}
-          </span>
-        ) : null}
+        {required ? <span className="text-muted-foreground">{translate("web.setup.gateway.required")}</span> : null}
       </Label>
       {children}
-      {error ? (
-        <p className="text-xs leading-4 text-destructive">{error}</p>
-      ) : null}
+      {error ? <p className="text-xs leading-4 text-destructive">{error}</p> : null}
     </div>
   )
 }
@@ -931,14 +839,7 @@ interface SecretFieldInputProps {
   error?: string
 }
 
-function SecretFieldInput({
-  label,
-  value,
-  status,
-  onChange,
-  required = false,
-  error,
-}: SecretFieldInputProps) {
+function SecretFieldInput({ label, value, status, onChange, required = false, error }: SecretFieldInputProps) {
   const { t } = useTranslation()
   const translate = t as Translate
 
@@ -972,13 +873,7 @@ interface ConnectionBadgeProps {
   error: boolean
 }
 
-function ConnectionBadge({
-  disabled,
-  invalid,
-  checking,
-  connected,
-  error,
-}: ConnectionBadgeProps) {
+function ConnectionBadge({ disabled, invalid, checking, connected, error }: ConnectionBadgeProps) {
   const { t } = useTranslation()
   const translate = t as Translate
 
@@ -1133,10 +1028,7 @@ function prepareEntryForSave(entry: AdapterEntry): AdapterEntry {
       app_secret: normalized.credentials.app_secret.trim(),
     },
     advanced: Object.fromEntries(
-      Object.entries(normalized.advanced).map(([key, value]) => [
-        key,
-        numberValue(value),
-      ]),
+      Object.entries(normalized.advanced).map(([key, value]) => [key, numberValue(value)]),
     ) as unknown as AdapterAdvanced,
     secret_status: normalized.secret_status,
   }
@@ -1147,9 +1039,7 @@ function setPath<T>(object: T, path: string[], value: unknown): T {
   let cursor: Record<string, unknown> = next
 
   for (const key of path.slice(0, -1)) {
-    cursor[key] = isPlainObject(cursor[key])
-      ? { ...(cursor[key] as Record<string, unknown>) }
-      : {}
+    cursor[key] = isPlainObject(cursor[key]) ? { ...(cursor[key] as Record<string, unknown>) } : {}
     cursor = cursor[key] as Record<string, unknown>
   }
 
@@ -1187,12 +1077,13 @@ function validateDraft(
   const key = `${entry.adapter}:${entry.channel_id}`
   const duplicate = entries
     .map(prepareEntryForSave)
-    .some((item, index) => (
-      index !== editingIndex
-      && item.enabled
-      && item.adapter === entry.adapter
-      && item.channel_id === entry.channel_id
-    ))
+    .some(
+      (item, index) =>
+        index !== editingIndex &&
+        item.enabled &&
+        item.adapter === entry.adapter &&
+        item.channel_id === entry.channel_id,
+    )
 
   if (duplicate) {
     errors.push({
@@ -1232,10 +1123,7 @@ function validateEntry(entry: AdapterEntry, t: Translate): AdapterError[] {
     })
   }
 
-  if (
-    entry.authn.external_org_members.enabled
-    && !entry.authn.external_org_members.tenant_key.trim()
-  ) {
+  if (entry.authn.external_org_members.enabled && !entry.authn.external_org_members.tenant_key.trim()) {
     errors.push({
       field: "authn.external_org_members.tenant_key",
       message: t("web.setup.gateway.errors.tenant_key_required"),
@@ -1276,10 +1164,7 @@ function nextEntryId(adapter: string): string {
   return `${adapter}:${Date.now()}:${Math.random().toString(36).slice(2)}`
 }
 
-function catalogEntryFor(
-  catalog: AdapterCatalogEntry[],
-  adapter: string,
-): AdapterCatalogEntry | undefined {
+function catalogEntryFor(catalog: AdapterCatalogEntry[], adapter: string): AdapterCatalogEntry | undefined {
   return catalog.find(item => item.adapter === adapter)
 }
 
@@ -1287,11 +1172,7 @@ function configDocUrl(entry: AdapterEntry, catalog: AdapterCatalogEntry[]): stri
   return catalogEntryFor(catalog, entry.adapter)?.config_doc_url || entry.config_doc_url
 }
 
-function connectorSupportsAuthnPolicy(
-  adapter: string,
-  catalog: AdapterCatalogEntry[],
-  policyType: string,
-): boolean {
+function connectorSupportsAuthnPolicy(adapter: string, catalog: AdapterCatalogEntry[], policyType: string): boolean {
   const policies = catalogEntryFor(catalog, adapter)?.authn_policies || []
 
   return policies.some(policy => policy.type === policyType)

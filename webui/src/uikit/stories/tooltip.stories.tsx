@@ -2,11 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react"
 
 import { Button } from "@/uikit/components/button"
 import { Kbd, KbdGroup } from "@/uikit/components/kbd"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/uikit/components/tooltip"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/uikit/components/tooltip"
 
 const meta = {
   title: "Components/Tooltip",
@@ -29,13 +25,9 @@ export const Default: Story = {
 export const Sides: Story = {
   render: () => (
     <div className="grid grid-cols-2 gap-3">
-      {(["top", "right", "bottom", "left"] as const).map((side) => (
+      {(["top", "right", "bottom", "left"] as const).map(side => (
         <Tooltip key={side}>
-          <TooltipTrigger
-            render={<Button variant="outline" className="capitalize" />}
-          >
-            {side}
-          </TooltipTrigger>
+          <TooltipTrigger render={<Button variant="outline" className="capitalize" />}>{side}</TooltipTrigger>
           <TooltipContent side={side}>{side} tooltip</TooltipContent>
         </Tooltip>
       ))}

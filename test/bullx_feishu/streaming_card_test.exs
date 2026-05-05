@@ -117,6 +117,77 @@ defmodule BullXFeishu.StreamingCardTest do
     assert Agent.get(calls, & &1) == 5
   end
 
+  test "preserves markdown newlines and repeated fragments across batched chunks", %{
+    config: config
+  } do
+    {:ok, calls} = Agent.start_link(fn -> 0 end)
+    on_exit(fn -> if Process.alive?(calls), do: Agent.stop(calls) end)
+
+    Req.Test.stub(__MODULE__, fn conn ->
+      call = Agent.get_and_update(calls, fn count -> {count, count + 1} end)
+      body = decoded_body(conn)
+
+      case call do
+        0 ->
+          assert conn.method == "POST"
+          assert conn.request_path == "/open-apis/cardkit/v1/cards"
+          Req.Test.json(conn, %{"code" => 0, "data" => %{"card_id" => "card_md"}})
+
+        1 ->
+          assert conn.method == "POST"
+          assert conn.request_path == "/open-apis/im/v1/messages/om_parent/reply"
+          Req.Test.json(conn, %{"code" => 0, "data" => %{"message_id" => "om_stream"}})
+
+        2 ->
+          assert conn.method == "PUT"
+
+          assert conn.request_path ==
+                   "/open-apis/cardkit/v1/cards/card_md/elements/content/content"
+
+          assert body["content"] == "# A\n\n- one"
+          assert body["sequence"] == 2
+
+          Req.Test.json(conn, %{"code" => 0, "data" => %{}})
+
+        3 ->
+          assert conn.method == "PUT"
+
+          assert conn.request_path ==
+                   "/open-apis/cardkit/v1/cards/card_md/elements/content/content"
+
+          assert body["content"] == "# A\n\n- one\n- one\ndone"
+          assert body["sequence"] == 3
+
+          Req.Test.json(conn, %{"code" => 0, "data" => %{}})
+
+        4 ->
+          assert conn.method == "PATCH"
+          assert conn.request_path == "/open-apis/cardkit/v1/cards/card_md/settings"
+          assert body["sequence"] == 4
+
+          settings = Jason.decode!(body["settings"])
+          assert settings["config"]["streaming_mode"] == false
+          assert settings["config"]["summary"]["content"] == "# A - one - one done"
+
+          Req.Test.json(conn, %{"code" => 0, "data" => %{}})
+      end
+    end)
+
+    delivery = %GatewayDelivery{
+      id: "delivery_markdown_stream",
+      op: :stream,
+      channel: {:feishu, "default"},
+      scope_id: "oc_1",
+      reply_to_external_id: "om_parent",
+      content: ["# A", "\n\n", "- one", "\n", "- one", "\n", "done"]
+    }
+
+    assert {:ok, %Outcome{status: :sent, primary_external_id: "om_stream", warnings: []}} =
+             StreamingCard.stream(delivery, delivery.content, config)
+
+    assert Agent.get(calls, & &1) == 5
+  end
+
   defp decoded_body(conn) do
     {:ok, body, _conn} = Plug.Conn.read_body(conn)
     Jason.decode!(body)

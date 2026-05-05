@@ -1,5 +1,5 @@
-import type { Meta, StoryObj } from "@storybook/react"
 import { RiArrowRightSLine, RiFileTextLine } from "@remixicon/react"
+import type { Meta, StoryObj } from "@storybook/react"
 
 import { Avatar, AvatarFallback } from "@/uikit/components/avatar"
 import { Button } from "@/uikit/components/button"
@@ -35,7 +35,7 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const Default: Story = {
-  render: (args) => (
+  render: args => (
     <Item {...args} className="w-96">
       <ItemMedia variant="icon">
         <RiFileTextLine />
