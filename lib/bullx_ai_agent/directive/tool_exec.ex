@@ -301,7 +301,11 @@ defimpl Jido.AgentServer.DirectiveExec, for: BullXAIAgent.Directive.ToolExec do
           )
 
           if retry_backoff_ms > 0 do
-            error_map = %{"kind" => "network", "details" => %{"retry_after_ms" => retry_backoff_ms}}
+            error_map = %{
+              "kind" => "network",
+              "details" => %{"retry_after_ms" => retry_backoff_ms}
+            }
+
             Process.sleep(Retry.backoff_ms(Retry.default(), error_map, attempt))
           end
         end

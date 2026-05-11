@@ -26,7 +26,8 @@ defmodule BullXWeb.SetupLLMController do
     with {:ok, conn} <- require_setup_session(conn, :json),
          {:ok, attrs} <- SetupContext.normalize_provider_attrs(provider, "provider"),
          {:ok, resolved} <- SetupContext.transient_resolved_provider(attrs),
-         {:ok, response} <- SetupContext.safe_generate_text("ping", model: resolved, max_tokens: 16) do
+         {:ok, response} <-
+           SetupContext.safe_generate_text("ping", model: resolved, max_tokens: 16) do
       json(conn, %{ok: true, result: %{text: Turn.extract_text(response)}})
     else
       {:error, %Plug.Conn{} = conn} ->
@@ -80,7 +81,11 @@ defmodule BullXWeb.SetupLLMController do
   def providers_save(conn, _params) do
     with {:ok, conn} <- require_setup_session(conn, :json) do
       validation_error(conn, [
-        SetupContext.error("payload", "providers list and alias_bindings are required", "providers")
+        SetupContext.error(
+          "payload",
+          "providers list and alias_bindings are required",
+          "providers"
+        )
       ])
     else
       {:error, %Plug.Conn{} = conn} -> conn

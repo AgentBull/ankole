@@ -1,9 +1,0 @@
-[01:39:48.104] [INFO] storybook v10.3.5
-[01:39:48.109] [ERROR] [38;2;241;97;97mError: Invariant failed: expected options to have a port[39m
-    at invariant (file://./node_modules/storybook/dist/_node-chunks/chunk-KIK2P2SN.js:20:11)
-    at buildDevStandalone (file://./node_modules/storybook/dist/core-server/index.js:7940:54)
-    at async withTelemetry (file://./node_modules/storybook/dist/_node-chunks/chunk-FIR43JGQ.js:225:12)
-    at async dev (file://./node_modules/storybook/dist/bin/core.js:2736:3)
-    at async _Command.<anonymous> (file://./node_modules/storybook/dist/bin/core.js:2806:92)
-[01:39:48.110] [WARN] Broken build, fix the error above.
-You may need to refresh the browser.
