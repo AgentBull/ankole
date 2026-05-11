@@ -58,11 +58,11 @@ defmodule BullX.MixProject do
       {:req, "~> 0.5"},
       {:telemetry_metrics, "~> 1.0"},
       {:telemetry_poller, "~> 1.0"},
-      {:localize, "~> 0.1.0"},
+      {:localize, "~> 0.28.0"},
       {:toml_elixir, "~> 3.0"},
       {:jason, "~> 1.4"},
       {:dns_cluster, "~> 0.2.0"},
-      {:bandit, "~> 1.5"},
+      {:bandit, "~> 1.11"},
       {:skogsra, "~> 2.5"},
       {:dotenvy, "~> 1.1"},
       {:zoi, "~> 0.17"}

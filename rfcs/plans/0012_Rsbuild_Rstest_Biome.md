@@ -1,5 +1,9 @@
 # Rsbuild, Rstest, and Biome Frontend Tooling
 
+The frontend test-runner portion of this plan was superseded by
+`rfcs/plans/0017_Bun_Test_Migration.md`. The Rsbuild and Biome sections remain
+as implementation history for the frontend toolchain migration.
+
 ## Scope
 
 Replace the BullX frontend toolchain's Vite integration with Rsbuild, migrate frontend unit tests to Rstest, and add Biome as the JavaScript/TypeScript lint framework.

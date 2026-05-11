@@ -4,7 +4,11 @@ defmodule BullXTelegram.Poller do
   use GenServer
   require Logger
 
+  alias BullX.Retry
   alias BullXTelegram.{Channel, Commands, Config, Error}
+
+  @retry_policy_opts %{base_backoff_ms: 250, max_backoff_ms: 30_000}
+  @retry_error %{"kind" => "network"}
 
   defstruct [:channel, :config, offset: nil, retry_count: 0]
 
@@ -132,7 +136,9 @@ defmodule BullXTelegram.Poller do
   end
 
   defp retry_delay_ms(retry_count) do
-    base = min(30_000, trunc(:math.pow(2, retry_count) * 250))
+    # Reuse BullX.Retry's exponential schedule and keep poller-private jitter
+    # so long-polling reconnections desynchronize across instances.
+    base = Retry.backoff_ms(Retry.build(@retry_policy_opts), @retry_error, retry_count + 1)
     base + :rand.uniform(max(1, div(base, 2)))
   end
 
@@ -171,12 +177,7 @@ defmodule BullXTelegram.Poller do
   end
 
   defp token_lock_key(token) when is_binary(token) do
-    hash =
-      :sha256
-      |> :crypto.hash(token)
-      |> Base.encode16(case: :lower)
-
-    {__MODULE__, :bot_token, hash}
+    {__MODULE__, :bot_token, BullX.Ext.generic_hash(token)}
   end
 
   defp field(%{} = map, key) when is_atom(key),

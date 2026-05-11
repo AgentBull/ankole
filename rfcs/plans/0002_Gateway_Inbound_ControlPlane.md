@@ -827,13 +827,13 @@ Connectivity error maps follow the same adapter-owned, JSON-neutral convention a
 
 ```elixir
 %{
-  "kind" => "auth" | "config" | "network" | "rate_limited" | "unknown",
+  "kind" => "auth" | "config" | "network" | "rate_limit" | "unknown",
   "message" => "safe operator-facing summary",
   "details" => %{}
 }
 ```
 
-Adapters should use `"auth"` for rejected credentials, `"config"` for locally invalid required fields, `"network"` for DNS/TLS/timeout/reachability failures, and `"rate_limited"` when the external platform refuses the check temporarily. Secrets, tokens, OAuth codes, raw response bodies, and decrypted webhook payloads must not appear in `message` or `details`.
+Adapters should use `"auth"` for rejected credentials, `"config"` for locally invalid required fields, `"network"` for DNS/TLS/timeout/reachability failures, and `"rate_limit"` when the external platform refuses the check temporarily. Secrets, tokens, OAuth codes, raw response bodies, and decrypted webhook payloads must not appear in `message` or `details`.
 
 **Two capability semantics, kept separate:**
 

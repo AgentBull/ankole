@@ -70,10 +70,10 @@ defmodule BullXAccounts.AuthZ.Request do
   The hash uses recursively sorted string keys so logically equal contexts
   produce the same key. List order remains part of the hash.
   """
-  @spec cache_key(t()) :: {String.t(), String.t(), String.t(), binary()}
+  @spec cache_key(t()) :: {String.t(), String.t(), String.t(), String.t()}
   def cache_key(%__MODULE__{} = request) do
     canonical_context = canonicalize(request.context)
-    context_hash = :crypto.hash(:sha256, :erlang.term_to_binary(canonical_context))
+    context_hash = BullX.Ext.generic_hash(:erlang.term_to_binary(canonical_context))
 
     {request.user_id, request.resource, request.action, context_hash}
   end

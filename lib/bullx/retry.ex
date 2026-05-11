@@ -1,12 +1,19 @@
-defmodule BullXGateway.RetryPolicy do
+defmodule BullX.Retry do
   @moduledoc """
-  Retry classification and backoff calculation for the egress runtime.
+  Retry classification and backoff calculation.
 
-  The policy is narrow by design (RFC 0003 §5.3.2): the Gateway exposes
-  `error.kind` on the wire and lets Runtime decide business-level retry
-  meaning from that plus `details.retry_after_ms` / `details.is_transient`.
-  Inside the Gateway, only these functions see `error.kind` to make the local
-  retry-vs-terminal decision.
+  Originally written for the egress Gateway runtime (RFC 0003 §5.3.2), this
+  module is now the shared retry policy across the codebase: anywhere a caller
+  has an error map (`%{"kind" => _, "details" => _}`) and an attempt counter,
+  these functions decide whether to retry and how long to wait.
+
+  Two surface-level shapes are supported:
+
+    * the egress map shape — `%{"kind" => kind, "details" => %{"retry_after_ms" => ms}}`,
+      where `kind` selects retryable vs terminal; and
+    * a minimal shape — `%{"kind" => "network"}` — used by callers that only
+      need exponential backoff without rich error classification (e.g. long
+      polling).
   """
 
   @type t :: %__MODULE__{

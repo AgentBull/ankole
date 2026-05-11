@@ -16,6 +16,7 @@ defmodule BullXAIAgent.Reasoning.AgenticLoop.Runner do
     ToolSelection
   }
 
+  alias BullX.Retry
   alias BullXAIAgent.Effects
   alias BullXAIAgent.Context, as: AIContext
   alias BullXAIAgent.Signal.Helpers, as: SignalHelpers
@@ -827,8 +828,12 @@ defmodule BullXAIAgent.Reasoning.AgenticLoop.Runner do
     case SignalHelpers.retryable?(result) and attempt <= max_retries do
       true ->
         case backoff_ms > 0 do
-          true -> Process.sleep(backoff_ms)
-          _ -> :ok
+          true ->
+            error_map = %{"kind" => "network", "details" => %{"retry_after_ms" => backoff_ms}}
+            Process.sleep(Retry.backoff_ms(Retry.default(), error_map, attempt))
+
+          _ ->
+            :ok
         end
 
         do_execute_tool_with_retries(pending_call, module, config, context, attempt + 1)

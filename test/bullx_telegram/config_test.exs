@@ -73,7 +73,7 @@ defmodule BullXTelegram.ConfigTest do
 
   test "request retries bounded Telegram flood-control waits" do
     Process.put(:telegram_api_responses, [
-      {:error, %{"kind" => "rate_limited", "details" => %{"retry_after_ms" => 1}}},
+      {:error, %{"kind" => "rate_limit", "details" => %{"retry_after_ms" => 1}}},
       {:ok, %{"message_id" => 1}}
     ])
 
@@ -105,7 +105,7 @@ defmodule BullXTelegram.ConfigTest do
 
     assert {:error, ^error} = Config.request(config, "sendMessage", text: "hello")
 
-    assert %{"kind" => "rate_limited", "details" => %{"retry_after_ms" => 1_000}} =
+    assert %{"kind" => "rate_limit", "details" => %{"retry_after_ms" => 1_000}} =
              Error.map(error)
 
     assert Process.get(:telegram_api_requests) == [{"bot", "sendMessage", [text: "hello"]}]

@@ -1,37 +1,27 @@
 defmodule BullXFeishu.Cache do
   @moduledoc false
 
+  alias BullXGateway.AdapterCache
+
   defstruct [:table]
 
   @type t :: %__MODULE__{table: :ets.tid()}
 
   @spec new() :: t()
   def new do
-    %__MODULE__{table: :ets.new(__MODULE__, [:set, :private])}
+    %__MODULE__{table: AdapterCache.new(__MODULE__)}
   end
 
   @spec put(t(), atom(), term(), term(), non_neg_integer()) :: t()
   def put(%__MODULE__{table: table} = cache, namespace, key, value, ttl_ms)
       when is_atom(namespace) and is_integer(ttl_ms) and ttl_ms >= 0 do
-    expires_at = System.monotonic_time(:millisecond) + ttl_ms
-    :ets.insert(table, {{namespace, key}, value, expires_at})
+    AdapterCache.put(table, namespace, key, value, ttl_ms)
     cache
   end
 
   @spec fetch(t(), atom(), term()) :: {:ok, term()} | :error
   def fetch(%__MODULE__{table: table}, namespace, key) do
-    case :ets.lookup(table, {namespace, key}) do
-      [{{^namespace, ^key}, value, expires_at}] ->
-        if fresh?(expires_at) do
-          {:ok, value}
-        else
-          :ets.delete(table, {namespace, key})
-          :error
-        end
-
-      [] ->
-        :error
-    end
+    AdapterCache.fetch(table, namespace, key)
   end
 
   @spec put_message_context(t(), String.t(), map(), non_neg_integer()) :: t()
@@ -55,6 +45,4 @@ defmodule BullXFeishu.Cache do
       :error -> {false, put(cache, :card_action_dedupe, key, true, ttl_ms)}
     end
   end
-
-  defp fresh?(expires_at), do: expires_at >= System.monotonic_time(:millisecond)
 end

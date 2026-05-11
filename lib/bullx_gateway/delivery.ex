@@ -10,7 +10,7 @@ defmodule BullXGateway.Delivery do
   responsible for re-issuing outstanding deliveries.
   """
 
-  alias BullXGateway.Delivery.Content
+  alias BullXGateway.Delivery.{Content, Outcome}
 
   @type adapter :: atom()
   @type channel_id :: String.t()
@@ -43,6 +43,21 @@ defmodule BullXGateway.Delivery do
     :caused_by_signal_id,
     extensions: %{}
   ]
+
+  @doc """
+  Wrap an adapter delivery operation in the common Gateway telemetry span.
+
+  Adapter modules still own transport-specific delivery behavior. The shared
+  span keeps metadata and result classification consistent across adapters.
+  """
+  @spec telemetry_span(adapter(), t(), (-> term())) :: term()
+  def telemetry_span(adapter, %__MODULE__{} = delivery, fun)
+      when is_atom(adapter) and is_function(fun, 0) do
+    :telemetry.span([:bullx, adapter, :delivery], telemetry_meta(delivery), fn ->
+      result = fun.()
+      {result, telemetry_result(result)}
+    end)
+  end
 
   @doc """
   Shape-validate a delivery struct before it is cast to a `ScopeWorker`.
@@ -132,4 +147,17 @@ defmodule BullXGateway.Delivery do
 
   defp validate_extensions(extensions) when is_map(extensions), do: :ok
   defp validate_extensions(_), do: {:error, :invalid_extensions}
+
+  defp telemetry_meta(%__MODULE__{} = delivery) do
+    %{
+      channel: delivery.channel,
+      delivery_id: delivery.id,
+      op: delivery.op,
+      scope_id: delivery.scope_id
+    }
+  end
+
+  defp telemetry_result({:ok, %Outcome{} = outcome}), do: %{outcome: outcome.status}
+  defp telemetry_result({:error, %{"kind" => kind}}), do: %{outcome: :error, error_kind: kind}
+  defp telemetry_result(_), do: %{outcome: :error}
 end

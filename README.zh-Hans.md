@@ -1,7 +1,7 @@
 # BullX — 次世代 AgentOS
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-red.svg?logo=apache&label=License)](LICENSE)
-[![Elixir](https://img.shields.io/badge/Elixir-1.20-48205D?logo=elixir)](https://elixir-lang.org)
+[![Elixir](https://img.shields.io/badge/Elixir-1.19-48205D?logo=elixir)](https://elixir-lang.org)
 
 [English](./README.md) | [简体中文](./README.zh-Hans.md) | [日本語](./README.ja.md)
 
@@ -40,7 +40,7 @@ BullX 是一个高可用、自演化、自愈的 AI Agent 操作系统，基于 
 
 ## 快速上手
 
-**前置条件：** Elixir 1.20+、PostgreSQL、Bun
+**前置条件：** Elixir 1.19+、PostgreSQL、Bun
 
 确保 PostgreSQL 正在运行，并且 `.env.dev` 或 `.env.local` 中的 `DATABASE_URL` 指向可用数据库。
 

@@ -1,7 +1,7 @@
 # BullX — Next Generation AgentOS
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-red.svg?logo=apache&label=License)](LICENSE)
-[![Elixir](https://img.shields.io/badge/Elixir-1.20-48205D?logo=elixir)](https://elixir-lang.org)
+[![Elixir](https://img.shields.io/badge/Elixir-1.19-48205D?logo=elixir)](https://elixir-lang.org)
 
 [English](./README.md) | [简体中文](./README.zh-Hans.md) | [日本語](./README.ja.md)
 
@@ -40,7 +40,7 @@ Further context: [Why OTP is a better runtime for multi-agent orchestration](htt
 
 ## Getting Started
 
-**Prerequisites:** Elixir 1.20+, PostgreSQL, Bun
+**Prerequisites:** Elixir 1.19+, PostgreSQL, Bun
 
 Make sure PostgreSQL is running and `DATABASE_URL` in `.env.dev` or `.env.local` points at it.
 

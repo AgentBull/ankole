@@ -99,6 +99,7 @@ defimpl Jido.AgentServer.DirectiveExec, for: BullXAIAgent.Directive.ToolExec do
   This prevents the Machine from deadlocking in `awaiting_tool` state.
   """
 
+  alias BullX.Retry
   alias BullXAIAgent.Observe
   alias BullXAIAgent.Signal
   alias BullXAIAgent.Signal.Helpers, as: SignalHelpers
@@ -299,7 +300,10 @@ defimpl Jido.AgentServer.DirectiveExec, for: BullXAIAgent.Directive.ToolExec do
             event_meta
           )
 
-          if retry_backoff_ms > 0, do: Process.sleep(retry_backoff_ms)
+          if retry_backoff_ms > 0 do
+            error_map = %{"kind" => "network", "details" => %{"retry_after_ms" => retry_backoff_ms}}
+            Process.sleep(Retry.backoff_ms(Retry.default(), error_map, attempt))
+          end
         end
 
         result =

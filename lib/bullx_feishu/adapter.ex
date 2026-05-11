@@ -113,7 +113,7 @@ defmodule BullXFeishu.Adapter do
   end
 
   defp safe_connectivity_error(%{"kind" => kind} = error)
-       when kind in ["auth", "config", "network", "rate_limited", "unknown"] do
+       when kind in ["auth", "config", "network", "rate_limit", "unknown"] do
     error
   end
 
@@ -138,7 +138,7 @@ defmodule BullXFeishu.Adapter do
   end
 
   defp feishu_error_kind(%FeishuOpenAPI.Error{code: :transport}), do: "network"
-  defp feishu_error_kind(%FeishuOpenAPI.Error{code: :rate_limited}), do: "rate_limited"
+  defp feishu_error_kind(%FeishuOpenAPI.Error{code: :rate_limited}), do: "rate_limit"
   defp feishu_error_kind(%FeishuOpenAPI.Error{code: code}) when is_integer(code), do: "auth"
   defp feishu_error_kind(%FeishuOpenAPI.Error{}), do: "unknown"
 

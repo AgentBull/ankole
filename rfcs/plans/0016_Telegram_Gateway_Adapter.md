@@ -446,7 +446,7 @@ Failure shape:
 ```elixir
 {:error,
  %{
-   "kind" => "auth" | "config" | "network" | "rate_limited" | "unknown",
+   "kind" => "auth" | "config" | "network" | "rate_limit" | "unknown",
    "message" => "safe operator-facing summary",
    "details" => %{}
  }}

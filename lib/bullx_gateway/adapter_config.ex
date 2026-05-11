@@ -319,8 +319,7 @@ defmodule BullXGateway.AdapterConfig do
   def fingerprint(entry) when is_map(entry) do
     entry
     |> :erlang.term_to_binary()
-    |> then(&:crypto.hash(:sha256, &1))
-    |> Base.encode16(case: :lower)
+    |> BullX.Ext.generic_hash()
   end
 
   @spec cast(term()) :: {:ok, [runtime_spec()]} | :error

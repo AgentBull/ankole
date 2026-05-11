@@ -1,0 +1,2 @@
+[test]
+preload = ["./webui/src/test/happydom.ts", "./webui/src/test/testing-library.ts"]

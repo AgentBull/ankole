@@ -10,17 +10,11 @@ defmodule BullXTelegram.Delivery do
   @spec deliver(GatewayDelivery.t(), Config.t()) ::
           {:ok, Outcome.adapter_success_t()} | {:error, map()}
   def deliver(%GatewayDelivery{op: :send} = delivery, %Config{} = config) do
-    :telemetry.span([:bullx, :telegram, :delivery], telemetry_meta(delivery), fn ->
-      result = send_message(delivery, config)
-      {result, telemetry_result(result)}
-    end)
+    GatewayDelivery.telemetry_span(:telegram, delivery, fn -> send_message(delivery, config) end)
   end
 
   def deliver(%GatewayDelivery{op: :edit} = delivery, %Config{} = config) do
-    :telemetry.span([:bullx, :telegram, :delivery], telemetry_meta(delivery), fn ->
-      result = edit_message(delivery, config)
-      {result, telemetry_result(result)}
-    end)
+    GatewayDelivery.telemetry_span(:telegram, delivery, fn -> edit_message(delivery, config) end)
   end
 
   def deliver(%GatewayDelivery{op: op}, %Config{}),
@@ -329,17 +323,4 @@ defmodule BullXTelegram.Delivery do
       false -> :sent
     end
   end
-
-  defp telemetry_meta(%GatewayDelivery{} = delivery) do
-    %{
-      channel: delivery.channel,
-      delivery_id: delivery.id,
-      op: delivery.op,
-      scope_id: delivery.scope_id
-    }
-  end
-
-  defp telemetry_result({:ok, %Outcome{} = outcome}), do: %{outcome: outcome.status}
-  defp telemetry_result({:error, %{"kind" => kind}}), do: %{outcome: :error, error_kind: kind}
-  defp telemetry_result(_), do: %{outcome: :error}
 end

@@ -8,7 +8,7 @@ Thank you for your interest in contributing to BullX! We welcome bug reports, fe
 
 ### Prerequisites
 
-- Elixir 1.20+
+- Elixir 1.19+
 - PostgreSQL 18+
 - Bun
 

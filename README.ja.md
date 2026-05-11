@@ -1,7 +1,7 @@
 # BullX — 次世代 AgentOS
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-red.svg?logo=apache&label=License)](LICENSE)
-[![Elixir](https://img.shields.io/badge/Elixir-1.20-48205D?logo=elixir)](https://elixir-lang.org)
+[![Elixir](https://img.shields.io/badge/Elixir-1.19-48205D?logo=elixir)](https://elixir-lang.org)
 
 [English](./README.md) | [简体中文](./README.zh-Hans.md) | [日本語](./README.ja.md)
 
@@ -40,7 +40,7 @@ BullX は、Elixir/OTP と PostgreSQL 上に構築された、高可用・自己
 
 ## はじめに
 
-**前提条件：** Elixir 1.20+、PostgreSQL、Bun
+**前提条件：** Elixir 1.19+、PostgreSQL、Bun
 
 PostgreSQL が起動しており、`.env.dev` または `.env.local` の `DATABASE_URL` が利用可能なデータベースを指していることを確認してください。
 

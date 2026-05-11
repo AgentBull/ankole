@@ -3,8 +3,10 @@ defmodule BullXTelegram.Error do
   Maps Telegram API and adapter failures into Gateway adapter error maps.
   """
 
+  alias BullXGateway.AdapterError
+
   @spec map(term()) :: map()
-  def map(%{"kind" => kind} = error) when is_binary(kind), do: stringify(error)
+  def map(%{"kind" => kind} = error) when is_binary(kind), do: AdapterError.stringify(error)
 
   def map(%{"description" => description} = error) when is_binary(description),
     do: telegram_description(description, error)
@@ -12,20 +14,23 @@ defmodule BullXTelegram.Error do
   def map({:payload, message}), do: payload(message)
   def map({:unsupported, message}), do: unsupported(message)
   def map(%Jason.DecodeError{} = error), do: payload(Exception.message(error))
-  def map(%Req.TransportError{} = error), do: base("network", Exception.message(error), %{})
+
+  def map(%Req.TransportError{} = error),
+    do: AdapterError.new("network", Exception.message(error))
+
   def map({:http_error, status}), do: http_error(status, nil)
   def map({kind, reason}) when kind in [:throw, :exit, :error], do: unknown({kind, reason})
   def map(reason) when is_binary(reason), do: telegram_description(reason)
   def map(reason), do: unknown(reason)
 
   @spec payload(String.t(), map()) :: map()
-  def payload(message, details \\ %{}), do: base("payload", message, details)
+  def payload(message, details \\ %{}), do: AdapterError.new("payload", message, details)
 
   @spec config(String.t(), map()) :: map()
-  def config(message, details \\ %{}), do: base("config", message, details)
+  def config(message, details \\ %{}), do: AdapterError.new("config", message, details)
 
   @spec unsupported(String.t(), map()) :: map()
-  def unsupported(message, details \\ %{}), do: base("unsupported", message, details)
+  def unsupported(message, details \\ %{}), do: AdapterError.new("unsupported", message, details)
 
   @spec polling_conflict?(term()) :: boolean()
   def polling_conflict?(reason) when is_binary(reason) do
@@ -71,45 +76,50 @@ defmodule BullXTelegram.Error do
 
     cond do
       String.contains?(text, "unauthorized") or String.contains?(text, "forbidden") ->
-        base("auth", "Telegram API authentication failed", %{})
+        AdapterError.new("auth", "Telegram API authentication failed")
 
       String.contains?(text, "too many requests") ->
-        base("rate_limited", "Telegram API rate limited", retry_after_details(retry_source))
+        AdapterError.new(
+          "rate_limit",
+          "Telegram API rate limited",
+          retry_after_details(retry_source)
+        )
 
       polling_conflict?(description) ->
-        base("network", "Telegram polling conflict", %{"telegram_description" => description})
+        AdapterError.new("network", "Telegram polling conflict", %{
+          "telegram_description" => description
+        })
 
       true ->
-        base("unknown", "Telegram API error", %{"telegram_description" => description})
+        AdapterError.new("unknown", "Telegram API error", %{"telegram_description" => description})
     end
   end
 
   defp http_error(status, body) when status in [401, 403] do
-    base("auth", "Telegram API authentication failed", %{"status" => status, "body" => body})
+    AdapterError.new("auth", "Telegram API authentication failed", %{
+      "status" => status,
+      "body" => body
+    })
   end
 
   defp http_error(429, body) do
-    base(
-      "rate_limited",
+    AdapterError.new(
+      "rate_limit",
       "Telegram API rate limited",
       Map.merge(%{"status" => 429, "body" => body}, retry_after_details(body))
     )
   end
 
   defp http_error(status, body) when is_integer(status) and status >= 500 do
-    base("network", "Telegram API server error", %{"status" => status, "body" => body})
+    AdapterError.new("network", "Telegram API server error", %{"status" => status, "body" => body})
   end
 
   defp http_error(status, body) do
-    base("unknown", "Telegram API error", %{"status" => status, "body" => body})
+    AdapterError.new("unknown", "Telegram API error", %{"status" => status, "body" => body})
   end
 
   defp unknown(reason),
-    do: base("unknown", "Telegram adapter error", %{"reason" => inspect(reason)})
-
-  defp base(kind, message, details) do
-    %{"kind" => kind, "message" => message, "details" => stringify(details)}
-  end
+    do: AdapterError.new("unknown", "Telegram adapter error", %{"reason" => inspect(reason)})
 
   defp retry_after_details(reason) do
     case retry_after_ms_from(reason) do
@@ -159,13 +169,4 @@ defmodule BullXTelegram.Error do
   end
 
   defp non_negative_integer(_value), do: nil
-
-  defp stringify(map) when is_map(map) do
-    Map.new(map, fn {key, value} -> {to_string(key), stringify_value(value)} end)
-  end
-
-  defp stringify_value(value) when is_map(value), do: stringify(value)
-  defp stringify_value(value) when is_list(value), do: Enum.map(value, &stringify_value/1)
-  defp stringify_value(value) when is_atom(value), do: Atom.to_string(value)
-  defp stringify_value(value), do: value
 end

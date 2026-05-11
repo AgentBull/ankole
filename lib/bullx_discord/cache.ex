@@ -1,32 +1,27 @@
 defmodule BullXDiscord.Cache do
   @moduledoc false
 
+  alias BullXGateway.AdapterCache
+
   defstruct [:table]
 
   @type t :: %__MODULE__{table: :ets.tid()}
 
   @spec new() :: t()
   def new do
-    %__MODULE__{table: :ets.new(__MODULE__, [:set, :private])}
+    %__MODULE__{table: AdapterCache.new(__MODULE__)}
   end
 
   @spec put(t(), atom(), term(), term(), non_neg_integer()) :: t()
   def put(%__MODULE__{table: table} = cache, namespace, key, value, ttl_ms)
       when is_atom(namespace) and is_integer(ttl_ms) and ttl_ms >= 0 do
-    expires_at = System.monotonic_time(:millisecond) + ttl_ms
-    :ets.insert(table, {{namespace, key}, value, expires_at})
+    AdapterCache.put(table, namespace, key, value, ttl_ms)
     cache
   end
 
   @spec fetch(t(), atom(), term()) :: {:ok, term()} | :error
   def fetch(%__MODULE__{table: table}, namespace, key) do
-    case :ets.lookup(table, {namespace, key}) do
-      [{{^namespace, ^key}, value, expires_at}] ->
-        fetch_fresh(table, {namespace, key}, value, expires_at)
-
-      [] ->
-        :error
-    end
+    AdapterCache.fetch(table, namespace, key)
   end
 
   @spec put_direct_result(t(), String.t(), term(), non_neg_integer()) :: t()
@@ -51,17 +46,6 @@ defmodule BullXDiscord.Cache do
     case fetch_direct_result(cache, key) do
       {:ok, _result} -> {true, cache}
       :error -> {false, put_direct_result(cache, key, true, ttl_ms)}
-    end
-  end
-
-  defp fetch_fresh(table, key, value, expires_at) do
-    case expires_at >= System.monotonic_time(:millisecond) do
-      true ->
-        {:ok, value}
-
-      false ->
-        :ets.delete(table, key)
-        :error
     end
   end
 end

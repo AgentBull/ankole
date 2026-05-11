@@ -23,8 +23,8 @@ defmodule BullXGateway.ScopeWorker do
   alias BullXGateway.Delivery
   alias BullXGateway.Delivery.Outcome
   alias BullXGateway.Dispatcher
+  alias BullX.Retry
   alias BullXGateway.OutboundDeduper
-  alias BullXGateway.RetryPolicy
   alias BullXGateway.ScopeRegistry
   alias BullXGateway.Telemetry
   alias Jido.Signal
@@ -88,7 +88,7 @@ defmodule BullXGateway.ScopeWorker do
       adapter_config: %{},
       adapter_anchor_pid: nil,
       adapter_monitor_ref: nil,
-      retry_policy: RetryPolicy.default(),
+      retry_policy: Retry.default(),
       status: :idle,
       queue: [],
       retry_timers: %{},
@@ -341,7 +341,7 @@ defmodule BullXGateway.ScopeWorker do
   end
 
   defp record_failure(state, delivery, attempt_num, error_map) do
-    case RetryPolicy.classify(state.retry_policy, error_map, attempt_num) do
+    case Retry.classify(state.retry_policy, error_map, attempt_num) do
       :retry ->
         schedule_retry(state, delivery, attempt_num, error_map)
 
@@ -351,7 +351,7 @@ defmodule BullXGateway.ScopeWorker do
   end
 
   defp schedule_retry(state, delivery, attempt_num, error_map) do
-    backoff_ms = RetryPolicy.backoff_ms(state.retry_policy, error_map, attempt_num)
+    backoff_ms = Retry.backoff_ms(state.retry_policy, error_map, attempt_num)
     timer_ref = Process.send_after(self(), {:run, delivery.id}, backoff_ms)
 
     new_timers = Map.put(state.retry_timers, delivery.id, timer_ref)
@@ -490,7 +490,7 @@ defmodule BullXGateway.ScopeWorker do
         module = entry.module
         config = entry.config
 
-        policy = RetryPolicy.build(Map.get(config, :retry_policy, %{}))
+        policy = Retry.build(Map.get(config, :retry_policy, %{}))
         {anchor_pid, monitor_ref} = maybe_monitor_adapter(Map.get(config, :anchor_pid))
 
         %{

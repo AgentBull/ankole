@@ -158,7 +158,7 @@ end
 
 Field semantics:
 
-- **`id`** — caller-supplied identifier (UUID7 strongly recommended, e.g. `Uniq.UUID.uuid7/0`). Must be unique per intended effect; reused values are deduped to the original outcome (§7.7).
+- **`id`** — caller-supplied identifier (UUID7 strongly recommended, e.g. `BullX.Ext.gen_uuid_v7/0`). Must be unique per intended effect; reused values are deduped to the original outcome (§7.7).
 - **`op`** — one of `:send`, `:edit`, `:stream`. Must match a declared op-capability of the resolved adapter (§6.2).
 - **`channel`** — `{adapter_atom, channel_id_string}`. **`channel_id` is always a `String.t()`**, never `term()`. See RFC 0002 §6.1 for the per-binding semantics (one adapter module can be registered under multiple distinct `channel_id` values).
 - **`scope_id` / `thread_id`** — same names as `data.scope_id` / `data.thread_id` on inbound signals and as the keys inside `data.reply_channel`. Runtime constructing a Delivery from an inbound reads `data.reply_channel` directly without renaming fields.
@@ -775,7 +775,7 @@ if reply do
   channel = {String.to_existing_atom(reply["adapter"]), reply["channel_id"]}
 
   %BullXGateway.Delivery{
-    id: Uniq.UUID.uuid7(),
+    id: BullX.Ext.gen_uuid_v7(),
     op: :send,
     channel: channel,
     scope_id: reply["scope_id"],
