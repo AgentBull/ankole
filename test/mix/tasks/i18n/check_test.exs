@@ -46,7 +46,7 @@ defmodule Mix.Tasks.I18n.CheckTest do
     File.write!(
       Path.join(client_dir, "en-US.toml"),
       """
-      [web.sessions.new]
+      [web.setup]
       title = "Hello {$"
       """
     )
@@ -79,16 +79,16 @@ defmodule Mix.Tasks.I18n.CheckTest do
     File.write!(
       Path.join(client_dir, "en-US.toml"),
       """
-      [web.sessions.new]
-      title = "Sign In"
+      [web.setup]
+      title = "Setup"
       """
     )
 
     File.write!(
       Path.join(client_dir, "zh-Hans-CN.toml"),
       """
-      [web.sessions.new]
-      title = "登录"
+      [web.setup]
+      title = "设置"
       extra = "多余"
       """
     )
@@ -103,7 +103,7 @@ defmodule Mix.Tasks.I18n.CheckTest do
                  )
       end)
 
-    assert output =~ ~s(client: zh-Hans-CN: key "web.sessions.new.extra")
+    assert output =~ ~s(client: zh-Hans-CN: key "web.setup.extra")
   end
 
   defp write_source_catalog(dir) do

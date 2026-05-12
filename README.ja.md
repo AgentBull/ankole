@@ -1,98 +1,127 @@
-# BullX — 次世代 AgentOS
+# BullX — Next Generation AgentOS
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-red.svg?logo=apache&label=License)](LICENSE)
 [![Elixir](https://img.shields.io/badge/Elixir-1.19-48205D?logo=elixir)](https://elixir-lang.org)
 
 [English](./README.md) | [简体中文](./README.zh-Hans.md) | [日本語](./README.ja.md)
 
-> :warning: **BullX は現在、初期開発段階にあります。大幅な変更やアップデートが予想されます。**
+> :warning: **BullX は初期開発段階です。このブランチは大規模な削除整理後の infra shell であり、具体的なプロダクト詳細は design doc を通じて変わります。**
 
-**汎用 AgentOS——金融などミッションクリティカルな領域において独自の強みを持つ。**
+BullX は、Elixir/OTP と PostgreSQL 上に構築された general-purpose AgentOS です。長時間続くデジタルワークを対象にしており、企業チーム、小規模な運営組織、OPC（one-person company）のいずれにも同じ中核モデルで適用できます。Agent が Signal を認識し、Work に責任を持ち、統制された Capability を通じて行動し、Outcome を記憶し、時間とともに改善します。
 
-BullX は、Elixir/OTP と PostgreSQL 上に構築された、高可用・自己進化・自己修復型の AI Agent オペレーティングシステムです。長時間稼働するプロダクション級の agent ワークロード向けに設計されており、その信頼性保証、永続化された状態、監査可能な記憶、そして human-in-the-loop 制御は、ダウンタイム・コスト超過・コンテキスト喪失・サイレント障害が実質的な代償を伴う環境において最も価値を発揮します。
+BullX は単なるチャット bot フレームワークでも、LLM tool runner だけでもありません。長期的な目標は、永続的な Agent が実際の仕事に安全に参加するための operating system です。
 
-## 主な特徴
+## Current State
 
-### プロダクション級ランタイム
+このブランチは意図的にインフラの外枠だけを残しています。
 
-参考: [1986年に、2026年のマルチエージェント・オーケストレーションの正しい解き方を見つける: なぜ OTP はより良いランタイムなのか](https://ding.ee/ja-JP/why-otp-is-a-better-runtime-for-multi-agent-orchestration/) では、Elixir/OTP が BullX の設計の中核である理由を説明しています。
+- Elixir/OTP application boot と supervision
+- PostgreSQL Repo と dynamic configuration
+- UUIDv7 と native helper boundary
+- 空のプロダクト文言を持つ i18n catalog infrastructure
+- Phoenix、Inertia、Rsbuild、UIKit、placeholder の setup SPA
+- health endpoints と OpenAPI description plumbing
+- `packages/` 以下の再利用可能な独立パッケージ
 
-- **高可用性**——キャリアグレードで耐障害性を備えた言語・ランタイムである Elixir と Erlang/OTP の上に構築されています。supervision tree がプロセススケジューリング・状態の所有・障害の隔離・再起動からの回復を第一級のプリミティブとして扱うため、BullX は障害から自動的に回復し、部分的な障害が発生しても稼働を継続します。
-- **PostgreSQL による永続化状態**——PostgreSQL が Session・記憶・知識の正式な保管場所となり、トランザクショナルな書き込み、レプリケーション、ポイントインタイムリカバリが標準で利用可能です——独自のオンディスク形式を自作・進化・移行する必要はありません。
-- **自己修復**——個々の Agent プロセスがクラッシュしてもシステム全体には影響せず、supervisor が既知の正常状態へ再起動することで、障害はプロセス境界内に隔離されます。
-- **長時間ワークフローを前提とした設計**——BullX は数秒ではなく数日・数週間にわたって走る Agent タスク（深掘りリサーチ、夜間バックテスト、常時監視など）を想定して作られています。スケジュール実行や Cron 型ジョブは、再起動・フェイルオーバー・クラッシュをまたいで **exactly-once セマンティクス** で実行され、サイレントに欠落することも、サイレントに重複することもありません。
+削除済みの product surface を断片的に戻さず、新しいプロダクト挙動は design doc から導入してください。
 
-### 進化する記憶と世界モデル
+## Product Direction
 
-- **自己進化する記憶**——記憶はログではなく、推論ループです。BullX はすべての対話から、異なる推論レベル（直接観測・演繹・帰納・矛盾）で構造化された記憶痕跡を抽出します。同時に、バックグラウンドの統合プロセスが冗長性をマージし、新旧の信念間の矛盾を検出し、低レベルの観測をより高次のパターンへと昇格させます。上書きされた記憶は消去ではなくソフトデリートされるため、すべての結論はその由来連鎖を保持し、システムが時間とともに理解を進化させた軌跡は再構築可能な状態に保たれます。
-- **オントロジー駆動の知識グラフ**——エンティティ・関係・プロパティからなる型付きオントロジーが、BullX の世界モデルを構成します。すべてのエンティティは、関係に沿って辿れるグラフノードであると同時に、そのエンティティ自身の推論が蓄積されるコンテナでもあります。このため、計画と想起は散漫なテキスト片ではなく、共有されたドメインスキーマの上で行われます。型付きのリンクは、抽出時における幻覚的な関係に対するガードレールとして機能します。
-- **多視点記憶**——真に脳型の記憶システムは、心の実際の働きを反映しなければなりません。すなわち、同一のエンティティは単一の共有された「客観的」記録として存在するのではなく、各観測者の中で、その観測者自身のインタラクション履歴によって形作られた、別々の内部表現として存在します。BullX はこの原則をデータ層で直接反映します。記憶は (observer, observed) の組み合わせで整理され、それぞれが独立して進化する推論連鎖を持ちます。このため、同一エンティティに対する異なる、場合によっては互いに矛盾する見方が、それぞれ自己整合的なまま共存でき、単一の融合された記録へ押し込まれることなく視点別に問い合わせることができます。
+BullX は少数の永続概念を中心に整理されます。具体的な table design、process topology、queue name、provider adapter はまだ確定していません。
 
-### 感知と意図
+- **Installation** — 一つの BullX deployment と operating domain。BullX は汎用 AgentOS ですが、SaaS multi-tenancy をデフォルトの product boundary とはみなしません。
+- **Principal** — authorization、audit、responsibility の対象となる内部主体。human、Agent、service、system actor はすべて Principal です。
+- **Agent** — identity、responsibility、memory、capability、permission、outbound identity、KPI を持つ永続的な work subject。Agent は自動的に LLM process や chat bot を意味しません。
+- **Signal** — 何かが起きたことを正規化して表すもの。Signal は task ではありません。
+- **Admission** — Signal を Agent の attention space に入れるかどうかの判断。owner、observer、reviewer、delegate、subscriber、blocked などの関係を記録します。
+- **Work / Mission** — 長期的な責任。Mission は永続的な goal、Work は具体的な commitment です。
+- **Capability** — Agent が使える統制された能力。reasoning、browser、code、messaging、data、memory、approval などの provider に支えられます。
+- **Intent / Governance / Effect** — Agent は Intent を提案し、Governance が Effect へ進めるか判断し、Effect が Outcome と audit record を生みます。
+- **Brain** — 将来の ontology と reasoning-memory layer。raw vector log ではなく、object、relationship、perspective、engram、consolidation を中心にします。
 
-- **デュアルチャネル感知**——ユーザーや他 agent との対話、および **CloudEvents 準拠** で配信される外部イベント（政策変更、市場の動き、サプライチェーンの混乱、決算発表、webhook コールバックなど）の二つの入力チャネルが、同じ推論層へと流れ込みます。BullX は誰かが話題にするか否かに関わらず世界の変化に反応します——シグナルがプロンプトを待ってくれない領域では不可欠です。
-- **ビジネス意図の理解**——専用の層が、受け取った要求をビジネスオントロジー上の概念とゴールに対応付けます。これにより agent は、与えられた文字通りの言葉ではなく「ユーザーが達成しようとしていること」に対して計画を立てます。
+## User Stories
 
-### オーケストレーションと制御
+### Group Chatを見守るが発言しない
 
-- **ハイブリッドワークフローオーケストレーション**——ワークフローを有限状態機械、DAG、あるいは behavior tree として構成でき、ノードは LLM agent、決定論的なコード、外部サービスのいずれであっても構いません。LLM 自身が高レベルのゴールからこれらのトポロジーを生成することもでき、一度生成されれば、ワークフローは open-ended な agentic ループではなく、構造化されたグラフとして実行されます——実行ごとの token 消費が大幅に削減され、振る舞いははるかに予測可能かつ再現可能となり、すべてのノードが OTP の監督下で実行されます。思考が本当に必要な場所にだけ LLM を配置し、それ以外はコンパイルされたグラフに任せましょう。
-- **予算認識と human-in-the-loop**——すべてのワークフロー実行は、設定された予算に対してコストを追跡します。支出上限、権限ゲート、承認ステップによって実行を一時停止し、agent が高額または不可逆な行動を取る前に判断を人間のレビュアーへ委ねることができます——これにより BullX は、実際に費用が発生するワークフローや、規制対象システムに触れるワークフローにも安全に配備できます。
+Customer-success Agent は顧客グループを見守り、リスク Signal を静かに処理し、Work を作成または更新し、担当者へ個別に通知できます。デフォルトではグループ内で発言しません。
 
-## はじめに
+### 一つのSignalを複数AgentへAdmissionする
 
-**前提条件：** Elixir 1.19+、PostgreSQL、Bun
+同じ外部イベントでも、Agent ごとに意味が違います。顧客の予算凍結に関するメッセージは、CustomerSuccessAgent には owner、FinanceAgent には observer、無関係な Agent には blocked になり得ます。
+
+### 会話と外部イベントを一緒に記憶する
+
+Research Agent は、ユーザーとの会話と市場・政策・運用イベントを同じ記憶システムで扱えます。将来の回答では、過去チャットの全文検索だけでなく、ontology-backed world model から context を取得するべきです。
+
+### Outcomeから改善する
+
+Agent は繰り返しの結果から学ぶべきです。Coding Agent が fixture context 不足で何度も失敗するなら、次の Work planning では patch 作成前に fixture context を集めるべきです。
+
+### リスクの高い外部行動を統制する
+
+Agent は customer-facing、financial、legal、その他リスクの高い Effect を直接実行すべきではありません。まず Intent を作り、Governance がリスクと承認要件を判断し、承認された Intent だけが外部 Effect になります。
+
+## Design Invariants
+
+- PostgreSQL は永続的な fact source です。
+- process-local state は一時的で、再構築可能でなければなりません。
+- process は failure boundary であり、domain noun ではありません。
+- Signal は何が起きたかを表し、Admission は誰が見るべきかを決めます。
+- Agent は処理しても返信しないことがあります。
+- Capability は統制された能力であり、裸の tool call ではありません。
+- Intent は Effect より先に存在します。
+- 重要な挙動は audit、explanation、recovery が可能でなければなりません。
+- Memory は非構造ログとして蓄積するのではなく、reasoning と consolidation を通じて進化するべきです。
+
+## Development
+
+**Prerequisites:** Elixir 1.19+, PostgreSQL, Bun
 
 PostgreSQL が起動しており、`.env.dev` または `.env.local` の `DATABASE_URL` が利用可能なデータベースを指していることを確認してください。
 
 ```sh
-# Elixir 依存関係、JS 依存関係、データベース、アセットを初期化
+# Elixir dependencies, JS dependencies, database, and assets
 bun setup
 
-# Phoenix と Rsbuild 開発用アセットサーバーを起動
+# Start Phoenix and the Rsbuild development asset server
 bun dev
 ```
 
-`http://localhost:4000` を開きます。
+`http://localhost:4000` を開きます。現在の app shell は `/` を `/setup` にリダイレクトしますが、このブランチでは placeholder です。
 
-ローカルの `users` テーブルが空の場合、`/` は `/setup` にリダイレクトします。少なくとも一人のユーザーが存在する場合、未ログインユーザーは `/sessions/new` に送られ、ログイン済みユーザーは `/` でコントロールパネル SPA に入ります。
+開発環境では Phoenix が Rsbuild を endpoint watcher として起動します。ブラウザ入口は `http://localhost:4000` のままで、Rsbuild は `http://localhost:5173` から React/Inertia の hot reload を提供します。ポートが使われている場合は、`.env.local` に `PORT` と `RSBUILD_PORT` を設定します。例: `PORT=4001`、`RSBUILD_PORT=5174`。
 
-開発環境では Phoenix が Rsbuild を endpoint watcher として起動します。ブラウザで開く入口は `http://localhost:4000` のままで、Rsbuild は `http://localhost:5173` から React/Inertia の hot reload を提供します。
-これらのポートがすでに使われている場合は、`.env.local` に `PORT` と `RSBUILD_PORT` を設定します。例: `PORT=4001`、`RSBUILD_PORT=5174`。
-
-よく使うプロジェクトコマンド:
+Useful project commands:
 
 ```sh
-# JS 依存関係をインストール/更新
+# Install/update JS dependencies
 bun install
-```
 
-```sh
-# コミット前に使うプロジェクト全体のチェック
+# Run the full project check used before committing
 bun precommit
-```
 
-```sh
-# フロントエンドテストとクロス言語 lint チェックを実行
+# Run frontend tests and cross-language lint checks
 bun run test
 bun run lint
 ```
 
-## Rsbuild アセットビルド
+## Rsbuild Asset Builds
 
-React/Inertia のエントリーポイントは `webui/src/app.jsx` にあり、各 SPA ページは `webui/src/apps/` 以下にあります。デプロイ可能なアセットを作るとき、Rsbuild は `priv/static/assets/.rsbuild/manifest.json` を書き出し、開発環境以外では Phoenix がその manifest から script と stylesheet を解決します。
-Bun はリポジトリルートから実行します。Rsbuild はアプリケーションソースに `webui/src/`、Phoenix CSS エントリーに `assets/css/` を使います。
+React/Inertia の entry は `webui/src/app.jsx`、SPA pages は `webui/src/apps/` 以下にあります。deployable assets では、Rsbuild が `priv/static/assets/.rsbuild/manifest.json` を出力し、Phoenix は development 以外でその manifest から script と style を解決します。
+
+Bun は repository root から実行します。Rsbuild は application source に `webui/src/`、Phoenix CSS entry に `assets/css/` を使います。
 
 ```sh
-# Rsbuild アセットと manifest をビルド
+# Build Rsbuild assets and manifest
 mix assets.build
 
-# 本番アセットをビルドし digest を生成
+# Build production assets, including digests
 mix assets.deploy
 ```
 
-`mix assets.deploy` はコンパイル、Rsbuild build、`phx.digest` を実行します。本番 release を作る前に実行してください。
+`mix assets.deploy` は compilation、Rsbuild build、`phx.digest` を実行します。production release の前に実行してください。
 
-**本番環境：**
+**Production:**
 
 ```sh
 MIX_ENV=prod mix assets.deploy
@@ -100,14 +129,14 @@ MIX_ENV=prod mix release
 _build/prod/rel/bullx/bin/bullx start
 ```
 
-## 環境ファイル
+## Environment Files
 
-BullX はリポジトリルートから dotenv ファイルを読み込みます。後から読み込まれるファイルが先の値を上書きし、すでに存在する OS 環境変数は dotenv の値より優先されます。
+BullX は repository root から dotenv files を読み込みます。後から読み込まれる file が先の値を上書きし、すでに存在する OS environment variables は dotenv の値より優先されます。
 
-| 環境 | ロード順 |
+| Environment | Load order |
 |---|---|
-| 開発 | `.env` → `.env.dev` → `.env.local` |
-| テスト | `.env` → `.env.test` |
-| 本番 | `.env` → `.env.prod` |
+| Development | `.env` -> `.env.dev` -> `.env.local` |
+| Test | `.env` -> `.env.test` |
+| Production | `.env` -> `.env.prod` |
 
-> `.env.local` は `.gitignore` に追加済みで、マシン固有の機密情報を置くためのものです。`.env`、`.env.dev`、`.env.test` はチーム共有の非機密デフォルト値としてバージョン管理にコミットできます。
+`.env.local` は gitignored で、machine-specific secrets のためのものです。`.env`、`.env.dev`、`.env.test` は shared non-secret team defaults として commit できます。

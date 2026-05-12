@@ -1,7 +1,6 @@
 defmodule BullXWeb.I18n.ErrorTranslator do
   @moduledoc """
-  Maps Ecto changeset errors onto the `errors.validation.*` TOML
-  skeleton defined in RFC 0007 §8.2.
+  Maps Ecto changeset errors onto deterministic validation keys.
 
   Ecto delivers errors as `{msg, opts}` where `opts` usually carries
   a `:validation` atom and sometimes a `:kind`, `:type`, or other

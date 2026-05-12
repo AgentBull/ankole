@@ -14,15 +14,6 @@ config :bullx,
   ecto_repos: [BullX.Repo],
   generators: [timestamp_type: :utc_datetime]
 
-config :req_llm, load_dotenv: false
-
-config :nostrum,
-  ffmpeg: false,
-  youtubedl: false,
-  streamlink: false
-
-config :tesla, adapter: {Tesla.Adapter.Finch, name: BullX.TelegramFinch, receive_timeout: 40_000}
-
 # Configure the endpoint
 config :bullx, BullXWeb.Endpoint,
   url: [host: "localhost"],
@@ -68,13 +59,6 @@ config :localize,
   mf2_functions: %{}
 
 config :bullx, :i18n, locales_dir: "priv/locales"
-
-config :bullx, :accounts,
-  authn_match_rules: [],
-  authn_auto_create_users: true,
-  authn_require_activation_code: true,
-  activation_code_ttl_seconds: 86_400,
-  web_auth_code_ttl_seconds: 300
 
 # Import environment specific config. This must remain at the bottom
 # of this file so it overrides the configuration defined above.

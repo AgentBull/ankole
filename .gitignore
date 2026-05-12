@@ -42,7 +42,7 @@ npm-debug.log
 *.env.local
 .env.prod
 
-/rfcs/drafts/
+/docs/drafts/
 
 # Rust binary artifacts
 /target/

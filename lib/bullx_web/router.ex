@@ -4,7 +4,6 @@ defmodule BullXWeb.Router do
   pipeline :browser do
     plug :accepts, ["html"]
     plug :fetch_session
-    plug BullXWeb.Plugs.FetchCurrentUser
     plug Inertia.Plug
     plug :fetch_flash
     plug :put_root_layout, html: {BullXWeb.Layouts, :root}
@@ -26,24 +25,6 @@ defmodule BullXWeb.Router do
 
     get "/", PageController, :home
     get "/setup", SetupController, :show
-    get "/setup/llm", SetupLLMController, :show
-    post "/setup/llm/providers/check", SetupLLMController, :providers_check
-    post "/setup/llm/providers", SetupLLMController, :providers_save
-    get "/setup/gateway", SetupGatewayController, :show
-    get "/setup/activate-owner", SetupController, :activate_owner
-    get "/setup/activate-owner/status", SetupController, :activation_status
-    post "/setup/gateway/adapters/check", SetupGatewayController, :check
-    post "/setup/gateway/adapters/generated-secret", SetupGatewayController, :generated_secret
-    post "/setup/gateway/adapters", SetupGatewayController, :save
-    get "/setup/sessions/new", SetupSessionController, :new
-    post "/setup/sessions", SetupSessionController, :create
-    get "/sessions/new", SessionController, :new
-    post "/sessions", SessionController, :create
-    delete "/sessions", SessionController, :delete
-    get "/sessions/feishu/:channel_id/callback", FeishuAuthController, :callback
-    get "/sessions/feishu/:channel_id", FeishuAuthController, :new
-    get "/sessions/discord/:channel_id/callback", DiscordAuthController, :callback
-    get "/sessions/discord/:channel_id", DiscordAuthController, :new
   end
 
   scope "/", BullXWeb do
@@ -57,7 +38,6 @@ defmodule BullXWeb.Router do
     pipe_through :api
 
     get "/.well-known/service-desc", OpenApiSpex.Plug.RenderSpec, []
-    post "/gateway/telegram/:channel_id/webhook", BullXWeb.TelegramWebhookController, :update
   end
 
   # Enable Swoosh mailbox preview and Swagger UI in development
