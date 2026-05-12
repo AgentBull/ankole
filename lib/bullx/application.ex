@@ -20,9 +20,7 @@ defmodule BullX.Application do
       {Phoenix.PubSub, name: BullX.PubSub},
       BullXAIAgent.Supervisor,
       BullXGateway.CoreSupervisor,
-      BullX.Skills.Supervisor,
       BullXBrain.Supervisor,
-      BullX.Runtime.Supervisor,
       BullXGateway.AdapterSupervisor,
       BullXWeb.Endpoint
     ]
