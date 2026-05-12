@@ -21,8 +21,6 @@ config :nostrum,
   youtubedl: false,
   streamlink: false
 
-config :tesla, adapter: {Tesla.Adapter.Finch, name: BullX.TelegramFinch, receive_timeout: 40_000}
-
 # Configure the endpoint
 config :bullx, BullXWeb.Endpoint,
   url: [host: "localhost"],
