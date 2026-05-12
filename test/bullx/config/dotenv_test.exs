@@ -95,6 +95,27 @@ defmodule BullX.Config.DotenvTest do
     end
   end
 
+  test "validate!/2 rejects root secrets below the bootstrap security floor" do
+    schema = Zoi.string() |> Zoi.min(64)
+
+    assert_raise RuntimeError, ~r/Zoi validation failed/, fn ->
+      BullX.Config.Bootstrap.validate!("short", zoi: schema)
+    end
+  end
+
+  test "validate_port!/2 accepts only TCP port integers" do
+    assert BullX.Config.Bootstrap.validate_port!(1, "TEST_PORT") == 1
+    assert BullX.Config.Bootstrap.validate_port!(65_535, "TEST_PORT") == 65_535
+
+    assert_raise RuntimeError, ~r/invalid port for TEST_PORT/, fn ->
+      BullX.Config.Bootstrap.validate_port!(0, "TEST_PORT")
+    end
+
+    assert_raise RuntimeError, ~r/invalid port for TEST_PORT/, fn ->
+      BullX.Config.Bootstrap.validate_port!("4000", "TEST_PORT")
+    end
+  end
+
   defp in_tmp_dir(fun) do
     dir = Path.join(System.tmp_dir!(), "bullx_dotenv_#{:erlang.unique_integer([:positive])}")
     File.mkdir_p!(dir)

@@ -127,7 +127,7 @@ Prefer guarantees that the system can actually keep.
 
 ## Subsystems
 
-BullX is currently an infra-shell branch. Legacy business subsystems were removed so the next product shape can be rebuilt from design docs instead of old RFC-era code.
+BullX is currently an infra-shell branch. Legacy business subsystems were removed so the next product shape can be rebuilt from design docs instead of pre-cleanup implementation history.
 
 The active in-tree concerns are:
 
@@ -163,14 +163,15 @@ Core product stories to keep in mind:
 - An Agent can learn from repeated outcomes, so future Work planning reflects previous failures and successful patterns.
 - Customer-facing, financial, legal, or otherwise risky outbound actions must pass through Governance before any external Effect happens.
 
-Do not encode the long-term table design, queue topology, adapter list, or runtime process model as if it were already implemented. Those details belong in future design docs.
+Do not encode the long-term table design, queue topology, adapter list, or runtime process model as if it were already implemented. Those details need a committed design doc before implementation.
 
-## Plan-first workflow
+## Design-doc-first workflow
 
-BullX implements features and fixes complex bugs through a design-doc-first process:
+BullX implements meaningful features, architectural changes, and complex bug fixes through committed design docs. Formal design docs live under `docs/design-docs/` and describe the current intended design, not a debate transcript or roadmap.
 
-1. A human writes a design doc that specifies the full scope of the work — files to create or modify, expected module shapes, and acceptance criteria. If no design doc exists, make the smallest viable plan inline before editing. Do not invent broad architecture for a narrow task.
-2. Write a cleanup plan before modifying code.
+1. A human writes or approves a design doc when the work changes a durable product concept, public contract, schema, supervision boundary, storage model, runtime behavior, or cross-subsystem interaction. The doc should specify the scope of the work, expected module shapes or ownership boundaries, invariants, and acceptance criteria.
+2. If no design doc exists, decide whether one is actually required. For narrow fixes, cleanup, tests, wording changes, and other local patches, make the smallest viable inline plan before editing. Do not invent broad architecture for a narrow task.
+3. Write a cleanup plan before modifying code.
 
    The cleanup plan must answer:
 
@@ -183,12 +184,12 @@ BullX implements features and fixes complex bugs through a design-doc-first proc
    - What invariant must remain true?
 
    - What command will verify the result?
-3. A coding agent executes the plan. The plan is the source of truth; deviations require explicit justification.
-4. The design doc stays committed in the repo as a record of design intent.
+4. A coding agent executes the design doc or inline plan. The plan is the source of truth; deviations require explicit justification.
+5. A design doc that guided implementation stays committed in the repo as the record of design intent. Keep it aligned with the implemented system; do not leave obsolete alternatives, timeline notes, or proposal scaffolding behind.
 
 ## Review settled designs correctly
 
-When reviewing an existing plan, RFC, architecture note, or user decision, distinguish four things:
+When reviewing an existing design doc, inline plan, architecture note, or user decision, distinguish four things:
 
 1. Omission.
    Something required by the stated design is missing.
@@ -265,7 +266,7 @@ Do not leave meta-writing scaffolding in committed docs:
 - no unresolved TODOs unless the document intentionally tracks work
 - no duplicated alternatives unless the document is explicitly comparing alternatives
 
-When writing README, RFC, plan, prompt, policy, or operator-facing documentation:
+When writing README, design doc, plan, prompt, policy, or operator-facing documentation:
 - Write the final artifact, not a transcript of how you got there.
 - Remove internal reasoning markers.
 - Remove abandoned headings.

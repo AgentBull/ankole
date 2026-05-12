@@ -18,11 +18,7 @@ config :bullx, BullX.Repo,
 # watchers to your application. For example, we can use it
 # to bundle .js and .css sources.
 rsbuild_port = BullX.Config.Bootstrap.env_integer("RSBUILD_PORT", 5173)
-
-case rsbuild_port in 1..65_535 do
-  true -> :ok
-  false -> raise "BullX.Config.Bootstrap: invalid port for RSBUILD_PORT: #{inspect(rsbuild_port)}"
-end
+BullX.Config.Bootstrap.validate_port!(rsbuild_port, "RSBUILD_PORT")
 
 config :bullx, BullXWeb.Endpoint,
   # Binding to loopback ipv4 address prevents access from other machines.
