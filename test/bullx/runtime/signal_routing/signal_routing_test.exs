@@ -137,6 +137,24 @@ defmodule BullX.Runtime.SignalRoutingTest do
     assert %{agent_principal_id: [_ | _]} = errors_on(changeset)
   end
 
+  test "writer refreshes the cache so rule updates affect the next publish" do
+    agent = create_agent!("updated")
+
+    {:ok, rule} =
+      SignalRouting.create_rule(
+        agent_rule(agent, key: unique_key("updated"), channel_id: "other")
+      )
+
+    assert {:ok, []} = BullX.Runtime.SignalRouting.Router.resolve(inbound_signal())
+
+    assert {:ok, _rule} = SignalRouting.update_rule(rule, %{channel_id: "main"})
+
+    assert {:ok, [%DeliveryIntent{} = intent]} =
+             BullX.Runtime.SignalRouting.Router.resolve(inbound_signal())
+
+    assert intent.consumer["agent_principal_id"] == agent.principal.id
+  end
+
   test "matcher handles routing facts, fan-out grouping, and terminal blackhole ordering" do
     agent_a = create_agent!("match_a")
     agent_b = create_agent!("match_b")
@@ -183,6 +201,27 @@ defmodule BullX.Runtime.SignalRoutingTest do
              Matcher.match(context, [lower_a, higher_a, agent_b_rule, blackhole])
   end
 
+  test "matcher treats actor bot as a fixed column and absent actors do not match actor rules" do
+    agent = create_agent!("actor_match")
+    context = routing_context!(inbound_signal())
+
+    human_rule = rule_struct(agent_rule(agent, key: "human_actor", actor_bot: false))
+    bot_rule = rule_struct(agent_rule(agent, key: "bot_actor", actor_bot: true))
+
+    assert [%{key: "human_actor"}] = Matcher.match(context, [bot_rule, human_rule])
+
+    actor_rule =
+      rule_struct(agent_rule(agent, key: "actor_required", actor_external_id: "ou_alice"))
+
+    no_actor_context =
+      inbound_data()
+      |> Map.delete("actor")
+      |> inbound_signal_from_data()
+      |> routing_context!()
+
+    assert [] = Matcher.match(no_actor_context, [actor_rule])
+  end
+
   test "router emits fan-out DeliveryIntent values and terminal blackhole wins globally" do
     agent_a = create_agent!("router_a")
     agent_b = create_agent!("router_b")
@@ -216,6 +255,17 @@ defmodule BullX.Runtime.SignalRoutingTest do
     assert {:ok, [drop_intent]} = BullX.Runtime.SignalRouting.Router.resolve(signal)
     assert drop_intent.consumer["route_action"] == "drop_signal"
     assert drop_intent.consumer["destination_key"] == "sink:blackhole"
+  end
+
+  test "router returns no delivery intents when no rule matches" do
+    agent = create_agent!("no_match")
+
+    {:ok, _rule} =
+      SignalRouting.create_rule(
+        agent_rule(agent, key: unique_key("no_match"), channel_id: "other")
+      )
+
+    assert {:ok, []} = BullX.Runtime.SignalRouting.Router.resolve(inbound_signal())
   end
 
   test "Gateway publish uses the Runtime router and enqueues one job per winning destination" do
@@ -371,13 +421,19 @@ defmodule BullX.Runtime.SignalRoutingTest do
   end
 
   defp inbound_signal(extra_data \\ %{}) do
+    inbound_data()
+    |> Map.merge(extra_data)
+    |> inbound_signal_from_data()
+  end
+
+  defp inbound_signal_from_data(data) do
     {:ok, signal} =
       Signal.new(%{
         "id" => BullX.Ext.gen_uuid_v7(),
         "source" => "bullx://gateway/feishu/main",
         "type" => "com.agentbull.x.inbound.received",
         "time" => "2026-05-13T00:00:00Z",
-        "data" => Map.merge(inbound_data(), extra_data),
+        "data" => data,
         "bullxoccurkey" => "feishu:event_#{System.unique_integer([:positive])}",
         "bullxadapter" => "feishu",
         "bullxchannel" => "main"

@@ -1,7 +1,17 @@
 defmodule BullX.Gateway.SourceConfigTest do
   use ExUnit.Case, async: true
 
+  alias BullX.Config.Gateway.Sources
   alias BullX.Gateway.SourceConfig
+
+  test "source config rejects duplicate adapter and channel pairs after case folding" do
+    sources = [
+      %{"adapter" => "Feishu", "channel_id" => "Main", "enabled" => false, "config" => %{}},
+      %{"adapter" => "feishu", "channel_id" => "main", "enabled" => false, "config" => %{}}
+    ]
+
+    assert :error = Sources.cast(sources)
+  end
 
   test "connectivity freshness is scoped to the current source fingerprint" do
     source = %SourceConfig{
