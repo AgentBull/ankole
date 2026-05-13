@@ -12,6 +12,7 @@ defmodule BullX.Application do
       BullX.Repo,
       BullX.Config.Supervisor,
       BullX.Principals.Bootstrap,
+      BullX.AuthZ.Bootstrap,
       BullX.I18n.Catalog,
       {DNSCluster, query: Application.get_env(:bullx, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: BullX.PubSub},

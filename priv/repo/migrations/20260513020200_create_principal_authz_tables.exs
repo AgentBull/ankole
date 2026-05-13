@@ -1,0 +1,82 @@
+defmodule BullX.Repo.Migrations.CreatePrincipalAuthzTables do
+  use Ecto.Migration
+
+  def change do
+    create table(:principal_groups, primary_key: false) do
+      add :id, :uuid, primary_key: true
+      add :name, :text, null: false
+      add :description, :text
+      add :built_in, :boolean, null: false, default: false
+
+      timestamps(type: :utc_datetime_usec)
+    end
+
+    create unique_index(:principal_groups, [:name])
+
+    create constraint(:principal_groups, :principal_groups_name_present,
+             check: "length(btrim(name)) > 0"
+           )
+
+    create constraint(:principal_groups, :principal_groups_name_lowercase,
+             check: "name = lower(name)"
+           )
+
+    create table(:principal_group_memberships, primary_key: false) do
+      add :principal_id, references(:principals, type: :uuid, on_delete: :delete_all),
+        null: false,
+        primary_key: true
+
+      add :group_id, references(:principal_groups, type: :uuid, on_delete: :delete_all),
+        null: false,
+        primary_key: true
+
+      timestamps(type: :utc_datetime_usec)
+    end
+
+    create index(:principal_group_memberships, [:group_id])
+
+    create table(:permission_grants, primary_key: false) do
+      add :id, :uuid, primary_key: true
+      add :principal_id, references(:principals, type: :uuid, on_delete: :delete_all)
+      add :group_id, references(:principal_groups, type: :uuid, on_delete: :delete_all)
+      add :resource_pattern, :text, null: false
+      add :action, :text, null: false
+      add :condition, :text, null: false, default: "true"
+      add :description, :text
+      add :metadata, :map, null: false, default: %{}
+
+      timestamps(type: :utc_datetime_usec)
+    end
+
+    create constraint(:permission_grants, :permission_grants_principal_exclusive,
+             check: """
+             (principal_id IS NOT NULL AND group_id IS NULL)
+             OR (principal_id IS NULL AND group_id IS NOT NULL)
+             """
+           )
+
+    create constraint(:permission_grants, :permission_grants_resource_pattern_wildcards,
+             check: "(length(resource_pattern) - length(replace(resource_pattern, '*', ''))) <= 1"
+           )
+
+    create constraint(:permission_grants, :permission_grants_action_no_colon,
+             check: "position(':' in action) = 0"
+           )
+
+    create constraint(:permission_grants, :permission_grants_resource_pattern_present,
+             check: "length(resource_pattern) > 0"
+           )
+
+    create constraint(:permission_grants, :permission_grants_action_present,
+             check: "length(action) > 0"
+           )
+
+    create constraint(:permission_grants, :permission_grants_metadata_object,
+             check: "jsonb_typeof(metadata) = 'object'"
+           )
+
+    create index(:permission_grants, [:principal_id])
+    create index(:permission_grants, [:group_id])
+    create index(:permission_grants, [:action])
+  end
+end

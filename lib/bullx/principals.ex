@@ -9,6 +9,8 @@ defmodule BullX.Principals do
   alias BullX.Principals.AuthN
 
   defdelegate get_principal(id), to: AuthN
+  defdelegate update_principal_status(principal_or_id, status), to: AuthN
+  defdelegate disable_principal(principal_or_id), to: AuthN
   defdelegate create_human(attrs), to: AuthN
   defdelegate create_agent(attrs), to: AuthN
   defdelegate resolve_channel_actor(adapter, channel_id, external_id), to: AuthN

@@ -3,6 +3,7 @@ defmodule BullX.Principals.AuthN do
 
   import Ecto.Query
 
+  alias BullX.AuthZ
   alias BullX.Config.Principals, as: PrincipalsConfig
   alias BullX.Principals.ActivationCode
   alias BullX.Principals.Agent
@@ -31,6 +32,29 @@ defmodule BullX.Principals.AuthN do
   end
 
   def get_principal(_id), do: {:error, :not_found}
+
+  @spec update_principal_status(Principal.t() | Ecto.UUID.t(), :active | :disabled) ::
+          {:ok, Principal.t()}
+          | {:error, :not_found | :invalid_status | :last_active_human_admin}
+          | {:error, Ecto.Changeset.t()}
+  def update_principal_status(principal_or_id, status) when status in [:active, :disabled] do
+    transaction(fn ->
+      with {:ok, principal} <- fetch_principal_for_update(principal_or_id),
+           :ok <- ensure_status_change_allowed(principal, status) do
+        principal
+        |> Ecto.Changeset.change(%{status: status})
+        |> Repo.update()
+      end
+    end)
+  end
+
+  def update_principal_status(_principal_or_id, _status), do: {:error, :invalid_status}
+
+  @spec disable_principal(Principal.t() | Ecto.UUID.t()) ::
+          {:ok, Principal.t()}
+          | {:error, :not_found | :last_active_human_admin}
+          | {:error, Ecto.Changeset.t()}
+  def disable_principal(principal_or_id), do: update_principal_status(principal_or_id, :disabled)
 
   @spec create_human(map()) ::
           {:ok, %{principal: Principal.t(), human_user: HumanUser.t()}}
@@ -210,6 +234,7 @@ defmodule BullX.Principals.AuthN do
       when is_binary(plaintext_code) and is_map(input) do
     with {:ok, normalized} <- normalize_channel_input(input) do
       transaction(fn -> consume_activation_code_in_transaction(plaintext_code, normalized) end)
+      |> maybe_grant_bootstrap_admin_after_commit()
     end
   end
 
@@ -282,6 +307,33 @@ defmodule BullX.Principals.AuthN do
     |> Repo.insert()
   end
 
+  defp fetch_principal_for_update(%Principal{id: id}), do: fetch_principal_for_update(id)
+
+  defp fetch_principal_for_update(id) when is_binary(id) do
+    case Ecto.UUID.cast(id) do
+      {:ok, uuid} ->
+        case Repo.one(
+               from principal in Principal,
+                 where: principal.id == ^uuid,
+                 lock: "FOR UPDATE"
+             ) do
+          nil -> {:error, :not_found}
+          principal -> {:ok, principal}
+        end
+
+      :error ->
+        {:error, :not_found}
+    end
+  end
+
+  defp fetch_principal_for_update(_principal), do: {:error, :not_found}
+
+  defp ensure_status_change_allowed(_principal, :active), do: :ok
+
+  defp ensure_status_change_allowed(%Principal{} = principal, :disabled) do
+    AuthZ.ensure_can_disable_principal(principal)
+  end
+
   defp match_unbound_channel(input) do
     case evaluate_match_rules(input) do
       {:bind, principal} -> bind_principal_to_channel(principal, input)
@@ -341,9 +393,30 @@ defmodule BullX.Principals.AuthN do
         with {:ok, activation_code} <- find_valid_activation_code(plaintext_code),
              {:ok, principal, identity} <- create_human_and_channel_identity(input),
              :ok <- mark_activation_code_used(activation_code, principal, input) do
-          {:ok, principal, identity}
+          activation_code_consume_result(activation_code, principal, identity)
         end
     end
+  end
+
+  defp activation_code_consume_result(%ActivationCode{} = activation_code, principal, identity) do
+    case bootstrap_activation_code?(activation_code) do
+      true -> {:ok, principal, identity, :bootstrap_admin}
+      false -> {:ok, principal, identity}
+    end
+  end
+
+  defp maybe_grant_bootstrap_admin_after_commit({:ok, principal, identity, :bootstrap_admin}) do
+    case AuthZ.grant_bootstrap_admin(principal) do
+      :ok -> {:ok, principal, identity}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp maybe_grant_bootstrap_admin_after_commit(result), do: result
+
+  defp bootstrap_activation_code?(%ActivationCode{metadata: metadata}) do
+    metadata = normalize_metadata(metadata)
+    metadata[@bootstrap_metadata_key] == true
   end
 
   defp evaluate_match_rules(input) do
