@@ -88,8 +88,6 @@ defmodule BullX.Gateway.Signal do
     }
 
     attrs
-    |> maybe_put_flag_extension("bullxflags", input["bullxflags"])
-    |> maybe_put_bool_extension("bullxmoderated", input["bullxmoderated"])
     |> new()
     |> case do
       {:ok, signal} ->
@@ -260,21 +258,6 @@ defmodule BullX.Gateway.Signal do
 
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
-
-  defp maybe_put_flag_extension(attrs, _key, []), do: attrs
-  defp maybe_put_flag_extension(attrs, _key, nil), do: attrs
-
-  defp maybe_put_flag_extension(attrs, key, flags) when is_list(flags) do
-    Map.put(attrs, key, Enum.join(Enum.map(flags, &to_string/1), ","))
-  end
-
-  defp maybe_put_flag_extension(attrs, key, flag) when is_binary(flag),
-    do: Map.put(attrs, key, flag)
-
-  defp maybe_put_flag_extension(attrs, _key, _flag), do: attrs
-
-  defp maybe_put_bool_extension(attrs, key, true), do: Map.put(attrs, key, true)
-  defp maybe_put_bool_extension(attrs, _key, _value), do: attrs
 
   defp outcome_type(%Outcome{status: status}) when status in [:sent, :degraded],
     do: "com.agentbull.x.delivery.succeeded"

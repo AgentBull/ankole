@@ -1,6 +1,6 @@
 ---
 name: bullx-design-docs
-description: Create, revise, or review BullX design documents from drafts, notes, codebase context, or user-provided scope. Use when Codex needs to write, clean up, structure, or technically edit design docs, RFCs, implementation plans, architecture notes, Coding Agent handoff documents, or design-doc-style reviews for BullX features, runtime behavior, schemas, workflows, Phoenix/Elixir/Rust/React changes, error behavior, or cross-cutting concerns.
+description: Create, or revise BullX design documents from drafts, notes, codebase context, or user-provided scope. Use when Codex needs to write, clean up, structure, or technically edit design docs for BullX features, runtime behavior, schemas, workflows, Phoenix/Elixir/Rust/React changes, error behavior, or cross-cutting concerns.
 ---
 
 # BullX Design Docs

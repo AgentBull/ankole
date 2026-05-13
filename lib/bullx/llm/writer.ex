@@ -6,7 +6,12 @@ defmodule BullX.LLM.Writer do
   @known_keys ~w(provider_id req_llm_provider base_url api_key encrypted_api_key provider_options)a
   @key_lookup @known_keys |> Map.new(&{Atom.to_string(&1), &1})
 
-  @spec put_provider(map() | keyword()) :: {:ok, Provider.t()} | {:error, term()}
+  @type cache_refresh_failure :: {:cache_refresh_failed, String.t(), term()}
+  @type stale_write :: {:persisted_but_stale, cache_refresh_failure()}
+  @type provider_write_result ::
+          {:ok, Provider.t()} | {:ok, Provider.t(), stale_write()} | {:error, term()}
+
+  @spec put_provider(map() | keyword()) :: provider_write_result()
   def put_provider(attrs) do
     attrs = normalize_attrs(attrs)
 
@@ -19,7 +24,7 @@ defmodule BullX.LLM.Writer do
     end
   end
 
-  @spec update_provider(String.t(), map() | keyword()) :: {:ok, Provider.t()} | {:error, term()}
+  @spec update_provider(String.t(), map() | keyword()) :: provider_write_result()
   def update_provider(provider_id, attrs) when is_binary(provider_id) do
     attrs = normalize_attrs(attrs)
 
@@ -30,23 +35,19 @@ defmodule BullX.LLM.Writer do
     end
   end
 
-  @spec delete_provider(String.t()) :: :ok | {:error, term()}
+  @spec delete_provider(String.t()) :: :ok | {:ok, stale_write()} | {:error, term()}
   def delete_provider(provider_id) when is_binary(provider_id) do
     with {:ok, provider} <- get_provider(provider_id),
-         {:ok, _provider} <- BullX.Repo.delete(provider),
-         :ok <- refresh_provider(provider_id) do
-      :ok
-    else
-      {:error, {:cache_refresh_failed, _provider_id}} = error -> error
-      {:error, _reason} = error -> error
+         {:ok, _provider} <- BullX.Repo.delete(provider) do
+      stale_status_after_delete(provider_id)
     end
   end
 
-  @spec refresh_provider(String.t()) :: :ok | {:error, term()}
+  @spec refresh_provider(String.t()) :: :ok | {:error, cache_refresh_failure()}
   def refresh_provider(provider_id) when is_binary(provider_id) do
     case Catalog.Cache.refresh(provider_id) do
       :ok -> :ok
-      {:error, _reason} -> {:error, {:cache_refresh_failed, provider_id}}
+      {:error, reason} -> {:error, {:cache_refresh_failed, provider_id, reason}}
     end
   end
 
@@ -55,12 +56,8 @@ defmodule BullX.LLM.Writer do
 
     with {:ok, attrs} <- apply_api_key(attrs, provider.id),
          changeset <- Provider.changeset(provider, attrs),
-         {:ok, provider} <- BullX.Repo.insert(changeset),
-         :ok <- refresh_provider(provider.provider_id) do
-      {:ok, provider}
-    else
-      {:error, {:cache_refresh_failed, _provider_id}} = error -> error
-      {:error, _reason} = error -> error
+         {:ok, provider} <- BullX.Repo.insert(changeset) do
+      stale_status_after_write(provider)
     end
   end
 
@@ -68,12 +65,22 @@ defmodule BullX.LLM.Writer do
     with {:ok, attrs} <- apply_api_key(attrs, provider.id),
          attrs <- Map.delete(attrs, :provider_id),
          changeset <- Provider.changeset(provider, attrs),
-         {:ok, provider} <- BullX.Repo.update(changeset),
-         :ok <- refresh_provider(provider.provider_id) do
-      {:ok, provider}
-    else
-      {:error, {:cache_refresh_failed, _provider_id}} = error -> error
-      {:error, _reason} = error -> error
+         {:ok, provider} <- BullX.Repo.update(changeset) do
+      stale_status_after_write(provider)
+    end
+  end
+
+  defp stale_status_after_write(%Provider{} = provider) do
+    case refresh_provider(provider.provider_id) do
+      :ok -> {:ok, provider}
+      {:error, reason} -> {:ok, provider, {:persisted_but_stale, reason}}
+    end
+  end
+
+  defp stale_status_after_delete(provider_id) do
+    case refresh_provider(provider_id) do
+      :ok -> :ok
+      {:error, reason} -> {:ok, {:persisted_but_stale, reason}}
     end
   end
 

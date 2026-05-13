@@ -7,7 +7,6 @@ defmodule BullX.Gateway.Outbound do
     Outbound.Store,
     Outbound.StreamRunner,
     OutboundError,
-    Security,
     SourceConfig,
     Sources
   }
@@ -17,7 +16,6 @@ defmodule BullX.Gateway.Outbound do
   def deliver(delivery) do
     with {:ok, delivery} <- Delivery.normalize(delivery),
          {:ok, source} <- fetch_source(delivery),
-         {:ok, delivery} <- sanitize_delivery(delivery, source),
          :ok <- validate_capabilities(delivery, source),
          {:ok, accepted?} <- accept(delivery, source) do
       maybe_notify_dispatcher(delivery, accepted?)
@@ -63,22 +61,6 @@ defmodule BullX.Gateway.Outbound do
 
       {:error, :unknown_source} ->
         {:error, OutboundError.new(:unknown_source, "unknown Gateway source")}
-    end
-  end
-
-  defp sanitize_delivery(%Delivery{} = delivery, %SourceConfig{} = source) do
-    with {:ok, sanitized} <- Security.sanitize_outbound(delivery, source),
-         {:ok, delivery} <- Delivery.normalize(sanitized) do
-      {:ok, delivery}
-    else
-      {:error, %OutboundError{} = error} ->
-        {:error, error}
-
-      {:error, reason} ->
-        {:error,
-         OutboundError.new(:security_denied, "Gateway outbound delivery denied", %{
-           reason: inspect(reason)
-         })}
     end
   end
 

@@ -56,8 +56,14 @@ defmodule BullX.LLM.Catalog.Cache do
   defp call(message) do
     case GenServer.whereis(__MODULE__) do
       nil -> {:error, :cache_not_running}
-      _pid -> GenServer.call(__MODULE__, message)
+      _pid -> safe_call(message)
     end
+  end
+
+  defp safe_call(message) do
+    GenServer.call(__MODULE__, message)
+  catch
+    :exit, reason -> {:error, {:cache_call_failed, reason}}
   end
 
   defp load_all do

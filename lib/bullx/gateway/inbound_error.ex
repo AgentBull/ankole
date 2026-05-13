@@ -9,8 +9,6 @@ defmodule BullX.Gateway.InboundError do
 
   @classes [
     :malformed,
-    :policy_denied,
-    :security_denied,
     :router_unavailable,
     :router_contract,
     :store_unavailable,
@@ -23,8 +21,6 @@ defmodule BullX.Gateway.InboundError do
 
   @type class ::
           :malformed
-          | :policy_denied
-          | :security_denied
           | :router_unavailable
           | :router_contract
           | :store_unavailable

@@ -32,6 +32,18 @@ defmodule BullX.Gateway.SignalDeliveryWorkerTest do
     assert {:cancel, :ignored} = perform("discard")
   end
 
+  test "worker retries while consumer delivery boundary is unavailable" do
+    previous = Application.get_env(:bullx, :gateway)
+
+    Application.put_env(
+      :bullx,
+      :gateway,
+      Keyword.put(previous, :consumer_delivery, BullX.Gateway.ConsumerDelivery.Unavailable)
+    )
+
+    assert {:error, :consumer_delivery_unavailable} = perform("ok")
+  end
+
   defp perform(consumer_key) do
     intent = intent(consumer_key)
     SignalDeliveryWorker.perform(%Oban.Job{args: DeliveryIntent.dump(intent)})

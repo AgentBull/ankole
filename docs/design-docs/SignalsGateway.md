@@ -27,16 +27,16 @@ This design covers the transport and delivery infrastructure owned by
   normalization, source connectivity checks, and external outbound delivery;
 - the inbound `content + event` contract, external actors, reply channels, and
   redacted source provenance;
-- transport security, source gating, moderation hooks, acknowledgement
-  boundaries, and provider failure boundaries;
+- adapter transport verification boundaries, acknowledgement boundaries, and
+  provider failure boundaries;
 - the minimal post-router delivery protocol: `DeliveryIntent`, `delivery_key`,
   the Oban-backed Mailbox, worker handoff, per-delivery dedupe, retry, and
   crash recovery;
 - external outbound `Delivery`, content validation, outcomes, retry,
   best-effort PostgreSQL-backed dispatch buffering, stream buffering, terminal
   failure dead letters, and replay;
-- Gateway supervision, startup ordering, telemetry, security, privacy, and
-  implementation acceptance criteria.
+- Gateway supervision, startup ordering, telemetry, redaction, Governance
+  boundaries, and implementation acceptance criteria.
 
 ## Goals
 
@@ -55,8 +55,8 @@ This design covers the transport and delivery infrastructure owned by
   provider.
 - Provide best-effort recovery for accepted outbound deliveries without claiming
   external exactly-once side effects.
-- Keep raw provider payloads, provider secrets, private adapter config, and
-  private content out of telemetry and error details.
+- Keep raw provider payloads, provider secrets, and private adapter config out
+  of telemetry and error details.
 
 ## Non-Goals
 
@@ -101,8 +101,8 @@ This design covers the transport and delivery infrastructure owned by
 - Preserve these invariants: the Gateway does not parse business identity, does
   not create Admission, does not turn external actors into Principals, does not
   persist inbound events as Signal rows, and does not store provider secrets,
-  raw webhook bodies, or private payloads in Oban args, dispatch buffers, stream
-  buffers, dead letters, or error details.
+  raw webhook bodies, tokens, signatures, or private adapter config in Oban
+  args, dispatch buffers, stream buffers, dead letters, or error details.
 - Verify implementation with focused Gateway, Mailbox, adapter, outbound, and
   recovery tests, then run `bun precommit`.
 
@@ -175,15 +175,14 @@ that Governance already allowed, but the Gateway does not make that decision.
 7. Adapters own provider semantics. Gateway core validates the carrier shape,
    not provider-specific business fields.
 8. Transport reliability is explicit and limited. Inbound reliability combines
-   adapter prechecks, Gateway policy hooks, Router resolution, and Oban
+   adapter prechecks, Gateway carrier validation, Router resolution, and Oban
    Mailbox enqueue. Outbound reliability uses a best-effort dispatch buffer,
    transport retry, terminal failure dead letters, and replay.
 9. Gateway core can start before Runtime. Gateway source listeners and outbound
    dispatchers may run before Router is available, but inbound publish and
    terminal finalization must check Router availability before resolving
-   Signals. Mailbox job execution is gated on Runtime and consumer readiness,
-   not Router readiness, because those jobs already contain resolved
-   `DeliveryIntent` values.
+   Signals. Mailbox job execution relies on the configured `ConsumerDelivery`
+   boundary to return retry when the target consumer is temporarily unavailable.
 10. Gateway supervision adds a transport failure boundary. It does not move
     unrelated Runtime responsibilities or change the Runtime supervision tree
     without a separate design reason.
@@ -200,7 +199,6 @@ External payload
 -> Adapter returns one normalized inbound input
 -> Gateway validates carrier shape and JSON neutrality
 -> Gateway validates normalized source identity, provenance, and occurrence key
--> Gateway runs transport security, gating, and moderation hooks
 -> Gateway builds BullX.Gateway.Signal
 -> Router.resolve(signal) returns DeliveryIntent values
 -> Mailbox.enqueue_all(intents) writes Oban jobs
@@ -253,8 +251,6 @@ Gateway-defined attribute names stay at or below 20 characters.
 | `bullxoccurkey` | Required. Stable Signal occurrence identity used to build mailbox `delivery_key` values. |
 | `bullxadapter` | Required for Gateway carriers. Configured adapter id, for example `feishu`. |
 | `bullxchannel` | Required for Gateway carriers. Configured `channel_id`, for example `main`. |
-| `bullxflags` | Optional short string that stores redacted transport hook flag codes. |
-| `bullxmoderated` | Optional boolean indicating that moderation changed `data.content`. |
 
 `BullX.Gateway.Signal.dump/1` must emit a flat CloudEvents JSON map.
 `BullX.Gateway.Signal.load/1` must reject a nested `extensions` map because that
@@ -405,7 +401,7 @@ and authorization belong to Principal, Admission, and Governance designs.
 `provenance` stores adapter-normalized external facts, such as provider event
 id, delivery header id, external message id, external timestamp, provider app
 id, or a raw body hash. `provenance` must not store plaintext tokens, signature
-secrets, OAuth codes, full webhook bodies, or private payloads.
+secrets, OAuth codes, or full webhook bodies.
 
 ## Inbound publish path
 
@@ -419,7 +415,7 @@ Unknown or disabled sources are rejected before adapter verification.
 
 Adapters own provider-specific verification and parsing once they receive the
 configured source config. Gateway core owns the normalized carrier contract,
-policy hooks, Router call, Mailbox enqueue, and transport telemetry.
+Router call, Mailbox enqueue, and transport telemetry.
 
 An adapter is responsible for:
 
@@ -451,7 +447,6 @@ Gateway publish is responsible for:
   `thread_id`, `refs`, `reply_channel`, `provenance`, and occurrence key;
 - validating minimal fields for the seven Gateway event types without parsing
   adapter-owned business data;
-- running transport security, gating, and moderation hooks;
 - generating `BullX.Gateway.Signal.id`;
 - calling Router / Rule Engine;
 - enqueuing returned `DeliveryIntent` values through the Mailbox;
@@ -459,8 +454,8 @@ Gateway publish is responsible for:
 
 Gateway publish does not write inbound Signal rows, write a gateway dedupe
 table, or save raw provider payloads. If Router returns an empty list, Gateway
-can still return accepted. That means the Signal passed Gateway policy and
-routing, but no durable internal delivery was created.
+can still return accepted. That means the Signal passed Gateway carrier
+validation and routing, but no durable internal delivery was created.
 
 The Gateway acceptance boundary is the Mailbox commit. Router results must be
 given to `Mailbox.enqueue_all/1` as one batch. Duplicate enqueue counts as
@@ -476,9 +471,9 @@ Gateway publish returns one of these shapes:
 {:error, %BullX.Gateway.InboundError{} = error}
 ```
 
-Accepted means the Signal passed Gateway policy, Router returned successfully,
-and the Mailbox accepted all resolved delivery intents. The adapter may
-acknowledge the provider event according to provider semantics.
+Accepted means the Signal passed Gateway carrier validation, Router returned
+successfully, and the Mailbox accepted all resolved delivery intents. The
+adapter may acknowledge the provider event according to provider semantics.
 
 An inbound error means the publish did not complete. The adapter combines
 `error.retryable?` with provider semantics to decide whether to acknowledge,
@@ -488,7 +483,7 @@ retry, reject, or surface provider-specific failure.
 
 | Field | Requirement |
 | --- | --- |
-| `class` | One of `:malformed`, `:policy_denied`, `:security_denied`, `:router_unavailable`, `:router_contract`, `:store_unavailable`, `:adapter_contract`, or `:unknown_source`. |
+| `class` | One of `:malformed`, `:router_unavailable`, `:router_contract`, `:store_unavailable`, `:adapter_contract`, or `:unknown_source`. |
 | `retryable?` | Boolean. Defaults to true only for `:router_unavailable` and `:store_unavailable`. |
 | `safe_message` | Short message without secrets or raw payload. |
 | `details` | JSON-neutral redacted map. |
@@ -498,8 +493,6 @@ Error classes mean:
 - `:malformed` means the normalized input or Signal carrier shape is invalid.
 - `:unknown_source` means `{adapter, channel_id}` is not configured, disabled,
   or not expected for that listener.
-- `:security_denied` and `:policy_denied` mean the transport boundary
-  explicitly rejected the input.
 - `:router_unavailable` means Router, rule storage, or a Router dependency is
   temporarily unavailable.
 - `:router_contract` means Router returned invalid `DeliveryIntent` values,
@@ -510,53 +503,25 @@ Error classes mean:
 - `:adapter_contract` means the adapter returned normalized input that does not
   satisfy the Gateway inbound contract.
 
-Malformed payloads, transport verification failures, and policy denials produce
-telemetry and security logs. This design does not persist policy denial as an
-audit-grade fact. Audit-grade Governance rejection belongs to Governance and
-Effect designs.
+Malformed payloads and adapter transport verification failures produce
+telemetry and redacted adapter errors. This design does not persist transport
+rejection as an audit-grade fact. Audit-grade Governance rejection belongs to
+Governance and Effect designs.
 
-## Transport policy hooks
+## Policy Boundary
 
-Gateway hooks are limited to transport concerns. Hooks are not Governance and
-cannot create Principals, Admission, Work, or Effects.
+Gateway has no Security, Gating, Moderation, content-policy, audience-policy, or
+response-policy pipeline. Adapter verification is provider transport work.
+Gateway carrier validation is shape validation. Router resolution is delivery
+fanout. None of those steps decide whether an Agent may pay attention, whether
+a customer group may see content, whether content is safe, whether an Agent
+should answer, or whether an external Effect is allowed.
 
-Inbound hooks run in this order:
-
-```text
-Configured source lookup
--> Adapter verification and normalization with source config
--> Gateway carrier validation
--> Security checks normalized source and input
--> Gating decides whether the input may enter the Gateway
--> Moderation flags or redacts transport content
--> Gateway constructs BullX.Gateway.Signal
--> Router.resolve
--> Mailbox.enqueue_all
-```
-
-Hook rules:
-
-- `Security` is mandatory. The default implementation checks that the source is
-  enabled and that normalized input matches the already selected source.
-  Provider signatures stay adapter-owned and use source config supplied before
-  normalization.
-- `Gating` and `Moderation` are optional configured modules and default to
-  no-op. They must have short timeouts and return `:allow`,
-  `:allow_with_flags`, `:deny`, or redacted content.
-- `:deny` does not construct a Signal, call Router, or write Mailbox jobs. The
-  adapter decides provider acknowledgement according to provider semantics.
-- Moderation may rewrite `content` and add `bullxflags` or `bullxmoderated`. It
-  must not rewrite `id`, `source`, `type`, `time`, `provenance`, `scope_id`,
-  `thread_id`, or occurrence key.
-- Hook timeout, exception, or invalid return defaults to deny. A
-  flag-and-continue fallback is allowed only when source config explicitly
-  enables it, and the fallback must write top-level `bullxflags`.
-
-Outbound has only a transport security hook. `Security.sanitize_outbound/2`, or
-an equivalent function, runs before adapter calls to remove secrets, validate
-deliverable content, and normalize redacted errors. LLM-aware moderation,
-persona shaping, approval, and human pause/resume belong to upstream Runtime
-and Governance.
+Business admission, content safety, audience visibility, Agent response
+selection, approval, and human pause/resume belong to Principal, Admission,
+Runtime, Governance, and Effect designs. If BullX needs an auditable allow,
+deny, hold, or redaction decision, it must be modeled above Gateway with the
+right durable semantics rather than hidden behind a Gateway hook.
 
 ## Post-router delivery boundary
 
@@ -633,9 +598,8 @@ transaction.
 
 All Mailbox jobs use `BullX.Gateway.SignalDeliveryWorker`. Router may choose
 the opaque consumer descriptor, allowlisted queue, priority, and max attempts,
-but not the worker module. QueueGate controls Gateway-owned queues based on
-Runtime and consumer readiness. QueueGate does not wait for Router readiness
-because already persisted jobs contain resolved delivery intents.
+but not the worker module. Gateway does not pause or resume Oban queues based
+on Runtime readiness; an unavailable consumer is a normal worker retry case.
 
 Mailbox dedupe is finite and per delivery. Oban uniqueness is based on
 `delivery_key`, not the whole args map, `Signal.id`, trace id, schema version,
@@ -801,9 +765,9 @@ Governance.
 
 Outbound content blocks reuse the inbound content block kinds and fallback
 rules. Before invoking an adapter, Gateway validates the Delivery carrier
-shape, adapter operation support, content kind support, stream strategy, and
-outbound transport sanitization. Gateway does not run LLM-aware moderation,
-persona shaping, approval, or human pause/resume.
+shape, adapter operation support, content kind support, and stream strategy.
+Gateway does not score content safety, shape persona, approve delivery, or
+pause/resume human review.
 
 `BullX.Gateway.deliver/1` returns after Gateway acceptance. It does not wait for
 provider terminal success or failure:
@@ -833,7 +797,7 @@ business effects and resubmit when terminal outcome is missing.
 
 | Field | Requirement |
 | --- | --- |
-| `class` | One of `:malformed`, `:unknown_source`, `:security_denied`, `:unsupported_op`, `:already_dead_lettered`, `:not_replayable`, or `:store_unavailable`. |
+| `class` | One of `:malformed`, `:unknown_source`, `:unsupported_op`, `:already_dead_lettered`, `:not_replayable`, or `:store_unavailable`. |
 | `retryable?` | Boolean. Defaults to true only for `:store_unavailable`. |
 | `safe_message` | Short message without secrets or raw payload. |
 | `details` | JSON-neutral redacted map. |
@@ -851,9 +815,9 @@ An outbound `Outcome` is a transport result:
 | `error` | Required, JSON-neutral, and redacted when `status = :failed`. |
 
 Adapter success callbacks can return only `:sent` or `:degraded` outcomes.
-Unsupported operations, capability mismatch, security denial, and carrier shape
-errors before Gateway acceptance return synchronous `OutboundError` and do not
-produce terminal outcomes. After Gateway acceptance, adapter errors, adapter
+Unsupported operations, capability mismatch, and carrier shape errors before
+Gateway acceptance return synchronous `OutboundError` and do not produce
+terminal outcomes. After Gateway acceptance, adapter errors, adapter
 exceptions, unsupported returns, contract violations, and attempts-exhausted
 states normalize to `:failed`.
 
@@ -908,7 +872,7 @@ attempts for one generation.
 - Retryable adapter error kinds are `"rate_limit"`, `"network"`, `"timeout"`,
   and `"provider_unavailable"`.
 - Terminal adapter error kinds are `"auth"`, `"permission"`, `"not_found"`,
-  `"payload"`, `"unsupported"`, `"contract"`, and `"security_denied"`.
+  `"payload"`, `"unsupported"`, and `"contract"`.
 - Unknown error kinds are terminal unless the adapter explicitly sets
   `details["is_transient"] = true`.
 - Adapter exception, exit, throw, and success-path contract violation normalize
@@ -925,8 +889,8 @@ terminal finalization: Gateway captures `terminal_outcome`, publishes an
 outcome Signal through Router, writes a receipt, and enqueues outcome Mailbox
 jobs in the same transaction. Terminal stream failure also writes a
 non-replayable dead-letter summary. If `:stream` is rejected before adapter
-invocation because of capability, security, or shape validation, Gateway
-returns synchronous `OutboundError` and does not produce a terminal outcome.
+invocation because of capability or shape validation, Gateway returns
+synchronous `OutboundError` and does not produce a terminal outcome.
 
 If terminal finalization hits `:store_unavailable` after the terminal outcome
 has been captured in the dispatch row, `ScopeWorker` must not call the external
@@ -961,7 +925,7 @@ Discrete `:send` and `:edit` deliveries use `gateway_outbound_dispatches`:
 | `adapter` | `text` | Configured adapter id. |
 | `channel_id` | `text` | Configured source id. |
 | `scope_id` | `text` | Adapter-local scope. |
-| `delivery` | `jsonb` | Replayable, JSON-neutral Delivery snapshot. Secrets are redacted; message content is not redacted. |
+| `delivery` | `jsonb` | Replayable, JSON-neutral Delivery snapshot. Secrets are redacted. |
 | `terminal_outcome` | `jsonb` | Nullable redacted terminal outcome snapshot. |
 | `attempts` | `integer` | Adapter attempts already executed. |
 | `next_attempt_at` | `utc_datetime_usec` | Next eligible attempt time. |
@@ -1171,10 +1135,8 @@ upstream runtime replay.
 needs stronger persistence than the best-effort dispatch buffer.
 
 Dead letters redact secrets, credentials, tokens, signatures, OAuth codes,
-private adapter config, and private file handles. Replayable snapshots may
-include message content and external target identifiers required for replay, so
-dead-letter access is sensitive operator access and not a general audit browsing
-surface.
+private adapter config, and private file handles. Replayable snapshots include
+the Delivery data required for replay.
 
 `:stream` is a live transport operation. Its content is an Enumerable, and the
 provider may have already received partial output. Gateway does not store stream
@@ -1208,15 +1170,15 @@ Non-replayable rows return `OutboundError.class = :not_replayable`.
 Gateway adds a core supervisor and source supervisor. Gateway does not carry
 Runtime. Runtime consumes and produces Signals under a separate design.
 
-Startup order preserves the ingress gate: Gateway core can start before Runtime
-because it provides registries, Mailbox API, buffer API, ScopeWorker supervision,
-and dead-letter replay infrastructure. Oban can also start before Runtime, but
-Gateway queues must stay paused or inactive until Runtime and consumer delivery
-boundaries are ready. QueueGate does not wait for Router readiness because
-Mailbox jobs already contain resolved delivery intents. Inbound publish and
-terminal finalization check Router availability at the point where they resolve
-Signals; Router unavailability returns a retryable publish or finalization
-error instead of blocking already resolved Mailbox job execution.
+Startup order preserves the transport failure boundary: Gateway core can start
+before Runtime because it provides registries, Mailbox API, buffer API,
+ScopeWorker supervision, and dead-letter replay infrastructure. Oban can also
+start before Runtime. If a Mailbox job reaches an unavailable Runtime consumer,
+the configured `ConsumerDelivery` returns `{:retry, reason}` and Oban handles
+retry according to the job policy. Inbound publish and terminal finalization
+check Router availability at the point where they resolve Signals; Router
+unavailability returns a retryable publish or finalization error instead of
+blocking already resolved Mailbox job execution.
 
 Target startup order:
 
@@ -1238,8 +1200,6 @@ BullX.Repo
 - adapter registry or equivalent reconstructible state from enabled plugin
   extensions and `bullx.gateway.sources`;
 - scope registry and scope supervisor for outbound `ScopeWorker` processes;
-- QueueGate or equivalent gate that resumes or starts Gateway Oban queues after
-  Runtime and consumer delivery readiness;
 - outbound dispatcher that scans `gateway_outbound_dispatches`, handles
   `LISTEN/NOTIFY` wakeups, claims due rows, and hands discrete deliveries to
   `ScopeWorker`;
@@ -1285,13 +1245,13 @@ Metadata may include `adapter`, `channel_id`, `scope_id`, `event_type`,
 `delivery_key`, `delivery_id`, `generation`, `outcome`, `attempts`, and
 `duplicate?`.
 
-Metadata must not include raw webhook bodies, content text, tokens, signatures,
-OAuth codes, private files, private adapter config, or provider secrets.
+Metadata must not include raw webhook bodies, tokens, signatures, OAuth codes,
+private adapter config, or provider secrets.
 
-## Security, Privacy, Governance
+## Transport Boundary And Governance
 
-BullX plugins are trusted compile-time extensions. Gateway still keeps the
-transport security boundary explicit:
+BullX plugins are trusted compile-time extensions. Gateway keeps the transport
+boundary explicit without becoming a policy or Governance layer:
 
 - Source listeners or callback routes identify the configured source and load
   source config before adapter verification.
@@ -1300,16 +1260,9 @@ transport security boundary explicit:
 - Gateway rejects unknown or disabled configured sources.
 - Gateway stores normalized Mailbox payloads and does not store raw provider
   bodies.
-- Oban args may contain Signal content, so Mailbox access is
-  operator-sensitive.
-- Outbound dispatch buffers and stream buffers may contain message content,
-  external target identifiers, and partial chunks, so buffer access is
-  operator-sensitive.
 - Adapter and Gateway error maps preserve useful root-cause class while
   redacting secrets.
 - Source config stores secret references, not secret values.
-- Dead-letter access is sensitive because replayable snapshots may contain
-  message content and external target identifiers.
 - Gateway `actor` remains an external channel-local identity until a Principal
   design resolves it.
 - Gateway does not approve risky outbound actions. Governance and Effect
@@ -1320,7 +1273,7 @@ transport security boundary explicit:
 ### Persist inbound Signal rows
 
 Persisting every inbound Signal would provide a historical event log, but it
-would also make Gateway responsible for audit, replay, retention, and privacy
+would also make Gateway responsible for audit, replay, and retention
 semantics that belong to product-level Signal, Admission, Work, Governance, or
 Brain designs. This design keeps inbound Signals as normalized envelopes and
 Mailbox payloads. Only resolved delivery intents and outbound recovery records
@@ -1388,9 +1341,9 @@ persist inbound events as Signal rows.
   Governance, and Effect approval out of Gateway.
 - Keep process-local state reconstructible from PostgreSQL, runtime config, and
   plugin registry.
-- Keep Gateway-owned Mailbox execution queues behind Runtime and consumer
-  readiness gating. Do not gate already resolved Mailbox job execution on Router
-  readiness.
+- Do not add a Gateway queue readiness gate. If a resolved Mailbox job reaches
+  an unavailable consumer, the configured `ConsumerDelivery` returns retry and
+  Oban owns the job lifecycle.
 - Gate Router use only where Router is actually called: inbound publish and
   terminal finalization.
 
@@ -1398,10 +1351,9 @@ persist inbound events as Signal rows.
 
 1. Add Oban infrastructure and Gateway queue configuration.
    Acceptance: migrations, supervision, queues, and test mode can enqueue
-   Gateway Mailbox jobs. Gateway queues are paused or inactive before Runtime
-   and consumer delivery readiness, then resume or start after those boundaries
-   are ready. QueueGate does not wait for Router readiness. Gateway does not use
-   Phoenix.PubSub as its event bus.
+   Gateway Mailbox jobs. Gateway queues run under Oban without a Gateway-owned
+   readiness gate. Consumer unavailability is expressed as worker retry.
+   Gateway does not use Phoenix.PubSub as its event bus.
 
 2. Add `BullX.Gateway.Signal` validation, `dump/1`, and `load/1`.
    Acceptance: serialization uses strict CloudEvents 1.0 JSON Event Format;
@@ -1431,26 +1383,20 @@ persist inbound events as Signal rows.
    `reply_channel`, and occurrence key rules are enforced; the seven event
    types validate only minimal transport fields.
 
-5. Add transport security, gating, and moderation hooks.
-   Acceptance: denial does not construct a Signal, call Router, or write
-   Mailbox jobs; timeout and error default to denial; flags and redactions use
-   top-level CloudEvents extension attributes or redacted metadata; hooks do not
-   change provenance, scope, thread, or occurrence key.
-
-6. Add Router boundary and test stub.
+5. Add Router boundary and test stub.
    Acceptance: Gateway depends only on
    `resolve(signal) :: {:ok, [DeliveryIntent]} | {:error, reason}`; Router
    unavailable maps to `:router_unavailable`; invalid intents map to
    `:router_contract`; implementation does not include rule syntax, priorities,
    Agent selection, or LLM routing policy.
 
-7. Add `BullX.Gateway.DeliveryIntent`.
+6. Add `BullX.Gateway.DeliveryIntent`.
    Acceptance: `delivery_key` is based on canonical
    `signal_occurrence_key + route_id + consumer_key + delivery_kind`; fanout to
    multiple consumers creates distinct keys; queue must be from a Gateway-owned
    allowlist; dumped data is JSON-serializable.
 
-8. Add `BullX.Gateway.Mailbox`.
+7. Add `BullX.Gateway.Mailbox`.
    Acceptance: `enqueue/1` and `enqueue_all/1` use per-job Oban uniqueness;
    default implementation inserts jobs one at a time; uniqueness is based on
    `delivery_key`; `states: :all` and a finite dedupe period are used; duplicate
@@ -1459,14 +1405,14 @@ persist inbound events as Signal rows.
    terminal finalization; args do not contain raw bodies, secrets, file handles,
    or unstable structs.
 
-9. Add `BullX.Gateway.SignalDeliveryWorker` and
+8. Add `BullX.Gateway.SignalDeliveryWorker` and
    `BullX.Gateway.ConsumerDelivery`.
    Acceptance: worker module is fixed; consumer returns `:ok`,
    `{:retry, reason}`, or `{:discard, reason}`; discard maps to Oban
    `cancelled`; retry, exception, exit, and throw follow Oban retry and enter
    `discarded` only after attempts are exhausted.
 
-10. Add external outbound Delivery, Outcome, retry, dispatch buffers, stream
+9. Add external outbound Delivery, Outcome, retry, dispatch buffers, stream
     buffers, receipts, dead letters, and replay.
     Acceptance: `deliver/1` returns after Gateway acceptance; unsupported
     operation, content kind, or stream strategy is rejected before adapter call;
@@ -1484,20 +1430,20 @@ persist inbound events as Signal rows.
     stream failure writes a receipt plus non-replayable DLQ row; replay uses
     generation `> 0`.
 
-11. Add `BullX.Gateway.Supervisor` and `BullX.Gateway.SourceSupervisor`.
+10. Add `BullX.Gateway.Supervisor` and `BullX.Gateway.SourceSupervisor`.
     Acceptance: Gateway core starts after Oban and before Runtime;
-    SourceSupervisor starts after Runtime; Gateway Mailbox queues wait for
-    Runtime and consumer readiness, not Router readiness; inbound publish and
-    terminal finalization check Router availability where they call Router;
-    Gateway restart reconstructs adapter and source state from config and
-    plugin registry; pending Mailbox jobs remain in Oban.
+    SourceSupervisor starts after Runtime; Gateway does not own an Oban queue
+    readiness process; inbound publish and terminal finalization check Router
+    availability where they call Router; Gateway restart reconstructs adapter
+    and source state from config and plugin registry; pending Mailbox jobs
+    remain in Oban.
 
-12. Add telemetry, redaction, dedupe, buffer, and recovery tests.
+11. Add telemetry, redaction, dedupe, buffer, and recovery tests.
     Acceptance: telemetry includes transport metadata but excludes payload
-    bodies, content text, and secrets; worker crash retries jobs; duplicate
-    `delivery_key` does not enqueue twice; pending and running dispatch rows can
-    be scanned after BEAM crash; UNLOGGED table truncation is tested or
-    simulated as the accepted-loss boundary.
+    bodies and secrets; worker crash retries jobs; duplicate `delivery_key`
+    does not enqueue twice; pending and running dispatch rows can be scanned
+    after BEAM crash; UNLOGGED table truncation is tested or simulated as the
+    accepted-loss boundary.
 
 ### Done When
 
@@ -1509,9 +1455,7 @@ persist inbound events as Signal rows.
 - Mailbox uses Oban for durable at-least-once delivery and per-delivery enqueue
   dedupe.
 - `delivery_key` is the idempotency boundary and does not equal `Signal.id`.
-- `DeliveryIntent.queue` comes from a Gateway-owned allowlist, and every
-  Gateway-owned Mailbox execution queue is gated on Runtime and consumer
-  readiness, not Router readiness.
+- `DeliveryIntent.queue` comes from a Gateway-owned allowlist.
 - Oban uniqueness does not compare full args, queue, priority, or metadata.
 - Mailbox exposes a composable `Ecto.Multi` API used by terminal finalization.
 - Consumer requested discard maps to Oban `cancelled`; attempts exhaustion maps

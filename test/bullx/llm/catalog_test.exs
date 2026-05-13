@@ -126,6 +126,44 @@ defmodule BullX.LLM.CatalogTest do
     assert resolved.opts[:api_key] == "sk-original"
   end
 
+  test "put_provider reports persisted-but-stale when post-commit cache refresh fails" do
+    with_unregistered_catalog_cache(fn ->
+      assert {:ok, provider,
+              {:persisted_but_stale, {:cache_refresh_failed, "stale_insert", :cache_not_running}}} =
+               Writer.put_provider(%{
+                 provider_id: "stale_insert",
+                 req_llm_provider: "openai",
+                 api_key: "sk-stale",
+                 provider_options: %{}
+               })
+
+      assert Repo.get!(Provider, provider.id).provider_id == "stale_insert"
+      assert {:error, :not_found} = Catalog.find_provider("stale_insert")
+    end)
+  end
+
+  test "update_provider reports persisted-but-stale when post-commit cache refresh fails" do
+    assert {:ok, provider} =
+             Writer.put_provider(%{
+               provider_id: "stale_update",
+               req_llm_provider: "openai",
+               provider_options: %{}
+             })
+
+    with_unregistered_catalog_cache(fn ->
+      assert {:ok, updated,
+              {:persisted_but_stale, {:cache_refresh_failed, "stale_update", :cache_not_running}}} =
+               Writer.update_provider("stale_update", %{
+                 base_url: "https://proxy.example.com/v1"
+               })
+
+      assert Repo.get!(Provider, updated.id).base_url == "https://proxy.example.com/v1"
+      assert {:ok, cached} = Catalog.find_provider("stale_update")
+      assert cached.id == provider.id
+      assert cached.base_url == nil
+    end)
+  end
+
   test "deleting a provider refreshes the cache-backed catalog" do
     assert {:ok, _provider} =
              Writer.put_provider(%{
@@ -140,5 +178,50 @@ defmodule BullX.LLM.CatalogTest do
 
     assert {:error, :not_found} = Catalog.find_provider("delete_me")
     refute Enum.any?(Catalog.list_providers(), &(&1.provider_id == "delete_me"))
+  end
+
+  test "delete_provider reports persisted-but-stale when post-commit cache refresh fails" do
+    assert {:ok, provider} =
+             Writer.put_provider(%{
+               provider_id: "stale_delete",
+               req_llm_provider: "openai",
+               provider_options: %{}
+             })
+
+    with_unregistered_catalog_cache(fn ->
+      assert {:ok,
+              {:persisted_but_stale, {:cache_refresh_failed, "stale_delete", :cache_not_running}}} =
+               Writer.delete_provider("stale_delete")
+
+      refute Repo.get(Provider, provider.id)
+      assert {:ok, cached} = Catalog.find_provider("stale_delete")
+      assert cached.id == provider.id
+    end)
+  end
+
+  defp with_unregistered_catalog_cache(fun) when is_function(fun, 0) do
+    cache_pid = Process.whereis(BullX.LLM.Catalog.Cache)
+    assert is_pid(cache_pid)
+
+    Process.unregister(BullX.LLM.Catalog.Cache)
+
+    try do
+      fun.()
+    after
+      restore_catalog_cache_name(cache_pid)
+      BullX.LLM.Catalog.Cache.refresh_all()
+    end
+  end
+
+  defp restore_catalog_cache_name(cache_pid) do
+    case Process.whereis(BullX.LLM.Catalog.Cache) do
+      nil when is_pid(cache_pid) ->
+        if Process.alive?(cache_pid) do
+          Process.register(cache_pid, BullX.LLM.Catalog.Cache)
+        end
+
+      _pid ->
+        :ok
+    end
   end
 end

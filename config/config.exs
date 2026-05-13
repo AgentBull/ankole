@@ -52,7 +52,7 @@ config :req_llm, load_dotenv: false
 
 config :bullx, Oban,
   repo: BullX.Repo,
-  queues: [gateway_signals: [limit: 10, paused: true]],
+  queues: [gateway_signals: [limit: 10]],
   plugins: false
 
 config :bullx, :gateway,

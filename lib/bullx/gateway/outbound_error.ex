@@ -6,7 +6,6 @@ defmodule BullX.Gateway.OutboundError do
   @classes [
     :malformed,
     :unknown_source,
-    :security_denied,
     :unsupported_op,
     :already_dead_lettered,
     :not_replayable,
@@ -19,7 +18,6 @@ defmodule BullX.Gateway.OutboundError do
   @type class ::
           :malformed
           | :unknown_source
-          | :security_denied
           | :unsupported_op
           | :already_dead_lettered
           | :not_replayable

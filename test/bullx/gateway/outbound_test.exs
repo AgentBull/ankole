@@ -75,34 +75,6 @@ defmodule BullX.Gateway.OutboundTest.Adapter do
   defp stream_strategy, do: :persistent_term.get({__MODULE__, :stream_strategy}, :native)
 end
 
-defmodule BullX.Gateway.OutboundTest.Security do
-  @behaviour BullX.Gateway.Security
-
-  @impl true
-  def check_inbound(_source, _input), do: :allow
-
-  @impl true
-  def sanitize_outbound(delivery, _source) do
-    case mode() do
-      :rewrite ->
-        {:ok,
-         %{
-           delivery
-           | content: [%{"kind" => "text", "body" => %{"text" => "sanitized"}}]
-         }}
-
-      :deny ->
-        {:error, :denied_by_test}
-
-      :passthrough ->
-        {:ok, delivery}
-    end
-  end
-
-  def put_mode(mode), do: :persistent_term.put({__MODULE__, :mode}, mode)
-  defp mode, do: :persistent_term.get({__MODULE__, :mode}, :passthrough)
-end
-
 defmodule BullX.Gateway.OutboundTest.Router do
   @behaviour BullX.Gateway.Router
 
@@ -114,7 +86,6 @@ defmodule BullX.Gateway.OutboundTest do
   use BullX.DataCase, async: false
 
   alias BullX.Gateway.OutboundTest.Adapter
-  alias BullX.Gateway.OutboundTest.Security
   alias BullX.Gateway.SourceConfig
   alias BullX.Plugins.{Extension, Registry, Spec}
 
@@ -130,7 +101,6 @@ defmodule BullX.Gateway.OutboundTest do
       :gateway,
       previous_gateway
       |> Keyword.put(:router, BullX.Gateway.OutboundTest.Router)
-      |> Keyword.put(:security, Security)
       |> Keyword.put(:outbound_dispatch_poll_ms, 50)
     )
 
@@ -139,7 +109,6 @@ defmodule BullX.Gateway.OutboundTest do
     Adapter.put_test_pid(self())
     Adapter.put_mode(:sent)
     Adapter.put_stream_strategy(:native)
-    Security.put_mode(:passthrough)
 
     on_exit(fn ->
       Application.put_env(:bullx, :gateway, previous_gateway)
@@ -155,7 +124,8 @@ defmodule BullX.Gateway.OutboundTest do
     id = delivery["id"]
 
     assert {:ok, :accepted, ^id} = BullX.Gateway.deliver(delivery)
-    assert_receive {:delivered, %{id: id, generation: 0, op: :send}}, 1_000
+    assert_receive {:delivered, %{id: id, generation: 0, op: :send, content: content}}, 1_000
+    assert content == [%{"kind" => "text", "body" => %{"text" => "hello"}}]
 
     assert eventually(fn -> receipt_status(id, 0) end) == "succeeded"
     assert dispatch_count(id, 0) == 0
@@ -182,28 +152,6 @@ defmodule BullX.Gateway.OutboundTest do
     assert {:ok, :accepted, ^id} = BullX.Gateway.replay_dead_letter(dead_letter["id"])
     assert_receive {:delivered, %{id: ^id, generation: 1}}, 1_000
     assert eventually(fn -> receipt_status(id, 1) end) == "succeeded"
-  end
-
-  test "deliver/1 applies outbound security sanitization before adapter dispatch" do
-    Security.put_mode(:rewrite)
-
-    delivery = delivery()
-    id = delivery["id"]
-
-    assert {:ok, :accepted, ^id} = BullX.Gateway.deliver(delivery)
-
-    assert_receive {:delivered, %{id: ^id, content: sanitized_content}}, 1_000
-    assert sanitized_content == [%{"kind" => "text", "body" => %{"text" => "sanitized"}}]
-  end
-
-  test "deliver/1 rejects outbound security denials before persistence" do
-    Security.put_mode(:deny)
-
-    delivery = delivery()
-    id = delivery["id"]
-
-    assert {:error, %{class: :security_denied}} = BullX.Gateway.deliver(delivery)
-    assert dispatch_count(id, 0) == 0
   end
 
   test "stream delivery starts supervised execution, records chunks, and finalizes success" do

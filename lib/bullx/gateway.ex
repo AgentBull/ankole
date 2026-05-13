@@ -3,21 +3,18 @@ defmodule BullX.Gateway do
   Transport boundary for normalized external Signals and internal delivery.
 
   Gateway receives adapter-normalized inbound inputs, validates the carrier
-  contract, runs transport hooks, resolves accepted Signals through Router, and
-  persists resolved delivery intents through the Oban-backed Mailbox.
+  contract, resolves accepted Signals through Router, and persists resolved
+  delivery intents through the Oban-backed Mailbox.
   """
 
   alias BullX.Gateway.{
     Delivery,
     DeliveryIntent,
-    Gating,
     InboundError,
     InboundInput,
     Mailbox,
-    Moderation,
     Outbound,
     OutboundError,
-    Security,
     Signal,
     SourceConfig,
     Sources
@@ -86,10 +83,6 @@ defmodule BullX.Gateway do
   defp do_publish(source, normalized_input) do
     with {:ok, source} <- normalize_source(source),
          {:ok, input} <- InboundInput.normalize(source, normalized_input),
-         :allow <- Security.check_inbound(source, normalized_input),
-         {:ok, input, gate_flags} <- Gating.check(source, input),
-         {:ok, input, moderation_flags, moderated?} <- Moderation.moderate(source, input),
-         input <- put_hook_extensions(input, gate_flags ++ moderation_flags, moderated?),
          {:ok, signal} <- Signal.inbound(source, input),
          {:ok, intents} <- resolve_signal(signal),
          {:ok, mailbox_result} <- enqueue(intents) do
@@ -221,18 +214,6 @@ defmodule BullX.Gateway do
       {:error, reason} -> {:error, {:store_unavailable, reason}}
     end
   end
-
-  defp put_hook_extensions(input, flags, moderated?) do
-    input
-    |> maybe_put_flags(flags)
-    |> maybe_put_moderated(moderated?)
-  end
-
-  defp maybe_put_flags(input, []), do: input
-  defp maybe_put_flags(input, flags), do: Map.put(input, "bullxflags", flags)
-
-  defp maybe_put_moderated(input, true), do: Map.put(input, "bullxmoderated", true)
-  defp maybe_put_moderated(input, _moderated?), do: input
 
   defp router do
     :bullx

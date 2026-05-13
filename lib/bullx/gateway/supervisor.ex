@@ -12,7 +12,6 @@ defmodule BullX.Gateway.Supervisor do
   @impl true
   def init(_opts) do
     children = [
-      BullX.Gateway.QueueGate,
       {Registry, keys: :unique, name: BullX.Gateway.ScopeRegistry},
       {DynamicSupervisor, strategy: :one_for_one, name: BullX.Gateway.Outbound.ScopeSupervisor},
       {Task.Supervisor, name: BullX.Gateway.StreamSupervisor},

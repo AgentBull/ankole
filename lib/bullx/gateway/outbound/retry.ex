@@ -4,7 +4,7 @@ defmodule BullX.Gateway.Outbound.Retry do
   alias BullX.Retry
 
   @retryable ~w(rate_limit network timeout provider_unavailable)
-  @terminal ~w(auth permission not_found payload unsupported contract security_denied)
+  @terminal ~w(auth permission not_found payload unsupported contract)
 
   @spec policy(map() | nil) :: Retry.t()
   def policy(config) do

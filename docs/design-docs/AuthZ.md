@@ -53,26 +53,6 @@ This design intentionally does not cover:
 - Avoid Elixir callbacks, atoms, AST, or module/function strings inside runtime
   grant data.
 
-## Cleanup plan
-
-- **Dead code to delete:** none. AuthZ has no current implementation in this
-  branch.
-- **Duplicate logic to merge:** do not recreate the old `BullXAccounts`
-  namespace or user-centered schema names. Move useful authorization semantics
-  onto `Principal` subjects.
-- **Existing utilities and patterns to reuse:** use `BullX.Principals` for
-  subject loading, `BullX.Repo`, Ecto schemas, `BullX.Ecto.UUIDv7`, PostgreSQL
-  constraints, and the existing `BullX.Ext` Rustler boundary for Cedar.
-- **Code paths and contracts changing:** add a new `BullX.AuthZ` domain,
-  AuthZ migrations, schemas, Cedar wrapper, bootstrap handoff, and public facade
-  functions.
-- **Invariants that must remain true:** AuthZ never creates, resolves, logs in,
-  activates, or binds Principals; disabled Principals never authorize; Gateway
-  actor identity remains channel-local until Principal AuthN resolves it; grant
-  data is never evaluated as Elixir code; cache loss cannot lose durable
-  authorization data.
-- **Verification command:** run focused AuthZ tests and `bun precommit`.
-
 ## Existing system
 
 `docs/design-docs/Principal.md` defines `principals` as the base identity table
