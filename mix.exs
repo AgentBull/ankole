@@ -20,7 +20,7 @@ defmodule BullX.MixProject do
   def application do
     [
       mod: {BullX.Application, []},
-      extra_applications: [:logger, :runtime_tools],
+      extra_applications: [:logger, :runtime_tools, :cachetastic],
       env: [plugin_apps: plugin_apps()]
     ]
   end
@@ -57,7 +57,9 @@ defmodule BullX.MixProject do
       {:bandit, "~> 1.11"},
       {:skogsra, "~> 2.5"},
       {:dotenvy, "~> 1.1"},
-      {:zoi, "~> 0.17"}
+      {:zoi, "~> 0.17"},
+      {:cachetastic, "~> 1.0"},
+      {:redix, "~> 1.5"}
     ]
 
     merge_deps(core_deps, plugin_project_deps())

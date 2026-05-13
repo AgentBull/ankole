@@ -1,6 +1,8 @@
 defmodule BullX.Config.PluginsTest do
   use BullX.DataCase, async: false
 
+  import ExUnit.CaptureLog
+
   @db_key "bullx.enabled_plugins"
   @env_key "BULLX_ENABLED_PLUGINS"
 
@@ -36,7 +38,12 @@ defmodule BullX.Config.PluginsTest do
     BullX.Config.Cache.refresh(@db_key)
     System.put_env(@env_key, ~s(["env"]))
 
-    assert BullX.Config.Plugins.enabled_plugins!() == ["env"]
+    log =
+      capture_log(fn ->
+        assert BullX.Config.Plugins.enabled_plugins!() == ["env"]
+      end)
+
+    assert log =~ ~s(Cannot cast "not-json")
   end
 
   defp restore_app_env(nil), do: Application.delete_env(:bullx, :enabled_plugins)

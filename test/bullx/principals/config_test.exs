@@ -1,6 +1,8 @@
 defmodule BullX.Principals.ConfigTest do
   use ExUnit.Case, async: false
 
+  import ExUnit.CaptureLog
+
   alias BullX.Config.Principals
 
   @env_match_rules "BULLX_PRINCIPALS_AUTHN_MATCH_RULES"
@@ -53,7 +55,12 @@ defmodule BullX.Principals.ConfigTest do
   test "invalid match rule source falls through to the default" do
     System.put_env(@env_match_rules, ~s([{"result":"bind_existing_human"}]))
 
-    assert Principals.principals_authn_match_rules!() == []
+    log =
+      capture_log(fn ->
+        assert Principals.principals_authn_match_rules!() == []
+      end)
+
+    assert log =~ "Cannot cast"
   end
 
   defp restore_app_env(nil), do: Application.delete_env(:bullx, :principals)

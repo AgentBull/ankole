@@ -33,7 +33,8 @@ separate AIAgent supervisor.
 - BullX does not support `BULLX_SECRET_BASE` rotation for encrypted provider
   API keys.
 - BullX does not create a BEAM memory secrecy boundary. Plaintext API keys can
-  exist in process memory, ETS, and per-request options. BullX only guarantees
+  exist in process memory and per-request options. The provider catalog cache
+  stores encrypted provider rows through `BullX.Cache`; BullX only guarantees
   that it does not store plaintext API keys in PostgreSQL, `app_configs`, logs,
   telemetry metadata, or changeset errors.
 - BullX does not hot-enable or hot-disable plugins. Plugin enablement follows
@@ -169,14 +170,19 @@ provider without the API key.
 ## Runtime shape
 
 `BullXAIAgent.LLM.Catalog` is the public read API. It uses
-`BullXAIAgent.LLM.Catalog.Cache`, an ETS-backed process started under
-`BullX.Runtime.Supervisor`. The design does not introduce a new
+`BullXAIAgent.LLM.Catalog.Cache`, a process started under
+`BullX.Runtime.Supervisor` that stores its reconstructible provider list through
+`BullX.Cache`. The design does not introduce a new
 `BullXAIAgent.Supervisor` because no separate AIAgent failure boundary is
 needed for a provider catalog.
 
 The cache loads `llm_providers` at startup and can rebuild itself from
-PostgreSQL after restart. If the table does not exist yet, cache startup logs a
-warning and starts with an empty table, matching the tolerance used by
+PostgreSQL after restart. It caches the sorted provider list under one
+domain-prefixed key (`"llm:providers"`) instead of one key per provider because
+`BullX.Cache` intentionally does not expose pattern deletion. Writer refreshes
+therefore reload the full list, which keeps provider deletion semantics
+identical in ETS and Redis mode. If the table does not exist yet, cache startup
+logs a warning and starts with an empty list, matching the tolerance used by
 `BullX.Config.Cache` during pre-migration boot.
 
 The public API owns these operations:
@@ -349,8 +355,8 @@ until an operator re-enables the plugin or migrates the rows.
   provider without `override: true` fails startup with
   `{:req_llm_provider_already_registered, id}`.
 - Bang APIs raise with the same cause information preserved.
-- Cache restart reloads from PostgreSQL. Process-local cache state is not
-  durable truth.
+- Cache restart reloads from PostgreSQL. `BullX.Cache` state is not durable
+  truth.
 
 ## Alternatives considered
 
@@ -410,8 +416,8 @@ to the configured BullX provider and model id.
    URLs, encrypted API key storage, and JSON object provider options.
 2. Add `BullXAIAgent.LLM.Crypto` for per-row API key encryption and decryption.
 3. Add `BullXAIAgent.LLM.Spec`, `ResolvedProvider`, and `ResolvedModel`.
-4. Add `BullXAIAgent.LLM.Catalog.Cache` under `BullX.Runtime.Supervisor` and
-   public `BullXAIAgent.LLM.Catalog` read APIs.
+4. Add `BullXAIAgent.LLM.Catalog.Cache` under `BullX.Runtime.Supervisor`,
+   backed by `BullX.Cache`, and public `BullXAIAgent.LLM.Catalog` read APIs.
 5. Add `BullXAIAgent.LLM.Writer` for put, update, delete, and refresh
    operations that update PostgreSQL before refreshing the cache.
 6. Add `BullX.Config.ReqLLM` and `BullX.Config.ReqLLM.Bridge`, start a boot

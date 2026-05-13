@@ -46,9 +46,9 @@ coherence: another node does not observe a persisted write until that node
 refreshes its cache or restarts.
 
 Persisted values are validated on read, not on write. This lets an operator
-store arbitrary raw strings and recover by changing higher-precedence sources,
-but it also means invalid database values remain durable facts until deleted or
-overwritten.
+store arbitrary raw strings and recover through fallback sources when a
+persisted value is invalid, but it also means invalid database values remain
+durable facts until deleted or overwritten.
 
 Secret rows are encrypted in PostgreSQL and decrypted into ETS. This protects
 stored rows at rest, but it does not create a process-memory secrecy boundary
@@ -172,13 +172,21 @@ during macro expansion.
 - `secret: true` records the database key in the secret-key registry.
 - `type: :generated_secret` expands to `BullX.Config.GeneratedSecret`.
 
-Current in-tree runtime declarations are:
+Example in-tree runtime declarations are:
 
 | Module | Accessor | DB key | OS env | Application config | Default |
 | --- | --- | --- | --- | --- | --- |
 | `BullX.Config.Secrets` | `secret_base!/0` | none | `BULLX_SECRET_BASE` | none | required |
 | `BullX.Config.I18n` | `i18n_default_locale!/0` | `bullx.i18n_default_locale` | `BULLX_I18N_DEFAULT_LOCALE` | `:i18n_default_locale` | `"en-US"` |
 | `BullX.Config.I18n` | `i18n_locales_dir!/0` | `bullx.i18n.locales_dir` | `BULLX_I18N_LOCALES_DIR` | `[:i18n, :locales_dir]` | `"priv/locales"` |
+
+Other subsystems, including Principal/AuthN, plugin enablement, `req_llm`
+bridging, and the [application cache](Cache.md), also declare runtime settings
+through the same API. Subsystem design docs own their complete key lists when
+those keys are specific to that subsystem. The cache layer constrains its
+declarations to `BullX.Config.SystemBinding` only, matching `secret_base!/0`,
+because cache availability must not depend on a working `app_configs` read
+path.
 
 `BullX.Config.Secrets.secret_base!/0` overrides the default binding order and
 uses only `BullX.Config.SystemBinding`. It is required and constrained with
@@ -241,8 +249,10 @@ failures are handled by Skogsra's binding cast step, which logs a warning and
 also continues to the next source.
 
 Defaults are returned by Skogsra after all bindings miss. Defaults are not
-passed through Zoi validation by BullX, so declaration authors must keep defaults
-inside their declared constraints.
+passed through Zoi validation by BullX, so declaration authors must keep non-nil
+defaults inside their declared constraints. A nil default may be used
+deliberately when absence has domain meaning, such as leaving an upstream
+application setting unset.
 
 ## Persistence And Cache
 
@@ -283,6 +293,11 @@ The database write is an upsert on the primary key and replaces `value`, `type`,
 and `updated_at` on conflict. After a successful write, the writer refreshes
 that key in ETS. `delete/1` deletes matching rows and refreshes the key, which
 removes it from ETS.
+
+Some runtime configuration keys may have subsystem-specific post-write hooks.
+For example, writes and deletes under `bullx.req_llm.` trigger
+`BullX.Config.ReqLLM.Bridge` so selected `req_llm` application settings stay in
+sync with persisted configuration.
 
 The writer does not validate values against Skogsra types or Zoi schemas, and it
 does not generate values for generated-secret declarations. Invalid persisted

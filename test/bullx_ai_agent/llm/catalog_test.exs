@@ -125,4 +125,20 @@ defmodule BullXAIAgent.LLM.CatalogTest do
     assert {:ok, resolved} = Catalog.resolve_provider("preserve_key")
     assert resolved.opts[:api_key] == "sk-original"
   end
+
+  test "deleting a provider refreshes the cache-backed catalog" do
+    assert {:ok, _provider} =
+             Writer.put_provider(%{
+               provider_id: "delete_me",
+               req_llm_provider: "openai",
+               provider_options: %{}
+             })
+
+    assert {:ok, _provider} = Catalog.find_provider("delete_me")
+
+    assert :ok = Writer.delete_provider("delete_me")
+
+    assert {:error, :not_found} = Catalog.find_provider("delete_me")
+    refute Enum.any?(Catalog.list_providers(), &(&1.provider_id == "delete_me"))
+  end
 end

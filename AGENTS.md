@@ -187,6 +187,8 @@ BullX implements meaningful features, architectural changes, and complex bug fix
 4. A coding agent executes the design doc or inline plan. The plan is the source of truth; deviations require explicit justification.
 5. A design doc that guided implementation stays committed in the repo as the record of design intent. Keep it aligned with the implemented system; do not leave obsolete alternatives, timeline notes, or proposal scaffolding behind.
 
+Design-doc skills are for creating, rewriting, or editing design docs. Do not invoke them merely to read an existing design doc or inspect its current content; read the file directly.
+
 ## Review settled designs correctly
 
 When reviewing an existing design doc, inline plan, architecture note, or user decision, distinguish four things:
