@@ -22,7 +22,7 @@ defmodule BullX.Gateway.Sources do
   def enabled! do
     case all() do
       {:ok, sources} ->
-        Enum.filter(sources, & &1.enabled?)
+        Enum.filter(sources, &enabled_and_fresh?/1)
 
       {:error, reason} ->
         raise ArgumentError, "invalid Gateway source configuration: #{inspect(reason)}"
@@ -74,4 +74,9 @@ defmodule BullX.Gateway.Sources do
       false -> {:error, Enum.find(sources, &match?({:error, _reason}, &1))}
     end
   end
+
+  defp enabled_and_fresh?(%SourceConfig{enabled?: true} = source),
+    do: SourceConfig.connectivity_fresh?(source)
+
+  defp enabled_and_fresh?(_source), do: false
 end

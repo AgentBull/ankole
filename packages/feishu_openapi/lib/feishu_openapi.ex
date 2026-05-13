@@ -486,7 +486,7 @@ defmodule FeishuOpenAPI do
   end
 
   defp build_file_part({:iodata, data, name}),
-    do: {:ok, {"file", data, filename: name}}
+    do: {:ok, {"file", {IO.iodata_to_binary(data), filename: name}}}
 
   defp build_streaming_file_part(path, name) do
     case File.stat(path) do

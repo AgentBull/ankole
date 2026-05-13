@@ -8,7 +8,7 @@ defmodule BullX.Gateway.Signal do
   inside Mailbox jobs and outcome publication data.
   """
 
-  alias BullX.Gateway.{InboundError, JSON, SourceConfig}
+  alias BullX.Gateway.{Delivery, InboundError, JSON, Outcome, SourceConfig}
 
   @base_fields ~w(id specversion source type subject time datacontenttype dataschema data)
   @gateway_types ~w(
@@ -99,6 +99,23 @@ defmodule BullX.Gateway.Signal do
         {:error,
          InboundError.new(:malformed, "invalid Signal envelope", %{reason: inspect(reason)})}
     end
+  end
+
+  @spec outcome(SourceConfig.t(), Delivery.t(), Outcome.t(), keyword()) ::
+          {:ok, t()} | {:error, term()}
+  def outcome(%SourceConfig{} = source, %Delivery{} = delivery, %Outcome{} = outcome, opts \\ []) do
+    attrs = %{
+      "id" => Keyword.get_lazy(opts, :id, &BullX.Ext.gen_uuid_v7/0),
+      "source" => SourceConfig.source_uri(source),
+      "type" => outcome_type(outcome),
+      "time" => Keyword.get_lazy(opts, :time, fn -> DateTime.to_iso8601(DateTime.utc_now()) end),
+      "data" => outcome_data(delivery, outcome),
+      "bullxoccurkey" => "gateway:delivery:#{delivery.id}:#{delivery.generation}:outcome",
+      "bullxadapter" => source.adapter,
+      "bullxchannel" => source.channel_id
+    }
+
+    new(attrs)
   end
 
   @spec load(map()) :: {:ok, t()} | {:error, term()}
@@ -258,4 +275,29 @@ defmodule BullX.Gateway.Signal do
 
   defp maybe_put_bool_extension(attrs, key, true), do: Map.put(attrs, key, true)
   defp maybe_put_bool_extension(attrs, _key, _value), do: attrs
+
+  defp outcome_type(%Outcome{status: status}) when status in [:sent, :degraded],
+    do: "com.agentbull.x.delivery.succeeded"
+
+  defp outcome_type(%Outcome{status: :failed}), do: "com.agentbull.x.delivery.failed"
+
+  defp outcome_data(%Delivery{} = delivery, %Outcome{} = outcome) do
+    %{
+      "delivery" => %{
+        "id" => delivery.id,
+        "generation" => delivery.generation,
+        "adapter" => delivery.adapter,
+        "channel_id" => delivery.channel_id,
+        "scope_id" => delivery.scope_id,
+        "thread_id" => delivery.thread_id
+      },
+      "outcome" => %{
+        "status" => Atom.to_string(outcome.status),
+        "external_message_ids" => outcome.external_message_ids,
+        "primary_external_id" => outcome.primary_external_id,
+        "warnings" => outcome.warnings,
+        "error" => outcome.error
+      }
+    }
+  end
 end

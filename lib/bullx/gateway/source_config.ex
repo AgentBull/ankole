@@ -70,21 +70,59 @@ defmodule BullX.Gateway.SourceConfig do
     "bullx://gateway/#{URI.encode(source.adapter)}/#{URI.encode(source.channel_id)}"
   end
 
+  @spec fingerprint(t()) :: String.t()
+  def fingerprint(%__MODULE__{} = source) do
+    material =
+      %{
+        "adapter" => String.downcase(source.adapter),
+        "channel_id" => String.downcase(source.channel_id),
+        "enabled" => source.enabled?,
+        "config" => source.config,
+        "outbound_retry" => source.outbound_retry
+      }
+      |> canonicalize()
+      |> :erlang.term_to_binary()
+
+    "sha256:" <> Base.encode16(:crypto.hash(:sha256, material), case: :lower)
+  end
+
   @spec connectivity_fresh?(t(), DateTime.t()) :: boolean()
   def connectivity_fresh?(source, now \\ DateTime.utc_now())
 
-  def connectivity_fresh?(%__MODULE__{connectivity: %{} = connectivity}, now) do
-    with "ok" <- connectivity["status"],
-         {:ok, checked_at, _offset} <- DateTime.from_iso8601(connectivity["checked_at"] || ""),
-         max_age when is_integer(max_age) and max_age > 0 <- connectivity["max_age_seconds"] do
-      DateTime.diff(now, checked_at, :second) <= max_age
-    else
-      nil -> connectivity["status"] == "ok"
-      _other -> false
-    end
+  def connectivity_fresh?(%__MODULE__{connectivity: %{} = connectivity} = source, now) do
+    connectivity =
+      case JSON.stringify_keys(connectivity) do
+        {:ok, connectivity} -> connectivity
+        :error -> %{}
+      end
+
+    connectivity["status"] == "ok" and
+      connectivity["fingerprint"] == fingerprint(source) and
+      checked_at_fresh?(connectivity, now)
   end
 
   def connectivity_fresh?(_source, _now), do: false
+
+  defp checked_at_fresh?(%{"max_age_seconds" => max_age, "checked_at" => checked_at}, now)
+       when is_integer(max_age) and max_age > 0 and is_binary(checked_at) do
+    case DateTime.from_iso8601(checked_at) do
+      {:ok, checked_at, _offset} -> DateTime.diff(now, checked_at, :second) <= max_age
+      _error -> false
+    end
+  end
+
+  defp checked_at_fresh?(%{"max_age_seconds" => _max_age}, _now), do: false
+  defp checked_at_fresh?(_connectivity, _now), do: true
+
+  defp canonicalize(%{} = map) do
+    map
+    |> Enum.map(fn {key, value} -> {to_string(key), canonicalize(value)} end)
+    |> Enum.sort_by(fn {key, _value} -> key end)
+  end
+
+  defp canonicalize([_ | _] = values), do: Enum.map(values, &canonicalize/1)
+  defp canonicalize([]), do: []
+  defp canonicalize(value), do: value
 
   defp required_string(map, key) do
     case Map.fetch(map, key) do

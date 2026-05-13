@@ -25,6 +25,10 @@ defmodule BullXWeb.Router do
 
     get "/", PageController, :home
     get "/setup", SetupController, :show
+    get "/sessions/new", SessionController, :new
+    post "/sessions/login_auth", SessionController, :login_auth
+    get "/sessions/oidc/:provider", SessionController, :oidc_start
+    get "/sessions/oidc/:provider/callback", SessionController, :oidc_callback
   end
 
   scope "/", BullXWeb do
@@ -38,6 +42,12 @@ defmodule BullXWeb.Router do
     pipe_through :api
 
     get "/.well-known/service-desc", OpenApiSpex.Plug.RenderSpec, []
+  end
+
+  scope "/", BullXWeb do
+    pipe_through :api
+
+    post "/gateway/feishu/:channel_id/card_action", FeishuCardCallbackController, :create
   end
 
   # Enable Swoosh mailbox preview and Swagger UI in development

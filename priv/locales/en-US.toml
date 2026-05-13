@@ -1,2 +1,29 @@
 [__meta__]
 bcp47 = "en-US"
+
+[gateway.feishu.auth]
+activation_required = "This Feishu account is not activated yet. Send /preauth <code> in this chat to activate."
+activation_success = "Activation complete."
+activation_code_invalid = "The activation code is invalid or expired."
+activation_failed = "Activation failed. Please try again later."
+already_linked = "This Feishu account is already linked."
+web_auth_created = "Use this login code: {$code}\nOpen {$login_url} to continue."
+web_auth_not_bound = "This Feishu account is not linked yet. Activate it with /preauth first."
+web_auth_failed = "Could not create a login code. Please try again later."
+login_not_bound = "This Feishu account is not linked yet."
+denied = "This Principal is disabled."
+direct_command_dm_only = "Please send this command to the bot in a private chat."
+
+[gateway.feishu.ping]
+pong = "PONG!"
+
+[gateway.feishu.delivery]
+fallback_text = "Unsupported Feishu content"
+stream_generating = "Generating..."
+stream_failed = "The streamed response failed."
+stream_cancelled = "The streamed response was cancelled."
+reply_target_missing_sent_to_scope = "The reply target was missing, so the message was sent to the chat."
+
+[gateway.feishu.errors]
+unsupported_message = "Unsupported Feishu message"
+profile_unavailable = "Feishu user profile is unavailable"

@@ -1,3 +1,30 @@
 [__meta__]
 bcp47 = "zh-Hans-CN"
 fallback = "en-US"
+
+[gateway.feishu.auth]
+activation_required = "这个飞书账号还没有激活。请在当前私聊中发送 /preauth <code> 完成激活。"
+activation_success = "激活完成。"
+activation_code_invalid = "激活码无效或已过期。"
+activation_failed = "激活失败，请稍后重试。"
+already_linked = "这个飞书账号已经绑定。"
+web_auth_created = "登录验证码：{$code}\n打开 {$login_url} 继续登录。"
+web_auth_not_bound = "这个飞书账号还没有绑定。请先使用 /preauth 激活。"
+web_auth_failed = "无法创建登录验证码，请稍后重试。"
+login_not_bound = "这个飞书账号还没有绑定。"
+denied = "这个 Principal 已被禁用。"
+direct_command_dm_only = "请在和机器人的私聊中发送这个命令。"
+
+[gateway.feishu.ping]
+pong = "PONG!"
+
+[gateway.feishu.delivery]
+fallback_text = "不支持的飞书内容"
+stream_generating = "生成中..."
+stream_failed = "流式回复失败。"
+stream_cancelled = "流式回复已取消。"
+reply_target_missing_sent_to_scope = "被回复的消息不存在，已发送到当前会话。"
+
+[gateway.feishu.errors]
+unsupported_message = "不支持的飞书消息"
+profile_unavailable = "无法获取飞书用户资料"

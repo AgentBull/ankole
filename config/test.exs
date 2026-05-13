@@ -42,3 +42,8 @@ config :bullx, Oban,
   repo: BullX.Repo,
   queues: false,
   plugins: false
+
+config :bullx, :gateway,
+  outbound_dispatch_poll_ms: false,
+  outbound_dispatch_listen?: false,
+  stream_retention_interval_ms: false

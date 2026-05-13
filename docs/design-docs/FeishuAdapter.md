@@ -591,7 +591,8 @@ Flow:
    the code.
 2. Normalize the Feishu actor and trusted profile.
 3. Call `BullX.Principals.consume_activation_code(code, channel_input)`.
-4. Send one localized Feishu reply.
+4. Submit one localized Feishu reply as a Gateway external Delivery through
+   `BullX.Gateway.deliver/1`.
 5. Do not publish the command as a Gateway Signal.
 
 Result mapping:
@@ -622,7 +623,8 @@ Flow:
 3. Call `BullX.Principals.issue_login_auth_code("feishu", channel_id, "feishu:#{open_id}")`.
 4. Render a localized reply containing the short-lived code and the generic Web
    login URL.
-5. Send the reply through Feishu delivery APIs.
+5. Submit the reply as a Gateway external Delivery through
+   `BullX.Gateway.deliver/1`.
 6. Do not publish the command as a Gateway Signal.
 
 Result mapping:
@@ -1078,7 +1080,7 @@ Gateway, and Principal boundaries.
 
 7. Implement Principal account gate and direct commands.
    Owns: `Feishu.DirectCommand`, locale keys.
-   Depends on: Tasks 4 and 6.
+   Depends on: Tasks 4, 6, and the Gateway outbound API slice.
    Acceptance: normal user-origin events call Principal matching before publish;
    `/ping` bypasses Principal; `/preauth` consumes activation codes only in
    `p2p`; `/web_auth` issues login auth codes only for bound active Humans.

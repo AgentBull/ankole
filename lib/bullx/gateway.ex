@@ -8,12 +8,15 @@ defmodule BullX.Gateway do
   """
 
   alias BullX.Gateway.{
+    Delivery,
     DeliveryIntent,
     Gating,
     InboundError,
     InboundInput,
     Mailbox,
     Moderation,
+    Outbound,
+    OutboundError,
     Security,
     Signal,
     SourceConfig,
@@ -24,6 +27,8 @@ defmodule BullX.Gateway do
           {:ok, :accepted, Signal.t(), [Mailbox.enqueue_result()]}
           | {:error, InboundError.t()}
 
+  @type deliver_result :: {:ok, :accepted, String.t()} | {:error, OutboundError.t()}
+
   @spec publish(SourceConfig.t() | map(), map()) :: publish_result()
   def publish(source, normalized_input) when is_map(normalized_input) do
     metadata = telemetry_metadata(source, normalized_input)
@@ -33,6 +38,28 @@ defmodule BullX.Gateway do
       {result, Map.put(metadata, :accepted?, match?({:ok, :accepted, _signal, _mailbox}, result))}
     end)
   end
+
+  @spec deliver(Delivery.t() | map()) :: deliver_result()
+  def deliver(delivery) do
+    metadata = outbound_telemetry_metadata(delivery)
+
+    :telemetry.span([:bullx, :gateway, :delivery], metadata, fn ->
+      result = Outbound.deliver(delivery)
+      {result, Map.put(metadata, :accepted?, match?({:ok, :accepted, _id}, result))}
+    end)
+  end
+
+  @spec replay_dead_letter(String.t()) :: deliver_result()
+  def replay_dead_letter(id) when is_binary(id) do
+    :telemetry.span([:bullx, :gateway, :dead_letter, :replay], %{dead_letter_id: id}, fn ->
+      result = Outbound.replay_dead_letter(id)
+      {result, %{dead_letter_id: id, accepted?: match?({:ok, :accepted, _id}, result)}}
+    end)
+  end
+
+  @spec stream_batches(String.t(), non_neg_integer()) ::
+          {:ok, [map()]} | {:error, OutboundError.t()}
+  def stream_batches(stream_id, after_seq \\ 0), do: Outbound.stream_batches(stream_id, after_seq)
 
   @spec publish(String.t(), String.t(), map()) :: publish_result()
   def publish(adapter, channel_id, normalized_input)
@@ -64,7 +91,7 @@ defmodule BullX.Gateway do
          {:ok, input, moderation_flags, moderated?} <- Moderation.moderate(source, input),
          input <- put_hook_extensions(input, gate_flags ++ moderation_flags, moderated?),
          {:ok, signal} <- Signal.inbound(source, input),
-         {:ok, intents} <- resolve(signal),
+         {:ok, intents} <- resolve_signal(signal),
          {:ok, mailbox_result} <- enqueue(intents) do
       {:ok, :accepted, signal, mailbox_result}
     else
@@ -143,7 +170,9 @@ defmodule BullX.Gateway do
     {:error, InboundError.new(:unknown_source, "unknown Gateway adapter")}
   end
 
-  defp resolve(%Signal{} = signal) do
+  @doc false
+  @spec resolve_signal(Signal.t()) :: {:ok, [DeliveryIntent.t()]} | {:error, term()}
+  def resolve_signal(%Signal{} = signal) do
     signal
     |> router().resolve()
     |> normalize_router_result(signal)
@@ -228,4 +257,26 @@ defmodule BullX.Gateway do
       signal_occurrence_key: Map.get(input, "occurrence_key") || Map.get(input, "bullxoccurkey")
     }
   end
+
+  defp outbound_telemetry_metadata(%Delivery{} = delivery) do
+    %{
+      adapter: delivery.adapter,
+      channel_id: delivery.channel_id,
+      scope_id: delivery.scope_id,
+      delivery_id: delivery.id,
+      generation: delivery.generation
+    }
+  end
+
+  defp outbound_telemetry_metadata(%{} = delivery) do
+    %{
+      adapter: Map.get(delivery, :adapter) || Map.get(delivery, "adapter"),
+      channel_id: Map.get(delivery, :channel_id) || Map.get(delivery, "channel_id"),
+      scope_id: Map.get(delivery, :scope_id) || Map.get(delivery, "scope_id"),
+      delivery_id: Map.get(delivery, :id) || Map.get(delivery, "id"),
+      generation: Map.get(delivery, :generation) || Map.get(delivery, "generation")
+    }
+  end
+
+  defp outbound_telemetry_metadata(_delivery), do: %{}
 end

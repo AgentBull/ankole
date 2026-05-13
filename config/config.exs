@@ -52,13 +52,19 @@ config :req_llm, load_dotenv: false
 
 config :bullx, Oban,
   repo: BullX.Repo,
-  queues: [gateway_signals: 10],
+  queues: [gateway_signals: [limit: 10, paused: true]],
   plugins: false
 
 config :bullx, :gateway,
   mailbox_queues: ["gateway_signals"],
   mailbox_default_queue: "gateway_signals",
   mailbox_dedupe_window_seconds: 86_400,
+  outbound_dispatch_poll_ms: 1_000,
+  outbound_dispatch_batch_size: 20,
+  outbound_dispatch_stale_lock_ms: 60_000,
+  stream_buffer_ttl_seconds: 86_400,
+  stream_retention_interval_ms: 60_000,
+  stream_retention_batch_size: 500,
   router: BullX.Gateway.Router.Unavailable,
   consumer_delivery: BullX.Gateway.ConsumerDelivery.Unavailable
 

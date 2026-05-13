@@ -53,3 +53,4 @@ npm-debug.log
 .DS_Store
 
 /storybook-static/
+.claude
