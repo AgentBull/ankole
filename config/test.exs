@@ -36,3 +36,14 @@ config :phoenix, :plug_init_mode, :runtime
 # Sort query params output of verified routes for robust url comparisons
 config :phoenix,
   sort_verified_routes_query_params: true
+
+config :bullx, Oban,
+  testing: :manual,
+  repo: BullX.Repo,
+  queues: false,
+  plugins: false
+
+config :bullx, :gateway,
+  outbound_dispatch_poll_ms: false,
+  outbound_dispatch_listen?: false,
+  stream_retention_interval_ms: false

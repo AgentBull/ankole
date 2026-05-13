@@ -14,15 +14,6 @@ config :bullx,
   ecto_repos: [BullX.Repo],
   generators: [timestamp_type: :utc_datetime]
 
-config :req_llm, load_dotenv: false
-
-config :nostrum,
-  ffmpeg: false,
-  youtubedl: false,
-  streamlink: false
-
-config :tesla, adapter: {Tesla.Adapter.Finch, name: BullX.TelegramFinch, receive_timeout: 40_000}
-
 # Configure the endpoint
 config :bullx, BullXWeb.Endpoint,
   url: [host: "localhost"],
@@ -57,6 +48,26 @@ config :logger, :default_formatter,
 # Use Jason for JSON parsing in Phoenix
 config :phoenix, :json_library, Jason
 
+config :req_llm, load_dotenv: false
+
+config :bullx, Oban,
+  repo: BullX.Repo,
+  queues: [gateway_signals: [limit: 10]],
+  plugins: false
+
+config :bullx, :gateway,
+  mailbox_queues: ["gateway_signals"],
+  mailbox_default_queue: "gateway_signals",
+  mailbox_dedupe_window_seconds: 86_400,
+  outbound_dispatch_poll_ms: 1_000,
+  outbound_dispatch_batch_size: 20,
+  outbound_dispatch_stale_lock_ms: 60_000,
+  stream_buffer_ttl_seconds: 86_400,
+  stream_retention_interval_ms: 60_000,
+  stream_retention_batch_size: 500,
+  router: BullX.Runtime.SignalRouting.Router,
+  consumer_delivery: BullX.Runtime.ConsumerDelivery
+
 # I18n / Localize bootstrap. `BullX.I18n.Catalog` owns the per-key
 # translation dictionaries under `priv/locales/*.toml`; Localize is
 # used only for MF2 parsing/formatting and CLDR data. We deliberately
@@ -68,13 +79,6 @@ config :localize,
   mf2_functions: %{}
 
 config :bullx, :i18n, locales_dir: "priv/locales"
-
-config :bullx, :accounts,
-  authn_match_rules: [],
-  authn_auto_create_users: true,
-  authn_require_activation_code: true,
-  activation_code_ttl_seconds: 86_400,
-  web_auth_code_ttl_seconds: 300
 
 # Import environment specific config. This must remain at the bottom
 # of this file so it overrides the configuration defined above.

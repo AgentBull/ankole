@@ -9,9 +9,6 @@ defmodule BullXWeb.I18n.HTML do
   Locale is read from the application-global default — templates do
   NOT need a `locale` assign. RFC 0007 §8.
 
-  ### Example
-
-      <p><%= t("users.greeting", name: @user.name) %></p>
   """
 
   @doc "See `BullX.I18n.t/3`."

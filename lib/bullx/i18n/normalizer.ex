@@ -8,11 +8,11 @@ defmodule BullX.I18n.Normalizer do
 
       %{
         "__meta__" => %{"bcp47" => "en-US"},
-        "users" => %{
+        "examples" => %{
           "greeting" => "Hello, {$name}!",
           "profile" => %{"title" => "Profile"}
         },
-        "users" => %{
+        "commerce" => %{
           "cart" => %{
             "checkout_button" => %{
               "__mf2__" => true,

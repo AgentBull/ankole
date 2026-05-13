@@ -1,21 +1,31 @@
 defmodule BullX.Config.ReqLLM.Bridge do
-  @moduledoc """
-  Pushes BullX-owned ReqLLM config into req_llm's application environment.
+  @moduledoc false
 
-  The bridge owns no process or state. `Application` remains the state owner
-  because upstream req_llm already reads these values through
-  `Application.get_env/2`.
-  """
+  @prefix "bullx.req_llm."
 
-  @spec sync_all!() :: :ok
-  def sync_all! do
-    Enum.each(BullX.Config.ReqLLM.bridge_keyspec(), fn {key, fun} ->
-      Application.put_env(:req_llm, key, fun.())
-    end)
+  @settings [
+    receive_timeout_ms: :receive_timeout,
+    metadata_timeout_ms: :metadata_timeout,
+    stream_completion_cleanup_after_ms: :stream_completion_cleanup_after,
+    debug: :debug,
+    redact_context: :redact_context
+  ]
 
+  @spec sync_all() :: :ok
+  def sync_all do
+    Enum.each(@settings, &sync_setting/1)
     :ok
   end
 
-  @spec sync_key!(String.t()) :: :ok
-  def sync_key!(_bullx_key), do: sync_all!()
+  @spec sync_if_req_llm_key(String.t()) :: :ok
+  def sync_if_req_llm_key(@prefix <> _suffix), do: sync_all()
+  def sync_if_req_llm_key(_key), do: :ok
+
+  defp sync_setting({accessor, req_llm_key}) do
+    case apply(BullX.Config.ReqLLM, accessor, []) do
+      {:ok, nil} -> Application.delete_env(:req_llm, req_llm_key)
+      {:ok, value} -> Application.put_env(:req_llm, req_llm_key, value)
+      {:error, _reason} -> Application.delete_env(:req_llm, req_llm_key)
+    end
+  end
 end

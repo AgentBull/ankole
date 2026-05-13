@@ -114,6 +114,17 @@ defmodule BullX.Config.Bootstrap do
     apply(BullX.Config.Validation, :validate_bootstrap!, [value, opts])
   end
 
+  @doc "Validates a TCP port integer at bootstrap time. Raises on failure."
+  def validate_port!(port, name \\ "PORT")
+
+  def validate_port!(port, _name) when is_integer(port) and port in 1..65_535 do
+    port
+  end
+
+  def validate_port!(port, name) do
+    raise "BullX.Config.Bootstrap: invalid port for #{name}: #{inspect(port)}"
+  end
+
   @doc "Maps a Mix config env atom to a BullX dotenv profile name."
   def profile_name(config_env), do: Atom.to_string(config_env)
 

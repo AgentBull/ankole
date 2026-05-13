@@ -20,19 +20,20 @@ defmodule BullX.MixProject do
   def application do
     [
       mod: {BullX.Application, []},
-      extra_applications: [:logger, :runtime_tools]
+      extra_applications: [:logger, :runtime_tools, :cachetastic],
+      env: [plugin_apps: plugin_apps()]
     ]
   end
 
   # Specifies which paths to compile per environment.
-  defp elixirc_paths(:test), do: ["lib", "test/support"]
-  defp elixirc_paths(_), do: ["lib"]
+  defp elixirc_paths(:test), do: ["lib", "test/support"] ++ plugin_elixirc_paths()
+  defp elixirc_paths(_), do: ["lib"] ++ plugin_elixirc_paths()
 
   # Specifies your project dependencies.
   #
   # Type `mix help deps` for examples and options.
   defp deps do
-    [
+    core_deps = [
       {:archdo, ">= 0.0.0", github: "BadBeta/archdo", only: [:dev, :test], runtime: false},
       {:phoenix, "~> 1.8.5"},
       {:phoenix_ecto, "~> 4.5"},
@@ -43,19 +44,11 @@ defmodule BullX.MixProject do
       {:rustler, "~> 0.37.3", runtime: false},
       {:inertia, "~> 2.6"},
       {:open_api_spex, "~> 3.22"},
-      {:jido, "~> 2.2"},
-      {:jido_action, "~> 2.2"},
-      {:jido_signal, "~> 2.1"},
-      {:req_llm, "~> 1.9"},
-      {:fsmx, "~> 0.5"},
       {:nimble_options, "~> 1.1"},
-      {:splode, "~> 0.3.0"},
-      {:yaml_elixir, "~> 2.12"},
       {:swoosh, "~> 1.16"},
-      {:feishu_openapi, path: "packages/feishu_openapi"},
-      {:nostrum, github: "Kraigie/nostrum", ref: "03b06ba1c5094b83991097b1ce76b5fe2740324c"},
-      {:telegram, github: "visciang/telegram", tag: "2.1.1"},
       {:req, "~> 0.5"},
+      {:req_llm, "~> 1.11"},
+      {:oban, "~> 2.19"},
       {:telemetry_metrics, "~> 1.0"},
       {:telemetry_poller, "~> 1.0"},
       {:localize, "~> 0.28.0"},
@@ -65,8 +58,12 @@ defmodule BullX.MixProject do
       {:bandit, "~> 1.11"},
       {:skogsra, "~> 2.5"},
       {:dotenvy, "~> 1.1"},
-      {:zoi, "~> 0.17"}
+      {:zoi, "~> 0.17"},
+      {:cachetastic, "~> 1.0"},
+      {:redix, "~> 1.5"}
     ]
+
+    merge_deps(core_deps, plugin_project_deps())
   end
 
   # Aliases are shortcuts or tasks specific to the current project.
@@ -84,4 +81,51 @@ defmodule BullX.MixProject do
       ]
     ]
   end
+
+  defp plugin_elixirc_paths do
+    plugin_apps()
+    |> Enum.map(&Path.join(["plugins", Atom.to_string(&1), "lib"]))
+    |> Enum.filter(&File.dir?/1)
+  end
+
+  defp plugin_project_deps do
+    plugin_apps()
+    |> Enum.flat_map(&plugin_deps_for/1)
+  end
+
+  defp plugin_deps_for(app) do
+    Mix.Project.in_project(app, Path.join("plugins", Atom.to_string(app)), fn _module ->
+      Mix.Project.config()
+      |> Keyword.get(:deps, [])
+      |> reject_bullx_dep(app)
+    end)
+  end
+
+  defp plugin_apps do
+    "plugins/*/mix.exs"
+    |> Path.wildcard()
+    |> Enum.map(&Path.dirname/1)
+    |> Enum.map(&Path.basename/1)
+    |> Enum.map(&String.to_atom/1)
+    |> Enum.sort()
+  end
+
+  defp reject_bullx_dep(deps, app) do
+    case Enum.find(deps, &(dep_app(&1) == :bullx)) do
+      nil ->
+        deps
+
+      dep ->
+        raise ArgumentError,
+              "plugin #{inspect(app)} must not depend on :bullx; remove #{inspect(dep)} from its deps"
+    end
+  end
+
+  defp merge_deps(core_deps, plugin_deps) do
+    (core_deps ++ plugin_deps)
+    |> Enum.uniq_by(&dep_app/1)
+  end
+
+  defp dep_app({app, _req_or_opts}), do: app
+  defp dep_app({app, _req, _opts}), do: app
 end

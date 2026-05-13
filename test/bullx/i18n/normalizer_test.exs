@@ -6,7 +6,7 @@ defmodule BullX.I18n.NormalizerTest do
   test "flattens a nested table into dotted keys" do
     input = %{
       "__meta__" => %{"bcp47" => "en-US"},
-      "users" => %{
+      "examples" => %{
         "greeting" => "Hello, {$name}!",
         "profile" => %{"title" => "Profile"}
       }
@@ -17,14 +17,14 @@ defmodule BullX.I18n.NormalizerTest do
     # MF2 canonical form wraps simple patterns in {{...}} markers so
     # the catalog stores a parser-canonical string. Runtime format/3
     # strips those markers before returning the final output.
-    assert Map.has_key?(messages, "users.greeting")
-    assert messages["users.greeting"] =~ "{$name}"
+    assert Map.has_key?(messages, "examples.greeting")
+    assert messages["examples.greeting"] =~ "{$name}"
 
     assert {:ok, "Hello, Alice!"} =
-             Localize.Message.format(messages["users.greeting"], %{name: "Alice"})
+             Localize.Message.format(messages["examples.greeting"], %{name: "Alice"})
 
-    assert Map.has_key?(messages, "users.profile.title")
-    assert {:ok, "Profile"} = Localize.Message.format(messages["users.profile.title"], %{})
+    assert Map.has_key?(messages, "examples.profile.title")
+    assert {:ok, "Profile"} = Localize.Message.format(messages["examples.profile.title"], %{})
     assert meta.bcp47 == "en-US"
   end
 

@@ -9,7 +9,8 @@ defmodule BullX.Config.Supervisor do
   def init(_init_arg) do
     children = [
       BullX.Config.Cache,
-      BullX.Config.ReqLLM.BootSync
+      BullX.Config.ReqLLM.BootSync,
+      BullX.Cache.Bootstrap
     ]
 
     Supervisor.init(children, strategy: :one_for_one)

@@ -1,6 +1,8 @@
 defmodule BullX.Config.GeneratedSecretTest do
   use BullX.DataCase, async: false
 
+  import ExUnit.CaptureLog
+
   alias BullX.Config.GeneratedSecret
 
   @db_key "bullx.test_generated_secret"
@@ -56,7 +58,12 @@ defmodule BullX.Config.GeneratedSecretTest do
   test "malformed generated secret env value falls back to default" do
     System.put_env(@env_key, "short")
 
-    assert BullX.Config.TestSettings.test_generated_secret!() == nil
+    log =
+      capture_log(fn ->
+        assert BullX.Config.TestSettings.test_generated_secret!() == nil
+      end)
+
+    assert log =~ ~s(Cannot cast "short")
   end
 
   test "generated secret declarations still use secret storage" do

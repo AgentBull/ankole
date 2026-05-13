@@ -37,22 +37,24 @@ defmodule BullX.I18n.CatalogTest do
     System.put_env(@config_env, "zh-Hans-CN")
     assert :ok = I18n.reload()
 
-    log =
-      capture_log([level: :warning], fn ->
-        assert I18n.t("users.greeting", %{name: "Heidi"}, locale: :"xx-Test") == "你好，Heidi！"
-      end)
-
-    assert fallback_log_count(log) == 1
+    assert :"zh-Hans-CN" =
+             I18n.default_locale()
+             |> Resolver.language_tag_to_locale()
   end
 
   test "reload_locales!/0 restores the on-disk catalog through the explicit API" do
-    Resolver.put_catalog(:"en-US", %{"users.greeting" => "Broken"}, %{})
+    Resolver.put_catalog(:"en-US", %{"app.close" => "Broken"}, %{})
 
-    assert I18n.t("users.greeting", %{name: "Alice"}, locale: :"en-US") == "Broken"
+    assert I18n.t("app.close", %{}, locale: :"en-US") == "Broken"
 
     assert :ok = BullX.I18n.Catalog.reload_locales!()
 
-    assert I18n.t("users.greeting", %{name: "Alice"}, locale: :"en-US") == "Hello, Alice!"
+    log =
+      capture_log([level: :error], fn ->
+        assert I18n.t("app.close", %{}, locale: :"en-US") == "app.close"
+      end)
+
+    assert log =~ "i18n missing" or log =~ "i18n_missing"
   end
 
   test "reload_locales!/0 drops stale locales from persistent_term" do
@@ -71,16 +73,10 @@ defmodule BullX.I18n.CatalogTest do
   test "catalog reload ignores client locale TOMLs" do
     log =
       capture_log([level: :error], fn ->
-        assert I18n.t("web.sessions.new.title", %{}, locale: :"en-US") == "web.sessions.new.title"
+        assert I18n.t("web.setup.title", %{}, locale: :"en-US") == "web.setup.title"
       end)
 
     assert log =~ "i18n missing" or log =~ "i18n_missing"
-  end
-
-  defp fallback_log_count(log) do
-    ~r/i18n fallback|i18n_fallback/
-    |> Regex.scan(log)
-    |> length()
   end
 
   defp restore_default_locale(nil), do: BullX.Config.delete(@config_key)

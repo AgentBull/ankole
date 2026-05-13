@@ -1,0 +1,6 @@
+[mcp_servers.archdo]
+args = ["archdo.mcp"]
+command = "mix"
+
+[sandbox_workspace_write]
+network_access = true

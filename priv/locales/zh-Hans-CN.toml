@@ -2,181 +2,107 @@
 bcp47 = "zh-Hans-CN"
 fallback = "en-US"
 
-[app]
-close = "关闭"
-actions = "操作"
-
-[app.connectivity]
-client_lost_title = "无法连接到互联网"
-server_lost_title = "出错了"
-reconnecting = "正在重新连接"
-
-[errors.validation]
-required = "不能为空"
-cast = "格式不正确"
-format = "格式无效"
-inclusion = "无效"
-exclusion = "已被保留"
-subset = "包含无效项"
-confirmation = "与确认值不一致"
-acceptance = "必须接受"
-
-[errors.validation.length.string]
-min = '''
-.input {$count :integer}
-.match $count
-  * {{至少需要 {$count} 个字符}}
-'''
-max = '''
-.input {$count :integer}
-.match $count
-  * {{至多 {$count} 个字符}}
-'''
-is = '''
-.input {$count :integer}
-.match $count
-  * {{应为 {$count} 个字符}}
-'''
-
-[errors.validation.length.binary]
-min = '''
-.input {$count :integer}
-.match $count
-  * {{至少需要 {$count} 字节}}
-'''
-max = '''
-.input {$count :integer}
-.match $count
-  * {{至多 {$count} 字节}}
-'''
-is = '''
-.input {$count :integer}
-.match $count
-  * {{应为 {$count} 字节}}
-'''
-
-[errors.validation.length.collection]
-min = '''
-.input {$count :integer}
-.match $count
-  * {{至少需要 {$count} 项}}
-'''
-max = '''
-.input {$count :integer}
-.match $count
-  * {{至多 {$count} 项}}
-'''
-is = '''
-.input {$count :integer}
-.match $count
-  * {{应为 {$count} 项}}
-'''
-
-[errors.validation.number]
-less_than = "必须小于 {$number}"
-greater_than = "必须大于 {$number}"
-less_than_or_equal_to = "必须小于或等于 {$number}"
-greater_than_or_equal_to = "必须大于或等于 {$number}"
-equal_to = "必须等于 {$number}"
-not_equal_to = "必须不等于 {$number}"
-
-[users]
-greeting = "你好，{$name}！"
-
-[setup.bootstrap]
-activation_code_invalid = "引导激活码无效或已过期。"
-
 [gateway.feishu.auth]
-activation_required = "请在与机器人的私聊中发送 /preauth <code> 激活这个飞书账号。"
-activation_success = "激活完成。这个飞书账号已关联到 BullX。"
+activation_required = "这个飞书账号还没有激活。请在当前私聊中发送 /preauth <code> 完成激活。"
+activation_success = "激活完成。"
 activation_code_invalid = "激活码无效或已过期。"
-activation_failed = "激活失败。请重试，或向管理员获取新的激活码。"
-already_linked = "这个飞书账号已经关联。"
-web_auth_created = "登录验证码：{$code}\n打开 {$login_url} 完成登录。"
-web_auth_not_bound = "这个飞书账号尚未关联。请先使用 /preauth <code> 激活。"
-web_auth_disabled = "此飞书接入平台已禁用 Web 登录。"
-web_auth_failed = "无法启动飞书登录。请稍后重试。"
-login_not_bound = "这个飞书账号尚未关联。请先在飞书中使用 /preauth <code> 激活。"
-denied = "这个账号不能使用 BullX。"
-direct_command_dm_only = "请私聊机器人完成关联或登录。"
+activation_failed = "激活失败，请稍后重试。"
+already_linked = "这个飞书账号已经绑定。"
+web_auth_created = "登录验证码：{$code}\n打开 {$login_url} 继续登录。"
+web_auth_not_bound = "这个飞书账号还没有绑定。请先使用 /preauth 激活。"
+web_auth_failed = "无法创建登录验证码，请稍后重试。"
+login_not_bound = "这个飞书账号还没有绑定。"
+denied = "这个 Principal 已被禁用。"
+direct_command_dm_only = "请在和机器人的私聊中发送这个命令。"
 
 [gateway.feishu.ping]
 pong = "PONG!"
 
 [gateway.feishu.delivery]
-fallback_text = "[消息]"
-stream_generating = "正在生成..."
+fallback_text = "不支持的飞书内容"
+stream_generating = "生成中..."
 stream_failed = "流式回复失败。"
 stream_cancelled = "流式回复已取消。"
-reply_target_missing_sent_to_scope = "原回复目标不存在，已发送到当前会话。"
+reply_target_missing_sent_to_scope = "被回复的消息不存在，已发送到当前会话。"
 
 [gateway.feishu.errors]
-unsupported_message = "[不支持的飞书消息]"
-profile_unavailable = "无法获取飞书用户资料。"
+unsupported_message = "不支持的飞书消息"
+profile_unavailable = "无法获取飞书用户资料"
+
+[gateway.telegram.auth]
+activation_required = "这个 Telegram 账号还没有激活。请在与机器人的私聊中发送 /preauth <code> 完成激活。"
+activation_success = "激活完成。"
+activation_code_invalid = "激活码无效或已过期。"
+activation_failed = "激活失败，请稍后重试。"
+already_linked = "这个 Telegram 账号已经绑定。"
+web_auth_created = "登录验证码：{$code}\n打开 {$login_url} 继续登录。"
+web_auth_not_bound = "这个 Telegram 账号还没有绑定。请先使用 /preauth 激活。"
+web_auth_failed = "无法创建登录验证码，请稍后重试。"
+web_auth_disabled = "当前 Telegram 接入禁用了网页端登录。"
+login_not_bound = "这个 Telegram 账号还没有绑定。"
+denied = "这个 Principal 已被禁用。"
+direct_command_dm_only = "请在和机器人的私聊中发送这个命令。"
+
+[gateway.telegram.ping]
+pong = "PONG!"
+
+[gateway.telegram.delivery]
+fallback_text = "不支持的 Telegram 内容"
+stream_generating = "生成中..."
+stream_failed = "流式回复失败。"
+stream_cancelled = "流式回复已取消。"
+reply_target_missing_sent_to_scope = "被回复的消息不存在，已发送到当前会话。"
+
+[gateway.telegram.media]
+image = "[图片]"
+audio = "[音频]"
+video = "[视频]"
+file = "[文件]"
+
+[gateway.telegram.errors]
+unsupported_message = "不支持的 Telegram 消息"
+profile_unavailable = "无法获取 Telegram 用户资料"
+
+[gateway.telegram.commands]
+ping = "检查机器人是否在线"
+preauth = "使用激活码绑定：/preauth <code>"
+web_auth = "获取一次性网页登录验证码"
 
 [gateway.discord.auth]
-activation_required = "请在与机器人的 Discord 私聊中发送 /preauth <code> 激活这个账号。"
-activation_success = "激活完成。这个 Discord 账号已关联到 BullX。"
+activation_required = "这个 Discord 账号还没有激活。请私聊机器人并发送 /preauth <code> 完成激活。"
+activation_success = "激活完成。"
 activation_code_invalid = "激活码无效或已过期。"
-activation_failed = "激活失败。请重试，或向管理员获取新的激活码。"
-already_linked = "这个 Discord 账号已经关联。"
-web_auth_created = "登录验证码：{$code}\n打开 {$login_url} 完成登录。"
-web_auth_not_bound = "这个 Discord 账号尚未关联。请先使用 /preauth <code> 激活。"
-web_auth_disabled = "此 Discord 接入平台已禁用 Web 登录。"
-web_auth_failed = "无法启动 Discord 登录。请稍后重试。"
-login_not_bound = "这个 Discord 账号尚未关联。请先在 Discord 中使用 /preauth <code> 激活。"
-denied = "这个账号不能使用 BullX。"
-direct_command_dm_only = "请私聊机器人完成关联或登录。"
+activation_failed = "激活失败，请稍后重试。"
+already_linked = "这个 Discord 账号已经绑定。"
+web_auth_created = "登录验证码：{$code}\n打开 {$login_url} 继续登录。"
+web_auth_not_bound = "这个 Discord 账号还没有绑定。请先使用 /preauth 激活。"
+web_auth_failed = "无法创建登录验证码，请稍后重试。"
+web_auth_disabled = "当前 Discord 接入禁用了网页端登录。"
+login_not_bound = "这个 Discord 账号还没有绑定。"
+denied = "这个 Principal 已被禁用。"
+direct_command_dm_only = "请私聊机器人并发送这个命令。"
 
 [gateway.discord.ping]
 pong = "PONG!"
 
 [gateway.discord.ask]
-accepted = "BullX 将在此会话中处理。"
+accepted = "已收到，回复会出现在这条对话中。"
 
 [gateway.discord.delivery]
-fallback_text = "[消息]"
-stream_generating = "正在生成..."
+fallback_text = "不支持的 Discord 内容"
+stream_generating = "生成中..."
 stream_failed = "流式回复失败。"
 stream_cancelled = "流式回复已取消。"
+reply_target_missing_sent_to_scope = "被回复的消息不存在，已发送到当前频道。"
+
+[gateway.discord.media]
+image = "[图片]"
+audio = "[音频]"
+video = "[视频]"
+file = "[文件]"
+sticker = "[贴纸]"
 
 [gateway.discord.errors]
-unsupported_message = "[不支持的 Discord 消息]"
-profile_unavailable = "无法获取 Discord 用户资料。"
-thread_create_failed = "无法为此次请求创建 Discord thread。"
-
-[gateway.telegram.auth]
-activation_required = "请在与机器人的私聊中发送 /preauth <code> 激活这个 Telegram 账号。"
-activation_success = "激活完成。这个 Telegram 账号已关联到 BullX。"
-activation_code_invalid = "激活码无效或已过期。"
-activation_failed = "激活失败。请重试，或向管理员获取新的激活码。"
-already_linked = "这个 Telegram 账号已经关联。"
-web_auth_created = "登录验证码：{$code}\n打开 {$login_url} 完成登录。"
-web_auth_not_bound = "这个 Telegram 账号尚未关联。请先使用 /preauth <code> 激活。"
-web_auth_disabled = "此 Telegram 接入平台已禁用 Web 登录。"
-web_auth_failed = "无法启动 Telegram 登录。请稍后重试。"
-denied = "这个账号不能使用 BullX。"
-direct_command_dm_only = "请私聊机器人完成关联或登录。"
-
-[gateway.telegram.ping]
-pong = "PONG!"
-
-[gateway.telegram.ask]
-prompt_required = "请在 /ask 后写入问题。"
-
-[gateway.telegram.delivery]
-fallback_text = "[消息]"
-stream_generating = "正在生成..."
-stream_failed = "流式回复失败。"
-stream_cancelled = "流式回复已取消。"
-
-[gateway.telegram.errors]
-unsupported_message = "[不支持的 Telegram 消息]"
-profile_unavailable = "无法获取 Telegram 用户资料。"
-
-[gateway.telegram.media]
-image = "[Telegram 图片]"
-audio = "[Telegram 音频]"
-video = "[Telegram 视频]"
-file = "[Telegram 文件]"
-card = "[Telegram 卡片]"
+unsupported_message = "不支持的 Discord 消息"
+profile_unavailable = "无法获取 Discord 用户资料"
+thread_create_failed = "无法为该请求创建 Discord 子帖。"

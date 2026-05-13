@@ -4,12 +4,15 @@ defmodule BullX.I18nTest do
   import ExUnit.CaptureLog
 
   alias BullX.I18n
+  alias BullX.I18n.Resolver
 
   setup do
-    # Catalog started at application boot from priv/locales.
     previous = Process.get(:localize_locale)
+    install_test_catalog()
 
     on_exit(fn ->
+      :ok = BullX.I18n.Catalog.reload_locales!()
+
       case previous do
         nil -> Process.delete(:localize_locale)
         tag -> Process.put(:localize_locale, tag)
@@ -22,24 +25,24 @@ defmodule BullX.I18nTest do
   describe "t/3 — happy path" do
     test "returns the default-locale message" do
       {:ok, _} = I18n.put_locale(:"en-US")
-      assert I18n.t("users.greeting", %{name: "Alice"}) == "Hello, Alice!"
+      assert I18n.t("examples.greeting", %{name: "Alice"}) == "Hello, Alice!"
     end
 
     test "explicit :locale option overrides process locale" do
       {:ok, _} = I18n.put_locale(:"en-US")
 
-      assert I18n.t("users.greeting", %{name: "Alice"}, locale: :"zh-Hans-CN") ==
+      assert I18n.t("examples.greeting", %{name: "Alice"}, locale: :"zh-Hans-CN") ==
                "你好，Alice！"
     end
 
     test "scope option prepends to the key" do
       {:ok, _} = I18n.put_locale(:"en-US")
-      assert I18n.t("greeting", %{name: "Bob"}, scope: "users") == "Hello, Bob!"
+      assert I18n.t("greeting", %{name: "Bob"}, scope: "examples") == "Hello, Bob!"
     end
 
     test "Rails-style leading dot prepends scope" do
       {:ok, _} = I18n.put_locale(:"en-US")
-      assert I18n.t(".greeting", %{name: "Eve"}, scope: "users") == "Hello, Eve!"
+      assert I18n.t(".greeting", %{name: "Eve"}, scope: "examples") == "Hello, Eve!"
     end
 
     test "with_locale/2 applies for one block" do
@@ -47,11 +50,11 @@ defmodule BullX.I18nTest do
 
       result =
         I18n.with_locale(:"zh-Hans-CN", fn ->
-          I18n.t("users.greeting", %{name: "Carol"})
+          I18n.t("examples.greeting", %{name: "Carol"})
         end)
 
       assert result == "你好，Carol！"
-      assert I18n.t("users.greeting", %{name: "Carol"}) == "Hello, Carol!"
+      assert I18n.t("examples.greeting", %{name: "Carol"}) == "Hello, Carol!"
     end
 
     test "plural via MF2 .match dispatches on count" do
@@ -82,7 +85,7 @@ defmodule BullX.I18nTest do
 
       log =
         capture_log([level: :error], fn ->
-          out = I18n.t("users.greeting", %{})
+          out = I18n.t("examples.greeting", %{})
           # Raw MF2 source is returned
           assert out =~ "$name"
         end)
@@ -94,7 +97,7 @@ defmodule BullX.I18nTest do
   describe "translate/3" do
     test "returns {:ok, string} for a valid key" do
       assert {:ok, "Hello, Dave!"} =
-               I18n.translate("users.greeting", %{name: "Dave"}, locale: :"en-US")
+               I18n.translate("examples.greeting", %{name: "Dave"}, locale: :"en-US")
     end
 
     test "returns {:error, _} for a missing key without logging" do
@@ -102,14 +105,14 @@ defmodule BullX.I18nTest do
     end
 
     test "returns {:error, _} on a missing MF2 binding" do
-      assert {:error, _} = I18n.translate("users.greeting", %{}, locale: :"en-US")
+      assert {:error, _} = I18n.translate("examples.greeting", %{}, locale: :"en-US")
     end
   end
 
   describe "fallback chain" do
     test "zh-Hans-CN resolves directly when the key exists in both locales" do
       {:ok, _} = I18n.put_locale(:"zh-Hans-CN")
-      assert "你好，Frank！" = I18n.t("users.greeting", %{name: "Frank"})
+      assert "你好，Frank！" = I18n.t("examples.greeting", %{name: "Frank"})
     end
 
     test "falls back through meta.fallback when the requested locale misses the key" do
@@ -124,7 +127,7 @@ defmodule BullX.I18nTest do
 
       log =
         capture_log([level: :warning], fn ->
-          assert I18n.t("users.greeting", %{name: "Grace"}, locale: :"xx-Test") ==
+          assert I18n.t("examples.greeting", %{name: "Grace"}, locale: :"xx-Test") ==
                    "Hello, Grace!"
         end)
 
@@ -146,7 +149,7 @@ defmodule BullX.I18nTest do
                  flunk("should not execute for unloaded locales")
                end)
 
-      assert I18n.t("users.greeting", %{name: "Ivy"}) == "Hello, Ivy!"
+      assert I18n.t("examples.greeting", %{name: "Ivy"}) == "Hello, Ivy!"
     end
   end
 
@@ -156,5 +159,31 @@ defmodule BullX.I18nTest do
       assert :"en-US" in locales
       assert :"zh-Hans-CN" in locales
     end
+  end
+
+  defp install_test_catalog do
+    Resolver.put_catalog(
+      :"en-US",
+      %{
+        "examples.greeting" => "Hello, {$name}!",
+        "errors.validation.length.string.min" => """
+        .input {$count :integer}
+        .match $count
+          1 {{should be at least 1 character}}
+          * {{should be at least {$count} characters}}
+        """
+      },
+      %{}
+    )
+
+    Resolver.put_catalog(
+      :"zh-Hans-CN",
+      %{
+        "examples.greeting" => "你好，{$name}！"
+      },
+      %{fallback: "en-US"}
+    )
+
+    Resolver.put_loaded([:"en-US", :"zh-Hans-CN"])
   end
 end

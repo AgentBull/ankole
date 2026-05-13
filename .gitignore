@@ -42,7 +42,7 @@ npm-debug.log
 *.env.local
 .env.prod
 
-/rfcs/drafts/
+/docs/drafts/
 
 # Rust binary artifacts
 /target/
@@ -53,3 +53,4 @@ npm-debug.log
 .DS_Store
 
 /storybook-static/
+.claude

@@ -1,22 +1,28 @@
-# NIF for BullX
+# BullX Native Helpers
 
-This directory contains a Rust NIF (Native Implemented Function) module for the BullX project. NIFs allow you to write performance-critical code in Rust and call it from Elixir.
+This directory contains the Rust NIF crate loaded by `BullX.Ext`.
 
-## To build the NIF module:
+The crate is part of BullX infrastructure, not a product subsystem. It should only contain small native helpers where Rust provides a clear boundary or performance benefit, such as hashing, encoding, UUID generation, encryption, and other low-level utilities.
 
-- Your NIF will now build along with your project.
+## Boundaries
 
-## To load the NIF:
+- Keep durable product facts in PostgreSQL, not inside native state.
+- Keep NIF functions deterministic or explicitly side-effect bounded.
+- Prefer one representative Elixir smoke test per exported NIF wrapper.
+- Do not add product-specific business logic here without a design doc.
+- Treat NIF failures as tagged return values whenever bad user input is expected.
 
-```elixir
-defmodule BullX.Ext do
-  use Rustler, otp_app: :bullx, crate: "bullx_ext"
+## Build
 
-  # When your NIF is loaded, it will override this function.
-  def add(_a, _b), do: :erlang.nif_error(:nif_not_loaded)
-end
+The crate builds through Rustler as part of the normal Mix compilation flow.
+
+```sh
+mix compile
 ```
 
-## Examples
+For Rust-only checks:
 
-[This](https://github.com/rusterlium/NifIo) is a complete example of a NIF written in Rust.
+```sh
+cargo check
+cargo fmt --all --check
+```

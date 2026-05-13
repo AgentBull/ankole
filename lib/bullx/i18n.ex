@@ -4,9 +4,9 @@ defmodule BullX.I18n do
 
   Core responsibilities:
 
-  * **Key lookup.** `t/3` and `translate/3` take a dotted key (for
-    example `"users.greeting"`), resolve it through the locale
-    fallback chain, and format the resulting MF2 message.
+  * **Key lookup.** `t/3` and `translate/3` take a dotted key,
+    resolve it through the locale fallback chain, and format the
+    resulting MF2 message.
 
   * **Locale lifecycle.** Under the RFC 0007 "locale is global"
     assumption, the default locale is set once at boot from
@@ -18,7 +18,7 @@ defmodule BullX.I18n do
     so process/default locale never silently negotiate to a
     different language.
 
-  * **Scope macro.** `use BullX.I18n, scope: "users.index"` injects
+  * **Scope macro.** `use BullX.I18n, scope: "some.scope"` injects
     a module-local `t/1,2,3` whose key is concatenated with the
     scope at compile time.
 
@@ -44,16 +44,6 @@ defmodule BullX.I18n do
   Missing keys and MF2 format errors degrade per §5.4 and never
   raise: the caller always receives a string.
 
-  ### Examples
-
-      BullX.I18n.t("users.greeting", %{name: "Alice"})
-      #=> "Hello, Alice!"
-
-      BullX.I18n.t("users.greeting", %{name: "Alice"}, locale: :"zh-Hans-CN")
-      #=> "你好，Alice！"
-
-      BullX.I18n.t("title", %{}, scope: "users.profile")
-      #=> same as t("users.profile.title")
   """
   @spec t(key(), bindings(), opts()) :: String.t()
   def t(key, bindings \\ %{}, opts \\ []) do
@@ -276,7 +266,7 @@ defmodule BullX.I18n do
   ### Example
 
       defmodule MyLive do
-        use BullX.I18n, scope: "users.index"
+        use BullX.I18n, scope: "some.scope"
 
         def render(assigns) do
           ~H\"\"\"
@@ -290,7 +280,7 @@ defmodule BullX.I18n do
 
     unless is_binary(scope) or is_nil(scope) do
       raise ArgumentError,
-            "use BullX.I18n requires a :scope binary (e.g. \"users.index\") or nil"
+            "use BullX.I18n requires a :scope binary or nil"
     end
 
     quote do

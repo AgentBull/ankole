@@ -1,17 +1,5 @@
 defmodule BullX.Config.Validation do
   @doc """
-  Validates a casted value against the optional Zoi schema declared on a
-  Skogsra env. Returns `{:ok, value}` on success or `{:error, :invalid}` on
-  failure, allowing the binding pipeline to fall through to the next source.
-  """
-  def validate_runtime(env_or_opts, value) do
-    case parse(env_or_opts, value) do
-      {:ok, _} -> {:ok, value}
-      {:error, _} -> {:error, :invalid}
-    end
-  end
-
-  @doc """
   Validates a raw runtime source before it is handed back to Skogsra.
 
   When no Zoi schema is declared, bindings can return the raw value and let

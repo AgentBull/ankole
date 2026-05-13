@@ -1,6 +1,5 @@
 import { Head } from "@inertiajs/react"
 import type React from "react"
-import { useTranslation } from "react-i18next"
 import logoDark from "@/assets/logo-dark.svg"
 import backgroundImageUrl from "./marjan-taghipour-0fof1Z4CwQo-unsplash.jpg"
 
@@ -14,8 +13,6 @@ interface SetupLayoutProps {
 }
 
 export default function SetupLayout({ title, appName = "BullX", headerActions, children }: SetupLayoutProps) {
-  const { t } = useTranslation()
-
   return (
     <main
       data-theme="dark"
@@ -32,7 +29,7 @@ export default function SetupLayout({ title, appName = "BullX", headerActions, c
             </span>
             <div className="min-w-0">
               <p className="truncate text-sm font-semibold">{appName}</p>
-              <p className="truncate text-xs text-muted-foreground">{t("web.setup.title")}</p>
+              <p className="truncate text-xs text-muted-foreground">Setup</p>
             </div>
           </div>
           {headerActions ? <div className="shrink-0">{headerActions}</div> : null}

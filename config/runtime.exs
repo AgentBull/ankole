@@ -28,10 +28,11 @@ if BullX.Config.Bootstrap.env_boolean("PHX_SERVER", false) do
 end
 
 port = BullX.Config.Bootstrap.env_integer("PORT", 4000)
-BullX.Config.Bootstrap.validate!(port, zoi: Zoi.integer(gte: 1, lte: 65_535))
+BullX.Config.Bootstrap.validate_port!(port, "PORT")
 config :bullx, BullXWeb.Endpoint, http: [port: port]
 
 secret_base = BullX.Config.Bootstrap.env!("BULLX_SECRET_BASE", & &1)
+BullX.Config.Bootstrap.validate!(secret_base, zoi: Zoi.string() |> Zoi.min(64))
 
 config :bullx, BullXWeb.Endpoint,
   secret_key_base: BullX.Ext.derive_key(secret_base, "phoenix.secret_key_base")
