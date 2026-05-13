@@ -27,3 +27,42 @@ reply_target_missing_sent_to_scope = "The reply target was missing, so the messa
 [gateway.feishu.errors]
 unsupported_message = "Unsupported Feishu message"
 profile_unavailable = "Feishu user profile is unavailable"
+
+[gateway.telegram.auth]
+activation_required = "This Telegram account is not activated yet. Send /preauth <code> to me in a private chat to activate."
+activation_success = "Activation complete."
+activation_code_invalid = "The activation code is invalid or expired."
+activation_failed = "Activation failed. Please try again later."
+already_linked = "This Telegram account is already linked."
+web_auth_created = "Use this login code: {$code}\nOpen {$login_url} to continue."
+web_auth_not_bound = "This Telegram account is not linked yet. Activate it with /preauth first."
+web_auth_failed = "Could not create a login code. Please try again later."
+web_auth_disabled = "Web login is disabled for this Telegram source."
+login_not_bound = "This Telegram account is not linked yet."
+denied = "This Principal is disabled."
+direct_command_dm_only = "Please send this command to the bot in a private chat."
+
+[gateway.telegram.ping]
+pong = "PONG!"
+
+[gateway.telegram.delivery]
+fallback_text = "Unsupported Telegram content"
+stream_generating = "Generating..."
+stream_failed = "The streamed response failed."
+stream_cancelled = "The streamed response was cancelled."
+reply_target_missing_sent_to_scope = "The reply target was missing, so the message was sent to the chat."
+
+[gateway.telegram.media]
+image = "[image]"
+audio = "[audio]"
+video = "[video]"
+file = "[file]"
+
+[gateway.telegram.errors]
+unsupported_message = "Unsupported Telegram message"
+profile_unavailable = "Telegram user profile is unavailable"
+
+[gateway.telegram.commands]
+ping = "Check the bot is reachable"
+preauth = "Activate with /preauth <code>"
+web_auth = "Issue a one-time web login code"

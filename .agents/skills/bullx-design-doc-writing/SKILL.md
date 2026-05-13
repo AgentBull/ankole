@@ -1,6 +1,6 @@
 ---
-name: bullx-design-docs
-description: Create, or revise BullX design documents from drafts, notes, codebase context, or user-provided scope. Use when Codex needs to write, clean up, structure, or technically edit design docs for BullX features, runtime behavior, schemas, workflows, Phoenix/Elixir/Rust/React changes, error behavior, or cross-cutting concerns.
+name: bullx-design-doc-writing
+description: Write or revise BullX design documents from drafts, notes, codebase context, or user-provided scope. Use only when the requested deliverable is a new or changed shareable design doc. Do not use for simply reading, inspecting, summarizing, comparing, or answering questions about existing design docs; read those files directly.
 ---
 
 # BullX Design Docs
@@ -8,6 +8,8 @@ description: Create, or revise BullX design documents from drafts, notes, codeba
 ## Purpose
 
 Produce shareable BullX design docs for Coding Agents and human senior engineers. A committed BullX design doc records current intended design, not a proposal status, roadmap, tutorial, or transcript of the drafting process.
+
+This skill is an authoring and editing workflow. Do not invoke it when the task is only to read, inspect, summarize, compare, or answer questions about existing design docs. For those tasks, read the relevant files directly and follow `AGENTS.md`.
 
 Design docs are useful when the design is ambiguous, cross-cutting, expensive to reverse, or likely to require senior review. If the requested change is obvious and narrow, prefer a mini design doc or inline plan unless the user explicitly asks for a full document.
 

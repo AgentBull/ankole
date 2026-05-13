@@ -1,4 +1,0 @@
-interface:
-  display_name: "BullX Design Docs"
-  short_description: "Draft focused BullX design docs"
-  default_prompt: "Use $bullx-design-docs to turn this draft into a focused BullX design doc."
