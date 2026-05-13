@@ -12,7 +12,9 @@ Runtime declarations use Skogsra types plus optional Zoi schemas across
 PostgreSQL overrides, OS environment values, application config, and code
 defaults. Only the runtime phase can read from PostgreSQL. Settings needed to
 start the database connection, Phoenix endpoint, or encryption root secret stay
-in the bootstrap phase.
+in the bootstrap phase. Plugin settings use the same runtime configuration
+layer; plugins declare config modules that BullX discovers before enabled plugin
+children start.
 
 ## Goals
 
@@ -27,6 +29,8 @@ in the bootstrap phase.
   becoming terminal failures.
 - Store persisted secret config values encrypted at rest while keeping all
   runtime reads uniform.
+- Let discovered plugins contribute runtime config declarations and secret keys
+  without adding a separate plugin configuration store.
 
 ## Design Tradeoffs
 
@@ -50,6 +54,10 @@ Secret rows are encrypted in PostgreSQL and decrypted into ETS. This protects
 stored rows at rest, but it does not create a process-memory secrecy boundary
 inside the BEAM.
 
+Plugin configuration reuses the same runtime model instead of adding a separate
+configuration store. Plugin-specific enablement semantics belong to the plugin
+system design.
+
 ## System Shape
 
 ```mermaid
@@ -64,6 +72,7 @@ flowchart TD
 
   subgraph Runtime["Runtime phase"]
     Decl["BullX.Config declarations"]
+    PluginDecl["Plugin config declarations"]
     Skogsra["Skogsra generated accessors"]
     DBBinding["DatabaseBinding"]
     SysBinding["SystemBinding"]
@@ -80,6 +89,7 @@ flowchart TD
   BootstrapHelper --> BootTargets
 
   Decl --> Skogsra
+  PluginDecl --> Skogsra
   Skogsra --> DBBinding
   Skogsra --> SysBinding
   Skogsra --> AppBinding
@@ -92,8 +102,10 @@ flowchart TD
 
 `BullX.Application` starts configuration after the repository and before
 subsystems that consume runtime config. The ordering invariant is
-`BullX.Repo` before `BullX.Config.Supervisor`, then config consumers such as
-`BullX.I18n.Catalog`.
+`BullX.Repo` before `BullX.Config.Supervisor`, then config consumers. The plugin
+host starts after configuration and before subsystems that may consume plugin
+extension declarations, such as `BullX.Runtime.Supervisor` and
+`BullXWeb.Endpoint`.
 
 `BullX.Config.Cache` owns no durable truth. If the cache restarts, it recreates
 its ETS table and reloads rows from PostgreSQL.
@@ -138,6 +150,10 @@ Runtime settings are declared by modules that `use BullX.Config` and call
 `bullx_env/2`. The macro wraps Skogsra with BullX's binding order: database
 override from ETS, OS environment, application config, then Skogsra default. It
 also disables Skogsra caching so BullX can own cache behavior explicitly.
+
+Core modules and plugin modules use the same declaration API. A plugin exposes
+its config declaration modules through the plugin contract described in
+`docs/design-docs/Plugins.md`.
 
 Skogsra still generates the normal accessor functions such as `name/0`,
 `name!/0`, and `reload_name/0`. Generated `put_name/1` is not the persisted
@@ -289,12 +305,17 @@ refresh or cache restart reloads rows from PostgreSQL.
 `BullX.Config.__before_compile__/1` into `__bullx_secret_keys__/0` and read by
 `BullX.Config.SecretKeys`.
 
-`SecretKeys` builds a `MapSet` from loaded modules and modules listed in the
-`:bullx` application metadata. Only modules whose names start with
-`BullX.Config.` and export `__bullx_secret_keys__/0` contribute keys. The set is
+`SecretKeys` builds a `MapSet` from loaded core config modules, modules listed
+in the `:bullx` application metadata, and config modules declared by discovered
+plugins. Any module that exports `__bullx_secret_keys__/0` may contribute keys
+after it has been accepted by the core or plugin discovery path. The set is
 cached in `:persistent_term`; tests can clear it with `SecretKeys.reset/0`.
 After the first lookup, newly loaded declaration modules do not contribute keys
 until `SecretKeys.reset/0` or an application restart rebuilds the set.
+
+Plugin secret keys are collected for all discovered plugins, not only enabled
+plugins. This lets `BullX.Config.put/2` encrypt secret plugin settings before
+the operator enables the plugin.
 
 `BullX.Config.Crypto` encrypts and decrypts secret rows:
 

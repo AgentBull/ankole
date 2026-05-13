@@ -17,6 +17,7 @@ defmodule BullX.Config.Writer do
   def delete(key) when is_binary(key) do
     BullX.Repo.delete_all(from c in BullX.Config.AppConfig, where: c.key == ^key)
     BullX.Config.Cache.refresh(key)
+    BullX.Config.ReqLLM.Bridge.sync_if_req_llm_key(key)
   end
 
   defp do_put(key, stored_value, type) do
@@ -32,6 +33,7 @@ defmodule BullX.Config.Writer do
     case result do
       {:ok, _} ->
         BullX.Config.Cache.refresh(key)
+        BullX.Config.ReqLLM.Bridge.sync_if_req_llm_key(key)
 
       {:error, changeset} ->
         {:error, changeset}

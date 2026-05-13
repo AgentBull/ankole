@@ -31,8 +31,11 @@ defmodule BullX.Config.SecretKeys do
   end
 
   defp build do
+    plugin_modules = plugin_config_modules()
+
     configured_modules()
-    |> Enum.flat_map(&secret_keys_for/1)
+    |> MapSet.union(plugin_modules)
+    |> Enum.flat_map(&secret_keys_for(&1, plugin_modules))
     |> MapSet.new()
   end
 
@@ -50,15 +53,25 @@ defmodule BullX.Config.SecretKeys do
     end
   end
 
-  defp secret_keys_for(mod) when is_atom(mod) do
-    mod_str = Atom.to_string(mod)
+  defp plugin_config_modules do
+    BullX.Plugins.Discovery.config_modules()
+    |> MapSet.new()
+  end
 
-    with true <- String.starts_with?(mod_str, @bullx_prefix),
+  defp secret_keys_for(mod, plugin_modules) when is_atom(mod) do
+    with true <- allowed_module?(mod, plugin_modules),
          {:module, ^mod} <- Code.ensure_loaded(mod),
          true <- function_exported?(mod, :__bullx_secret_keys__, 0) do
       mod.__bullx_secret_keys__()
     else
       _other -> []
     end
+  end
+
+  defp allowed_module?(mod, plugin_modules) when is_atom(mod) do
+    mod_str = Atom.to_string(mod)
+
+    String.starts_with?(mod_str, @bullx_prefix) or
+      MapSet.member?(plugin_modules, mod)
   end
 end

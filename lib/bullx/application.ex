@@ -11,9 +11,11 @@ defmodule BullX.Application do
       BullXWeb.Telemetry,
       BullX.Repo,
       BullX.Config.Supervisor,
+      BullX.Principals.Bootstrap,
       BullX.I18n.Catalog,
       {DNSCluster, query: Application.get_env(:bullx, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: BullX.PubSub},
+      BullX.Plugins.Supervisor,
       BullX.Runtime.Supervisor,
       BullXWeb.Endpoint
     ]
