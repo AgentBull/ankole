@@ -1,4 +1,4 @@
-defmodule BullXAIAgent.LLM.Providers.OpenRouter do
+defmodule BullX.LLM.Providers.OpenRouter do
   @moduledoc """
   BullX OpenRouter provider.
 

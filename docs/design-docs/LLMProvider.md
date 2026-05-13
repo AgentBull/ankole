@@ -1,15 +1,21 @@
 # LLM provider catalog
 
 BullX uses `req_llm` for provider adapters and stores BullX-specific endpoint
-configuration in PostgreSQL. The LLM provider layer resolves an LLM spec string
-such as `"openai_proxy:gpt-4.1-mini"` into a BullX provider row and a model id.
-The caller owns where the spec string is stored.
+configuration in PostgreSQL. `BullX.LLM` is BullX's `req_llm` catalog,
+credential, runtime-settings, and provider-registration boundary. It resolves an
+LLM spec string such as `"openai_proxy:gpt-4.1-mini"` into a BullX provider row
+and a model id. The caller owns where the spec string is stored.
 
-This design is a simplified replacement for the legacy AIAgent LLM provider
-configuration RFC. It keeps the provider catalog, encrypted-at-rest API keys,
-selected `req_llm` runtime settings, and custom provider registration. It does
-not carry forward model aliases, setup UI, Standalone Runtime cleanup, or a
-separate AIAgent supervisor.
+LLM access is a Capability input for Agents, Work, and other future callers. It
+is not an Agent identity model, an AIAgent runtime, or a separate subsystem
+pillar. A future `BullX.AIAgent` Agentic Loop may use `BullX.LLM`, but the LLM
+provider catalog remains the lower-level Capability support layer.
+
+This design is a simplified replacement for a legacy AIAgent-named provider
+configuration RFC. It keeps only the provider catalog, encrypted-at-rest API
+keys, selected `req_llm` runtime settings, and custom provider registration. It
+does not carry forward model aliases, setup UI, Standalone Runtime cleanup, or
+any AIAgent runtime boundary.
 
 ## Goals
 
@@ -27,6 +33,9 @@ separate AIAgent supervisor.
 
 - BullX does not define where Agents, Work, or any other caller stores model
   selections.
+- BullX does not define Agent identity, Agent runtime, Agentic Loop behavior,
+  prompt orchestration, tool execution, memory, Governance, Effects, or Work
+  planning.
 - BullX does not add model aliases, weighted routing, failover, usage
   accounting, cost limits, quotas, or model catalog tables.
 - BullX does not add a management UI or setup wizard in this design.
@@ -95,7 +104,7 @@ string and may contain additional colons.
 Resolving an LLM spec returns a `ResolvedModel`:
 
 ```elixir
-%BullXAIAgent.LLM.ResolvedModel{
+%BullX.LLM.ResolvedModel{
   provider_id: "openai_proxy",
   model_id: "gpt-4.1-mini",
   req_llm_provider: :openai,
@@ -169,12 +178,11 @@ provider without the API key.
 
 ## Runtime shape
 
-`BullXAIAgent.LLM.Catalog` is the public read API. It uses
-`BullXAIAgent.LLM.Catalog.Cache`, a process started under
-`BullX.Runtime.Supervisor` that stores its reconstructible provider list through
-`BullX.Cache`. The design does not introduce a new
-`BullXAIAgent.Supervisor` because no separate AIAgent failure boundary is
-needed for a provider catalog.
+`BullX.LLM.Catalog` is the public read API. It uses
+`BullX.LLM.Catalog.Cache`, a process started under `BullX.Runtime.Supervisor`
+that stores its reconstructible provider list through `BullX.Cache`. The design
+does not introduce an AIAgent supervisor or any AIAgent failure boundary because
+a provider catalog is not an Agent runtime.
 
 The cache loads `llm_providers` at startup and can rebuild itself from
 PostgreSQL after restart. It caches the sorted provider list under one
@@ -188,19 +196,19 @@ logs a warning and starts with an empty list, matching the tolerance used by
 The public API owns these operations:
 
 ```elixir
-BullXAIAgent.LLM.Spec.parse(spec)
-BullXAIAgent.LLM.Spec.parse!(spec)
+BullX.LLM.Spec.parse(spec)
+BullX.LLM.Spec.parse!(spec)
 
-BullXAIAgent.LLM.Catalog.list_providers()
-BullXAIAgent.LLM.Catalog.find_provider(provider_id)
-BullXAIAgent.LLM.Catalog.resolve_provider(provider_id)
-BullXAIAgent.LLM.Catalog.resolve_model_spec(spec)
-BullXAIAgent.LLM.Catalog.resolve_model_spec!(spec)
+BullX.LLM.Catalog.list_providers()
+BullX.LLM.Catalog.find_provider(provider_id)
+BullX.LLM.Catalog.resolve_provider(provider_id)
+BullX.LLM.Catalog.resolve_model_spec(spec)
+BullX.LLM.Catalog.resolve_model_spec!(spec)
 
-BullXAIAgent.LLM.Writer.put_provider(attrs)
-BullXAIAgent.LLM.Writer.update_provider(provider_id, attrs)
-BullXAIAgent.LLM.Writer.delete_provider(provider_id)
-BullXAIAgent.LLM.Writer.refresh_provider(provider_id)
+BullX.LLM.Writer.put_provider(attrs)
+BullX.LLM.Writer.update_provider(provider_id, attrs)
+BullX.LLM.Writer.delete_provider(provider_id)
+BullX.LLM.Writer.refresh_provider(provider_id)
 ```
 
 `resolve_provider/1` returns the endpoint configuration without a model id.
@@ -272,7 +280,7 @@ These `req_llm` settings are not bridged:
 
 BullX owns a small built-in provider registration pass that runs before plugin
 provider registration. The initial built-in override is
-`BullXAIAgent.LLM.Providers.OpenRouter`, registered as `:openrouter` with
+`BullX.LLM.Providers.OpenRouter`, registered as `:openrouter` with
 `override: true`.
 
 The OpenRouter override keeps the upstream `req_llm` provider id so existing
@@ -292,7 +300,7 @@ rebuilds it before resolving provider rows.
 ## Plugin provider registration
 
 Custom `req_llm` provider modules use the BullX plugin extension point named
-`:"bullx_ai_agent.req_llm_provider"`.
+`:"bullx.llm.req_llm_provider"`.
 
 Each extension declaration contains:
 
@@ -303,7 +311,7 @@ Each extension declaration contains:
 
 After `BullX.Plugins.Supervisor` starts, a runtime sync child first registers
 BullX built-in provider overrides and then asks
-`BullX.Plugins.Registry.enabled_extensions_for(:"bullx_ai_agent.req_llm_provider")`
+`BullX.Plugins.Registry.enabled_extensions_for(:"bullx.llm.req_llm_provider")`
 for enabled declarations. For each declaration, BullX validates that the module
 implements `ReqLLM.Provider`, calls `ReqLLM.Providers.register(module)`, and
 checks that the registered provider id matches the extension `id`.
@@ -403,33 +411,35 @@ to the configured BullX provider and model id.
 - Use `BullX.Ecto.UUIDv7` for the new UUID primary key.
 - Use `BullX.Ext.derive_key/3`, `BullX.Ext.aead_encrypt/2`, and
   `BullX.Ext.aead_decrypt/2` for API key storage.
-- Keep caller-owned model-selection storage out of this implementation.
+- Keep caller-owned model-selection storage and Agentic Loop behavior out of
+  this implementation.
 - Keep runtime state reconstructible from PostgreSQL.
-- Do not introduce `BullXAIAgent.Supervisor`.
+- Do not introduce an AIAgent supervisor or AIAgent namespace for the provider
+  catalog.
 - Do not bridge `:custom_providers` through `Application` env.
 - Do not add dependencies.
 
 ### Tasks
 
-1. Add `llm_providers` migration and `BullXAIAgent.LLM.Provider` schema with
+1. Add `llm_providers` migration and `BullX.LLM.Provider` schema with
    database and changeset validation for provider ids, req_llm provider ids,
    URLs, encrypted API key storage, and JSON object provider options.
-2. Add `BullXAIAgent.LLM.Crypto` for per-row API key encryption and decryption.
-3. Add `BullXAIAgent.LLM.Spec`, `ResolvedProvider`, and `ResolvedModel`.
-4. Add `BullXAIAgent.LLM.Catalog.Cache` under `BullX.Runtime.Supervisor`,
-   backed by `BullX.Cache`, and public `BullXAIAgent.LLM.Catalog` read APIs.
-5. Add `BullXAIAgent.LLM.Writer` for put, update, delete, and refresh
+2. Add `BullX.LLM.Crypto` for per-row API key encryption and decryption.
+3. Add `BullX.LLM.Spec`, `ResolvedProvider`, and `ResolvedModel`.
+4. Add `BullX.LLM.Catalog.Cache` under `BullX.Runtime.Supervisor`,
+   backed by `BullX.Cache`, and public `BullX.LLM.Catalog` read APIs.
+5. Add `BullX.LLM.Writer` for put, update, delete, and refresh
    operations that update PostgreSQL before refreshing the cache.
 6. Add `BullX.Config.ReqLLM` and `BullX.Config.ReqLLM.Bridge`, start a boot
    sync child after `BullX.Config.Cache`, and trigger the bridge from
    `BullX.Config.Writer` for `bullx.req_llm.` keys.
-7. Add `BullXAIAgent.LLM.PluginProviders` and start its sync child under
+7. Add `BullX.LLM.PluginProviders` and start its sync child under
    `BullX.Runtime.Supervisor` after the plugin supervisor has started.
-8. Add `BullXAIAgent.LLM.Providers.OpenRouter` and register it as a BullX
+8. Add `BullX.LLM.Providers.OpenRouter` and register it as a BullX
    built-in provider override for `:openrouter`.
 9. Add the `chinese_llm_providers_extra` plugin with `xiaomi_mimo` and
    `volcengine_ark` provider declarations through the
-   `bullx_ai_agent.req_llm_provider` extension point.
+   `bullx.llm.req_llm_provider` extension point.
 10. Add focused tests for spec parsing, provider writes, storage encryption,
    cache-backed resolution, invalid provider options, req_llm bridge behavior,
    built-in provider overrides, and plugin provider registration.

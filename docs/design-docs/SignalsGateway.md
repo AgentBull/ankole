@@ -4,8 +4,8 @@
 
 The Signals Gateway is BullX's transport boundary for external events and
 external channel delivery. It normalizes inbound transport payloads into
-`BullX.Gateway.Signal`, asks the Router to resolve each accepted Signal into
-specific `DeliveryIntent` values, and persists those intents through an
+`BullX.Gateway.Signal`, hands accepted Signals to the configured Router, and
+durably stores the Router's opaque internal delivery requests through an
 Oban-backed Mailbox. It also accepts already-authorized external `Delivery`
 commands and dispatches them through configured adapters with best-effort
 recovery, terminal receipts, and dead-letter replay.
@@ -29,9 +29,9 @@ This design covers the transport and delivery infrastructure owned by
   redacted source provenance;
 - transport security, source gating, moderation hooks, acknowledgement
   boundaries, and provider failure boundaries;
-- `DeliveryIntent`, `delivery_key`, the Oban-backed Mailbox, per-delivery
-  enqueue dedupe, retry, crash recovery, consumer discard requests, and Oban
-  `cancelled` and `discarded` lifecycle mapping;
+- the minimal post-router delivery protocol: `DeliveryIntent`, `delivery_key`,
+  the Oban-backed Mailbox, worker handoff, per-delivery dedupe, retry, and
+  crash recovery;
 - external outbound `Delivery`, content validation, outcomes, retry,
   best-effort PostgreSQL-backed dispatch buffering, stream buffering, terminal
   failure dead letters, and replay;
@@ -49,6 +49,8 @@ This design covers the transport and delivery infrastructure owned by
 - Provide durable at-least-once delivery for resolved internal intents through
   Oban.
 - Keep per-delivery idempotency explicit through `delivery_key`.
+- Keep Mailbox and `ConsumerDelivery` as transport handoff mechanics, not
+  Agent attention, Admission, Work, or Governance mechanics.
 - Let trusted plugins contribute adapters without changing Gateway core for each
   provider.
 - Provide best-effort recovery for accepted outbound deliveries without claiming
@@ -93,7 +95,9 @@ This design covers the transport and delivery infrastructure owned by
   `BullX.Gateway.Mailbox`, `BullX.Gateway.SignalDeliveryWorker`,
   `BullX.Gateway.ConsumerDelivery`, adapter behaviours, source registry,
   source supervisor, outbound delivery structs, best-effort dispatch buffers,
-  stream buffers, receipts, dead letters, and related migrations.
+  stream buffers, receipts, dead letters, and related migrations. Keep the
+  Router's rule model, RouteDecision records, and Agent ingress behavior in
+  Runtime and future Admission designs.
 - Preserve these invariants: the Gateway does not parse business identity, does
   not create Admission, does not turn external actors into Principals, does not
   persist inbound events as Signal rows, and does not store provider secrets,
@@ -130,21 +134,22 @@ meaning only within `{adapter, channel_id}`. `thread_id` is an optional
 adapter-local subdomain.
 
 **Router** resolves a Signal into zero or more `DeliveryIntent` values at
-publish time. This design defines only the Gateway-to-Router boundary.
+publish time. Gateway depends on the callback shape, not the rule model,
+destination ontology, or Agent selection semantics.
 
-**DeliveryIntent** is a resolved internal delivery request. It means "deliver
-this Signal occurrence to this concrete consumer once." It is not an external
-channel message and is not a business Effect.
+**DeliveryIntent** is the Router's opaque internal delivery request. Gateway
+uses it for durable handoff and idempotency. It is not an Admission decision, an
+external channel message, or a business Effect.
 
 **Mailbox** is the Oban-backed durable delivery mailbox. It enqueues resolved
 `DeliveryIntent` values, retries jobs, recovers pending jobs after BEAM crashes,
 dedupes enqueue by delivery, and hands work to
 `BullX.Gateway.SignalDeliveryWorker`.
 
-**ConsumerDelivery** is the worker-facing internal consumption boundary. It
-delivers a `DeliveryIntent` to a concrete consumer such as an Agent runtime,
-workflow, operator inbox, or internal service. Consumer selection is outside
-this design.
+**ConsumerDelivery** is the worker-facing handoff to the configured Runtime
+boundary. Gateway passes the restored `DeliveryIntent` to this boundary and
+maps the result to Oban lifecycle state. Consumer selection and consumer
+meaning are outside this design.
 
 **External Delivery** is a Gateway outbound command to `send`, `edit`, or
 `stream` content to an external channel. A Delivery may correspond to an Effect
@@ -553,33 +558,36 @@ deliverable content, and normalize redacted errors. LLM-aware moderation,
 persona shaping, approval, and human pause/resume belong to upstream Runtime
 and Governance.
 
-## DeliveryIntent
+## Post-router delivery boundary
 
-`BullX.Gateway.DeliveryIntent` is the Router's publish-time output and the only
-input accepted by the Mailbox. It must be concrete enough that the Mailbox and
-worker do not route.
+Gateway owns the durable transport handoff after Router resolution. That
+handoff exists so an adapter can acknowledge an external occurrence only after
+BullX has either rejected it or durably accepted every resolved internal
+delivery. It is not an Admission layer: Gateway does not decide which Agent may
+pay attention, which Work should exist, or which external Effect may happen.
 
-| Field | Requirement |
-| --- | --- |
-| `schema_version` | Current value is `1`; used for Oban args compatibility. |
-| `delivery_key` | Stable, non-empty, JSON-storable Mailbox idempotency boundary. |
-| `signal_occurrence_key` | Copied from Signal top-level `bullxoccurkey`. |
-| `route_id` | Routing rule id that produced this intent. |
-| `consumer_key` | Canonical concrete target key, for example `llm_agent:default`. |
-| `delivery_kind` | This design uses `signal_delivery`. |
-| `queue` | Gateway-owned allowlisted Oban queue. Router may choose within the allowlist. |
-| `priority` | Oban priority. Router may choose. |
-| `max_attempts` | Oban max attempts. Router may choose. |
-| `consumer` | JSON-neutral consumer descriptor, for example `%{"type" => "llm_agent", "id" => "default"}`. |
-| `signal` | JSON-neutral `BullX.Gateway.Signal.dump(signal)` map. |
-| `metadata` | JSON-neutral, non-secret hints. |
+Gateway core depends on one Router callback:
 
-`route_id` identifies the routing rule. `consumer_key` identifies the concrete
-delivery target. `delivery_key` identifies one concrete delivery. If one route
-fans out to multiple consumers, each consumer must have a distinct
-`consumer_key` and `delivery_key`.
+```elixir
+resolve(BullX.Gateway.Signal.t()) ::
+  {:ok, [BullX.Gateway.DeliveryIntent.t()]} | {:error, term()}
+```
 
-The canonical `delivery_key` input is:
+The Router owns rule matching, fanout, destination selection, and consumer
+descriptor construction outside this design. Gateway validates only the
+returned delivery shape, the Gateway-owned queue allowlist, and JSON-safe
+payload constraints before persisting jobs.
+
+`BullX.Gateway.DeliveryIntent` is the opaque post-router delivery request
+accepted by the Mailbox. It contains a schema version, `delivery_key`,
+`signal_occurrence_key`, `route_id`, `consumer_key`, `delivery_kind`, queue
+options, an opaque `consumer` descriptor, the serialized Signal, and non-secret
+metadata. Gateway treats `consumer` as data for the configured
+`ConsumerDelivery` implementation. Gateway must not parse it for Agent,
+Admission, Work, Governance, or LLM behavior.
+
+`delivery_key` is the per-delivery idempotency boundary. The canonical input
+is:
 
 ```text
 signal_occurrence_key + route_id + consumer_key + delivery_kind
@@ -589,52 +597,22 @@ The implementation may encode that tuple as deterministic JSON and hash it
 with `BullX.Ext.generic_hash/1`. It must not use Elixir term inspection output
 as the canonical encoding.
 
-## Router boundary
-
-Gateway core depends on this minimal Router boundary:
-
-```elixir
-resolve(BullX.Gateway.Signal.t()) ::
-  {:ok, [BullX.Gateway.DeliveryIntent.t()]} | {:error, term()}
-```
-
-Router owns rule matching, fanout, permission-aware target selection, and
-consumer selection. The rule language, route registry, priority model, fanout
-strategy, permission checks, LLM routing policy, and Agent selection are outside
-this design.
-
-Mailbox does not own routing. It must not match Signal type, decide policy,
-call an LLM, or directly choose consumers.
-
-Router return semantics:
+Route-at-publish semantics are intentionally simple:
 
 - `{:ok, []}` means the publish is accepted and creates no internal delivery.
-- `{:error, reason}`, process unavailability, rule storage unavailability, or
-  timeout maps to `:router_unavailable`.
-- Non-list returns, invalid `DeliveryIntent` values, missing required fields,
-  duplicate required keys, or a queue outside the Gateway allowlist map to
-  `:router_contract`.
+- Routing applies only at publish time. Already enqueued jobs do not re-route
+  when route configuration changes.
+- If the same external occurrence arrives again, Gateway calls Router again and
+  Mailbox suppresses only duplicate concrete deliveries inside the dedupe
+  window.
+- Cancelling pending delivery when a route is disabled is an operator,
+  Runtime, or Governance concern, not a Gateway Mailbox concern.
 
-Route-at-publish semantics:
+`BullX.Gateway.Mailbox` persists resolved delivery intents as Oban jobs. It
+does not route Signals, match patterns, maintain subscriptions, replay
+historical Signals, create route decisions, or create Admission records.
 
-- Routing applies only at the publish moment.
-- Already enqueued `DeliveryIntent` jobs do not re-route at execution time.
-- If a route is disabled after enqueue, the already enqueued intent still
-  executes by default.
-- Cancelling pending delivery when a route is disabled is an operator or
-  governance feature, not a Mailbox responsibility.
-- If the same external occurrence arrives again, Gateway publish resolves it
-  against current routing rules. The Mailbox suppresses only duplicate concrete
-  deliveries inside the dedupe window.
-
-## Oban-backed Mailbox
-
-`BullX.Gateway.Mailbox` is the durable mailbox for resolved delivery intents.
-It uses Oban for persistence, retry, crash recovery, and lifecycle state. It
-does not route Signals, match patterns, maintain subscriptions, or replay
-historical Signals.
-
-Mailbox API:
+Mailbox exposes three operations:
 
 ```elixir
 enqueue(BullX.Gateway.DeliveryIntent.t()) ::
@@ -647,147 +625,35 @@ to_multi(Ecto.Multi.t(), name :: atom(), [BullX.Gateway.DeliveryIntent.t()]) ::
   Ecto.Multi.t()
 ```
 
-`enqueue_all/1` is the Gateway publish call point, but it must not promise
-`Oban.insert_all/2`. Under Oban Basic Engine, bulk insert does not support
-per-job uniqueness checks. The default implementation should build Oban insert
-changesets one job at a time. A future engine that supports bulk unique jobs may
-replace this implementation without changing the Mailbox semantics.
-
-`to_multi/3` is the composable API. It appends Oban insert steps for a set of
-intents to the caller-provided `Ecto.Multi` and normalizes duplicate enqueue to
-success. `enqueue_all/1` is a convenience wrapper that runs
-`to_multi(Ecto.Multi.new(), :mailbox, intents)` in `Repo.transaction/1`.
-Terminal outcome recording and other callers that already own a transaction
-must use `to_multi/3` instead of starting a nested transaction inside Mailbox.
-
-`enqueue_all/1` is all-or-nothing. `{:ok, :duplicate, job}` and
-`{:ok, :enqueued, job}` both count as success. Any non-duplicate insert error
-rolls back the transaction and makes Gateway publish return
-`InboundError.class = :store_unavailable`. An empty intent list returns
-`{:ok, []}`.
+`enqueue_all/1` is all-or-nothing for Gateway publish. Duplicate enqueue counts
+as success; any non-duplicate insert error rolls back the batch and maps to
+`InboundError.class = :store_unavailable`. `to_multi/3` is the composable API
+for terminal outcome recording and other callers that already own a
+transaction.
 
 All Mailbox jobs use `BullX.Gateway.SignalDeliveryWorker`. Router may choose
-`consumer`, allowlisted `queue`, `priority`, and `max_attempts`, but not the
-worker module. Every Gateway-owned queue must be controlled by QueueGate so a
-Router-selected queue cannot bypass Runtime or consumer readiness. QueueGate
-does not wait for Router readiness because Mailbox jobs already contain
-resolved `DeliveryIntent` values and do not call Router during execution.
+the opaque consumer descriptor, allowlisted queue, priority, and max attempts,
+but not the worker module. QueueGate controls Gateway-owned queues based on
+Runtime and consumer readiness. QueueGate does not wait for Router readiness
+because already persisted jobs contain resolved delivery intents.
 
-The minimal Oban job args shape is:
+Mailbox dedupe is finite and per delivery. Oban uniqueness is based on
+`delivery_key`, not the whole args map, `Signal.id`, trace id, schema version,
+queue, priority, or metadata. Stronger occurrence suppression belongs to the
+adapter before publish or to a separate product design.
 
-```elixir
-%{
-  "schema_version" => 1,
-  "delivery_key" => delivery_key,
-  "signal_occurrence_key" => signal_occurrence_key,
-  "route_id" => route_id,
-  "consumer_key" => consumer_key,
-  "delivery_kind" => "signal_delivery",
-  "consumer" => consumer,
-  "signal" => BullX.Gateway.Signal.dump(signal),
-  "metadata" => metadata
-}
-```
+Mailbox guarantees at-least-once delivery of resolved intents, BEAM crash
+recovery for pending jobs, Oban retry, finite duplicate suppression by
+`delivery_key`, and eventual completed, cancelled, or discarded job state.
+Mailbox does not guarantee consumer side-effect exactly-once, route replay,
+historical Signal replay, subscription checkpoints, occurrence-level permanent
+dedupe, or per-delivery permanent dedupe.
 
-Args contain only normalized, JSON-serializable, schema-versioned data. Args
-must not contain large blobs, raw webhook bodies, file handles, unstable Elixir
-structs, tokens, signature secrets, OAuth codes, or private adapter config.
-
-### Mailbox dedupe
-
-Mailbox dedupe is per delivery, not per Signal.
-
-Oban uniqueness must be based only on `delivery_key`. The whole args map,
-`Signal.id`, trace id, schema version, queue, priority, and metadata must not
-participate in the idempotency boundary.
-
-The semantic target is:
-
-```elixir
-unique: [
-  keys: [:delivery_key],
-  fields: [:worker, :args],
-  states: :all,
-  period: dedupe_window_seconds
-]
-```
-
-Concrete code may vary by Oban version, but the semantics must not change:
-`delivery_key` is the uniqueness boundary.
-
-`states: :all` means available, scheduled, executing, retryable, completed,
-cancelled, and discarded jobs participate in dedupe during the window.
-`dedupe_window_seconds` must be finite. The Mailbox does not provide permanent
-per-delivery dedupe because provider retries are usually concentrated in a
-short time window, and binding semantics to Oban retention and pruning would be
-misleading. After the window expires or the job is pruned, the same
-`delivery_key` may be enqueued again. Stronger occurrence suppression belongs
-to the adapter before publish or to a separate occurrence dedupe table defined
-by a product design.
-
-### Mailbox guarantees
-
-Mailbox lifecycle terms:
-
-- Consumer `{:discard, reason}` means "stop retrying this delivery." The worker
-  maps it to Oban `{:cancel, reason}` and the job enters `cancelled`.
-- Consumer `{:retry, reason}`, worker exceptions, exits, and throws follow Oban
-  failure retry. When attempts are exhausted, the job enters `discarded`.
-- In this document, consumer discard refers to the BullX consumer contract. It
-  does not mean the Oban `discarded` job state.
-
-Mailbox guarantees:
-
-- Resolved `DeliveryIntent` values are persisted as Oban jobs.
-- Pending and retryable jobs recover after BEAM crashes.
-- Retry follows Oban attempts and backoff.
-- Duplicate enqueue inside the dedupe window is suppressed by `delivery_key`.
-- Jobs eventually reach completed, cancelled, or discarded state.
-
-Mailbox does not guarantee:
-
-- consumer side-effect exactly-once;
-- route rule replay;
-- historical Signal replay;
-- subscription checkpoints;
-- occurrence-level permanent dedupe;
-- per-delivery permanent dedupe.
-
-Consumers that perform non-idempotent side effects must use `delivery_key` or a
-business id at their own boundary. A worker can crash after calling the consumer
-but before returning `:ok`; Oban retry after that crash is normal at-least-once
-delivery behavior.
-
-### SignalDeliveryWorker
-
-`BullX.Gateway.SignalDeliveryWorker` restores `DeliveryIntent` from Oban job
-args, calls the consumer delivery boundary, and maps BullX consumer results to
-Oban lifecycle values. It does not route, parse route policy, call inbound
-adapter parsers, or execute LLM routing policy.
-
-Consumer delivery contract:
-
-```elixir
-deliver(BullX.Gateway.DeliveryIntent.t()) ::
-  :ok | {:retry, reason} | {:discard, reason}
-```
-
-Worker mapping:
-
-```elixir
-:ok ->
-  :ok
-
-{:retry, reason} ->
-  {:error, reason}
-
-{:discard, reason} ->
-  {:cancel, reason}
-```
-
-Unhandled exception, exit, or throw follows Oban failure handling. The job
-retries while attempts remain and enters Oban `discarded` after attempts are
-exhausted.
+`BullX.Gateway.SignalDeliveryWorker` restores the `DeliveryIntent`, calls the
+configured `BullX.Gateway.ConsumerDelivery`, and maps `:ok`,
+`{:retry, reason}`, and `{:discard, reason}` to Oban lifecycle results. The
+worker does not route, parse route policy, call inbound adapter parsers, execute
+LLM policy, or inspect Agent attention state.
 
 ## Adapter source configuration
 

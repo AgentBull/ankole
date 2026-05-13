@@ -1,4 +1,4 @@
-defmodule BullXAIAgent.LLM.ProviderRegistry do
+defmodule BullX.LLM.ProviderRegistry do
   @moduledoc false
 
   @spec fetch(String.t()) ::

@@ -1,9 +1,9 @@
-defmodule BullXAIAgent.LLM.PluginProvidersTest do
+defmodule BullX.LLM.PluginProvidersTest do
   use ExUnit.Case, async: false
 
   alias BullX.Plugins.Extension
-  alias BullXAIAgent.LLM.PluginProviders
-  alias BullXAIAgent.LLM.Providers.OpenRouter
+  alias BullX.LLM.PluginProviders
+  alias BullX.LLM.Providers.OpenRouter
 
   defmodule XiaomiMimo do
     use ReqLLM.Provider,
@@ -77,7 +77,7 @@ defmodule BullXAIAgent.LLM.PluginProvidersTest do
   defp extension(id, module, opts \\ []) do
     %Extension{
       plugin_id: "chinese-llm-providers-extra",
-      point: :"bullx_ai_agent.req_llm_provider",
+      point: :"bullx.llm.req_llm_provider",
       id: id,
       module: module,
       opts: opts

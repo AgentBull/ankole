@@ -142,9 +142,9 @@ An Agent Principal is a durable work subject with identity, responsibility,
 memory, capabilities, permissions, outbound identity, and KPIs. It is not
 automatically an LLM process, a chat bot, or a long-lived BEAM process.
 
-The initial `agents.type` value is `agentic_loop`. It represents the draft's
-`AIAgent:AgenticLoop`: an Agent that processes inputs through an LLM reasoning
-loop, tool calls, context, state, and termination conditions.
+The initial `agents.type` value is `agentic_loop`. It represents an Agent that
+processes inputs through an LLM reasoning loop, tool calls, context, state, and
+termination conditions.
 
 `agents.profile` is JSONB but not an untyped free-form bag. Each Agent type owns
 an Elixir profile caster and validator. The `agentic_loop` profile requires:

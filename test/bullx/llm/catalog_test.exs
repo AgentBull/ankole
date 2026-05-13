@@ -1,21 +1,21 @@
-defmodule BullXAIAgent.LLM.CatalogTest do
+defmodule BullX.LLM.CatalogTest do
   use BullX.DataCase, async: false
 
-  alias BullXAIAgent.LLM.{Catalog, PluginProviders, Provider, Writer}
-  alias BullXAIAgent.LLM.Providers.OpenRouter
+  alias BullX.LLM.{Catalog, PluginProviders, Provider, Writer}
+  alias BullX.LLM.Providers.OpenRouter
 
   setup do
     ReqLLM.Providers.initialize()
     PluginProviders.sync_builtin_extensions()
 
-    cache_pid = GenServer.whereis(BullXAIAgent.LLM.Catalog.Cache)
+    cache_pid = GenServer.whereis(BullX.LLM.Catalog.Cache)
     Ecto.Adapters.SQL.Sandbox.allow(BullX.Repo, self(), cache_pid)
-    BullXAIAgent.LLM.Catalog.Cache.refresh_all()
+    BullX.LLM.Catalog.Cache.refresh_all()
 
     on_exit(fn ->
       ReqLLM.Providers.initialize()
       PluginProviders.sync_builtin_extensions()
-      BullXAIAgent.LLM.Catalog.Cache.refresh_all()
+      BullX.LLM.Catalog.Cache.refresh_all()
     end)
 
     :ok

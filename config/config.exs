@@ -65,8 +65,8 @@ config :bullx, :gateway,
   stream_buffer_ttl_seconds: 86_400,
   stream_retention_interval_ms: 60_000,
   stream_retention_batch_size: 500,
-  router: BullX.Gateway.Router.Unavailable,
-  consumer_delivery: BullX.Gateway.ConsumerDelivery.Unavailable
+  router: BullX.Runtime.SignalRouting.Router,
+  consumer_delivery: BullX.Runtime.ConsumerDelivery
 
 # I18n / Localize bootstrap. `BullX.I18n.Catalog` owns the per-key
 # translation dictionaries under `priv/locales/*.toml`; Localize is

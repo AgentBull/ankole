@@ -1,4 +1,4 @@
-defmodule BullXAIAgent.LLM.Catalog do
+defmodule BullX.LLM.Catalog do
   @moduledoc """
   Resolves BullX LLM provider rows and caller-owned LLM spec strings.
 
@@ -7,7 +7,7 @@ defmodule BullXAIAgent.LLM.Catalog do
   request options.
   """
 
-  alias BullXAIAgent.LLM.{
+  alias BullX.LLM.{
     Catalog.Cache,
     Crypto,
     Provider,

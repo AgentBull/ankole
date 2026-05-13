@@ -6,6 +6,7 @@ defmodule BullX.Gateway.InboundInput do
   @event_types ~w(message message_edited message_recalled reaction action slash_command trigger)
   @duplex_types @event_types -- ["trigger"]
   @content_kinds ~w(text image audio video file card)
+  @routing_fact_key ~r/\A[a-z][a-z0-9_.:-]{0,127}\z/
 
   @spec normalize(SourceConfig.t(), map()) :: {:ok, map()} | {:error, InboundError.t()}
   def normalize(%SourceConfig{} = source, input) when is_map(input) do
@@ -19,6 +20,7 @@ defmodule BullX.Gateway.InboundInput do
          {:ok, thread_id} <- thread_id(input),
          {:ok, refs} <- refs(input),
          {:ok, provenance} <- object(input, "provenance"),
+         {:ok, routing_facts} <- routing_facts(input),
          duplex <- event["type"] in @duplex_types,
          {:ok, reply_channel} <- reply_channel(input, source, scope_id, thread_id, duplex) do
       data =
@@ -30,7 +32,8 @@ defmodule BullX.Gateway.InboundInput do
           "scope_id" => scope_id,
           "thread_id" => thread_id,
           "refs" => refs,
-          "provenance" => provenance
+          "provenance" => provenance,
+          "routing_facts" => routing_facts
         }
         |> maybe_put("reply_channel", reply_channel)
 
@@ -224,6 +227,44 @@ defmodule BullX.Gateway.InboundInput do
   end
 
   defp ref(_ref), do: :error
+
+  defp routing_facts(input) do
+    case Map.get(input, "routing_facts", %{}) do
+      %{} = facts ->
+        facts
+        |> Enum.map(&routing_fact/1)
+        |> collect_values(:routing_facts)
+        |> case do
+          {:ok, pairs} -> {:ok, Map.new(pairs)}
+          {:error, reason} -> {:error, reason}
+        end
+
+      _other ->
+        {:error, :invalid_routing_facts}
+    end
+  end
+
+  defp routing_fact({key, value}) when is_binary(key) do
+    with true <- Regex.match?(@routing_fact_key, key),
+         {:ok, value} <- routing_fact_value(value) do
+      {:ok, {key, value}}
+    else
+      _other -> :error
+    end
+  end
+
+  defp routing_fact(_pair), do: :error
+
+  defp routing_fact_value(value) when is_binary(value) and value != "", do: {:ok, value}
+
+  defp routing_fact_value([_ | _] = values) do
+    case Enum.all?(values, &(is_binary(&1) and &1 != "")) do
+      true -> {:ok, values}
+      false -> :error
+    end
+  end
+
+  defp routing_fact_value(_value), do: :error
 
   defp reply_channel(input, source, scope_id, thread_id, true) do
     with {:ok, reply_channel} <- object(input, "reply_channel"),

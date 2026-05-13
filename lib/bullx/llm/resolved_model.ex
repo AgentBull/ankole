@@ -1,4 +1,4 @@
-defmodule BullXAIAgent.LLM.ResolvedModel do
+defmodule BullX.LLM.ResolvedModel do
   @moduledoc false
 
   @enforce_keys [:provider_id, :model_id, :req_llm_provider, :model_input, :opts]

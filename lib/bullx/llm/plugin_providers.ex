@@ -1,4 +1,4 @@
-defmodule BullXAIAgent.LLM.PluginProviders do
+defmodule BullX.LLM.PluginProviders do
   @moduledoc """
   Registers BullX-owned and plugin-owned `req_llm` providers.
 
@@ -9,14 +9,14 @@ defmodule BullXAIAgent.LLM.PluginProviders do
 
   alias BullX.Plugins.Extension
 
-  @extension_point :"bullx_ai_agent.req_llm_provider"
+  @extension_point :"bullx.llm.req_llm_provider"
 
   @builtin_extensions [
     %Extension{
       plugin_id: "bullx",
       point: @extension_point,
       id: "openrouter",
-      module: BullXAIAgent.LLM.Providers.OpenRouter,
+      module: BullX.LLM.Providers.OpenRouter,
       opts: [override: true]
     }
   ]

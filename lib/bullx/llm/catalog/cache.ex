@@ -1,10 +1,10 @@
-defmodule BullXAIAgent.LLM.Catalog.Cache do
+defmodule BullX.LLM.Catalog.Cache do
   @moduledoc false
 
   use GenServer
   require Logger
 
-  alias BullXAIAgent.LLM.Provider
+  alias BullX.LLM.Provider
 
   @providers_key "llm:providers"
 
@@ -67,7 +67,7 @@ defmodule BullXAIAgent.LLM.Catalog.Cache do
 
       {:error, reason} ->
         Logger.warning(
-          "BullXAIAgent.LLM.Catalog.Cache: failed to load from database, starting with empty cache: #{inspect(reason)}"
+          "BullX.LLM.Catalog.Cache: failed to load from database, starting with empty cache: #{inspect(reason)}"
         )
 
         clear_providers()
@@ -91,7 +91,7 @@ defmodule BullXAIAgent.LLM.Catalog.Cache do
     else
       {:error, reason} ->
         Logger.warning(
-          "BullXAIAgent.LLM.Catalog.Cache: failed to load from database after cache miss: #{inspect(reason)}"
+          "BullX.LLM.Catalog.Cache: failed to load from database after cache miss: #{inspect(reason)}"
         )
 
         clear_providers()

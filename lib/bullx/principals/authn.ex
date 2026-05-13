@@ -46,6 +46,7 @@ defmodule BullX.Principals.AuthN do
         |> Repo.update()
       end
     end)
+    |> refresh_signal_routing_after_agent_status_change()
   end
 
   def update_principal_status(_principal_or_id, _status), do: {:error, :invalid_status}
@@ -333,6 +334,13 @@ defmodule BullX.Principals.AuthN do
   defp ensure_status_change_allowed(%Principal{} = principal, :disabled) do
     AuthZ.ensure_can_disable_principal(principal)
   end
+
+  defp refresh_signal_routing_after_agent_status_change({:ok, %Principal{type: :agent}} = result) do
+    BullX.Runtime.SignalRouting.refresh_cache()
+    result
+  end
+
+  defp refresh_signal_routing_after_agent_status_change(result), do: result
 
   defp match_unbound_channel(input) do
     case evaluate_match_rules(input) do

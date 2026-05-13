@@ -1,4 +1,4 @@
-defmodule BullXAIAgent.LLM.Provider do
+defmodule BullX.LLM.Provider do
   use Ecto.Schema
   import Ecto.Changeset
 

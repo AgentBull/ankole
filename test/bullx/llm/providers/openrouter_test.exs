@@ -1,7 +1,7 @@
-defmodule BullXAIAgent.LLM.Providers.OpenRouterTest do
+defmodule BullX.LLM.Providers.OpenRouterTest do
   use ExUnit.Case, async: true
 
-  alias BullXAIAgent.LLM.Providers.OpenRouter
+  alias BullX.LLM.Providers.OpenRouter
 
   test "provider schema adds BullX OpenRouter reasoning options" do
     schema = OpenRouter.provider_schema().schema

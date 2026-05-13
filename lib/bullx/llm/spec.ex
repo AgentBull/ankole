@@ -1,4 +1,4 @@
-defmodule BullXAIAgent.LLM.Spec do
+defmodule BullX.LLM.Spec do
   @moduledoc false
 
   @provider_id_format ~r/^[a-z][a-z0-9_-]{0,62}$/

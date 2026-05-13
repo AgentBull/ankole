@@ -1,7 +1,7 @@
-defmodule BullXAIAgent.LLM.Writer do
+defmodule BullX.LLM.Writer do
   @moduledoc false
 
-  alias BullXAIAgent.LLM.{Catalog, Crypto, Provider, ProviderRegistry}
+  alias BullX.LLM.{Catalog, Crypto, Provider, ProviderRegistry}
 
   @known_keys ~w(provider_id req_llm_provider base_url api_key encrypted_api_key provider_options)a
   @key_lookup @known_keys |> Map.new(&{Atom.to_string(&1), &1})

@@ -1,7 +1,7 @@
-defmodule BullXAIAgent.LLM.SpecTest do
+defmodule BullX.LLM.SpecTest do
   use ExUnit.Case, async: true
 
-  alias BullXAIAgent.LLM.Spec
+  alias BullX.LLM.Spec
 
   test "parses provider id and model id from the first colon" do
     assert {:ok, %Spec{provider_id: "openai_proxy", model_id: "gpt-4.1-mini"}} =

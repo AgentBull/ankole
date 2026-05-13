@@ -1,4 +1,4 @@
-defmodule BullXAIAgent.LLM.Crypto do
+defmodule BullX.LLM.Crypto do
   @moduledoc false
 
   @sub_key_prefix "llm_providers/"

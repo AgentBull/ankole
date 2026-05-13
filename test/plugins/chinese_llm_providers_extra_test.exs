@@ -2,25 +2,25 @@ defmodule ChineseLLMProvidersExtraTest do
   use BullX.DataCase, async: false
 
   alias BullX.Plugins.Discovery
-  alias BullXAIAgent.LLM.{Catalog, PluginProviders, Provider, Writer}
+  alias BullX.LLM.{Catalog, PluginProviders, Provider, Writer}
   alias ChineseLLMProvidersExtra.Providers.{VolcengineArk, XiaomiMiMo}
 
   @plugin_id "chinese_llm_providers_extra"
-  @extension_point :"bullx_ai_agent.req_llm_provider"
+  @extension_point :"bullx.llm.req_llm_provider"
   @token_plan_base_url "https://token-plan-cn.xiaomimimo.com/anthropic"
 
   setup do
     ReqLLM.Providers.initialize()
     PluginProviders.sync_builtin_extensions()
 
-    cache_pid = GenServer.whereis(BullXAIAgent.LLM.Catalog.Cache)
+    cache_pid = GenServer.whereis(BullX.LLM.Catalog.Cache)
     Ecto.Adapters.SQL.Sandbox.allow(BullX.Repo, self(), cache_pid)
-    BullXAIAgent.LLM.Catalog.Cache.refresh_all()
+    BullX.LLM.Catalog.Cache.refresh_all()
 
     on_exit(fn ->
       ReqLLM.Providers.initialize()
       PluginProviders.sync_builtin_extensions()
-      BullXAIAgent.LLM.Catalog.Cache.refresh_all()
+      BullX.LLM.Catalog.Cache.refresh_all()
     end)
 
     {:ok, plugin} = Discovery.discover_app(:chinese_llm_providers_extra)

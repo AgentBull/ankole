@@ -82,7 +82,7 @@ activation, and login auth codes. Principal status is currently `active` or
 `disabled`; only active Principals can act as business subjects.
 
 The historical
-[`BullXAccounts AuthZ` RFC](https://github.com/AgentBull/bullx/blob/main/rfcs/plans/0010_Accounts_AuthZ.md)
+[`BullXAccounts AuthZ` RFC](https://github.com/AgentBull/bullx/blob/7cff3d3306b712c8b20c413ceb8aeb0dcde5bcf3/rfcs/plans/0010_Accounts_AuthZ.md)
 is a mechanics reference, not an architecture to preserve. This design keeps
 the useful parts: groups, resource/action grants, Cedar request conditions,
 fail-closed semantics, and bootstrap admin handoff. It replaces user-specific

@@ -10,8 +10,9 @@ defmodule BullX.Runtime.Supervisor do
   @impl true
   def init(:ok) do
     children = [
-      BullXAIAgent.LLM.PluginProviders,
-      BullXAIAgent.LLM.Catalog.Cache
+      BullX.Runtime.SignalRouting.Cache,
+      BullX.LLM.PluginProviders,
+      BullX.LLM.Catalog.Cache
     ]
 
     Supervisor.init(children, strategy: :one_for_one)

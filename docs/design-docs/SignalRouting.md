@@ -77,7 +77,7 @@ The design supports these routing stories without special-case topology:
 
 | Story | Route expression |
 | --- | --- |
-| Feishu quant bot duplex messages go to `Quant`. | Match the Feishu configured source and message event; deliver to the `Quant` Agent with `input_mode = interactive`. |
+| Feishu quant bot duplex messages go to `Quant`. | Match the Feishu configured source and message event; deliver to the `Quant` Agent. |
 | Feishu, Telegram, and Discord support bots all go to `Support`. | Use one route rule per configured source; each delivers to the same `Support` Agent. |
 | GitHub webhook events go to a DAG workflow. | Match the GitHub source and event name; deliver to the workflow Agent Principal. |
 | GitHub payload details select a specialized Agent. | The adapter projects safe routing facts from the payload; route rules match those facts. |
@@ -187,7 +187,7 @@ authorization beyond active Agent destination eligibility. Receive-permission
 checks, richer conditions, and Effect authorization belong to later Governance
 or Agent ingress designs.
 
-`BullXAIAgent.LLM` resolves caller-owned LLM specs such as
+`BullX.LLM` resolves caller-owned LLM specs such as
 `"openai_proxy:gpt-4.1-mini"`. Signal routing never resolves an LLM provider
 while matching rules. Agent runtime code later reads Agent profile data and
 calls the LLM catalog when it actually needs reasoning.
@@ -257,8 +257,6 @@ RouteDecision answers these questions:
 - Which destination did the route choose?
 - Did the route deliver or drop?
 - Which routing facts were used?
-- For Agent delivery, which input mode should Agent ingress use?
-
 RouteDecision is not authorization to perform external effects. It is an input
 to Agent ingress, Agent attention, Work, Intent, and Governance.
 
@@ -299,7 +297,7 @@ returns `{:ok, []}` and creates no internal delivery. An explicit blackhole
 route creates a durable drop decision for operator explanation and can override
 broader delivery rules by priority.
 
-### Route action and input mode
+### Route action
 
 Route action states what the Router decided to do:
 
@@ -307,17 +305,6 @@ Route action states what the Router decided to do:
 | --- | --- |
 | `deliver_agent` | Deliver the Signal to one Agent destination. |
 | `drop_signal` | Explicitly drop the Signal through the blackhole sink. |
-
-Agent delivery may include an input mode:
-
-| Mode | Meaning |
-| --- | --- |
-| `silent` | The Agent may process internally but must not propose a public reply to the originating surface from this route alone. |
-| `interactive` | The Agent may propose a reply or follow-up Intent, subject to Governance. |
-
-Input mode is a delivery hint from routing to Agent ingress. It is not an
-Admission outcome. Agent attention may still ignore, defer, admit, or escalate
-the routed Signal according to Agent-runtime policy.
 
 ## System shape
 
@@ -564,7 +551,6 @@ A `RouteIntent` uses these delivery fields:
 | `consumer.destination_key` | Stable destination key for idempotency and explanation. |
 | `consumer.agent_principal_id` | Target Agent Principal id for `deliver_agent`; nil for sink actions. |
 | `consumer.sink_kind` | `blackhole` for `drop_signal`, nil for Agent delivery. |
-| `consumer.input_mode` | Agent input mode for `deliver_agent`; nil for sink actions. |
 | `consumer.reason` | Stable reason code. |
 
 `route_id` uses the immutable rule UUID, not the mutable rule key. `rule_key`
@@ -648,15 +634,12 @@ Add native PostgreSQL enums:
 CREATE TYPE signal_route_action AS ENUM
   ('deliver_agent', 'drop_signal');
 
-CREATE TYPE signal_agent_input_mode AS ENUM
-  ('silent', 'interactive');
-
 CREATE TYPE signal_sink_kind AS ENUM
   ('blackhole');
 ```
 
-These sets are closed for the first implementation. Adding a new route action,
-input mode, or sink kind requires a migration and matching Ecto enum update.
+These sets are closed for the first implementation. Adding a new route action
+or sink kind requires a migration and matching Ecto enum update.
 
 ### `signal_route_rules`
 
@@ -685,7 +668,6 @@ constraints, and will be queried and audited.
 | `route_action` | `signal_route_action` | Required. |
 | `agent_principal_id` | `uuid` | Required only for `deliver_agent`; FK to `agents(principal_id)`. |
 | `sink_kind` | `signal_sink_kind` | `blackhole` for `drop_signal`, null for `deliver_agent`. |
-| `input_mode` | `signal_agent_input_mode` | Required for `deliver_agent`, null for sink actions. |
 | `reason` | `text` | Required stable reason code. |
 | `metadata` | `jsonb` | Required object, default `{}`. |
 | `inserted_at`, `updated_at` | `utc_datetime_usec` | Required. |
@@ -699,9 +681,8 @@ Database constraints:
 - `reason ~ '^[a-z][a-z0-9_.:-]{0,127}$'`;
 - one route target combination holds:
   `(route_action = 'deliver_agent' AND agent_principal_id IS NOT NULL AND
-  sink_kind IS NULL AND input_mode IS NOT NULL) OR (route_action =
-  'drop_signal' AND agent_principal_id IS NULL AND sink_kind = 'blackhole' AND
-  input_mode IS NULL)`;
+  sink_kind IS NULL) OR (route_action = 'drop_signal' AND
+  agent_principal_id IS NULL AND sink_kind = 'blackhole')`;
 - at least one non-`signal_type` match column is non-null, unless the route is a
   broad inbound Agent route with `signal_type =
   'com.agentbull.x.inbound.received'`, `route_action = 'deliver_agent'`, and all
@@ -738,7 +719,6 @@ does not add a separate `routing_facts` column to `signal_route_decisions`.
 | `route_action` | `signal_route_action` | Required. |
 | `agent_principal_id` | `uuid` | Nullable FK to `agents(principal_id)`. |
 | `sink_kind` | `signal_sink_kind` | Nullable sink kind. |
-| `input_mode` | `signal_agent_input_mode` | Required for Agent delivery, null for sink actions. |
 | `rule_id` | `uuid` | Nullable FK to `signal_route_rules(id)`. |
 | `rule_key` | `text` | Required snapshot of the matched rule key. |
 | `reason` | `text` | Required stable reason code. |
@@ -763,9 +743,8 @@ Indexes and constraints:
 - `reason ~ '^[a-z][a-z0-9_.:-]{0,127}$'`;
 - one route target combination holds:
   `(route_action = 'deliver_agent' AND agent_principal_id IS NOT NULL AND
-  sink_kind IS NULL AND input_mode IS NOT NULL) OR (route_action =
-  'drop_signal' AND agent_principal_id IS NULL AND sink_kind = 'blackhole' AND
-  input_mode IS NULL)`;
+  sink_kind IS NULL) OR (route_action = 'drop_signal' AND
+  agent_principal_id IS NULL AND sink_kind = 'blackhole')`;
 - `route_action = 'deliver_agent' OR content_snapshot IS NULL`.
 
 `rule_id` uses `ON DELETE SET NULL` so historical decisions survive rule
@@ -908,11 +887,11 @@ Sink decisions must not construct or persist `content_snapshot`. This is a
 privacy and semantic boundary: a route record explaining that BullX dropped a
 Signal must not contain the content that no Agent received.
 
-Telemetry may include rule id, rule key, route action, destination key, input
-mode, sink kind, adapter, channel id, scope id, thread id, Signal id, Signal
-occurrence key, Agent Principal id, actor bot flag, and failure class. Telemetry
-must not include message text, assistant output, raw provider payloads,
-credentials, private adapter config, or sink-only content.
+Telemetry may include rule id, rule key, route action, destination key, sink
+kind, adapter, channel id, scope id, thread id, Signal id, Signal occurrence
+key, Agent Principal id, actor bot flag, and failure class. Telemetry must not
+include message text, assistant output, raw provider payloads, credentials,
+private adapter config, or sink-only content.
 
 ## Alternatives considered
 
@@ -1027,7 +1006,7 @@ durable route decisions through Gateway Mailbox delivery intents.
 - Use Route as the top-level concept, not Admission.
 - Use Agent Principals and system sinks, not Runtime targets.
 - Generate UUID primary keys with `BullX.Ecto.UUIDv7`.
-- Use native PostgreSQL enums for route action, Agent input mode, and sink kind.
+- Use native PostgreSQL enums for route action and sink kind.
 - Keep runtime route data free of Elixir code, module names, ASTs, prompts,
   model aliases, and secrets.
 - Store no Gateway-owned inbound Signal table.
@@ -1129,7 +1108,7 @@ durable route decisions through Gateway Mailbox delivery intents.
   with no `content_snapshot` and no Agent runtime consumption.
 - A no-match Signal returns no delivery intents and does not fail Gateway
   publish.
-- A single Signal can deliver to multiple Agents with different input modes.
+- A single Signal can deliver to multiple Agents.
 - Delivery outcome Signals project into `RoutingContext` without relying on
   inbound `data["event"]` paths.
 - Updating rules through the writer changes routing for the next publish

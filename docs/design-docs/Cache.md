@@ -93,7 +93,7 @@ on ETS would break the "one façade for both backends" invariant.
 
 ### Current consumers
 
-`BullXAIAgent.LLM.Catalog.Cache` uses `BullX.Cache` for the runtime provider
+`BullX.LLM.Catalog.Cache` uses `BullX.Cache` for the runtime provider
 catalog instead of owning a private ETS table. PostgreSQL remains the durable
 truth for `llm_providers`; the cache stores the sorted provider list under a
 single domain-prefixed key (`"llm:providers"`). Startup and writer refreshes
@@ -465,7 +465,7 @@ configuration through `BullX.Config.SystemBinding`-only accessors in
    - **Depends on:** Tasks 2–5.
    - **Acceptance:** [Configuration.md](Configuration.md) links to
      [Cache.md](Cache.md) under the section that lists subsystems consuming
-     `BullX.Config`. `BullXAIAgent.LLM.Catalog.Cache` no longer owns a private
+     `BullX.Config`. `BullX.LLM.Catalog.Cache` no longer owns a private
      ETS table; it stores its reconstructible provider list through
      `BullX.Cache`. `BullX.Config.Cache` keeps its subsystem-owned ETS table
      because it is part of the configuration bootstrap path.
