@@ -66,3 +66,42 @@ profile_unavailable = "Telegram user profile is unavailable"
 ping = "Check the bot is reachable"
 preauth = "Activate with /preauth <code>"
 web_auth = "Issue a one-time web login code"
+
+[gateway.discord.auth]
+activation_required = "This Discord account is not activated yet. DM the bot and send /preauth <code> to activate."
+activation_success = "Activation complete."
+activation_code_invalid = "The activation code is invalid or expired."
+activation_failed = "Activation failed. Please try again later."
+already_linked = "This Discord account is already linked."
+web_auth_created = "Use this login code: {$code}\nOpen {$login_url} to continue."
+web_auth_not_bound = "This Discord account is not linked yet. Activate it with /preauth first."
+web_auth_failed = "Could not create a login code. Please try again later."
+web_auth_disabled = "Web login is disabled for this Discord source."
+login_not_bound = "This Discord account is not linked yet."
+denied = "This Principal is disabled."
+direct_command_dm_only = "Please DM the bot and send this command privately."
+
+[gateway.discord.ping]
+pong = "PONG!"
+
+[gateway.discord.ask]
+accepted = "On it. Reply will appear in this conversation."
+
+[gateway.discord.delivery]
+fallback_text = "Unsupported Discord content"
+stream_generating = "Generating..."
+stream_failed = "The streamed response failed."
+stream_cancelled = "The streamed response was cancelled."
+reply_target_missing_sent_to_scope = "The reply target was missing, so the message was sent to the channel."
+
+[gateway.discord.media]
+image = "[image]"
+audio = "[audio]"
+video = "[video]"
+file = "[file]"
+sticker = "[sticker]"
+
+[gateway.discord.errors]
+unsupported_message = "Unsupported Discord message"
+profile_unavailable = "Discord user profile is unavailable"
+thread_create_failed = "Could not create a Discord thread for this request."

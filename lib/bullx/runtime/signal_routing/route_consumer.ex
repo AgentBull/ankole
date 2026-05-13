@@ -3,6 +3,7 @@ defmodule BullX.Runtime.SignalRouting.RouteConsumer do
 
   alias BullX.Gateway.{DeliveryIntent, Signal}
   alias BullX.Repo
+  alias BullX.Runtime.AgenticLoop
   alias BullX.Runtime.SignalRouting
   alias BullX.Runtime.SignalRouting.{RouteDecision, RouteIntent, RoutingContext, Rule}
 
@@ -20,9 +21,11 @@ defmodule BullX.Runtime.SignalRouting.RouteConsumer do
          {:ok, consumer} <- RouteIntent.load_consumer(intent),
          :ok <- ensure_destination_available(consumer),
          attrs <- decision_attrs(intent, context, consumer),
-         :ok <- insert_or_get_decision(attrs) do
+         {:ok, decision} <- insert_or_get_decision(attrs),
+         :ok <- maybe_deliver_to_agent(decision) do
       :ok
     else
+      {:retry, reason} -> {:retry, reason}
       {:discard, reason} -> {:discard, reason}
       {:error, reason} -> {:discard, reason}
     end
@@ -82,7 +85,7 @@ defmodule BullX.Runtime.SignalRouting.RouteConsumer do
     |> case do
       {:ok, decision} ->
         emit_decision(:persisted, decision)
-        :ok
+        {:ok, decision}
 
       {:error, %Ecto.Changeset{} = changeset} ->
         handle_insert_error(attrs, changeset)
@@ -96,12 +99,36 @@ defmodule BullX.Runtime.SignalRouting.RouteConsumer do
          ) do
       %RouteDecision{} = decision ->
         emit_decision(:duplicate, decision)
-        :ok
+        {:ok, decision}
 
       nil ->
         {:discard, {:invalid_route_decision, changeset}}
     end
   end
+
+  defp maybe_deliver_to_agent(%RouteDecision{route_action: :deliver_agent} = decision) do
+    case AgenticLoop.handle_route_decision(decision) do
+      :ok -> :ok
+      {:error, reason} -> agentic_loop_error(reason)
+    end
+  end
+
+  defp maybe_deliver_to_agent(%RouteDecision{}), do: :ok
+
+  defp agentic_loop_error(reason)
+       when reason in [:missing_content_snapshot, :missing_agent_principal_id] do
+    {:discard, {:agentic_loop_failed, reason}}
+  end
+
+  defp agentic_loop_error({:agentic_loop_agent_unavailable, _id} = reason) do
+    {:discard, {:agentic_loop_failed, reason}}
+  end
+
+  defp agentic_loop_error(reason) when is_list(reason) do
+    {:discard, {:agentic_loop_failed, reason}}
+  end
+
+  defp agentic_loop_error(reason), do: {:retry, {:agentic_loop_failed, reason}}
 
   defp emit_decision(status, %RouteDecision{} = decision) do
     :telemetry.execute(
