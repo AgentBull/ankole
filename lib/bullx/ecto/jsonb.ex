@@ -3,8 +3,6 @@ defmodule BullX.Ecto.JSONB do
 
   use Ecto.Type
 
-  alias BullX.Gateway.JSON
-
   @impl true
   def type, do: :map
 
@@ -18,8 +16,8 @@ defmodule BullX.Ecto.JSONB do
   def dump(value), do: normalize(value)
 
   defp normalize(value) do
-    with {:ok, value} <- JSON.stringify_keys(value),
-         true <- JSON.json_neutral?(value) do
+    with {:ok, value} <- BullX.JSON.stringify_keys(value),
+         true <- BullX.JSON.json_neutral?(value) do
       {:ok, value}
     else
       _other -> :error

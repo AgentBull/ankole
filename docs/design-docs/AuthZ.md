@@ -26,10 +26,10 @@ This design intentionally does not cover:
 - Principal creation, external identity binding, activation codes, login auth
   codes, Web sessions, or provider login. Those remain in
   [Principal](Principal.md).
-- Gateway signal contracts or channel actor matching.
+- External signal contracts or channel actor matching.
 - A BullX tenant model.
-- Concrete application policy names for Web, Gateway, Runtime, Skills, Brain,
-  Capability execution, Governance, Effects, or Agent runtime internals.
+- Concrete application policy names for Web, Runtime, Skills, Brain, Capability
+  execution, Governance, Effects, or Agent runtime internals.
 - Explicit deny grants and deny precedence.
 - Computed groups, dynamic membership expression languages, or dependency-graph
   invalidation.
@@ -86,10 +86,10 @@ AuthZ must not:
 - create channel bindings or login-subject bindings;
 - issue activation codes or login auth codes;
 - establish Web sessions;
-- infer a Principal from a Gateway actor;
+- infer a Principal from an external actor;
 - authorize a disabled Principal.
 
-Callers that start from a Gateway channel actor first call
+Callers that start from a channel actor first call
 `BullX.Principals.resolve_channel_actor/3` or another Principal AuthN facade
 function. Callers that start from a Web session reload the durable Principal id
 from PostgreSQL. Runtime code that starts from an Agent uses the Agent's
@@ -110,9 +110,9 @@ resource under one request context.
 ```elixir
 %BullX.AuthZ.Request{
   principal_id: principal.id,
-  resource: "gateway_channel:workplace-main",
+  resource: "workspace_channel:main",
   action: "write",
-  context: %{"adapter" => "feishu"}
+  context: %{"adapter" => "chat"}
 }
 ```
 
@@ -126,13 +126,13 @@ The public API accepts separate resource and action values, or a permission key:
 
 ```elixir
 BullX.AuthZ.authorize(principal, "web_console", "read")
-BullX.AuthZ.authorize(principal.id, "gateway_channel:workplace-main", "write", %{})
-BullX.AuthZ.authorize_permission(principal, "gateway_channel:workplace-main:write", %{})
+BullX.AuthZ.authorize(principal.id, "workspace_channel:main", "write", %{})
+BullX.AuthZ.authorize_permission(principal, "workspace_channel:main:write", %{})
 ```
 
 Permission keys split at the final `:`. Everything before it is the resource;
 everything after it is the action. This allows resource names such as
-`gateway_channel:<channel_id>` without adding ARN syntax.
+`workspace_channel:<channel_id>` without adding ARN syntax.
 
 ### Resource and action naming
 
@@ -146,7 +146,7 @@ resource naming shape:
 Examples:
 
 - `web_console`
-- `gateway_channel:<channel_id>`
+- `workspace_channel:<channel_id>`
 - `capability:<capability_key>`
 - `agent:<agent_id>`
 - `work:<work_id>`
@@ -166,8 +166,8 @@ Example permission keys:
 
 - `web_console:read`
 - `web_console:write`
-- `gateway_channel:<channel_id>:write`
-- `gateway_channel:*:write`
+- `workspace_channel:<channel_id>:write`
+- `workspace_channel:*:write`
 - `capability:browser_use:execute`
 
 `*` is the only wildcard in `resource_pattern`. A pattern may contain zero or
@@ -393,7 +393,7 @@ Examples:
 
 - A Phoenix plug computes whether the client IP is in an allowlist and passes
   `"ip_whitelisted" => true`.
-- A Gateway handler computes whether a channel is open and passes
+- A transport handler computes whether a channel is open and passes
   `"channel_open" => true`.
 - A Capability controller computes whether an approval is present and passes
   `"approval_granted" => true`.
@@ -542,7 +542,7 @@ context hashing, invalidation rules, and multi-instance behavior.
 ## Public API shape
 
 The public facade is `BullX.AuthZ`. Internal modules may live under
-`BullX.AuthZ`, but Web, Gateway, Runtime, Capability, Agent, and setup code call
+`BullX.AuthZ`, but Web, Runtime, Capability, Agent, and setup code call
 the facade rather than composing schemas directly.
 
 AuthZ facade mutation functions do not self-authorize. They are domain
@@ -799,7 +799,7 @@ described in this design.
 
 9. Add minimal enforcement integration only where this implementation slice
    needs it.
-   Owns: Web, Gateway, Runtime, Capability, or Agent code only if the current
+   Owns: Web, Runtime, Capability, or Agent code only if the current
    implementation requires an enforcement point.
    Depends on: Task 6.
    Acceptance: enforcing code resolves or loads a Principal first, computes

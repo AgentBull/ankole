@@ -82,8 +82,8 @@ defmodule BullX.I18n do
   without logging a missing/format-error event.
 
   Use this variant when a caller must distinguish "degraded" from
-  "successful" — for example an outbound Gateway adapter that
-  should NOT send a message if only a key literal is available.
+  "successful" — for example an external side-effect boundary that
+  should not proceed if only a key literal is available.
   """
   @spec translate(key(), bindings(), opts()) ::
           {:ok, String.t()} | {:error, Exception.t()}

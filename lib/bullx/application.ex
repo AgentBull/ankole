@@ -17,10 +17,7 @@ defmodule BullX.Application do
       {DNSCluster, query: Application.get_env(:bullx, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: BullX.PubSub},
       BullX.Plugins.Supervisor,
-      {Oban, Application.fetch_env!(:bullx, Oban)},
-      BullX.Gateway.Supervisor,
       BullX.Runtime.Supervisor,
-      BullX.Gateway.SourceSupervisor,
       BullXWeb.Endpoint
     ]
 

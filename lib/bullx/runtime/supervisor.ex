@@ -10,7 +10,6 @@ defmodule BullX.Runtime.Supervisor do
   @impl true
   def init(:ok) do
     children = [
-      BullX.Runtime.SignalRouting.Cache,
       BullX.LLM.PluginProviders,
       BullX.LLM.Catalog.Cache
     ]

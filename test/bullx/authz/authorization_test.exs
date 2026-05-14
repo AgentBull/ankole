@@ -42,14 +42,14 @@ defmodule BullX.AuthZ.AuthorizationTest do
       {:ok, _grant} =
         AuthZ.create_permission_grant(%{
           group_id: group.id,
-          resource_pattern: "gateway_channel:*",
+          resource_pattern: "workspace_channel:*",
           action: "write"
         })
 
-      assert :ok = AuthZ.authorize(human, "gateway_channel:workplace-main", "write")
-      assert :ok = AuthZ.authorize_permission(human, "gateway_channel:foo:bar:write")
-      assert {:error, :forbidden} = AuthZ.authorize(human, "gateway_channel:foo", "read")
-      assert {:error, :invalid_request} = AuthZ.authorize(human, "gateway_channel:*", "write")
+      assert :ok = AuthZ.authorize(human, "workspace_channel:main", "write")
+      assert :ok = AuthZ.authorize_permission(human, "workspace_channel:foo:bar:write")
+      assert {:error, :forbidden} = AuthZ.authorize(human, "workspace_channel:foo", "read")
+      assert {:error, :invalid_request} = AuthZ.authorize(human, "workspace_channel:*", "write")
     end
 
     test "disabled Principals deny before grants are evaluated" do
@@ -244,7 +244,8 @@ defmodule BullX.AuthZ.AuthorizationTest do
       Principals.create_agent(%{
         uid: uid,
         display_name: uid,
-        profile: %{main_llm: "llm.primary", goals: "Help", soul: "Calm"}
+        type: "test",
+        profile: %{}
       })
 
     principal
@@ -252,7 +253,7 @@ defmodule BullX.AuthZ.AuthorizationTest do
 
   defp channel_input(external_id, email) do
     %{
-      adapter: "feishu",
+      adapter: "chat",
       channel_id: "workplace",
       external_id: external_id,
       profile: %{"email" => email},

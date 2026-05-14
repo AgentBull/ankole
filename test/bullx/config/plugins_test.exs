@@ -21,10 +21,10 @@ defmodule BullX.Config.PluginsTest do
   end
 
   test "enabled_plugins resolves JSON arrays from PostgreSQL" do
-    BullX.Repo.insert!(%BullX.Config.AppConfig{key: @db_key, value: ~s(["feishu","github"])})
+    BullX.Repo.insert!(%BullX.Config.AppConfig{key: @db_key, value: ~s(["local","github"])})
     BullX.Config.Cache.refresh(@db_key)
 
-    assert BullX.Config.Plugins.enabled_plugins!() == ["feishu", "github"]
+    assert BullX.Config.Plugins.enabled_plugins!() == ["local", "github"]
   end
 
   test "enabled_plugins resolves native lists from application config" do

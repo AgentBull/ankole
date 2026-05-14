@@ -1,6 +1,6 @@
 defmodule BullX.Principals.ExternalIdentity do
   @moduledoc """
-  Durable mapping from a provider or Gateway subject to a BullX Principal.
+  Durable mapping from an external subject to a BullX Principal.
 
   Metadata is for provider context and troubleshooting data only. It must not
   carry credentials or private tokens.

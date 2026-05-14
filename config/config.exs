@@ -50,24 +50,6 @@ config :phoenix, :json_library, Jason
 
 config :req_llm, load_dotenv: false
 
-config :bullx, Oban,
-  repo: BullX.Repo,
-  queues: [gateway_signals: [limit: 10]],
-  plugins: false
-
-config :bullx, :gateway,
-  mailbox_queues: ["gateway_signals"],
-  mailbox_default_queue: "gateway_signals",
-  mailbox_dedupe_window_seconds: 86_400,
-  outbound_dispatch_poll_ms: 1_000,
-  outbound_dispatch_batch_size: 20,
-  outbound_dispatch_stale_lock_ms: 60_000,
-  stream_buffer_ttl_seconds: 86_400,
-  stream_retention_interval_ms: 60_000,
-  stream_retention_batch_size: 500,
-  router: BullX.Runtime.SignalRouting.Router,
-  consumer_delivery: BullX.Runtime.ConsumerDelivery
-
 # I18n / Localize bootstrap. `BullX.I18n.Catalog` owns the per-key
 # translation dictionaries under `priv/locales/*.toml`; Localize is
 # used only for MF2 parsing/formatting and CLDR data. We deliberately

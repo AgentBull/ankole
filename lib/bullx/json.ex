@@ -1,4 +1,4 @@
-defmodule BullX.Gateway.JSON do
+defmodule BullX.JSON do
   @moduledoc false
 
   @spec json_object?(term()) :: boolean()

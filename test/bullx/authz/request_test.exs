@@ -43,8 +43,8 @@ defmodule BullX.AuthZ.RequestTest do
   end
 
   test "permission keys split at the final colon" do
-    assert {:ok, "gateway_channel:workplace-main", "write"} =
-             Request.split_permission_key("gateway_channel:workplace-main:write")
+    assert {:ok, "workspace_channel:main", "write"} =
+             Request.split_permission_key("workspace_channel:main:write")
 
     assert {:error, :invalid_request} = Request.split_permission_key("read")
     assert {:error, :invalid_request} = Request.split_permission_key(":read")
@@ -52,8 +52,8 @@ defmodule BullX.AuthZ.RequestTest do
   end
 
   test "resource patterns match literals and one wildcard" do
-    assert :ok = ResourcePattern.validate("gateway_channel:*")
-    assert ResourcePattern.match?("gateway_channel:*", "gateway_channel:foo:bar")
+    assert :ok = ResourcePattern.validate("workspace_channel:*")
+    assert ResourcePattern.match?("workspace_channel:*", "workspace_channel:foo:bar")
     assert ResourcePattern.match?("*", "anything")
     assert ResourcePattern.match?("web_console", "web_console")
     refute ResourcePattern.match?("web_console", "other")

@@ -2,7 +2,6 @@ defmodule BullX.Principals.SchemaTest do
   use BullX.DataCase, async: false
 
   alias BullX.Principals
-  alias BullX.Principals.Agent
 
   test "create_human stores a lowercase uid and normalized contact fields" do
     assert {:ok, %{principal: principal, human_user: human_user}} =
@@ -20,30 +19,27 @@ defmodule BullX.Principals.SchemaTest do
     assert human_user.phone == "+14155552671"
   end
 
-  test "create_agent validates agentic_loop profile and exposes LLM fallbacks" do
+  test "create_agent stores a generic Agent extension profile" do
     assert {:ok, %{principal: principal, agent: agent}} =
              Principals.create_agent(%{
                uid: "research-agent",
                display_name: "Research Agent",
+               type: "research",
                profile: %{
-                 main_llm: "llm.primary",
-                 goals: "Track market shifts",
-                 soul: "Careful and concise"
+                 "goal" => "Track market shifts"
                }
              })
 
     assert principal.type == :agent
-    assert agent.type == :agentic_loop
-    assert Agent.main_llm(agent) == "llm.primary"
-    assert Agent.compression_llm(agent) == "llm.primary"
-    assert Agent.heavy_llm(agent) == "llm.primary"
+    assert agent.type == "research"
+    assert agent.profile == %{"goal" => "Track market shifts"}
 
     assert {:error, changeset} =
              Principals.create_agent(%{
                uid: "broken-agent",
-               profile: %{main_llm: "llm.primary"}
+               profile: %{}
              })
 
-    assert %{profile: [_ | _]} = errors_on(changeset)
+    assert %{type: [_ | _]} = errors_on(changeset)
   end
 end

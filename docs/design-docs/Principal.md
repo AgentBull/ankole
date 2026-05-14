@@ -14,9 +14,9 @@ create or resolve Human Principals:
 
 - Principal identity, status, and globally unique `uid`.
 - Human account extension data.
-- Agent extension data for `agentic_loop` Agents.
-- External identity mappings from providers, Gateway channel actors, and
-  outbound actors.
+- Agent extension data.
+- External identity mappings from providers, channel actors, and outbound
+  actors.
 - Activation codes for new Human Principal activation.
 - Bootstrap activation-code creation and consumption metadata.
 - Built-in channel-auth login codes as one login-provider mechanism.
@@ -26,9 +26,9 @@ create or resolve Human Principals:
 This design intentionally does not cover AuthZ groups, roles, permission grants,
 Cedar policy evaluation, audit-log storage, Signal admission, Work ownership,
 Mission planning, Capability execution, Governance, Effect production, Brain
-memory, generic Gateway implementation, or full Web login route wiring. Those
-subsystems consume `principals.id` as their durable subject id after their own
-design docs define their tables and runtime behavior.
+memory, external transport implementation, or full Web login route wiring.
+Those subsystems consume `principals.id` as their durable subject id after
+their own design docs define their tables and runtime behavior.
 
 ## Goals
 
@@ -38,7 +38,7 @@ design docs define their tables and runtime behavior.
 - Preserve a boring relational shape: a base `principals` table plus one-to-one
   extension tables instead of pure single-table inheritance.
 - Let Human Principals authenticate from external providers and channel actors
-  without making Gateway own BullX identity.
+  without making transport code own BullX identity.
 - Let Agent Principals carry type-specific runtime profile data without adding a
   new table for every Agent implementation shape.
 - Keep bootstrap setup possible on a fresh Installation before an administrator
@@ -54,10 +54,9 @@ design docs define their tables and runtime behavior.
   Principal. Manual binding management belongs to a later operator surface.
 - Activation codes do not create or bind Agent Principals.
 - The built-in channel-auth login provider defines code generation and
-  verification only. Gateway command handling and Web session route wiring can
-  use those APIs after the IM and setup surfaces are rebuilt.
-- This design does not define the LLM provider registry. Agent profile fields
-  such as `main_llm` are strings that identify model configuration instances.
+  verification only. Transport command handling and Web session route wiring
+  can use those APIs after the relevant surfaces are rebuilt.
+- This design does not define Agent runtime profile schemas.
 - This design does not write administrator group membership. Bootstrap metadata
   marks the activation-code path that created the bootstrap Human Principal; the
   AuthZ design decides how that Principal becomes an administrator.
@@ -70,15 +69,14 @@ design docs define their tables and runtime behavior.
   namespace. Move the useful AuthN semantics into `BullX.Principals`.
 - **Existing utilities and patterns to reuse:** use `BullX.Repo`, Ecto schemas,
   `BullX.Ecto.UUIDv7`, `BullX.Config`, `BullX.Ext.argon2_hash/1`,
-  `BullX.Ext.argon2_verify/2`, Phoenix cookie sessions, and plugin-owned login
-  provider hooks.
+  `BullX.Ext.argon2_verify/2`, and Phoenix cookie sessions.
 - **Code paths and contracts changing:** add a new `BullX.Principals` domain,
   migrations for Principal/AuthN tables, runtime config declarations, and
   public facade functions for resolving, creating, activating, and verifying
   Principals.
 - **Invariants that must remain true:** process-local state is reconstructible;
   disabled Principals cannot authenticate or resolve as active subjects;
-  plaintext activation and login codes are never stored; Gateway signals remain
+  plaintext activation and login codes are never stored; channel actors remain
   channel-local unless a subsystem explicitly resolves them.
 - **Verification command:** run focused Principal tests and `bun precommit`.
 
@@ -95,8 +93,7 @@ The existing design docs define two constraints that this design relies on:
   `BullX.Config` with PostgreSQL overrides, OS environment, application config,
   and code defaults.
 - `docs/design-docs/Plugins.md` defines trusted compile-time plugins and typed
-  extension declarations. Login providers should use plugin-owned extension
-  contracts rather than hard-coded provider modules in `BullX.Principals`.
+  extension declarations.
 
 ## Domain model
 
@@ -142,26 +139,13 @@ An Agent Principal is a durable work subject with identity, responsibility,
 memory, capabilities, permissions, outbound identity, and KPIs. It is not
 automatically an LLM process, a chat bot, or a long-lived BEAM process.
 
-The initial `agents.type` value is `agentic_loop`. It represents an Agent that
-processes inputs through an LLM reasoning loop, tool calls, context, state, and
-termination conditions.
+`agents.type` is a required text identifier. It is intentionally open while
+Agent runtime designs are being rebuilt.
 
-`agents.profile` is JSONB but not an untyped free-form bag. Each Agent type owns
-an Elixir profile caster and validator. The `agentic_loop` profile requires:
-
-- `main_llm`: string identifier for the primary LLM configuration.
-- `goals`: string that describes the Agent's long-term responsibilities.
-- `soul`: string that describes behavior style or preference alignment.
-
-The `agentic_loop` profile also accepts:
-
-- `compression_llm`: optional string. Runtime reads fall back to `main_llm`.
-- `heavy_llm`: optional string. Runtime reads fall back to `main_llm`.
-
-The database enforces that `profile` is a JSON object. Type-specific required
-keys and fallback behavior live in Elixir validation so future Agent types can
-reuse the same table with different profile schemas. If a profile field becomes
-query-critical, a later migration can promote that field to a dedicated column.
+`agents.profile` is a required JSONB object. This design only guarantees the
+storage mechanism; runtime-specific profile validation belongs to the design
+that introduces that runtime. If a profile field becomes query-critical, a later
+migration can promote that field to a dedicated column.
 
 `agents.created_by_principal_id` is nullable. It records creation provenance
 when a Human or system Principal created the Agent, without defining ownership,
@@ -169,30 +153,31 @@ delegation, Mission responsibility, or authorization policy.
 
 ## External identities
 
-External identities map provider-side subjects to BullX Principals. Gateway and
-plugins provide external identity claims; `BullX.Principals` decides whether a
-claim can resolve to an active Principal or create a Human Principal.
+External identities map provider-side subjects to BullX Principals. External
+transport and provider code provide identity claims; `BullX.Principals` decides
+whether a claim can resolve to an active Principal or create a Human Principal.
 
 The first implementation supports three identity kinds:
 
 | Kind | Meaning | Required keys |
 | --- | --- | --- |
-| `channel_actor` | An inbound or duplex Gateway channel actor. | `adapter`, `channel_id`, `external_id` |
+| `channel_actor` | An inbound or duplex channel actor. | `adapter`, `channel_id`, `external_id` |
 | `login_subject` | A subject returned by an external Web login provider. | `provider`, `external_id` |
 | `outbound_actor` | A Principal's external acting identity, such as an Agent's bot app reference. | `provider`, `external_id` |
 
 `metadata` stores provider context and non-secret troubleshooting data. It must
 not store app secrets, access tokens, refresh tokens, private keys, or other
-credentials. Plugin configuration, Gateway configuration, Capability design, or
-a future credential store owns those secrets.
+credentials. Plugin configuration, transport configuration, Capability design,
+or a future credential store owns those secrets.
 
-Gateway `actor` remains channel-local. A normalized channel actor supplies:
+Channel actor identity remains channel-local. A normalized channel actor
+supplies:
 
 ```elixir
 %{
-  adapter: :feishu,
+  adapter: :chat,
   channel_id: "workplace-main",
-  external_id: "ou_xxx",
+  external_id: "user_xxx",
   profile: %{
     "email" => "person@example.com",
     "phone" => "+8613800000000",
@@ -209,7 +194,7 @@ display names are presentation data, not identity proof.
 
 ## AuthN and matching
 
-`BullX.Principals` owns Human Principal AuthN decisions. Gateway adapters,
+`BullX.Principals` owns Human Principal AuthN decisions. Transport adapters,
 login providers, Web controllers, and future setup screens call the facade
 rather than composing schema modules directly.
 
@@ -267,7 +252,7 @@ Example:
     "op": "equals_any",
     "source_path": "metadata.tenant_key",
     "values": ["tenant_xxx"],
-    "managed_by": "setup.gateway.external_org_members"
+    "managed_by": "setup.external_org_members"
   }
 ]
 ```
@@ -502,8 +487,7 @@ Indexes and constraints:
 Columns:
 
 - `principal_id`: primary key and foreign key to `principals.id`.
-- `type`: required native PostgreSQL enum `agent_type` with initial value
-  `agentic_loop`.
+- `type`: required text Agent type identifier.
 - `profile`: required JSONB Agent profile object.
 - `created_by_principal_id`: nullable foreign key to `principals.id`.
 - `inserted_at`: creation timestamp.
@@ -512,6 +496,7 @@ Columns:
 Indexes and constraints:
 
 - not-null constraints on `type` and `profile`;
+- check constraint that `type` matches `^[a-z][a-z0-9_:-]*$`;
 - check constraint that `jsonb_typeof(profile) = 'object'`;
 - index on `created_by_principal_id`;
 - foreign key to `principals.id` with type invariant enforced by changesets and
@@ -526,7 +511,7 @@ Columns:
 - `kind`: required native PostgreSQL enum `principal_external_identity_kind`
   with values `channel_actor`, `login_subject`, and `outbound_actor`.
 - `provider`: nullable provider id for login and outbound identities.
-- `adapter`: nullable Gateway adapter type for channel actors.
+- `adapter`: nullable adapter type for channel actors.
 - `channel_id`: nullable concrete adapter channel instance id.
 - `external_id`: provider-side or channel-side subject id.
 - `metadata`: required JSONB context object.
@@ -557,7 +542,7 @@ Columns:
 - `revoked_at`: nullable revocation timestamp.
 - `used_at`: nullable consumption timestamp.
 - `used_by_principal_id`: nullable foreign key to `principals.id`.
-- `used_by_adapter`: nullable Gateway adapter type.
+- `used_by_adapter`: nullable adapter type.
 - `used_by_channel_id`: nullable channel id.
 - `used_by_external_id`: nullable channel actor external id.
 - `metadata`: required JSONB context object.
@@ -591,9 +576,8 @@ code is deleted immediately.
 ## Public API shape
 
 The public facade is `BullX.Principals`. Internal helper modules may live under
-`BullX.Principals.AuthN`, `BullX.Principals.Code`, and
-`BullX.Principals.AgentProfiles`, but callers should not compose schemas
-directly.
+`BullX.Principals.AuthN` and `BullX.Principals.Code`, but callers should not
+compose schemas directly.
 
 Expected facade functions:
 
@@ -669,7 +653,6 @@ Supporting modules:
 - `BullX.Principals.AuthN`
 - `BullX.Principals.Code`
 - `BullX.Principals.Bootstrap`
-- `BullX.Principals.AgentProfiles.AgenticLoop`
 - `BullX.Config.Principals`
 
 ## Runtime and operations
@@ -706,7 +689,7 @@ Bootstrap worker failures behave as follows:
 - Concurrent bootstrap attempts serialize through the advisory transaction lock.
 
 Provider failures outside `BullX.Principals` are not Principal contract errors.
-Login provider plugins and Gateway adapters own their provider-specific retries,
+Transport and provider implementations own their provider-specific retries,
 timeouts, and user-facing messages.
 
 ## Security, privacy, and governance
@@ -787,13 +770,12 @@ the schema and behavior in this design.
    match this design.
    Verify: focused schema tests.
 
-2. Add Agent profile validation.
-   Owns: `BullX.Principals.AgentProfiles.AgenticLoop`,
-   `BullX.Principals.Agent`.
+2. Add Agent extension validation.
+   Owns: `BullX.Principals.Agent`.
    Depends on: Task 1.
-   Acceptance: `agentic_loop` requires `main_llm`, `goals`, and `soul`; optional
-   LLM fields fall back to `main_llm` in read helpers.
-   Verify: Agent profile unit tests.
+   Acceptance: Agent type is present and format-constrained; `profile` is a
+   JSON object.
+   Verify: Agent schema tests.
 
 3. Add Principal runtime configuration.
    Owns: `BullX.Config.Principals` and config type helpers if needed.
@@ -876,9 +858,9 @@ binding to existing Principals, or a new Principal type.
 - `uid` is globally unique, lowercase, and usable as the Human username without
   implying that Agents are users.
 - Human profile fields validate email and normalize phone values before storage.
-- Agent profile data is JSONB plus type-specific Elixir validation, not
-  arbitrary caller maps.
-- Gateway actor identity remains external and channel-local until resolved by
+- Agent profile data is JSONB with runtime-specific validation deferred to the
+  runtime design that owns that profile.
+- Channel actor identity remains external and channel-local until resolved by
   `BullX.Principals`.
 - Disabled Principals cannot resolve, log in, receive login auth codes, or run
   as active business subjects.

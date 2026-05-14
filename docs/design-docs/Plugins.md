@@ -16,9 +16,9 @@ This design covers the host-side plugin system:
 - plugin runtime configuration and secret declarations;
 - startup behavior for enabled plugin children.
 
-This design does not define a specific product plugin such as Feishu, a full
-Signal model, an AuthN provider model, or a Capability/Governance contract. Those
-subsystems define their own extension-point semantics when they are designed.
+This design does not define a specific product plugin, a full Signal model, an
+AuthN provider model, or a Capability/Governance contract. Those subsystems
+define their own extension-point semantics when they are designed.
 
 ## Goals
 

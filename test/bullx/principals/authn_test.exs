@@ -38,33 +38,33 @@ defmodule BullX.Principals.AuthNTest do
         email: "alice@example.com"
       })
 
-    input = channel_input("feishu", "workplace", "ou_alice", %{"email" => "ALICE@example.com"})
+    input = channel_input("chat", "workplace", "user_alice", %{"email" => "ALICE@example.com"})
 
     assert {:ok, ^principal, %ExternalIdentity{} = identity} =
              Principals.match_or_create_human_from_channel(input)
 
     assert identity.kind == :channel_actor
-    assert {:ok, ^principal} = Principals.resolve_channel_actor(:feishu, "workplace", "ou_alice")
+    assert {:ok, ^principal} = Principals.resolve_channel_actor(:chat, "workplace", "user_alice")
   end
 
   test "disabled bound Principals cannot resolve as active subjects" do
     {:ok, %{principal: principal}} =
       Principals.create_human(%{uid: "disabled-human", display_name: "Disabled"})
 
-    insert_channel_identity!(principal, "feishu", "workplace", "ou_disabled")
+    insert_channel_identity!(principal, "chat", "workplace", "user_disabled")
 
     principal
     |> change(%{status: :disabled})
     |> Repo.update!()
 
     assert {:error, :principal_disabled} =
-             Principals.resolve_channel_actor("feishu", "workplace", "ou_disabled")
+             Principals.resolve_channel_actor("chat", "workplace", "user_disabled")
   end
 
   test "unmatched channel actors require activation with the default policy" do
     assert {:error, :activation_required} =
              Principals.match_or_create_human_from_channel(
-               channel_input("feishu", "workplace", "ou_new", %{"email" => "new@example.com"})
+               channel_input("chat", "workplace", "user_new", %{"email" => "new@example.com"})
              )
   end
 
@@ -76,7 +76,7 @@ defmodule BullX.Principals.AuthNTest do
     refute stored.code_hash == plaintext
 
     input =
-      channel_input("feishu", "workplace", "ou_activated", %{"email" => "activated@example.com"})
+      channel_input("chat", "workplace", "user_activated", %{"email" => "activated@example.com"})
 
     assert {:ok, %Principal{type: :human} = principal, %ExternalIdentity{} = identity} =
              Principals.consume_activation_code(plaintext, input)
@@ -85,11 +85,11 @@ defmodule BullX.Principals.AuthNTest do
 
     used = Repo.get!(ActivationCode, activation_code.id)
     assert used.used_by_principal_id == principal.id
-    assert used.used_by_adapter == "feishu"
-    assert used.used_by_external_id == "ou_activated"
+    assert used.used_by_adapter == "chat"
+    assert used.used_by_external_id == "user_activated"
 
     other_input =
-      channel_input("feishu", "workplace", "ou_second", %{"email" => "second@example.com"})
+      channel_input("chat", "workplace", "user_second", %{"email" => "second@example.com"})
 
     assert {:error, :invalid_or_expired_code} =
              Principals.consume_activation_code(plaintext, other_input)
@@ -115,7 +115,7 @@ defmodule BullX.Principals.AuthNTest do
       Principals.create_activation_code(nil, %{"purpose" => "test"})
 
     input =
-      channel_input("feishu", "workplace", "ou_matched", %{"email" => "matched@example.com"})
+      channel_input("chat", "workplace", "user_matched", %{"email" => "matched@example.com"})
 
     assert {:ok, ^principal, %ExternalIdentity{}} =
              Principals.consume_activation_code(plaintext, input)
@@ -127,9 +127,9 @@ defmodule BullX.Principals.AuthNTest do
     {:ok, %{principal: principal}} =
       Principals.create_human(%{uid: "login-human", display_name: "Login Human"})
 
-    insert_channel_identity!(principal, "feishu", "workplace", "ou_login")
+    insert_channel_identity!(principal, "chat", "workplace", "user_login")
 
-    assert {:ok, plaintext} = Principals.issue_login_auth_code("feishu", "workplace", "ou_login")
+    assert {:ok, plaintext} = Principals.issue_login_auth_code("chat", "workplace", "user_login")
     assert {:ok, ^principal} = Principals.consume_login_auth_code(plaintext)
     refute Repo.exists?(from code in PrincipalLoginAuthCode, select: 1)
     assert {:error, :invalid_or_expired_code} = Principals.consume_login_auth_code(plaintext)
@@ -139,13 +139,14 @@ defmodule BullX.Principals.AuthNTest do
     {:ok, %{principal: principal}} =
       Principals.create_agent(%{
         uid: "login-agent",
-        profile: %{main_llm: "llm.primary", goals: "Help", soul: "Calm"}
+        type: "test",
+        profile: %{}
       })
 
-    insert_channel_identity!(principal, "feishu", "workplace", "ou_agent")
+    insert_channel_identity!(principal, "chat", "workplace", "user_agent")
 
     assert {:error, :not_human} =
-             Principals.issue_login_auth_code("feishu", "workplace", "ou_agent")
+             Principals.issue_login_auth_code("chat", "workplace", "user_agent")
   end
 
   defp channel_input(adapter, channel_id, external_id, profile) do
