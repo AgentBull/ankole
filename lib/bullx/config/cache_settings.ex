@@ -11,16 +11,16 @@ defmodule BullX.Config.CacheSettings do
   use BullX.Config
 
   @envdoc """
-  Presence of `BULLX_CACHE_REDIS_URL` selects the Redis backend; absence
-  selects ETS. Shape: `redis://host[:port]`. URLs with userinfo, a non-empty
-  path, or the `rediss://` scheme are rejected during cache bootstrap because
-  cachetastic 1.0.0's RedisPool backend does not support authentication, TLS,
-  or database selection.
+  Required Redis endpoint for BullX's application cache. Shape:
+  `redis://host[:port]`. URLs with userinfo, a non-empty path, or the
+  `rediss://` scheme are rejected during cache bootstrap because cachetastic
+  1.0.0's RedisPool backend does not support authentication, TLS, or database
+  selection.
   """
   bullx_env(:redis_url,
     key: [:cache, :redis_url],
     type: :binary,
-    default: nil,
+    required: true,
     binding_order: [BullX.Config.SystemBinding],
     binding_skip: [:system, :config]
   )
@@ -38,7 +38,7 @@ defmodule BullX.Config.CacheSettings do
   )
 
   @envdoc """
-  Redis connection pool size; only consulted in Redis mode.
+  Redis connection pool size.
   """
   bullx_env(:redis_pool_size,
     key: [:cache, :redis_pool_size],

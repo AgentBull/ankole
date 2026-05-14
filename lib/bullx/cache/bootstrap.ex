@@ -1,13 +1,14 @@
 defmodule BullX.Cache.Bootstrap do
   @moduledoc """
-  Publishes BullX-selected cachetastic configuration into the
-  `:cachetastic` application environment and verifies the default cache
-  backend can start.
+  Verifies BullX's required Redis cache dependency, publishes cachetastic
+  configuration into the `:cachetastic` application environment, and starts
+  the default cache backend.
 
   Runs as a `:transient` child of `BullX.Config.Supervisor`. Returns
   `:ignore` on success so the supervisor does not keep a process alive for
   it; raises on configuration errors so the supervisor restarts and
-  startup fails loudly.
+  startup fails loudly. ETS is configured only as cachetastic's local
+  fault-tolerance fallback after Redis has booted successfully.
   """
 
   require Logger
@@ -35,7 +36,7 @@ defmodule BullX.Cache.Bootstrap do
 
   defp build_backends_config! do
     ttl = CacheSettings.default_ttl_seconds!()
-    backends_config!(CacheSettings.redis_url!(), ttl)
+    backends_config!(required_redis_url!(), ttl)
   end
 
   defp publish_config!(backends) do
@@ -50,10 +51,6 @@ defmodule BullX.Cache.Bootstrap do
     :ok
   end
 
-  defp backends_config!(nil, ttl) do
-    [primary: :ets, ets: [ttl: ttl]]
-  end
-
   defp backends_config!(redis_url, ttl) when is_binary(redis_url) do
     {host, port} = parse_redis_url!(redis_url)
     pool_size = CacheSettings.redis_pool_size!()
@@ -65,6 +62,22 @@ defmodule BullX.Cache.Bootstrap do
       fault_tolerance: [primary: :redis_pool, backup: :ets]
     ]
   end
+
+  defp required_redis_url! do
+    case CacheSettings.redis_url() do
+      {:ok, redis_url} -> normalize_required_redis_url!(redis_url)
+      {:error, _reason} -> raise_missing_redis_url!()
+    end
+  end
+
+  defp normalize_required_redis_url!(redis_url) when is_binary(redis_url) do
+    case String.trim(redis_url) do
+      "" -> raise_missing_redis_url!()
+      trimmed -> trimmed
+    end
+  end
+
+  defp normalize_required_redis_url!(_missing), do: raise_missing_redis_url!()
 
   defp parse_redis_url!(url) do
     uri = URI.parse(url)
@@ -160,13 +173,14 @@ defmodule BullX.Cache.Bootstrap do
   defp host_part_has_port?(authority), do: String.contains?(authority, ":")
 
   defp verify_backends!(backends, opts) do
-    if Keyword.get(opts, :verify_redis, true) do
-      case Keyword.get(backends, :redis_pool) do
-        nil -> :ok
-        redis_opts -> verify_redis_connection!(redis_opts)
-      end
-    else
-      :ok
+    case Keyword.get(opts, :verify_redis, true) do
+      true ->
+        backends
+        |> Keyword.fetch!(:redis_pool)
+        |> verify_redis_connection!()
+
+      false ->
+        :ok
     end
   end
 
@@ -217,6 +231,11 @@ defmodule BullX.Cache.Bootstrap do
   defp raise_redis_connection!(host, port, reason) do
     raise RuntimeError,
           "BULLX_CACHE_REDIS_URL selected Redis, but Redis backend could not be verified at #{host}:#{port}: #{inspect(reason)}"
+  end
+
+  defp raise_missing_redis_url! do
+    raise RuntimeError,
+          "BULLX_CACHE_REDIS_URL is required; set it to redis://host[:port] before starting BullX"
   end
 
   defp raise_url!(url, reason) do

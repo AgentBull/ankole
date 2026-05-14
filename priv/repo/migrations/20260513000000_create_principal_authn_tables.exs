@@ -49,7 +49,6 @@ defmodule BullX.Repo.Migrations.CreatePrincipalAuthnTables do
       add :principal_id, references(:principals, type: :uuid, on_delete: :delete_all),
         primary_key: true
 
-      add :type, :text, null: false
       add :profile, :map, null: false, default: %{}
 
       add :created_by_principal_id, references(:principals, type: :uuid, on_delete: :nilify_all)
@@ -59,7 +58,6 @@ defmodule BullX.Repo.Migrations.CreatePrincipalAuthnTables do
 
     create index(:agents, [:created_by_principal_id])
     create constraint(:agents, :agents_profile_object, check: "jsonb_typeof(profile) = 'object'")
-    create constraint(:agents, :agents_type_format, check: "type ~ '^[a-z][a-z0-9_:-]*$'")
 
     create table(:principal_external_identities, primary_key: false) do
       add :id, :uuid, primary_key: true

@@ -7,9 +7,9 @@
 
 > :warning: **BullX は初期開発段階です。このブランチは大規模な削除整理後の infra shell であり、具体的なプロダクト詳細は design doc を通じて変わります。**
 
-BullX は、Elixir/OTP と PostgreSQL 上に構築された general-purpose AgentOS です。長時間続くデジタルワークを対象にしており、企業チーム、小規模な運営組織、OPC（one-person company）のいずれにも同じ中核モデルで適用できます。Agent が Signal を認識し、Work に責任を持ち、統制された Capability を通じて行動し、Outcome を記憶し、時間とともに改善します。
+BullX は、Elixir/OTP と PostgreSQL 上に構築された general-purpose AgentOS です。長時間続くデジタルワークを対象にしており、企業チーム、小規模な運営組織、OPC（one-person company）のいずれにも同じ中核モデルで適用できます。再開可能な DAG workflow が AI Agent、integration、明示的な Action Node、memory、記録された結果を時間をかけて調整します。
 
-BullX は単なるチャット bot フレームワークでも、LLM tool runner だけでもありません。長期的な目標は、永続的な Agent が実際の仕事に安全に参加するための operating system です。
+BullX は単なるチャット bot フレームワークでも、LLM tool runner だけでもありません。長期的な目標は、永続 workflow の中で AI Agent と他の Action Node が実際の仕事に安全に参加するための operating system です。
 
 ## Current State
 
@@ -27,49 +27,55 @@ BullX は単なるチャット bot フレームワークでも、LLM tool runner
 
 ## Product Direction
 
-BullX は少数の永続概念を中心に整理されます。具体的な table design、process topology、queue name、provider adapter はまだ確定していません。
+BullX は streaming support を持つ再開可能な DAG workflow を中心に整理されます。具体的な table design、process topology、queue name、provider adapter はまだ確定していません。
 
 - **Installation** — 一つの BullX deployment と operating domain。BullX は汎用 AgentOS ですが、SaaS multi-tenancy をデフォルトの product boundary とはみなしません。
 - **Principal** — authorization、audit、responsibility の対象となる内部主体。human、Agent、service、system actor はすべて Principal です。
-- **Agent** — identity、responsibility、memory、capability、permission、outbound identity、KPI を持つ永続的な work subject。Agent は自動的に LLM process や chat bot を意味しません。
-- **Signal** — 何かが起きたことを正規化して表すもの。Signal は task ではありません。
-- **Admission** — Signal を Agent の attention space に入れるかどうかの判断。owner、observer、reviewer、delegate、subscriber、blocked などの関係を記録します。
-- **Work / Mission** — 長期的な責任。Mission は永続的な goal、Work は具体的な commitment です。
-- **Capability** — Agent が使える統制された能力。reasoning、browser、code、messaging、data、memory、approval などの provider に支えられます。
-- **Intent / Governance / Effect** — Agent は Intent を提案し、Governance が Effect へ進めるか判断し、Effect が Outcome と audit record を生みます。
+- **Workflow** — Signal Trigger と Action Node からなる再開可能な directed acyclic graph。永続 workflow state は、retry、pause、resume、process restart 後の recovery に十分な進捗を記録します。
+- **Signal Trigger** — workflow の開始点または ingress point で、何が起きたかを正規化します。Provider adapter、webhook、schedule、routing は、独立した product layer ではなく Signal Trigger として扱います。
+- **Action Node** — workflow 内で work を実行する step。transform、approval、notification、blackhole などの非 AI behavior は Action Node であり、Agent ではありません。
+- **Sink Action Node** — `sink=true` を持つ Action Node。その branch を終端するため、その下に downstream Action Node は置けません。blackhole/drop branch も Sink Action Node です。
+- **Streaming Input / Streaming Output** — node ごとの flag。Streaming Input は上流の incremental data を消費できることを、Streaming Output は下流へ incremental data を出せることを意味します。
+- **Bidirectional Trigger / Reply to Trigger** — Signal Trigger が `bidirectional=true` の場合、DAG 内で `Reply to Trigger` という特別な Action Node を使えます。これは常に `sink=true` です。
+- **Agent** — AI Agent であり、workflow 内で実行されるときは Action Node として表現されます。identity、responsibility、memory、allowed provider、permission、outbound identity、KPI を持ちますが、すべての executable actor の汎称ではありません。
+- **Work** — Workflow run をまたいで持続する永続的な責任。1 回の Workflow run は、Work を create・advance・pause・resume・complete し得る 1 回の実行です。
 - **Brain** — 将来の ontology と reasoning-memory layer。raw vector log ではなく、object、relationship、perspective、engram、consolidation を中心にします。
 
 ## User Stories
 
 ### Group Chatを見守るが発言しない
 
-Customer-success Agent は顧客グループを見守り、リスク Signal を静かに処理し、Work を作成または更新し、担当者へ個別に通知できます。デフォルトではグループ内で発言しません。
+Messaging Signal Trigger は顧客グループの event から workflow を開始できます。Customer-success Agent Action Node はリスクを分析し、Work を作成または更新し、担当者へ個別に通知できます。デフォルトではグループ内で発言しません。
 
-### 一つのSignalを複数AgentへAdmissionする
+### 一つのSignal Triggerから複数Branchを開始する
 
-同じ外部イベントでも、Agent ごとに意味が違います。顧客の予算凍結に関するメッセージは、CustomerSuccessAgent には owner、FinanceAgent には observer、無関係な Agent には blocked になり得ます。
+同じ外部イベントでも、Agent ごとに意味が違います。顧客の予算凍結に関するメッセージは、CustomerSuccessAgent branch、FinanceAgent branch、無関係な branch の `sink=true` blackhole Sink Action Node へ fan out できます。
 
 ### 会話と外部イベントを一緒に記憶する
 
 Research Agent は、ユーザーとの会話と市場・政策・運用イベントを同じ記憶システムで扱えます。将来の回答では、過去チャットの全文検索だけでなく、ontology-backed world model から context を取得するべきです。
 
-### Outcomeから改善する
+### 結果から改善する
 
-Agent は繰り返しの結果から学ぶべきです。Coding Agent が fixture context 不足で何度も失敗するなら、次の Work planning では patch 作成前に fixture context を集めるべきです。
+Agent Action Node は繰り返しの結果から学ぶべきです。Coding Agent が fixture context 不足で何度も失敗するなら、次の Work planning では patch 作成前に fixture context を集めるべきです。
 
-### リスクの高い外部行動を統制する
+### リスクの高い外部行動をGateする
 
-Agent は customer-facing、financial、legal、その他リスクの高い Effect を直接実行すべきではありません。まず Intent を作り、Governance がリスクと承認要件を判断し、承認された Intent だけが外部 Effect になります。
+Customer-facing、financial、legal、その他 sensitive な外部 action は、side effect を持つ Action Node が実行される前に、明示的な approval または policy-gate Action Node を通るべきです。
 
 ## Design Invariants
 
 - PostgreSQL は永続的な fact source です。
 - process-local state は一時的で、再構築可能でなければなりません。
 - process は failure boundary であり、domain noun ではありません。
-- Signal は何が起きたかを表し、Admission は誰が見るべきかを決めます。
-- Agent は処理しても返信しないことがあります。
-- Capability は統制された能力であり、裸の tool call ではありません。
-- Intent は Effect より先に存在します。
+- Workflow は再開可能な DAG であり、linear chat session ではありません。
+- Provider adapter と routing は Signal Trigger として扱います。
+- Action Node は Streaming Input、Streaming Output、またはその両方を support するか宣言します。
+- Sink Action Node は終端です。`sink=true` の下に downstream Action Node は置けません。
+- `Reply to Trigger` は `bidirectional=true` の Signal Trigger にだけ存在し、常に sink です。
+- Reliability は durable checkpoint、retry、idempotent node contract、operator recovery から得られるものであり、global な strict exactly-once guarantee ではありません。
+- 外部 side effect を持つ Action Node は明示的な workflow node であり、隠れた raw tool call ではありません。
+- リスクの高い外部 write や message は、実行前に明示的な approval または policy-gate Action Node を通らなければなりません。
 - 重要な挙動は audit、explanation、recovery が可能でなければなりません。
 - Memory は非構造ログとして蓄積するのではなく、reasoning と consolidation を通じて進化するべきです。
 

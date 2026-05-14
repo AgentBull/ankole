@@ -141,27 +141,27 @@ Confirm which area you are editing before applying framework-specific rules belo
 
 ## Product Direction
 
-The long-term product direction is BullX as a general-purpose AgentOS for durable digital workers. It should work for an enterprise department, a small team, or an OPC operator with the same core model: Agents perceive signals, take responsibility for work, act through governed capabilities, build memory, and improve from outcomes. The detailed schema and runtime design are not committed yet, so code and docs should stay at the user-story and invariant level unless a design doc specifies implementation detail.
+The long-term product direction is BullX as a general-purpose AgentOS for durable digital work. It should work for an enterprise department, a small team, or an OPC operator with the same core model: recoverable DAG Workflows carry execution, Signal Triggers connect to the world, Action Nodes express work steps and external side effects, Agents carry intelligent responsibility, Brain accumulates memory, and real execution facts drive improvement. The detailed schema and runtime design are not committed yet, so code and docs should stay at the user-story and invariant level unless a design doc specifies implementation detail.
 
 Stable vocabulary for user stories:
 
 - **Installation** — one BullX deployment and its single operating domain. Do not introduce multi-tenant `Tenant` concepts without a design doc.
 - **Principal** — an internal subject that can be authorized, audited, and held responsible. Human users, Agents, services, and system actors are all Principals.
-- **Agent** — a durable work subject with identity, responsibility, memory, capabilities, permissions, outbound identity, and KPIs. An Agent is not automatically an LLM process, a chat bot, or a long-lived runtime process.
-- **Signal** — a normalized statement that something happened. A Signal is not a task.
-- **Admission** — the organizational decision that a Signal is allowed into an Agent's attention space, with a relation such as owner, observer, reviewer, delegate, subscriber, or blocked.
-- **Work / Mission** — durable responsibility. A Mission is a long-term goal; Work is a concrete commitment under that goal.
-- **Capability** — a governed ability an Agent may use. It is broader than a tool call and may be backed by reasoning, browser, code, messaging, data, memory, approval, or other providers.
-- **Intent / Governance / Effect** — Agents propose Intents; Governance decides whether they may become Effects; Effects produce Outcomes and audit records.
+- **Workflow** — a recoverable DAG of Signal Triggers and Action Nodes. It is the execution skeleton and records enough progress to retry, pause, resume, and recover after process restarts.
+- **Signal Trigger** — the entry point into a Workflow. Adapters, webhooks, time triggers, routing, and human triggers are all modeled as Signal Triggers, not as standalone product layers.
+- **Action Node** — a recoverable execution contract inside a Workflow. Non-AI behavior such as transforms, approvals, notifications, and blackholes is an Action Node, not an Agent.
+- **Agent** — a digital work subject with AI work capability: identity, responsibility, long-term memory, permissions, outbound identity, and KPIs. When it runs inside a Workflow it is one kind of Action Node. An Agent is not automatically an LLM process, a chat bot, or a long-lived runtime process.
+- **Capability** — a governed atomic ability an Action Node may call, such as a model, tool, browser, sandbox, messaging channel, or external API. Approval is not a Capability; it is Action Node or policy-gate semantics.
+- **Work** — a durable work responsibility that persists across Workflow runs. A Workflow run is one execution that may create, advance, pause, resume, or complete Work.
 - **Brain** — the future ontology and reasoning-memory system. It should model objects, relationships, perspectives, engrams, and memory consolidation rather than acting as a raw vector log.
 
 Core product stories to keep in mind:
 
 - A customer-success Agent can watch a group conversation, process a risk signal silently, create Work, and notify the account owner privately without speaking in the group.
-- The same Signal can be admitted to several Agents with different responsibilities: owner, observer, reviewer, or blocked.
+- The same Signal Trigger can fan out into several Workflow branches that reach different Agents, with irrelevant branches ending in a blackhole Sink Action Node — the Workflow graph itself expresses branching and termination.
 - A research Agent can combine conversation memory with external market events and retrieve context through an ontology-backed world model.
 - An Agent can learn from repeated outcomes, so future Work planning reflects previous failures and successful patterns.
-- Customer-facing, financial, legal, or otherwise risky outbound actions must pass through Governance before any external Effect happens.
+- Customer-facing, financial, legal, or otherwise risky outbound actions must pass through an explicit approval or policy-gate Action Node before any side-effecting Action Node runs.
 
 Do not encode the long-term table design, queue topology, adapter list, or runtime process model as if it were already implemented. Those details need a committed design doc before implementation.
 
@@ -179,7 +179,7 @@ BullX implements meaningful features, architectural changes, and complex bug fix
 
    - What existing utility or pattern can be reused?
 
-   - What code path, process, schema, Signal, Intent, Effect, or public contract is actually changing?
+   - What code path, process, schema, Signal Trigger, Action Node, or public contract is actually changing?
 
    - What invariant must remain true?
 
@@ -222,8 +222,9 @@ Do not relitigate durability, consistency, latency, availability, purity, normal
 - Do not add dependencies unless the user explicitly requests or approves them.
 - Do not introduce a new abstraction for a single use. Wait for repeated pressure or a clearly named domain boundary.
 - Do not optimize for the local patch at the cost of future change. Code is not static. It will move, split, merge, and be deleted.
-- Keep public contracts boring. Prefer explicit structs, schemas, Signals, Intents, Effects, and audit records over loose maps and freeform strings.
+- Keep public contracts boring. Prefer explicit structs, schemas, Signal Triggers, Action Nodes, and audit records over loose maps and freeform strings.
 - Keep process state reconstructible. Process-local state is ephemeral and must be safe to rebuild on restart.
+- Multiple coding agents may work in parallel on the same branch. Unrelated files or diffs in Git status are normal; do not revert or touch them unless your task explicitly requires it.
 - Verify outcomes before final claims. Do not say a bug is fixed, a feature works, or a migration is safe unless you ran the relevant command or clearly state what remains unverified.
 
 ## Cleanup and refactor rules

@@ -847,7 +847,6 @@ defmodule BullX.Principals.AuthN do
         avatar_url: attr(principal_source, :avatar_url)
       },
       agent: %{
-        type: attr(agent_source, :type),
         profile: attr(agent_source, :profile),
         created_by_principal_id: attr(agent_source, :created_by_principal_id)
       }

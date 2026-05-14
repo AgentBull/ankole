@@ -24,11 +24,12 @@ create or resolve Human Principals:
   implementation handoff.
 
 This design intentionally does not cover AuthZ groups, roles, permission grants,
-Cedar policy evaluation, audit-log storage, Signal admission, Work ownership,
-Mission planning, Capability execution, Governance, Effect production, Brain
-memory, external transport implementation, or full Web login route wiring.
-Those subsystems consume `principals.id` as their durable subject id after
-their own design docs define their tables and runtime behavior.
+Cedar policy evaluation, audit-log storage, Workflow routing, Work
+responsibility, Action Node execution, Capability use, approval gates,
+side-effecting Action Nodes, Brain memory, external transport implementation, or
+full Web login route wiring. Those subsystems consume `principals.id` as their
+durable subject id after their own design docs define their tables and runtime
+behavior.
 
 ## Goals
 
@@ -39,8 +40,8 @@ their own design docs define their tables and runtime behavior.
   extension tables instead of pure single-table inheritance.
 - Let Human Principals authenticate from external providers and channel actors
   without making transport code own BullX identity.
-- Let Agent Principals carry type-specific runtime profile data without adding a
-  new table for every Agent implementation shape.
+- Let Agent Principals carry profile data without adding a new table or subtype
+  column before an Agent runtime design needs one.
 - Keep bootstrap setup possible on a fresh Installation before an administrator
   exists.
 - Store all durable identity facts in PostgreSQL, with process-local state
@@ -48,15 +49,18 @@ their own design docs define their tables and runtime behavior.
 
 ## Non-goals
 
-- Service accounts, external actors as Principals, and system actors are future
-  Principal types. The initial enum contains only `human` and `agent`.
+- Service and system Principals are deferred Principal types. The initial enum
+  contains only `human` and `agent`.
+- External actors remain Connected Realm subjects until a later design maps one
+  to an internal Principal. External actor evidence does not by itself create a
+  BullX identity.
 - Activation codes do not attach a new channel actor to an existing Human
   Principal. Manual binding management belongs to a later operator surface.
 - Activation codes do not create or bind Agent Principals.
 - The built-in channel-auth login provider defines code generation and
   verification only. Transport command handling and Web session route wiring
   can use those APIs after the relevant surfaces are rebuilt.
-- This design does not define Agent runtime profile schemas.
+- This design does not define Agent runtime or Agentic Loop profile schemas.
 - This design does not write administrator group membership. Bootstrap metadata
   marks the activation-code path that created the bootstrap Human Principal; the
   AuthZ design decides how that Principal becomes an administrator.
@@ -106,8 +110,8 @@ types with extension data.
 
 `principals.uid` is the globally unique, case-insensitive handle for a Principal.
 Humans can use it as a username. Agents can use it as a stable handle in control
-surfaces, logs, and future routing rules without implying that an Agent is a
-human account.
+surfaces, logs, Workflow configuration, and permission grants without implying
+that an Agent is a human account.
 
 The implementation stores `uid` in canonical lowercase form. `display_name`
 stores presentation text. `bio` stores a short operator-facing description or
@@ -135,21 +139,28 @@ Human extension boundary explicit.
 
 ### Agent Principals
 
-An Agent Principal is a durable work subject with identity, responsibility,
-memory, capabilities, permissions, outbound identity, and KPIs. It is not
-automatically an LLM process, a chat bot, or a long-lived BEAM process.
+An Agent Principal is the internal identity for an Agent. In this design, a
+non-SubAgent Agent is a first-class Agent Principal: it can be granted
+permission, disabled, audited, evaluated, and referenced across Workflow runs.
+SubAgents are derived Agentic Loop execution bodies inside Action Node semantics;
+they do not become Agent Principals by default.
 
-`agents.type` is a required text identifier. It is intentionally open while
-Agent runtime designs are being rebuilt.
+An Agent Principal is not an LLM process, a chat bot, an Agentic Loop run, an
+external harness invocation, or a long-lived BEAM process. Workflow run and
+Action Node records capture per-execution facts. Non-AI Action Nodes do not
+become Agent Principals merely because they need audit records; if a non-AI node
+later needs independent permission, a Service or System Principal is the right
+identity boundary.
 
 `agents.profile` is a required JSONB object. This design only guarantees the
-storage mechanism; runtime-specific profile validation belongs to the design
-that introduces that runtime. If a profile field becomes query-critical, a later
-migration can promote that field to a dedicated column.
+storage mechanism for Agent profile data. Runtime-specific profile validation
+belongs to the Agentic Loop, SubAgent, Workflow, or Capability design that
+introduces that runtime behavior. If a profile field becomes query-critical, a
+later migration can promote that field to a dedicated column.
 
 `agents.created_by_principal_id` is nullable. It records creation provenance
 when a Human or system Principal created the Agent, without defining ownership,
-delegation, Mission responsibility, or authorization policy.
+delegation, Work responsibility, Workflow ownership, or authorization policy.
 
 ## External identities
 
@@ -487,7 +498,6 @@ Indexes and constraints:
 Columns:
 
 - `principal_id`: primary key and foreign key to `principals.id`.
-- `type`: required text Agent type identifier.
 - `profile`: required JSONB Agent profile object.
 - `created_by_principal_id`: nullable foreign key to `principals.id`.
 - `inserted_at`: creation timestamp.
@@ -495,8 +505,7 @@ Columns:
 
 Indexes and constraints:
 
-- not-null constraints on `type` and `profile`;
-- check constraint that `type` matches `^[a-z][a-z0-9_:-]*$`;
+- not-null constraint on `profile`;
 - check constraint that `jsonb_typeof(profile) = 'object'`;
 - index on `created_by_principal_id`;
 - foreign key to `principals.id` with type invariant enforced by changesets and
@@ -708,8 +717,10 @@ private tokens. Human profile fields such as email and phone are personally
 identifiable information and should appear in logs only when needed for operator
 diagnosis and never alongside secrets.
 
-Agents can eventually propose Intents and produce Effects, but this design does
-not authorize outbound actions. Governance remains a separate boundary.
+Agent Action Nodes can produce outputs, call Capabilities, and lead to downstream
+side-effecting Action Nodes, but this design does not authorize outbound actions.
+High-risk external side effects belong behind explicit approval or policy-gate
+Action Nodes in the Workflow graph.
 
 ## Alternatives considered
 
@@ -718,7 +729,7 @@ not authorize outbound actions. Governance remains a separate boundary.
 | Keep the old `BullXAccounts` user-centered design | Rejected. BullX needs Humans and Agents to share one accountable subject model. |
 | Use only `users` and add Agent rows elsewhere | Rejected. That makes Agents second-class for AuthZ, audit, and responsibility. |
 | Use pure single-table inheritance in `principals` | Rejected. Human and Agent fields have different validation and lifecycle pressure; extension tables keep the base identity small. |
-| Add one table per Agent subtype | Rejected for the first implementation. `agents.type` plus validated `profile` handles the single known subtype with less schema churn. |
+| Add an Agent implementation discriminator column | Rejected for the first implementation. `principals.type = agent` already distinguishes Agents from Humans; `agents.profile` carries the small amount of Agent extension data this design owns. Runtime-specific dispatch belongs to the runtime design that needs it. |
 | Let activation codes bind existing Principals | Rejected. The first activation-code contract stays a preauth path for creating a new Human Principal and first channel binding. |
 | Store provider credentials in external identity metadata | Rejected. Metadata is not a credential store and does not create a secret-handling boundary. |
 | Implement AuthZ bootstrap membership in this design | Rejected. The bootstrap activation metadata is persisted now; groups and administrator grants belong to the AuthZ design. |
@@ -754,8 +765,9 @@ the schema and behavior in this design.
 - Use PostgreSQL native enum types for closed value sets.
 - Store `uid` lowercase and globally unique.
 - Store code hashes only; never store plaintext activation or login codes.
-- Do not add AuthZ tables, group membership, Cedar policy, Signal admission,
-  Work, Capability, or Governance behavior in this implementation.
+- Do not add AuthZ tables, group membership, Cedar policy, Workflow routing,
+  Work, Capability use, approval-node, policy-gate, or side-effect execution
+  behavior in this implementation.
 - Do not add a long-lived Principal supervisor unless a new design states the
   failure boundary.
 
@@ -773,8 +785,7 @@ the schema and behavior in this design.
 2. Add Agent extension validation.
    Owns: `BullX.Principals.Agent`.
    Depends on: Task 1.
-   Acceptance: Agent type is present and format-constrained; `profile` is a
-   JSON object.
+   Acceptance: `profile` is a JSON object.
    Verify: Agent schema tests.
 
 3. Add Principal runtime configuration.

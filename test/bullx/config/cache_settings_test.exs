@@ -29,8 +29,8 @@ defmodule BullX.Config.CacheSettingsTest do
   end
 
   describe "redis_url/0" do
-    test "returns nil when the env var is unset" do
-      assert {:ok, nil} = CacheSettings.redis_url()
+    test "requires the env var" do
+      assert {:error, _reason} = CacheSettings.redis_url()
     end
 
     test "returns the URL string when the env var is set" do

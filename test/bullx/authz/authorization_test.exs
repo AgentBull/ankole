@@ -244,7 +244,6 @@ defmodule BullX.AuthZ.AuthorizationTest do
       Principals.create_agent(%{
         uid: uid,
         display_name: uid,
-        type: "test",
         profile: %{}
       })
 

@@ -7,9 +7,9 @@
 
 > :warning: **BullX is in early development. This branch is an infra shell after a large subtractive cleanup. Product details are expected to change through design docs.**
 
-BullX is a general-purpose AgentOS built on Elixir/OTP and PostgreSQL for long-running digital work. It can support an enterprise team, a small operating group, or a one-person company with the same core idea: Agents perceive signals, take responsibility for work, act through governed capabilities, remember outcomes, and improve over time.
+BullX is a general-purpose AgentOS built on Elixir/OTP and PostgreSQL for long-running digital work. It can support an enterprise team, a small operating group, or a one-person company with the same core idea: resumable DAG workflows coordinate AI Agents, integrations, explicit Action Nodes, memory, and recorded results over time.
 
-BullX is not only a chat bot framework and not only an LLM tool runner. The long-term goal is an operating system for durable Agents that can safely participate in real work.
+BullX is not only a chat bot framework and not only an LLM tool runner. The long-term goal is an operating system for durable workflows where AI Agents and other Action Nodes can safely participate in real work.
 
 ## Current State
 
@@ -27,49 +27,55 @@ The removed product surface should not be restored piecemeal. New product behavi
 
 ## Product Direction
 
-BullX is organized around a few durable concepts. The exact table design, process topology, queue names, and provider adapters are not final yet.
+BullX is organized around resumable DAG workflows with streaming support. The exact table design, process topology, queue names, and provider adapters are not final yet.
 
 - **Installation** — one BullX deployment and operating domain. BullX is general-purpose, but it does not treat SaaS multi-tenancy as the default product boundary.
 - **Principal** — an internal subject that can be authorized, audited, and held responsible. Humans, Agents, services, and system actors are all Principals.
-- **Agent** — a durable work subject with identity, responsibility, memory, capabilities, permissions, outbound identity, and KPIs. An Agent is not automatically an LLM process or chat bot.
-- **Signal** — a normalized statement that something happened. A Signal is not a task.
-- **Admission** — the decision that a Signal should enter an Agent's attention space, with a relationship such as owner, observer, reviewer, delegate, subscriber, or blocked.
-- **Work / Mission** — long-running responsibility. A Mission is a durable goal; Work is a concrete commitment.
-- **Capability** — a governed ability an Agent can use, backed by providers such as reasoning, browser, code, messaging, data, memory, or approval.
-- **Intent / Governance / Effect** — Agents propose Intents; Governance decides whether they may become Effects; Effects produce Outcomes and audit records.
+- **Workflow** — a resumable directed acyclic graph of Signal Triggers and Action Nodes. Durable workflow state records enough progress to retry, pause, resume, and recover after process restarts.
+- **Signal Trigger** — a workflow start or ingress point that normalizes something that happened. Provider adapters, webhooks, schedules, and routing are modeled as Signal Triggers instead of standalone product layers.
+- **Action Node** — a workflow step that performs work. Non-AI behavior such as transforms, approvals, notifications, and blackholes is an Action Node, not an Agent.
+- **Sink Action Node** — an Action Node with `sink=true`. It terminates its branch, so no downstream Action Node is valid below it. A blackhole/drop branch is also a Sink Action Node.
+- **Streaming Input / Streaming Output** — per-node flags. Streaming Input means the node can consume incremental upstream data; Streaming Output means the node can emit incremental downstream data.
+- **Bidirectional Trigger / Reply to Trigger** — when a Signal Trigger has `bidirectional=true`, the DAG may use one special `Reply to Trigger` Action Node. It is always `sink=true`.
+- **Agent** — an AI Agent, modeled as an Action Node when it executes inside a workflow. It has identity, responsibility, memory, allowed providers, permissions, outbound identity, and KPIs, but it is no longer the generic name for every executable actor.
+- **Work** — a durable work responsibility that persists across Workflow runs. A Workflow run is one execution that may create, advance, pause, resume, or complete Work.
 - **Brain** — the future ontology and reasoning-memory layer, built around objects, relationships, perspectives, engrams, and consolidation rather than raw vector logs.
 
 ## User Stories
 
 ### Quietly Watch a Group Conversation
 
-A customer-success Agent can watch a customer group, process risk signals silently, create or update Work, and notify the responsible human privately without speaking in the group by default.
+A messaging Signal Trigger can start a workflow from a customer group event. A customer-success Agent Action Node can analyze risk, create or update Work, and notify the responsible human privately without speaking in the group by default.
 
-### Admit One Signal to Multiple Agents
+### Start Multiple Branches from One Signal Trigger
 
-The same external event can matter to different Agents in different ways. A message about a customer budget freeze might make CustomerSuccessAgent the owner, FinanceAgent an observer, and unrelated Agents blocked.
+The same external event can matter to different Agents in different ways. A message about a customer budget freeze can fan out to a CustomerSuccessAgent branch, a FinanceAgent branch, and a blackhole Sink Action Node for irrelevant branches.
 
 ### Remember Conversations and External Events Together
 
 A research Agent can combine user conversations with external market, policy, or operational events. Future answers should retrieve context through an ontology-backed world model rather than only searching past chat text.
 
-### Improve from Outcomes
+### Improve from Results
 
-An Agent should learn from repeated results. If a coding Agent often fails when fixture context is missing, later Work planning should explicitly collect fixture context before writing a patch.
+An Agent Action Node should learn from repeated results. If a coding Agent often fails when fixture context is missing, later Work planning should explicitly collect fixture context before writing a patch.
 
-### Govern Risky Outbound Actions
+### Gate Risky Outbound Actions
 
-Agents should not directly send customer-facing, financial, legal, or otherwise risky effects. They create Intents, Governance classifies risk and approval needs, and only approved Intents become external Effects.
+Risky customer-facing, financial, legal, or otherwise sensitive external actions should pass through explicit approval or policy-gate Action Nodes before any side-effecting Action Node runs.
 
 ## Design Invariants
 
 - PostgreSQL is the fact source for durable state.
 - Process state is ephemeral and reconstructible.
 - Processes are failure boundaries, not domain nouns.
-- A Signal says what happened; Admission decides who should see it.
-- An Agent can process something without replying.
-- Capabilities are governed abilities, not raw tool calls.
-- Intent comes before Effect.
+- Workflows are resumable DAGs, not linear chat sessions.
+- Provider adapters and routing are modeled as Signal Triggers.
+- Action Nodes declare whether they support Streaming Input, Streaming Output, or both.
+- A Sink Action Node is terminal; no downstream Action Node is valid below `sink=true`.
+- `Reply to Trigger` exists only for `bidirectional=true` Signal Triggers and is always a sink.
+- Reliability comes from durable checkpoints, retries, idempotent node contracts, and operator recovery rather than a blanket strict exactly-once guarantee.
+- Side-effecting Action Nodes are explicit workflow nodes, not hidden raw tool calls.
+- Risky external writes or messages must pass through explicit approval or policy-gate Action Nodes before execution.
 - Important behavior must be auditable, explainable, and recoverable.
 - Memory should evolve through reasoning and consolidation, not accumulate as an unstructured log.
 

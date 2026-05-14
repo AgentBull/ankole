@@ -1,12 +1,13 @@
 # Cache
 
 BullX uses [`cachetastic`](https://github.com/gskolber/cachetastic) as the
-single in-application caching layer. The default backend is local ETS so a
-single-node deployment works without external dependencies. Setting
-`BULLX_CACHE_REDIS_URL` is the only switch operators flip to move to Redis
-for multi-instance deployments that need a shared cache; absence of that
-variable means ETS. Configuration flows through `BullX.Config` declarations
-bound exclusively to `BullX.Config.SystemBinding`; restart is the switching
+single in-application caching layer. Redis is the required primary backend for
+BullX runtime cache state, and `BULLX_CACHE_REDIS_URL` must be present before
+the application starts. ETS is configured only as cachetastic's local fallback
+when the Redis backend returns errors after a successful boot; missing,
+malformed, or unreachable Redis configuration fails startup instead of selecting
+an ETS-only mode. Configuration flows through `BullX.Config` declarations bound
+exclusively to `BullX.Config.SystemBinding`; restart is the switching
 mechanism. Cachetastic runs as a normal OTP application; `BullX.Config.Supervisor`
 owns only BullX's cache bootstrap child, which publishes cachetastic's
 application env before downstream BullX subsystems use the cache.
@@ -15,11 +16,11 @@ application env before downstream BullX subsystems use the cache.
 
 - Provide one cache façade that every BullX subsystem and plugin uses for
   application-level caching, in place of ad-hoc ETS or process-dict caches.
-- Default to ETS so local development and single-instance installs require no
-  external services.
-- Let an operator switch to Redis without code changes by setting
-  `BULLX_CACHE_REDIS_URL` (plus optional tuning variables). Backend selection
-  is implicit: URL set means Redis, URL absent means ETS.
+- Require Redis as the normal application cache backend for every BullX runtime.
+- Keep ETS only as a local fault-tolerance fallback that cachetastic may use
+  during a Redis outage after the Redis backend has already booted.
+- Let an operator point BullX at Redis without code changes by setting the
+  required `BULLX_CACHE_REDIS_URL` plus optional tuning variables.
 - Preserve uniform call sites across both backends: callers depend on
   `BullX.Cache`, not on `Cachetastic.Backend.ETS` or `Cachetastic.Backend.Redis`.
 - Keep cache configuration outside the database so cache availability cannot
@@ -40,11 +41,14 @@ application env before downstream BullX subsystems use the cache.
   invalidation contracts and is not part of this introduction.
 - Multiple BullX-defined named caches (`:sessions`, `:llm`, etc.). The layer
   exposes a single `:default` cache; callers prefix keys themselves.
-- Cross-node invalidation for ETS mode. ETS mode is for local development and
-  single-node deployments. Operators who need a shared multi-instance cache use
-  Redis mode.
+- Operator-selected ETS-only mode. ETS is a degraded local fallback behind the
+  Redis backend, not a supported BullX deployment mode.
+- Promotion, invalidation, or replay of values written to ETS while Redis is
+  unavailable.
 - Redis features not supported by cachetastic 1.0.0's `RedisPool` backend,
   including authentication, TLS, and selecting a Redis database from the URL.
+  Dev/test isolation uses separate Redis URLs rather than Redis logical DB
+  selection.
 
 ## Existing System
 
@@ -103,11 +107,11 @@ The LLM catalog deliberately caches the list as one value rather than one key
 per provider. `BullX.Cache` does not expose pattern deletion, and a per-provider
 layout would otherwise need Redis-only invalidation behavior to avoid stale
 deleted providers. Rebuilding the list keeps the invalidation contract identical
-in ETS and Redis mode.
+in the primary Redis path and the local ETS fallback path.
 
 ### Configuration declarations
 
-A new module `BullX.Config.CacheSettings` holds the runtime declarations. The
+`BullX.Config.CacheSettings` holds the runtime declarations. The
 name is distinct from the existing `BullX.Config.Cache` GenServer that owns
 the configuration ETS table. Each declaration sets
 `binding_order: [BullX.Config.SystemBinding]` and `binding_skip: [:system, :config]`,
@@ -115,50 +119,38 @@ matching `BullX.Config.Secrets.secret_base!/0`.
 
 | Accessor | OS env | Type | Default | Notes |
 | --- | --- | --- | --- | --- |
-| `redis_url/0` | `BULLX_CACHE_REDIS_URL` | `:binary` | `nil` | Presence is the backend selector: set means Redis, unset means ETS. Shape: `redis://host[:port]`. |
+| `redis_url/0` | `BULLX_CACHE_REDIS_URL` | `:binary` | required | Redis endpoint. Shape: `redis://host[:port]`; missing values fail startup. |
 | `default_ttl_seconds/0` | `BULLX_CACHE_DEFAULT_TTL_SECONDS` | `:integer` | `600` | Backend-level fallback TTL when callers do not specify one. `Zoi.integer(gte: 1)`. |
-| `redis_pool_size/0` | `BULLX_CACHE_REDIS_POOL_SIZE` | `:integer` | `10` | Only consulted in Redis mode. `Zoi.integer(gte: 1)`. |
+| `redis_pool_size/0` | `BULLX_CACHE_REDIS_POOL_SIZE` | `:integer` | `10` | Redis connection pool size. `Zoi.integer(gte: 1)`. |
 
-Backend selection has no dedicated env var: there is exactly one signal,
-`BULLX_CACHE_REDIS_URL`. The URL is the source of truth for `host` and the
-optional port. Cachetastic 1.0.0's `RedisPool` backend does not support
+Backend selection has no dedicated env var. Redis is always the primary backend,
+and `BULLX_CACHE_REDIS_URL` is the source of truth for `host` and the optional
+port. Cachetastic 1.0.0's `RedisPool` backend does not support
 passwords, TLS, or database selection, so URLs with userinfo, `rediss://`, or a
 non-empty path are rejected instead of being partially honored.
 
 Invalid numeric env values follow the normal `BullX.Config` runtime rule: that
-source is ignored and the default is used. A malformed Redis URL is different:
-once `BULLX_CACHE_REDIS_URL` selects Redis mode, BullX must be able to translate
-the URL into cachetastic's supported Redis options.
+source is ignored and the default is used. Missing or malformed Redis URLs are
+different: BullX must be able to translate the required URL into cachetastic's
+supported Redis options before the application starts.
 
 ### Cachetastic application env
 
 Cachetastic reads its configuration from `:cachetastic` application env and
-starts its backend processes lazily on cache use. A new module
-`BullX.Cache.Bootstrap` translates `BullX.Config.CacheSettings` values into the
-shape cachetastic expects, calls `Application.put_env(:cachetastic, ...)`, and
-then verifies the selected backend. ETS mode uses
-`Cachetastic.ensure_backends_started(:default)`; Redis mode first opens a
-short-lived Redix connection and sends `PING` so an explicitly selected Redis
-backend cannot silently boot into local ETS. Its `start_link/1` returns
-`:ignore` and its child spec uses `restart: :transient`, mirroring
+starts its backend processes lazily on cache use. `BullX.Cache.Bootstrap`
+translates `BullX.Config.CacheSettings` values into the shape cachetastic
+expects, opens a short-lived Redix connection, sends `PING`, publishes
+`Application.put_env(:cachetastic, ...)`, and then ensures the default backend
+starts. The Redis probe happens before cachetastic is published so missing or
+unreachable Redis cannot silently boot into local ETS. Its `start_link/1`
+returns `:ignore` and its child spec uses `restart: :transient`, mirroring
 [`BullX.Config.ReqLLM.BootSync`](../../lib/bullx/config/req_llm/boot_sync.ex).
 
-When `redis_url()` returns `nil` (ETS mode):
-
-```elixir
-Application.put_env(:cachetastic, :backends,
-  primary: :ets,
-  ets: [ttl: default_ttl_seconds!()]
-)
-Application.put_env(:cachetastic, :serializer, Cachetastic.Serializers.ErlangTerm)
-Application.put_env(:cachetastic, :key_prefix, "bullx")
-```
-
-When `redis_url()` returns a binary (Redis mode):
+When the required Redis URL resolves to a binary:
 
 ```elixir
 %URI{host: host, port: port} =
-  URI.parse(redis_url())
+  URI.parse(required_redis_url!())
 
 Application.put_env(:cachetastic, :backends,
   primary: :redis_pool,
@@ -216,26 +208,26 @@ retry without taking the rest of the application down.
 
 ### Invalidation behavior
 
-- ETS mode (no `BULLX_CACHE_REDIS_URL`): cache entries are local to the current
-  BEAM node. `delete/1` and `clear/0` affect only the local cache. Multi-node
-  deployments that need shared cache state use Redis mode.
-- Redis mode (`BULLX_CACHE_REDIS_URL` set): Redis itself is the shared
-  store. `fault_tolerance` is configured to fall back to ETS during Redis
-  outages. No PubSub channel is configured; on recovery, ETS entries
-  written during the outage are not promoted to Redis or invalidated
-  automatically, so cache hits on those keys return stale values until
-  their TTL expires. This is the accepted tradeoff for keeping the cache
-  available during a Redis outage; see
-  [Risks And Tradeoffs](#risks-and-tradeoffs).
+Redis is the shared cache store. `delete/1` and `clear/0` operate through the
+Redis primary backend during normal operation. `fault_tolerance` is configured
+to fall back to local ETS only when the Redis backend returns operation errors
+after startup.
+
+No PubSub channel is configured. When cachetastic writes to local ETS during a
+Redis outage, those entries are not promoted to Redis or invalidated
+automatically after Redis recovers. Cache hits on those local entries can return
+stale values until their TTL expires. This is the accepted tradeoff for keeping
+cache callers available during a Redis outage; see
+[Risks And Tradeoffs](#risks-and-tradeoffs).
 
 ### Failure model
 
 | Failure | Observed behavior |
 | --- | --- |
-| `BULLX_CACHE_REDIS_URL` is unset. | ETS mode. No error. |
-| `BULLX_CACHE_REDIS_URL` is set but malformed or uses unsupported Redis URL features such as userinfo, a non-empty path, or `rediss://`. | Bootstrap raises with the parse error. ETS fallback is **not** taken because an explicit Redis backend was selected. |
+| `BULLX_CACHE_REDIS_URL` is unset. | Bootstrap raises because the required Redis URL is missing. ETS fallback is **not** taken. |
+| `BULLX_CACHE_REDIS_URL` is malformed or uses unsupported Redis URL features such as userinfo, a non-empty path, or `rediss://`. | Bootstrap raises with the parse error. ETS fallback is **not** taken. |
 | `BULLX_CACHE_REDIS_POOL_SIZE` or `BULLX_CACHE_DEFAULT_TTL_SECONDS` fails Zoi validation. | The invalid source is ignored by `BullX.Config`; the declaration default is used. |
-| Redis is unreachable on boot in Redis mode. | Bootstrap fails while verifying the selected backend. ETS fallback is not used for boot-time Redis connection failure. |
+| Redis is unreachable on boot. | Bootstrap fails while verifying the Redis backend. ETS fallback is not used for boot-time Redis connection failure. |
 | Redis becomes unreachable mid-run after the Redis backend has started. | Cachetastic fault tolerance falls back to local ETS for operations that return backend errors. Writes during the outage are not cluster-visible. |
 
 `BullX.Cache.fetch/3` propagates fallback exceptions to the caller; the cache
@@ -289,8 +281,9 @@ arguments without breaking existing callers.
 cachetastic 1.0.0 does not wire PubSub into `put`, `delete`, or `clear`, nor
 does it start a PubSub child from its application supervisor. BullX could wrap
 that behavior in `BullX.Cache`, but doing so would add a distributed invalidation
-contract to an otherwise local ETS mode. Rejected for the initial introduction:
-ETS is single-node, Redis is the multi-instance path.
+contract to an ETS backend that BullX does not expose as an operator-selected
+mode. Rejected: Redis is the shared cache path, and ETS exists only as a local
+fault-tolerance fallback.
 
 ## Data And Persistence
 
@@ -302,11 +295,15 @@ because the binding order excludes `DatabaseBinding`.
 ## Runtime And Operations
 
 - `BullX.Config.Supervisor` gains one child, `BullX.Cache.Bootstrap`, which
-  publishes cachetastic config and verifies the selected default backend.
+  verifies Redis, publishes cachetastic config, and starts the default backend.
 - `mix.exs` lists `{:cachetastic, "~> 1.0"}` and `{:redix, "~> 1.5"}` in
   `core_deps`, with `:cachetastic` added to the application's
   `extra_applications`. Redix is a direct dependency because
   `BullX.Cache.Bootstrap` uses it for boot-time Redis verification.
+- `tools/devbox/external-services.docker-compose.yml` includes `redis:latest`
+  services for both dev and test so local development and test runs have
+  separate Redis stores alongside PostgreSQL. The committed env files point dev
+  at `redis://localhost:6379` and test at `redis://localhost:6380`.
 - Telemetry: cachetastic emits `[:cachetastic, :*]` events through
   `Cachetastic.Telemetry`. `BullXWeb.Telemetry` does not need to add poller
   metrics, but operators wiring dashboards should attach to those events.
@@ -318,9 +315,9 @@ because the binding order excludes `DatabaseBinding`.
 
 ## Error And Failure Behavior
 
-- Invalid numeric cache env values follow `BullX.Config` fallback rules. A Redis
-  URL that selects unsupported cachetastic options raises during
-  `BullX.Cache.Bootstrap.start_link/1`.
+- `BULLX_CACHE_REDIS_URL` is required. Missing values, unsupported URL features,
+  and Redis boot-probe failures raise during `BullX.Cache.Bootstrap.start_link/1`.
+- Invalid numeric cache env values follow `BullX.Config` fallback rules.
 - Cache reads and writes return cachetastic's `{:ok, _}` / `{:error, _}`
   shapes unchanged. Callers decide whether a cache miss or error should fall
   back to the source of truth.
@@ -331,7 +328,7 @@ because the binding order excludes `DatabaseBinding`.
   secret material, it is the caller's responsibility to encrypt before
   `put/2` and decrypt after `get/1`. The cache treats values as opaque Elixir
   terms and configures cachetastic's Erlang external term serializer so ETS and
-  Redis mode accept the same value shapes.
+  Redis accept the same value shapes.
 
 ## Security, Privacy, Governance
 
@@ -349,10 +346,11 @@ because the binding order excludes `DatabaseBinding`.
 
 ### Goal
 
-Introduce `BullX.Cache` as the single application cache façade, declare its
-configuration through `BullX.Config.SystemBinding`-only accessors in
-`BullX.Config.CacheSettings`, and supervise cachetastic under
-`BullX.Config.Supervisor` with cachetastic running as a normal OTP application.
+Operate `BullX.Cache` as the single application cache façade with Redis as the
+required primary backend. Declare cache configuration through
+`BullX.Config.SystemBinding`-only accessors in `BullX.Config.CacheSettings`,
+supervise cachetastic under `BullX.Config.Supervisor`, and keep ETS only as the
+local cachetastic fallback for runtime Redis backend errors.
 
 ### Context Pointers
 
@@ -374,6 +372,8 @@ configuration through `BullX.Config.SystemBinding`-only accessors in
 
 - Cache settings resolve through `BullX.Config.SystemBinding` only. Do not
   add `DatabaseBinding` or `ApplicationBinding` to `binding_order`.
+- `BULLX_CACHE_REDIS_URL` is required. Do not add an operator-facing ETS-only
+  mode or a second backend selector env var.
 - Do not expose `Cachetastic.delete_pattern/1` or `cache_name`-aware
   signatures through `BullX.Cache`. The façade pins the cache name and the
   feature surface to what both backends support uniformly.
@@ -403,33 +403,32 @@ configuration through `BullX.Config.SystemBinding`-only accessors in
      and `redis_pool_size` per the table in
      [Design](#configuration-declarations). Each declaration uses
      `binding_order: [BullX.Config.SystemBinding]` and
-     `binding_skip: [:system, :config]`. No `backend` accessor exists; backend selection is
-     derived from `redis_url/0` returning a binary versus `nil`.
+     `binding_skip: [:system, :config]`. `redis_url` is required. No `backend`
+     accessor exists; Redis is the only primary backend.
    - **Verify:** New unit test
      `test/bullx/config/cache_settings_test.exs` exercises each accessor
-     with env values set and unset, plus invalid pool-size and TTL values.
+     with env values set and missing, plus invalid pool-size and TTL values.
 
 3. **Task:** Implement the cachetastic bootstrap.
    - **Owns:** new file `lib/bullx/cache/bootstrap.ex`.
    - **Depends on:** Task 2.
    - **Acceptance:** Module exposes `child_spec/1` with
      `restart: :transient` and `start_link/1` that returns `:ignore` after
-     successfully publishing the cachetastic application env (see
-     [Cachetastic application env](#cachetastic-application-env)) and verifying
-     the selected backend. ETS mode calls
-     `Cachetastic.ensure_backends_started(:default)`; Redis mode verifies a
-     Redix `PING` before publishing the cachetastic env. The bootstrap selects
-     ETS mode when `BullX.Config.CacheSettings.redis_url/0` returns `nil` and
-     Redis mode otherwise. URL parsing handles missing port (defaults to 6379).
-     It rejects userinfo, path/database, TLS scheme, malformed explicit ports,
-     out-of-range ports, and other unsupported URL shapes with a descriptive
-     message.
+     verifying Redis, publishing the cachetastic application env (see
+     [Cachetastic application env](#cachetastic-application-env)), and starting
+     the default backend. The bootstrap resolves the required Redis URL,
+     verifies a Redix `PING` before publishing cachetastic env, and always
+     configures `:redis_pool` as primary with `:ets` as cachetastic
+     fault-tolerance fallback. URL parsing handles missing port (defaults to
+     6379). It rejects missing URLs, userinfo, path/database, TLS scheme,
+     malformed explicit ports, out-of-range ports, and other unsupported URL
+     shapes with a descriptive message.
    - **Verify:** New unit test
-     `test/bullx/cache/bootstrap_test.exs` covers ETS path (URL unset),
+     `test/bullx/cache/bootstrap_test.exs` covers missing URL failure,
      Redis path with a full URL and the malformed or unsupported URL failure
      modes. Tests assert `Application.get_env(:cachetastic, :backends)` after
-     the bootstrap runs; tests that call `ensure_backends_started/1` may use ETS
-     mode or mock the backend start.
+     the bootstrap runs; tests may disable the real Redis probe when validating
+     config translation.
 
 4. **Task:** Implement the public façade.
    - **Owns:** new file `lib/bullx/cache.ex`.
@@ -474,9 +473,14 @@ configuration through `BullX.Config.SystemBinding`-only accessors in
 ### Done When
 
 - `mix deps.get` resolves cachetastic.
-- `iex -S mix` boots with no cache env vars set and
+- `iex -S mix` boots with `BULLX_CACHE_REDIS_URL=redis://localhost:6379` and a
+  running Redis, and
   `BullX.Cache.put("k", "v")` then `BullX.Cache.get("k")` returns `{:ok, "v"}`
-  through ETS.
+  through the Redis-backed cache.
+- `MIX_ENV=test mix test` uses `BULLX_CACHE_REDIS_URL=redis://localhost:6380`
+  so test cache writes cannot collide with dev cache writes.
+- `iex -S mix` with `BULLX_CACHE_REDIS_URL` unset fails to boot with a message
+  naming the required variable.
 - Setting `BULLX_CACHE_REDIS_URL=redis://localhost:6379/0` against a running
   Redis fails with an unsupported database/path message. Setting
   `BULLX_CACHE_REDIS_URL=redis://localhost:6379` against a running Redis
@@ -499,8 +503,9 @@ configuration through `BullX.Config.SystemBinding`-only accessors in
 - The cache layer functions identically against ETS and Redis from the
   caller's perspective, including TTL behavior and thundering-herd
   protection through `fetch/3`.
-- Multi-instance deployments switch to shared caching by setting a single
-  env var (`BULLX_CACHE_REDIS_URL`) and restarting.
+- Redis is the required primary backend for every BullX runtime. ETS appears
+  only as cachetastic's local runtime fallback when Redis operations fail after
+  a successful boot.
 
 ## Risks And Tradeoffs
 
@@ -511,9 +516,9 @@ configuration through `BullX.Config.SystemBinding`-only accessors in
   The accepted mitigation is short TTLs for cache entries that must remain
   coherent across nodes; callers that cannot tolerate stale reads should not
   cache the value.
-- **ETS mode is node-local.** In ETS mode, every node has its own cache view.
-  This is the design choice paired with "single-node ETS is the default";
-  operators who want shared cache state switch to Redis.
+- **ETS fallback is node-local.** During Redis outages, every node has its own
+  fallback cache view. This fallback is a degraded availability path, not a
+  supported steady-state deployment mode.
 - **No `delete_pattern/1` on the façade.** Callers that need to invalidate
   groups of keys must do so by explicit `delete/1` on a known key set or by
   picking a TTL. Adding pattern delete would break backend symmetry.

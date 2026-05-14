@@ -16,9 +16,12 @@ This design covers the host-side plugin system:
 - plugin runtime configuration and secret declarations;
 - startup behavior for enabled plugin children.
 
-This design does not define a specific product plugin, a full Signal model, an
-AuthN provider model, or a Capability/Governance contract. Those subsystems
-define their own extension-point semantics when they are designed.
+This design sits below `docs/Architecture.md`. It defines the host mechanics that
+subsystem docs use when a Signal Trigger, Action Node, AuthN provider,
+Capability provider, or other integration needs plugin-provided implementation.
+It does not define a specific product plugin, Workflow graph semantics, Signal
+Trigger semantics, Action Node contracts, AuthN provider models, or
+Capability/Governance policy.
 
 ## Goals
 
@@ -31,6 +34,8 @@ define their own extension-point semantics when they are designed.
   the same resolution and encryption behavior as core settings.
 - Make invalid plugin contracts fail close to startup instead of producing
   partially registered hooks.
+- Make Signal Trigger and Action Node implementations normal extension-point
+  consumers without making the plugin host own Workflow execution semantics.
 - Keep the plugin host as a registry and supervisor, not a general event
   pipeline.
 
@@ -154,6 +159,13 @@ An extension point is a typed contract owned by a BullX subsystem. The plugin
 host stores declarations and provides lookup APIs, but it does not define the
 call semantics for every extension point.
 
+Typical extension-point consumers include implementations that a Workflow design
+treats as Signal Triggers and implementations that an Action Node calls or
+executes. A plugin can therefore contribute entry-point adapters, node executors,
+or Capability providers, but the registry only records declarations. The owning
+Workflow or subsystem design decides how each declaration is invoked,
+authorized, audited, streamed, retried, or recovered.
+
 Each extension declaration contains:
 
 - `point`, an atom or string naming the subsystem-owned extension point;
@@ -251,7 +263,9 @@ external services directly.
 
 Subsystem extension-point contracts remain responsible for authorization,
 auditing, risky outbound effects, and Governance. The plugin host does not
-decide whether a Signal, Intent, Effect, or Capability call is allowed.
+decide whether a Signal Trigger can start a Workflow, whether an Action Node can
+execute, whether a Capability call is authorized, or whether an Action Node with
+external side effects has passed the required policy or approval gates.
 
 Secret plugin configuration uses `BullX.Config` secret persistence. PostgreSQL
 stores ciphertext, ETS stores plaintext inside the BEAM trust boundary, and
@@ -282,6 +296,7 @@ Implement the plugin host, compile-time plugin discovery, runtime enablement via
 - `lib/bullx/application.ex`
 - `lib/bullx/config.ex`
 - `lib/bullx/config/secret_keys.ex`
+- `docs/Architecture.md`
 - `docs/design-docs/Configuration.md`
 - `internals/design-docs/drafts/Plugins.md`
 - MishkaInstaller reference: `lib/event/hook.ex`, `lib/event/event.ex`,

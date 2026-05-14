@@ -39,28 +39,19 @@ defmodule BullX.Cache.BootstrapTest do
     :ok
   end
 
-  describe "ETS mode" do
-    test "publishes ETS-only backend config when redis_url is unset" do
-      assert :ignore = Bootstrap.start_link([])
-
-      backends = Application.get_env(:cachetastic, :backends)
-      assert Keyword.get(backends, :primary) == :ets
-      assert Keyword.get(backends, :ets) == [ttl: 600]
-      refute Keyword.has_key?(backends, :redis_pool)
-      refute Keyword.has_key?(backends, :fault_tolerance)
-
-      assert Application.get_env(:cachetastic, :serializer) ==
-               Cachetastic.Serializers.ErlangTerm
-
-      assert Application.get_env(:cachetastic, :key_prefix) == "bullx"
+  describe "required Redis URL" do
+    test "fails startup when redis_url is unset" do
+      assert_raise RuntimeError, ~r/BULLX_CACHE_REDIS_URL is required/, fn ->
+        Bootstrap.start_link([])
+      end
     end
 
-    test "uses the configured default TTL" do
-      System.put_env(@default_ttl_env, "30")
-      assert :ignore = Bootstrap.start_link([])
+    test "fails startup when redis_url is empty" do
+      System.put_env(@redis_url_env, "")
 
-      backends = Application.get_env(:cachetastic, :backends)
-      assert Keyword.get(backends, :ets) == [ttl: 30]
+      assert_raise RuntimeError, ~r/BULLX_CACHE_REDIS_URL is required/, fn ->
+        Bootstrap.start_link([])
+      end
     end
   end
 
@@ -82,6 +73,22 @@ defmodule BullX.Cache.BootstrapTest do
 
       assert Keyword.get(backends, :fault_tolerance) ==
                [primary: :redis_pool, backup: :ets]
+
+      assert Application.get_env(:cachetastic, :serializer) ==
+               Cachetastic.Serializers.ErlangTerm
+
+      assert Application.get_env(:cachetastic, :key_prefix) == "bullx"
+    end
+
+    test "uses the configured default TTL" do
+      System.put_env(@redis_url_env, "redis://cache.internal:6380")
+      System.put_env(@default_ttl_env, "30")
+      assert :ignore = Bootstrap.start_link(verify_redis: false)
+
+      backends = Application.get_env(:cachetastic, :backends)
+      redis_pool_opts = Keyword.get(backends, :redis_pool)
+      assert Keyword.get(redis_pool_opts, :ttl) == 30
+      assert Keyword.get(backends, :ets) == [ttl: 30]
     end
 
     test "defaults the port to 6379 when omitted" do

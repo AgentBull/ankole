@@ -3,7 +3,7 @@ defmodule BullX.Principals.Agent do
   Agent-specific extension row for an Agent Principal.
 
   `profile` stays JSONB in PostgreSQL. Runtime-specific profile validation is
-  intentionally absent while Agent runtimes are being rebuilt.
+  owned by the runtime design that introduces those profile fields.
   """
 
   use Ecto.Schema
@@ -21,7 +21,6 @@ defmodule BullX.Principals.Agent do
 
   schema "agents" do
     belongs_to :principal, Principal, primary_key: true
-    field :type, :string
     field :profile, :map, default: %{}
     belongs_to :created_by_principal, Principal
 
@@ -30,15 +29,12 @@ defmodule BullX.Principals.Agent do
 
   def changeset(agent, attrs) do
     agent
-    |> cast(attrs, [:principal_id, :type, :profile, :created_by_principal_id])
-    |> normalize_blank([:type])
-    |> validate_required([:principal_id, :type, :profile])
-    |> validate_format(:type, ~r/^[a-z][a-z0-9_:-]*$/)
+    |> cast(attrs, [:principal_id, :profile, :created_by_principal_id])
+    |> validate_required([:principal_id, :profile])
     |> validate_map(:profile)
     |> foreign_key_constraint(:principal_id)
     |> foreign_key_constraint(:created_by_principal_id)
     |> unique_constraint(:principal_id, name: :agents_pkey)
     |> check_constraint(:profile, name: :agents_profile_object)
-    |> check_constraint(:type, name: :agents_type_format)
   end
 end

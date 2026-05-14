@@ -1,6 +1,6 @@
 ---
 name: bullx-design-doc-writing
-description: Write or revise BullX design documents from drafts, notes, codebase context, or user-provided scope. Use only when the requested deliverable is a new or changed shareable design doc. Do not use for simply reading, inspecting, summarizing, comparing, or answering questions about existing design docs; read those files directly.
+description: Write or revise BullX design documents (./docs/design-docs/*.md)  from drafts, notes, codebase context, or user-provided scope. Use only when the requested deliverable is a new or changed shareable design doc. Do not use for simply reading, inspecting, summarizing, comparing, or answering questions about existing design docs; read those files directly.
 ---
 
 # BullX Design Docs

@@ -24,22 +24,20 @@ defmodule BullX.Principals.SchemaTest do
              Principals.create_agent(%{
                uid: "research-agent",
                display_name: "Research Agent",
-               type: "research",
                profile: %{
                  "goal" => "Track market shifts"
                }
              })
 
     assert principal.type == :agent
-    assert agent.type == "research"
     assert agent.profile == %{"goal" => "Track market shifts"}
 
     assert {:error, changeset} =
              Principals.create_agent(%{
                uid: "broken-agent",
-               profile: %{}
+               profile: "not-a-map"
              })
 
-    assert %{type: [_ | _]} = errors_on(changeset)
+    assert %{profile: [_ | _]} = errors_on(changeset)
   end
 end

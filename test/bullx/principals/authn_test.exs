@@ -139,7 +139,6 @@ defmodule BullX.Principals.AuthNTest do
     {:ok, %{principal: principal}} =
       Principals.create_agent(%{
         uid: "login-agent",
-        type: "test",
         profile: %{}
       })
 

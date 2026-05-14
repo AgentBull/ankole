@@ -28,15 +28,16 @@ This design intentionally does not cover:
   [Principal](Principal.md).
 - External signal contracts or channel actor matching.
 - A BullX tenant model.
-- Concrete application policy names for Web, Runtime, Skills, Brain, Capability
-  execution, Governance, Effects, or Agent runtime internals.
+- Concrete application policy names for Web, Workflow, Skills, Brain, Action
+  Node execution, Capability use, high-risk side-effect nodes, or Agent runtime
+  internals.
 - Explicit deny grants and deny precedence.
 - Computed groups, dynamic membership expression languages, or dependency-graph
   invalidation.
 - An AuthZ-specific cache process or decision cache.
 - A full Web UI for group and grant administration.
-- Audit-log storage. Future audit or Governance designs consume AuthZ decisions
-  but own their own durable records.
+- Audit-log storage. Future Audit, Workflow, or high-risk side-effect designs
+  consume AuthZ decisions but own their own durable records.
 
 ## Goals
 
@@ -657,9 +658,10 @@ corruption.
 ## Security, privacy, and governance
 
 AuthZ controls whether a Principal may attempt an action inside a subsystem. It
-does not replace Governance for risky outbound Effects. Customer-facing,
-financial, legal, or otherwise risky external actions still pass through
-Governance before Effects happen.
+does not replace explicit approval or policy-gate Action Nodes for risky
+external side effects. Customer-facing, financial, legal, or otherwise risky
+external actions should pass through a Workflow approval or policy-gate Action
+Node before the Action Node that performs the side effect.
 
 Cedar conditions receive only explicit request context and the minimal
 Principal attributes `id`, `type`, and `status`. AuthZ does not expose Human
@@ -671,8 +673,8 @@ troubleshooting. It must not store credentials, access tokens, refresh tokens,
 private keys, or plaintext activation/login codes.
 
 `BullX.AuthZ` is the only supported mutation path for group and grant changes.
-This keeps high-sensitivity writes easy for future Audit or Governance layers
-to wrap, instrument, or record consistently.
+This keeps high-sensitivity writes easy for future Audit, Workflow, or operator
+review layers to wrap, instrument, or record consistently.
 
 ## Alternatives considered
 
@@ -825,7 +827,8 @@ described in this design.
 
 Implementation stops and asks if a change would introduce computed groups,
 explicit deny semantics, a policy catalog, a private AuthZ cache, a new
-Principal type, external credential storage, or Governance/Effect behavior.
+Principal type, external credential storage, Workflow policy-gate behavior,
+approval-node behavior, or side-effect execution behavior.
 
 ## Acceptance criteria
 
