@@ -4,11 +4,11 @@ BullX uses `req_llm` for provider adapters and stores BullX-specific endpoint
 configuration in PostgreSQL. `BullX.LLM` is BullX's `req_llm` catalog,
 credential, runtime-settings, and provider-registration boundary. It resolves an
 LLM spec string such as `"openai_proxy:gpt-4.1-mini"` into a BullX provider row
-and a model id. The Workflow, Action Node, or Agent design that selects a model
-owns where the spec string is stored.
+and a model id. The Workflow Node, Agent, or other caller design that selects a
+model owns where the spec string is stored.
 
-LLM access is a model Capability that Action Nodes may call, including Agent
-nodes that run an Agentic Loop. `BullX.LLM` does not define Agent identity,
+LLM access is a model Capability that Nodes may call, including Agent-executed
+Nodes that run an Agentic Loop. `BullX.LLM` does not define Agent identity,
 Workflow execution, or a separate subsystem pillar. A future Agentic Loop
 implementation may use `BullX.LLM`, but the LLM provider catalog remains the
 lower-level Capability support layer.
@@ -33,14 +33,14 @@ runtime boundary.
 
 ## Non-goals
 
-- This provider catalog does not define where Workflow definitions, Action
-  Nodes, Agents, or other callers store model selections.
-- BullX does not define Agent identity, Agent runtime, Agentic Loop behavior,
-  prompt orchestration, tool execution, memory, Governance, Effects, or Work
-  planning.
+- This provider catalog does not define where Workflow definitions, Nodes,
+  Agents, or other callers store model selections.
+- This provider catalog does not define Agent identity, Agent runtime, Agentic
+  Loop behavior, prompt orchestration, tool execution, memory, Governance,
+  Effects, or Work planning.
 - This provider catalog does not own model aliases, weighted routing, failover,
   usage accounting, cost limits, quotas, or model catalog tables. Those decisions
-  belong to Workflow, Action Node, Agent, or Budget and governance designs.
+  belong to Workflow Node, Agent, or Budget and governance designs.
 - BullX does not add a management UI or setup wizard in this design.
 - BullX does not support `BULLX_SECRET_BASE` rotation for encrypted provider
   API keys.
@@ -249,8 +249,8 @@ provider module's `provider_schema/0`. Unknown keys return
 `{:error, {:invalid_provider_options, provider_id, reason}}`.
 
 The field must not hold call-specific generation parameters. Those parameters
-belong to the Action Node or Agent execution that makes the model call because
-different Workflow branches, node contracts, and Agentic Loop prompt assembly
+belong to the Node or Agent execution that makes the model call because
+different Workflow branches, Node contracts, and Agentic Loop prompt assembly
 may need different generation behavior against the same endpoint.
 
 Examples of acceptable `provider_options` include provider region, project id,
@@ -432,8 +432,9 @@ to the configured BullX provider and model id.
   ids with `BullX.Ext.gen_uuid_v7/0` before encrypting API keys.
 - Use `BullX.Ext.derive_key/3`, `BullX.Ext.aead_encrypt/2`, and
   `BullX.Ext.aead_decrypt/2` for API key storage.
-- Keep Workflow, Action Node, and Agent model-selection storage and Agentic Loop
-  behavior out of this implementation.
+- Keep caller-owned model-selection storage, including Workflow/Node
+  definitions and Agent profiles, plus Agentic Loop behavior out of this
+  implementation.
 - Keep runtime state reconstructible from PostgreSQL.
 - Do not introduce an Agent runtime supervisor or Agent namespace for the
   provider catalog.

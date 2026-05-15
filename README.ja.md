@@ -1,85 +1,90 @@
-# BullX — Next Generation AgentOS
+# BullX — AI Colleagues と並んで働く AgentOS
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-red.svg?logo=apache&label=License)](LICENSE)
 [![Elixir](https://img.shields.io/badge/Elixir-1.19-48205D?logo=elixir)](https://elixir-lang.org)
 
 [English](./README.md) | [简体中文](./README.zh-Hans.md) | [日本語](./README.ja.md)
 
-> :warning: **BullX は初期開発段階です。このブランチは大規模な削除整理後の infra shell であり、具体的なプロダクト詳細は design doc を通じて変わります。**
+> :warning: **BullX は初期開発段階です。一部の機能は今後のリリースで対応予定です。**
 
-BullX は、Elixir/OTP と PostgreSQL 上に構築された general-purpose AgentOS です。長時間続くデジタルワークを対象にしており、企業チーム、小規模な運営組織、OPC（one-person company）のいずれにも同じ中核モデルで適用できます。再開可能な DAG workflow が AI Agent、integration、明示的な Action Node、memory、記録された結果を時間をかけて調整します。
+BullX は、自律性を持つ AI Colleague と並んで働くための AgentOS です。
 
-BullX は単なるチャット bot フレームワークでも、LLM tool runner だけでもありません。長期的な目標は、永続 workflow の中で AI Agent と他の Action Node が実際の仕事に安全に参加するための operating system です。
+Elixir/OTP、PostgreSQL、Redis 上に構築され、enterprise department、small team、one-person company のいずれにも同じ中核モデルで適用できます。
 
-## Current State
+Chatbot は LLM を会話可能にしました。[OpenClaw](https://grokipedia.com/page/OpenClaw) と [Hermes-Agent](https://hermes-agent.nousresearch.com/docs/user-stories) の世代は、Agent に手を与えました。channels、tools、skills、shell/browser、memory files、SubAgent、scheduled work です。[Dify](https://docs.dify.ai/en/use-dify/getting-started/key-concepts)、RPA、RAG workflow builder は、AI を specific business app として package しやすくしました。BullX が目指すのはその次です。AI Colleague が audit、recovery、governance、learning が可能な operating model の中で長期的に work を担うことです。
 
-このブランチは意図的にインフラの外枠だけを残しています。
+BullX の中心にあるのは、RAG customer-support bot でも、指示を待つ digital assistant でもなく、AI Colleague としての Agent です。BullX Agent は long-term mission、KPI/OKR-style goals、responsibility、long-term memory、permission、outbound identity を持ち、長い時間軸で働き、人間や他の Agent と協働し、trajectory data から改善します。
+
+BullX は「もう一つの chat interface」を目指していません。AI Colleague を durable work system に組み込みます。
+
+- **Agent** は long-term mission、responsibility、permission、memory、outbound identity、KPI/OKR-style goals を持ちます。
+- reactive **Workflow** は、digital work が現実世界の Signal にどう反応するかを記述します。
+- **Segment** は実行ごとの明確な boundary を作り、work の record、recovery、audit、handoff を可能にします。見えない runtime state に依存しません。
+- **Principal**、**Budget**、human collaboration path により、責任・費用・承認を高リスク action の前に明示します。
+- **Capability** は model、tool、browser、sandbox、messaging channel、API、外部 agent harness を公開しますが、実行権限を prompt の中に隠しません。
+- **Brain** は long-term memory と reasoning world model を提供します。raw vector log でも、巨大化する Markdown memory file でも、最初から完全に predefined された ontology でもなく、conversation、event、action、outcome から抽出・修正・統合される知識です。
+
+## Three Models, One Distinction
+
+多くの system が agent や digital worker を名乗るようになりましたが、最適化している対象は違います。
+
+- **OpenClaw / Hermes-style assistants** は prompt-driven Agentic Loop です。personal assistance、tool use、channel integration、cron、memory files、skills、SubAgent が得意です。中心にあるのは、prompt、schedule、message によって動く assistant session です。
+- **Dify / RPA / RAG workflow digital workers** は app-driven または workflow-driven automation です。customer-service bot、BI report bot、invoice review bot、document extraction など、bounded で repeatable な pipeline に向いています。
+- **BullX AI Colleagues** は mission-driven work subject です。mission は one-off task ではなく、KPI や OKR に近い long-term objective です。permissions、budgets、memory、outbound identity、responsibility を持ちます。world を observe し、何が重要かを判断し、人間や他の Agent と協働し、trajectory data から改善します。
+
+| Dimension | OpenClaw / Hermes-style assistant | Dify / RPA / RAG workflow worker | BullX AI Colleague |
+| --- | --- | --- | --- |
+| Primary unit | Agentic Loop または assistant session。 | App、bot、RPA flow、workflow run。 | long-term mission、responsibility、Work、Workflow context を持つ Agent。 |
+| Autonomy | prompt、message、cron、user-configured task に反応する。 | specific business scenario の定義済み process を実行する。 | signal を観察し、priority を決め、help を求め、delegate し、long-term objective を進める。 |
+| Actions | Tool call、shell/browser work、message、file、SubAgent。 | form fill、API call、extraction、routing、approval、report generation。 | 明示的な side effect、recovery、audit を持つ governed Capability と Workflow step。 |
+| Memory and reasoning | Session memory、markdown files、skill notes、external memory layer。 | RAG knowledge base、workflow variables、app-specific state。 | conversation、event、action、relationship、outcome、domain object から成長する reasoning world model としての Brain。 |
+| Self-evolution | past session から新しい skill や notes を学ぶ。 | workflow や knowledge base が手動更新されたときに改善する。 | trajectory data から planning、Skill、policy、future execution を改善する。 |
+| Permissions and budgets | 多くは tool policy、model config、local runtime control。 | app credential、node permission、rate limit、workflow setting。 | Principal identity、delegated authority、Budget、outbound identity、audit boundary。 |
+| Human collaboration | approval prompt、DM gate、manual confirmation が多い。 | specific process 内の approval node または manual review step。 | human は manager、peer、assignee になれる。approval、correction、escalation、takeover、missing context の提供、現実世界の help、Agent から割り当てられた task を担う。 |
+| External signals | channel、cron、webhook、integration が assistant loop に入る。 | trigger が predefined app または workflow を起動する。 | Signal が Workflow を開始または継続し、domain object に correlate し、long-running Work を更新する。 |
+| Accountability | transcript と tool history が session 内の出来事を説明する。 | workflow log が 1 回の app run を説明する。 | product fact が誰が行動し、誰が承認し、どの Budget を使い、何が変わり、trajectory data が次の振る舞いをどう改善するかを記録する。 |
+
+## Why BullX
+
+BullX は earlier agent systems の有用な surface を保ちます。channels、tools、Skills、sandboxes、browsers、SubAgents、schedules、conversational entry points です。違いは product truth の置き場所です。BullX では、durable work は assistant session や workflow run log だけでなく、Workflow、Principal、Budget、Brain、domain record、trajectory data に属します。
+
+BullX は Palantir-style ontology program とも異なります。Brain は ontology と semantic web に着想を得ていますが、BullX は expert が complete business graph を先に定義することを前提にしません。world model は work の中で育ちます。conversation、Signal、domain record、decision、handoff、correction、outcome を通じて、AI Colleague は business、industry、company context、そして人が実際に仕事を進める tacit knowledge に徐々に詳しくなります。
+
+BullX が目指すものは「より良い bot」でも「より賢い workflow app」でもありません。AI Colleague が observe、decide、delegate、wait、ask、spend、remember、act でき、その全体が product level で accountable であるための operating system です。
+
+## Product Feel
+
+**Group chat can be observed without adding noise.** Customer-success Agent は group conversation から risk を検出し、Work を作成し、account owner に private notification を送り、group にはデフォルトで返信しません。
+
+**One signal can start real process logic.** 顧客の budget freeze message は、同じ Workflow graph 内で customer-success analysis、finance risk review、ignored path に branch できます。
+
+**Memory can include the world, not only the chat.** Research Agent は、会話だけでなく market、policy、product、operation、external event を同じ context として理解し、actual work から育った ontology-backed world model から retrieve します。
+
+**The world model can mature like a human colleague.** BullX Agent は team に加わったあと、business、industry、internal norms、recurring exceptions、tacit knowledge に徐々に詳しくなるべきです。organization が day one にすべてを model する必要はありません。
+
+**Agents can own missions, not just tasks.** Coding Agent、research Agent、customer-success Agent は、複数の interaction にまたがって働き、人間や他の Agent と協働し、trajectory data から次の planning を改善します。
+
+**Humans can be managers, peers, or assignees.** human は Agent を approve / correct でき、peer として一緒に進め、case を take over し、現実世界の context を補い、また Agent から task を受け取ることもできます。たとえばオフラインで事実確認をする、login QR code を scan する、などです。
+
+**High-risk work can be gated.** Customer-facing、financial、legal、permission-changing、irreversible な外部 action は、実際の side effect の前に approval または policy gate を通るべきです。
+
+## Project Status
+
+現在の公開 repository には BullX の foundation が含まれています。
 
 - Elixir/OTP application boot と supervision
 - PostgreSQL Repo と dynamic configuration
 - UUIDv7 と native helper boundary
-- 空のプロダクト文言を持つ i18n catalog infrastructure
-- Phoenix、Inertia、Rsbuild、UIKit、placeholder の setup SPA
+- i18n catalog infrastructure
+- Phoenix、Inertia、Rsbuild、UIKit、setup/session/console foundation
 - health endpoints と OpenAPI description plumbing
 - `packages/` 以下の再利用可能な独立パッケージ
 
-削除済みの product surface を断片的に戻さず、新しいプロダクト挙動は design doc から導入してください。
+完全な AI Colleague product は、この foundation の上で段階的に構築されます。
 
-## Product Direction
+深い technical model は [docs/Architecture.md](./docs/Architecture.md) を読んでください。
 
-BullX は streaming support を持つ再開可能な DAG workflow を中心に整理されます。具体的な table design、process topology、queue name、provider adapter はまだ確定していません。
-
-- **Installation** — 一つの BullX deployment と operating domain。BullX は汎用 AgentOS ですが、SaaS multi-tenancy をデフォルトの product boundary とはみなしません。
-- **Principal** — authorization、audit、responsibility の対象となる内部主体。human、Agent、service、system actor はすべて Principal です。
-- **Workflow** — Signal Trigger と Action Node からなる再開可能な directed acyclic graph。永続 workflow state は、retry、pause、resume、process restart 後の recovery に十分な進捗を記録します。
-- **Signal Trigger** — workflow の開始点または ingress point で、何が起きたかを正規化します。Provider adapter、webhook、schedule、routing は、独立した product layer ではなく Signal Trigger として扱います。
-- **Action Node** — workflow 内で work を実行する step。transform、approval、notification、blackhole などの非 AI behavior は Action Node であり、Agent ではありません。
-- **Sink Action Node** — `sink=true` を持つ Action Node。その branch を終端するため、その下に downstream Action Node は置けません。blackhole/drop branch も Sink Action Node です。
-- **Streaming Input / Streaming Output** — node ごとの flag。Streaming Input は上流の incremental data を消費できることを、Streaming Output は下流へ incremental data を出せることを意味します。
-- **Bidirectional Trigger / Reply to Trigger** — Signal Trigger が `bidirectional=true` の場合、DAG 内で `Reply to Trigger` という特別な Action Node を使えます。これは常に `sink=true` です。
-- **Agent** — AI Agent であり、workflow 内で実行されるときは Action Node として表現されます。identity、responsibility、memory、allowed provider、permission、outbound identity、KPI を持ちますが、すべての executable actor の汎称ではありません。
-- **Work** — Workflow run をまたいで持続する永続的な責任。1 回の Workflow run は、Work を create・advance・pause・resume・complete し得る 1 回の実行です。
-- **Brain** — 将来の ontology と reasoning-memory layer。raw vector log ではなく、object、relationship、perspective、engram、consolidation を中心にします。
-
-## User Stories
-
-### Group Chatを見守るが発言しない
-
-Messaging Signal Trigger は顧客グループの event から workflow を開始できます。Customer-success Agent Action Node はリスクを分析し、Work を作成または更新し、担当者へ個別に通知できます。デフォルトではグループ内で発言しません。
-
-### 一つのSignal Triggerから複数Branchを開始する
-
-同じ外部イベントでも、Agent ごとに意味が違います。顧客の予算凍結に関するメッセージは、CustomerSuccessAgent branch、FinanceAgent branch、無関係な branch の `sink=true` blackhole Sink Action Node へ fan out できます。
-
-### 会話と外部イベントを一緒に記憶する
-
-Research Agent は、ユーザーとの会話と市場・政策・運用イベントを同じ記憶システムで扱えます。将来の回答では、過去チャットの全文検索だけでなく、ontology-backed world model から context を取得するべきです。
-
-### 結果から改善する
-
-Agent Action Node は繰り返しの結果から学ぶべきです。Coding Agent が fixture context 不足で何度も失敗するなら、次の Work planning では patch 作成前に fixture context を集めるべきです。
-
-### リスクの高い外部行動をGateする
-
-Customer-facing、financial、legal、その他 sensitive な外部 action は、side effect を持つ Action Node が実行される前に、明示的な approval または policy-gate Action Node を通るべきです。
-
-## Design Invariants
-
-- PostgreSQL は永続的な fact source です。
-- process-local state は一時的で、再構築可能でなければなりません。
-- process は failure boundary であり、domain noun ではありません。
-- Workflow は再開可能な DAG であり、linear chat session ではありません。
-- Provider adapter と routing は Signal Trigger として扱います。
-- Action Node は Streaming Input、Streaming Output、またはその両方を support するか宣言します。
-- Sink Action Node は終端です。`sink=true` の下に downstream Action Node は置けません。
-- `Reply to Trigger` は `bidirectional=true` の Signal Trigger にだけ存在し、常に sink です。
-- Reliability は durable checkpoint、retry、idempotent node contract、operator recovery から得られるものであり、global な strict exactly-once guarantee ではありません。
-- 外部 side effect を持つ Action Node は明示的な workflow node であり、隠れた raw tool call ではありません。
-- リスクの高い外部 write や message は、実行前に明示的な approval または policy-gate Action Node を通らなければなりません。
-- 重要な挙動は audit、explanation、recovery が可能でなければなりません。
-- Memory は非構造ログとして蓄積するのではなく、reasoning と consolidation を通じて進化するべきです。
-
-## Development
+## Getting Started
 
 **Prerequisites:** Elixir 1.19+, PostgreSQL, Bun
 
@@ -93,7 +98,7 @@ bun setup
 bun dev
 ```
 
-`http://localhost:4000` を開きます。現在の app shell は `/` を `/setup` にリダイレクトしますが、このブランチでは placeholder です。
+`http://localhost:4000` を開きます。現在の app shell は `/` を `/setup` にリダイレクトします。
 
 開発環境では Phoenix が Rsbuild を endpoint watcher として起動します。ブラウザ入口は `http://localhost:4000` のままで、Rsbuild は `http://localhost:5173` から React/Inertia の hot reload を提供します。ポートが使われている場合は、`.env.local` に `PORT` と `RSBUILD_PORT` を設定します。例: `PORT=4001`、`RSBUILD_PORT=5174`。
 

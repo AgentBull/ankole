@@ -28,8 +28,8 @@ This design intentionally does not cover:
   [Principal](Principal.md).
 - External signal contracts or channel actor matching.
 - A BullX tenant model.
-- Concrete application policy names for Web, Workflow, Skills, Brain, Action
-  Node execution, Capability use, high-risk side-effect nodes, or Agent runtime
+- Concrete application policy names for Web, Workflow, Skills, Brain, Node
+  execution, Capability use, high-risk side-effect Nodes, or Agent runtime
   internals.
 - Explicit deny grants and deny precedence.
 - Computed groups, dynamic membership expression languages, or dependency-graph
@@ -658,10 +658,10 @@ corruption.
 ## Security, privacy, and governance
 
 AuthZ controls whether a Principal may attempt an action inside a subsystem. It
-does not replace explicit approval or policy-gate Action Nodes for risky
-external side effects. Customer-facing, financial, legal, or otherwise risky
-external actions should pass through a Workflow approval or policy-gate Action
-Node before the Action Node that performs the side effect.
+does not replace explicit approval or policy-gate Wait Nodes for risky external
+side effects. Customer-facing, financial, legal, or otherwise risky external
+actions should pass through a Workflow approval or policy-gate Wait Node before
+the Throw-bearing Node that performs the side effect.
 
 Cedar conditions receive only explicit request context and the minimal
 Principal attributes `id`, `type`, and `status`. AuthZ does not expose Human
@@ -827,8 +827,9 @@ described in this design.
 
 Implementation stops and asks if a change would introduce computed groups,
 explicit deny semantics, a policy catalog, a private AuthZ cache, a new
-Principal type, external credential storage, Workflow policy-gate behavior,
-approval-node behavior, or side-effect execution behavior.
+Principal type, external credential storage, Workflow policy-gate Wait Node
+behavior, approval Wait Node behavior, or Throw-bearing side-effect execution
+behavior.
 
 ## Acceptance criteria
 

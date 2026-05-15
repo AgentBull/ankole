@@ -24,12 +24,12 @@ create or resolve Human Principals:
   implementation handoff.
 
 This design intentionally does not cover AuthZ groups, roles, permission grants,
-Cedar policy evaluation, audit-log storage, Workflow routing, Work
-responsibility, Action Node execution, Capability use, approval gates,
-side-effecting Action Nodes, Brain memory, external transport implementation, or
-full Web login route wiring. Those subsystems consume `principals.id` as their
-durable subject id after their own design docs define their tables and runtime
-behavior.
+Cedar policy evaluation, audit record storage, Workflow routing, Work
+responsibility, Node execution, Capability use, approval or policy-gate Wait
+Nodes, Throw-bearing external side effects, Brain memory, external transport
+implementation, or full Web login route wiring. Those subsystems consume
+`principals.id` as their durable subject id after their own design docs define
+their tables and runtime behavior.
 
 ## Goals
 
@@ -141,16 +141,16 @@ Human extension boundary explicit.
 
 An Agent Principal is the internal identity for an Agent. In this design, a
 non-SubAgent Agent is a first-class Agent Principal: it can be granted
-permission, disabled, audited, evaluated, and referenced across Workflow runs.
-SubAgents are derived Agentic Loop execution bodies inside Action Node semantics;
-they do not become Agent Principals by default.
+permission, disabled, audited, evaluated, and referenced across Segments and
+Workflow definitions. SubAgents are derived child Agentic Loop executions inside
+Workflow or Agent Node semantics; they do not become Agent Principals by default.
 
-An Agent Principal is not an LLM process, a chat bot, an Agentic Loop run, an
-external harness invocation, or a long-lived BEAM process. Workflow run and
-Action Node records capture per-execution facts. Non-AI Action Nodes do not
-become Agent Principals merely because they need audit records; if a non-AI node
-later needs independent permission, a Service or System Principal is the right
-identity boundary.
+An Agent Principal is not an LLM process, a chat bot, an Agentic Loop execution,
+an external harness invocation, or a long-lived BEAM process. Segment and Node
+outcome records capture per-execution facts. Non-AI Nodes do not become Agent
+Principals merely because they need audit records; if a non-AI Node later needs
+independent permission, a Service or System Principal is the right identity
+boundary.
 
 `agents.profile` is a required JSONB object. This design only guarantees the
 storage mechanism for Agent profile data. Runtime-specific profile validation
@@ -717,10 +717,10 @@ private tokens. Human profile fields such as email and phone are personally
 identifiable information and should appear in logs only when needed for operator
 diagnosis and never alongside secrets.
 
-Agent Action Nodes can produce outputs, call Capabilities, and lead to downstream
-side-effecting Action Nodes, but this design does not authorize outbound actions.
-High-risk external side effects belong behind explicit approval or policy-gate
-Action Nodes in the Workflow graph.
+Agent-executed Nodes can produce outputs, call Capabilities, and lead to
+downstream Throw-bearing Nodes, but this design does not authorize outbound
+actions. High-risk external side effects belong behind explicit approval or
+policy-gate Wait Nodes in the Workflow graph.
 
 ## Alternatives considered
 
@@ -766,8 +766,8 @@ the schema and behavior in this design.
 - Store `uid` lowercase and globally unique.
 - Store code hashes only; never store plaintext activation or login codes.
 - Do not add AuthZ tables, group membership, Cedar policy, Workflow routing,
-  Work, Capability use, approval-node, policy-gate, or side-effect execution
-  behavior in this implementation.
+  Work, Capability use, approval or policy-gate Wait Node behavior, or
+  Throw-bearing side-effect execution behavior in this implementation.
 - Do not add a long-lived Principal supervisor unless a new design states the
   failure boundary.
 

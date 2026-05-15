@@ -1,85 +1,90 @@
-# BullX — 次世代 AgentOS
+# BullX — 与 AI 同事并肩工作的 AgentOS
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-red.svg?logo=apache&label=License)](LICENSE)
 [![Elixir](https://img.shields.io/badge/Elixir-1.19-48205D?logo=elixir)](https://elixir-lang.org)
 
 [English](./README.md) | [简体中文](./README.zh-Hans.md) | [日本語](./README.ja.md)
 
-> :warning: **BullX 仍处于早期开发阶段。当前分支是一次大规模减法清理后的 infra shell，具体产品细节会继续通过 design doc 演进。**
+> :warning: **BullX 仍处于早期开发阶段，部分能力尚待后续版本支持。**
 
-BullX 是一个 general-purpose AgentOS，基于 Elixir/OTP 和 PostgreSQL 构建，面向长期运行的数字化工作负载。它可以服务企业团队、小型运营组织，也可以服务 OPC（one-person company）。核心思路是一致的：可恢复的 DAG workflow 协调 AI Agent、集成、显式 Action Node、记忆和记录下来的结果，并随时间持续改进。
+BullX 是一个帮助你与有主观能动性的 AI 同事（AI Colleague）并肩工作的 AgentOS。
 
-BullX 不只是聊天 bot 框架，也不只是 LLM tool runner。它的长期目标是让持久 workflow 中的 AI Agent 和其他 Action Node 安全参与真实工作。
+它基于 Elixir/OTP、PostgreSQL 和 Redis 构建，面向企业部门、小团队和 OPC（one-person company）的持久数字化工作。
 
-## 当前状态
+聊天机器人让 LLM 会对话。[OpenClaw](https://grokipedia.com/page/OpenClaw) 和 [Hermes-Agent](https://hermes-agent.nousresearch.com/docs/user-stories) 这一代让 Agent 有了手：channel、tool、skill、shell/browser、记忆文件、SubAgent 和定时任务。[Dify](https://docs.dify.ai/en/use-dify/getting-started/key-concepts)、RPA 和 RAG workflow builder 让 AI 更容易被封装成特定业务应用。BullX 面向的是下一步：让 AI 同事在可审计、可恢复、可治理、会改进的操作模型里长期承担工作。
 
-当前分支只保留基础设施外壳：
+BullX 的核心是 AI 同事，而不是换壳 RAG 客服机器人，也不是被动响应指令的数字助理。一个 BullX Agent 应该有自己的长期目标（mission）、类似 KPI/OKR 的目标体系、责任边界、长期记忆、权限和出站身份；它能长时工作，也能与人类或其他 Agent 协作，并从轨迹数据中改进。
+
+BullX 不追求“再多一个聊天入口”。它把 AI 同事组织进持久工作系统：
+
+- **Agent** 承载长期目标、责任、权限、记忆、出站身份，以及类似 KPI/OKR 的目标体系。
+- **Reactive Workflow** 描述数字工作如何响应真实世界的 Signal。
+- **Segment** 为每次执行划出清晰边界，使工作能够被记录、恢复、审计和交接，而不是依赖不可见的运行时状态。
+- **Principal**、**Budget** 和人类协作机制让责任、成本与授权在高风险动作前变得明确。
+- **Capability** 暴露 model、tool、browser、sandbox、消息通道、API 和外部 agent harness，但不把执行权藏进 prompt。
+- **Brain** 将提供长期记忆与推理世界模型：不是原始向量日志，也不是越写越大的 Markdown 记忆文件，更不是一次性预定义完整本体，而是从对话、事件、行动和结果中提炼、修订、整合出来的知识。
+
+## 三类模型，一个关键区别
+
+很多系统现在都自称 agent 或数字员工，但它们优化的方向不同。
+
+- **OpenClaw / Hermes 式助理** 是 prompt 驱动的 Agentic Loop。它们擅长个人助理、工具调用、channel 集成、cron、记忆文件、skill 和 SubAgent。核心主体仍然是一个在被 prompt、定时或消息触发时行动的 assistant session。
+- **Dify / RPA / RAG workflow 数字员工** 是 app 或 workflow 驱动的自动化。它们适合客服机器人、BI 报告 bot、发票审核 bot、文档抽取等边界明确、可重复的流程。
+- **BullX AI 同事** 是 mission 驱动的工作主体。这里的 mission 指长期目标，更接近 KPI 或 OKR，而不是一次性任务。它有权限、预算、记忆、出站身份和责任边界。它能观察世界、判断什么重要、与人类或其他 Agent 协作，并从轨迹数据中改进。
+
+| 维度 | OpenClaw / Hermes 式助理 | Dify / RPA / RAG workflow 数字员工 | BullX AI 同事 |
+| --- | --- | --- | --- |
+| 核心单元 | Agentic Loop 或 assistant session。 | App、bot、RPA flow 或 workflow run。 | 拥有长期目标、责任、Work 和 Workflow 上下文的 Agent。 |
+| 自主性 | 响应 prompt、消息、cron 或用户配置的任务。 | 执行某个具体业务场景的既定流程。 | 观察信号、排列优先级、请求帮助、委派任务，并围绕长期目标推进工作。 |
+| 动作 | Tool call、shell/browser 操作、消息、文件、SubAgent。 | 表单填写、API 调用、抽取、路由、审批、报告生成。 | 受治理的 Capability 与 Workflow step，外部副作用、恢复和审计边界明确。 |
+| 记忆与推理 | Session memory、Markdown 文件、skill notes 或外部 memory layer。 | RAG 知识库、workflow 变量和 app-specific state。 | Brain 是从对话、事件、行动、关系、结果和 domain object 中生长出来的推理式世界模型。 |
+| 自我进化 | 从过往 session 学习新 skill 或 notes。 | 依赖人工修改 workflow 或知识库来改进。 | 利用轨迹数据改进 planning、Skill、policy 和未来执行。 |
+| 权限与预算 | 通常是 tool policy、模型配置和本地 runtime 控制。 | App credential、node permission、rate limit 和 workflow setting。 | Principal 身份、delegated authority、Budget、出站身份和审计边界。 |
+| 人类协作 | 常见形态是 approval prompt、DM gate 或人工确认。 | 某个流程内的 approval node 或人工复核步骤。 | 人类可以是上级、平级或下级：审批、纠正、升级、接管、补充上下文、帮忙完成现实世界任务，或接收 Agent 分配的任务。 |
+| 外部信号 | Channel、cron、webhook 和 integration 进入 assistant loop。 | Trigger 启动一个预定义 app 或 workflow。 | Signal 可以启动或继续 Workflow，关联到 domain object，并更新长期 Work。 |
+| 可追责性 | Transcript 和 tool history 解释一次 session 里发生了什么。 | Workflow log 解释一次 app run。 | Product fact 记录谁行动、谁审批、花了多少预算、改变了什么，以及轨迹数据如何改进后续行为。 |
+
+## 为什么是 BullX
+
+BullX 保留上一代 agent 系统有用的表面：channel、tool、Skill、sandbox、browser、SubAgent、schedule 和对话入口。差异在于产品事实归属哪里。在 BullX 里，持久工作属于 Workflow、Principal、Budget、Brain、domain record 和轨迹数据，而不只属于一次 assistant session 或一次 workflow run log。
+
+BullX 也不同于 Palantir 式 ontology 工程。Brain 受本体论和语义网启发，但 BullX 不要求专家先把完整业务图谱预定义出来。它的世界模型应该在工作中自然生长：对话、Signal、domain record、决策、交接、纠正和结果，会逐步教会 AI 同事理解业务、行业、公司内部语境，以及人们真实完成工作的那些隐性知识。
+
+BullX 想做的不是“更好的 bot”，也不是“更聪明的 workflow app”，而是一个让 AI 同事能够旁听、判断、委派、等待、请求、花钱、记忆和行动，并且在产品层可追责的操作系统。
+
+## 它应该带来的体验
+
+**群聊可以被旁听，而不是被打扰。** 客户成功 Agent 可以在群聊中发现风险、创建 Work，并私下提醒负责人，而不是默认在群里插话。
+
+**一个 signal 可以启动真正的流程逻辑。** 一条客户预算冻结的消息，可以在同一个 Workflow 图里分支到客户成功分析、财务风险审查和被忽略路径。
+
+**记忆可以包含世界，而不只是聊天记录。** 投研 Agent 应该把对话与市场、政策、产品、运营和外部事件放在一起理解，再通过从实际工作中生长出来的 ontology-backed world model 检索上下文。
+
+**世界模型可以像人类同事一样成熟。** 一个 BullX Agent 入职后，应该越来越熟悉业务、行业、内部规则、反复出现的例外和隐性知识，而不是要求组织在 day one 把一切建模完成。
+
+**Agent 可以拥有长期目标，而不只是接任务。** Coding Agent、投研 Agent 或客户成功 Agent 可以跨多次交互持续工作，与人类或其他 Agent 协作，并从轨迹数据中改进后续 planning。
+
+**人类可以在 Agent 的上级、平级或下级位置协作。** 人类可以审批或纠正 Agent，也可以作为平级一起推进工作、接管某个 case、补充现实世界信息，甚至接收 Agent 分配的任务，例如线下打听某件事，或帮忙扫码登录一个网站。
+
+**高风险工作可以被显式 gate。** 面向客户、金融、法律、权限变更或不可逆外部动作，应该先经过 approval 或 policy gate，再执行真正产生副作用的步骤。
+
+## 项目状态
+
+当前公开仓库已经包含 BullX 的基础底座：
 
 - Elixir/OTP 应用启动与 supervision
 - PostgreSQL Repo 与动态配置
 - UUIDv7 与 native helper 边界
-- i18n catalog 基础设施，产品文案为空
-- Phoenix、Inertia、Rsbuild、UIKit 和 setup placeholder SPA
+- i18n catalog 基础设施
+- Phoenix、Inertia、Rsbuild、UIKit，以及 setup/session/console 基础框架
 - health endpoints 与 OpenAPI description plumbing
 - `packages/` 下可复用的独立包
 
-已经删除的产品表面不应被零散恢复；新的产品行为应来自 design doc。
+完整的 AI 同事产品会在这套底座上继续迭代。
 
-## 产品方向
+深层技术模型见 [docs/Architecture.md](./docs/Architecture.md)。
 
-BullX 围绕支持流式数据的可恢复 DAG workflow 组织。具体表设计、进程拓扑、队列名称和 provider adapter 尚未定稿。
-
-- **Installation** — 一套 BullX 部署及其运行域。BullX 是通用 AgentOS，但默认不把 SaaS 多租户作为产品边界。
-- **Principal** — 可被授权、审计和归责的内部主体。人类、Agent、service 和 system actor 都是 Principal。
-- **Workflow** — 由 Signal Trigger 和 Action Node 组成的可恢复有向无环图。持久 workflow 状态记录足够进度，使执行可以 retry、pause、resume，并在进程重启后恢复。
-- **Signal Trigger** — workflow 的启动点或入口，用来标准化表达“发生了什么”。Provider adapter、webhook、schedule 和 routing 都建模为 Signal Trigger，而不是独立的产品层。
-- **Action Node** — workflow 中执行工作的步骤。transform、approval、notification、blackhole 等非 AI 行为是 Action Node，不是 Agent。
-- **Sink Action Node** — 带有 `sink=true` 的 Action Node。它终止所在分支，因此其下游不允许继续有新的 Action Node。blackhole/drop 分支也是 Sink Action Node。
-- **Streaming Input / Streaming Output** — 每个 node 自己声明的标志。Streaming Input 表示 node 可以消费上游增量数据；Streaming Output 表示 node 可以向下游产生增量数据。
-- **Bidirectional Trigger / Reply to Trigger** — 当 Signal Trigger 带有 `bidirectional=true` 时，DAG 内可以使用一个名为 `Reply to Trigger` 的特殊 Action Node。它始终是 `sink=true`。
-- **Agent** — AI Agent，在 workflow 内执行时建模为一种 Action Node。它具备身份、职责、记忆、可用 provider、权限、出站身份和 KPI，但不再是所有可执行主体的泛称。
-- **Work** — 跨多次 Workflow run 持续存在的持久工作职责。一次 Workflow run 是一次执行，可以创建、推进、暂停、恢复或完成 Work。
-- **Brain** — 未来的本体论与推理式记忆层，围绕 object、relationship、perspective、engram 和 consolidation，而不是原始向量日志。
-
-## 用户故事
-
-### 群聊旁听但不插话
-
-消息类 Signal Trigger 可以从客户群事件启动 workflow。客户成功 Agent Action Node 可以分析风险、创建或更新 Work，并私下通知负责人；默认不在群里发言。
-
-### 同一 Signal Trigger 启动多个分支
-
-同一个外部事件可以以不同关系影响不同 Agent。客户预算冻结的消息可以 fan out 到 CustomerSuccessAgent 分支、FinanceAgent 分支，并让无关分支进入 `sink=true` 的 blackhole Sink Action Node。
-
-### 同时记住对话和外部事件
-
-投研 Agent 可以把用户对话与市场、政策、运营事件放在同一套记忆系统里。未来回答问题时，应通过本体论世界模型检索上下文，而不只是搜索历史聊天文本。
-
-### 从结果中改进
-
-Agent Action Node 应该从重复结果中学习。如果 coding Agent 经常因为缺少 fixture 上下文而失败，后续 Work planning 应优先收集 fixture 信息再生成 patch。
-
-### 管控高风险出站行为
-
-面向客户、金融、法律或其他敏感外部动作，应先经过显式 approval 或 policy-gate Action Node，再允许真正产生外部副作用的 Action Node 执行。
-
-## 设计不变量
-
-- PostgreSQL 是持久事实源。
-- 进程内状态必须是临时的、可重建的。
-- 进程是故障边界，不是领域名词。
-- Workflow 是可恢复 DAG，不是线性聊天会话。
-- Provider adapter 和 routing 都建模为 Signal Trigger。
-- Action Node 必须声明是否支持 Streaming Input、Streaming Output 或两者都支持。
-- Sink Action Node 是终点；`sink=true` 下游不允许继续有新的 Action Node。
-- `Reply to Trigger` 只存在于 `bidirectional=true` 的 Signal Trigger 中，并且始终是 sink。
-- 可靠性来自持久 checkpoint、retry、幂等 node contract 和 operator recovery，而不是全局承诺严格 exactly-once / 精准一次。
-- 会产生外部副作用的 Action Node 必须是显式 workflow 节点，不是隐藏的裸 tool call。
-- 高风险外部写入或消息发送必须先经过显式 approval 或 policy-gate Action Node，再执行。
-- 重要行为必须可审计、可解释、可恢复。
-- 记忆应通过推理与整合演化，而不是堆积为无结构日志。
-
-## 开发
+## 开始开发
 
 **前置条件：** Elixir 1.19+、PostgreSQL、Bun
 
@@ -93,7 +98,7 @@ bun setup
 bun dev
 ```
 
-访问 `http://localhost:4000`。当前 app shell 会把 `/` 跳转到 `/setup`，该页面在此分支只是 placeholder。
+访问 `http://localhost:4000`。当前 app shell 会把 `/` 跳转到 `/setup`。
 
 开发模式下，Phoenix 会把 Rsbuild 作为 endpoint watcher 启动。浏览器入口仍然是 `http://localhost:4000`；Rsbuild 在 `http://localhost:5173` 为 React/Inertia 提供热更新。如果端口已被占用，可以在 `.env.local` 中设置 `PORT` 和 `RSBUILD_PORT`，例如 `PORT=4001`、`RSBUILD_PORT=5174`。
 

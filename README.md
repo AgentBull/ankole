@@ -1,85 +1,90 @@
-# BullX — Next Generation AgentOS
+# BullX — AgentOS for AI Colleagues
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-red.svg?logo=apache&label=License)](LICENSE)
 [![Elixir](https://img.shields.io/badge/Elixir-1.19-48205D?logo=elixir)](https://elixir-lang.org)
 
 [English](./README.md) | [简体中文](./README.zh-Hans.md) | [日本語](./README.ja.md)
 
-> :warning: **BullX is in early development. This branch is an infra shell after a large subtractive cleanup. Product details are expected to change through design docs.**
+> :warning: **BullX is in early development. Some capabilities described here are still planned for later releases.**
 
-BullX is a general-purpose AgentOS built on Elixir/OTP and PostgreSQL for long-running digital work. It can support an enterprise team, a small operating group, or a one-person company with the same core idea: resumable DAG workflows coordinate AI Agents, integrations, explicit Action Nodes, memory, and recorded results over time.
+BullX is an AgentOS for working side by side with self-directed AI Colleagues.
 
-BullX is not only a chat bot framework and not only an LLM tool runner. The long-term goal is an operating system for durable workflows where AI Agents and other Action Nodes can safely participate in real work.
+Built on Elixir/OTP, PostgreSQL, and Redis, BullX is designed for durable digital work across enterprises, teams, and one-person companies.
 
-## Current State
+Chatbots made LLMs conversational. The [OpenClaw](https://grokipedia.com/page/OpenClaw) and [Hermes-Agent](https://hermes-agent.nousresearch.com/docs/user-stories) generation gave agents hands: channels, tools, skills, shell and browser access, memory files, subagents, and scheduled work. [Dify](https://docs.dify.ai/en/use-dify/getting-started/key-concepts), RPA, and RAG workflow builders made it easier to package AI into specific business apps. BullX is designed for the next step: AI Colleagues that do accountable work over time, inside an operating model that can be audited, recovered, governed, and improved.
 
-This branch intentionally keeps only the infrastructure shell:
+BullX is built around AI Agents as colleagues, not RAG support bots or digital assistants waiting for instructions. A BullX Agent can carry a long-term mission, own KPI/OKR-style goals, hold responsibility, work over long horizons, collaborate with humans or other Agents, and improve from trajectory data.
+
+BullX does not optimize for "one more chat interface." It turns AI Colleagues into a durable work system:
+
+- **Agents** carry long-term missions, responsibilities, permissions, memory, outbound identity, and KPI/OKR-style goals.
+- Reactive **Workflows** describe how digital work responds to real-world Signals.
+- **Segments** give each execution a clear boundary, so work can be recorded, recovered, audited, and handed off without relying on an opaque runtime.
+- **Principals**, **Budgets**, and human collaboration paths make responsibility explicit before expensive or risky work happens.
+- **Capabilities** expose models, tools, browsers, sandboxes, messaging channels, APIs, and external agent harnesses without hiding power inside prompts.
+- **Brain** provides long-term memory and a reasoning world model: not a raw vector log, not a giant Markdown memory file, and not a fully predefined ontology, but evolvable knowledge extracted from conversations, events, actions, and outcomes.
+
+## Three Models, One Distinction
+
+Many systems now call themselves agents or digital workers, but they optimize for different things.
+
+- **OpenClaw / Hermes-style assistants** are prompt-driven Agentic Loops. They are good at personal assistance, tool use, channel integration, cron, memory files, skills, and subagents. The main subject is still an assistant session that acts when prompted, scheduled, or messaged.
+- **Dify / RPA / RAG workflow digital workers** are app- or workflow-driven automations. They are useful for bounded jobs such as customer-service bots, BI report bots, invoice review bots, document extraction, and other repeatable pipelines.
+- **BullX AI Colleagues** are mission-driven work subjects. A mission is a long-term objective, closer to a KPI or OKR than a one-off task. They have permissions, budgets, memory, outbound identity, and responsibility. They can observe the world, decide what matters, collaborate with humans or other Agents, and improve from trajectory data.
+
+| Dimension | OpenClaw / Hermes-style assistant | Dify / RPA / RAG workflow worker | BullX AI Colleague |
+| --- | --- | --- | --- |
+| Primary unit | Agentic Loop or assistant session. | App, bot, RPA flow, or workflow run. | Agent with long-term mission, responsibility, Work, and Workflow context. |
+| Autonomy | Reacts to prompts, messages, cron, or user-configured tasks. | Executes a defined process for a specific business scenario. | Observes signals, prioritizes work, asks for help, delegates, and advances long-term objectives. |
+| Actions | Tool calls, shell/browser work, messages, files, subagents. | Form fills, API calls, extraction, routing, approvals, report generation. | Governed Capabilities and Workflow steps with explicit side effects, recovery, and audit. |
+| Memory and reasoning | Session memory, markdown files, skill notes, or external memory layers. | RAG knowledge bases, workflow variables, and app-specific state. | Brain as a reasoning world model that grows from conversations, events, actions, relationships, outcomes, and domain objects. |
+| Self-evolution | Learns new skills or notes from past sessions. | Improves when the workflow or knowledge base is manually revised. | Uses trajectory data to improve planning, Skills, policy, and future execution. |
+| Permissions and budgets | Usually tool policy, model config, and local runtime controls. | App credentials, node permissions, rate limits, and workflow settings. | Principal identity, delegated authority, Budget limits, outbound identity, and audit boundaries. |
+| Human collaboration | Often an approval prompt, DM gate, or manual confirmation. | Approval nodes or manual review steps inside a specific process. | Humans can be managers, peers, or assignees: approve, correct, escalate, take over, provide missing context, help with real-world tasks, or receive tasks from an Agent. |
+| External signals | Channels, cron, webhooks, and integrations feed the assistant loop. | Triggers start a predefined app or workflow. | Signals can start or continue Workflows, correlate to domain objects, and update long-running Work. |
+| Accountability | Transcript and tool history explain what happened in a session. | Workflow logs explain one app run. | Product facts record who acted, who approved, what budget was spent, what changed, and how later behavior should improve. |
+
+## Why BullX
+
+BullX keeps the useful surfaces of earlier agent systems: channels, tools, Skills, sandboxes, browsers, SubAgents, schedules, and conversational entry points. The difference is where product truth lives. In BullX, durable work belongs to Workflows, Principals, Budgets, Brain, domain records, and trajectory data, not only to an assistant session or a workflow run log.
+
+BullX also differs from Palantir-style ontology programs. Brain is inspired by ontology and the semantic web, but BullX does not start by asking experts to predefine a complete business graph. Its world model should grow through work: conversations, Signals, domain records, decisions, handoffs, corrections, and outcomes gradually teach an AI Colleague the business, the industry, the company, and the unwritten ways people actually get work done.
+
+The result BullX is aiming for is not "a better bot" or "a smarter workflow app." It is an operating system for AI Colleagues that can watch, decide, delegate, wait, ask, spend, remember, and act with product-level accountability.
+
+## What It Should Feel Like
+
+**A group chat can be observed without adding noise.** A customer-success Agent can notice risk in a group conversation, create Work, and privately alert the account owner without replying in the group.
+
+**One signal can start real process logic.** A budget-freeze message can branch to customer-success analysis, finance risk review, and ignored paths in the same Workflow graph.
+
+**Memory can include the world, not only the chat.** A research Agent should combine conversations with market, policy, product, operational, and external events, then retrieve context through an ontology-backed world model that grew from actual work.
+
+**The world model can mature like a human colleague.** After joining a team, a BullX Agent should become progressively more familiar with the business, the industry, internal norms, recurring exceptions, and tacit knowledge, without requiring the organization to model everything upfront.
+
+**Agents can own long-term missions, not just tasks.** A coding Agent, research Agent, or customer-success Agent can work across many interactions, coordinate with humans or other Agents, and improve future planning from trajectory data.
+
+**Humans can be managers, peers, or assignees.** A human can approve or correct an Agent, work as a peer, take over a case, provide missing real-world input, or receive an assigned task such as checking a fact offline or scanning a login QR code.
+
+**High-risk work can be gated.** Customer-facing, financial, legal, permission-changing, or irreversible side effects should pass through explicit approval or policy gates before execution.
+
+## Project Status
+
+The current public repository contains the foundation for BullX:
 
 - Elixir/OTP application boot and supervision
 - PostgreSQL Repo and dynamic configuration
 - UUIDv7 and native helper boundary
-- i18n catalog infrastructure with empty product copy
-- Phoenix, Inertia, Rsbuild, UIKit, and a placeholder setup SPA
+- i18n catalog infrastructure
+- Phoenix, Inertia, Rsbuild, UIKit, and setup/session/console foundation
 - health endpoints and OpenAPI description plumbing
 - reusable packages under `packages/`
 
-The removed product surface should not be restored piecemeal. New product behavior should come from design docs.
+The full AI Colleague product is being built incrementally on top of this foundation.
 
-## Product Direction
+For the deep technical model, read [docs/Architecture.md](./docs/Architecture.md).
 
-BullX is organized around resumable DAG workflows with streaming support. The exact table design, process topology, queue names, and provider adapters are not final yet.
-
-- **Installation** — one BullX deployment and operating domain. BullX is general-purpose, but it does not treat SaaS multi-tenancy as the default product boundary.
-- **Principal** — an internal subject that can be authorized, audited, and held responsible. Humans, Agents, services, and system actors are all Principals.
-- **Workflow** — a resumable directed acyclic graph of Signal Triggers and Action Nodes. Durable workflow state records enough progress to retry, pause, resume, and recover after process restarts.
-- **Signal Trigger** — a workflow start or ingress point that normalizes something that happened. Provider adapters, webhooks, schedules, and routing are modeled as Signal Triggers instead of standalone product layers.
-- **Action Node** — a workflow step that performs work. Non-AI behavior such as transforms, approvals, notifications, and blackholes is an Action Node, not an Agent.
-- **Sink Action Node** — an Action Node with `sink=true`. It terminates its branch, so no downstream Action Node is valid below it. A blackhole/drop branch is also a Sink Action Node.
-- **Streaming Input / Streaming Output** — per-node flags. Streaming Input means the node can consume incremental upstream data; Streaming Output means the node can emit incremental downstream data.
-- **Bidirectional Trigger / Reply to Trigger** — when a Signal Trigger has `bidirectional=true`, the DAG may use one special `Reply to Trigger` Action Node. It is always `sink=true`.
-- **Agent** — an AI Agent, modeled as an Action Node when it executes inside a workflow. It has identity, responsibility, memory, allowed providers, permissions, outbound identity, and KPIs, but it is no longer the generic name for every executable actor.
-- **Work** — a durable work responsibility that persists across Workflow runs. A Workflow run is one execution that may create, advance, pause, resume, or complete Work.
-- **Brain** — the future ontology and reasoning-memory layer, built around objects, relationships, perspectives, engrams, and consolidation rather than raw vector logs.
-
-## User Stories
-
-### Quietly Watch a Group Conversation
-
-A messaging Signal Trigger can start a workflow from a customer group event. A customer-success Agent Action Node can analyze risk, create or update Work, and notify the responsible human privately without speaking in the group by default.
-
-### Start Multiple Branches from One Signal Trigger
-
-The same external event can matter to different Agents in different ways. A message about a customer budget freeze can fan out to a CustomerSuccessAgent branch, a FinanceAgent branch, and a blackhole Sink Action Node for irrelevant branches.
-
-### Remember Conversations and External Events Together
-
-A research Agent can combine user conversations with external market, policy, or operational events. Future answers should retrieve context through an ontology-backed world model rather than only searching past chat text.
-
-### Improve from Results
-
-An Agent Action Node should learn from repeated results. If a coding Agent often fails when fixture context is missing, later Work planning should explicitly collect fixture context before writing a patch.
-
-### Gate Risky Outbound Actions
-
-Risky customer-facing, financial, legal, or otherwise sensitive external actions should pass through explicit approval or policy-gate Action Nodes before any side-effecting Action Node runs.
-
-## Design Invariants
-
-- PostgreSQL is the fact source for durable state.
-- Process state is ephemeral and reconstructible.
-- Processes are failure boundaries, not domain nouns.
-- Workflows are resumable DAGs, not linear chat sessions.
-- Provider adapters and routing are modeled as Signal Triggers.
-- Action Nodes declare whether they support Streaming Input, Streaming Output, or both.
-- A Sink Action Node is terminal; no downstream Action Node is valid below `sink=true`.
-- `Reply to Trigger` exists only for `bidirectional=true` Signal Triggers and is always a sink.
-- Reliability comes from durable checkpoints, retries, idempotent node contracts, and operator recovery rather than a blanket strict exactly-once guarantee.
-- Side-effecting Action Nodes are explicit workflow nodes, not hidden raw tool calls.
-- Risky external writes or messages must pass through explicit approval or policy-gate Action Nodes before execution.
-- Important behavior must be auditable, explainable, and recoverable.
-- Memory should evolve through reasoning and consolidation, not accumulate as an unstructured log.
-
-## Development
+## Getting Started
 
 **Prerequisites:** Elixir 1.19+, PostgreSQL, Bun
 
@@ -93,7 +98,7 @@ bun setup
 bun dev
 ```
 
-Open `http://localhost:4000`. The current app shell redirects `/` to `/setup`, which is only a placeholder on this branch.
+Open `http://localhost:4000`. The current app shell redirects `/` to `/setup`.
 
 In development, Phoenix starts Rsbuild as an endpoint watcher. The browser entry point remains `http://localhost:4000`; Rsbuild listens on `http://localhost:5173` for React/Inertia hot reload. If those ports are already in use, set `PORT` and `RSBUILD_PORT` in `.env.local`, for example `PORT=4001` and `RSBUILD_PORT=5174`.
 
