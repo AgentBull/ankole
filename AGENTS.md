@@ -141,39 +141,37 @@ Confirm which area you are editing before applying framework-specific rules belo
 
 ## Product Direction
 
-The long-term product direction is BullX as a general-purpose AgentOS for durable digital work. It should work for an enterprise department, a small team, or an OPC operator with the same core model: Workflows are reactive process definitions over BPMN-shaped DAGs of Nodes whose Catch, Throw, and Executor attributes describe how each step participates; the engine executes those Workflows as short-lived stateless Segments; Process Instance identity is structural, carried by domain object reference chains in PostgreSQL; Agents carry intelligent responsibility; Brain accumulates memory; and real Segment execution facts drive improvement. The detailed schema and runtime design are not committed yet, so code and docs should stay at the user-story and invariant level unless a design doc specifies implementation detail. `docs/Architecture.md` is the source of truth for the vocabulary and invariants below.
+The long-term product direction is BullX as a general-purpose AgentOS for durable digital work. It should work for an enterprise department, a small team, or an OPC operator with the same core model: Events enter EventBus; EventBus matches the first applicable Event Routing Rule by priority; the matched rule creates or reuses a TargetSession; TargetSession invokes the matched Target. Typical Targets are AIAgents and Workflows. AIAgents are AI colleagues that can directly handle Events, conversations, Work, tools, human collaboration, and Brain context. Workflows are explicit process Targets for branching, approval, parallelism, deterministic steps, external actions, and human intervention. PostgreSQL remains the source of committed business facts; EventBus and TargetSession manage delivery and runtime windows, not business truth. The detailed schema and runtime design are not committed yet, so code and docs should stay at the user-story and invariant level unless a design doc specifies implementation detail. `internals/design-docs/drafts/Arch.md` is the source of truth for the vocabulary and invariants below.
 
 Stable vocabulary for user stories:
 
 - **Installation** — one BullX deployment and its single operating domain. Do not introduce multi-tenant `Tenant` concepts without a design doc.
 - **Principal** — an internal subject that can be authorized, audited, and held responsible. Human users, Agents, services, and system actors are all Principals.
 - **Connected Realm** — an external identity and event space connected to BullX (Feishu tenant, Slack workspace, GitHub org). It is not a BullX tenant.
-- **Workflow** — a reactive process definition: a structurally directed acyclic graph of Nodes describing how the system reacts to domain events. A Workflow does not "complete" or "fail" as a whole; only Segments do.
-- **Node** — the only first-class structural element of a Workflow. Every Node carries Catch, Throw, and Executor attributes. The legacy Signal Trigger / Action Node distinction is retired.
-- **Catch** — a Node attribute. When true, the Node is a valid entry for matching Signals. Catch declares correlation criteria, which may be open (any Signal of a kind) or keyed (matching a domain object reference stored by a prior Segment).
-- **Throw** — a Node attribute. When true, the Node produces an external side effect. Destination identifies the target, which may be a specific external system or the originating Catch context of the current Segment (called Reply).
-- **Executor** — a Node attribute. Identifies what runs the Node: deterministic logic, an Agent, a Capability, a SubAgent runtime, a human task, or an external integration.
-- **Segment** — one stateless execution of a connected path inside a Workflow, from a Catch Node to a Sink position. Segments are the unit of execution; the engine holds no cross-Segment state. "Run" is a synonym for Segment.
-- **Sink position** — a derived property of edge topology and Catch placement: a Node with no outgoing edges, or any downstream Catch Node. Not a Node attribute. The legacy `sink=true` attribute is retired.
-- **Correlation** — selects, for each incoming Signal, which Catch on which Workflow Node should start a Segment. Open correlation matches by Signal kind; keyed correlation matches against domain references stored by prior Segments.
-- **Process Instance** — the structural identity of a business process across Segments, formed by the reference chain among domain objects in PostgreSQL. The engine does not assign or hold a Process Instance ID.
-- **Agent** — a digital work subject with AI work capability: identity, responsibility, long-term memory, permissions, outbound identity, and KPIs. When it runs inside a Workflow it appears as a Node Executor. An Agent is not automatically an LLM process, a chat bot, or a long-lived runtime process.
-- **Agentic Loop** — one reasoning and tool-use loop of an Agent. Can run as a Node Executor inside a Workflow or as the body of a one-off SubAgent.
-- **Capability** — a governed atomic ability a Node may call: model, tool, browser, sandbox, messaging channel, or external API. External Agent harnesses (Codex, Claude Code, Gemini CLI, ACP) are carried by SubAgent runtime Capability providers, not as new top-level subjects. Approval is not a Capability; it is Node semantics (a Wait Node).
+- **Event** — an external or internal input received by BullX. IM messages, webhooks, timers, approval clicks, ChildRun completion events, and human UI operations can all be Events.
+- **EventBus** — the Event entry point. It receives Events, matches Event Routing Rules by priority, and sends each accepted Event into a TargetSession.
+- **Event Routing Rule** — a global routing-table entry: Event match criteria, matched Target, and TargetSession scope/window. Its responsibility is routing; business processing belongs to the Target.
+- **Target** — the consumer or processor invoked after an Event Routing Rule matches. Targets can be AIAgents, Workflows, Blackhole / Ignore, External Agent Harnesses, or later design-doc-defined consumers.
+- **TargetSession** — the runtime window formed by one Event Routing Rule within a scope and time window. It receives matched Events through a side channel and invokes the Target.
+- **AIAgent** — an AI colleague. It can directly act as a Target for conversations, long-running Work, judgment, collaboration, memory, tool use, and human collaboration.
+- **Agentic Loop** — one reasoning and tool-use loop of an AIAgent. It belongs inside an AIAgent or SubAgent and does not automatically expand into Workflow Nodes.
+- **Workflow** — an explicit process Target made of Nodes, used when branching, approval, parallelism, deterministic steps, external actions, or human intervention need explicit process structure. Workflow is not the default entry point for every Event.
+- **Node** — a step inside a Workflow Target. Concrete Node contracts belong to the relevant Workflow design document, not to the root product guidance.
+- **Capability** — a governed ability an AIAgent or Workflow can call: model, tool, browser, sandbox, messaging channel, external API, or External Agent Runtime.
 - **Skill** — a procedural knowledge asset whose durable truth lives in PostgreSQL, projected through a virtual file system. A Skill provides knowledge and materials; it does not grant execution power.
-- **SubAgent** — a child Agentic Loop. One-off temporary delegation is an ephemeral SubAgent; repeated delegation belongs in a Workflow.
-- **Human-in-the-loop** — a Workflow participation pattern implemented as a Wait Node specialized for human input (Human Task, Approval, Policy Gate).
-- **Work** — a durable work responsibility that persists across Segments. A Segment may create, advance, pause, resume, or complete Work.
+- **SubAgent** — a child Agentic Loop delegated by an AIAgent or Workflow with bounded context, Skill, tool policy, sandbox policy, Budget, timeout, and result format.
+- **Human-in-the-loop** — a participation pattern where human input, approval, correction, handoff, or real-world work returns as Events and business records.
+- **Work** — a durable work responsibility that persists across TargetSessions. TargetSessions may create or process Work, but Work carries the long-term responsibility.
 - **Budget** — a governance constraint over tokens, model cost, runtime, tool calls, external spend, or quota.
 - **Brain** — the long-term memory and reasoning world model. Brain durable truth lives in PostgreSQL.
 
 Core product stories to keep in mind:
 
-- A customer-success Agent can watch a group conversation, process a risk signal silently, create Work, and notify the account owner privately without speaking in the group.
-- One Catch on one Node can fan out into multiple branches inside the same Segment, with irrelevant branches ending at a Node with no outgoing edges — the Workflow graph itself expresses branching and termination.
+- A customer-success Agent can watch a group conversation, process a risk Event silently, create Work, and notify the account owner privately without speaking in the group.
+- One Event can enter EventBus, match a routing rule, and reach an AIAgent or Workflow Target. If it needs multiple paths, the matched Target must express that fan-out explicitly.
 - A research Agent can combine conversation memory with external market events and retrieve context through an ontology-backed world model.
-- An Agent can learn from recorded outcomes of prior Segments, so future Work planning reflects previous failures and successful patterns.
-- Customer-facing, financial, legal, or otherwise risky outbound actions must pass through an explicit approval or policy-gate Wait Node before the producing Throw Node executes.
+- An Agent can learn from recorded business facts and execution evidence, so future Work planning reflects previous failures and successful patterns.
+- Customer-facing, financial, legal, or otherwise risky outbound actions must form auditable business records and pass through policy or approval when needed before the side effect executes.
 
 Do not encode the long-term table design, queue topology, adapter list, or runtime process model as if it were already implemented. Those details need a committed design doc before implementation.
 
@@ -191,7 +189,7 @@ BullX implements meaningful features, architectural changes, and complex bug fix
 
    - What existing utility or pattern can be reused?
 
-   - What code path, process, schema, Node attribute (Catch / Throw / Executor), or public contract is actually changing?
+   - What code path, process, schema, Event routing rule, Target, TargetSession behavior, or public contract is actually changing?
 
    - What invariant must remain true?
 
@@ -234,7 +232,7 @@ Do not relitigate durability, consistency, latency, availability, purity, normal
 - Do not add dependencies unless the user explicitly requests or approves them.
 - Do not introduce a new abstraction for a single use. Wait for repeated pressure or a clearly named domain boundary.
 - Do not optimize for the local patch at the cost of future change. Code is not static. It will move, split, merge, and be deleted.
-- Keep public contracts boring. Prefer explicit structs, schemas, Nodes with declared Catch / Throw / Executor attributes, and audit records over loose maps and freeform strings.
+- Keep public contracts boring. Prefer explicit structs, schemas, Events, Event Routing Rules, Targets, TargetSessions, and audit records over loose maps and freeform strings.
 - Keep process state reconstructible. Process-local state is ephemeral and must be safe to rebuild on restart.
 - Multiple coding agents may work in parallel on the same branch. Unrelated files or diffs in Git status are normal; do not revert or touch them unless your task explicitly requires it.
 - Verify outcomes before final claims. Do not say a bug is fixed, a feature works, or a migration is safe unless you ran the relevant command or clearly state what remains unverified.

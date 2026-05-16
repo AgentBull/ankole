@@ -1,1028 +1,602 @@
-# BullX architecture
+# BullX High-Level Architecture
 
-BullX's core model is reactive process choreography executed as bounded,
-stateless Segments, where the identity of any cross-Segment business process
-is reconstructed structurally from domain state rather than held by the
-engine. A Workflow describes how the system should respond to domain events.
-Each incoming Signal that matches a Catch attribute on some Node starts one
-Segment, the Segment activates Nodes along outgoing edges until all active
-branches resolve, and the engine makes no commitment about whether or when
-subsequent Segments will continue the same business process. Continuity
-across Segments is the domain layer's responsibility, expressed by references
-among durable domain objects.
+BullX is an AgentOS for AI colleagues. It accepts Events from chat, webhooks,
+timers, human operations, and child tasks; routes each Event to its Target
+through an Event Routing Rule; and invokes the Target through a TargetSession.
 
-This document fixes only BullX's high-level vocabulary, execution semantics,
-and design invariants. Fields, node attributes, storage shapes, providers,
-runtimes, adapters, queues, and UI examples illustrate boundaries; they do not
-define stable interfaces. Specific schemas, APIs, runtimes, queues, adapters,
-policy languages, Skill virtual file systems, Brain storage, sandbox backends,
-and UI interactions belong to the corresponding design docs. Those designs may
-evolve, but they must not introduce new top-level subjects that conflict with
-the invariants in this document.
+The EventBus owns the global Event Routing Rule table. When an Event arrives,
+the EventBus performs a priority-ordered short-circuit match against that
+table, taking the first matching rule. Each Event Routing Rule declares a
+match condition, a Target, and how the scope and time window of the
+TargetSession are determined.
 
-Some design docs use `Non-goals` to mean "not in this slice," not "never in
-BullX"; those local exclusions must still fit the architecture-level vocabulary
-and invariants in this document.
+A Target is an Event consumer and handler. The typical Targets are AIAgent
+and Workflow. An AIAgent is an AI colleague: it can process Events directly,
+hold conversations, use tools, advance Work, request human help, and use the
+Brain. A Workflow is an explicit process suited for branching, approval,
+parallelism, and deterministic steps.
 
-## Core judgment
+A TargetSession is the execution window formed by one Event Routing Rule
+within a particular scope and time window. It receives the Events matched by
+that rule within the window and dispatches them to the Target. A
+TargetSession may be carried by an Oban Job, but the Event itself is not
+written into the Oban Job arguments — Events arrive through a side channel.
 
-BullX sits between two established styles of system and is not a member of
-either.
+The EventBus and TargetSession layer is responsible for Event delivery and
+execution-window management. It does not hold business facts. It may retain
+runtime records for delivery, retry, or observability, but those records are
+not business facts. Business facts are stored by business-layer objects:
+conversations live in Conversation and Message, durable responsibility lives
+in Work and Task, approvals live in ApprovalRequest, child tasks live in
+ChildRun, long-term memory and representation live in Brain, and cost lives
+in Budget. Once a TargetSession closes, any later approval, callback, or
+child-task completion arrives as a new Event on the EventBus and enters a
+new TargetSession.
 
-On one side, IM-native agent frameworks like Hermes and OpenClaw center on an
-Agent session and have no Workflow abstraction. The session does the work; the
-session also carries the durable trace. There is no separable graph that
-describes how the system reacts across many events.
+One BullX Installation is one deployment and one operating domain. A
+Connected Realm provides an external identity and event space. Principal,
+Budget, Skill, Capability, and Brain decide whom a Target may act on behalf
+of, how much it may spend, what knowledge it may read, what abilities it may
+call, and how long-term memory forms from work outcomes.
 
-On the other side, automation workflow engines like n8n, Activepieces, Dify,
-Camunda, and Temporal treat a workflow as something the user launches and
-expects to complete. The engine holds a stateful Run or Process Instance that
-must survive pauses, restarts, and external waits; the user observes that Run
-to know whether the work happened.
+This document fixes only the high-level execution model and vocabulary
+boundary of BullX. Concrete table schemas, APIs, modules, and configuration
+belong to their respective design documents.
 
-BullX is closer in abstraction to BPMN than to either side: it accepts
-multiple entry points into the same graph, allows intermediate event catches,
-correlates incoming events to in-flight processes by domain identity, and
-makes human participation a first-class Workflow pattern. But the BPMN engine
-tradition (Camunda, Activiti, Flowable) keeps a stateful Process Instance
-that the engine owns, which BullX does not. BullX shifts that responsibility
-into the domain layer.
+## Minimal execution model
 
-The top-level shape of one execution is:
+The minimal execution model of BullX is: an Event enters the EventBus, the
+EventBus matches an Event Routing Rule, and a TargetSession invokes the
+Target.
 
 ```text
-Signal arrives matching a Catch attribute on some Node
-  -> Segment activates Nodes along outgoing edges
-  -> all active branches resolve at Sink positions, failure, or contract boundary
-  -> domain object writes and recovery points record what happened
+Event arrives
+  -> EventBus short-circuit matches the first Event Routing Rule by priority
+  -> the matched Event Routing Rule creates or reuses a TargetSession
+  -> the Event enters the TargetSession
+  -> the TargetSession invokes the Target
+  -> the Target processes the Event
 ```
 
-BullX optimizes for recoverable, explainable, and compensable execution
-instead of promising that every external side effect happens exactly once.
-Nodes that produce side effects must declare an idempotency, deduplication,
-or compensation strategy. The concrete implementation belongs to the node and
-Capability design docs.
-
-## Process model
-
-This section is load-bearing for the rest of the document. The vocabulary
-that follows depends on these four ideas being held simultaneously.
-
-**1. Workflow is a process definition, not a task.** A Workflow describes how
-the system should respond to domain events. It is not "an automation the user
-launches and waits for." Users do not start Workflows the way they start a
-Zapier zap or a Dify run; they do other things (send IM messages, file issues,
-click approval buttons), and BullX uses Workflows to describe how the system
-reacts. Workflows do not "complete" or "fail" as wholes — only individual
-Segments succeed or fail.
-
-**2. Segment is the execution unit.** When a Signal matches a Catch attribute
-on some Node inside some Workflow, the engine executes one Segment: a
-stateless execution wave. It starts from the matched Catch, activates Nodes
-along outgoing edges, and ends when all active branches have reached Sink
-positions, failed, or otherwise resolved according to the Segment contract. A
-Sink position terminates one branch: it is either a Node with no outgoing
-edges, or a Catch-bearing Node reached through an incoming edge. The matched
-Catch itself is not a Sink for the Segment that starts there. The engine makes
-no commitment about Segments coming after this one — they may follow, they may
-not, they may follow much later from a different external Signal. Segment is
-the only Workflow execution unit in this document.
-
-**3. Structural process identity is typed, not engine-owned.** A business
-process across Segments — for example, "the lifecycle of GitHub issue #123
-through classification, ticket creation, approval, and PR" — is a real
-concept. It corresponds to what BPMN engines call a Process Instance, but
-BullX does not assign an engine-owned instance ID and does not hold that
-state in the engine. The identity is formed only by designated typed causal
-or correlation references among domain objects, not by arbitrary foreign keys
-or incidental object links: issue #123 references ticket T456, ticket T456
-references approval A789, approval A789 references PR P012. If you have the
-chain, you have the business process identity. The same chain seen by two
-different Segments is the same process; a different chain is a different
-process. There is no separate engine-side identity to keep in sync.
-
-**4. The engine is a stateless Segment executor.** BEAM processes that execute
-Segments hold no cross-Segment state. Engine state during a Segment is
-reconstructible from the external substrate selected by the Segment's runtime
-contract and is discarded when the Segment terminates. The durable layer is
-the domain layer: Workflow definitions, Principal and Budget records, Work,
-Skills, Brain, conversation and message records, approval records, and
-side-effect outcomes — these are the committed product facts. Engine
-internals such as in-flight Segment state, Signal buffers, intermediate
-stream chunks, and node-internal scratch state are not durable truth. No
-transient Node output crosses a Catch boundary; data needed after a Wait or
-intermediate Catch must be committed as product facts before the earlier
-Segment terminates.
-
-Together: BullX is **reactive process choreography with structural process
-identity, executed as stateless Segments over BPMN-shaped acyclic graphs**.
-The rest of this document uses this vocabulary consistently.
-
-## Recovery, persistence, and audit scope
-
-Recoverable in BullX means the runtime can survive BEAM process loss by
-reconstructing the next safe step from the external state that the owning
-Segment's runtime contract chose to keep. It does not mean Workflow is a
-durable engine, that Segments persist across restarts as live entities, or
-that every intermediate event is durably logged.
-
-PostgreSQL is the source of truth for committed product facts: Workflow
-definitions, Segment outcomes that must survive restart, Principal
-authorization and approval evidence, Work and Brain mutations, Budget and
-cost records, conversation and message records, and externally visible
-side-effect outcomes when the node contract requires them. Redis, PubSub,
-unlogged PostgreSQL tables, ETS projections, provider state, and process-local
-state are valid substrates for Signal delivery, buffering, caches, and runtime
-coordination when loss before an accepted boundary is within the contract.
-The Segment executor itself can use unlogged state because Segments do not
-need to survive PostgreSQL restart — only the domain object writes they
-produce do.
-
-The audit invariant is product-level. It applies to Agent decisions that
-affect Work, approvals and policy-gate outcomes, Principal delegation,
-high-risk external side effects, committed artifacts, and other facts an
-operator needs in order to explain or recover business behavior. It is not a
-blanket requirement to persist every data-processing step inside a Signal,
-Segment, Agentic Loop, stream, or routing path.
-
-## Product lineage
-
-BullX should cover the personal-agent scenarios that Hermes and OpenClaw have
-already proven useful, but BullX is not a simple lift of those capabilities
-into an enterprise shell. Hermes and OpenClaw let a personal Agent use tools,
-Skills, cron, SubAgents, code execution, and message entry points. BullX
-turns those capabilities into an organizational work system that is
-recoverable, auditable, governed, and able to learn.
-
-The difference comes from a change in architectural subject. Hermes and
-OpenClaw center the core experience on an Agent session. BullX centers the
-core product facts on Workflow definitions, Segments, Principals, Budgets,
-domain object records, recorded Node outcomes, and Brain. For the same
-actions — "run this every day," "delegate to a child Agent," "write code,"
-"learn a Skill" — BullX answers additional questions: who authorized the
-work, how much budget it consumed, what recorded artifact it produced,
-whether it needed approval, how it recovers after failure, how the result
-affects long-term Work, and how the real trajectory improves the next
-execution.
-
-| Hermes / OpenClaw scenario | BullX expression |
-| --- | --- |
-| `SKILL.md` directories, Skill centers, Agent-created Skills | Skill is a durable knowledge asset in PostgreSQL, projected through a virtual file system to preserve the familiar directory experience. |
-| Local shell, remote code execution, sandbox, browser session | Sandbox, browser, messaging, and external API access are atomic Capabilities. Sandbox state is disposable runtime state. |
-| SubAgent, delegation, parallel research, background task | One-off delegation is an ephemeral SubAgent Agentic Loop. Repeated delegation is itself a Workflow. The parent depends only on structured results, status, cost, and transcript reference when the node contract requires them. |
-| ACP / Codex / Claude Code / Gemini CLI harness | An external Agent harness is carried by a SubAgent runtime Capability provider. Codex is one implementation in this runtime family. |
-| Cron, scheduled jobs, one-shot reminders, heartbeat | Time-based Catch attributes on Nodes. Exact timing, intervals, aggregation, SLAs, and deliverable requirements belong to Workflow configuration. |
-| Task Flow / background task ledger | A Segment produces recorded outcomes when its node contract requires them. SubAgent runs, sandbox runs, and external harness runs surface as node/Segment evidence. |
-| Trajectory datasets, tool stats, learning signals | BullX extracts evaluations, preferences, policy improvements, Skill improvements, and future training signals from real Segments, Agentic Loops, tool calls, approvals, recorded outcomes, and KPI signals. |
-
-The core tradeoff: the session, cron, heartbeat, SubAgent, and Skill file
-structures that Hermes and OpenClaw expose for personal-agent usability can
-keep a similar surface experience in BullX, but committed product truth
-belongs to the owning durable store — usually PostgreSQL-backed Workflow
-definitions, Principals, Budgets, Work, Brain, and audit records. Transient
-Segment, Signal, and runtime state does not become durable truth just
-because it appears inside a Workflow.
-
-## Core concepts
-
-BullX keeps its high-level concepts small and stable. Each concept must
-explain product behavior rather than pre-commit BullX to a specific table or
-supervision tree.
-
-| Concept | Meaning |
-| --- | --- |
-| Installation | One BullX deployment and its single operating domain. BullX may serve an enterprise, a team, or an OPC operator, but does not default to SaaS multi-tenancy as the product boundary. |
-| Principal | An internal subject that can be authorized, audited, and held responsible. Humans, AI Agents, services, and system actors are all Principals. |
-| Connected Realm | An external identity and event space connected to BullX, such as a Feishu tenant, Slack workspace, or GitHub org. It is not a BullX tenant. |
-| Workflow | A reactive process definition: an acyclic graph of Nodes describing how the system responds to domain events. A Workflow is structurally acyclic, but each execution activates only the Segment-relevant subgraph, not an end-to-end engine-held object. |
-| Node | The only first-class structural element of a Workflow. A Node carries Catch, Throw, Executor, and the standard five categories (Contract, Execution binding, Governance, Effect, Lifecycle). |
-| Catch | A Node attribute. When true, the Node is a valid entry point for an incoming Signal. Catch declares correlation criteria that select which Signals start a Segment at this Node. |
-| Throw | A Node attribute. When true, the Node produces external side effects. Throw declares a destination, which may be a specific external target or the originating Catch context of the current Segment (commonly called Reply). |
-| Executor | A Node attribute. Identifies what runs the Node: deterministic logic, an Agent, a Capability, a SubAgent runtime, a human task, or an external integration. |
-| Segment | One stateless execution wave inside a Workflow. It starts from a matched Catch, activates Nodes along outgoing edges, and ends when all active branches have reached Sink positions, failed, or otherwise resolved according to the Segment contract. |
-| Sink position | A branch terminator: either a Node with no outgoing edges, or a Catch-bearing Node reached through an incoming edge. The same Catch-bearing Node is not a Sink for the Segment that starts from it. |
-| Correlation | The mechanism that selects, for an incoming Signal, which Catch attribute on which Workflow Node should start a Segment. Correlation may be definition-static (any Signal of this kind) or domain-keyed (matching a domain object reference). |
-| Structural process identity | The business-process identity across Segments, determined by designated typed causal or correlation references among domain objects. It corresponds to what BPMN engines call a Process Instance, but BullX does not assign an engine-owned instance ID. |
-| Agent | A digital work subject with AI work capability. When an Agent runs inside a Workflow, it is one kind of Node Executor, but it carries its own identity, memory, responsibilities, permissions, and KPIs. |
-| Agentic Loop | One reasoning and tool-use loop of an Agent. It can run as a Node inside a Workflow or as the execution body of a one-off SubAgent. |
-| Capability | A governed atomic ability that a Node may call: model, tool, browser, sandbox, messaging channel, or external API. External Agent harnesses are exposed through SubAgent runtime Capability providers. |
-| Skill | A procedural knowledge asset that an Agent can read and use. A Skill can teach an Agent how to call a Capability, but it does not grant execution power. |
-| SubAgent | A child Agentic Loop execution derived by an Agent or Workflow to isolate context, do bounded parallel work, or call an external Agent harness runtime. Long-running child work is modeled asynchronously through domain objects and keyed Catch continuation. |
-| Human-in-the-loop | A participation pattern in which a human joins a Workflow as a Principal. Usually appears as a human task, approval, or policy-gate Node (a Catch-bearing Node that waits for human input). |
-| Work | A durable work responsibility that persists across Segments. A Segment may create, advance, pause, resume, or complete Work. |
-| Budget | A governance constraint over tokens, model cost, runtime, tool calls, external spend, or quota. A Budget can produce a hard stop, degradation, queueing, or over-budget approval. |
-| Brain | BullX's long-term memory and reasoning world model. Brain durable truth remains in PostgreSQL. Brain forms evolvable memory from Workflows, Agent interactions, external events, and recorded outcomes. |
-
-Two important boundaries:
-
-Signal is the event input. A Signal is an incoming event; "what makes a
-Workflow respond to it" is the Catch attribute on a Node. Time triggers,
-webhooks, IM messages, human UI actions, and routing results are all Signals;
-they enter the system as input to Catch-bearing Nodes.
-
-Node is the structural unit. Sink position is a derived property of edge
-topology and Catch placement, not a stored Node attribute.
-
-Agent does not mean every executable subject. A deterministic transform,
-approval Node, notification Node, CRM write Node, or blackhole branch is not
-an Agent. Only a digital work subject with AI reasoning, memory, and a
-responsibility boundary is an Agent.
-
-## Workflow definition
-
-A Workflow is a reactive process definition. Its graph is structurally
-acyclic. Each execution activates only the Segment-relevant subgraph, not an
-end-to-end engine-held object.
-
-A Workflow describes:
-
-- which Nodes may serve as entry points for which Signals (via Catch attributes
-  and correlation criteria),
-- which Nodes execute under which dependencies inside a Segment,
-- which Nodes support streaming input or output,
-- which Nodes terminate a Segment (Sink positions),
-- which Nodes produce external side effects (Throw),
-- which Nodes participate human Principals (human task, approval, policy gate),
-- how Segment results are recorded as durable domain object writes.
-
-BullX Workflows satisfy these constraints:
-
-- A Workflow graph is acyclic. Loops inside an Agentic Loop, SubAgent
-  runtime, or external runtime do not add cycles to the Workflow graph.
-- A Workflow does not "complete" as a whole. Only Segments succeed or fail.
-- The same Workflow definition can be executed by many uncoordinated Segments
-  driven by different Signals at different times. The engine maintains no
-  Segment-to-Segment linkage; cross-Segment continuity is the responsibility
-  of domain objects.
-- Streaming is an I/O delivery mode at the Node boundary. It is not a global
-  Workflow execution mode.
-- Reliability comes from recovery points, retries, idempotent node contracts,
-  compensation, and operator recovery. BullX does not promise that every Node
-  executes only once in every failure scenario.
-
-Workflow edges express logical dependency and value passing within a Segment.
-Streaming describes whether a value can be delivered incrementally before it
-is fully materialized. In the current BullX context, streaming mainly means
-LLM progressive response or token streaming for UI display, interactive reply,
-log display, or a small number of downstream Nodes that support streaming
-input. If a streaming payload reaches a Node that does not support streaming
-input, BullX materializes or buffers it into complete input. If a Node
-supports streaming output but the next Node does not support streaming input,
-the next Node receives only the materialized final output.
-
-## Node
-
-A Node is the only first-class structural element of a Workflow. Every Node,
-regardless of how it appears on a canvas or in documentation, carries the
-same set of attributes. Differences that appear as separate canvas stencils
-are expressed as values of Catch, Throw, and Executor.
-
-**Catch (bool + correlation).** When `catch=true`, the Node is a valid entry
-point for an incoming Signal that matches its correlation criteria. A Node
-with `catch=true` and no incoming edges serves as a Workflow entry; a Node
-with `catch=true` and incoming edges acts as an intermediate event catch
-(commonly called a "Wait Node"). Correlation determines, for any given
-Signal, whether this specific Catch should start a Segment. Correlation may
-be definition-static ("any inbound IM message on this channel") or
-domain-keyed ("the Lark approval webhook whose ticket_id matches an existing
-domain reference").
-
-**Throw (bool + destination).** When `throw=true`, the Node produces an
-external side effect on completion. Destination identifies where the effect
-goes: a specific external target such as CRM, Slack, webhook URL, ticketing
-system, or the originating Catch context of the current Segment (commonly
-called "Reply"). Internal audit records are committed product facts, not
-Throw destinations, unless a design explicitly sends events to an external
-audit system. Reply destinations are only available when the originating
-Catch declared reply capability.
-
-**Executor.** What runs the Node. Possible Executors include deterministic
-logic, an Agent, a Capability (model, tool, sandbox, messaging, external
-API), a SubAgent runtime, a human task, or an external integration.
-
-In addition to these three core attributes, every Node expresses the five
-high-level categories of execution information:
-
-1. **Contract** — inputs, outputs, result states, and error semantics.
-2. **Execution binding** — which Executor and configuration runs it.
-3. **Governance** — which Principal permission it requires, which Budget it
-   consumes, whether it triggers a policy gate or approval.
-4. **Effect** — whether it has external side effects and how it handles
-   retry, idempotency, deduplication, compensation, and audit.
-5. **Lifecycle** — whether it supports streaming, pause/resume within the
-   Segment, timeout, sink position, human handoff, and recovery.
-
-A Sink position terminates the current branch. It is either a Node with no
-outgoing edges, or a Catch-bearing Node reached through an incoming edge. The
-same Catch-bearing Node is not a Sink for the Segment that starts from it; its
-outgoing edges belong to that Segment. Sink position is not a Node attribute;
-it is a property derived from Catch and graph topology. Blackhole is not a
-special concept — it is simply a Node with no outgoing edges, no Throw, and
-no continuation.
-
-## Common Node patterns
-
-The unified Node model gives users many degrees of freedom. For canvas
-editing, documentation, and verbal communication, BullX recognizes a small
-set of common Node patterns as conventional stencils. These are presentation
-conveniences, not architectural categories.
-
-- **Catch Node** — `catch=true`, often with no incoming edges. Entry point
-  for a Workflow.
-- **Wait Node** — `catch=true` with incoming edges. Intermediate event
-  catch. When reached from upstream, it arms the wait by writing the
-  required domain object and terminates the current branch. When a later
-  Signal matches its Catch, a new Segment starts from the Catch boundary and
-  continues downstream. The resume Segment must not repeat the arming side
-  effect unless the Node contract explicitly allows it.
-- **Throw Node** — `throw=true` with a specific external destination.
-  External side effect node such as "send IM message," "write CRM note,"
-  "create Lark ticket."
-- **Reply Node** — `throw=true` with destination equal to the originating
-  Catch context. Available only when the originating Catch declared reply
-  capability.
-- **Task Node** — neither Catch nor Throw. Pure internal computation, such
-  as an Agent reasoning node, a deterministic transform, or a SubAgent
-  invocation that does not produce external side effects.
-- **Gateway Node** — multiple outgoing edges with branching conditions
-  (exclusive, parallel, or inclusive). Borrowed from BPMN.
-- **Human Task / Approval / Policy-Gate Node** — `catch=true` with incoming
-  edges. A specialization of Wait Node that records a pending human action
-  to the domain layer and waits for a correlated Signal carrying the
-  human's response.
-
-When a design doc or canvas refers to one of these patterns, it is using a
-common shape of the unified Node concept, not introducing a new structural
-element.
-
-## Segment lifecycle and correlation
-
-A Segment is one stateless execution wave inside a Workflow. Its lifecycle has
-four phases:
-
-**Match.** A Signal arrives. The runtime evaluates Catch attributes across
-candidate Workflows to find every Node whose Catch matches the Signal. A
-match may be definition-static (Signal kind alone is sufficient) or
-domain-keyed (Signal carries domain reference that must match a stored
-domain object the Catch is waiting on).
-
-**Start.** For each match, the engine starts one Segment. The Segment
-receives the Signal as initial input and begins executing from the matched
-Catch Node.
-
-**Execute.** The Segment activates Nodes along outgoing edges until all active
-branches have reached Sink positions, failed, or otherwise resolved according
-to the Segment contract. Within a Segment, intermediate execution state
-(variables, node outputs, streaming buffers) lives in whatever substrate the
-runtime contract selected — typically process memory, possibly with Redis or
-unlogged PostgreSQL backing for recovery within the Segment. This state does
-not need to survive the Segment.
-
-**Record.** Before the Segment terminates, any Throw Nodes commit external
-side effects, any domain object writes (Work updates, message records,
-approval records, ticket creations) are committed to PostgreSQL, and any
-recovery points required by the node contracts are written. After
-termination, all Segment state is discarded.
-
-The engine does not know whether a future Segment will continue any business
-process this Segment was part of. If a Wait Node was reached from upstream,
-the current Segment arms the wait by writing the required domain object and
-terminates that branch. A future Signal matching that Wait Node's Catch starts
-a new Segment from the Catch boundary and continues downstream. The resume
-Segment must not repeat the arming side effect unless the Node contract
-explicitly allows it. The engine does not retain a suspended Segment waiting
-for that Signal.
-
-No transient Node output crosses a Catch boundary. Any data needed after a
-Wait or intermediate Catch must be committed as a domain object, artifact,
-message record, approval record, or other product fact before the earlier
-Segment terminates.
-
-Correlation is the bridge between Signals and Workflow definitions. Every
-Catch attribute declares either:
-
-- **Open correlation:** any Signal of a declared kind matches (typical for
-  Catch Nodes at Workflow entries — "any inbound IM message on this
-  channel," "any GitHub issue webhook for this repo").
-- **Keyed correlation:** the Signal must carry domain references that
-  match a domain object stored by a previous Segment (typical for Wait
-  Nodes — "a Lark approval response whose ticket_id matches a ticket this
-  Workflow previously created").
-
-A domain object that arms a keyed Catch must carry enough Workflow, Catch, and
-compatible version identity to make later correlation and continuation
-unambiguous after Workflow definition changes.
-
-Keyed correlation is how BullX expresses what BPMN engines do with
-suspended-instance lookup, without keeping a suspended instance. The
-domain object created by the prior Segment is itself the correlation
-record.
-
-## Agent
-
-An Agent is a digital work subject with AI work capability, long-term
-memory, responsibility boundaries, permission boundaries, outbound identity,
-and KPIs. When an Agent runs inside a Workflow, it appears as one kind of
-Node Executor, but it is not an alias for ordinary Nodes or for a single
-LLM loop.
-
-An Agent should answer:
-
-- What long-term goal or KPI does it serve?
-- What Work can it create or advance?
-- Which models, providers, integrations, or downstream Nodes can it call?
-- Which Skills can it read?
-- Which Capabilities and SubAgent runtimes can it use?
-- Which Agent Principal does it execute as, and does this execution have
-  triggering, authorizing, approving, or acting-on-behalf-of relationships?
-- How do token, cost, runtime, and tool-call Budgets constrain it?
-- Which Segment inputs can it see?
-- Can its output be delivered as a stream?
-- How does its result enter Brain and KPI evaluation?
-
-Non-AI Nodes should not be called Agents to give them a sense of agency.
-If a non-AI Node needs an independent audit identity, model it with a
-Service Principal or System Principal instead of as a non-AI Agent.
-
-An Agent usually has its own Agent Principal. One Agent Node execution
-should also record the triggering Principal, authorizing or approving
-Principal, and acting-on-behalf-of relationships. Agent identity and
-delegated authorization must not collapse into one indistinguishable
-subject.
-
-## Skills and the virtual file system
-
-BullX supports Skills, but Skill durable truth lives in PostgreSQL. Each
-Skill has ownership, visibility, versioning, compatibility, review/policy
-metadata, and content assets. Specific schemas, the VFS mutation protocol,
-review state machines, and Skill Hub implementation belong to the Skill
-design doc. This document constrains only the boundary.
-
-To preserve the usage habits already formed by Hermes and OpenClaw, BullX
-projects database-backed Skills into a virtual file system. Any execution
-subject with Skill read permission — an Agent, a derived SubAgent internal
-execution body, code running in a sandbox, import/export tooling — can see
-a structure like:
-
-```text
-skills/
-  customer-risk/
-    SKILL.md
-    references/
-    templates/
-    scripts/
-```
-
-This file tree is a projection, not a durable source. Writes to the
-virtual file system translate into database mutations, version records,
-permission checks, and audit events. Reads filter visible Skills by
-Agent, Workflow, Principal, Connected Realm, platform compatibility, and
-policy.
-
-A Skill can contain scripts, templates, or example code as passive
-assets. Executing those assets must go through a governed Capability or
-Node. A Skill itself provides knowledge and materials. It does not grant
-execution power, and it does not directly produce external side effects.
-Shell, browser, API, message-sending, and external mutation execution
-still belong to governed Capabilities or Nodes. This boundary keeps the
-low-friction `SKILL.md` experience without hiding execution power inside
-prompt files.
-
-## Capability and SubAgent runtime
-
-A Capability is an atomic ability that a Node may call: model, tool,
-browser, sandbox, messaging channel, external API. Approval is not a
-Capability; it is Node semantics (a Catch-bearing Wait Node specialized
-for human approval). This keeps Capability as the atomic boundary for
-"what can be done" while Node owns "when to do it, who does it, whether
-to wait for approval, how to record the result."
-
-A SubAgent runtime is a Capability provider that carries child Agentic
-Loop runs. For bounded synchronous work under the Segment runtime contract, a
-SubAgent Node declares task, policy, budget, timeout, result schema, and
-handoff. It calls the SubAgent runtime Capability, creates a child Agentic
-Loop run, and returns structured result, status, cost, and transcript
-reference to the parent Segment. This boundary avoids flattening a full Agent
-runtime into an ordinary tool and avoids promoting Codex, Claude Code, Gemini
-CLI, or ACP harnesses into new top-level objects.
-
-Sandbox-like Capabilities can run code, shell, browsers, tests, data
-analysis, or external harnesses, but sandbox processes, temporary files,
-and browser tabs are disposable state. Only explicitly recorded
-artifacts, logs, outputs, patches, tool results, costs, and recovery
-points can affect later Segment execution.
-
-A SubAgent is a child Agentic Loop with isolated context. A parent Agent or
-Workflow can delegate a bounded task to a SubAgent and specify model, Skills,
-tool policy, sandbox policy, budget, timeout, fan-out limit, result schema,
-and handoff channel. For synchronous bounded runs, the parent Segment should
-not poll the child's private context; it should wait for the child to produce
-a status change, structured result, failure reason, or timeout record.
-
-Long-running child Agent or external harness work is modeled asynchronously:
-the Segment records a child-run domain object and terminates at a keyed Catch;
-a later child-completion Signal starts the continuation Segment. Synchronous
-SubAgent execution inside one Segment is reserved for bounded work under the
-Segment runtime contract.
-
-The durability of a delegation pattern depends on product semantics. The
-SubAgent itself is always an Agentic Loop with isolated context:
-
-- One-off temporary parallel research, code inspection, experiments, or
-  material organization: ephemeral SubAgent Agentic Loop. Transcript,
-  tool calls, budget, and final result may still be recorded, but no
-  reusable Workflow definition is created.
-- Repeated delegation (daily market monitoring, weekly PR audits, hourly
-  customer-risk scans, fixed multi-Agent research): model it as a
-  Workflow. Schedule, input, Skills, budget, approval, delivery, and
-  retry belong to the Workflow definition.
-
-Codex is one implementation of the SubAgent runtime. BullX does not need
-to make Codex a new top-level object. Codex is a child Agent called by a
-SubAgent Node, constrained by sandbox and tool policy, managed by
-budget, and recorded by the Segment.
-
-## Time-driven Workflows
-
-Cron jobs, scheduled tasks, one-shot reminders, and heartbeats from
-Hermes and OpenClaw all land as Catch attributes on Nodes whose
-correlation declares a time schedule. They are not parallel top-level
-concepts. The Workflow configuration on the Catch decides exact timing,
-approximate interval, aggregation, SLA, delivery target, no-op behavior
-when nothing changed, and what domain object writes the Segment must
-produce.
-
-A background task ledger is not an orchestration system. SubAgent runs,
-external Agent harness executions, sandbox executions, and isolated executions
-may have records, but when the behavior needs multi-step dependencies,
-retries, approvals, delivery, or long-term reuse, the real
-orchestration object should be a Workflow.
-
-A Workflow can contain SubAgent Nodes. The Agentic Loop inside a
-SubAgent Node may continue to derive child SubAgents. Those derivations
-happen inside the Node and do not add new Nodes to the parent Workflow
-graph. Fan-out, nesting depth, concurrency, timeout, tool surface, and
-budget are governance inputs. The default design should limit recursive
-delegation so an Agent cannot use child Agents to bypass its own
-permission, budget, or approval boundaries.
+The EventBus routes Events to matching TargetSessions. The Target and the
+business layer decide how the business processing happens, what data is
+written, and what outbound messages are sent.
+
+By default, only the first matching Event Routing Rule accepts an Event. If
+an Event must trigger multiple paths, the matched Target expresses that
+explicitly.
+
+## Core vocabulary
+
+**Event** An Event is an external or internal signal received by BullX. IM
+messages, webhooks, timer fires, approval clicks, ChildRun completion
+events, and human UI actions are all Events.
+
+**Installation** An Installation is one BullX deployment and its single
+operating domain. It may serve an enterprise department, a team, or an OPC
+operator; SaaS multi-tenancy is not a default product boundary.
+
+**Connected Realm** A Connected Realm is an external identity and event
+space connected to BullX, such as a Feishu tenant, a Slack workspace, a
+GitHub organization, or a CRM space. A Connected Realm supplies external
+accounts, Event sources, login assertions, and outbound credentials.
+Internal BullX identity is expressed by Principal.
+
+**EventBus** The EventBus is the Event entry point of BullX. It receives
+Events, short-circuit matches Event Routing Rules by priority, and dispatches
+Events into TargetSessions.
+
+**Event Routing Rule** An Event Routing Rule is an entry in the global
+routing table. It describes the Event match condition, the Target invoked on
+match, and the scope and time window of the resulting TargetSession. Its
+responsibility is limited to routing; business processing belongs to the
+Target.
+
+**Target** A Target is the consumer and handler invoked when an Event
+Routing Rule matches. A Target may be an AIAgent, a Workflow, a
+Blackhole / Ignore, an External Agent Harness, or another Target defined by
+a subsequent design document.
+
+**TargetSession** A TargetSession is the execution window formed by one
+Event Routing Rule within a particular scope and time window. It receives
+the Events matched by that rule within the window and dispatches them to the
+Target.
+
+**TargetSession side channel** The TargetSession side channel is the runtime
+path by which an Event reaches a TargetSession. It is not an Oban Job
+argument, and it is not a business-fact store. Its concrete implementation
+belongs to the corresponding runtime design document.
+
+**AIAgent** An AIAgent is an AI colleague. It can serve directly as a
+Target, handling conversations, long-running work, judgment, collaboration,
+memory, tool use, and human cooperation.
+
+**Agentic Loop** An Agentic Loop is one round of reasoning and tool use
+inside an AIAgent. It is internal to an AIAgent or SubAgent and is not
+automatically expanded into Workflow Nodes.
+
+**Workflow** A Workflow is an explicit-process Target. It consists of Nodes
+and is suited for branching, approval, parallelism, deterministic steps,
+external actions, and human intervention.
+
+**Principal** A Principal expresses who triggers, who authorizes, who
+approves, and who executes. Human users, AIAgents, services, and system
+actors can all be Principals.
+
+**Budget** A Budget limits token usage, model cost, tool calls, runtime,
+external spend, or quota.
+
+**Skill** A Skill is a procedural knowledge asset that an AIAgent can read.
+A Skill can describe how to use a Capability but does not grant execution
+power.
+
+**Capability** A Capability is a governed ability that an AIAgent or
+Workflow may call, such as a model, tool, browser, sandbox, messaging
+channel, or external API. Permission, approval, recording, and execution
+details belong to the Capability and Governance design documents.
+
+**SubAgent** A SubAgent is a child Agentic Loop delegated by an AIAgent or
+Workflow. It carries an isolated context, Skills, tool policy, sandbox
+policy, Budget, timeout, and result format.
+
+**Brain** Brain is the long-term memory and representation subsystem. It
+distills traceable, evolvable, retrievable reasoning-style memory from
+conversations and Event streams, and maintains a world model that grows step
+by step.
+
+**Cortex** A Cortex is a memory region in Brain organized by observation
+perspective. A Cortex binds an observer to an observed subject and holds the
+observer's memory of and reasoning about that subject.
+
+**Engram** An Engram is a memory imprint in Brain. It holds reasoning-style
+memory distilled from a conversation, an Event, a tool result, or a later
+consolidation. It does not store a copy of the raw message.
+
+**Dreamer** Dreamer is the background consolidation mechanism of Brain. It
+merges duplicate Engrams, surfaces contradictions, lifts the abstraction
+level, and helps Brain's world model grow from observation.
+
+**Work / Task** Work is a durable responsibility that persists across
+multiple TargetSessions. Task is a concrete work item. A TargetSession may
+create or advance Work and Task; Work carries the long-term responsibility.
+
+## Event Routing Rule
+
+An Event Routing Rule is an entry in the global routing table. It defines
+three things:
+
+- which Events it matches,
+- which Target receives the Event on match,
+- how the scope and time window of the TargetSession are determined.
+
+The responsibility of an Event Routing Rule ends at routing. When it
+matches, it creates or reuses a TargetSession, writes the Event into the
+TargetSession side channel, and lets the TargetSession invoke the Target.
+
+Wildcard and default rules are legitimate. An Event not accepted by any more
+specific rule may match a fallback Event Routing Rule and enter a default
+Target or a Blackhole / Ignore Target.
+
+## Target
+
+A Target is the Event consumer and handler invoked when an Event Routing
+Rule matches.
+
+Typical Targets include:
+
+- **AIAgent** — an agent consumer suited for conversation, long-running
+  work, judgment, collaboration, memory, and tool use.
+- **Workflow** — an explicit-process consumer suited for branching,
+  approval, parallelism, deterministic steps, and external actions.
+- **Blackhole / Ignore** — an explicit drop of the Event.
+- **External Agent Harness** — a Codex-style external Agent runtime.
+
+Different Event Routing Rules pointing to the same Target form different
+TargetSessions by default. The same Target can be invoked by many
+TargetSessions; whether a TargetSession is reused is determined by the
+scope and time window defined on the matched Event Routing Rule.
+
+## TargetSession
+
+A TargetSession is the execution window formed by one Event Routing Rule
+within a particular scope and time window. It receives the Events matched by
+that rule within the window and dispatches them to the Target.
+
+A TargetSession may be carried by an Oban Job. The Oban Job arguments hold
+only meta information such as the TargetSession identity, the Event Routing
+Rule identity, the Target identity, the scope, and `expires_at`. The Event
+is not written into the Oban Job arguments; it arrives through the
+TargetSession side channel.
+
+Once a TargetSession is closed or expires, it does not accept new business
+Events. Later approval clicks, callbacks, ChildRun completion events, later
+IM replies, and Time Events return through the EventBus. If those Events
+need to continue the same business work, the EventBus matches the
+corresponding Event Routing Rule and creates or reuses a new TargetSession.
+
+A TargetSession is an execution window. The business layer holds the
+complete business history and business facts.
+
+## Installation and Connected Realm
+
+An Installation is the BullX operating domain. The EventBus, Principals,
+Budgets, Brain, Work, and Conversations of one Installation share the same
+business boundary.
+
+A Connected Realm connects external identity and event spaces. A Feishu
+tenant, a Slack workspace, a GitHub organization, a Google Workspace, and a
+CRM space can all be Connected Realms. External accounts, login assertions,
+outbound credentials, and Event sources originate in Connected Realms, but
+they only supply evidence; internal BullX authorization and accountability
+are carried by Principals.
+
+An Adapter is responsible only for connecting to an external system. An
+Adapter may supply identity hints, Event evidence, or delivery capacity,
+but it does not own a BullX identity and does not decide which Principal
+receives authorization.
 
 ## Principal and identity
 
-Principal is the internal identity root. Humans, AI Agents, services,
-and system actors can all be Principals because all of them may be
-authorized, audited, have permissions revoked, or carry responsibility.
+Principal is the internal identity root of BullX. Human users, AIAgents,
+services, and system actors can all be Principals, because each of them may
+be authorized, audited, have permissions revoked, or carry responsibility.
 
-Connected Realms provide external identity and event spaces, but do not
-own BullX identity. Feishu, Slack, Discord, GitHub, Google, CRM, and
-similar systems provide login assertions, external actors, event
-provenance, or outbound credentials. BullX AuthN/AuthZ maps those
-external proofs to internal Principals.
+Audit records should state which Principal triggered, authorized, approved,
+or executed an action, or acted on behalf of another subject. External
+accounts are not BullX users. A web session belongs to an internal Human
+Principal. An AIAgent normally has its own Agent Principal.
 
-Principles:
+When a Target execution acts on behalf of a human, a service, a team, or an
+external account, the triggering Principal, the authorizing or approving
+Principal, the executing Principal, and the on-behalf-of relationship are
+recorded separately. Agent identity and delegated authorization must not
+collapse into one ambiguous field.
 
-- An external account is not a BullX user.
-- An Adapter does not own identity; it only provides identity or event
-  evidence.
-- A Web session belongs to an internal Human Principal.
-- An AI Agent can have its own Agent Principal.
-- A non-AI Node that needs independent permission should use a Service
-  or System Principal.
-- Audit records should explain which Principal triggered, approved,
-  executed, or acted on behalf of another subject.
+## AIAgent and Workflow
 
-The Principal represented by an Agent is first the Agent's own Agent
-Principal. If one execution acts on behalf of a Human, service, team,
-or external account, the execution records the triggering Principal,
-authorizing or approving Principal, and acting-on-behalf-of relationship
-as separate audit facts instead of merging them into one subject field.
+AIAgent is the most important Target. An AIAgent can serve directly as a
+Target and process Events. It can hold conversations, use tools, read
+Skills, call external APIs, delegate SubAgents, create Work and Tasks,
+request human help, and use Brain, all under permission and Budget
+constraints.
 
-## Human-in-the-loop
+An AIAgent should declare its long-term goals, KPIs, the Work it can
+handle, the Skills it can read, the models, Model Providers, Integrations,
+Capabilities, and SubAgent runtimes it can call. It should also declare its
+outbound identity, its Agent Principal, its Budget constraints, and how its
+results enter Brain and KPI evaluation.
 
-BullX models human-in-the-loop as a Workflow participation pattern, not
-as engine-level long suspension. A human participates as a Principal
-through a Node whose Catch waits for a Signal carrying human input —
-approval, supplemental input, correction, takeover, escalation, or
-final confirmation.
+An AIAgent may read context provided by Brain; its conversations, tool
+results, Work processing, and external Events may become inputs that Brain
+ingests for reasoning.
 
-In the Workflow graph, this appears as a Wait Node specialized for
-human participation (Human Task, Approval, Policy Gate). In the engine,
-this is implemented as: the current Segment terminates at this Node
-after writing a domain object that records the pending human action
-(an approval request, an assigned task, a pending review). When the
-human responds, the response arrives as a new Signal carrying a
-reference to that domain object; correlation matches it back to the
-Wait Node; a new Segment starts from the Catch boundary and continues
-downstream. The resume Segment must not recreate the pending human action
-unless the Node contract explicitly allows it.
+An AIAgent can hold long-running Work across many TargetSessions. One
+SalesAgent may simultaneously handle several channels, several conversations
+or threads, and several pieces of Work, but those are different
+TargetSessions by default.
 
-The graph reads continuously across the human pause. The engine does
-not. Cross-pause continuity is carried entirely by the domain object
-(the pending approval, task, or review record), not by any suspended
-Segment held in memory or in an engine table.
+An AIAgent identity is not the same as an Event Routing Rule identity, nor
+the same as any TargetSession. One AIAgent can be the target of multiple
+Event Routing Rules and can be invoked by multiple TargetSessions.
 
-Human-in-the-loop does not only serve high-risk approval. It also
-supports low-risk cases that need human judgment: adding missing
-materials, choosing among candidates, confirming customer tone,
-correcting an Agent's misjudgment, choosing among multiple follow-up
-paths. Node configuration and policy gates decide the difference, not
-ad hoc runtime convention.
+An AIAgent may run many turns of reasoning and tool calls internally. Those
+internal steps stay inside the AIAgent; they are not automatically modeled
+as Workflow Nodes. A Workflow Target is used only when the user needs an
+explicit process, branching, approval, parallelism, deterministic steps, or
+a visualized process boundary.
 
-## Governed external actions
+A Workflow is a Target oriented at explicit-process scenarios that an
+AIAgent does not satisfy. A Workflow consists of Nodes; a Node is a step in
+the Workflow. A Node can be a tool call, conditional, approval, human task,
+external action, message reply, or similar. Event routing is performed by
+the EventBus and Event Routing Rules.
 
-External actions should be expressed by Throw Nodes, not hidden in
-Agent prompts, provider SDKs, or free tool calls. A Throw Node needs
-clear inputs, outputs, permissions, cost, risk, and audit boundaries.
+A Target execution carries the necessary Principal, Budget, and permission
+context. When an AIAgent or Workflow calls a tool, sends a message, creates
+Work, or performs an external action, that action is bound by this context.
 
-High-risk external actions should not be executed directly by AI Agent
-Nodes. Customer-facing, financial, legal, data deletion, contract,
-payment, and permission-changing actions should pass through an
-explicit approval or policy-gate Wait Node before the Throw Node
-executes. This representation is easier to inspect, recover, and audit
-than hiding safety logic in a prompt, adapter, or provider SDK.
+Both AIAgent and Workflow may use governed models, tools, browsers,
+sandboxes, messaging channels, external APIs, and External Agent Runtimes.
+Permission, approval, recording, and execution details belong to the
+Capability and Governance design documents.
 
-Budget is also part of governance. BullX should support token, model
-cost, runtime, external API spend, and tool-call limits by
-Installation, Principal, Agent, Workflow, Node, Capability, and
-SubAgent. When a budget is exceeded, the system explicitly chooses a
-hard stop, degraded model, queueing, human approval request, or
-supplemental Work. It must not rely only on prompt text asking an
-Agent to "save tokens."
+## Skill
 
-## Work and Structural Process Identity
+A Skill is a procedural knowledge asset. The durable business facts of
+Skills live in PostgreSQL; the Skill VFS is a file-tree projection for
+AIAgents, SubAgents, sandboxes, and import/export tooling.
 
-Workflow definitions describe how the system reacts. Work expresses
-durable responsibility. Structural process identity is the identity of a
-business process across Segments.
+A Skill can carry owner, visibility, version, compatibility, review
+metadata, policy metadata, and content assets. When a Skill is read, the
+view is filtered by AIAgent, Target, Principal, Connected Realm, platform
+compatibility, and policy.
 
-Work persists across many Segments. A Segment may create, advance,
-pause, resume, or complete Work. Work is a domain object in PostgreSQL
-with its own lifecycle and observability.
+A Skill may include scripts, templates, or example code, but those assets
+are passive material. Executing scripts, opening a browser, calling APIs,
+sending messages, or mutating external systems must go through a governed
+Capability or Target.
 
-Structural process identity is not a stored entity. It corresponds to what
-BPMN engines call a Process Instance, but BullX forms it from designated
-typed causal or correlation references among domain objects involved in a
-business process, not by arbitrary foreign keys or incidental object links.
-Issue #123 references ticket T456 references approval A789 references PR
-P012 — this chain *is* the business process identity. Two Segments operating
-on the same chain are operating on the same process; two Segments on disjoint
-chains are on different processes. BullX does not maintain a separate engine
-ID for instances and does not need to: the chain is observable, queryable,
-and sufficient.
+## SubAgent and External Agent Harness
 
-Long-term goals remain important but do not need a separate term in this
-document. The key boundary: one Segment must not be mistaken for the
-whole work responsibility. The value of an Agent is that it advances
-Work across many Segments and improves later behavior from recorded
-outcomes.
+A SubAgent is a child Agentic Loop. An AIAgent or Workflow may delegate a
+bounded task to a SubAgent and specify model, Skills, tool policy, sandbox
+policy, Budget, timeout, concurrency limit, result format, and handoff.
 
-## Brain and memory
+A short-lived SubAgent can return structured results, status, cost, and a
+transcript reference within the current TargetSession. A long-running
+SubAgent or External Agent Harness writes to a ChildRun; on completion,
+failure, or timeout, it returns to the EventBus as a new Event and enters a
+new TargetSession.
 
-Brain is BullX's long-term memory and reasoning world model. It is not
-only a log, and not a simple vector store. Brain is a logical-layer
-concept; its physical durable truth lives in PostgreSQL. Brain extracts
-evolvable objects, relationships, perspectives, and experiences from
-Agent conversations, Segment inputs, external events, Node outputs, and
-recorded outcomes.
+An External Agent Harness can serve as a Target, or be used by an AIAgent
+through a SubAgent. Codex, Claude Code, Gemini CLI, and ACP are external
+Agent runtimes of this kind. They are constrained by sandbox, tool policy,
+and Budget; they do not become new identity roots.
 
-Brain does not replace Workflow. Workflow owns execution. Brain lets
-Agents act with better context and experience in later Segments.
+Sandbox processes, temporary files, and browser tabs are runtime state.
+Only explicitly recorded Artifacts, Logs, Patches, tool results, costs, and
+status records affect later business processing.
 
-Segment and Agentic Loop transcripts form recorded execution facts.
-BullX can extract evaluations, preferences, policy improvements, Skill
-improvements, and future training signals from recorded product facts
-and execution evidence constrained by permissions, privacy, and
-redaction. The trajectory / learning design doc owns specific data
-formats, export process, training uses, and privacy policy.
+## Budget and external actions
+
+Budget limits tokens, model cost, runtime, tool calls, external API spend,
+and quota. Budget may apply to an Installation, a Principal, an AIAgent, a
+Target, a Workflow, a Capability, or a SubAgent.
+
+When a Budget is exceeded, the system must explicitly choose to stop,
+degrade the model, queue, request human approval, or create follow-up Work.
+Budget constraints must appear in runtime and business records, not only in
+prompts.
+
+Customer-visible, financial, legal, deletion, permission-changing, or
+otherwise high-risk external actions must produce auditable business
+records, pass through policy or approval when required, and execute through
+a governed Capability or Target. Internal tool calls of an AIAgent do not
+need to be pre-expanded as Workflow Nodes, but high-risk actions must not
+live only in prompts.
+
+## Brain
+
+Brain is responsible for the formation, evolution, and retrieval of
+long-term memory. AIAgents and Workflows can read context provided by
+Brain; the conversations, tool results, Work processing outputs, and
+external Events they produce can become inputs to Brain.
+
+The durable business facts of Brain live in PostgreSQL. Brain distills
+objects, relationships, perspectives, and experiences from conversations,
+TargetSession inputs, external Events, Target outputs, and business
+results.
+
+Brain memory is organized by Cortex. A Cortex expresses an observation
+perspective — for example, a SalesAgent's memory of a particular customer,
+a ResearchAgent's memory of a company or market event, or the system's
+global memory of a subject. The same subject can appear in multiple
+Cortexes and acquire different memory under different perspectives.
+
+Engram is the memory unit inside a Cortex. An Engram may come from a
+conversation message, an Event, a tool result, or a later Dreamer
+consolidation. An Engram records distilled reasoning-style memory and does
+not duplicate the raw input.
+
+Dreamer performs background consolidation. It merges duplicate or close
+Engrams, surfaces contradictions between memories, lifts higher-level
+judgments from many low-level memories, and lets Brain's world model grow
+from real work over time. Dreamer scheduling, cost control, concrete table
+schemas, and retrieval strategy belong to the Brain design document.
+
+Trajectory and learning data can come only from recorded business facts and
+execution evidence, and are constrained by permission, privacy, and
+redaction policy. Concrete data formats, export flows, training uses, and
+privacy policy belong to the Trajectory / Learning design document.
+
+## Persistence boundary
+
+The EventBus and TargetSession layer is responsible for Event delivery and
+execution-window management. It does not store business facts. Business
+facts are stored by the business layer:
+
+- Conversation / Message holds AIAgent conversations.
+- Work / Task holds long-running responsibility and task state.
+- ApprovalRequest holds approval state.
+- ChildRun holds long-running child-task state.
+- Artifact holds produced outputs.
+- Brain holds long-term memory, representation, and reasoning-style memory.
+- Budget holds cost and quota.
+
+PostgreSQL is the source of truth for committed business facts. The
+EventBus, TargetSession, and other runtime layers may retain runtime
+records for delivery, buffering, retry, observability, and coordination.
+Those runtime records are not business facts and are not cross-TargetSession
+business identities. Their concrete storage shape belongs to the runtime
+design document.
+
+Business objects express continuity across many TargetSessions; a closed
+TargetSession does not carry that continuity. After a TargetSession closes,
+later approvals, callbacks, child-task completions, or user replies arrive
+as new Events on the EventBus and enter new TargetSessions.
+
+Typed reference chains among business objects express the structured
+identity of one piece of business work. For example, an Issue references a
+Ticket, a Ticket references an ApprovalRequest, and an ApprovalRequest
+references a PullRequest. The chain is queryable and auditable, and it is
+sufficient to show that those Events and TargetSessions belong to one piece
+of business work. The EventBus and TargetSession do not assign an additional
+business-process instance ID.
+
+Important product behavior must be auditable, explainable, and recoverable.
+The audit boundary covers facts that affect Work, ApprovalRequest, policy
+outcome, Principal delegation, high-risk external action, Artifact, and
+cost. It does not require persisting every internal reasoning step, every
+streaming chunk, or every runtime forwarding step.
+
+## Subsequent Events and cross-window continuity
+
+A subsequent Event may continue the same piece of business work, but it
+does not return to a TargetSession that has closed or expired. Human
+approval, supplemental information, human takeover, correction, task
+completion, external callback, and ChildRun completion all arrive as new
+Events on the EventBus and are routed to a new TargetSession by the
+corresponding Event Routing Rule.
+
+Human-in-the-loop is not only for high-risk approval. Adding materials,
+choosing among candidates, confirming customer tone, correcting an
+AIAgent's judgment, choosing among follow-up paths, and completing offline
+tasks can all produce new Events.
+
+A cross-day approval flow looks like this:
 
 ```text
-Segment execution
-  -> Node inputs / outputs / recorded outcomes
-  -> Brain ingestion and consolidation
-  -> Better future Agent behavior in later Segments
+Initial Event matches an Event Routing Rule
+  -> TargetSession invokes Target
+  -> Target writes ApprovalRequest
+  -> TargetSession closes or expires
+  -> days later, an approval click becomes a new Event
+  -> EventBus matches the corresponding Event Routing Rule
+  -> a new TargetSession invokes the Target
 ```
+
+Some Targets produce streaming output, such as an AIAgent reply. Streaming
+delivery is an implementation detail of the Target or the message channel.
+It does not change the core model of Event Routing Rule, TargetSession, and
+Target.
+
+## Time Event
+
+Timers, crons, reminders, and heartbeats produce Time Events. A Time Event
+enters the EventBus like any other Event.
+
+How Time Events are produced belongs to the Scheduler design. How Time
+Events are handled after they arrive belongs to Event Routing Rules and
+Targets.
 
 ## Typical scenarios
 
-### Listening in a group chat without speaking
+### Listening in a group chat without replying
 
-An IM Catch Node matches an inbound customer-group message and starts a
-Segment. A risk-detection Node determines the message concerns a customer
-budget freeze. `CustomerSuccessAgent`, running as an Agent-executed Node,
-analyzes context and creates or updates customer-risk Work. A direct-
-message Throw Node privately notifies the responsible owner. The group
-does not need a reply, so the Workflow contains no Reply Node and no
-Catch declared reply capability for this trigger.
+A group message enters the EventBus as an Event. The EventBus routes it to
+a RiskMonitoringAgent or a Workflow Target. The Target may create Work and
+privately remind the responsible owner, without replying in the group.
 
-### One Catch starts multiple branches
+### One Event drives process logic
 
-One external event arriving at one Catch Node fans out into multiple
-branches inside the same Segment. The customer-risk branch executes
-`CustomerSuccessAgent`, the financial-risk branch executes
-`FinanceAgent`, and the unrelated branch reaches a no-edge Node and
-ends. Branching and termination live in the graph; no "distribution
-center" exists outside the Workflow.
-
-### Streamable AI experience
-
-An Agent Node declares `streaming_output=true`; a downstream Node
-declares `streaming_input=true`. The Agent Node's logical output remains
-the complete reply text or structured result; streaming only delivers
-tokens or chunks incrementally before final materialization. If the
-originating Catch declared reply capability, the Segment can route
-streaming output to a Reply Node. If a downstream Node does not support
-streaming input, BullX materializes the complete output before delivery.
-
-### High-risk action through a gate
-
-An Agent Node suggests sending a quote explanation to a customer but
-cannot write the outbound message directly. The Workflow first enters a
-policy-gate or human-approval Wait Node. The Segment ends here, having
-recorded a pending approval domain object. When the approval response
-arrives as a Signal, a new Segment starts from the Wait Node's Catch boundary
-by correlation and continues downstream without recreating the pending
-approval unless the Node contract explicitly allows it. If approved, the
-outbound Throw Node executes. If rejected, the Segment records the result and
-may notify the owner or create supplemental Work.
+A budget-freeze message matches a Workflow Target. Inside the Workflow,
+branches handle customer success, financial risk, and the ignore path.
+Those branches belong to the Workflow Target.
 
 ### Multi-turn IM conversation
 
-A user has a three-turn conversation with an Agent over Slack. In
-BullX this is three independent Segments sharing one Workflow
-definition. Each inbound message matches the IM Catch Node and starts
-a Segment that reads conversation history from the messages domain
-table, runs the Agent, writes a new message record, and uses a Reply
-Node back to the user. The Agent's "continuity" across turns is
-entirely the messages table — there is no engine-held conversation
-state. If the Agent decides mid-turn that it needs a human approval
-to use a tool, it sends the request as part of its reply and the
-Segment ends; when the user replies with approval, that is the next
-Segment, which reads the message history (including the prior
-request) and proceeds with the tool call.
+The same Event Routing Rule forms the same TargetSession within the same
+conversation or thread and time window. Different channels, even with the
+same SalesAgent Target, form different TargetSessions by default.
 
-### Cross-day approval Workflow
+### Cross-day approval
 
-A Workflow listens for GitHub issue webhooks and, for issues
-classified as in-scope, creates a Lark ticket and waits for human
-approval before invoking a code-oriented external Agent harness to
-fix the issue. The Workflow contains one entry Catch Node (GitHub
-webhook), classification and ticket-creation Nodes, a Wait Node
-(approval) keyed by ticket ID, a SubAgent Node (external Agent
-harness), and a PR-creation Throw Node. In execution this becomes two
-Segments: the first runs from the GitHub Catch through ticket
-creation and ends at the Wait Node, recording the ticket as a domain
-object with enough Workflow, Catch, and compatible version identity for
-later continuation. Days later when the Lark approval webhook arrives,
-keyed correlation matches it to the Wait Node by ticket ID, a second
-Segment starts there, runs the SubAgent and the PR creation, and ends.
-The two Segments share compatible Workflow definition identity but the
-engine does not link them; the link is the ticket reference in the
-domain layer.
+After a Target writes an ApprovalRequest, its TargetSession may close.
+Days later, an approval click is a new Event. The EventBus matches the
+corresponding Event Routing Rule and creates a new TargetSession; the new
+TargetSession invokes the Target.
 
-### Skills drive reusable ability
+### Scheduled task
 
-An operations Agent handling customer renewal risk reads the
-`customer-risk` Skill through the virtual file system. The Agent uses
-the Skill to generate analysis and recommendations. If the work needs
-to write CRM, send a message, or run code, the Segment continues into
-Throw or SubAgent Nodes that call the corresponding governed
-Capabilities under permissions, budget, and approval.
+The scheduler produces a Time Event. The EventBus routes the Time Event to
+a ScheduledReportAgent or a Workflow Target. The Target generates a report,
+creates Work, or sends a message.
 
-### Exact scheduling
+### High-risk external action
 
-A user asks for a customer-risk daily report at 9 a.m. BullX creates a
-Workflow whose entry Catch Node has a time-schedule correlation set to
-9 a.m. daily. Each morning that Catch starts a Segment that reads
-Brain, CRM, yesterday's IM Signals, and unfinished Work, calls an Agent
-to generate a summary, and delivers it through a messaging Throw Node.
-Recorded outcomes belong to the Segment, not to an independent cron
-log.
+An AIAgent suggests sending a quote explanation to a customer. The Target
+first writes an ApprovalRequest or a high-risk-action record. When the
+approval Event returns to the EventBus, a new TargetSession invokes the
+Target to complete delivery or record the rejection.
 
-### Periodic awareness
+### Skill supports reusable capability
 
-A user asks an Agent to check for urgent items every 30 minutes. BullX
-creates a Workflow with an interval-time Catch. Each Segment checks
-inbox, calendar, child-task status, and high-priority Work. If nothing
-changed, the Segment ends at a no-edge Node. If something changed, the
-Segment creates Work or notifies the owner via Throw Nodes. When the
-behavior needs exact timing, long analysis, or repeated deliverables,
-the same Workflow can be reconfigured with an exact-schedule Catch and
-SLA.
+An OperationsAgent reads the `customer-risk` Skill and generates a renewal
+risk analysis. When CRM writes, message sends, or code runs are needed, the
+Target executes through governed Capabilities or an External Agent Harness,
+under Principal, Budget, and approval constraints.
 
-### Parallel research and one-off SubAgents
+### External Agent Harness / Codex
 
-A main Agent needs to research three competitors at the same time. It
-derives three ephemeral SubAgents, each with separate context, Skills,
-sandbox, budget, and timeout. Because this is bounded work under the
-Segment runtime contract, the current Segment waits for three structured
-results and merges them. If "weekly competitor research" becomes stable,
-that SubAgent orchestration becomes a Workflow.
-
-### External Agent harness as child Agent
-
-"Fix the failing tests in this repo." BullX calls a code-oriented
-external Agent harness through a SubAgent Node with a controlled
-workspace, tool policy, budget, and timeout. The child Agent modifies
-code and runs tests, but external publishing, merging, deployment, or
-high-risk credential access still requires a policy gate or human
-approval Wait Node in the Workflow. The Segment records patch, test
-output, cost, and final status. If the harness work is long-running, the
-Segment records a child-run domain object and terminates at a keyed Catch;
-the harness completion Signal starts the continuation Segment.
+A Codex-style External Agent Harness can serve as a Target or be delegated
+as a SubAgent by an AIAgent. Long-running execution writes to a ChildRun;
+on completion, failure, or timeout, it returns to the EventBus as a new
+Event and enters a new TargetSession.
 
 ## Non-goals
 
 This document does not define:
 
-- Specific database schemas.
-- Specific queues, workers, supervisors, or runtime modules.
-- A specific adapter list.
-- A specific Workflow DSL or UI canvas format.
-- A specific approval policy language.
-- Specific Skill table structures, Skill VFS protocol, or Skill Hub
-  implementation.
-- A specific sandbox backend, external Agent harness adapter, SubAgent
-  queue, or thread-binding implementation.
-- A specific token billing model, budget approval UI, or quota
-  settlement system.
-- Specific trajectory / learning data formats, export processes,
-  training uses, or privacy policies.
-- A specific Brain storage model.
+- Concrete table schemas.
+- Concrete runtime modules, supervision trees, Worker implementations, or
+  Oban queue configuration.
+- A concrete Event Routing Rule DSL, Target registry, Workflow DSL, or UI
+  canvas format.
+- Concrete Workflow Node contracts.
+- Concrete execution details of tools, models, browsers, sandboxes,
+  messaging channels, APIs, or External Agent Runtimes.
+- A concrete approval policy language, Budget settlement scheme, or
+  approval UI.
+- Concrete Principal / AuthN / AuthZ table schemas or policy language.
+- A concrete Connected Realm Adapter list, login protocol, or outbound
+  credential format.
+- Concrete Skill tables, Skill VFS protocol, Skill Hub, Brain table
+  schemas, retrieval strategy, or learning data formats.
+- Concrete sandbox backends, External Agent Harness adapters, Trajectory /
+  Learning data formats, export flows, training uses, or privacy policy.
 - A SaaS multi-tenant isolation model.
-- A specific correlation index, Signal dispatch implementation, or
-  Catch registration mechanism.
-
-Later design docs expand the reactive-process vocabulary from this
-document instead of introducing parallel top-level subjects for the same
-responsibilities.
 
 ## Design invariants
 
-**Process model.**
-
-- BullX is a reactive process definition system. A Workflow describes
-  how the system responds to domain events; it is not "an automation
-  the user launches and waits for."
-- A Segment is one stateless execution wave inside a Workflow. It starts
-  from a matched Catch, activates Nodes along outgoing edges, and ends
-  when all active branches have reached Sink positions, failed, or
-  otherwise resolved according to the Segment contract.
-- A Workflow does not complete or fail as a whole; only Segments do.
-- Structural process identity is derived from designated typed causal or
-  correlation references among domain objects. The engine does not assign
-  or maintain instance IDs.
-- The engine is a stateless Segment executor. Cross-Segment continuity
-  is the responsibility of the domain layer, not the engine.
-
-**Graph structure.**
-
-- A Workflow graph is acyclic. Loops inside an Agentic Loop,
-  SubAgent runtime, or external runtime do not add cycles to the
-  Workflow graph.
-- Node is the only first-class structural element. Catch, Throw, and
-  Executor are Node attributes. Edge is the only relation.
-- Sink position is a derived property, not a Node attribute. It terminates
-  the current branch and is either a Node with no outgoing edges, or a
-  Catch-bearing Node reached through an incoming edge. The same
-  Catch-bearing Node is not a Sink for the Segment that starts from it.
-- Signal is the event input; Catch is the Node attribute that admits a
-  matching Signal into a Segment.
-- Reply is a Throw Node whose destination is the originating Catch context.
-
-**Correlation and continuity.**
-
-- Correlation is a first-class concept. Every Catch attribute declares
-  open or keyed correlation criteria.
-- Keyed correlation matches incoming Signals against domain object
-  references stored by prior Segments. The domain object is the
-  correlation record.
-- BullX does not keep suspended-Segment state. A Wait Node reached from
-  upstream arms the wait by writing the required domain object and
-  terminates the current branch; a later Signal starts a new Segment from
-  that Catch boundary by correlation.
-- A resume Segment must not repeat the Wait Node arming side effect unless
-  the Node contract explicitly allows it.
-- No transient Node output crosses a Catch boundary. Any data needed after
-  a Wait or intermediate Catch must be committed as a domain object,
-  artifact, message record, approval record, or other product fact before
-  the earlier Segment terminates.
-- A domain object that arms a keyed Catch must carry enough Workflow,
-  Catch, and compatible version identity to make later correlation and
-  continuation unambiguous after Workflow definition changes.
-
-**Persistence and recovery.**
-
-- PostgreSQL is the source of truth for committed durable product
-  facts.
-- A recoverable Workflow does not imply a durable log of every Signal,
-  stream chunk, internal loop, routing step, or intermediate runtime
-  event.
-- Process-local Segment state must be reconstructible from the
-  external stores selected by its runtime contract, or explicitly
-  disposable.
-- Signal and runtime layers may use PubSub, Redis, unlogged
-  PostgreSQL tables, ETS projections, or other non-durable substrates
-  when loss before acceptance or commit is within the contract.
-- Reliability uses recovery points, retries, idempotency,
-  deduplication, compensation, and operator recovery. BullX does not
-  promise that every Node executes only once in every failure
-  scenario.
-
-**Streaming and I/O.**
-
-- Streaming input/output is a delivery mode at the Node boundary. It
-  is not a global mode, an independent topology, or general
-  stream-processing semantics.
-
-**Subjects.**
-
-- Non-AI execution logic is a Node, not an Agent.
-- Only a digital work subject with AI reasoning, memory, and a
-  responsibility boundary is an Agent.
-- External Agent harnesses are carried by SubAgent runtime Capability
-  providers. They are not new top-level architectural subjects.
-- A one-off SubAgent is an ephemeral Agentic Loop. Repeated SubAgent
-  orchestration is a Workflow.
-- Long-running child Agent or external harness work is asynchronous:
-  the Segment records a child-run domain object and terminates at a keyed
-  Catch; a later child-completion Signal starts the continuation Segment.
-- Synchronous SubAgent execution inside one Segment is reserved for bounded
-  work under the Segment runtime contract.
-
-**Skills.**
-
-- Skill durable truth lives in PostgreSQL. The file tree is only a
-  virtual file system projection.
-- A Skill may contain passive assets but does not grant execution
-  power. Executing scripts, templates, or example code must go through
-  a governed Capability or Node.
-
-**Sandboxes.**
-
-- Sandbox Capability runtime state is ephemeral. Only explicitly
-  recorded artifacts, outputs, logs, patches, recovery points, and
-  results can affect later Segment execution.
-
-**Human-in-the-loop.**
-
-- Human-in-the-loop is a Workflow participation pattern, implemented
-  as a Wait Node specialized for human input. It must be pausable
-  (Segment-terminating), correlatable (so the response can match
-  back), and auditable (the pending domain object is the record).
-
-**Governance.**
-
-- High-risk external side effects must pass through an explicit
-  approval or policy-gate Wait Node before the producing Throw Node.
-- Token Budgets, cost quotas, and over-budget approval belong to
-  governance and must not exist only in prompt text.
-
-**Brain and learning.**
-
-- Brain durable truth lives in PostgreSQL.
-- Trajectories and learning signals can only be based on recorded
-  product facts and execution evidence constrained by permissions,
-  privacy, and redaction.
-
-**Audit.**
-
-- Important product behavior must be auditable, explainable, and
-  recoverable. This invariant is product-level; it does not require
-  persisting every internal data-processing step.
-
-## How later designs use this document
-
-Later design docs treat this document as a vocabulary and direction
-constraint, not as an implementation manual.
-
-When a design describes an external entry point, it asks: what is the
-Catch attribute on which Node, and what is its correlation? When a
-design describes execution logic, it asks: what are the Catch, Throw,
-and Executor of the Node; which Capabilities or SubAgent runtimes does
-it call; does it support streaming; and is it a Sink position? When a
-design describes an AI subject, it asks: what are this Agent's
-long-term goals, Work, Agent Principal, memory, KPIs, Skills,
-Capabilities, Budget, and callable Node boundaries? When a design
-describes a multi-step business process, it asks: which designated typed
-causal or correlation references among domain objects carry structural
-process identity across Segments?
-
-An implementation can temporarily cover only a small slice, but it
-must not introduce permanent concepts that contradict these high-level
-constraints. In particular, the engine must not hold stateful workflow
-execution objects that resume across external waits; Signal remains event
-input; Reply remains a Throw destination; and Catch, Throw, and Executor
-remain Node attributes rather than distinct Node types.
-
-## One sentence
-
-BullX is an AgentOS for long-running digital work: it expresses
-business reactions as reactive Workflow definitions over BPMN-shaped
-acyclic graphs of Nodes whose Catch, Throw, and Executor attributes describe
-how each step participates; the engine executes those Workflows as
-stateless bounded Segments; structural process identity is carried by
-typed domain object reference chains in PostgreSQL;
-Principals, Budgets, and Node-level governance control permission and
-cost; SubAgent runtimes, sandbox Capabilities, and human-in-the-loop
-Wait Nodes participate as ordinary Nodes; Skills, Brain, and recorded
-outcomes accumulate organizational memory; and real Segment execution
-facts drive continuous improvement.
+- Event is the input signal.
+- The EventBus short-circuit matches Event Routing Rules by priority.
+- An Event Routing Rule is a match condition plus a Target plus a
+  TargetSession scope.
+- By default, only the first matching Event Routing Rule accepts the Event.
+- Target is the Event consumer and handler.
+- The typical Targets are AIAgent and Workflow.
+- An AIAgent may serve directly as a Target without first being modeled as
+  a Workflow.
+- Workflow is the explicit-process Target; BullX may also process Events
+  directly through an AIAgent.
+- A TargetSession is the execution window formed by one Event Routing Rule
+  within a particular scope and time window.
+- An Event is not written into the Oban Job arguments.
+- An Event arrives through the TargetSession side channel.
+- A closed or expired TargetSession does not accept new business Events.
+- Business objects express cross-window continuity; a closed TargetSession
+  does not carry that continuity.
+- Business facts are persisted by business-layer objects.
+- An Installation is the single operating domain of BullX; a Connected
+  Realm is an external identity and event space.
+- Principal is the internal identity root; external accounts and Adapters
+  do not own BullX identity.
+- Principal, Budget, and Brain support responsibility, cost, long-term
+  memory, and representation.
+- Skill is a knowledge asset and the Skill VFS is its projection; a Skill
+  does not grant execution power.
+- Capability is the governed ability that an AIAgent or Workflow may call.
+- A SubAgent is a child Agentic Loop; the result of a long-running SubAgent
+  or External Agent Harness returns to the EventBus through a ChildRun and a
+  new Event.
+- High-risk external actions must produce auditable business records and
+  pass through policy or approval when required.
+- Sandbox runtime state is transient; only explicitly recorded Artifacts,
+  Logs, Patches, tool results, costs, and status records affect later
+  business processing.
+- PostgreSQL holds committed business facts; runtime records carry only
+  delivery, buffering, retry, observability, and coordination duties.
+- Typed business-object reference chains express the structured identity of
+  one piece of business work; the EventBus and TargetSession do not assign
+  an additional business-process instance ID.
+- Brain is supported by Cortex, Engram, and Dreamer: Cortex organizes
+  observation perspectives, Engram holds reasoning-style memory, and
+  Dreamer performs background consolidation.
+- Brain is responsible for the formation, evolution, and retrieval of
+  long-term memory; it is not responsible for Event routing or Target
+  execution.
+- Trajectory and learning data can come only from recorded business facts
+  and execution evidence, under permission, privacy, and redaction
+  constraints.
+- Principal carries authorization and accountability; a Target or Workflow
+  Node is not itself a Principal.

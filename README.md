@@ -18,8 +18,9 @@ BullX is built around AI Agents as colleagues, not RAG support bots or digital a
 BullX does not optimize for "one more chat interface." It turns AI Colleagues into a durable work system:
 
 - **Agents** carry long-term missions, responsibilities, permissions, memory, outbound identity, and KPI/OKR-style goals.
-- Reactive **Workflows** describe how digital work responds to real-world Signals.
-- **Segments** give each execution a clear boundary, so work can be recorded, recovered, audited, and handed off without relying on an opaque runtime.
+- **EventBus** receives real-world and system Events, applies Event Routing Rules, and sends each accepted Event to the right Target.
+- **Targets** do the work: most commonly an AIAgent for flexible judgment or a Workflow for explicit process structure.
+- **TargetSessions** give runtime work a scoped window, while durable business facts remain in Conversation, Work, ApprovalRequest, ChildRun, Brain, Budget, and domain records.
 - **Principals**, **Budgets**, and human collaboration paths make responsibility explicit before expensive or risky work happens.
 - **Capabilities** expose models, tools, browsers, sandboxes, messaging channels, APIs, and external agent harnesses without hiding power inside prompts.
 - **Brain** provides long-term memory and a reasoning world model: not a raw vector log, not a giant Markdown memory file, and not a fully predefined ontology, but evolvable knowledge extracted from conversations, events, actions, and outcomes.
@@ -34,21 +35,21 @@ Many systems now call themselves agents or digital workers, but they optimize fo
 
 | Dimension | OpenClaw / Hermes-style assistant | Dify / RPA / RAG workflow worker | BullX AI Colleague |
 | --- | --- | --- | --- |
-| Primary unit | Agentic Loop or assistant session. | App, bot, RPA flow, or workflow run. | Agent with long-term mission, responsibility, Work, and Workflow context. |
-| Autonomy | Reacts to prompts, messages, cron, or user-configured tasks. | Executes a defined process for a specific business scenario. | Observes signals, prioritizes work, asks for help, delegates, and advances long-term objectives. |
-| Actions | Tool calls, shell/browser work, messages, files, subagents. | Form fills, API calls, extraction, routing, approvals, report generation. | Governed Capabilities and Workflow steps with explicit side effects, recovery, and audit. |
+| Primary unit | Agentic Loop or assistant session. | App, bot, RPA flow, or workflow run. | Agent with long-term mission, responsibility, Work, and EventBus-routed context. |
+| Autonomy | Reacts to prompts, messages, cron, or user-configured tasks. | Executes a defined process for a specific business scenario. | Observes Events, prioritizes work, asks for help, delegates, and advances long-term objectives. |
+| Actions | Tool calls, shell/browser work, messages, files, subagents. | Form fills, API calls, extraction, routing, approvals, report generation. | Governed Capabilities, AIAgent actions, and explicit Workflow steps where process structure is needed. |
 | Memory and reasoning | Session memory, markdown files, skill notes, or external memory layers. | RAG knowledge bases, workflow variables, and app-specific state. | Brain as a reasoning world model that grows from conversations, events, actions, relationships, outcomes, and domain objects. |
 | Self-evolution | Learns new skills or notes from past sessions. | Improves when the workflow or knowledge base is manually revised. | Uses trajectory data to improve planning, Skills, policy, and future execution. |
 | Permissions and budgets | Usually tool policy, model config, and local runtime controls. | App credentials, node permissions, rate limits, and workflow settings. | Principal identity, delegated authority, Budget limits, outbound identity, and audit boundaries. |
 | Human collaboration | Often an approval prompt, DM gate, or manual confirmation. | Approval nodes or manual review steps inside a specific process. | Humans can be managers, peers, or assignees: approve, correct, escalate, take over, provide missing context, help with real-world tasks, or receive tasks from an Agent. |
-| External signals | Channels, cron, webhooks, and integrations feed the assistant loop. | Triggers start a predefined app or workflow. | Signals can start or continue Workflows, correlate to domain objects, and update long-running Work. |
+| External events | Channels, cron, webhooks, and integrations feed the assistant loop. | Triggers start a predefined app or workflow. | Events enter EventBus, match Event Routing Rules, invoke Targets, and update long-running Work through business records. |
 | Accountability | Transcript and tool history explain what happened in a session. | Workflow logs explain one app run. | Product facts record who acted, who approved, what budget was spent, what changed, and how later behavior should improve. |
 
 ## Why BullX
 
-BullX keeps the useful surfaces of earlier agent systems: channels, tools, Skills, sandboxes, browsers, SubAgents, schedules, and conversational entry points. The difference is where product truth lives. In BullX, durable work belongs to Workflows, Principals, Budgets, Brain, domain records, and trajectory data, not only to an assistant session or a workflow run log.
+BullX keeps the useful surfaces of earlier agent systems: channels, tools, Skills, sandboxes, browsers, SubAgents, schedules, and conversational entry points. The difference is where product truth lives. In BullX, durable work belongs to business records such as Work, Conversation, ApprovalRequest, ChildRun, Principal, Budget, Brain, domain records, and trajectory data, not only to an assistant session or a workflow run log.
 
-BullX also differs from Palantir-style ontology programs. Brain is inspired by ontology and the semantic web, but BullX does not start by asking experts to predefine a complete business graph. Its world model should grow through work: conversations, Signals, domain records, decisions, handoffs, corrections, and outcomes gradually teach an AI Colleague the business, the industry, the company, and the unwritten ways people actually get work done.
+BullX also differs from Palantir-style ontology programs. Brain is inspired by ontology and the semantic web, but BullX does not start by asking experts to predefine a complete business graph. Its world model should grow through work: conversations, Events, domain records, decisions, handoffs, corrections, and outcomes gradually teach an AI Colleague the business, the industry, the company, and the unwritten ways people actually get work done.
 
 The result BullX is aiming for is not "a better bot" or "a smarter workflow app." It is an operating system for AI Colleagues that can watch, decide, delegate, wait, ask, spend, remember, and act with product-level accountability.
 
@@ -56,7 +57,7 @@ The result BullX is aiming for is not "a better bot" or "a smarter workflow app.
 
 **A group chat can be observed without adding noise.** A customer-success Agent can notice risk in a group conversation, create Work, and privately alert the account owner without replying in the group.
 
-**One signal can start real process logic.** A budget-freeze message can branch to customer-success analysis, finance risk review, and ignored paths in the same Workflow graph.
+**One event can reach the right work path.** A budget-freeze message enters EventBus, matches an Event Routing Rule, and reaches a Target. That Target can be an AIAgent that handles the case directly or a Workflow that expresses explicit branching, approval, parallelism, and deterministic steps.
 
 **Memory can include the world, not only the chat.** A research Agent should combine conversations with market, policy, product, operational, and external events, then retrieve context through an ontology-backed world model that grew from actual work.
 
@@ -82,7 +83,7 @@ The current public repository contains the foundation for BullX:
 
 The full AI Colleague product is being built incrementally on top of this foundation.
 
-For the deep technical model, read [docs/Architecture.md](./docs/Architecture.md).
+For the current architecture source of truth, read [internals/design-docs/drafts/Arch.md](./internals/design-docs/drafts/Arch.md).
 
 ## Getting Started
 
