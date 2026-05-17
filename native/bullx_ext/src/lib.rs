@@ -12,8 +12,8 @@ mod crypto {
   pub mod jwt;
 }
 
-mod cedar;
 mod encoding;
 mod phone;
+mod rule_engine;
 
 rustler::init!("Elixir.BullX.Ext");

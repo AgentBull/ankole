@@ -24,12 +24,12 @@ create or resolve Human Principals:
   implementation handoff.
 
 This design intentionally does not cover AuthZ groups, roles, permission grants,
-Cedar policy evaluation, audit record storage, Event routing, TargetSession
-behavior, Workflow execution, Work responsibility, Workflow Node execution,
-Capability use, approval or policy behavior, high-risk external actions, Brain
-memory, external transport implementation, or full Web login route wiring. Those
-subsystems consume `principals.id` as their durable subject id after their own
-design docs define their tables and runtime behavior.
+authorization policy evaluation, audit record storage, Event routing,
+TargetSession behavior, Workflow execution, Work responsibility, Workflow Node
+execution, Capability use, approval or policy behavior, high-risk external
+actions, Brain memory, external transport implementation, or full Web login
+route wiring. Those subsystems consume `principals.id` as their durable subject
+id after their own design docs define their tables and runtime behavior.
 
 ## Goals
 
@@ -767,9 +767,10 @@ the schema and behavior in this design.
 - Use PostgreSQL native enum types for closed value sets.
 - Store `uid` lowercase and globally unique.
 - Store code hashes only; never store plaintext activation or login codes.
-- Do not add AuthZ tables, group membership, Cedar policy, Event routing,
-  TargetSession behavior, Work, Capability use, approval or policy behavior, or
-  high-risk external action execution behavior in this implementation.
+- Do not add AuthZ tables, group membership, authorization policy evaluation,
+  Event routing, TargetSession behavior, Work, Capability use, approval or
+  policy behavior, or high-risk external action execution behavior in this
+  implementation.
 - Do not add a long-lived Principal supervisor unless a new design states the
   failure boundary.
 

@@ -9,7 +9,7 @@ defmodule BullX.AuthZ do
 
   import Ecto.Query
 
-  alias BullX.AuthZ.Cedar
+  alias BullX.AuthZ.CEL
   alias BullX.AuthZ.PermissionGrant
   alias BullX.AuthZ.PrincipalGroup
   alias BullX.AuthZ.PrincipalGroupMembership
@@ -199,7 +199,7 @@ defmodule BullX.AuthZ do
           :ok | {:error, :not_found | :invalid_request | :last_active_human_admin}
   def ensure_can_disable_principal(principal_or_id) do
     transaction(fn ->
-      with {:ok, principal} <- fetch_principal(principal_or_id, :invalid_request) do
+      with {:ok, principal} <- fetch_principal_for_update(principal_or_id, :invalid_request) do
         ensure_can_disable_loaded_principal(principal)
       end
     end)
@@ -294,10 +294,14 @@ defmodule BullX.AuthZ do
   defp any_loaded_grant_allows?(grants, request) do
     loaded_grants = Enum.map(grants, &loaded_grant/1)
 
-    case Cedar.eval_loaded_grants(request, loaded_grants) do
-      {:ok, allowed?, invalid_grants} ->
-        emit_invalid_persisted_conditions(invalid_grants, grants)
-        allowed?
+    case CEL.evaluate_grants(cel_env(request), loaded_grants) do
+      {:allow, invalid_grants} ->
+        emit_invalid_persisted_data(invalid_grants, grants)
+        true
+
+      {:deny, invalid_grants} ->
+        emit_invalid_persisted_data(invalid_grants, grants)
+        false
 
       {:error, _reason} ->
         false
@@ -305,32 +309,56 @@ defmodule BullX.AuthZ do
   end
 
   defp loaded_grant(%PermissionGrant{} = grant) do
-    {grant.id, grant.resource_pattern, grant.condition}
+    %CEL.LoadedGrant{
+      id: grant.id,
+      resource_pattern: grant.resource_pattern,
+      condition: grant.condition
+    }
   end
 
-  defp emit_invalid_persisted_conditions(invalid_grants, grants) do
+  defp cel_env(%Request{principal: %Principal{} = principal} = request) do
+    %CEL.Env{
+      principal: %{
+        "id" => principal.id,
+        "type" => Atom.to_string(principal.type),
+        "status" => "active"
+      },
+      action: request.action,
+      resource: request.resource,
+      context: %{"request" => request.context}
+    }
+  end
+
+  defp emit_invalid_persisted_data(invalid_grants, grants) do
     grants_by_id = Map.new(grants, &{&1.id, &1})
 
-    Enum.each(invalid_grants, fn {grant_id, reason} ->
-      grant = Map.fetch!(grants_by_id, grant_id)
+    invalid_grants
+    |> Enum.filter(&persisted_data_diagnostic?/1)
+    |> Enum.each(fn %CEL.InvalidGrant{} = invalid_grant ->
+      grant = Map.fetch!(grants_by_id, invalid_grant.id)
 
       Logger.error(
-        "BullX.AuthZ invalid persisted condition grant_id=#{inspect(grant_id)} reason=#{inspect(reason)}"
+        "BullX.AuthZ invalid persisted grant grant_id=#{inspect(invalid_grant.id)} kind=#{inspect(invalid_grant.kind)} reason=#{inspect(invalid_grant.reason)}"
       )
 
       :telemetry.execute(
         [:bullx, :authz, :invalid_persisted_data],
         %{count: 1},
         %{
-          kind: :condition,
+          kind: invalid_grant.kind,
           id: grant.id,
           action: grant.action,
           resource_pattern: grant.resource_pattern,
-          reason: reason
+          reason: invalid_grant.reason
         }
       )
     end)
   end
+
+  defp persisted_data_diagnostic?(%CEL.InvalidGrant{kind: :resource_pattern}), do: true
+  defp persisted_data_diagnostic?(%CEL.InvalidGrant{kind: :condition_compile}), do: true
+  defp persisted_data_diagnostic?(%CEL.InvalidGrant{kind: :condition_result_type}), do: true
+  defp persisted_data_diagnostic?(%CEL.InvalidGrant{}), do: false
 
   defp principal_group_ids(principal_id) do
     Repo.all(
@@ -418,15 +446,21 @@ defmodule BullX.AuthZ do
          name: @admin_group_name
        }) do
     transaction(fn ->
-      case lock_group_for_update(group_id) do
+      case lock_principal_for_update(principal.id) do
         nil ->
           {:error, :not_found}
 
-        group ->
-          with :ok <- ensure_membership_exists(principal.id, group.id),
-               :ok <- ensure_not_last_admin_member(group, principal.id),
-               :ok <- ensure_not_last_active_human_admin(group, principal.id) do
-            delete_membership(principal.id, group.id)
+        locked_principal ->
+          case lock_group_for_update(group_id) do
+            nil ->
+              {:error, :not_found}
+
+            group ->
+              with :ok <- ensure_membership_exists_for_update(locked_principal.id, group.id),
+                   :ok <- ensure_not_last_admin_member(group, locked_principal.id),
+                   :ok <- ensure_not_last_active_human_admin(group, locked_principal.id) do
+                delete_membership(locked_principal.id, group.id)
+              end
           end
       end
     end)
@@ -445,11 +479,35 @@ defmodule BullX.AuthZ do
         :ok
 
       group ->
-        case admin_member?(group.id, principal_id) do
-          true -> ensure_not_last_active_human_admin(group, principal_id)
-          false -> :ok
+        case lock_membership_for_update(principal_id, group.id) do
+          %PrincipalGroupMembership{} -> ensure_not_last_active_human_admin(group, principal_id)
+          nil -> :ok
         end
     end
+  end
+
+  defp fetch_principal_for_update(%Principal{id: id}, invalid_error),
+    do: fetch_principal_for_update(id, invalid_error)
+
+  defp fetch_principal_for_update(id, invalid_error) when is_binary(id) do
+    case Ecto.UUID.cast(id) do
+      {:ok, uuid} ->
+        case lock_principal_for_update(uuid) do
+          nil -> {:error, :not_found}
+          principal -> {:ok, principal}
+        end
+
+      :error ->
+        {:error, invalid_error}
+    end
+  end
+
+  defp fetch_principal_for_update(_principal, invalid_error), do: {:error, invalid_error}
+
+  defp lock_principal_for_update(principal_id) do
+    Repo.one(
+      from principal in Principal, where: principal.id == ^principal_id, lock: "FOR UPDATE"
+    )
   end
 
   defp lock_group_for_update(group_id) do
@@ -464,21 +522,15 @@ defmodule BullX.AuthZ do
     )
   end
 
-  defp ensure_membership_exists(principal_id, group_id) do
-    case membership_exists?(principal_id, group_id) do
-      true -> :ok
-      false -> {:error, :not_found}
+  defp ensure_membership_exists_for_update(principal_id, group_id) do
+    case lock_membership_for_update(principal_id, group_id) do
+      %PrincipalGroupMembership{} -> :ok
+      nil -> {:error, :not_found}
     end
   end
 
   defp ensure_not_last_admin_member(%PrincipalGroup{id: group_id}, principal_id) do
-    remaining =
-      Repo.aggregate(
-        from(membership in PrincipalGroupMembership,
-          where: membership.group_id == ^group_id and membership.principal_id != ^principal_id
-        ),
-        :count
-      )
+    remaining = locked_admin_member_count_excluding(group_id, principal_id)
 
     case remaining do
       0 -> {:error, :last_admin_member}
@@ -496,27 +548,37 @@ defmodule BullX.AuthZ do
   end
 
   defp active_human_admin_count_excluding(group_id, principal_id) do
-    Repo.aggregate(
+    Repo.all(
       from(membership in PrincipalGroupMembership,
         join: principal in Principal,
         on: principal.id == membership.principal_id,
         where:
           membership.group_id == ^group_id and membership.principal_id != ^principal_id and
-            principal.type == :human and principal.status == :active
-      ),
-      :count
+            principal.type == :human and principal.status == :active,
+        lock: "FOR UPDATE",
+        select: principal.id
+      )
     )
+    |> length()
   end
 
-  defp membership_exists?(principal_id, group_id) do
-    Repo.exists?(
+  defp locked_admin_member_count_excluding(group_id, principal_id) do
+    Repo.all(
+      from membership in PrincipalGroupMembership,
+        where: membership.group_id == ^group_id and membership.principal_id != ^principal_id,
+        lock: "FOR UPDATE",
+        select: membership.principal_id
+    )
+    |> length()
+  end
+
+  defp lock_membership_for_update(principal_id, group_id) do
+    Repo.one(
       from membership in PrincipalGroupMembership,
         where: membership.principal_id == ^principal_id and membership.group_id == ^group_id,
-        select: 1
+        lock: "FOR UPDATE"
     )
   end
-
-  defp admin_member?(group_id, principal_id), do: membership_exists?(principal_id, group_id)
 
   defp delete_membership(principal_id, group_id) do
     {count, _rows} =

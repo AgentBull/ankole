@@ -2,14 +2,12 @@ defmodule BullX.AuthZ.Request do
   @moduledoc """
   Normalized authorization request consumed by `BullX.AuthZ`.
 
-  Resource, action, and context values remain strings and JSON-like data; AuthZ
-  never converts caller-provided permission data to atoms.
+  Resource, action, and context values remain strings and JSON-compatible data;
+  AuthZ never converts caller-provided permission data to atoms.
   """
 
+  alias BullX.RuleEngine.JSON
   alias BullX.Principals.Principal
-
-  @max_int 9_223_372_036_854_775_807
-  @min_int -9_223_372_036_854_775_808
 
   @enforce_keys [:principal_id, :resource, :action, :context]
   defstruct [:principal_id, :resource, :action, :context, :principal]
@@ -107,59 +105,13 @@ defmodule BullX.AuthZ.Request do
   defp normalize_string(_value), do: {:error, :invalid_request}
 
   defp normalize_context(context) when is_map(context) do
-    case normalize_value(context) do
-      {:ok, %{} = map} -> {:ok, map}
-      {:ok, _other} -> {:error, :invalid_request}
+    context
+    |> JSON.normalize_map()
+    |> case do
+      {:ok, context} -> {:ok, context}
       :error -> {:error, :invalid_request}
     end
   end
 
   defp normalize_context(_context), do: {:error, :invalid_request}
-
-  defp normalize_value(nil), do: :error
-  defp normalize_value(value) when is_boolean(value), do: {:ok, value}
-  defp normalize_value(value) when is_binary(value), do: {:ok, value}
-
-  defp normalize_value(value) when is_integer(value) do
-    case value >= @min_int and value <= @max_int do
-      true -> {:ok, value}
-      false -> :error
-    end
-  end
-
-  defp normalize_value(value) when is_list(value) do
-    value
-    |> Enum.reduce_while({:ok, []}, fn element, {:ok, acc} ->
-      case normalize_value(element) do
-        {:ok, normalized} -> {:cont, {:ok, [normalized | acc]}}
-        :error -> {:halt, :error}
-      end
-    end)
-    |> case do
-      {:ok, values} -> {:ok, Enum.reverse(values)}
-      :error -> :error
-    end
-  end
-
-  defp normalize_value(%_struct{}), do: :error
-
-  defp normalize_value(value) when is_map(value) do
-    Enum.reduce_while(value, {:ok, %{}}, fn {key, val}, {:ok, acc} ->
-      with {:ok, key} <- normalize_key(key),
-           {:ok, normalized} <- normalize_value(val) do
-        {:cont, {:ok, Map.put(acc, key, normalized)}}
-      else
-        :error -> {:halt, :error}
-      end
-    end)
-  end
-
-  defp normalize_value(_value), do: :error
-
-  defp normalize_key(key) when is_binary(key), do: {:ok, key}
-
-  defp normalize_key(key) when is_atom(key) and not is_boolean(key) and key != nil,
-    do: {:ok, Atom.to_string(key)}
-
-  defp normalize_key(_key), do: :error
 end

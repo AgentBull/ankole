@@ -212,43 +212,30 @@ defmodule BullX.Ext do
   def z85_decode(_input), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """
-  Validate a Cedar boolean condition string.
+  Validate a CEL condition string through the shared rule-engine CEL runtime.
 
-  The NIF wraps the supplied condition as a synthetic
-  `permit(principal, action, resource) when { <condition> };` policy and
-  parses it through Cedar. Returns `true` on success or
-  `{:error, reason}` if Cedar rejects the condition or the wrapped policy
-  contains anything other than a single `permit` policy with a single
-  `when` clause.
+  Validation compiles the expression only. It does not prove the expression
+  returns a boolean for a future request environment.
   """
-  @spec cedar_condition_validate(String.t()) :: true | {:error, error_reason()}
-  def cedar_condition_validate(_condition), do: :erlang.nif_error(:nif_not_loaded)
+  @spec rule_engine_cel_condition_validate(String.t()) :: true | {:error, error_reason()}
+  def rule_engine_cel_condition_validate(_condition), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """
-  Evaluate a Cedar boolean condition string against a normalized request.
+  Evaluate already-loaded AuthZ grants against a normalized CEL environment.
 
-  The request is a map with `principal`, `action`, `resource`, and
-  `context` keys. The principal includes its `attrs`. Returns a boolean on
-  success or `{:error, reason}` on Cedar parse, request, or evaluation
-  failure.
+  Ecto remains responsible for Principal, group, and action filtering. The
+  native boundary receives the request environment plus loaded grant structs,
+  then performs resource-pattern matching and CEL condition evaluation in one
+  dirty-CPU call, short-circuiting on the first allow.
   """
-  @spec cedar_condition_eval(String.t(), map()) :: boolean() | {:error, error_reason()}
-  def cedar_condition_eval(_condition, _request), do: :erlang.nif_error(:nif_not_loaded)
-
-  @doc """
-  Evaluate already-loaded AuthZ grants against a normalized Cedar request.
-
-  Ecto remains responsible for loading candidate grants. The native boundary
-  receives only `{grant_id, resource_pattern, condition}` tuples, then performs
-  resource-pattern matching and Cedar condition evaluation in list order,
-  short-circuiting on the first allow. Invalid matching conditions fail closed
-  for that grant and are returned for caller telemetry.
-  """
-  @spec authz_eval_loaded_grants(
+  @spec authz_cel_eval_loaded_grants(
           map(),
-          [{String.t(), String.t(), String.t()}]
-        ) :: {:allow | :deny, [{String.t(), error_reason()}]} | {:error, error_reason()}
-  def authz_eval_loaded_grants(_request, _loaded_grants), do: :erlang.nif_error(:nif_not_loaded)
+          [map()]
+        ) ::
+          {:allow | :deny, [{String.t(), atom(), String.t(), error_reason()}]}
+          | {:error, error_reason()}
+  def authz_cel_eval_loaded_grants(_env, _loaded_grants),
+    do: :erlang.nif_error(:nif_not_loaded)
 
   @typedoc """
   JWS algorithm atom. Mirrors `jsonwebtoken::Algorithm` — HMAC, RSA-PKCS1-v1.5,

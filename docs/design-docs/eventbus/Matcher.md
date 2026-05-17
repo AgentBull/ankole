@@ -67,6 +67,14 @@ Event Routing Rules use CEL expressions, but Elixir does not call a generic CEL
 evaluator once per rule. The runtime boundary is a domain-specific Rust matcher
 NIF.
 
+Shared CEL compilation, boolean execution, and BEAM-to-JSON/CEL conversion
+belong to the rule-engine support layer, not to EventBus. The shared Rust code
+lives under `native/bullx_ext/src/rule_engine/cel.rs`, with Elixir wrappers
+under `BullX.RuleEngine.CEL` and `BullX.RuleEngine.JSON`. EventBus-specific
+route-table, priority, `RoutingContext`, diagnostics, and matched-rule behavior
+belong in EventBus matcher code under the same `rule_engine` native boundary,
+not in the shared CEL module.
+
 The matcher contract is:
 
 - Elixir supplies a route table snapshot and a `RoutingContext` JSON map.

@@ -340,7 +340,12 @@ principal.type == "human" && context.request.ip_whitelisted
 code, never wraps it in a larger policy document, and never interpolates request
 data into expression source.
 
-The CEL wrapper lives in `BullX.AuthZ.CEL` and calls NIF shims exposed from
+AuthZ uses the shared rule-engine CEL support for expression compilation and
+JSON-compatible input conversion. Shared Elixir wrappers live in
+`BullX.RuleEngine.CEL` and `BullX.RuleEngine.JSON`; shared Rust CEL utilities
+live under `native/bullx_ext/src/rule_engine/cel.rs`. AuthZ-specific grant
+decision logic lives in `BullX.AuthZ.CEL` and
+`native/bullx_ext/src/rule_engine/authz.rs`, and calls NIF shims exposed from
 `BullX.Ext`:
 
 ```elixir
@@ -354,8 +359,8 @@ The CEL wrapper lives in `BullX.AuthZ.CEL` and calls NIF shims exposed from
 
 The NIF code lives inside the existing `native/bullx_ext` Rustler crate. The
 first implementation uses the `cel` crate from `cel-rust/cel-rust` inside that
-NIF boundary. Do not create a second native application or a second Rustler
-crate for CEL.
+rule-engine NIF boundary. Do not create a second native application or a second
+Rustler crate for CEL.
 
 `BullX.Ext` is allowed to own this deterministic AuthZ decision slice. It is
 not limited to small utility functions. The boundary is acceptable because Rust
@@ -474,16 +479,16 @@ update. The wrapper only needs expression compilation. It does not inspect
 synthetic policy envelopes, because CEL stores no policy document for an
 attacker to extend.
 
-Both CEL NIFs run on the dirty CPU scheduler. They return ordinary values or
-`{:error, String.t()}` and must not panic on malformed expressions or malformed
-request maps.
+Rule-engine CEL NIFs run on the dirty CPU scheduler. They return ordinary
+values or `{:error, String.t()}` and must not panic on malformed expressions or
+malformed request maps.
 
-AuthZ and EventBus may both use CEL and Rust-owned decision logic, but they are
-different business surfaces. EventBus matcher owns route table snapshots, rule
-priority, target selection, and TargetSession handoff. AuthZ owns a loaded-grant
-decision over subject, action, resource pattern, and request facts. AuthZ must
-not reuse EventBus `RoutingContext`, target semantics, priority semantics,
-Blackhole behavior, or session/window logic.
+AuthZ and EventBus may both use shared CEL support and Rust-owned decision
+logic, but they are different business surfaces. EventBus matcher owns route
+table snapshots, rule priority, target selection, and TargetSession handoff.
+AuthZ owns a loaded-grant decision over subject, action, resource pattern, and
+request facts. AuthZ must not reuse EventBus `RoutingContext`, target
+semantics, priority semantics, Blackhole behavior, or session/window logic.
 
 CEL's standard function names are not Elixir names. For example, CEL has
 `endsWith`, not `ends_with`, and it has no built-in `in_cidr` operator. When an
@@ -519,10 +524,9 @@ Examples:
 A caller context is normalized into CEL-compatible data and exposed under
 `context.request`. The CEL implementation intentionally accepts JSON-compatible
 values: booleans, strings, signed 64-bit integers, finite floats, `nil`, lists,
-and maps with atom or string keys. This is a semantic change from the Cedar
-version, which rejected `nil` and floats. CEL has distinct numeric types;
-conditions must use explicit conversions when they mix integers, unsigned
-integers, and doubles.
+and maps with atom or string keys. CEL has distinct numeric types; conditions
+must use explicit conversions when they mix integers, unsigned integers, and
+doubles.
 
 Atom keys are stringified recursively. Structs, PIDs, tuples, functions, atoms
 as values, and other BEAM terms make the request invalid.
@@ -903,16 +907,18 @@ described in this design.
    Verify: group tests.
 
 4. Add CEL NIF and wrapper.
-   Owns: `native/bullx_ext/src/cel.rs`, `BullX.Ext`,
+   Owns: shared `native/bullx_ext/src/rule_engine/cel.rs`,
+   AuthZ-specific `native/bullx_ext/src/rule_engine/authz.rs`,
+   `BullX.RuleEngine.CEL`, `BullX.RuleEngine.JSON`, `BullX.Ext`, and
    `BullX.AuthZ.CEL`; removes `native/bullx_ext/src/cedar.rs`,
    `BullX.AuthZ.Cedar`, and the `cedar-policy` dependency when no caller
    remains.
    Depends on: Task 2.
    Acceptance: condition validation compiles CEL expressions with the chosen
-   `BullX.Ext` CEL runtime; evaluation uses one Rust decision call, registers
-   only the documented top-level variables, performs resource-pattern matching,
-   reports grant-level diagnostics, runs on the dirty CPU scheduler, and fails
-   closed for malformed CEL and non-boolean results.
+   shared rule-engine CEL runtime; evaluation uses one Rust decision call,
+   registers only the documented top-level variables, performs resource-pattern
+   matching, reports grant-level diagnostics, runs on the dirty CPU scheduler,
+   and fails closed for malformed CEL and non-boolean results.
    Verify: CEL wrapper and NIF tests.
 
 5. Add permission grant APIs.

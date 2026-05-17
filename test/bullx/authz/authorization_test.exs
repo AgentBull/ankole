@@ -33,6 +33,20 @@ defmodule BullX.AuthZ.AuthorizationTest do
       assert {:error, :forbidden} = AuthZ.authorize(human, "web_console", "write")
     end
 
+    test "action mismatch never authorizes" do
+      human = human!("action-mismatch-human")
+
+      {:ok, _grant} =
+        AuthZ.create_permission_grant(%{
+          principal_id: human.id,
+          resource_pattern: "web_console",
+          action: "read"
+        })
+
+      assert :ok = AuthZ.authorize(human, "web_console", "read")
+      assert {:error, :forbidden} = AuthZ.authorize(human, "web_console", "write")
+    end
+
     test "group grants use resource patterns and exact action matching" do
       human = human!("group-human")
       {:ok, group} = AuthZ.create_principal_group(%{name: "operators"})
@@ -66,8 +80,8 @@ defmodule BullX.AuthZ.AuthorizationTest do
       assert {:error, :principal_disabled} = AuthZ.authorize(disabled, "web_console", "read")
     end
 
-    test "Cedar request context controls matching grants" do
-      human = human!("cedar-human")
+    test "CEL request context controls matching grants" do
+      human = human!("cel-human")
 
       {:ok, _grant} =
         AuthZ.create_permission_grant(%{
@@ -85,8 +99,8 @@ defmodule BullX.AuthZ.AuthorizationTest do
       assert {:error, :forbidden} = AuthZ.authorize(human, "web_console", "read", %{})
     end
 
-    test "invalid persisted Cedar conditions fail closed and emit telemetry" do
-      human = human!("invalid-cedar-human")
+    test "invalid persisted CEL conditions fail closed and emit telemetry" do
+      human = human!("invalid-cel-human")
 
       {:ok, grant} =
         AuthZ.create_permission_grant(%{
@@ -98,7 +112,7 @@ defmodule BullX.AuthZ.AuthorizationTest do
 
       Repo.update_all(
         from(g in PermissionGrant, where: g.id == ^grant.id),
-        set: [condition: "this is invalid cedar"]
+        set: [condition: "not valid cel"]
       )
 
       attach_telemetry()
@@ -108,9 +122,55 @@ defmodule BullX.AuthZ.AuthorizationTest do
       end)
 
       assert_received {:telemetry_event, [:bullx, :authz, :invalid_persisted_data], %{count: 1},
-                       %{kind: :condition, id: grant_id, action: "read"}}
+                       %{kind: :condition_compile, id: grant_id, action: "read"}}
 
       assert grant_id == grant.id
+    after
+      detach_telemetry()
+    end
+
+    test "non-boolean CEL results fail closed and emit persisted-data telemetry" do
+      human = human!("non-boolean-cel-human")
+
+      {:ok, grant} =
+        AuthZ.create_permission_grant(%{
+          principal_id: human.id,
+          resource_pattern: "web_console",
+          action: "read",
+          condition: "principal.id"
+        })
+
+      attach_telemetry()
+
+      capture_log([level: :error], fn ->
+        assert {:error, :forbidden} = AuthZ.authorize(human, "web_console", "read")
+      end)
+
+      assert_received {:telemetry_event, [:bullx, :authz, :invalid_persisted_data], %{count: 1},
+                       %{kind: :condition_result_type, id: grant_id, action: "read"}}
+
+      assert grant_id == grant.id
+    after
+      detach_telemetry()
+    end
+
+    test "missing CEL context fails closed without invalid persisted data telemetry" do
+      human = human!("missing-cel-context-human")
+
+      {:ok, _grant} =
+        AuthZ.create_permission_grant(%{
+          principal_id: human.id,
+          resource_pattern: "web_console",
+          action: "read",
+          condition: "context.request.business_hours"
+        })
+
+      attach_telemetry()
+
+      assert {:error, :forbidden} = AuthZ.authorize(human, "web_console", "read", %{})
+
+      refute_received {:telemetry_event, [:bullx, :authz, :invalid_persisted_data], _measurements,
+                       _metadata}
     after
       detach_telemetry()
     end

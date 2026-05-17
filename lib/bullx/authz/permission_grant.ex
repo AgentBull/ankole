@@ -3,7 +3,7 @@ defmodule BullX.AuthZ.PermissionGrant do
   Allow grant assigned to exactly one Principal or Principal group.
 
   Applicability is decided by subject, exact action equality, and resource
-  pattern matching. Cedar evaluates `condition` only after those checks.
+  pattern matching. CEL evaluates `condition` only after those checks.
   """
 
   use Ecto.Schema
@@ -11,7 +11,7 @@ defmodule BullX.AuthZ.PermissionGrant do
   import BullX.Principals.Changeset
   import Ecto.Changeset
 
-  alias BullX.AuthZ.Cedar
+  alias BullX.AuthZ.CEL
   alias BullX.AuthZ.PrincipalGroup
   alias BullX.AuthZ.ResourcePattern
   alias BullX.Principals.Principal
@@ -126,7 +126,7 @@ defmodule BullX.AuthZ.PermissionGrant do
   end
 
   defp validate_condition_text(changeset, condition) do
-    case Cedar.validate_condition(condition) do
+    case CEL.validate_condition(condition) do
       :ok -> changeset
       {:error, reason} -> add_error(changeset, :condition, "is invalid: #{reason}")
     end

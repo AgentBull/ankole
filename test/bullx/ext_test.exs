@@ -102,19 +102,22 @@ defmodule BullX.ExtTest do
     assert Ext.z85_decode("vS=H6") == "bull"
   end
 
-  test "cedar_condition_validate/1 accepts a boolean condition" do
-    assert Ext.cedar_condition_validate("true") == true
+  test "rule_engine_cel_condition_validate/1 accepts a CEL condition" do
+    assert Ext.rule_engine_cel_condition_validate("true") == true
+    assert Ext.rule_engine_cel_condition_validate("principal.id") == true
   end
 
-  test "cedar_condition_eval/2 evaluates a request context condition" do
-    assert Ext.cedar_condition_eval("context.allowed", cedar_request(%{"allowed" => true})) ==
-             true
-  end
-
-  test "authz_eval_loaded_grants/2 allows the first matching grant" do
+  test "authz_cel_eval_loaded_grants/2 evaluates request context conditions" do
     assert {:allow, []} =
-             Ext.authz_eval_loaded_grants(cedar_request(%{}), [
-               {"grant-1", "resource-*", "true"}
+             Ext.authz_cel_eval_loaded_grants(cel_env(%{"business_hours" => true}), [
+               loaded_grant("grant-1", "resource-*", "context.request.business_hours")
+             ])
+  end
+
+  test "authz_cel_eval_loaded_grants/2 allows the first matching grant" do
+    assert {:allow, []} =
+             Ext.authz_cel_eval_loaded_grants(cel_env(%{}), [
+               loaded_grant("grant-1", "resource-*", "true")
              ])
   end
 
@@ -134,22 +137,24 @@ defmodule BullX.ExtTest do
              Ext.jwt_decode_header(@jwt_token)
   end
 
-  defp cedar_request(context) do
+  defp cel_env(context) do
     %{
       "principal" => %{
-        "type" => "TestPrincipal",
         "id" => "principal-1",
-        "attrs" => %{}
+        "type" => "human",
+        "status" => "active"
       },
-      "action" => %{
-        "type" => "TestAction",
-        "id" => "read"
-      },
-      "resource" => %{
-        "type" => "TestResource",
-        "id" => "resource-1"
-      },
-      "context" => context
+      "action" => "read",
+      "resource" => "resource-1",
+      "context" => %{"request" => context}
+    }
+  end
+
+  defp loaded_grant(id, resource_pattern, condition) do
+    %{
+      "id" => id,
+      "resource_pattern" => resource_pattern,
+      "condition" => condition
     }
   end
 end
