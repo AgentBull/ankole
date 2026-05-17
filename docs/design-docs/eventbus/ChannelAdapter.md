@@ -35,7 +35,7 @@ This design intentionally excludes:
 - Event Routing Rule authoring, priority reorder, `RoutingContext` field
   projection, scope key encoding, and window policy.
 - Concrete provider adapters, provider-specific source schemas, OAuth routes,
-  webhook routes, direct command names, message rendering rules, or upload
+  webhook routes, provider command names, message rendering rules, or upload
   details.
 - Principal matching rules, AuthZ policy, Governance, Capability authorization,
   business approval, Conversation persistence, Work persistence, and audit table
@@ -251,7 +251,7 @@ webhook calls or explicit poll invocations.
 
 The plugin host supervises enabled plugin children. EventBus core does not
 supervise provider websocket clients, webhook controllers, pollers, SDK
-consumers, OAuth callbacks, direct command handlers, or provider caches.
+consumers, OAuth callbacks, command normalizers, or provider caches.
 
 Source process state is reconstructible. If a listener restarts, the adapter
 reloads source configuration, reconnects to the provider, rebuilds provider SDK
@@ -345,10 +345,12 @@ permission.
 `data.reply_channel` is a transport hint, not authorization. It may include
 provider channel ids, thread ids, reply target ids, source ids, or opaque reply
 handles only when those values are safe to store in weak EventBus runtime state.
-If a provider interaction token, callback URL, or reply handle acts as a bearer
-credential, adapters must store only a safe reference or `raw_ref`-managed
-handle, not the secret value itself. Secrets, bearer tokens, OAuth codes,
-private keys, and provider access tokens must not enter `reply_channel`.
+If a provider interaction token, callback URL, ephemeral response handle, or
+reply handle acts as a bearer credential, adapters must store only a safe
+reference or adapter-private handle, not the secret value itself. Secrets,
+bearer tokens, OAuth codes, private keys, provider access tokens, callback URLs,
+and ephemeral response credentials must not enter `reply_channel`,
+`routing_facts`, CloudEvents, Oban args, stream metadata, telemetry, or logs.
 
 Adapter-private `reply_channel` keys may be preserved for transport use, but
 they are not matcher or scope fields unless `Core.md` and `Matcher.md` explicitly
@@ -368,6 +370,10 @@ Useful `routing_facts` examples include:
 - `connected_realm_ref`
 - `content_kind`
 - `command_name`
+- `command_namespace`
+- `command_surface`
+- `command_args_kind`
+- `provider_command_id`
 - `attention_reason`
 - `callback_kind`
 - `repository_full_name`
@@ -375,6 +381,62 @@ Useful `routing_facts` examples include:
 
 EventBus rules may match these facts, but the adapter still does not choose the
 Target or TargetSession.
+
+Command-shaped inbound input has two distinct business surfaces:
+
+- provider-explicit command input, where the upstream system already marks the
+  occurrence as a slash command, application command, UI command, button
+  callback, or interactive command;
+- accepted text-command input, where the provider sends an ordinary message but
+  the adapter's attention policy and command grammar classify a leading
+  `/command` token as addressed to BullX.
+
+Provider-explicit command input and accepted text-command input may both be
+normalized as `type = "bullx.command.invoked"`. Ordinary text that happens to
+contain `/` remains a message Event unless the provider command surface or the
+adapter command grammar classifies it as a command. A file path, code snippet,
+quoted sentence, or unaddressed group message must not become a command merely
+because a slash appears in the text.
+
+Channel adapters may also own adapter-local channel commands that are not
+EventBus command Events. `/preauth` and `/web_auth` are the default examples:
+they start at the provider channel boundary, may need to run before Principal
+binding exists, and may rely on provider-private reply or interaction handles.
+Adapters handle those commands through Principal/Auth services and safe provider
+replies without choosing an EventBus Target. `/command` and `/status` are not
+adapter-local commands; when accepted as commands they normalize to
+`bullx.command.invoked` and route through EventBus system command routes.
+
+For command Events, the adapter puts only routing-relevant command facts in
+`data.routing_facts`, such as `command_name`, `command_namespace`,
+`command_surface`, `command_args_kind`, `provider_command_id`, and
+`attention_reason`. `command_name` is the normalized command name without the
+leading slash or provider bot suffix. For commands with localized aliases,
+`command_name` is the canonical English command name used by EventBus routing,
+not the localized token. English canonical command names remain accepted in every
+locale; localized aliases are accepted only when the adapter command grammar or
+provider command surface maps them to the canonical command. For example,
+Chinese `/状态` and English `/status` both become `command_name = "status"`.
+`command_surface` distinguishes surfaces such as `provider_native`,
+`slash_text`, `ui_command`, `button_callback`, or `interactive_command`. Command
+argument content belongs in normalized content or safe command-specific fields
+only when a command design defines that shape; routing facts should stay small
+and matcher-oriented.
+
+The adapter remains a transport boundary for EventBus command input. It does not
+select a Command Target handler, inspect Event Routing Rules, or write Command
+Target business facts. Adapter-local channel commands are limited to channel
+activation/login flows such as `/preauth` and `/web_auth`; they must not become a
+general command routing path. A provider adapter is not required to support
+provider-native slash commands or text-command parsing. If a source lacks
+command support, setup or UI should fail closed for that feature, or ordinary
+provider messages may enter EventBus as normal message Events and follow ordinary
+message routing rules.
+
+Provider-native command redelivery must reuse the same stable CloudEvents
+`(source, id)` for the same command occurrence. The adapter must not use a
+random UUID, receive timestamp, retry count, or generated command-processing id
+as the CloudEvents `id`.
 
 ### Filtering and ignore behavior
 
@@ -409,8 +471,8 @@ provider raw payload, credentials, tokens, or large content must not enter
 For provider redelivery, the adapter relies on EventBus dedupe through the
 CloudEvents `(source, id)` pair. Adapter-local dedupe is allowed only for
 provider-side side effects that happen before EventBus handoff, such as direct
-provider command responses, provider acknowledgement state, or provider SDK
-resume offsets.
+provider acknowledgement state, native interaction defer acknowledgements, or
+provider SDK resume offsets.
 
 Provider acknowledgement rules are adapter-owned:
 
@@ -638,6 +700,11 @@ routing, TargetSession, Target, and business truth.
    - Acceptance: helpers build CloudEvents with stable `source` and `id`,
      string-keyed JSON-neutral payloads, normalized `content`, `channel`,
      `scope`, `actor`, `refs`, `reply_channel`, `routing_facts`, and `raw_ref`.
+     Command-shaped inputs normalize to `bullx.command.invoked` only when the
+     provider command surface or adapter command grammar classifies them as
+     EventBus commands; `/preauth` and `/web_auth` may be handled as
+     adapter-local channel activation/login commands; ordinary text that merely
+     contains `/` remains a message Event.
 
 4. Add acknowledgement and error handling tests.
    - Owns: fake adapter tests and provider-agnostic adapter tests.
@@ -688,8 +755,15 @@ Implementation is complete when tests cover:
   `BullX.EventBus.accept/2`;
 - normalized `content`, `channel`, `scope`, `actor`, `refs`, `reply_channel`,
   `routing_facts`, and `raw_ref` behavior;
-- no adapter-owned routing, TargetSession creation, side-channel append, Oban
-  job creation, Target invocation, or business persistence;
+- provider-native commands and accepted slash-text commands normalize to
+  `bullx.command.invoked`, while ordinary text, paths, code snippets, and
+  unaddressed slash text remain message Events or are ignored by transport
+  admission;
+- adapter-local channel activation/login commands such as `/preauth` and
+  `/web_auth` do not enter EventBus command routing;
+- no adapter-owned EventBus routing, TargetSession creation, side-channel
+  append, Oban job creation, or Target invocation; business persistence in the
+  adapter is limited to explicit channel activation/login command flows;
 - provider acknowledgement behavior for accepted, duplicate, accepted_ignored,
   invalid, no_match, append_failed, and ignored occurrences;
 - optional outbound delivery and stream transport boundaries when supported;

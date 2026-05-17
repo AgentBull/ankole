@@ -1,12 +1,12 @@
-# Telegram Channel Adapter
+# Telegram Adapter Plugin
 
 The Telegram integration is a trusted BullX plugin under
-`plugins/bullx_telegram`. It registers one Telegram Channel Adapter for
-EventBus. The adapter verifies Telegram Bot API input, normalizes accepted
-updates into decoded CloudEvents JSON, calls `BullX.EventBus.accept/2`, and
-exposes optional Telegram outbound delivery and stream transport. It does not
-evaluate Event Routing Rules, create TargetSessions, invoke Targets, authorize
-side effects, or persist business facts.
+`plugins/bullx_telegram`. It registers one Telegram EventBus Channel Adapter.
+Its Channel Adapter verifies Telegram Bot API input, normalizes accepted updates
+into decoded CloudEvents JSON, calls `BullX.EventBus.accept/2`, and exposes
+optional Telegram outbound delivery and stream transport. It does not evaluate
+Event Routing Rules, create TargetSessions, invoke Targets, authorize side
+effects, or persist business facts.
 
 Telegram does not register a Principal browser login provider. Browser login for
 Telegram actors uses the built-in `/preauth <code>` activation flow and
@@ -14,12 +14,12 @@ Telegram actors uses the built-in `/preauth <code>` activation flow and
 
 ## Scope
 
-This design covers the Telegram plugin adapter:
+This design covers the Telegram adapter plugin:
 
 - plugin placement, extension declaration, plugin-owned source configuration,
   and plugin-owned credential configuration;
 - long-poll source supervision, connectivity checks, inbound normalization,
-  attention filtering, direct channel commands, and provider acknowledgement by
+  attention filtering, command normalization, and provider acknowledgement by
   polling offset;
 - Telegram channel actor evidence and Principal activation/login handoff;
 - outbound send, edit, reply fallback, UTF-16 message splitting, and
@@ -32,6 +32,8 @@ This design depends on:
 - `docs/design-docs/Plugins.md` for trusted plugin discovery, enabled plugin
   configuration, extension declarations, config modules, and plugin children;
 - `docs/design-docs/eventbus/ChannelAdapter.md` for the common adapter contract;
+- `docs/design-docs/eventbus/CommandTarget.md` for normalized command Event and
+  Command Target boundaries;
 - `docs/design-docs/eventbus/Core.md` for `BullX.EventBus.accept/2`,
   CloudEvents validation, and normalized payload shape;
 - `docs/design-docs/eventbus/Matcher.md` for `RoutingContext`,
@@ -46,7 +48,7 @@ This design depends on:
 
 - Keep Telegram out of BullX core modules by shipping it as one plugin under
   `plugins/bullx_telegram`.
-- Register Telegram as a Channel Adapter through
+- Register the Telegram Channel Adapter through
   `:"bullx.event_bus.channel_adapter"`.
 - Use `visciang/telegram` as a stateless Bot API client while BullX owns source
   supervision and transport lifecycle.
@@ -56,9 +58,11 @@ This design depends on:
   it into a trusted `actor.principal_ref`.
 - Filter group-chat noise at the adapter edge through an explicit attention
   policy so unrelated group messages do not enter EventBus.
-- Keep bot tokens, raw updates, message text outside normalized content, and
-  activation/login codes out of telemetry, logs, safe errors, Events,
-  `routing_facts`, `reply_channel`, Oban job args, and stream metadata.
+- Keep bot tokens and raw updates out of Events, telemetry, logs, safe errors,
+  `routing_facts`, `reply_channel`, Oban job args, and stream metadata. Raw
+  message text belongs only in normalized content. Activation/login codes must
+  not enter generic routing or diagnostic surfaces; any command that needs them
+  must use a command-design-owned protected argument shape.
 
 ## Non-goals
 
@@ -85,8 +89,8 @@ This design depends on:
 ## Plugin shape
 
 The plugin app id is `:bullx_telegram`, the plugin id is `"bullx_telegram"`,
-and the directory is `plugins/bullx_telegram`. The adapter extension id is
-`"telegram"`. These names intentionally differ: the plugin id follows the Mix
+and the directory is `plugins/bullx_telegram`. The Channel Adapter extension id
+is `"telegram"`. These names intentionally differ: the plugin id follows the Mix
 app and config namespace, while the adapter id is the external channel type that
 appears in Events, Principal channel actors, and Event Routing Rule matching.
 
@@ -131,7 +135,7 @@ Suggested module ownership:
 | `BullxTelegram.UpdateMapper` | Telegram update normalization into CloudEvents. |
 | `BullxTelegram.ContentMapper` | Telegram message content blocks, outbound rendering, and UTF-16 text splitting. |
 | `BullxTelegram.AttentionPolicy` | Group-chat attention filter. |
-| `BullxTelegram.DirectCommand` | Built-in `/ping`, `/preauth <code>`, and `/web_auth` command handling. |
+| `BullxTelegram.CommandNormalizer` | Safe `/command` and `/command@bot_username` parsing plus command routing facts. |
 | `BullxTelegram.Commands` | Optional `setMyCommands` sync helper. |
 | `BullxTelegram.Outbound` | Send, edit, and reply-target fallback. |
 | `BullxTelegram.Streamer` | Multi-message stream consumption with throttled edits and final reconciliation. |
@@ -202,7 +206,6 @@ startup and connectivity check time. If present, it must match the resolved
     "flood_wait_max_ms": 5000,
     "stream_update_interval_ms": 1000,
     "stream_chunk_soft_limit": 3900,
-    "direct_command_dedupe_ttl_seconds": 300,
     "message_context_ttl_seconds": 2592000,
     "attention": {
       "allowed_chat_ids": [],
@@ -276,7 +279,7 @@ Failure shape:
 Connectivity responses must never include bot tokens, raw `getMe` response
 bodies, polling offsets, retry state, or update payloads.
 
-## Adapter contract
+## Channel Adapter contract
 
 `BullxTelegram.ChannelAdapter` implements `BullX.EventBus.ChannelAdapter`.
 
@@ -478,8 +481,8 @@ Trusted profile fields may include `display_name`, `username`, `first_name`,
 `"telegram:" <> user_id`. Telegram bots do not receive user email or phone
 numbers, so Telegram channel actor inputs normally carry neither field.
 
-Self-sent bot messages are ignored before content parsing, Principal matching,
-direct-command handling, or EventBus handoff. Messages from other bots are also
+Self-sent bot messages are ignored before content parsing, command
+classification, Principal matching, or EventBus handoff. Messages from other bots are also
 ignored unless they explicitly reply to the BullX bot and the attention policy
 accepts them.
 
@@ -550,7 +553,7 @@ Telegram maps allowed updates to normalized BullX Event types:
 
 | Telegram update | Normalized `type` | Notes |
 | --- | --- | --- |
-| `message` text | `bullx.message.created` or `bullx.command.invoked` | Built-in direct commands are intercepted before EventBus. Other slash-style commands become command Events after attention and Principal gating. |
+| `message` text | `bullx.message.created` or `bullx.command.invoked` | Accepted EventBus `/command` text addressed to the bot becomes a command Event. Adapter-local `/preauth` and `/web_auth` are handled before EventBus. Ordinary text remains message content. |
 | `message` media or location | `bullx.message.created` | Content blocks describe the media; primary text uses caption or generated fallback. |
 | `edited_message` | `bullx.message.edited` | `refs` includes the Telegram message id. |
 
@@ -616,7 +619,7 @@ authorized provider capability or follow-up adapter helper.
 
 ## Principal account gate
 
-Before accepting normal user-origin duplex Events, Telegram calls
+Before accepting normal user-origin message Events, Telegram calls
 `BullX.Principals.match_or_create_human_from_channel/1` with the normalized
 channel actor:
 
@@ -650,6 +653,16 @@ Result handling:
 | `{:error, :principal_disabled}` | Send a localized denied reply when appropriate and do not call EventBus. |
 | `{:error, reason}` | Treat as provider processing failure, emit safe telemetry, and do not call EventBus. |
 
+Command-shaped input is not automatically a normal conversation message. When
+Telegram classifies an accepted `/command` text as `bullx.command.invoked`, the
+adapter may publish the command Event with actor evidence and
+`data.actor.principal_ref = null` if no active Principal binding exists yet.
+System commands such as `/command` and `/status` use that path. Channel
+activation and login commands such as `/preauth` and `/web_auth` are
+adapter-local entry points and may be handled before EventBus. For EventBus
+commands, the adapter still does not choose the command handler, decide command
+authorization, or write command business facts.
+
 Principal resolution is identity evidence, not authorization. Downstream
 Principal, AuthZ, Governance, Capability, Target, and business layers still
 decide permission, budget, approval, and side effects.
@@ -659,90 +672,52 @@ login auth codes, or links that reveal account state. The reply should ask the
 user to message the bot privately. In private chats, the adapter may include
 localized `/preauth <code>` and `/web_auth` guidance.
 
-## Direct channel commands
+## Channel command normalization
 
-Direct channel commands are built-in BullX channel commands implemented by
-messaging adapters. Telegram handles `/ping`, `/preauth <code>`, and
-`/web_auth` before EventBus handoff. These command names are not
-Telegram-specific product concepts.
+Telegram distinguishes EventBus commands from adapter-local channel commands.
+When an accepted Telegram text message starts with an English system command
+such as `/command`, `/status`, or the matching `@bot_username` form, or a
+localized alias such as Chinese `/命令` or `/状态` when that locale is active, the
+adapter normalizes it as `bullx.command.invoked` instead of
+`bullx.message.created`.
 
-Direct commands run after the poller receives an update, source context is
-resolved, attention policy classifies the message as `command`, and
-direct-command dedupe misses. Adapter-local dedupe stores the response result by
-Telegram `update_id` for `direct_command_dedupe_ttl_seconds`.
+`/preauth <code>` and `/web_auth` are channel activation/login commands. The
+Telegram adapter handles them locally through Principal/Auth services and safe
+Telegram replies, because they may need to run before a Principal binding exists
+and may use provider-private reply context. They are not published to EventBus
+as `bullx.command.invoked`.
 
-Only these built-in commands are intercepted. There is no Telegram-local `/ask`
-command. Other accepted slash-style messages become `bullx.command.invoked`
-Events after Principal account gating.
+Command normalization runs after polling, source context resolution, bot/self
+filtering, attention policy, and safe command-token parsing. Telegram stores
+only matcher-oriented facts in `data.routing_facts`:
 
-### `/ping`
+- `command_name`, the canonical English command name without the leading slash
+  or `@bot_username` suffix;
+- `command_namespace`, when the command grammar or source configuration defines
+  one;
+- `command_surface = "slash_text"`;
+- `command_args_kind`, such as `none` or `text`;
+- `attention_reason`.
 
-`/ping` is a manual connectivity command. It works in private chats and groups
-when addressed to the bot, does not require Principal activation, and does not
-call `BullX.Principals.match_or_create_human_from_channel/1`.
+Command arguments may appear in normalized content only when the relevant command
+design allows it. Activation codes, login codes, bot tokens, and provider
+credentials must not enter EventBus `routing_facts`, telemetry, or logs.
 
-The adapter sends a localized reply through its own outbound transport boundary
-or through the common adapter `deliver/4` helper. The localized reply body is
-`PONG!` in bundled locales. The adapter advances the polling offset only after
-the reply was accepted for transport or an equivalent duplicate result was
-found.
+The Event Routing Rule decides the Target for EventBus commands. System command
+routes for `/command` and `/status` target `target_type = "command"` through
+code-owned built-ins merged into the runtime route table. AIAgent conversation
+commands such as canonical `/new` must target AIAgent-owned command handling or
+remain ordinary AIAgent text commands when this adapter does not normalize them.
+Localized `/新会话` is an alias for canonical `/new`, not a separate routing
+concept. The Telegram adapter must not mutate Conversation, Message, or
+generation lease state directly.
 
-### `/preauth <code>`
-
-`/preauth <code>` consumes a BullX activation code and creates a new Human
-Principal with the current Telegram actor as the first channel binding.
-
-Flow:
-
-1. Reject group chats with localized DM-only guidance and do not consume the
-   code.
-2. Normalize the Telegram actor and trusted profile.
-3. Call `BullX.Principals.consume_activation_code(code, channel_actor)`.
-4. Send one localized Telegram reply through adapter outbound transport.
-5. Do not publish the command as an Event.
-
-Result mapping:
-
-| Principal result | Telegram reply key |
-| --- | --- |
-| `{:ok, _principal, _identity}` | `eventbus.telegram.auth.activation_success` |
-| `{:error, :invalid_or_expired_code}` | `eventbus.telegram.auth.activation_code_invalid` |
-| `{:error, :already_bound}` | `eventbus.telegram.auth.already_linked` |
-| `{:error, :principal_disabled}` | `eventbus.telegram.auth.denied` |
-| any other `{:error, _}` | `eventbus.telegram.auth.activation_failed` |
-
-A duplicate `update_id` returns the cached result without re-running
-`consume_activation_code/2`.
-
-### `/web_auth`
-
-`/web_auth` issues a built-in channel-auth login code for an already bound
-active Human Principal.
-
-Flow:
-
-1. Reject group chats with localized DM-only guidance and do not issue a code.
-2. If `web_login_disabled == true`, reply with localized disabled guidance and
-   do not issue a code.
-3. Normalize the Telegram actor and trusted profile.
-4. Call `BullX.Principals.issue_login_auth_code(:telegram, source_id, "telegram:" <> user_id)`.
-5. Render a localized reply containing the short-lived code and the generic Web
-   login URL.
-6. Send the reply through adapter outbound transport.
-7. Do not publish the command as an Event.
-
-Result mapping:
-
-| Principal result | Telegram reply key |
-| --- | --- |
-| `{:ok, code}` | `eventbus.telegram.auth.web_auth_created` |
-| `{:error, :not_bound}` | `eventbus.telegram.auth.web_auth_not_bound` |
-| `{:error, :principal_disabled}` | `eventbus.telegram.auth.denied` |
-| `{:error, :not_human}` | `eventbus.telegram.auth.web_auth_not_bound` |
-| any other `{:error, _}` | `eventbus.telegram.auth.web_auth_failed` |
-
-The login auth code never enters telemetry, logs, safe errors, Events, or stream
-metadata.
+Provider redelivery of the same EventBus command update reuses the same
+CloudEvents `(source, id)` based on the Telegram update or message occurrence.
+Duplicate visible replies are prevented by EventBus dedupe and Command Target
+idempotency, not by an adapter-local command execution cache. Adapter-local
+`/preauth` and `/web_auth` flows use their own Principal/Auth idempotency and
+safe reply rules.
 
 ## Outbound delivery
 
@@ -916,7 +891,7 @@ may add provider-specific suffixes under the same namespace:
 - `[:bullx, :event_bus, :adapter, :telegram, :poller, :retry]`
 - `[:bullx, :event_bus, :adapter, :telegram, :poller, :conflict]`
 - `[:bullx, :event_bus, :adapter, :telegram, :attention, :decided]`
-- `[:bullx, :event_bus, :adapter, :telegram, :direct_command, :handled]`
+- `[:bullx, :event_bus, :adapter, :telegram, :command, :normalized]`
 - `[:bullx, :event_bus, :adapter, :telegram, :commands, :sync]`
 
 Allowed metadata includes adapter id, plugin id, source id, bot id, hashed
@@ -928,7 +903,7 @@ status code.
 
 Logs are part of the manual-run contract. Startup, bot identity resolution,
 polling lifecycle, command-menu sync, inbound mapping, attention decisions,
-direct-command handling, EventBus acceptance, outbound delivery, and stream
+command normalization, EventBus acceptance, outbound delivery, and stream
 flush paths should emit safe structured log lines. Logs must not include bot
 tokens, raw updates, raw message bodies beyond normalized content, plaintext
 activation/login codes, full `reply_channel`, full Events, media bytes, or
@@ -945,20 +920,8 @@ Add at least these keys in supported locales:
 ```toml
 [eventbus.telegram.auth]
 activation_required = "..."
-activation_success = "..."
-activation_code_invalid = "..."
-activation_failed = "..."
-already_linked = "..."
-web_auth_created = "..."
-web_auth_not_bound = "..."
-web_auth_failed = "..."
-web_auth_disabled = "..."
 login_not_bound = "..."
 denied = "..."
-direct_command_dm_only = "..."
-
-[eventbus.telegram.ping]
-pong = "PONG!"
 
 [eventbus.telegram.delivery]
 fallback_text = "..."
@@ -990,10 +953,12 @@ The adapter must:
 
 - drop self-sent bot messages before EventBus handoff;
 - ignore messages without `from`;
-- reject `/preauth <code>` and `/web_auth` in group chats without consuming or
-  issuing secrets;
-- discard activation codes and login auth codes from telemetry, logs, safe
-  errors, Events, and stream metadata;
+- preserve chat type, scope, actor, and safe command facts so adapter-local
+  `/preauth <code>` and `/web_auth` handlers can reject group-chat use without
+  consuming or issuing secrets;
+- keep activation codes and login auth codes out of telemetry, logs, safe errors,
+  generic Event fields, and stream metadata unless a command design defines a
+  protected command argument shape;
 - keep bot tokens in `BullX.Config` secret storage;
 - keep bot tokens, raw updates, raw Bot API bodies, and media bytes out of
   Events, `routing_facts`, `reply_channel`, Oban args, stream metadata,
@@ -1020,8 +985,6 @@ of these conditions is true:
 - the update was intentionally ignored, such as self-sent, anonymous actor,
   ignored chat, outside allowlist, unmentioned group message, unsupported
   command, or unsupported update kind;
-- an adapter-local direct command completed or a duplicate direct-command result
-  was found;
 - `BullX.EventBus.accept/2` returned accepted, duplicate, or accepted_ignored;
 - the update is structurally malformed and retry would not produce a valid
   Event.
@@ -1045,9 +1008,9 @@ means another process holds the bot token and must be surfaced to operators.
 
 ### Goal
 
-Implement the Telegram plugin as one trusted plugin that exposes Telegram
-EventBus transport while preserving the current Plugin, EventBus, Channel
-Adapter, StreamingOutput, and Principal boundaries.
+Implement the Telegram adapter plugin as one trusted plugin that exposes
+Telegram EventBus Channel Adapter transport while preserving the current Plugin,
+EventBus, Channel Adapter, StreamingOutput, and Principal boundaries.
 
 ### Context pointers
 
@@ -1056,10 +1019,11 @@ Adapter, StreamingOutput, and Principal boundaries.
 - `docs/design-docs/Plugins.md`
 - `docs/design-docs/Principal.md`
 - `docs/design-docs/eventbus/ChannelAdapter.md`
+- `docs/design-docs/eventbus/CommandTarget.md`
 - `docs/design-docs/eventbus/Core.md`
 - `docs/design-docs/eventbus/Matcher.md`
 - `docs/design-docs/eventbus/StreamingOutput.md`
-- `docs/design-docs/eventbus/adapters/Feishu.md`
+- `docs/design-docs/plugins/FeishuAdapter.md`
 - `visciang/telegram` Bot API client
 
 ### Constraints
@@ -1133,15 +1097,15 @@ Adapter, StreamingOutput, and Principal boundaries.
    - Verify: update-mapping tests and `BullX.EventBus.accept/2` integration
      tests with a fake EventBus or route table.
 
-6. Implement Principal account gate and direct commands.
-   - Owns: `BullxTelegram.DirectCommand`, locale keys, Principal fixtures.
+6. Implement Principal account gate and command normalization.
+   - Owns: `BullxTelegram.CommandNormalizer`, locale keys, Principal fixtures.
    - Depends on: Task 5.
    - Acceptance: normal user-origin Events call Principal matching before
-     EventBus acceptance; `/ping` bypasses Principal; `/preauth <code>` consumes
-     activation codes only in private chats; `/web_auth` issues login auth codes
-     only for bound active Humans in private chats; duplicate `update_id`
-     returns cached results.
-   - Verify: focused direct-command and Principal integration tests.
+     EventBus acceptance; `/command` and `/status` normalize to
+     `bullx.command.invoked` with actor evidence, optional `principal_ref`, and
+     command routing facts; `/preauth` and `/web_auth` run as adapter-local
+     channel activation/login commands.
+   - Verify: focused command-normalization and Principal integration tests.
 
 7. Implement outbound send and edit.
    - Owns: `BullxTelegram.Outbound`, outbound content rendering, reply fallback,
@@ -1167,7 +1131,7 @@ Adapter, StreamingOutput, and Principal boundaries.
    - Owns: Telegram modules and locale files.
    - Depends on: Tasks 4 through 8.
    - Acceptance: safe telemetry/log metadata exists for startup, poller,
-     attention, inbound mapping, direct commands, EventBus acceptance, delivery,
+     attention, inbound mapping, command normalization, EventBus acceptance, delivery,
      and streaming; locale tests fail on missing keys; bot tokens, auth codes,
      raw updates, and raw message bodies never appear in logs or safe errors.
 
@@ -1203,8 +1167,11 @@ Implementation should stop and ask if a change would require:
 - The attention policy filters group-chat noise according to this design.
 - Telegram inbound updates normalize into valid decoded CloudEvents and call
   `BullX.EventBus.accept/2`.
-- Built-in direct channel commands behave as specified and do not publish
-  command Events.
+- Accepted Telegram `/command` and `/status` messages publish
+  `bullx.command.invoked` Events with command routing facts and no
+  adapter-owned EventBus command business side effects.
+- Telegram `/preauth` and `/web_auth` run as adapter-local channel
+  activation/login commands and do not publish EventBus command Events.
 - Telegram outbound send, edit, and stream paths produce adapter-compatible
   outcomes or safe errors.
 - UTF-16 message splitting passes targeted tests on Asian-script and
@@ -1212,9 +1179,11 @@ Implementation should stop and ask if a change would require:
 - A persistent `getUpdates` conflict produces a visible poller crash and is not
   silently retried forever.
 - Self-sent and anonymous-actor messages are filtered before EventBus handoff.
-- Bot tokens, raw updates, raw Bot API bodies, plaintext activation/login codes,
-  media bytes, and stream chunks do not enter telemetry, logs, safe errors,
-  Events, `routing_facts`, `reply_channel`, Oban args, or stream metadata.
+- Bot tokens, raw updates, raw Bot API bodies, media bytes, and stream chunks do
+  not enter telemetry, logs, safe errors, Events, `routing_facts`,
+  `reply_channel`, Oban args, or stream metadata. Plaintext activation/login
+  codes do not enter generic routing or diagnostic surfaces and only appear
+  through a protected command argument shape when a command design requires them.
 - No provider-owned routing layer, provider-owned identity system, webhook
   ingress, Login Widget flow, `/ask` command, or compatibility shim is
   introduced.
@@ -1224,7 +1193,7 @@ Verification commands:
 ```bash
 mix format --check-formatted
 # focused tests for plugin discovery, config, source connectivity, polling,
-# update normalization, attention policy, direct commands, delivery, stream
+# update normalization, attention policy, command normalization, delivery, stream
 # transport, telemetry, logging, and locale coverage
 MIX_ENV=test mix compile --warnings-as-errors
 bun precommit

@@ -15,9 +15,6 @@ login_not_bound = "这个飞书账号还没有绑定。"
 denied = "这个 Principal 已被禁用。"
 direct_command_dm_only = "请在和机器人的私聊中发送这个命令。"
 
-[gateway.feishu.ping]
-pong = "PONG!"
-
 [gateway.feishu.delivery]
 fallback_text = "不支持的飞书内容"
 stream_generating = "生成中..."
@@ -28,6 +25,36 @@ reply_target_missing_sent_to_scope = "被回复的消息不存在，已发送到
 [gateway.feishu.errors]
 unsupported_message = "不支持的飞书消息"
 profile_unavailable = "无法获取飞书用户资料"
+
+[eventbus.feishu.auth]
+activation_required = "这个飞书账号还没有激活。请在当前私聊中发送 /preauth <code> 完成激活。"
+activation_success = "激活完成。"
+activation_code_invalid = "激活码无效或已过期。"
+activation_failed = "激活失败，请稍后重试。"
+already_linked = "这个飞书账号已经绑定。"
+web_auth_created = "登录验证码：{$code}\n打开 {$login_url} 继续登录。"
+web_auth_not_bound = "这个飞书账号还没有绑定。请先使用 /preauth 激活。"
+web_auth_disabled = "这个飞书来源已禁用网页登录。"
+web_auth_failed = "无法创建登录验证码，请稍后重试。"
+login_not_bound = "这个飞书账号还没有绑定。"
+denied = "这个 Principal 已被禁用。"
+direct_command_dm_only = "请在和机器人的私聊中发送这个命令。"
+
+[eventbus.feishu.delivery]
+fallback_text = "不支持的飞书内容"
+stream_generating = "生成中..."
+stream_failed = "流式回复失败。"
+stream_cancelled = "流式回复已取消。"
+reply_target_missing_sent_to_scope = "被回复的消息不存在，已发送到当前会话。"
+
+[eventbus.feishu.errors]
+unsupported_message = "不支持的飞书消息"
+profile_unavailable = "无法获取飞书用户资料"
+
+[eventbus.commands.aliases]
+command = "命令"
+status = "状态"
+new = "新会话"
 
 [gateway.telegram.auth]
 activation_required = "这个 Telegram 账号还没有激活。请在与机器人的私聊中发送 /preauth <code> 完成激活。"
@@ -42,9 +69,6 @@ web_auth_disabled = "当前 Telegram 接入禁用了网页端登录。"
 login_not_bound = "这个 Telegram 账号还没有绑定。"
 denied = "这个 Principal 已被禁用。"
 direct_command_dm_only = "请在和机器人的私聊中发送这个命令。"
-
-[gateway.telegram.ping]
-pong = "PONG!"
 
 [gateway.telegram.delivery]
 fallback_text = "不支持的 Telegram 内容"
@@ -64,7 +88,6 @@ unsupported_message = "不支持的 Telegram 消息"
 profile_unavailable = "无法获取 Telegram 用户资料"
 
 [gateway.telegram.commands]
-ping = "检查机器人是否在线"
 preauth = "使用激活码绑定：/preauth <code>"
 web_auth = "获取一次性网页登录验证码"
 
@@ -81,9 +104,6 @@ web_auth_disabled = "当前 Discord 接入禁用了网页端登录。"
 login_not_bound = "这个 Discord 账号还没有绑定。"
 denied = "这个 Principal 已被禁用。"
 direct_command_dm_only = "请私聊机器人并发送这个命令。"
-
-[gateway.discord.ping]
-pong = "PONG!"
 
 [gateway.discord.ask]
 accepted = "已收到，回复会出现在这条对话中。"

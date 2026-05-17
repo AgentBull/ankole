@@ -70,7 +70,7 @@ TargetSession side-channel entry.
 BullX.EventBus.accept/2
   -> validate CloudEvents shape and BullX normalized payload
   -> project RoutingContext
-  -> match active Event Routing Rules with the Rust matcher by priority ASC
+  -> match the combined route-table snapshot with the Rust matcher by priority ASC
   -> resolve the first matched non-Blackhole rule
   -> create or reuse a TargetSession runtime row
   -> append a target_session_entries row
@@ -95,6 +95,12 @@ Blackhole is the terminal drop path. If the first matched rule targets
 Blackhole, EventBus returns `accepted_ignored`, does not create a TargetSession,
 does not append a side-channel entry, does not create an Oban job, and does not
 continue to fallback or lower-priority rules.
+
+The route-table snapshot is the ordered combination of code-owned built-in
+routes and active PostgreSQL `event_routing_rules`. Built-in system command
+routes use reserved negative priorities and are not persisted in PostgreSQL.
+Database-owned rules keep positive priorities and are managed by the Event
+Routing Rule writer.
 
 ```mermaid
 sequenceDiagram
@@ -275,14 +281,28 @@ Normalized `type` examples include:
 - `bullx.childrun.completed`
 - `bullx.ui.action.submitted`
 
-This list is not a closed enum. EventBus validates CloudEvents shape and the
-BullX payload shape; it does not enumerate every provider-specific Event domain.
+This list is not a closed enum. `bullx.command.invoked` is the normalized
+command Event type, but EventBus does not enumerate concrete command names.
+Concrete names such as `command`, `status`, `diagnose`, or `new` are determined
+by adapter normalization, routing facts, Event Routing Rules, and the Target
+registry that receives the matched Event. EventBus validates CloudEvents shape
+and the BullX payload shape; it does not enumerate every provider-specific Event
+domain. Channel-adapter commands such as `/preauth` and `/web_auth` may be
+handled at the adapter boundary and do not have to become EventBus command
+Events.
 
 ## Matcher and route policy
 
 `RoutingContext` projection, `RoutingTable` snapshots, Rust matcher behavior,
 Event Routing Rule priority, Blackhole rule semantics, and scope/window key
 policy are defined in [EventBus matcher](./Matcher.md).
+
+Command routing rules usually have higher priority than generic AIAgent message
+rules when provider-native command Events should not enter an AIAgent model
+loop. First matched rule remains terminal: EventBus does not fan out one command
+Event to multiple Targets. If a command needs multiple business paths, the
+matched Command Target explicitly calls a service, writes a follow-up Event,
+creates Work, invokes a Capability, or records another business fact.
 
 ## TargetSession identity and reuse
 
@@ -342,6 +362,12 @@ same `target_sessions` row lock.
 
 Scope and window key computation are defined in
 [EventBus matcher](./Matcher.md#scope-and-window-policy).
+
+Command Target rules normally use one-shot scope and window policy, such as
+`new_per_event`, so a `/command` or `/status` Event does not keep a TargetSession
+idle until the 24-hour hard cap. A command design may deliberately share a
+runtime window when the command needs it, but the default one-shot handler
+requests `BullX.EventBus.TargetSession.close/1` after processing the entry.
 
 ## Acceptance boundary and dedupe
 
@@ -571,6 +597,44 @@ Event identity, and entry metadata.
 can advance. The Target owns whether a business failure is recorded. EventBus
 dispatch must use stable `target_type` and code-owned registries or modules; it
 must not derive arbitrary Elixir module names from database strings.
+
+## Command Target
+
+`command` is a v1-supported Target type. `target_type = "command"` means the
+matched TargetSession invokes the Command Target implementation. Command Target
+handles normalized command Events such as `bullx.command.invoked`.
+
+`target_ref` for a Command Target points to a stable code-owned command handler
+id, command namespace, or command router id. Examples:
+
+- `bullx.system.command_list`
+- `bullx.system.status`
+- `bullx.command_router.default`
+
+EventBus dispatch still uses the stable `target_type` value and a code-owned
+Target registry. It must not concatenate database strings into Elixir module
+names or dynamically resolve arbitrary modules from `target_ref`.
+
+Command Target uses the same callback shape as every other Target:
+
+```elixir
+Target.handle_event(invocation, side_channel_entry) ::
+  :ok | {:error, term()}
+```
+
+For one-shot commands, the handler should call
+`BullX.EventBus.TargetSession.close/1` after successfully handling the current
+entry, then return `:ok` so TargetSession progress advances normally. A command
+business failure should be recorded by the command handler as a business,
+diagnostic, or audit record and then return `:ok`. Only infrastructure failure
+or retryable Target execution failure returns `{:error, reason}`.
+
+EventBus does not understand command semantics. It does not decide whether
+`/command`, `/status`, `/new`, or any other command is allowed. It does not
+parse slash command text from `data.content`, does not choose visible reply
+content, and does not send outbound replies. `/preauth` and `/web_auth` are
+channel-adapter activation/login commands by default; when handled at the
+adapter boundary they are outside EventBus routing.
 
 ## Public API
 
@@ -813,6 +877,10 @@ telemetry.
   scope/window policy details.
 - `docs/design-docs/eventbus/Persistence.md` owns EventBus schema, index,
   repair, and runtime cleanup details.
+- `docs/design-docs/eventbus/CommandTarget.md` owns the first-class Command
+  Target contract.
+- `docs/design-docs/eventbus/SystemCommands.md` owns the concrete current system
+  command catalog.
 - `docs/design-docs/eventbus/StreamingOutput.md` owns TargetSession output
   streaming.
 - `docs/design-docs/Configuration.md` owns runtime configuration and secret
@@ -838,6 +906,9 @@ telemetry.
   `BullX.EventBus.RoutingTable` snapshots.
 - Rule evaluation uses globally unique `priority ASC` and short-circuits on the
   first match.
+- Code-owned built-in system command routes use reserved negative priorities and
+  are merged with positive-priority PostgreSQL rules in the runtime
+  `RoutingTable` snapshot.
 - EventBus does not perform route fan-out.
 - PostgreSQL schema, indexes, runtime retention, and cleanup follow
   `docs/design-docs/eventbus/Persistence.md`.
@@ -858,6 +929,10 @@ telemetry.
   optimization.
 - Target invocation handles one entry per callback. Session end uses close/fail
   helpers. Business semantics belong to the Target.
+- `target_type = "command"` dispatches through the code-owned Target registry
+  and Command Target registry. EventBus does not parse slash text, decide
+  command authorization, choose command replies, or bypass the Channel Adapter
+  outbound boundary.
 - Gateway and adapters remain transport-only.
 - Do not add dependencies except Oban if the current dependency set does not
   already include it.
@@ -887,12 +962,13 @@ telemetry.
    - Owns: RoutingTable module, route matcher NIF, Elixir wrapper, and matcher
      tests.
    - Depends on: Task 2 for rule schema.
-   - Acceptance: Boot loads active rules by `priority ASC` and compiles a
-     snapshot; `accept/2` uses the most recent successfully compiled snapshot;
-     writer changes refresh or rebuild the snapshot; invalid active route table
-     fails fast or rejects acceptance; per-rule CEL evaluation errors make only
-     that rule non-matching; raw payload never reaches Rust; behavior matches
-     the Matcher contract.
+   - Acceptance: Boot merges code-owned built-in system command routes with
+     active PostgreSQL rules by `priority ASC` and compiles a snapshot;
+     `accept/2` uses the most recent successfully compiled snapshot; writer
+     changes refresh or rebuild the snapshot; invalid active route table fails
+     fast or rejects acceptance; per-rule CEL evaluation errors make only that
+     rule non-matching; raw payload never reaches Rust; behavior matches the
+     Matcher contract.
 
 4. Implement the Event Routing Rule writer and priority reorder.
    - Owns: Rule writer modules and tests.
@@ -980,7 +1056,8 @@ Implementation should stop and ask when any of these questions appears:
 
 - A provider needs routing on data that cannot be normalized into
   `routing_facts` or another explicit normalized field.
-- A target type needs a non-UUID `target_ref`.
+- A target type needs a `target_ref` that cannot be represented as a stable text
+  registry reference.
 - A rule needs route fan-out, fixed bucket windows, arbitrary window
   expressions, or batch Target invocation.
 - A business layer wants EventBus runtime rows to become audit truth or replay

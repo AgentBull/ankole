@@ -36,3 +36,16 @@ config :phoenix, :plug_init_mode, :runtime
 # Sort query params output of verified routes for robust url comparisons
 config :phoenix,
   sort_verified_routes_query_params: true
+
+config :bullx, Oban,
+  repo: BullX.Repo,
+  testing: :manual,
+  queues: false,
+  plugins: false
+
+config :bullx, :event_bus,
+  target_session_idle_tick_ms: 10,
+  target_session_runtime_retention_seconds: 60,
+  target_session_cleanup_interval_ms: false,
+  stream_retention_seconds: 60,
+  max_stream_chunk_bytes: 1_024

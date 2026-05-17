@@ -59,7 +59,8 @@ defmodule BullX.MixProject do
       {:dotenvy, "~> 1.1"},
       {:zoi, "~> 0.17"},
       {:cachetastic, "~> 1.0"},
-      {:redix, "~> 1.5"}
+      {:redix, "~> 1.5"},
+      {:oban, "~> 2.22"}
     ]
 
     merge_deps(core_deps, plugin_project_deps())

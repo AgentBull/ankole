@@ -221,6 +221,21 @@ defmodule BullX.Ext do
   def rule_engine_cel_condition_validate(_condition), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """
+  Validate an EventBus route table through the Rust-owned route matcher.
+  """
+  @spec eventbus_route_table_validate([map()]) :: true | {:error, error_reason()}
+  def eventbus_route_table_validate(_rules), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
+  Match a RoutingContext against Event Routing Rules by priority.
+  """
+  @spec eventbus_match_route([map()], map()) ::
+          {:matched, String.t(), [{String.t(), atom(), String.t()}]}
+          | {:no_match, [{String.t(), atom(), String.t()}]}
+          | {:error, error_reason()}
+  def eventbus_match_route(_rules, _routing_context), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
   Evaluate already-loaded AuthZ grants against a normalized CEL environment.
 
   Ecto remains responsible for Principal, group, and action filtering. The

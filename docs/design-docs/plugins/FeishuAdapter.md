@@ -1,13 +1,14 @@
-# Feishu Channel Adapter
+# Feishu Adapter Plugin
 
 The Feishu integration is a trusted BullX plugin under `plugins/feishu`. It
-registers a Feishu Channel Adapter for EventBus and a Principal-owned Feishu
-browser login provider. The adapter verifies Feishu/Lark transport input,
+registers a Feishu EventBus Channel Adapter and a Principal-owned Feishu browser
+login provider. Its Channel Adapter verifies Feishu/Lark transport input,
 normalizes provider occurrences into decoded CloudEvents JSON, calls
 `BullX.EventBus.accept/2`, and exposes optional Feishu outbound delivery and
 CardKit stream transport. It does not evaluate Event Routing Rules, create
 TargetSessions, invoke Targets, authorize side effects, or persist business
-facts.
+facts. Its browser login provider hands verified Feishu identities to
+`BullX.Principals`; it is not part of EventBus transport.
 
 Feishu uses the existing `packages/feishu_openapi` SDK directly. The plugin does
 not add another Feishu client layer, a Feishu-specific Event routing layer, or a
@@ -15,7 +16,7 @@ provider-owned identity system.
 
 ## Scope
 
-This design covers the Feishu plugin adapter:
+This design covers the Feishu adapter plugin:
 
 - plugin placement, extension declarations, plugin-owned source configuration,
   and plugin-owned credential configuration;
@@ -34,6 +35,8 @@ This design depends on:
 - `docs/design-docs/Plugins.md` for trusted plugin discovery, enabled plugin
   configuration, extension declarations, config modules, and plugin children;
 - `docs/design-docs/eventbus/ChannelAdapter.md` for the common adapter contract;
+- `docs/design-docs/eventbus/CommandTarget.md` for normalized command Event and
+  Command Target boundaries;
 - `docs/design-docs/eventbus/Core.md` for `BullX.EventBus.accept/2`,
   CloudEvents validation, and normalized payload shape;
 - `docs/design-docs/eventbus/Matcher.md` for `RoutingContext`,
@@ -48,7 +51,7 @@ This design depends on:
 
 - Keep Feishu out of BullX core modules by shipping it as one plugin under
   `plugins/feishu`.
-- Register Feishu as a Channel Adapter through
+- Register the Feishu Channel Adapter through
   `:"bullx.event_bus.channel_adapter"`.
 - Reuse `FeishuOpenAPI` for OpenAPI calls, token fetch, WebSocket event push,
   card-action decoding, OIDC token exchange, uploads, downloads, and error
@@ -117,8 +120,8 @@ end
 ```
 
 `:"bullx.event_bus.channel_adapter"` is the EventBus-owned transport extension
-point. The adapter extension id `"feishu"` must match `data.channel.adapter` in
-normalized Events.
+point. The Channel Adapter extension id `"feishu"` must match
+`data.channel.adapter` in normalized Events.
 
 `:"bullx.principals.login_provider"` is a Principal-owned extension point for
 browser login providers. The extension id `"feishu"` names the provider
@@ -138,7 +141,8 @@ Suggested module ownership:
 | `Feishu.ChannelAdapter` | `BullX.EventBus.ChannelAdapter` implementation and public adapter boundary. |
 | `Feishu.EventMapper` | Feishu event and card-action payload normalization into CloudEvents. |
 | `Feishu.ContentMapper` | Feishu message/card/media mapping into BullX content blocks. |
-| `Feishu.DirectCommand` | Feishu transport implementation of built-in channel commands. |
+| `Feishu.CardActionController` | HTTP card-action callback verification and adapter handoff. |
+| `Feishu.CommandNormalizer` | Safe slash-text command parsing and command routing facts for Feishu messages. |
 | `Feishu.Outbound` | Feishu send, edit, upload, and reply fallback. |
 | `Feishu.StreamingCard` | CardKit stream consumption and throttled card updates. |
 | `Feishu.OIDCProvider` | Principal login-provider callback implementation. |
@@ -180,7 +184,9 @@ self-built Feishu/Lark app credential:
 {
   "default": {
     "app_id": "cli_xxx",
-    "app_secret": "secret_xxx"
+    "app_secret": "secret_xxx",
+    "verification_token": "optional_card_callback_token",
+    "encrypt_key": "optional_card_callback_encrypt_key"
   }
 }
 ```
@@ -188,6 +194,9 @@ self-built Feishu/Lark app credential:
 The credentials map is encrypted by `BullX.Config`. It must not appear in
 Events, source public projections, `routing_facts`, `reply_channel`, Oban job
 args, stream metadata, telemetry, logs, safe errors, or operator receipts.
+`verification_token` is required only when the HTTP card-action callback route
+is enabled for a source. `encrypt_key` is optional and is used when Feishu
+sends encrypted callback bodies.
 
 `eventbus_sources` is a JSON array of Feishu source entries:
 
@@ -201,6 +210,8 @@ args, stream metadata, telemetry, logs, safe errors, or operator receipts.
     "connected_realm_ref": "feishu:tenant_xxx",
     "tenant_key": "tenant_xxx",
     "bot_open_id": "ou_bot_xxx",
+    "bot_user_id": "u_bot_xxx",
+    "web_login_disabled": false,
     "oidc": {
       "enabled": true,
       "redirect_uri": "https://bullx.example.com/sessions/oidc/main/callback",
@@ -208,7 +219,6 @@ args, stream metadata, telemetry, logs, safe errors, or operator receipts.
     },
     "message_context_ttl_seconds": 2592000,
     "card_action_dedupe_ttl_seconds": 900,
-    "direct_command_dedupe_ttl_seconds": 300,
     "inline_media_max_bytes": 524288,
     "stream_update_interval_ms": 100
   }
@@ -266,7 +276,7 @@ Connectivity responses must never include app secrets, tenant access tokens,
 OAuth codes, user access tokens, refresh tokens, raw callback bodies, raw event
 payloads, message bodies, card private data, or downloaded media.
 
-## Adapter contract
+## Channel Adapter contract
 
 `Feishu.ChannelAdapter` implements `BullX.EventBus.ChannelAdapter`.
 
@@ -323,6 +333,18 @@ HTTP route is enabled, the route must identify the Feishu source, verify the
 callback with Feishu card-action semantics before trusting the payload, and call
 the same adapter normalization and `BullX.EventBus.accept/2` handoff used by
 WebSocket occurrences.
+
+The first HTTP callback route is:
+
+```text
+POST /eventbus/feishu/sources/:source_id/card_actions
+```
+
+The Web boundary preserves the raw request body for Feishu signature
+verification, loads the enabled source by `source_id`, verifies the body through
+`FeishuOpenAPI.CardAction.verify_and_decode/3`, and passes only the resulting
+`%FeishuOpenAPI.CardAction{}` to the adapter. Raw decoded maps are not trusted
+as card actions.
 
 ## Inbound normalization
 
@@ -416,8 +438,9 @@ normalized field exposed by `RoutingContext`.
 
 `raw_ref` is a safe reference, not the raw payload. It may contain stable Feishu
 ids needed for operator lookup or provider API recovery. It must not include
-raw message bodies, card private values, attachment bytes, OAuth codes, access
-tokens, refresh tokens, app secrets, or callback bearer handles.
+raw message bodies, raw card callback bodies, unsanitized card private values,
+attachment bytes, OAuth codes, access tokens, refresh tokens, app secrets, or
+callback bearer handles.
 
 ## Actor identity
 
@@ -439,14 +462,17 @@ email. It normalizes phone candidates to E.164 before passing them to
 `BullX.Principals`; malformed or ambiguous phone values are omitted.
 User-editable display names are presentation data, not identity proof.
 
-Self-sent bot messages are ignored before content parsing, Principal matching,
-direct-command handling, or EventBus handoff. Feishu Events whose sender type is
+Self-sent bot messages are ignored before content parsing, command
+classification, Principal matching, or EventBus handoff. Feishu Events whose
+sender type is
 `bot` or `app` and whose sender matches the configured or resolved bot identity
-must not re-enter EventBus as user Events.
+must not re-enter EventBus as user Events. The self-sent check uses
+`bot_open_id` when present and falls back to `bot_user_id` for payloads that do
+not include the bot open id.
 
 ## Principal account gate
 
-Before accepting normal user-origin duplex Events, Feishu calls
+Before accepting normal user-origin message Events, Feishu calls
 `BullX.Principals.match_or_create_human_from_channel/1` with the normalized
 channel actor:
 
@@ -478,6 +504,16 @@ Result handling:
 | `{:error, :principal_disabled}` | Send a localized denied reply when appropriate and do not call EventBus. |
 | `{:error, reason}` | Treat as provider processing failure, emit safe telemetry, and do not call EventBus. |
 
+Command-shaped input is not automatically a normal conversation message. When
+Feishu classifies an accepted `/command` text as `bullx.command.invoked`, the
+adapter may publish the command Event with actor evidence and
+`data.actor.principal_ref = null` if no active Principal binding exists yet.
+System commands such as `/command` and `/status` use that path. Channel
+activation and login commands such as `/preauth` and `/web_auth` are
+adapter-local entry points and may be handled before EventBus. For EventBus
+commands, the adapter still does not choose the command handler, decide command
+authorization, or write command business facts.
+
 Principal resolution is identity evidence, not authorization. Downstream
 Principal, AuthZ, Governance, Capability, Target, and business layers still
 decide permission, budget, approval, and side effects.
@@ -493,11 +529,11 @@ Feishu maps provider occurrences to normalized BullX Event types:
 
 | Feishu occurrence | Normalized `type` | Notes |
 | --- | --- | --- |
-| `im.message.receive_v1` | `bullx.message.created` or `bullx.command.invoked` | Built-in direct commands are intercepted before EventBus. Other slash-style commands become command Events after Principal gating. |
+| `im.message.receive_v1` | `bullx.message.created` or `bullx.command.invoked` | Accepted EventBus slash-style text commands become command Events. Adapter-local `/preauth` and `/web_auth` are handled before EventBus. Ordinary text remains message content. |
 | Message update | `bullx.message.edited` | `refs` includes the Feishu message id. |
 | Message recall | `bullx.message.recalled` | Use source cache or provider lookup for missing chat context. |
 | Reaction create/delete | `bullx.reaction.changed` | `routing_facts.reaction_action` is `added` or `removed`. |
-| Interactive card action | `bullx.action.submitted` | Card values stay in sanitized content or `routing_facts` only when needed for routing. |
+| Interactive card action | `bullx.action.submitted` | CloudEvent id uses Feishu callback token when present; otherwise it is derived from message id, action id, and actor open id. Sanitized action values stay in `data.content` as action input. Routing facts include only stable non-private action identifiers. |
 
 Provider-specific names stay in `routing_facts.provider_event_type`, for example
 `im.message.receive_v1` or `card.action`. EventBus core must not maintain a
@@ -534,84 +570,49 @@ The adapter must not publish empty `data.content` for a user-origin Event. If a
 machine-only provider occurrence has no user-facing body, the adapter
 synthesizes a short text block so the EventBus payload contract remains valid.
 
-## Direct channel commands
+## Channel command normalization
 
-Direct channel commands are built-in BullX channel commands implemented by
-messaging adapters. The Feishu adapter handles `/ping`, `/preauth <code>`, and
-`/web_auth` before EventBus handoff. These command names are not Feishu-specific
-product concepts.
+Feishu distinguishes EventBus commands from adapter-local channel commands. When
+an accepted Feishu text message begins with an English system command such as
+`/command` or `/status`, or a localized alias such as Chinese `/命令` or `/状态`
+when that locale is active, the adapter normalizes it as
+`bullx.command.invoked` instead of `bullx.message.created`.
 
-Direct commands run after source lookup, transport verification, self-sent bot
-filtering, command parsing, and direct-command dedupe. Adapter-local dedupe
-stores the response result by stable Feishu occurrence id for
-`direct_command_dedupe_ttl_seconds`, so provider redelivery does not send
-duplicate command replies.
+`/preauth <code>` and `/web_auth` are channel activation/login commands. The
+Feishu adapter handles them locally through Principal/Auth services and safe
+Feishu replies, because they may need to run before a Principal binding exists
+and may use provider-private reply context. They are not published to EventBus
+as `bullx.command.invoked`.
 
-Only these built-in commands are intercepted. Other normalized text messages
-that start with `/` become `bullx.command.invoked` Events after Principal
-account gating.
+Command normalization runs after source lookup, transport verification,
+self-sent bot filtering, attention policy, and safe command-token parsing.
+Feishu stores only matcher-oriented facts in `data.routing_facts`:
 
-### `/ping`
+- `command_name`, the canonical English command name without the leading slash;
+- `command_namespace`, when the command grammar or source configuration defines
+  one;
+- `command_surface = "slash_text"`;
+- `command_args_kind`, such as `none` or `text`;
+- `attention_reason`.
 
-`/ping` is a manual connectivity command. It works in `p2p` and group chats,
-does not require Principal activation, and does not call
-`BullX.Principals.match_or_create_human_from_channel/1`.
+Command argument text may appear in normalized content only when the relevant
+command design allows it. Activation codes, login codes, callback secrets, and
+provider credentials must not enter EventBus `routing_facts`, telemetry, or logs.
 
-The adapter sends a localized reply through its own outbound transport boundary
-or through the common adapter `deliver/4` helper. The localized reply body is
-`PONG!` in bundled locales. The adapter acknowledges the Feishu occurrence only
-after the reply was accepted for transport or an equivalent duplicate result
-was found.
+The Event Routing Rule decides the Target for EventBus commands. System command
+routes for `/command` and `/status` target `target_type = "command"` through
+code-owned built-ins merged into the runtime route table. AIAgent conversation
+commands such as canonical `/new` must target AIAgent-owned command handling or
+remain ordinary AIAgent text commands when this adapter does not normalize them.
+Localized `/新会话` is an alias for canonical `/new`, not a separate routing
+concept. The Feishu adapter must not mutate Conversation, Message, or generation
+lease state directly.
 
-### `/preauth <code>`
-
-`/preauth <code>` consumes a BullX activation code and creates a new Human
-Principal with the current Feishu actor as the first channel binding.
-
-Flow:
-
-1. Reject group chats with localized DM-only guidance and do not consume the
-   code.
-2. Normalize the Feishu actor and trusted profile.
-3. Call `BullX.Principals.consume_activation_code(code, channel_actor)`.
-4. Send one localized Feishu reply through adapter outbound transport.
-5. Do not publish the command as an Event.
-
-Result mapping:
-
-| Principal result | Feishu reply key |
-| --- | --- |
-| `{:ok, _principal, _identity}` | `eventbus.feishu.auth.activation_success` |
-| `{:error, :invalid_or_expired_code}` | `eventbus.feishu.auth.activation_code_invalid` |
-| `{:error, :already_bound}` | `eventbus.feishu.auth.already_linked` |
-| `{:error, :principal_disabled}` | `eventbus.feishu.auth.denied` |
-| any other `{:error, _}` | `eventbus.feishu.auth.activation_failed` |
-
-### `/web_auth`
-
-`/web_auth` issues a built-in channel-auth login code for an already bound
-active Human Principal. It is separate from Feishu OIDC login and uses the
-Principal login-auth-code table.
-
-Flow:
-
-1. Reject group chats with localized DM-only guidance and do not issue a code.
-2. Normalize the Feishu actor and trusted profile.
-3. Call `BullX.Principals.issue_login_auth_code(:feishu, source_id, "feishu:" <> open_id)`.
-4. Render a localized reply containing the short-lived code and the generic Web
-   login URL.
-5. Send the reply through adapter outbound transport.
-6. Do not publish the command as an Event.
-
-Result mapping:
-
-| Principal result | Feishu reply key |
-| --- | --- |
-| `{:ok, code}` | `eventbus.feishu.auth.web_auth_created` |
-| `{:error, :not_bound}` | `eventbus.feishu.auth.web_auth_not_bound` |
-| `{:error, :principal_disabled}` | `eventbus.feishu.auth.denied` |
-| `{:error, :not_human}` | `eventbus.feishu.auth.web_auth_not_bound` |
-| any other `{:error, _}` | `eventbus.feishu.auth.web_auth_failed` |
+Provider redelivery of the same EventBus command message reuses the same
+CloudEvents `(source, id)` based on the Feishu message occurrence. Duplicate
+visible replies are prevented by EventBus dedupe and Command Target idempotency,
+not by an adapter-local command execution cache. Adapter-local `/preauth` and
+`/web_auth` flows use their own Principal/Auth idempotency and safe reply rules.
 
 ## Feishu OIDC login provider
 
@@ -640,13 +641,14 @@ provider state with Phoenix token infrastructure, and redirects the browser.
 
 Callback flow:
 
-1. Verify signed state, source id, adapter, nonce, age, and local `return_to`.
-2. Exchange the Feishu authorization `code` through
+1. Reject the source when `web_login_disabled = true`.
+2. Verify signed state, source id, adapter, nonce, age, and local `return_to`.
+3. Exchange the Feishu authorization `code` through
    `FeishuOpenAPI.Auth.user_access_token/3`.
-3. Fetch userinfo through the SDK with the returned user access token.
-4. Normalize a Principal login subject.
-5. Discard the Feishu user access token and refresh token.
-6. Pass the login subject to `BullX.Principals` for matching and session
+4. Fetch userinfo through the SDK with the returned user access token.
+5. Normalize a Principal login subject.
+6. Discard the Feishu user access token and refresh token.
+7. Pass the login subject to `BullX.Principals` for matching and session
    establishment.
 
 Login subject shape:
@@ -812,7 +814,7 @@ may add provider-specific suffixes under the same namespace:
 - `[:bullx, :event_bus, :adapter, :stream, :start]`
 - `[:bullx, :event_bus, :adapter, :stream, :stop]`
 - `[:bullx, :event_bus, :adapter, :feishu, :oidc, :callback]`
-- `[:bullx, :event_bus, :adapter, :feishu, :direct_command, :handled]`
+- `[:bullx, :event_bus, :adapter, :feishu, :command, :normalized]`
 
 Allowed metadata includes adapter id, plugin id, source id, provider event type,
 normalized Event type, hashed Event source, hashed Event id, scope id, thread
@@ -822,7 +824,7 @@ diagnostic code, retry delay, Feishu API code, Feishu `log_id`, and provider
 HTTP status code.
 
 Logs are part of the manual-run contract. Startup, WebSocket connection,
-inbound mapping, direct-command handling, EventBus acceptance, outbound delivery,
+inbound mapping, command normalization, EventBus acceptance, outbound delivery,
 stream consumption, and OIDC callback paths should emit safe structured log
 lines. Logs must not include secrets, tokens, OAuth codes, raw message bodies,
 raw callback payloads, private card values, attachment bytes, full
@@ -839,19 +841,8 @@ Add at least these keys in supported locales:
 ```toml
 [eventbus.feishu.auth]
 activation_required = "..."
-activation_success = "..."
-activation_code_invalid = "..."
-activation_failed = "..."
-already_linked = "..."
-web_auth_created = "..."
-web_auth_not_bound = "..."
-web_auth_failed = "..."
-login_not_bound = "..."
 denied = "..."
-direct_command_dm_only = "..."
-
-[eventbus.feishu.ping]
-pong = "PONG!"
+login_not_bound = "..."
 
 [eventbus.feishu.delivery]
 fallback_text = "..."
@@ -877,14 +868,18 @@ semantics before the payload is trusted.
 The adapter must:
 
 - drop self-sent bot messages before EventBus handoff;
-- reject `/preauth <code>` and `/web_auth` in group chats without consuming or
-  issuing secrets;
+- preserve channel, scope, chat type, actor, and safe command facts so
+  adapter-local `/preauth <code>` and `/web_auth` handlers can reject group-chat
+  use without consuming or issuing secrets;
+- reject Feishu OIDC login when source-level web login is disabled;
+- verify HTTP card-action callback raw bodies before converting them to
+  `%FeishuOpenAPI.CardAction{}`;
 - validate OIDC state, nonce, source id, age, and local `return_to`;
 - discard Feishu user tokens after userinfo retrieval;
 - keep Feishu access tokens, refresh tokens, app secrets, OAuth codes, raw
-  callback bodies, raw event payloads, private card values, and attachment bytes
-  out of Events, telemetry, logs, errors, stream metadata, and provider
-  receipts;
+  callback bodies, raw event payloads, unsanitized card private values, and
+  attachment bytes out of Events, telemetry, logs, errors, stream metadata, and
+  provider receipts;
 - keep provider credential values in `BullX.Config` secret storage;
 - keep provider ids as external evidence and let `BullX.Principals` own durable
   identity decisions.
@@ -905,8 +900,6 @@ For inbound occurrences, the adapter acknowledges Feishu only when one of these
 conditions is true:
 
 - the occurrence was intentionally ignored, such as a self-sent bot message;
-- an adapter-local direct command completed or a duplicate direct-command result
-  was found;
 - `BullX.EventBus.accept/2` returned accepted, duplicate, or accepted_ignored;
 - the provider requires a terminal response for a non-retryable malformed
   occurrence and retry would not produce a valid Event.
@@ -926,9 +919,10 @@ must not invent missing business facts.
 
 ### Goal
 
-Implement the Feishu plugin as one trusted plugin that exposes Feishu EventBus
-transport and Feishu Principal browser login while preserving the current
-Plugin, EventBus, Channel Adapter, StreamingOutput, and Principal boundaries.
+Implement the Feishu adapter plugin as one trusted plugin that exposes Feishu
+EventBus Channel Adapter transport and Feishu Principal browser login while
+preserving the current Plugin, EventBus, Channel Adapter, StreamingOutput, and
+Principal boundaries.
 
 ### Context pointers
 
@@ -937,6 +931,7 @@ Plugin, EventBus, Channel Adapter, StreamingOutput, and Principal boundaries.
 - `docs/design-docs/Plugins.md`
 - `docs/design-docs/Principal.md`
 - `docs/design-docs/eventbus/ChannelAdapter.md`
+- `docs/design-docs/eventbus/CommandTarget.md`
 - `docs/design-docs/eventbus/Core.md`
 - `docs/design-docs/eventbus/Matcher.md`
 - `docs/design-docs/eventbus/StreamingOutput.md`
@@ -978,6 +973,7 @@ Plugin, EventBus, Channel Adapter, StreamingOutput, and Principal boundaries.
      secret-key tests.
    - Depends on: Task 1.
    - Acceptance: `bullx.plugins.feishu.credentials` is secret,
+     card-action verification secrets stay in credential profiles,
      `eventbus_sources` validates enabled sources, source ids are stable, and
      public projections never reveal credentials.
    - Verify: config and secret writer tests.
@@ -996,7 +992,8 @@ Plugin, EventBus, Channel Adapter, StreamingOutput, and Principal boundaries.
    - Depends on: Tasks 2 and 3.
    - Acceptance: authorization URL generation and callback normalization produce
      a valid Principal login subject with provider set to the source id,
-     discard tokens, and fail closed without `open_id`.
+     discard tokens, respect source-level web login disablement, and fail
+     closed without `open_id`.
    - Verify: fake `FeishuOpenAPI` or `Req.Test` callback tests.
 
 5. Implement Feishu source connectivity and adapter capabilities.
@@ -1008,7 +1005,9 @@ Plugin, EventBus, Channel Adapter, StreamingOutput, and Principal boundaries.
 
 6. Implement inbound runtime and normalization.
    - Owns: `Feishu.SourceSupervisor`, `Feishu.Channel`,
-     `Feishu.EventMapper`, `Feishu.ContentMapper`.
+     `Feishu.EventMapper`, `Feishu.ContentMapper`,
+     `Feishu.CardActionController`, and the generic raw-body reader needed for
+     callback signature verification.
    - Depends on: Task 5.
    - Acceptance: WebSocket and card-action occurrences normalize to valid
      decoded CloudEvents for message, edited message, recalled message,
@@ -1016,14 +1015,15 @@ Plugin, EventBus, Channel Adapter, StreamingOutput, and Principal boundaries.
    - Verify: event-mapping tests and `BullX.EventBus.accept/2` integration tests
      with a fake EventBus or route table.
 
-7. Implement Principal account gate and direct commands.
-   - Owns: `Feishu.DirectCommand`, locale keys, Principal fixtures.
+7. Implement Principal account gate and command normalization.
+   - Owns: `Feishu.CommandNormalizer`, locale keys, Principal fixtures.
    - Depends on: Tasks 4 and 6.
    - Acceptance: normal user-origin Events call Principal matching before
-     EventBus acceptance; `/ping` bypasses Principal; `/preauth <code>` consumes
-     activation codes only in `p2p`; `/web_auth` issues login auth codes only
-     for bound active Humans.
-   - Verify: focused direct-command and Principal integration tests.
+     EventBus acceptance; `/command` and `/status` normalize to
+     `bullx.command.invoked` with actor evidence, optional `principal_ref`, and
+     command routing facts; `/preauth` and `/web_auth` run as adapter-local
+     channel activation/login commands.
+   - Verify: focused command-normalization and Principal integration tests.
 
 8. Implement outbound send and edit.
    - Owns: `Feishu.Outbound`, content rendering, media upload, reply fallback,
@@ -1044,8 +1044,8 @@ Plugin, EventBus, Channel Adapter, StreamingOutput, and Principal boundaries.
 10. Add telemetry, logs, locale coverage, and privacy tests.
     - Owns: Feishu modules and locale files.
     - Depends on: Tasks 4 through 9.
-    - Acceptance: safe telemetry/log metadata exists for startup, inbound,
-      direct-command, EventBus acceptance, delivery, streaming, and OIDC paths;
+   - Acceptance: safe telemetry/log metadata exists for startup, inbound,
+      command normalization, EventBus acceptance, delivery, streaming, and OIDC paths;
       locale tests fail on missing keys; secrets and raw payloads never appear
       in logs or safe errors.
 
@@ -1077,18 +1077,24 @@ Implementation should stop and ask if a change would require:
 - Connectivity checks verify app credentials without starting a source listener
   or leaking secrets.
 - Enabled Feishu sources start WebSocket listeners under plugin supervision.
+- Feishu card-action HTTP callbacks verify raw request bodies before adapter
+  handoff.
 - Feishu inbound occurrences normalize into valid decoded CloudEvents and call
   `BullX.EventBus.accept/2`.
-- Built-in direct channel commands behave as specified and do not publish
-  command Events.
+- Accepted Feishu `/command` and `/status` slash-text commands publish
+  `bullx.command.invoked` Events with command routing facts and no
+  adapter-owned EventBus command business side effects.
+- Feishu `/preauth` and `/web_auth` run as adapter-local channel
+  activation/login commands and do not publish EventBus command Events.
 - Feishu OIDC callback logs in or creates only Human Principals according to
   `BullX.Principals` matching rules.
 - Feishu outbound send, edit, and stream paths produce adapter-compatible
   outcomes or safe errors.
 - Self-sent bot messages are filtered before EventBus handoff.
-- Raw provider payloads, secrets, tokens, OAuth codes, private card values,
-  attachment bytes, and stream chunks do not enter telemetry, logs, safe errors,
-  Events, `routing_facts`, `reply_channel`, Oban args, or stream metadata.
+- Raw provider payloads, secrets, tokens, OAuth codes, unsanitized private card
+  values, attachment bytes, and stream chunks do not enter telemetry, logs,
+  safe errors, Events, `routing_facts`, `reply_channel`, Oban args, or stream
+  metadata.
 - No provider-owned routing layer, provider-owned identity system, or Feishu
   compatibility shim is introduced.
 
@@ -1097,7 +1103,7 @@ Verification commands:
 ```bash
 mix format --check-formatted
 # focused tests for plugin discovery, config, Principal login provider,
-# source connectivity, inbound normalization, direct commands, delivery,
+# source connectivity, inbound normalization, command normalization, delivery,
 # stream transport, telemetry, logging, and locale coverage
 MIX_ENV=test mix compile --warnings-as-errors
 bun precommit

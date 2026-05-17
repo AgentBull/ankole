@@ -33,6 +33,7 @@ PostgreSQL enum values:
 
 - `ai_agent`
 - `workflow`
+- `command`
 - `external_agent_harness`
 - `blackhole`
 
@@ -54,7 +55,9 @@ PostgreSQL enum values:
 
 ## `event_routing_rules`
 
-`event_routing_rules` is a durable logged table.
+`event_routing_rules` is a durable logged table for database-owned routing
+configuration. Code-owned built-in system command routes are not persisted in
+this table; `RoutingTable` merges them into the runtime snapshot from code.
 
 | Field | Type | Requirement |
 | --- | --- | --- |
@@ -64,7 +67,7 @@ PostgreSQL enum values:
 | `priority` | `integer` | Not null |
 | `match_expr` | `text` | Not null |
 | `target_type` | `eventbus_target_type` | Not null |
-| `target_ref` | `uuid` | Null only for Blackhole |
+| `target_ref` | `text` | Null only for Blackhole |
 | `scope_fields` | `text[]` | Not null |
 | `window_type` | `target_session_window_type` | Not null |
 | `window_ttl_seconds` | `integer` | Required only for `rolling_ttl` |
@@ -74,9 +77,13 @@ PostgreSQL enum values:
 Constraints and indexes:
 
 - Unique `priority` across all rows.
-- Check `priority > 0`.
+- Check `priority > 0`. Positive priorities are reserved for database-owned
+  rules. Code-owned built-in routes may use reserved negative priorities in the
+  runtime snapshot because they are not PostgreSQL rows.
 - Check `target_ref IS NULL` when `target_type = 'blackhole'`.
 - Check `target_ref IS NOT NULL` when `target_type <> 'blackhole'`.
+- Check `target_ref = btrim(target_ref)` and `target_ref <> ''` when
+  `target_type <> 'blackhole'`.
 - Check `window_ttl_seconds IS NOT NULL AND window_ttl_seconds > 0` when
   `window_type = 'rolling_ttl'`.
 - Check `window_ttl_seconds IS NULL` when `window_type = 'new_per_event'`.
@@ -95,7 +102,7 @@ Rule semantics and matcher behavior are defined in
 | `id` | `uuid` | Primary key, BullX-side UUIDv7 |
 | `event_routing_rule_id` | `uuid` | Not null |
 | `target_type` | `eventbus_target_type` | Not null |
-| `target_ref` | `uuid` | Not null |
+| `target_ref` | `text` | Not null |
 | `scope_key` | `text` | Not null |
 | `window_key` | `text` | Not null |
 | `status` | `target_session_status` | Not null |
@@ -105,6 +112,12 @@ Rule semantics and matcher behavior are defined in
 | `terminal_reason` | `text` | Null or safe terminal diagnostics |
 | `inserted_at` | `timestamptz` | Not null |
 | `updated_at` | `timestamptz` | Not null |
+
+`event_routing_rule_id` stores the matched route id from the runtime route-table
+snapshot. It may identify either a PostgreSQL `event_routing_rules.id` or a
+stable code-owned built-in route id. The column is not a foreign key;
+TargetSession runtime rows must remain able to reference code-owned routes that
+are not persisted in PostgreSQL.
 
 Constraints and indexes:
 
@@ -124,6 +137,11 @@ holding the `target_sessions` row lock, and it uses Oban unique job
 configuration to keep at most one non-terminal job for a `target_session_id`.
 
 Blackhole never creates TargetSessions.
+
+`target_ref` is an opaque stable Target reference. UUID-backed Targets store the
+canonical UUID string. Code-owned Targets, such as Command Target handlers, store
+stable registry ids such as `bullx.system.status`. EventBus runtime code must
+not derive module names from this value.
 
 ## `target_session_entries`
 
@@ -171,8 +189,8 @@ must have a default. Unless the implementation adds a clearer terminal
 timestamp, cleanup uses `updated_at` as the terminal timestamp.
 
 Cleanup does not directly delete active sessions. If an active session has
-exceeded `inserted_at + 24 hours`, cleanup first marks it `expired`, then applies
-terminal retention.
+exceeded `inserted_at + 24 hours` or its `expires_at` runtime window has passed,
+cleanup first marks it `expired`, then applies terminal retention.
 
 Streaming output retention and Redis cleanup belong to
 [TargetSession streaming output](./StreamingOutput.md).

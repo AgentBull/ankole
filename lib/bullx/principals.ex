@@ -24,4 +24,8 @@ defmodule BullX.Principals do
   defdelegate bootstrap_activation_code_valid_for_hash?(code_hash), to: AuthN
   defdelegate issue_login_auth_code(adapter, channel_id, external_id), to: AuthN
   defdelegate consume_login_auth_code(plaintext_code), to: AuthN
+
+  defdelegate login_provider_ids(server \\ BullX.Plugins.Registry),
+    to: BullX.Principals.LoginProviders,
+    as: :provider_ids
 end

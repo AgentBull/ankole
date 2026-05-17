@@ -12,7 +12,8 @@ Code.require_file("support/bootstrap.exs", __DIR__)
 config :bullx,
   namespace: BullX,
   ecto_repos: [BullX.Repo],
-  generators: [timestamp_type: :utc_datetime]
+  generators: [timestamp_type: :utc_datetime],
+  runtime_env: config_env()
 
 # Configure the endpoint
 config :bullx, BullXWeb.Endpoint,
@@ -61,6 +62,18 @@ config :localize,
   mf2_functions: %{}
 
 config :bullx, :i18n, locales_dir: "priv/locales"
+
+config :bullx, Oban,
+  repo: BullX.Repo,
+  queues: [target_sessions: 10],
+  plugins: false
+
+config :bullx, :event_bus,
+  target_session_idle_tick_ms: 5_000,
+  target_session_runtime_retention_seconds: 3_600,
+  target_session_cleanup_interval_ms: 60_000,
+  stream_retention_seconds: 900,
+  max_stream_chunk_bytes: 65_536
 
 # Import environment specific config. This must remain at the bottom
 # of this file so it overrides the configuration defined above.

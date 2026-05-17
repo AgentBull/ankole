@@ -92,16 +92,18 @@ If route table compilation or evaluation can exceed normal BEAM scheduler
 limits, the NIF must run as dirty CPU work.
 
 `BullX.EventBus.RoutingTable` owns the in-memory route table snapshot. On
-application boot, it loads active `event_routing_rules`, sorts them by
-`priority ASC`, and gives the snapshot to the Rust matcher for compilation or
-cache warmup. `EventBus.accept/2` routes against the most recent successfully
-compiled snapshot.
+application boot, it merges code-owned built-in routes with active PostgreSQL
+`event_routing_rules`, sorts the combined snapshot by `priority ASC`, and gives
+the snapshot to the Rust matcher for compilation or cache warmup.
+`EventBus.accept/2` routes against the most recent successfully compiled
+snapshot.
 
-The Event Routing Rule writer is the supported live-update path. After the
-writer changes the database, it refreshes or rebuilds the `RoutingTable`
-snapshot; the implementation may rebuild the full snapshot. Direct SQL edits
-are not a live update path. They take effect only after an explicit refresh or
-application restart.
+The Event Routing Rule writer is the supported live-update path for
+database-owned rules. After the writer changes the database, it refreshes or
+rebuilds the `RoutingTable` snapshot; the implementation may rebuild the full
+snapshot. Direct SQL edits are not a live update path. They take effect only
+after an explicit refresh or application restart. Code-owned built-in routes are
+changed by code deploy, not by `RuleWriter`.
 
 Rule writers must reject saving or activating a rule whose `match_expr` cannot
 compile. On application boot, if the active route table cannot compile, the
@@ -112,14 +114,19 @@ rule does not match for the current Event and telemetry records safe diagnostics
 ## Event Routing Rules
 
 Event Routing Rules are evaluated by numeric priority ascending. Smaller
-priority values have higher priority. `priority` is globally unique across all
-rows. Duplicate priority is invalid even when one duplicated row is inactive.
-There is no tie-breaker and no implicit specificity ordering.
+priority values have higher priority. `priority` is globally unique across the
+combined runtime snapshot. There is no tie-breaker and no implicit specificity
+ordering.
 
-The database enforces priority uniqueness with a unique constraint on
+Database-owned rules are stored in `event_routing_rules` with positive
+priorities. The database enforces priority uniqueness with a unique constraint on
 `priority` across all Event Routing Rule rows. Rule editor drag-sort operations
 must reorder priorities transactionally. The writer may use a deferrable unique
 constraint when supported, or a temporary-priority rewrite strategy.
+
+Code-owned built-in system command routes use reserved negative priorities and
+are not PostgreSQL rows. Their priorities must still be unique in the combined
+runtime snapshot and must not collide with any other code-owned route.
 
 The first matching rule is terminal. EventBus does not perform route fan-out. A
 fallback or wildcard rule is legitimate, but it is still ordered only by numeric
@@ -138,6 +145,7 @@ An Event Routing Rule declares:
 
 - `ai_agent`
 - `workflow`
+- `command`
 - `external_agent_harness`
 - `blackhole`
 
@@ -151,6 +159,18 @@ Blackhole is the only current terminal drop target name. Its behavior is:
 - Do not continue to fallback or lower-priority rules.
 
 Non-Blackhole targets require `target_ref`. Blackhole uses `target_ref = null`.
+For `target_type = "command"`, `target_ref` is a stable code-owned command
+handler id, command namespace, or command router id, such as
+`bullx.system.status` or `bullx.command_router.default`. The matcher treats it as
+opaque routing configuration; target dispatch resolves it through code-owned
+registries, never by constructing module names from database strings.
+
+Command rules typically match `type == "bullx.command.invoked"` and explicit
+`routing_facts` such as `routing_facts.command_name`. They should usually have
+higher priority than generic AIAgent message rules when a provider-native
+command should not enter a model loop. Current `/command` and `/status` system
+command routes are code-owned built-ins. Other Command Target rules can remain
+database-owned positive-priority rules.
 Blackhole rules do not create TargetSessions and do not use scope or window
 values, but the writer stores neutral defaults to keep the schema simple:
 
