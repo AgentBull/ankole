@@ -1,11 +1,11 @@
 # Principal
 
-BullX represents every durable internal actor as a `Principal`. Human accounts
-and Agents share the same identity, lifecycle, authorization subject, and audit
-subject, while type-specific facts live in extension tables. The first
-implementation uses `principals` as the base table, `human_users` and `agents`
-as one-to-one extension tables, and Principal-centered AuthN tables for external
-identity bindings, activation codes, and built-in channel login codes.
+BullX represents every durable internal subject as a `Principal`. Human
+accounts and Agent Principals share the same identity, lifecycle, authorization
+subject, and audit subject, while type-specific facts live in extension tables.
+The first implementation uses `principals` as the base table, `human_users` and
+`agents` as one-to-one extension tables, and Principal-centered AuthN tables for
+external identity bindings, activation codes, and built-in channel login codes.
 
 ## Scope
 
@@ -24,12 +24,12 @@ create or resolve Human Principals:
   implementation handoff.
 
 This design intentionally does not cover AuthZ groups, roles, permission grants,
-Cedar policy evaluation, audit record storage, Workflow routing, Work
-responsibility, Node execution, Capability use, approval or policy-gate Wait
-Nodes, Throw-bearing external side effects, Brain memory, external transport
-implementation, or full Web login route wiring. Those subsystems consume
-`principals.id` as their durable subject id after their own design docs define
-their tables and runtime behavior.
+Cedar policy evaluation, audit record storage, Event routing, TargetSession
+behavior, Workflow execution, Work responsibility, Workflow Node execution,
+Capability use, approval or policy behavior, high-risk external actions, Brain
+memory, external transport implementation, or full Web login route wiring. Those
+subsystems consume `principals.id` as their durable subject id after their own
+design docs define their tables and runtime behavior.
 
 ## Goals
 
@@ -41,7 +41,7 @@ their tables and runtime behavior.
 - Let Human Principals authenticate from external providers and channel actors
   without making transport code own BullX identity.
 - Let Agent Principals carry profile data without adding a new table or subtype
-  column before an Agent runtime design needs one.
+  column before an AIAgent runtime design needs one.
 - Keep bootstrap setup possible on a fresh Installation before an administrator
   exists.
 - Store all durable identity facts in PostgreSQL, with process-local state
@@ -60,7 +60,7 @@ their tables and runtime behavior.
 - The built-in channel-auth login provider defines code generation and
   verification only. Transport command handling and Web session route wiring
   can use those APIs after the relevant surfaces are rebuilt.
-- This design does not define Agent runtime or Agentic Loop profile schemas.
+- This design does not define AIAgent runtime or Agentic Loop profile schemas.
 - This design does not write administrator group membership. Bootstrap metadata
   marks the activation-code path that created the bootstrap Human Principal; the
   AuthZ design decides how that Principal becomes an administrator.
@@ -139,24 +139,26 @@ Human extension boundary explicit.
 
 ### Agent Principals
 
-An Agent Principal is the internal identity for an Agent. In this design, a
-non-SubAgent Agent is a first-class Agent Principal: it can be granted
-permission, disabled, audited, evaluated, and referenced across Segments and
-Workflow definitions. SubAgents are derived child Agentic Loop executions inside
-Workflow or Agent Node semantics; they do not become Agent Principals by default.
+An Agent Principal is the internal identity for an AIAgent. In this design, a
+non-SubAgent AIAgent is a first-class Agent Principal: it can be granted
+permission, disabled, audited, evaluated, and referenced by Event Routing Rules,
+Target executions, Workflow definitions, and business records. SubAgents are
+derived child Agentic Loop executions delegated by an AIAgent or Workflow; they
+do not become Agent Principals by default.
 
 An Agent Principal is not an LLM process, a chat bot, an Agentic Loop execution,
-an external harness invocation, or a long-lived BEAM process. Segment and Node
-outcome records capture per-execution facts. Non-AI Nodes do not become Agent
-Principals merely because they need audit records; if a non-AI Node later needs
-independent permission, a Service or System Principal is the right identity
-boundary.
+an External Agent Harness invocation, a TargetSession, a Workflow Node, or a
+long-lived BEAM process. Target, TargetSession, Workflow Node, and business
+records capture per-execution facts. Non-AI Workflow Nodes do not become Agent
+Principals merely because they need audit records; if a non-AI implementation
+later needs independent permission, a Service or System Principal is the right
+identity boundary.
 
 `agents.profile` is a required JSONB object. This design only guarantees the
 storage mechanism for Agent profile data. Runtime-specific profile validation
-belongs to the Agentic Loop, SubAgent, Workflow, or Capability design that
-introduces that runtime behavior. If a profile field becomes query-critical, a
-later migration can promote that field to a dedicated column.
+belongs to the AIAgent, Agentic Loop, SubAgent, Workflow, or Capability design
+that introduces that runtime behavior. If a profile field becomes query-critical,
+a later migration can promote that field to a dedicated column.
 
 `agents.created_by_principal_id` is nullable. It records creation provenance
 when a Human or system Principal created the Agent, without defining ownership,
@@ -717,10 +719,10 @@ private tokens. Human profile fields such as email and phone are personally
 identifiable information and should appear in logs only when needed for operator
 diagnosis and never alongside secrets.
 
-Agent-executed Nodes can produce outputs, call Capabilities, and lead to
-downstream Throw-bearing Nodes, but this design does not authorize outbound
-actions. High-risk external side effects belong behind explicit approval or
-policy-gate Wait Nodes in the Workflow graph.
+AIAgents and Workflow Nodes can produce outputs, call Capabilities, and lead to
+high-risk external actions, but this design does not authorize outbound actions.
+High-risk external side effects belong behind explicit approval or policy gates
+in the Target, Workflow, Capability, or Governance design that performs them.
 
 ## Alternatives considered
 
@@ -765,9 +767,9 @@ the schema and behavior in this design.
 - Use PostgreSQL native enum types for closed value sets.
 - Store `uid` lowercase and globally unique.
 - Store code hashes only; never store plaintext activation or login codes.
-- Do not add AuthZ tables, group membership, Cedar policy, Workflow routing,
-  Work, Capability use, approval or policy-gate Wait Node behavior, or
-  Throw-bearing side-effect execution behavior in this implementation.
+- Do not add AuthZ tables, group membership, Cedar policy, Event routing,
+  TargetSession behavior, Work, Capability use, approval or policy behavior, or
+  high-risk external action execution behavior in this implementation.
 - Do not add a long-lived Principal supervisor unless a new design states the
   failure boundary.
 
@@ -856,7 +858,7 @@ the schema and behavior in this design.
 - `bun precommit` passes.
 
 Implementation should stop and ask if a change would introduce AuthZ tables,
-Agent runtime processes, a credential store, non-Human login, activation-code
+AIAgent runtime processes, a credential store, non-Human login, activation-code
 binding to existing Principals, or a new Principal type.
 
 ## Acceptance criteria

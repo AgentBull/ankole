@@ -1,37 +1,54 @@
 # BullX High-Level Architecture
 
 BullX is an AgentOS for AI colleagues. It accepts Events from chat, webhooks,
-timers, human operations, and child tasks; routes each Event to its Target
-through an Event Routing Rule; and invokes the Target through a TargetSession.
+timers, human operations, and child tasks; routes each Event whose matched
+Target is not Blackhole through an Event Routing Rule; and invokes that
+Target through a TargetSession. A Blackhole match accepts the Event without
+creating a TargetSession.
 
 The EventBus owns the global Event Routing Rule table. When an Event arrives,
-the EventBus performs a priority-ordered short-circuit match against that
-table, taking the first matching rule. Each Event Routing Rule declares a
-match condition, a Target, and how the scope and time window of the
-TargetSession are determined.
+the EventBus evaluates Event Routing Rules by numeric priority ascending:
+the smaller priority value has higher priority. Duplicate priority is
+invalid. There is no tie-breaker and no implicit specificity ordering. The
+first matched rule is terminal. Each Event Routing Rule declares a match
+condition, a Target, and how the scope and time window of the TargetSession
+are determined.
 
-A Target is an Event consumer and handler. The typical Targets are AIAgent
-and Workflow. An AIAgent is an AI colleague: it can process Events directly,
-hold conversations, use tools, advance Work, request human help, and use the
+A Target is an Event consumer and handler. The typical processing Targets
+are AIAgent and Workflow; Blackhole is the only current terminal drop
+Target.
+An AIAgent is an AI colleague: it can process Events directly, hold
+conversations, use tools, advance Work, request human help, and use the
 Brain. A Workflow is an explicit process suited for branching, approval,
 parallelism, and deterministic steps.
 
 A TargetSession is the execution window formed by one Event Routing Rule
 within a particular scope and time window. It receives the Events matched by
-that rule within the window and dispatches them to the Target. A
-TargetSession may be carried by an Oban Job, but the Event itself is not
-written into the Oban Job arguments — Events arrive through a side channel.
+that rule within the window and dispatches them to the Target. In the
+current runtime, every non-Blackhole TargetSession is carried by one
+long-running Oban Job. The Oban Job is the alive TargetSession session
+owner: its `perform/1` runs until the TargetSession is closed, expired,
+failed, or reaches the hard max runtime. The hard max runtime for one
+TargetSession Job is 24 hours. The Job is not a short one-entry worker, and
+it does not normally snooze or reschedule after each entry. Oban Job
+arguments contain only TargetSession identity and minimal diagnostics
+metadata. Event payloads are never written into Oban Job arguments; Events
+enter TargetSessions through the TargetSession side channel.
 
 The EventBus and TargetSession layer is responsible for Event delivery and
-execution-window management. It does not hold business facts. It may retain
-runtime records for delivery, retry, or observability, but those records are
-not business facts. Business facts are stored by business-layer objects:
+execution-window management. Event Routing Rules are durable configuration.
+TargetSession runtime records and side-channel entries are weak PostgreSQL
+runtime state. TargetSession output stream buffers use weak Redis runtime
+state. These runtime records are not business facts. Business facts are
+stored by business-layer objects:
 conversations live in Conversation and Message, durable responsibility lives
 in Work and Task, approvals live in ApprovalRequest, child tasks live in
-ChildRun, long-term memory and representation live in Brain, and cost lives
-in Budget. Once a TargetSession closes, any later approval, callback, or
-child-task completion arrives as a new Event on the EventBus and enters a
-new TargetSession.
+ChildRun, long-term memory and representation live in Brain, costs and
+quotas live in Budget, produced outputs live in Artifact when they must be
+durable, and audit or domain records hold other committed business facts.
+Once a TargetSession closes, expires, or fails, any later approval,
+callback, or child-task completion arrives as a new Event on the EventBus
+and enters a new TargetSession.
 
 One BullX Installation is one deployment and one operating domain. A
 Connected Realm provides an external identity and event space. Principal,
@@ -45,26 +62,31 @@ belong to their respective design documents.
 
 ## Minimal execution model
 
-The minimal execution model of BullX is: an Event enters the EventBus, the
-EventBus matches an Event Routing Rule, and a TargetSession invokes the
-Target.
+The minimal non-Blackhole execution model of BullX is: an Event enters the
+EventBus, the EventBus matches an Event Routing Rule, and a TargetSession
+invokes the Target.
 
 ```text
 Event arrives
-  -> EventBus short-circuit matches the first Event Routing Rule by priority
-  -> the matched Event Routing Rule creates or reuses a TargetSession
+  -> EventBus evaluates Event Routing Rules by numeric priority ascending
+  -> the first matched non-Blackhole rule creates or reuses a TargetSession
   -> the Event enters the TargetSession
   -> the TargetSession invokes the Target
   -> the Target processes the Event
 ```
 
-The EventBus routes Events to matching TargetSessions. The Target and the
-business layer decide how the business processing happens, what data is
-written, and what outbound messages are sent.
+The EventBus routes Events whose first matched rule targets a non-Blackhole
+Target to matching TargetSessions. The Target and the business layer decide
+how the business processing happens, what data is written, and what outbound
+messages are sent.
 
-By default, only the first matching Event Routing Rule accepts an Event. If
+By default, only the first matched Event Routing Rule accepts an Event. If
 an Event must trigger multiple paths, the matched Target expresses that
 explicitly.
+
+If the first matched Event Routing Rule targets Blackhole, the EventBus
+accepts the Event as `accepted_ignored`. That match is still terminal and
+does not create a TargetSession.
 
 ## Core vocabulary
 
@@ -83,19 +105,21 @@ accounts, Event sources, login assertions, and outbound credentials.
 Internal BullX identity is expressed by Principal.
 
 **EventBus** The EventBus is the Event entry point of BullX. It receives
-Events, short-circuit matches Event Routing Rules by priority, and dispatches
-Events into TargetSessions.
+Events, evaluates Event Routing Rules by numeric priority ascending, and
+dispatches Events whose first matched Target is not Blackhole into
+TargetSessions.
 
 **Event Routing Rule** An Event Routing Rule is an entry in the global
 routing table. It describes the Event match condition, the Target invoked on
-match, and the scope and time window of the resulting TargetSession. Its
+match, and the scope and time window of the resulting TargetSession. Each
+rule has a unique numeric priority; smaller values are evaluated first. Its
 responsibility is limited to routing; business processing belongs to the
 Target.
 
 **Target** A Target is the consumer and handler invoked when an Event
 Routing Rule matches. A Target may be an AIAgent, a Workflow, a
-Blackhole / Ignore, an External Agent Harness, or another Target defined by
-a subsequent design document.
+Blackhole, an External Agent Harness, or another Target defined by a
+subsequent design document.
 
 **TargetSession** A TargetSession is the execution window formed by one
 Event Routing Rule within a particular scope and time window. It receives
@@ -103,9 +127,14 @@ the Events matched by that rule within the window and dispatches them to the
 Target.
 
 **TargetSession side channel** The TargetSession side channel is the runtime
-path by which an Event reaches a TargetSession. It is not an Oban Job
-argument, and it is not a business-fact store. Its concrete implementation
-belongs to the corresponding runtime design document.
+path by which an Event reaches a TargetSession. It is a weak runtime
+mailbox backing store, not an Oban Job argument and not a business-fact
+store. The alive TargetSession Job drains side-channel entries in stable
+order and invokes `Target.handle_event` one entry at a time. EventBus
+provides at-least-once delivery to Target, not exactly-once Target
+execution. Business side effects must remain idempotent in Target,
+Capability, and business layers. The concrete table schema belongs to the
+EventBus design document.
 
 **AIAgent** An AIAgent is an AI colleague. It can serve directly as a
 Target, handling conversations, long-running work, judgment, collaboration,
@@ -169,13 +198,20 @@ three things:
 - which Target receives the Event on match,
 - how the scope and time window of the TargetSession are determined.
 
-The responsibility of an Event Routing Rule ends at routing. When it
-matches, it creates or reuses a TargetSession, writes the Event into the
-TargetSession side channel, and lets the TargetSession invoke the Target.
+Event Routing Rules are evaluated by numeric priority ascending: smaller
+priority value means higher priority. Duplicate priority is invalid. There
+is no tie-breaker and no implicit specificity ordering. The first matched
+rule is terminal. EventBus does not perform route fan-out; if one Event must
+trigger multiple paths, the matched Target expresses that fan-out.
 
-Wildcard and default rules are legitimate. An Event not accepted by any more
-specific rule may match a fallback Event Routing Rule and enter a default
-Target or a Blackhole / Ignore Target.
+The responsibility of an Event Routing Rule ends at routing. When a
+non-Blackhole rule matches, it creates or reuses a TargetSession, writes the
+Event into the TargetSession side channel, and lets the TargetSession invoke
+the Target.
+
+Wildcard and default rules are legitimate, but they are still ordered only
+by numeric priority. An Event not accepted by a higher-priority rule may
+match a fallback Event Routing Rule and enter a default Target or Blackhole.
 
 ## Target
 
@@ -188,8 +224,15 @@ Typical Targets include:
   work, judgment, collaboration, memory, and tool use.
 - **Workflow** — an explicit-process consumer suited for branching,
   approval, parallelism, deterministic steps, and external actions.
-- **Blackhole / Ignore** — an explicit drop of the Event.
+- **Blackhole** — an explicit terminal drop of the Event.
 - **External Agent Harness** — a Codex-style external Agent runtime.
+
+Blackhole is the only current terminal drop Target. If the first matched
+Event Routing Rule targets Blackhole, EventBus accepts the Event as
+`accepted_ignored`. Blackhole does not create a TargetSession, does not
+append a TargetSession side-channel entry, and does not create an Oban Job.
+EventBus must not continue to fallback or lower-priority rules after
+Blackhole.
 
 Different Event Routing Rules pointing to the same Target form different
 TargetSessions by default. The same Target can be invoked by many
@@ -202,20 +245,58 @@ A TargetSession is the execution window formed by one Event Routing Rule
 within a particular scope and time window. It receives the Events matched by
 that rule within the window and dispatches them to the Target.
 
-A TargetSession may be carried by an Oban Job. The Oban Job arguments hold
-only meta information such as the TargetSession identity, the Event Routing
-Rule identity, the Target identity, the scope, and `expires_at`. The Event
-is not written into the Oban Job arguments; it arrives through the
-TargetSession side channel.
+TargetSession identity is the TargetSession record id. `scope_key` and
+`window_key` are reuse keys, not identity. A single TargetSession has a hard
+max lifetime of 24 hours.
 
-Once a TargetSession is closed or expires, it does not accept new business
-Events. Later approval clicks, callbacks, ChildRun completion events, later
-IM replies, and Time Events return through the EventBus. If those Events
-need to continue the same business work, the EventBus matches the
-corresponding Event Routing Rule and creates or reuses a new TargetSession.
+In the current runtime, every non-Blackhole TargetSession is carried by one
+long-running Oban Job. The Oban Job is the alive TargetSession session
+owner. Its `perform/1` runs until the TargetSession is closed, expired,
+failed, or reaches the hard max runtime. The hard max runtime for one
+TargetSession Job is 24 hours. The Oban Job is not a short one-entry worker,
+and it does not normally snooze or reschedule after each side-channel entry.
+
+Event payloads are never written into Oban Job arguments. Oban Job arguments
+contain only TargetSession identity and minimal diagnostics metadata. Events
+enter TargetSessions through a side channel, not through Oban Job arguments.
+The side channel is a weak runtime mailbox backing store. The alive
+TargetSession Job drains side-channel entries in stable order and invokes
+`Target.handle_event` one entry at a time. EventBus provides at-least-once
+delivery to Target, not exactly-once Target execution. Business side effects
+must remain idempotent in Target, Capability, and business layers.
+
+Once a TargetSession is closed, expired, or failed, it is not reopened and
+does not accept new business Events. Later approval clicks, callbacks,
+ChildRun completion events, later IM replies, and Time Events return through
+the EventBus. If those Events need to continue the same business work, the
+EventBus matches the corresponding Event Routing Rule and may create a new
+TargetSession with the same `scope_key` and `window_key` when the old
+TargetSession is no longer reusable.
 
 A TargetSession is an execution window. The business layer holds the
 complete business history and business facts.
+
+## Runtime output stream
+
+The TargetSession output stream buffer is required runtime infrastructure
+for AIAgent and Workflow streaming output. The stream buffer is runtime
+output state, not Event routing, not an inbound Event log, and not a
+business transcript. It supports reconnect, resume, and follow behavior for
+clients. Client disconnect does not mean producer abort.
+
+BullX v1 uses Redis for TargetSession output stream runtime buffering and
+live stream follow. Redis stream state is weak runtime state with TTL and
+retention. Redis stream state is not audit truth, not business transcript,
+and not durable replay truth. Missing or expired Redis stream state means
+resume returns `unavailable` or `no_content`.
+
+Redis is not the inbound Event side channel. Redis does not replace Oban.
+Redis is not used as the TargetSession accepted Event mailbox.
+
+If generated output should become business history, the Target or business
+layer must commit it as Conversation / Message or another business fact.
+Streaming output does not change Event Routing Rule, TargetSession, or
+Target semantics.
 
 ## Installation and Connected Realm
 
@@ -392,8 +473,8 @@ privacy policy belong to the Trajectory / Learning design document.
 ## Persistence boundary
 
 The EventBus and TargetSession layer is responsible for Event delivery and
-execution-window management. It does not store business facts. Business
-facts are stored by the business layer:
+execution-window management. EventBus and TargetSession runtime records are
+not business facts. Business facts are stored by the business layer:
 
 - Conversation / Message holds AIAgent conversations.
 - Work / Task holds long-running responsibility and task state.
@@ -402,18 +483,20 @@ facts are stored by the business layer:
 - Artifact holds produced outputs.
 - Brain holds long-term memory, representation, and reasoning-style memory.
 - Budget holds cost and quota.
+- Audit and domain records hold other committed business facts.
 
-PostgreSQL is the source of truth for committed business facts. The
-EventBus, TargetSession, and other runtime layers may retain runtime
-records for delivery, buffering, retry, observability, and coordination.
-Those runtime records are not business facts and are not cross-TargetSession
-business identities. Their concrete storage shape belongs to the runtime
-design document.
+PostgreSQL is the source of truth for committed business facts. Event
+Routing Rules are durable configuration. The v1 EventBus and TargetSession
+side-channel runtime uses weak PostgreSQL runtime state: TargetSession
+runtime records and side-channel entries are weak runtime records, not audit
+truth and not business facts. Their exact table schema belongs to the
+EventBus design document.
 
 Business objects express continuity across many TargetSessions; a closed
 TargetSession does not carry that continuity. After a TargetSession closes,
-later approvals, callbacks, child-task completions, or user replies arrive
-as new Events on the EventBus and enter new TargetSessions.
+expires, or fails, later approvals, callbacks, child-task completions, or
+user replies arrive as new Events on the EventBus and enter new
+TargetSessions.
 
 Typed reference chains among business objects express the structured
 identity of one piece of business work. For example, an Issue references a
@@ -432,8 +515,8 @@ streaming chunk, or every runtime forwarding step.
 ## Subsequent Events and cross-window continuity
 
 A subsequent Event may continue the same piece of business work, but it
-does not return to a TargetSession that has closed or expired. Human
-approval, supplemental information, human takeover, correction, task
+does not return to a TargetSession that has closed, expired, or failed.
+Human approval, supplemental information, human takeover, correction, task
 completion, external callback, and ChildRun completion all arrive as new
 Events on the EventBus and are routed to a new TargetSession by the
 corresponding Event Routing Rule.
@@ -449,16 +532,11 @@ A cross-day approval flow looks like this:
 Initial Event matches an Event Routing Rule
   -> TargetSession invokes Target
   -> Target writes ApprovalRequest
-  -> TargetSession closes or expires
+  -> TargetSession closes, expires, or reaches the hard max runtime
   -> days later, an approval click becomes a new Event
   -> EventBus matches the corresponding Event Routing Rule
   -> a new TargetSession invokes the Target
 ```
-
-Some Targets produce streaming output, such as an AIAgent reply. Streaming
-delivery is an implementation detail of the Target or the message channel.
-It does not change the core model of Event Routing Rule, TargetSession, and
-Target.
 
 ## Time Event
 
@@ -480,7 +558,7 @@ privately remind the responsible owner, without replying in the group.
 ### One Event drives process logic
 
 A budget-freeze message matches a Workflow Target. Inside the Workflow,
-branches handle customer success, financial risk, and the ignore path.
+branches handle customer success, financial risk, and the no-op path.
 Those branches belong to the Workflow Target.
 
 ### Multi-turn IM conversation
@@ -528,6 +606,12 @@ Event and enters a new TargetSession.
 This document does not define:
 
 - Concrete table schemas.
+- Concrete EventBus table schemas, enum definitions, Rust NIF APIs, CEL
+  details, or stream chunk table fields.
+- Redis key names, Lua script details, Ecto migration details, detailed
+  stream resume algorithms, or full telemetry lists.
+- Exact EventBus public API return structs or route matcher NIF
+  implementation details.
 - Concrete runtime modules, supervision trees, Worker implementations, or
   Oban queue configuration.
 - A concrete Event Routing Rule DSL, Target registry, Workflow DSL, or UI
@@ -549,24 +633,68 @@ This document does not define:
 ## Design invariants
 
 - Event is the input signal.
-- The EventBus short-circuit matches Event Routing Rules by priority.
+- The EventBus evaluates Event Routing Rules by numeric priority ascending;
+  smaller priority value means higher priority.
+- Duplicate Event Routing Rule priority is invalid; there is no tie-breaker
+  and no implicit specificity ordering.
+- The first matched Event Routing Rule is terminal.
+- EventBus performs no route fan-out; one Event can trigger multiple paths
+  only when the matched Target expresses that fan-out.
 - An Event Routing Rule is a match condition plus a Target plus a
   TargetSession scope.
-- By default, only the first matching Event Routing Rule accepts the Event.
+- By default, only the first matched Event Routing Rule accepts the Event.
 - Target is the Event consumer and handler.
-- The typical Targets are AIAgent and Workflow.
+- The typical processing Targets are AIAgent and Workflow.
+- Blackhole is the only current terminal drop Target. A first matched
+  Blackhole rule accepts the Event as `accepted_ignored`, creates no
+  TargetSession, appends no TargetSession side-channel entry, creates no
+  Oban Job, and does not fall through to lower-priority rules.
 - An AIAgent may serve directly as a Target without first being modeled as
   a Workflow.
 - Workflow is the explicit-process Target; BullX may also process Events
   directly through an AIAgent.
 - A TargetSession is the execution window formed by one Event Routing Rule
   within a particular scope and time window.
-- An Event is not written into the Oban Job arguments.
-- An Event arrives through the TargetSession side channel.
-- A closed or expired TargetSession does not accept new business Events.
+- TargetSession identity is the TargetSession record id; `scope_key` and
+  `window_key` are reuse keys, not identity.
+- A single TargetSession has a hard max lifetime of 24 hours.
+- In the current runtime, every non-Blackhole TargetSession is carried by an
+  Oban Job. The Oban Job is the alive TargetSession session owner, and its
+  `perform/1` runs until the TargetSession is closed, expired, failed, or
+  reaches the 24-hour hard max runtime.
+- The Oban Job is not a short one-entry worker and does not normally snooze
+  or reschedule after each side-channel entry.
+- Oban Job arguments contain only TargetSession identity and minimal
+  diagnostics metadata.
+- Event payloads are never written into Oban Job arguments.
+- Events arrive through the TargetSession side channel, not through Oban Job
+  arguments.
+- The TargetSession side channel is a weak runtime mailbox backing store.
+- The alive TargetSession Job drains side-channel entries in stable order and
+  invokes `Target.handle_event` one entry at a time.
+- EventBus provides at-least-once delivery to Target, not exactly-once Target
+  execution; business side effects must remain idempotent in Target,
+  Capability, and business layers.
+- A closed, expired, or failed TargetSession is not reopened and does not
+  accept new business Events; a later Event may create a new TargetSession
+  with the same `scope_key` and `window_key`.
+- TargetSession output stream buffers are required runtime infrastructure for
+  AIAgent and Workflow streaming output.
+- Runtime output stream buffers are runtime output state, not Event routing,
+  inbound Event logs, or business transcripts.
+- BullX v1 uses Redis for TargetSession output stream runtime buffering and
+  live stream follow.
+- Redis stream state is weak runtime state with TTL and retention; it is not
+  audit truth, not business transcript, and not durable replay truth.
+- Missing or expired Redis stream state means resume returns `unavailable` or
+  `no_content`.
+- Redis is not the inbound Event side channel, does not replace Oban, and is
+  not used as the TargetSession accepted Event mailbox.
 - Business objects express cross-window continuity; a closed TargetSession
   does not carry that continuity.
-- Business facts are persisted by business-layer objects.
+- Business facts are persisted by business-layer objects such as
+  Conversation / Message, Work / Task, ApprovalRequest, ChildRun, Brain,
+  Budget, Artifact, and audit or domain records.
 - An Installation is the single operating domain of BullX; a Connected
   Realm is an external identity and event space.
 - Principal is the internal identity root; external accounts and Adapters
@@ -584,8 +712,10 @@ This document does not define:
 - Sandbox runtime state is transient; only explicitly recorded Artifacts,
   Logs, Patches, tool results, costs, and status records affect later
   business processing.
-- PostgreSQL holds committed business facts; runtime records carry only
-  delivery, buffering, retry, observability, and coordination duties.
+- PostgreSQL holds committed business facts. Event Routing Rules are durable
+  configuration. v1 EventBus and TargetSession side-channel runtime uses weak
+  PostgreSQL runtime state for TargetSession runtime records and side-channel
+  entries.
 - Typed business-object reference chains express the structured identity of
   one piece of business work; the EventBus and TargetSession do not assign
   an additional business-process instance ID.

@@ -1,87 +1,73 @@
 ---
 name: bullx-design-doc-writing
-description: Write or revise BullX design documents (./docs/design-docs/*.md)  from drafts, notes, codebase context, or user-provided scope. Use only when the requested deliverable is a new or changed shareable design doc. Do not use for simply reading, inspecting, summarizing, comparing, or answering questions about existing design docs; read those files directly.
+description: Write or revise BullX design documents (./docs/design-docs/*.md) from drafts, notes, codebase context, or user-provided scope. Use only when the requested deliverable is a new or changed shareable design doc. Do not use for simply reading, inspecting, summarizing, comparing, or answering questions about existing design docs; read those files directly.
 ---
 
 # BullX Design Docs
 
 ## Purpose
 
-Produce shareable BullX design docs for Coding Agents and human senior engineers. A committed BullX design doc records current intended design, not a proposal status, roadmap, tutorial, or transcript of the drafting process.
+A BullX design doc tells a coding agent two things: the system that exists now, and the system to build. The committed doc is the implementation source of truth, not a debate transcript, roadmap, or tutorial.
 
-This skill is an authoring and editing workflow. Do not invoke it when the task is only to read, inspect, summarize, compare, or answer questions about existing design docs. For those tasks, read the relevant files directly and follow `AGENTS.md`.
+The primary reader is a coding agent. The secondary reader is a senior engineer who reviews or maintains the design. Optimize for both: an agent must be able to execute without inventing architecture, and a human reviewer must be able to audit the decision and its surfaces quickly.
 
-Design docs are useful when the design is ambiguous, cross-cutting, expensive to reverse, or likely to require senior review. If the requested change is obvious and narrow, prefer a mini design doc or inline plan unless the user explicitly asks for a full document.
+Use this skill when the deliverable is a new or revised design doc. Do not invoke it to read, summarize, or answer questions about an existing doc; read the file directly.
 
-The document should make the selected software design easier to review, implement, and maintain. It should expose the problem, the chosen high-level implementation strategy, the tradeoffs, and the reason the design is worth writing down.
-
-Codex may be one reader, but never the only reader. A BullX design doc may include implementation handoff detail, but the committed artifact must still read as a design record for humans.
+Write a full design doc when the design is ambiguous, cross-cutting, expensive to reverse, or likely to require senior review. For narrow fixes or obvious changes, prefer a mini design doc or an inline plan.
 
 ## Workflow
 
-1. Read the user draft or notes first. Preserve explicit decisions unless they contradict the requested scope or `AGENTS.md`.
-2. Decide whether the task needs a full design doc, a mini design doc, a review, or a focused edit. Keep the output proportional to the ambiguity and implementation risk.
-3. Read the repo-root `AGENTS.md` before writing, then inspect any files, modules, tests, migrations, or existing docs named by the user.
-4. Search for existing utilities, patterns, public contracts, schemas, runtime boundaries, and design docs before proposing new entities or abstractions.
-5. Identify the smallest coherent scope:
-   - What problem or feature is actually being designed?
-   - Does a baseline story change the design, or can it be omitted?
-   - What appetite or complexity budget constrains the solution?
-   - How constrained is the solution space by existing code, APIs, data, operations, or product decisions?
-   - What can be deleted or reused?
-   - What code path, process, schema, Signal, Intent, Effect, or public contract changes?
+1. Read the user draft, notes, or scope first. Preserve explicit decisions unless they contradict `AGENTS.md` or the request.
+2. Read repo-root `AGENTS.md`, then inspect the modules, schemas, migrations, routes, tests, and docs the user names.
+3. Search for existing utilities, patterns, contracts, and design docs before proposing new entities or abstractions.
+4. Decide whether the task needs a full design doc, a mini design doc, a review, or a focused edit. Keep output proportional to ambiguity and implementation risk.
+5. Identify the smallest coherent scope by answering, in order:
+   - What system exists now?
+   - What system should exist after this change?
    - What invariant must remain true?
-   - What rabbit holes and no-gos must be named to keep scope tractable?
-   - What command will verify the implementation?
-6. Do not add status, owner, author, contact, or proposal/current-state metadata. In this repository, committed design docs have one status: current intended design.
-7. Draft from summary and scope toward lower-level implementation detail. Put the key decision and reason near the top.
-8. Include alternatives considered for full design docs. At minimum, address plausible alternatives such as reuse, doing nothing, or the locally obvious competing design.
-9. Add an implementation handoff when the doc will guide Coding Agents or human implementers. Use explicit goal, context pointers, constraints, ordered tasks, done-when criteria, and verification commands.
-10. Edit with `references/writing-rules.md` when polishing prose, reviewing a draft, or producing a shareable document.
-11. Delete unused sections, placeholders, meta-writing, abandoned alternatives, and explanations a competent senior Elixir/Rust/React engineer would already know.
-12. If implementation invalidates a design assumption before shipping, update the design doc. After shipping, prefer a linked follow-up note over silently rewriting history.
-13. If the user asked for a review rather than a rewrite, report omissions, contradictions, and harmful ambiguities before style edits.
+   - What is intentionally out of scope?
+   - What command verifies the implementation?
+6. Draft from summary toward lower-level detail. Put the decision and its reason in the first paragraph.
+7. Use `references/design-doc-template.md` as a menu, not a checklist. Delete every section that carries no information.
+8. Add an `Implementation` section when the doc drives execution. State ordered steps, the files each step owns, a local acceptance check per step, and a verification command (default `bun precommit`).
+9. Run an editing pass with `references/writing-rules.md` before returning a shareable document.
+10. If the user asked for a review rather than a rewrite, report omissions, contradictions, and harmful ambiguities before any style edits.
+11. If implementation invalidates a design assumption before shipping, update the doc. After shipping, prefer a linked follow-up note over silently rewriting history.
 
-## Document Shape
+## Document shape
 
-Use `references/design-doc-template.md` when creating a new doc or when the existing draft has no usable structure. Treat it as a menu, not a mandatory checklist. Use `references/writing-rules.md` for the editing pass.
+The committed doc records current intended design. Drop anything that does not serve a coding agent who needs to know the current system and the target system.
 
-Keep the final doc focused on the current design intent:
+Do not include:
 
-- Include technical goals, non-goals, architectural changes, implementation outline, task breakdown, acceptance criteria, and relevant operational/security/privacy/accessibility considerations.
-- Include concrete module, file, schema, process, API, and test expectations when they are known or can be inferred safely from the codebase.
-- Include enough context to make the decision understandable after six months of code changes. Link or name supporting docs instead of restating them.
-- When the document should guide implementation, include an `Implementation Handoff` section that works as a bounded execution plan rather than a conversational prompt.
-- Use dependency graphs, flow diagrams, or sequence diagrams when they make interactions clearer. Prefer Mermaid for text docs.
-- If Shape Up ideas help, translate them into the existing design-doc structure instead of adding a separate pitch template: baseline in `Context`, appetite in `Scope`, no-gos in `Non-Goals`, and rabbit holes in `Risks And Tradeoffs`.
-- Prefer current-state and implementation-facing language. Avoid timelines, future-roadmap sections, release schedules, speculative "phase 2" lists, and vague "future work" unless the user explicitly asks.
-- Keep open questions only for behavior-changing ambiguities. Do not use open questions as a dumping ground for nice-to-have uncertainty.
+- alternatives, rejected options, or comparisons against designs that were not chosen;
+- status, owner, author, contact, or proposal-stage metadata;
+- timelines, future-roadmap sections, release schedules, or speculative phase lists;
+- abstract goal lists when the summary already states the decision;
+- meta-writing about the drafting process;
+- placeholder prose, empty headings, or TODO theater.
 
-## Implementation Handoff
+Keep:
 
-When a design doc doubles as a `PLANS.md`-style execution artifact, make the handoff useful for both Codex and humans:
+- the decision and its reason, near the top;
+- the existing-system surfaces the design touches;
+- the target system, in implementation-facing terms;
+- concrete module, file, schema, process, API, and test names when known or safely inferred;
+- diagrams only when they reduce ambiguity;
+- open questions only for behavior-changing ambiguity.
 
-- State `Goal`, `Context Pointers`, `Constraints`, `Tasks`, and `Done When` explicitly.
-- Name the repo paths, docs, examples, errors, migrations, modules, routes, tests, and commands that matter.
-- Keep durable repository rules in `AGENTS.md`; reference those rules instead of duplicating them.
-- Break implementation into ordered, reviewable tasks with dependencies, file ownership, and per-task acceptance checks.
-- Mark tasks as design-time work items, not live status. Do not use fake progress states such as "in progress" in committed design docs.
-- Specify verification commands and expected evidence. For BullX, default to `bun precommit` unless a narrower command is justified.
-- Identify where Codex should stop and ask a targeted question because the ambiguity changes behavior, persistence, security, or failure handling.
-- Avoid instructing Codex to produce preambles, status chatter, or an upfront conversational plan during rollout. The design doc is the plan; the implementation agent should execute, verify, and summarize outcomes.
-
-## BullX-Specific Constraints
+## BullX-specific constraints
 
 Use BullX vocabulary and boundaries:
 
 - Use `Installation`, not SaaS-style `Tenant`, unless a design doc explicitly introduces a different boundary.
-- Use `Principal`, `Agent`, `Signal`, `Admission`, `Work`, `Mission`, `Capability`, `Intent`, `Governance`, `Effect`, `Outcome`, and `Brain` according to the repo guidance.
-- Do not recreate deleted legacy business subsystems or compatibility shims without an explicit design source.
-- Do not encode long-term table design, queue topology, adapter inventory, or runtime process models as implemented facts unless the design doc is specifically defining them.
+- Use `Principal`, `Agent`, `Signal`, `Admission`, `Work`, `Mission`, `Capability`, `Intent`, `Governance`, `Effect`, `Outcome`, and `Brain` per repo guidance.
+- Do not recreate deleted legacy subsystems or compatibility shims without an explicit design source.
+- Do not encode long-term table design, queue topology, adapter inventory, or runtime process models as implemented facts unless the design doc is defining them.
 - PostgreSQL is durable truth. Process-local state must be described as ephemeral and reconstructible unless the design explicitly changes that invariant.
-- If a UUID primary key is involved, specify BullX-side UUIDv7 generation through `BullX.Ext.gen_uuid_v7/0` / `BullX.Ecto.UUIDv7`, not database-side random UUID defaults.
+- Generate UUIDv7 primary keys through `BullX.Ext.gen_uuid_v7/0` or `BullX.Ecto.UUIDv7`, not database-side random UUID defaults.
 
-## First-Principles Filter
+## First-principles filter
 
 Before adding detail, apply this filter:
 
@@ -89,24 +75,23 @@ Before adding detail, apply this filter:
 - Reuse or delete before inventing.
 - Edge-case handling should match ROI and the stated guarantee. More handling is not automatically better.
 - A weaker explicit guarantee is better than a stronger guarantee the implementation cannot maintain.
-- If no OTP failure boundary changes, do not propose supervision tree changes.
-- If a tradeoff is already settled, evaluate consistency inside that tradeoff instead of relitigating it.
+- If no OTP failure boundary changes, do not propose supervision-tree changes.
+- If a tradeoff is already settled, evaluate consistency inside it instead of relitigating it.
 
-## Error And Failure Behavior
+## Error and failure behavior
 
 When the design changes error handling, validation, APIs, background jobs, external effects, or operator recovery, make the failure behavior explicit:
 
-- Identify what fails, who observes the failure, and what durable fact or log records it.
+- Identify what fails, who observes the failure, and what durable record or log captures it.
 - Avoid silent failure paths.
 - Preserve root-cause information for operators without leaking secrets or private data.
-- Specify user-facing or developer-facing error messages when wording affects behavior.
-- State retry, idempotency, rollback, and manual recovery behavior only when the design actually changes them.
+- State retry, idempotency, rollback, and manual recovery only when the design changes them.
 
 ## Diagrams
 
-Use diagrams only when they reduce ambiguity. Sequence diagrams are useful for controller/domain/storage paths, signal admission, governance/effect flow, external capability execution, and restart/reconstruction behavior.
+Use diagrams only when they reduce ambiguity. Sequence diagrams help for controller/domain/storage paths, signal admission, governance/effect flow, external capability execution, and restart/reconstruction behavior. Prefer Mermaid in text docs.
 
-Example shape:
+Example:
 
 ```mermaid
 sequenceDiagram
@@ -121,21 +106,18 @@ sequenceDiagram
 
 Keep diagrams structural. Do not add decorative diagrams or diagrams that merely restate adjacent prose.
 
-## Editing Pass
+## Quality bar
 
-Before returning a shareable document, run a reduction pass with `references/writing-rules.md`. Keep only sections that support the stated scope, make the first paragraph carry the decision, and remove wording that belongs in a prompt transcript rather than a design record.
-
-## Quality Bar
-
-The finished design doc should let a Coding Agent implement without inventing architecture. It should also let a human reviewer see the chosen scope, public contracts, data/runtime changes, risks, and verification path quickly.
+A finished design doc lets a coding agent implement without inventing architecture, and lets a human reviewer see the chosen scope, public contracts, data and runtime changes, failure behavior, and verification path quickly.
 
 Reject or revise content that is:
 
+- alternatives, rejected options, or proposal-stage scaffolding;
 - generic senior-engineer advice;
 - schedule planning instead of design intent;
 - meta-writing about the drafting process;
 - broad architecture not required by the task;
 - compatibility scaffolding without a caller;
 - unbounded future-proofing;
-- generic "risks and mitigations" that do not name a BullX-specific failure mode;
+- generic risks-and-mitigations that name no BullX-specific failure mode;
 - empty headings, TODO theater, or placeholder prose.

@@ -17,11 +17,11 @@ This design covers the host-side plugin system:
 - startup behavior for enabled plugin children.
 
 This design sits below `docs/Architecture.md`. It defines the host mechanics
-that subsystem docs use when a Catch source adapter, Node Executor, AuthN
-provider, Capability provider, or other integration needs plugin-provided
-implementation. It does not define a specific product plugin, Workflow graph
-semantics, Catch correlation semantics, Node contracts, AuthN provider models,
-or Capability/Governance policy.
+that subsystem docs use when an Adapter, Workflow Node executor, AuthN
+provider, Capability provider, Model Provider, Target integration, or other
+integration needs plugin-provided implementation. It does not define a specific
+product plugin, EventBus routing semantics, TargetSession behavior, Workflow
+Node contracts, AuthN provider models, or Capability/Governance policy.
 
 ## Goals
 
@@ -34,9 +34,10 @@ or Capability/Governance policy.
   the same resolution and encryption behavior as core settings.
 - Make invalid plugin contracts fail close to startup instead of producing
   partially registered hooks.
-- Make Catch source adapters, Node Executor implementations, and Capability
-  providers normal extension-point consumers without making the plugin host own
-  Workflow execution semantics.
+- Make Adapters, Workflow Node executor implementations, Target integrations,
+  and Capability providers normal extension-point consumers without making the
+  plugin host own Event routing, TargetSession, or Workflow execution
+  semantics.
 - Keep the plugin host as a registry and supervisor, not a general event
   pipeline.
 
@@ -160,12 +161,14 @@ An extension point is a typed contract owned by a BullX subsystem. The plugin
 host stores declarations and provides lookup APIs, but it does not define the
 call semantics for every extension point.
 
-Typical extension-point consumers include implementations that a Workflow design
-uses during Signal admission and Catch matching, Node Executor implementations,
-and Capability providers. A plugin can therefore contribute entry-point
-adapters, Node executors, or Capability providers, but the registry only records
-declarations. The owning Workflow or subsystem design decides how each
-declaration is invoked, authorized, audited, streamed, retried, or recovered.
+Typical extension-point consumers include Adapters that turn external system
+input into Events, Workflow Node executor implementations, Target integrations,
+AuthN providers, Model Providers, and Capability providers. A plugin can
+therefore contribute entry-point Adapters, Workflow Node executors, Target
+integrations, or Capability providers, but the registry only records
+declarations. The owning EventBus, Target, Workflow, or subsystem design decides
+how each declaration is invoked, authorized, audited, streamed, retried, or
+recovered.
 
 Each extension declaration contains:
 
@@ -264,10 +267,10 @@ external services directly.
 
 Subsystem extension-point contracts remain responsible for authorization,
 auditing, risky outbound effects, and Governance. The plugin host does not
-decide whether an incoming Signal can match a Catch and start a Segment, whether
-a Node can execute, whether a Capability call is authorized, or whether a
-Throw-bearing Node with external side effects has passed the required policy or
-approval gates.
+decide whether an incoming Event can match an Event Routing Rule, whether a
+TargetSession is created, whether a Target or Workflow Node can execute, whether
+a Capability call is authorized, or whether a high-risk external action has
+passed the required policy or approval gates.
 
 Secret plugin configuration uses `BullX.Config` secret persistence. PostgreSQL
 stores ciphertext, ETS stores plaintext inside the BEAM trust boundary, and

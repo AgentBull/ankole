@@ -11,6 +11,8 @@ BullX is an AgentOS for working side by side with self-directed AI Colleagues.
 
 Built on Elixir/OTP, PostgreSQL, and Redis, BullX is designed for durable digital work across enterprises, teams, and one-person companies.
 
+OTP's lightweight processes, supervision trees, and message-passing isolation map naturally onto fleets of long-running, fault-tolerant AI Agents — see [Why OTP is a better runtime for multi-agent orchestration](https://ding.ee/en-US/why-otp-is-a-better-runtime-for-multi-agent-orchestration/) for the longer argument.
+
 Chatbots made LLMs conversational. The [OpenClaw](https://grokipedia.com/page/OpenClaw) and [Hermes-Agent](https://hermes-agent.nousresearch.com/docs/user-stories) generation gave agents hands: channels, tools, skills, shell and browser access, memory files, subagents, and scheduled work. [Dify](https://docs.dify.ai/en/use-dify/getting-started/key-concepts), RPA, and RAG workflow builders made it easier to package AI into specific business apps. BullX is designed for the next step: AI Colleagues that do accountable work over time, inside an operating model that can be audited, recovered, governed, and improved.
 
 BullX is built around AI Agents as colleagues, not RAG support bots or digital assistants waiting for instructions. A BullX Agent can carry a long-term mission, own KPI/OKR-style goals, hold responsibility, work over long horizons, collaborate with humans or other Agents, and improve from trajectory data.

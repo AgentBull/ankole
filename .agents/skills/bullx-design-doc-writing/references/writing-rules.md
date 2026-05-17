@@ -45,7 +45,7 @@ Apply these rules during the edit pass. They are distilled from the referenced G
 - Prefer a mini design doc for incremental work that still has tradeoffs.
 - Do not write an implementation manual disguised as a design doc. If no design choice exists, use an inline implementation plan.
 - Keep requirements and design distinct. Requirements define what the system must do; the design doc explains how the software should satisfy those requirements and why that approach was chosen.
-- Capture context and scope, goals and non-goals, the selected design, alternatives considered, and cross-cutting concerns.
+- Capture context and scope, goals and non-goals, the selected design, and cross-cutting concerns. Do not include alternatives or rejected options in the committed doc.
 - State the degree of constraint when it affects the design. Greenfield designs need narrowing rules; constrained existing systems need explicit tradeoffs about how available pieces compose.
 - Keep API and schema sketches at the level needed for the design decision. Avoid copying full interface definitions that will drift from code.
 - Include code or pseudocode only when it explains a novel algorithm or non-obvious mechanism.
@@ -173,7 +173,7 @@ Before accepting `writing-rules.md` output or a generated design doc, confirm th
 
 - Does the opening state the key decision, scope, and reason to read?
 - Are terms, acronyms, links, diagrams, lists, tables, code snippets, and dates styled consistently?
-- Are goals, non-goals, alternatives, tradeoffs, and rejected options explicit enough for future maintenance?
+- Are goals, non-goals, and deliberate tradeoffs explicit enough for future maintenance?
 - Are BullX invariants, persistence guarantees, failure behavior, security, privacy, governance, accessibility, and verification covered when relevant?
 - If implementation will be driven from the doc, does the handoff identify context pointers, constraints, tasks, dependencies, done-when checks, and stop-and-ask conditions?
 - Does every section justify its existence under the stated scope?
