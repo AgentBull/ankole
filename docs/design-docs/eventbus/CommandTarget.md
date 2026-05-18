@@ -1,20 +1,21 @@
 # Command Target
 
 Command Target is the first-class Target implementation for normalized command
-Events that do not require an AIAgent model loop. It lets `/command`, `/status`,
-and similar system or info commands run through EventBus, Event Routing Rules,
-TargetSession, Principal, AuthZ, Governance, Capability, and Channel Adapter
-boundaries without making AIAgent runtime a generic command dispatcher.
+Events that do not require an AIAgent model loop. It lets canonical command names
+such as `command` and `status`, with localized slash aliases normalized by
+Channel Adapters, run through EventBus, Event Routing Rules, TargetSession,
+Principal, AuthZ, Governance, Capability, and Channel Adapter boundaries without
+making AIAgent runtime a generic command dispatcher.
 
-Not every command Event routes to Command Target. Canonical `/new` remains an
-AIAgent conversation command by default because it mutates Conversation, Message
-branch, generation lease, prompt context, or model/tool recovery state.
-`/新会话` is a localized alias for canonical `/new`; both normalize to
-`data.routing_facts.command_name = "new"` when an adapter emits
-`bullx.command.invoked`. Provider-native command Events can target AIAgent only
-through an explicit AIAgent-owned command service or by entering AIAgent as
-ordinary message text when the adapter does not normalize the provider input as
-`bullx.command.invoked`.
+Not every command Event routes to Command Target. Canonical command name `new`
+remains an AIAgent conversation command by default because it mutates
+Conversation, Message branch, generation lease, prompt context, or model/tool
+recovery state. The default slash token `/new` and localized aliases such as
+`/新会话` both normalize to `data.routing_facts.command_name = "new"` when an
+adapter emits `bullx.command.invoked`. Provider-native command Events can target
+AIAgent only through an explicit AIAgent-owned command service or by entering
+AIAgent as ordinary message text when the adapter does not normalize the
+provider input as `bullx.command.invoked`.
 
 ## Scope
 
@@ -23,6 +24,7 @@ This design defines:
 - `target_type = "command"` as a v1 EventBus Target type.
 - Command Target dispatch through stable `target_ref` values and code-owned
   command registries.
+- Canonical command names and localized slash alias normalization.
 - The input contract between TargetSession side-channel entries and command
   handlers.
 - Command handler output, visible reply, idempotency, failure, and close
@@ -258,12 +260,14 @@ to Channel Adapters by default. They may create auth/preauth/login records or
 return safe setup instructions through adapter-owned transport flows. They must
 use Principal, AuthZ, and Connected Realm facts and do not call a model.
 
-AIAgent conversation commands such as canonical `/new`, `/reset`, `/compress`,
-`/retry`, `/undo`, and `/title` remain owned by AIAgent runtime by default,
-because they mutate Conversation, Message branch, generation lease, prompt
-context, or model/tool recovery state. Localized aliases such as `/新会话` are
-normalized to the same canonical command before routing. Command Target may
-later delegate to an AIAgent command service, but it must not directly edit
+AIAgent conversation command names such as `new`, `reset`, `compress`, `retry`,
+`undo`, and `title` remain owned by AIAgent runtime by default, because they
+mutate Conversation, Message branch, generation lease, prompt context, or
+model/tool recovery state. Default slash tokens such as `/new` and `/compress`,
+and localized aliases such as `/新会话` or `/压缩`, normalize to the same
+canonical command names before routing. If a normalized AIAgent conversation
+command routes to Command Target, the only valid handling is delegation through
+an AIAgent-owned command service. Command Target must not directly edit
 Conversation internals unless AIAgent exposes that service boundary.
 
 Run-control commands such as `/stop`, `/queue`, and `/steer` may be Command
@@ -323,7 +327,7 @@ Command Target:
 - uses the Channel Adapter outbound boundary
 - does not call a model
 
-### Example C: `/new` and `/新会话`
+### Example C: `new` command aliases
 
 Provider-native `/new` and localized `/新会话` normalize to canonical
 `command_name = "new"`. That command may target an AIAgent command handler when
@@ -333,6 +337,19 @@ detection through the same canonical command catalog.
 
 Do not route `/new` to a generic system command handler unless that handler
 delegates through an AIAgent-owned Conversation reset boundary.
+
+### Example D: `compress` command aliases
+
+Provider-native `/compress` and localized aliases such as `/压缩` normalize to
+canonical `command_name = "compress"`. This is an AIAgent conversation command
+because it changes future prompt context through summary overlay state. It may
+target an AIAgent-owned command service after adapter normalization, or reach
+AIAgent as plain text when the adapter does not normalize the provider input as
+`bullx.command.invoked`.
+
+Do not route `compress` to a generic system command handler. Command Target may
+delegate only through the AIAgent-owned compression boundary; it must not write
+summary Messages or move Conversation leaves directly.
 
 ## Non-goals
 
@@ -373,9 +390,12 @@ boundaries.
   and outbound delivery transport boundaries.
 - `docs/design-docs/eventbus/SystemCommands.md` defines the concrete current
   system command catalog.
-- `internals/design-docs/drafts/AgenticLoop.md` defines AIAgent-owned
-  Conversation commands such as canonical `/new` and localized alias
-  `/新会话`.
+- `internals/design-docs/drafts/AgenticLoopCore.md` defines AIAgent-owned
+  Conversation command ownership, including canonical command names and
+  localized aliases.
+- `internals/design-docs/drafts/AgenticLoopContextCompressionAndCaching.md`
+  defines the AIAgent-owned `compress` command outcome and summary overlay
+  boundary.
 - `docs/design-docs/Principal.md` and `docs/design-docs/AuthZ.md` define
   Principal evidence and authorization boundaries.
 
@@ -426,9 +446,9 @@ boundaries.
 
 6. Add AIAgent command boundary tests.
    - Owns: cross-doc behavior tests where AIAgent runtime exists.
-   - Check: canonical `/new` and localized aliases such as `/新会话` remain
-     AIAgent-owned unless explicitly delegated through an AIAgent command
-     service.
+   - Check: canonical AIAgent command names such as `new` and `compress`, plus
+     localized aliases such as `/新会话` and `/压缩`, remain AIAgent-owned unless
+     explicitly delegated through an AIAgent command service.
 
 ### Done when
 
@@ -449,9 +469,10 @@ Focused tests cover:
   EventBus does not parse `data.content` slash text.
 - Command Target visible replies go through the Channel Adapter boundary, not
   provider-specific modules.
-- Canonical `/new` and localized aliases such as `/新会话` remain AIAgent-owned
-  unless explicitly delegated through an AIAgent command service; generic
-  Command Target does not mutate Conversation internals directly.
+- Canonical AIAgent command names such as `new` and `compress`, plus localized
+  aliases such as `/新会话` and `/压缩`, remain AIAgent-owned unless explicitly
+  delegated through an AIAgent command service; generic Command Target does not
+  mutate Conversation internals directly.
 - Unauthorized admin command writes safe diagnostic/audit records and returns
   `:ok`; infrastructure failure returns `{:error, reason}`.
 

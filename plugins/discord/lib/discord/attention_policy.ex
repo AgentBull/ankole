@@ -1,7 +1,12 @@
 defmodule Discord.AttentionPolicy do
   @moduledoc false
 
-  @spec decide(map(), Discord.Source.t(), term()) :: {:ok, String.t()} | {:ignore, atom()}
+  @type decision ::
+          {:ok, String.t()}
+          | {:ambient, String.t()}
+          | {:ignore, atom()}
+
+  @spec decide(map(), Discord.Source.t(), term()) :: decision()
   def decide(%{} = message, %Discord.Source{} = source, command_result) do
     channel_id = stringify_id(Map.get(message, "channel_id"))
     guild_id = stringify_id(Map.get(message, "guild_id"))
@@ -30,6 +35,9 @@ defmodule Discord.AttentionPolicy do
 
       channel_id in source.attention["free_response_channel_ids"] or source.attention["require_mention"] == false ->
         {:ok, "free_response"}
+
+      source.im_listen_mode == :all_messages ->
+        {:ambient, "unaddressed"}
 
       true ->
         {:ignore, :unmentioned_guild_message}

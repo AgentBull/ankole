@@ -43,7 +43,8 @@ defmodule BullxTelegram.ChannelAdapter do
       outbound_ops: [:send, :edit, :stream],
       content_kinds: [:text, :image, :audio, :video, :file, :card],
       features: [:reply, :threads, :attention_policy],
-      stream_strategy: :edit_accumulate
+      stream_strategy: :edit_accumulate,
+      im_listen_modes: Source.im_listen_modes()
     }
   end
 

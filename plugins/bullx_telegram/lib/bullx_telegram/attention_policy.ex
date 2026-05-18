@@ -1,7 +1,10 @@
 defmodule BullxTelegram.AttentionPolicy do
   @moduledoc false
 
-  @type decision :: {:ok, String.t()} | {:ignore, atom()}
+  @type decision ::
+          {:ok, String.t()}
+          | {:ambient, String.t()}
+          | {:ignore, atom()}
 
   @spec decide(map(), BullxTelegram.Source.t(), term()) :: decision()
   def decide(%{} = message, %BullxTelegram.Source{} = source, command_result) do
@@ -41,6 +44,9 @@ defmodule BullxTelegram.AttentionPolicy do
 
       chat_id in source.attention["free_response_chat_ids"] or source.attention["require_mention"] == false ->
         {:ok, "free_response"}
+
+      source.im_listen_mode == :all_messages ->
+        {:ambient, "unaddressed"}
 
       true ->
         {:ignore, :unmentioned_group_message}

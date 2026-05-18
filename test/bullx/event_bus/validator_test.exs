@@ -35,7 +35,7 @@ defmodule BullX.EventBus.ValidatorTest do
       "specversion" => "1.0",
       "id" => "event-1",
       "source" => "feishu://connected-realm/default",
-      "type" => "bullx.message.created",
+      "type" => "bullx.im.message.addressed",
       "time" => "2026-05-17T10:00:00Z",
       "datacontenttype" => "application/json",
       "data" => %{

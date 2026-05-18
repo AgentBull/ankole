@@ -15,6 +15,8 @@ defmodule Discord.Source do
   @default_stream_update_interval_ms 1_000
   @default_stream_chunk_soft_limit 1_850
   @default_auto_archive_duration_minutes 1_440
+  @default_im_listen_mode :addressed_only
+  @im_listen_modes [:addressed_only, :all_messages]
   @discord_message_hard_limit 2_000
 
   @derive {Inspect, except: [:bot_token, :client_secret]}
@@ -45,6 +47,7 @@ defmodule Discord.Source do
     thread_ownership_cache_ttl_seconds: @default_thread_ownership_cache_ttl_seconds,
     stream_update_interval_ms: @default_stream_update_interval_ms,
     stream_chunk_soft_limit: @default_stream_chunk_soft_limit,
+    im_listen_mode: @default_im_listen_mode,
     req_options: [],
     api_module: Discord.Rest,
     start_transport?: true,
@@ -52,6 +55,10 @@ defmodule Discord.Source do
   ]
 
   @type t :: %__MODULE__{}
+
+  @doc "Supported IM listen modes for transport admission."
+  @spec im_listen_modes() :: [atom()]
+  def im_listen_modes, do: @im_listen_modes
 
   @spec normalize(t() | map()) :: {:ok, t()} | {:error, map()}
   def normalize(%__MODULE__{} = source), do: {:ok, source}
@@ -66,6 +73,7 @@ defmodule Discord.Source do
          {:ok, auto_thread} <- normalize_auto_thread(Map.get(config, "auto_thread", %{})),
          {:ok, application_commands} <-
            normalize_application_commands(Map.get(config, "application_commands", %{})),
+         {:ok, im_listen_mode} <- im_listen_mode(Map.get(config, "im_listen_mode")),
          {:ok, req_options} <- optional_keyword(config, "req_options", []) do
       application_id = Map.fetch!(credential, "application_id")
 
@@ -110,6 +118,7 @@ defmodule Discord.Source do
              1,
              @discord_message_hard_limit
            ),
+         im_listen_mode: im_listen_mode,
          req_options: req_options,
          api_module: module_or(config, "api_module", Discord.Rest),
          api_base: present_string(Map.get(config, "api_base")),
@@ -167,6 +176,7 @@ defmodule Discord.Source do
       "attention" => source.attention,
       "auto_thread" => source.auto_thread,
       "application_commands" => source.application_commands,
+      "im_listen_mode" => Atom.to_string(source.im_listen_mode),
       "start_transport" => source.start_transport?
     }
     |> reject_nil_values()
@@ -342,6 +352,13 @@ defmodule Discord.Source do
   end
 
   defp normalize_application_commands(_value), do: {:error, Error.config("Discord application_commands config must be an object")}
+
+  defp im_listen_mode(nil), do: {:ok, @default_im_listen_mode}
+  defp im_listen_mode(value) when value in [:addressed_only, "addressed_only"], do: {:ok, :addressed_only}
+  defp im_listen_mode(value) when value in [:all_messages, "all_messages"], do: {:ok, :all_messages}
+
+  defp im_listen_mode(_value),
+    do: {:error, Error.config("Discord im_listen_mode must be addressed_only or all_messages")}
 
   defp ensure_oauth2_config(%__MODULE__{} = source) do
     case source.oauth2["enabled"] == true and not oauth2_enabled?(source) do

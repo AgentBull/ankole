@@ -341,11 +341,11 @@ Skills, call external APIs, delegate SubAgents, create Work and Tasks,
 request human help, and use Brain, all under permission and Budget
 constraints.
 
-An AIAgent should declare its long-term goals, KPIs, the Work it can
-handle, the Skills it can read, the models, Model Providers, Integrations,
-Capabilities, and SubAgent runtimes it can call. It should also declare its
-outbound identity, its Agent Principal, its Budget constraints, and how its
-results enter Brain and KPI evaluation.
+An AIAgent should declare its mission, responsibility boundaries, KPIs, the
+Work it can handle, the Skills it can read, the models, Model Providers,
+Integrations, Capabilities, and SubAgent runtimes it can call. It should also
+declare its outbound identity, its Agent Principal, its Budget constraints,
+and how its results enter Brain and KPI evaluation.
 
 An AIAgent may read context provided by Brain; its conversations, tool
 results, Work processing, and external Events may become inputs that Brain

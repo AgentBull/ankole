@@ -13,11 +13,11 @@ Elixir/OTP、PostgreSQL、Redis 上に構築され、enterprise department、sma
 
 Chatbot は LLM を会話可能にしました。[OpenClaw](https://grokipedia.com/page/OpenClaw) と [Hermes-Agent](https://hermes-agent.nousresearch.com/docs/user-stories) の世代は、Agent に手を与えました。channels、tools、skills、shell/browser、memory files、SubAgent、scheduled work です。[Dify](https://docs.dify.ai/en/use-dify/getting-started/key-concepts)、RPA、RAG workflow builder は、AI を specific business app として package しやすくしました。BullX が目指すのはその次です。AI Colleague が audit、recovery、governance、learning が可能な operating model の中で長期的に work を担うことです。
 
-BullX の中心にあるのは、RAG customer-support bot でも、指示を待つ digital assistant でもなく、AI Colleague としての Agent です。BullX Agent は long-term mission、KPI/OKR-style goals、responsibility、long-term memory、permission、outbound identity を持ち、長い時間軸で働き、人間や他の Agent と協働し、trajectory data から改善します。
+BullX の中心にあるのは、RAG customer-support bot でも、指示を待つ digital assistant でもなく、AI Colleague としての Agent です。BullX Agent は long-term mission、KPI/OKR-style success metrics、responsibility、long-term memory、permission、outbound identity を持ち、長い時間軸で働き、人間や他の Agent と協働し、trajectory data から改善します。
 
 BullX は「もう一つの chat interface」を目指していません。AI Colleague を durable work system に組み込みます。
 
-- **Agent** は long-term mission、responsibility、permission、memory、outbound identity、KPI/OKR-style goals を持ちます。
+- **Agent** は long-term mission、responsibility、permission、memory、outbound identity、KPI/OKR-style success metrics を持ちます。
 - **EventBus** は現実世界と system 内部の Event を受け取り、Event Routing Rule に従って、受理された Event を適切な Target に送ります。
 - **Target** が work を処理します。多くの場合は柔軟な判断を担う AIAgent、または明示的な process structure を担う Workflow です。
 - **TargetSession** は runtime work に scope と time window を与えます。durable business facts は Conversation、Work、ApprovalRequest、ChildRun、Brain、Budget、domain record に残ります。

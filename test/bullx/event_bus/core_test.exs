@@ -37,7 +37,7 @@ defmodule BullX.EventBus.CoreTest do
       RuleWriter.create_rule(%{
         name: "ignore all",
         priority: 10,
-        match_expr: "type == \"bullx.message.created\"",
+        match_expr: "type == \"bullx.im.message.addressed\"",
         target_type: :blackhole
       })
 
@@ -58,7 +58,7 @@ defmodule BullX.EventBus.CoreTest do
       RuleWriter.create_rule(%{
         name: "first route",
         priority: 10,
-        match_expr: "type == \"bullx.message.created\"",
+        match_expr: "type == \"bullx.im.message.addressed\"",
         target_type: :ai_agent,
         target_ref: target_ref,
         scope_fields: ["channel.adapter", "channel.id", "scope.id"],
@@ -72,7 +72,7 @@ defmodule BullX.EventBus.CoreTest do
       RuleWriter.create_rule(%{
         name: "ignore later",
         priority: 5,
-        match_expr: "type == \"bullx.message.created\"",
+        match_expr: "type == \"bullx.im.message.addressed\"",
         target_type: :blackhole
       })
 
@@ -88,7 +88,7 @@ defmodule BullX.EventBus.CoreTest do
       RuleWriter.create_rule(%{
         name: "route message",
         priority: 20,
-        match_expr: "type == \"bullx.message.created\"",
+        match_expr: "type == \"bullx.im.message.addressed\"",
         target_type: :ai_agent,
         target_ref: target_ref,
         scope_fields: ["channel.adapter", "channel.id", "scope.id", "scope.thread_id"],
@@ -119,7 +119,7 @@ defmodule BullX.EventBus.CoreTest do
       RuleWriter.create_rule(%{
         name: "route with stale job",
         priority: 25,
-        match_expr: "type == \"bullx.message.created\"",
+        match_expr: "type == \"bullx.im.message.addressed\"",
         target_type: :ai_agent,
         target_ref: target_ref,
         scope_fields: ["channel.adapter", "channel.id", "scope.id"],
@@ -158,7 +158,7 @@ defmodule BullX.EventBus.CoreTest do
       RuleWriter.create_rule(%{
         name: "one shot",
         priority: 30,
-        match_expr: "type == \"bullx.message.created\"",
+        match_expr: "type == \"bullx.im.message.addressed\"",
         target_type: :ai_agent,
         target_ref: target_ref,
         scope_fields: ["channel.adapter", "channel.id", "scope.id"],
@@ -237,7 +237,7 @@ defmodule BullX.EventBus.CoreTest do
         "specversion" => "1.0",
         "id" => "event-1",
         "source" => "feishu://connected-realm/default",
-        "type" => "bullx.message.created",
+        "type" => "bullx.im.message.addressed",
         "time" => "2026-05-17T10:00:00Z",
         "datacontenttype" => "application/json",
         "data" => %{

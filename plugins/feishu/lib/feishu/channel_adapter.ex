@@ -43,7 +43,8 @@ defmodule Feishu.ChannelAdapter do
       outbound_ops: [:send, :edit, :stream],
       stream_strategy: :native_cardkit,
       content_kinds: [:text, :image, :audio, :video, :file, :card],
-      identity_evidence: [:channel_actor, :oidc_login_subject]
+      identity_evidence: [:channel_actor, :oidc_login_subject],
+      im_listen_modes: Source.im_listen_modes()
     }
   end
 

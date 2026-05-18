@@ -24,7 +24,7 @@ defmodule BullX.EventBus.ChannelAdapterTest do
              ChannelAdapter.build_cloud_event(%{
                id: "provider-event-1",
                source: "test://source/default",
-               type: "bullx.message.created",
+               type: "bullx.im.message.addressed",
                time: "2026-05-17T10:00:00Z",
                data: %{
                  content: [%{"kind" => "text", "body" => %{"text" => "hello"}}],
@@ -86,7 +86,7 @@ defmodule BullX.EventBus.ChannelAdapterTest do
       "specversion" => "1.0",
       "id" => "provider-event-1",
       "source" => "test://source/default",
-      "type" => "bullx.message.created",
+      "type" => "bullx.im.message.addressed",
       "time" => "2026-05-17T10:00:00Z",
       "datacontenttype" => "application/json",
       "data" => data

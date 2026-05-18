@@ -35,8 +35,13 @@ defmodule Feishu.EventMapper do
          {:ok, actor} <- actor_from_sender(env.sender, source),
          profile <- profile_from_sender(env.sender),
          account_input <- account_input(source, actor.id, profile, env),
+         attention <- attention_decision(env, source),
+         {:listen, :emit} <- {:listen, listen_admission(attention, source)},
          context <- context(env, actor, blocks, account_input) do
-      maybe_message_or_command(text, env, actor, blocks, context, source)
+      maybe_message_or_command(text, env, actor, blocks, context, source, attention)
+    else
+      {:listen, :ignore} -> {:ignore, :unaddressed_group_message}
+      other -> other
     end
   end
 
@@ -45,10 +50,19 @@ defmodule Feishu.EventMapper do
          :ok <- reject_self_sent(env, source),
          {:ok, blocks} <- ContentMapper.from_message(env.message, source),
          {:ok, actor} <- actor_from_sender(env.sender, source),
-         account_input <- account_input(source, actor.id, profile_from_sender(env.sender), env) do
+         account_input <- account_input(source, actor.id, profile_from_sender(env.sender), env),
+         attention <- attention_decision(env, source) do
       {:ok,
        %{
-         attrs: attrs(source, env, actor, blocks, "bullx.message.edited", %{}),
+         attrs:
+           attrs(
+             source,
+             env,
+             actor,
+             blocks,
+             "bullx.message.edited",
+             attention_facts(attention, source)
+           ),
          account_input: account_input,
          context: context(env, actor, blocks, account_input)
        }}
@@ -125,7 +139,7 @@ defmodule Feishu.EventMapper do
     end
   end
 
-  defp maybe_message_or_command(text, env, actor, blocks, context, source) do
+  defp maybe_message_or_command(text, env, actor, blocks, context, source, attention) do
     case DirectCommand.parse(text) do
       {:ok, %{name: name} = parsed} when name in ["preauth", "web_auth"] ->
         {:direct_command,
@@ -156,14 +170,64 @@ defmodule Feishu.EventMapper do
          }}
 
       :error ->
+        event_type = im_message_event_type(attention)
+
         {:ok,
          %{
-           attrs: attrs(source, env, actor, blocks, "bullx.message.created", %{}),
+           attrs:
+             attrs(
+               source,
+               env,
+               actor,
+               blocks,
+               event_type,
+               attention_facts(attention, source)
+             ),
            account_input: context.account_input,
            context: context
          }}
     end
   end
+
+  defp attention_decision(env, %Source{} = source) do
+    cond do
+      env.chat_type == "p2p" ->
+        {:addressed, "dm"}
+
+      bot_mentioned?(env, source) ->
+        {:addressed, "mention"}
+
+      true ->
+        {:ambient, "unaddressed"}
+    end
+  end
+
+  defp listen_admission({:addressed, _reason}, _source), do: :emit
+
+  defp listen_admission({:ambient, _reason}, %Source{im_listen_mode: :all_messages}), do: :emit
+  defp listen_admission({:ambient, _reason}, _source), do: :ignore
+
+  defp im_message_event_type({:addressed, _reason}), do: "bullx.im.message.addressed"
+  defp im_message_event_type({:ambient, _reason}), do: "bullx.im.message.ambient"
+
+  defp attention_facts({_decision, reason}, %Source{} = source) do
+    %{
+      "attention_reason" => reason,
+      "im_listen_mode" => Atom.to_string(source.im_listen_mode)
+    }
+  end
+
+  defp bot_mentioned?(%{message: message}, %Source{bot_open_id: bot_open_id, bot_user_id: bot_user_id}) do
+    mentions = Map.get(message, "mentions") || []
+
+    Enum.any?(mentions, fn mention ->
+      ids = Map.get(mention, "id") || %{}
+      (present?(bot_open_id) and Map.get(ids, "open_id") == bot_open_id) or
+        (present?(bot_user_id) and Map.get(ids, "user_id") == bot_user_id)
+    end)
+  end
+
+  defp bot_mentioned?(_env, _source), do: false
 
   defp common_event_env(%Event{} = event, %Source{} = source) do
     raw_event = event.content || %{}
@@ -426,7 +490,8 @@ defmodule Feishu.EventMapper do
       "provider_event_type" => env.event_type,
       "chat_type" => env.chat_type,
       "content_kind" => first_content_kind(blocks),
-      "connected_realm_ref" => source.connected_realm_ref
+      "connected_realm_ref" => source.connected_realm_ref,
+      "im_listen_mode" => Atom.to_string(source.im_listen_mode)
     }
     |> reject_nil_values()
     |> Map.merge(extra_facts)

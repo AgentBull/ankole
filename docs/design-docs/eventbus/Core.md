@@ -185,7 +185,7 @@ The minimal normalized payload shape is:
   "specversion": "1.0",
   "id": "external-stable-event-id",
   "source": "feishu://connected-realm/default",
-  "type": "bullx.message.created",
+  "type": "bullx.im.message.addressed",
   "subject": "optional-human-readable-debug-subject",
   "time": "2026-05-17T10:00:00Z",
   "datacontenttype": "application/json",
@@ -270,7 +270,8 @@ normalized field.
 
 Normalized `type` examples include:
 
-- `bullx.message.created`
+- `bullx.im.message.addressed`
+- `bullx.im.message.ambient`
 - `bullx.message.edited`
 - `bullx.message.recalled`
 - `bullx.reaction.changed`

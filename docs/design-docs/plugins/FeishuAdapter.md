@@ -24,6 +24,8 @@ This design covers the Feishu adapter plugin:
   listener supervision, connectivity checks, inbound normalization, direct
   channel commands, and provider acknowledgement behavior;
 - Feishu channel actor evidence and Principal activation/login handoff;
+- the Feishu-side EventBus handoff needed for an AIAgent multi-turn
+  conversation path;
 - Feishu OIDC browser login through a Principal login-provider extension;
 - Feishu outbound send, edit, media upload, reply fallback, and CardKit stream
   transport;
@@ -613,6 +615,60 @@ CloudEvents `(source, id)` based on the Feishu message occurrence. Duplicate
 visible replies are prevented by EventBus dedupe and Command Target idempotency,
 not by an adapter-local command execution cache. Adapter-local `/preauth` and
 `/web_auth` flows use their own Principal/Auth idempotency and safe reply rules.
+
+## AIAgent conversation path
+
+This path checks that the Feishu adapter composes with EventBus, Event Routing
+Rules, an `ai_agent` Target, LLMProvider, ToolSet execution, and outbound or
+stream transport. It is not adapter-owned business logic. Feishu does not choose
+the Target, create TargetSessions, call the model, persist Conversation
+Messages, or decide whether an AIAgent may speak in a chat.
+
+1. An operator enables one Feishu source. The plugin starts its source runtime
+   and registers the `"feishu"` Channel Adapter.
+2. The operator creates or enables an Agent Principal, gives that AIAgent a
+   model spec such as `openai_proxy:gpt-5.4`, enables any required ToolSets, and
+   grants the relevant Human Principals access through AuthZ.
+3. The operator creates an Event Routing Rule for Feishu message Events with
+   `target_type = "ai_agent"` and `target_ref = <agent principal id>`. The rule
+   chooses the TargetSession scope/window fields for the Feishu chat or thread.
+4. A Human Principal sends a message to the Feishu bot. The adapter verifies the
+   provider occurrence, drops self-sent bot messages, records actor evidence,
+   normalizes the occurrence into a decoded CloudEvents JSON object with
+   `data.content`, `data.channel`, `data.scope`, `data.actor`, `data.refs`,
+   `data.reply_channel`, and `data.routing_facts`, then calls
+   `BullX.EventBus.accept/2`.
+5. EventBus validates the Event, applies the first matching Event Routing Rule,
+   creates or reuses the TargetSession, appends one side-channel entry, ensures
+   the TargetSession worker exists, and returns accepted or duplicate handoff
+   status. The Feishu adapter acknowledges Feishu after that handoff result; it
+   does not wait for AIAgent execution.
+6. The AIAgent Target handles the side-channel entry, derives its
+   `conversation_key` from normalized channel/scope/thread inputs, deduplicates
+   the inbound Message by `target_session_entry_id`, renders prompt context from
+   its own Conversation state and profile, resolves the model through
+   LLMProvider, and runs its model/tool loop.
+7. If the model calls a BullX-owned tool such as `web.search`, AIAgent records
+   the assistant tool call, executes the tool through its Core dispatcher with
+   Principal and idempotency context, records matching tool results, and gives
+   provider-valid tool results to the next model turn.
+8. When final assistant content exists, AIAgent records it as Conversation
+   history. If its reply policy allows visible output and `data.reply_channel`
+   is usable, it asks the Feishu adapter to send via `deliver/4` or consume an
+   EventBus output stream via `consume_stream/4`.
+9. A later Feishu message in the same chat/thread repeats the same transport and
+   EventBus path. A new TargetSession may be created, but AIAgent can still
+   derive the same conversation key and continue from its own active
+   Conversation branch.
+10. Canonical `/new` and localized `/新会话` remain AIAgent conversation
+    controls when routed to AIAgent-owned command handling or left as ordinary
+    AIAgent text. The Feishu adapter must not mutate Conversation, Message, or
+    generation lease state.
+
+The path is complete only when the chosen AIAgent runtime, model provider,
+ToolSets, Event Routing Rule, and Feishu outbound mode are implemented. The
+adapter side of the guarantee is the normalized Event handoff plus optional
+delivery/stream transport.
 
 ## Feishu OIDC login provider
 

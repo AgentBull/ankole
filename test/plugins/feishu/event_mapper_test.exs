@@ -39,12 +39,14 @@ defmodule Feishu.EventMapperTest do
 
     assert {:ok, %{attrs: attrs, account_input: account_input}} = EventMapper.map(event, source)
 
-    assert attrs.type == "bullx.message.created"
+    assert attrs.type == "bullx.im.message.addressed"
     assert attrs.source == "feishu://main/tenant_x"
     assert get_in(attrs.data, [:channel, :adapter]) == "feishu"
     assert get_in(attrs.data, [:channel, :id]) == "main"
     assert get_in(attrs.data, [:actor, :id]) == "feishu:ou_user"
     assert get_in(attrs.data, [:routing_facts, "connected_realm_ref"]) == "feishu:tenant:acme"
+    assert get_in(attrs.data, [:routing_facts, "im_listen_mode"]) == "addressed_only"
+    assert get_in(attrs.data, [:routing_facts, "attention_reason"]) == "dm"
     refute inspect(attrs.data.raw_ref) =~ "not copied"
 
     assert account_input["adapter"] == "feishu"
@@ -215,6 +217,96 @@ defmodule Feishu.EventMapperTest do
     }
 
     assert {:ignore, :self_sent_bot_message} = EventMapper.map(event, source)
+  end
+
+  test "addressed_only ignores unmentioned group messages" do
+    source = %Source{
+      id: "main",
+      app_id: "cli_x",
+      app_secret: "secret_x",
+      bot_open_id: "ou_bot",
+      im_listen_mode: :addressed_only
+    }
+
+    event = %Event{
+      id: "evt_group",
+      type: "im.message.receive_v1",
+      content: %{
+        "message" => %{
+          "chat_id" => "oc_chat",
+          "chat_type" => "group",
+          "message_id" => "om_msg",
+          "message_type" => "text",
+          "content" => Jason.encode!(%{text: "casual chatter"})
+        },
+        "sender" => %{"sender_id" => %{"open_id" => "ou_user"}}
+      },
+      raw: %{}
+    }
+
+    assert {:ignore, :unaddressed_group_message} = EventMapper.map(event, source)
+  end
+
+  test "all_messages emits unmentioned group messages as ambient" do
+    source = %Source{
+      id: "main",
+      app_id: "cli_x",
+      app_secret: "secret_x",
+      bot_open_id: "ou_bot",
+      im_listen_mode: :all_messages
+    }
+
+    event = %Event{
+      id: "evt_ambient",
+      type: "im.message.receive_v1",
+      content: %{
+        "message" => %{
+          "chat_id" => "oc_chat",
+          "chat_type" => "group",
+          "message_id" => "om_msg",
+          "message_type" => "text",
+          "content" => Jason.encode!(%{text: "casual chatter"})
+        },
+        "sender" => %{"sender_id" => %{"open_id" => "ou_user"}}
+      },
+      raw: %{}
+    }
+
+    assert {:ok, %{attrs: attrs}} = EventMapper.map(event, source)
+    assert attrs.type == "bullx.im.message.ambient"
+    assert get_in(attrs.data, [:routing_facts, "im_listen_mode"]) == "all_messages"
+    assert get_in(attrs.data, [:routing_facts, "attention_reason"]) == "unaddressed"
+  end
+
+  test "group messages that mention the bot are normalized as addressed" do
+    source = %Source{
+      id: "main",
+      app_id: "cli_x",
+      app_secret: "secret_x",
+      bot_open_id: "ou_bot",
+      im_listen_mode: :addressed_only
+    }
+
+    event = %Event{
+      id: "evt_mention",
+      type: "im.message.receive_v1",
+      content: %{
+        "message" => %{
+          "chat_id" => "oc_chat",
+          "chat_type" => "group",
+          "message_id" => "om_msg",
+          "message_type" => "text",
+          "content" => Jason.encode!(%{text: "@bullx hello"}),
+          "mentions" => [%{"id" => %{"open_id" => "ou_bot"}}]
+        },
+        "sender" => %{"sender_id" => %{"open_id" => "ou_user"}}
+      },
+      raw: %{}
+    }
+
+    assert {:ok, %{attrs: attrs}} = EventMapper.map(event, source)
+    assert attrs.type == "bullx.im.message.addressed"
+    assert get_in(attrs.data, [:routing_facts, "attention_reason"]) == "mention"
   end
 
   test "reaction events with blank emoji fail closed" do

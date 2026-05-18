@@ -1,0 +1,508 @@
+# System Prompt Builder
+
+The System Prompt Builder is the deterministic request-time renderer for the
+AIAgent system prompt. It accepts caller-prepared typed sections, validates the
+section contract, renders them in a stable order into `req_llm`-compatible
+`:system` content, and reports the stable-prefix boundary that token accounting
+and prompt caching can consume.
+
+The builder is deliberately small. It does not own AIAgent profile loading,
+Skill retrieval, Brain retrieval, Principal resolution, AuthZ decisions,
+Capability selection, tool schemas, Conversation history, message meta context,
+or the model provider call. Those sources are prepared by AIAgent Core and
+adjacent designs, then normalized into the section input described here.
+
+## Scope
+
+This design defines:
+
+- The System Prompt Builder as a stateless request-time component.
+- The section input contract, including identity, stability, ordering,
+  provenance, and payload shape.
+- Deterministic rendering rules for optional, stable, and volatile sections.
+- The output shape for `req_llm` system content and stable-prefix metadata.
+- The boundary with token accounting, context compression, and prompt caching.
+- Security constraints, length behavior, recovery behavior, failure behavior,
+  and content-free telemetry.
+- Implementation handoff and acceptance criteria for the first implementation.
+
+## Non-goals
+
+This design does not define:
+
+- AIAgent profile schema, validation, or storage.
+- Skill content, Skill retrieval policy, Skill ranking, or Skill VFS behavior.
+- Brain retrieval, Brain representation, Brain ingestion, or memory ranking.
+- Principal identity, external identity evidence, Agent Principal schema, or
+  Principal redaction rules.
+- AuthZ grants, policy evaluation, approval gates, or Capability authorization.
+- Tool schema rendering or tool execution. `ReqLLM.Tool` schemas are delivered
+  through the provider call's independent `tools` option, not through this
+  builder.
+- Conversation / Message rendering, active branch selection, tool-call and
+  tool-result pairing, or history view generation.
+- Summary overlays, compression triggers, provider cache marker placement, or
+  provider cache routing keys.
+- Model provider resolution, provider fallback, streaming output, or visible
+  delivery.
+- A builder cache, rendered prompt snapshot table, provider cache backend, or
+  provider-private request mutation.
+
+## Boundary
+
+The builder is a pure rendering boundary inside AIAgent request assembly.
+AIAgent Core decides which sources may enter the system prompt for a request and
+passes those sources as typed sections. The builder never calls EventBus, reads
+TargetSession state, queries PostgreSQL, consults Brain or Skill stores, calls
+AuthZ, resolves Principals, calls `BullX.LLM`, or reaches into provider
+adapters.
+
+This keeps the current BullX architecture boundaries intact:
+
+- AIAgent is the Target that owns reasoning and tool-use behavior.
+- TargetSession is the runtime window that invokes the Target; it is not the
+  durable source of prompt truth.
+- Conversation / Message, Work, Brain, Budget, Artifact, and audit or domain
+  records hold durable business facts.
+- `BullX.LLM` is the `req_llm` provider catalog and lower-level model
+  Capability support layer. It does not own prompt orchestration.
+- Principal and AuthZ decide identity and authorization before content reaches
+  the builder. The builder only enforces its own input contract.
+
+Caller responsibilities:
+
+- Collect system-prompt-eligible content from caller-owned sources.
+- Normalize each content source into a section that follows this design.
+- Decide whether each section is `:stable` or `:volatile`.
+- Provide a non-empty `cache_break_reason` for each `:volatile` section.
+- Complete retrieval, authorization, redaction, policy checks, and
+  source-specific truncation before calling the builder.
+- Pass the builder output and stable-prefix boundary to the provider call,
+  token accounting, and prompt cache hint layer.
+- Rebuild section input when caller-owned context changes.
+
+Builder responsibilities:
+
+- Validate section shape, section identity, stability classification,
+  cache-break reasons, duplicate ids, and coarse payload allowlist rules.
+- Omit optional empty sections without changing stable-prefix bytes.
+- Render non-empty sections in the deterministic order defined below.
+- Produce `req_llm`-compatible `:system` content.
+- Return total size, per-section size, stable-prefix size, volatile suffix size,
+  rendered section order, omitted section ids, and stable-prefix metadata.
+- Return structured errors for contract violations.
+
+## Section Contract
+
+The builder accepts an ordered list of section structs. Each section has these
+fields:
+
+| Field | Required | Meaning |
+| --- | --- | --- |
+| `id` | yes | Caller-stable identifier, unique within one request. |
+| `kind` | yes | Caller-defined coarse semantic atom used for diagnostics and ordering tie-breaks. |
+| `stability` | yes | `:stable` or `:volatile`. |
+| `cache_break_reason` | conditional | Required for `:volatile`; forbidden for `:stable`. |
+| `priority` | no | Integer secondary sort key. Defaults to `0`. |
+| `content` | yes | `nil`, normalized text, or normalized parts compatible with `ReqLLM.Message.ContentPart`. |
+| `provenance` | no | Small caller-owned metadata map for diagnostics and tests. Keys may be reported; values never render or appear in telemetry. |
+
+`id` is a stable key and a diagnostic label. It is not rendered into provider
+input. Callers should use stable, low-cardinality ids such as
+`profile.instructions`, `skill.guidance:<skill_id>`, or
+`brain.context:<retrieval_plan_id>`. Request ids, Message ids, TargetSession
+side-channel entry ids, retry counters, and wall-clock timestamps must not be
+embedded in section ids.
+
+`kind` is intentionally caller-defined. The builder does not maintain a business
+enum for prompt sources and does not interpret `kind` as profile, Skill, Brain,
+Principal, or policy semantics. It only requires an atom so diagnostics and
+telemetry stay bounded and testable.
+
+`content = nil` means the section was considered but produced no renderable
+content for this request. That is a valid optional path. A missing required field
+is different: it is a contract error and prevents rendering.
+
+Renderable content is intentionally narrow in v1. A section may provide plain
+text or a list of `ReqLLM.Message.ContentPart` values whose `type` is `:text`.
+Media, file, tool-result, and provider reasoning parts belong to Conversation
+history or provider response handling, not system-prompt sections. The builder
+treats accepted text parts as already normalized request-time content and still
+validates metadata against the security rules below. Any part whose metadata or
+shape marks it as a credential, raw provider payload, raw CloudEvent, raw stream
+chunk, or private policy object is rejected before rendering.
+
+The builder treats validated sections as opaque content. It does not query
+external state to complete missing fields, infer authorization, redact
+Principals, or classify business meaning.
+
+## Stability Discipline
+
+`stability` is the only builder-owned classification for stable-prefix
+discipline.
+
+`:stable` sections must produce the same content for the same
+request-invariant input. They must not embed current wall-clock time, request
+ids, retry counts, generated Message ids, current tool results, current inbound
+Event payloads, latest provider diagnostics, cache hit or miss state, delivery
+diagnostics, or other request-volatile data.
+
+`:volatile` sections may carry request-specific data. The builder still renders
+them into system content, but always after all rendered stable sections and
+outside the stable-prefix boundary.
+
+Each `:volatile` section must include a short, non-empty
+`cache_break_reason`, such as `current inbound event summary`, `retry
+diagnostic`, or `request-specific language override`. The builder validates only
+presence and bounded shape. Whether the reason is sufficient is reviewed in the
+caller design and tests.
+
+The builder does not try to prove that a `:stable` section is semantically
+stable. Runtime heuristics for detecting timestamps, request ids, or other
+volatile facts would be noisy and incomplete. Callers that render stable
+sections must test their own rendering code.
+
+## Rendering Order
+
+Rendering is deterministic:
+
+1. Validate the full section list before rendering any output.
+2. Reject duplicate `id` values within the request.
+3. Omit sections whose `content` is `nil`; record them in omitted diagnostics.
+4. Render all non-empty `:stable` sections before all non-empty `:volatile`
+   sections.
+5. Within the same stability class, sort by `priority` ascending.
+6. For equal priority within the same stability class, keep caller-supplied list
+   order as the stable tie-breaker.
+7. Do not cross the stable/volatile boundary to improve prompt cache utility.
+8. Do not silently drop, merge, truncate, summarize, or reorder content to fit a
+   length limit or cache geometry preference.
+9. Produce byte-identical output and boundary metadata when called twice with
+   the same normalized input.
+
+The stable-prefix boundary is the position immediately after the last rendered
+`:stable` section. The result reports that boundary as a typed descriptor:
+
+```elixir
+%{
+  last_stable_section_id: "profile.instructions",
+  stable_section_count: 3,
+  content_part_index: 7,
+  byte_offset: 12_048
+}
+```
+
+`content_part_index` is the first rendered content part after the stable prefix.
+`byte_offset` is measured against the normalized rendered system content. Callers
+may use either value depending on provider cache-marker support, but both values
+must be derived from the same rendered output. If no stable section renders,
+`last_stable_section_id` is `nil`, `stable_section_count` is `0`, and both
+offsets point to the beginning of the rendered system content.
+
+## Output Shape
+
+Builder output is request-time provider input. It is not durable evidence,
+Conversation history, business truth, or usage accounting truth.
+
+The result contains:
+
+- `system_content`: `req_llm`-compatible system role content, represented as
+  normalized text or normalized text `ReqLLM.Message.ContentPart` values.
+- `stable_prefix`: boundary metadata for token accounting and prompt cache
+  hint placement.
+- `diagnostics`: rendered order, omitted section ids, per-section sizes, total
+  size, stable-prefix size, volatile suffix size, and cache-break indicators.
+
+Rendering rules:
+
+- The builder targets the `ReqLLM.Context` / `ReqLLM.Message` system-role
+  surfaces, or an equivalent list shape accepted by `ReqLLM.Context.normalize/2`.
+- Developer-style instructions render only through system text blocks or other
+  provider-supported `req_llm` surfaces.
+- The builder does not output raw provider JSON, mutate `Req` request bodies, or
+  depend on provider-private payload shape.
+- Provider-specific behavior must travel through validated `provider_options`,
+  `ReqLLM.Message.ContentPart` metadata, or a BullX-owned `req_llm` provider
+  override.
+- `ReqLLM.Tool` schema delivery remains caller-owned provider-call input and is
+  not part of the builder section list.
+- The builder does not generate provider prompt-cache markers.
+
+## Length Behavior
+
+Token accounting owns model-specific length judgment. The builder provides
+deterministic size information and an optional coarse guardrail:
+
+- Report per-section size, total size, stable-prefix size, and volatile suffix
+  size.
+- Accept an optional `max_total_bytes` sanity cap.
+- Return `{:error, {:system_prompt_builder, :system_prompt_size_exceeded, meta}}`
+  when the optional cap is exceeded.
+- Never drop, truncate, summarize, or reorder a stable section to satisfy a
+  length limit.
+
+Per-section truncation and retrieval shaping belong to the caller before
+builder invocation. That keeps the builder deterministic and keeps summarization
+decisions out of the rendering boundary.
+
+## Context Compression
+
+The builder handles only request-time system content. Conversation history is
+not a builder input.
+
+Summary overlays, history replacement, and compression triggers belong to the
+AIAgent context compression design. They operate after system prompt rendering
+and must not rewrite the builder output.
+
+Rules:
+
+- System prompt content is regenerated from section input for each request; it
+  is not compressed into Conversation truth.
+- Compression must not create `kind = summary` Messages that paraphrase system
+  prompt content.
+- An auxiliary compression model call may reuse the same builder output as a
+  stable prefix. Compression-specific instructions are transient suffix input to
+  that auxiliary call, not new stable system prompt truth.
+- If a `:stable` section changes across turns without a caller-owned input
+  change, the caller's section renderer is wrong. Compression must not repair
+  unstable system prefixes.
+
+## Prompt Caching
+
+The builder creates a natural cache-stable prefix but does not own prompt
+caching policy.
+
+Rules:
+
+- The builder reports stable-prefix boundary metadata.
+- Cache marker placement, breakpoint selection, TTL behavior, and
+  provider-feature gating belong to the prompt caching design.
+- The builder does not produce provider-specific cache markers.
+- The builder does not change rendered output to improve cache geometry.
+- Cache hits, misses, eviction state, routing-key state, and provider cache
+  diagnostics are not builder input and not builder output.
+- If the selected provider supports a provider cache routing key, the caller
+  passes that key as a provider-call option. The builder does not synthesize
+  routing keys.
+
+## Invalidation And Recovery
+
+The builder has no internal cache or durable state. Invalidation is expressed by
+caller-owned section construction.
+
+When AIAgent profile data, Installation defaults, Skill retrieval, Brain
+retrieval, tool guidance, language preference, output policy, or runtime
+instructions change, the caller passes a different section list. The builder
+does not track or compare prior inputs.
+
+After crash or restart, the caller reconstructs sections from PostgreSQL
+business truth and any valid weak runtime state, then invokes the builder again.
+The builder guarantees only that the same normalized input produces the same
+output and boundary metadata.
+
+The builder does not need a rendered prompt snapshot table, generation lease,
+section cache, global registry, recovery table, or invocation log.
+
+## Security
+
+The builder performs low-cost structural safety checks. It is not a general
+prompt firewall, secret scanner, redaction engine, or policy evaluator.
+
+Rules:
+
+- Reject content parts explicitly marked as credentials, API keys, signed
+  tokens, session secrets, or similar secret-bearing payloads.
+- Reject raw provider payloads, raw CloudEvents, raw TargetSession side-channel
+  entries, raw stream chunks, and private AuthZ policy internals.
+- Do not render `provenance`.
+- Do not render Principal identifiers, scope keys, external identity evidence,
+  or reply-channel identifiers unless the caller has already authorized and
+  redacted them for system prompt use.
+- Do not expose Human email, phone, channel metadata, Agent profile fields, or
+  external identity metadata by default through builder behavior.
+- Never emit section content, credentials, provider payloads, raw CloudEvents,
+  Principal evidence values, or private policy internals in telemetry.
+
+The caller remains responsible for source-specific retrieval, authorization,
+redaction, policy gates, and high-risk action approval. The builder only
+protects its own rendering boundary.
+
+## Failure Behavior
+
+Builder failures are caller bugs or input contract violations. They are not
+provider failures and are not Conversation business failures.
+
+Failure cases include:
+
+- Missing required section fields.
+- Non-atom `kind`.
+- Unknown `stability` value.
+- Duplicate `id`.
+- `stability = :volatile` without a non-empty `cache_break_reason`.
+- `stability = :stable` with a `cache_break_reason`.
+- Explicit credential or raw-payload content shape rejected by the allowlist.
+- Optional `max_total_bytes` cap exceeded.
+
+The builder returns structured errors:
+
+```elixir
+{:error, {:system_prompt_builder, reason, metadata}}
+```
+
+`metadata` may include `section_id`, `kind`, `stability`, size information, and
+bounded reason data. It must not include section content or secret-bearing
+values.
+
+The caller maps the error to the owning AIAgent Core behavior, such as profile
+validation failure, safe generation failure before provider call, or
+TargetSession failure. Retrying the builder with the same invalid input is not a
+recovery path; the caller must fix the input or fail the current generation.
+
+## Telemetry
+
+The builder emits content-free telemetry under
+`[:bullx, :ai_agent, :system_prompt, ...]`.
+
+`[:bullx, :ai_agent, :system_prompt, :built]` measurements:
+
+- total size
+- stable-prefix size
+- volatile suffix size
+- rendered stable section count
+- rendered volatile section count
+- omitted section count
+- build duration
+
+`[:bullx, :ai_agent, :system_prompt, :built]` metadata:
+
+- rendered section ids
+- omitted section ids
+- section kinds
+- section stability values
+- cache-break reason presence flags
+- provenance keys
+
+`[:bullx, :ai_agent, :system_prompt, :error]` metadata:
+
+- `reason`
+- `section_id`
+- `kind`
+- `stability`
+- provenance keys
+
+Telemetry metadata uses an allowlist. Section content, provenance values,
+credentials, provider payloads, raw CloudEvents, Principal evidence values, and
+private AuthZ internals are never emitted.
+
+## Implementation Handoff
+
+### Goal
+
+Implement the System Prompt Builder so AIAgent Core can normalize all
+system-prompt-eligible inputs into typed sections, render `req_llm` system
+content, and pass stable-prefix metadata to token accounting and prompt caching.
+
+### Context Pointers
+
+- `docs/Architecture.md`
+- `docs/design-docs/LLMProvider.md`
+- `docs/design-docs/Principal.md`
+- `docs/design-docs/AuthZ.md`
+- AIAgent Core design
+- AIAgent context compression and prompt caching design
+
+### Constraints
+
+- Keep the builder stateless and side-effect-free.
+- Do not call EventBus, TargetSession, LLMProvider, Brain, Skill, Capability,
+  ToolSet, Principal, or AuthZ code from the builder.
+- Do not read Conversation / Message rows from the builder.
+- Do not output raw provider JSON or mutate `Req` request bodies.
+- Do not use provider-private surfaces outside `req_llm`.
+- Do not silently drop, truncate, summarize, or reorder stable sections.
+- Do not record section content.
+- Do not add a builder cache, builder snapshot table, generation lease, or
+  rendered system prompt persistence.
+- Do not introduce a global section registry.
+
+### Tasks
+
+1. Define the section struct and validator.
+   - Owns: section fields, atom `kind` validation, stability validation,
+     duplicate id detection, cache-break validation, and coarse content allowlist.
+   - Acceptance: malformed input returns structured errors before rendering;
+     volatile sections without non-empty cache-break reasons fail.
+
+2. Implement deterministic ordering and rendering.
+   - Owns: nil-content omission, stable-before-volatile rendering,
+     priority sorting, input-position tie-breaks, and `req_llm` system content
+     generation.
+   - Acceptance: identical input produces byte-identical output; adding or
+     removing `content = nil` sections does not change stable-prefix bytes.
+
+3. Implement size estimation and boundary reporting.
+   - Owns: per-section size, total size, stable-prefix size, volatile suffix
+     size, stable-prefix descriptor fields, and optional `max_total_bytes`
+     enforcement.
+   - Acceptance: size-cap overflow fails the request; no section is dropped,
+     truncated, summarized, or reordered by the builder; `content_part_index`
+     and `byte_offset` describe the same rendered stable-prefix boundary.
+
+4. Implement safety checks and telemetry.
+   - Owns: known credential and raw-payload shape rejection, structured error
+     metadata, and allowlisted telemetry fields.
+   - Acceptance: explicit credential or raw payload input fails before provider
+     input exists; telemetry contains no section content.
+
+5. Integrate AIAgent Core prompt rendering.
+   - Owns: caller-side section construction, builder invocation, and handoff of
+     rendered output plus stable-prefix metadata to provider-call assembly.
+   - Acceptance: restart reconstruction with the same normalized caller state
+     produces the same builder output; no hidden global section registry is
+     introduced.
+
+6. Integrate context compression and prompt caching.
+   - Owns: consuming stable-prefix metadata for cache hint placement and keeping
+     compression from rewriting system prompt content.
+   - Acceptance: provider cache markers, when supported, align with the reported
+     boundary; Conversation history compression does not alter builder output.
+
+### Stop And Ask
+
+Implementation must stop for review if any of these become necessary:
+
+- The builder needs direct access to Conversation / Message, Brain, Skill,
+  Capability, EventBus, TargetSession, Principal, or AuthZ state.
+- The builder needs persistence, a generation lease, section cache, global
+  registry, or cross-request memoization.
+- The builder needs to silently discard, truncate, summarize, or reorder content
+  to fit cache or length constraints.
+- The builder needs to embed plaintext credentials, provider raw payloads, raw
+  CloudEvents, raw stream chunks, or private AuthZ internals into system content.
+- System prompt content needs to participate in Conversation compression or be
+  represented as a `kind = summary` Message.
+- The builder needs to generate provider-specific cache markers.
+- `ReqLLM.Tool` schemas need to be rendered into system prompt content instead
+  of the provider call's independent `tools` option.
+
+## Done When
+
+- AIAgent Core normalizes every system-prompt-eligible source into typed
+  sections and calls the builder.
+- The builder is pure, stateless, deterministic, and reconstructible from caller
+  input.
+- Stable sections always render before volatile sections.
+- The stable-prefix boundary is available to token accounting and prompt
+  caching.
+- Every volatile section has a concrete `cache_break_reason`.
+- Optional `content = nil` sections are omitted without producing empty prompt
+  blocks or changing stable-prefix bytes.
+- Contract violations and size-cap overflow return structured errors.
+- Builder output excludes credentials, raw provider payloads, raw stream chunks,
+  raw CloudEvents, private AuthZ internals, and unapproved Principal evidence.
+- System prompt content is not written as Conversation history, not compressed
+  into summary Messages, and not persisted as a rendered snapshot.
+- Provider cache markers are placed outside the builder based on the reported
+  boundary.
+- Builder telemetry is content-free and uses allowlisted metadata only.
+- Focused builder tests pass, followed by `bun precommit`.

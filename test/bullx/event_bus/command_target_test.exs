@@ -116,7 +116,7 @@ defmodule BullX.EventBus.CommandTargetTest do
              EventBus.accept(
                command_event("status", %{
                  "id" => "ordinary-message-status",
-                 "type" => "bullx.message.created",
+                 "type" => "bullx.im.message.addressed",
                  "data" => %{
                    "content" => [%{"kind" => "text", "body" => %{"text" => "/status"}}],
                    "routing_facts" => %{}

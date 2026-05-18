@@ -14,6 +14,8 @@ defmodule Feishu.Source do
   @default_direct_command_dedupe_ttl_seconds 300
   @default_inline_media_max_bytes 524_288
   @default_stream_update_interval_ms 100
+  @default_im_listen_mode :addressed_only
+  @im_listen_modes [:addressed_only, :all_messages]
 
   @derive {Inspect, except: [:app_secret, :verification_token, :encrypt_key, :client]}
   defstruct [
@@ -37,10 +39,15 @@ defmodule Feishu.Source do
     direct_command_dedupe_ttl_seconds: @default_direct_command_dedupe_ttl_seconds,
     inline_media_max_bytes: @default_inline_media_max_bytes,
     stream_update_interval_ms: @default_stream_update_interval_ms,
+    im_listen_mode: @default_im_listen_mode,
     req_options: [],
     headers: [],
     start_transport?: true
   ]
+
+  @doc "Supported IM listen modes for transport admission."
+  @spec im_listen_modes() :: [atom()]
+  def im_listen_modes, do: @im_listen_modes
 
   @type t :: %__MODULE__{}
 
@@ -55,6 +62,7 @@ defmodule Feishu.Source do
          {:ok, domain} <- domain(Map.get(config, "domain", "feishu")),
          {:ok, app_type} <- app_type(Map.get(credential, "app_type", "self_built")),
          {:ok, oidc} <- oidc(Map.get(config, "oidc", %{})),
+         {:ok, im_listen_mode} <- im_listen_mode(Map.get(config, "im_listen_mode")),
          {:ok, req_options} <- optional_keyword(config, "req_options", []),
          {:ok, headers} <- optional_list(config, "headers", []) do
       {:ok,
@@ -99,6 +107,7 @@ defmodule Feishu.Source do
              "stream_update_interval_ms",
              @default_stream_update_interval_ms
            ),
+         im_listen_mode: im_listen_mode,
          req_options: req_options,
          headers: headers,
          start_transport?: optional_boolean(config, "start_transport", true)
@@ -154,6 +163,7 @@ defmodule Feishu.Source do
       "bot_user_id" => source.bot_user_id,
       "oidc" => source.oidc,
       "web_login_disabled" => source.web_login_disabled?,
+      "im_listen_mode" => Atom.to_string(source.im_listen_mode),
       "start_transport" => source.start_transport?
     }
     |> reject_nil_values()
@@ -304,6 +314,15 @@ defmodule Feishu.Source do
   end
 
   defp oidc(_value), do: {:error, Feishu.Error.config("Feishu oidc config must be an object")}
+
+  defp im_listen_mode(nil), do: {:ok, @default_im_listen_mode}
+  defp im_listen_mode(value) when value in [:addressed_only, "addressed_only"], do: {:ok, :addressed_only}
+  defp im_listen_mode(value) when value in [:all_messages, "all_messages"], do: {:ok, :all_messages}
+
+  defp im_listen_mode(_value),
+    do:
+      {:error,
+       Feishu.Error.config("Feishu im_listen_mode must be addressed_only or all_messages")}
 
   defp stringify_keys(%{} = map) do
     Enum.reduce_while(map, {:ok, %{}}, fn

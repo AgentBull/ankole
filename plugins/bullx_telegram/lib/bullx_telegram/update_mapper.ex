@@ -24,8 +24,9 @@ defmodule BullxTelegram.UpdateMapper do
          {:ok, blocks} <- ContentMapper.from_message(message),
          text <- ContentMapper.primary_text(blocks),
          command_result <- CommandNormalizer.parse(text, source.bot_username),
-         {:attention, {:ok, attention_reason}} <-
+         {:attention, attention} when elem(attention, 0) in [:ok, :ambient] <-
            {:attention, AttentionPolicy.decide(message, source, command_result)} do
+      {_decision, attention_reason} = attention
       context = context(update_id, provider_update_type, message, source, attention_reason)
 
       case command_result do
@@ -36,7 +37,17 @@ defmodule BullxTelegram.UpdateMapper do
           mapped(update_id, message_id, source, message, actor, blocks, context, "bullx.command.invoked", command)
 
         _result ->
-          mapped(update_id, message_id, source, message, actor, blocks, context, event_type(provider_update_type), %{})
+          mapped(
+            update_id,
+            message_id,
+            source,
+            message,
+            actor,
+            blocks,
+            context,
+            event_type(provider_update_type, attention),
+            %{}
+          )
       end
     else
       {:attention, {:ignore, reason}} -> {:ignore, reason}
@@ -177,6 +188,7 @@ defmodule BullxTelegram.UpdateMapper do
       "chat_type" => context.chat_type,
       "content_kind" => first_content_kind(blocks),
       "attention_reason" => context.attention_reason,
+      "im_listen_mode" => Atom.to_string(source.im_listen_mode),
       "connected_realm_ref" => source.connected_realm_ref
     }
     |> put_command_facts(command)
@@ -203,8 +215,9 @@ defmodule BullxTelegram.UpdateMapper do
     |> Enum.reject(&is_nil/1)
   end
 
-  defp event_type("edited_message"), do: "bullx.message.edited"
-  defp event_type(_type), do: "bullx.message.created"
+  defp event_type("edited_message", _attention), do: "bullx.message.edited"
+  defp event_type(_type, {:ambient, _reason}), do: "bullx.im.message.ambient"
+  defp event_type(_type, _attention), do: "bullx.im.message.addressed"
 
   defp required_id(map, key) do
     case stringify_id(Map.get(map, key)) do

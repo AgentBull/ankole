@@ -22,6 +22,8 @@ This design covers:
 - the `BullX.EventBus.ChannelAdapter` behavior shape;
 - inbound provider verification, parsing, filtering, normalization, and
   `EventBus.accept/2` handoff;
+- IM source listen modes and the normalized addressed / ambient IM message
+  Event types;
 - CloudEvents identity, normalized payload, `routing_facts`, `reply_channel`,
   and `raw_ref` rules for adapters;
 - provider acknowledgement timing and retry posture;
@@ -203,7 +205,8 @@ Example shape:
   inbound_modes: [:webhook, :websocket],
   outbound_ops: [:send, :edit, :stream],
   content_kinds: [:text, :image, :audio, :video, :file],
-  features: [:signature_verification, :reply, :threads]
+  features: [:signature_verification, :reply, :threads],
+  im_listen_modes: [:addressed_only, :all_messages]
 }
 ```
 
@@ -241,6 +244,25 @@ Provider credentials live in secret plugin configuration, usually in
 credentials inside the BEAM trust boundary. It must not copy credentials into
 Events, CloudEvents, `routing_facts`, `reply_channel`, Oban job args, stream
 metadata, or allowlisted telemetry/log metadata.
+
+For IM-style sources, source configuration may choose how much of a shared
+conversation the adapter listens to:
+
+```text
+im_listen_mode = addressed_only | all_messages
+```
+
+`addressed_only` means the source emits IM Events only when the provider
+occurrence is explicitly addressed to the BullX Agent surface, such as a direct
+message to the bot, an explicit bot mention in a group, or an equivalent
+provider-native directed interaction. `all_messages` means the source also emits
+ordinary group or channel messages that the bot can observe but that do not
+mention it.
+
+The listen mode is transport admission. It does not decide the Event Routing
+Rule, TargetSession, AIAgent response policy, memory behavior, or whether a
+message deserves a reply. Those decisions remain downstream of EventBus
+acceptance.
 
 ### Source runtime supervision
 
@@ -287,9 +309,9 @@ Adapters produce CloudEvents structured JSON with these rules:
   id with enough provider context to make `(source, id)` unique inside the
   Installation.
 - `type` is the normalized BullX Event type, such as
-  `bullx.message.created`, `bullx.message.edited`, `bullx.action.submitted`,
-  `bullx.command.invoked`, `bullx.trigger.fired`, or
-  `bullx.childrun.completed`.
+  `bullx.im.message.addressed`, `bullx.im.message.ambient`,
+  `bullx.message.edited`, `bullx.action.submitted`, `bullx.command.invoked`,
+  `bullx.trigger.fired`, or `bullx.childrun.completed`.
 - `time` is the provider occurrence time when the provider supplies a trusted
   timestamp. Otherwise, `time` is the adapter receive time.
 - `datacontenttype` is `"application/json"`.
@@ -368,6 +390,7 @@ Useful `routing_facts` examples include:
 - `provider_event_type`
 - `provider_event_name`
 - `connected_realm_ref`
+- `im_listen_mode`
 - `content_kind`
 - `command_name`
 - `command_namespace`
@@ -381,6 +404,35 @@ Useful `routing_facts` examples include:
 
 EventBus rules may match these facts, but the adapter still does not choose the
 Target or TargetSession.
+
+### IM message Event types
+
+IM adapters normalize message occurrences into two message Event types:
+
+- `bullx.im.message.addressed`
+- `bullx.im.message.ambient`
+
+`bullx.im.message.addressed` is for IM messages explicitly addressed to BullX.
+Direct messages to the bot and group messages that mention the bot both use this
+type. The difference between a DM and a group mention belongs in
+`data.channel`, `data.scope`, `data.reply_channel`, and safe routing facts, not
+in a separate AIAgent runtime mode.
+
+`bullx.im.message.ambient` is for ordinary group or channel messages received
+because the source uses `im_listen_mode = all_messages`. It represents shared
+conversation context, not a request for BullX to answer in the originating
+conversation surface.
+
+The adapter must not infer AIAgent behavior from ambient messages. It only
+normalizes the Event. AIAgent-owned design decides whether an ambient IM Event
+is stored as context, ignored, or used to trigger an internal intervention
+check.
+
+An IM adapter should ignore unaddressed group messages before EventBus handoff
+when `im_listen_mode = addressed_only`. When `im_listen_mode = all_messages`,
+the same provider occurrence should be normalized as
+`bullx.im.message.ambient` unless the occurrence explicitly addresses the bot,
+in which case it should be normalized as `bullx.im.message.addressed`.
 
 Command-shaped inbound input has two distinct business surfaces:
 
@@ -700,6 +752,11 @@ routing, TargetSession, Target, and business truth.
    - Acceptance: helpers build CloudEvents with stable `source` and `id`,
      string-keyed JSON-neutral payloads, normalized `content`, `channel`,
      `scope`, `actor`, `refs`, `reply_channel`, `routing_facts`, and `raw_ref`.
+     IM helpers normalize direct messages, bot mentions, and equivalent
+     provider-directed interactions as `bullx.im.message.addressed`, and
+     normalize unmentioned group or channel messages as
+     `bullx.im.message.ambient` only when the source uses
+     `im_listen_mode = all_messages`.
      Command-shaped inputs normalize to `bullx.command.invoked` only when the
      provider command surface or adapter command grammar classifies them as
      EventBus commands; `/preauth` and `/web_auth` may be handled as
@@ -755,6 +812,11 @@ Implementation is complete when tests cover:
   `BullX.EventBus.accept/2`;
 - normalized `content`, `channel`, `scope`, `actor`, `refs`, `reply_channel`,
   `routing_facts`, and `raw_ref` behavior;
+- IM `im_listen_mode = addressed_only` ignores unmentioned group/channel
+  messages before EventBus handoff, while `im_listen_mode = all_messages`
+  emits them as `bullx.im.message.ambient`;
+- direct messages, group mentions, and equivalent provider-directed IM
+  interactions normalize to `bullx.im.message.addressed`;
 - provider-native commands and accepted slash-text commands normalize to
   `bullx.command.invoked`, while ordinary text, paths, code snippets, and
   unaddressed slash text remain message Events or are ignored by transport

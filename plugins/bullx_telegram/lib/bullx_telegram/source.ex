@@ -16,6 +16,8 @@ defmodule BullxTelegram.Source do
   @default_stream_chunk_soft_limit 3_900
   @default_message_context_ttl_seconds 2_592_000
   @default_direct_command_dedupe_ttl_seconds 300
+  @default_im_listen_mode :addressed_only
+  @im_listen_modes [:addressed_only, :all_messages]
   @telegram_message_hard_limit 4_096
 
   @derive {Inspect, except: [:bot_token]}
@@ -44,12 +46,17 @@ defmodule BullxTelegram.Source do
       "free_response_chat_ids" => []
     },
     commands: %{"sync_policy" => "replace"},
+    im_listen_mode: @default_im_listen_mode,
     req_options: [],
     api_module: BullxTelegram.BotAPI,
     start_transport?: true
   ]
 
   @type t :: %__MODULE__{}
+
+  @doc "Supported IM listen modes for transport admission."
+  @spec im_listen_modes() :: [atom()]
+  def im_listen_modes, do: @im_listen_modes
 
   @spec normalize(t() | map()) :: {:ok, t()} | {:error, map()}
   def normalize(%__MODULE__{} = source), do: {:ok, source}
@@ -61,6 +68,7 @@ defmodule BullxTelegram.Source do
          {:ok, credential} <- credential(credential_id, config),
          {:ok, attention} <- normalize_attention(Map.get(config, "attention", %{})),
          {:ok, commands} <- normalize_commands(Map.get(config, "commands", %{})),
+         {:ok, im_listen_mode} <- im_listen_mode(Map.get(config, "im_listen_mode")),
          {:ok, req_options} <- optional_keyword(config, "req_options", []) do
       bot_token = Map.fetch!(credential, "bot_token")
       bot_id = bot_token |> String.split(":", parts: 2) |> List.first()
@@ -92,6 +100,7 @@ defmodule BullxTelegram.Source do
            positive_integer(config, "message_context_ttl_seconds", @default_message_context_ttl_seconds),
          attention: attention,
          commands: commands,
+         im_listen_mode: im_listen_mode,
          req_options: req_options,
          api_module: module_or(config, "api_module", BullxTelegram.BotAPI),
          api_base: present_string(Map.get(config, "api_base")),
@@ -147,6 +156,7 @@ defmodule BullxTelegram.Source do
       "web_login_disabled" => source.web_login_disabled?,
       "attention" => source.attention,
       "commands" => source.commands,
+      "im_listen_mode" => Atom.to_string(source.im_listen_mode),
       "start_transport" => source.start_transport?
     }
     |> reject_nil_values()
@@ -257,6 +267,13 @@ defmodule BullxTelegram.Source do
   end
 
   defp normalize_commands(_value), do: {:error, Error.config("Telegram commands config must be an object")}
+
+  defp im_listen_mode(nil), do: {:ok, @default_im_listen_mode}
+  defp im_listen_mode(value) when value in [:addressed_only, "addressed_only"], do: {:ok, :addressed_only}
+  defp im_listen_mode(value) when value in [:all_messages, "all_messages"], do: {:ok, :all_messages}
+
+  defp im_listen_mode(_value),
+    do: {:error, Error.config("Telegram im_listen_mode must be addressed_only or all_messages")}
 
   defp verify_bot_username(%__MODULE__{bot_username: nil}, _bot), do: :ok
 

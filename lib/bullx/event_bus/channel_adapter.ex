@@ -6,6 +6,15 @@ defmodule BullX.EventBus.ChannelAdapter do
   `BullX.EventBus.accept/2`. They do not route, create TargetSessions, append
   side-channel entries, create Oban jobs, invoke Targets, or persist business
   facts.
+
+  IM-style adapters declare `im_listen_modes: [:addressed_only, :all_messages]`
+  in `capabilities/0` and honor a per-source `im_listen_mode` for transport
+  admission. They normalize IM occurrences into either
+  `bullx.im.message.addressed` (direct messages, mentions, and equivalent
+  provider-directed interactions) or `bullx.im.message.ambient` (unaddressed
+  group/channel messages, only when the source uses `im_listen_mode =
+  all_messages`). The listen mode is transport admission only; it does not
+  decide Event Routing Rules, TargetSession, or AIAgent response policy.
   """
 
   alias BullX.Plugins.Extension

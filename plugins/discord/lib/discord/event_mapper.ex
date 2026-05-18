@@ -12,7 +12,7 @@ defmodule Discord.EventMapper do
   def map(_payload, _source), do: {:error, Discord.Error.payload("invalid Discord payload")}
 
   defp map_event(event_type, payload, %Source{} = source) when event_type in ["MESSAGE_CREATE", :MESSAGE_CREATE, "message_create"] do
-    map_message("message_create", payload, source, "bullx.message.created")
+    map_message("message_create", payload, source, :im_message)
   end
 
   defp map_event(event_type, payload, %Source{} = source) when event_type in ["MESSAGE_UPDATE", :MESSAGE_UPDATE, "message_update"] do
@@ -37,9 +37,11 @@ defmodule Discord.EventMapper do
          {:ok, blocks} <- ContentMapper.from_message(payload, source),
          text <- ContentMapper.primary_text(blocks),
          command_result <- CommandNormalizer.parse_text(text),
-         {:attention, {:ok, attention_reason}} <-
+         {:attention, attention} when elem(attention, 0) in [:ok, :ambient] <-
            {:attention, AttentionPolicy.decide(payload, source, command_result)} do
+      {_decision, attention_reason} = attention
       context = context(provider_event_type, payload, source, attention_reason)
+      resolved_type = resolve_event_type(default_type, attention)
 
       case command_result do
         {:direct, command} ->
@@ -49,13 +51,17 @@ defmodule Discord.EventMapper do
           mapped(message_id, source, actor, blocks, context, "bullx.command.invoked", command)
 
         _result ->
-          mapped(event_id(default_type, message_id, payload), source, actor, blocks, context, default_type, %{})
+          mapped(event_id(resolved_type, message_id, payload), source, actor, blocks, context, resolved_type, %{})
       end
     else
       {:attention, {:ignore, reason}} -> {:ignore, reason}
       {:error, error} -> {:error, error}
     end
   end
+
+  defp resolve_event_type(:im_message, {:ambient, _reason}), do: "bullx.im.message.ambient"
+  defp resolve_event_type(:im_message, _attention), do: "bullx.im.message.addressed"
+  defp resolve_event_type(event_type, _attention), do: event_type
 
   defp map_interaction(payload, %Source{} = source) do
     with {:ok, interaction_id} <- required_id(payload, "id"),
@@ -211,6 +217,7 @@ defmodule Discord.EventMapper do
       "discord_channel_id" => context.channel_id,
       "content_kind" => first_content_kind(blocks),
       "attention_reason" => context.attention_reason,
+      "im_listen_mode" => Atom.to_string(source.im_listen_mode),
       "connected_realm_ref" => source.connected_realm_ref
     }
     |> put_command_facts(command)

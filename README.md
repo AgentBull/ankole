@@ -15,11 +15,11 @@ OTP's lightweight processes, supervision trees, and message-passing isolation ma
 
 Chatbots made LLMs conversational. The [OpenClaw](https://grokipedia.com/page/OpenClaw) and [Hermes-Agent](https://hermes-agent.nousresearch.com/docs/user-stories) generation gave agents hands: channels, tools, skills, shell and browser access, memory files, subagents, and scheduled work. [Dify](https://docs.dify.ai/en/use-dify/getting-started/key-concepts), RPA, and RAG workflow builders made it easier to package AI into specific business apps. BullX is designed for the next step: AI Colleagues that do accountable work over time, inside an operating model that can be audited, recovered, governed, and improved.
 
-BullX is built around AI Agents as colleagues, not RAG support bots or digital assistants waiting for instructions. A BullX Agent can carry a long-term mission, own KPI/OKR-style goals, hold responsibility, work over long horizons, collaborate with humans or other Agents, and improve from trajectory data.
+BullX is built around AI Agents as colleagues, not RAG support bots or digital assistants waiting for instructions. A BullX Agent can carry a long-term mission, track KPI/OKR-style success metrics, hold responsibility, work over long horizons, collaborate with humans or other Agents, and improve from trajectory data.
 
 BullX does not optimize for "one more chat interface." It turns AI Colleagues into a durable work system:
 
-- **Agents** carry long-term missions, responsibilities, permissions, memory, outbound identity, and KPI/OKR-style goals.
+- **Agents** carry long-term missions, responsibilities, permissions, memory, outbound identity, and KPI/OKR-style success metrics.
 - **EventBus** receives real-world and system Events, applies Event Routing Rules, and sends each accepted Event to the right Target.
 - **Targets** do the work: most commonly an AIAgent for flexible judgment or a Workflow for explicit process structure.
 - **TargetSessions** give runtime work a scoped window, while durable business facts remain in Conversation, Work, ApprovalRequest, ChildRun, Brain, Budget, and domain records.
