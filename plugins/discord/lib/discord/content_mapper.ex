@@ -1,0 +1,152 @@
+defmodule Discord.ContentMapper do
+  @moduledoc false
+
+  @message_limit 2_000
+
+  @spec from_message(map(), Discord.Source.t()) :: {:ok, [map()]} | {:error, map()}
+  def from_message(%{} = message, %Discord.Source{} = source) do
+    text =
+      message
+      |> Map.get("content")
+      |> strip_bot_mentions(source.bot_user_id)
+
+    blocks =
+      []
+      |> maybe_add_text(text)
+      |> add_attachments(Map.get(message, "attachments", []), Map.get(message, "channel_id"))
+      |> add_embeds(Map.get(message, "embeds", []))
+      |> add_stickers(Map.get(message, "sticker_items", []))
+      |> case do
+        [] -> [text_block(BullX.I18n.t("eventbus.discord.errors.unsupported_message"))]
+        blocks -> Enum.reverse(blocks)
+      end
+
+    {:ok, blocks}
+  end
+
+  def from_message(_message, _source), do: {:error, Discord.Error.payload("invalid Discord message")}
+
+  @spec primary_text([map()]) :: String.t() | nil
+  def primary_text([%{"kind" => "text", "body" => %{"text" => text}} | _rest]) when is_binary(text), do: text
+  def primary_text([_block | rest]), do: primary_text(rest)
+  def primary_text([]), do: nil
+
+  @spec render_outbound(term()) :: {:ok, [String.t()], [String.t()]} | {:error, map()}
+  def render_outbound([%{"kind" => "text", "body" => %{"text" => text}} | _rest]) when is_binary(text) and text != "" do
+    {:ok, split_text(text, @message_limit), []}
+  end
+
+  def render_outbound(%{"kind" => "text", "body" => %{"text" => text}}) when is_binary(text) and text != "" do
+    {:ok, split_text(text, @message_limit), []}
+  end
+
+  def render_outbound(%{kind: "text", body: %{text: text}}), do: render_outbound(%{"kind" => "text", "body" => %{"text" => text}})
+  def render_outbound([%{"kind" => kind, "body" => body} | _rest]), do: render_fallback(kind, body)
+  def render_outbound(%{"kind" => kind, "body" => body}), do: render_fallback(kind, body)
+  def render_outbound(_content), do: {:error, Discord.Error.payload("Discord delivery content is required")}
+
+  @spec utf16_units(String.t()) :: non_neg_integer()
+  def utf16_units(text) when is_binary(text) do
+    text
+    |> String.to_charlist()
+    |> Enum.reduce(0, fn codepoint, acc -> acc + if(codepoint > 0xFFFF, do: 2, else: 1) end)
+  end
+
+  @spec split_text(String.t(), pos_integer()) :: [String.t()]
+  def split_text(text, limit) when is_binary(text) and is_integer(limit) and limit > 0 do
+    {chunks, current, _units} =
+      text
+      |> String.to_charlist()
+      |> Enum.reduce({[], [], 0}, fn codepoint, {chunks, current, units} ->
+        code_units = if codepoint > 0xFFFF, do: 2, else: 1
+
+        case units + code_units > limit and current != [] do
+          true -> {[current |> Enum.reverse() |> List.to_string() | chunks], [codepoint], code_units}
+          false -> {chunks, [codepoint | current], units + code_units}
+        end
+      end)
+
+    [current |> Enum.reverse() |> List.to_string() | chunks]
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.reverse()
+  end
+
+  @spec strip_bot_mentions(String.t() | nil, String.t() | nil) :: String.t()
+  def strip_bot_mentions(text, bot_user_id) when is_binary(text) and is_binary(bot_user_id) do
+    text
+    |> String.replace(~r/<@!?#{Regex.escape(bot_user_id)}>/, "")
+    |> String.trim()
+  end
+
+  def strip_bot_mentions(text, _bot_user_id) when is_binary(text), do: String.trim(text)
+  def strip_bot_mentions(_text, _bot_user_id), do: ""
+
+  defp maybe_add_text(blocks, ""), do: blocks
+  defp maybe_add_text(blocks, text) when is_binary(text), do: [text_block(text) | blocks]
+  defp text_block(text), do: %{"kind" => "text", "body" => %{"text" => text}}
+
+  defp add_attachments(blocks, attachments, channel_id) when is_list(attachments) do
+    Enum.reduce(attachments, blocks, fn attachment, acc ->
+      case Map.get(attachment, "id") do
+        id when is_binary(id) ->
+          kind = attachment_kind(attachment)
+          [media_block(kind, "discord://attachment/#{channel_id || "unknown"}/#{id}", attachment) | acc]
+
+        _value ->
+          acc
+      end
+    end)
+  end
+
+  defp add_attachments(blocks, _attachments, _channel_id), do: blocks
+
+  defp add_embeds(blocks, embeds) when is_list(embeds) do
+    Enum.reduce(embeds, blocks, fn embed, acc ->
+      text =
+        [Map.get(embed, "title"), Map.get(embed, "description")]
+        |> Enum.filter(&(is_binary(&1) and &1 != ""))
+        |> Enum.join("\n")
+
+      maybe_add_text(acc, text)
+    end)
+  end
+
+  defp add_embeds(blocks, _embeds), do: blocks
+
+  defp add_stickers(blocks, stickers) when is_list(stickers) do
+    Enum.reduce(stickers, blocks, fn sticker, acc ->
+      case Map.get(sticker, "id") do
+        id when is_binary(id) -> [media_block("image", "discord://sticker/#{id}", sticker) | acc]
+        _value -> maybe_add_text(acc, BullX.I18n.t("eventbus.discord.media.sticker"))
+      end
+    end)
+  end
+
+  defp add_stickers(blocks, _stickers), do: blocks
+
+  defp attachment_kind(%{"content_type" => "image/" <> _rest}), do: "image"
+  defp attachment_kind(%{"content_type" => "audio/" <> _rest}), do: "audio"
+  defp attachment_kind(%{"content_type" => "video/" <> _rest}), do: "video"
+  defp attachment_kind(_attachment), do: "file"
+
+  defp media_block(kind, url, attachment) do
+    %{
+      "kind" => kind,
+      "body" =>
+        %{
+          "url" => url,
+          "fallback_text" => Map.get(attachment, "filename") || "[#{kind}]"
+        }
+    }
+  end
+
+  defp render_fallback(kind, body) do
+    text =
+      case get_in(body, ["fallback_text"]) do
+        value when is_binary(value) and value != "" -> value
+        _value -> BullX.I18n.t("eventbus.discord.delivery.fallback_text")
+      end
+
+    {:ok, [text], ["#{kind}_degraded_to_fallback_text"]}
+  end
+end
