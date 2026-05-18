@@ -12,10 +12,11 @@ remains an AIAgent conversation command by default because it mutates
 Conversation, Message branch, generation lease, prompt context, or model/tool
 recovery state. The default slash token `/new` and localized aliases such as
 `/新会话` both normalize to `data.routing_facts.command_name = "new"` when an
-adapter emits `bullx.command.invoked`. Provider-native command Events can target
-AIAgent only through an explicit AIAgent-owned command service or by entering
-AIAgent as ordinary message text when the adapter does not normalize the
-provider input as `bullx.command.invoked`.
+adapter emits `bullx.command.invoked`. Provider-native command Events may route
+directly to `target_type = "ai_agent"` when the command name is owned by the
+AIAgent catalog. If the adapter does not normalize the provider input as
+`bullx.command.invoked`, the same command may still reach AIAgent as addressed
+message text and be detected by the AIAgent fallback parser.
 
 ## Scope
 
@@ -265,14 +266,19 @@ AIAgent conversation command names such as `new`, `reset`, `compress`, `retry`,
 mutate Conversation, Message branch, generation lease, prompt context, or
 model/tool recovery state. Default slash tokens such as `/new` and `/compress`,
 and localized aliases such as `/新会话` or `/压缩`, normalize to the same
-canonical command names before routing. If a normalized AIAgent conversation
-command routes to Command Target, the only valid handling is delegation through
-an AIAgent-owned command service. Command Target must not directly edit
-Conversation internals unless AIAgent exposes that service boundary.
+canonical command names before routing. A normalized AIAgent conversation
+command may route directly to `target_type = "ai_agent"`. If one of these
+commands routes to Command Target instead, the only valid handling is an
+explicit design-approved delegation through an AIAgent-owned command service.
+Command Target must not directly edit Conversation internals unless AIAgent
+exposes that service boundary.
 
 Run-control commands such as `/stop`, `/queue`, and `/steer` may be Command
 Target only if AIAgent or ChildRun exposes explicit interrupt, queue, or steer
-APIs. Command Target must not reach into TargetSession worker internals.
+APIs and a later design assigns that route to Command Target. Otherwise
+AIAgent-owned run-control commands route to `target_type = "ai_agent"` or use
+the addressed-message fallback. Command Target must not reach into TargetSession
+worker internals.
 
 Governance commands such as `/approve` and `/deny` may be Command Target or an
 Approval Target. Business facts belong to ApprovalRequest and Governance, not to
@@ -330,10 +336,10 @@ Command Target:
 ### Example C: `new` command aliases
 
 Provider-native `/new` and localized `/新会话` normalize to canonical
-`command_name = "new"`. That command may target an AIAgent command handler when
-a later AIAgent command service is exposed. Plain text `/new` or `/新会话` may
-also reach AIAgent as a message and be handled by AIAgent's built-in command
-detection through the same canonical command catalog.
+`command_name = "new"`. That command may route directly to
+`target_type = "ai_agent"` and be consumed by the AIAgent command handler. Plain
+text `/new` or `/新会话` may also reach AIAgent as a message and be handled by
+AIAgent's built-in command detection through the same canonical command catalog.
 
 Do not route `/new` to a generic system command handler unless that handler
 delegates through an AIAgent-owned Conversation reset boundary.
@@ -343,9 +349,9 @@ delegates through an AIAgent-owned Conversation reset boundary.
 Provider-native `/compress` and localized aliases such as `/压缩` normalize to
 canonical `command_name = "compress"`. This is an AIAgent conversation command
 because it changes future prompt context through summary overlay state. It may
-target an AIAgent-owned command service after adapter normalization, or reach
-AIAgent as plain text when the adapter does not normalize the provider input as
-`bullx.command.invoked`.
+route directly to `target_type = "ai_agent"` after adapter normalization, or
+reach AIAgent as plain text when the adapter does not normalize the provider
+input as `bullx.command.invoked`.
 
 Do not route `compress` to a generic system command handler. Command Target may
 delegate only through the AIAgent-owned compression boundary; it must not write
@@ -447,8 +453,9 @@ boundaries.
 6. Add AIAgent command boundary tests.
    - Owns: cross-doc behavior tests where AIAgent runtime exists.
    - Check: canonical AIAgent command names such as `new` and `compress`, plus
-     localized aliases such as `/新会话` and `/压缩`, remain AIAgent-owned unless
-     explicitly delegated through an AIAgent command service.
+     localized aliases such as `/新会话` and `/压缩`, remain AIAgent-owned and may
+     route directly to `target_type = "ai_agent"` unless explicitly delegated
+     through an AIAgent command service.
 
 ### Done when
 
@@ -470,9 +477,10 @@ Focused tests cover:
 - Command Target visible replies go through the Channel Adapter boundary, not
   provider-specific modules.
 - Canonical AIAgent command names such as `new` and `compress`, plus localized
-  aliases such as `/新会话` and `/压缩`, remain AIAgent-owned unless explicitly
-  delegated through an AIAgent command service; generic Command Target does not
-  mutate Conversation internals directly.
+  aliases such as `/新会话` and `/压缩`, remain AIAgent-owned, can route directly
+  to `target_type = "ai_agent"`, and are delegated through Command Target only by
+  explicit design; generic Command Target does not mutate Conversation internals
+  directly.
 - Unauthorized admin command writes safe diagnostic/audit records and returns
   `:ok`; infrastructure failure returns `{:error, reason}`.
 
@@ -494,6 +502,7 @@ bun precommit
 - Moved system/info commands outside the AIAgent model loop.
 - Clarified that `/preauth` and `/web_auth` are channel-adapter commands by
   default.
-- Kept AIAgent Conversation commands inside AIAgent runtime unless delegated
-  through an explicit AIAgent command service.
+- Kept AIAgent Conversation commands inside AIAgent runtime, including direct
+  `target_type = "ai_agent"` routing, unless delegated through an explicit
+  AIAgent command service.
 - Added routing examples and focused tests.

@@ -183,6 +183,10 @@ Command input uses `bullx.command.invoked` only when the provider command
 surface or adapter command grammar accepts the input as a command. Ordinary text
 that contains `/` remains a message Event.
 
+Normalization does not decide command ownership. Event Routing Rules may send
+`bullx.command.invoked` to Command Target for system commands or directly to
+`target_type = "ai_agent"` for AIAgent-owned commands.
+
 Other normalized Event types, such as `bullx.message.edited`,
 `bullx.reaction.changed`, `bullx.action.submitted`, `bullx.trigger.fired`, and
 `bullx.childrun.completed`, are open-ended. EventBus validates the CloudEvents

@@ -492,6 +492,45 @@ Rules:
   `root_assistant_message_id` for command recovery and branch audit. These are
   implementation metadata, not a turns table.
 
+Valid v1 `role`, `kind`, and `status` combinations are:
+
+| `role` | `kind` | `status` | Notes |
+| --- | --- | --- | --- |
+| `user` | `normal` | `complete` | Inbound user-like input that enters provider dialogue. |
+| `assistant` | `normal` | `generating`, `complete` | Model output, including assistant tool-call requests. |
+| `assistant` | `summary` | `complete` | Context compression overlay Message. |
+| `assistant` | `error` | `complete` | Durable generation or recovery diagnostic that is not ordinary dialogue. |
+| `tool` | `normal` | `complete` | Tool result Message, including structured tool errors. |
+| `im_ambient` | `normal` | `complete` | Passive ambient observation. |
+| `im_ambient` | `introspection` | `complete` | Proactive ambient trigger rendered as user-like input. |
+
+No other combinations are valid. In particular, v1 does not use
+`role = tool, kind = error`; tool failures remain `role = tool, kind = normal`
+with a structured error inside the `tool_result` content block. Migrations or
+changesets must reject invalid combinations, and `status = generating` is valid
+only for `role = assistant, kind = normal`.
+
+V1 `content` is a JSON array of normalized blocks. The block union is small and
+owned by Core; renderers map it to provider-specific `ReqLLM.Message` inputs at
+request time.
+
+| Block `type` | Required fields | Rendering owner | Provider input |
+| --- | --- | --- | --- |
+| `text` | `text` | Core history renderer | Yes, when the containing Message is rendered. |
+| `normalized_input_part` | `part` | Inbound normalizer | Yes, after allowed conversion from the NormalizedCloudEvent content-part contract. |
+| `tool_call` | `tool_call_id`, `name`, `arguments` | Core tool loop | Yes, as an assistant tool-call request. |
+| `tool_result` | `tool_call_id`, `is_error`, `result` or `error` | Core dispatcher | Yes, as a provider-valid tool result. |
+| `error` | `code`, `message`, `retryable` | Core recovery and diagnostics | No ordinary dialogue rendering. |
+| `summary_text` | `text` | Context compression | Yes, only through the summary overlay rules. |
+| `human_steering_note` | `text`, `command_entry_id` | Slash command runtime | Yes, only when attached to the next provider-visible result defined by `./SlashCommands.md`. |
+| `omitted_marker` | `reason` | Compression or renderer | Yes, only when the renderer needs an explicit omission marker. |
+
+`tool_call_id` is the provider tool-call id when the provider supplies one, or a
+BullX-generated stable equivalent when it does not. The same correlation value
+must connect `tool_call` and `tool_result` blocks. Blocks store safe normalized
+facts only; raw provider payloads, raw CloudEvents, credentials, bearer-like
+reply handles, and stream chunks stay out of `content`.
+
 Active branch resolution starts from `current_leaf_message_id`, resolves any
 summary leaf to `metadata.source_leaf_message_id`, walks the raw `parent_id`
 chain back to root, then reverses that raw path into branch order. The renderer
@@ -595,7 +634,8 @@ Target.handle_event(invocation, entry)
   -> derive conversation_key
   -> find or create the active Conversation
   -> dedupe inbound entry by target_session_entry_id
-  -> append inbound user, command, or im_ambient Message
+  -> append inbound user or im_ambient Message when applicable
+  -> route AIAgent command inputs to the command control path without writing a Message
   -> handle command, ambient observe-only, or unsupported paths when applicable
   -> acquire a Conversation generation lease when a model run is needed
   -> render prompt context from active branch, Work, and entry context
@@ -644,6 +684,10 @@ carry `target_session_id` and `target_session_entry_id`; ambient batch runs must
 not fabricate those identifiers because the Redis batch worker is not a
 TargetSession Target invocation.
 
+For `source_type = ambient_batch`, the triggering Principal and safe caller
+context are the Agent Principal itself. Ambient message speakers remain evidence
+and context only; they are not the ACL caller for proactive generation.
+
 Generated assistant, tool, and error Messages write
 `metadata.generation.lease_id`, `source_type`, `source_id`,
 `source_message_id`, and `root_assistant_message_id`. Event-derived Messages may
@@ -656,10 +700,17 @@ batch idempotency key for recovery and outbound idempotency.
 AIAgent v1 treats `bullx.im.message.addressed` as the only IM Event that enters
 the main Agentic Loop directly. DMs, group mentions, and provider-native direct
 interactions are normalized into this Event type. Core stores the input as
-`role = user, kind = normal`, or handles it as an AIAgent-owned control command
-without writing a Conversation Message. DM and group mention differences affect
-`reply_channel`, conversation key, scope, and message meta context; they do not
-create separate AIAgent runtime modes.
+`role = user, kind = normal`, or handles a leading AIAgent-owned slash token as
+a control command without writing a Conversation Message. DM and group mention
+differences affect `reply_channel`, conversation key, scope, and message meta
+context; they do not create separate AIAgent runtime modes.
+
+AIAgent v1 also consumes `bullx.command.invoked` when EventBus routes that Event
+to `target_type = "ai_agent"` and the normalized command name belongs to the
+AIAgent command catalog. This Event is command control input only. It does not
+append a user Message, does not enter provider dialogue, and does not go through
+a generic Command Target delegation path. Unknown AIAgent command names produce
+a safe command diagnostic without being reinterpreted as ordinary user text.
 
 Ambient utterances, unsupported Events, 30-second batching, ambient brief,
 ambient reference recall, and proactive intervention policy are owned by
@@ -678,8 +729,8 @@ localized aliases, control operation contract, active-generation semantics, and
 canonical `new`, `compress`, `retry`, `steer`, `stop`, and `undo` behavior.
 Core provides runtime primitives for that design:
 
-- Detect AIAgent-owned commands after Event normalization or consume normalized
-  command Events from adapters.
+- Detect AIAgent-owned leading slash tokens in addressed IM Events and consume
+  `bullx.command.invoked` Events routed directly to this AIAgent.
 - Keep slash command inputs and command responses out of
   `conversation_messages`.
 - Run the command ACL gate before execution.
@@ -1011,6 +1062,11 @@ Rules:
 - A `ReqLLM.Tool.execute/2` callback must be a BullX-owned thin dispatcher. It
   receives explicit triggering Principal, Agent Principal, Target, Conversation,
   entry, effective access tag, timeout, and idempotency context.
+- The main Agentic Loop must not use `ReqLLM.Context.execute_and_append_tools/3`
+  or any `req_llm` or provider auto-execution path that can execute tools before
+  Core has persisted the assistant `tool_call` Message. `ReqLLM.Tool` is schema
+  and dispatch metadata in this loop; Core calls the dispatcher only after the
+  durable tool-call request exists.
 - Prompt rendering must not hide business side effects inside tool callbacks.
 - Provider-native tools, such as provider-hosted web search, are allowed only
   when the selected model/profile treats them as provider behavior and BullX does
@@ -1200,6 +1256,15 @@ Generation lease rules:
 
 - The model/tool loop acquires the Conversation generation lease before appending
   a `generating` assistant Message or calling a model.
+- Repo defaults are `generation_lease_ttl_ms = 600_000`,
+  `generation_heartbeat_interval_ms = 30_000`, and
+  `generation_max_runtime_ms = 1_800_000`.
+- Installation config or Agent profile may override those values. Overrides must
+  be positive finite integers, and `generation_heartbeat_interval_ms` must be no
+  greater than one third of `generation_lease_ttl_ms`.
+- Heartbeat extends a matching owned active lease to
+  `min(now + generation_lease_ttl_ms, started_at + generation_max_runtime_ms)`.
+  V1 does not allow an infinite max runtime.
 - An active lease has an owner, `expires_at > now`, and no `cancelled_at`.
 - An owned active lease additionally matches the runner's `lease_id`.
 - An available lease is empty, expired, or cancelled. Acquire may overwrite an
@@ -1339,6 +1404,9 @@ EventBus, LLMProvider, Principal, Channel Adapter, or Workflow boundaries.
      and focused tests.
    - Acceptance: active branch prompt path reconstructs after restart, and time
      awareness rendering can be reproduced from Message metadata.
+   - Acceptance: invalid `role`/`kind`/`status` combinations are rejected;
+     persisted content uses the v1 block union; tool errors remain
+     `role = tool, kind = normal` with structured `tool_result` error blocks.
 
 3. Add AIAgent Target dispatch.
    - Owns: `ai_agent` Target registry entry and
@@ -1347,11 +1415,12 @@ EventBus, LLMProvider, Principal, Channel Adapter, or Workflow boundaries.
      `command_retry`.
    - Acceptance: a fake side-channel entry invokes AIAgent without EventBus
      owning AIAgent internals; ambient batch generation can run without
-     fabricated TargetSession identifiers; command retry generation uses the
-     command entry id as source id.
+     fabricated TargetSession identifiers and uses the Agent Principal itself as
+     ACL caller; command retry generation uses the command entry id as source id.
 
 4. Add conversation key and Event message handling.
-   - Owns: deterministic key builder, addressed IM user turn handling, and
+   - Owns: deterministic key builder, addressed IM user turn handling,
+     `bullx.command.invoked` command-control routing for AIAgent Targets, and
      integration with ambient/unsupported Event policy.
    - Acceptance: conversation key golden tests cover fixed length-prefixed UTF-8
      encoding, `BullX.Ext.generic_hash/1`, `scene` and `actor` profile modes,
@@ -1360,6 +1429,9 @@ EventBus, LLMProvider, Principal, Channel Adapter, or Workflow boundaries.
    - Acceptance: addressed IM enters a normal user turn; ambient IM writes to the
      active ambient Conversation without per-actor splitting; companion ambient
      behavior remains owned by `./AmbientAndEventMessages.md`.
+   - Acceptance: `bullx.command.invoked` routed to `target_type = "ai_agent"`
+     executes the AIAgent command control path without writing a Conversation
+     Message or delegating through a generic Command Target.
 
 5. Add slash command integration and daily reset.
    - Owns: command runtime primitives, generation lease cancellation, branch
@@ -1396,6 +1468,8 @@ EventBus, LLMProvider, Principal, Channel Adapter, or Workflow boundaries.
      idempotency context, write correlated tool results, and feed the next model
      turn; denied, malformed, crashed, timed-out, disabled, or unknown tool calls
      become safe structured errors.
+   - Acceptance: the main Agentic Loop does not use a `req_llm` auto-execution
+     path that can run tools before the assistant tool-call Message is durable.
    - Acceptance: v1 does not ship real external tools and does not require
      future Capability governance before the fake tool loop works.
 
@@ -1417,6 +1491,9 @@ EventBus, LLMProvider, Principal, Channel Adapter, or Workflow boundaries.
       recovery, partial tool-result recovery, and side-effect idempotency stubs.
     - Acceptance: the recovery matrix in this document passes without adding a
       delivery table or stream persistence table.
+    - Acceptance: lease defaults, override validation, heartbeat extension, max
+      runtime cap, cancellation, expiry, and owned-active checks follow the Core
+      generation lease contract.
 
 ### Stop and ask
 

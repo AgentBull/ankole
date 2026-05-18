@@ -129,13 +129,15 @@ AIAgent ACL defines two AuthZ actions for that resource:
 The checks are ordered by operation:
 
 ```text
-if BullX.AuthZ.authorize(caller, "ai_agent:<agent_principal_id>", "invoke", context) != :ok
+resource = "ai_agent:" <> agent_principal_id
+
+if BullX.AuthZ.authorize(caller, resource, "invoke", context) != :ok
   deny
 
 if operation_tag == :ordinary
   allow
 else if operation_tag == :privileged and
-        BullX.AuthZ.authorize(caller, "ai_agent:<agent_principal_id>", "invoke_privileged", context) == :ok
+        BullX.AuthZ.authorize(caller, resource, "invoke_privileged", context) == :ok
   allow
 else
   deny
@@ -184,6 +186,15 @@ intent recognizer are Agent-owned auxiliary observation calls defined by
 `./AmbientAndEventMessages.md`. They do not use the ambient speaker as an ACL
 caller, do not require the triggering Principal to pass the conversation ACL
 gate, and do not grant permission for a later visible reply or tool call.
+
+Proactive ambient generation is different from the recognizer itself. When an
+ambient batch writes `role = im_ambient, kind = introspection` and enters Core
+generation, Core uses the Agent Principal itself as the ACL caller. Ambient
+speakers remain evidence and context only. The self-caller must pass the
+ordinary `invoke` check on `ai_agent:<agent_principal_id>`; v1 does not
+auto-elevate proactive ambient generation to `invoke_privileged`. A disabled
+Agent Principal, disabled `may_intervene`, or missing self access stops the
+generation with a safe diagnostic before any model/tool loop starts.
 
 ### Command
 
@@ -339,7 +350,9 @@ operation grant.
    Check ACL before starting the model/tool loop and before executing an
    AIAgent-owned command. An unauthorized caller must not trigger a model call.
    Any caller with `invoke` can run ordinary conversation commands; privileged
-   commands additionally require `invoke_privileged`.
+   commands additionally require `invoke_privileged`. Proactive ambient
+   generation uses the Agent Principal itself as caller and still must pass the
+   ordinary `invoke` gate.
 
 4. Gate tool schema rendering and tool execution.
    Filter provider tool schemas by AIAgent access and privileged-operation grant
@@ -369,6 +382,8 @@ Stop implementation and ask for a design decision if the work requires:
 - The access gate fails closed for AuthZ denials and invalid Principal states.
 - Conversation starts, AIAgent-owned commands, and tool calls are checked before
   execution.
+- Proactive ambient generation uses the Agent Principal itself as caller; ambient
+  speakers are never used as the ACL caller.
 - Provider tool schema rendering exposes only tools the current caller can run.
 - Tool execution performs a second ACL check.
 - Insufficient access always uses `elevation_strategy = "deny"` in v1.

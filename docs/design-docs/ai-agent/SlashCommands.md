@@ -59,18 +59,23 @@ same canonical command name before authorization, execution, or testing. Default
 tokens and localized aliases cannot be removed without updating this design and
 the focused tests.
 
+`bullx.command.invoked` may route directly to `target_type = "ai_agent"` when
+the normalized command name belongs to this AIAgent catalog. In that case the
+AIAgent Target consumes the Event as command control input and must not write a
+Conversation Message for the command input or response.
+
 System commands such as `/command` and `/status` are Command Target handlers. If
 an adapter normalizes one of those inputs to
 `type = "bullx.command.invoked"` and an Event Routing Rule routes it to
-`target_type = "command"`, the command does not enter an AIAgent model loop.
+`target_type = "command"`, the command does not enter an AIAgent runtime.
 Channel activation and login commands such as `/preauth` and `/web_auth` are
 adapter-owned entry points by default because they may run before Principal
 binding and may require provider-private reply context.
 
-A generic Command Target may receive normalized command Events. For commands in
-this catalog, the Command Target must delegate through the AIAgent-owned command
-service unless another design explicitly assigns ownership elsewhere. It must
-not directly edit Conversation internals, write summary Messages, move a
+A generic Command Target must not act as the default delegate for AIAgent-owned
+commands in v1. If a later design assigns an AIAgent command to a Command Target,
+that Command Target must call an AIAgent-owned command service and must not
+directly edit Conversation internals, write summary Messages, move a
 Conversation leaf, or modify generation leases.
 
 ## Normalization And Detection
@@ -174,6 +179,10 @@ state, and transport diagnostics do not live on
 `conversations.generation`. Durable command effects live on the records they
 actually mutate.
 
+Lease TTL, heartbeat interval, and max runtime defaults are defined by Core.
+Slash commands may cancel or replace a lease through the normal Core lease
+contract, but command handlers do not choose independent lease timing defaults.
+
 `steer` is intentionally weaker than a durable Message. Its prompt is an
 in-flight control hint for the active runtime loop. Logs, telemetry, command
 responses, and diagnostics must not copy that text. If the active loop cannot
@@ -202,6 +211,26 @@ Loop. `source_type` is `target_session_entry`, `ambient_batch`, or
 entry id. `root_assistant_message_id` points to the first assistant
 Message produced by the generation; later tool, assistant, and error Messages
 from the same generation reuse it.
+
+Branch-affecting commands mark old generated Messages with content-free
+`metadata.branch_effect` evidence:
+
+```json
+{
+  "branch_effect": {
+    "state": "superseded",
+    "command": "retry",
+    "command_entry_id": "018f...",
+    "at": "2026-05-18T14:35:00Z"
+  }
+}
+```
+
+`state` is `superseded`, `undone`, or `interrupted`. `command` is the canonical
+command name that created the marker, such as `retry`, `undo`, `stop`, or `new`.
+`command_entry_id` points to the durable command entry when one exists. The
+renderer primarily follows `current_leaf_message_id`; `branch_effect` is durable
+evidence and a recovery aid, not a separate branch index.
 
 ## Transaction Pattern
 
@@ -366,7 +395,7 @@ Handler behavior:
    source Message is on the active branch with an allowed user-like role and
    kind.
 6. Mark generated suffix Messages from the source child through the retry target
-   with a superseded marker that references the command entry id.
+   with `metadata.branch_effect.state = "superseded"` and the command entry id.
 7. Set `current_leaf_message_id = source_message_id`.
 8. Acquire a generation lease under the same Conversation lock with
    `owner_source_type = "command_retry"`, `owner_source_id = command_entry_id`,
@@ -428,8 +457,9 @@ Handler behavior:
 3. If a generation is active, set `generation.cancelled_at = now()` and a
    content-free cancellation reason.
 4. If a `status = generating` assistant Message exists for the active generation
-   and no running owner can complete it, mark it with the interrupted or error
-   recovery marker defined by the core streaming recovery design.
+   and no running owner can complete it, mark it with
+   `metadata.branch_effect.state = "interrupted"` or the durable error outcome
+   defined by the core streaming recovery design.
 5. Commit.
 6. The running Agentic Loop observes lease cancellation at the next check and
    stops before committing more assistant or tool output. Streaming cancellation
@@ -474,8 +504,8 @@ Handler behavior:
 4. Walk backward to the last source Message with an allowed role and kind.
 5. If no source exists, return a safe no-op command response or diagnostic with
    `reason = "no_undo_target"`.
-6. Mark the source and generated suffix Messages with an undone marker that
-   references the command entry id.
+6. Mark the source and generated suffix Messages with
+   `metadata.branch_effect.state = "undone"` and the command entry id.
 7. Set `current_leaf_message_id = source.parent_id`; if the source is root, set
    it to `null`.
 8. Commit.
@@ -494,7 +524,8 @@ safety:
 - `stop` converts stale generating output to the interrupted or error outcome
   defined by the core streaming recovery rules.
 - If `retry` crashes after marking the old turn but before starting the new run,
-  the superseded suffix remains evidence and a later user action may retry again.
+  the `metadata.branch_effect.state = "superseded"` suffix remains evidence and
+  a later user action may retry again.
 - If `steer` is not consumed by the live generation before runtime loss or
   generation completion, it expires without durable replay.
 - If `undo` crashes after marking Messages but before moving the leaf, recovery
@@ -549,11 +580,16 @@ TargetSession, Channel Adapter, LLMProvider, or Workflow ownership boundaries.
 
 1. Add the canonical command catalog and alias normalization.
    - Owns: command catalog, default slash tokens, localized aliases, plain-text
-     fallback detection, adapter-normalized command Event mapping.
+     fallback detection, and `bullx.command.invoked` mapping when routed directly
+     to `target_type = "ai_agent"`.
    - Acceptance: `/new`, `/新会话`, `/compress`, `/压缩`, `/retry`,
      `/steer <prompt>`, `/stop`, and `/undo` normalize to canonical names;
      unknown leading slash tokens do not call the model and are not privileged
      commands.
+   - Acceptance: unknown `bullx.command.invoked` names routed to an AIAgent return
+     a safe command diagnostic and are not reinterpreted as ordinary user text.
+   - Acceptance: adapter-normalized AIAgent commands do not require a generic
+     Command Target delegation path.
 
 2. Keep commands out of the durable transcript.
    - Owns: control operation handling, safe command responses, and the invariant
@@ -584,7 +620,8 @@ TargetSession, Channel Adapter, LLMProvider, or Workflow ownership boundaries.
 
 6. Implement `retry`.
    - Owns: last assistant reply lookup, source derivation, generated suffix
-     supersede marker, leaf rewind, and retry generation metadata.
+     `metadata.branch_effect.state = "superseded"`, leaf rewind, and retry
+     generation metadata.
    - Acceptance: `retry` reruns the last AI reply's source turn without copying
      the user Message, creating a new user turn, or deleting old evidence.
 
@@ -603,8 +640,8 @@ TargetSession, Channel Adapter, LLMProvider, or Workflow ownership boundaries.
      interrupted or error outcome.
 
 9. Implement `undo`.
-   - Owns: last exchange lookup, undone marker, leaf rewind, and no-delete
-     recovery.
+   - Owns: last exchange lookup, `metadata.branch_effect.state = "undone"`, leaf
+     rewind, and no-delete recovery.
    - Acceptance: `undo` removes the last user/assistant exchange from active
      branch rendering while preserving durable raw Messages.
 
@@ -640,6 +677,8 @@ Implementation should stop and ask if it would require:
 - Slash commands never enter ordinary provider dialogue.
 - Slash command inputs and command responses are not persisted as Agent durable
   Messages.
+- `bullx.command.invoked` can drive AIAgent-owned commands directly when routed
+  to `target_type = "ai_agent"`.
 - `retry` reruns the turn that produced the last AI reply on the active
   Conversation branch.
 - `steer` appends a human steering note to the next tool result after the

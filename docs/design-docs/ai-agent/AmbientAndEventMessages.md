@@ -52,13 +52,14 @@ This design does not define:
 
 ## Event classes
 
-From the AIAgent runtime's point of view, a routed Event falls into one of three
+From the AIAgent runtime's point of view, a routed Event falls into one of four
 classes:
 
 | Class | CloudEvents `type` | AIAgent behavior |
 | --- | --- | --- |
 | Addressed utterance | `bullx.im.message.addressed` | Persist normal input as `role = user, kind = normal`, or handle an AIAgent-owned slash command as a control input without writing a Conversation Message. |
 | Ambient utterance | `bullx.im.message.ambient` | Persist as `role = im_ambient, kind = normal`, then follow the Agent profile's ambient policy. |
+| AIAgent command Event | `bullx.command.invoked` | Run the AIAgent-owned command control path without writing a Conversation Message. |
 | Unsupported Event | Any other type | Record allowlisted safety telemetry and return success without writing a user Message or invoking a model. |
 
 Direct messages, group messages that mention the Agent, and provider-native
@@ -74,6 +75,17 @@ not decide whether the Agent stores, recalls, intervenes, or replies.
 Unsupported routed Events are not treated as user input. They are not converted
 into pseudo-dialogue, do not create Work, and do not call the model in this
 design.
+
+`bullx.command.invoked` is an AIAgent command Event only when EventBus routes it
+to `target_type = "ai_agent"` and the normalized command name belongs to the
+AIAgent command catalog. System, installation, login, activation, or other
+globally owned commands route to their owning Command Target or adapter-owned
+entry point instead.
+
+If EventBus routes `bullx.command.invoked` to an AIAgent and the normalized
+command name is not in the AIAgent catalog, the AIAgent returns a safe
+unknown-command response or diagnostic. It does not reinterpret the command as
+ordinary user text and does not call the model.
 
 ## Ambient Conversation session
 
@@ -243,6 +255,12 @@ internal generation runner with runtime context `source = ambient_batch`, absent
 TargetSession identifiers, and the captured `reply_channel` hint. Core still
 owns generation lease, Conversation active-state checks, ACL, tool policy,
 visible reply decisions, and outbound delivery.
+
+For this `ambient_batch` generation call, Core sets the ACL caller to the Agent
+Principal itself. The ambient speaker or speakers stay in Message evidence and
+prompt context only. If the Agent Principal is disabled, `may_intervene` is
+disabled, or the Agent self-caller lacks ordinary `invoke` access on the AIAgent
+resource, Core records a safe diagnostic and does not run the model/tool loop.
 
 If the ambient Conversation has no usable `reply_channel`, Core may persist an
 internal result when its normal rules allow it, but it must not send a visible
@@ -427,6 +445,10 @@ conditions:
 - Channel Adapter outbound delivery or the relevant stream boundary completes
   according to its own contract.
 
+For proactive ambient generation, the ACL caller is the Agent Principal itself.
+The observed ambient speakers are not treated as callers and do not grant or
+deny the visible reply.
+
 TargetSession completion does not mean a group-chat reply was delivered.
 Adapter delivery result remains a transport-boundary result.
 
@@ -542,9 +564,9 @@ Implementation steps:
 8. Enforce the visible reply boundary.
    - Owns: proactive intervention reply gating.
    - Acceptance: `im_ambient normal` cannot public-reply; `im_ambient
-     introspection` still passes through Core ACL, `reply_channel`, and Channel
-     Adapter final outbound delivery; the Redis worker does not create a
-     TargetSession output stream.
+     introspection` still passes through Core ACL using the Agent Principal as
+     caller, `reply_channel`, and Channel Adapter final outbound delivery; the
+     Redis worker does not create a TargetSession output stream.
 
 Stop and ask if implementation needs:
 
@@ -582,6 +604,8 @@ Done when:
 - Ambient brief generation and the ambient intent recognizer are Agent-owned
   auxiliary observation calls. They do not require caller ACL and do not perform
   v1 Budget settlement.
+- Proactive ambient generation uses the Agent Principal itself as the Core ACL
+  caller; ambient speakers are evidence and context only.
 - Long ambient text stores a brief on `metadata.brief`, not as a summary Message.
 - Ambient Reference Recall can cross `conversation_id` but not Agent or IM scene,
   and prefers `metadata.brief`.
