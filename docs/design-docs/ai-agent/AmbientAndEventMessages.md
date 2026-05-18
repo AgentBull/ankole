@@ -13,8 +13,8 @@ unmentioned group message may become durable Conversation / Message context for
 later use, but it does not by itself become provider dialogue and does not
 publicly reply. Proactive intervention is allowed only when the Agent profile
 explicitly enables it, a short-lived ambient batch recognizer asks for it, and
-the normal AIAgent generation, ACL, Budget, and outbound delivery boundaries
-allow a reply.
+the normal AIAgent generation, ACL, and outbound delivery boundaries allow a
+reply.
 
 ## Scope
 
@@ -57,7 +57,7 @@ classes:
 
 | Class | CloudEvents `type` | AIAgent behavior |
 | --- | --- | --- |
-| Addressed utterance | `bullx.im.message.addressed` | Persist as `role = user, kind = normal` or `kind = command`, then run the normal Agentic Loop. |
+| Addressed utterance | `bullx.im.message.addressed` | Persist normal input as `role = user, kind = normal`, or handle an AIAgent-owned slash command as a control input without writing a Conversation Message. |
 | Ambient utterance | `bullx.im.message.ambient` | Persist as `role = im_ambient, kind = normal`, then follow the Agent profile's ambient policy. |
 | Unsupported Event | Any other type | Record allowlisted safety telemetry and return success without writing a user Message or invoking a model. |
 
@@ -87,9 +87,9 @@ profile asks for it. Ambient utterances do not use the ambient speaker as the
 conversation isolation actor because the observed scene, not the individual
 speaker, is the context being preserved.
 
-The normalized IM scene must come from normalized Event data or already
-committed Conversation metadata. AIAgent code must not infer the scene from raw
-provider payload.
+The normalized IM scene must come from the normalized CloudEvent data contract
+or already committed Conversation metadata. AIAgent code must not infer the
+scene from raw provider payload.
 
 ## Profile fields
 
@@ -124,8 +124,8 @@ affect EventBus routing.
 Addressed utterances are persisted in the current Conversation:
 
 - Normal text or multimodal input becomes `role = user, kind = normal`.
-- AIAgent built-in commands become `role = user, kind = command` and enter the
-  Core command path.
+- AIAgent built-in commands enter the Core command path as control inputs. They
+  are not persisted as Conversation Messages.
 
 Ambient utterances are persisted in the active ambient Conversation for the same
 Agent and normalized IM scene:
@@ -143,7 +143,7 @@ reply.
 that the Agent should let the main model consider intervening in the current
 scene because a batch of ambient messages appears relevant to the Agent's
 mission. Core renders this Message through the normal user-like input path and
-owns generation, tool use, ACL, Budget, visible delivery, and error handling.
+owns generation, tool use, ACL, visible delivery, and error handling.
 
 Inbound Event-derived Messages must deduplicate by `target_session_entry_id`.
 An `im_ambient introspection` Message is not directly derived from one
@@ -195,6 +195,13 @@ Batching rules:
 - The batch worker must apply a freshness guard. If processing starts after the
   short grace window, it discards the batch instead of running a late recognizer.
 
+The ambient intent recognizer is an Agent-owned auxiliary observation call. It is
+not the caller-visible Core generation path described by `./ACL.md`, does not use
+the ambient speaker as an ACL caller, and cannot directly execute tools, create
+Work, send a visible reply, or authorize a later Core generation. Provider usage
+from this call is recorded as AIAgent runtime usage metadata when available. V1
+does not perform Budget settlement for this auxiliary call.
+
 The ambient intent recognizer input includes:
 
 - The current 30 second ambient batch.
@@ -234,8 +241,8 @@ batch metadata:
 After writing the introspection Message, the worker invokes the AIAgent Core
 internal generation runner with runtime context `source = ambient_batch`, absent
 TargetSession identifiers, and the captured `reply_channel` hint. Core still
-owns generation lease, Conversation active-state checks, ACL, Budget, tool
-policy, visible reply decisions, and outbound delivery.
+owns generation lease, Conversation active-state checks, ACL, tool policy,
+visible reply decisions, and outbound delivery.
 
 If the ambient Conversation has no usable `reply_channel`, Core may persist an
 internal result when its normal rules allow it, but it must not send a visible
@@ -335,8 +342,14 @@ Brief boundaries:
 - It does not rewrite the original `content`.
 - It is not a `kind = summary` Message.
 - It is not conversation-context compression.
+- It is an Agent-owned auxiliary observation call and does not use the ambient
+  speaker as an ACL caller.
 - Brief generation failure records safe diagnostics and falls back to the
   original `content`.
+
+Provider usage from brief generation is recorded as AIAgent runtime usage
+metadata when available. V1 does not perform Budget settlement for this
+auxiliary call.
 
 Ambient reference recall and the ambient intent recognizer render ambient
 messages with `metadata.brief` first. They read `content` only when the brief is
@@ -409,7 +422,7 @@ proactive intervention path. Even then, a visible reply requires all normal Core
 conditions:
 
 - generation produces assistant output;
-- ACL and Budget allow the action;
+- ACL allows the action;
 - a usable `reply_channel` exists;
 - Channel Adapter outbound delivery or the relevant stream boundary completes
   according to its own contract.
@@ -493,7 +506,8 @@ Implementation steps:
      `metadata.brief`, and failure fallback.
    - Acceptance: ambient text over 1000 characters gets a 200-word-or-shorter
      brief when the model succeeds; brief failure does not lose the original
-     Message.
+     Message; the brief call does not require caller ACL and records usage
+     metadata when available.
 
 4. Implement `observe_only`.
    - Owns: the ambient short path.
@@ -509,6 +523,8 @@ Implementation steps:
      invalid recognizer output is treated as no intervention; batch creation
      captures a single session-level `reply_channel` hint; Redis loss or stale
      processing drops only the proactive opportunity.
+   - Acceptance: the recognizer does not require caller ACL, does not execute
+     tools or visible delivery, and records usage metadata when available.
 
 6. Implement Ambient Reference Recall.
    - Owns: same Agent / same IM scene queries, cross-Conversation read,
@@ -526,8 +542,8 @@ Implementation steps:
 8. Enforce the visible reply boundary.
    - Owns: proactive intervention reply gating.
    - Acceptance: `im_ambient normal` cannot public-reply; `im_ambient
-     introspection` still passes through Core ACL, Budget, `reply_channel`, and
-     Channel Adapter final outbound delivery; the Redis worker does not create a
+     introspection` still passes through Core ACL, `reply_channel`, and Channel
+     Adapter final outbound delivery; the Redis worker does not create a
      TargetSession output stream.
 
 Stop and ask if implementation needs:
@@ -563,6 +579,9 @@ Done when:
 - The ambient intent recognizer uses `compression_model`, with fallback to
   `main_model`, and receives `mission`, `ambient_intent_system_prompt`, ambient
   recall, and addressed Conversation context.
+- Ambient brief generation and the ambient intent recognizer are Agent-owned
+  auxiliary observation calls. They do not require caller ACL and do not perform
+  v1 Budget settlement.
 - Long ambient text stores a brief on `metadata.brief`, not as a summary Message.
 - Ambient Reference Recall can cross `conversation_id` but not Agent or IM scene,
   and prefers `metadata.brief`.

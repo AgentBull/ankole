@@ -29,7 +29,8 @@ and algorithms.
 This document defines the current intended design for EventBus core:
 
 - Event acceptance and the decoded CloudEvents input contract.
-- The BullX normalized payload shape required before routing.
+- The requirement that accepted Events satisfy
+  [EventBus normalized CloudEvent](./NormalizedCloudEvent.md).
 - `RoutingContext`, `RoutingTable`, Event Routing Rule, scope, and window
   contracts as linked matcher details.
 - TargetSession identity and reuse.
@@ -178,83 +179,9 @@ and observability. EventBus does not route on nested carrier fields such as
 `data.event`, `data.event.name`, `data.event.version`, `event_name`,
 `event_kind`, or `event_version`.
 
-The minimal normalized payload shape is:
-
-```json
-{
-  "specversion": "1.0",
-  "id": "external-stable-event-id",
-  "source": "feishu://connected-realm/default",
-  "type": "bullx.im.message.addressed",
-  "subject": "optional-human-readable-debug-subject",
-  "time": "2026-05-17T10:00:00Z",
-  "datacontenttype": "application/json",
-  "data": {
-    "content": [
-      {
-        "kind": "text",
-        "body": {
-          "text": "..."
-        }
-      }
-    ],
-    "channel": {
-      "adapter": "feishu",
-      "id": "default"
-    },
-    "scope": {
-      "id": "chat_or_room_or_domain_scope",
-      "thread_id": null
-    },
-    "actor": {
-      "id": "external_actor_id",
-      "display": "Alice",
-      "bot": false,
-      "principal_ref": null
-    },
-    "refs": [],
-    "reply_channel": {
-      "adapter": "feishu",
-      "channel_id": "default",
-      "scope_id": "chat_or_room_or_domain_scope",
-      "thread_id": null,
-      "reply_to_external_id": "optional"
-    },
-    "routing_facts": {},
-    "raw_ref": null
-  }
-}
-```
-
-The validator enforces this minimum payload contract:
-
-- `data.channel`, `data.scope`, `data.actor`, `data.refs`,
-  `data.reply_channel`, `data.routing_facts`, and `data.raw_ref` are required.
-  Nested fields may use `null`, empty arrays, or empty objects where this
-  section allows those values.
-- `data.content` is a required non-empty list. Each block is an object with a
-  non-empty string `kind` and a JSON object `body`. Machine-only Events may
-  synthesize a text block so `content` remains non-empty.
-- `data.channel.adapter` and `data.channel.id` are non-empty strings.
-- `data.scope.id` is a non-empty string. `data.scope.thread_id` is a string or
-  `null`.
-- `data.actor.id` is a non-empty string. `data.actor.display` is a string or
-  `null`. `data.actor.bot` is a boolean. `data.actor.principal_ref` is a string
-  or `null`.
-- `data.refs` is a list. Each reference object contains at least non-empty
-  string `kind` and non-empty string `id`. Optional stable fields, such as
-  `url` and `external_id`, may exist when they are JSON-neutral and NUL-free.
-- `data.reply_channel` is `null` or an object. When it is an object, it may
-  contain `adapter`, `channel_id`, `scope_id`, `thread_id`, and
-  `reply_to_external_id`. EventBus stores these transport hints but does not
-  send replies.
-- `data.routing_facts` is an object. Keys are strings. Values are JSON-neutral
-  and NUL-free. The field carries normalized matching facts only.
-  `routing_facts` keys used by `match_expr` or `scope_fields` should use
-  CEL/path-safe names, such as lower snake_case. Provider-specific arbitrary
-  keys must be normalized before routing.
-- `data.raw_ref` is `null` or a JSON-neutral reference. It must not inline the
-  raw provider payload.
+The normalized payload contract is defined in
+[EventBus normalized CloudEvent](./NormalizedCloudEvent.md). EventBus validates
+that accepted Events satisfy that contract before projection and routing.
 
 `subject` is only for display and debugging. Event Routing Rules must not parse
 `subject` for machine routing, and `RoutingContext` does not expose `subject`.

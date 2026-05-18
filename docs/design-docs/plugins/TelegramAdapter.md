@@ -55,14 +55,14 @@ This design depends on:
 - Use stable CloudEvents `(source, id)` values for Telegram update redelivery
   idempotency.
 - Keep Telegram actor evidence channel-local unless `BullX.Principals` resolves
-  it into a trusted `actor.principal_ref`.
+  it into a trusted `actor.principal`.
 - Filter group-chat noise at the adapter edge through an explicit attention
   policy so unrelated group messages do not enter EventBus.
-- Keep bot tokens and raw updates out of Events, telemetry, logs, safe errors,
-  `routing_facts`, `reply_channel`, Oban job args, and stream metadata. Raw
-  message text belongs only in normalized content. Activation/login codes must
-  not enter generic routing or diagnostic surfaces; any command that needs them
-  must use a command-design-owned protected argument shape.
+- Keep bot tokens, bearer-like handles, private callback data, and activation or
+  login codes out of Events, telemetry, logs, safe errors, `routing_facts`,
+  `reply_channel`, Oban job args, and stream metadata. Activation/login codes
+  must not enter generic routing or diagnostic surfaces; any command that needs
+  them must use a command-design-owned protected argument shape.
 
 ## Non-goals
 
@@ -296,7 +296,7 @@ Capabilities should include:
 %{
   inbound_modes: [:polling],
   outbound_ops: [:send, :edit, :stream],
-  content_kinds: [:text, :image, :audio, :video, :file, :card],
+  content_kinds: [:text, :image, :file, :card],
   features: [:reply, :threads, :attention_policy],
   stream_strategy: :edit_accumulate
 }
@@ -365,12 +365,14 @@ CloudEvents attributes:
 - `source` is a stable URI-like string such as `telegram://main/bot/123456`.
   It must include enough source context to make `(source, id)` unique inside the
   Installation.
-- `type` is a normalized BullX Event type such as `bullx.message.created`,
+- `type` is a normalized BullX Event type such as
+  `bullx.im.message.addressed`, `bullx.im.message.ambient`,
   `bullx.message.edited`, or `bullx.command.invoked`.
 - `time` is Telegram message time when trusted; otherwise it is adapter receive
   time.
 - `datacontenttype` is `"application/json"`.
-- `data` is the BullX normalized payload from `Core.md`.
+- `data` is the BullX normalized payload from
+  `eventbus/NormalizedCloudEvent.md`.
 
 All Telegram numeric ids enter Events as strings to avoid JSON number precision
 and 64-bit integer ambiguity. The adapter parses them back to integers only when
@@ -383,32 +385,33 @@ Example message Event:
   "specversion": "1.0",
   "id": "18293",
   "source": "telegram://main/bot/123456",
-  "type": "bullx.message.created",
+  "type": "bullx.im.message.addressed",
   "subject": "Telegram message 421",
   "time": "2026-05-17T10:00:00Z",
   "datacontenttype": "application/json",
   "data": {
     "content": [
       {
-        "kind": "text",
-        "body": {
-          "text": "hello"
-        }
+        "type": "text",
+        "text": "hello"
       }
     ],
     "channel": {
       "adapter": "telegram",
-      "id": "main"
+      "id": "main",
+      "kind": "group"
     },
     "scope": {
       "id": "-100123456",
       "thread_id": "12"
     },
     "actor": {
-      "id": "telegram:987654321",
-      "display": "Alice",
-      "bot": false,
-      "principal_ref": "optional-principal-id"
+      "external_account_id": "telegram:987654321",
+      "display_name": "Alice",
+      "principal": {
+        "id": "optional-principal-id",
+        "type": "human"
+      }
     },
     "refs": [
       {
@@ -458,16 +461,17 @@ Example message Event:
 routing. Provider-specific matching data belongs in `data.routing_facts` or
 another normalized field exposed by `RoutingContext`.
 
-`raw_ref` is a safe reference, not the raw update. It must not include raw
-message text, bot tokens, activation/login codes, private callback data, or
-media bytes.
+`raw_ref` is not a matcher surface. It may contain stable Telegram ids, a
+provider raw reference, or a provider raw snapshot when the adapter needs it.
+Credentials, bearer-like values, and private callback secrets still must not
+enter Events, telemetry, logs, safe errors, Oban args, or stream metadata.
 
 ## Actor identity
 
 Telegram actor ids are channel-local external ids:
 
 ```text
-data.actor.id = "telegram:" <> user_id
+data.actor.external_account_id = "telegram:" <> user_id
 ```
 
 `user_id` is required for Principal channel actor matching. Telegram normally
@@ -553,8 +557,8 @@ Telegram maps allowed updates to normalized BullX Event types:
 
 | Telegram update | Normalized `type` | Notes |
 | --- | --- | --- |
-| `message` text | `bullx.message.created` or `bullx.command.invoked` | Accepted EventBus `/command` text addressed to the bot becomes a command Event. Adapter-local `/preauth` and `/web_auth` are handled before EventBus. Ordinary text remains message content. |
-| `message` media or location | `bullx.message.created` | Content blocks describe the media; primary text uses caption or generated fallback. |
+| `message` text | `bullx.im.message.addressed`, `bullx.im.message.ambient`, or `bullx.command.invoked` | Accepted EventBus `/command` text addressed to the bot becomes a command Event. Adapter-local `/preauth` and `/web_auth` are handled before EventBus. Addressed text becomes an addressed IM Event; observed unmentioned group text becomes an ambient IM Event only when the source listens to all messages. |
+| `message` media or location | `bullx.im.message.addressed` or `bullx.im.message.ambient` | Content blocks describe the media; primary text uses caption or generated fallback. Attention policy decides addressed versus ambient. |
 | `edited_message` | `bullx.message.edited` | `refs` includes the Telegram message id. |
 
 Reaction, recall, channel-post, callback-query, member, payment, poll, quiz, and
@@ -574,7 +578,7 @@ recorded in `refs`; the adapter does not strip them.
 Text messages produce one text block:
 
 ```elixir
-%{"kind" => "text", "body" => %{"text" => "hello"}}
+%{"type" => "text", "text" => "hello"}
 ```
 
 Media with `file_id` produces an optional caption text block followed by one
@@ -582,26 +586,24 @@ native media block:
 
 ```elixir
 [
-  %{"kind" => "text", "body" => %{"text" => "caption"}},
+  %{"type" => "text", "text" => "caption"},
   %{
-    "kind" => "image",
-    "body" => %{
-      "url" => "telegram://file/<file_id>",
-      "fallback_text" => "[image]"
-    }
+    "type" => "image",
+    "url" => "telegram://file/<file_id>",
+    "fallback_text" => "[image]"
   }
 ]
 ```
 
 Mapping rules:
 
-| Telegram field | Block `kind` | File id |
+| Telegram field | Block `type` | File id |
 | --- | --- | --- |
 | `message.photo` | `image` | largest photo entry `file_id` |
 | `message.sticker` | `image` | sticker `file_id` |
-| `message.audio` | `audio` | audio `file_id` |
-| `message.voice` | `audio` | voice `file_id` |
-| `message.video` | `video` | video `file_id` |
+| `message.audio` | `file` with `media_type` | audio `file_id` |
+| `message.voice` | `file` with `media_type` | voice `file_id` |
+| `message.video` | `file` with `media_type` | video `file_id` |
 | `message.document` | `file` | document `file_id` |
 
 Location or venue messages produce one deterministic text block with venue
@@ -648,7 +650,7 @@ Result handling:
 
 | Principal result | Telegram behavior |
 | --- | --- |
-| `{:ok, principal, _identity}` | Normalize the Event, set `data.actor.principal_ref` to the stringified `principal.id`, and call `BullX.EventBus.accept/2`. |
+| `{:ok, principal, _identity}` | Normalize the Event, set `data.actor.principal` to the Principal id and type, and call `BullX.EventBus.accept/2`. |
 | `{:error, :activation_required}` | Send localized activation guidance when appropriate and do not call EventBus. |
 | `{:error, :principal_disabled}` | Send a localized denied reply when appropriate and do not call EventBus. |
 | `{:error, reason}` | Treat as provider processing failure, emit safe telemetry, and do not call EventBus. |
@@ -656,7 +658,7 @@ Result handling:
 Command-shaped input is not automatically a normal conversation message. When
 Telegram classifies an accepted `/command` text as `bullx.command.invoked`, the
 adapter may publish the command Event with actor evidence and
-`data.actor.principal_ref = null` if no active Principal binding exists yet.
+`data.actor.principal = null` if no active Principal binding exists yet.
 System commands such as `/command` and `/status` use that path. Channel
 activation and login commands such as `/preauth` and `/web_auth` are
 adapter-local entry points and may be handled before EventBus. For EventBus
@@ -679,7 +681,7 @@ When an accepted Telegram text message starts with an English system command
 such as `/command`, `/status`, or the matching `@bot_username` form, or a
 localized alias such as Chinese `/命令` or `/状态` when that locale is active, the
 adapter normalizes it as `bullx.command.invoked` instead of
-`bullx.message.created`.
+an IM message Event.
 
 `/preauth <code>` and `/web_auth` are channel activation/login commands. The
 Telegram adapter handles them locally through Principal/Auth services and safe
@@ -756,8 +758,8 @@ Content rules:
 
 - `text` sends `sendMessage` with rendered text.
 - Text exceeding 4096 UTF-16 units splits into multiple `sendMessage` calls.
-- `image`, `audio`, `video`, `file`, and `card` degrade to one localized
-  fallback text message in the first implementation.
+- `image`, `file`, and `card` degrade to one localized fallback text message in
+  the first implementation.
 
 The adapter returns all created Telegram message ids in `external_message_ids`.
 `primary_external_id` is the first message id. Degraded non-text sends include a
@@ -1102,7 +1104,7 @@ EventBus, Channel Adapter, StreamingOutput, and Principal boundaries.
    - Depends on: Task 5.
    - Acceptance: normal user-origin Events call Principal matching before
      EventBus acceptance; `/command` and `/status` normalize to
-     `bullx.command.invoked` with actor evidence, optional `principal_ref`, and
+     `bullx.command.invoked` with actor evidence, optional `actor.principal`, and
      command routing facts; `/preauth` and `/web_auth` run as adapter-local
      channel activation/login commands.
    - Verify: focused command-normalization and Principal integration tests.
@@ -1141,7 +1143,8 @@ Implementation should stop and ask if a change would require:
 
 - routing on data that cannot be normalized into `routing_facts` or another
   explicit `RoutingContext` field;
-- raw Telegram update persistence rather than safe `raw_ref`;
+- provider raw payload retention that needs a new retention, redaction, or access
+  control rule;
 - provider acknowledgement waiting for Target execution or business
   persistence;
 - webhook ingress, native media upload, inline-keyboard callback handling,

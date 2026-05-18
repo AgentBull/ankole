@@ -10,7 +10,7 @@ This design belongs inside the AIAgent runtime. EventBus delivers Events to a
 TargetSession, TargetSession invokes the AIAgent Target, and the Agentic Loop
 prepares model input from durable Conversation state plus request-time runtime
 context. EventBus, TargetSession, LLM provider catalog, application cache, Brain,
-Budget, Capability, and Work records keep their own boundaries.
+future Budget, future Capability, and Work records keep their own boundaries.
 
 ## Scope
 
@@ -21,11 +21,13 @@ This document defines:
 - The deterministic `original_dialogue_time_range` summary prefix.
 - Provider-required tool-call and tool-result preservation during compression.
 - Request-time compaction of large historical tool results.
+- Compression auxiliary-call constraints and structured summary content.
 - Oversized compression request retry and failure behavior.
 - Manual compression after a canonical AIAgent command has been accepted by the
   command path.
 - Content-free telemetry and repeated compression failure guards.
-- Provider-native prompt cache hint placement.
+- Provider-native prompt cache hint placement through existing `req_llm`
+  message, content-part, and provider-option surfaces.
 - Implementation handoff and acceptance criteria.
 
 This document does not define:
@@ -38,15 +40,16 @@ This document does not define:
   loop ownership, visible delivery, daily reset, or streaming output.
 - LLM provider catalog storage, provider registration, encrypted credentials,
   provider option validation, or `req_llm` runtime settings.
-- Brain, Work, Budget, Capability, Governance, audit, or external action
-  schemas.
+- Brain, Work, future Budget, future Capability, Governance, audit, or external
+  action schemas.
 - System prompt construction. This design consumes the Agentic Loop system
   prompt builder output and its stable-prefix boundary; it does not define the
   builder input blocks or ordering rules.
 - New tables for summaries, prompt cache entries, rendered prompt snapshots, or
-  provider cache backends.
-- Raw HTTP request mutation outside typed `req_llm` message, content-part, or
-  provider-option surfaces.
+  provider cache backends. This includes creation, lifecycle management, or
+  durable storage for provider cached-content resources.
+- Raw HTTP request mutation or provider-private prompt editing outside typed
+  `req_llm` message, content-part, or provider-option surfaces.
 
 ## Boundaries
 
@@ -54,7 +57,7 @@ The AIAgent runtime calls this compression and caching layer after it has
 validated the AIAgent profile, selected the Conversation, persisted inbound
 Messages, and prepared to render model input. This layer does not call EventBus,
 does not inspect Event Routing Rule matchers, does not decide whether a
-Capability may execute, and does not write visible delivery state.
+tool or future Capability may execute, and does not write visible delivery state.
 
 Context compression may write a `kind = summary` Message into the Conversation.
 The raw Messages covered by that summary remain durable evidence. A summary only
@@ -65,9 +68,10 @@ one request. It does not update `conversation_messages.content`, delete raw tool
 results, synthesize tool completion, or change the raw evidence available to
 Brain, audit, Work, or business ingestion.
 
-Prompt caching emits provider rendering hints only. Cache hints are not
-Conversation truth, Budget truth, EventBus routing state, TargetSession state,
-or provider-private continuation state.
+Prompt caching emits provider rendering hints only. `context.prompt_cache` is a
+BullX AIAgent profile/rendering option, not a field on `ReqLLM.Context`. Cache
+hints are not Conversation truth, Budget truth, EventBus routing state,
+TargetSession state, or provider-private continuation state.
 
 The system prompt builder owns request-time `:system` content. Compression and
 caching consume that output and its stable-prefix boundary. They do not copy the
@@ -126,7 +130,7 @@ A summary Message has these required properties:
 
 `covers_range` is a closed interval on one active branch. It must not cross
 branches, cover a `generating` Message, cover the current inbound user or
-command Message, or cover Messages that are no longer on the raw path rooted at
+command entry, or cover Messages that are no longer on the raw path rooted at
 `metadata.source_leaf_message_id`.
 
 The AIAgent runtime computes `original_dialogue_time_range` from raw covered
@@ -154,9 +158,8 @@ compression model must not invent, rewrite, or omit the prefix.
 A summary Message is an overlay node, not chronological dialogue. Rendering
 first reconstructs the raw active branch up to
 `summary.metadata.source_leaf_message_id`, replaces the branch-local closed
-interval `[from_id, to_id]` with the summary block, keeps configured recent
-Messages after `to_id`, and skips the summary Message's physical insertion
-position.
+interval `[from_id, to_id]` with the summary block, keeps raw tail Messages
+after `to_id`, and skips the summary Message's physical insertion position.
 
 Overlay rules:
 
@@ -174,79 +177,123 @@ Overlay rules:
 The renderer must not infer dialogue order from the physical parent chain of the
 summary Message. It must reconstruct the raw branch first, then apply overlay.
 
+Physical placement rules:
+
+- A summary Message is written with
+  `parent_id = metadata.source_leaf_message_id`. This makes the summary
+  reachable from the raw leaf that was compressed, but it does not make the
+  summary the next chronological dialogue Message.
+- A summary Message is not a valid append parent for new user, ambient,
+  assistant, tool, or error Messages. If `current_leaf_message_id` points to a
+  summary, the AIAgent branch resolver uses
+  `metadata.source_leaf_message_id` as the raw active leaf before appending new
+  Messages or rendering provider input.
+- A compatible summary may be selected for rendering when its
+  `metadata.source_leaf_message_id` lies on the resolved raw active branch and
+  its `covers_range` is a closed interval on that branch. The summary does not
+  need to be a physical ancestor of the current raw leaf.
+- Command handlers may refer to a summary Message id, but slash command inputs
+  and command responses are not Messages and do not use `parent_id`.
+
 ## Context compression
 
 Context compression converts an over-budget active Conversation branch into a
-shorter provider-renderable history view while preserving recent context and
-provider-required structure. Automatic trigger thresholds belong to the AIAgent
-runtime's token accounting. Manual compression uses the same algorithm after the
-command path decides that compression should run.
+shorter provider-renderable history view while preserving head context, a
+token-budgeted tail, and provider-required structure. Automatic trigger
+thresholds belong to the AIAgent runtime's token accounting. Manual compression
+uses the same algorithm after the command path decides that compression should
+run.
 
 Compression may cover only branch-local complete provider rounds. A provider
 round is the smallest safe segment that can be preserved, summarized, or replaced
 without breaking provider semantics. It must not split one assistant response,
 split assistant tool calls from matching tool results, cut through a
-`generating` Message, include the current inbound Message, include command
-confirmation, or split incomplete tool-result pairs.
+`generating` Message, include the current inbound Message, or split incomplete
+tool-result pairs.
 
 When a candidate boundary is unsafe, compression expands outward to a complete
-round. If expansion would enter a protected recent window or current
+round. If expansion would enter the protected head, protected tail, or current
 inbound/generating Message, compression chooses a smaller safe interval or
 fails.
+
+BullX follows a head-middle-tail compaction shape. The protected tail is not
+configured as a fixed Message count. V1 derives a tail token budget as
+`safe_context_limit * context.compression_threshold_ratio * 0.20`; the `0.20`
+value is a BullX-owned implementation constant, not a profile field. The
+renderer walks backward from the raw branch leaf, accumulating estimated
+provider-input tokens until that budget is reached, then moves the cut backward
+to a complete provider-round boundary. The middle interval between the protected
+head and protected tail is the summarization candidate.
 
 Compression execution follows these rules:
 
 1. Preserve the system prompt builder output. Compression must not paraphrase,
    summarize, replace, or rewrite request-time system/developer prompt content.
 2. Preserve opening user context when it anchors the Conversation. Do not create
-   fake openers for cache routing.
-3. Preserve a configurable recent window. Move the recent window start backward
-   to a complete provider-round, complete assistant-response, and complete
-   tool-call/tool-result boundary.
+   fake openers for cache geometry.
+3. Preserve a token-budgeted tail. Move the tail start backward to a complete
+   provider-round, complete assistant-response, and complete tool-call/tool-result
+   boundary.
 4. Select one complete provider-round interval from the active branch for
    summarization.
 5. Preserve provider-required tool-call and tool-result structure.
 6. Resolve `compression_model` through the same model-call boundary used by the
    AIAgent runtime, and treat the call as an AIAgent-owned auxiliary model call.
-7. The auxiliary compression input may replace non-text media or document blocks
+7. Invoke the auxiliary compression call with no executable tools, no
+   `tool_choice`, and no provider-native tool schemas. The expected result is
+   text summary content only. Any provider tool call emitted by the compression
+   model is treated as compression failure.
+8. The auxiliary compression input may replace non-text media or document blocks
    with safe markers and may omit oversized provider-private payloads. The
    summary may describe only information the compression model actually
    received. If markers or omissions were used, the summary content must disclose
    that limitation safely.
-8. Read normalized usage from the compression model response when available.
+9. Read normalized usage from the compression model response when available.
    Use `ReqLLM.Response.usage/1`, `ReqLLM.StreamResponse.usage/1`, or equivalent
    materialized response usage. Do not store raw provider payload usage. Missing
    provider usage is recorded as estimated accounting with
    `metadata.compression.usage_source = "estimated"`.
-9. Compute `metadata.original_dialogue_time_range` from covered raw Messages and
+10. Compute `metadata.original_dialogue_time_range` from covered raw Messages and
    prepend the deterministic meta prefix to summary content.
-10. Write one complete summary Message whose `covers_range` covers only the
-    interval actually seen by the summarizer.
-11. Before moving the Conversation leaf, recheck the generation lease,
+11. Write one complete summary Message with
+    `parent_id = metadata.source_leaf_message_id` and `covers_range` covering
+    only the interval actually seen by the summarizer.
+12. Before moving the Conversation leaf, recheck the generation lease,
     Conversation active state, and raw branch leaf. If the lease is invalid or
     the leaf changed, the summary result must not advance
     `current_leaf_message_id`.
-12. Move `current_leaf_message_id` to the summary Message only after the summary
+13. Move `current_leaf_message_id` to the summary Message only after the summary
     Message is written and lease/leaf checks still pass.
 
 When `compression_model` resolves to the same provider and model as the main
-generation model, the compression request reuses the same system prompt builder
-output and stable tool schema prefix, then appends a transient compression
-instruction after the rendered history. It does not introduce a separate
-summarizer-specific stable system prompt. If a different `compression_model` is
-configured, the different provider/model and cache namespace are an AIAgent
-profile tradeoff.
+generation model, the compression request may reuse the same system prompt
+builder output and stable-prefix boundary for vocabulary and safety context, but
+it still omits executable tools and provider tool schemas. It then appends a
+transient compression instruction after the rendered history. It does not
+introduce a separate summarizer-specific stable system prompt. If a different
+`compression_model` is configured, the different provider/model and cache
+namespace are an AIAgent profile tradeoff.
 
 The transient compression instruction is auxiliary provider input. It is not a
 chronological Conversation Message and is not eligible as a future prompt cache
 breakpoint.
 
+The generated summary content uses a small BullX-owned envelope. After the
+deterministic meta prefix, the body should contain these sections when relevant:
+`Goal`, `Constraints and Preferences`, `Progress`, `Decisions`, `Relevant Files
+and Records`, `Current Work`, and `Next Step`. Empty sections are omitted. The
+runtime stores only the final summary body, not model draft text, hidden
+reasoning, alternative summaries, or prompt instructions.
+
 If the compression request itself is too large for the provider context window,
-the runtime may retry a bounded number of times by removing earlier complete
-provider rounds from the summarizer input. `covers_range` must shrink to the
-closed interval the summarizer actually saw. Compression must not claim coverage
-for omitted Messages. If bounded retry cannot produce a final provider input
-within safe budget, compression fails.
+the runtime may retry by removing oldest complete provider rounds from the
+summarizer input. If the provider error reports the token gap, the runtime drops
+enough complete rounds to cover that gap plus padding. If no useful gap is
+reported, the runtime drops the oldest complete provider rounds in bounded
+batches until the estimator returns under the safe compression-request budget.
+`covers_range` must shrink to the closed interval the summarizer actually saw.
+Compression must not claim coverage for omitted Messages. If bounded retry
+cannot produce a final provider input within safe budget, compression fails.
 
 Automatic generation-time compression failure fails the current entry's
 generation path. The AIAgent writes a safe diagnostic `kind = error` Message,
@@ -254,28 +301,32 @@ releases the generation lease through normal recovery, and returns success from
 the Target path when the failure has been durably recorded. It must not write a
 fake summary to pretend context was safely preserved.
 
-Manual compression failure is a command outcome. It may write a safe diagnostic
-`kind = error` Message or fixed command confirmation, but it does not call the
-main model and does not write a fake summary.
+Manual compression failure is a command result. It may write a safe diagnostic
+`kind = error` Message or return a safe command response, but it does not call
+the main model and does not write a fake summary.
 
 Auxiliary compression calls that produce no visible output may use the AIAgent
 runtime's provider retry or fallback policy before any visible assistant reply
 starts.
+
+V1 enforces at most three compression attempts for one generation lease or
+TargetSession entry. After that guard trips, the entry goes through the durable
+error path instead of trying another compression variant.
 
 ## Manual compression
 
 Manual compression lets a human request early compression before automatic token
 thresholds require it. The command path owns slash tokens, localized aliases,
 adapter-normalized command Events, ACLs, active-generation checks, command
-Message persistence, and fixed command confirmations. This design owns what
+control operation handling, and safe command responses. This design owns what
 happens after that path invokes compression.
 
 Manual compression rules:
 
-- The command is persisted first as `role = user`, `kind = command`.
-- The command Message may become the current Conversation leaf, but compression
-  coverage must not cover that command Message.
-- Command confirmation is not rendered as ordinary provider dialogue.
+- The command input is not persisted as a Conversation Message.
+- If a summary is written, it becomes the current Conversation leaf through the
+  normal summary write path.
+- Command responses are not rendered as ordinary provider dialogue.
 - Manual compression does not call the main model and does not execute tools.
 - Manual compression may run even when the optimized provider input is still
   below safe budget, but it must still select a branch-local complete
@@ -290,9 +341,9 @@ Manual compression rules:
   `target_session_entry_id` may point to the command entry.
 - Manual compression does not bypass access control, Budget, model policy, or
   the compression failure guard.
-- Command redelivery is idempotent. Once a command entry has produced a valid
-  summary, safe no-op, or safe error outcome, it must not write another summary
-  or send duplicate confirmation.
+- Command redelivery follows the command handler's control-plane semantics. Once
+  a command entry has produced a valid summary, repeated delivery must not write
+  another summary.
 
 Manual compression only shortens future provider-renderable history. It does not
 delete raw Messages, alter Brain, alter Work, alter audit records, or guarantee
@@ -301,27 +352,31 @@ performs full preparation, token accounting, and provider-structure validation.
 
 ## Request-time large-result compaction
 
-Large-result compaction is a request-time rendering optimization. It applies to
-historical tool results that are outside the protected recent window, have a
-complete provider-required pair, and remain readable from durable raw Messages.
+Large-result compaction is a request-time rendering optimization. It applies only
+to allowlisted historical tool results that are outside the protected tail, have
+a complete provider-required pair, and remain readable from durable raw Messages.
 
 Rules:
 
 - Large-result compaction runs after summary overlay and before token accounting
   and prompt cache hints.
-- It may replace bulky historical tool result content such as logs, JSON, web
-  fetch bodies, file reads, or shell output with a short marker such as
+- It may replace bulky historical output from allowlisted result classes such as
+  file reads, shell logs, search results, web fetch bodies, diffs, large JSON
+  payloads, and low-risk local or sandbox write/update confirmations with a short
+  marker such as
   `tool result content omitted from prompt; raw Message remains durable`.
 - The marker must preserve provider-required `tool_use_id` or equivalent
   correlation fields.
-- Current inbound entries, latest tool results, incomplete tool pairs, command
-  confirmations, visible delivery diagnostics, error recovery diagnostics, and
-  high-risk Capability results are not compacted unless the relevant Capability
-  design defines a safe summary contract.
-- If a provider or `req_llm` adapter exposes a typed context-edit or cache-edit
-  option, BullX may use that option through validated `provider_options` or
-  content-part metadata. Otherwise the renderer performs BullX-owned content
-  replacement in provider input.
+- Current inbound entries, protected-tail tool results, incomplete tool pairs,
+  command responses, visible delivery diagnostics, error recovery
+  diagnostics, and high-risk tool or future Capability results are not compacted
+  unless the relevant owning design defines a safe summary contract.
+- Any result that confirms a governed external side effect, irreversible action,
+  approval outcome, financial/legal/customer-facing operation, or business record
+  mutation is high-risk for compaction unless its owning design explicitly marks
+  a compactable summary shape.
+- V1 performs BullX-owned content replacement in provider input. It does not use
+  provider-private prompt editing APIs or mutate raw provider request bodies.
 - Large-result compaction does not write a `kind = summary` Message, move
   `current_leaf_message_id`, change raw branch evidence, or affect Brain, audit,
   or business ingestion.
@@ -349,7 +404,7 @@ Rules:
 - Structured tool-result errors for unknown, malformed, denied, or crashed tool
   calls count as legal tool results.
 - If one assistant response is stored across multiple Messages that share a
-  provider response id or equivalent id, compression and recent-window selection
+  provider response id or equivalent id, compression and protected-tail selection
   treat those Messages as one response unit.
 
 ## Prompt caching
@@ -359,10 +414,15 @@ Conversation history, summary overlay semantics, or durable business truth.
 
 Rules:
 
-- `context.prompt_cache = true` allows the renderer to add cache hints when the
-  selected provider supports them.
-- If the provider does not support cache hints, rendering proceeds without
-  cache markers.
+- `context.prompt_cache = true` allows the BullX renderer to attempt
+  provider-native prompt caching for this AIAgent profile. It is consumed before
+  BullX builds the `ReqLLM.Context`; it is not sent as a `ReqLLM.Context` field.
+- `context.prompt_cache = false` disables BullX-added prompt cache hints.
+  Providers with automatic prefix caching may still cache exact repeated
+  prefixes without any explicit BullX marker.
+- When `context.prompt_cache = true`, the renderer must first resolve the
+  selected provider/model and choose one of the `req_llm` mappings below. If no
+  mapping is supported, rendering proceeds without cache markers.
 - Cache hints are added only after summary overlay and large-result compaction.
 - Hint placement is based on the final provider input. A breakpoint must not
   target a block that will be replaced by a marker before the provider receives
@@ -374,7 +434,7 @@ Rules:
   stream status, and delivery diagnostics must not enter the cache-stable
   prefix.
 - Transient request blocks, current inbound entries, `generating` Messages,
-  command confirmations, branch-incompatible summaries, delivery diagnostics,
+  command responses, branch-incompatible summaries, delivery diagnostics,
   and incomplete tool-call/tool-result pairs are cache-ineligible.
 - Cache hints must not expose credentials, private policy internals, raw
   provider payloads, or plaintext secrets.
@@ -403,14 +463,36 @@ Static content should stay before volatile content, but cache optimization must
 not break provider-required message order, branch order, or tool-call/tool-result
 pairing.
 
-For providers with automatic prefix caching, BullX primarily keeps an exact
-stable prefix. It does not create extra cache metadata unless the selected
-`req_llm` provider exposes a supported call option. A stable routing key may be
-derived from provider id, model id, Agent Principal id, and Conversation id when
-the provider supports it.
+The implementation mapping is deliberately small:
+
+- Direct Anthropic-family providers supported by `req_llm` use
+  `provider_options: [anthropic_prompt_cache: true]`. When BullX has selected a
+  cacheable rendered-history breakpoint, it may also pass
+  `anthropic_cache_messages: index`; when a provider-validated TTL is configured,
+  it may pass `anthropic_prompt_cache_ttl`. This uses the provider adapter's
+  typed option path, which injects cache control for system prompts, tools, and
+  the selected message.
+- Anthropic models reached through OpenRouter use
+  `ReqLLM.Message.ContentPart.metadata.cache_control` on the selected
+  cache-eligible content parts. BullX only emits this metadata when the resolved
+  OpenRouter model is known to route to an Anthropic-compatible cache-control
+  surface.
+- OpenAI-style automatic prefix caching receives no explicit cache marker and no
+  BullX-supplied cache identity. BullX preserves an exact stable prefix and
+  reads provider-native cache usage from `ReqLLM.Response.usage/1` or
+  `ReqLLM.StreamResponse.usage/1`.
+- Google Gemini cached-content resources are not created or managed by
+  `context.prompt_cache`. Although `req_llm` exposes Google's cached-content API
+  and `provider_options[:cached_content]`, that API has provider resource
+  lifecycle and storage semantics. It needs a separate owner before BullX can use
+  it.
+- `ReqLLM.Cache`, `cache_key`, `cache_ttl`, and `cache_options` are
+  application-layer response caching, not provider-native prompt caching, and
+  are not used by the main Agentic Loop.
 
 For providers with explicit per-block cache hints, BullX uses only `req_llm`
-content-part metadata or validated provider options. The default strategy is:
+content-part metadata or validated provider options. The default placement
+strategy is:
 
 - Mark the system prompt builder stable-prefix boundary and stable tool schema
   boundary first.
@@ -452,10 +534,11 @@ applies overlay rules.
 
 If ignoring an invalid summary leaves provider input over budget, the runtime may
 invoke compression again. A single generation lease or TargetSession entry must
-enforce a small repeated-failure guard so prompt-too-long, invalid summary, and
-retry handling cannot loop forever. The guard does not require a new table; it
-may live in generation coordination metadata or current-entry attempt state.
-After process crash, durable error and recovery behavior converge the entry.
+enforce the same at-most-three-attempt repeated-failure guard so
+prompt-too-long, invalid summary, and retry handling cannot loop forever. The
+guard does not require a new table; it may live in generation coordination
+metadata or current-entry attempt state. After process crash, durable error and
+recovery behavior converge the entry.
 
 ## Telemetry and privacy
 
@@ -487,8 +570,8 @@ durable Conversation truth or EventBus/TargetSession boundaries.
 ### Context pointers
 
 - `docs/Architecture.md` defines the EventBus, TargetSession, AIAgent,
-  Conversation, Brain, Work, Budget, Skill, Capability, and persistence
-  boundaries.
+  Conversation, Brain, Work, Skill, future Budget, future Capability, and
+  persistence boundaries.
 - `docs/design-docs/LLMProvider.md` defines the LLM provider catalog and
   `req_llm` boundary. It does not own Agentic Loop behavior or prompt
   orchestration.
@@ -517,8 +600,8 @@ durable Conversation truth or EventBus/TargetSession boundaries.
   builder output.
 - Do not write request-time large-result compaction output back to
   `conversation_messages.content`.
-- Do not let provider cache TTL, cache miss, cache eviction, or cache edit result
-  alter Conversation truth, Budget truth, or summary coverage.
+- Do not let provider cache TTL, cache miss, or cache eviction alter Conversation
+  truth, Budget truth, or summary coverage.
 
 ### Tasks
 
@@ -532,41 +615,42 @@ durable Conversation truth or EventBus/TargetSession boundaries.
 
 2. Add summary overlay rendering.
    - Owns: raw branch reconstruction through `metadata.source_leaf_message_id`,
-     interval replacement, recent Message preservation, and physical summary
+     interval replacement, raw tail preservation, and physical summary
      position skipping.
    - Acceptance: prompt rendering never appends a summary as ordinary
      chronological assistant dialogue.
 
 3. Add provider-round interval selection.
-   - Owns: complete provider-round selection, recent-window boundary extension,
+   - Owns: complete provider-round selection, token-budgeted tail selection,
      and protection for current inbound Messages, `generating` Messages,
-     command confirmations, and incomplete tool pairs.
+    command responses, and incomplete tool pairs.
    - Acceptance: compression does not split assistant response fragments or
      tool-call/tool-result pairs.
 
 4. Add manual compression handoff.
-   - Owns: receiving a canonical compression command outcome from the command
-     path, running compression after command Message persistence, and recording
-     summary, no-op, or safe error outcomes.
+   - Owns: receiving a canonical compression command result from the command
+     path and recording summary, no-op, or safe error outcomes.
    - Acceptance: manual compression does not call the main model, execute tools,
-     cover the command Message, preempt active generation, or duplicate summary
-     and confirmation on command redelivery.
+     preempt active generation, or duplicate summary writes on command
+     redelivery.
 
 5. Add context compression execution.
-   - Owns: `compression_model` resolution, auxiliary model call, bounded retry
-     for oversized compression input, complete summary write, and lease/leaf
-     recheck before moving the Conversation leaf.
+   - Owns: `compression_model` resolution, no-tools auxiliary model call,
+     structured summary envelope, bounded retry for oversized compression input,
+     complete summary write, and lease/leaf recheck before moving the
+     Conversation leaf.
    - Acceptance: `covers_range` covers only Messages seen by the summarizer; the
      summary content starts with the BullX-generated meta prefix and newline;
+     summary output follows the BullX envelope without storing draft prompt text;
      normalized usage is recorded when available; estimated usage is marked when
      provider usage is missing; failure writes safe diagnostics and never writes
      a fake summary.
 
 6. Add request-time large-result compaction.
    - Owns: provider input content replacement after summary overlay and before
-     cache hints.
+     cache hints, limited to allowlisted result classes.
    - Acceptance: raw Message content is unchanged, provider input keeps legal
-     tool-result blocks and correlation fields, and current, recent,
+     tool-result blocks and correlation fields, and current, protected-tail,
      incomplete, diagnostic, and high-risk results are protected.
 
 7. Add provider-valid tool structure validation.
@@ -587,7 +671,8 @@ durable Conversation truth or EventBus/TargetSession boundaries.
      generation lease or TargetSession entry.
    - Acceptance: telemetry excludes content, credentials, raw provider payloads,
      raw CloudEvents, stream chunks, and private policy data; repeated
-     prompt-too-long attempts cannot loop indefinitely.
+     prompt-too-long attempts cannot loop indefinitely; V1 stops after at most
+     three compression attempts for the same lease or entry.
 
 ### Done when
 
@@ -601,17 +686,22 @@ durable Conversation truth or EventBus/TargetSession boundaries.
 - Compression failure writes safe diagnostics.
 - Compression preserves tool-call/tool-result structure and complete assistant
   response units.
+- Compression protects the tail by token budget, not by any fixed Message
+  count.
+- Compression auxiliary calls do not expose executable tools and store only the
+  final summary envelope content.
 - Oversized compression input uses bounded retry, and coverage never includes
   Messages omitted from summarizer input.
 - Compression usage is normalized through `req_llm` response usage surfaces when
   available and marked as estimated when provider usage is missing.
 - Repeated compression failures for one generation lease or TargetSession entry
-  trip the failure guard and enter durable error handling.
+  trip the failure guard after at most three attempts and enter durable error
+  handling.
 - Manual compression can run before token threshold, but does not call the main
-  model, execute tools, cover the command Message, preempt active generation, or
+  model, execute tools, preempt active generation, or
   duplicate outcomes on redelivery.
-- Request-time large-result compaction affects only provider input and never
-  writes a summary Message.
+- Request-time large-result compaction affects only provider input, is limited to
+  allowlisted historical result classes, and never writes a summary Message.
 - Prompt cache hints are provider-rendering hints only, use stable-prefix
   discipline, respect provider limits, and never mutate durable business facts.
 - Compression and prompt caching consume the system prompt builder output and

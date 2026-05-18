@@ -63,13 +63,13 @@ This design depends on:
 - Use stable CloudEvents `(source, id)` values for Discord event redelivery and
   retry idempotency.
 - Keep Discord actor evidence channel-local unless `BullX.Principals` resolves
-  it into a trusted `actor.principal_ref`.
+  it into a trusted `actor.principal`.
 - Filter guild-channel noise at the adapter edge through an explicit attention
   policy so unrelated guild messages do not enter EventBus.
 - Provide a Discord-shaped guild entry point through native `/ask` and optional
   BullX-owned thread creation, where a Discord thread is its own Event scope.
 - Keep bot tokens, OAuth client secrets, OAuth codes, OAuth access/refresh
-  tokens, raw provider payloads, and private interaction values out of Events,
+  tokens, bearer-like handles, and private interaction secrets out of Events,
   telemetry, logs, safe errors, `routing_facts`, `reply_channel`, Oban job args,
   and stream metadata. Activation/login codes must not enter generic routing or
   diagnostic surfaces; any command that needs them must use a command-design-owned
@@ -349,7 +349,7 @@ Capabilities should include:
 %{
   inbound_modes: [:discord_gateway_ws, :interaction],
   outbound_ops: [:send, :edit, :stream],
-  content_kinds: [:text, :image, :audio, :video, :file, :card],
+  content_kinds: [:text, :image, :file, :card],
   features: [:threads, :application_commands, :ephemeral_provider_responses, :oauth2_login],
   stream_strategy: :edit_accumulate
 }
@@ -437,12 +437,14 @@ CloudEvents attributes:
   - application command interaction uses the Discord interaction id.
 - `source` is a stable URI-like string such as
   `discord://main/application/123456789012345678`.
-- `type` is a normalized BullX Event type such as `bullx.message.created`,
+- `type` is a normalized BullX Event type such as
+  `bullx.im.message.addressed`, `bullx.im.message.ambient`,
   `bullx.message.edited`, or `bullx.command.invoked`.
 - `time` is Discord message timestamp, edited timestamp, or interaction
   timestamp when trusted; otherwise it is adapter receive time.
 - `datacontenttype` is `"application/json"`.
-- `data` is the BullX normalized payload from `Core.md`.
+- `data` is the BullX normalized payload from
+  `eventbus/NormalizedCloudEvent.md`.
 
 All Discord snowflake ids enter Events as strings to avoid JSON number
 precision and 64-bit integer ambiguity. The adapter parses them back to
@@ -455,32 +457,33 @@ Example message Event:
   "specversion": "1.0",
   "id": "9876543210",
   "source": "discord://main/application/123456789012345678",
-  "type": "bullx.message.created",
+  "type": "bullx.im.message.addressed",
   "subject": "Discord message 9876543210",
   "time": "2026-05-17T10:00:00Z",
   "datacontenttype": "application/json",
   "data": {
     "content": [
       {
-        "kind": "text",
-        "body": {
-          "text": "hello"
-        }
+        "type": "text",
+        "text": "hello"
       }
     ],
     "channel": {
       "adapter": "discord",
-      "id": "main"
+      "id": "main",
+      "kind": "group"
     },
     "scope": {
       "id": "777888999000111222",
       "thread_id": null
     },
     "actor": {
-      "id": "discord:234567890123456789",
-      "display": "Alice",
-      "bot": false,
-      "principal_ref": "optional-principal-id"
+      "external_account_id": "discord:234567890123456789",
+      "display_name": "Alice",
+      "principal": {
+        "id": "optional-principal-id",
+        "type": "human"
+      }
     },
     "refs": [
       {
@@ -527,17 +530,17 @@ Example message Event:
 routing. Provider-specific matching data belongs in `data.routing_facts` or
 another normalized field exposed by `RoutingContext`.
 
-`raw_ref` is a safe reference, not the raw payload. It must not include raw
-message bodies, interaction option values that are private, bot tokens, OAuth
-codes, OAuth tokens, client secrets, activation/login codes, or attachment
-bytes.
+`raw_ref` is not a matcher surface. It may contain stable Discord ids, a provider
+raw reference, or a provider raw snapshot when the adapter needs it. Credentials,
+bearer-like values, and private interaction secrets still must not enter Events,
+telemetry, logs, safe errors, Oban args, or stream metadata.
 
 ## Actor identity
 
 Discord actor ids are channel-local external ids:
 
 ```text
-data.actor.id = "discord:" <> user_id
+data.actor.external_account_id = "discord:" <> user_id
 ```
 
 `user_id` is required for Principal channel actor matching. Discord supplies a
@@ -644,8 +647,8 @@ Discord maps allowed provider occurrences to normalized BullX Event types:
 
 | Discord occurrence | Normalized `type` | Notes |
 | --- | --- | --- |
-| `MESSAGE_CREATE` text | `bullx.message.created` or `bullx.command.invoked` | Accepted EventBus slash-style text commands become command Events. Adapter-local `/preauth` and `/web_auth` are handled before EventBus. Ordinary text remains message content. |
-| `MESSAGE_CREATE` attachment/embed/sticker | `bullx.message.created` | Content blocks describe the media; primary text uses message content or generated fallback. |
+| `MESSAGE_CREATE` text | `bullx.im.message.addressed`, `bullx.im.message.ambient`, or `bullx.command.invoked` | Accepted EventBus slash-style text commands become command Events. Adapter-local `/preauth` and `/web_auth` are handled before EventBus. Addressed text becomes an addressed IM Event; observed unmentioned guild text becomes an ambient IM Event only when the source listens to all messages. |
+| `MESSAGE_CREATE` attachment/embed/sticker | `bullx.im.message.addressed` or `bullx.im.message.ambient` | Content blocks describe the media; primary text uses message content or generated fallback. Attention policy decides addressed versus ambient. |
 | `MESSAGE_UPDATE` user edit | `bullx.message.edited` | Requires non-null `edited_timestamp`; self-edits, empty content, and non-user updates are ignored. |
 | `INTERACTION_CREATE` application command | `bullx.command.invoked` or adapter-local command result | Provider-native EventBus command input publishes a command Event after transport acknowledgement. Adapter-local `/preauth` and `/web_auth` are handled before EventBus. |
 | Other interaction types | ignored | Components, modals, autocomplete, and ping interactions are out of scope. |
@@ -679,7 +682,7 @@ Plain text with non-empty content after mention stripping produces one text
 block:
 
 ```elixir
-%{"kind" => "text", "body" => %{"text" => "hello"}}
+%{"type" => "text", "text" => "hello"}
 ```
 
 Attachments produce an optional caption text block followed by one media block
@@ -687,21 +690,19 @@ per attachment:
 
 ```elixir
 %{
-  "kind" => "image",
-  "body" => %{
-    "url" => "discord://attachment/<channel_id>/<attachment_id>",
-    "fallback_text" => "[image]"
-  }
+  "type" => "image",
+  "url" => "discord://attachment/<channel_id>/<attachment_id>",
+  "fallback_text" => "[image]"
 }
 ```
 
 Mapping rules:
 
-| Discord content type or hint | Block `kind` |
+| Discord content type or hint | Block `type` |
 | --- | --- |
 | `image/*` content type | `image` |
-| `audio/*` content type | `audio` |
-| `video/*` content type | `video` |
+| `audio/*` content type | `file` with `media_type` |
+| `video/*` content type | `file` with `media_type` |
 | Any other attachment content type | `file` |
 | Sticker with image metadata | `image` |
 
@@ -751,7 +752,7 @@ Result handling:
 
 | Principal result | Discord behavior |
 | --- | --- |
-| `{:ok, principal, _identity}` | Normalize the Event, set `data.actor.principal_ref` to the stringified `principal.id`, and call `BullX.EventBus.accept/2`. |
+| `{:ok, principal, _identity}` | Normalize the Event, set `data.actor.principal` to the Principal id and type, and call `BullX.EventBus.accept/2`. |
 | `{:error, :activation_required}` | Send localized activation guidance when appropriate and do not call EventBus. |
 | `{:error, :principal_disabled}` | Send a localized denied reply when appropriate and do not call EventBus. |
 | `{:error, reason}` | Treat as provider processing failure, emit safe telemetry, and do not call EventBus. |
@@ -759,7 +760,7 @@ Result handling:
 Command-shaped input is not automatically a normal conversation message. When
 Discord classifies an accepted slash-text command or native application command
 as `bullx.command.invoked`, the adapter may publish the command Event with actor
-evidence and `data.actor.principal_ref = null` if no active Principal binding
+evidence and `data.actor.principal = null` if no active Principal binding
 exists yet. System commands such as `/command` and `/status`, and AIAgent-owned
 commands such as `/ask`, use that path. Channel activation and login commands
 such as `/preauth` and `/web_auth` are adapter-local entry points and may be
@@ -1065,8 +1066,8 @@ Content rules:
 
 - `text` sends a Discord message with rendered text.
 - Text exceeding 2000 UTF-16 units splits into multiple message creates.
-- `image`, `audio`, `video`, `file`, and `card` degrade to one localized
-  fallback text message in the first implementation.
+- `image`, `file`, and `card` degrade to one localized fallback text message in
+  the first implementation.
 
 The adapter returns all created Discord message ids in `external_message_ids`.
 `primary_external_id` is the first message id. Degraded non-text sends include a
@@ -1450,7 +1451,7 @@ and Principal boundaries.
    - Depends on: Task 5.
    - Acceptance: normal user-origin Events call Principal matching before
      EventBus acceptance; command-shaped input normalizes to
-     `bullx.command.invoked` with actor evidence, optional `principal_ref`,
+     `bullx.command.invoked` with actor evidence, optional `actor.principal`,
      command routing facts, and safe native interaction acknowledgement when
      needed; `/preauth` and `/web_auth` run as adapter-local channel
      activation/login commands.
@@ -1513,7 +1514,8 @@ Implementation should stop and ask if a change would require:
 
 - routing on data that cannot be normalized into `routing_facts` or another
   explicit `RoutingContext` field;
-- raw Discord payload persistence rather than safe `raw_ref`;
+- provider raw payload retention that needs a new retention, redaction, or access
+  control rule;
 - provider acknowledgement waiting for Target execution or business
   persistence;
 - webhook ingress, native attachment upload, component callback handling, modal

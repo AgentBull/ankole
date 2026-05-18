@@ -60,13 +60,13 @@ This design depends on:
   context.
 - Use stable CloudEvents `(source, id)` for provider redelivery idempotency.
 - Keep Feishu actor evidence channel-local unless `BullX.Principals` resolves it
-  into a trusted `actor.principal_ref`.
+  into a trusted `actor.principal`.
 - Keep EventBus transport boundaries intact: Feishu may produce Events and
   execute upstream-approved transport requests, but it does not choose Targets,
   create Work, approve actions, or decide business success.
-- Keep app secrets, Feishu access tokens, OAuth codes, raw provider payloads,
-  and private content out of Events, `routing_facts`, `reply_channel`, Oban job
-  args, telemetry, logs, stream metadata, and safe errors.
+- Keep app secrets, Feishu access tokens, OAuth codes, bearer-like callback
+  handles, and private secrets out of Events, `routing_facts`, `reply_channel`,
+  Oban job args, telemetry, logs, stream metadata, and safe errors.
 
 ## Non-goals
 
@@ -295,7 +295,7 @@ Capabilities should include:
 %{
   inbound_modes: [:websocket, :card_action_callback],
   outbound_ops: [:send, :edit, :stream],
-  content_kinds: [:text, :image, :audio, :video, :file, :card],
+  content_kinds: [:text, :image, :file, :card],
   features: [:reply, :threads, :principal_channel_actor, :oidc_login]
 }
 ```
@@ -364,14 +364,16 @@ CloudEvents attributes:
 - `source` is a stable URI-like source string such as
   `feishu://main/tenant_xxx`. It must include enough source context to make
   `(source, id)` unique inside the Installation.
-- `type` is a normalized BullX Event type such as `bullx.message.created`,
+- `type` is a normalized BullX Event type such as
+  `bullx.im.message.addressed`, `bullx.im.message.ambient`,
   `bullx.message.edited`, `bullx.message.recalled`,
   `bullx.reaction.changed`, `bullx.action.submitted`, or
   `bullx.command.invoked`.
 - `time` is the Feishu occurrence time when trusted; otherwise it is adapter
   receive time.
 - `datacontenttype` is `"application/json"`.
-- `data` is the BullX normalized payload from `Core.md`.
+- `data` is the BullX normalized payload from
+  `eventbus/NormalizedCloudEvent.md`.
 
 Example message Event:
 
@@ -380,32 +382,33 @@ Example message Event:
   "specversion": "1.0",
   "id": "evt_xxx",
   "source": "feishu://main/tenant_xxx",
-  "type": "bullx.message.created",
+  "type": "bullx.im.message.addressed",
   "subject": "Feishu message om_xxx",
   "time": "2026-05-17T10:00:00Z",
   "datacontenttype": "application/json",
   "data": {
     "content": [
       {
-        "kind": "text",
-        "body": {
-          "text": "hello"
-        }
+        "type": "text",
+        "text": "hello"
       }
     ],
     "channel": {
       "adapter": "feishu",
-      "id": "main"
+      "id": "main",
+      "kind": "dm"
     },
     "scope": {
       "id": "oc_xxx",
       "thread_id": null
     },
     "actor": {
-      "id": "feishu:ou_xxx",
-      "display": "Alice",
-      "bot": false,
-      "principal_ref": "optional-principal-id"
+      "external_account_id": "feishu:ou_xxx",
+      "display_name": "Alice",
+      "principal": {
+        "id": "optional-principal-id",
+        "type": "human"
+      }
     },
     "refs": [
       {
@@ -438,18 +441,17 @@ Example message Event:
 Provider-specific matching data belongs in `data.routing_facts` or another
 normalized field exposed by `RoutingContext`.
 
-`raw_ref` is a safe reference, not the raw payload. It may contain stable Feishu
-ids needed for operator lookup or provider API recovery. It must not include
-raw message bodies, raw card callback bodies, unsanitized card private values,
-attachment bytes, OAuth codes, access tokens, refresh tokens, app secrets, or
-callback bearer handles.
+`raw_ref` is not a matcher surface. It may contain stable Feishu ids, a
+provider raw reference, or a provider raw snapshot when the adapter needs it.
+Credentials and bearer-like values still must not enter Events, telemetry, logs,
+safe errors, Oban args, or stream metadata.
 
 ## Actor identity
 
 Feishu actor ids are channel-local external ids. User-origin Events use:
 
 ```text
-data.actor.id = "feishu:" <> open_id
+data.actor.external_account_id = "feishu:" <> open_id
 ```
 
 `open_id` is required for Principal channel actor matching. If a payload
@@ -501,7 +503,7 @@ Result handling:
 
 | Principal result | Feishu behavior |
 | --- | --- |
-| `{:ok, principal, _identity}` | Normalize the Event, set `data.actor.principal_ref` to the stringified `principal.id`, and call `BullX.EventBus.accept/2`. |
+| `{:ok, principal, _identity}` | Normalize the Event, set `data.actor.principal` to the Principal id and type, and call `BullX.EventBus.accept/2`. |
 | `{:error, :activation_required}` | Send localized activation guidance when appropriate and do not call EventBus. |
 | `{:error, :principal_disabled}` | Send a localized denied reply when appropriate and do not call EventBus. |
 | `{:error, reason}` | Treat as provider processing failure, emit safe telemetry, and do not call EventBus. |
@@ -509,7 +511,7 @@ Result handling:
 Command-shaped input is not automatically a normal conversation message. When
 Feishu classifies an accepted `/command` text as `bullx.command.invoked`, the
 adapter may publish the command Event with actor evidence and
-`data.actor.principal_ref = null` if no active Principal binding exists yet.
+`data.actor.principal = null` if no active Principal binding exists yet.
 System commands such as `/command` and `/status` use that path. Channel
 activation and login commands such as `/preauth` and `/web_auth` are
 adapter-local entry points and may be handled before EventBus. For EventBus
@@ -531,7 +533,7 @@ Feishu maps provider occurrences to normalized BullX Event types:
 
 | Feishu occurrence | Normalized `type` | Notes |
 | --- | --- | --- |
-| `im.message.receive_v1` | `bullx.message.created` or `bullx.command.invoked` | Accepted EventBus slash-style text commands become command Events. Adapter-local `/preauth` and `/web_auth` are handled before EventBus. Ordinary text remains message content. |
+| `im.message.receive_v1` | `bullx.im.message.addressed`, `bullx.im.message.ambient`, or `bullx.command.invoked` | Accepted EventBus slash-style text commands become command Events. Adapter-local `/preauth` and `/web_auth` are handled before EventBus. Addressed text becomes an addressed IM Event; observed unmentioned group text becomes an ambient IM Event only when the source listens to all messages. |
 | Message update | `bullx.message.edited` | `refs` includes the Feishu message id. |
 | Message recall | `bullx.message.recalled` | Use source cache or provider lookup for missing chat context. |
 | Reaction create/delete | `bullx.reaction.changed` | `routing_facts.reaction_action` is `added` or `removed`. |
@@ -548,10 +550,11 @@ may be removed from the primary text while stable mention references remain in
 `refs` or normalized metadata. Sticker, emotion, and emoji-only messages
 produce deterministic text fallback.
 
-Images, audio, video, and files produce native content blocks with
-`fallback_text`. Small downloaded media may be embedded as `data:` URIs only
-when under `inline_media_max_bytes` and when doing so does not violate provider
-or operator policy. Large or unavailable media uses a stable
+Images produce `image` content blocks. Audio, video, and generic files produce
+`file` content blocks with `media_type` and `fallback_text`. Small downloaded
+media may be embedded as `data:` URIs only when under `inline_media_max_bytes`
+and when doing so does not violate provider or operator policy. Large or
+unavailable media uses a stable
 `feishu://message-resource/...` URI plus Feishu ids in `refs`. No local
 filesystem path enters an Event.
 
@@ -559,12 +562,10 @@ Interactive card messages produce card content:
 
 ```elixir
 %{
-  "kind" => "card",
-  "body" => %{
-    "format" => "feishu.card",
-    "fallback_text" => "card",
-    "payload" => sanitized_card_json
-  }
+  "type" => "card",
+  "format" => "feishu.card",
+  "fallback_text" => "card",
+  "payload" => sanitized_card_json
 }
 ```
 
@@ -578,7 +579,7 @@ Feishu distinguishes EventBus commands from adapter-local channel commands. When
 an accepted Feishu text message begins with an English system command such as
 `/command` or `/status`, or a localized alias such as Chinese `/命令` or `/状态`
 when that locale is active, the adapter normalizes it as
-`bullx.command.invoked` instead of `bullx.message.created`.
+`bullx.command.invoked` instead of an IM message Event.
 
 `/preauth <code>` and `/web_auth` are channel activation/login commands. The
 Feishu adapter handles them locally through Principal/Auth services and safe
@@ -769,8 +770,8 @@ Content rules:
 - `text` sends Feishu text or post content.
 - `card` with `format = "feishu.card"` or `format = "feishu.card.v2"` sends an
   interactive card.
-- `image`, `file`, `audio`, and `video` upload native media when the content URI
-  is readable and provider limits permit it.
+- `image` and `file` upload native media when the content URI is readable and
+  provider limits permit it.
 - Unsupported rich combinations degrade to one localized or fallback text
   message when possible. If no safe fallback exists, the adapter returns a
   non-retryable safe error.
@@ -1076,7 +1077,7 @@ Principal boundaries.
    - Depends on: Tasks 4 and 6.
    - Acceptance: normal user-origin Events call Principal matching before
      EventBus acceptance; `/command` and `/status` normalize to
-     `bullx.command.invoked` with actor evidence, optional `principal_ref`, and
+     `bullx.command.invoked` with actor evidence, optional `actor.principal`, and
      command routing facts; `/preauth` and `/web_auth` run as adapter-local
      channel activation/login commands.
    - Verify: focused command-normalization and Principal integration tests.
@@ -1111,7 +1112,8 @@ Implementation should stop and ask if a change would require:
 
 - routing on data that cannot be normalized into `routing_facts` or another
   explicit `RoutingContext` field;
-- Feishu raw payload persistence rather than safe `raw_ref`;
+- provider raw payload retention that needs a new retention, redaction, or access
+  control rule;
 - provider acknowledgement waiting for Target execution or business
   persistence;
 - persistent Feishu user tokens, refresh tokens, app tickets, marketplace app

@@ -3,37 +3,38 @@
 AIAgent ACL is the narrow access gate used by AIAgent runtime before it starts
 conversation work, executes an AIAgent-owned command, or executes a tool call.
 The first implementation deliberately keeps the model small: a triggering
-Principal either has no access, ordinary access, or privileged access to one
-AIAgent. AIAgent ACL reuses `BullX.AuthZ` grants and does not introduce a
-separate policy engine, group table, grant table, audit subsystem, sandbox
-subsystem, or Budget subsystem.
+Principal either can or cannot access one AIAgent. `ordinary` and `privileged`
+are operation tags used by commands, ToolSets, tools, and runtime continuations;
+they do not describe Principal-to-Agent access. AIAgent ACL reuses `BullX.AuthZ`
+grants and does not introduce a separate policy engine, group table, grant
+table, audit subsystem, sandbox subsystem, or Budget subsystem.
 
-The ACL answers one implementation question: can the triggering Principal run
-this AIAgent operation with this required access tag? If not, the v1 elevation
-strategy is always `deny`.
+The ACL answers two implementation questions: can the triggering Principal
+invoke this AIAgent at all, and if the operation is tagged `privileged`, does the
+Principal also have the extra privileged-operation grant? If either required
+check fails, the v1 elevation strategy is always `deny`.
 
 ## Scope
 
 This design defines:
 
-- AIAgent ACL access levels and operation access tags.
+- The AIAgent access gate and operation access tags.
 - The AuthZ resource and action names used to resolve access for one AIAgent.
 - ACL gates for conversation starts, AIAgent-owned commands, tool schema
   rendering, and tool execution.
 - `agents.profile.ai_agent.acl.elevation_strategy` v1 semantics.
-- How runtime resource limits become ACL decisions without becoming an ACL
-  storage model.
 - Failure behavior for denials, malformed profile data, missing Principals, and
   AuthZ errors.
 - The boundary with Agentic Loop core, Principal, AuthZ, EventBus,
-  TargetSession, Capability, Budget, Skill, and Conversation / Message records.
+  TargetSession, ToolSet, Skill, Conversation / Message records, and future
+  Capability or Budget accounting.
 
 This design does not define:
 
 - Tool registry, ToolSet expansion, tool schema rendering internals, or tool
   execution functions.
-- Capability governance, sandbox policy, Budget accounting, audit-log storage,
-  approval workflow, or external action execution.
+- Future Capability governance, sandbox policy, future Budget accounting,
+  audit-log storage, approval workflow, or external action execution.
 - Fine-grained application action tags beyond `ordinary` and `privileged`.
 - Human approval, ticket approval, custom DAG escalation, or automatic approval
   state machines.
@@ -45,18 +46,19 @@ This design does not define:
 
 ## Design Decision
 
-The first AIAgent runtime uses an AIAgent-level ACL instead of a general
-Capability governance system. The current product need is to control which
-Principals can make a given AIAgent perform ordinary operations or privileged
-operations. Approval flows, resource quota storage, sandbox governance,
-high-risk external action records, and Capability execution rules remain in the
-subsystem designs that own those behaviors.
+The first AIAgent runtime uses an AIAgent-level access gate plus a privileged
+operation gate instead of waiting for a general future Capability governance
+system. The current product need is to control which Principals can use a given
+AIAgent, then add one extra check before privileged ToolSet, tool, command, or
+runtime continuation operations. Approval flows, resource quota storage, sandbox
+governance, high-risk external action records, and future Capability execution
+rules remain in the subsystem designs that own those behaviors.
 
 Tool risk is represented at the tool boundary. When a risk is primarily caused
 by the operation's purpose, split it into separate tools rather than hiding a
 complex parameter policy inside one broad tool. For example,
-`bi.query_public_metric` can be ordinary while `bi.query_revenue` is
-privileged; `artifact.write_report` can be ordinary while `repo.apply_patch` is
+`bi_query_public_metric` can be ordinary while `bi_query_revenue` is
+privileged; `artifact_write_report` can be ordinary while `repo_apply_patch` is
 privileged.
 
 ToolSet is a configuration and expansion layer, not an authorization subject.
@@ -65,43 +67,39 @@ access tag, and passes the tag to AIAgent ACL. A Skill may later point to a
 ToolSet, but a Skill remains a knowledge asset and does not grant execution
 power.
 
-Resource limits do not become a v1 ACL subsystem. The runtime that owns a task,
-domain, or Budget-like counter decides when continuing would exceed the local
-limit and marks that continuation operation as `privileged`. The ACL then
-allows or denies the operation using the same access comparison as every other
-operation.
-
 ## Access Model
 
-AIAgent ACL has three access levels:
+AIAgent ACL has one access decision:
 
-| Access level | Meaning |
+| Decision | Meaning |
 | --- | --- |
-| `none` | The triggering Principal cannot execute operations on this AIAgent. |
-| `ordinary` | The triggering Principal can execute ordinary operations. |
-| `privileged` | The triggering Principal can execute ordinary and privileged operations. |
+| allowed | The triggering Principal can invoke this AIAgent. |
+| denied | The triggering Principal cannot invoke this AIAgent. |
 
-AIAgent ACL has two v1 operation access tags:
+Every allowed Principal can run ordinary AIAgent operations. AIAgent ACL has two
+v1 operation access tags:
 
 | Operation tag | Meaning |
 | --- | --- |
 | `ordinary` | Conversation starts, low-risk AIAgent-owned commands, and low-risk tool calls. |
-| `privileged` | Deletion, external writes, sensitive data queries, permission-changing actions, resource-limit overruns, or other operations that require higher trust. |
+| `privileged` | Deletion, external writes, sensitive data queries, permission-changing actions, or other operations that require higher trust. |
 
-Authorization is a simple comparison:
+Authorization is a two-step check:
 
 ```text
-required tag = ordinary     -> ordinary or privileged access allows
-required tag = privileged   -> privileged access allows
-otherwise                   -> deny
+agent access denied      -> deny
+agent access allowed
+  required tag = ordinary   -> allow
+  required tag = privileged -> require privileged-operation grant
+  otherwise                 -> deny
 ```
 
 There are no explicit deny grants, deny priority rules, or multi-level policy
-resolution inside AIAgent ACL. `ordinary` and `privileged` are the v1 action
-groups. Additional tags such as `finance_read`, `customer_write`,
-`external_send`, or `quota_overrun` require a later design, but the runtime
-shape stays the same: the operation declares its required tag and ACL compares
-that tag against the triggering Principal's resolved access level.
+resolution inside AIAgent ACL. `ordinary` and `privileged` are operation tags,
+not Principal-to-Agent access modes. Additional tags such as `finance_read`,
+`customer_write`, or `external_send` require a later design, but the runtime
+shape stays the same: the operation declares its required tag and ACL checks the
+grant required by that tag.
 
 ## AuthZ Mapping
 
@@ -115,22 +113,32 @@ uses this AuthZ resource:
 ai_agent:<agent_principal_id>
 ```
 
+The exact resource string is:
+
+```text
+resource = "ai_agent:" <> agent_principal_id
+```
+
 AIAgent ACL defines two AuthZ actions for that resource:
 
 | AuthZ action | ACL meaning |
 | --- | --- |
-| `use` | Allows ordinary operations. |
-| `use_privileged` | Allows privileged operations and implies ordinary operations. |
+| `invoke` | Allows the Principal to access the AIAgent and run ordinary operations. |
+| `invoke_privileged` | Allows privileged operations after the Principal has AIAgent access. |
 
-Access resolution is ordered:
+The checks are ordered by operation:
 
 ```text
-if BullX.AuthZ.authorize(caller, "ai_agent:<agent_principal_id>", "use_privileged", context) == :ok
-  access = privileged
-else if BullX.AuthZ.authorize(caller, "ai_agent:<agent_principal_id>", "use", context) == :ok
-  access = ordinary
+if BullX.AuthZ.authorize(caller, "ai_agent:<agent_principal_id>", "invoke", context) != :ok
+  deny
+
+if operation_tag == :ordinary
+  allow
+else if operation_tag == :privileged and
+        BullX.AuthZ.authorize(caller, "ai_agent:<agent_principal_id>", "invoke_privileged", context) == :ok
+  allow
 else
-  access = none
+  deny
 ```
 
 The `context` argument contains only safety facts explicitly computed at the
@@ -139,17 +147,18 @@ session presence, or other documented request facts. AIAgent ACL must not pass a
 raw CloudEvent, provider payload, private Agent profile fields, full tool
 arguments, secrets, or private policy data into AuthZ context.
 
-Operator configuration for ordinary or privileged AIAgent access writes normal
-AuthZ grants:
+Operator configuration writes normal AuthZ grants. Privileged operation access is
+an extra grant, not a separate way to access the AIAgent:
 
 ```text
-group sales     -> resource ai_agent:<agent_principal_id>, action use
-group ops-admin -> resource ai_agent:<agent_principal_id>, action use_privileged
+group sales     -> resource ai_agent:<agent_principal_id>, action invoke
+group ops-admin -> resource ai_agent:<agent_principal_id>, action invoke
+group ops-admin -> resource ai_agent:<agent_principal_id>, action invoke_privileged
 ```
 
 AuthZ decides whether a Principal is allowed for one resource/action/context
-request. AIAgent ACL interprets the AuthZ result as `none`, `ordinary`, or
-`privileged`, then compares that access level with the operation tag.
+request. AIAgent ACL first checks AIAgent access with `invoke`. It checks
+`invoke_privileged` only for operations whose effective tag is `privileged`.
 
 ## Operation Classes
 
@@ -158,15 +167,23 @@ does not decide access tags.
 
 ### Conversation
 
-Starting an AIAgent model/tool loop is an `ordinary` operation unless the
-AIAgent profile explicitly marks the entry point as `privileged`. An
-unauthorized caller may produce a safe denial outcome, but the runtime must not
-start a model call or tool loop.
+Starting an AIAgent model/tool loop is an `ordinary` operation. The runtime
+requires the triggering Principal to have `invoke` on
+`ai_agent:<agent_principal_id>`. An unauthorized caller may produce a safe denial
+outcome, but the runtime must not start a model call or tool loop.
 
 Observed input that is stored only as context and does not start a model/tool
 loop does not need the conversation operation ACL gate. If observed input
 triggers model execution, a tool call, a visible reply, Work creation, or another
 follow-up operation, the triggering operation must pass ACL before it starts.
+
+For this ACL design, model execution means the caller-visible AIAgent Core
+generation path that can produce assistant output, tool calls, visible delivery,
+Work, or another follow-up operation. Ambient brief generation and the ambient
+intent recognizer are Agent-owned auxiliary observation calls defined by
+`./AmbientAndEventMessages.md`. They do not use the ambient speaker as an ACL
+caller, do not require the triggering Principal to pass the conversation ACL
+gate, and do not grant permission for a later visible reply or tool call.
 
 ### Command
 
@@ -195,44 +212,14 @@ The runtime applies ACL at two enforcement points:
 
 The second check is the hard boundary. If a model emits a tool call that was not
 rendered into the provider request, or if a provider replays an old tool call,
-the runtime still denies execution when the triggering Principal lacks the
-required access level.
-
-### Resource-Limit Continuation
-
-Resource limits are converted into operation tags by the runtime that owns the
-limit decision. AIAgent ACL does not count usage, settle cost, or persist quota
-state.
-
-Example:
-
-```text
-ResearchAgent receives a research Event
-  -> caller has ordinary access to ai_agent:<research_agent_principal_id>
-  -> the enabled web research ToolSet exposes ordinary search tools
-  -> task runtime tracks provider usage against the task's token cap
-  -> continuing deep search would exceed that cap
-  -> runtime marks "continue deep research" as privileged
-  -> AIAgent ACL denies because caller lacks privileged access
-  -> the AIAgent stops deep search and produces a report from gathered evidence
-```
-
-This is a normal convergence path, not an infrastructure failure. Once a
-resource-limit continuation is denied, the loop must not repeatedly retry the
-same denied operation. It should move to the next safe step available to the
-Target, such as summarizing gathered evidence, stopping work with a safe
-explanation, or creating a later business record when another design explicitly
-allows it.
-
-Advertising spend, external API spend, storage quota, runtime, and model-cost
-limits use the same shape: the owning runtime decides that continuing is above
-the local limit, marks the continuation operation as `privileged`, and lets ACL
-allow or deny the operation.
+the runtime still denies execution when the triggering Principal lacks AIAgent
+access or the extra grant required by a privileged tool.
 
 ## Elevation Strategy
 
 `agents.profile.ai_agent.acl.elevation_strategy` defines behavior when the
-triggering Principal lacks the required access level. The only v1 value is:
+triggering Principal lacks AIAgent access or lacks the extra grant required by a
+privileged operation. The only v1 value is:
 
 ```json
 {
@@ -270,9 +257,9 @@ Conversation / Message records are sufficient v1 durable evidence for denied
 AIAgent operations. A denied command, denied tool result, or safe conversation
 startup denial can be represented in the conversation transcript or command
 result shape owned by Agentic Loop core. This design does not require a separate
-audit log. Subsystems that perform high-risk external actions, approval,
-Capability execution, Budget settlement, or policy outcomes own their own
-business records.
+audit log. Subsystems that later perform high-risk external actions, approval,
+future Capability execution, future Budget settlement, or policy outcomes own
+their own business records.
 
 EventBus and TargetSession are delivery and execution-window runtime layers.
 ACL denial is not an EventBus routing decision and does not change Event Routing
@@ -286,8 +273,8 @@ ACL denial is a business-understandable denial, not infrastructure failure.
 Rules:
 
 - Normal ACL denial must not return an error that causes TargetSession retry.
-- Missing, disabled, or malformed caller Principal data resolves to access level
-  `none`.
+- Missing, disabled, or malformed caller Principal data fails the AIAgent access
+  gate.
 - AuthZ results `{:error, :forbidden}`, `{:error, :principal_disabled}`,
   `{:error, :not_found}`, and `{:error, :invalid_request}` fail closed.
 - AuthZ or storage infrastructure failure may fail the current TargetSession
@@ -309,8 +296,10 @@ Rules:
 ### Goal
 
 Implement an AIAgent ACL gate so Agentic Loop core can check the triggering
-Principal's access level before starting a model loop, running an
-AIAgent-owned command, rendering tool schemas, or executing a tool call.
+Principal's AIAgent access before starting a model loop, running an
+AIAgent-owned command, rendering tool schemas, or executing a tool call. For
+operations tagged `privileged`, the gate also checks the extra privileged
+operation grant.
 
 ### Context Pointers
 
@@ -331,8 +320,8 @@ AIAgent-owned command, rendering tool schemas, or executing a tool call.
 - Support only `elevation_strategy = "deny"` in v1.
 - Do not keep a TargetSession alive solely for approval or privilege escalation.
 - Keep EventBus routing, TargetSession side-channel behavior, ToolSet expansion,
-  Capability governance, Budget accounting, and audit storage in their owning
-  designs.
+  future Capability governance, future Budget accounting, and audit storage in
+  their owning designs.
 
 ### Tasks
 
@@ -342,28 +331,22 @@ AIAgent-owned command, rendering tool schemas, or executing a tool call.
    and fail with safe diagnostics.
 
 2. Add the AIAgent access resolver.
-   Resolve `none | ordinary | privileged` from the triggering Principal, Agent
-   Principal id, and documented request context. Check `use_privileged` before
-   `use`; no grant, disabled Principal, missing Principal, invalid request, or
-   AuthZ denial fails closed.
+   Resolve whether the triggering Principal can invoke the Agent Principal id
+   under the documented request context. No `invoke` grant, disabled Principal,
+   missing Principal, invalid request, or AuthZ denial fails closed.
 
 3. Gate conversation starts and AIAgent-owned commands.
    Check ACL before starting the model/tool loop and before executing an
    AIAgent-owned command. An unauthorized caller must not trigger a model call.
-   An ordinary caller can run ordinary conversation commands and cannot run
-   privileged commands.
+   Any caller with `invoke` can run ordinary conversation commands; privileged
+   commands additionally require `invoke_privileged`.
 
 4. Gate tool schema rendering and tool execution.
-   Filter provider tool schemas by the caller's access level before rendering
-   the model request. Re-check the selected tool before execution. A forged,
-   replayed, or otherwise unauthorized privileged tool call is denied and
-   recorded as a structured tool-result error when the loop can continue.
-
-5. Add a resource-limit-to-tag test path.
-   Use a Core or task-runtime test double that marks a continuation operation as
-   `privileged` after a local limit would be exceeded. Verify that an ordinary
-   caller is denied, the same denied operation is not retried, and the loop
-   enters a safe convergence path.
+   Filter provider tool schemas by AIAgent access and privileged-operation grant
+   before rendering the model request. Re-check the selected tool before
+   execution. A forged, replayed, or otherwise unauthorized privileged tool call
+   is denied and recorded as a structured tool-result error when the loop can
+   continue.
 
 ### Stop and Ask
 
@@ -374,24 +357,23 @@ Stop implementation and ask for a design decision if the work requires:
 - ApprovalRequest, ticket, custom DAG, or automatic approval behavior inside v1.
 - ACL-specific authorization tables, cache processes, policy languages, or
   evaluators.
-- Resource quotas, sandbox policy, audit logging, or Capability governance as a
-  runtime dependency of AIAgent ACL.
+- Resource quotas, sandbox policy, audit logging, or future Capability governance
+  as a runtime dependency of AIAgent ACL.
 
 ## Done When
 
-- AIAgent ACL uses AuthZ grants on `ai_agent:<agent_principal_id>` with actions
-  `use` and `use_privileged`.
-- The access resolver returns `none`, `ordinary`, or `privileged` and fails
-  closed for AuthZ denials and invalid Principal states.
+- AIAgent ACL uses `invoke` on `ai_agent:<agent_principal_id>` as the Agent
+  access gate.
+- `invoke_privileged` is checked only as the extra grant for operations tagged
+  `privileged`.
+- The access gate fails closed for AuthZ denials and invalid Principal states.
 - Conversation starts, AIAgent-owned commands, and tool calls are checked before
   execution.
 - Provider tool schema rendering exposes only tools the current caller can run.
 - Tool execution performs a second ACL check.
 - Insufficient access always uses `elevation_strategy = "deny"` in v1.
-- Resource limits can become privileged continuation operations without adding
-  a resource-quota subsystem to ACL.
 - Denied operation outcomes can be recorded through Conversation / Message or
   command/tool result shapes without a new audit-log table.
 - Agentic Loop core owns ToolSet expansion and tool-loop details, while AIAgent
-  ACL owns the ordinary / privileged authorization gate.
+  ACL owns Agent access and privileged-operation authorization.
 - `bun precommit` passes before implementation is merged.

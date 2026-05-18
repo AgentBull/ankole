@@ -6,11 +6,20 @@ section contract, renders them in a stable order into `req_llm`-compatible
 `:system` content, and reports the stable-prefix boundary that token accounting
 and prompt caching can consume.
 
+The stable-prefix discipline follows the same practical shape used by strong
+agent runtimes such as Claude Code: keep durable instructions and stable context
+byte-identical when possible, and keep request-volatile facts after that prefix.
+BullX does not assume every provider exposes Claude/Anthropic-style cache
+markers. The builder reports a provider-neutral boundary; the prompt-cache layer
+maps it through `req_llm` when the selected provider supports explicit hints and
+otherwise treats it as deterministic rendering metadata.
+
 The builder is deliberately small. It does not own AIAgent profile loading,
-Skill retrieval, Brain retrieval, Principal resolution, AuthZ decisions,
-Capability selection, tool schemas, Conversation history, message meta context,
-or the model provider call. Those sources are prepared by AIAgent Core and
-adjacent designs, then normalized into the section input described here.
+Skill retrieval, Brain retrieval, Principal resolution, AuthZ decisions, ToolSet
+selection, tool schemas, Conversation history, message meta context, future
+Capability selection, or the model provider call. Those sources are prepared by
+AIAgent Core and adjacent designs, then normalized into the section input
+described here.
 
 ## Scope
 
@@ -35,14 +44,14 @@ This design does not define:
 - Brain retrieval, Brain representation, Brain ingestion, or memory ranking.
 - Principal identity, external identity evidence, Agent Principal schema, or
   Principal redaction rules.
-- AuthZ grants, policy evaluation, approval gates, or Capability authorization.
+- AuthZ grants, policy evaluation, approval gates, or future Capability
+  authorization.
 - Tool schema rendering or tool execution. `ReqLLM.Tool` schemas are delivered
   through the provider call's independent `tools` option, not through this
   builder.
 - Conversation / Message rendering, active branch selection, tool-call and
   tool-result pairing, or history view generation.
-- Summary overlays, compression triggers, provider cache marker placement, or
-  provider cache routing keys.
+- Summary overlays, compression triggers, or provider cache marker placement.
 - Model provider resolution, provider fallback, streaming output, or visible
   delivery.
 - A builder cache, rendered prompt snapshot table, provider cache backend, or
@@ -64,8 +73,8 @@ This keeps the current BullX architecture boundaries intact:
   durable source of prompt truth.
 - Conversation / Message, Work, Brain, Budget, Artifact, and audit or domain
   records hold durable business facts.
-- `BullX.LLM` is the `req_llm` provider catalog and lower-level model
-  Capability support layer. It does not own prompt orchestration.
+- `BullX.LLM` is the `req_llm` provider catalog and lower-level model access
+  support layer. It does not own prompt orchestration.
 - Principal and AuthZ decide identity and authorization before content reaches
   the builder. The builder only enforces its own input contract.
 
@@ -74,7 +83,8 @@ Caller responsibilities:
 - Collect system-prompt-eligible content from caller-owned sources.
 - Normalize each content source into a section that follows this design.
 - Decide whether each section is `:stable` or `:volatile`.
-- Provide a non-empty `cache_break_reason` for each `:volatile` section.
+- Provide a short `cache_break_reason` for `:volatile` sections when it helps
+  diagnostics or tests.
 - Complete retrieval, authorization, redaction, policy checks, and
   source-specific truncation before calling the builder.
 - Pass the builder output and stable-prefix boundary to the provider call,
@@ -84,7 +94,7 @@ Caller responsibilities:
 Builder responsibilities:
 
 - Validate section shape, section identity, stability classification,
-  cache-break reasons, duplicate ids, and coarse payload allowlist rules.
+  duplicate ids, and coarse payload allowlist rules.
 - Omit optional empty sections without changing stable-prefix bytes.
 - Render non-empty sections in the deterministic order defined below.
 - Produce `req_llm`-compatible `:system` content.
@@ -102,7 +112,7 @@ fields:
 | `id` | yes | Caller-stable identifier, unique within one request. |
 | `kind` | yes | Caller-defined coarse semantic atom used for diagnostics and ordering tie-breaks. |
 | `stability` | yes | `:stable` or `:volatile`. |
-| `cache_break_reason` | conditional | Required for `:volatile`; forbidden for `:stable`. |
+| `cache_break_reason` | no | Optional short diagnostic reason for `:volatile` sections. Ignored for `:stable`. |
 | `priority` | no | Integer secondary sort key. Defaults to `0`. |
 | `content` | yes | `nil`, normalized text, or normalized parts compatible with `ReqLLM.Message.ContentPart`. |
 | `provenance` | no | Small caller-owned metadata map for diagnostics and tests. Keys may be reported; values never render or appear in telemetry. |
@@ -122,6 +132,10 @@ telemetry stay bounded and testable.
 `content = nil` means the section was considered but produced no renderable
 content for this request. That is a valid optional path. A missing required field
 is different: it is a contract error and prevents rendering.
+
+`content = ""`, an empty part list, or a text part whose text is `""` is a
+contract error. Callers that have no renderable content must pass `nil`. A
+whitespace-only string is renderable content; the builder does not trim it.
 
 Renderable content is intentionally narrow in v1. A section may provide plain
 text or a list of `ReqLLM.Message.ContentPart` values whose `type` is `:text`.
@@ -151,11 +165,11 @@ diagnostics, or other request-volatile data.
 them into system content, but always after all rendered stable sections and
 outside the stable-prefix boundary.
 
-Each `:volatile` section must include a short, non-empty
-`cache_break_reason`, such as `current inbound event summary`, `retry
-diagnostic`, or `request-specific language override`. The builder validates only
-presence and bounded shape. Whether the reason is sufficient is reviewed in the
-caller design and tests.
+`:volatile` sections may include a short `cache_break_reason`, such as
+`current inbound event summary`, `retry diagnostic`, or `request-specific
+language override`. The builder validates bounded shape when the reason is
+present. It does not require every volatile section to explain itself because the
+stable/volatile classification already carries the runtime contract.
 
 The builder does not try to prove that a `:stable` section is semantically
 stable. Runtime heuristics for detecting timestamps, request ids, or other
@@ -180,8 +194,39 @@ Rendering is deterministic:
 9. Produce byte-identical output and boundary metadata when called twice with
    the same normalized input.
 
+Canonical rendering template:
+
+```elixir
+rendered_sections =
+  sections
+  |> validate_all!()
+  |> reject_nil_content()
+  |> sort_by_stability_priority_and_input_order()
+  |> Enum.map(&section_text!/1)
+
+system_text = Enum.join(rendered_sections, "\n\n")
+```
+
+`section_text!/1` renders plain text as-is. For a text content-part list, it
+extracts each part's text in part order and joins those texts with exactly
+`"\n\n"`. Section ids, kinds, stability labels, priorities, cache-break reasons,
+and provenance are never rendered into provider input. The builder does not add
+headers, wrap sections, trim content, normalize whitespace, add trailing
+newlines, or convert line endings. Normalized text means valid UTF-8 text with LF
+line endings and no NUL bytes; invalid UTF-8, CRLF, and NUL bytes are contract
+errors.
+
+`system_text` is the canonical byte sequence. If the returned `system_content`
+uses `ReqLLM.Message.ContentPart` values instead of one plain text value, the
+builder emits one text part per rendered section: the first part is the first
+section text, and every later part is `"\n\n" <> section_text`. Concatenating all
+returned text parts must exactly equal `system_text`.
+
 The stable-prefix boundary is the position immediately after the last rendered
-`:stable` section. The result reports that boundary as a typed descriptor:
+`:stable` section. If volatile sections also render, the `"\n\n"` separator
+between the last stable section and first volatile section belongs to the
+volatile suffix, not the stable prefix. The result reports the boundary as a
+typed descriptor:
 
 ```elixir
 %{
@@ -192,12 +237,17 @@ The stable-prefix boundary is the position immediately after the last rendered
 }
 ```
 
-`content_part_index` is the first rendered content part after the stable prefix.
-`byte_offset` is measured against the normalized rendered system content. Callers
-may use either value depending on provider cache-marker support, but both values
-must be derived from the same rendered output. If no stable section renders,
-`last_stable_section_id` is `nil`, `stable_section_count` is `0`, and both
-offsets point to the beginning of the rendered system content.
+`last_stable_section_id` and `stable_section_count` are the required logical
+boundary. `content_part_index` and `byte_offset` are optional exact-position
+metadata for provider mappings that need explicit cache marker placement. When
+present, they must be derived from the same rendered output. Providers with
+automatic prefix caching or no prompt-cache support may ignore exact-position
+metadata. If no stable section renders, `last_stable_section_id` is `nil` and
+`stable_section_count` is `0`. `byte_offset` is measured with Elixir binary byte
+semantics, equivalent to `byte_size(stable_prefix_text)`, not grapheme count or
+display width. When `system_content` is returned as text parts,
+`content_part_index` is the zero-based index of the last text part wholly inside
+the stable prefix; it is `nil` when no stable section renders.
 
 ## Output Shape
 
@@ -211,7 +261,8 @@ The result contains:
 - `stable_prefix`: boundary metadata for token accounting and prompt cache
   hint placement.
 - `diagnostics`: rendered order, omitted section ids, per-section sizes, total
-  size, stable-prefix size, volatile suffix size, and cache-break indicators.
+  size, stable-prefix size, volatile suffix size, and optional cache-break
+  indicators.
 
 Rendering rules:
 
@@ -278,12 +329,12 @@ Rules:
 - Cache marker placement, breakpoint selection, TTL behavior, and
   provider-feature gating belong to the prompt caching design.
 - The builder does not produce provider-specific cache markers.
+- The builder does not require the selected provider to support explicit prompt
+  cache markers. Provider-neutral stable rendering remains useful for automatic
+  prefix caching, token accounting, and deterministic tests.
 - The builder does not change rendered output to improve cache geometry.
-- Cache hits, misses, eviction state, routing-key state, and provider cache
-  diagnostics are not builder input and not builder output.
-- If the selected provider supports a provider cache routing key, the caller
-  passes that key as a provider-call option. The builder does not synthesize
-  routing keys.
+- Cache hits, misses, eviction state, and provider cache diagnostics are not
+  builder input and not builder output.
 
 ## Invalidation And Recovery
 
@@ -338,8 +389,7 @@ Failure cases include:
 - Non-atom `kind`.
 - Unknown `stability` value.
 - Duplicate `id`.
-- `stability = :volatile` without a non-empty `cache_break_reason`.
-- `stability = :stable` with a `cache_break_reason`.
+- Malformed `cache_break_reason`, when present.
 - Explicit credential or raw-payload content shape rejected by the allowlist.
 - Optional `max_total_bytes` cap exceeded.
 
@@ -414,8 +464,8 @@ content, and pass stable-prefix metadata to token accounting and prompt caching.
 ### Constraints
 
 - Keep the builder stateless and side-effect-free.
-- Do not call EventBus, TargetSession, LLMProvider, Brain, Skill, Capability,
-  ToolSet, Principal, or AuthZ code from the builder.
+- Do not call EventBus, TargetSession, LLMProvider, Brain, Skill, ToolSet,
+  Principal, AuthZ, or future Capability code from the builder.
 - Do not read Conversation / Message rows from the builder.
 - Do not output raw provider JSON or mutate `Req` request bodies.
 - Do not use provider-private surfaces outside `req_llm`.
@@ -429,24 +479,27 @@ content, and pass stable-prefix metadata to token accounting and prompt caching.
 
 1. Define the section struct and validator.
    - Owns: section fields, atom `kind` validation, stability validation,
-     duplicate id detection, cache-break validation, and coarse content allowlist.
+     duplicate id detection, optional cache-break validation, and coarse content
+     allowlist.
    - Acceptance: malformed input returns structured errors before rendering;
-     volatile sections without non-empty cache-break reasons fail.
+     malformed cache-break reasons fail when present.
 
 2. Implement deterministic ordering and rendering.
    - Owns: nil-content omission, stable-before-volatile rendering,
-     priority sorting, input-position tie-breaks, and `req_llm` system content
+     priority sorting, input-position tie-breaks, canonical `"\n\n"` section
+     joining, section-level text-part output, and `req_llm` system content
      generation.
    - Acceptance: identical input produces byte-identical output; adding or
-     removing `content = nil` sections does not change stable-prefix bytes.
+     removing `content = nil` sections does not change stable-prefix bytes;
+     empty strings and empty text parts fail validation.
 
 3. Implement size estimation and boundary reporting.
    - Owns: per-section size, total size, stable-prefix size, volatile suffix
-     size, stable-prefix descriptor fields, and optional `max_total_bytes`
-     enforcement.
+     size, required logical stable-prefix descriptor fields, optional exact
+     position metadata, and optional `max_total_bytes` enforcement.
    - Acceptance: size-cap overflow fails the request; no section is dropped,
-     truncated, summarized, or reordered by the builder; `content_part_index`
-     and `byte_offset` describe the same rendered stable-prefix boundary.
+     truncated, summarized, or reordered by the builder; exact-position metadata,
+     when present, describes the same rendered stable-prefix boundary.
 
 4. Implement safety checks and telemetry.
    - Owns: known credential and raw-payload shape rejection, structured error
@@ -464,15 +517,17 @@ content, and pass stable-prefix metadata to token accounting and prompt caching.
 6. Integrate context compression and prompt caching.
    - Owns: consuming stable-prefix metadata for cache hint placement and keeping
      compression from rewriting system prompt content.
-   - Acceptance: provider cache markers, when supported, align with the reported
-     boundary; Conversation history compression does not alter builder output.
+   - Acceptance: provider cache markers, when supported through `req_llm`, align
+     with the reported boundary; providers without explicit markers still receive
+     deterministic system content; Conversation history compression does not
+     alter builder output.
 
 ### Stop And Ask
 
 Implementation must stop for review if any of these become necessary:
 
 - The builder needs direct access to Conversation / Message, Brain, Skill,
-  Capability, EventBus, TargetSession, Principal, or AuthZ state.
+  ToolSet, EventBus, TargetSession, Principal, AuthZ, or future Capability state.
 - The builder needs persistence, a generation lease, section cache, global
   registry, or cross-request memoization.
 - The builder needs to silently discard, truncate, summarize, or reorder content
@@ -494,7 +549,10 @@ Implementation must stop for review if any of these become necessary:
 - Stable sections always render before volatile sections.
 - The stable-prefix boundary is available to token accounting and prompt
   caching.
-- Every volatile section has a concrete `cache_break_reason`.
+- Section rendering uses the canonical `"\n\n"` template, and any returned text
+  parts concatenate to the same canonical system text.
+- Volatile sections may carry bounded cache-break diagnostics, but the
+  stable/volatile boundary remains the required cache contract.
 - Optional `content = nil` sections are omitted without producing empty prompt
   blocks or changing stable-prefix bytes.
 - Contract violations and size-cap overflow return structured errors.

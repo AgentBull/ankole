@@ -204,7 +204,7 @@ Example shape:
 %{
   inbound_modes: [:webhook, :websocket],
   outbound_ops: [:send, :edit, :stream],
-  content_kinds: [:text, :image, :audio, :video, :file],
+  content_kinds: [:text, :image, :file, :card],
   features: [:signature_verification, :reply, :threads],
   im_listen_modes: [:addressed_only, :all_messages]
 }
@@ -337,30 +337,34 @@ field.
 
 ### Normalized payload
 
-Adapters fill the EventBus normalized payload fields from provider data:
+Adapters normalize provider occurrences into the shared payload defined by
+[EventBus normalized CloudEvent](./NormalizedCloudEvent.md). The normalization
+stage is the common MessageEvent boundary between provider-specific input and
+BullX routing/Target code.
 
 | Field | Adapter responsibility |
 | --- | --- |
 | `data.content` | Produce at least one content block. Machine-only Events may synthesize a short text block. |
 | `data.channel.adapter` | Set to the adapter id from the extension declaration. |
 | `data.channel.id` | Set to the configured source id. |
+| `data.channel.kind` | Set to `dm`, `group`, `webhook`, or `null`. Threading belongs to `data.scope.thread_id`. |
 | `data.scope.id` | Set to the provider conversation, room, repository, object, or callback scope. |
 | `data.scope.thread_id` | Set only when the provider has a separate thread dimension under `scope.id`; otherwise `null`. |
 | `data.actor` | Normalize the external actor as evidence, not permission. |
 | `data.refs` | Record stable provider object references needed for later lookup or audit context. |
 | `data.reply_channel` | Store transport hints for possible replies or callbacks. |
 | `data.routing_facts` | Store normalized matching facts only. |
-| `data.raw_ref` | Store a safe reference to provider raw data, or `null`; never inline raw payload. |
+| `data.raw_ref` | Store provider raw reference or snapshot when useful, or `null`. It is not a matcher surface. |
 
 Adapters must keep provider ids as strings when JSON number precision could
 change the value. Snowflakes, large integer ids, repository ids, issue ids, and
 message ids should be JSON strings unless the provider contract proves that a
 JSON number is safe.
 
-`data.actor.principal_ref` is optional. An adapter may set it only from a
-Principal subsystem result or another trusted BullX identity reference. An
-adapter must not invent Principal ids from provider ids. When no Principal is
-resolved, the adapter sets `principal_ref` to `null` and leaves downstream
+`data.actor.principal` is optional. An adapter may set it only from a Principal
+subsystem result or another trusted BullX identity reference. An adapter must
+not invent Principal ids or Principal types from provider ids. When no Principal
+is resolved, the adapter sets `principal` to `null` and leaves downstream
 Principal, AuthZ, Governance, Capability, Target, and business layers to decide
 permission.
 
@@ -645,10 +649,10 @@ design defines that behavior. Principal resolution does not make the adapter an
 authorization authority; downstream Principal, AuthZ, Governance, Capability,
 Target, and business layers still decide permissions and side effects.
 
-Provider raw payload retention is plugin-specific. The default adapter contract
-keeps only normalized CloudEvents and safe references in EventBus runtime state.
-If a provider-specific design stores raw payloads, it owns retention, redaction,
-and access control outside EventBus core.
+Provider raw payload retention is plugin-specific. EventBus only treats the
+accepted normalized CloudEvent as input. If a provider-specific design stores raw
+payload snapshots or rich raw references, that design owns retention, redaction,
+and access control.
 
 ## Risks and tradeoffs
 
@@ -694,8 +698,9 @@ routing, TargetSession, Target, and business truth.
   configuration and secret storage layer used by plugin-owned source and
   credential configuration.
 - `docs/design-docs/eventbus/Core.md` defines `BullX.EventBus.accept/2`,
-  CloudEvents validation, normalized payload shape, adapter boundary, and fake
-  adapter boundary tests.
+  CloudEvents acceptance, adapter boundary, and fake adapter boundary tests.
+- `docs/design-docs/eventbus/NormalizedCloudEvent.md` defines the normalized
+  CloudEvent data contract shared by adapters, EventBus, and Targets.
 - `docs/design-docs/eventbus/Matcher.md` defines `RoutingContext`,
   `routing_facts`, priority, Blackhole, and scope/window policy.
 - `docs/design-docs/eventbus/Persistence.md` defines EventBus runtime state and
@@ -790,7 +795,6 @@ Implementation should stop and ask when any of these questions appears:
 
 - A provider needs routing on a fact that cannot be normalized into
   `routing_facts` or another explicit `RoutingContext` field.
-- A provider requires raw payload persistence rather than a safe `raw_ref`.
 - A provider acknowledgement must wait for Target execution or business
   persistence.
 - A provider source needs durable offset, subscription, or listener state that

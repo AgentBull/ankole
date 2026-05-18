@@ -32,7 +32,8 @@ The projection is:
   },
   "channel": {
     "adapter": "data.channel.adapter",
-    "id": "data.channel.id"
+    "id": "data.channel.id",
+    "kind": "data.channel.kind"
   },
   "scope": {
     "id": "data.scope.id",
@@ -201,10 +202,12 @@ design allows stable scalar paths such as:
 - `event.identity.id`
 - `channel.adapter`
 - `channel.id`
+- `channel.kind`
 - `scope.id`
 - `scope.thread_id`
-- `actor.id`
-- `actor.principal_ref`
+- `actor.external_account_id`
+- `actor.principal.id`
+- `actor.principal.type`
 - `reply_channel.adapter`
 - `reply_channel.channel_id`
 - `reply_channel.scope_id`
