@@ -6,7 +6,11 @@ defmodule BullX.EventBus.MatcherTest do
   test "Rust matcher returns the first matching rule by priority" do
     rules = [
       %{"id" => "fallback", "priority" => 20, "match_expr" => "true"},
-      %{"id" => "message", "priority" => 10, "match_expr" => "type == \"bullx.im.message.addressed\""}
+      %{
+        "id" => "message",
+        "priority" => 10,
+        "match_expr" => "type == \"bullx.im.message.addressed\""
+      }
     ]
 
     context = %{"type" => "bullx.im.message.addressed"}
