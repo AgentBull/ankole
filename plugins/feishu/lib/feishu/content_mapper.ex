@@ -1,6 +1,8 @@
 defmodule Feishu.ContentMapper do
   @moduledoc false
 
+  import BullX.Utils.Map, only: [maybe_put: 3]
+
   @media_kinds ~w(image file audio video)
 
   @spec from_message(map(), Feishu.Source.t()) :: {:ok, [map()]} | {:error, map()}
@@ -30,19 +32,7 @@ defmodule Feishu.ContentMapper do
   def from_message(_message, _source),
     do: {:error, Feishu.Error.payload("invalid Feishu message")}
 
-  @spec primary_text([map()]) :: String.t() | nil
-  def primary_text([%{"type" => "text", "text" => text} | _rest])
-      when is_binary(text) do
-    text
-  end
-
-  def primary_text([%{"kind" => "text", "body" => %{"text" => text}} | _rest])
-      when is_binary(text) do
-    text
-  end
-
-  def primary_text([_block | rest]), do: primary_text(rest)
-  def primary_text([]), do: nil
+  defdelegate primary_text(blocks), to: BullX.EventBus.ChannelAdapter.Content
 
   @spec render_outbound(term(), Feishu.Source.t() | nil) ::
           {:ok, map(), [String.t()]} | {:error, map()}
@@ -395,6 +385,4 @@ defmodule Feishu.ContentMapper do
 
   defp present?(value), do: is_binary(value) and String.trim(value) != ""
 
-  defp maybe_put(map, _key, nil), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 end

@@ -12,6 +12,8 @@ defmodule Feishu.OIDCProvider do
   alias Feishu.Source
   alias FeishuOpenAPI.Auth
 
+  import BullX.Utils.Map, only: [maybe_put: 3, reject_nil_values: 1]
+
   @impl BullX.Principals.LoginProvider
   def fetch_source(provider_id), do: fetch_oidc_source(provider_id)
 
@@ -320,7 +322,4 @@ defmodule Feishu.OIDCProvider do
 
   defp nonce, do: Base.url_encode64(:crypto.strong_rand_bytes(18), padding: false)
 
-  defp reject_nil_values(map), do: Map.reject(map, fn {_key, value} -> is_nil(value) end)
-  defp maybe_put(map, _key, nil), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 end

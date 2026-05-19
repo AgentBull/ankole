@@ -1,6 +1,8 @@
 defmodule Discord.Error do
   @moduledoc false
 
+  import BullX.Utils.Map, only: [maybe_put: 3]
+
   @missing_target_codes [10_003, 10_004, 10_008, 10_062]
 
   @spec map(term()) :: map()
@@ -114,6 +116,4 @@ defmodule Discord.Error do
 
   defp field(%{} = map, key), do: Map.get(map, key) || Map.get(map, String.to_atom(key))
   defp field(_value, _key), do: nil
-  defp maybe_put(map, _key, nil), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 end

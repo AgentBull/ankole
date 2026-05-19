@@ -5,6 +5,8 @@ defmodule Feishu.EventMapper do
   alias Feishu.{ContentMapper, DirectCommand, Source}
   alias FeishuOpenAPI.{CardAction, Event}
 
+  import BullX.Utils.Map, only: [maybe_put: 3, reject_nil_values: 1]
+
   @message_receive "im.message.receive_v1"
   @message_updated "im.message.updated_v1"
   @message_recalled "im.message.recalled_v1"
@@ -663,9 +665,6 @@ defmodule Feishu.EventMapper do
     end)
   end
 
-  defp reject_nil_values(map), do: Map.reject(map, fn {_key, value} -> is_nil(value) end)
-  defp maybe_put(map, _key, nil), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
   defp present?(value), do: is_binary(value) and value != ""
   defp present_string(value) when is_binary(value) and value != "", do: value
   defp present_string(_value), do: nil

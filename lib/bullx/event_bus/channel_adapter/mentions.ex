@@ -1,6 +1,8 @@
 defmodule BullX.EventBus.ChannelAdapter.Mentions do
   @moduledoc false
 
+  import BullX.Utils.Map, only: [maybe_put: 3]
+
   @type mention :: %{
           optional(:id) => String.t(),
           optional(:username) => String.t(),
@@ -80,7 +82,4 @@ defmodule BullX.EventBus.ChannelAdapter.Mentions do
 
   defp normalize_text(value) when is_binary(value) and value != "", do: value
   defp normalize_text(_value), do: nil
-
-  defp maybe_put(map, _key, nil), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 end

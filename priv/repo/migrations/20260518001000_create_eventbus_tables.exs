@@ -33,6 +33,11 @@ defmodule BullX.Repo.Migrations.CreateEventbusTables do
     end
 
     create unique_index(:event_routing_rules, [:priority])
+    create unique_index(:event_routing_rules, [:name])
+
+    create constraint(:event_routing_rules, :event_routing_rules_name_trimmed_non_empty,
+             check: "name = btrim(name) AND name <> ''"
+           )
 
     create constraint(:event_routing_rules, :event_routing_rules_priority_positive,
              check: "priority > 0"

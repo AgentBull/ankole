@@ -28,4 +28,16 @@ defmodule BullX.Principals do
   defdelegate login_provider_ids(server \\ BullX.Plugins.Registry),
     to: BullX.Principals.LoginProviders,
     as: :provider_ids
+
+  @doc """
+  URL of the web login page, derived from the configured Phoenix endpoint.
+
+  Used by IM channel adapters to embed a sign-in link in chat replies.
+  """
+  @spec web_login_url() :: String.t()
+  def web_login_url do
+    BullXWeb.Endpoint.url()
+    |> String.trim_trailing("/")
+    |> Kernel.<>("/sessions/new")
+  end
 end

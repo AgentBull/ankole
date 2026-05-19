@@ -3,6 +3,9 @@ defmodule Discord.Config.Credentials do
 
   use Skogsra.Type
 
+  import BullX.Utils.Map, only: [maybe_put: 3, present_string: 1]
+  import BullX.Config.MapType, only: [required_string: 2]
+
   @impl Skogsra.Type
   def cast(value) when is_binary(value) do
     with {:ok, decoded} <- Jason.decode(value), do: cast(decoded), else: (_error -> :error)
@@ -66,32 +69,15 @@ defmodule Discord.Config.Credentials do
 
   defp stringify_keys(value) when is_binary(value), do: {:ok, String.trim(value)}
   defp stringify_keys(_value), do: :error
-
-  defp required_string(map, key) do
-    case Map.fetch(map, key) do
-      {:ok, value} when is_binary(value) and value != "" -> {:ok, value}
-      _value -> :error
-    end
-  end
-
-  defp present_string(value) when is_binary(value) do
-    value
-    |> String.trim()
-    |> case do
-      "" -> nil
-      value -> value
-    end
-  end
-
-  defp present_string(_value), do: nil
-  defp maybe_put(map, _key, nil), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 end
 
 defmodule Discord.Config.EventBusSources do
   @moduledoc false
 
   use Skogsra.Type
+
+  import BullX.Config.MapType,
+    only: [required_string: 2, optional_string: 3, optional_boolean: 3, optional_map: 3]
 
   @impl Skogsra.Type
   def cast(value) when is_binary(value) do
@@ -152,34 +138,6 @@ defmodule Discord.Config.EventBusSources do
   defp stringify_value(%{} = map), do: elem(stringify_keys(map), 1)
   defp stringify_value(values) when is_list(values), do: Enum.map(values, &stringify_value/1)
   defp stringify_value(value), do: value
-
-  defp required_string(map, key) do
-    case Map.fetch(map, key) do
-      {:ok, value} when is_binary(value) and value != "" -> {:ok, value}
-      _value -> :error
-    end
-  end
-
-  defp optional_string(map, key, default) do
-    case Map.get(map, key, default) do
-      value when is_binary(value) and value != "" -> {:ok, value}
-      _value -> :error
-    end
-  end
-
-  defp optional_boolean(map, key, default) do
-    case Map.get(map, key, default) do
-      value when is_boolean(value) -> {:ok, value}
-      _value -> :error
-    end
-  end
-
-  defp optional_map(map, key, default) do
-    case Map.get(map, key, default) do
-      value when is_map(value) -> {:ok, value}
-      _value -> :error
-    end
-  end
 end
 
 defmodule Discord.Config do

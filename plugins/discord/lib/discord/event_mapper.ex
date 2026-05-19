@@ -3,6 +3,8 @@ defmodule Discord.EventMapper do
 
   alias Discord.{AttentionPolicy, CommandNormalizer, ContentMapper, Source}
 
+  import BullX.Utils.Map, only: [maybe_put: 3, reject_nil_values: 1]
+
   @spec map(term(), Source.t()) ::
           {:ok, map()} | {:direct_command, map()} | {:ignore, atom()} | {:error, map()}
   def map({event_type, payload}, %Source{} = source), do: map_event(event_type, payload, source)
@@ -313,7 +315,4 @@ defmodule Discord.EventMapper do
     do: "https://cdn.discordapp.com/avatars/#{id}/#{avatar}.png"
 
   defp avatar_url(_author, _id), do: nil
-  defp maybe_put(map, _key, nil), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
-  defp reject_nil_values(map), do: Map.reject(map, fn {_key, value} -> is_nil(value) end)
 end

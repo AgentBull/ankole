@@ -283,16 +283,20 @@ the current node.
 
 ## Write Path
 
-`put/2` accepts only binary keys and binary values. It checks
-`BullX.Config.SecretKeys.secret?/1` before writing:
+`put/2` accepts only one binary key and binary value. `put_many/1` accepts a map
+or a list of `{key, value}` pairs where every key and value is binary. Duplicate
+keys in a `put_many/1` list collapse before writing; the last entry wins. Both
+writer APIs check `BullX.Config.SecretKeys.secret?/1` before writing:
 
 - Plain keys store the value as-is with `type: :plain`.
 - Secret keys encrypt the value first and store `type: :secret`.
 
-The database write is an upsert on the primary key and replaces `value`, `type`,
-and `updated_at` on conflict. After a successful write, the writer refreshes
-that key in ETS. `delete/1` deletes matching rows and refreshes the key, which
-removes it from ETS.
+Each row write is an upsert on the primary key and replaces `value`, `type`, and
+`updated_at` on conflict. `put_many/1` encrypts all secret values before opening
+the transaction, then commits all row upserts in one PostgreSQL transaction. The
+transactional guarantee stops at PostgreSQL commit: after a successful write,
+the writer refreshes changed keys in ETS. `delete/1` deletes matching rows and
+refreshes the key, which removes it from ETS.
 
 Some runtime configuration keys may have subsystem-specific post-write hooks.
 For example, writes and deletes under `bullx.req_llm.` trigger
@@ -304,15 +308,19 @@ does not generate values for generated-secret declarations. Invalid persisted
 strings are allowed in the database and ignored by runtime reads when the
 binding pipeline cannot cast or validate them.
 
-Write path failures split into pre-write secret encryption, database writes, and
-post-write cache refresh. Secret encryption failure returns `{:error, reason}`
-before any database write. Database write exceptions are not wrapped by the
-writer. A database exception during refresh is logged by
+Write path failures split into input validation, pre-write secret encryption,
+database writes, and post-write cache refresh. `put_many/1` rejects invalid
+entries before any database write. Secret encryption failure returns
+`{:error, reason}` before any database write. Database write exceptions are not
+wrapped by the writer. A database exception during refresh is logged by
 `BullX.Config.Cache` and leaves the existing ETS value unchanged while the
 writer still returns `:ok`. If the cache process is unavailable when the
 post-write refresh runs, the database operation may already have succeeded, the
 caller may exit from `GenServer.call/2`, and ETS remains stale until an explicit
-refresh or cache restart reloads rows from PostgreSQL.
+refresh or cache restart reloads rows from PostgreSQL. Subsystems that depend on
+fresh runtime projections after `put_many/1` must run their own post-write
+readiness check instead of treating cache refresh as part of the database
+transaction.
 
 ## Secret Storage
 

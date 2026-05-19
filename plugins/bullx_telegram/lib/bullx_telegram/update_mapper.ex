@@ -3,6 +3,8 @@ defmodule BullxTelegram.UpdateMapper do
 
   alias BullxTelegram.{AttentionPolicy, CommandNormalizer, ContentMapper, Source}
 
+  import BullX.Utils.Map, only: [maybe_put: 3, reject_nil_values: 1]
+
   @spec map(term(), Source.t()) ::
           {:ok, map()} | {:direct_command, map()} | {:ignore, atom()} | {:error, map()}
   def map(%{} = update, %Source{} = source) do
@@ -269,7 +271,4 @@ defmodule BullxTelegram.UpdateMapper do
   defp stringify_id(_value), do: nil
   defp present?(value), do: is_binary(value) and String.trim(value) != ""
   defp first_present(values), do: Enum.find(values, &present?/1)
-  defp maybe_put(map, _key, nil), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
-  defp reject_nil_values(map), do: Map.reject(map, fn {_key, value} -> is_nil(value) end)
 end

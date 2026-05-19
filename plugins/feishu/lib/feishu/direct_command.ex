@@ -126,7 +126,7 @@ defmodule Feishu.DirectCommand do
     text =
       "feishu"
       |> BullX.Principals.issue_login_auth_code(source.id, command.actor.id)
-      |> web_auth_reply(web_login_url())
+      |> web_auth_reply(BullX.Principals.web_login_url())
 
     reply_text(command, source, text, "web_auth", opts)
   end
@@ -174,12 +174,6 @@ defmodule Feishu.DirectCommand do
 
   defp direct_cache_key(%Source{} = source, event_id) do
     "feishu:#{source.id}:direct_command:#{event_id}"
-  end
-
-  defp web_login_url do
-    BullXWeb.Endpoint.url()
-    |> String.trim_trailing("/")
-    |> Kernel.<>("/sessions/new")
   end
 
   defp telemetry_result({:ok, _result}), do: :ok

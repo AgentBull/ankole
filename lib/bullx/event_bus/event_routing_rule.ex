@@ -62,16 +62,32 @@ defmodule BullX.EventBus.EventRoutingRule do
       :scope_fields,
       :window_type
     ])
+    |> validate_name()
     |> validate_number(:priority, greater_than: 0)
     |> validate_scope_fields()
     |> validate_target_ref()
     |> validate_target_handler()
     |> validate_window()
     |> validate_match_expr()
+    |> unique_constraint(:name)
     |> unique_constraint(:priority)
+    |> check_constraint(:name, name: :event_routing_rules_name_trimmed_non_empty)
     |> check_constraint(:priority, name: :event_routing_rules_priority_positive)
     |> check_constraint(:target_ref, name: :event_routing_rules_blackhole_target_ref)
     |> check_constraint(:window_ttl_seconds, name: :event_routing_rules_rolling_ttl_seconds)
+  end
+
+  defp validate_name(changeset) do
+    validate_change(changeset, :name, fn
+      :name, name when is_binary(name) ->
+        case name == String.trim(name) and name != "" do
+          true -> []
+          false -> [name: "must be a trimmed non-empty string"]
+        end
+
+      :name, _name ->
+        [name: "must be a string"]
+    end)
   end
 
   defp normalize_blackhole_defaults(changeset) do

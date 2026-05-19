@@ -62,7 +62,7 @@ this table; `RoutingTable` merges them into the runtime snapshot from code.
 | Field | Type | Requirement |
 | --- | --- | --- |
 | `id` | `uuid` | Primary key, BullX-side UUIDv7 |
-| `name` | `text` | Not null |
+| `name` | `text` | Not null; unique durable canonical name |
 | `active` | `boolean` | Not null, default `true` |
 | `priority` | `integer` | Not null |
 | `match_expr` | `text` | Not null |
@@ -76,6 +76,10 @@ this table; `RoutingTable` merges them into the runtime snapshot from code.
 
 Constraints and indexes:
 
+- Unique `name` across all rows. `name` is the durable idempotency key used by
+  `BullX.EventBus.RuleWriter.upsert_by_name/2`; it is not merely a display
+  label.
+- Check `name = btrim(name)` and `name <> ''`.
 - Unique `priority` across all rows.
 - Check `priority > 0`. Positive priorities are reserved for database-owned
   rules. Code-owned built-in routes may use reserved negative priorities in the

@@ -147,14 +147,7 @@ defmodule Discord.Outbound do
 
   defp outcome(delivery, status, responses, warnings) do
     ids = Enum.map(responses, &message_id/1) |> Enum.reject(&is_nil/1)
-
-    %{
-      "delivery_id" => delivery_id(delivery),
-      "status" => status,
-      "external_message_ids" => ids,
-      "primary_external_id" => List.first(ids),
-      "warnings" => warnings
-    }
+    BullX.EventBus.ChannelAdapter.Outcome.build(delivery_id(delivery), status, ids, warnings)
   end
 
   defp message_id(%{"id" => id}), do: to_string(id)

@@ -5,7 +5,7 @@
     "dev": "iex -S mix phx.server",
     "rsbuild:dev": "bun --bun rsbuild dev --log-level warn",
     "build": "bun --bun rsbuild build",
-    "fmt": "mix format && cargo fmt --all",
+    "fmt": "mix format && cargo fmt --all && bun --bun biome format webui/src",
     "fmt:check": "mix format --check-formatted && cargo fmt --all --check",
     "lint:js": "bun --bun biome check webui/src",
     "lint": "bun --bun turbo run lint:js fmt:check --output-logs=new-only",

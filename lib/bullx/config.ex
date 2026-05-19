@@ -67,6 +67,7 @@ defmodule BullX.Config do
   end
 
   def put(key, value), do: BullX.Config.Writer.put(key, value)
+  def put_many(entries), do: BullX.Config.Writer.put_many(entries)
   def delete(key), do: BullX.Config.Writer.delete(key)
   def refresh(key), do: BullX.Config.Cache.refresh(key)
   def refresh_all, do: BullX.Config.Cache.refresh_all()

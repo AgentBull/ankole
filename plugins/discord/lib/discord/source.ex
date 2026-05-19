@@ -9,6 +9,18 @@ defmodule Discord.Source do
 
   alias Discord.Error
 
+  import BullX.Utils.Map,
+    only: [
+      maybe_put: 3,
+      reject_nil_values: 1,
+      positive_integer: 3,
+      bounded_integer: 5,
+      optional_boolean: 3,
+      string_list: 3,
+      stringify_id: 1,
+      present_string: 1
+    ]
+
   @default_oauth2_scopes ["identify", "email"]
   @default_message_context_ttl_seconds 2_592_000
   @default_thread_ownership_cache_ttl_seconds 86_400
@@ -130,35 +142,25 @@ defmodule Discord.Source do
 
   @spec enabled_sources() :: {:ok, [t()]} | {:error, map()}
   def enabled_sources do
-    Discord.Config.eventbus_sources!()
-    |> Enum.filter(&(Map.get(&1, "enabled", true) == true))
-    |> Enum.reduce_while({:ok, []}, fn source, {:ok, acc} ->
-      case normalize(source) do
-        {:ok, source} -> {:cont, {:ok, [source | acc]}}
-        {:error, error} -> {:halt, {:error, error}}
-      end
-    end)
-    |> case do
-      {:ok, sources} -> {:ok, Enum.reverse(sources)}
-      {:error, _reason} = error -> error
-    end
+    BullX.EventBus.ChannelAdapter.SourceRegistry.enabled_sources(
+      &Discord.Config.eventbus_sources!/0,
+      &normalize/1
+    )
   end
 
   @spec enabled_sources!() :: [t()]
   def enabled_sources! do
-    case enabled_sources() do
-      {:ok, sources} -> sources
-      {:error, error} -> raise ArgumentError, "invalid Discord source config: #{inspect(error)}"
-    end
+    BullX.EventBus.ChannelAdapter.SourceRegistry.enabled_sources!(
+      &Discord.Config.eventbus_sources!/0,
+      &normalize/1,
+      "Discord"
+    )
   end
 
   @spec fetch_enabled_source(String.t()) :: {:ok, t()} | {:error, :not_found | map()}
   def fetch_enabled_source(source_id) when is_binary(source_id) do
     with {:ok, sources} <- enabled_sources() do
-      case Enum.find(sources, &(&1.id == source_id)) do
-        nil -> {:error, :not_found}
-        source -> {:ok, source}
-      end
+      BullX.EventBus.ChannelAdapter.SourceRegistry.fetch_enabled_source(sources, source_id)
     end
   end
 
@@ -407,13 +409,6 @@ defmodule Discord.Source do
     end
   end
 
-  defp optional_boolean(map, key, default) do
-    case Map.get(map, key, default) do
-      value when is_boolean(value) -> value
-      _value -> default
-    end
-  end
-
   defp optional_keyword(map, key, default) do
     case Map.get(map, key, default) do
       [] -> {:ok, []}
@@ -429,49 +424,10 @@ defmodule Discord.Source do
     end
   end
 
-  defp string_list(map, key, default) do
-    case Map.get(map, key, default) do
-      values when is_list(values) -> values |> Enum.map(&stringify_id/1) |> Enum.reject(&is_nil/1)
-      _value -> default
-    end
-  end
-
-  defp stringify_id(value) when is_binary(value) and value != "", do: String.trim(value)
-  defp stringify_id(value) when is_integer(value), do: Integer.to_string(value)
-  defp stringify_id(_value), do: nil
-
   defp ensure_oauth2_scopes(scopes) do
     @default_oauth2_scopes
     |> Enum.reduce(scopes, fn scope, acc -> if scope in acc, do: acc, else: acc ++ [scope] end)
   end
 
-  defp positive_integer(map, key, default) do
-    case Map.get(map, key, default) do
-      value when is_integer(value) and value > 0 -> value
-      _value -> default
-    end
-  end
-
-  defp bounded_integer(map, key, default, min, max) do
-    case positive_integer(map, key, default) do
-      value when value >= min and value <= max -> value
-      value when value > max -> max
-      _value -> default
-    end
-  end
-
-  defp present_string(value) when is_binary(value) do
-    value
-    |> String.trim()
-    |> case do
-      "" -> nil
-      value -> value
-    end
-  end
-
-  defp present_string(_value), do: nil
   defp map_value(%{} = map, key), do: Map.get(map, key) || Map.get(map, String.to_atom(key))
-  defp maybe_put(map, _key, nil), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
-  defp reject_nil_values(map), do: Map.reject(map, fn {_key, value} -> is_nil(value) end)
 end

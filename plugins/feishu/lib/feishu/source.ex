@@ -8,6 +8,16 @@ defmodule Feishu.Source do
 
   alias FeishuOpenAPI.{Auth, Client}
 
+  import BullX.Utils.Map,
+    only: [
+      maybe_put: 3,
+      reject_nil_values: 1,
+      positive_integer: 3,
+      non_negative_integer: 3,
+      optional_boolean: 3,
+      present_string: 1
+    ]
+
   @default_scopes ["openid", "profile", "email", "phone"]
   @default_message_context_ttl_seconds 2_592_000
   @default_card_action_dedupe_ttl_seconds 900
@@ -117,35 +127,25 @@ defmodule Feishu.Source do
 
   @spec enabled_sources() :: {:ok, [t()]} | {:error, map()}
   def enabled_sources do
-    Feishu.Config.eventbus_sources!()
-    |> Enum.filter(&(Map.get(&1, "enabled", true) == true))
-    |> Enum.reduce_while({:ok, []}, fn config, {:ok, acc} ->
-      case normalize(config) do
-        {:ok, source} -> {:cont, {:ok, [source | acc]}}
-        {:error, error} -> {:halt, {:error, error}}
-      end
-    end)
-    |> case do
-      {:ok, sources} -> {:ok, Enum.reverse(sources)}
-      {:error, _error} = error -> error
-    end
+    BullX.EventBus.ChannelAdapter.SourceRegistry.enabled_sources(
+      &Feishu.Config.eventbus_sources!/0,
+      &normalize/1
+    )
   end
 
   @spec enabled_sources!() :: [t()]
   def enabled_sources! do
-    case enabled_sources() do
-      {:ok, sources} -> sources
-      {:error, error} -> raise ArgumentError, "invalid Feishu source config: #{inspect(error)}"
-    end
+    BullX.EventBus.ChannelAdapter.SourceRegistry.enabled_sources!(
+      &Feishu.Config.eventbus_sources!/0,
+      &normalize/1,
+      "Feishu"
+    )
   end
 
   @spec fetch_enabled_source(String.t()) :: {:ok, t()} | {:error, :not_found | map()}
   def fetch_enabled_source(source_id) when is_binary(source_id) do
     with {:ok, sources} <- enabled_sources() do
-      case Enum.find(sources, &(&1.id == source_id)) do
-        nil -> {:error, :not_found}
-        source -> {:ok, source}
-      end
+      BullX.EventBus.ChannelAdapter.SourceRegistry.fetch_enabled_source(sources, source_id)
     end
   end
 
@@ -365,13 +365,6 @@ defmodule Feishu.Source do
     end
   end
 
-  defp optional_boolean(map, key, default) do
-    case Map.get(map, key, default) do
-      value when is_boolean(value) -> value
-      _value -> default
-    end
-  end
-
   defp optional_boolean_result(map, key, default) do
     case Map.get(map, key, default) do
       value when is_boolean(value) -> {:ok, value}
@@ -412,34 +405,5 @@ defmodule Feishu.Source do
     end
   end
 
-  defp positive_integer(map, key, default) do
-    case Map.get(map, key, default) do
-      value when is_integer(value) and value > 0 -> value
-      _value -> default
-    end
-  end
-
-  defp non_negative_integer(map, key, default) do
-    case Map.get(map, key, default) do
-      value when is_integer(value) and value >= 0 -> value
-      _value -> default
-    end
-  end
-
-  defp present_string(value) when is_binary(value) do
-    value
-    |> String.trim()
-    |> case do
-      "" -> nil
-      value -> value
-    end
-  end
-
-  defp present_string(_value), do: nil
-
   defp map_value(map, key), do: Map.get(map, key)
-
-  defp reject_nil_values(map), do: Map.reject(map, fn {_key, value} -> is_nil(value) end)
-  defp maybe_put(map, _key, nil), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 end

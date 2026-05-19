@@ -3,6 +3,8 @@ defmodule Feishu.Error do
 
   alias FeishuOpenAPI.Error, as: OpenAPIError
 
+  import BullX.Utils.Map, only: [maybe_put: 3]
+
   @rate_limit_codes [99_991_400]
   @reply_target_missing_codes [230_011, 231_003]
   @auth_codes [99_991_663, 99_991_664, 99_991_671, 10_012, 514, 403, 1_000_040_350]
@@ -92,6 +94,4 @@ defmodule Feishu.Error do
   defp json_scalar(nil), do: nil
   defp json_scalar(_value), do: nil
 
-  defp maybe_put(map, _key, nil), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 end

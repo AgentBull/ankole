@@ -1,6 +1,8 @@
 defmodule BullX.EventBus.DeliveryCircuitBreaker do
   @moduledoc false
 
+  import BullX.Utils.Map, only: [maybe_put: 3]
+
   @table __MODULE__
   @default_failure_threshold 5
   @default_failure_window_ms 10_000
@@ -156,7 +158,5 @@ defmodule BullX.EventBus.DeliveryCircuitBreaker do
     )
   end
 
-  defp maybe_put(map, _key, nil), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
   defp now_ms, do: System.monotonic_time(:millisecond)
 end

@@ -10,6 +10,8 @@ defmodule Discord.OAuth2Provider do
 
   alias Discord.Source
 
+  import BullX.Utils.Map, only: [maybe_put: 3, reject_nil_values: 1]
+
   @impl BullX.Principals.LoginProvider
   def fetch_source(provider_id), do: fetch_oauth2_source(provider_id)
 
@@ -239,7 +241,4 @@ defmodule Discord.OAuth2Provider do
   defp normalized_email(nil), do: nil
   defp normalized_email(email), do: email |> String.trim() |> String.downcase()
   defp first_present(values), do: Enum.find(values, &(is_binary(&1) and &1 != ""))
-  defp maybe_put(map, _key, nil), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
-  defp reject_nil_values(map), do: Map.reject(map, fn {_key, value} -> is_nil(value) end)
 end

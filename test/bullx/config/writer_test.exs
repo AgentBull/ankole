@@ -60,4 +60,49 @@ defmodule BullX.Config.WriterTest do
     assert row.type == :secret
     assert {:ok, "second"} = BullX.Config.Cache.get_raw("bullx.test_secret")
   end
+
+  test "put_many/1 upserts plain and secret keys in one committed batch" do
+    assert :ok =
+             BullX.Config.Writer.put_many(%{
+               "writer.batch_plain" => "plain-value",
+               "bullx.test_secret" => "secret-value"
+             })
+
+    assert %BullX.Config.AppConfig{value: "plain-value", type: :plain} =
+             BullX.Repo.get!(BullX.Config.AppConfig, "writer.batch_plain")
+
+    secret = BullX.Repo.get!(BullX.Config.AppConfig, "bullx.test_secret")
+    assert secret.type == :secret
+    assert secret.value != "secret-value"
+
+    assert {:ok, "plain-value"} = BullX.Config.Cache.get_raw("writer.batch_plain")
+    assert {:ok, "secret-value"} = BullX.Config.Cache.get_raw("bullx.test_secret")
+  end
+
+  test "put_many/1 updates existing rows and lets the last duplicate entry win" do
+    assert :ok = BullX.Config.Writer.put("writer.batch_existing", "old")
+
+    assert :ok =
+             BullX.Config.Writer.put_many([
+               {"writer.batch_existing", "new"},
+               {"writer.batch_duplicate", "first"},
+               {"writer.batch_duplicate", "second"}
+             ])
+
+    assert %BullX.Config.AppConfig{value: "new"} =
+             BullX.Repo.get!(BullX.Config.AppConfig, "writer.batch_existing")
+
+    assert %BullX.Config.AppConfig{value: "second"} =
+             BullX.Repo.get!(BullX.Config.AppConfig, "writer.batch_duplicate")
+  end
+
+  test "put_many/1 rejects invalid entries before writing any row" do
+    assert {:error, :invalid_entries} =
+             BullX.Config.Writer.put_many([
+               {"writer.batch_valid_before_invalid", "value"},
+               {:not_a_binary_key, "value"}
+             ])
+
+    refute BullX.Repo.get(BullX.Config.AppConfig, "writer.batch_valid_before_invalid")
+  end
 end

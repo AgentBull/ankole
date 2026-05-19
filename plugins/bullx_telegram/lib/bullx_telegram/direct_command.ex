@@ -59,7 +59,7 @@ defmodule BullxTelegram.DirectCommand do
     text =
       "telegram"
       |> BullX.Principals.issue_login_auth_code(source.id, command.actor.id)
-      |> web_auth_reply(web_login_url())
+      |> web_auth_reply(BullX.Principals.web_login_url())
 
     reply_text(command, source, text, "web_auth", opts)
   end
@@ -94,9 +94,4 @@ defmodule BullxTelegram.DirectCommand do
   defp web_auth_reply({:error, :principal_disabled}, _login_url), do: BullX.I18n.t("eventbus.telegram.auth.denied")
   defp web_auth_reply({:error, _reason}, _login_url), do: BullX.I18n.t("eventbus.telegram.auth.web_auth_failed")
 
-  defp web_login_url do
-    BullXWeb.Endpoint.url()
-    |> String.trim_trailing("/")
-    |> Kernel.<>("/sessions/new")
-  end
 end

@@ -174,15 +174,12 @@ defmodule Feishu.Outbound do
   defp render_content(content, source), do: ContentMapper.render_outbound(content, source)
 
   defp outcome(delivery, status, response, warnings) do
-    message_id = message_id(response)
+    ids = case message_id(response) do
+      nil -> []
+      id -> [id]
+    end
 
-    %{
-      "delivery_id" => delivery_id(delivery),
-      "status" => status,
-      "external_message_ids" => if(message_id, do: [message_id], else: []),
-      "primary_external_id" => message_id,
-      "warnings" => warnings
-    }
+    BullX.EventBus.ChannelAdapter.Outcome.build(delivery_id(delivery), status, ids, warnings)
   end
 
   defp message_id(%{"data" => data}) when is_map(data) do

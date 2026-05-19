@@ -29,14 +29,7 @@ defmodule BullxTelegram.ContentMapper do
   def from_message(_message),
     do: {:error, BullxTelegram.Error.payload("invalid Telegram message")}
 
-  @spec primary_text([map()]) :: String.t() | nil
-  def primary_text([%{"type" => "text", "text" => text} | _rest]) when is_binary(text), do: text
-
-  def primary_text([%{"kind" => "text", "body" => %{"text" => text}} | _rest])
-      when is_binary(text), do: text
-
-  def primary_text([_block | rest]), do: primary_text(rest)
-  def primary_text([]), do: nil
+  defdelegate primary_text(blocks), to: BullX.EventBus.ChannelAdapter.Content
 
   @spec render_outbound(term()) :: {:ok, [String.t()], [String.t()]} | {:error, map()}
   def render_outbound([%{"type" => "text", "text" => text} | _rest])
@@ -73,34 +66,8 @@ defmodule BullxTelegram.ContentMapper do
   def render_outbound(_content),
     do: {:error, BullxTelegram.Error.payload("Telegram delivery content is required")}
 
-  @spec utf16_units(String.t()) :: non_neg_integer()
-  def utf16_units(text) when is_binary(text) do
-    text
-    |> String.to_charlist()
-    |> Enum.reduce(0, fn codepoint, acc -> acc + if(codepoint > 0xFFFF, do: 2, else: 1) end)
-  end
-
-  @spec split_text(String.t(), pos_integer()) :: [String.t()]
-  def split_text(text, limit) when is_binary(text) and is_integer(limit) and limit > 0 do
-    {chunks, current, _units} =
-      text
-      |> String.to_charlist()
-      |> Enum.reduce({[], [], 0}, fn codepoint, {chunks, current, units} ->
-        code_units = if codepoint > 0xFFFF, do: 2, else: 1
-
-        case units + code_units > limit and current != [] do
-          true ->
-            {[current |> Enum.reverse() |> List.to_string() | chunks], [codepoint], code_units}
-
-          false ->
-            {chunks, [codepoint | current], units + code_units}
-        end
-      end)
-
-    [current |> Enum.reverse() |> List.to_string() | chunks]
-    |> Enum.reject(&(&1 == ""))
-    |> Enum.reverse()
-  end
+  defdelegate utf16_units(text), to: BullX.Utils.Text
+  defdelegate split_text(text, limit), to: BullX.Utils.Text
 
   defp maybe_add_text(blocks, nil), do: blocks
   defp maybe_add_text(blocks, ""), do: blocks

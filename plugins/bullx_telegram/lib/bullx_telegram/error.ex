@@ -1,6 +1,8 @@
 defmodule BullxTelegram.Error do
   @moduledoc false
 
+  import BullX.Utils.Map, only: [maybe_put: 3]
+
   @permission_descriptions [
     "forbidden",
     "bot was kicked",
@@ -148,6 +150,4 @@ defmodule BullxTelegram.Error do
   defp json_value(value) when is_atom(value) and not is_nil(value), do: Atom.to_string(value)
   defp json_value(_value), do: nil
   defp inspect_safe(value), do: value |> inspect() |> String.slice(0, 200)
-  defp maybe_put(map, _key, nil), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 end

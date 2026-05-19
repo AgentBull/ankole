@@ -4,10 +4,22 @@ defmodule BullX.EventBus.RuleWriter do
   """
 
   import Ecto.Query
+  import Ecto.Changeset, only: [get_field: 2]
 
   alias Ecto.Multi
   alias BullX.EventBus.{EventRoutingRule, RoutingTable}
   alias BullX.Repo
+
+  @upsert_update_fields [
+    :active,
+    :priority,
+    :match_expr,
+    :target_type,
+    :target_ref,
+    :scope_fields,
+    :window_type,
+    :window_ttl_seconds
+  ]
 
   @type refresh_error :: {:routing_table_refresh_failed, EventRoutingRule.t(), term()}
 
@@ -17,6 +29,22 @@ defmodule BullX.EventBus.RuleWriter do
     %EventRoutingRule{}
     |> EventRoutingRule.changeset(attrs)
     |> Repo.insert()
+    |> refresh_after_write()
+  end
+
+  @spec upsert_by_name(String.t(), map()) ::
+          {:ok, EventRoutingRule.t()} | {:error, Ecto.Changeset.t() | refresh_error()}
+  def upsert_by_name(name, attrs) when is_binary(name) and is_map(attrs) do
+    changeset =
+      %EventRoutingRule{}
+      |> EventRoutingRule.changeset(put_name(attrs, name))
+
+    changeset
+    |> Repo.insert(
+      on_conflict: [set: upsert_update_set(changeset)],
+      conflict_target: :name,
+      returning: true
+    )
     |> refresh_after_write()
   end
 
@@ -87,6 +115,24 @@ defmodule BullX.EventBus.RuleWriter do
   end
 
   defp refresh_after_write({:error, changeset}), do: {:error, changeset}
+
+  defp put_name(attrs, name) do
+    attrs = attrs |> Map.delete(:name) |> Map.delete("name")
+
+    case Enum.any?(Map.keys(attrs), &is_binary/1) do
+      true -> Map.put(attrs, "name", name)
+      false -> Map.put(attrs, :name, name)
+    end
+  end
+
+  defp upsert_update_set(changeset) do
+    values =
+      Enum.map(@upsert_update_fields, fn field ->
+        {field, get_field(changeset, field)}
+      end)
+
+    [{:updated_at, DateTime.utc_now(:microsecond)} | values]
+  end
 
   defp next_temporary_priority(count, start_priority) do
     max_priority = Repo.one(from r in EventRoutingRule, select: max(r.priority)) || 0

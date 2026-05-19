@@ -1,13 +1,12 @@
 defmodule BullXWeb.Endpoint do
   use Phoenix.Endpoint, otp_app: :bullx
 
-  # The session will be stored in the cookie and signed,
-  # this means its contents can be read but not tampered with.
-  # Set :encryption_salt if you would also like to encrypt it.
+  # The session is stored in a cookie sealed by BullX.Ext AEAD. The browser
+  # carries the payload, but cannot read or tamper with its contents.
   @session_options [
-    store: :cookie,
+    store: BullXWeb.SessionCookieStore,
     key: "_bullx_key",
-    signing_salt: "XwADcNPC",
+    key_context: "_bullx_key",
     http_only: true,
     secure: Application.compile_env(:bullx, :session_cookie_secure, false),
     same_site: "Lax"

@@ -3,6 +3,8 @@ defmodule BullxTelegram.Outbound do
 
   alias BullxTelegram.{ContentMapper, Error, Source}
 
+  import BullX.Utils.Map, only: [maybe_put: 3]
+
   @hard_limit 4_096
 
   @spec deliver(Source.t() | map(), map() | nil, map(), keyword()) :: {:ok, map()} | {:error, map()}
@@ -154,14 +156,7 @@ defmodule BullxTelegram.Outbound do
 
   defp outcome(delivery, status, responses, warnings) do
     ids = Enum.map(responses, &message_id/1) |> Enum.reject(&is_nil/1)
-
-    %{
-      "delivery_id" => delivery_id(delivery),
-      "status" => status,
-      "external_message_ids" => ids,
-      "primary_external_id" => List.first(ids),
-      "warnings" => warnings
-    }
+    BullX.EventBus.ChannelAdapter.Outcome.build(delivery_id(delivery), status, ids, warnings)
   end
 
   defp message_id(%{"message_id" => id}), do: to_string(id)
@@ -203,6 +198,4 @@ defmodule BullxTelegram.Outbound do
   defp integer_id(value) when is_integer(value), do: value
   defp integer_id(value) when is_binary(value), do: case(Integer.parse(value), do: ({id, ""} -> id; _value -> nil))
   defp present?(value), do: is_binary(value) and value != ""
-  defp maybe_put(map, _key, nil), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 end

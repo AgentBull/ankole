@@ -7,6 +7,8 @@ defmodule BullxTelegram.Poller do
 
   alias BullxTelegram.{Channel, Error, Source}
 
+  import BullX.Utils.Map, only: [maybe_put: 3]
+
   @allowed_updates ["message", "edited_message"]
 
   defstruct [:source, offset: nil, retry_count: 0]
@@ -121,6 +123,4 @@ defmodule BullxTelegram.Poller do
   defp next_offset(nil), do: nil
   defp next_offset(update_id) when is_integer(update_id), do: update_id + 1
   defp next_offset(_value), do: nil
-  defp maybe_put(map, _key, nil), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 end

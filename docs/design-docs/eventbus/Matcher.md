@@ -106,6 +106,12 @@ snapshot. Direct SQL edits are not a live update path. They take effect only
 after an explicit refresh or application restart. Code-owned built-in routes are
 changed by code deploy, not by `RuleWriter`.
 
+Rule names are unique durable canonical names. `RuleWriter.create_rule/1`
+creates a new rule and fails on duplicate names. System seed paths that must be
+safe across retries, browser refreshes, restarts, or setup re-submission use
+`RuleWriter.upsert_by_name/2`; the upsert updates the rule identified by `name`
+and then refreshes the runtime routing table.
+
 Rule writers must reject saving or activating a rule whose `match_expr` cannot
 compile. On application boot, if the active route table cannot compile, the
 system must either fail fast or reject Event acceptance until a valid snapshot
