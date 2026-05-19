@@ -359,8 +359,11 @@ ReqLLM.Tool.new(
 ```
 
 The dispatcher rechecks registry presence, profile enablement, effective access,
-ACL result, timeout, and the tool-call name before invoking the tool module. It
-does not trust the rendered tool list or the model output as authority.
+ACL result, timeout, and the tool-call name before invoking the tool module. The
+current generation deadline clamps tool execution timeout. A registry entry may
+explicitly opt into bounded retry for retryable tool errors; retry is off by
+default. The dispatcher does not trust the rendered tool list or the model output
+as authority.
 
 Tool errors returned to the model use a structured `ReqLLM.ToolResult` output:
 
@@ -494,6 +497,9 @@ Rules:
   `metadata.generation.source_message_id`, `source_type`, `source_id`, and
   `root_assistant_message_id` for command recovery and branch audit. These are
   implementation metadata, not a turns table.
+- Assistant model metadata stores normalized `finish_reason` and allowlisted
+  provider diagnostic ids such as request or response id. Raw provider metadata
+  is not persisted wholesale.
 
 Valid v1 `role`, `kind`, and `status` combinations are:
 

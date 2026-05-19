@@ -234,6 +234,40 @@ defmodule BullX.AIAgent.TargetTest do
              Repo.one!(from m in Message, where: m.role == :assistant)
   end
 
+  test "assistant metadata normalizes finish reason and provider diagnostics" do
+    {:ok, agent} = create_ai_agent("ai-agent-target-provider-diagnostics")
+    {:ok, caller} = create_human("ai-agent-provider-diagnostics-caller")
+    grant(caller.id, agent.id, "invoke")
+
+    BullX.AIAgent.FakeLLMClient.push_response("diagnostics", [],
+      finish_reason: "end_turn",
+      provider_meta: %{
+        "request_id" => "req-1",
+        "response_id" => "resp-1",
+        "api_key" => "must-not-persist"
+      }
+    )
+
+    invocation = invocation(agent.id)
+
+    entry =
+      addressed_entry(
+        invocation.target_session_id,
+        "evt-provider-diagnostics-1",
+        "hello",
+        caller.id
+      )
+
+    assert :ok = BullX.AIAgent.handle_event(invocation, entry)
+
+    assert %Message{
+             metadata: %{
+               "finish_reason" => "stop",
+               "provider_diagnostics" => %{"request_id" => "req-1", "response_id" => "resp-1"}
+             }
+           } = Repo.one!(from m in Message, where: m.role == :assistant)
+  end
+
   test "tool loop persists ordered tool results before visible follow-up" do
     {:ok, agent} =
       create_ai_agent("ai-agent-target-tool-loop", %{

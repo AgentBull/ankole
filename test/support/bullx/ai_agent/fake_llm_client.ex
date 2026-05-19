@@ -18,7 +18,7 @@ defmodule BullX.AIAgent.FakeLLMClient do
        context: [],
        usage: response.usage,
        finish_reason: response.finish_reason,
-       provider_meta: %{"request_id" => "fake"}
+       provider_meta: response.provider_meta
      }}
   end
 
@@ -31,7 +31,8 @@ defmodule BullX.AIAgent.FakeLLMClient do
       },
       finish_reason:
         Keyword.get(opts, :finish_reason, if(tool_calls == [], do: :stop, else: :tool_calls)),
-      usage: Keyword.get(opts, :usage, default_usage())
+      usage: Keyword.get(opts, :usage, default_usage()),
+      provider_meta: Keyword.get(opts, :provider_meta, %{"request_id" => "fake"})
     }
 
     responses = Process.get(__MODULE__, [])

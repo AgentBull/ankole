@@ -1,6 +1,8 @@
 defmodule BullxTelegram.AttentionPolicy do
   @moduledoc false
 
+  alias BullX.EventBus.ChannelAdapter.Mentions
+
   @type decision ::
           {:ok, String.t()}
           | {:ambient, String.t()}
@@ -27,7 +29,8 @@ defmodule BullxTelegram.AttentionPolicy do
       present?(thread_id) and thread_id in source.attention["ignored_thread_ids"] ->
         {:ignore, :ignored_thread}
 
-      source.attention["allowed_chat_ids"] != [] and chat_id not in source.attention["allowed_chat_ids"] ->
+      source.attention["allowed_chat_ids"] != [] and
+          chat_id not in source.attention["allowed_chat_ids"] ->
         {:ignore, :outside_allowlist}
 
       chat_type == "private" ->
@@ -42,7 +45,8 @@ defmodule BullxTelegram.AttentionPolicy do
       reply_to_bot?(message, source) ->
         {:ok, "reply_to_bot"}
 
-      chat_id in source.attention["free_response_chat_ids"] or source.attention["require_mention"] == false ->
+      chat_id in source.attention["free_response_chat_ids"] or
+          source.attention["require_mention"] == false ->
         {:ok, "free_response"}
 
       source.im_listen_mode == :all_messages ->
@@ -66,8 +70,9 @@ defmodule BullxTelegram.AttentionPolicy do
   defp mentions_bot?(_message, %BullxTelegram.Source{bot_username: nil}), do: false
 
   defp mentions_bot?(message, %BullxTelegram.Source{bot_username: username}) do
-    text = (Map.get(message, "text") || Map.get(message, "caption") || "") |> String.downcase()
-    String.contains?(text, "@" <> String.downcase(username))
+    message
+    |> BullxTelegram.Mentions.parse_mentions(nil)
+    |> Mentions.bot_mentioned?(usernames: [username])
   end
 
   defp reply_to_bot?(%{"reply_to_message" => %{"from" => from}}, %BullxTelegram.Source{} = source) do

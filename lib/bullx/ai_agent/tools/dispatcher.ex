@@ -7,7 +7,7 @@ defmodule BullX.AIAgent.Tools.Dispatcher do
   """
 
   alias BullX.AIAgent.{ACL, Profile, Tools}
-  alias BullX.AIAgent.Tools.Error
+  alias BullX.AIAgent.Tools.{Context, Error, Retry}
 
   @spec execute(String.t(), atom(), map()) :: {:error, Error.t()}
   def execute(tool_name, expected_access, args)
@@ -142,9 +142,28 @@ defmodule BullX.AIAgent.Tools.Dispatcher do
   defp ensure_access_match(_access, _expected_access), do: {:error, :tool_denied}
 
   defp run_tool(entry, args, context) do
+    run_once = fn -> run_tool_once(entry, args, context) end
+
+    case retry_opts(entry) do
+      {:ok, opts} -> Retry.execute(run_once, opts)
+      :disabled -> run_once.()
+    end
+  end
+
+  defp run_tool_once(entry, args, context) do
+    timeout_ms = Context.clamp_timeout_ms(context, entry.timeout_ms)
+
+    if timeout_ms <= 0 do
+      {:error, Error.new(:tool_timeout, "Tool timed out.", true)}
+    else
+      do_run_tool_once(entry, args, context, timeout_ms)
+    end
+  end
+
+  defp do_run_tool_once(entry, args, context, timeout_ms) do
     task = Task.async(fn -> entry.module.execute(args, context) end)
 
-    case Task.yield(task, entry.timeout_ms) || Task.shutdown(task, :brutal_kill) do
+    case Task.yield(task, timeout_ms) || Task.shutdown(task, :brutal_kill) do
       {:ok, {:ok, result}} -> {:ok, result}
       {:ok, {:error, %Error{} = error}} -> {:error, error}
       {:ok, {:error, reason}} -> {:error, Error.new(:tool_failed, safe_reason(reason), false)}
@@ -152,6 +171,22 @@ defmodule BullX.AIAgent.Tools.Dispatcher do
       {:exit, _reason} -> {:error, Error.new(:tool_failed, "Tool failed.", false)}
     end
   end
+
+  defp retry_opts(%{retry: opts}) when is_map(opts) do
+    case Map.get(opts, :enabled) || Map.get(opts, "enabled") do
+      true -> {:ok, opts}
+      _other -> :disabled
+    end
+  end
+
+  defp retry_opts(%{retry: opts}) when is_list(opts) do
+    case Keyword.get(opts, :enabled) do
+      true -> {:ok, opts}
+      _other -> :disabled
+    end
+  end
+
+  defp retry_opts(_entry), do: :disabled
 
   defp normalize_tool_output(%ReqLLM.ToolResult{} = result), do: Map.from_struct(result)
   defp normalize_tool_output(value) when is_binary(value), do: %{"text" => value}

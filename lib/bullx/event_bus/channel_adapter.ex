@@ -18,6 +18,7 @@ defmodule BullX.EventBus.ChannelAdapter do
   """
 
   alias BullX.Plugins.Extension
+  alias BullX.EventBus.DeliveryCircuitBreaker
 
   @extension_point :"bullx.event_bus.channel_adapter"
   @adapter_id ~r/\A[a-z][a-z0-9_]*\z/
@@ -83,7 +84,16 @@ defmodule BullX.EventBus.ChannelAdapter do
          :ok <- ensure_callback(extension.module, :deliver, 4),
          :ok <- ensure_callback(extension.module, :fetch_source, 1),
          {:ok, source} <- extension.module.fetch_source(source_id) do
-      extension.module.deliver(source, reply_channel, outbound, Keyword.delete(opts, :registry))
+      adapter_opts =
+        opts
+        |> Keyword.delete(:registry)
+        |> Keyword.delete(:delivery_circuit_breaker)
+
+      DeliveryCircuitBreaker.run(
+        {normalize_id(adapter_id), source_id(source) || source_id},
+        fn -> extension.module.deliver(source, reply_channel, outbound, adapter_opts) end,
+        Keyword.get(opts, :delivery_circuit_breaker, [])
+      )
     end
   end
 

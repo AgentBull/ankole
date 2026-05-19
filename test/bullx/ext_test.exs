@@ -107,6 +107,13 @@ defmodule BullX.ExtTest do
     assert Ext.rule_engine_cel_condition_validate("principal.id") == true
   end
 
+  test "authz_resource_pattern_validate/1 accepts resource globs" do
+    assert Ext.authz_resource_pattern_validate("resource-*") == true
+    assert Ext.authz_resource_pattern_validate("workspace:**:member") == true
+    assert {:error, reason} = Ext.authz_resource_pattern_validate("[")
+    assert reason =~ "invalid resource glob"
+  end
+
   test "authz_cel_eval_loaded_grants/2 evaluates request context conditions" do
     assert {:allow, []} =
              Ext.authz_cel_eval_loaded_grants(cel_env(%{"business_hours" => true}), [
@@ -119,6 +126,17 @@ defmodule BullX.ExtTest do
              Ext.authz_cel_eval_loaded_grants(cel_env(%{}), [
                loaded_grant("grant-1", "resource-*", "true")
              ])
+  end
+
+  test "authz_cel_eval_loaded_grants/2 filters resource globs inside the decision NIF" do
+    assert {:allow, []} =
+             Ext.authz_cel_eval_loaded_grants(
+               %{cel_env(%{}) | "resource" => "workspace:foo:bar:member"},
+               [
+                 loaded_grant("grant-1", "workspace:**:viewer", "not valid cel"),
+                 loaded_grant("grant-2", "workspace:**:member", "true")
+               ]
+             )
   end
 
   test "jwt_sign/3 returns a compact JWS" do

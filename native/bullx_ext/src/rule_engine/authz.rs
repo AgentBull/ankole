@@ -1,6 +1,8 @@
+use globset::{GlobBuilder, GlobMatcher};
 use rustler::{Encoder, Env, NifResult, Term};
 use serde_json::Value as JsonValue;
 
+use crate::encoding::error;
 use crate::rule_engine::cel::{
   self, BoolEvalError, require_field, require_json_string_field, require_map, require_object,
   require_string_field, term_to_json,
@@ -16,6 +18,16 @@ mod atoms {
     condition_execution,
     condition_result_type,
   }
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn authz_resource_pattern_validate(pattern: Term<'_>) -> NifResult<bool> {
+  let pattern: String = pattern
+    .decode()
+    .map_err(|_| error("resource_pattern must be a string"))?;
+
+  resource_pattern_matcher(&pattern).map_err(error)?;
+  Ok(true)
 }
 
 #[rustler::nif(schedule = "DirtyCpu")]
@@ -284,36 +296,26 @@ fn encode_invalid_kind(kind: InvalidGrantKind) -> rustler::Atom {
 }
 
 fn resource_pattern_matches(pattern: &str, resource: &str) -> Result<bool, String> {
-  validate_resource_pattern(pattern)?;
-
-  let mut wildcard_matches = pattern.match_indices('*');
-
-  match (wildcard_matches.next(), wildcard_matches.next()) {
-    (None, _) => Ok(pattern == resource),
-    (Some((wildcard_index, _)), None) => {
-      let prefix = &pattern[..wildcard_index];
-      let suffix = &pattern[wildcard_index + 1..];
-
-      Ok(
-        resource.len() >= prefix.len() + suffix.len()
-          && resource.starts_with(prefix)
-          && resource.ends_with(suffix),
-      )
-    }
-    (Some(_), Some(_)) => Err("must contain at most one '*'".to_owned()),
-  }
+  let matcher = resource_pattern_matcher(pattern)?;
+  Ok(matcher.is_match(normalize_resource_for_glob(resource)))
 }
 
-fn validate_resource_pattern(pattern: &str) -> Result<(), String> {
+fn resource_pattern_matcher(pattern: &str) -> Result<GlobMatcher, String> {
   if pattern.is_empty() {
     return Err("must not be empty".to_owned());
   }
 
-  if pattern.matches('*').count() > 1 {
-    return Err("must contain at most one '*'".to_owned());
-  }
+  let normalized = normalize_resource_for_glob(pattern);
 
-  Ok(())
+  GlobBuilder::new(&normalized)
+    .literal_separator(true)
+    .build()
+    .map_err(|reason| format!("invalid resource glob: {reason}"))
+    .map(|glob| glob.compile_matcher())
+}
+
+fn normalize_resource_for_glob(value: &str) -> String {
+  value.replace(':', "/")
 }
 
 fn decode_authz_env(term: Term<'_>) -> NifResult<AuthzEnv> {
@@ -431,7 +433,7 @@ mod tests {
   }
 
   #[test]
-  fn resource_pattern_matches_exact_and_single_wildcard_edges() {
+  fn resource_pattern_matches_globs() {
     assert!(resource_pattern_matches("web_console", "web_console").unwrap());
     assert!(!resource_pattern_matches("web_console", "other").unwrap());
     assert!(resource_pattern_matches("*", "").unwrap());
@@ -442,10 +444,14 @@ mod tests {
     assert!(!resource_pattern_matches("a*a", "a").unwrap());
     assert!(!resource_pattern_matches("ab*bc", "abc").unwrap());
     assert!(resource_pattern_matches("ab*bc", "abbc").unwrap());
-    assert!(resource_pattern_matches("workspace:*", "workspace:a:b").unwrap());
+    assert!(resource_pattern_matches("workspace:*", "workspace:a").unwrap());
+    assert!(!resource_pattern_matches("workspace:*", "workspace:a:b").unwrap());
     assert!(resource_pattern_matches("workspace:*", "workspace:").unwrap());
+    assert!(resource_pattern_matches("workspace:**", "workspace:a:b").unwrap());
+    assert!(resource_pattern_matches("workspace:**:member", "workspace:a:b:member").unwrap());
+    assert!(!resource_pattern_matches("workspace:**:member", "workspace:a:b:viewer").unwrap());
     assert!(resource_pattern_matches("", "web_console").is_err());
-    assert!(resource_pattern_matches("web**", "web_console").is_err());
+    assert!(resource_pattern_matches("[", "web_console").is_err());
   }
 
   #[test]

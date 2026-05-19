@@ -32,6 +32,7 @@ defmodule BullX.AuthZ.RequestTest do
     assert {:error, :invalid_request} = Request.build("not-a-uuid", "web_console", "read", %{})
     assert {:error, :invalid_request} = Request.build(@principal_id, "", "read", %{})
     assert {:error, :invalid_request} = Request.build(@principal_id, "web*", "read", %{})
+    assert {:error, :invalid_request} = Request.build(@principal_id, "web?", "read", %{})
     assert {:error, :invalid_request} = Request.build(@principal_id, "web", "", %{})
     assert {:error, :invalid_request} = Request.build(@principal_id, "web", "read:all", %{})
     assert {:error, :invalid_request} = Request.build(@principal_id, "web", "read", nil)
@@ -52,9 +53,10 @@ defmodule BullX.AuthZ.RequestTest do
     assert {:error, :invalid_request} = Request.split_permission_key("web_console:")
   end
 
-  test "resource patterns match literals and one wildcard" do
+  test "resource patterns match glob syntax through the Rust decision path" do
     assert :ok = ResourcePattern.validate("workspace_channel:*")
-    assert ResourcePattern.match?("workspace_channel:*", "workspace_channel:foo:bar")
+    assert ResourcePattern.match?("workspace_channel:*", "workspace_channel:foo")
+    refute ResourcePattern.match?("workspace_channel:*", "workspace_channel:foo:bar")
     assert ResourcePattern.match?("*", "")
     assert ResourcePattern.match?("*", "anything")
     assert ResourcePattern.match?("a*", "a")
@@ -65,8 +67,14 @@ defmodule BullX.AuthZ.RequestTest do
     refute ResourcePattern.match?("a*a", "a")
     refute ResourcePattern.match?("ab*bc", "abc")
     assert ResourcePattern.match?("ab*bc", "abbc")
-    refute ResourcePattern.match?("web**", "web_console")
+    assert ResourcePattern.match?("workspace:*", "workspace:foo")
+    refute ResourcePattern.match?("workspace:*", "workspace:foo:bar")
+    assert ResourcePattern.match?("workspace:**", "workspace:foo:bar")
+    assert ResourcePattern.match?("workspace:**:member", "workspace:foo:bar:member")
+    refute ResourcePattern.match?("workspace:**:member", "workspace:foo:bar:viewer")
+    assert ResourcePattern.match?("web**", "web_console")
 
-    assert {:error, "must contain at most one '*'"} = ResourcePattern.validate("web**")
+    assert {:error, reason} = ResourcePattern.validate("[")
+    assert reason =~ "invalid resource glob"
   end
 end

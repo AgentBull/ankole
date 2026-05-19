@@ -1,6 +1,7 @@
 defmodule Feishu.EventMapper do
   @moduledoc false
 
+  alias BullX.EventBus.ChannelAdapter.Mentions
   alias Feishu.{ContentMapper, DirectCommand, Source}
   alias FeishuOpenAPI.{CardAction, Event}
 
@@ -221,14 +222,9 @@ defmodule Feishu.EventMapper do
          bot_open_id: bot_open_id,
          bot_user_id: bot_user_id
        }) do
-    mentions = Map.get(message, "mentions") || []
-
-    Enum.any?(mentions, fn mention ->
-      ids = Map.get(mention, "id") || %{}
-
-      (present?(bot_open_id) and Map.get(ids, "open_id") == bot_open_id) or
-        (present?(bot_user_id) and Map.get(ids, "user_id") == bot_user_id)
-    end)
+    message
+    |> Feishu.Mentions.parse_mentions(nil)
+    |> Mentions.bot_mentioned?(ids: [bot_open_id, bot_user_id])
   end
 
   defp bot_mentioned?(_env, _source), do: false

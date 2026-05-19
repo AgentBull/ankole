@@ -9,6 +9,8 @@ defmodule BullX.AuthZ.Request do
   alias BullX.RuleEngine.JSON
   alias BullX.Principals.Principal
 
+  @resource_glob_metacharacters ~r/[\*\?\[\]\{\}]/
+
   @enforce_keys [:principal_id, :resource, :action, :context]
   defstruct [:principal_id, :resource, :action, :context, :principal]
 
@@ -63,7 +65,10 @@ defmodule BullX.AuthZ.Request do
   defp validate_permission_parts(_resource, ""), do: {:error, :invalid_request}
 
   defp validate_permission_parts(resource, action) do
-    {:ok, resource, action}
+    with {:ok, resource} <- normalize_resource(resource),
+         {:ok, action} <- normalize_action(action) do
+      {:ok, resource, action}
+    end
   end
 
   defp normalize_principal(%Principal{id: id}), do: normalize_principal(id)
@@ -79,7 +84,7 @@ defmodule BullX.AuthZ.Request do
 
   defp normalize_resource(value) do
     with {:ok, resource} <- normalize_string(value) do
-      case String.contains?(resource, "*") do
+      case Regex.match?(@resource_glob_metacharacters, resource) do
         true -> {:error, :invalid_request}
         false -> {:ok, resource}
       end

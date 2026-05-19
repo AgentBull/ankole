@@ -31,9 +31,20 @@ defmodule BullX.EventBus.TestChannelAdapter do
   def fetch_source("default"),
     do: {:ok, %{"id" => "default", "source" => "test://source/default"}}
 
+  def fetch_source("other"),
+    do: {:ok, %{"id" => "other", "source" => "test://source/other"}}
+
   def fetch_source(_source_id), do: {:error, :not_found}
 
   @impl BullX.EventBus.ChannelAdapter
+  def deliver(source, reply_channel, %{"force_error" => true} = outbound, _opts) do
+    if pid = Application.get_env(:bullx, :event_bus_test_pid) do
+      send(pid, {:event_bus_adapter_delivery_failed, source, reply_channel, outbound})
+    end
+
+    {:error, %{"kind" => "network", "message" => "test delivery failure", "details" => %{}}}
+  end
+
   def deliver(source, reply_channel, outbound, _opts) do
     if pid = Application.get_env(:bullx, :event_bus_test_pid) do
       send(pid, {:event_bus_adapter_delivered, source, reply_channel, outbound})

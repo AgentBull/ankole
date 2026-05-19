@@ -124,6 +124,7 @@ defmodule BullX.AIAgent.Tools do
       tool_name: tool_name,
       effective_access: seed.effective_access,
       timeout_ms: seed.timeout_ms,
+      deadline_at_ms: Map.get(seed, :deadline_at_ms),
       idempotency_key: idempotency_key,
       metadata: Map.get(seed, :metadata, %{})
     }

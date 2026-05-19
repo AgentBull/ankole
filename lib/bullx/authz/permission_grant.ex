@@ -63,10 +63,6 @@ defmodule BullX.AuthZ.PermissionGrant do
       message: "exactly one of principal_id or group_id must be set"
     )
     |> check_constraint(:resource_pattern,
-      name: :permission_grants_resource_pattern_wildcards,
-      message: "must contain at most one '*'"
-    )
-    |> check_constraint(:resource_pattern,
       name: :permission_grants_resource_pattern_present,
       message: "must not be empty"
     )

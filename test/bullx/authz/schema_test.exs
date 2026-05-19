@@ -95,7 +95,7 @@ defmodule BullX.AuthZ.SchemaTest do
     assert {:error, changeset} =
              AuthZ.create_permission_grant(%{
                principal_id: human.id,
-               resource_pattern: "web**",
+               resource_pattern: "[",
                action: "read:all",
                metadata: [],
                condition: "true"
@@ -103,6 +103,13 @@ defmodule BullX.AuthZ.SchemaTest do
 
     assert %{resource_pattern: [_ | _], action: [_ | _], metadata: [_ | _]} =
              errors_on(changeset)
+
+    assert {:ok, _grant} =
+             AuthZ.create_permission_grant(%{
+               principal_id: human.id,
+               resource_pattern: "workspace:**:member",
+               action: "read"
+             })
 
     assert {:error, changeset} =
              AuthZ.create_permission_grant(%{

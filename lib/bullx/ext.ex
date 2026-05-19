@@ -221,6 +221,16 @@ defmodule BullX.Ext do
   def rule_engine_cel_condition_validate(_condition), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """
+  Validate an AuthZ resource glob used by persisted permission grants.
+
+  Authorization runtime still evaluates loaded grants through
+  `authz_cel_eval_loaded_grants/2`; this validation wrapper is for write-time
+  schema checks and operator feedback.
+  """
+  @spec authz_resource_pattern_validate(String.t()) :: true | {:error, error_reason()}
+  def authz_resource_pattern_validate(_pattern), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
   Validate an EventBus route table through the Rust-owned route matcher.
   """
   @spec eventbus_route_table_validate([map()]) :: true | {:error, error_reason()}

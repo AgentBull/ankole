@@ -25,6 +25,26 @@ defmodule BullX.AIAgent.Runner do
   alias BullX.LLM.Catalog
 
   @max_auto_compression_attempts 3
+  @finish_reason_aliases %{
+    "stop" => "stop",
+    "completed" => "stop",
+    "end_turn" => "stop",
+    "tool_calls" => "tool_calls",
+    "tool_use" => "tool_calls",
+    "length" => "length",
+    "max_tokens" => "length",
+    "content_filter" => "content_filter",
+    "cancelled" => "cancelled",
+    "incomplete" => "incomplete"
+  }
+  @provider_diagnostic_keys [
+    "request_id",
+    "response_id",
+    "correlation_id",
+    "x_request_id",
+    "x-request-id",
+    "log_id"
+  ]
 
   @spec run(Conversation.t(), Message.t(), Profile.t(), map()) :: :ok | {:error, term()}
   def run(
@@ -805,6 +825,7 @@ defmodule BullX.AIAgent.Runner do
       conversation_id: conversation.id,
       source_type: context.source_type,
       source_id: context.source_id,
+      deadline_at_ms: generation_deadline_at_ms(conversation),
       acl_context: Map.get(context, :acl_context, %{}),
       metadata: %{}
     }
@@ -886,17 +907,32 @@ defmodule BullX.AIAgent.Runner do
   end
 
   defp result_metadata(result) do
-    %{
+    metadata = %{
       "provider_id" => result.provider_id,
       "model_id" => result.model_id,
       "usage" => result.usage,
       "usage_source" => usage_source(result.usage),
-      "finish_reason" => safe_atom(result.finish_reason)
+      "finish_reason" => normalize_finish_reason(result.finish_reason)
     }
+
+    case provider_diagnostics(result.provider_meta) do
+      diagnostics when diagnostics == %{} -> metadata
+      diagnostics -> Map.put(metadata, "provider_diagnostics", diagnostics)
+    end
   end
 
   defp usage_source(nil), do: "estimated"
   defp usage_source(_usage), do: "provider_reported"
+
+  defp generation_deadline_at_ms(%Conversation{generation: %{"max_expires_at" => max_expires_at}})
+       when is_binary(max_expires_at) do
+    case DateTime.from_iso8601(max_expires_at) do
+      {:ok, deadline, _offset} -> DateTime.to_unix(deadline, :millisecond)
+      _other -> nil
+    end
+  end
+
+  defp generation_deadline_at_ms(%Conversation{}), do: nil
 
   defp execute_tool_calls(profile, tool_calls, seed, assistant_message) do
     if parallel_tool_calls?(profile, tool_calls) do
@@ -971,10 +1007,39 @@ defmodule BullX.AIAgent.Runner do
   defp normalize_tool_calls(nil), do: []
   defp normalize_tool_calls(tool_calls), do: Enum.map(tool_calls, &ReqLLM.ToolCall.from_map/1)
 
-  defp safe_atom(nil), do: nil
-  defp safe_atom(value) when is_atom(value), do: Atom.to_string(value)
-  defp safe_atom(value) when is_binary(value), do: String.slice(value, 0, 120)
-  defp safe_atom(_value), do: "unknown"
+  defp normalize_finish_reason(nil), do: nil
+
+  defp normalize_finish_reason(value) when is_atom(value) or is_binary(value) do
+    key =
+      value
+      |> to_string()
+      |> String.downcase()
+
+    Map.get(@finish_reason_aliases, key, String.slice(key, 0, 120))
+  end
+
+  defp normalize_finish_reason(_value), do: "unknown"
+
+  defp provider_diagnostics(provider_meta) when is_map(provider_meta) do
+    @provider_diagnostic_keys
+    |> Enum.reduce(%{}, fn key, acc ->
+      case Map.get(provider_meta, key) || Map.get(provider_meta, String.to_atom(key)) do
+        value when is_binary(value) and value != "" ->
+          Map.put(acc, key, String.slice(value, 0, 120))
+
+        value when is_integer(value) ->
+          Map.put(acc, key, Integer.to_string(value))
+
+        value when is_atom(value) ->
+          Map.put(acc, key, Atom.to_string(value))
+
+        _value ->
+          acc
+      end
+    end)
+  end
+
+  defp provider_diagnostics(_provider_meta), do: %{}
 
   defp maybe_deliver(assistant_message, context) do
     text = assistant_visible_text(assistant_message)

@@ -56,7 +56,7 @@ defmodule BullX.AuthZ.AuthorizationTest do
       {:ok, _grant} =
         AuthZ.create_permission_grant(%{
           group_id: group.id,
-          resource_pattern: "workspace_channel:*",
+          resource_pattern: "workspace_channel:**",
           action: "write"
         })
 

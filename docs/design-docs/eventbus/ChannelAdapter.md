@@ -278,6 +278,10 @@ Rule, TargetSession, AIAgent response policy, memory behavior, or whether a
 message deserves a reply. Those decisions remain downstream of EventBus
 acceptance.
 
+IM adapters may share `BullX.EventBus.ChannelAdapter.Mentions` helpers to parse
+provider-specific mention evidence. The helper output is admission evidence only;
+it does not become an Event Routing Rule matcher or AIAgent response policy.
+
 ### Source runtime supervision
 
 Long-lived provider listeners are plugin children. A plugin may return a
@@ -590,6 +594,12 @@ safe result or safe error. Provider-specific limitations should fail closed or
 degrade explicitly with warnings; adapters must not silently drop important
 content.
 
+The common Channel Adapter boundary may apply a per-adapter/source delivery
+circuit breaker before calling a provider `deliver/4` callback. An open circuit
+returns a safe transport error quickly. It is delivery backpressure only: it does
+not route Events, create or close TargetSessions, approve side effects, or record
+business facts.
+
 If an adapter exposes live provider streaming, it consumes the stream APIs
 defined in `docs/design-docs/eventbus/StreamingOutput.md`. The adapter reads
 buffered chunks, follows pointer notifications, emits provider-specific live
@@ -625,6 +635,10 @@ Adapter telemetry uses a small Channel Adapter namespace:
 - `[:bullx, :event_bus, :adapter, :delivery, :start]`
 - `[:bullx, :event_bus, :adapter, :delivery, :stop]`
 - `[:bullx, :event_bus, :adapter, :delivery, :exception]`
+- `[:bullx, :event_bus, :adapter, :delivery_circuit, :failure]`
+- `[:bullx, :event_bus, :adapter, :delivery_circuit, :opened]`
+- `[:bullx, :event_bus, :adapter, :delivery_circuit, :open]`
+- `[:bullx, :event_bus, :adapter, :delivery_circuit, :closed]`
 - `[:bullx, :event_bus, :adapter, :stream, :start]`
 - `[:bullx, :event_bus, :adapter, :stream, :stop]`
 - `[:bullx, :event_bus, :adapter, :stream, :exception]`

@@ -117,11 +117,12 @@ resource under one request context.
 }
 ```
 
-`resource` and `action` are non-empty strings. `resource` must not contain `*`.
-The `*` character has wildcard meaning only inside persisted
-`resource_pattern` values. `action` must not contain `:`, because permission
-keys split at the final `:`. AuthZ never converts caller-provided resource,
-action, or context values to atoms.
+`resource` and `action` are non-empty strings. `resource` must not contain glob
+wildcard metacharacters such as `*`, `?`, character classes, or alternates.
+Wildcard meaning exists only inside persisted `resource_pattern` values.
+`action` must not contain `:`, because permission keys split at the final `:`.
+AuthZ never converts caller-provided resource, action, or context values to
+atoms.
 
 The public API accepts separate resource and action values, or a permission key:
 
@@ -168,16 +169,18 @@ Example permission keys:
 - `web_console:read`
 - `web_console:write`
 - `workspace_channel:<channel_id>:write`
-- `workspace_channel:*:write`
+- `workspace_channel:general:write`
 - `capability:browser_use:execute`
 
-`*` is the only wildcard in `resource_pattern`. A pattern without `*` matches
-only exact string equality. A pattern may contain zero or one `*`; grant writes
-reject patterns with more than one wildcard. For `prefix*suffix`, the request
-resource must start with `prefix`, end with `suffix`, and have non-overlapping
-prefix and suffix matches. `*` may match the empty string, and it matches `:`
-like any other character. There is no `**`, character class, regular
-expression, or hierarchy-specific operator.
+`resource_pattern` uses a Rust `globset`-backed resource glob. A pattern without
+glob metacharacters matches exact string equality. BullX normalizes `:` as the
+resource hierarchy separator before matching. `*` and `?` match within one
+resource segment; recursive `**` patterns may cross segment boundaries. For
+example, `workspace:*` matches `workspace:team`, while
+`workspace:**:member` can match `workspace:team:channel:member`. Character
+classes and alternates follow `globset` syntax. Grant writes reject empty or
+invalid glob patterns. Request resources are still literal resource strings and
+must not contain wildcards.
 
 Actions match exactly. `write` does not imply `read`. If a subsystem wants both
 actions, it creates both grants.
@@ -521,21 +524,14 @@ computed-group diagnostics for malformed persisted rows.
 
 `evaluate_grants/2` receives the already-built `BullX.AuthZ.CEL.Env` struct and
 a list of loaded grants. Elixir must not call a generic CEL evaluator once per
-grant. The Rust function owns runtime resource-pattern matching and must satisfy
-these exact rules:
+grant. The Rust function owns runtime resource-glob matching and CEL condition
+evaluation in the same loaded-grant decision call. Write-time validation may
+call the Rust resource-glob validator for operator feedback, but authorization
+runtime must not return to Elixir for per-grant glob matching.
 
-- A pattern without `*` matches only exact string equality.
-- A pattern may contain zero or one `*`; validation rejects more than one.
-- For `prefix*suffix`, the resource matches only when it starts with `prefix`,
-  ends with `suffix`, and the prefix and suffix matches do not overlap.
-- `*` may match the empty string.
-- `*` matches `:` like any other character.
-- There are no regexes, character classes, hierarchy operators, or `**`.
-
-Rust resource-pattern tests must cover that `"*"` matches `""`, `"a*"`
-matches `"a"`, `"*a"` matches `"a"`, `"a*a"` matches `"aa"`, `"a*a"` does
-not match `"a"`, `"ab*bc"` does not match `"abc"`, and `"ab*bc"` matches
-`"abbc"`.
+Rust resource-pattern tests must cover exact matches, `*`, valid recursive `**`
+patterns over `:`-separated resource strings, invalid glob syntax, and the fact
+that non-matching resource globs skip CEL evaluation for that grant.
 
 The Rust function then owns the runtime decision loop:
 
@@ -772,7 +768,7 @@ Columns:
 Constraints and indexes:
 
 - exactly one of `principal_id` or `group_id` is non-null;
-- `resource_pattern` contains at most one `*`;
+- `resource_pattern` is non-empty and must pass Rust resource-glob validation;
 - `action` does not contain `:`;
 - `metadata` is a JSON object;
 - indexes on `principal_id`, `group_id`, and `action`;
@@ -989,8 +985,8 @@ described in this design.
 - Keep computed groups Principal-derived in the first implementation; do not let
   computed groups depend on request context, other groups, permission grants, or
   external identity records.
-- Reject request resource strings containing `*`; wildcard matching belongs
-  only to persisted `resource_pattern` values.
+- Reject request resource strings containing wildcard metacharacters; glob
+  matching belongs only to persisted `resource_pattern` values.
 - Preserve admin recoverability when Principal status or admin membership
   changes.
 - Keep AuthZ mutation functions as domain commands; callers authorize acting
@@ -1148,8 +1144,8 @@ execution behavior.
   document their setup/bootstrap bypass behavior.
 - Authorization uses resource-pattern plus exact-action matching and allow-any
   grant semantics.
-- Request resource strings cannot contain `*`; wildcard matching exists only in
-  persisted `resource_pattern` values.
+- Request resource strings cannot contain wildcard metacharacters; glob matching
+  exists only in persisted `resource_pattern` values.
 - CEL conditions evaluate only after subject, resource, and action matching;
   compile errors, execution errors, and non-boolean results fail closed per
   grant.

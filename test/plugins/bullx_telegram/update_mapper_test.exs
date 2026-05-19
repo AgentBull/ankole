@@ -97,6 +97,53 @@ defmodule BullxTelegram.UpdateMapperTest do
     assert {:ignore, :unmentioned_group_message} = UpdateMapper.map(update, source)
   end
 
+  test "group message with bot mention entity is addressed" do
+    source = %Source{
+      id: "main",
+      bot_token: "123456:ABC",
+      bot_id: "123456",
+      bot_username: "bullx_bot",
+      attention: default_attention()
+    }
+
+    update = %{
+      "update_id" => 102,
+      "message" => %{
+        "message_id" => 202,
+        "chat" => %{"id" => 555, "type" => "group"},
+        "from" => %{"id" => 600, "first_name" => "Bob", "is_bot" => false},
+        "text" => "hello @bullx_bot",
+        "entities" => [%{"type" => "mention", "offset" => 6, "length" => 10}]
+      }
+    }
+
+    assert {:ok, %{attrs: attrs}} = UpdateMapper.map(update, source)
+    assert attrs.type == "bullx.im.message.addressed"
+    assert get_in(attrs.data, [:routing_facts, "attention_reason"]) == "mention"
+  end
+
+  test "telegram mention detection does not match username substrings" do
+    source = %Source{
+      id: "main",
+      bot_token: "123456:ABC",
+      bot_id: "123456",
+      bot_username: "bullx_bot",
+      attention: default_attention()
+    }
+
+    update = %{
+      "update_id" => 103,
+      "message" => %{
+        "message_id" => 203,
+        "chat" => %{"id" => 555, "type" => "group"},
+        "from" => %{"id" => 600, "first_name" => "Bob", "is_bot" => false},
+        "text" => "hello @bullx_botany"
+      }
+    }
+
+    assert {:ignore, :unmentioned_group_message} = UpdateMapper.map(update, source)
+  end
+
   test "normalizes localized command aliases to command events" do
     source = %Source{
       id: "main",
