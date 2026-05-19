@@ -4,13 +4,14 @@ defmodule BullX.Health do
 
   Liveness is intentionally local to the node: if `/livez` can return, the
   Phoenix endpoint and BEAM process are alive. Readiness includes dependencies
-  required to safely receive traffic; today that means PostgreSQL.
+  required to safely receive traffic.
   """
 
   alias BullX.Repo
 
   @postgres_query "SELECT 1"
   @postgres_timeout 1_000
+  @redis_timeout 1_000
 
   @type check :: %{required(:status) => String.t(), optional(:error) => String.t()}
   @type report :: %{required(:status) => String.t(), required(:checks) => %{atom() => check()}}
@@ -28,8 +29,9 @@ defmodule BullX.Health do
   @spec ready(keyword()) :: {:ok, report()} | {:error, report()}
   def ready(opts \\ []) do
     repo = Keyword.get(opts, :repo, Repo)
+    redis = Keyword.get(opts, :redis, BullX.EventBus.StreamingOutput.Redis)
 
-    %{postgres: check_postgres(repo)}
+    %{postgres: check_postgres(repo), redis: check_redis(redis)}
     |> readiness_report()
   end
 
@@ -61,6 +63,21 @@ defmodule BullX.Health do
     end
   end
 
+  defp check_redis(redis) do
+    case query_redis(redis) do
+      :ok -> %{status: "ok"}
+      {:error, reason} -> %{status: "error", error: reason}
+    end
+  end
+
+  defp query_redis(redis) do
+    case safe_redis_ping(redis) do
+      {:ok, "PONG"} -> :ok
+      {:ok, response} -> {:error, "unexpected Redis PING response: #{inspect(response)}"}
+      {:error, reason} -> {:error, format_reason(reason)}
+    end
+  end
+
   defp format_reason(reason) when is_binary(reason), do: reason
   defp format_reason(reason), do: inspect(reason)
 
@@ -69,6 +86,14 @@ defmodule BullX.Health do
       timeout: @postgres_timeout,
       pool_timeout: @postgres_timeout
     )
+  rescue
+    exception -> {:error, Exception.message(exception)}
+  catch
+    :exit, reason -> {:error, reason}
+  end
+
+  defp safe_redis_ping(redis) do
+    redis.command(["PING"], timeout: @redis_timeout)
   rescue
     exception -> {:error, Exception.message(exception)}
   catch

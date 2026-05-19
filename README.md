@@ -71,22 +71,6 @@ The result BullX is aiming for is not "a better bot" or "a smarter workflow app.
 
 **High-risk work can be gated.** Customer-facing, financial, legal, permission-changing, or irreversible side effects should pass through explicit approval or policy gates before execution.
 
-## Project Status
-
-The current public repository contains the foundation for BullX:
-
-- Elixir/OTP application boot and supervision
-- PostgreSQL Repo and dynamic configuration
-- UUIDv7 and native helper boundary
-- i18n catalog infrastructure
-- Phoenix, Inertia, Rsbuild, UIKit, and setup/session/console foundation
-- health endpoints and OpenAPI description plumbing
-- reusable packages under `packages/`
-
-The full AI Colleague product is being built incrementally on top of this foundation.
-
-For the current architecture source of truth, read [internals/design-docs/drafts/Arch.md](./internals/design-docs/drafts/Arch.md).
-
 ## Getting Started
 
 **Prerequisites:** Elixir 1.19+, PostgreSQL, Bun
@@ -154,3 +138,9 @@ BullX loads dotenv files from the repository root. Later files override earlier 
 | Production | `.env` -> `.env.prod` |
 
 `.env.local` is gitignored and intended for machine-specific secrets. `.env`, `.env.dev`, and `.env.test` may be committed as shared non-secret team defaults.
+
+## Project Status
+
+BullX runs the EventBus and the AIAgent Target end-to-end today, with channel adapters for Discord, Feishu (Lark), and Telegram, on an Elixir/OTP, PostgreSQL, and Phoenix/Inertia foundation. Brain, Budget, durable Work/Task records, the Workflow Target, and trajectory-driven self-evolution are still being built.
+
+See [docs/Architecture.md](./docs/Architecture.md) for the architecture source of truth, and [docs/design-docs/](./docs/design-docs/) for detailed designs.

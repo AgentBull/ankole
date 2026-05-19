@@ -10,7 +10,7 @@ defmodule BullX.EventBus.EventRoutingRule do
 
   import Ecto.Changeset
 
-  alias BullX.EventBus.Scope
+  alias BullX.EventBus.{Scope, Target}
   alias BullX.RuleEngine.CEL
 
   @primary_key {:id, BullX.Ecto.UUIDv7, autogenerate: true}
@@ -65,6 +65,7 @@ defmodule BullX.EventBus.EventRoutingRule do
     |> validate_number(:priority, greater_than: 0)
     |> validate_scope_fields()
     |> validate_target_ref()
+    |> validate_target_handler()
     |> validate_window()
     |> validate_match_expr()
     |> unique_constraint(:priority)
@@ -108,6 +109,23 @@ defmodule BullX.EventBus.EventRoutingRule do
           :target_ref, _target_ref ->
             [target_ref: "must be a string"]
         end)
+    end
+  end
+
+  defp validate_target_handler(changeset) do
+    case {get_field(changeset, :active), get_field(changeset, :target_type)} do
+      {true, target_type}
+      when target_type in [:ai_agent, :workflow, :command, :external_agent_harness] ->
+        case Target.handler_for(target_type) do
+          {:ok, _module} ->
+            changeset
+
+          {:error, reason} ->
+            add_error(changeset, :target_type, "has no configured handler", reason: reason)
+        end
+
+      _other ->
+        changeset
     end
   end
 

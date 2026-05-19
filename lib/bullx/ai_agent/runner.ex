@@ -900,16 +900,20 @@ defmodule BullX.AIAgent.Runner do
 
   defp execute_tool_calls(profile, tool_calls, seed, assistant_message) do
     if parallel_tool_calls?(profile, tool_calls) do
+      results =
+        Task.async_stream(
+          tool_calls,
+          &Dispatcher.execute_call(profile, &1, seed, assistant_message),
+          ordered: true,
+          timeout: parallel_tool_timeout(tool_calls, profile),
+          on_timeout: :kill_task
+        )
+
       tool_calls
-      |> Task.async_stream(
-        &Dispatcher.execute_call(profile, &1, seed, assistant_message),
-        ordered: true,
-        timeout: parallel_tool_timeout(tool_calls, profile),
-        on_timeout: :kill_task
-      )
+      |> Enum.zip(results)
       |> Enum.map(fn
-        {:ok, result} -> result
-        {:exit, _reason} -> tool_execution_failed_block()
+        {_tool_call, {:ok, result}} -> result
+        {tool_call, {:exit, _reason}} -> tool_execution_failed_block(tool_call)
       end)
     else
       Enum.map(tool_calls, &Dispatcher.execute_call(profile, &1, seed, assistant_message))
@@ -946,17 +950,9 @@ defmodule BullX.AIAgent.Runner do
     |> Enum.max(fn -> 30_000 end)
   end
 
-  defp tool_execution_failed_block do
-    %{
-      "type" => "tool_result",
-      "tool_call_id" => "unknown",
-      "is_error" => true,
-      "error" => %{
-        "code" => "tool_failed",
-        "message" => "Tool failed.",
-        "retryable" => false
-      }
-    }
+  defp tool_execution_failed_block(tool_call) do
+    tool_call_id = tool_call[:id] || tool_call["id"] || "missing_tool_call_id"
+    Message.tool_result_error_block(tool_call_id, "tool_failed", "Tool failed.")
   end
 
   defp maybe_put_retry_metadata(metadata, context) do

@@ -10,12 +10,15 @@ defmodule BullXWeb.HealthControllerTest do
            } = json_response(conn, 200)
   end
 
-  test "GET /readyz checks PostgreSQL readiness", %{conn: conn} do
+  test "GET /readyz checks required runtime dependencies", %{conn: conn} do
     conn = get(conn, ~p"/readyz")
 
     assert %{
              "status" => "ok",
-             "checks" => %{"postgres" => %{"status" => "ok"}}
+             "checks" => %{
+               "postgres" => %{"status" => "ok"},
+               "redis" => %{"status" => "ok"}
+             }
            } = json_response(conn, 200)
   end
 end

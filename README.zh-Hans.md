@@ -69,22 +69,6 @@ BullX 想做的不是“更好的 bot”，也不是“更聪明的 workflow app
 
 **高风险工作可以被显式 gate。** 面向客户、金融、法律、权限变更或不可逆外部动作，应该先经过 approval 或 policy gate，再执行真正产生副作用的步骤。
 
-## 项目状态
-
-当前公开仓库已经包含 BullX 的基础底座：
-
-- Elixir/OTP 应用启动与 supervision
-- PostgreSQL Repo 与动态配置
-- UUIDv7 与 native helper 边界
-- i18n catalog 基础设施
-- Phoenix、Inertia、Rsbuild、UIKit，以及 setup/session/console 基础框架
-- health endpoints 与 OpenAPI description plumbing
-- `packages/` 下可复用的独立包
-
-完整的 AI 同事产品会在这套底座上继续迭代。
-
-当前架构 SSOT 见 [internals/design-docs/drafts/Arch.md](./internals/design-docs/drafts/Arch.md)。
-
 ## 开始开发
 
 **前置条件：** Elixir 1.19+、PostgreSQL、Bun
@@ -152,3 +136,9 @@ BullX 会从仓库根目录加载 dotenv 文件。后加载的文件覆盖先加
 | 生产 | `.env` -> `.env.prod` |
 
 `.env.local` 已加入 `.gitignore`，用于存放机器专属的密钥。`.env`、`.env.dev` 和 `.env.test` 可作为团队共享的非密钥默认值提交到版本控制。
+
+## 项目状态
+
+BullX 目前已经在 Elixir/OTP、PostgreSQL 与 Phoenix/Inertia 底座上把 EventBus 与 AIAgent Target 跑通端到端，并提供 Discord、Feishu (Lark)、Telegram 三个渠道适配。Brain、Budget、Work/Task 持久化、Workflow Target，以及基于轨迹数据的自我进化仍在建设中。
+
+架构 SSOT 见 [docs/Architecture.md](./docs/Architecture.md)，详细设计见 [docs/design-docs/](./docs/design-docs/)。

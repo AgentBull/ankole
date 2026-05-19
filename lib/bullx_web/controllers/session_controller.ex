@@ -122,6 +122,8 @@ defmodule BullXWeb.SessionController do
   end
 
   defp local_return_to(nil), do: "/"
+  defp local_return_to("//" <> _path), do: "/"
+  defp local_return_to("/\\" <> _path), do: "/"
   defp local_return_to("/" <> _path = value), do: value
   defp local_return_to(_value), do: "/"
 

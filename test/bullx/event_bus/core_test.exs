@@ -217,6 +217,38 @@ defmodule BullX.EventBus.CoreTest do
     assert Repo.aggregate(TargetSessionEntry, :count) == 0
   end
 
+  test "active rules cannot target an unconfigured handler" do
+    assert {:error, changeset} =
+             RuleWriter.create_rule(%{
+               name: "workflow before handler",
+               priority: 45,
+               match_expr: "true",
+               target_type: :workflow,
+               target_ref: "workflow:missing",
+               scope_fields: [],
+               window_type: :new_per_event
+             })
+
+    assert {"has no configured handler", _metadata} = changeset.errors[:target_type]
+  end
+
+  test "inactive rules may keep future target configuration without entering the snapshot" do
+    assert {:ok, rule} =
+             RuleWriter.create_rule(%{
+               name: "inactive future workflow",
+               active: false,
+               priority: 46,
+               match_expr: "true",
+               target_type: :workflow,
+               target_ref: "workflow:future",
+               scope_fields: [],
+               window_type: :new_per_event
+             })
+
+    assert {:ok, rules} = BullX.EventBus.RoutingTable.snapshot()
+    refute Enum.any?(rules, &(&1.id == rule.id))
+  end
+
   test "RoutingContext omits subject and CloudEvents extensions" do
     context =
       event(%{"subject" => "debug", "traceparent" => "trace"})
