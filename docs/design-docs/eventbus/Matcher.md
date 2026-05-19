@@ -178,6 +178,15 @@ higher priority than generic AIAgent message rules when a provider-native
 command should not enter a model loop. Current `/command` and `/status` system
 command routes are code-owned built-ins. Other Command Target rules can remain
 database-owned positive-priority rules.
+
+If a `bullx.command.invoked` Event matches no explicit command rule, EventBus
+may run the command fallback outside the matcher NIF by changing only the
+routing context type to `bullx.im.message.addressed` and matching the current
+snapshot again. A fallback match reuses the addressed route's Target and
+TargetSession policy but does not rewrite the side-channel CloudEvent. This is
+not lower-priority continuation after a matched rule; it runs only after direct
+command matching returns no match.
+
 Blackhole rules do not create TargetSessions and do not use scope or window
 values, but the writer stores neutral defaults to keep the schema simple:
 

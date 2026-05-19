@@ -513,10 +513,11 @@ Result handling:
 | `{:error, reason}` | Treat as provider processing failure, emit safe telemetry, and do not call EventBus. |
 
 Command-shaped input is not automatically a normal conversation message. When
-Feishu classifies an accepted `/command` text as `bullx.command.invoked`, the
+Feishu classifies an accepted slash-text command as `bullx.command.invoked`, the
 adapter may publish the command Event with actor evidence and
 `data.actor.principal = null` if no active Principal binding exists yet.
-System commands such as `/command` and `/status` use that path. Channel
+System commands such as `/command` and `/status`, and AIAgent-owned slash
+commands such as `/new`, `/stop`, and `/steer`, use that path. Channel
 activation and login commands such as `/preauth` and `/web_auth` are
 adapter-local entry points and may be handled before EventBus. For EventBus
 commands, the adapter still does not choose the command handler, decide command
@@ -587,10 +588,11 @@ synthesizes a short text block so the EventBus payload contract remains valid.
 ## Channel command normalization
 
 Feishu distinguishes EventBus commands from adapter-local channel commands. When
-an accepted Feishu text message begins with an English system command such as
-`/command` or `/status`, or a localized alias such as Chinese `/命令` or `/状态`
-when that locale is active, the adapter normalizes it as
-`bullx.command.invoked` instead of an IM message Event.
+an accepted Feishu text message begins with a slash command token, the adapter
+normalizes it as `bullx.command.invoked` instead of an IM message Event, except
+for adapter-local channel commands described below. English `/command` and
+`/status`, localized aliases such as Chinese `/命令` and `/状态`, and
+AIAgent-owned slash commands all use the same normalized command Event shape.
 
 `/preauth <code>` and `/web_auth` are channel activation/login commands. The
 Feishu adapter handles them locally through Principal/Auth services and safe
@@ -616,8 +618,10 @@ provider credentials must not enter EventBus `routing_facts`, telemetry, or logs
 The Event Routing Rule decides the Target for EventBus commands. System command
 routes for `/command` and `/status` target `target_type = "command"` through
 code-owned built-ins merged into the runtime route table. AIAgent conversation
-commands such as canonical `/new` must target AIAgent-owned command handling or
-remain ordinary AIAgent text commands when this adapter does not normalize them.
+commands such as canonical `/new`, `/stop`, and `/steer` can match an explicit
+`target_type = "ai_agent"` command route. If no explicit command route matches,
+EventBus command fallback may route the original `bullx.command.invoked`
+CloudEvent through the addressed-message route for the same chat and thread.
 Localized `/新会话` is an alias for canonical `/new`, not a separate routing
 concept. The Feishu adapter must not mutate Conversation, Message, or generation
 lease state directly.
@@ -1089,7 +1093,7 @@ Principal boundaries.
    - Owns: `Feishu.CommandNormalizer`, locale keys, Principal fixtures.
    - Depends on: Tasks 4 and 6.
    - Acceptance: normal user-origin Events call Principal matching before
-     EventBus acceptance; `/command` and `/status` normalize to
+     EventBus acceptance; accepted EventBus slash-text commands normalize to
      `bullx.command.invoked` with actor evidence, optional `actor.principal`, and
      command routing facts; `/preauth` and `/web_auth` run as adapter-local
      channel activation/login commands.
@@ -1152,9 +1156,11 @@ Implementation should stop and ask if a change would require:
   handoff.
 - Feishu inbound occurrences normalize into valid decoded CloudEvents and call
   `BullX.EventBus.accept/2`.
-- Accepted Feishu `/command` and `/status` slash-text commands publish
-  `bullx.command.invoked` Events with command routing facts and no
-  adapter-owned EventBus command business side effects.
+- Accepted Feishu slash-text commands publish `bullx.command.invoked` Events
+  with command routing facts and no adapter-owned EventBus command business side
+  effects. System commands match built-in Command Target routes; AIAgent-owned
+  commands may use explicit AIAgent command routes or EventBus command fallback
+  to the matching addressed route.
 - Feishu `/preauth` and `/web_auth` run as adapter-local channel
   activation/login commands and do not publish EventBus command Events.
 - Feishu OIDC callback logs in or creates only Human Principals according to

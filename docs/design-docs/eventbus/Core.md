@@ -103,6 +103,18 @@ routes use reserved negative priorities and are not persisted in PostgreSQL.
 Database-owned rules keep positive priorities and are managed by the Event
 Routing Rule writer.
 
+When a normalized `bullx.command.invoked` Event matches no explicit command
+route, EventBus applies one code-owned command fallback after the direct matcher
+miss. The fallback builds a shadow `RoutingContext` by changing only
+`type = "bullx.command.invoked"` to `type = "bullx.im.message.addressed"` and
+matches the same runtime route table again. If that shadow context matches an
+addressed-message route, EventBus reuses that route's Target and TargetSession
+policy while appending the original `bullx.command.invoked` CloudEvent to the
+side channel. If the shadow context does not match, EventBus returns
+`accepted_ignored`, creates no TargetSession, appends no side-channel entry, and
+writes a warning log. This fallback does not run after any rule has already
+matched.
+
 ```mermaid
 sequenceDiagram
   participant P as Producer or Adapter
@@ -231,6 +243,12 @@ loop. First matched rule remains terminal: EventBus does not fan out one command
 Event to multiple Targets. If a command needs multiple business paths, the
 matched Command Target explicitly calls a service, writes a follow-up Event,
 creates Work, invokes a Capability, or records another business fact.
+
+If no explicit command rule matches `bullx.command.invoked`, EventBus may reuse
+the addressed-message route for the same channel and scope through the command
+fallback described above. The Target still receives the original command
+CloudEvent, so an AIAgent can handle it through its command-control path instead
+of treating it as an ordinary user Message.
 
 ## TargetSession identity and reuse
 

@@ -168,6 +168,12 @@ Safe diagnostics and audit records must not contain raw CloudEvents, provider
 payloads, credentials, bearer reply handles, access tokens, stream chunks, or
 unbounded message content.
 
+Unknown command names are not handled by Command Target. Routing can send them
+to an explicit command route, route them to Blackhole, or let EventBus command
+fallback try the matching addressed-message route. If fallback cannot find an
+addressed route, EventBus ignores the command and writes a warning log. The
+system command handlers must not become a catch-all command interpreter.
+
 ## Routing and TargetSession policy
 
 Command routing uses ordinary Event Routing Rules. Do not create a second
@@ -194,6 +200,17 @@ Command rules normally use one-shot scope and window policy, such as
 idles until the 24-hour hard cap. A command can share a runtime window only when
 its specific command design says so. The default command handler requests close
 after it handles the entry.
+
+When `bullx.command.invoked` matches no explicit command route, EventBus runs a
+code-owned command fallback after the direct matcher miss. The fallback changes
+only the routing context type to `bullx.im.message.addressed` and tries the same
+route table again. If the shadow addressed context matches, EventBus reuses that
+route's Target and TargetSession policy while preserving the original
+`bullx.command.invoked` CloudEvent in the side-channel entry. This lets
+AIAgent-owned slash commands such as `/stop` and `/steer` use the same source
+and conversation routing as addressed messages without making Command Target a
+generic AIAgent command dispatcher. If the shadow addressed context does not
+match, EventBus ignores the command and writes a warning log.
 
 If one command needs multiple business paths, Command Target expresses that
 inside the handler by calling a service, writing a follow-up Event, creating
@@ -454,7 +471,8 @@ boundaries.
    - Owns: cross-doc behavior tests where AIAgent runtime exists.
    - Check: canonical AIAgent command names such as `new` and `compress`, plus
      localized aliases such as `/新会话` and `/压缩`, remain AIAgent-owned and may
-     route directly to `target_type = "ai_agent"` unless explicitly delegated
+     route directly to `target_type = "ai_agent"` or use EventBus command
+     fallback to the matching addressed route unless explicitly delegated
      through an AIAgent command service.
 
 ### Done when
@@ -478,9 +496,9 @@ Focused tests cover:
   provider-specific modules.
 - Canonical AIAgent command names such as `new` and `compress`, plus localized
   aliases such as `/新会话` and `/压缩`, remain AIAgent-owned, can route directly
-  to `target_type = "ai_agent"`, and are delegated through Command Target only by
-  explicit design; generic Command Target does not mutate Conversation internals
-  directly.
+  to `target_type = "ai_agent"` or use EventBus command fallback to the matching
+  addressed route, and are delegated through Command Target only by explicit
+  design; generic Command Target does not mutate Conversation internals directly.
 - Unauthorized admin command writes safe diagnostic/audit records and returns
   `:ok`; infrastructure failure returns `{:error, reason}`.
 

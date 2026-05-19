@@ -4,10 +4,14 @@ defmodule BullX.EventBus do
 
   `accept/2` is the decoded CloudEvents-to-TargetSession handoff boundary. It
   validates the Event, matches one Event Routing Rule, and commits weak runtime
-  handoff state for non-Blackhole Targets.
+  handoff state for non-Blackhole Targets. Normalized command Events that do not
+  match an explicit command rule may reuse the addressed-message route for the
+  same channel and scope while preserving the original command Event.
   """
 
   import Ecto.Query
+
+  require Logger
 
   alias BullX.EventBus.{
     Accepted,
@@ -46,7 +50,7 @@ defmodule BullX.EventBus do
     with {:ok, event} <- Validator.validate(event_json),
          routing_context <- RoutingContext.project(event),
          {:ok, route_result} <- route(routing_context) do
-      accept_route_result(route_result, event, routing_context)
+      accept_route_result(route_result, event)
     else
       {:error, %AppendFailed{} = error} ->
         {:error, error}
@@ -56,15 +60,31 @@ defmodule BullX.EventBus do
     end
   end
 
-  defp accept_route_result({:no_match, diagnostics}, _event, _routing_context) do
+  defp accept_route_result({:no_match, diagnostics}, _event) do
     emit_matcher_diagnostics(diagnostics)
     {:error, :no_match}
   end
 
+  defp accept_route_result({:ignored_command, diagnostics}, event) do
+    emit_matcher_diagnostics(diagnostics)
+
+    accepted = %Accepted{
+      status: :accepted_ignored,
+      event_source: event["source"],
+      event_id: event["id"]
+    }
+
+    :telemetry.execute([:bullx, :event_bus, :accepted_ignored], %{}, %{
+      rule_id: nil,
+      event_type: event["type"]
+    })
+
+    {:ok, accepted}
+  end
+
   defp accept_route_result(
-         {:matched, %EventRoutingRule{} = rule, diagnostics},
-         event,
-         routing_context
+         {:matched, %EventRoutingRule{} = rule, routing_context, diagnostics},
+         event
        ) do
     emit_matcher_diagnostics(diagnostics)
     emit_rule_matched(rule, event)
@@ -74,7 +94,57 @@ defmodule BullX.EventBus do
   @spec ensure_active_target_session_jobs() :: :ok | {:error, term()}
   defdelegate ensure_active_target_session_jobs, to: BullX.EventBus.Repair
 
-  defp route(routing_context), do: RoutingTable.match(routing_context)
+  defp route(routing_context) do
+    with {:ok, route_result} <- RoutingTable.match(routing_context) do
+      route_or_fallback(route_result, routing_context)
+    end
+  end
+
+  defp route_or_fallback({:matched, %EventRoutingRule{} = rule, diagnostics}, routing_context) do
+    {:ok, {:matched, rule, routing_context, diagnostics}}
+  end
+
+  defp route_or_fallback({:no_match, diagnostics}, %{"type" => "bullx.command.invoked"} = context) do
+    context
+    |> addressed_command_context()
+    |> RoutingTable.match()
+    |> command_fallback_result(context, diagnostics)
+  end
+
+  defp route_or_fallback({:no_match, diagnostics}, _routing_context) do
+    {:ok, {:no_match, diagnostics}}
+  end
+
+  defp addressed_command_context(context) do
+    Map.put(context, "type", "bullx.im.message.addressed")
+  end
+
+  defp command_fallback_result(
+         {:ok, {:matched, %EventRoutingRule{} = rule, fallback_diagnostics}},
+         original_context,
+         diagnostics
+       ) do
+    fallback_context = addressed_command_context(original_context)
+    {:ok, {:matched, rule, fallback_context, diagnostics ++ fallback_diagnostics}}
+  end
+
+  defp command_fallback_result(
+         {:ok, {:no_match, fallback_diagnostics}},
+         original_context,
+         diagnostics
+       ) do
+    Logger.warning("EventBus command fallback ignored unmatched command",
+      event_source: original_context["source"],
+      event_id: get_in(original_context, ["event", "id"]),
+      command_name: get_in(original_context, ["routing_facts", "command_name"])
+    )
+
+    {:ok, {:ignored_command, diagnostics ++ fallback_diagnostics}}
+  end
+
+  defp command_fallback_result({:error, reason}, _original_context, _diagnostics) do
+    {:error, reason}
+  end
 
   defp accept_matched(
          %EventRoutingRule{target_type: :blackhole} = rule,

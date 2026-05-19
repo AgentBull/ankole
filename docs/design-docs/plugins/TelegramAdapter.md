@@ -559,7 +559,7 @@ Telegram maps allowed updates to normalized BullX Event types:
 
 | Telegram update | Normalized `type` | Notes |
 | --- | --- | --- |
-| `message` text | `bullx.im.message.addressed`, `bullx.im.message.ambient`, or `bullx.command.invoked` | Accepted EventBus `/command` text addressed to the bot becomes a command Event. Adapter-local `/preauth` and `/web_auth` are handled before EventBus. Addressed text becomes an addressed IM Event; observed unmentioned group text becomes an ambient IM Event only when the source listens to all messages. |
+| `message` text | `bullx.im.message.addressed`, `bullx.im.message.ambient`, or `bullx.command.invoked` | Accepted EventBus command text addressed to the bot becomes a command Event. Adapter-local `/preauth` and `/web_auth` are handled before EventBus. Addressed text becomes an addressed IM Event; observed unmentioned group text becomes an ambient IM Event only when the source listens to all messages. |
 | `message` media or location | `bullx.im.message.addressed` or `bullx.im.message.ambient` | Content blocks describe the media; primary text uses caption or generated fallback. Attention policy decides addressed versus ambient. |
 | `edited_message` | `bullx.message.edited` | `refs` includes the Telegram message id. |
 
@@ -658,14 +658,14 @@ Result handling:
 | `{:error, reason}` | Treat as provider processing failure, emit safe telemetry, and do not call EventBus. |
 
 Command-shaped input is not automatically a normal conversation message. When
-Telegram classifies an accepted `/command` text as `bullx.command.invoked`, the
-adapter may publish the command Event with actor evidence and
+Telegram classifies an accepted slash-text command as `bullx.command.invoked`,
+the adapter may publish the command Event with actor evidence and
 `data.actor.principal = null` if no active Principal binding exists yet.
-System commands such as `/command` and `/status` use that path. Channel
-activation and login commands such as `/preauth` and `/web_auth` are
-adapter-local entry points and may be handled before EventBus. For EventBus
-commands, the adapter still does not choose the command handler, decide command
-authorization, or write command business facts.
+System commands such as `/command` and `/status`, and cataloged AIAgent-owned
+slash commands, use that path. Channel activation and login commands such as
+`/preauth` and `/web_auth` are adapter-local entry points and may be handled
+before EventBus. For EventBus commands, the adapter still does not choose the
+command handler, decide command authorization, or write command business facts.
 
 Principal resolution is identity evidence, not authorization. Downstream
 Principal, AuthZ, Governance, Capability, Target, and business layers still
@@ -679,11 +679,11 @@ localized `/preauth <code>` and `/web_auth` guidance.
 ## Channel command normalization
 
 Telegram distinguishes EventBus commands from adapter-local channel commands.
-When an accepted Telegram text message starts with an English system command
-such as `/command`, `/status`, or the matching `@bot_username` form, or a
-localized alias such as Chinese `/命令` or `/状态` when that locale is active, the
-adapter normalizes it as `bullx.command.invoked` instead of
-an IM message Event.
+When an accepted Telegram text message starts with an EventBus command token,
+including the matching `@bot_username` form, the adapter normalizes it as
+`bullx.command.invoked` instead of an IM message Event. English `/command` and
+`/status`, localized aliases such as Chinese `/命令` and `/状态`, and cataloged
+AIAgent-owned slash commands use the same normalized command Event shape.
 
 `/preauth <code>` and `/web_auth` are channel activation/login commands. The
 Telegram adapter handles them locally through Principal/Auth services and safe
@@ -710,8 +710,10 @@ credentials must not enter EventBus `routing_facts`, telemetry, or logs.
 The Event Routing Rule decides the Target for EventBus commands. System command
 routes for `/command` and `/status` target `target_type = "command"` through
 code-owned built-ins merged into the runtime route table. AIAgent conversation
-commands such as canonical `/new` must target AIAgent-owned command handling or
-remain ordinary AIAgent text commands when this adapter does not normalize them.
+commands such as canonical `/new`, `/stop`, and `/steer` can match an explicit
+`target_type = "ai_agent"` command route. If no explicit command route matches,
+EventBus command fallback may route the original `bullx.command.invoked`
+CloudEvent through the addressed-message route for the same chat and thread.
 Localized `/新会话` is an alias for canonical `/new`, not a separate routing
 concept. The Telegram adapter must not mutate Conversation, Message, or
 generation lease state directly.
@@ -1105,7 +1107,7 @@ EventBus, Channel Adapter, StreamingOutput, and Principal boundaries.
    - Owns: `BullxTelegram.CommandNormalizer`, locale keys, Principal fixtures.
    - Depends on: Task 5.
    - Acceptance: normal user-origin Events call Principal matching before
-     EventBus acceptance; `/command` and `/status` normalize to
+     EventBus acceptance; accepted EventBus slash-text commands normalize to
      `bullx.command.invoked` with actor evidence, optional `actor.principal`, and
      command routing facts; `/preauth` and `/web_auth` run as adapter-local
      channel activation/login commands.
@@ -1172,9 +1174,11 @@ Implementation should stop and ask if a change would require:
 - The attention policy filters group-chat noise according to this design.
 - Telegram inbound updates normalize into valid decoded CloudEvents and call
   `BullX.EventBus.accept/2`.
-- Accepted Telegram `/command` and `/status` messages publish
-  `bullx.command.invoked` Events with command routing facts and no
-  adapter-owned EventBus command business side effects.
+- Accepted Telegram EventBus command messages publish `bullx.command.invoked`
+  Events with command routing facts and no adapter-owned EventBus command
+  business side effects. System commands match built-in Command Target routes;
+  AIAgent-owned commands may use explicit AIAgent command routes or EventBus
+  command fallback to the matching addressed route.
 - Telegram `/preauth` and `/web_auth` run as adapter-local channel
   activation/login commands and do not publish EventBus command Events.
 - Telegram outbound send, edit, and stream paths produce adapter-compatible

@@ -3,6 +3,9 @@ defmodule BullX.AIAgent.TargetTest do
 
   alias BullX.AIAgent.{ACL, Conversation, Message}
   alias BullX.AuthZ
+  alias BullX.EventBus
+  alias BullX.EventBus.{RuleWriter, TargetSession, TargetSessionEntry}
+  alias BullX.EventBus.TargetSession.Worker
   alias BullX.LLM.{PluginProviders, Writer}
   alias BullX.Plugins.{Discovery, Registry}
   alias BullX.Principals
@@ -323,6 +326,43 @@ defmodule BullX.AIAgent.TargetTest do
     assert get_in(outbound, ["content", Access.at(0), "body", "text"]) == "Command denied."
   end
 
+  test "EventBus command fallback sends normalized slash commands to the addressed AIAgent route" do
+    {:ok, agent} = create_ai_agent("ai-agent-target-command-fallback")
+    {:ok, caller} = create_human("ai-agent-command-fallback-caller")
+    grant(caller.id, agent.id, "invoke")
+
+    {:ok, route} =
+      RuleWriter.create_rule(%{
+        name: "ai agent addressed fallback target",
+        priority: 1000,
+        match_expr:
+          ~s(type == "bullx.im.message.addressed" && channel.adapter == "eventbus_test" && channel.id == "default"),
+        target_type: :ai_agent,
+        target_ref: agent.id,
+        scope_fields: ["channel.adapter", "channel.id", "scope.id"],
+        window_type: :rolling_ttl,
+        window_ttl_seconds: 3600
+      })
+
+    assert {:ok, accepted} = EventBus.accept(command_event("new", caller))
+    assert accepted.rule_id == route.id
+
+    assert :ok =
+             Worker.perform(%Oban.Job{args: %{"target_session_id" => accepted.target_session_id}})
+
+    session = Repo.get!(TargetSession, accepted.target_session_id)
+    entry = Repo.get!(TargetSessionEntry, accepted.side_channel_entry_id)
+
+    assert session.status == :closed
+    assert entry.cloud_event["type"] == "bullx.command.invoked"
+    assert entry.routing_context["type"] == "bullx.im.message.addressed"
+
+    assert [%Conversation{ended_at: %DateTime{}}, %Conversation{ended_at: nil}] =
+             Repo.all(from c in Conversation, order_by: [asc: c.inserted_at])
+
+    assert [] = Repo.all(Message)
+  end
+
   test "ambient observe-only events are recorded but do not invoke generation" do
     {:ok, agent} =
       create_ai_agent("ai-agent-target-ambient", %{"unmentioned_group_messages" => "observe_only"})
@@ -442,6 +482,35 @@ defmodule BullX.AIAgent.TargetTest do
 
   defp unsupported_entry(target_session_id, event_id) do
     entry(target_session_id, event_id, "example.unsupported", "ignored")
+  end
+
+  defp command_event(command_name, caller) do
+    %{
+      "specversion" => "1.0",
+      "id" => "evt-command-fallback-#{command_name}",
+      "source" => "test://source/default",
+      "type" => "bullx.command.invoked",
+      "time" => DateTime.utc_now(:second) |> DateTime.to_iso8601(),
+      "datacontenttype" => "application/json",
+      "data" => %{
+        "content" => [%{"type" => "text", "text" => "/" <> command_name}],
+        "channel" => %{"adapter" => "eventbus_test", "id" => "default", "kind" => "dm"},
+        "scope" => %{"id" => "scene-1", "thread_id" => "thread-1"},
+        "actor" => %{
+          "external_account_id" => "ou_1",
+          "display_name" => "Alice",
+          "principal" => %{"id" => caller.id, "type" => "human"}
+        },
+        "refs" => [],
+        "reply_channel" => %{"adapter" => "eventbus_test", "channel_id" => "default"},
+        "routing_facts" => %{
+          "command_name" => command_name,
+          "command_surface" => "slash_text",
+          "command_args_kind" => "none"
+        },
+        "raw_ref" => nil
+      }
+    }
   end
 
   defp entry(target_session_id, event_id, event_type, text, caller_principal_id \\ nil) do

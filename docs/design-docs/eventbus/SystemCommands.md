@@ -130,6 +130,12 @@ snapshot globally unique by priority.
 The first matched rule remains terminal. EventBus does not fan out the same
 command Event to AIAgent or Workflow after a system command rule matches.
 
+The EventBus command fallback runs only after `bullx.command.invoked` matches no
+explicit command route. It is not a system command handler and is not listed by
+`/command`. When fallback finds a matching addressed-message route, the Target
+receives the original command CloudEvent; when it finds none, EventBus ignores
+the command and writes a warning log.
+
 ## `/command`
 
 `/command` lists the currently available system commands. The response is a safe
@@ -236,10 +242,10 @@ the same idempotency key.
 
 ## Failure behavior
 
-Unknown command names are not handled by this document. Routing should either
-miss them, route them to a separate command router design, or route them to
-Blackhole according to the Installation route table. The system command handlers
-must not become a catch-all command interpreter.
+Unknown command names are not handled by this document. Routing may miss them,
+route them to a separate command router design, route them to Blackhole, or let
+EventBus command fallback try the matching addressed-message route. The system
+command handlers must not become a catch-all command interpreter.
 
 Business failures return `:ok` after safe handling. Examples:
 

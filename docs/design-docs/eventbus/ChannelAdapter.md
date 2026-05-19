@@ -514,6 +514,13 @@ command support, setup or UI should fail closed for that feature, or ordinary
 provider messages may enter EventBus as normal message Events and follow ordinary
 message routing rules.
 
+When an adapter publishes a non-system `bullx.command.invoked` Event and no
+explicit command route matches it, EventBus command fallback may reuse the
+addressed-message route for the same channel and scope. The adapter does not
+opt into that fallback, inspect whether it exists, or rewrite the Event as an IM
+message. The side-channel CloudEvent remains `bullx.command.invoked`, allowing
+AIAgent-owned slash commands to stay command-control input after routing.
+
 Provider-native command redelivery must reuse the same stable CloudEvents
 `(source, id)` for the same command occurrence. The adapter must not use a
 random UUID, receive timestamp, retry count, or generated command-processing id

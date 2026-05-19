@@ -835,10 +835,14 @@ itself is never serialized into EventBus-owned data.
 The Event Routing Rule decides the Target for EventBus commands. System command
 routes for `/command` and `/status` target `target_type = "command"` through
 code-owned built-ins merged into the runtime route table. AIAgent conversation
-commands, including Discord-shaped `/ask`, must target AIAgent-owned command
-handling or remain ordinary AIAgent text commands when this adapter does not
-normalize them. The Discord adapter must not mutate Conversation, Message, or
-generation lease state directly.
+commands, including Discord-shaped `/ask`, can match an explicit
+`target_type = "ai_agent"` command route. If no explicit command route matches,
+EventBus command fallback may route the original `bullx.command.invoked`
+CloudEvent through the addressed-message route for the same channel, thread, and
+scope. When this adapter does not normalize a slash token as an EventBus command,
+the input can still remain ordinary AIAgent text if attention policy admits it.
+The Discord adapter must not mutate Conversation, Message, or generation lease
+state directly.
 
 Provider redelivery of the same EventBus command message or interaction reuses
 the same CloudEvents `(source, id)` based on the Discord message id or
@@ -852,7 +856,9 @@ idempotency and safe reply rules.
 `/ask <prompt:string>` is the Discord-shaped native application command for
 opening or continuing a BullX conversation in a guild. It publishes a
 `bullx.command.invoked` Event that routing should send to AIAgent-owned command
-handling, not to the generic system Command Target.
+handling, either through an explicit AIAgent command route or EventBus command
+fallback to the addressed route. It must not route to the generic system Command
+Target.
 
 Flow for `/ask` in a guild text channel:
 
@@ -1554,8 +1560,11 @@ Implementation should stop and ask if a change would require:
   are filtered.
 - Accepted Discord `/command`, `/status`, and `/ask` slash-text or native
   application commands publish `bullx.command.invoked` Events with command
-  routing facts and no adapter-owned EventBus command business side effects;
-  native interaction acknowledgements remain transport timing only.
+  routing facts and no adapter-owned EventBus command business side effects.
+  System commands match built-in Command Target routes; AIAgent-owned commands
+  may use explicit AIAgent command routes or EventBus command fallback to the
+  matching addressed route; native interaction acknowledgements remain transport
+  timing only.
 - Discord `/preauth` and `/web_auth` run as adapter-local channel
   activation/login commands and do not publish EventBus command Events.
 - `/ask` is registered as a native application command, acknowledges

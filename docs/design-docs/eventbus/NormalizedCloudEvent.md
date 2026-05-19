@@ -232,6 +232,14 @@ Normalization does not decide command ownership. Event Routing Rules may send
 `bullx.command.invoked` to Command Target for system commands or directly to
 `target_type = "ai_agent"` for AIAgent-owned commands.
 
+If no explicit command route matches a `bullx.command.invoked` Event, EventBus
+may use the command fallback defined in `Core.md`: it matches a shadow routing
+context whose only changed field is `type = "bullx.im.message.addressed"`. When
+that shadow context reaches an addressed route, EventBus reuses the route's
+Target and TargetSession policy but keeps the side-channel CloudEvent type as
+`bullx.command.invoked`. This preserves command-control semantics for AIAgent
+slash commands while avoiding adapter-specific routing decisions.
+
 Other normalized Event types, such as `bullx.message.edited`,
 `bullx.reaction.changed`, `bullx.action.submitted`, `bullx.trigger.fired`, and
 `bullx.childrun.completed`, are open-ended. EventBus validates the CloudEvents

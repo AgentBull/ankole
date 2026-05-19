@@ -1,6 +1,8 @@
 defmodule BullX.EventBus.CommandTargetTest do
   use BullX.DataCase, async: false
 
+  import ExUnit.CaptureLog
+
   alias BullX.EventBus
 
   alias BullX.EventBus.{
@@ -142,6 +144,40 @@ defmodule BullX.EventBus.CommandTargetTest do
     assert Repo.aggregate(EventRoutingRule, :count) == 0
   end
 
+  test "unmatched command events fall back to the matching addressed route" do
+    {:ok, addressed_rule} = create_addressed_ai_agent_route(priority: 1, target_ref: "agent-1")
+
+    assert {:ok, %Accepted{status: :accepted} = accepted} =
+             EventBus.accept(command_event("stop"))
+
+    assert accepted.rule_id == addressed_rule.id
+
+    assert :ok =
+             Worker.perform(%Oban.Job{args: %{"target_session_id" => accepted.target_session_id}})
+
+    assert_receive {:event_bus_target_called, invocation, entry}
+    assert invocation.target_type == :ai_agent
+    assert invocation.target_ref == "agent-1"
+    assert entry.cloud_event["type"] == "bullx.command.invoked"
+    assert entry.routing_context["type"] == "bullx.im.message.addressed"
+    assert get_in(entry.cloud_event, ["data", "routing_facts", "command_name"]) == "stop"
+  end
+
+  test "unmatched command events are ignored with a warning when no addressed route matches" do
+    log =
+      capture_log(fn ->
+        assert {:ok, %Accepted{status: :accepted_ignored} = accepted} =
+                 EventBus.accept(command_event("stop"))
+
+        assert accepted.rule_id == nil
+        assert accepted.target_session_id == nil
+        assert Repo.aggregate(TargetSession, :count) == 0
+        assert Repo.aggregate(TargetSessionEntry, :count) == 0
+      end)
+
+    assert log =~ "EventBus command fallback ignored unmatched command"
+  end
+
   defp create_ai_agent_fallback(opts) do
     RuleWriter.create_rule(%{
       name: "ai agent fallback",
@@ -151,6 +187,20 @@ defmodule BullX.EventBus.CommandTargetTest do
       target_ref: BullX.Ext.gen_uuid_v7(),
       scope_fields: ["channel.adapter", "channel.id", "scope.id"],
       window_type: :new_per_event
+    })
+  end
+
+  defp create_addressed_ai_agent_route(opts) do
+    RuleWriter.create_rule(%{
+      name: "addressed ai agent",
+      priority: Keyword.fetch!(opts, :priority),
+      match_expr:
+        ~s(type == "bullx.im.message.addressed" && channel.adapter == "eventbus_test" && channel.id == "default"),
+      target_type: :ai_agent,
+      target_ref: Keyword.fetch!(opts, :target_ref),
+      scope_fields: ["channel.adapter", "channel.id", "scope.id"],
+      window_type: :rolling_ttl,
+      window_ttl_seconds: 3600
     })
   end
 
