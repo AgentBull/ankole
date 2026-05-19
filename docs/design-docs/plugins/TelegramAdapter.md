@@ -148,10 +148,12 @@ transport lifecycle owner.
 
 ## Runtime configuration
 
-Operators enable the plugin through the normal plugin list:
+Telegram is in the default enabled plugin list. If an operator overrides
+`bullx.enabled_plugins`, the override is the complete enabled list and must
+include the Telegram plugin id to keep this plugin active:
 
 ```json
-["bullx_telegram"]
+["feishu", "bullx_telegram"]
 ```
 
 Telegram configuration lives under the plugin namespace:

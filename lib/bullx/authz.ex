@@ -161,6 +161,20 @@ defmodule BullX.AuthZ do
     |> Repo.insert()
   end
 
+  @spec upsert_permission_grant(map()) ::
+          {:ok, PermissionGrant.t()} | {:error, Ecto.Changeset.t()}
+  def upsert_permission_grant(attrs) do
+    changeset = PermissionGrant.changeset(%PermissionGrant{}, attrs)
+
+    with {:ok, grant} <- Ecto.Changeset.apply_action(changeset, :insert) do
+      Repo.insert(changeset,
+        on_conflict: permission_grant_upsert_update(grant),
+        conflict_target: permission_grant_upsert_target(grant),
+        returning: true
+      )
+    end
+  end
+
   @spec update_permission_grant(PermissionGrant.t() | Ecto.UUID.t(), map()) ::
           {:ok, PermissionGrant.t()} | {:error, Ecto.Changeset.t()} | {:error, :not_found}
   def update_permission_grant(%PermissionGrant{} = grant, attrs) do
@@ -470,6 +484,28 @@ defmodule BullX.AuthZ do
           grant.action == ^action and
             (grant.principal_id == ^principal_id or grant.group_id in ^group_ids)
     )
+  end
+
+  defp permission_grant_upsert_update(%PermissionGrant{} = grant) do
+    [
+      set: [
+        description: grant.description,
+        metadata: grant.metadata,
+        updated_at: DateTime.utc_now(:microsecond)
+      ]
+    ]
+  end
+
+  defp permission_grant_upsert_target(%PermissionGrant{principal_id: principal_id})
+       when is_binary(principal_id) do
+    {:unsafe_fragment,
+     "(principal_id, resource_pattern, action, condition) WHERE principal_id IS NOT NULL"}
+  end
+
+  defp permission_grant_upsert_target(%PermissionGrant{group_id: group_id})
+       when is_binary(group_id) do
+    {:unsafe_fragment,
+     "(group_id, resource_pattern, action, condition) WHERE group_id IS NOT NULL"}
   end
 
   defp load_active_principal(principal_id) do

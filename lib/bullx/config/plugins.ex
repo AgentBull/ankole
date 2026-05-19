@@ -8,6 +8,6 @@ defmodule BullX.Config.Plugins do
   @envdoc false
   bullx_env(:enabled_plugins,
     type: BullX.Config.StringList,
-    default: []
+    default: ["feishu", "bullx_telegram"]
   )
 end

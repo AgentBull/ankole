@@ -33,6 +33,12 @@ defmodule BullX.Config.PluginsTest do
     assert BullX.Config.Plugins.enabled_plugins!() == ["local"]
   end
 
+  test "enabled_plugins defaults to Feishu and Telegram plugins" do
+    Application.delete_env(:bullx, :enabled_plugins)
+
+    assert BullX.Config.Plugins.enabled_plugins!() == ["feishu", "bullx_telegram"]
+  end
+
   test "invalid JSON falls through to the next source" do
     BullX.Repo.insert!(%BullX.Config.AppConfig{key: @db_key, value: "not-json"})
     BullX.Config.Cache.refresh(@db_key)

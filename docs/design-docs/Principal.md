@@ -80,8 +80,9 @@ id after their own design docs define their tables and runtime behavior.
   Principals.
 - **Invariants that must remain true:** process-local state is reconstructible;
   disabled Principals cannot authenticate or resolve as active subjects;
-  plaintext activation and login codes are never stored; channel actors remain
-  channel-local unless a subsystem explicitly resolves them.
+  Principal persistence stores only activation and login code hashes, never
+  plaintext code values; channel actors remain channel-local unless a subsystem
+  explicitly resolves them.
 - **Verification command:** run focused Principal tests and `bun precommit`.
 
 ## Existing system
@@ -367,10 +368,13 @@ On application startup, a one-shot transient worker runs after `BullX.Repo` and
 2. If any Human Principal exists, the worker does nothing.
 3. If a consumed activation code with `metadata.bootstrap = true` exists, the
    worker does nothing.
-4. If an unused, unrevoked bootstrap activation code exists, the worker refreshes
-   that row in place with a new hash and expiration.
-5. If no pending bootstrap row exists, the worker inserts one.
-6. When the worker creates or refreshes a bootstrap row, it logs the plaintext
+4. If an unused, unrevoked, unexpired bootstrap activation code is marked
+   setup-in-progress, the worker leaves that row unchanged.
+5. If an unused, unrevoked bootstrap activation code exists and is not protected
+   by the previous rule, the worker refreshes that row in place with a new hash
+   and expiration. Refresh clears the setup-in-progress marker.
+6. If no pending bootstrap row exists, the worker inserts one.
+7. When the worker creates or refreshes a bootstrap row, it logs the plaintext
    code exactly once.
 
 The create/refresh operation runs in a transaction protected by a PostgreSQL
@@ -386,8 +390,18 @@ administrator membership. This design does not create group or permission rows.
 The setup gate may verify a bootstrap activation code before the code is
 consumed. Verification returns the matched `code_hash` for a still-valid
 bootstrap row so a Phoenix session can store the hash rather than the plaintext.
-The gate check must not consume the activation code; consumption happens only
-through the channel activation path.
+The setup-specific gate check marks the row with `setup_gate_verified_at`. That
+marker suppresses bootstrap refresh only while the row is unexpired and
+unconsumed. If the marked row expires before `/preauth` consumes it, the
+bootstrap worker may refresh the same row with a new hash and expiration and log
+the new plaintext once. The gate check must not consume the activation code;
+consumption happens only through the channel activation path.
+
+The Principal subsystem does not define every session value that other Web
+surfaces may carry. Setup may define a narrower encrypted Phoenix cookie-session
+exception when it needs activation-code plaintext for the final operator-facing
+handoff page. That exception belongs to the setup design and must not change the
+Principal storage rule: activation code rows store hashes only.
 
 ## Built-in channel-auth login provider
 
@@ -626,13 +640,21 @@ Expected facade functions:
         | {:error, term()}
 
 @spec create_or_refresh_bootstrap_activation_code() ::
-        {:ok, %{code: String.t(), activation_code: BullX.Principals.ActivationCode.t(), action: :created | :refreshed}}
+        {:ok,
+         %{
+           code: String.t() | nil,
+           activation_code: BullX.Principals.ActivationCode.t(),
+           action: :created | :refreshed | :existing
+         }}
         | {:error, term()}
 
 @spec bootstrap_activation_code_pending?() :: boolean()
 
 @spec verify_bootstrap_activation_code(String.t()) ::
         {:ok, String.t()} | {:error, :invalid_or_expired_code}
+
+@spec verify_bootstrap_activation_code_for_setup(String.t()) ::
+        {:ok, String.t()} | {:error, :invalid_or_expired_code | Ecto.Changeset.t()}
 
 @spec bootstrap_activation_code_valid_for_hash?(String.t() | nil) :: boolean()
 
@@ -711,7 +733,9 @@ policy evaluation.
 
 Activation codes and login auth codes are secrets. BullX logs plaintext
 activation codes only for bootstrap create/refresh, exactly once per successful
-create or refresh. BullX never stores plaintext code values.
+create or refresh. Principal persistence never stores plaintext code values.
+Callers that receive one-time plaintext must keep it request-local unless
+another design explicitly defines a narrower encrypted-session handoff.
 
 External identity metadata may contain provider ids, tenant keys, profile
 snapshots, and troubleshooting context. It must not contain credentials or
@@ -828,8 +852,9 @@ the schema and behavior in this design.
    Depends on: Task 6.
    Acceptance: fresh Installation startup creates or refreshes one
    `metadata.bootstrap = true` activation code, logs plaintext only on create or
-   refresh, and stops touching bootstrap after a Human Principal exists or a
-   bootstrap code has been consumed.
+   refresh, leaves an unexpired setup-in-progress bootstrap code unchanged, and
+   stops touching bootstrap after a Human Principal exists or a bootstrap code
+   has been consumed.
    Verify: bootstrap worker tests.
 
 8. Implement built-in channel-auth login codes.
@@ -845,8 +870,10 @@ the schema and behavior in this design.
    Owns: Phoenix controllers/plugs/routes only if required by the current
    implementation slice.
    Depends on: Tasks 5, 7, and 8.
-   Acceptance: Web code calls `BullX.Principals` facade functions and stores
-   only Principal ids or bootstrap code hashes in the Phoenix session.
+   Acceptance: Principal-owned Web code calls `BullX.Principals` facade
+   functions and stores only Principal ids or bootstrap code hashes in the
+   Phoenix session. Other Web flows must define their own explicit session
+   exceptions in their owning design doc.
    Verify: focused controller tests if Web routes are added.
 
 ### Done when
@@ -878,13 +905,14 @@ binding to existing Principals, or a new Principal type.
   `BullX.Principals`.
 - Disabled Principals cannot resolve, log in, receive login auth codes, or run
   as active business subjects.
-- Activation-code plaintext is never stored, and consumption is transactional
-  and single-use.
+- Activation-code rows store only hashes, never plaintext, and consumption is
+  transactional and single-use.
 - Activation-code consumption creates a new Human Principal and first channel
   binding only. It never attaches a channel actor to an existing Principal.
 - Bootstrap activation uses `metadata.bootstrap = true`, refreshes pending
-  bootstrap rows in place, records `used_by_principal_id` on consumption, and
-  does not write AuthZ group membership.
+  bootstrap rows in place unless an unexpired setup-in-progress marker is
+  present, records `used_by_principal_id` on consumption, and does not write
+  AuthZ group membership.
 - Built-in channel-auth login code issuance and consumption work for active
   Human Principals and delete consumed codes.
 - AuthZ permission policy remains outside this design.

@@ -46,6 +46,9 @@ defmodule BullX.Principals.Bootstrap do
       {:ok, %{code: code, action: action}} when action in [:created, :refreshed] ->
         log_bootstrap_activation_code(code, action)
 
+      {:ok, %{action: :existing}} ->
+        :ok
+
       {:error, reason} when reason in [:bootstrap_not_required, :bootstrap_already_consumed] ->
         :ok
 

@@ -4,7 +4,8 @@ BullX plugins are trusted, compile-time Elixir extensions discovered from
 `plugins/*` and activated from runtime configuration. A plugin contributes
 typed extension-point declarations, runtime configuration declarations, and
 optional supervised children. BullX does not install or compile plugins at
-runtime; changing the enabled plugin list requires an application restart.
+runtime; changing the enabled plugin list requires an application restart. The
+code default enables the first-party Feishu and Telegram plugins.
 
 ## Scope
 
@@ -30,6 +31,8 @@ Node contracts, AuthN provider models, or Capability/Governance policy.
 - Keep plugins simple: local source code, compile-time dependencies, trusted
   BEAM modules, and restart-required activation.
 - Keep enablement in `app_configs` instead of adding plugin-specific tables.
+- Enable the first-party Feishu and Telegram plugins by default while preserving
+  one complete operator-owned enabled list.
 - Let plugins declare `BullX.Config` settings, including secret settings, using
   the same resolution and encryption behavior as core settings.
 - Make invalid plugin contracts fail close to startup instead of producing
@@ -66,12 +69,6 @@ The `packages/*` directory holds reusable libraries whose semantics do not
 depend on BullX. The new `plugins/*` directory is different: every immediate
 child Mix project under `plugins/` is a BullX plugin and may depend on BullX
 extension-point contracts.
-
-The draft referenced
-[MishkaInstaller](https://github.com/mishka-group/mishka_installer) as prior art.
-BullX borrows the idea that plugin authors implement a regular hook contract.
-BullX does not reuse MishkaInstaller's runtime installer, Mnesia storage,
-priority pipeline, runtime module generation, or plugin lifecycle state machine.
 
 ## Design
 
@@ -191,22 +188,27 @@ state.
 
 Enabled plugins are stored in `app_configs` through the normal configuration
 writer. The key is `bullx.enabled_plugins`. The stored value is a JSON array of
-plugin ids, for example:
+plugin ids. The default enabled list is:
 
 ```json
-["feishu", "github"]
+["feishu", "bullx_telegram"]
 ```
 
 `BullX.Config.Plugins` declares the accessor:
 
 | Accessor | DB key | OS env | Application config | Default |
 | --- | --- | --- | --- | --- |
-| `enabled_plugins!/0` | `bullx.enabled_plugins` | `BULLX_ENABLED_PLUGINS` | `:enabled_plugins` | `[]` |
+| `enabled_plugins!/0` | `bullx.enabled_plugins` | `BULLX_ENABLED_PLUGINS` | `:enabled_plugins` | `["feishu", "bullx_telegram"]` |
 
 The config type accepts a native list of strings from application config and a
 JSON array string from PostgreSQL or the OS environment. Invalid values follow
 the normal `BullX.Config` rule: the invalid source is ignored and resolution
 continues to the next source.
+
+An operator override is the complete enabled list, not a patch against the
+default. To disable every plugin, store `[]`. To keep Feishu or Telegram enabled
+while adding another plugin, include `"feishu"` or `"bullx_telegram"` in the
+override.
 
 Changing `bullx.enabled_plugins` changes the durable configuration value but
 does not change running plugin children or registry entries. The operator must
@@ -277,23 +279,13 @@ stores ciphertext, ETS stores plaintext inside the BEAM trust boundary, and
 changing `BULLX_SECRET_BASE` makes existing secret rows undecryptable until an
 operator restores the old root secret or overwrites the affected rows.
 
-## Alternatives considered
-
-| Alternative | Decision |
-| --- | --- |
-| Use MishkaInstaller directly | Rejected. It includes runtime installation, Mnesia state, priority pipelines, runtime module generation, and lifecycle features BullX does not need. |
-| Add plugin-specific tables | Rejected for v1. `app_configs` with `bullx.enabled_plugins` is enough for restart-required enablement. |
-| Require an explicit plugin manifest | Rejected. The `plugins/` directory is already the boundary; a Mix project in that directory is a plugin. |
-| Hot enable and disable plugins | Rejected. Restart-required activation is simpler and keeps supervision behavior understandable. |
-| Global hook pipeline with priority | Rejected. BullX extension points are typed contracts owned by subsystems. The host should not invent cross-subsystem ordering semantics. |
-| Treat disabled plugins as undiscovered | Rejected. Secret config declarations must be known before enablement so writes can encrypt secret keys correctly. |
-
 ## Implementation handoff
 
 ### Goal
 
 Implement the plugin host, compile-time plugin discovery, runtime enablement via
-`BullX.Config`, and documentation-aligned startup behavior.
+`BullX.Config`, the Feishu/Telegram default enabled list, and
+documentation-aligned startup behavior.
 
 ### Context pointers
 
@@ -303,9 +295,6 @@ Implement the plugin host, compile-time plugin discovery, runtime enablement via
 - `lib/bullx/config/secret_keys.ex`
 - `docs/Architecture.md`
 - `docs/design-docs/Configuration.md`
-- `internals/design-docs/drafts/Plugins.md`
-- MishkaInstaller reference: `lib/event/hook.ex`, `lib/event/event.ex`,
-  `lib/event/module_state_compiler.ex`, and `lib/installer/installer.ex`
 
 ### Constraints
 
@@ -350,8 +339,8 @@ Implement the plugin host, compile-time plugin discovery, runtime enablement via
    `lib/bullx/config/secret_keys.ex`.
    Depends on: Task 2.
    Acceptance: `enabled_plugins!/0` resolves a JSON array from `app_configs`,
-   and plugin-declared secret keys are encrypted even when the plugin is
-   disabled.
+   falls back to the Feishu/Telegram default when no override exists, and
+   plugin-declared secret keys are encrypted even when the plugin is disabled.
    Verify: config and secret-key tests.
 
 ### Done when

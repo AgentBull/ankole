@@ -46,6 +46,7 @@ defmodule BullX.Principals do
   defdelegate create_or_refresh_bootstrap_activation_code(), to: AuthN
   defdelegate bootstrap_activation_code_pending?(), to: AuthN
   defdelegate verify_bootstrap_activation_code(plaintext), to: AuthN
+  defdelegate verify_bootstrap_activation_code_for_setup(plaintext), to: AuthN
   defdelegate bootstrap_activation_code_valid_for_hash?(code_hash), to: AuthN
   defdelegate issue_login_auth_code(adapter, channel_id, external_id), to: AuthN
   defdelegate consume_login_auth_code(plaintext_code), to: AuthN

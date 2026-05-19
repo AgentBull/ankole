@@ -175,7 +175,9 @@ Profile rules:
   and `actor`, with `scene` as the default.
 - `unmentioned_group_messages` controls handling for
   `bullx.im.message.ambient`. V1 supports `observe_only` and `may_intervene`,
-  with `observe_only` as the default.
+  with `observe_only` as the AIAgent Core default when the profile omits the
+  field. Setup or another operator-facing profile writer may intentionally set
+  `may_intervene` as a product default for the Agent it creates.
 - `daily_reset.hour` is local wall-clock time in `HH:MM`; `daily_reset.timezone`
   must be an IANA timezone.
 - `context.max_turns` caps model/tool recursion for one handled entry.

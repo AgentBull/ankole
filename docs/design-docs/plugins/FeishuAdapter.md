@@ -157,10 +157,12 @@ directly, then route failures through `Feishu.Error`.
 
 ## Runtime configuration
 
-Operators enable the plugin through the normal plugin list:
+Feishu is in the default enabled plugin list. If an operator overrides
+`bullx.enabled_plugins`, the override is the complete enabled list and must
+include the Feishu plugin id to keep this plugin active:
 
 ```json
-["feishu"]
+["feishu", "bullx_telegram"]
 ```
 
 Feishu configuration lives under the plugin namespace:

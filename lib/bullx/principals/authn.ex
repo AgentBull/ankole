@@ -18,6 +18,7 @@ defmodule BullX.Principals.AuthN do
   @allow_create_human "allow_create_human"
   @human_fields %{"email" => :email, "phone" => :phone}
   @bootstrap_metadata_key "bootstrap"
+  @setup_gate_verified_at_key "setup_gate_verified_at"
   @bootstrap_activation_code_lock_namespace 92_409
   @bootstrap_activation_code_lock_id 8
 
@@ -125,6 +126,19 @@ defmodule BullX.Principals.AuthN do
     end
   end
 
+  @spec verify_bootstrap_activation_code_for_setup(String.t()) ::
+          {:ok, String.t()} | {:error, :invalid_or_expired_code | Ecto.Changeset.t()}
+  def verify_bootstrap_activation_code_for_setup(plaintext) when is_binary(plaintext) do
+    transaction(fn ->
+      now = utc_now()
+
+      case find_valid_bootstrap_activation_code_for_update(plaintext, now) do
+        nil -> {:error, :invalid_or_expired_code}
+        %ActivationCode{} = code -> mark_setup_gate_verified(code, now)
+      end
+    end)
+  end
+
   @spec bootstrap_activation_code_valid_for_hash?(String.t() | nil) :: boolean()
   def bootstrap_activation_code_valid_for_hash?(code_hash) when is_binary(code_hash) do
     now = utc_now()
@@ -143,7 +157,11 @@ defmodule BullX.Principals.AuthN do
 
   @spec create_or_refresh_bootstrap_activation_code() ::
           {:ok,
-           %{code: String.t(), activation_code: ActivationCode.t(), action: :created | :refreshed}}
+           %{
+             code: String.t() | nil,
+             activation_code: ActivationCode.t(),
+             action: :created | :refreshed | :existing
+           }}
           | {:error, term()}
   def create_or_refresh_bootstrap_activation_code do
     transaction(fn ->
@@ -721,8 +739,14 @@ defmodule BullX.Principals.AuthN do
 
   defp create_or_refresh_bootstrap_activation_code_in_transaction do
     case fetch_unused_bootstrap_activation_code() do
-      nil -> create_bootstrap_activation_code()
-      %ActivationCode{} = existing -> refresh_bootstrap_activation_code(existing)
+      nil ->
+        create_bootstrap_activation_code()
+
+      %ActivationCode{} = existing ->
+        case setup_in_progress_unexpired?(existing, utc_now()) do
+          true -> {:ok, %{code: nil, activation_code: existing, action: :existing}}
+          false -> refresh_bootstrap_activation_code(existing)
+        end
     end
   end
 
@@ -778,7 +802,48 @@ defmodule BullX.Principals.AuthN do
     metadata
     |> normalize_metadata()
     |> Map.put(@bootstrap_metadata_key, true)
+    |> Map.delete(@setup_gate_verified_at_key)
     |> Map.put("refreshed_at", DateTime.to_iso8601(now))
+  end
+
+  defp find_valid_bootstrap_activation_code_for_update(plaintext, now) do
+    now
+    |> valid_bootstrap_activation_codes_for_update()
+    |> Enum.find(&Code.verified?(plaintext, &1.code_hash))
+  end
+
+  defp valid_bootstrap_activation_codes_for_update(now) do
+    Repo.all(
+      from code in ActivationCode,
+        where:
+          is_nil(code.used_at) and is_nil(code.revoked_at) and code.expires_at > ^now and
+            fragment("? ->> ?", code.metadata, ^@bootstrap_metadata_key) == "true",
+        order_by: [asc: code.inserted_at],
+        lock: "FOR UPDATE"
+    )
+  end
+
+  defp mark_setup_gate_verified(%ActivationCode{} = code, now) do
+    metadata =
+      code.metadata
+      |> normalize_metadata()
+      |> Map.put(@bootstrap_metadata_key, true)
+      |> Map.put(@setup_gate_verified_at_key, DateTime.to_iso8601(now))
+
+    code
+    |> ActivationCode.changeset(%{metadata: metadata})
+    |> Repo.update()
+    |> case do
+      {:ok, updated} -> {:ok, updated.code_hash}
+      {:error, changeset} -> {:error, changeset}
+    end
+  end
+
+  defp setup_in_progress_unexpired?(%ActivationCode{} = code, now) do
+    metadata = normalize_metadata(code.metadata)
+
+    Map.has_key?(metadata, @setup_gate_verified_at_key) and
+      DateTime.compare(code.expires_at, now) == :gt
   end
 
   defp find_valid_login_auth_code(plaintext_code) do

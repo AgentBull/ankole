@@ -772,6 +772,11 @@ Constraints and indexes:
 - `action` does not contain `:`;
 - `metadata` is a JSON object;
 - indexes on `principal_id`, `group_id`, and `action`;
+- partial unique index on
+  `(principal_id, resource_pattern, action, condition)` where `principal_id IS
+  NOT NULL`, for idempotent Principal grant upsert;
+- partial unique index on `(group_id, resource_pattern, action, condition)`
+  where `group_id IS NOT NULL`, for idempotent group grant upsert;
 - foreign keys cascade when the Principal or group is deleted. Public group
   deletion rejects groups with grants before the database cascade can remove
   permission rows.
@@ -857,6 +862,9 @@ Expected facade functions:
         | {:error, :not_found | :last_admin_member | :last_active_human_admin | :computed_group}
 
 @spec create_permission_grant(map()) ::
+        {:ok, BullX.AuthZ.PermissionGrant.t()} | {:error, Ecto.Changeset.t()}
+
+@spec upsert_permission_grant(map()) ::
         {:ok, BullX.AuthZ.PermissionGrant.t()} | {:error, Ecto.Changeset.t()}
 
 @spec update_permission_grant(BullX.AuthZ.PermissionGrant.t() | Ecto.UUID.t(), map()) ::
@@ -1051,7 +1059,9 @@ described in this design.
    `BullX.AuthZ.PermissionGrant`.
    Depends on: Tasks 1 and 4.
    Acceptance: grants require exactly one subject, validate resource/action
-   rules, validate conditions on write, and store only JSON-object metadata.
+   rules, validate conditions on write, store only JSON-object metadata, and
+   support idempotent `upsert_permission_grant/1` by subject,
+   `resource_pattern`, `action`, and `condition`.
    Verify: grant tests.
 
 6. Implement authorization decisions.
@@ -1142,6 +1152,9 @@ execution behavior.
   bootstrap activation metadata or normal membership APIs.
 - Subsystems that introduce AuthZ enforcement seed ordinary `admin` grants or
   document their setup/bootstrap bypass behavior.
+- Subsystems that seed grants across retries use
+  `BullX.AuthZ.upsert_permission_grant/1` instead of writing
+  `permission_grants` directly.
 - Authorization uses resource-pattern plus exact-action matching and allow-any
   grant semantics.
 - Request resource strings cannot contain wildcard metacharacters; glob matching
