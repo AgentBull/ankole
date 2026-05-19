@@ -105,6 +105,10 @@ defmodule BullX.Principals.AuthN do
   def verify_bootstrap_activation_code(plaintext) when is_binary(plaintext) do
     now = utc_now()
 
+    # We can't index by the plaintext (it's never stored) so we load every live
+    # bootstrap hash and walk them. `Code.verified?/2` uses a constant-time
+    # compare, so this linear scan does not leak per-hash timing — the only
+    # observable thing is total candidate count, which is bounded and benign.
     hashes =
       Repo.all(
         from code in ActivationCode,

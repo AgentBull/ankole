@@ -43,6 +43,9 @@ defmodule BullX.EventBus.DeliveryCircuitBreaker do
     :ok
   end
 
+  # Half-open is never written; it's derived from time-since-opened. Concurrent
+  # probes can all see :half_open at once, but the first failure trips straight
+  # back to :open (see record_failure/4 for :half_open).
   defp gate_state(key, now, opts) do
     case :ets.lookup(@table, key) do
       [{^key, %{status: :open, opened_at: opened_at}}] ->

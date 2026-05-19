@@ -1,6 +1,22 @@
 defmodule BullX.AIAgent.Tools do
   @moduledoc """
   ToolSet expansion and `ReqLLM.Tool` rendering for AIAgent runtime.
+
+  In an OpenClaw / Hermes-style harness, tool access is configured per-agent:
+  the operator enables or denies a tool for the assistant, and that policy is
+  evaluated either as the model invokes the tool or even just as guidance in
+  the system prompt. BullX gates tools per-**caller**-per-**call**.
+
+  Tools are organized into **ToolSets** (a registered package of related
+  tools), and each tool declares an access tag (`:ordinary` or
+  `:privileged`). When the Runner prepares a generation, it asks `ACL` which
+  tags the *caller's* Principal holds in the *agent's* scope, and renders
+  only the tools whose tag the caller has into the schema sent to the model.
+  The model never sees tools the caller isn't authorized to invoke —
+  authorization happens at schema rendering, so the boundary is what the
+  model can even *propose*, not what gets rejected at execution time.
+
+  `enabled_tools/5` is the per-generation entry point used by `Runner`.
   """
 
   alias BullX.AIAgent.{ACL, Profile}

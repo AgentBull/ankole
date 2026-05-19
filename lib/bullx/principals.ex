@@ -2,6 +2,31 @@ defmodule BullX.Principals do
   @moduledoc """
   Principal identity and AuthN boundary.
 
+  ## Why this module exists
+
+  In an OpenClaw / Hermes-Agent / Claude Code-style harness, the underlying
+  identity model is implicit: there is one user (the operator), the agent
+  acts on that user's behalf, and tool authorization is configured per-agent
+  ("which tools is the assistant allowed to call"). Multi-user support is a
+  separately requested feature, typically bolted on with web-layer RBAC.
+
+  BullX is multi-tenant in its primitives. A **Principal** is the stable,
+  durable identity of any subject that can act, be acted upon, or hold
+  authority: humans, AI Agents, and (in future) other automated subjects all
+  share the same row shape. Every Conversation, Message, tool invocation,
+  Budget charge, ApprovalRequest, and routing decision references one or
+  more Principals — so the answer to "who did this?" and "who is authorized
+  to do that?" is a database fact, not a runtime convention.
+
+  Concretely, an `AIAgent` Target is itself a Principal (with an Agent
+  extension row carrying its profile, soul, mission, toolsets, etc.), and so
+  is every human reachable via a channel adapter or a login flow. This means
+  ACL checks, audit trails, and human-in-the-loop approvals operate on a
+  uniform identity surface — there is no "agent permissions" subsystem
+  separate from "user permissions".
+
+  ## Internal contract
+
   Public callers resolve, create, activate, and authenticate durable BullX
   subjects through this facade instead of composing schema modules directly.
   """

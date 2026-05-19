@@ -219,6 +219,11 @@ defmodule BullX.EventBus.ChannelAdapter do
 
   defp valid_adapter_id?(id) when is_binary(id), do: Regex.match?(@adapter_id, id)
 
+  # Adapters are trusted code but `normalize_inbound/2` returns user-influenced
+  # data — refuse to accept an Event whose `channel.adapter` doesn't match the
+  # adapter we just invoked. Otherwise a misbehaving or compromised adapter
+  # could mint Events that appear to come from a different adapter and reach
+  # rules scoped to it.
   defp validate_event_adapter(%Extension{} = extension, event) do
     expected = normalize_id(extension.id)
 

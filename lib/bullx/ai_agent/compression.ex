@@ -5,7 +5,15 @@ defmodule BullX.AIAgent.Compression do
   The implementation keeps the durable rule simple: summaries are Messages and
   raw Messages remain untouched. Provider cache hints are request-time metadata
   and never become Conversation truth.
+
+  Compression is best-effort: `manual_compress/2` and `auto_compress/3` return
+  `{:ok, %{status: :diagnostic, ...}}` (not `{:error, _}`) when a summary
+  cannot be produced — branch moved under us, model failed, no compressible
+  interval, etc. Callers are expected to continue with the un-compressed
+  branch and surface the diagnostic to the user.
   """
+
+  require Logger
 
   alias BullX.AIAgent.{Conversation, Conversations, Message, Profile, Time}
   alias BullX.LLM
@@ -47,7 +55,12 @@ defmodule BullX.AIAgent.Compression do
       {:error, :branch_changed} ->
         {:ok, %{status: :diagnostic, reason: "branch_changed"}}
 
-      {:error, _reason} ->
+      {:error, reason} ->
+        Logger.warning(
+          "ai_agent compression failed; user will see a diagnostic instead of summary " <>
+            "(conversation_id=#{conversation.id} reason=#{inspect(reason)})"
+        )
+
         {:ok, %{status: :diagnostic, reason: "compression_failed"}}
     end
   end
@@ -124,11 +137,20 @@ defmodule BullX.AIAgent.Compression do
     end
   end
 
+  # Excluded from compression:
+  # - :generating — not yet a stable Message, would corrupt the source-of-truth ordering
+  # - :summary — already a compression artifact; re-compressing would lose granularity
+  # - :im_ambient/:normal — ambient (unaddressed) chatter is recalled by scene at
+  #   render time, not via the branch, so it must not be folded into a summary
   defp protected_message?(%Message{status: :generating}), do: true
   defp protected_message?(%Message{kind: :summary}), do: true
   defp protected_message?(%Message{role: :im_ambient, kind: :normal}), do: true
   defp protected_message?(_message), do: false
 
+  # An "exchange" is the unit of compression: one source message (user or ambient
+  # introspection) plus a closed assistant turn, including all tool_call/tool_result
+  # pairs. We only compress complete exchanges so the summary boundary never lands
+  # inside a half-finished tool-call group — provider APIs reject such histories.
   defp complete_exchanges(messages) do
     {exchanges, current} =
       Enum.reduce(messages, {[], []}, fn message, {exchanges, current} ->

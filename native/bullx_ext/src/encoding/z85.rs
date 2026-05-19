@@ -1,3 +1,7 @@
+//! Z85 — ZeroMQ's base85 variant. Encodes 4-byte blocks of binary into 5
+//! ASCII characters using a URL/JSON-safe alphabet. Inputs that aren't a
+//! multiple of 4 bytes are rejected rather than padded.
+
 use rustler::{NifResult, OwnedBinary, Term};
 
 use crate::encoding::{binary_from_vec, decode_binary, decode_string, error};

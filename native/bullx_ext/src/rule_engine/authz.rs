@@ -1,3 +1,13 @@
+//! CEL-driven authorization:
+//!
+//! - **Computed groups**: each group carries a CEL condition over the
+//!   principal; matching group IDs are returned (evaluation is exhaustive).
+//! - **Grants**: each grant carries a resource glob plus a CEL condition;
+//!   the first grant matching both wins as `Allow`, otherwise `Deny`.
+//!
+//! Per-rule failures (compile errors, runtime errors, non-bool results)
+//! surface as diagnostics instead of halting the whole evaluation.
+
 use globset::{GlobBuilder, GlobMatcher};
 use rustler::{Encoder, Env, NifResult, Term};
 use serde_json::Value as JsonValue;
@@ -125,6 +135,9 @@ struct ComputedGroupDecision {
   invalid_groups: Vec<InvalidComputedGroup>,
 }
 
+/// Evaluate every group's CEL condition against `principal_env` and collect
+/// the IDs whose condition returned `true`. Exhaustive — every group is
+/// checked, no short-circuit.
 fn eval_computed_groups(
   principal_env: &PrincipalEnv,
   loaded_groups: &[LoadedComputedGroup],
@@ -172,6 +185,9 @@ fn eval_computed_groups(
   })
 }
 
+/// Default-deny. First grant whose pattern matches AND condition evaluates
+/// to `true` returns `Allow` (short-circuit); otherwise `Deny`. Per-grant
+/// failures surface in `invalid_grants` regardless of outcome.
 fn eval_loaded_grants(
   authz_env: &AuthzEnv,
   loaded_grants: &[LoadedGrant],
@@ -314,6 +330,9 @@ fn resource_pattern_matcher(pattern: &str) -> Result<GlobMatcher, String> {
     .map(|glob| glob.compile_matcher())
 }
 
+/// Map `:` (the project's segment separator, e.g. `workspace:a:b`) to `/`
+/// so globset's path-aware matching applies — `*` won't span segments and
+/// `**` can be used to span them explicitly.
 fn normalize_resource_for_glob(value: &str) -> String {
   value.replace(':', "/")
 }

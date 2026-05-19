@@ -1,6 +1,41 @@
 defmodule BullX.EventBus do
   @moduledoc """
-  EventBus acceptance API.
+  EventBus acceptance API — BullX's transport-agnostic Event dispatch layer.
+
+  ## The shape of the system
+
+  In an OpenClaw / Hermes-style agent harness, channels (Slack, Discord, cron,
+  webhooks) deliver into one ambient assistant loop; the assistant is the
+  subject and the channels are its inputs. BullX inverts that: channels emit
+  normalized **Events** into one Bus, and operator-defined **Event Routing
+  Rules** decide which **Target** (most commonly an `BullX.AIAgent`) handles
+  each Event and inside which scope.
+
+  Inbound events from IM channels, webhooks, schedulers, and internal
+  callbacks are normalized to CloudEvents by `BullX.EventBus.ChannelAdapter`
+  implementations and flow through one acceptance boundary — `accept/2`. The
+  bus then:
+
+  1. Matches the event against operator-defined Event Routing Rules
+     (declarative match expressions evaluated by a Rust NIF — see
+     `BullX.EventBus.RoutingTable`).
+  2. Resolves a **TargetSession** for the matched rule + scope/window
+     (`BullX.EventBus.TargetSession.Resolver`) — the durable per-window
+     work-queue that serializes events to one consumer.
+  3. Appends the event to that session and invokes the rule's Target.
+
+  ## What this buys
+
+  One Agent can be reached by a Discord DM, a Slack mention, a `/command`,
+  or a scheduled tick without the Agent code knowing the source. A noisy
+  group channel and a 1-on-1 DM with the same Agent are routed to *separate*
+  TargetSessions, so observing the group doesn't pollute the DM's generation
+  state. And the same Event can deliberately fan out to multiple Targets
+  (e.g. an AIAgent for judgment and a Workflow for an audit log) via
+  separate rules — routing is a declared, inspectable artifact rather than
+  prompt plumbing.
+
+  ## Acceptance boundary
 
   `accept/2` is the decoded CloudEvents-to-TargetSession handoff boundary. It
   validates the Event, matches one Event Routing Rule, and commits weak runtime
@@ -104,6 +139,12 @@ defmodule BullX.EventBus do
     {:ok, {:matched, rule, routing_context, diagnostics}}
   end
 
+  # Commands fall back to the addressed-message rule for the same channel/scope
+  # when no explicit command rule matches. This lets operators wire a single
+  # `bullx.im.message.addressed` rule for an Agent and have slash commands
+  # (e.g. `/reset`) reach the same TargetSession without a separate routing
+  # rule. The original command Event is preserved — only the routing context's
+  # `type` is rewritten for matching purposes.
   defp route_or_fallback({:no_match, diagnostics}, %{"type" => "bullx.command.invoked"} = context) do
     context
     |> addressed_command_context()

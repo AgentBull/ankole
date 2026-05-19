@@ -1,6 +1,26 @@
 defmodule BullX.AIAgent.SystemPromptBuilder do
   @moduledoc """
   Pure deterministic renderer for AIAgent system prompt sections.
+
+  Anyone who has run an OpenClaw / Hermes-style agent for any length of time
+  has hit the same wall: rising token costs, prompt-cache misses, and rate
+  limits caused by long sessions that re-inject growing memory + skill
+  files + history on every model call. The Hermes design responds with a
+  bounded "MEMORY.md ≈ 800 tokens / USER.md ≈ 500 tokens" budget; OpenClaw
+  responds with session pruning. BullX's response lives in this module: each
+  contributor declares its sections with an explicit **stability** tag.
+
+  At render time, sections are sorted so all `:stable` sections sit before
+  any `:volatile` one, forming a contiguous **stable prefix**. The output
+  exposes that prefix's byte offset (`stable_prefix.byte_offset`) so
+  downstream prompt-cache hints (`BullX.AIAgent.Compression.apply_prompt_cache_hints/2`)
+  can tell the provider exactly where to anchor the cache. Volatile content
+  (the live branch, recent observations, time-aware data) is always
+  appended *after* the cache anchor, so it never invalidates the prefix on
+  the next call.
+
+  This makes prompt caching a structural property of how prompts are
+  assembled, not a heuristic that hopes the prefix happens to stay stable.
   """
 
   alias ReqLLM.Message.ContentPart

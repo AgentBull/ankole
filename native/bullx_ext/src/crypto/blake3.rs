@@ -17,6 +17,7 @@ pub fn generic_hash(data: Term<'_>, salt: Term<'_>) -> NifResult<String> {
   blake3_hash_hex(input.as_slice(), salt)
 }
 
+/// Like [`generic_hash`] but encoded as base58 instead of hex.
 #[rustler::nif(schedule = "DirtyCpu")]
 pub fn bs58_hash(data: Term<'_>, salt: Term<'_>) -> NifResult<String> {
   let input = decode_binary(data, "data")?;

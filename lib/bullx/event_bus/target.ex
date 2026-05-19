@@ -2,6 +2,31 @@ defmodule BullX.EventBus.Target do
   @moduledoc """
   Target callback and dispatch boundary for EventBus.
 
+  ## Why Targets are an abstraction
+
+  In an OpenClaw / Hermes-style harness, "what receives a message" is
+  always the same thing: the assistant's agentic loop. Channels feed it, the
+  loop produces an answer. BullX separates routing (`BullX.EventBus`) from
+  *what handles a routed Event*: a Target is any code-owned module that
+  implements `handle_event/2`. An Event Routing Rule names the target type,
+  and EventBus dispatches the Event to the matching handler.
+
+  Currently registered target types: `:ai_agent` (flexible model/tool loop,
+  see `BullX.AIAgent`), `:workflow` (explicit branching/approval/parallel
+  process steps — under development), `:command` (in-process side effects
+  triggered by routed slash-commands), and `:external_agent_harness` (a
+  bridge to delegate work to an external runtime — under development).
+  Blackhole rules are handled inside `BullX.EventBus.accept/2` itself and
+  never reach a Target.
+
+  This split is what lets the same incoming Event flow to different kinds of
+  workers based on operator-defined rules — flexible AI judgment for
+  ambiguous cases, deterministic Workflows where process structure matters,
+  external harnesses for special-purpose agents — all sharing the same Event
+  envelope, TargetSession semantics, and audit trail.
+
+  ## Internal contract
+
   Concrete Target implementations are code-owned modules configured by target
   type. EventBus never derives module names from database strings.
   """

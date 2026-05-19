@@ -2,6 +2,7 @@ defmodule BullX.AIAgent.AmbientBatchWorker do
   @moduledoc false
 
   use GenServer
+  require Logger
 
   import Ecto.Query
 
@@ -52,6 +53,10 @@ defmodule BullX.AIAgent.AmbientBatchWorker do
   end
 
   defp handle_batch(batch_key, meta, items) do
+    # The single cleanup branch handles both genuine "don't intervene" outcomes
+    # (agent disabled, profile says ignore, recognizer returns :ignore) and real
+    # downstream errors (Profile.cast, write_introspection, Runner.run). We only
+    # log the latter so non-intervention stays quiet.
     with %Conversation{ended_at: nil} = conversation <-
            Repo.get(Conversation, meta["ambient_conversation_id"]),
          %Agent{profile: raw_profile} <- Repo.get(Agent, meta["agent_principal_id"]),
@@ -71,7 +76,16 @@ defmodule BullX.AIAgent.AmbientBatchWorker do
            }) do
       AmbientBatch.cleanup(batch_key)
     else
-      _other -> AmbientBatch.cleanup(batch_key)
+      {:error, reason} ->
+        Logger.warning(
+          "ambient_batch_worker: pipeline error, dropping batch " <>
+            "(batch_key=#{inspect(batch_key)} reason=#{inspect(reason)})"
+        )
+
+        AmbientBatch.cleanup(batch_key)
+
+      _other ->
+        AmbientBatch.cleanup(batch_key)
     end
   end
 

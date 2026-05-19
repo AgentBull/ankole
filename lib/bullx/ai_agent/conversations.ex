@@ -2,6 +2,40 @@ defmodule BullX.AIAgent.Conversations do
   @moduledoc """
   Conversation and Message mutation helpers for AIAgent runtime.
 
+  In an OpenClaw / Hermes-style harness, a session is the conversation you
+  are currently having — the source of truth is the live transcript, and a
+  "history" file or memory note is an artifact derived from it. In BullX a
+  Conversation is itself a durable **business record**: a per-scope chat
+  object that outlives any process, addressable as a Postgres row, with
+  product-level semantics (start, end, branch, summary, audit). Two
+  properties worth knowing before reading the code:
+
+  * Messages form a **tree** (each Message has `parent_id`), not a flat
+    list. The "active branch" is the path from the current leaf back to the
+    root, which lets the runtime rewind to a prior turn and explore an
+    alternate continuation without losing history.
+  * **Compression is durable.** A summary is itself a Message (with
+    `kind: :summary`) that covers a contiguous range of the branch; it lives
+    *alongside* the raw Messages it summarizes rather than replacing them, so
+    the un-compressed history is always retrievable.
+
+  ## Branch model
+
+  A Conversation stores Messages as a tree (each Message has `parent_id`). The
+  "active branch" is the path from `current_leaf_message_id` back to the root.
+  A leaf may be a `:summary` Message that overlays a range of raw Messages —
+  `raw_leaf_id/1` then unwraps the summary back to the underlying raw leaf so
+  appends continue from real conversation history rather than from the summary.
+
+  ## Generation lease
+
+  Exactly one runner generates for a Conversation at a time. The lease lives in
+  `conversation.generation` as a JSON blob with `lease_id`, `expires_at`,
+  `max_expires_at`, and heartbeat metadata. Callers acquire via
+  `acquire_generation_lease/3`, extend via `heartbeat_generation_lease/3`, and
+  every persist checks `owned_active_lease?/3` so a preempted runner cannot
+  write past its lease.
+
   Mutations that can affect the active branch lock the Conversation row. This
   keeps TargetSession redelivery, command handling, and generation recovery on
   one boring persistence path.
@@ -83,6 +117,12 @@ defmodule BullX.AIAgent.Conversations do
     end
   end
 
+  @doc """
+  Compare-and-swap append: succeeds only if the active branch's raw leaf still
+  matches `expected_raw_leaf_id`. Used by compression and other writers that
+  computed something against a specific branch snapshot and must abort cleanly
+  if a concurrent writer has since moved the leaf (returns `:branch_changed`).
+  """
   @spec append_message_if_raw_leaf(Conversation.t(), String.t() | nil, map(), keyword()) ::
           append_result()
   def append_message_if_raw_leaf(
@@ -187,6 +227,13 @@ defmodule BullX.AIAgent.Conversations do
     end
   end
 
+  @doc """
+  Returns the branch as it should be presented to the model: raw Messages with
+  the most recent compatible summary substituted in place of its
+  `covers_range`. If no compatible summary exists, summaries are stripped from
+  the branch entirely (they're persisted artifacts, not part of the live
+  context unless they cover a contiguous range of the current branch).
+  """
   @spec render_branch(Conversation.t() | String.t()) :: [Message.t()]
   def render_branch(%Conversation{} = conversation), do: render_branch(conversation.id)
 
@@ -467,6 +514,10 @@ defmodule BullX.AIAgent.Conversations do
 
   defp raw_leaf_id(%Conversation{current_leaf_message_id: nil}), do: nil
 
+  # When the leaf is a summary, the "raw" leaf is the original message the
+  # summary was anchored at — appends continue from there, not from the summary.
+  # The summary is a render-time overlay (see `render_branch/1`), not a real
+  # parent for future Messages.
   defp raw_leaf_id(%Conversation{current_leaf_message_id: leaf_id} = conversation) do
     case Repo.get(Message, leaf_id) do
       %Message{kind: :summary, metadata: %{"source_leaf_message_id" => source_leaf_id}} ->

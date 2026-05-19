@@ -2,9 +2,20 @@ defmodule BullX.AIAgent.ACL do
   @moduledoc """
   Narrow AIAgent access gate backed by `BullX.AuthZ`.
 
-  The gate answers whether a caller may invoke one Agent Principal, and whether
-  the same caller also has the extra grant needed for a privileged operation.
-  It does not introduce an ACL-specific policy store.
+  In an OpenClaw / Hermes-style harness, tool access is configured *per
+  agent* — the operator decides which tools the assistant can call, and that
+  configuration applies to every invocation. BullX gates *per call*: every
+  invocation carries the triggering caller's Principal, and ACL answers two
+  questions for that specific call against this specific Agent — "may this
+  caller talk to this Agent at all?" and "does this caller also hold the
+  privileged grant for tools tagged that way?". The model only sees the
+  toolset the caller's grants permit (see `BullX.AIAgent.Tools` for how
+  that subset reaches the schema).
+
+  ACL does not own a separate policy store; the actual grants live in the
+  general authorization system (`BullX.AuthZ`), which the rest of BullX
+  (Budgets, ApprovalRequests, channel sends, etc.) also queries against the
+  same Principal/grant tables.
   """
 
   alias BullX.AIAgent.Profile

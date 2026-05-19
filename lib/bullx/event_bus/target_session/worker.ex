@@ -1,6 +1,27 @@
 defmodule BullX.EventBus.TargetSession.Worker do
   @moduledoc """
-  Alive TargetSession Oban worker.
+  Alive TargetSession Oban worker — one durable actor per (rule, scope, window).
+
+  ## What a TargetSession is
+
+  In an OpenClaw / Hermes-style harness, "the session" usually means *the
+  conversation you are having with the agent* — a single, ambient context. In
+  BullX, sessions are derived: each combination of routing rule + scope key
+  (channel, thread, user, …) + time window gets its own TargetSession, and
+  one Agent will typically have many sessions live at once — a DM with each
+  of 50 users, the ambient observer for 12 group channels, a batch of
+  scheduled ticks — each progressing independently but serialized internally.
+
+  All events matching the same routing key land in the same session and are
+  processed one at a time by a single worker, so a downstream Agent never
+  needs locks around its LLM call, retry handling, or cross-event reasoning —
+  concurrency control is structural. The actor identity comes from routing
+  facts rather than being declared statically, its inbox is a Postgres-backed
+  side-channel rather than an in-memory queue, and its state survives crashes:
+  the worker can die and resume on another node by re-claiming the same
+  TargetSession row.
+
+  ## Internal contract
 
   One worker owns one active TargetSession window until terminal state or hard
   max runtime. Event payloads stay in side-channel entries, not job args.
@@ -28,6 +49,11 @@ defmodule BullX.EventBus.TargetSession.Worker do
 
       %TargetSession{} ->
         register(target_session_id)
+        # Targets call `TargetSession.close/1` and `attempt_close/1` without
+        # receiving the session id explicitly; they read it from the process
+        # dictionary. The close flag is buffered here until the current entry
+        # finishes so an in-flight invocation can request close mid-callback
+        # without racing the next `drain_one`.
         Process.put({TargetSession, :current_target_session_id}, target_session_id)
         emit(:started, %{target_session_id: target_session_id})
 
@@ -95,6 +121,9 @@ defmodule BullX.EventBus.TargetSession.Worker do
     end
   end
 
+  # Not a pure read: when the locked session is active-but-past-expiry, this
+  # transitions it to `:expired` inside the same `FOR UPDATE` so no concurrent
+  # nudge can revive an expired window. Callers observe `:terminal` either way.
   defp terminal_state(target_session_id) do
     Repo.transaction(fn ->
       target_session_id

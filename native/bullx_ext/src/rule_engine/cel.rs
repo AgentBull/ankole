@@ -1,3 +1,10 @@
+//! CEL (Common Expression Language) — Google's portable expression language,
+//! used here for rule and policy conditions across the rule engine.
+//!
+//! Conditions must evaluate to a boolean; non-boolean returns and runtime
+//! errors are classified via [`BoolEvalError`] so callers can surface them
+//! as diagnostics rather than failing the whole evaluation.
+
 use std::collections::HashMap;
 
 use cel::{Context, Program, Value as CelValue};
@@ -61,6 +68,8 @@ pub fn require_map<'a>(term: Term<'a>, field: &str) -> NifResult<HashMap<String,
   for (k, v) in MapIterator::new(term).ok_or_else(|| error(format!("{field} must be a map")))? {
     let key = map_key_to_string(k, field)?;
 
+    // Elixir structs carry a `__struct__` key with the module atom — drop
+    // it so struct terms can be consumed as plain maps.
     if key != "__struct__" {
       out.insert(key, v);
     }

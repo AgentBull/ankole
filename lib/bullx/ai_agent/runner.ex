@@ -1,11 +1,32 @@
 defmodule BullX.AIAgent.Runner do
   @moduledoc """
-  Shared AIAgent generation runner.
+  Shared AIAgent generation runner — the model/tool loop.
 
-  The runner owns the model/tool loop for one user-like source Message. It keeps
-  provider calls, tool execution, and visible delivery behind Conversation
-  persistence and ACL checks.
+  Familiar shape: call the model → if it returned tool calls, execute them →
+  append results → re-prompt → repeat until no tool calls. What makes this
+  different from a typical OpenClaw / Hermes-Agent / Claude Code agentic loop
+  is what happens between steps:
+
+  * **Each step is committed before the next runs.** Assistant messages, tool
+    results, and summaries are persisted as `Message` rows on the Conversation
+    branch *before* the loop advances. A crashed runner resumes from the last
+    committed step instead of replaying from the user input, and a transcript
+    is never a separate artifact — it *is* the branch.
+  * **A database-backed generation lease guards the Conversation.** Two
+    Events arriving concurrently for the same Conversation never both fire
+    the model: one runner holds the lease, the other waits or is preempted.
+    Heartbeats extend the lease while the model streams; a dead runner's
+    lease naturally expires and the next event takes over without manual
+    cleanup.
+
+  ## Internal contract
+
+  The runner owns the model/tool loop for one user-like source Message. It
+  keeps provider calls, tool execution, and visible delivery behind
+  Conversation persistence and ACL checks.
   """
+
+  require Logger
 
   alias BullX.AIAgent.{
     ACL,
@@ -54,6 +75,10 @@ defmodule BullX.AIAgent.Runner do
         context
       )
       when is_map(context) do
+    # Retry/replay safety: if a completed assistant message already exists for this
+    # source, resume from after-generation steps (re-deliver, finish unfinished tool
+    # results) instead of generating again. `force_generation?` bypasses the check
+    # for explicit user-initiated retries.
     case {Map.get(context, :force_generation?, false),
           Conversations.complete_assistant_for_source(source_message.id)} do
       {true, _assistant_message} ->
@@ -234,6 +259,10 @@ defmodule BullX.AIAgent.Runner do
   defp do_loop(conversation, source_message, profile, context, turn) do
     conversation = BullX.Repo.get!(Conversation, conversation.id)
 
+    # Each loop iteration is gated by `owned_active_lease?` and every persist that
+    # follows re-checks via `ensure_owned_active`. The invariant: if the lease has
+    # been preempted (TTL expired, another runner took over), no new Messages get
+    # appended, and the loop falls through to `:ok` without writing an error.
     with true <-
            Conversations.owned_active_lease?(
              conversation,
@@ -508,6 +537,11 @@ defmodule BullX.AIAgent.Runner do
         :ok
 
       chunk_text when is_binary(chunk_text) ->
+        # Raising here is deliberate: ReqLLM's stream pipeline turns this into a
+        # stream-level error, which `do_stream_model_call` catches as
+        # `{:error, reason}` and converts into a failed-stream finalization. The
+        # alternative — returning `{:error, _}` — would silently drop subsequent
+        # chunks while the model kept generating.
         with {:ok, _conversation} <- ensure_owned_active(conversation_id, context.lease_id),
              {:ok, _offset} <- output.append_chunk(stream_id, chunk_text) do
           :ok
@@ -621,6 +655,9 @@ defmodule BullX.AIAgent.Runner do
       parent = self()
       ref = make_ref()
 
+      # Heartbeat death is not catastrophic: the lease just stops being extended
+      # and naturally expires, which the next `ensure_owned_active` after `fun.()`
+      # catches as `:generation_inactive`. So this spawn is intentionally bare.
       pid =
         spawn(fn ->
           heartbeat_loop(parent, ref, conversation.id, lease_id, interval_ms)
@@ -657,6 +694,11 @@ defmodule BullX.AIAgent.Runner do
             heartbeat_loop(parent, ref, conversation_id, lease_id, interval_ms)
 
           {:error, reason} ->
+            Logger.warning(
+              "ai_agent generation heartbeat failed; lease will not be extended " <>
+                "(conversation_id=#{conversation_id} reason=#{inspect(reason)})"
+            )
+
             send(parent, {:ai_agent_generation_heartbeat_failed, ref, reason})
         end
     end

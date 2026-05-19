@@ -58,6 +58,7 @@ fn encode_base36(mut value: u128) -> String {
     return "0".to_owned();
   }
 
+  // u128 in base 36 fits in 25 digits (log_36(2^128) ≈ 24.78).
   let mut buffer = [0_u8; 26];
   let mut cursor = buffer.len();
 

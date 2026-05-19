@@ -1,3 +1,8 @@
+//! Event-bus routing rules. Each rule has a CEL condition over a routing
+//! context and a priority; the first rule (in ascending priority order)
+//! whose condition is `true` wins. Per-rule failures are returned as
+//! diagnostics so one bad rule doesn't sink the whole table.
+
 use ::cel::Context;
 use rustler::{Encoder, Env, NifResult, Term};
 use serde_json::Value as JsonValue;
@@ -30,6 +35,10 @@ pub fn eventbus_route_table_validate(rules: Term<'_>) -> NifResult<bool> {
   Ok(true)
 }
 
+/// Match `routing_context` against priority-sorted `rules`, returning
+/// `{:matched, rule_id, diagnostics}` on the first satisfied condition or
+/// `{:no_match, diagnostics}` if none match. Per-rule compile or execution
+/// failures accumulate as diagnostics without halting evaluation.
 #[rustler::nif(schedule = "DirtyCpu")]
 pub fn eventbus_match_route<'a>(
   env: Env<'a>,

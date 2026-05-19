@@ -86,6 +86,12 @@ defmodule BullX.AIAgent.MessageContextBuilder do
   defp expand_one_hour_window([], _agent_principal_id, _scene_key, _current_message),
     do: []
 
+  # Two-pass widening: the first pass took the last 10 ambient messages (LIMIT 10
+  # ORDER BY DESC); this pass back-fills any other ambient messages within one hour
+  # of the earliest one returned. The result is "the most recent 10, plus their
+  # one-hour conversational neighborhood" rather than "everything in the last hour"
+  # — important when the channel is quiet (we still get 10) or noisy (we still get
+  # the full conversational burst surrounding those 10).
   defp expand_one_hour_window(recent, agent_principal_id, scene_key, current_message) do
     import Ecto.Query
 

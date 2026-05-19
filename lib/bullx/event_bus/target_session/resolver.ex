@@ -1,5 +1,17 @@
 defmodule BullX.EventBus.TargetSession.Resolver do
-  @moduledoc false
+  @moduledoc """
+  Resolves an incoming Event to an active TargetSession to append into.
+
+  A TargetSession is keyed by (`event_routing_rule_id`, `target_type`,
+  `target_ref`, `scope_key`, `window_key`). For each new Event we either reuse
+  an existing active session under that key or insert a new one. Two time
+  limits bound a session:
+
+  * `expires_at` — rolling per-window TTL (refreshes on reuse for
+    `:rolling_ttl` rules)
+  * `hard_cap_at` — absolute @hard_cap_seconds cap from insertion (never
+    extended; protects against runaway sessions)
+  """
 
   import Ecto.Query
 
@@ -26,6 +38,10 @@ defmodule BullX.EventBus.TargetSession.Resolver do
   defp do_resolve(rule, scope_key, window_key, now, attempt) do
     expires_at = initial_expires_at(rule, now)
 
+    # Sweep expired sessions under this key first so `reusable_or_insert/6`
+    # only sees sessions that are still genuinely active — otherwise we might
+    # reuse one that's already past its window and immediately get expired by
+    # the worker on its next tick.
     with :ok <- expire_stale_candidates(rule, scope_key, window_key, now),
          {:ok, session} <-
            reusable_or_insert(rule, scope_key, window_key, expires_at, now, attempt) do
@@ -76,6 +92,10 @@ defmodule BullX.EventBus.TargetSession.Resolver do
     end
   end
 
+  # A unique-index violation here means a concurrent caller inserted the same
+  # (rule_id, target_type, target_ref, scope_key, window_key, active) row
+  # between our `find_active` and `insert`. Retry once — the second pass will
+  # take the reuse branch.
   defp retry_or_fail(rule, scope_key, window_key, _expires_at, changeset, :first) do
     case unique_conflict?(changeset) do
       true ->
@@ -184,6 +204,9 @@ defmodule BullX.EventBus.TargetSession.Resolver do
     min_datetime(ttl_expires_at, hard_cap_at)
   end
 
+  # Rolling TTL refresh never extends past the original hard cap — the cap is
+  # anchored at `inserted_at`, not "now", so an actively-used session still
+  # terminates within @hard_cap_seconds of its first event.
   defp refreshed_expires_at(%TargetSession{} = session, %EventRoutingRule{} = rule, now) do
     ttl_expires_at = DateTime.add(now, rule.window_ttl_seconds, :second)
     hard_cap_at = hard_cap_at(session)

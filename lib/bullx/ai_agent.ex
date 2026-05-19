@@ -1,6 +1,40 @@
 defmodule BullX.AIAgent do
   @moduledoc """
-  `ai_agent` EventBus Target implementation.
+  `ai_agent` EventBus Target — the runtime that drives one BullX AI Colleague's
+  model/tool loop in response to routed Events.
+
+  ## For readers coming from OpenClaw / Hermes-Agent / Claude Code-style harnesses
+
+  The inner loop looks familiar — call the model, dispatch tool calls, append
+  results, re-prompt. The structural differences worth knowing before reading
+  the code:
+
+  * **Conversation is a durable business record, not a session.** A
+    `BullX.AIAgent.Conversations` row is a Message tree in Postgres that can
+    branch and outlive any process. There is no "session you closed" — work
+    survives crashes, redeploys, and operator handoffs, and the branch is
+    addressable for replay.
+  * **One generation per Conversation, enforced at the database.** A
+    Conversation holds a generation lease while the model loop runs (see
+    `Runner`). Concurrent events for the same Conversation block on the lease
+    instead of double-firing the model — the harness, not the prompt, owns
+    concurrency.
+  * **Events arrive via `BullX.EventBus`, not as user prompts.** A BullX Agent
+    can be reached by Discord DMs, Slack mentions, slash commands, scheduled
+    ticks, or internal callbacks through one normalized pipe. Group-channel
+    ambient messages and direct mentions are routed to separate
+    TargetSessions, so observing a noisy channel does not pollute the Agent's
+    1-on-1 context.
+  * **Tools are gated per-caller, not per-agent.** Each invocation carries the
+    triggering Principal; the model only sees the subset of tools the caller's
+    ACL tags permit (see `BullX.AIAgent.Tools`). Authorization happens at
+    schema rendering, not as a runtime reject.
+
+  See [docs/Architecture.md](../docs/Architecture.md) and the README's "Three
+  Models, One Distinction" section for the broader colleague-vs-assistant
+  positioning.
+
+  ## Internal contract
 
   AIAgent owns Conversation and Message business records, prompt rendering,
   ACL checks, tool-loop execution, and safe visible-output metadata. EventBus

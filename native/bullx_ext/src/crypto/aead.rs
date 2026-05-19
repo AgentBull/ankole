@@ -1,3 +1,8 @@
+//! AEAD (Authenticated Encryption with Associated Data) using
+//! XChaCha20-Poly1305. The 24-byte extended nonce is wide enough to be
+//! randomly generated per call without birthday-bound concerns on a
+//! long-lived key.
+
 use chacha20poly1305::aead::{Aead, KeyInit};
 use chacha20poly1305::{Key, XChaCha20Poly1305, XNonce};
 use hex::FromHex;
@@ -11,6 +16,10 @@ use crate::encoding::{binary_from_vec, decode_binary, decode_string, error};
 const KEY_LEN: usize = 32;
 const NONCE_LEN: usize = 24;
 
+/// Encrypt with XChaCha20-Poly1305 using a fresh random 24-byte nonce.
+///
+/// Output format is `"<base64url(nonce)>.<base64url(ciphertext)>"` so the
+/// nonce travels alongside the ciphertext as a single string.
 #[rustler::nif(schedule = "DirtyCpu")]
 pub fn aead_encrypt(plaintext: Term<'_>, key: Term<'_>) -> NifResult<String> {
   let plaintext = decode_binary(plaintext, "plaintext")?;

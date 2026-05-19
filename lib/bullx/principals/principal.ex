@@ -2,6 +2,18 @@ defmodule BullX.Principals.Principal do
   @moduledoc """
   Durable BullX subject shared by Humans and Agents.
 
+  This is the row that gives BullX one of its defining properties: humans and
+  AI Agents are the *same kind of entity* in the authorization and audit
+  model. An Agent's permissions, Budget, outbound channel identity, and
+  ownership relations are stored on a Principal row exactly like a human's
+  are; type-specific facts (a human's external identities, an Agent's
+  profile and toolsets) live in one-to-one extension tables. ACL checks,
+  Budget charges, ApprovalRequest assignees, and Conversation participants
+  all reference Principals uniformly, which is what lets an Agent ask a
+  human for approval, hand off Work to another Agent, or be granted access
+  to a channel — without those flows needing separate "agent" and "user"
+  code paths.
+
   The Principal row is the stable authorization, audit, ownership, and
   responsibility identity. Type-specific facts live in one-to-one extension
   tables.

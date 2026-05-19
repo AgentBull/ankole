@@ -72,6 +72,9 @@ defmodule BullX.EventBus.RoutingTable do
     {:reply, {:error, reason || :route_table_unavailable}, state}
   end
 
+  # Direct branch is for boot-order callers (tests, migrations, init-time
+  # refresh) where the GenServer may not be alive yet — they read straight
+  # from the database instead.
   defp call_or_direct(server, message) do
     case GenServer.whereis(server) do
       nil -> direct(message)
@@ -115,6 +118,12 @@ defmodule BullX.EventBus.RoutingTable do
 
   defp materialize_match({:no_match, diagnostics}, _rules), do: {:ok, {:no_match, diagnostics}}
 
+  # The matcher (a Rust NIF) returns only the winning rule_id to keep the FFI
+  # cheap. Re-find the full EventRoutingRule from the cached list so callers
+  # get target_type, target_ref, window settings, etc. without a round trip.
+  # `:matched_rule_missing` here means a rule was retired between the cache
+  # snapshot the matcher saw and the rules list we have — caller will fall
+  # through to re-fetch.
   defp materialize_match({:matched, rule_id, diagnostics}, rules) do
     case Enum.find(rules, &(&1.id == rule_id)) do
       nil -> {:error, {:matched_rule_missing, rule_id}}
