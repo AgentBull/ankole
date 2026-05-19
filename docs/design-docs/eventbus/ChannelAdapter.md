@@ -211,8 +211,17 @@ Example shape:
 ```elixir
 %{
   inbound_modes: [:webhook, :websocket],
-  outbound_ops: [:send, :edit, :stream],
-  content_kinds: [:text, :image, :audio, :video, :file, :card],
+  outbound_ops: [:send, :edit, :recall, :stream],
+  content_kinds: [
+    :text,
+    :image,
+    :audio,
+    :video,
+    :file,
+    :card,
+    :control_notice,
+    :progress_notice
+  ],
   features: [:signature_verification, :reply, :threads],
   im_listen_modes: [:addressed_only, :all_messages]
 }
@@ -225,6 +234,14 @@ provider call.
 `content_kinds` is a coarse adapter capability list. Decoded CloudEvent content
 still uses the `NormalizedCloudEvent` content-part contract, with string `type`
 values such as `text`, `image_url`, `video_url`, `file`, `card`, and `action`.
+`control_notice` is outbound-only control feedback, not inbound user content.
+Adapters that support a provider-native system, notice, or ephemeral message may
+map it to that provider shape. Adapters without such a native shape degrade it
+to ordinary text with an explicit warning. `progress_notice` is outbound-only
+feedback for a command or runtime operation that may later update the same
+provider-visible message. Adapters with editable cards or messages may render it
+as an updateable surface; adapters without that surface degrade it to ordinary
+text.
 
 ### Source configuration
 
@@ -480,7 +497,7 @@ quoted sentence, or unaddressed group message must not become a command merely
 because a slash appears in the text.
 
 Channel adapters may also own adapter-local channel commands that are not
-EventBus command Events. `/preauth` and `/web_auth` are the default examples:
+EventBus command Events. `/preauth` and `/webauth` are the default examples:
 they start at the provider channel boundary, may need to run before Principal
 binding exists, and may rely on provider-private reply or interaction handles.
 Adapters handle those commands through Principal/Auth services and safe provider
@@ -507,7 +524,7 @@ and matcher-oriented.
 The adapter remains a transport boundary for EventBus command input. It does not
 select a Command Target handler, inspect Event Routing Rules, or write Command
 Target business facts. Adapter-local channel commands are limited to channel
-activation/login flows such as `/preauth` and `/web_auth`; they must not become a
+activation/login flows such as `/preauth` and `/webauth`; they must not become a
 general command routing path. A provider adapter is not required to support
 provider-native slash commands or text-command parsing. If a source lacks
 command support, setup or UI should fail closed for that feature, or ordinary
@@ -597,9 +614,40 @@ action.
 Outbound delivery uses `reply_channel` or another upstream-selected transport
 target. The adapter validates the provider target, renders content into
 provider-supported shapes, applies provider rate-limit behavior, and returns a
-safe result or safe error. Provider-specific limitations should fail closed or
-degrade explicitly with warnings; adapters must not silently drop important
-content.
+safe result or safe error. Successful sends and stream bootstrap deliveries
+should return provider message ids as `primary_external_id` and
+`external_message_ids` when the provider exposes them, so later edit or recall
+requests can target the visible message without storing raw provider payloads.
+Provider-specific limitations should fail closed or degrade explicitly with
+warnings; adapters must not silently drop important content.
+
+The common outbound operation names are:
+
+- `send`, create a new provider-visible message or equivalent transport item.
+- `edit`, update a provider-visible message by provider message id when the
+  provider supports editing that message shape.
+- `recall`, remove or withdraw a provider-visible message by provider message
+  id when the provider supports recall, deletion, or equivalent withdrawal.
+- `stream`, consume a BullX stream through provider live-update surfaces.
+
+`recall` is presentation cleanup, not durable business rollback. A caller may
+use it after committing a branch mutation such as AIAgent `/retry`, `/undo`, or
+`/stop`. Unsupported recall must fail closed with a safe unsupported error; the
+caller decides whether that transport failure affects user-visible diagnostics.
+
+Outbound content may include `control_notice` for command acknowledgements and
+other tooltip-like runtime feedback. It is not an Agent transcript Message and
+does not represent user or assistant dialogue. The adapter should render it with
+a provider-native notice/system surface when supported, otherwise fall back to
+text and return a degradation warning. Narrative command replies such as
+`/command` and `/status` remain ordinary text.
+
+Outbound content may include `progress_notice` for operations that have a
+started and terminal state, such as manual AIAgent context compression. It is
+also not transcript content. A caller may send it first with `op = "send"` and
+later update it with `op = "edit"` using the provider message id returned by the
+initial delivery. If an adapter cannot edit that surface, it may degrade the
+terminal state to a second text message.
 
 The common Channel Adapter boundary may apply a per-adapter/source delivery
 circuit breaker before calling a provider `deliver/4` callback. An open circuit
@@ -806,7 +854,7 @@ routing, TargetSession, Target, and business truth.
      `im_listen_mode = all_messages`.
      Command-shaped inputs normalize to `bullx.command.invoked` only when the
      provider command surface or adapter command grammar classifies them as
-     EventBus commands; `/preauth` and `/web_auth` may be handled as
+     EventBus commands; `/preauth` and `/webauth` may be handled as
      adapter-local channel activation/login commands; ordinary text that merely
      contains `/` remains a message Event.
 
@@ -870,7 +918,7 @@ Implementation is complete when tests cover:
   unaddressed slash text remain message Events or are ignored by transport
   admission;
 - adapter-local channel activation/login commands such as `/preauth` and
-  `/web_auth` do not enter EventBus command routing;
+  `/webauth` do not enter EventBus command routing;
 - no adapter-owned EventBus routing, TargetSession creation, side-channel
   append, Oban job creation, or Target invocation; business persistence in the
   adapter is limited to explicit channel activation/login command flows;

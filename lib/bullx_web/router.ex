@@ -25,6 +25,27 @@ defmodule BullXWeb.Router do
 
     get "/", PageController, :home
     get "/setup", SetupController, :show
+    get "/setup/sessions/new", SetupSessionController, :new
+    post "/setup/sessions", SetupSessionController, :create
+    get "/setup/plugins", SetupPluginsController, :show
+    post "/setup/plugins", SetupPluginsController, :update
+    get "/setup/llm/providers", SetupLLMController, :show
+    post "/setup/llm/providers/check", SetupLLMController, :check
+    post "/setup/llm/providers", SetupLLMController, :save
+    get "/setup/channel-sources", SetupChannelSourcesController, :show
+    post "/setup/channel-sources/check", SetupChannelSourcesController, :check
+
+    post "/setup/channel-sources/generated-secret",
+         SetupChannelSourcesController,
+         :generated_secret
+
+    post "/setup/channel-sources", SetupChannelSourcesController, :save
+    get "/setup/ai-agents", SetupAIAgentsController, :show
+    post "/setup/ai-agents", SetupAIAgentsController, :save
+    get "/setup/event-routing-rules", SetupEventRoutingController, :show
+    post "/setup/event-routing-rules", SetupEventRoutingController, :save
+    get "/setup/activate-admin", SetupActivationController, :show
+    get "/setup/activation/status", SetupActivationController, :status
     get "/sessions/new", SessionController, :new
     post "/sessions/login_auth", SessionController, :login_auth
     get "/sessions/oidc/:provider", SessionController, :oidc

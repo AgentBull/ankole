@@ -383,7 +383,7 @@ defmodule BullX.AIAgent.Runner do
        ) do
     with {:ok, generating_message} <-
            persist_generating_assistant(conversation, source_message, context, stream_id),
-         :ok <- start_stream_consumer(reply_channel, stream_id) do
+         :ok <- start_stream_consumer(reply_channel, stream_id, generating_message, context) do
       case LLM.stream_chat(profile.main_model, rendered.messages, opts,
              on_result: stream_chunk_callback(conversation.id, context, output, stream_id)
            ) do
@@ -489,18 +489,20 @@ defmodule BullX.AIAgent.Runner do
   end
 
   defp complete_streaming_assistant(
-         generating_message,
+         %Message{} = generating_message,
          source_message,
          result,
          context
        ) do
+    current_message = BullX.Repo.get(Message, generating_message.id) || generating_message
+
     metadata =
-      generating_message.metadata
+      current_message.metadata
       |> Map.merge(generation_metadata(source_message, context, result_metadata(result)))
       |> put_in(["stream", "finished_at"], DateTime.to_iso8601(DateTime.utc_now(:microsecond)))
       |> put_in(["stream", "status"], "completed")
 
-    Conversations.update_message(generating_message, %{
+    Conversations.update_message(current_message, %{
       status: :complete,
       content: assistant_content(result),
       metadata: metadata
@@ -524,10 +526,35 @@ defmodule BullX.AIAgent.Runner do
     })
   end
 
-  defp start_stream_consumer(reply_channel, stream_id) do
-    case Task.start(fn -> ChannelAdapter.consume_stream(reply_channel, stream_id) end) do
+  defp start_stream_consumer(reply_channel, stream_id, generating_message, context) do
+    opts = [
+      delivery_update_fun: fn result ->
+        record_stream_delivery(generating_message.id, context, result)
+      end
+    ]
+
+    case Task.start(fn -> ChannelAdapter.consume_stream(reply_channel, stream_id, opts) end) do
       {:ok, _pid} -> :ok
       {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp record_stream_delivery(message_id, _context, result) when is_binary(message_id) do
+    case BullX.Repo.get(Message, message_id) do
+      %Message{} = message ->
+        delivery =
+          (message.metadata["delivery"] || %{})
+          |> Map.merge(%{
+            "status" => "sent",
+            "adapter_result_ref" => safe_adapter_result_ref(result),
+            "safe_error_code" => nil,
+            "delivered_at" => DateTime.to_iso8601(DateTime.utc_now(:microsecond))
+          })
+
+        update_delivery_metadata(message, delivery)
+
+      nil ->
+        :ok
     end
   end
 
@@ -1090,6 +1117,9 @@ defmodule BullX.AIAgent.Runner do
       text == "" ->
         :ok
 
+      streamed_delivery?(assistant_message) ->
+        :ok
+
       not is_map(Map.get(context, :reply_channel)) ->
         update_delivery_metadata(assistant_message, %{
           "mode" => "outbound",
@@ -1140,6 +1170,9 @@ defmodule BullX.AIAgent.Runner do
         end
     end
   end
+
+  defp streamed_delivery?(%Message{metadata: %{"delivery" => %{"mode" => "stream"}}}), do: true
+  defp streamed_delivery?(_message), do: false
 
   defp maybe_attach_steering([], _context), do: []
 
@@ -1196,10 +1229,14 @@ defmodule BullX.AIAgent.Runner do
     result
     |> Map.take([
       "delivery_id",
+      "primary_external_id",
+      "external_message_ids",
       "message_id",
       "external_id",
       "id",
       :delivery_id,
+      :primary_external_id,
+      :external_message_ids,
       :message_id,
       :external_id,
       :id

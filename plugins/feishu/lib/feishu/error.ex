@@ -8,7 +8,7 @@ defmodule Feishu.Error do
   @rate_limit_codes [99_991_400]
   @reply_target_missing_codes [230_011, 231_003]
   @auth_codes [99_991_663, 99_991_664, 99_991_671, 10_012, 514, 403, 1_000_040_350]
-  @payload_codes [:bad_path, :bad_file, :unexpected_shape]
+  @payload_codes [:bad_path, :bad_file, :unexpected_shape, 99_992_402]
 
   @spec map(term()) :: map()
   def map(%OpenAPIError{} = error) do
@@ -93,5 +93,4 @@ defmodule Feishu.Error do
   defp json_scalar(value) when is_atom(value), do: Atom.to_string(value)
   defp json_scalar(nil), do: nil
   defp json_scalar(_value), do: nil
-
 end

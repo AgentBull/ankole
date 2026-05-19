@@ -22,7 +22,8 @@ defmodule Discord.DirectCommand do
     end
   end
 
-  @spec reply_text(map(), Source.t(), String.t(), String.t(), keyword()) :: {:ok, map()} | {:error, map()}
+  @spec reply_text(map(), Source.t(), String.t(), String.t(), keyword()) ::
+          {:ok, map()} | {:error, map()}
   def reply_text(command, %Source{} = source, text, command_name, opts \\ []) do
     with {:ok, result} <- Discord.Outbound.reply_text(command, source, text, opts) do
       {:ok, Map.merge(result, %{"command_name" => command_name})}
@@ -31,7 +32,13 @@ defmodule Discord.DirectCommand do
 
   defp run(%Source{} = source, %{name: "preauth", guild_id: guild_id} = command, opts)
        when is_binary(guild_id) and guild_id != "" do
-    reply_text(command, source, BullX.I18n.t("eventbus.discord.auth.direct_command_dm_only"), "preauth", opts)
+    reply_text(
+      command,
+      source,
+      BullX.I18n.t("eventbus.discord.auth.direct_command_dm_only"),
+      "preauth",
+      opts
+    )
   end
 
   defp run(%Source{} = source, %{name: "preauth", args: args} = command, opts) do
@@ -45,22 +52,34 @@ defmodule Discord.DirectCommand do
     reply_text(command, source, text, "preauth", opts)
   end
 
-  defp run(%Source{} = source, %{name: "web_auth", guild_id: guild_id} = command, opts)
+  defp run(%Source{} = source, %{name: "webauth", guild_id: guild_id} = command, opts)
        when is_binary(guild_id) and guild_id != "" do
-    reply_text(command, source, BullX.I18n.t("eventbus.discord.auth.direct_command_dm_only"), "web_auth", opts)
+    reply_text(
+      command,
+      source,
+      BullX.I18n.t("eventbus.discord.auth.direct_command_dm_only"),
+      "webauth",
+      opts
+    )
   end
 
-  defp run(%Source{} = source, %{name: "web_auth"} = command, opts) do
+  defp run(%Source{} = source, %{name: "webauth"} = command, opts) do
     text =
       "discord"
       |> BullX.Principals.issue_login_auth_code(source.id, command.actor.id)
-      |> web_auth_reply(BullX.Principals.web_login_url())
+      |> webauth_reply(BullX.Principals.web_login_url())
 
-    reply_text(command, source, text, "web_auth", opts)
+    reply_text(command, source, text, "webauth", opts)
   end
 
   defp run(%Source{} = source, command, opts) do
-    reply_text(command, source, BullX.I18n.t("eventbus.discord.errors.unsupported_message"), command.name, opts)
+    reply_text(
+      command,
+      source,
+      BullX.I18n.t("eventbus.discord.errors.unsupported_message"),
+      command.name,
+      opts
+    )
   end
 
   defp account_input(%Source{} = source, command) do
@@ -77,15 +96,33 @@ defmodule Discord.DirectCommand do
     }
   end
 
-  defp activation_reply({:ok, _principal, _identity}), do: BullX.I18n.t("eventbus.discord.auth.activation_success")
-  defp activation_reply({:error, :invalid_or_expired_code}), do: BullX.I18n.t("eventbus.discord.auth.activation_code_invalid")
-  defp activation_reply({:error, :already_bound}), do: BullX.I18n.t("eventbus.discord.auth.already_linked")
-  defp activation_reply({:error, :principal_disabled}), do: BullX.I18n.t("eventbus.discord.auth.denied")
-  defp activation_reply({:error, _reason}), do: BullX.I18n.t("eventbus.discord.auth.activation_failed")
-  defp web_auth_reply({:ok, code}, login_url), do: BullX.I18n.t("eventbus.discord.auth.web_auth_created", %{code: code, login_url: login_url})
-  defp web_auth_reply({:error, :not_bound}, _login_url), do: BullX.I18n.t("eventbus.discord.auth.web_auth_not_bound")
-  defp web_auth_reply({:error, :not_human}, _login_url), do: BullX.I18n.t("eventbus.discord.auth.web_auth_not_bound")
-  defp web_auth_reply({:error, :principal_disabled}, _login_url), do: BullX.I18n.t("eventbus.discord.auth.denied")
-  defp web_auth_reply({:error, _reason}, _login_url), do: BullX.I18n.t("eventbus.discord.auth.web_auth_failed")
+  defp activation_reply({:ok, _principal, _identity}),
+    do: BullX.I18n.t("eventbus.discord.auth.activation_success")
 
+  defp activation_reply({:error, :invalid_or_expired_code}),
+    do: BullX.I18n.t("eventbus.discord.auth.activation_code_invalid")
+
+  defp activation_reply({:error, :already_bound}),
+    do: BullX.I18n.t("eventbus.discord.auth.already_linked")
+
+  defp activation_reply({:error, :principal_disabled}),
+    do: BullX.I18n.t("eventbus.discord.auth.denied")
+
+  defp activation_reply({:error, _reason}),
+    do: BullX.I18n.t("eventbus.discord.auth.activation_failed")
+
+  defp webauth_reply({:ok, code}, login_url),
+    do: BullX.I18n.t("eventbus.discord.auth.webauth_created", %{code: code, login_url: login_url})
+
+  defp webauth_reply({:error, :not_bound}, _login_url),
+    do: BullX.I18n.t("eventbus.discord.auth.webauth_not_bound")
+
+  defp webauth_reply({:error, :not_human}, _login_url),
+    do: BullX.I18n.t("eventbus.discord.auth.webauth_not_bound")
+
+  defp webauth_reply({:error, :principal_disabled}, _login_url),
+    do: BullX.I18n.t("eventbus.discord.auth.denied")
+
+  defp webauth_reply({:error, _reason}, _login_url),
+    do: BullX.I18n.t("eventbus.discord.auth.webauth_failed")
 end

@@ -700,7 +700,7 @@ infer source state from process-local context:
 | `source_type` | `source_id` | TargetSession ids | Reply channel |
 | --- | --- | --- | --- |
 | `target_session_entry` | `target_session_entry_id` | Required from invocation. | From accepted Event `data.reply_channel`. |
-| `ambient_batch` | Deterministic ambient batch idempotency key. | Absent. | Captured session-level ambient `reply_channel` hint. |
+| `ambient_batch` | Deterministic processed-batch idempotency key. | Absent. | Captured session-level ambient `reply_channel` hint. |
 | `command_retry` | Command entry id. | Optional; present only when the command came from a TargetSession entry. | Reuses the retried source Message delivery context when still valid. |
 
 The runner always receives `agent_principal_id`, `conversation_id`,
@@ -710,7 +710,10 @@ carry `target_session_id` and `target_session_entry_id`; ambient batch runs must
 not fabricate those identifiers because the Redis batch worker is not a
 TargetSession Target invocation.
 
-For `source_type = ambient_batch`, the triggering Principal and safe caller
+For `source_type = ambient_batch`, the source id identifies the processed batch,
+not the long-lived ambient Conversation. Reprocessing the same Redis batch must
+reuse the same source id, while later batches in the same ambient Conversation
+must receive different source ids. The triggering Principal and safe caller
 context are the Agent Principal itself. Ambient message speakers remain evidence
 and context only; they are not the ACL caller for proactive generation.
 

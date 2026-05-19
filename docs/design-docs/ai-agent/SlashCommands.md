@@ -68,7 +68,7 @@ System commands such as `/command` and `/status` are Command Target handlers. If
 an adapter normalizes one of those inputs to
 `type = "bullx.command.invoked"` and an Event Routing Rule routes it to
 `target_type = "command"`, the command does not enter an AIAgent runtime.
-Channel activation and login commands such as `/preauth` and `/web_auth` are
+Channel activation and login commands such as `/preauth` and `/webauth` are
 adapter-owned entry points by default because they may run before Principal
 binding and may require provider-private reply context.
 
@@ -104,9 +104,15 @@ Target.
 
 When an ordinary text Event reaches an AIAgent and its leading text contains an
 AIAgent-owned slash token that was not adapter-normalized, the AIAgent runtime
-must run the same canonical catalog detection. Detection is deterministic:
+must run the same canonical catalog detection. Adapters for mention-gated IM
+surfaces may also normalize a provider mention followed by a bare known command
+word, such as `@Agent retry`, into `bullx.command.invoked` with
+`command_surface = "mention_text"`. Detection is deterministic:
 
 - Only a slash token at the beginning of the message is recognized.
+- A bare command word is recognized only on provider mention surfaces and only
+  when it is an exact known command token. Commands that do not take arguments
+  must not consume a following natural-language sentence.
 - A token-like string in the middle of ordinary text is not a command.
 - Text after the token becomes command arguments.
 - `/steer` requires a non-empty prompt.
@@ -129,7 +135,13 @@ A slash command input is not persisted as a `conversation_messages` record. A
 command response is a transport-visible control response and is not persisted as
 a `conversation_messages` record. Neither enters provider input, compression
 coverage, retry target selection, undo exchange selection, or ordinary assistant
-reply history.
+reply history. When the response is only status feedback, the outbound content
+kind is `control_notice`; adapters may render it as a provider-native system or
+tooltip-style message, and adapters without that surface degrade it to text.
+When a command has visible progress and a later terminal state, the outbound
+content kind is `progress_notice`; adapters with updateable message surfaces may
+render and edit one progress message, and adapters without that surface degrade
+to ordinary text.
 
 The runtime records only the durable state that a command actually changes:
 
@@ -149,6 +161,14 @@ Command handlers may emit a safe command response when a usable `reply_channel`
 exists. The response is fixed, content-free beyond the command result, and must
 not include prompt text, steering text, raw CloudEvents, provider payloads,
 credentials, private policy data, or reply bearer handles.
+
+Branch-affecting commands may also request provider-visible cleanup through the
+same `reply_channel`. If the Channel Adapter has previously returned a provider
+message id for an assistant output and supports outbound `recall`, the AIAgent
+may send a best-effort `recall` delivery for that provider message. Recall is a
+presentation cleanup only. `current_leaf_message_id`, Message metadata, and
+generation lease state remain the durable truth; a failed or unsupported recall
+must not roll back the command transaction.
 
 ## Runtime Metadata
 
@@ -349,15 +369,24 @@ Handler behavior:
    summary Message as an append parent.
 2. If a generation is active, return a safe no-op command response or diagnostic
    with `reason = "active_generation_present"`.
-3. Otherwise call the manual compression handoff with `conversation_id`,
+3. Otherwise emit a `progress_notice` with text equivalent to
+   "正在压缩历史对话..." when a usable `reply_channel` exists.
+4. Call the manual compression handoff with `conversation_id`,
    resolved raw active leaf id, triggering `target_session_entry_id`, and safe
    caller context.
-4. Exclude the current inbound Message, generating Message, and incomplete tool
+5. Exclude the current inbound Message, generating Message, and incomplete tool
    pair from compression coverage.
-5. If no provider-round interval can be compressed, return a safe no-op command
-   response or diagnostic with `reason = "no_compressible_interval"`.
+6. If compression writes a summary, update the progress notice to text
+   equivalent to "以上历史对话记录已被压缩"; channels without update support may send
+   that terminal text as a separate degraded message.
+7. If no provider-round interval can be compressed, update the same
+   `progress_notice` to text equivalent to "没有可压缩的历史对话". The internal
+   result may carry diagnostic `reason = "no_compressible_interval"`, but it
+   must not also emit a separate `control_notice`.
 
-The command never calls the main model or executes tools.
+The command never calls the main model or executes tools. Compression feedback
+is not a `control_notice` because the command may take long enough to need an
+updateable provider-visible surface.
 
 ### `retry`
 
@@ -396,12 +425,19 @@ Handler behavior:
    kind.
 6. Mark generated suffix Messages from the source child through the retry target
    with `metadata.branch_effect.state = "superseded"` and the command entry id.
-7. Set `current_leaf_message_id = source_message_id`.
-8. Acquire a generation lease under the same Conversation lock with
+7. Collect provider message ids from delivered assistant Messages in that suffix
+   when delivery metadata contains them.
+8. Set `current_leaf_message_id = source_message_id`.
+9. Acquire a generation lease under the same Conversation lock with
    `owner_source_type = "command_retry"`, `owner_source_id = command_entry_id`,
    and the original `source_message_id`.
-9. Commit.
-10. Start the normal generation runner with `source_message_id`, `lease_id`,
+10. Commit.
+11. Best-effort recall previously delivered assistant output before starting the
+    replacement generation, when the adapter supports recall.
+12. If no provider message was recalled because the channel lacks recall support,
+    the old output had no provider message id, or recall failed, return
+    control feedback before the replacement generation starts.
+13. Start the normal generation runner with `source_message_id`, `lease_id`,
     `owner_source_type = "command_retry"`, and `owner_source_id =
     command_entry_id`.
 
@@ -414,6 +450,11 @@ If the old turn already produced external side effects, `retry` does not roll
 them back. Retried tool calls still pass through command ACL, AuthZ, and the
 owning tool or domain idempotency boundary. Business compensation belongs to the
 owning Work, Tool, future Capability, or domain design.
+
+For IM channels that support message recall, the old visible assistant message
+should be recalled before the replacement assistant message is sent. Channels
+without recall support simply keep the old visible message; the superseded
+branch marker still defines what future AIAgent context renders.
 
 ### `steer`
 
@@ -443,6 +484,9 @@ Steering content must be marked as a human steering note. It must not masquerade
 as external tool output. Provider rendering may place the note inside the same
 tool result Message only so the model sees the new context in the next loop
 iteration; durable metadata does not preserve the original slash command.
+When a steer note is accepted, the command returns tooltip-like
+`control_notice` feedback. The feedback confirms only receipt; it must not echo
+the steering prompt.
 
 ### `stop`
 
@@ -460,8 +504,15 @@ Handler behavior:
    and no running owner can complete it, mark it with
    `metadata.branch_effect.state = "interrupted"` or the durable error outcome
    defined by the core streaming recovery design.
-5. Commit.
-6. The running Agentic Loop observes lease cancellation at the next check and
+5. If that generating assistant Message has already produced a streaming or
+   partial provider message id, collect it for best-effort recall.
+6. Commit.
+7. Best-effort recall the unfinished visible provider message when the adapter
+   supports recall.
+8. If no provider message was recalled because the channel lacks recall support,
+   the unfinished output had no provider message id, or recall failed, return
+   control feedback so the caller can still see that generation was stopped.
+9. The running Agentic Loop observes lease cancellation at the next check and
    stops before committing more assistant or tool output. Streaming cancellation
    is best effort.
 
@@ -506,14 +557,25 @@ Handler behavior:
    `reason = "no_undo_target"`.
 6. Mark the source and generated suffix Messages with
    `metadata.branch_effect.state = "undone"` and the command entry id.
-7. Set `current_leaf_message_id = source.parent_id`; if the source is root, set
+7. Collect provider message ids from delivered assistant Messages in that suffix
+   when delivery metadata contains them.
+8. Set `current_leaf_message_id = source.parent_id`; if the source is root, set
    it to `null`.
-8. Commit.
+9. Commit.
+10. Best-effort recall previously delivered assistant output when the adapter
+    supports recall.
+11. If no provider message was recalled because the channel lacks recall support,
+    the output had no provider message id, or recall failed, return control
+    feedback so the caller can still see that the branch was rewound.
 
 `undo` does not delete raw Messages, rewrite tool side effects, roll back Work,
 Artifact, or domain records, call the model, or execute tools. If the removed
 exchange produced an external side effect, compensation belongs to the owning
 Tool, future Capability, Work, or domain design.
+
+For IM channels that support recall, `undo` cleans up the assistant-visible part
+of the undone exchange. It does not recall the user's own source message and
+does not claim external side effects have been undone.
 
 ## Recovery And Idempotency
 
@@ -526,6 +588,9 @@ safety:
 - If `retry` crashes after marking the old turn but before starting the new run,
   the `metadata.branch_effect.state = "superseded"` suffix remains evidence and
   a later user action may retry again.
+- If provider-visible recall fails, the command still succeeds after the durable
+  branch mutation commits; the failure is a transport diagnostic, not a
+  Conversation rollback reason.
 - If `steer` is not consumed by the live generation before runtime loss or
   generation completion, it expires without durable replay.
 - If `undo` crashes after marking Messages but before moving the leaf, recovery
@@ -538,7 +603,11 @@ diagnostic when a usable `reply_channel` exists. `retry` sends no separate
 command response when it starts a replacement generation; its generated assistant
 output is the visible result. If `retry` becomes a no-op or error, it may return a
 safe diagnostic command response. Command responses are not persisted as
-Messages.
+Messages. Tooltip-like command acknowledgements use outbound `control_notice`;
+they are not ordinary assistant text. Longer-running command progress uses
+outbound `progress_notice`, which may be edited in place when the channel
+supports it. Descriptive command output owned by the EventBus Command Target,
+such as `/command` and `/status`, remains ordinary text.
 
 ## Implementation Handoff
 
@@ -584,8 +653,9 @@ TargetSession, Channel Adapter, LLMProvider, or Workflow ownership boundaries.
      to `target_type = "ai_agent"`.
    - Acceptance: `/new`, `/新会话`, `/compress`, `/压缩`, `/retry`,
      `/steer <prompt>`, `/stop`, and `/undo` normalize to canonical names;
-     unknown leading slash tokens do not call the model and are not privileged
-     commands.
+     provider mention text such as `@Agent retry` may normalize to the same
+     canonical command; unknown leading slash tokens do not call the model and
+     are not privileged commands.
    - Acceptance: unknown `bullx.command.invoked` names routed to an AIAgent return
      a safe command diagnostic and are not reinterpreted as ordinary user text.
    - Acceptance: adapter-normalized AIAgent commands do not require a generic
@@ -624,6 +694,9 @@ TargetSession, Channel Adapter, LLMProvider, or Workflow ownership boundaries.
      generation metadata.
    - Acceptance: `retry` reruns the last AI reply's source turn without copying
      the user Message, creating a new user turn, or deleting old evidence.
+   - Acceptance: when the old assistant output has provider delivery metadata
+     and the reply channel supports recall, `retry` recalls the old visible
+     output before sending the replacement output.
 
 7. Implement `steer`.
    - Owns: live control input delivery, optional tool result content block
@@ -638,12 +711,18 @@ TargetSession, Channel Adapter, LLMProvider, or Workflow ownership boundaries.
    - Acceptance: `stop` stops the unfinished turn; late provider or tool output
      no longer advances the active branch; visible partial output has a durable
      interrupted or error outcome.
+   - Acceptance: when unfinished streaming output already has a provider message
+     id and the reply channel supports recall, `stop` recalls that unfinished
+     visible output.
 
 9. Implement `undo`.
    - Owns: last exchange lookup, `metadata.branch_effect.state = "undone"`, leaf
      rewind, and no-delete recovery.
    - Acceptance: `undo` removes the last user/assistant exchange from active
      branch rendering while preserving durable raw Messages.
+   - Acceptance: when undone assistant output has provider delivery metadata and
+     the reply channel supports recall, `undo` recalls the assistant-visible
+     output without recalling the user's source message.
 
 10. Add command transaction and recovery tests.
     - Owns: focused tests for redelivery, active-generation races, crash
@@ -680,13 +759,16 @@ Implementation should stop and ask if it would require:
 - `bullx.command.invoked` can drive AIAgent-owned commands directly when routed
   to `target_type = "ai_agent"`.
 - `retry` reruns the turn that produced the last AI reply on the active
-  Conversation branch.
+  Conversation branch and recalls the old visible assistant output when the
+  channel supports recall.
 - `steer` appends a human steering note to the next tool result after the
   current tool finishes.
 - `stop` halts the current unfinished turn and prevents late output from
-  advancing the active branch.
+  advancing the active branch, recalling unfinished visible streaming output
+  when the channel supports recall.
 - `undo` removes the last user/assistant exchange from active branch rendering
-  without deleting durable evidence.
+  without deleting durable evidence, and recalls assistant-visible output when
+  the channel supports recall.
 
 Verification commands:
 

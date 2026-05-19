@@ -34,10 +34,13 @@ defmodule BullX.Principals do
   alias BullX.Principals.AuthN
 
   defdelegate get_principal(id), to: AuthN
+  defdelegate setup_required?(), to: AuthN
   defdelegate update_principal_status(principal_or_id, status), to: AuthN
   defdelegate disable_principal(principal_or_id), to: AuthN
   defdelegate create_human(attrs), to: AuthN
   defdelegate create_agent(attrs), to: AuthN
+  defdelegate update_agent(principal_or_id, attrs), to: AuthN
+  defdelegate list_active_agents(), to: AuthN
   defdelegate resolve_channel_actor(adapter, channel_id, external_id), to: AuthN
   defdelegate match_or_create_human_from_channel(input), to: AuthN
   defdelegate match_or_create_human_from_login_subject(input), to: AuthN
@@ -54,6 +57,10 @@ defmodule BullX.Principals do
   defdelegate login_provider_ids(server \\ BullX.Plugins.Registry),
     to: BullX.Principals.LoginProviders,
     as: :provider_ids
+
+  defdelegate login_provider_options(server \\ BullX.Plugins.Registry),
+    to: BullX.Principals.LoginProviders,
+    as: :provider_options
 
   @doc """
   URL of the web login page, derived from the configured Phoenix endpoint.

@@ -42,7 +42,16 @@ defmodule Discord.ChannelAdapter do
     %{
       inbound_modes: [:discord_gateway_ws, :interaction],
       outbound_ops: [:send, :edit, :stream],
-      content_kinds: [:text, :image, :audio, :video, :file, :card],
+      content_kinds: [
+        :text,
+        :image,
+        :audio,
+        :video,
+        :file,
+        :card,
+        :control_notice,
+        :progress_notice
+      ],
       features: [:threads, :application_commands, :ephemeral_provider_responses, :oauth2_login],
       stream_strategy: :edit_accumulate,
       im_listen_modes: Source.im_listen_modes()

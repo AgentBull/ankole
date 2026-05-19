@@ -25,4 +25,14 @@ defmodule BullX.RuleEngine.CEL do
   end
 
   def validate_condition(_condition), do: {:error, "condition must be a string"}
+
+  @doc """
+  Encodes a binary as a CEL string literal.
+
+  CEL string literals are JSON-compatible for the plain strings setup needs in
+  routing expressions. Using the JSON encoder keeps operator-provided adapter
+  and source ids out of hand-written CEL source.
+  """
+  @spec string_literal(String.t()) :: String.t()
+  def string_literal(value) when is_binary(value), do: Jason.encode!(value)
 end

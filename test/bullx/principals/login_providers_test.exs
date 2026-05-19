@@ -53,6 +53,9 @@ defmodule BullX.Principals.LoginProvidersTest do
 
     assert LoginProviders.provider_ids(name) == ["main"]
 
+    assert [%{id: "main", label: "main", provider: "test", source_id: "main"}] =
+             LoginProviders.provider_options(name)
+
     assert {:ok, %{url: "https://idp.example.com/main", state: %{"return_to" => "/"}}} =
              LoginProviders.authorization_url("main", %{"return_to" => "/"}, name)
 

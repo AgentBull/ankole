@@ -168,6 +168,12 @@ example, an adapter that renders outbound Feishu messages with local
 `kind/body` blocks still publishes inbound Event content as `type`-discriminated
 parts.
 
+Outbound-only delivery content may use shapes that are not valid inbound
+CloudEvent content parts. For example, `control_notice` is used for
+tooltip-like runtime feedback and may render as a provider-native system notice
+when a Channel Adapter supports it. It must not be published as inbound
+`data.content` or persisted as user/assistant dialogue.
+
 AIAgent is a first-class Target for this contract. When AIAgent persists inbound
 user or ambient transcript Messages, it deterministically projects normalized
 input into text blocks: `text.text` renders as-is; `card.fallback_text`,

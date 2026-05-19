@@ -72,6 +72,36 @@ defmodule BullX.Principals.AuthN do
     transaction(fn -> insert_agent_record(normalized) end)
   end
 
+  @spec update_agent(Principal.t() | Ecto.UUID.t(), map()) ::
+          {:ok, %{principal: Principal.t(), agent: Agent.t()}}
+          | {:error, :not_found | :not_agent}
+          | {:error, Ecto.Changeset.t()}
+  def update_agent(principal_or_id, attrs) when is_map(attrs) do
+    normalized = normalize_agent_update_attrs(attrs)
+
+    transaction(fn ->
+      with {:ok, principal} <- fetch_principal_for_update(principal_or_id),
+           :ok <- ensure_agent_principal(principal),
+           {:ok, principal} <- update_agent_principal(principal, normalized.principal),
+           {:ok, agent} <- update_agent_record(principal, normalized.agent) do
+        {:ok, %{principal: principal, agent: agent}}
+      end
+    end)
+  end
+
+  @spec list_active_agents() :: [%{principal: Principal.t(), agent: Agent.t()}]
+  def list_active_agents do
+    Agent
+    |> join(:inner, [agent], principal in assoc(agent, :principal))
+    |> where([_agent, principal], principal.status == :active and principal.type == :agent)
+    |> order_by([_agent, principal], asc: principal.inserted_at)
+    |> preload([_agent, principal], principal: principal)
+    |> Repo.all()
+    |> Enum.map(fn %Agent{principal: principal} = agent ->
+      %{principal: principal, agent: agent}
+    end)
+  end
+
   @spec setup_required?() :: boolean()
   def setup_required? do
     not Repo.exists?(from principal in Principal, where: principal.type == :human, select: 1)
@@ -329,6 +359,26 @@ defmodule BullX.Principals.AuthN do
     |> Repo.insert()
   end
 
+  defp update_agent_principal(%Principal{} = principal, attrs) do
+    principal
+    |> Principal.changeset(Map.merge(attrs, %{type: :agent}))
+    |> Repo.update()
+  end
+
+  defp update_agent_record(%Principal{id: principal_id}, attrs) do
+    case Repo.get(Agent, principal_id) do
+      nil ->
+        %Agent{}
+        |> Agent.changeset(Map.put(attrs, :principal_id, principal_id))
+        |> Repo.insert()
+
+      %Agent{} = agent ->
+        agent
+        |> Agent.changeset(attrs)
+        |> Repo.update()
+    end
+  end
+
   defp fetch_principal_for_update(%Principal{id: id}), do: fetch_principal_for_update(id)
 
   defp fetch_principal_for_update(id) when is_binary(id) do
@@ -355,6 +405,9 @@ defmodule BullX.Principals.AuthN do
   defp ensure_status_change_allowed(%Principal{} = principal, :disabled) do
     AuthZ.ensure_can_disable_principal(principal)
   end
+
+  defp ensure_agent_principal(%Principal{type: :agent}), do: :ok
+  defp ensure_agent_principal(%Principal{}), do: {:error, :not_agent}
 
   defp match_unbound_channel(input) do
     case evaluate_match_rules(input) do
@@ -903,6 +956,26 @@ defmodule BullX.Principals.AuthN do
   end
 
   defp normalize_agent_create_attrs(attrs) do
+    principal_source = map_attr(attrs, :principal) || map_attr(attrs, :principal_attrs) || attrs
+    agent_source = map_attr(attrs, :agent) || map_attr(attrs, :agent_attrs) || attrs
+
+    %{
+      principal: %{
+        uid: attr(principal_source, :uid),
+        type: :agent,
+        status: attr(principal_source, :status) || :active,
+        display_name: attr(principal_source, :display_name),
+        bio: attr(principal_source, :bio),
+        avatar_url: attr(principal_source, :avatar_url)
+      },
+      agent: %{
+        profile: attr(agent_source, :profile),
+        created_by_principal_id: attr(agent_source, :created_by_principal_id)
+      }
+    }
+  end
+
+  defp normalize_agent_update_attrs(attrs) do
     principal_source = map_attr(attrs, :principal) || map_attr(attrs, :principal_attrs) || attrs
     agent_source = map_attr(attrs, :agent) || map_attr(attrs, :agent_attrs) || attrs
 

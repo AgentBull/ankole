@@ -10,6 +10,7 @@ defmodule BullX.AIAgent.AmbientBatch do
 
   @ttl_ms 90_000
   @window_ms 30_000
+  @fast_window_floor_ms 1_000
   @freshness_ms 10_000
 
   @enqueue_lua """
@@ -22,6 +23,7 @@ defmodule BullX.AIAgent.AmbientBatch do
   local due_at = tonumber(ARGV[4])
   local ttl_ms = tonumber(ARGV[5])
   local now_ms = tonumber(ARGV[6])
+  local fresh_until = tonumber(ARGV[7])
 
   if redis.call('EXISTS', meta) ~= 0 then
     local existing = cjson.decode(redis.call('GET', meta))
@@ -30,6 +32,18 @@ defmodule BullX.AIAgent.AmbientBatch do
     if now_ms > existing_due_at then
       redis.call('DEL', meta, items)
       redis.call('ZREM', due, batch_key)
+    else
+      local incoming = cjson.decode(meta_json)
+      if incoming['reply_channel'] ~= nil then
+        existing['reply_channel'] = incoming['reply_channel']
+      end
+      if due_at < existing_due_at then
+        existing['due_at'] = due_at
+        existing['fresh_until'] = fresh_until
+        redis.call('ZADD', due, due_at, batch_key)
+      end
+      existing['latest_seen_at'] = now_ms
+      redis.call('SET', meta, cjson.encode(existing), 'PX', ttl_ms)
     end
   end
 
@@ -47,7 +61,7 @@ defmodule BullX.AIAgent.AmbientBatch do
   @spec enqueue(map()) :: :ok | {:error, term()}
   def enqueue(%{} = batch) do
     now_ms = now_ms()
-    due_at = now_ms + @window_ms
+    due_at = now_ms + due_in_ms(batch)
     batch_key = batch_key(batch.agent_principal_id, batch.ambient_conversation_id)
 
     meta =
@@ -72,7 +86,8 @@ defmodule BullX.AIAgent.AmbientBatch do
       Jason.encode!(stringify(batch.item)),
       due_at,
       @ttl_ms,
-      now_ms
+      now_ms,
+      due_at + @freshness_ms
     ]
 
     case Redis.command(command) do
@@ -80,6 +95,12 @@ defmodule BullX.AIAgent.AmbientBatch do
       {:error, reason} -> {:error, reason}
     end
   end
+
+  @spec default_window_ms() :: pos_integer()
+  def default_window_ms, do: @window_ms
+
+  @spec fast_window_ms() :: pos_integer()
+  def fast_window_ms, do: max(div(default_window_ms(), 10), @fast_window_floor_ms)
 
   @spec due_batches() :: {:ok, [String.t()]} | {:error, term()}
   def due_batches do
@@ -153,6 +174,11 @@ defmodule BullX.AIAgent.AmbientBatch do
   defp stringify(map) do
     Map.new(map, fn {key, value} -> {to_string(key), value} end)
   end
+
+  defp due_in_ms(%{due_in_ms: due_in_ms}) when is_integer(due_in_ms) and due_in_ms > 0,
+    do: due_in_ms
+
+  defp due_in_ms(_batch), do: @window_ms
 
   defp batch_key(agent_principal_id, conversation_id),
     do: "#{agent_principal_id}:#{conversation_id}"

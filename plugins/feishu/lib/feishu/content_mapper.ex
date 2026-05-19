@@ -1,6 +1,8 @@
 defmodule Feishu.ContentMapper do
   @moduledoc false
 
+  alias BullX.EventBus.ChannelAdapter.Content
+
   import BullX.Utils.Map, only: [maybe_put: 3]
 
   @media_kinds ~w(image file audio video)
@@ -9,21 +11,45 @@ defmodule Feishu.ContentMapper do
   def from_message(message, source) when is_map(message) do
     type = Map.get(message, "message_type") || Map.get(message, :message_type)
     body = decoded_content(message)
+    mention_replacements = mention_replacements(message)
 
     blocks =
       case type do
-        "text" -> [text_block(text_from_body(body))]
-        "post" -> [text_block(post_text(body))]
-        "interactive" -> [card_block(body)]
-        "image" -> [media_block("image", message, body, source)]
-        "file" -> [media_block("file", message, body, source)]
-        "audio" -> [media_block("audio", message, body, source)]
-        "video" -> [media_block("video", message, body, source)]
-        "sticker" -> [text_block("[sticker]")]
-        "emotion" -> [text_block(emotion_text(body))]
-        "emoji" -> [text_block(emotion_text(body))]
-        nil -> [text_block(text_from_body(body))]
-        _other -> [text_block(fallback_text(type))]
+        "text" ->
+          [text_block(normalize_text_mentions(text_from_body(body), mention_replacements))]
+
+        "post" ->
+          [text_block(normalize_text_mentions(post_text(body), mention_replacements))]
+
+        "interactive" ->
+          [card_block(body)]
+
+        "image" ->
+          [media_block("image", message, body, source)]
+
+        "file" ->
+          [media_block("file", message, body, source)]
+
+        "audio" ->
+          [media_block("audio", message, body, source)]
+
+        "video" ->
+          [media_block("video", message, body, source)]
+
+        "sticker" ->
+          [text_block("[sticker]")]
+
+        "emotion" ->
+          [text_block(emotion_text(body))]
+
+        "emoji" ->
+          [text_block(emotion_text(body))]
+
+        nil ->
+          [text_block(normalize_text_mentions(text_from_body(body), mention_replacements))]
+
+        _other ->
+          [text_block(fallback_text(type))]
       end
 
     {:ok, Enum.reject(blocks, &is_nil/1)}
@@ -34,28 +60,47 @@ defmodule Feishu.ContentMapper do
 
   defdelegate primary_text(blocks), to: BullX.EventBus.ChannelAdapter.Content
 
-  @spec render_outbound(term(), Feishu.Source.t() | nil) ::
+  @spec render_outbound(term(), Feishu.Source.t() | nil, keyword()) ::
           {:ok, map(), [String.t()]} | {:error, map()}
-  def render_outbound(content, source \\ nil)
+  def render_outbound(content, source \\ nil, opts \\ [])
 
-  def render_outbound([block | _rest], source), do: render_outbound(block, source)
+  def render_outbound([block | _rest], source, opts), do: render_outbound(block, source, opts)
 
-  def render_outbound(%{"type" => "text", "text" => text}, _source)
+  def render_outbound(%{"type" => "text", "text" => text}, _source, _opts)
       when is_binary(text) and text != "" do
     {:ok, %{msg_type: "text", content: Jason.encode!(%{text: text})}, []}
   end
 
-  def render_outbound(%{"kind" => "text", "body" => %{"text" => text}}, _source)
+  def render_outbound(%{"kind" => "text", "body" => %{"text" => text}}, _source, _opts)
       when is_binary(text) and text != "" do
     {:ok, %{msg_type: "text", content: Jason.encode!(%{text: text})}, []}
   end
 
-  def render_outbound(%{kind: "text", body: %{text: text}}, source),
-    do: render_outbound(%{"kind" => "text", "body" => %{"text" => text}}, source)
+  def render_outbound(%{kind: "text", body: %{text: text}}, source, opts),
+    do: render_outbound(%{"kind" => "text", "body" => %{"text" => text}}, source, opts)
+
+  def render_outbound(%{"type" => "control_notice"} = block, _source, opts),
+    do: render_control_notice(block, opts)
+
+  def render_outbound(%{"kind" => "control_notice"} = block, _source, opts),
+    do: render_control_notice(block, opts)
+
+  def render_outbound(%{kind: "control_notice"} = block, _source, opts),
+    do: block |> stringify_keys() |> render_control_notice(opts)
+
+  def render_outbound(%{"type" => "progress_notice"} = block, _source, _opts),
+    do: render_progress_notice(block)
+
+  def render_outbound(%{"kind" => "progress_notice"} = block, _source, _opts),
+    do: render_progress_notice(block)
+
+  def render_outbound(%{kind: "progress_notice"} = block, _source, _opts),
+    do: block |> stringify_keys() |> render_progress_notice()
 
   def render_outbound(
         %{"type" => "card", "format" => format, "payload" => payload},
-        _source
+        _source,
+        _opts
       )
       when format in ["feishu.card", "feishu.card.v2"] and is_map(payload) do
     {:ok, %{msg_type: "interactive", content: Jason.encode!(payload)}, []}
@@ -63,20 +108,21 @@ defmodule Feishu.ContentMapper do
 
   def render_outbound(
         %{"kind" => "card", "body" => %{"format" => format, "payload" => payload}},
-        _source
+        _source,
+        _opts
       )
       when format in ["feishu.card", "feishu.card.v2"] and is_map(payload) do
     {:ok, %{msg_type: "interactive", content: Jason.encode!(payload)}, []}
   end
 
-  def render_outbound(%{"type" => type} = part, source)
+  def render_outbound(%{"type" => type} = part, source, opts)
       when type in ["image_url", "image", "video_url", "file"] do
     part
     |> outbound_media_block()
-    |> render_outbound(source)
+    |> render_outbound(source, opts)
   end
 
-  def render_outbound(%{"kind" => kind, "body" => body}, %Feishu.Source{} = source)
+  def render_outbound(%{"kind" => kind, "body" => body}, %Feishu.Source{} = source, _opts)
       when kind in @media_kinds do
     with {:ok, file} <- outbound_file(body, kind, source),
          {:ok, key} <- upload_media(file, kind, source) do
@@ -93,11 +139,12 @@ defmodule Feishu.ContentMapper do
     end
   end
 
-  def render_outbound(%{"kind" => kind, "body" => body}, _source) when kind in @media_kinds do
+  def render_outbound(%{"kind" => kind, "body" => body}, _source, _opts)
+      when kind in @media_kinds do
     render_media_fallback(kind, body, "#{kind}_degraded_to_fallback_text")
   end
 
-  def render_outbound(_content, _source),
+  def render_outbound(_content, _source, _opts),
     do: {:error, Feishu.Error.unsupported("unsupported Feishu content")}
 
   defp decoded_content(%{"content" => content}), do: decode_content(content)
@@ -143,6 +190,236 @@ defmodule Feishu.ContentMapper do
   defp post_fragment(%{"tag" => "a", "text" => text}) when is_binary(text), do: text
   defp post_fragment(%{"tag" => "at", "user_name" => name}) when is_binary(name), do: "@" <> name
   defp post_fragment(_fragment), do: ""
+
+  defp render_control_notice(block, opts) do
+    cond do
+      Keyword.get(opts, :force_text_notice?, false) ->
+        render_control_notice_text(block, ["control_notice_degraded_to_text"])
+
+      Keyword.get(opts, :scope_kind) in ["dm", :dm, "p2p", :p2p] ->
+        render_control_notice_system(block)
+
+      true ->
+        render_control_notice_card(block)
+    end
+  end
+
+  defp render_control_notice_system(block) do
+    body = notice_body(block)
+    text = system_notice_text(body)
+
+    content =
+      %{
+        "type" => "divider",
+        "params" => %{
+          "divider_text" =>
+            %{"text" => text}
+            |> maybe_put("i18n_text", system_notice_i18n(body))
+        },
+        "options" => %{"need_rollup" => true}
+      }
+
+    {:ok, %{msg_type: "system", content: Jason.encode!(content)}, []}
+  end
+
+  defp render_control_notice_text(block, warnings) do
+    case Content.delivery_text(block) do
+      text when is_binary(text) and text != "" ->
+        {:ok, %{msg_type: "text", content: Jason.encode!(%{text: text})}, warnings}
+
+      _value ->
+        {:error, Feishu.Error.payload("Feishu control notice requires text")}
+    end
+  end
+
+  defp render_control_notice_card(block) do
+    case Content.delivery_text(block) do
+      text when is_binary(text) and text != "" ->
+        {:ok, interactive_card(compact_notice_card(text, false)), []}
+
+      _value ->
+        {:error, Feishu.Error.payload("Feishu control notice requires text")}
+    end
+  end
+
+  defp render_progress_notice(block) do
+    case Content.delivery_text(block) do
+      text when is_binary(text) and text != "" ->
+        {:ok, interactive_card(compact_notice_card(text, progress_divider?(block))), []}
+
+      _value ->
+        {:error, Feishu.Error.payload("Feishu progress notice requires text")}
+    end
+  end
+
+  defp interactive_card(card), do: %{msg_type: "interactive", content: Jason.encode!(card)}
+
+  defp compact_notice_card(text, divider?) do
+    elements =
+      case divider? do
+        true -> [compact_hr(), compact_text(text)]
+        false -> [compact_text(text)]
+      end
+
+    %{
+      "schema" => "2.0",
+      "config" => %{"update_multi" => true},
+      "body" => %{
+        "direction" => "vertical",
+        "horizontal_spacing" => "8px",
+        "vertical_spacing" => "8px",
+        "horizontal_align" => "left",
+        "vertical_align" => "top",
+        "padding" => "12px 12px 12px 12px",
+        "elements" => elements
+      }
+    }
+  end
+
+  defp compact_hr, do: %{"tag" => "hr", "margin" => "0px 0px 0px 0px"}
+
+  defp compact_text(text) do
+    %{
+      "tag" => "div",
+      "text" => %{
+        "tag" => "plain_text",
+        "content" => text,
+        "text_size" => "notation",
+        "text_align" => "left",
+        "text_color" => "grey"
+      },
+      "margin" => "0px 0px 0px 0px"
+    }
+  end
+
+  defp progress_divider?(%{"show_divider" => true}), do: true
+  defp progress_divider?(%{"body" => %{"show_divider" => true}}), do: true
+  defp progress_divider?(_block), do: false
+
+  defp notice_body(%{"kind" => "control_notice", "body" => body}) when is_map(body),
+    do: stringify_keys(body)
+
+  defp notice_body(%{"type" => "control_notice"} = block), do: stringify_keys(block)
+
+  defp system_notice_text(body) do
+    body
+    |> first_string(["short_text", "text"])
+    |> case do
+      nil -> "Notice"
+      text -> String.slice(text, 0, 20)
+    end
+  end
+
+  defp system_notice_i18n(%{"i18n" => i18n}) when is_map(i18n) do
+    i18n
+    |> stringify_keys()
+    |> Enum.flat_map(fn
+      {locale, value} when is_binary(value) ->
+        case String.trim(value) do
+          "" -> []
+          text -> [{locale, String.slice(text, 0, 20)}]
+        end
+
+      _entry ->
+        []
+    end)
+    |> case do
+      [] -> nil
+      entries -> Map.new(entries)
+    end
+  end
+
+  defp system_notice_i18n(_body), do: nil
+
+  defp normalize_text_mentions(text, replacements)
+       when is_binary(text) and is_list(replacements) do
+    text
+    |> String.trim()
+    |> strip_leading_mentions(replacements)
+    |> replace_remaining_mentions(replacements)
+    |> String.trim()
+  end
+
+  defp normalize_text_mentions(text, _replacements), do: text
+
+  defp strip_leading_mentions(text, replacements) do
+    trimmed = String.trim_leading(text)
+
+    case Enum.find(replacements, fn {key, _display} -> String.starts_with?(trimmed, key) end) do
+      {key, _display} ->
+        trimmed
+        |> binary_part(byte_size(key), byte_size(trimmed) - byte_size(key))
+        |> strip_leading_mentions(replacements)
+
+      nil ->
+        trimmed
+    end
+  end
+
+  defp replace_remaining_mentions(text, replacements) do
+    Enum.reduce(replacements, text, fn {key, display}, acc ->
+      String.replace(acc, key, display)
+    end)
+  end
+
+  defp mention_replacements(message) do
+    message
+    |> message_mentions()
+    |> Enum.flat_map(&mention_replacement/1)
+    |> Enum.uniq_by(&elem(&1, 0))
+    |> Enum.sort_by(fn {key, _display} -> byte_size(key) end, :desc)
+  end
+
+  defp message_mentions(%{"mentions" => mentions}) when is_list(mentions), do: mentions
+  defp message_mentions(%{mentions: mentions}) when is_list(mentions), do: mentions
+  defp message_mentions(_message), do: []
+
+  defp mention_replacement(mention) when is_map(mention) do
+    mention = stringify_keys(mention)
+
+    mention
+    |> first_string(["key", "mention_key", "placeholder"])
+    |> mention_key_variants()
+    |> Enum.map(&{&1, mention_display(mention)})
+  end
+
+  defp mention_replacement(_mention), do: []
+
+  defp mention_key_variants(key) when is_binary(key) do
+    trimmed = String.trim(key)
+
+    cond do
+      trimmed == "" ->
+        []
+
+      String.starts_with?(trimmed, "@") ->
+        [trimmed]
+
+      true ->
+        ["@" <> trimmed, trimmed]
+    end
+  end
+
+  defp mention_key_variants(_key), do: []
+
+  defp mention_display(mention) do
+    case first_string(mention, ["name", "user_name", "text"]) do
+      name when is_binary(name) ->
+        "@" <> String.trim_leading(String.trim(name), "@")
+
+      nil ->
+        mention_id_display(mention)
+    end
+  end
+
+  defp mention_id_display(%{"id" => ids}) when is_map(ids) do
+    case first_string(ids, ["open_id", "user_id", "union_id"]) do
+      id when is_binary(id) -> "@" <> id
+      nil -> ""
+    end
+  end
+
+  defp mention_id_display(_mention), do: ""
 
   defp card_block(payload) when is_map(payload) do
     %{
@@ -372,6 +649,22 @@ defmodule Feishu.ContentMapper do
   defp card_fallback(%{"config" => %{"summary" => summary}}) when is_binary(summary), do: summary
   defp card_fallback(_payload), do: "[card]"
 
+  defp first_string(map, keys) do
+    Enum.find_value(keys, fn key ->
+      case Map.get(map, key) do
+        value when is_binary(value) -> present_string(value)
+        _value -> nil
+      end
+    end)
+  end
+
+  defp present_string(value) do
+    case String.trim(value) do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
   defp stringify_keys(map) do
     Map.new(map, fn
       {key, value} when is_atom(key) -> {Atom.to_string(key), stringify_nested(value)}
@@ -384,5 +677,4 @@ defmodule Feishu.ContentMapper do
   defp stringify_nested(value), do: value
 
   defp present?(value), do: is_binary(value) and String.trim(value) != ""
-
 end

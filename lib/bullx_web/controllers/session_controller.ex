@@ -7,45 +7,39 @@ defmodule BullXWeb.SessionController do
 
   def new(conn, params) do
     return_to = local_return_to(params["return_to"])
-    providers = provider_links(return_to)
 
-    html(
-      conn,
-      """
-      <!doctype html>
-      <html>
-      <body>
-      <form method="post" action="/sessions/login_auth">
-        <input name="_csrf_token" type="hidden" value="#{get_csrf_token()}">
-        <input name="return_to" type="hidden" value="#{escape(return_to)}">
-        <input name="code" autocomplete="one-time-code">
-        <button type="submit">Sign in</button>
-      </form>
-      #{providers}
-      </body>
-      </html>
-      """
-    )
+    conn
+    |> assign(:page_title, "Sign in")
+    |> assign_session_props(%{
+      app_name: "BullX",
+      form_action: ~p"/sessions/login_auth",
+      return_to: return_to,
+      providers: provider_options(return_to),
+      error: Phoenix.Flash.get(conn.assigns[:flash] || %{}, "error")
+    })
+    |> render_inertia("sessions/New")
   end
 
   def login_auth(conn, %{"code" => code} = params) do
-    case BullX.Principals.consume_login_auth_code(code) do
+    return_to = local_return_to(params["return_to"])
+
+    case BullX.Principals.consume_login_auth_code(normalize_code(code)) do
       {:ok, principal} ->
         conn
         |> put_principal_session(principal.id)
-        |> redirect(to: local_return_to(params["return_to"]))
+        |> redirect(to: return_to)
 
       {:error, reason} ->
         conn
-        |> put_status(:unauthorized)
-        |> html(escape(login_error(reason)))
+        |> put_flash(:error, login_error(reason))
+        |> redirect(to: ~p"/sessions/new?#{%{return_to: return_to}}")
     end
   end
 
   def login_auth(conn, _params) do
     conn
-    |> put_status(:bad_request)
-    |> html("missing login code")
+    |> put_flash(:error, login_error(:missing_login_code))
+    |> redirect(to: ~p"/sessions/new")
   end
 
   def oidc(conn, %{"provider" => provider} = params) do
@@ -127,21 +121,25 @@ defmodule BullXWeb.SessionController do
   defp local_return_to("/" <> _path = value), do: value
   defp local_return_to(_value), do: "/"
 
-  defp provider_links(return_to) do
-    case BullX.Principals.login_provider_ids() do
-      [] ->
-        ""
+  defp provider_options(return_to) do
+    BullX.Principals.login_provider_options()
+    |> Enum.map(&provider_option(&1, return_to))
+  end
 
-      providers ->
-        links =
-          Enum.map_join(providers, "\n", fn provider ->
-            query = URI.encode_query(%{"return_to" => return_to})
-            href = "/sessions/oidc/#{URI.encode(provider)}?#{query}"
-            "<p><a href=\"#{escape(href)}\">Continue with #{escape(provider)}</a></p>"
-          end)
+  defp provider_option(%{id: provider} = option, return_to) do
+    %{
+      id: provider,
+      provider: option.provider,
+      source_id: option.source_id,
+      label: option.label,
+      href: ~p"/sessions/oidc/#{provider}?#{%{return_to: return_to}}"
+    }
+  end
 
-        "<section>#{links}</section>"
-    end
+  defp assign_session_props(conn, props) do
+    Enum.reduce(props, conn, fn {key, value}, acc ->
+      Inertia.Controller.assign_prop(acc, key, value)
+    end)
   end
 
   defp session_token(conn, key) do
@@ -162,11 +160,21 @@ defmodule BullXWeb.SessionController do
       :principal_disabled -> "principal is disabled"
       :not_human -> "principal is not human"
       :invalid_or_expired_code -> "login code is invalid or expired"
+      :missing_login_code -> "login code is required"
       %{"message" => message} when is_binary(message) -> message
       {:invalid, _reason} -> "login state is invalid or expired"
       _other -> "login failed"
     end
   end
+
+  defp normalize_code(code) when is_binary(code) do
+    code
+    |> String.trim()
+    |> String.upcase()
+    |> String.replace(~r/[^A-Z0-9]/, "")
+  end
+
+  defp normalize_code(_code), do: ""
 
   defp escape(value) do
     value

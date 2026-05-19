@@ -41,9 +41,18 @@ defmodule Feishu.ChannelAdapter do
   def capabilities do
     %{
       inbound_modes: [:websocket, :card_action_callback],
-      outbound_ops: [:send, :edit, :stream],
+      outbound_ops: [:send, :edit, :recall, :stream],
       stream_strategy: :native_cardkit,
-      content_kinds: [:text, :image, :audio, :video, :file, :card],
+      content_kinds: [
+        :text,
+        :image,
+        :audio,
+        :video,
+        :file,
+        :card,
+        :control_notice,
+        :progress_notice
+      ],
       identity_evidence: [:channel_actor, :oidc_login_subject],
       im_listen_modes: Source.im_listen_modes()
     }

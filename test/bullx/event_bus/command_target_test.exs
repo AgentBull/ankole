@@ -82,7 +82,7 @@ defmodule BullX.EventBus.CommandTargetTest do
     assert session.last_processed_entry_seq == entry.entry_seq
   end
 
-  test "command list returns exactly the current system command catalog" do
+  test "command list returns the current EventBus command catalog" do
     assert {:ok, %Accepted{status: :accepted} = accepted} =
              EventBus.accept(command_event("command"))
 
@@ -92,7 +92,50 @@ defmodule BullX.EventBus.CommandTargetTest do
     assert_receive {:event_bus_adapter_delivered, _source, _reply_channel, outbound}
 
     assert get_in(outbound, ["content", Access.at(0), "body", "text"]) ==
-             "Available commands:\n/command - list available system commands\n/status - show BullX runtime status, environment, and version"
+             Enum.join(
+               [
+                 "Available commands:",
+                 "/command - list available commands",
+                 "/status - show BullX runtime status, environment, and version",
+                 "/new - start a new conversation session",
+                 "/compress - compress previous conversation history",
+                 "/retry - retry the previous assistant reply",
+                 "/steer - add a steering note to the active generation",
+                 "/stop - stop the active generation",
+                 "/undo - undo the previous exchange"
+               ],
+               "\n"
+             )
+  end
+
+  test "command list localizes aliases and descriptions" do
+    BullX.I18n.with_locale(:"zh-Hans-CN", fn ->
+      assert {:ok, %Accepted{status: :accepted} = accepted} =
+               EventBus.accept(command_event("command"))
+
+      assert :ok =
+               Worker.perform(%Oban.Job{
+                 args: %{"target_session_id" => accepted.target_session_id}
+               })
+
+      assert_receive {:event_bus_adapter_delivered, _source, _reply_channel, outbound}
+
+      assert get_in(outbound, ["content", Access.at(0), "body", "text"]) ==
+               Enum.join(
+                 [
+                   "可用命令：",
+                   "/命令 (/command) - 列出可用命令",
+                   "/状态 (/status) - 显示 BullX 运行状态、环境和版本",
+                   "/新会话 (/new) - 开启新的会话",
+                   "/压缩 (/compress) - 压缩前面的历史对话",
+                   "/重试 (/retry) - 重试上一条助手回复",
+                   "/引导 (/steer) - 给当前正在生成的回复追加方向调整",
+                   "/停止 (/stop) - 停止当前正在生成的回复",
+                   "/撤销 (/undo) - 撤销上一轮对话"
+                 ],
+                 "\n"
+               )
+    end)
   end
 
   test "target redelivery uses the same outbound idempotency key" do

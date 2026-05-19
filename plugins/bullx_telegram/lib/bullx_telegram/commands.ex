@@ -3,7 +3,7 @@ defmodule BullxTelegram.Commands do
 
   @commands [
     %{"command" => "preauth", "description" => "Link this Telegram account to BullX"},
-    %{"command" => "web_auth", "description" => "Create a BullX web login code"},
+    %{"command" => "webauth", "description" => "Create a BullX web login code"},
     %{"command" => "command", "description" => "List BullX commands"},
     %{"command" => "status", "description" => "Show BullX status"}
   ]

@@ -1,7 +1,6 @@
 defmodule Feishu.EventMapper do
   @moduledoc false
 
-  alias BullX.EventBus.ChannelAdapter.Mentions
   alias Feishu.{ContentMapper, DirectCommand, Source}
   alias FeishuOpenAPI.{CardAction, Event}
 
@@ -143,8 +142,11 @@ defmodule Feishu.EventMapper do
   end
 
   defp maybe_message_or_command(text, env, actor, blocks, context, source, attention) do
-    case DirectCommand.parse(text) do
-      {:ok, %{name: name} = parsed} when name in ["preauth", "web_auth"] ->
+    case parse_command_text(text, attention) do
+      {:ignore, reason} ->
+        {:ignore, reason}
+
+      {:ok, %{name: name} = parsed} when name in ["preauth", "webauth"] ->
         {:direct_command,
          Map.merge(parsed, %{
            event_id: env.event_id,
@@ -158,15 +160,15 @@ defmodule Feishu.EventMapper do
            reply_channel: reply_channel(source, env)
          })}
 
-      {:ok, %{name: name, args: args}} ->
+      {:ok, %{name: name, args: args} = parsed} ->
         {:ok,
          %{
            attrs:
              attrs(source, env, actor, blocks, "bullx.command.invoked", %{
                "command_name" => name,
-               "command_surface" => "slash_text",
+               "command_surface" => Map.get(parsed, :surface, "slash_text"),
                "command_args_kind" => command_args_kind(args),
-               "attention_reason" => "leading_slash"
+               "attention_reason" => command_attention_reason(parsed)
              }),
            account_input: context.account_input,
            context: context
@@ -192,12 +194,37 @@ defmodule Feishu.EventMapper do
     end
   end
 
-  defp attention_decision(env, %Source{} = source) do
+  defp parse_command_text(text, {:ambient, _reason}) do
+    case DirectCommand.parse(text) do
+      {:ok, _parsed} -> {:ignore, :unaddressed_group_command}
+      :error -> :error
+    end
+  end
+
+  defp parse_command_text(text, attention) do
+    case DirectCommand.parse(text) do
+      {:ok, parsed} ->
+        {:ok, Map.put_new(parsed, :surface, "slash_text")}
+
+      :error ->
+        parse_mentioned_command_text(text, attention)
+    end
+  end
+
+  defp parse_mentioned_command_text(text, {:addressed, "mention"}),
+    do: DirectCommand.parse_mentioned_text(text)
+
+  defp parse_mentioned_command_text(_text, _attention), do: :error
+
+  defp command_attention_reason(%{surface: "mention_text"}), do: "mention_text"
+  defp command_attention_reason(_parsed), do: "leading_slash"
+
+  defp attention_decision(env, %Source{}) do
     cond do
       env.chat_type == "p2p" ->
         {:addressed, "dm"}
 
-      bot_mentioned?(env, source) ->
+      provider_mentions?(env) ->
         {:addressed, "mention"}
 
       true ->
@@ -220,16 +247,14 @@ defmodule Feishu.EventMapper do
     }
   end
 
-  defp bot_mentioned?(%{message: message}, %Source{
-         bot_open_id: bot_open_id,
-         bot_user_id: bot_user_id
-       }) do
-    message
-    |> Feishu.Mentions.parse_mentions(nil)
-    |> Mentions.bot_mentioned?(ids: [bot_open_id, bot_user_id])
+  defp provider_mentions?(%{message: message}) do
+    case Feishu.Mentions.parse_mentions(message, nil) do
+      [_ | _] -> true
+      [] -> false
+    end
   end
 
-  defp bot_mentioned?(_env, _source), do: false
+  defp provider_mentions?(_env), do: false
 
   defp common_event_env(%Event{} = event, %Source{} = source) do
     raw_event = event.content || %{}
@@ -290,19 +315,13 @@ defmodule Feishu.EventMapper do
     }
   end
 
-  defp reject_self_sent(%{sender: sender}, %Source{} = source) do
+  defp reject_self_sent(%{sender: sender}, %Source{}) do
     sender_type = Map.get(sender, "sender_type")
-    ids = sender_ids(sender)
 
-    case sender_type in ["bot", "app"] and bot_identity_match?(ids, source) do
+    case sender_type in ["bot", "app"] do
       true -> {:ignore, :self_sent_bot_message}
       false -> :ok
     end
-  end
-
-  defp bot_identity_match?(ids, %Source{} = source) do
-    (present?(source.bot_open_id) and ids["open_id"] == source.bot_open_id) or
-      (present?(source.bot_user_id) and ids["user_id"] == source.bot_user_id)
   end
 
   defp attrs(%Source{} = source, env, actor, blocks, event_type, extra_facts) do
@@ -472,6 +491,9 @@ defmodule Feishu.EventMapper do
       adapter: "feishu",
       channel_id: source.id,
       scope_id: env.chat_id,
+      scope_kind: channel_kind(env.chat_type),
+      chat_type: env.chat_type,
+      delivery_mode: "stream",
       thread_id: env.thread_id,
       reply_to_external_id: env.reply_to_external_id || env.message_id
     }

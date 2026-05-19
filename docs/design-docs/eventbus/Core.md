@@ -227,7 +227,7 @@ Concrete names such as `command`, `status`, `diagnose`, or `new` are determined
 by adapter normalization, routing facts, Event Routing Rules, and the Target
 registry that receives the matched Event. EventBus validates CloudEvents shape
 and the BullX payload shape; it does not enumerate every provider-specific Event
-domain. Channel-adapter commands such as `/preauth` and `/web_auth` may be
+domain. Channel-adapter commands such as `/preauth` and `/webauth` may be
 handled at the adapter boundary and do not have to become EventBus command
 Events.
 
@@ -578,7 +578,7 @@ or retryable Target execution failure returns `{:error, reason}`.
 EventBus does not understand command semantics. It does not decide whether
 `/command`, `/status`, `/new`, or any other command is allowed. It does not
 parse slash command text from `data.content`, does not choose visible reply
-content, and does not send outbound replies. `/preauth` and `/web_auth` are
+content, and does not send outbound replies. `/preauth` and `/webauth` are
 channel-adapter activation/login commands by default; when handled at the
 adapter boundary they are outside EventBus routing.
 

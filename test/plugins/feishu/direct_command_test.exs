@@ -11,7 +11,19 @@ defmodule Feishu.DirectCommandTest do
 
   test "parses slash commands" do
     assert {:ok, %{name: "preauth", args: "CODE"}} = DirectCommand.parse("/preauth CODE")
+    assert {:ok, %{name: "webauth", args: ""}} = DirectCommand.parse("/webauth")
     assert :error = DirectCommand.parse("hello")
+  end
+
+  test "parses known mention text commands without treating ordinary text as commands" do
+    assert {:ok, %{name: "retry", args: "", surface: "mention_text"}} =
+             DirectCommand.parse_mentioned_text("retry")
+
+    assert {:ok, %{name: "steer", args: "focus on the latest message"}} =
+             DirectCommand.parse_mentioned_text("steer focus on the latest message")
+
+    assert :error = DirectCommand.parse_mentioned_text("retry the task")
+    assert :error = DirectCommand.parse_mentioned_text("hello")
   end
 
   test "canonicalizes localized system command aliases while keeping English commands valid" do
@@ -30,7 +42,7 @@ defmodule Feishu.DirectCommandTest do
              BullX.I18n.with_locale(:"zh-Hans-CN", fn -> DirectCommand.parse("/status") end)
   end
 
-  test "web_auth respects source-level web login disable switch" do
+  test "webauth respects source-level web login disable switch" do
     source = %Source{
       id: "main",
       app_id: "cli_x",
@@ -39,8 +51,8 @@ defmodule Feishu.DirectCommandTest do
     }
 
     command = %{
-      event_id: "evt_web_auth_disabled",
-      name: "web_auth",
+      event_id: "evt_webauth_disabled",
+      name: "webauth",
       args: "",
       chat_id: "oc_chat",
       chat_type: "p2p",
@@ -49,14 +61,14 @@ defmodule Feishu.DirectCommandTest do
       account_input: %{}
     }
 
-    expected = BullX.I18n.t("eventbus.feishu.auth.web_auth_disabled")
+    expected = BullX.I18n.t("eventbus.feishu.auth.webauth_disabled")
 
     delivery_fun = fn delivery, _source, _opts ->
       assert get_in(delivery, ["content", Access.at(0), "body", "text"]) == expected
       {:ok, %{"delivery_id" => delivery["id"], "status" => "sent", "warnings" => []}}
     end
 
-    assert {:ok, %{"command_name" => "web_auth", "status" => "sent"}} =
+    assert {:ok, %{"command_name" => "webauth", "status" => "sent"}} =
              DirectCommand.handle(source, command, delivery_fun: delivery_fun)
   end
 end

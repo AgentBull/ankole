@@ -27,6 +27,18 @@ defmodule BullX.Principals.LoginProviders do
     end
   end
 
+  @spec provider_options(GenServer.server()) :: [map()]
+  def provider_options(server \\ BullX.Plugins.Registry) do
+    with {:ok, providers} <- enabled_providers(server) do
+      providers
+      |> Enum.flat_map(&options_for/1)
+      |> Enum.uniq_by(& &1.id)
+      |> Enum.sort_by(& &1.label)
+    else
+      {:error, _reason} -> []
+    end
+  end
+
   @spec authorization_url(String.t(), map(), GenServer.server()) ::
           {:ok, %{url: String.t(), state: map()}} | {:error, :not_found | term()}
   def authorization_url(provider_id, request, server \\ BullX.Plugins.Registry)
@@ -91,6 +103,45 @@ defmodule BullX.Principals.LoginProviders do
   rescue
     _exception -> [normalize_id(provider.id)]
   end
+
+  defp options_for(%Extension{} = provider) do
+    case function_exported?(provider.module, :provider_options, 0) do
+      true -> provider.module.provider_options()
+      false -> Enum.map(source_ids_for(provider), &fallback_option(provider, &1))
+    end
+    |> Enum.map(&normalize_option(provider, &1))
+  rescue
+    _exception -> Enum.map(source_ids_for(provider), &fallback_option(provider, &1))
+  end
+
+  defp fallback_option(%Extension{} = provider, provider_id) do
+    %{
+      id: provider_id,
+      provider: normalize_id(provider.id),
+      source_id: provider_id,
+      label: provider_id
+    }
+  end
+
+  defp normalize_option(%Extension{} = provider, option) when is_map(option) do
+    id = normalize_id(Map.get(option, :id) || Map.get(option, "id") || provider.id)
+
+    provider_id =
+      normalize_id(Map.get(option, :provider) || Map.get(option, "provider") || provider.id)
+
+    source_id = Map.get(option, :source_id) || Map.get(option, "source_id") || id
+    label = Map.get(option, :label) || Map.get(option, "label") || id
+
+    %{
+      id: id,
+      provider: provider_id,
+      source_id: to_string(source_id),
+      label: to_string(label)
+    }
+  end
+
+  defp normalize_option(%Extension{} = provider, provider_id),
+    do: fallback_option(provider, normalize_id(provider_id))
 
   defp validate_extensions(extensions) do
     extensions

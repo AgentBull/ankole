@@ -17,7 +17,7 @@ defmodule Feishu.Plugin do
         point: :"bullx.event_bus.channel_adapter",
         id: "feishu",
         module: Feishu.ChannelAdapter,
-        opts: %{provider: "feishu"}
+        opts: %{provider: "feishu", setup_module: Feishu.SourceSetup}
       },
       %{
         point: :"bullx.principals.login_provider",

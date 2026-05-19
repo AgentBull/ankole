@@ -19,12 +19,40 @@ defmodule Feishu.DirectCommand do
 
   def parse(_text), do: :error
 
+  @spec parse_mentioned_text(String.t() | nil) :: {:ok, map()} | :error
+  def parse_mentioned_text(text) when is_binary(text) do
+    text = String.trim(text)
+
+    with false <- String.starts_with?(text, "/"),
+         [name | rest] <- String.split(text, ~r/\s+/, parts: 2),
+         true <- name != "",
+         args <- Enum.join(rest, " "),
+         {:ok, canonical} <- CommandCatalog.canonical_command_name(name),
+         :ok <- validate_mentioned_args(canonical, args) do
+      {:ok,
+       %{
+         name: canonical,
+         input_name: name,
+         args: String.trim(args),
+         surface: "mention_text"
+       }}
+    else
+      _other -> :error
+    end
+  end
+
+  def parse_mentioned_text(_text), do: :error
+
   defp canonical_name(name) do
     case CommandCatalog.canonical_command_name(name) do
       {:ok, canonical} -> canonical
       :error -> name |> String.trim() |> String.downcase()
     end
   end
+
+  defp validate_mentioned_args("steer", _args), do: :ok
+  defp validate_mentioned_args(_name, ""), do: :ok
+  defp validate_mentioned_args(_name, _args), do: :error
 
   @spec handle(Source.t(), map(), keyword()) :: {:ok, map()} | {:error, map()}
   def handle(%Source{} = source, %{event_id: event_id} = command, opts \\ []) do
@@ -100,35 +128,35 @@ defmodule Feishu.DirectCommand do
     reply_text(command, source, text, "preauth", opts)
   end
 
-  defp run(%Source{} = source, %{name: "web_auth", chat_type: chat_type} = command, opts)
+  defp run(%Source{} = source, %{name: "webauth", chat_type: chat_type} = command, opts)
        when chat_type != "p2p" do
     reply_text(
       command,
       source,
       BullX.I18n.t("eventbus.feishu.auth.direct_command_dm_only"),
-      "web_auth",
+      "webauth",
       opts
     )
   end
 
-  defp run(%Source{} = source, %{name: "web_auth"} = command, opts)
+  defp run(%Source{} = source, %{name: "webauth"} = command, opts)
        when source.web_login_disabled? do
     reply_text(
       command,
       source,
-      BullX.I18n.t("eventbus.feishu.auth.web_auth_disabled"),
-      "web_auth",
+      BullX.I18n.t("eventbus.feishu.auth.webauth_disabled"),
+      "webauth",
       opts
     )
   end
 
-  defp run(%Source{} = source, %{name: "web_auth"} = command, opts) do
+  defp run(%Source{} = source, %{name: "webauth"} = command, opts) do
     text =
       "feishu"
       |> BullX.Principals.issue_login_auth_code(source.id, command.actor.id)
-      |> web_auth_reply(BullX.Principals.web_login_url())
+      |> webauth_reply(BullX.Principals.web_login_url())
 
-    reply_text(command, source, text, "web_auth", opts)
+    reply_text(command, source, text, "webauth", opts)
   end
 
   defp run(%Source{} = source, command, opts) do
@@ -156,21 +184,21 @@ defmodule Feishu.DirectCommand do
   defp activation_reply({:error, _reason}),
     do: BullX.I18n.t("eventbus.feishu.auth.activation_failed")
 
-  defp web_auth_reply({:ok, code}, login_url) do
-    BullX.I18n.t("eventbus.feishu.auth.web_auth_created", %{code: code, login_url: login_url})
+  defp webauth_reply({:ok, code}, login_url) do
+    BullX.I18n.t("eventbus.feishu.auth.webauth_created", %{code: code, login_url: login_url})
   end
 
-  defp web_auth_reply({:error, :not_bound}, _login_url),
-    do: BullX.I18n.t("eventbus.feishu.auth.web_auth_not_bound")
+  defp webauth_reply({:error, :not_bound}, _login_url),
+    do: BullX.I18n.t("eventbus.feishu.auth.webauth_not_bound")
 
-  defp web_auth_reply({:error, :not_human}, _login_url),
-    do: BullX.I18n.t("eventbus.feishu.auth.web_auth_not_bound")
+  defp webauth_reply({:error, :not_human}, _login_url),
+    do: BullX.I18n.t("eventbus.feishu.auth.webauth_not_bound")
 
-  defp web_auth_reply({:error, :principal_disabled}, _login_url),
+  defp webauth_reply({:error, :principal_disabled}, _login_url),
     do: BullX.I18n.t("eventbus.feishu.auth.denied")
 
-  defp web_auth_reply({:error, _reason}, _login_url),
-    do: BullX.I18n.t("eventbus.feishu.auth.web_auth_failed")
+  defp webauth_reply({:error, _reason}, _login_url),
+    do: BullX.I18n.t("eventbus.feishu.auth.webauth_failed")
 
   defp direct_cache_key(%Source{} = source, event_id) do
     "feishu:#{source.id}:direct_command:#{event_id}"

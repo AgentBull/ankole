@@ -2,14 +2,14 @@ defmodule BullX.EventBus.ChannelAdapter.Outcome do
   @moduledoc """
   Builder for the outbound delivery outcome map returned by channel adapters.
 
-  Adapters call `build/4` after a successful send/edit to produce the uniform
+  Adapters call `build/4` after a successful send/edit/recall to produce the uniform
   outcome shape consumed by callers of `BullX.EventBus.ChannelAdapter.deliver/3`.
   The keys are stringified for direct serialization back through Phoenix /
   CloudEvents pipelines.
 
   Status is intentionally typed as a string (current values: `"sent"`,
-  `"degraded"`). A future async-delivery adapter (e.g. DingTalk OA task) can
-  extend the vocabulary without changing the shape.
+  `"degraded"`, `"recalled"`). A future async-delivery adapter (e.g. DingTalk OA
+  task) can extend the vocabulary without changing the shape.
   """
 
   @spec build(

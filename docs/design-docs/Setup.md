@@ -39,8 +39,8 @@ This design covers these setup surfaces:
 - Built-in `admin` group and `all_humans` dynamic group.
 - Initial AIAgent ordinary access group, privileged operation group, default
   grants, and editable ACL preview.
-- Event Routing Rule creation that sends the first configured source's addressed
-  messages to the initial AIAgent.
+- Event Routing Rule creation that sends the first configured source's BullX
+  channel Events to the initial AIAgent.
 - The activation-complete page, including plaintext activation command display
   and copy action.
 - `/preauth` completion and AuthZ bootstrap admin handoff.
@@ -129,7 +129,7 @@ following table.
 | `docs/design-docs/eventbus/CommandTarget.md` and `docs/design-docs/eventbus/SystemCommands.md` | Do not create setup-owned `/command` or `/status` routes. |
 | `docs/design-docs/ai-agent/Core.md` | Create an Agent Principal callable as `target_type = "ai_agent"` and store `agents.profile["ai_agent"]`. |
 | `docs/design-docs/ai-agent/ACL.md` | Use `invoke` for ordinary AIAgent access and `invoke_privileged` for privileged operations. |
-| `docs/design-docs/ai-agent/SlashCommands.md` | Let AIAgent-owned slash commands be recognized by the AIAgent runtime after addressed messages reach the AIAgent. |
+| `docs/design-docs/ai-agent/SlashCommands.md` | Let AIAgent-owned slash commands be recognized by the AIAgent runtime when command Events reach the setup AIAgent route; code-owned system command routes still win first. |
 | `docs/design-docs/plugins/*.md` | Read first-party plugin config keys, source setup contracts, connectivity checks, source runtimes, and adapter-local `/preauth` behavior. |
 
 Historical implementations, including the `old-backup` branch, are only
@@ -169,7 +169,7 @@ return JSON. JSON results are operation feedback, not durable completion facts.
 | `GET /setup/ai-agents` | `SetupAIAgentsController.show/2` | Render the AIAgents step. |
 | `POST /setup/ai-agents` | `SetupAIAgentsController.save/2` | Create or update the initial AIAgent Principal and its visible ACL grants. |
 | `GET /setup/event-routing-rules` | `SetupEventRoutingController.show/2` | Render the Event Routing step. |
-| `POST /setup/event-routing-rules` | `SetupEventRoutingController.save/2` | Create or update addressed-message Event Routing Rules for the initial AIAgent. |
+| `POST /setup/event-routing-rules` | `SetupEventRoutingController.save/2` | Create or update the default channel Event Routing Rule for the initial AIAgent. |
 | `GET /setup/activate-admin` | `SetupActivationController.show/2` | Render the completion page with activation command and polling state. |
 | `GET /setup/activation/status` | `SetupActivationController.status/2` | Poll bootstrap activation status, clear setup session after AuthZ handoff, and return a redirect target. |
 
@@ -663,6 +663,15 @@ stores app secrets, bot tokens, OAuth client secrets, and similar secret values.
 The source entry stores `credential_id` and non-secret runtime config only.
 Source public projection may expose only redacted secret status.
 
+When a source enables a browser login provider, `/sessions/new` must show that
+provider as a normal Web login method. For Feishu, setup may enable
+`source.oidc.enabled` by default; the provider id exposed on `/sessions/new` is
+the source id, and the label should identify the external provider such as
+`Feishu · main` or `Lark · main`.
+
+The same page also supports login-code sign-in. Its copy should tell users to
+send `/webauth` to the bot in a private chat to receive a one-time login code.
+
 Connectivity check flow is:
 
 1. The controller normalizes the source draft and credential draft.
@@ -670,7 +679,7 @@ Connectivity check flow is:
 3. The connectivity check does not start listeners, publish Events, write
    Principals, or save source config.
 4. Success returns redacted operation feedback, such as adapter id, source id,
-   Connected Realm, bot identity, capabilities, and safe diagnostics.
+   Connected Realm, capabilities, and safe diagnostics.
 5. A standalone check request only serves UI feedback. The following save
    request cannot reuse it as proof.
 6. Disabled drafts can be saved, but disabled drafts do not satisfy completion.
@@ -878,8 +887,9 @@ Governance designs.
 
 ### Event Routing Rules
 
-The Event Routing step creates ordinary positive-priority database Event Routing
-Rules so at least one source's addressed input can reach the initial AIAgent.
+The Event Routing step creates one ordinary positive-priority database Event
+Routing Rule so at least one source's BullX channel Events can reach the initial
+AIAgent.
 Defaults come from existing durable state: the setup-selected initial Agent
 Principal and the first created runtime-ready Channel source. Channel source
 projection must provide stable ordering. If plugin-owned source config has no
@@ -888,22 +898,23 @@ projection must provide stable ordering. If plugin-owned source config has no
 Setup does not create code-owned system command routes, setup-only fallback
 routes, or fan-out from one Event to many Targets.
 
-The first default route targets addressed IM messages from configured sources.
-Private messages are naturally addressed. In groups, mentions, replies to the
-bot, or other provider-supported attention signals normalize to
-`bullx.im.message.addressed`. Unmentioned ordinary group messages do not enter
-the default conversation route. If a source later enables all-message listening,
-that path belongs to ambient design, not setup's default visible reply path.
+The first default route is source-scoped and intentionally broad. It matches
+BullX-normalized Events on the configured channel source rather than splitting
+addressed IM, ambient IM, actions, and AIAgent-owned command Events into
+separate setup routes. This lets source capabilities such as all-message
+listening and card actions become reachable without adding another setup-owned
+route. The route remains bounded by `channel.adapter` and `channel.id`, so it
+does not become an Installation-wide catch-all.
 
-The minimum route is a source-scoped addressed IM rule:
+The minimum route is a source-scoped BullX channel rule:
 
 ```elixir
 %{
-  name: "setup.default.<adapter_id>.<source_id>.addressed",
+  name: "setup.default.<adapter_id>.<source_id>.channel",
   active: true,
   priority: 1000,
   match_expr:
-    ~s(type == "bullx.im.message.addressed" &&
+    ~s(type.startsWith("bullx.") &&
        channel.adapter == "#{adapter_id}" &&
        channel.id == "#{source_id}"),
   target_type: :ai_agent,
@@ -931,14 +942,19 @@ built through a shared CEL string-literal helper. Setup must not hand-concatenat
 operator or plugin-provided values into CEL source.
 
 Setup does not create separate AIAgent slash-command routes. AIAgent-owned text
-slash commands are recognized by the AIAgent runtime after addressed messages
-reach the AIAgent. If a Channel Adapter normalizes a provider-native command
-surface into `bullx.command.invoked`, routing that Event to an AIAgent requires
-an explicit EventBus/AIAgent command contract or later system configuration, not
-a hidden setup rule. Current implicit system routes are only `/command` and
-`/status`: code-owned negative-priority system command routes merged into the
-runtime `RoutingTable` snapshot and not persisted in `event_routing_rules`.
+slash commands are recognized by the AIAgent runtime after the command Event
+reaches the setup AIAgent route, or after EventBus command fallback maps an
+unmatched command Event onto the same channel route. This fallback is part of
+the EventBus/AIAgent command contract, not a setup-owned hidden rule.
+Current implicit system routes are only `/command` and `/status`: code-owned
+negative-priority system command routes merged into the runtime `RoutingTable`
+snapshot and not persisted in `event_routing_rules`.
 `/preauth` remains adapter-local and does not enter EventBus routing.
+
+When upgrading an older setup-generated split route, setup migrates
+`setup.default.<adapter>.<source>.addressed` to the `.channel` rule and removes
+setup-generated `.ambient` split routes for the same source. Re-running setup
+must not leave both split routes and the broad channel route active.
 
 `RuleWriter` owns changeset validation, name uniqueness, priority uniqueness,
 CEL validation, and routing table refresh. Setup does not write
@@ -1245,11 +1261,12 @@ chat surfaces on the first configured source.
    Owns: setup EventBus routing context, controller, and Web UI.
 
    Acceptance: use `RuleWriter.upsert_by_name/2` to create or update at least
-   one active positive-priority addressed-message Event Routing Rule named
-   `setup.default.<adapter>.<source_id>.addressed`; the rule uses
+   one active positive-priority source-scoped BullX channel Event Routing Rule
+   named `setup.default.<adapter>.<source_id>.channel`; the rule uses
    `target_type = "ai_agent"` and `target_ref = <agent principal id>` for the
    first runtime-ready setup source; setup does not create AIAgent slash-command
-   routes; rule names use slug-safe or encoded source identifiers, and
+   routes; code-owned system command routes keep negative priority and win before
+   the setup AIAgent route; rule names use slug-safe or encoded source identifiers, and
    `match_expr` is built through a shared CEL string-literal helper; runtime
    first-match preview for the setup source sample `RoutingContext` hits the
    setup rule; an existing non-setup rule that swallows the sample returns
@@ -1309,8 +1326,8 @@ chat surfaces on the first configured source.
   privileged group has both `invoke` and `invoke_privileged`; the AIAgent
   Principal has self `invoke`.
 - The Event Routing step upserts at least one positive-priority
-  `target_type = "ai_agent"` addressed-message rule named
-  `setup.default.<adapter>.<source_id>.addressed` for the first runtime-ready
+  `target_type = "ai_agent"` source-scoped BullX channel rule named
+  `setup.default.<adapter>.<source_id>.channel` for the first runtime-ready
   setup source, and runtime first-match preview reaches it.
 - The completion page displays `/preauth <activation-code>` using
   server-provided Inertia props.

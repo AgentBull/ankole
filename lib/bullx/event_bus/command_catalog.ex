@@ -13,14 +13,14 @@ defmodule BullX.EventBus.CommandCatalog do
       slash: "/command",
       alias_key: "eventbus.commands.aliases.command",
       target_ref: "bullx.system.command_list",
-      description: "list available system commands"
+      description_key: "eventbus.commands.descriptions.command"
     },
     %{
       name: "status",
       slash: "/status",
       alias_key: "eventbus.commands.aliases.status",
       target_ref: "bullx.system.status",
-      description: "show BullX runtime status, environment, and version"
+      description_key: "eventbus.commands.descriptions.status"
     }
   ]
 
@@ -28,17 +28,67 @@ defmodule BullX.EventBus.CommandCatalog do
     %{
       name: "new",
       slash: "/new",
-      alias_key: "eventbus.commands.aliases.new"
+      alias_key: "eventbus.commands.aliases.new",
+      description_key: "eventbus.commands.descriptions.new"
+    },
+    %{
+      name: "compress",
+      slash: "/compress",
+      alias_key: "eventbus.commands.aliases.compress",
+      description_key: "eventbus.commands.descriptions.compress"
+    },
+    %{
+      name: "retry",
+      slash: "/retry",
+      alias_key: "eventbus.commands.aliases.retry",
+      description_key: "eventbus.commands.descriptions.retry"
+    },
+    %{
+      name: "steer",
+      slash: "/steer",
+      alias_key: "eventbus.commands.aliases.steer",
+      description_key: "eventbus.commands.descriptions.steer"
+    },
+    %{
+      name: "stop",
+      slash: "/stop",
+      alias_key: "eventbus.commands.aliases.stop",
+      description_key: "eventbus.commands.descriptions.stop"
+    },
+    %{
+      name: "undo",
+      slash: "/undo",
+      alias_key: "eventbus.commands.aliases.undo",
+      description_key: "eventbus.commands.descriptions.undo"
     }
   ]
 
   @commands @system_commands ++ @ai_agent_commands
+
+  @spec catalog() :: [map()]
+  def catalog, do: @commands
 
   @spec system_catalog() :: [map()]
   def system_catalog, do: @system_commands
 
   @spec system_target_refs() :: [String.t()]
   def system_target_refs, do: Enum.map(@system_commands, & &1.target_ref)
+
+  @spec display_slash(map(), keyword()) :: String.t()
+  def display_slash(%{slash: slash} = command, opts \\ []) do
+    command
+    |> localized_aliases(opts)
+    |> List.first()
+    |> render_display_slash(slash)
+  end
+
+  @spec description(map(), keyword()) :: String.t()
+  def description(%{description_key: key}, opts \\ []) do
+    case BullX.I18n.translate(key, %{}, opts) do
+      {:ok, description} -> description
+      {:error, _reason} -> key
+    end
+  end
 
   @spec canonical_command_name(String.t(), keyword()) :: {:ok, String.t()} | :error
   def canonical_command_name(command_name, opts \\ []) when is_binary(command_name) do
@@ -80,6 +130,15 @@ defmodule BullX.EventBus.CommandCatalog do
     |> String.split([",", "，", "\n"], trim: true)
     |> Enum.map(&normalize_command_name/1)
     |> Enum.reject(&(&1 == ""))
+  end
+
+  defp render_display_slash(nil, slash), do: slash
+
+  defp render_display_slash(alias, slash) do
+    case "/" <> alias == slash do
+      true -> slash
+      false -> "/" <> alias <> " (" <> slash <> ")"
+    end
   end
 
   defp normalize_command_name(command_name) do

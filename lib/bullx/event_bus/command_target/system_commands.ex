@@ -31,10 +31,10 @@ defmodule BullX.EventBus.CommandTarget.SystemCommands do
 
   defp command_list_text do
     lines =
-      Registry.system_catalog()
-      |> Enum.map(&[&1.slash, " - ", &1.description])
+      Registry.command_catalog()
+      |> Enum.map(&[Registry.display_slash(&1, []), " - ", Registry.description(&1, [])])
 
-    ["Available commands:" | lines]
+    [BullX.I18n.t("eventbus.commands.list.header") | lines]
     |> Enum.intersperse("\n")
     |> IO.iodata_to_binary()
   end

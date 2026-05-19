@@ -1,7 +1,7 @@
 defmodule BullxTelegram.CommandNormalizer do
   @moduledoc false
 
-  @direct_commands ~w(preauth web_auth)
+  @direct_commands ~w(preauth webauth)
 
   @spec parse(String.t() | nil, String.t() | nil) ::
           {:eventbus, map()} | {:direct, map()} | {:ignore, :unsupported_command} | :not_command
@@ -49,6 +49,6 @@ defmodule BullxTelegram.CommandNormalizer do
   end
 
   defp canonical("preauth"), do: {:ok, "preauth"}
-  defp canonical("web_auth"), do: {:ok, "web_auth"}
+  defp canonical("webauth"), do: {:ok, "webauth"}
   defp canonical(name), do: BullX.EventBus.CommandCatalog.canonical_command_name(name)
 end

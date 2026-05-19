@@ -32,7 +32,6 @@ defmodule Feishu.ConfigSourceTest do
                  id: "main",
                  credential_id: "default",
                  connected_realm_ref: "feishu:tenant:acme",
-                 bot_user_id: "u_bot",
                  web_login_disabled: true,
                  oidc: %{enabled: true}
                }
@@ -41,7 +40,6 @@ defmodule Feishu.ConfigSourceTest do
     assert source["id"] == "main"
     assert source["domain"] == "feishu"
     assert source["enabled"] == true
-    assert source["bot_user_id"] == "u_bot"
     assert source["web_login_disabled"] == true
     assert source["oidc"] == %{"enabled" => true}
   end
@@ -53,7 +51,6 @@ defmodule Feishu.ConfigSourceTest do
                app_id: "cli_x",
                app_secret: "secret_x",
                connected_realm_ref: "feishu:tenant:acme",
-               bot_user_id: "u_bot",
                web_login_disabled: true,
                domain: "lark",
                oidc: %{enabled: true, redirect_uri: "https://bullx.example.com/callback"},
@@ -62,7 +59,6 @@ defmodule Feishu.ConfigSourceTest do
              })
 
     assert source.domain == :lark
-    assert source.bot_user_id == "u_bot"
     assert source.web_login_disabled? == true
 
     assert {:ok, %{verification_token: "verify_x", encrypt_key: "encrypt_x"}} =

@@ -1,1 +1,2 @@
-# Empty client catalog for the infra-shell branch.
+[sessions]
+login_code_help = "请在与机器人的私聊中发送 {#code}/webauth{/code}，获取一次性登录验证码。"

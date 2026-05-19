@@ -8,11 +8,18 @@ const BACKGROUND_IMAGE = `url(${backgroundImageUrl})`
 interface SetupLayoutProps {
   title: string
   appName?: string
+  subtitle?: string
   headerActions?: React.ReactNode
   children?: React.ReactNode
 }
 
-export default function SetupLayout({ title, appName = "BullX", headerActions, children }: SetupLayoutProps) {
+export default function SetupLayout({
+  title,
+  appName = "BullX",
+  subtitle = "Setup",
+  headerActions,
+  children,
+}: SetupLayoutProps) {
   return (
     <main
       data-theme="dark"
@@ -29,7 +36,7 @@ export default function SetupLayout({ title, appName = "BullX", headerActions, c
             </span>
             <div className="min-w-0">
               <p className="truncate text-sm font-semibold">{appName}</p>
-              <p className="truncate text-xs text-muted-foreground">Setup</p>
+              <p className="truncate text-xs text-muted-foreground">{subtitle}</p>
             </div>
           </div>
           {headerActions ? <div className="shrink-0">{headerActions}</div> : null}

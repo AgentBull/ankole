@@ -201,11 +201,18 @@ Batching rules:
 - A batch never crosses ambient Conversation sessions.
 - A new ambient message after the previous session ended enters the new active
   ambient Conversation and uses a new batch key.
-- The first ambient message in a batch sets `due_at = first_seen_at + 30s`.
+- The first ambient message in a batch normally sets
+  `due_at = first_seen_at + 30s`.
+- If the first ambient message follows a complete assistant answer in the same
+  ambient Conversation, or any ambient message in the batch names the Agent by
+  exact Principal `uid` or display-name keyword, the batch due time is shortened
+  to the fast intervention window. The fast intervention window is one tenth of
+  the normal batch window, with a lower bound of one second.
 - Ambient messages for the same active ambient Conversation session within that
-  30 second window join the same batch.
-- Later messages do not extend `due_at`; an active group must not keep the Agent
-  from ever deciding whether to intervene.
+  active window join the same batch.
+- Later messages may bring `due_at` forward to the fast intervention window, but
+  never extend `due_at`; an active group must not keep the Agent from ever
+  deciding whether to intervene.
 - Batch creation captures one session-level `reply_channel` transport hint from
   the active ambient Conversation session. Later messages in the same batch do
   not participate in `reply_channel` selection and must not overwrite that hint.
@@ -223,7 +230,7 @@ does not perform Budget settlement for this auxiliary call.
 
 The ambient intent recognizer input includes:
 
-- The current 30 second ambient batch.
+- The current ambient batch.
 - Ambient background from Ambient Reference Recall.
 - Nearby addressed Conversation context, including recent
   `role = user, kind = normal` and `role = assistant` Messages from the related
@@ -319,7 +326,10 @@ Processing flow:
    recall, addressed Conversation context, `mission`, and
    `ambient_intent_system_prompt`.
 8. If intervention is needed, the worker writes `im_ambient introspection` with
-   the deterministic batch idempotency key.
+   the deterministic processed-batch idempotency key. The key is scoped by the
+   ambient Conversation-session batch key and the normalized source item
+   identities, so the same Redis batch is idempotent but later batches in the
+   same ambient Conversation can still intervene.
 9. The worker invokes Core generation with `source = ambient_batch`, absent
    TargetSession identifiers, and the captured Conversation-session
    `reply_channel` hint.
@@ -546,14 +556,15 @@ Implementation steps:
      recognizer, or visible delivery.
 
 5. Implement `may_intervene` batch recognition.
-   - Owns: Redis-backed 30 second batch state, due worker, freshness guard,
+   - Owns: Redis-backed batch state, due worker, freshness guard,
      recognizer input, boolean structured output validation, introspection
      idempotency, and Core generation handoff.
    - Acceptance: same-session ambient messages are batched without extending
-     `due_at`; recognizer uses `compression_model` or falls back to `main_model`;
-     invalid recognizer output is treated as no intervention; batch creation
-     captures a single session-level `reply_channel` hint; Redis loss or stale
-     processing drops only the proactive opportunity.
+     `due_at`; direct follow-up signals may shorten `due_at`; recognizer uses
+     `compression_model` or falls back to `main_model`; invalid recognizer output
+     is treated as no intervention; batch creation captures a single
+     session-level `reply_channel` hint; Redis loss or stale processing drops
+     only the proactive opportunity.
    - Acceptance: the recognizer does not require caller ACL, does not execute
      tools or visible delivery, and records usage metadata when available.
 
@@ -591,7 +602,7 @@ Stop and ask if implementation needs:
   Conversations.
 - Daily reset to scan, renew, or wait for Redis pending batches.
 - A PostgreSQL table, Oban scheduled job, Scheduler delayed Event, or EventBus
-  re-entry path for 30 second ambient batches.
+  re-entry path for ambient batches.
 - Redis-loss recovery that reruns missed proactive intervention checks.
 - `im_ambient normal` to directly trigger visible reply.
 
@@ -602,9 +613,10 @@ Done when:
   separate AIAgent runtimes.
 - `bullx.im.message.ambient` in `observe_only` writes only
   `role = im_ambient, kind = normal`.
-- `bullx.im.message.ambient` in `may_intervene` uses a Redis-backed 30 second
-  active ambient Conversation-session batch to decide whether to write
-  `role = im_ambient, kind = introspection`.
+- `bullx.im.message.ambient` in `may_intervene` uses a Redis-backed active
+  ambient Conversation-session batch to decide whether to write
+  `role = im_ambient, kind = introspection`; the normal window is 30 seconds and
+  can be shortened for direct follow-up signals.
 - Redis ambient batch state is weak runtime state; loss, expiry, or ambient
   Conversation closure drops only one proactive opportunity and never replays
   stale intervention.

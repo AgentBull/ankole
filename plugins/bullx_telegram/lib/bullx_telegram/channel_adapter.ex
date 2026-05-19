@@ -42,7 +42,16 @@ defmodule BullxTelegram.ChannelAdapter do
     %{
       inbound_modes: [:polling],
       outbound_ops: [:send, :edit, :stream],
-      content_kinds: [:text, :image, :audio, :video, :file, :card],
+      content_kinds: [
+        :text,
+        :image,
+        :audio,
+        :video,
+        :file,
+        :card,
+        :control_notice,
+        :progress_notice
+      ],
       features: [:reply, :threads, :attention_policy],
       stream_strategy: :edit_accumulate,
       im_listen_modes: Source.im_listen_modes()

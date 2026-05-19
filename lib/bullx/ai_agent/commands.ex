@@ -151,7 +151,18 @@ defmodule BullX.AIAgent.Commands do
   defp execute("compress", context) do
     case locked_inactive_conversation(context.conversation_id) do
       {:ok, conversation} ->
-        BullX.AIAgent.Compression.manual_compress(conversation, context)
+        feedback_ref = command_feedback(context, %{command: "compress", phase: :started})
+        result = BullX.AIAgent.Compression.manual_compress(conversation, context)
+
+        _feedback_result =
+          command_feedback(context, %{
+            command: "compress",
+            phase: :finished,
+            feedback_ref: feedback_ref,
+            result: result
+          })
+
+        tag_command_result(result, "compress")
 
       {:error, :active_generation_present} ->
         {:ok, diagnostic(:active_generation_present)}
@@ -207,8 +218,9 @@ defmodule BullX.AIAgent.Commands do
           lease_id = conversation.generation["lease_id"]
 
           with {:ok, cancelled} <- Conversations.cancel_generation(conversation, "stop", now),
-               :ok <- interrupt_generating_messages(cancelled, lease_id, context, now) do
-            %{status: :ok, command: "stop"}
+               {:ok, recall_targets} <-
+                 interrupt_generating_messages(cancelled, lease_id, context, now) do
+            %{status: :ok, command: "stop", recall_targets: recall_targets}
           else
             {:error, reason} -> Repo.rollback(reason)
           end
@@ -222,8 +234,14 @@ defmodule BullX.AIAgent.Commands do
 
   defp execute("undo", context) do
     case undo_locked(context) do
-      {:ok, conversation} ->
-        {:ok, %{status: :ok, command: "undo", conversation_id: conversation.id}}
+      {:ok, %{conversation: conversation, recall_targets: recall_targets}} ->
+        {:ok,
+         %{
+           status: :ok,
+           command: "undo",
+           conversation_id: conversation.id,
+           recall_targets: recall_targets
+         }}
 
       {:error, :active_generation_present} ->
         {:ok, diagnostic(:active_generation_present)}
@@ -238,7 +256,19 @@ defmodule BullX.AIAgent.Commands do
 
   defp execute(_unknown, _context), do: {:ok, diagnostic(:unknown_command)}
 
+  defp tag_command_result({:ok, result}, command) when is_map(result),
+    do: {:ok, Map.put_new(result, :command, command)}
+
+  defp tag_command_result(result, _command), do: result
+
   defp diagnostic(reason), do: %{status: :diagnostic, reason: Atom.to_string(reason)}
+
+  defp command_feedback(context, payload) do
+    case Map.get(context, :feedback_fun) do
+      fun when is_function(fun, 1) -> fun.(payload)
+      _missing -> nil
+    end
+  end
 
   defp ok_or_error({:ok, result}), do: {:ok, result}
   defp ok_or_error({:error, reason}), do: {:error, reason}
@@ -282,7 +312,7 @@ defmodule BullX.AIAgent.Commands do
       end
 
       with {:ok, source_message, retry_of_message_id} <- last_generation_source(conversation),
-           :ok <- mark_suffix(conversation, source_message, "retry", context),
+           {:ok, recall_targets} <- mark_suffix(conversation, source_message, "retry", context),
            {:ok, rewound} <- set_current_leaf(conversation, source_message.id),
            {:ok, leased, lease_id} <-
              Conversations.acquire_generation_lease_locked(
@@ -296,7 +326,8 @@ defmodule BullX.AIAgent.Commands do
           conversation_id: leased.id,
           source_message_id: source_message.id,
           retry_of_message_id: retry_of_message_id,
-          lease_id: lease_id
+          lease_id: lease_id,
+          recall_targets: recall_targets
         }
       else
         {:error, reason} -> Repo.rollback(reason)
@@ -315,10 +346,10 @@ defmodule BullX.AIAgent.Commands do
       end
 
       with {:ok, source_message} <- last_exchange_source(conversation),
-           :ok <-
+           {:ok, recall_targets} <-
              mark_suffix(conversation, source_message, "undo", context, include_source?: true),
            {:ok, updated} <- set_current_leaf(conversation, source_message.parent_id) do
-        updated
+        %{conversation: updated, recall_targets: recall_targets}
       else
         {:error, reason} -> Repo.rollback(reason)
       end
@@ -411,11 +442,16 @@ defmodule BullX.AIAgent.Commands do
   defp mark_suffix(conversation, source_message, command, context, opts \\ []) do
     include_source? = Keyword.get(opts, :include_source?, false)
 
-    conversation
-    |> Conversations.active_branch()
-    |> Enum.drop_while(&(&1.id != source_message.id))
-    |> maybe_drop_source(include_source?)
-    |> Enum.each(fn message ->
+    messages =
+      conversation
+      |> Conversations.active_branch()
+      |> Enum.drop_while(&(&1.id != source_message.id))
+      |> maybe_drop_source(include_source?)
+
+    recall_targets = delivery_recall_targets(messages)
+
+    messages
+    |> Enum.reduce_while(:ok, fn message, :ok ->
       metadata =
         Map.put(message.metadata, "branch_effect", %{
           "state" => branch_state(command),
@@ -424,18 +460,28 @@ defmodule BullX.AIAgent.Commands do
           "at" => DateTime.to_iso8601(DateTime.utc_now(:microsecond))
         })
 
-      {:ok, _message} = Conversations.update_message(message, %{metadata: metadata})
+      case Conversations.update_message(message, %{metadata: metadata}) do
+        {:ok, _message} -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
     end)
-
-    :ok
+    |> case do
+      :ok -> {:ok, recall_targets}
+      {:error, reason} -> {:error, reason}
+    end
   end
 
   defp interrupt_generating_messages(conversation, lease_id, context, now) do
-    Message
-    |> where([m], m.conversation_id == ^conversation.id)
-    |> where([m], m.role == :assistant and m.kind == :normal and m.status == :generating)
-    |> where([m], fragment("?->'generation'->>'lease_id' = ?", m.metadata, ^lease_id))
-    |> Repo.all()
+    messages =
+      Message
+      |> where([m], m.conversation_id == ^conversation.id)
+      |> where([m], m.role == :assistant and m.kind == :normal and m.status == :generating)
+      |> where([m], fragment("?->'generation'->>'lease_id' = ?", m.metadata, ^lease_id))
+      |> Repo.all()
+
+    recall_targets = delivery_recall_targets(messages)
+
+    messages
     |> Enum.reduce_while(:ok, fn message, :ok ->
       metadata =
         message.metadata
@@ -460,7 +506,54 @@ defmodule BullX.AIAgent.Commands do
         {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
+    |> case do
+      :ok -> {:ok, recall_targets}
+      {:error, reason} -> {:error, reason}
+    end
   end
+
+  defp delivery_recall_targets(messages) do
+    messages
+    |> Enum.filter(&assistant_message?/1)
+    |> Enum.flat_map(&message_recall_targets/1)
+    |> Enum.uniq_by(& &1["external_id"])
+  end
+
+  defp assistant_message?(%Message{role: :assistant}), do: true
+  defp assistant_message?(_message), do: false
+
+  defp message_recall_targets(%Message{id: message_id, metadata: metadata}) do
+    delivery = Map.get(metadata, "delivery") || %{}
+
+    delivery
+    |> adapter_result_ref()
+    |> Map.merge(delivery)
+    |> external_message_ids()
+    |> Enum.map(&%{"message_id" => message_id, "external_id" => &1})
+  end
+
+  defp adapter_result_ref(%{"adapter_result_ref" => ref}) when is_binary(ref) do
+    case Jason.decode(ref) do
+      {:ok, %{} = decoded} -> decoded
+      _error -> %{}
+    end
+  end
+
+  defp adapter_result_ref(%{"adapter_result_ref" => %{} = ref}), do: ref
+  defp adapter_result_ref(_delivery), do: %{}
+
+  defp external_message_ids(metadata) when is_map(metadata) do
+    [
+      map_value(metadata, "primary_external_id"),
+      map_value(metadata, "message_id"),
+      map_value(metadata, "external_id")
+      | List.wrap(map_value(metadata, "external_message_ids"))
+    ]
+    |> Enum.filter(&(is_binary(&1) and &1 != ""))
+    |> Enum.uniq()
+  end
+
+  defp external_message_ids(_metadata), do: []
 
   defp maybe_drop_source(messages, true), do: messages
   defp maybe_drop_source([_source | rest], false), do: rest
@@ -482,4 +575,6 @@ defmodule BullX.AIAgent.Commands do
       "generation_max_runtime_ms" => generation.generation_max_runtime_ms
     }
   end
+
+  defp map_value(%{} = map, key), do: Map.get(map, key) || Map.get(map, String.to_atom(key))
 end

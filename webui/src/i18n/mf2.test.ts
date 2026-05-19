@@ -21,6 +21,12 @@ describe("MF2 post-processor", () => {
     expect(formatMf2ForTest("{#bold}broken{/bold}", {})).toBe("<strong>broken</strong>")
   })
 
+  test("renders code markup for command hints", () => {
+    expect(formatMf2ForTest("Send {#code}/webauth{/code} in a private chat.", {})).toBe(
+      "Send <code>/webauth</code> in a private chat.",
+    )
+  })
+
   test("caches compiled messages by locale and source", () => {
     formatMf2ForTest("Hello {$name}", { name: "Ada" }, "en-US")
     formatMf2ForTest("Hello {$name}", { name: "Grace" }, "en-US")

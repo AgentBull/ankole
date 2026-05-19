@@ -39,7 +39,9 @@ policy catalog, provider-specific rendering, AIAgent Conversation internals, or
 the matcher DSL syntax.
 
 Concrete system commands are defined in `SystemCommands.md`. The current system
-command catalog contains only `/command` and `/status`.
+command handler catalog contains only `/command` and `/status`; `/command`
+renders the broader code-owned EventBus command catalog, including cataloged
+AIAgent control commands that route through command fallback.
 
 ## Target contract
 
@@ -243,7 +245,7 @@ choose the handler, call Command Target, inspect routing rules, or write command
 business facts for commands that enter EventBus.
 
 Some commands are channel-adapter commands, not Command Target commands.
-`/preauth` and `/web_auth` are adapter-owned activation and login entry points
+`/preauth` and `/webauth` are adapter-owned activation and login entry points
 because they may need to run before Principal binding exists, may rely on
 provider-private reply or interaction handles, and start at the provider channel
 boundary. The adapter may handle those inputs directly through Principal/Auth
@@ -273,7 +275,7 @@ commands are `/command` and `/status`, as defined in `SystemCommands.md`. They
 do not call a model and do not write Conversation. They may send a safe visible
 reply when `reply_channel` is usable.
 
-Channel activation and login commands such as `/preauth` and `/web_auth` belong
+Channel activation and login commands such as `/preauth` and `/webauth` belong
 to Channel Adapters by default. They may create auth/preauth/login records or
 return safe setup instructions through adapter-owned transport flows. They must
 use Principal, AuthZ, and Connected Realm facts and do not call a model.
@@ -453,7 +455,7 @@ boundaries.
 
 3. Implement baseline system/info handlers.
    - Owns: `bullx.system.command_list` and `bullx.system.status`.
-   - Check: `/command` lists the current system command catalog and `/status`
+   - Check: `/command` lists the current EventBus command catalog and `/status`
      does not require a valid AIAgent profile or model spec.
 
 4. Implement code-owned system command routes.
@@ -518,7 +520,7 @@ bun precommit
 - Clarified normalized `bullx.command.invoked`.
 - Clarified adapter command normalization boundary.
 - Moved system/info commands outside the AIAgent model loop.
-- Clarified that `/preauth` and `/web_auth` are channel-adapter commands by
+- Clarified that `/preauth` and `/webauth` are channel-adapter commands by
   default.
 - Kept AIAgent Conversation commands inside AIAgent runtime, including direct
   `target_type = "ai_agent"` routing, unless delegated through an explicit

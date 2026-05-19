@@ -27,8 +27,8 @@ This design covers the Feishu adapter plugin:
 - the Feishu-side EventBus handoff needed for an AIAgent multi-turn
   conversation path;
 - Feishu OIDC browser login through a Principal login-provider extension;
-- Feishu outbound send, edit, media upload, reply fallback, and CardKit stream
-  transport;
+- Feishu outbound send, edit, recall, media upload, reply fallback, and CardKit
+  stream transport;
 - Feishu-specific content mapping, error mapping, telemetry, logging, security,
   privacy, tests, and implementation handoff.
 
@@ -145,7 +145,7 @@ Suggested module ownership:
 | `Feishu.ContentMapper` | Feishu message/card/media mapping into BullX content blocks. |
 | `Feishu.CardActionController` | HTTP card-action callback verification and adapter handoff. |
 | `Feishu.CommandNormalizer` | Safe slash-text command parsing and command routing facts for Feishu messages. |
-| `Feishu.Outbound` | Feishu send, edit, upload, and reply fallback. |
+| `Feishu.Outbound` | Feishu send, edit, recall, upload, and reply fallback. |
 | `Feishu.StreamingCard` | CardKit stream consumption and throttled card updates. |
 | `Feishu.OIDCProvider` | Principal login-provider callback implementation. |
 | `Feishu.Error` | SDK and Feishu API error normalization. |
@@ -213,8 +213,6 @@ sends encrypted callback bodies.
     "domain": "feishu",
     "connected_realm_ref": "feishu:tenant_xxx",
     "tenant_key": "tenant_xxx",
-    "bot_open_id": "ou_bot_xxx",
-    "bot_user_id": "u_bot_xxx",
     "web_login_disabled": false,
     "oidc": {
       "enabled": true,
@@ -256,7 +254,7 @@ Success shape:
    status: :ok,
    adapter: "feishu",
    source_id: "main",
-   capabilities: [:inbound, :send, :edit, :stream, :cards, :oidc],
+   capabilities: [:inbound, :send, :edit, :recall, :stream, :cards, :oidc],
    details: %{
      "domain" => "feishu",
      "transport" => "websocket",
@@ -287,8 +285,8 @@ payloads, message bodies, card private data, or downloaded media.
 | Callback | Feishu behavior |
 | --- | --- |
 | `normalize_inbound/2` | Converts one Feishu occurrence into one decoded CloudEvent, returns `:ignore`, or returns a safe error. |
-| `capabilities/0` | Declares Feishu WebSocket inbound, card actions, send, edit, stream, supported content kinds, and OIDC support. |
-| `deliver/4` | Executes upstream-approved send, edit, reaction, or callback response transport when supported. |
+| `capabilities/0` | Declares Feishu WebSocket inbound, card actions, send, edit, recall, stream, supported content kinds, and OIDC support. |
+| `deliver/4` | Executes upstream-approved send, edit, recall, reaction, or callback response transport when supported. |
 | `consume_stream/4` | Consumes an EventBus output stream and mirrors chunks to a Feishu CardKit message. |
 
 Capabilities should include:
@@ -296,8 +294,17 @@ Capabilities should include:
 ```elixir
 %{
   inbound_modes: [:websocket, :card_action_callback],
-  outbound_ops: [:send, :edit, :stream],
-  content_kinds: [:text, :image, :audio, :video, :file, :card],
+  outbound_ops: [:send, :edit, :recall, :stream],
+  content_kinds: [
+    :text,
+    :image,
+    :audio,
+    :video,
+    :file,
+    :card,
+    :control_notice,
+    :progress_notice
+  ],
   features: [:reply, :threads, :principal_channel_actor, :oidc_login]
 }
 ```
@@ -308,7 +315,9 @@ constraints, card formats, and Feishu API responses.
 
 `content_kinds` is a coarse transport capability list. Inbound decoded
 CloudEvents still use `NormalizedCloudEvent` content part types such as
-`image_url`, `video_url`, `file`, `card`, and `action`.
+`image_url`, `video_url`, `file`, `card`, and `action`. `control_notice` is
+outbound-only tooltip-like control feedback. `progress_notice` is outbound-only
+updateable command progress feedback.
 
 ## Source runtime
 
@@ -427,6 +436,7 @@ Example message Event:
       "channel_id": "main",
       "scope_id": "oc_xxx",
       "thread_id": null,
+      "delivery_mode": "stream",
       "reply_to_external_id": "om_xxx"
     },
     "routing_facts": {
@@ -472,13 +482,11 @@ email. It normalizes phone candidates to E.164 before passing them to
 `BullX.Principals`; malformed or ambiguous phone values are omitted.
 User-editable display names are presentation data, not identity proof.
 
-Self-sent bot messages are ignored before content parsing, command
-classification, Principal matching, or EventBus handoff. Feishu Events whose
-sender type is
-`bot` or `app` and whose sender matches the configured or resolved bot identity
-must not re-enter EventBus as user Events. The self-sent check uses
-`bot_open_id` when present and falls back to `bot_user_id` for payloads that do
-not include the bot open id.
+Bot- or app-sent messages are ignored before content parsing, command
+classification, Principal matching, or EventBus handoff. Feishu group mention
+admission does not depend on configured bot identity fields. For the first
+implementation, source config does not require or persist `bot_open_id` or
+`bot_user_id`.
 
 ## Principal account gate
 
@@ -520,7 +528,7 @@ adapter may publish the command Event with actor evidence and
 `data.actor.principal = null` if no active Principal binding exists yet.
 System commands such as `/command` and `/status`, and AIAgent-owned slash
 commands such as `/new`, `/stop`, and `/steer`, use that path. Channel
-activation and login commands such as `/preauth` and `/web_auth` are
+activation and login commands such as `/preauth` and `/webauth` are
 adapter-local entry points and may be handled before EventBus. For EventBus
 commands, the adapter still does not choose the command handler, decide command
 authorization, or write command business facts.
@@ -532,7 +540,7 @@ decide permission, budget, approval, and side effects.
 In group chats, activation-required replies must not include activation codes,
 login auth codes, or OIDC links that reveal account state. The reply should ask
 the user to message the bot privately. In `p2p` chats, the adapter may include
-localized `/preauth <code>` and `/web_auth` guidance.
+localized `/preauth <code>` and `/webauth` guidance.
 
 ## Event mapping
 
@@ -540,7 +548,7 @@ Feishu maps provider occurrences to normalized BullX Event types:
 
 | Feishu occurrence | Normalized `type` | Notes |
 | --- | --- | --- |
-| `im.message.receive_v1` | `bullx.im.message.addressed`, `bullx.im.message.ambient`, or `bullx.command.invoked` | Accepted EventBus slash-style text commands become command Events. Adapter-local `/preauth` and `/web_auth` are handled before EventBus. Addressed text becomes an addressed IM Event; observed unmentioned group text becomes an ambient IM Event only when the source listens to all messages. |
+| `im.message.receive_v1` | `bullx.im.message.addressed`, `bullx.im.message.ambient`, or `bullx.command.invoked` | Accepted EventBus slash-style text commands become command Events. Adapter-local `/preauth` and `/webauth` are handled before EventBus. DM text and group text with provider mention metadata become addressed IM Events; observed unmentioned group text becomes an ambient IM Event only when the source listens to all messages. Unmentioned group slash commands are ignored. |
 | Message update | `bullx.message.edited` | `refs` includes the Feishu message id. |
 | Message recall | `bullx.message.recalled` | Use source cache or provider lookup for missing chat context. |
 | Reaction create/delete | `bullx.reaction.changed` | `routing_facts.reaction_action` is `added` or `removed`. |
@@ -552,10 +560,12 @@ Feishu event-name allowlist.
 
 ## Content mapping
 
-Text and post messages produce text content blocks. Mentions of the BullX bot
-may be removed from the primary text while stable mention references remain in
-`refs` or normalized metadata. Sticker, emotion, and emoji-only messages
-produce deterministic text fallback.
+Text and post messages produce text content blocks. Provider mention markers may
+be removed from the primary text while stable mention references remain in
+`refs` or normalized metadata. Leading Feishu mention placeholder keys are
+removed before slash-command detection so `@Bot /status` is normalized as
+`/status`, not sent to the model as ordinary dialogue. Sticker, emotion, and
+emoji-only messages produce deterministic text fallback.
 
 Images produce `image_url` content blocks with `fallback_text`. Audio, video,
 and generic files produce `file` or `video_url` content blocks with
@@ -595,8 +605,12 @@ normalizes it as `bullx.command.invoked` instead of an IM message Event, except
 for adapter-local channel commands described below. English `/command` and
 `/status`, localized aliases such as Chinese `/命令` and `/状态`, and
 AIAgent-owned slash commands all use the same normalized command Event shape.
+In group chats, command normalization requires an addressed surface such as a
+provider mention. An unmentioned group message like `/new` is ignored even when
+the source listens to all group messages, because ambient observation must not
+let one bot consume another bot's commands.
 
-`/preauth <code>` and `/web_auth` are channel activation/login commands. The
+`/preauth <code>` and `/webauth` are channel activation/login commands. The
 Feishu adapter handles them locally through Principal/Auth services and safe
 Feishu replies, because they may need to run before a Principal binding exists
 and may use provider-private reply context. They are not published to EventBus
@@ -632,7 +646,7 @@ Provider redelivery of the same EventBus command message reuses the same
 CloudEvents `(source, id)` based on the Feishu message occurrence. Duplicate
 visible replies are prevented by EventBus dedupe and Command Target idempotency,
 not by an adapter-local command execution cache. Adapter-local `/preauth` and
-`/web_auth` flows use their own Principal/Auth idempotency and safe reply rules.
+`/webauth` flows use their own Principal/Auth idempotency and safe reply rules.
 
 ## AIAgent conversation path
 
@@ -714,6 +728,12 @@ Feishu, that provider id is the enabled source id. The controller loads the
 source, verifies `adapter = "feishu"` and `oidc.enabled = true`, resolves the
 Feishu login-provider implementation, asks it for an authorization URL, signs
 provider state with Phoenix token infrastructure, and redirects the browser.
+`/sessions/new` lists enabled Feishu OIDC sources as Web login providers using a
+provider label derived from the source domain and id, for example `Feishu · main`
+or `Lark · main`.
+For login-code sign-in, `/sessions/new` tells users to send `/webauth` to the
+bot in a private chat. The adapter handles `/webauth` locally and returns a
+one-time code through the same private Feishu conversation.
 
 Callback flow:
 
@@ -770,10 +790,11 @@ or `{:error, :not_human}`, it fails closed.
 Feishu outbound delivery executes upstream-approved transport requests. The
 adapter does not decide whether an AIAgent, Workflow, Human, Capability, or
 business layer may speak in a Feishu chat, edit a Feishu message, upload media,
-or stream a card. Principal, AuthZ, Budget, policy, approval, and durable
-business-record checks happen before the adapter is called.
+recall a Feishu message, or stream a card. Principal, AuthZ, Budget, policy,
+approval, and durable business-record checks happen before the adapter is
+called.
 
-`Feishu.ChannelAdapter.deliver/4` supports send and edit in the first
+`Feishu.ChannelAdapter.deliver/4` supports send, edit, and recall in the first
 implementation.
 
 Targeting rules:
@@ -783,17 +804,32 @@ Targeting rules:
   targeting.
 - `reply_channel.reply_to_external_id` sends a Feishu reply when present.
 - Without `reply_to_external_id`, the adapter sends to `scope_id`.
+- Ambient AIAgent intervention is scene-level group participation, not a reply
+  to one deterministic source message. AIAgent ambient batch handling must omit
+  `reply_to_external_id` before calling the adapter so Feishu renders the
+  intervention as a normal group message or card.
 
 Content rules:
 
 - `text` sends Feishu text or post content.
 - `card` with `format = "feishu.card"` or `format = "feishu.card.v2"` sends an
   interactive card.
+- `control_notice` renders as a Feishu `system` divider when the target scope
+  is bot/user p2p and app permissions support native system messages. Feishu
+  currently applies native `system` only in p2p; in group chats the adapter
+  renders `control_notice` as a compact grey-text interactive card. This is used
+  for tooltip-like command acknowledgements such as successful `/new` and
+  accepted `/steer`, not for conversational AIAgent text.
+- `progress_notice` renders as a compact grey-text interactive card with
+  `update_multi = true`. Manual `/compress` sends a running card such as
+  "正在压缩历史对话..." and then edits the same Feishu message to a terminal card
+  such as "以上历史对话记录已被压缩" or "没有可压缩的历史对话".
 - `image_url`, `video_url`, `image`, and `file` upload native media when the
   content URI or embedded data is readable and provider limits permit it.
-- Unsupported rich combinations degrade to one localized or fallback text
-  message when possible. If no safe fallback exists, the adapter returns a
-  non-retryable safe error.
+- Unsupported rich combinations or Feishu system-message permission failures
+  degrade to one localized or fallback text message when possible. If no safe
+  fallback exists, the adapter returns a non-retryable safe error. `/command`
+  and `/status` responses are descriptive text and stay ordinary text.
 
 If Feishu reports that a reply target was recalled or missing, including known
 codes such as `230011` or `231003`, the adapter may retry once as a normal chat
@@ -807,6 +843,14 @@ Unsupported edit content returns a non-retryable payload or unsupported error.
 Missing or uneditable target messages map to payload, unsupported, or not-found
 errors, not network errors.
 
+Recall requires the target Feishu message id. It maps to Feishu message
+deletion/recall transport and returns status `"recalled"` on success. BullX uses
+recall as provider-visible cleanup for AIAgent `/retry`, `/undo`, and `/stop`
+when delivery metadata contains a Feishu message id. Recall does not delete
+BullX Messages, rewrite Conversation history, or roll back business side
+effects; if Feishu rejects recall because the message is already gone, too old,
+or not recallable, the adapter returns a safe provider error.
+
 ## CardKit stream transport
 
 Feishu streaming uses CardKit through `Feishu.ChannelAdapter.consume_stream/4`.
@@ -816,14 +860,24 @@ Conversation transcripts.
 
 Flow:
 
-1. Create or update a Feishu card with one streaming text element.
-2. Call `resume_stream/2` with the upstream `stream_id` and last delivered
+1. Feishu `reply_channel` requests `delivery_mode: "stream"` for visible
+   AIAgent replies.
+2. Create and send a Feishu card whose initial body is a compact notation-style
+   thinking row: grey plain text plus the `ai-common_colorful` standard icon.
+   This happens before visible model content chunks are mirrored, so
+   reasoning-capable models show "thinking" state without exposing hidden
+   reasoning text. Return the Feishu message id as the delivery's primary
+   external id.
+3. Call `resume_stream/2` with the upstream `stream_id` and last delivered
    offset.
-3. Emit buffered chunks in offset order.
-4. When `follow?` is true, call `follow_stream/3` and mirror chunk pointer
+4. Emit buffered chunks in offset order. The first visible output replaces the
+   thinking row with the markdown streaming element that subsequent updates use.
+5. When `follow?` is true, call `follow_stream/3` and mirror chunk pointer
    callbacks into Feishu card updates.
-5. Throttle provider updates by `stream_update_interval_ms`.
-6. On terminal stream status, finalize the card with streaming disabled.
+6. Throttle provider updates by `stream_update_interval_ms`.
+7. On terminal stream status, write the final accumulated visible text into the
+   same card, then finalize the card with streaming disabled. The final answer
+   is not sent again as a separate ordinary text message.
 
 The adapter treats client disconnect, Feishu update failure, and provider rate
 limit as transport consumer behavior. It does not stop the stream producer. If a
@@ -833,6 +887,11 @@ adapter returns a safe unavailable or no-content result.
 On stream error or cancellation observed by the adapter, Feishu attempts one
 final card update with localized failure text and then returns the original
 normalized safe error to the caller.
+
+When AIAgent `/stop` interrupts a stream after the initial CardKit message was
+sent, BullX may recall that Feishu message instead of leaving a partial card
+visible. The stream buffer remains the runtime source for chunks; recall only
+cleans up provider presentation.
 
 ## Error mapping
 
@@ -923,6 +982,7 @@ login_not_bound = "..."
 [eventbus.feishu.delivery]
 fallback_text = "..."
 stream_generating = "..."
+stream_thinking = "..."
 stream_failed = "..."
 stream_cancelled = "..."
 reply_target_missing_sent_to_scope = "..."
@@ -945,7 +1005,7 @@ The adapter must:
 
 - drop self-sent bot messages before EventBus handoff;
 - preserve channel, scope, chat type, actor, and safe command facts so
-  adapter-local `/preauth <code>` and `/web_auth` handlers can reject group-chat
+  adapter-local `/preauth <code>` and `/webauth` handlers can reject group-chat
   use without consuming or issuing secrets;
 - reject Feishu OIDC login when source-level web login is disabled;
 - verify HTTP card-action callback raw bodies before converting them to
@@ -1097,16 +1157,17 @@ Principal boundaries.
    - Acceptance: normal user-origin Events call Principal matching before
      EventBus acceptance; accepted EventBus slash-text commands normalize to
      `bullx.command.invoked` with actor evidence, optional `actor.principal`, and
-     command routing facts; `/preauth` and `/web_auth` run as adapter-local
+     command routing facts; `/preauth` and `/webauth` run as adapter-local
      channel activation/login commands.
    - Verify: focused command-normalization and Principal integration tests.
 
-8. Implement outbound send and edit.
+8. Implement outbound send, edit, and recall.
    - Owns: `Feishu.Outbound`, content rendering, media upload, reply fallback,
-     and outbound error mapping.
+     recall mapping, and outbound error mapping.
    - Depends on: Task 5.
    - Acceptance: send/edit return adapter-compatible sent, degraded, or safe
-     error results; reply fallback behavior matches this design.
+     error results; recall returns recalled or safe error results; reply fallback
+     behavior matches this design.
    - Verify: outbound tests with fake SDK responses.
 
 9. Implement CardKit stream consumption.
@@ -1163,11 +1224,11 @@ Implementation should stop and ask if a change would require:
   effects. System commands match built-in Command Target routes; AIAgent-owned
   commands may use explicit AIAgent command routes or EventBus command fallback
   to the matching addressed route.
-- Feishu `/preauth` and `/web_auth` run as adapter-local channel
+- Feishu `/preauth` and `/webauth` run as adapter-local channel
   activation/login commands and do not publish EventBus command Events.
 - Feishu OIDC callback logs in or creates only Human Principals according to
   `BullX.Principals` matching rules.
-- Feishu outbound send, edit, and stream paths produce adapter-compatible
+- Feishu outbound send, edit, recall, and stream paths produce adapter-compatible
   outcomes or safe errors.
 - Self-sent bot messages are filtered before EventBus handoff.
 - Raw provider payloads, secrets, tokens, OAuth codes, unsanitized private card

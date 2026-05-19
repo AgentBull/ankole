@@ -63,12 +63,13 @@ defmodule BullX.AIAgent.AmbientBatchWorker do
          {:ok, profile} <- Profile.cast(raw_profile),
          :may_intervene <- profile.unmentioned_group_messages,
          {:intervene, recognizer} <- recognizer_decision(profile, conversation, meta, items),
+         idempotency_key <- batch_idempotency_key(meta, items),
          {:ok, _conversation, message} <-
-           write_introspection(conversation, meta, items, recognizer),
+           write_introspection(conversation, meta, items, recognizer, idempotency_key),
          :ok <-
            Runner.run(conversation, message, profile, %{
              source_type: "ambient_batch",
-             source_id: batch_key,
+             source_id: idempotency_key,
              caller_principal_id: meta["agent_principal_id"],
              agent_principal_id: meta["agent_principal_id"],
              reply_channel: meta["reply_channel"],
@@ -172,7 +173,24 @@ defmodule BullX.AIAgent.AmbientBatchWorker do
     %{ambient_recall: ambient_recall, addressed_context: addressed_context}
   end
 
-  defp write_introspection(conversation, meta, items, recognizer) do
+  @spec batch_idempotency_key(map(), [map()]) :: String.t()
+  def batch_idempotency_key(meta, items) when is_map(meta) and is_list(items) do
+    %{
+      "v" => 1,
+      "scope" => meta["batch_key"],
+      "items" => Enum.map(items, &batch_item_identity/1) |> Enum.sort()
+    }
+    |> Jason.encode!()
+    |> BullX.Ext.generic_hash()
+    |> then(&("ambient_batch:" <> &1))
+  end
+
+  defp batch_item_identity(item) when is_map(item) do
+    ["message_id", "sent_at", "text"]
+    |> Enum.map(fn key -> [key, Map.get(item, key, "")] end)
+  end
+
+  defp write_introspection(conversation, meta, items, recognizer, idempotency_key) do
     reason =
       recognizer["reason_summary"] ||
         "Ambient batch matched the Agent mission."
@@ -184,7 +202,7 @@ defmodule BullX.AIAgent.AmbientBatchWorker do
       status: :complete,
       content: [%{"type" => "text", "text" => "Ambient messages may require intervention."}],
       metadata: %{
-        "ambient_batch_idempotency_key" => meta["batch_key"],
+        "ambient_batch_idempotency_key" => idempotency_key,
         "ambient" => %{
           "trigger_reason_summary" => reason,
           "recognizer" => Map.delete(recognizer, "reason_summary"),

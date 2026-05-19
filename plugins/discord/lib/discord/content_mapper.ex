@@ -1,6 +1,8 @@
 defmodule Discord.ContentMapper do
   @moduledoc false
 
+  alias BullX.EventBus.ChannelAdapter.Content
+
   @message_limit 2_000
 
   @spec from_message(map(), Discord.Source.t()) :: {:ok, [map()]} | {:error, map()}
@@ -52,6 +54,31 @@ defmodule Discord.ContentMapper do
   def render_outbound(%{kind: "text", body: %{text: text}}),
     do: render_outbound(%{"kind" => "text", "body" => %{"text" => text}})
 
+  def render_outbound([%{"type" => "control_notice"} = block | _rest]),
+    do: render_control_notice(block)
+
+  def render_outbound([%{"kind" => "control_notice"} = block | _rest]),
+    do: render_control_notice(block)
+
+  def render_outbound(%{"type" => "control_notice"} = block), do: render_control_notice(block)
+  def render_outbound(%{"kind" => "control_notice"} = block), do: render_control_notice(block)
+  def render_outbound(%{kind: "control_notice"} = block), do: render_control_notice(block)
+
+  def render_outbound([%{"type" => "progress_notice"} = block | _rest]),
+    do: render_fallback("progress_notice", block)
+
+  def render_outbound([%{"kind" => "progress_notice"} = block | _rest]),
+    do: render_fallback("progress_notice", block)
+
+  def render_outbound(%{"type" => "progress_notice"} = block),
+    do: render_fallback("progress_notice", block)
+
+  def render_outbound(%{"kind" => "progress_notice"} = block),
+    do: render_fallback("progress_notice", block)
+
+  def render_outbound(%{kind: "progress_notice"} = block),
+    do: block |> stringify_keys() |> render_fallback("progress_notice")
+
   def render_outbound([%{"type" => type} = block | _rest]), do: render_fallback(type, block)
   def render_outbound(%{"type" => type} = block), do: render_fallback(type, block)
 
@@ -62,6 +89,16 @@ defmodule Discord.ContentMapper do
 
   def render_outbound(_content),
     do: {:error, Discord.Error.payload("Discord delivery content is required")}
+
+  defp render_control_notice(block) do
+    case Content.delivery_text(block) do
+      text when is_binary(text) and text != "" ->
+        {:ok, split_text(text, @message_limit), ["control_notice_degraded_to_text"]}
+
+      _value ->
+        {:error, Discord.Error.payload("Discord control notice requires text")}
+    end
+  end
 
   defdelegate utf16_units(text), to: BullX.Utils.Text
   defdelegate split_text(text, limit), to: BullX.Utils.Text
@@ -161,11 +198,22 @@ defmodule Discord.ContentMapper do
 
   defp render_fallback(kind, body) do
     text =
-      case get_in(body, ["fallback_text"]) do
+      case Content.delivery_text(body) || get_in(body, ["fallback_text"]) do
         value when is_binary(value) and value != "" -> value
         _value -> BullX.I18n.t("eventbus.discord.delivery.fallback_text")
       end
 
     {:ok, [text], ["#{kind}_degraded_to_fallback_text"]}
   end
+
+  defp stringify_keys(%{} = map) do
+    Map.new(map, fn
+      {key, value} when is_atom(key) -> {Atom.to_string(key), stringify_value(value)}
+      {key, value} when is_binary(key) -> {key, stringify_value(value)}
+    end)
+  end
+
+  defp stringify_value(%{} = map), do: stringify_keys(map)
+  defp stringify_value(values) when is_list(values), do: Enum.map(values, &stringify_value/1)
+  defp stringify_value(value), do: value
 end

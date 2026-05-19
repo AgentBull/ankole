@@ -128,7 +128,7 @@ defmodule BullX.EventBus.ChannelAdapterTest do
       )
 
     key = {"eventbus_test", "half-open"}
-    opts = [failure_threshold: 1, open_ms: 1]
+    opts = [failure_threshold: 1, open_ms: 50]
 
     assert {:error, %{"kind" => "network"}} =
              DeliveryCircuitBreaker.run(
@@ -149,7 +149,7 @@ defmodule BullX.EventBus.ChannelAdapterTest do
     assert {:error, %{"kind" => "circuit_open"}} =
              DeliveryCircuitBreaker.run(key, fn -> {:ok, %{}} end, opts)
 
-    Process.sleep(2)
+    Process.sleep(60)
 
     assert {:ok, %{status: :sent}} =
              DeliveryCircuitBreaker.run(key, fn -> {:ok, %{status: :sent}} end, opts)

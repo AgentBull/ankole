@@ -139,12 +139,12 @@ defmodule BullX.EventBus do
     {:ok, {:matched, rule, routing_context, diagnostics}}
   end
 
-  # Commands fall back to the addressed-message rule for the same channel/scope
+  # Commands fall back to the addressed-message shape for the same channel/scope
   # when no explicit command rule matches. This lets operators wire a single
-  # `bullx.im.message.addressed` rule for an Agent and have slash commands
-  # (e.g. `/reset`) reach the same TargetSession without a separate routing
-  # rule. The original command Event is preserved — only the routing context's
-  # `type` is rewritten for matching purposes.
+  # source-scoped Agent route and have slash commands (e.g. `/reset`) reach the
+  # same TargetSession without a separate routing rule. The original command
+  # Event is preserved — only the routing context's `type` is rewritten for
+  # matching purposes.
   defp route_or_fallback({:no_match, diagnostics}, %{"type" => "bullx.command.invoked"} = context) do
     context
     |> addressed_command_context()

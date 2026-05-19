@@ -50,7 +50,11 @@ defmodule Feishu.EventMapperTest do
     assert get_in(attrs.data, [:routing_facts, "connected_realm_ref"]) == "feishu:tenant:acme"
     assert get_in(attrs.data, [:routing_facts, "im_listen_mode"]) == "addressed_only"
     assert get_in(attrs.data, [:routing_facts, "attention_reason"]) == "dm"
+    assert get_in(attrs.data, [:reply_channel, :delivery_mode]) == "stream"
     refute inspect(attrs.data.raw_ref) =~ "not copied"
+
+    assert {:ok, cloud_event} = BullX.EventBus.ChannelAdapter.build_cloud_event(attrs)
+    assert get_in(cloud_event, ["data", "reply_channel", "delivery_mode"]) == "stream"
 
     assert account_input["adapter"] == "feishu"
     assert account_input["channel_id"] == "main"
@@ -81,6 +85,9 @@ defmodule Feishu.EventMapperTest do
     assert attrs.type == "bullx.command.invoked"
     assert get_in(attrs.data, [:routing_facts, "command_name"]) == "status"
     assert get_in(attrs.data, [:reply_channel, :scope_id]) == "oc_chat"
+    assert get_in(attrs.data, [:reply_channel, :scope_kind]) == "dm"
+    assert get_in(attrs.data, [:reply_channel, :chat_type]) == "p2p"
+    assert get_in(attrs.data, [:reply_channel, :delivery_mode]) == "stream"
   end
 
   test "localized status alias is normalized to the canonical command name" do
@@ -158,6 +165,29 @@ defmodule Feishu.EventMapperTest do
              EventMapper.map(event, source)
   end
 
+  test "webauth remains an adapter-local direct command" do
+    source = %Source{id: "main", app_id: "cli_x", app_secret: "secret_x"}
+
+    event = %Event{
+      id: "evt_webauth",
+      type: "im.message.receive_v1",
+      content: %{
+        "message" => %{
+          "chat_id" => "oc_chat",
+          "chat_type" => "p2p",
+          "message_id" => "om_msg",
+          "message_type" => "text",
+          "content" => Jason.encode!(%{text: "/webauth"})
+        },
+        "sender" => %{"sender_id" => %{"open_id" => "ou_user"}}
+      },
+      raw: %{}
+    }
+
+    assert {:direct_command, %{name: "webauth", args: ""}} =
+             EventMapper.map(event, source)
+  end
+
   test "maps card actions with stable fallback ids and sanitized action values" do
     source = %Source{id: "main", app_id: "cli_x", app_secret: "secret_x"}
 
@@ -191,12 +221,11 @@ defmodule Feishu.EventMapperTest do
            ] = attrs.data.content
   end
 
-  test "ignores self-sent bot messages by bot_user_id" do
+  test "ignores bot or app sender messages without configured bot identity" do
     source = %Source{
       id: "main",
       app_id: "cli_x",
-      app_secret: "secret_x",
-      bot_user_id: "u_bot"
+      app_secret: "secret_x"
     }
 
     event = %Event{
@@ -211,7 +240,7 @@ defmodule Feishu.EventMapperTest do
           "content" => Jason.encode!(%{text: "bot echo"})
         },
         "sender" => %{
-          "sender_id" => %{"user_id" => "u_bot"},
+          "sender_id" => %{"user_id" => "u_other_bot"},
           "sender_type" => "bot"
         }
       },
@@ -226,7 +255,6 @@ defmodule Feishu.EventMapperTest do
       id: "main",
       app_id: "cli_x",
       app_secret: "secret_x",
-      bot_open_id: "ou_bot",
       im_listen_mode: :addressed_only
     }
 
@@ -254,7 +282,6 @@ defmodule Feishu.EventMapperTest do
       id: "main",
       app_id: "cli_x",
       app_secret: "secret_x",
-      bot_open_id: "ou_bot",
       im_listen_mode: :all_messages
     }
 
@@ -280,12 +307,38 @@ defmodule Feishu.EventMapperTest do
     assert get_in(attrs.data, [:routing_facts, "attention_reason"]) == "unaddressed"
   end
 
-  test "group messages that mention the bot are normalized as addressed" do
+  test "all_messages ignores unmentioned group slash commands" do
     source = %Source{
       id: "main",
       app_id: "cli_x",
       app_secret: "secret_x",
-      bot_open_id: "ou_bot",
+      im_listen_mode: :all_messages
+    }
+
+    event = %Event{
+      id: "evt_ambient_command",
+      type: "im.message.receive_v1",
+      content: %{
+        "message" => %{
+          "chat_id" => "oc_chat",
+          "chat_type" => "group",
+          "message_id" => "om_msg",
+          "message_type" => "text",
+          "content" => Jason.encode!(%{text: "/new"})
+        },
+        "sender" => %{"sender_id" => %{"open_id" => "ou_user"}}
+      },
+      raw: %{}
+    }
+
+    assert {:ignore, :unaddressed_group_command} = EventMapper.map(event, source)
+  end
+
+  test "group messages with provider mention metadata are normalized as addressed" do
+    source = %Source{
+      id: "main",
+      app_id: "cli_x",
+      app_secret: "secret_x",
       im_listen_mode: :addressed_only
     }
 
@@ -298,8 +351,10 @@ defmodule Feishu.EventMapperTest do
           "chat_type" => "group",
           "message_id" => "om_msg",
           "message_type" => "text",
-          "content" => Jason.encode!(%{text: "@bullx hello"}),
-          "mentions" => [%{"id" => %{"open_id" => "ou_bot"}}]
+          "content" => Jason.encode!(%{text: "@_user_1 hello"}),
+          "mentions" => [
+            %{"key" => "@_user_1", "name" => "AgentBull", "id" => %{"open_id" => "ou_bot"}}
+          ]
         },
         "sender" => %{"sender_id" => %{"open_id" => "ou_user"}}
       },
@@ -308,7 +363,111 @@ defmodule Feishu.EventMapperTest do
 
     assert {:ok, %{attrs: attrs}} = EventMapper.map(event, source)
     assert attrs.type == "bullx.im.message.addressed"
+    assert attrs.data.content == [%{"type" => "text", "text" => "hello"}]
     assert get_in(attrs.data, [:routing_facts, "attention_reason"]) == "mention"
+  end
+
+  test "leading provider mention placeholder is stripped before command detection" do
+    source = %Source{
+      id: "main",
+      app_id: "cli_x",
+      app_secret: "secret_x",
+      im_listen_mode: :addressed_only
+    }
+
+    event = %Event{
+      id: "evt_mention_command",
+      type: "im.message.receive_v1",
+      content: %{
+        "message" => %{
+          "chat_id" => "oc_chat",
+          "chat_type" => "group",
+          "message_id" => "om_msg",
+          "message_type" => "text",
+          "content" => Jason.encode!(%{text: "@_user_1 /status"}),
+          "mentions" => [
+            %{"key" => "_user_1", "name" => "AgentBull", "id" => %{"open_id" => "ou_bot"}}
+          ]
+        },
+        "sender" => %{"sender_id" => %{"open_id" => "ou_user"}}
+      },
+      raw: %{}
+    }
+
+    assert {:ok, %{attrs: attrs}} = EventMapper.map(event, source)
+
+    assert attrs.type == "bullx.command.invoked"
+    assert attrs.data.content == [%{"type" => "text", "text" => "/status"}]
+    assert get_in(attrs.data, [:routing_facts, "command_name"]) == "status"
+  end
+
+  test "provider mention text can invoke a known command without a slash" do
+    source = %Source{
+      id: "main",
+      app_id: "cli_x",
+      app_secret: "secret_x",
+      im_listen_mode: :addressed_only
+    }
+
+    event = %Event{
+      id: "evt_mention_retry",
+      type: "im.message.receive_v1",
+      content: %{
+        "message" => %{
+          "chat_id" => "oc_chat",
+          "chat_type" => "group",
+          "message_id" => "om_msg",
+          "message_type" => "text",
+          "content" => Jason.encode!(%{text: "@_user_1 retry"}),
+          "mentions" => [
+            %{"key" => "_user_1", "name" => "AgentBull", "id" => %{"open_id" => "ou_bot"}}
+          ]
+        },
+        "sender" => %{"sender_id" => %{"open_id" => "ou_user"}}
+      },
+      raw: %{}
+    }
+
+    assert {:ok, %{attrs: attrs}} = EventMapper.map(event, source)
+
+    assert attrs.type == "bullx.command.invoked"
+    assert attrs.data.content == [%{"type" => "text", "text" => "retry"}]
+    assert get_in(attrs.data, [:routing_facts, "command_name"]) == "retry"
+    assert get_in(attrs.data, [:routing_facts, "command_surface"]) == "mention_text"
+    assert get_in(attrs.data, [:routing_facts, "attention_reason"]) == "mention_text"
+  end
+
+  test "provider mention text with command-like leading word and arguments remains a message" do
+    source = %Source{
+      id: "main",
+      app_id: "cli_x",
+      app_secret: "secret_x",
+      im_listen_mode: :addressed_only
+    }
+
+    event = %Event{
+      id: "evt_mention_retry_sentence",
+      type: "im.message.receive_v1",
+      content: %{
+        "message" => %{
+          "chat_id" => "oc_chat",
+          "chat_type" => "group",
+          "message_id" => "om_msg",
+          "message_type" => "text",
+          "content" => Jason.encode!(%{text: "@_user_1 retry the failed task"}),
+          "mentions" => [
+            %{"key" => "_user_1", "name" => "AgentBull", "id" => %{"open_id" => "ou_bot"}}
+          ]
+        },
+        "sender" => %{"sender_id" => %{"open_id" => "ou_user"}}
+      },
+      raw: %{}
+    }
+
+    assert {:ok, %{attrs: attrs}} = EventMapper.map(event, source)
+
+    assert attrs.type == "bullx.im.message.addressed"
+    assert attrs.data.content == [%{"type" => "text", "text" => "retry the failed task"}]
   end
 
   test "reaction events with blank emoji fail closed" do

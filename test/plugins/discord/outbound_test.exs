@@ -1,7 +1,7 @@
 defmodule Discord.OutboundTest do
   use ExUnit.Case, async: true
 
-  alias Discord.{Outbound, Source}
+  alias Discord.{ContentMapper, Outbound, Source}
 
   defmodule API do
     def request(_source, :create_message, %{"body" => %{"content" => content}}),
@@ -26,5 +26,12 @@ defmodule Discord.OutboundTest do
 
     assert result["status"] == "sent"
     assert result["external_message_ids"] == ["hello"]
+  end
+
+  test "degrades control notices to regular Discord messages" do
+    notice = %{"kind" => "control_notice", "body" => %{"text" => "New session started"}}
+
+    assert {:ok, ["New session started"], ["control_notice_degraded_to_text"]} =
+             ContentMapper.render_outbound(notice)
   end
 end

@@ -22,6 +22,15 @@ defmodule BullX.EventBus.CommandTarget.Registry do
   @spec system_catalog() :: [map()]
   defdelegate system_catalog, to: CommandCatalog
 
+  @spec command_catalog() :: [map()]
+  defdelegate command_catalog, to: CommandCatalog, as: :catalog
+
+  @spec display_slash(map(), keyword()) :: String.t()
+  defdelegate display_slash(command, opts), to: CommandCatalog
+
+  @spec description(map(), keyword()) :: String.t()
+  defdelegate description(command, opts), to: CommandCatalog
+
   @spec system_target_refs() :: [String.t()]
   defdelegate system_target_refs, to: CommandCatalog
 

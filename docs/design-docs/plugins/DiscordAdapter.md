@@ -349,7 +349,16 @@ Capabilities should include:
 %{
   inbound_modes: [:discord_gateway_ws, :interaction],
   outbound_ops: [:send, :edit, :stream],
-  content_kinds: [:text, :image, :audio, :video, :file, :card],
+  content_kinds: [
+    :text,
+    :image,
+    :audio,
+    :video,
+    :file,
+    :card,
+    :control_notice,
+    :progress_notice
+  ],
   features: [:threads, :application_commands, :ephemeral_provider_responses, :oauth2_login],
   stream_strategy: :edit_accumulate
 }
@@ -359,7 +368,10 @@ Capabilities should include:
 CloudEvents still use `NormalizedCloudEvent` content part types such as
 `image_url`, `video_url`, and `file`. The first implementation degrades
 non-text outbound content to fallback text instead of using Discord native
-attachments or embeds.
+attachments or embeds. Outbound `control_notice` and `progress_notice` are
+accepted for command acknowledgements and command progress, and degrade to
+ordinary text because the first implementation does not use Discord-native
+ephemeral responses for EventBus deliveries.
 
 EventBus core validates the decoded CloudEvent passed to `accept/2`. Discord
 still validates source config, payload shape, attention policy, target ids,
@@ -649,10 +661,10 @@ Discord maps allowed provider occurrences to normalized BullX Event types:
 
 | Discord occurrence | Normalized `type` | Notes |
 | --- | --- | --- |
-| `MESSAGE_CREATE` text | `bullx.im.message.addressed`, `bullx.im.message.ambient`, or `bullx.command.invoked` | Accepted EventBus slash-style text commands become command Events. Adapter-local `/preauth` and `/web_auth` are handled before EventBus. Addressed text becomes an addressed IM Event; observed unmentioned guild text becomes an ambient IM Event only when the source listens to all messages. |
+| `MESSAGE_CREATE` text | `bullx.im.message.addressed`, `bullx.im.message.ambient`, or `bullx.command.invoked` | Accepted EventBus slash-style text commands become command Events. Adapter-local `/preauth` and `/webauth` are handled before EventBus. Addressed text becomes an addressed IM Event; observed unmentioned guild text becomes an ambient IM Event only when the source listens to all messages. |
 | `MESSAGE_CREATE` attachment/embed/sticker | `bullx.im.message.addressed` or `bullx.im.message.ambient` | Content blocks describe the media; primary text uses message content or generated fallback. Attention policy decides addressed versus ambient. |
 | `MESSAGE_UPDATE` user edit | `bullx.message.edited` | Requires non-null `edited_timestamp`; self-edits, empty content, and non-user updates are ignored. |
-| `INTERACTION_CREATE` application command | `bullx.command.invoked` or adapter-local command result | Provider-native EventBus command input publishes a command Event after transport acknowledgement. Adapter-local `/preauth` and `/web_auth` are handled before EventBus. |
+| `INTERACTION_CREATE` application command | `bullx.command.invoked` or adapter-local command result | Provider-native EventBus command input publishes a command Event after transport acknowledgement. Adapter-local `/preauth` and `/webauth` are handled before EventBus. |
 | Other interaction types | ignored | Components, modals, autocomplete, and ping interactions are out of scope. |
 
 `MESSAGE_UPDATE` filter rules sit before attention policy and Event mapping:
@@ -770,7 +782,7 @@ as `bullx.command.invoked`, the adapter may publish the command Event with actor
 evidence and `data.actor.principal = null` if no active Principal binding
 exists yet. System commands such as `/command` and `/status`, and AIAgent-owned
 commands such as `/ask`, use that path. Channel activation and login commands
-such as `/preauth` and `/web_auth` are adapter-local entry points and may be
+such as `/preauth` and `/webauth` are adapter-local entry points and may be
 handled before EventBus. For EventBus commands, the adapter still does not
 choose the command handler, decide command authorization, or write command
 business facts.
@@ -784,7 +796,7 @@ activation codes, login auth codes, OAuth2 links, or account-state details. The
 reply should ask the user to message the bot privately. For native interactions,
 the prompt is an ephemeral provider response. For mention-based guild messages,
 the prompt may be a localized public reply with no private state. DMs may
-include localized `/preauth <code>` and `/web_auth` guidance.
+include localized `/preauth <code>` and `/webauth` guidance.
 
 ## Command normalization and interaction acknowledgement
 
@@ -799,7 +811,7 @@ as Chinese `/命令` and `/状态` when that locale is active, and `/ask`. These
 commands are BullX product concepts, not Discord-specific concepts, and the
 adapter does not execute their business behavior before EventBus handoff.
 
-`/preauth <code>` and `/web_auth` are channel activation/login commands. The
+`/preauth <code>` and `/webauth` are channel activation/login commands. The
 Discord adapter handles them locally through Principal/Auth services and safe
 Discord replies, because they may need to run before a Principal binding exists
 and may use provider-private interaction response context. They are not
@@ -848,7 +860,7 @@ Provider redelivery of the same EventBus command message or interaction reuses
 the same CloudEvents `(source, id)` based on the Discord message id or
 interaction id. Duplicate visible replies are prevented by EventBus dedupe and
 Target idempotency, not by an adapter-local command execution cache.
-Adapter-local `/preauth` and `/web_auth` flows use their own Principal/Auth
+Adapter-local `/preauth` and `/webauth` flows use their own Principal/Auth
 idempotency and safe reply rules.
 
 ## `/ask` and auto-threading
@@ -922,7 +934,7 @@ The adapter registers three BullX-owned global application commands:
 | Name | Description | Options |
 | --- | --- | --- |
 | `preauth` | Link this Discord account to BullX | `code: string` required |
-| `web_auth` | Create a BullX web login code | none |
+| `webauth` | Create a BullX web login code | none |
 | `ask` | Ask BullX in a Discord thread | `prompt: string` required |
 
 `Discord.ApplicationCommands.sync/1` runs on READY when
@@ -941,7 +953,7 @@ Sync policy values:
   stop inbound or outbound paths.
 - `off`: skip sync entirely. Operators must register commands manually or accept
   that native command UX is unavailable. Text-message `/command`, `/status`,
-  `/preauth`, and `/web_auth` still work through text parsing.
+  `/preauth`, and `/webauth` still work through text parsing.
 
 ## Discord OAuth2 login provider
 
@@ -1291,7 +1303,7 @@ The adapter must:
 - drop self-sent bot messages and other bots' messages before EventBus handoff;
 - ignore webhook messages and system messages;
 - preserve guild, channel, thread, actor, and safe command facts so
-  adapter-local `/preauth <code>` and `/web_auth` handlers can reject disallowed
+  adapter-local `/preauth <code>` and `/webauth` handlers can reject disallowed
   surfaces without consuming or issuing secrets;
 - restrict immediate native interaction responses to neutral acknowledgements,
   source-level malformed/unsupported responses, and activation-required prompts
@@ -1466,7 +1478,7 @@ and Principal boundaries.
      EventBus acceptance; command-shaped input normalizes to
      `bullx.command.invoked` with actor evidence, optional `actor.principal`,
      command routing facts, and safe native interaction acknowledgement when
-     needed; `/preauth` and `/web_auth` run as adapter-local channel
+     needed; `/preauth` and `/webauth` run as adapter-local channel
      activation/login commands.
    - Verify: focused command-normalization and Principal integration tests.
 
@@ -1565,7 +1577,7 @@ Implementation should stop and ask if a change would require:
   may use explicit AIAgent command routes or EventBus command fallback to the
   matching addressed route; native interaction acknowledgements remain transport
   timing only.
-- Discord `/preauth` and `/web_auth` run as adapter-local channel
+- Discord `/preauth` and `/webauth` run as adapter-local channel
   activation/login commands and do not publish EventBus command Events.
 - `/ask` is registered as a native application command, acknowledges
   ephemerally, auto-creates a BullX-owned thread in eligible guild text channels

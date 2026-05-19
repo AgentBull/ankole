@@ -56,7 +56,8 @@ defmodule BullX.AIAgent.FakeLLMClient do
             content: [ContentPart.text("fake assistant")]
           },
           finish_reason: :stop,
-          usage: default_usage()
+          usage: default_usage(),
+          provider_meta: %{"request_id" => "fake"}
         }
     end
   end

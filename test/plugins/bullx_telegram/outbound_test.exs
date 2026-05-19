@@ -1,7 +1,7 @@
 defmodule BullxTelegram.OutboundTest do
   use ExUnit.Case, async: true
 
-  alias BullxTelegram.{Outbound, Source}
+  alias BullxTelegram.{ContentMapper, Outbound, Source}
 
   defmodule API do
     def request(_source, "sendMessage", params) do
@@ -28,5 +28,12 @@ defmodule BullxTelegram.OutboundTest do
 
     assert result["status"] == "sent"
     assert result["external_message_ids"] == ["hello"]
+  end
+
+  test "degrades control notices to regular Telegram messages" do
+    notice = %{"kind" => "control_notice", "body" => %{"text" => "New session started"}}
+
+    assert {:ok, ["New session started"], ["control_notice_degraded_to_text"]} =
+             ContentMapper.render_outbound(notice)
   end
 end

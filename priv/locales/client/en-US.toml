@@ -1,1 +1,2 @@
-# Empty client catalog for the infra-shell branch.
+[sessions]
+login_code_help = "Send {#code}/webauth{/code} to the bot in a private chat to get a one-time login code."

@@ -102,7 +102,7 @@ Command Target registry entries:
 
 | Command | `target_ref` | Handler responsibility |
 | --- | --- | --- |
-| `/command` | `bullx.system.command_list` | Return the current system command catalog. |
+| `/command` | `bullx.system.command_list` | Return the current EventBus command catalog. |
 | `/status` | `bullx.system.status` | Return minimal BullX runtime status. |
 
 `target_ref` values are stable code-owned ids. Runtime dispatch must use the
@@ -131,22 +131,30 @@ The first matched rule remains terminal. EventBus does not fan out the same
 command Event to AIAgent or Workflow after a system command rule matches.
 
 The EventBus command fallback runs only after `bullx.command.invoked` matches no
-explicit command route. It is not a system command handler and is not listed by
-`/command`. When fallback finds a matching addressed-message route, the Target
-receives the original command CloudEvent; when it finds none, EventBus ignores
-the command and writes a warning log.
+explicit command route. It is not a system command handler. When fallback finds a
+matching addressed-message route, the Target receives the original command
+CloudEvent; when it finds none, EventBus ignores the command and writes a
+warning log. Fallback-owned command names still belong to the code-owned command
+catalog so Channel Adapters and `/command` can expose one coherent command list.
 
 ## `/command`
 
-`/command` lists the currently available system commands. The response is a safe
-visible reply and contains only commands defined in this document.
+`/command` lists the currently available EventBus command catalog. The response
+is a safe visible reply. It includes system commands handled by Command Target
+and cataloged AIAgent control commands that route through command fallback.
 
 Required response content:
 
 ```text
 Available commands:
-/command - list available system commands
+/command - list available commands
 /status - show BullX runtime status, environment, and version
+/new - start a new conversation session
+/compress - compress previous conversation history
+/retry - retry the previous assistant reply
+/steer - add a steering note to the active generation
+/stop - stop the active generation
+/undo - undo the previous exchange
 ```
 
 The command list is code-owned catalog data. It must not be inferred from
@@ -156,8 +164,9 @@ localized aliases, but they are not the source of truth.
 
 The handler:
 
-1. Reads the current system command catalog from the code-owned registry.
-2. Renders a plain text response.
+1. Reads the current command catalog from the code-owned registry.
+2. Renders a plain text response using the active locale's command aliases and
+   descriptions.
 3. Sends it through the Channel Adapter outbound boundary when
    `data.reply_channel` is usable.
 4. Records a safe diagnostic no-reply result if no reply channel is available.
@@ -288,7 +297,8 @@ credentials, reply bearer handles, or unbounded message content.
 
 2. Implement `/command`.
    - Owns: system command handler and reply rendering.
-   - Check: reply lists exactly `/command` and `/status`.
+   - Check: reply lists the code-owned command catalog, including system commands
+     and cataloged AIAgent control commands.
 
 3. Implement `/status`.
    - Owns: system info provider and system command handler.
@@ -316,7 +326,8 @@ credentials, reply bearer handles, or unbounded message content.
 
 Focused tests cover:
 
-- `/command` returns exactly the current system command catalog.
+- `/command` returns exactly the current command catalog, with localized aliases
+  and descriptions under non-English locales.
 - `/status` returns `running`, `env`, and the `mix.exs` project version.
 - Localized command aliases normalize to canonical English `command_name` values
   before EventBus routing.
@@ -346,7 +357,7 @@ bun precommit
 
 ## Changelog
 
-- Added the current system command catalog.
+- Added the current system command catalog and EventBus command-list rendering.
 - Defined `/command`.
 - Defined `/status`.
 - Added localized system command aliases while keeping English canonical

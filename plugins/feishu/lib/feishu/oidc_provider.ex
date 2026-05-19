@@ -30,6 +30,19 @@ defmodule Feishu.OIDCProvider do
     end
   end
 
+  @spec provider_options() :: [map()]
+  def provider_options do
+    case Source.enabled_sources() do
+      {:ok, sources} ->
+        sources
+        |> Enum.filter(&Source.oidc_enabled?/1)
+        |> Enum.map(&provider_option/1)
+
+      {:error, _reason} ->
+        []
+    end
+  end
+
   @impl BullX.Principals.LoginProvider
   def state_ttl_seconds(_source), do: Feishu.Config.oidc_state_ttl_seconds!()
 
@@ -149,6 +162,18 @@ defmodule Feishu.OIDCProvider do
 
   defp authorize_base(:feishu), do: "https://accounts.feishu.cn"
   defp authorize_base(:lark), do: "https://accounts.larksuite.com"
+
+  defp provider_option(%Source{} = source) do
+    %{
+      id: source.id,
+      provider: "feishu",
+      source_id: source.id,
+      label: provider_label(source)
+    }
+  end
+
+  defp provider_label(%Source{domain: :lark, id: id}), do: "Lark · #{id}"
+  defp provider_label(%Source{id: id}), do: "Feishu · #{id}"
 
   defp validate_state(%Source{} = source, state) do
     cond do
@@ -321,5 +346,4 @@ defmodule Feishu.OIDCProvider do
   defp known_atom_key(_key), do: nil
 
   defp nonce, do: Base.url_encode64(:crypto.strong_rand_bytes(18), padding: false)
-
 end

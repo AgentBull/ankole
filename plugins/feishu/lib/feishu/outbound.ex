@@ -77,21 +77,27 @@ defmodule Feishu.Outbound do
     case op(delivery) do
       :send -> send_message(delivery, source)
       :edit -> edit_message(delivery, source)
+      :recall -> recall_message(delivery, source)
       other -> {:error, Feishu.Error.unsupported("unsupported Feishu delivery op", %{op: other})}
     end
   end
 
   defp send_message(delivery, %Source{} = source) do
-    with {:ok, rendered, warnings} <- render_content(content(delivery), source),
-         {:ok, response} <- do_send(delivery, source, rendered) do
-      {:ok, outcome(delivery, "sent", response, warnings)}
+    with {:ok, rendered, warnings} <- render_content(content(delivery), source, delivery) do
+      case do_send(delivery, source, rendered) do
+        {:ok, response} ->
+          {:ok, outcome(delivery, "sent", response, warnings)}
+
+        {:error, %FeishuOpenAPI.Error{} = error} when rendered.msg_type == "system" ->
+          send_system_notice_fallback(delivery, source, warnings, error)
+
+        {:error, %FeishuOpenAPI.Error{} = error} ->
+          {:error, Feishu.Error.map(error)}
+
+        {:reply_failed, %FeishuOpenAPI.Error{} = error} ->
+          handle_reply_failure(error, delivery, source)
+      end
     else
-      {:reply_failed, %FeishuOpenAPI.Error{} = error} ->
-        handle_reply_failure(error, delivery, source)
-
-      {:error, %FeishuOpenAPI.Error{} = error} ->
-        {:error, Feishu.Error.map(error)}
-
       {:error, error} when is_map(error) ->
         {:error, error}
     end
@@ -99,7 +105,8 @@ defmodule Feishu.Outbound do
 
   defp edit_message(delivery, %Source{} = source) do
     with {:ok, target_id} <- target_external_id(delivery),
-         {:ok, rendered, warnings} <- render_content(content(delivery), source),
+         {:ok, rendered, warnings} <-
+           render_content(content(delivery), source, delivery, force_text_notice?: true),
          {:ok, response} <-
            FeishuOpenAPI.patch(Source.client!(source), "/open-apis/im/v1/messages/:message_id",
              path_params: %{message_id: target_id},
@@ -110,6 +117,25 @@ defmodule Feishu.Outbound do
       {:error, %FeishuOpenAPI.Error{} = error} -> {:error, Feishu.Error.map(error)}
       {:error, error} when is_map(error) -> {:error, error}
     end
+  end
+
+  defp recall_message(delivery, %Source{} = source) do
+    with {:ok, target_id} <- target_external_id(delivery),
+         {:ok, response} <-
+           FeishuOpenAPI.delete(Source.client!(source), "/open-apis/im/v1/messages/:message_id",
+             path_params: %{message_id: target_id}
+           ) do
+      {:ok, outcome(delivery, "recalled", response, [])}
+    else
+      {:error, %FeishuOpenAPI.Error{} = error} -> {:error, Feishu.Error.map(error)}
+      {:error, error} when is_map(error) -> {:error, error}
+    end
+  end
+
+  defp do_send(delivery, %Source{} = source, %{msg_type: "system"} = rendered) do
+    delivery
+    |> Map.put("reply_to_external_id", nil)
+    |> send_to_scope(source, rendered)
   end
 
   defp do_send(delivery, %Source{} = source, rendered) do
@@ -157,7 +183,7 @@ defmodule Feishu.Outbound do
   end
 
   defp send_reply_fallback(delivery, %Source{} = source) do
-    with {:ok, rendered, warnings} <- render_content(content(delivery), source),
+    with {:ok, rendered, warnings} <- render_content(content(delivery), source, delivery),
          fallback_delivery <- Map.put(delivery, "reply_to_external_id", nil),
          {:ok, response} <- send_to_scope(fallback_delivery, source, rendered) do
       {:ok,
@@ -168,16 +194,75 @@ defmodule Feishu.Outbound do
     end
   end
 
-  defp render_content(nil, _source),
+  defp send_system_notice_fallback(delivery, %Source{} = source, warnings, error) do
+    with {:ok, rendered, fallback_warnings} <-
+           render_content(content(delivery), source, delivery, force_text_notice?: true) do
+      case do_send(delivery, source, rendered) do
+        {:ok, response} ->
+          {:ok,
+           outcome(
+             delivery,
+             "degraded",
+             response,
+             warnings ++ fallback_warnings ++ ["system_notice_failed_degraded_to_text"]
+           )}
+
+        {:reply_failed, %FeishuOpenAPI.Error{} = reply_error} ->
+          send_rendered_text_to_scope(
+            delivery,
+            source,
+            rendered,
+            warnings ++
+              fallback_warnings ++
+              ["system_notice_failed_degraded_to_text", "reply_target_missing_sent_to_scope"],
+            reply_error
+          )
+
+        {:error, %FeishuOpenAPI.Error{} = _fallback_error} ->
+          {:error, Feishu.Error.map(error)}
+      end
+    else
+      {:error, fallback_error} when is_map(fallback_error) ->
+        {:error, fallback_error}
+    end
+  end
+
+  defp send_rendered_text_to_scope(delivery, %Source{} = source, rendered, warnings, reply_error) do
+    case Feishu.Error.reply_target_missing?(reply_error) and
+           present?(map_value(delivery, "scope_id")) do
+      true ->
+        delivery
+        |> Map.put("reply_to_external_id", nil)
+        |> send_to_scope(source, rendered)
+        |> case do
+          {:ok, response} -> {:ok, outcome(delivery, "degraded", response, warnings)}
+          {:error, %FeishuOpenAPI.Error{} = error} -> {:error, Feishu.Error.map(error)}
+        end
+
+      false ->
+        {:error, Feishu.Error.map(reply_error)}
+    end
+  end
+
+  defp render_content(content, source, delivery, opts \\ [])
+
+  defp render_content(nil, _source, _delivery, _opts),
     do: {:error, Feishu.Error.payload("Feishu delivery content is required")}
 
-  defp render_content(content, source), do: ContentMapper.render_outbound(content, source)
+  defp render_content(content, source, delivery, opts) do
+    render_opts =
+      opts
+      |> Keyword.put_new(:scope_kind, scope_kind(delivery))
+
+    ContentMapper.render_outbound(content, source, render_opts)
+  end
 
   defp outcome(delivery, status, response, warnings) do
-    ids = case message_id(response) do
-      nil -> []
-      id -> [id]
-    end
+    ids =
+      case message_id(response) do
+        nil -> []
+        id -> [id]
+      end
 
     BullX.EventBus.ChannelAdapter.Outcome.build(delivery_id(delivery), status, ids, warnings)
   end
@@ -197,6 +282,8 @@ defmodule Feishu.Outbound do
       :send -> :send
       "edit" -> :edit
       :edit -> :edit
+      "recall" -> :recall
+      :recall -> :recall
       other -> other
     end
   end
@@ -215,7 +302,7 @@ defmodule Feishu.Outbound do
   defp target_external_id(delivery) do
     case map_value(delivery, "target_external_id") do
       value when is_binary(value) and value != "" -> {:ok, value}
-      _value -> {:error, Feishu.Error.payload("Feishu edit requires target_external_id")}
+      _value -> {:error, Feishu.Error.payload("Feishu delivery requires target_external_id")}
     end
   end
 
@@ -224,7 +311,14 @@ defmodule Feishu.Outbound do
   defp reply_channel_defaults(reply_channel) when is_map(reply_channel) do
     reply_channel
     |> stringify_keys()
-    |> Map.take(["scope_id", "thread_id", "reply_to_external_id"])
+    |> Map.take(["scope_id", "thread_id", "reply_to_external_id", "scope_kind", "chat_type"])
+  end
+
+  defp scope_kind(delivery) do
+    case map_value(delivery, "scope_kind") || map_value(delivery, "chat_type") do
+      "p2p" -> "dm"
+      value -> value
+    end
   end
 
   defp stringify_keys(%{} = map) do
@@ -239,10 +333,40 @@ defmodule Feishu.Outbound do
   defp stringify_value(value), do: value
 
   defp put_delivery_id(delivery) do
-    case map_value(delivery, "id") do
-      id when is_binary(id) and id != "" -> delivery
-      _value -> Map.put(delivery, "id", BullX.Ext.gen_uuid_v7())
+    Map.put(delivery, "id", feishu_delivery_uuid(map_value(delivery, "id")))
+  end
+
+  defp feishu_delivery_uuid(id) when is_binary(id) do
+    id = String.trim(id)
+
+    case Regex.match?(
+           ~r/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/,
+           id
+         ) do
+      true -> String.downcase(id)
+      false -> deterministic_delivery_uuid(id)
     end
+  end
+
+  defp feishu_delivery_uuid(_id), do: BullX.Ext.gen_uuid_v7()
+
+  defp deterministic_delivery_uuid(""), do: BullX.Ext.gen_uuid_v7()
+
+  defp deterministic_delivery_uuid(id) do
+    hash = String.downcase(BullX.Ext.generic_hash(id))
+
+    <<part1::binary-size(8), part2::binary-size(4), _version::binary-size(1),
+      part3::binary-size(3), variant_seed::binary-size(1), part4::binary-size(3),
+      part5::binary-size(12), _rest::binary>> = hash
+
+    variant =
+      variant_seed
+      |> String.to_integer(16)
+      |> Bitwise.band(0x3)
+      |> Kernel.+(0x8)
+      |> Integer.to_string(16)
+
+    IO.iodata_to_binary([part1, "-", part2, "-4", part3, "-", variant, part4, "-", part5])
   end
 
   defp map_value(%{} = map, key), do: Map.get(map, key) || Map.get(map, String.to_atom(key))

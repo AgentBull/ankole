@@ -34,8 +34,6 @@ defmodule Feishu.Source do
     :app_id,
     :app_secret,
     :tenant_key,
-    :bot_open_id,
-    :bot_user_id,
     :verification_token,
     :encrypt_key,
     :connected_realm_ref,
@@ -83,8 +81,6 @@ defmodule Feishu.Source do
          app_secret: credential["app_secret"],
          app_type: app_type,
          tenant_key: present_string(Map.get(config, "tenant_key")),
-         bot_open_id: present_string(Map.get(config, "bot_open_id")),
-         bot_user_id: present_string(Map.get(config, "bot_user_id")),
          verification_token: present_string(credential["verification_token"]),
          encrypt_key: present_string(credential["encrypt_key"]),
          connected_realm_ref: present_string(Map.get(config, "connected_realm_ref")),
@@ -159,8 +155,6 @@ defmodule Feishu.Source do
       "domain" => Atom.to_string(source.domain),
       "connected_realm_ref" => source.connected_realm_ref,
       "tenant_key" => source.tenant_key,
-      "bot_open_id" => source.bot_open_id,
-      "bot_user_id" => source.bot_user_id,
       "oidc" => source.oidc,
       "web_login_disabled" => source.web_login_disabled?,
       "im_listen_mode" => Atom.to_string(source.im_listen_mode),
@@ -233,7 +227,7 @@ defmodule Feishu.Source do
          status: :ok,
          adapter: "feishu",
          source_id: source.id,
-         capabilities: [:inbound, :send, :edit, :stream, :cards, :oidc],
+         capabilities: [:inbound, :send, :edit, :recall, :stream, :cards, :oidc],
          details:
            %{
              "domain" => Atom.to_string(source.domain),
@@ -316,8 +310,12 @@ defmodule Feishu.Source do
   defp oidc(_value), do: {:error, Feishu.Error.config("Feishu oidc config must be an object")}
 
   defp im_listen_mode(nil), do: {:ok, @default_im_listen_mode}
-  defp im_listen_mode(value) when value in [:addressed_only, "addressed_only"], do: {:ok, :addressed_only}
-  defp im_listen_mode(value) when value in [:all_messages, "all_messages"], do: {:ok, :all_messages}
+
+  defp im_listen_mode(value) when value in [:addressed_only, "addressed_only"],
+    do: {:ok, :addressed_only}
+
+  defp im_listen_mode(value) when value in [:all_messages, "all_messages"],
+    do: {:ok, :all_messages}
 
   defp im_listen_mode(_value),
     do:

@@ -11,6 +11,7 @@ defmodule Feishu.StreamingCard do
     with {:ok, source} <- Source.normalize(source_config),
          {:ok, card_id, message_id} <-
            create_and_send_card(source, reply_channel, stream_id, opts),
+         :ok <- notify_delivery(opts, stream_id, card_id, message_id),
          :ok <- consume_stream(source, card_id, stream_id, opts) do
       :telemetry.execute(
         [:bullx, :event_bus, :adapter, :stream, :delivered],
@@ -33,7 +34,7 @@ defmodule Feishu.StreamingCard do
   end
 
   defp create_and_send_card(%Source{} = source, reply_channel, stream_id, opts) do
-    initial_text = BullX.I18n.t("eventbus.feishu.delivery.stream_generating")
+    initial_text = BullX.I18n.t("eventbus.feishu.delivery.stream_thinking")
 
     with {:ok, card_id} <- create_card(source, initial_text),
          outbound <- card_outbound(stream_id, card_id, reply_channel),
@@ -64,26 +65,63 @@ defmodule Feishu.StreamingCard do
     end
   end
 
+  defp notify_delivery(opts, stream_id, card_id, message_id) do
+    case Keyword.get(opts, :delivery_update_fun) do
+      fun when is_function(fun, 1) ->
+        _result =
+          fun.(%{
+            "delivery_id" => stream_id,
+            "status" => "sent",
+            "primary_external_id" => message_id,
+            "external_message_ids" => [message_id],
+            "card_id" => card_id
+          })
+
+        :ok
+
+      _missing ->
+        :ok
+    end
+  end
+
   defp consume_stream(%Source{} = source, card_id, stream_id, opts) do
     streaming = Keyword.get(opts, :streaming_output, BullX.EventBus.StreamingOutput)
     update_fun = Keyword.get(opts, :card_update_fun, &put_card_content/4)
+    replace_fun = Keyword.get(opts, :card_replace_content_fun, &replace_card_content_element/4)
     finalize_fun = Keyword.get(opts, :card_finalize_fun, &finalize_card/4)
     state = initial_state()
 
-    case consume_stream_to_state(streaming, stream_id, state, source, card_id, update_fun) do
+    case consume_stream_to_state(
+           streaming,
+           stream_id,
+           state,
+           source,
+           card_id,
+           update_fun,
+           replace_fun
+         ) do
       {:ok, state} ->
-        finalize_fun.(source, card_id, final_text(state), state.sequence + 1)
+        finalize_success(source, card_id, state, update_fun, replace_fun, finalize_fun)
 
       {:error, reason, state} ->
-        close_after_failure(source, card_id, state, reason, update_fun, finalize_fun)
+        close_after_failure(source, card_id, state, reason, update_fun, replace_fun, finalize_fun)
         {:error, reason}
     end
   end
 
-  defp consume_stream_to_state(streaming, stream_id, state, source, card_id, update_fun) do
+  defp consume_stream_to_state(
+         streaming,
+         stream_id,
+         state,
+         source,
+         card_id,
+         update_fun,
+         replace_fun
+       ) do
     with {:ok, resume} <- streaming.resume_stream(stream_id, nil),
          state <- %{state | terminal_status: terminal_status(resume.status)},
-         {:ok, state} <- apply_resume_chunks(resume.chunks, state, source, card_id, update_fun),
+         {:ok, state} <-
+           apply_resume_chunks(resume.chunks, state, source, card_id, update_fun, replace_fun),
          {:ok, state} <-
            maybe_follow_stream(
              streaming,
@@ -92,7 +130,8 @@ defmodule Feishu.StreamingCard do
              state,
              source,
              card_id,
-             update_fun
+             update_fun,
+             replace_fun
            ) do
       {:ok, state}
     else
@@ -100,7 +139,7 @@ defmodule Feishu.StreamingCard do
     end
   end
 
-  defp apply_resume_chunks(chunks, state, source, card_id, update_fun) do
+  defp apply_resume_chunks(chunks, state, source, card_id, update_fun, replace_fun) do
     Enum.reduce_while(chunks, {:ok, state}, fn chunk, {:ok, acc} ->
       acc =
         chunk
@@ -110,7 +149,7 @@ defmodule Feishu.StreamingCard do
 
       case due_update?(acc, source) do
         true ->
-          case update_state(source, card_id, acc, update_fun) do
+          case update_state(source, card_id, acc, update_fun, replace_fun) do
             {:ok, updated} -> {:cont, {:ok, updated}}
             {:error, error} -> {:halt, {:error, error}}
           end
@@ -121,10 +160,28 @@ defmodule Feishu.StreamingCard do
     end)
   end
 
-  defp maybe_follow_stream(_streaming, false, _stream_id, state, _source, _card_id, _update_fun),
-    do: {:ok, state}
+  defp maybe_follow_stream(
+         _streaming,
+         false,
+         _stream_id,
+         state,
+         _source,
+         _card_id,
+         _update_fun,
+         _replace_fun
+       ),
+       do: {:ok, state}
 
-  defp maybe_follow_stream(streaming, true, stream_id, state, source, card_id, update_fun) do
+  defp maybe_follow_stream(
+         streaming,
+         true,
+         stream_id,
+         state,
+         source,
+         card_id,
+         update_fun,
+         replace_fun
+       ) do
     parent = self()
     message_ref = make_ref()
 
@@ -137,10 +194,10 @@ defmodule Feishu.StreamingCard do
     end
 
     task = Task.async(fn -> streaming.follow_stream(stream_id, state.last_offset, consumer) end)
-    drain_follow_messages(task, message_ref, state, source, card_id, update_fun)
+    drain_follow_messages(task, message_ref, state, source, card_id, update_fun, replace_fun)
   end
 
-  defp drain_follow_messages(task, message_ref, state, source, card_id, update_fun) do
+  defp drain_follow_messages(task, message_ref, state, source, card_id, update_fun, replace_fun) do
     receive do
       {^message_ref, %{type: :chunk} = event} ->
         state =
@@ -149,8 +206,16 @@ defmodule Feishu.StreamingCard do
           |> then(&apply_chunk(state, &1))
           |> put_last_offset(Map.get(event, :offset))
 
-        with {:ok, state} <- maybe_update_state(source, card_id, state, update_fun) do
-          drain_follow_messages(task, message_ref, state, source, card_id, update_fun)
+        with {:ok, state} <- maybe_update_state(source, card_id, state, update_fun, replace_fun) do
+          drain_follow_messages(
+            task,
+            message_ref,
+            state,
+            source,
+            card_id,
+            update_fun,
+            replace_fun
+          )
         else
           {:error, reason} ->
             Task.shutdown(task, :brutal_kill)
@@ -164,7 +229,8 @@ defmodule Feishu.StreamingCard do
           %{state | terminal_status: terminal_status(status)},
           source,
           card_id,
-          update_fun
+          update_fun,
+          replace_fun
         )
 
       {ref, :ok} when ref == task.ref ->
@@ -180,15 +246,22 @@ defmodule Feishu.StreamingCard do
     end
   end
 
-  defp maybe_update_state(source, card_id, state, update_fun) do
+  defp maybe_update_state(source, card_id, state, update_fun, replace_fun) do
     case due_update?(state, source) do
-      true -> update_state(source, card_id, state, update_fun)
+      true -> update_state(source, card_id, state, update_fun, replace_fun)
       false -> {:ok, state}
     end
   end
 
   defp initial_state do
-    %{text: "", sequence: 0, last_update_ms: 0, last_offset: -1, terminal_status: nil}
+    %{
+      text: "",
+      sequence: 0,
+      last_update_ms: 0,
+      last_offset: -1,
+      terminal_status: nil,
+      content_element_ready?: false
+    }
   end
 
   defp chunk_payload(%{chunk: chunk}), do: chunk
@@ -215,37 +288,73 @@ defmodule Feishu.StreamingCard do
 
   defp final_text(%{text: text}), do: stream_text(text)
 
-  defp close_after_failure(source, card_id, state, reason, update_fun, finalize_fun) do
+  defp close_after_failure(source, card_id, state, reason, update_fun, replace_fun, finalize_fun) do
     text = failure_text(reason)
-    sequence = state.sequence + 1
+    state = maybe_write_final_text(source, card_id, state, text, update_fun, replace_fun)
 
-    sequence =
-      case update_fun.(source, card_id, text, sequence) do
-        :ok -> sequence + 1
-        {:error, _error} -> sequence
-      end
-
-    _result = finalize_fun.(source, card_id, text, sequence)
+    _result = finalize_fun.(source, card_id, text, state.sequence + 1)
     :ok
   end
 
   defp failure_text(:interrupted), do: BullX.I18n.t("eventbus.feishu.delivery.stream_cancelled")
   defp failure_text(_reason), do: BullX.I18n.t("eventbus.feishu.delivery.stream_failed")
 
-  defp update_state(source, card_id, state, update_fun) do
-    case update_fun.(source, card_id, stream_text(state.text), state.sequence + 1) do
+  defp finalize_success(source, card_id, state, update_fun, replace_fun, finalize_fun) do
+    text = final_text(state)
+    state = maybe_write_final_text(source, card_id, state, text, update_fun, replace_fun)
+
+    finalize_fun.(source, card_id, text, state.sequence + 1)
+  end
+
+  defp maybe_write_final_text(source, card_id, state, text, update_fun, replace_fun) do
+    case write_card_text(source, card_id, state, text, update_fun, replace_fun) do
+      {:ok, state} -> state
+      {:error, _error} -> state
+    end
+  end
+
+  defp update_state(source, card_id, state, update_fun, replace_fun) do
+    text = stream_text(state.text)
+
+    case write_card_text(source, card_id, state, text, update_fun, replace_fun) do
+      {:ok, state} ->
+        {:ok, %{state | last_update_ms: System.monotonic_time(:millisecond)}}
+
+      {:error, error} ->
+        {:error, error}
+    end
+  end
+
+  defp write_card_text(source, card_id, state, text, update_fun, replace_fun) do
+    sequence = state.sequence + 1
+
+    case put_card_text(source, card_id, text, sequence, state, update_fun, replace_fun) do
       :ok ->
         {:ok,
          %{
            state
-           | sequence: state.sequence + 1,
-             last_update_ms: System.monotonic_time(:millisecond)
+           | sequence: sequence,
+             content_element_ready?: true
          }}
 
       {:error, error} ->
         {:error, error}
     end
   end
+
+  defp put_card_text(
+         source,
+         card_id,
+         text,
+         sequence,
+         %{content_element_ready?: true},
+         update_fun,
+         _replace_fun
+       ),
+       do: update_fun.(source, card_id, text, sequence)
+
+  defp put_card_text(source, card_id, text, sequence, _state, _update_fun, replace_fun),
+    do: replace_fun.(source, card_id, text, sequence)
 
   defp put_card_content(%Source{} = source, card_id, text, sequence) do
     case FeishuOpenAPI.put(
@@ -254,6 +363,22 @@ defmodule Feishu.StreamingCard do
            path_params: %{card_id: card_id, element_id: @streaming_element_id},
            body: %{
              content: text,
+             sequence: sequence,
+             uuid: BullX.Ext.gen_uuid_v7()
+           }
+         ) do
+      {:ok, _response} -> :ok
+      {:error, error} -> {:error, Feishu.Error.map(error)}
+    end
+  end
+
+  defp replace_card_content_element(%Source{} = source, card_id, text, sequence) do
+    case FeishuOpenAPI.put(
+           Source.client!(source),
+           "cardkit/v1/cards/:card_id/elements/:element_id",
+           path_params: %{card_id: card_id, element_id: @streaming_element_id},
+           body: %{
+             element: Jason.encode!(streaming_markdown_element(text)),
              sequence: sequence,
              uuid: BullX.Ext.gen_uuid_v7()
            }
@@ -328,9 +453,9 @@ defmodule Feishu.StreamingCard do
     %{
       schema: "2.0",
       config: %{
-        wide_screen_mode: true,
+        update_multi: true,
         streaming_mode: true,
-        summary: %{content: BullX.I18n.t("eventbus.feishu.delivery.stream_generating")},
+        summary: %{content: BullX.I18n.t("eventbus.feishu.delivery.stream_thinking")},
         streaming_config: %{
           print_frequency_ms: %{default: 70, android: 70, ios: 70, pc: 70},
           print_step: %{default: 1, android: 1, ios: 1, pc: 1},
@@ -338,10 +463,28 @@ defmodule Feishu.StreamingCard do
         }
       },
       body: %{
+        direction: "vertical",
+        horizontal_spacing: "8px",
+        vertical_spacing: "8px",
+        horizontal_align: "left",
+        vertical_align: "top",
+        padding: "12px 12px 12px 12px",
         elements: [
           %{
-            tag: "markdown",
-            content: initial_text,
+            tag: "div",
+            text: %{
+              tag: "plain_text",
+              content: initial_text,
+              text_size: "notation",
+              text_align: "left",
+              text_color: "grey"
+            },
+            icon: %{
+              tag: "standard_icon",
+              token: "ai-common_colorful",
+              color: "grey"
+            },
+            margin: "0px 0px 0px 0px",
             element_id: @streaming_element_id
           }
         ]
@@ -349,7 +492,15 @@ defmodule Feishu.StreamingCard do
     }
   end
 
-  defp stream_text(""), do: BullX.I18n.t("eventbus.feishu.delivery.stream_generating")
+  defp streaming_markdown_element(text) do
+    %{
+      tag: "markdown",
+      content: stream_text(text),
+      element_id: @streaming_element_id
+    }
+  end
+
+  defp stream_text(""), do: BullX.I18n.t("eventbus.feishu.delivery.stream_thinking")
   defp stream_text(text), do: text
 
   defp truncate_summary(text) when is_binary(text) do
