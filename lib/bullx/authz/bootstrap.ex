@@ -30,9 +30,10 @@ defmodule BullX.AuthZ.Bootstrap do
       :ok ->
         :ok
 
-      {:error, {:conflicting_admin_group, group}} ->
+      {:error, {conflict, group}}
+      when conflict in [:conflicting_admin_group, :conflicting_all_humans_group] ->
         Logger.warning(
-          "BullX.AuthZ bootstrap found conflicting admin group: #{inspect(Map.take(group, [:id, :built_in]))}"
+          "BullX.AuthZ bootstrap found #{conflicting_group_name(conflict)} group conflict: #{inspect(Map.take(group, [:id, :built_in]))}"
         )
 
       {:error, %Ecto.Changeset{} = changeset} ->
@@ -44,4 +45,7 @@ defmodule BullX.AuthZ.Bootstrap do
         raise "BullX.AuthZ bootstrap failed: #{inspect(reason)}"
     end
   end
+
+  defp conflicting_group_name(:conflicting_admin_group), do: "admin"
+  defp conflicting_group_name(:conflicting_all_humans_group), do: "all_humans"
 end

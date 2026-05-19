@@ -8,6 +8,7 @@ use crate::rule_engine::cel::{
 
 mod atoms {
   rustler::atoms! {
+    ok,
     allow,
     deny,
     resource_pattern,
@@ -15,6 +16,26 @@ mod atoms {
     condition_execution,
     condition_result_type,
   }
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn authz_cel_eval_computed_groups<'a>(
+  env: Env<'a>,
+  principal_env: Term<'a>,
+  loaded_groups: Term<'a>,
+) -> NifResult<Term<'a>> {
+  let principal_env = decode_principal_env(principal_env)?;
+  let loaded_groups = decode_loaded_computed_groups(loaded_groups)?;
+  let decision = eval_computed_groups(&principal_env, &loaded_groups)?;
+
+  Ok(
+    (
+      atoms::ok(),
+      decision.matching_group_ids,
+      encode_invalid_computed_groups(decision.invalid_groups),
+    )
+      .encode(env),
+  )
 }
 
 #[rustler::nif(schedule = "DirtyCpu")]
@@ -46,6 +67,15 @@ struct AuthzEnv {
   context: JsonValue,
 }
 
+struct PrincipalEnv {
+  principal: JsonValue,
+}
+
+struct LoadedComputedGroup {
+  id: String,
+  condition: String,
+}
+
 struct LoadedGrant {
   id: String,
   resource_pattern: String,
@@ -60,6 +90,12 @@ enum InvalidGrantKind {
   ConditionResultType,
 }
 
+struct InvalidComputedGroup {
+  id: String,
+  kind: InvalidGrantKind,
+  reason: String,
+}
+
 struct InvalidGrant {
   id: String,
   kind: InvalidGrantKind,
@@ -70,6 +106,58 @@ struct InvalidGrant {
 enum LoadedGrantDecision {
   Allow(Vec<InvalidGrant>),
   Deny(Vec<InvalidGrant>),
+}
+
+struct ComputedGroupDecision {
+  matching_group_ids: Vec<String>,
+  invalid_groups: Vec<InvalidComputedGroup>,
+}
+
+fn eval_computed_groups(
+  principal_env: &PrincipalEnv,
+  loaded_groups: &[LoadedComputedGroup],
+) -> NifResult<ComputedGroupDecision> {
+  let context = cel::build_context(vec![("principal", principal_env.principal.clone())])?;
+  let mut matching_group_ids = Vec::new();
+  let mut invalid_groups = Vec::new();
+
+  for group in loaded_groups {
+    let program = match cel::compile_condition(&group.condition) {
+      Ok(program) => program,
+      Err(reason) => {
+        invalid_groups.push(invalid_computed_group(
+          group,
+          InvalidGrantKind::ConditionCompile,
+          reason,
+        ));
+        continue;
+      }
+    };
+
+    match cel::execute_bool(&program, &context) {
+      Ok(true) => matching_group_ids.push(group.id.clone()),
+      Ok(false) => {}
+      Err(BoolEvalError::Execution(reason)) => {
+        invalid_groups.push(invalid_computed_group(
+          group,
+          InvalidGrantKind::ConditionExecution,
+          reason,
+        ));
+      }
+      Err(BoolEvalError::ResultType(reason)) => {
+        invalid_groups.push(invalid_computed_group(
+          group,
+          InvalidGrantKind::ConditionResultType,
+          reason,
+        ));
+      }
+    }
+  }
+
+  Ok(ComputedGroupDecision {
+    matching_group_ids,
+    invalid_groups,
+  })
 }
 
 fn eval_loaded_grants(
@@ -134,6 +222,18 @@ fn eval_loaded_grants(
   Ok(LoadedGrantDecision::Deny(invalid_grants))
 }
 
+fn invalid_computed_group(
+  group: &LoadedComputedGroup,
+  kind: InvalidGrantKind,
+  reason: String,
+) -> InvalidComputedGroup {
+  InvalidComputedGroup {
+    id: group.id.clone(),
+    kind,
+    reason,
+  }
+}
+
 fn invalid_grant(grant: &LoadedGrant, kind: InvalidGrantKind, reason: String) -> InvalidGrant {
   InvalidGrant {
     id: grant.id.clone(),
@@ -141,6 +241,21 @@ fn invalid_grant(grant: &LoadedGrant, kind: InvalidGrantKind, reason: String) ->
     resource_pattern: grant.resource_pattern.clone(),
     reason,
   }
+}
+
+fn encode_invalid_computed_groups(
+  invalid_groups: Vec<InvalidComputedGroup>,
+) -> Vec<(String, rustler::Atom, String)> {
+  invalid_groups
+    .into_iter()
+    .map(|invalid_group| {
+      (
+        invalid_group.id,
+        encode_invalid_kind(invalid_group.kind),
+        invalid_group.reason,
+      )
+    })
+    .collect()
 }
 
 fn encode_invalid_grants(
@@ -223,6 +338,37 @@ fn decode_authz_env(term: Term<'_>) -> NifResult<AuthzEnv> {
   })
 }
 
+fn decode_principal_env(term: Term<'_>) -> NifResult<PrincipalEnv> {
+  let map = require_map(term, "principal env")?;
+
+  let principal = term_to_json(require_field(&map, "principal")?)?;
+  require_object(&principal, "principal")?;
+  require_json_string_field(&principal, "id", "principal")?;
+  require_json_string_field(&principal, "type", "principal")?;
+  require_json_string_field(&principal, "status", "principal")?;
+
+  Ok(PrincipalEnv { principal })
+}
+
+fn decode_loaded_computed_groups(term: Term<'_>) -> NifResult<Vec<LoadedComputedGroup>> {
+  let iter: rustler::types::list::ListIterator = term
+    .decode()
+    .map_err(|_| crate::encoding::error("loaded_groups must be a list"))?;
+
+  let mut groups = Vec::new();
+
+  for group in iter {
+    let map = require_map(group, "loaded computed group")?;
+
+    groups.push(LoadedComputedGroup {
+      id: require_string_field(&map, "id")?,
+      condition: require_string_field(&map, "condition")?,
+    });
+  }
+
+  Ok(groups)
+}
+
 fn decode_loaded_grants(term: Term<'_>) -> NifResult<Vec<LoadedGrant>> {
   let iter: rustler::types::list::ListIterator = term
     .decode()
@@ -247,6 +393,42 @@ fn decode_loaded_grants(term: Term<'_>) -> NifResult<Vec<LoadedGrant>> {
 mod tests {
   use super::*;
   use serde_json::json;
+
+  #[test]
+  fn eval_computed_groups_returns_matching_ids_and_invalids() {
+    let principal_env = PrincipalEnv {
+      principal: json!({
+        "id": "019dc9bc-0000-7000-8000-000000000001",
+        "type": "human",
+        "status": "active"
+      }),
+    };
+
+    let groups = vec![
+      LoadedComputedGroup {
+        id: "human".to_owned(),
+        condition: r#"principal.type == "human""#.to_owned(),
+      },
+      LoadedComputedGroup {
+        id: "agent".to_owned(),
+        condition: r#"principal.type == "agent""#.to_owned(),
+      },
+      LoadedComputedGroup {
+        id: "invalid".to_owned(),
+        condition: "principal.id".to_owned(),
+      },
+    ];
+
+    let decision =
+      eval_computed_groups(&principal_env, &groups).expect("computed groups should evaluate");
+
+    assert_eq!(decision.matching_group_ids, vec!["human".to_owned()]);
+    assert_eq!(decision.invalid_groups.len(), 1);
+    assert_eq!(
+      decision.invalid_groups[0].kind,
+      InvalidGrantKind::ConditionResultType
+    );
+  }
 
   #[test]
   fn resource_pattern_matches_exact_and_single_wildcard_edges() {

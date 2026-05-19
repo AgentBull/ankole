@@ -2,9 +2,9 @@ defmodule BullX.AuthZ do
   @moduledoc """
   Principal-centered authorization boundary.
 
-  AuthZ consumes existing active Principals, static Principal groups, and
-  permission grants. It does not create, authenticate, activate, or bind
-  Principals.
+  AuthZ consumes existing active Principals, static Principal groups, computed
+  Principal groups, and permission grants. It does not create, authenticate,
+  activate, or bind Principals.
   """
 
   import Ecto.Query
@@ -21,6 +21,8 @@ defmodule BullX.AuthZ do
   require Logger
 
   @admin_group_name "admin"
+  @all_humans_group_name "all_humans"
+  @all_humans_condition ~s(principal.type == "human" && principal.status == "active")
   @bootstrap_metadata_key "bootstrap"
 
   @type authz_error :: :forbidden | :not_found | :principal_disabled | :invalid_request
@@ -68,16 +70,7 @@ defmodule BullX.AuthZ do
           {:ok, [PrincipalGroup.t()]} | {:error, :not_found | :invalid_request}
   def list_principal_groups(principal_or_id) do
     with {:ok, principal} <- fetch_principal(principal_or_id, :invalid_request) do
-      groups =
-        Repo.all(
-          from membership in PrincipalGroupMembership,
-            join: group in assoc(membership, :group),
-            where: membership.principal_id == ^principal.id,
-            order_by: [asc: group.name],
-            select: group
-        )
-
-      {:ok, groups}
+      {:ok, list_effective_principal_groups(principal)}
     end
   end
 
@@ -129,10 +122,11 @@ defmodule BullX.AuthZ do
   def delete_principal_group(_group), do: {:error, :not_found}
 
   @spec add_principal_to_group(Principal.t() | Ecto.UUID.t(), PrincipalGroup.t() | Ecto.UUID.t()) ::
-          :ok | {:error, :not_found | :invalid_request}
+          :ok | {:error, :not_found | :invalid_request | :computed_group}
   def add_principal_to_group(principal_or_id, group_or_id) do
     with {:ok, principal} <- fetch_principal(principal_or_id, :invalid_request),
-         {:ok, group} <- fetch_group(group_or_id) do
+         {:ok, group} <- fetch_group(group_or_id),
+         :ok <- ensure_static_membership_group(group) do
       attrs = %{principal_id: principal.id, group_id: group.id}
 
       %PrincipalGroupMembership{}
@@ -148,10 +142,13 @@ defmodule BullX.AuthZ do
   @spec remove_principal_from_group(
           Principal.t() | Ecto.UUID.t(),
           PrincipalGroup.t() | Ecto.UUID.t()
-        ) :: :ok | {:error, :not_found | :last_admin_member | :last_active_human_admin}
+        ) ::
+          :ok
+          | {:error, :not_found | :last_admin_member | :last_active_human_admin | :computed_group}
   def remove_principal_from_group(principal_or_id, group_or_id) do
     with {:ok, principal} <- fetch_principal(principal_or_id, :not_found),
-         {:ok, group} <- fetch_group(group_or_id) do
+         {:ok, group} <- fetch_group(group_or_id),
+         :ok <- ensure_static_membership_group(group) do
       remove_membership(principal, group)
     end
   end
@@ -208,7 +205,8 @@ defmodule BullX.AuthZ do
   @spec reconcile_bootstrap_admin_membership() :: :ok | {:error, term()}
   def reconcile_bootstrap_admin_membership do
     transaction(fn ->
-      with {:ok, group, _status} <- ensure_built_in_admin_group() do
+      with {:ok, _all_humans, _all_humans_status} <- ensure_built_in_all_humans_group(),
+           {:ok, group, _status} <- ensure_built_in_admin_group() do
         bootstrap_admin_principals()
         |> Enum.reduce_while(:ok, fn principal, :ok ->
           case insert_membership(principal.id, group.id) do
@@ -241,11 +239,33 @@ defmodule BullX.AuthZ do
           | {:error, {:conflicting_admin_group, PrincipalGroup.t()}}
           | {:error, Ecto.Changeset.t()}
   def ensure_built_in_admin_group do
-    case Repo.get_by(PrincipalGroup, name: @admin_group_name) do
-      nil -> create_built_in_admin_group()
-      %PrincipalGroup{built_in: true} = group -> {:ok, group, :existing}
-      %PrincipalGroup{} = group -> {:error, {:conflicting_admin_group, group}}
-    end
+    ensure_built_in_group(
+      %{
+        name: @admin_group_name,
+        kind: :static,
+        description: "Built-in administrators group.",
+        built_in: true
+      },
+      :conflicting_admin_group
+    )
+  end
+
+  @doc false
+  @spec ensure_built_in_all_humans_group() ::
+          {:ok, PrincipalGroup.t(), :created | :existing}
+          | {:error, {:conflicting_all_humans_group, PrincipalGroup.t()}}
+          | {:error, Ecto.Changeset.t()}
+  def ensure_built_in_all_humans_group do
+    ensure_built_in_group(
+      %{
+        name: @all_humans_group_name,
+        kind: :computed,
+        description: "Built-in computed group for all active Human Principals.",
+        computed_condition: @all_humans_condition,
+        built_in: true
+      },
+      :conflicting_all_humans_group
+    )
   end
 
   @doc false
@@ -281,8 +301,8 @@ defmodule BullX.AuthZ do
     end
   end
 
-  defp authorize_request(%Request{} = request) do
-    group_ids = principal_group_ids(request.principal_id)
+  defp authorize_request(%Request{principal: %Principal{} = principal} = request) do
+    group_ids = effective_principal_group_ids(principal)
     grants = list_candidate_grants(request.principal_id, group_ids, request.action)
 
     case any_loaded_grant_allows?(grants, request) do
@@ -321,11 +341,21 @@ defmodule BullX.AuthZ do
       principal: %{
         "id" => principal.id,
         "type" => Atom.to_string(principal.type),
-        "status" => "active"
+        "status" => Atom.to_string(principal.status)
       },
       action: request.action,
       resource: request.resource,
       context: %{"request" => request.context}
+    }
+  end
+
+  defp principal_env(%Principal{} = principal) do
+    %CEL.PrincipalEnv{
+      principal: %{
+        "id" => principal.id,
+        "type" => Atom.to_string(principal.type),
+        "status" => Atom.to_string(principal.status)
+      }
     }
   end
 
@@ -355,17 +385,82 @@ defmodule BullX.AuthZ do
     end)
   end
 
+  defp emit_invalid_persisted_computed_groups(invalid_groups) do
+    Enum.each(invalid_groups, fn %CEL.InvalidComputedGroup{} = invalid_group ->
+      Logger.error(
+        "BullX.AuthZ invalid persisted computed_group group_id=#{inspect(invalid_group.id)} kind=#{inspect(invalid_group.kind)} reason=#{inspect(invalid_group.reason)}"
+      )
+
+      :telemetry.execute(
+        [:bullx, :authz, :invalid_persisted_data],
+        %{count: 1},
+        %{
+          kind: computed_group_diagnostic_kind(invalid_group.kind),
+          id: invalid_group.id,
+          action: nil,
+          resource_pattern: nil,
+          reason: invalid_group.reason
+        }
+      )
+    end)
+  end
+
   defp persisted_data_diagnostic?(%CEL.InvalidGrant{kind: :resource_pattern}), do: true
   defp persisted_data_diagnostic?(%CEL.InvalidGrant{kind: :condition_compile}), do: true
   defp persisted_data_diagnostic?(%CEL.InvalidGrant{kind: :condition_result_type}), do: true
   defp persisted_data_diagnostic?(%CEL.InvalidGrant{}), do: false
 
-  defp principal_group_ids(principal_id) do
+  defp computed_group_diagnostic_kind(:condition_compile),
+    do: :computed_group_condition_compile
+
+  defp computed_group_diagnostic_kind(:condition_execution),
+    do: :computed_group_condition_execution
+
+  defp computed_group_diagnostic_kind(:condition_result_type),
+    do: :computed_group_condition_result_type
+
+  defp list_effective_principal_groups(%Principal{} = principal) do
+    (static_principal_groups(principal) ++ computed_principal_groups(principal))
+    |> Enum.sort_by(& &1.name)
+  end
+
+  defp effective_principal_group_ids(%Principal{} = principal) do
+    principal
+    |> list_effective_principal_groups()
+    |> Enum.map(& &1.id)
+  end
+
+  defp static_principal_groups(%Principal{id: principal_id}) do
     Repo.all(
       from membership in PrincipalGroupMembership,
+        join: group in assoc(membership, :group),
         where: membership.principal_id == ^principal_id,
-        select: membership.group_id
+        where: group.kind == :static,
+        select: group
     )
+  end
+
+  defp computed_principal_groups(%Principal{} = principal) do
+    groups = Repo.all(from group in PrincipalGroup, where: group.kind == :computed)
+    loaded_groups = Enum.map(groups, &loaded_computed_group/1)
+
+    case CEL.evaluate_computed_groups(principal_env(principal), loaded_groups) do
+      {:ok, group_ids, invalid_groups} ->
+        emit_invalid_persisted_computed_groups(invalid_groups)
+
+        groups_by_id = Map.new(groups, &{&1.id, &1})
+        Enum.map(group_ids, &Map.fetch!(groups_by_id, &1))
+
+      {:error, _reason} ->
+        []
+    end
+  end
+
+  defp loaded_computed_group(%PrincipalGroup{} = group) do
+    %CEL.LoadedComputedGroup{
+      id: group.id,
+      condition: group.computed_condition
+    }
   end
 
   defp list_candidate_grants(principal_id, group_ids, action) do
@@ -435,6 +530,11 @@ defmodule BullX.AuthZ do
   end
 
   defp fetch_grant(_grant), do: {:error, :not_found}
+
+  defp ensure_static_membership_group(%PrincipalGroup{kind: :computed}),
+    do: {:error, :computed_group}
+
+  defp ensure_static_membership_group(%PrincipalGroup{}), do: :ok
 
   defp group_has_grants?(%PrincipalGroup{id: group_id}) do
     Repo.exists?(from grant in PermissionGrant, where: grant.group_id == ^group_id, select: 1)
@@ -605,7 +705,8 @@ defmodule BullX.AuthZ do
 
   defp grant_bootstrap_admin_to_loaded_principal(%Principal{type: :human} = principal) do
     transaction(fn ->
-      with {:ok, group, _status} <- ensure_built_in_admin_group() do
+      with {:ok, _all_humans, _all_humans_status} <- ensure_built_in_all_humans_group(),
+           {:ok, group, _status} <- ensure_built_in_admin_group() do
         insert_membership(principal.id, group.id)
       end
     end)
@@ -626,25 +727,51 @@ defmodule BullX.AuthZ do
     )
   end
 
-  defp create_built_in_admin_group do
-    attrs = %{
-      name: @admin_group_name,
-      description: "Built-in administrators group.",
-      built_in: true
-    }
+  defp ensure_built_in_group(%{name: name, kind: kind} = attrs, conflict_tag) do
+    case Repo.get_by(PrincipalGroup, name: name) do
+      nil ->
+        create_built_in_group(attrs, conflict_tag)
 
+      %PrincipalGroup{built_in: true, kind: ^kind} = group ->
+        case built_in_group_matches?(group, attrs) do
+          true -> {:ok, group, :existing}
+          false -> {:error, {conflict_tag, group}}
+        end
+
+      %PrincipalGroup{} = group ->
+        {:error, {conflict_tag, group}}
+    end
+  end
+
+  defp create_built_in_group(attrs, conflict_tag) do
     %PrincipalGroup{}
     |> PrincipalGroup.system_create_changeset(attrs)
     |> Repo.insert()
     |> case do
-      {:ok, group} -> {:ok, group, :created}
-      {:error, changeset} -> admin_group_insert_error(changeset)
+      {:ok, group} ->
+        {:ok, group, :created}
+
+      {:error, changeset} ->
+        built_in_group_insert_error(changeset, attrs, conflict_tag)
     end
   end
 
-  defp admin_group_insert_error(%Ecto.Changeset{} = changeset) do
+  defp built_in_group_matches?(%PrincipalGroup{kind: :static, computed_condition: nil}, %{
+         kind: :static
+       }),
+       do: true
+
+  defp built_in_group_matches?(%PrincipalGroup{kind: :computed} = group, %{
+         kind: :computed,
+         computed_condition: condition
+       }),
+       do: group.computed_condition == condition
+
+  defp built_in_group_matches?(%PrincipalGroup{}, _attrs), do: false
+
+  defp built_in_group_insert_error(%Ecto.Changeset{} = changeset, attrs, conflict_tag) do
     case unique_conflict?(changeset, :name) do
-      true -> ensure_built_in_admin_group()
+      true -> ensure_built_in_group(attrs, conflict_tag)
       false -> {:error, changeset}
     end
   end

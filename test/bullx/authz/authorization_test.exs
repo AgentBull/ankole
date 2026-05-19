@@ -66,6 +66,72 @@ defmodule BullX.AuthZ.AuthorizationTest do
       assert {:error, :invalid_request} = AuthZ.authorize(human, "workspace_channel:*", "write")
     end
 
+    test "computed group grants authorize matching Principals without membership rows" do
+      human = human!("computed-human")
+      agent = agent!("computed-agent")
+
+      {:ok, group} =
+        AuthZ.create_principal_group(%{
+          name: "computed-agents",
+          kind: :computed,
+          computed_condition: ~s(principal.type == "agent" && principal.status == "active")
+        })
+
+      {:ok, _grant} =
+        AuthZ.create_permission_grant(%{
+          group_id: group.id,
+          resource_pattern: "capability:browser",
+          action: "execute"
+        })
+
+      refute membership_exists?(agent.id, group.id)
+
+      assert :ok = AuthZ.authorize(agent, "capability:browser", "execute")
+      assert {:error, :forbidden} = AuthZ.authorize(human, "capability:browser", "execute")
+
+      assert {:ok, agent_groups} = AuthZ.list_principal_groups(agent)
+      assert Enum.map(agent_groups, & &1.name) == ["computed-agents"]
+    end
+
+    test "all_humans computed group grants authorize active Human Principals without membership rows" do
+      assert :ok = AuthZ.reconcile_bootstrap_admin_membership()
+
+      all_humans = Repo.get_by!(PrincipalGroup, name: "all_humans")
+      human = human!("all-humans-member")
+      disabled_human = human!("all-humans-disabled")
+      agent = agent!("all-humans-agent")
+
+      {:ok, disabled_human} = Principals.disable_principal(disabled_human)
+
+      assert all_humans.kind == :computed
+
+      assert all_humans.computed_condition ==
+               ~s(principal.type == "human" && principal.status == "active")
+
+      {:ok, _grant} =
+        AuthZ.create_permission_grant(%{
+          group_id: all_humans.id,
+          resource_pattern: "ai_agent:default",
+          action: "invoke"
+        })
+
+      refute membership_exists?(human.id, all_humans.id)
+      refute membership_exists?(disabled_human.id, all_humans.id)
+
+      assert :ok = AuthZ.authorize(human, "ai_agent:default", "invoke")
+
+      assert {:error, :principal_disabled} =
+               AuthZ.authorize(disabled_human, "ai_agent:default", "invoke")
+
+      assert {:error, :forbidden} = AuthZ.authorize(agent, "ai_agent:default", "invoke")
+
+      assert {:ok, human_groups} = AuthZ.list_principal_groups(human)
+      assert Enum.map(human_groups, & &1.name) == ["all_humans"]
+
+      assert {:ok, []} = AuthZ.list_principal_groups(disabled_human)
+      assert {:ok, []} = AuthZ.list_principal_groups(agent)
+    end
+
     test "disabled Principals deny before grants are evaluated" do
       human = human!("disabled-human")
 
@@ -174,6 +240,42 @@ defmodule BullX.AuthZ.AuthorizationTest do
     after
       detach_telemetry()
     end
+
+    test "invalid persisted computed group conditions fail closed and emit telemetry" do
+      human = human!("invalid-computed-human")
+
+      {:ok, group} =
+        AuthZ.create_principal_group(%{
+          name: "invalid-computed",
+          kind: :computed,
+          computed_condition: ~s(principal.type == "human")
+        })
+
+      {:ok, _grant} =
+        AuthZ.create_permission_grant(%{
+          group_id: group.id,
+          resource_pattern: "web_console",
+          action: "read"
+        })
+
+      Repo.update_all(
+        from(g in PrincipalGroup, where: g.id == ^group.id),
+        set: [computed_condition: "principal.id"]
+      )
+
+      attach_telemetry()
+
+      capture_log([level: :error], fn ->
+        assert {:error, :forbidden} = AuthZ.authorize(human, "web_console", "read")
+      end)
+
+      assert_received {:telemetry_event, [:bullx, :authz, :invalid_persisted_data], %{count: 1},
+                       %{kind: :computed_group_condition_result_type, id: group_id}}
+
+      assert group_id == group.id
+    after
+      detach_telemetry()
+    end
   end
 
   describe "group management and admin recoverability" do
@@ -181,9 +283,26 @@ defmodule BullX.AuthZ.AuthorizationTest do
       assert :ok = AuthZ.reconcile_bootstrap_admin_membership()
 
       admin = Repo.get_by!(PrincipalGroup, name: "admin")
+      all_humans = Repo.get_by!(PrincipalGroup, name: "all_humans")
+
       assert admin.built_in == true
+      assert admin.kind == :static
+      assert all_humans.built_in == true
+      assert all_humans.kind == :computed
       assert {:error, :built_in_group} = AuthZ.delete_principal_group(admin)
+      assert {:error, :built_in_group} = AuthZ.delete_principal_group(all_humans)
       assert [] = Repo.all(from grant in PermissionGrant, where: grant.group_id == ^admin.id)
+    end
+
+    test "computed groups reject manual membership edits" do
+      assert :ok = AuthZ.reconcile_bootstrap_admin_membership()
+
+      human = human!("all-humans-manual")
+      all_humans = Repo.get_by!(PrincipalGroup, name: "all_humans")
+
+      assert {:error, :computed_group} = AuthZ.add_principal_to_group(human, all_humans)
+      assert {:error, :computed_group} = AuthZ.remove_principal_from_group(human, all_humans)
+      refute membership_exists?(human.id, all_humans.id)
     end
 
     test "groups with grants cannot be deleted" do
@@ -250,7 +369,12 @@ defmodule BullX.AuthZ.AuthorizationTest do
                )
 
       admin = Repo.get_by!(PrincipalGroup, name: "admin")
+      all_humans = Repo.get_by!(PrincipalGroup, name: "all_humans")
+
       assert membership_exists?(principal.id, admin.id)
+      assert all_humans.built_in == true
+      assert all_humans.kind == :computed
+      refute membership_exists?(principal.id, all_humans.id)
     end
 
     test "non-bootstrap activation does not add admin membership" do

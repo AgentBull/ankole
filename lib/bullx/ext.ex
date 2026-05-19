@@ -236,6 +236,23 @@ defmodule BullX.Ext do
   def eventbus_match_route(_rules, _routing_context), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """
+  Evaluate already-loaded AuthZ computed groups against a Principal-only CEL
+  environment.
+
+  Ecto remains responsible for loading candidate computed groups. The native
+  boundary receives the Principal environment plus loaded group structs, then
+  evaluates each group condition in one dirty-CPU call.
+  """
+  @spec authz_cel_eval_computed_groups(
+          map(),
+          [map()]
+        ) ::
+          {:ok, [String.t()], [{String.t(), atom(), error_reason()}]}
+          | {:error, error_reason()}
+  def authz_cel_eval_computed_groups(_env, _loaded_groups),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
   Evaluate already-loaded AuthZ grants against a normalized CEL environment.
 
   Ecto remains responsible for Principal, group, and action filtering. The

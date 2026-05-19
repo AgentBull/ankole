@@ -1,11 +1,15 @@
 defmodule BullX.Repo.Migrations.CreatePrincipalAuthzTables do
   use Ecto.Migration
 
-  def change do
+  def up do
+    execute "CREATE TYPE principal_group_kind AS ENUM ('static', 'computed')"
+
     create table(:principal_groups, primary_key: false) do
       add :id, :uuid, primary_key: true
       add :name, :text, null: false
+      add :kind, :principal_group_kind, null: false, default: "static"
       add :description, :text
+      add :computed_condition, :text
       add :built_in, :boolean, null: false, default: false
 
       timestamps(type: :utc_datetime_usec)
@@ -19,6 +23,13 @@ defmodule BullX.Repo.Migrations.CreatePrincipalAuthzTables do
 
     create constraint(:principal_groups, :principal_groups_name_lowercase,
              check: "name = lower(name)"
+           )
+
+    create constraint(:principal_groups, :principal_groups_computed_condition_by_kind,
+             check: """
+             (kind = 'static' AND computed_condition IS NULL)
+             OR (kind = 'computed' AND length(btrim(computed_condition)) > 0)
+             """
            )
 
     create table(:principal_group_memberships, primary_key: false) do
@@ -78,5 +89,13 @@ defmodule BullX.Repo.Migrations.CreatePrincipalAuthzTables do
     create index(:permission_grants, [:principal_id])
     create index(:permission_grants, [:group_id])
     create index(:permission_grants, [:action])
+  end
+
+  def down do
+    drop table(:permission_grants)
+    drop table(:principal_group_memberships)
+    drop table(:principal_groups)
+
+    execute "DROP TYPE principal_group_kind"
   end
 end

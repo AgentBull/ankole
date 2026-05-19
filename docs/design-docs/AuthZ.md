@@ -3,22 +3,24 @@
 BullX AuthZ is the authorization boundary for active Principals. It decides
 whether one Principal may perform one action on one resource under
 caller-provided request context. The first implementation adds static Principal
-groups, Principal or group permission grants, and CEL boolean conditions. It
-deliberately omits computed groups and an AuthZ-specific decision cache until
-real usage shows that those costs buy enough value.
+groups, CEL-based computed Principal groups, Principal or group permission
+grants, and CEL boolean conditions. Computed group membership is effective
+state, not persisted membership rows; `all_humans` is the built-in computed group
+for active Human Principals.
 
 ## Scope
 
 This design covers the framework-level authorization surface:
 
 - Static groups whose members are Principals.
+- CEL computed groups whose effective members are derived from Principal facts.
 - Group membership management for Human, Agent, and future Principal types.
 - Permission grants assigned directly to Principals or to groups.
 - Resource-pattern and action authorization requests.
 - CEL boolean condition evaluation for request-time facts.
 - Caller-provided authorization context normalization.
-- Built-in `admin` group seed data and bootstrap-admin membership handoff from
-  Principal activation metadata.
+- Built-in `admin` and `all_humans` group seed data, plus bootstrap-admin
+  membership handoff from Principal activation metadata.
 - Public API shape, persistence, failure behavior, and implementation handoff.
 
 This design intentionally does not cover:
@@ -32,8 +34,8 @@ This design intentionally does not cover:
   Node execution, Capability use, high-risk external actions, or AIAgent runtime
   internals.
 - Explicit deny grants and deny precedence.
-- Computed groups, dynamic membership expression languages, or dependency-graph
-  invalidation.
+- Computed group dependency graphs, computed groups that depend on other groups,
+  or cache invalidation for computed memberships.
 - An AuthZ-specific cache process or decision cache.
 - A full Web UI for group and grant administration.
 - Audit-log storage. Future Audit, Workflow, Capability, or high-risk external
@@ -44,7 +46,8 @@ This design intentionally does not cover:
 - Make `principals.id` the only durable authorization subject id.
 - Authorize Humans and Agents through the same API without treating Agents as
   second-class user accounts.
-- Keep the first framework small: static groups, grants, and request conditions.
+- Keep the first framework small: static groups, CEL computed groups, grants,
+  and request conditions.
 - Preserve a boring allow-any model: any applicable grant whose condition
   evaluates to `true` authorizes the request.
 - Fail closed for disabled Principals, malformed requests, invalid grants, and
@@ -62,9 +65,10 @@ Principal creation, external identity resolution, activation codes, bootstrap
 activation, and login auth codes. Principal status is currently `active` or
 `disabled`; only active Principals can act as business subjects.
 
-AuthZ keeps the framework small: static groups, resource/action grants,
-request-time conditions, fail-closed semantics, and bootstrap admin handoff.
-The first implementation does not add computed groups or a local decision cache.
+AuthZ keeps the framework small: static groups, CEL computed groups,
+resource/action grants, request-time conditions, fail-closed semantics, and
+bootstrap admin handoff. The first implementation does not add a local decision
+cache or computed group dependency graph.
 
 The existing `BullX.Ext` NIF boundary already carries CPU-heavy native helpers.
 CEL condition compilation and evaluation extend that boundary rather than
@@ -187,7 +191,7 @@ actions, it creates both grants.
    stale struct.
 3. Return `{:error, :not_found}` if the Principal is missing.
 4. Return `{:error, :principal_disabled}` if the Principal is disabled.
-5. Load the Principal's static groups.
+5. Load the Principal's static groups and evaluate computed groups.
 6. Fetch grants assigned directly to the Principal or to any group, narrowed by
    exact action.
 7. Build the AuthZ CEL evaluation environment and loaded-grant list.
@@ -215,23 +219,29 @@ Well-formed ids that do not identify a Principal return `{:error, :not_found}`.
 
 ## Groups
 
-Groups are named sets of Principals. The first implementation supports only
-static groups.
+Groups are named sets of Principals. The first implementation supports static
+groups and CEL-based computed groups.
 
 `principal_groups.name` is the stable group key. It is globally unique,
-lowercase, and immutable after insert. `built_in` marks groups created by
-BullX. Public create/update APIs cannot set or clear `built_in`.
+lowercase, and immutable after insert. `kind` is a native PostgreSQL enum with
+values `static` and `computed`, and is immutable after insert. `built_in` marks
+groups created by BullX. Public create/update APIs cannot set or clear
+`built_in`.
 
-`principal_group_memberships` stores static membership only. A group can contain
-any active or disabled Principal type. Disabled Principals may remain members so
-operators can preserve administrative intent while the Principal is locked, but
-authorization still denies them before group lookup matters.
+`principal_group_memberships` stores static membership only. A static group can
+contain any active or disabled Principal type. Disabled Principals may remain
+members so operators can preserve administrative intent while the Principal is
+locked, but authorization still denies them before group lookup matters.
+
+Computed group membership is derived from the group's `computed_condition` CEL
+expression and is never written to `principal_group_memberships`.
 
 `list_principal_groups/1` loads existing Principals regardless of status and
-returns static group membership. Disabled status affects authorization
-decisions, not membership introspection. `add_principal_to_group/2` also accepts
-disabled Principals so operators can prepare or preserve membership while a
-Principal is locked.
+returns effective group membership: static membership plus computed groups whose
+conditions evaluate to `true`. Disabled status affects authorization decisions,
+not membership introspection. `add_principal_to_group/2` also accepts disabled
+Principals so operators can prepare or preserve membership while a Principal is
+locked.
 
 The built-in `admin` group is protected:
 
@@ -262,11 +272,60 @@ must lock the relevant admin group membership and Principal rows, or use an
 equivalent serializable transaction strategy, so concurrent removals or disables
 cannot bypass the last-active-Human-admin invariant.
 
-This design seeds the built-in `admin` group and bootstrap membership only. It
-does not create a universal action wildcard. Any subsystem that introduces an
-AuthZ enforcement point must either seed ordinary grants for the built-in
-`admin` group or explicitly document why setup/bootstrap remains outside AuthZ
-until those grants exist.
+Computed group conditions use the same shared CEL runtime as grant conditions,
+but they run in a smaller environment. The top-level variables are:
+
+- `principal`, with string fields `id`, `type`, and `status`.
+
+Computed group conditions do not receive `resource`, `action`, caller-provided
+`context.request`, Human profile fields, Agent profile fields, external identity
+metadata, or credentials. A computed group decides whether a Principal is an
+effective member of the group, not whether one request is authorized.
+
+The first implementation does not allow computed groups to reference static
+groups, computed groups, or permission grants. This avoids dependency graphs,
+cycles, and cache invalidation rules while still restoring the durable computed
+group concept. A future design may add group-reference facts if a concrete
+policy needs them.
+
+Write-time validation compiles `computed_condition` as CEL. With the current
+`cel` crate API, compile validation does not prove the expression returns a
+boolean. Runtime compile errors, execution errors, and non-boolean results make
+that computed group evaluate to `false` for the current Principal and emit
+invalid-persisted-data telemetry.
+
+Static group membership APIs reject adding or removing members for computed
+groups with `{:error, :computed_group}`.
+
+The built-in `all_humans` group is a computed group:
+
+- AuthZ bootstrap creates a `principal_groups` row with `name = "all_humans"`,
+  `kind = "computed"`, `built_in = true`, and:
+
+  ```cel
+  principal.type == "human" && principal.status == "active"
+  ```
+
+  so permission grants can target it.
+- Active Human Principals are effective members without
+  `principal_group_memberships` rows.
+- Disabled Human Principals, Agent Principals, Service Principals, System
+  Principals, and unknown Principal types are not effective members.
+- Public membership APIs reject adding or removing members for `all_humans`
+  with `{:error, :computed_group}`.
+- `list_principal_groups/1` includes `all_humans` for active Human Principals
+  and omits it for everyone else.
+- `all_humans` receives no magical authorization behavior. It authorizes only
+  through ordinary permission grants assigned to the group.
+
+`all_humans` is not a setup-local allowlist, provider audience, or channel
+allowlist. It is ordinary computed group data owned by AuthZ.
+
+This design seeds the built-in `admin` and `all_humans` groups, plus bootstrap
+admin membership only. It does not create a universal action wildcard. Any
+subsystem that introduces an AuthZ enforcement point must either seed ordinary
+grants for the built-in groups it expects setup/bootstrap to use, or explicitly
+document why setup/bootstrap remains outside AuthZ until those grants exist.
 
 AuthZ management surfaces use the same resource/action model as every other
 subsystem. Expected resource names include `authz_group:<group_name>`,
@@ -284,7 +343,7 @@ durable fact to assign initial administrator membership.
 `BullX.Principals.Bootstrap`. It:
 
 1. Exits normally with a warning when AuthZ tables do not exist.
-2. Creates the built-in `admin` group if missing.
+2. Creates the built-in `admin` and `all_humans` groups if missing.
 3. Finds consumed bootstrap activation-code rows with `used_by_principal_id`.
 4. Adds the consumed Human Principal to the `admin` group idempotently.
 
@@ -344,7 +403,7 @@ AuthZ uses the shared rule-engine CEL support for expression compilation and
 JSON-compatible input conversion. Shared Elixir wrappers live in
 `BullX.RuleEngine.CEL` and `BullX.RuleEngine.JSON`; shared Rust CEL utilities
 live under `native/bullx_ext/src/rule_engine/cel.rs`. AuthZ-specific grant
-decision logic lives in `BullX.AuthZ.CEL` and
+decision and computed-group logic lives in `BullX.AuthZ.CEL` and
 `native/bullx_ext/src/rule_engine/authz.rs`, and calls NIF shims exposed from
 `BullX.Ext`:
 
@@ -354,6 +413,13 @@ decision logic lives in `BullX.AuthZ.CEL` and
 @spec evaluate_grants(BullX.AuthZ.CEL.Env.t(), [BullX.AuthZ.CEL.LoadedGrant.t()]) ::
         {:allow, [BullX.AuthZ.CEL.InvalidGrant.t()]}
         | {:deny, [BullX.AuthZ.CEL.InvalidGrant.t()]}
+        | {:error, String.t()}
+
+@spec evaluate_computed_groups(
+        BullX.AuthZ.CEL.PrincipalEnv.t(),
+        [BullX.AuthZ.CEL.LoadedComputedGroup.t()]
+      ) ::
+        {:ok, [Ecto.UUID.t()], [BullX.AuthZ.CEL.InvalidComputedGroup.t()]}
         | {:error, String.t()}
 ```
 
@@ -398,6 +464,28 @@ The minimal NIF boundary structs are:
   resource_pattern: resource_pattern,
   reason: reason
 }
+
+%BullX.AuthZ.CEL.PrincipalEnv{
+  principal: %{
+    "id" => principal_id,
+    "type" => Atom.to_string(principal.type),
+    "status" => Atom.to_string(principal.status)
+  }
+}
+
+%BullX.AuthZ.CEL.LoadedComputedGroup{
+  id: group_id,
+  condition: computed_condition
+}
+
+%BullX.AuthZ.CEL.InvalidComputedGroup{
+  id: group_id,
+  kind:
+    :condition_compile
+    | :condition_execution
+    | :condition_result_type,
+  reason: reason
+}
 ```
 
 `BullX.AuthZ.authorize/4` loads the current Principal before condition
@@ -409,10 +497,8 @@ There are no `BullXPrincipal`, `BullXAction`, or `BullXResource` entity
 wrappers. The CEL wrapper constructs `Context::default()` and registers exactly
 these top-level variables:
 
-- `principal`
-- `action`
-- `resource`
-- `context`
+- `principal` for both computed group conditions and grant conditions;
+- `action`, `resource`, and `context` only for grant conditions.
 
 The wrapper must not expose the whole request under an implicit root object. If
 BullX later wants that shape, the condition syntax must change to
@@ -425,6 +511,13 @@ Unknown variables, missing functions, wrong argument types, and wrong result
 types may fail at runtime and fail closed for that grant. Expressions such as
 `"hello"`, `123`, `principal.id`, and `context.request.some_map` may compile and
 must fail closed when evaluation returns a non-boolean value.
+
+`evaluate_computed_groups/2` receives the already-built
+`BullX.AuthZ.CEL.PrincipalEnv` struct and a list of computed group ids and
+conditions. Elixir must not call a generic CEL evaluator once per computed
+group. The Rust function evaluates each computed group condition against only
+the Principal environment, returns matching group ids, and returns invalid
+computed-group diagnostics for malformed persisted rows.
 
 `evaluate_grants/2` receives the already-built `BullX.AuthZ.CEL.Env` struct and
 a list of loaded grants. Elixir must not call a generic CEL evaluator once per
@@ -559,9 +652,10 @@ Grant condition evaluation fails closed:
 - CEL result `true` -> grant allows.
 - CEL result `false` -> grant does not allow.
 
-CEL compile errors in persisted grant conditions, non-boolean condition results,
-and invalid stored resource patterns may emit `Logger.error/1` and telemetry
-event `[:bullx, :authz, :invalid_persisted_data]`.
+CEL compile errors in persisted computed group conditions or grant conditions,
+non-boolean condition results, and invalid stored resource patterns may emit
+`Logger.error/1` and telemetry event
+`[:bullx, :authz, :invalid_persisted_data]`.
 
 CEL execution errors caused by missing or wrongly typed caller context fields
 fail closed for that grant but are not emitted as invalid persisted data by
@@ -578,10 +672,16 @@ Metadata:
 
 ```elixir
 %{
-  kind: :resource_pattern | :condition_compile | :condition_result_type,
+  kind:
+    :computed_group_condition_compile
+    | :computed_group_condition_execution
+    | :computed_group_condition_result_type
+    | :resource_pattern
+    | :condition_compile
+    | :condition_result_type,
   id: Ecto.UUID.t(),
-  action: String.t(),
-  resource_pattern: String.t(),
+  action: String.t() | nil,
+  resource_pattern: String.t() | nil,
   reason: term()
 }
 ```
@@ -608,7 +708,11 @@ Columns:
 
 - `id`: UUIDv7 primary key.
 - `name`: required lowercase group key, globally unique.
+- `kind`: native PostgreSQL enum `principal_group_kind` with values `static` and
+  `computed`, default `static`.
 - `description`: nullable text.
+- `computed_condition`: nullable CEL expression string expected to evaluate to
+  boolean.
 - `built_in`: required boolean, default `false`.
 - `inserted_at`: creation timestamp.
 - `updated_at`: update timestamp.
@@ -618,11 +722,17 @@ Constraints and indexes:
 - unique index on `name`;
 - check constraint that `name <> ''`;
 - check constraint that `name = lower(name)`;
-- `name` is immutable through public update APIs;
+- `kind = 'static'` requires `computed_condition IS NULL`;
+- `kind = 'computed'` requires non-empty `computed_condition`;
+- `name` and `kind` are immutable through public update APIs;
 - `built_in` is system-owned and cannot be changed through public create/update
   APIs;
 - public delete rejects groups that still own permission grants with
   `{:error, :group_has_grants}`.
+
+The schema validates `computed_condition` through the shared CEL wrapper for
+computed groups. With the current `cel` crate API, write-time validation does
+not prove the expression returns a boolean.
 
 ### `principal_group_memberships`
 
@@ -637,6 +747,11 @@ Constraints and indexes:
 
 - composite primary key on `{principal_id, group_id}`;
 - cascade delete when the Principal or group is deleted.
+
+This table stores static memberships only. Public AuthZ membership APIs reject
+attempts to add or remove membership for computed groups. Direct database writes
+that insert membership rows for computed groups are out-of-contract; effective
+membership is computed at read time.
 
 ### `permission_grants`
 
@@ -736,12 +851,14 @@ Expected facade functions:
 @spec add_principal_to_group(
         BullX.Principals.Principal.t() | Ecto.UUID.t(),
         BullX.AuthZ.PrincipalGroup.t() | Ecto.UUID.t()
-      ) :: :ok | {:error, :not_found | :invalid_request}
+      ) :: :ok | {:error, :not_found | :invalid_request | :computed_group}
 
 @spec remove_principal_from_group(
         BullX.Principals.Principal.t() | Ecto.UUID.t(),
         BullX.AuthZ.PrincipalGroup.t() | Ecto.UUID.t()
-      ) :: :ok | {:error, :not_found | :last_admin_member | :last_active_human_admin}
+      ) ::
+        :ok
+        | {:error, :not_found | :last_admin_member | :last_active_human_admin | :computed_group}
 
 @spec create_permission_grant(map()) ::
         {:ok, BullX.AuthZ.PermissionGrant.t()} | {:error, Ecto.Changeset.t()}
@@ -762,7 +879,8 @@ Expected facade functions:
 `%{}`. `allowed?/3` and `allowed?/4` return `false` for every error.
 `list_principal_groups/1` and `add_principal_to_group/2` accept disabled
 Principals; disabled state changes authorization decisions, not membership
-introspection or static membership writes.
+introspection or static membership writes. Static membership writes reject
+computed groups with `{:error, :computed_group}`.
 
 Schema modules:
 
@@ -798,9 +916,11 @@ Bootstrap worker failures behave as follows:
 - Reconciliation inserts are idempotent through the membership primary key.
 
 Runtime invalid persisted grant conditions log an error and emit
-`[:bullx, :authz, :invalid_persisted_data]`. Normal denials do not log as data
-corruption. Missing or wrongly typed caller context fields fail closed for the
-affected grant but are not invalid-persisted-data telemetry by default.
+`[:bullx, :authz, :invalid_persisted_data]`; invalid persisted computed group
+conditions do the same and make that computed group evaluate to `false`. Normal
+denials do not log as data corruption. Missing or wrongly typed caller context
+fields fail closed for the affected grant but are not invalid-persisted-data
+telemetry by default.
 
 ## Security, privacy, and governance
 
@@ -810,10 +930,12 @@ effects. Customer-facing, financial, legal, or otherwise risky external actions
 should pass through the approval or policy path defined by the owning Target,
 Workflow, Capability, or Governance design before the side effect executes.
 
-CEL conditions receive only explicit request context and the minimal
-Principal attributes `id`, `type`, and `status`. AuthZ does not expose Human
-email, phone, channel metadata, Agent profile data, external identity metadata,
-or secrets to CEL by default.
+Computed group CEL conditions receive only the minimal Principal attributes
+`id`, `type`, and `status`. Permission grant CEL conditions additionally receive
+explicit caller-provided request context under `context.request`, plus request
+`resource` and `action`. AuthZ does not expose Human email, phone, channel
+metadata, Agent profile data, external identity metadata, or secrets to CEL by
+default.
 
 Permission grant metadata is for operator context and non-secret
 troubleshooting. It must not store credentials, access tokens, refresh tokens,
@@ -829,7 +951,8 @@ review layers to wrap, instrument, or record consistently.
 | --- | --- |
 | Keep the `BullXAccounts` user-centered namespace and table names | Rejected. New BullX uses Principals as durable subjects for Humans, Agents, and future Principal types. |
 | Put AuthZ facade functions on `BullX.Principals` | Rejected. Principal AuthN owns identity and resolution; `BullX.AuthZ` is a separate authorization boundary that consumes Principal ids. |
-| Implement computed groups in the first slice | Rejected. Static groups plus caller-provided CEL context cover the first useful policies without cycle detection, expression validation, and cache invalidation machinery. |
+| Restore the legacy JSON computed-group expression language | Rejected. CEL is now the shared rule expression boundary for AuthZ and EventBus-adjacent code, so computed groups use CEL instead of a second JSON DSL. |
+| Let computed groups depend on other groups | Rejected. The first Principal-derived computed groups cover `all_humans` without cycles, dependency validation, or invalidation machinery. |
 | Add an AuthZ-specific decision cache immediately | Rejected. PostgreSQL reads and CEL evaluation are simpler to reason about for the first implementation. A later cache can use `BullX.Cache` after real pressure appears. |
 | Make `admin` group magical | Rejected. Administrator power stays visible as ordinary grants, not hidden in special-case authorization code. |
 | Add explicit deny grants | Rejected. Allow-any semantics are enough for the first framework and avoid deny-precedence bugs. |
@@ -863,16 +986,17 @@ described in this design.
 - Use `principals.id` for direct grant subjects and group members.
 - Generate UUID primary keys through `BullX.Ecto.UUIDv7`; do not use
   database-side UUID defaults.
-- Keep groups static in the first implementation.
+- Keep computed groups Principal-derived in the first implementation; do not let
+  computed groups depend on request context, other groups, permission grants, or
+  external identity records.
 - Reject request resource strings containing `*`; wildcard matching belongs
   only to persisted `resource_pattern` values.
 - Preserve admin recoverability when Principal status or admin membership
   changes.
 - Keep AuthZ mutation functions as domain commands; callers authorize acting
   Principals before invoking them.
-- Do not add AuthZ-specific caches, cache processes, computed groups, explicit
-  deny grants, complete policy storage, or application-specific policy
-  catalogs.
+- Do not add AuthZ-specific caches, cache processes, explicit deny grants,
+  complete policy storage, or application-specific policy catalogs.
 - Do not expose private Principal profile fields to CEL by default.
 - Do not add a long-lived AuthZ supervisor unless a new design states the
   failure boundary.
@@ -897,13 +1021,16 @@ described in this design.
    support.
    Verify: request and pattern unit tests.
 
-3. Add static group APIs.
+3. Add group APIs and computed groups.
    Owns: `BullX.AuthZ` facade group functions.
    Depends on: Task 1.
    Acceptance: built-in flags are protected, names are immutable, membership
    writes are idempotent where appropriate, groups with grants are not deleted,
    final admin member removal is rejected, and disabled Principals can still be
-   inspected or added to groups.
+   inspected or added to static groups; computed group conditions are validated
+   on write; computed groups cannot receive manual membership edits;
+   `all_humans` is seeded as a built-in computed group and appears as an
+   effective group only for active Human Principals.
    Verify: group tests.
 
 4. Add CEL NIF and wrapper.
@@ -915,10 +1042,12 @@ described in this design.
    remains.
    Depends on: Task 2.
    Acceptance: condition validation compiles CEL expressions with the chosen
-   shared rule-engine CEL runtime; evaluation uses one Rust decision call,
+   shared rule-engine CEL runtime; computed group evaluation uses one Rust call
+   over loaded computed groups; grant evaluation uses one Rust decision call,
    registers only the documented top-level variables, performs resource-pattern
-   matching, reports grant-level diagnostics, runs on the dirty CPU scheduler,
-   and fails closed for malformed CEL and non-boolean results.
+   matching, reports computed-group and grant-level diagnostics, runs on the
+   dirty CPU scheduler, and fails closed for malformed CEL and non-boolean
+   results.
    Verify: CEL wrapper and NIF tests.
 
 5. Add permission grant APIs.
@@ -934,9 +1063,9 @@ described in this design.
    Depends on: Tasks 2, 3, 4, and 5.
    Acceptance: active Principals authorize through direct or group grants,
    disabled Principals deny before grant evaluation, allow-any semantics work,
-   action mismatch never authorizes, grant-level failures fail closed, and
-   runtime grant evaluation uses one Rust NIF call rather than one generic CEL
-   call per grant.
+   action mismatch never authorizes, computed group and grant-level failures
+   fail closed, and runtime computed-group and grant evaluation use batched Rust
+   NIF calls rather than one generic CEL call per row.
    Verify: authorization tests.
 
 7. Add admin recoverability protection.
@@ -955,10 +1084,10 @@ described in this design.
    Owns: `BullX.AuthZ.Bootstrap`, `BullX.Application`, and the narrow
    activation-code handoff call.
    Depends on: Tasks 1 and 3.
-   Acceptance: `admin` group is seeded idempotently, consumed bootstrap
-   activation codes grant Human admin membership, non-bootstrap activation
-   codes do not, non-Human Principal rows are skipped, and reconciliation can
-   repair a missed handoff.
+   Acceptance: `admin` and `all_humans` groups are seeded idempotently,
+   consumed bootstrap activation codes grant Human admin membership,
+   non-bootstrap activation codes do not, non-Human Principal rows are skipped,
+   and reconciliation can repair a missed handoff.
    Verify: bootstrap tests.
 
 9. Add minimal enforcement integration only where this implementation slice
@@ -980,9 +1109,11 @@ described in this design.
   invalid persisted conditions fail closed.
 - Principal disable and admin membership removal flows preserve admin
   recoverability.
-- Built-in `admin` group and bootstrap activation handoff work idempotently.
+- Built-in `admin` and `all_humans` groups and bootstrap activation handoff work
+  idempotently.
 - Tests cover schema constraints, groups, grants, resource patterns, request
   normalization, action mismatch denial, CEL conditions, grant-level CEL
+  compile/execution/non-boolean failures, computed group CEL
   compile/execution/non-boolean failures, missing context fail-closed behavior
   without invalid-persisted-data telemetry, disabled Principal behavior,
   bootstrap membership, Rust resource-pattern edge cases, admin recoverability
@@ -990,10 +1121,11 @@ described in this design.
   framework can express it, and any touched enforcement integration.
 - `bun precommit` passes.
 
-Implementation stops and asks if a change would introduce computed groups,
-explicit deny semantics, a policy catalog, a private AuthZ cache, a new
-Principal type, external credential storage, Workflow policy-gate behavior,
-approval behavior, TargetSession behavior, or high-risk external action
+Implementation stops and asks if a change would introduce computed group
+dependencies on other groups, request context, external identities, or grants;
+explicit deny semantics; a policy catalog; a private AuthZ cache; a new
+Principal type; external credential storage; Workflow policy-gate behavior;
+approval behavior; TargetSession behavior; or high-risk external action
 execution behavior.
 
 ## Acceptance criteria
@@ -1004,6 +1136,8 @@ execution behavior.
   constraints.
 - Human and Agent Principals can both receive direct grants and group-based
   grants.
+- Computed groups derive effective membership from Principal CEL conditions and
+  never persist computed memberships as rows.
 - Disabled Principals never authorize.
 - Principal disable and admin membership removal flows cannot leave the
   Installation without an active Human admin unless a future design adds an
@@ -1028,6 +1162,6 @@ execution behavior.
 - Public group deletion rejects groups that still own permission grants.
 - AuthZ never creates, authenticates, activates, logs in, or externally binds
   Principals.
-- No AuthZ-specific cache or computed-group machinery is introduced in the first
-  implementation.
+- No AuthZ-specific cache or computed-group dependency graph is introduced in the
+  first implementation.
 - `bun precommit` passes.

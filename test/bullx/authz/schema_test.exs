@@ -12,6 +12,7 @@ defmodule BullX.AuthZ.SchemaTest do
              })
 
     assert group.name == "engineers"
+    assert group.kind == :static
     assert group.built_in == false
 
     assert {:ok, updated} =
@@ -22,8 +23,49 @@ defmodule BullX.AuthZ.SchemaTest do
              })
 
     assert updated.name == "engineers"
+    assert updated.kind == :static
     assert updated.built_in == false
     assert updated.description == "Engineering group"
+  end
+
+  test "computed groups validate CEL conditions and keep kind immutable on update" do
+    assert {:ok, group} =
+             AuthZ.create_principal_group(%{
+               name: " Active_Humans ",
+               kind: :computed,
+               computed_condition: ~s(principal.type == "human" && principal.status == "active"),
+               built_in: true
+             })
+
+    assert group.name == "active_humans"
+    assert group.kind == :computed
+    assert group.built_in == false
+
+    assert {:ok, updated} =
+             AuthZ.update_principal_group(group, %{
+               kind: :static,
+               computed_condition: ~s(principal.type == "agent")
+             })
+
+    assert updated.kind == :computed
+    assert updated.computed_condition == ~s(principal.type == "agent")
+
+    assert {:error, changeset} =
+             AuthZ.create_principal_group(%{
+               name: "bad-computed",
+               kind: :computed,
+               computed_condition: "not valid cel"
+             })
+
+    assert %{computed_condition: [_ | _]} = errors_on(changeset)
+
+    assert {:error, changeset} =
+             AuthZ.create_principal_group(%{
+               name: "bad-static",
+               computed_condition: ~s(principal.type == "human")
+             })
+
+    assert %{computed_condition: [_ | _]} = errors_on(changeset)
   end
 
   test "permission grants require one subject and validate action, resource pattern, metadata, and condition" do
