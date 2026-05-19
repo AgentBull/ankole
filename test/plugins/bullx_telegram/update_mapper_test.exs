@@ -39,8 +39,11 @@ defmodule BullxTelegram.UpdateMapperTest do
     assert attrs.type == "bullx.im.message.addressed"
     assert attrs.source == "telegram://main/bot/123456"
     assert get_in(attrs.data, [:channel, :adapter]) == "telegram"
+    assert get_in(attrs.data, [:channel, :kind]) == "dm"
     assert get_in(attrs.data, [:scope, :id]) == "987654321"
-    assert get_in(attrs.data, [:actor, :id]) == "telegram:987654321"
+    assert get_in(attrs.data, [:actor, :external_account_id]) == "telegram:987654321"
+    assert get_in(attrs.data, [:actor, :display_name]) == "Alice"
+    assert get_in(attrs.data, [:actor, :principal]) == nil
     assert get_in(attrs.data, [:routing_facts, "attention_reason"]) == "dm"
     assert get_in(attrs.data, [:routing_facts, "im_listen_mode"]) == "addressed_only"
     assert account_input["external_id"] == "telegram:987654321"

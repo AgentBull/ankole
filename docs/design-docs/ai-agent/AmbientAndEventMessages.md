@@ -47,25 +47,29 @@ This design does not define:
   caching.
 - Business handling for webhook, market, system, operations, or domain-state
   Events. This AIAgent policy safely ignores unsupported routed Event types.
+  Provider-directed action submissions are user-facing inputs when routed to
+  AIAgent, not domain-state business handlers.
 - Long-term Brain ingestion, Brain ontology, memory ranking, or cross-Agent
   recall.
 
 ## Event classes
 
-From the AIAgent runtime's point of view, a routed Event falls into one of four
+From the AIAgent runtime's point of view, a routed Event falls into one of five
 classes:
 
 | Class | CloudEvents `type` | AIAgent behavior |
 | --- | --- | --- |
 | Addressed utterance | `bullx.im.message.addressed` | Persist normal input as `role = user, kind = normal`, or handle an AIAgent-owned slash command as a control input without writing a Conversation Message. |
+| Directed action | `bullx.action.submitted` | Persist the normalized action text projection as `role = user, kind = normal`; keep action identifiers and sanitized values as structured Event facts referenced by the Message source identifiers. |
 | Ambient utterance | `bullx.im.message.ambient` | Persist as `role = im_ambient, kind = normal`, then follow the Agent profile's ambient policy. |
 | AIAgent command Event | `bullx.command.invoked` | Run the AIAgent-owned command control path without writing a Conversation Message. |
 | Unsupported Event | Any other type | Record allowlisted safety telemetry and return success without writing a user Message or invoking a model. |
 
 Direct messages, group messages that mention the Agent, and provider-native
-directed interactions are addressed utterances. Their differences affect
-`reply_channel`, conversation key, TargetSession scope, and message meta context;
-they do not create separate AIAgent runtimes.
+directed message interactions are addressed utterances. Provider card actions,
+button clicks, and approval clicks are directed actions. Their differences
+affect `reply_channel`, conversation key, TargetSession scope, and message meta
+context; they do not create separate AIAgent runtimes.
 
 Ambient utterances are ordinary IM group or channel messages that do not
 explicitly mention the current Agent. Channel Adapters may emit these Events
@@ -135,7 +139,10 @@ affect EventBus routing.
 
 Addressed utterances are persisted in the current Conversation:
 
-- Normal text or multimodal input becomes `role = user, kind = normal`.
+- Normalized input content is projected into AIAgent transcript text. Plain text
+  renders as-is; card, action, file, and media parts render through their safe
+  fallback text. Image and multimodal provider input is not passed through as
+  image content in v1.
 - AIAgent built-in commands enter the Core command path as control inputs. They
   are not persisted as Conversation Messages.
 
@@ -414,7 +421,7 @@ the Agent.
 ## Message meta context boundary
 
 This design owns only the source and recall rules for ambient context. Provider
-input rendering belongs to Core's `BullX.AIAgents.MessageContextBuilder`.
+input rendering belongs to Core's `BullX.AIAgent.MessageContextBuilder`.
 
 Ambient context handed to the builder includes:
 
@@ -476,9 +483,10 @@ credentials, private AuthZ internals, or unredacted message content.
 ## Implementation
 
 Goal: implement AIAgent ambient and unsupported Event handling so addressed IM
-Events enter the normal user turn, ambient IM Events are observed or considered
-for proactive intervention according to the Agent profile, and other routed
-Event types are safely ignored without being disguised as user input.
+Events and directed action Events enter the normal user turn, ambient IM Events
+are observed or considered for proactive intervention according to the Agent
+profile, and other routed Event types are safely ignored without being disguised
+as user input.
 
 Context pointers:
 
@@ -518,10 +526,11 @@ Implementation steps:
      defaults to `""` and is used only by the ambient intent recognizer.
 
 2. Implement Event type branching.
-   - Owns: `bullx.im.message.addressed`, `bullx.im.message.ambient`, and the
-     unsupported Event path.
-   - Acceptance: addressed IM Events enter the normal user turn; unsupported
-     Events emit safe telemetry and return success without model calls.
+   - Owns: `bullx.im.message.addressed`, `bullx.action.submitted`,
+     `bullx.im.message.ambient`, and the unsupported Event path.
+   - Acceptance: addressed IM Events and directed action Events enter the normal
+     user turn; unsupported Events emit safe telemetry and return success
+     without model calls.
 
 3. Implement `im_ambient normal` persistence and brief generation.
    - Owns: ambient Message persistence, `target_session_entry_id` dedupe,
@@ -556,7 +565,7 @@ Implementation steps:
 
 7. Integrate Core prompt rendering.
    - Owns: passing ambient recall results to
-     `BullX.AIAgents.MessageContextBuilder`.
+     `BullX.AIAgent.MessageContextBuilder`.
    - Acceptance: `role = user, kind = normal` and
      `role = im_ambient, kind = introspection` receive clearly labeled ambient
      background without reimplementing recall inside Core.
@@ -588,8 +597,9 @@ Stop and ask if implementation needs:
 
 Done when:
 
-- `bullx.im.message.addressed` enters the normal user turn, and DM versus group
-  mention differences do not create separate AIAgent runtimes.
+- `bullx.im.message.addressed` and `bullx.action.submitted` enter the normal
+  user turn, and DM, group mention, or directed action differences do not create
+  separate AIAgent runtimes.
 - `bullx.im.message.ambient` in `observe_only` writes only
   `role = im_ambient, kind = normal`.
 - `bullx.im.message.ambient` in `may_intervene` uses a Redis-backed 30 second

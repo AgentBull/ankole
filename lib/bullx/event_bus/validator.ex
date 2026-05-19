@@ -15,6 +15,9 @@ defmodule BullX.EventBus.Validator do
     "raw_ref"
   ]
   @routing_fact_key ~r/\A[a-z][a-z0-9_]*\z/
+  @actor_keys ~w(external_account_id display_name principal)
+  @channel_kinds ~w(dm group webhook)
+  @principal_types ~w(human agent)
 
   @spec validate(term()) :: {:ok, map()} | {:error, InvalidEvent.t()}
   def validate(%{} = event) do
@@ -135,21 +138,76 @@ defmodule BullX.EventBus.Validator do
      invalid(:invalid_payload_shape, ["data", "content"], "content must be a non-empty list")}
   end
 
-  defp validate_content_block(%{"kind" => kind, "body" => body}, _index)
-       when is_binary(kind) and kind != "" and is_map(body),
+  defp validate_content_block(%{"type" => "text", "text" => text}, _index)
+       when is_binary(text) and text != "",
+       do: :ok
+
+  defp validate_content_block(
+         %{"type" => type, "url" => url, "fallback_text" => fallback_text},
+         _index
+       )
+       when type in ["image_url", "video_url"] and is_binary(url) and url != "" and
+              is_binary(fallback_text) and fallback_text != "",
+       do: :ok
+
+  defp validate_content_block(
+         %{"type" => "image", "data" => data, "fallback_text" => fallback_text},
+         _index
+       )
+       when is_binary(data) and data != "" and is_binary(fallback_text) and fallback_text != "",
+       do: :ok
+
+  defp validate_content_block(%{"type" => "file"} = block, index) do
+    case non_empty_map_value?(block, "fallback_text") and
+           (non_empty_map_value?(block, "data") or non_empty_map_value?(block, "url")) do
+      true -> :ok
+      false -> invalid_content_block(index)
+    end
+  end
+
+  defp validate_content_block(
+         %{
+           "type" => "card",
+           "format" => format,
+           "payload" => payload,
+           "fallback_text" => fallback_text
+         },
+         _index
+       )
+       when is_binary(format) and format != "" and is_map(payload) and
+              is_binary(fallback_text) and fallback_text != "",
+       do: :ok
+
+  defp validate_content_block(
+         %{"type" => "action", "action_id" => action_id, "text" => text},
+         _index
+       )
+       when is_binary(action_id) and action_id != "" and is_binary(text) and text != "",
        do: :ok
 
   defp validate_content_block(_block, index) do
+    invalid_content_block(index)
+  end
+
+  defp invalid_content_block(index) do
     {:error,
      invalid(
        :invalid_payload_shape,
        ["data", "content", index],
-       "content block must contain non-empty kind and object body"
+       "content block must contain a valid type-discriminated content part"
      )}
   end
 
-  defp validate_channel(%{"adapter" => adapter, "id" => id})
-       when is_binary(adapter) and adapter != "" and is_binary(id) and id != "",
+  defp non_empty_map_value?(map, key) do
+    case Map.get(map, key) do
+      value when is_binary(value) and value != "" -> true
+      _value -> false
+    end
+  end
+
+  defp validate_channel(%{"adapter" => adapter, "id" => id, "kind" => kind})
+       when is_binary(adapter) and adapter != "" and is_binary(id) and id != "" and
+              (kind in @channel_kinds or is_nil(kind)),
        do: :ok
 
   defp validate_channel(_channel) do
@@ -157,7 +215,7 @@ defmodule BullX.EventBus.Validator do
      invalid(
        :invalid_payload_shape,
        ["data", "channel"],
-       "channel.adapter and channel.id must be non-empty strings"
+       "channel.adapter and channel.id must be non-empty strings; channel.kind must be dm, group, webhook, or null"
      )}
   end
 
@@ -174,18 +232,49 @@ defmodule BullX.EventBus.Validator do
      )}
   end
 
-  defp validate_actor(%{
-         "id" => id,
-         "display" => display,
-         "bot" => bot,
-         "principal_ref" => principal_ref
-       })
-       when is_binary(id) and id != "" and (is_binary(display) or is_nil(display)) and
-              is_boolean(bot) and (is_binary(principal_ref) or is_nil(principal_ref)),
-       do: :ok
+  defp validate_actor(
+         %{
+           "external_account_id" => external_account_id,
+           "display_name" => display_name,
+           "principal" => principal
+         } = actor
+       )
+       when (is_nil(external_account_id) or
+               (is_binary(external_account_id) and external_account_id != "")) and
+              (is_binary(display_name) or is_nil(display_name)) do
+    with :ok <- validate_allowed_actor_keys(actor),
+         :ok <- validate_actor_principal(principal) do
+      :ok
+    end
+  end
 
   defp validate_actor(_actor) do
     {:error, invalid(:invalid_payload_shape, ["data", "actor"], "actor shape is invalid")}
+  end
+
+  defp validate_allowed_actor_keys(actor) do
+    case Map.keys(actor) -- @actor_keys do
+      [] ->
+        :ok
+
+      _extra_keys ->
+        {:error, invalid(:invalid_payload_shape, ["data", "actor"], "actor shape is invalid")}
+    end
+  end
+
+  defp validate_actor_principal(nil), do: :ok
+
+  defp validate_actor_principal(%{"id" => id, "type" => type})
+       when is_binary(id) and id != "" and type in @principal_types,
+       do: :ok
+
+  defp validate_actor_principal(_principal) do
+    {:error,
+     invalid(
+       :invalid_payload_shape,
+       ["data", "actor", "principal"],
+       "actor.principal must be null or contain id and type"
+     )}
   end
 
   defp validate_refs(refs) when is_list(refs) do
@@ -214,14 +303,18 @@ defmodule BullX.EventBus.Validator do
   end
 
   defp validate_reply_channel(nil), do: :ok
-  defp validate_reply_channel(%{}), do: :ok
+
+  defp validate_reply_channel(%{"adapter" => adapter, "channel_id" => channel_id})
+       when is_binary(adapter) and adapter != "" and is_binary(channel_id) and
+              channel_id != "",
+       do: :ok
 
   defp validate_reply_channel(_reply_channel) do
     {:error,
      invalid(
        :invalid_payload_shape,
        ["data", "reply_channel"],
-       "reply_channel must be object or null"
+       "reply_channel must be null or contain non-empty adapter and channel_id"
      )}
   end
 

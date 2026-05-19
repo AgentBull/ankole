@@ -10,10 +10,9 @@ defmodule BullX.EventBus.ValidatorTest do
 
   test "rejects NUL-containing strings before PostgreSQL jsonb handoff" do
     event =
-      valid_event() |> put_in(["data", "content", Access.at(0), "body", "text"], "bad" <> <<0>>)
+      valid_event() |> put_in(["data", "content", Access.at(0), "text"], "bad" <> <<0>>)
 
-    assert {:error,
-            %InvalidEvent{code: :nul_string, path: ["data", "content", 0, "body", "text"]}} =
+    assert {:error, %InvalidEvent{code: :nul_string, path: ["data", "content", 0, "text"]}} =
              Validator.validate(event)
   end
 
@@ -30,6 +29,40 @@ defmodule BullX.EventBus.ValidatorTest do
              Validator.validate(event)
   end
 
+  test "rejects actor fields outside the normalized contract" do
+    event = valid_event() |> put_in(["data", "actor", "profile"], %{"open_id" => "ou_1"})
+
+    assert {:error, %InvalidEvent{code: :invalid_payload_shape, path: ["data", "actor"]}} =
+             Validator.validate(event)
+  end
+
+  test "rejects card content without fallback text" do
+    event =
+      valid_event()
+      |> put_in(["data", "content"], [
+        %{"type" => "card", "format" => "feishu.card", "payload" => %{}}
+      ])
+
+    assert {:error, %InvalidEvent{code: :invalid_payload_shape, path: ["data", "content", 0]}} =
+             Validator.validate(event)
+  end
+
+  test "rejects action content without transcript text" do
+    event =
+      valid_event()
+      |> put_in(["data", "content"], [%{"type" => "action", "action_id" => "approve"}])
+
+    assert {:error, %InvalidEvent{code: :invalid_payload_shape, path: ["data", "content", 0]}} =
+             Validator.validate(event)
+  end
+
+  test "rejects non-null reply_channel without delivery identity" do
+    event = valid_event() |> put_in(["data", "reply_channel"], %{})
+
+    assert {:error, %InvalidEvent{code: :invalid_payload_shape, path: ["data", "reply_channel"]}} =
+             Validator.validate(event)
+  end
+
   defp valid_event do
     %{
       "specversion" => "1.0",
@@ -39,10 +72,10 @@ defmodule BullX.EventBus.ValidatorTest do
       "time" => "2026-05-17T10:00:00Z",
       "datacontenttype" => "application/json",
       "data" => %{
-        "content" => [%{"kind" => "text", "body" => %{"text" => "hello"}}],
-        "channel" => %{"adapter" => "feishu", "id" => "default"},
+        "content" => [%{"type" => "text", "text" => "hello"}],
+        "channel" => %{"adapter" => "feishu", "id" => "default", "kind" => "dm"},
         "scope" => %{"id" => "chat-1", "thread_id" => nil},
-        "actor" => %{"id" => "user-1", "display" => nil, "bot" => false, "principal_ref" => nil},
+        "actor" => %{"external_account_id" => "user-1", "display_name" => nil, "principal" => nil},
         "refs" => [],
         "reply_channel" => nil,
         "routing_facts" => %{},

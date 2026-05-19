@@ -17,7 +17,9 @@ defmodule BullX.Runtime.Supervisor do
       BullX.EventBus.StreamingOutput.Redis,
       {Oban, Application.fetch_env!(:bullx, Oban)},
       BullX.EventBus.Repair.Bootstrap,
-      BullX.EventBus.Cleanup.Scheduler
+      BullX.EventBus.Cleanup.Scheduler,
+      BullX.AIAgent.AmbientBatchWorker,
+      BullX.AIAgent.DailyResetWorker
     ]
 
     Supervisor.init(children, strategy: :one_for_one)

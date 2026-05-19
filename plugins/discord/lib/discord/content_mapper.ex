@@ -24,26 +24,51 @@ defmodule Discord.ContentMapper do
     {:ok, blocks}
   end
 
-  def from_message(_message, _source), do: {:error, Discord.Error.payload("invalid Discord message")}
+  def from_message(_message, _source),
+    do: {:error, Discord.Error.payload("invalid Discord message")}
 
   @spec primary_text([map()]) :: String.t() | nil
-  def primary_text([%{"kind" => "text", "body" => %{"text" => text}} | _rest]) when is_binary(text), do: text
+  def primary_text([%{"type" => "text", "text" => text} | _rest]) when is_binary(text), do: text
+
+  def primary_text([%{"kind" => "text", "body" => %{"text" => text}} | _rest])
+      when is_binary(text), do: text
+
   def primary_text([_block | rest]), do: primary_text(rest)
   def primary_text([]), do: nil
 
   @spec render_outbound(term()) :: {:ok, [String.t()], [String.t()]} | {:error, map()}
-  def render_outbound([%{"kind" => "text", "body" => %{"text" => text}} | _rest]) when is_binary(text) and text != "" do
+  def render_outbound([%{"type" => "text", "text" => text} | _rest])
+      when is_binary(text) and text != "" do
     {:ok, split_text(text, @message_limit), []}
   end
 
-  def render_outbound(%{"kind" => "text", "body" => %{"text" => text}}) when is_binary(text) and text != "" do
+  def render_outbound([%{"kind" => "text", "body" => %{"text" => text}} | _rest])
+      when is_binary(text) and text != "" do
     {:ok, split_text(text, @message_limit), []}
   end
 
-  def render_outbound(%{kind: "text", body: %{text: text}}), do: render_outbound(%{"kind" => "text", "body" => %{"text" => text}})
-  def render_outbound([%{"kind" => kind, "body" => body} | _rest]), do: render_fallback(kind, body)
+  def render_outbound(%{"type" => "text", "text" => text}) when is_binary(text) and text != "" do
+    {:ok, split_text(text, @message_limit), []}
+  end
+
+  def render_outbound(%{"kind" => "text", "body" => %{"text" => text}})
+      when is_binary(text) and text != "" do
+    {:ok, split_text(text, @message_limit), []}
+  end
+
+  def render_outbound(%{kind: "text", body: %{text: text}}),
+    do: render_outbound(%{"kind" => "text", "body" => %{"text" => text}})
+
+  def render_outbound([%{"type" => type} = block | _rest]), do: render_fallback(type, block)
+  def render_outbound(%{"type" => type} = block), do: render_fallback(type, block)
+
+  def render_outbound([%{"kind" => kind, "body" => body} | _rest]),
+    do: render_fallback(kind, body)
+
   def render_outbound(%{"kind" => kind, "body" => body}), do: render_fallback(kind, body)
-  def render_outbound(_content), do: {:error, Discord.Error.payload("Discord delivery content is required")}
+
+  def render_outbound(_content),
+    do: {:error, Discord.Error.payload("Discord delivery content is required")}
 
   @spec utf16_units(String.t()) :: non_neg_integer()
   def utf16_units(text) when is_binary(text) do
@@ -61,8 +86,11 @@ defmodule Discord.ContentMapper do
         code_units = if codepoint > 0xFFFF, do: 2, else: 1
 
         case units + code_units > limit and current != [] do
-          true -> {[current |> Enum.reverse() |> List.to_string() | chunks], [codepoint], code_units}
-          false -> {chunks, [codepoint | current], units + code_units}
+          true ->
+            {[current |> Enum.reverse() |> List.to_string() | chunks], [codepoint], code_units}
+
+          false ->
+            {chunks, [codepoint | current], units + code_units}
         end
       end)
 
@@ -83,14 +111,18 @@ defmodule Discord.ContentMapper do
 
   defp maybe_add_text(blocks, ""), do: blocks
   defp maybe_add_text(blocks, text) when is_binary(text), do: [text_block(text) | blocks]
-  defp text_block(text), do: %{"kind" => "text", "body" => %{"text" => text}}
+  defp text_block(text), do: %{"type" => "text", "text" => text}
 
   defp add_attachments(blocks, attachments, channel_id) when is_list(attachments) do
     Enum.reduce(attachments, blocks, fn attachment, acc ->
       case Map.get(attachment, "id") do
         id when is_binary(id) ->
           kind = attachment_kind(attachment)
-          [media_block(kind, "discord://attachment/#{channel_id || "unknown"}/#{id}", attachment) | acc]
+
+          [
+            media_block(kind, "discord://attachment/#{channel_id || "unknown"}/#{id}", attachment)
+            | acc
+          ]
 
         _value ->
           acc
@@ -131,14 +163,34 @@ defmodule Discord.ContentMapper do
 
   defp media_block(kind, url, attachment) do
     %{
-      "kind" => kind,
-      "body" =>
-        %{
-          "url" => url,
-          "fallback_text" => Map.get(attachment, "filename") || "[#{kind}]"
-        }
+      "type" => normalized_media_type(kind),
+      "url" => url,
+      "fallback_text" => fallback_text(kind, attachment)
     }
+    |> maybe_put_media_type(attachment)
   end
+
+  defp maybe_put_media_type(block, %{"content_type" => media_type}) when is_binary(media_type) do
+    case String.trim(media_type) do
+      "" -> block
+      value -> Map.put(block, "media_type", value)
+    end
+  end
+
+  defp maybe_put_media_type(block, _attachment), do: block
+
+  defp fallback_text(kind, %{"filename" => filename}) when is_binary(filename) do
+    case String.trim(filename) do
+      "" -> "[#{kind}]"
+      value -> value
+    end
+  end
+
+  defp fallback_text(kind, _attachment), do: "[#{kind}]"
+
+  defp normalized_media_type("image"), do: "image_url"
+  defp normalized_media_type("video"), do: "video_url"
+  defp normalized_media_type(_kind), do: "file"
 
   defp render_fallback(kind, body) do
     text =

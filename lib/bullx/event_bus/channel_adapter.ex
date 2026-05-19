@@ -87,6 +87,26 @@ defmodule BullX.EventBus.ChannelAdapter do
     end
   end
 
+  @spec consume_stream(map(), String.t(), keyword()) :: :ok | {:error, term()}
+  def consume_stream(reply_channel, stream_id, opts \\ [])
+      when is_map(reply_channel) and is_binary(stream_id) and is_list(opts) do
+    registry = Keyword.get(opts, :registry, configured_registry())
+
+    with {:ok, adapter_id} <- reply_channel_value(reply_channel, "adapter"),
+         {:ok, source_id} <- reply_channel_value(reply_channel, "channel_id"),
+         {:ok, extension} <- fetch_enabled_adapter(adapter_id, registry),
+         :ok <- ensure_callback(extension.module, :consume_stream, 4),
+         :ok <- ensure_callback(extension.module, :fetch_source, 1),
+         {:ok, source} <- extension.module.fetch_source(source_id) do
+      extension.module.consume_stream(
+        source,
+        reply_channel,
+        stream_id,
+        Keyword.delete(opts, :registry)
+      )
+    end
+  end
+
   @spec accept_inbound(String.t() | atom(), map(), term(), keyword()) :: accept_result()
   def accept_inbound(adapter_id, source, provider_input, opts \\ [])
       when is_map(source) and is_list(opts) do
@@ -258,7 +278,7 @@ defmodule BullX.EventBus.ChannelAdapter do
 
   defp normalize_payload(data) do
     %{
-      "content" => Map.fetch!(data, :content),
+      "content" => stringify_value(Map.fetch!(data, :content)),
       "channel" => stringify_keys(Map.fetch!(data, :channel)),
       "scope" => stringify_keys(Map.fetch!(data, :scope)),
       "actor" => stringify_keys(Map.fetch!(data, :actor)),

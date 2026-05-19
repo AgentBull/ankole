@@ -47,9 +47,11 @@ This document does not define:
 - Channel Adapter inbound acknowledgement, provider protocol handling, login,
   signature verification, upload, provider command, listen-mode, or outbound
   rendering internals.
-- Business handling for non-IM world Events such as webhooks, market Events,
+- Business handling for world Events such as webhooks, market Events,
   operational Events, or domain state changes. AIAgent v1 records safe
-  diagnostics and returns for unsupported Event types.
+  diagnostics and returns for unsupported Event types. Provider-directed action
+  submissions are user-facing inputs when routed to AIAgent, not world Event
+  business handlers.
 - Workflow Node DSL, Wait Node, approval node, Workflow storage, or Workflow
   canvas behavior.
 - AIAgent ACL grants, privileged elevation, approval UI, credential stores,
@@ -278,10 +280,10 @@ runtime plugin discovery requirement, or operator-editable state in v1. Core use
 these functions:
 
 ```elixir
-BullX.AIAgents.Tools.Registry.list_toolsets()
-BullX.AIAgents.Tools.Registry.list_tools()
-BullX.AIAgents.Tools.Registry.get_tool(tool_name)
-BullX.AIAgents.Tools.Registry.tools_for_toolset(toolset_id)
+BullX.AIAgent.Tools.Registry.list_toolsets()
+BullX.AIAgent.Tools.Registry.list_tools()
+BullX.AIAgent.Tools.Registry.get_tool(tool_name)
+BullX.AIAgent.Tools.Registry.tools_for_toolset(toolset_id)
 ```
 
 `tool_name` is both the BullX registry id and provider-visible function name in
@@ -302,7 +304,7 @@ A registry entry has this shape:
   default_access: :ordinary,
   timeout_ms: 30_000,
   parallel_safe: true,
-  module: BullX.AIAgents.Tools.FakeSearch
+  module: BullX.AIAgent.Tools.FakeSearch
 }
 ```
 
@@ -314,15 +316,15 @@ private policy data, or raw provider payloads.
 Tool modules implement:
 
 ```elixir
-@callback execute(map(), BullX.AIAgents.Tools.Context.t()) ::
+@callback execute(map(), BullX.AIAgent.Tools.Context.t()) ::
             {:ok, ReqLLM.ToolResult.t() | String.t() | map() | list()}
-            | {:error, BullX.AIAgents.Tools.Error.t()}
+            | {:error, BullX.AIAgent.Tools.Error.t()}
 ```
 
 The context is built by Core and contains only explicit runtime facts:
 
 ```elixir
-%BullX.AIAgents.Tools.Context{
+%BullX.AIAgent.Tools.Context{
   caller_principal_id: caller_principal_id,
   agent_principal_id: agent_principal_id,
   conversation_id: conversation_id,
@@ -351,7 +353,7 @@ ReqLLM.Tool.new(
   name: entry.name,
   description: entry.description,
   parameter_schema: entry.parameter_schema,
-  callback: {BullX.AIAgents.Tools.Dispatcher, :execute, [entry.name, context_seed]},
+  callback: {BullX.AIAgent.Tools.Dispatcher, :execute, [entry.name, context_seed]},
   provider_options: entry[:provider_options] || %{}
 )
 ```
@@ -479,9 +481,10 @@ Rules:
   through partial unique constraints.
 - Ambient introspection Messages use the ambient batch key or equivalent
   metadata for idempotency.
-- `content` contains normalized content blocks and safe references only. It must
-  not inline raw provider payloads, credentials, access tokens, raw CloudEvents,
-  or stream chunks.
+- `content` contains AIAgent transcript blocks and safe references only.
+  Inbound Event content is projected into transcript text blocks before
+  persistence. It must not inline raw provider payloads, credentials, access
+  tokens, raw CloudEvents, or stream chunks.
 - `metadata.brief` may store an ambient brief for a single ambient Message. It
   is not a summary Message and does not alter `content`.
 - User Message time-awareness metadata records enough information to reproduce
@@ -510,14 +513,13 @@ with a structured error inside the `tool_result` content block. Migrations or
 changesets must reject invalid combinations, and `status = generating` is valid
 only for `role = assistant, kind = normal`.
 
-V1 `content` is a JSON array of normalized blocks. The block union is small and
-owned by Core; renderers map it to provider-specific `ReqLLM.Message` inputs at
-request time.
+V1 `content` is a JSON array of AIAgent transcript blocks. The block union is
+small and owned by Core; renderers map it to provider-specific
+`ReqLLM.Message` inputs at request time.
 
 | Block `type` | Required fields | Rendering owner | Provider input |
 | --- | --- | --- | --- |
 | `text` | `text` | Core history renderer | Yes, when the containing Message is rendered. |
-| `normalized_input_part` | `part` | Inbound normalizer | Yes, after allowed conversion from the NormalizedCloudEvent content-part contract. |
 | `tool_call` | `tool_call_id`, `name`, `arguments` | Core tool loop | Yes, as an assistant tool-call request. |
 | `tool_result` | `tool_call_id`, `is_error`, `result` or `error` | Core dispatcher | Yes, as a provider-valid tool result. |
 | `error` | `code`, `message`, `retryable` | Core recovery and diagnostics | No ordinary dialogue rendering. |
@@ -531,6 +533,22 @@ must connect `tool_call` and `tool_result` blocks. Blocks store safe normalized
 facts only; raw provider payloads, raw CloudEvents, credentials, bearer-like
 reply handles, and stream chunks stay out of `content`.
 
+Inbound `NormalizedCloudEvent.data.content` is not copied into Message content
+as a second schema. Core applies one deterministic transcript projection before
+writing `role = user, kind = normal` or `role = im_ambient, kind = normal`:
+
+- `text.text` becomes a `text` block.
+- `card.fallback_text` becomes a `text` block; `card.payload` remains structured
+  Event evidence and is not ordinary dialogue text.
+- `action.text` becomes a `text` block; `action_id` and `values` remain
+  structured Event evidence and are not ordinary dialogue text.
+- Media `fallback_text` becomes a `text` block in v1. Image and multimodal
+  provider input is intentionally not passed through to the model as image
+  content until a separate multimodal design defines retrieval, permissions,
+  and prompt rendering.
+- If every normalized part projects to empty text, Core writes an
+  `omitted_marker` instead of fabricating user dialogue.
+
 Active branch resolution starts from `current_leaf_message_id`, resolves any
 summary leaf to `metadata.source_leaf_message_id`, walks the raw `parent_id`
 chain back to root, then reverses that raw path into branch order. The renderer
@@ -541,8 +559,8 @@ placement pointer, not dialogue order.
 ## Conversation key
 
 `conversation_key` is an implementation key, not product identity. Core derives
-it from the accepted CloudEvent `data` object or the side-channel entry's routing
-context, not from raw adapter payloads. Equivalent normalized inputs must produce
+it from the accepted CloudEvent `data` object, not from raw adapter payloads or
+side-channel routing projections. Equivalent normalized inputs must produce
 the same key.
 
 The resolved key parts are:
@@ -697,13 +715,21 @@ batch idempotency key for recovery and outbound idempotency.
 
 ## Event message boundary
 
-AIAgent v1 treats `bullx.im.message.addressed` as the only IM Event that enters
-the main Agentic Loop directly. DMs, group mentions, and provider-native direct
-interactions are normalized into this Event type. Core stores the input as
-`role = user, kind = normal`, or handles a leading AIAgent-owned slash token as
-a control command without writing a Conversation Message. DM and group mention
-differences affect `reply_channel`, conversation key, scope, and message meta
-context; they do not create separate AIAgent runtime modes.
+AIAgent v1 treats `bullx.im.message.addressed` as the IM Event that enters the
+main Agentic Loop directly. DMs, group mentions, and provider-native direct
+message interactions are normalized into this Event type. Core stores the input
+as `role = user, kind = normal`, or handles a leading AIAgent-owned slash token
+as a control command without writing a Conversation Message. DM and group
+mention differences affect `reply_channel`, conversation key, scope, and message
+meta context; they do not create separate AIAgent runtime modes.
+
+AIAgent v1 also treats `bullx.action.submitted` as a directed user input when an
+Event Routing Rule sends it to an AIAgent Target. The normalized `action.text`
+projection becomes the transcript text block. Structured action identifiers and
+sanitized values remain structured Event facts referenced through the Message
+source identifiers; they are not expanded into prompt-private raw payloads. This
+lets provider cards, buttons, and approval clicks continue the same Conversation
+without requiring adapters to forge IM text messages.
 
 AIAgent v1 also consumes `bullx.command.invoked` when EventBus routes that Event
 to `target_type = "ai_agent"` and the normalized command name belongs to the
@@ -792,7 +818,7 @@ output.
 
 ## Message Meta Context Builder
 
-`BullX.AIAgents.MessageContextBuilder` is Core's request-time builder for
+`BullX.AIAgent.MessageContextBuilder` is Core's request-time builder for
 per-message context. It centralizes time awareness, ambient background, and user
 identity context so prompt rendering does not concatenate these fragments in
 multiple places.
@@ -1410,7 +1436,7 @@ EventBus, LLMProvider, Principal, Channel Adapter, or Workflow boundaries.
 
 3. Add AIAgent Target dispatch.
    - Owns: `ai_agent` Target registry entry and
-     `BullX.AIAgents.Target.handle_event/2`, plus the shared generation runner
+     `BullX.AIAgent.handle_event/2`, plus the shared generation runner
      source contract for `target_session_entry`, `ambient_batch`, and
      `command_retry`.
    - Acceptance: a fake side-channel entry invokes AIAgent without EventBus
@@ -1419,16 +1445,17 @@ EventBus, LLMProvider, Principal, Channel Adapter, or Workflow boundaries.
      ACL caller; command retry generation uses the command entry id as source id.
 
 4. Add conversation key and Event message handling.
-   - Owns: deterministic key builder, addressed IM user turn handling,
-     `bullx.command.invoked` command-control routing for AIAgent Targets, and
-     integration with ambient/unsupported Event policy.
+   - Owns: deterministic key builder, addressed IM and directed action user
+     turn handling, `bullx.command.invoked` command-control routing for AIAgent
+     Targets, and integration with ambient/unsupported Event policy.
    - Acceptance: conversation key golden tests cover fixed length-prefixed UTF-8
      encoding, `BullX.Ext.generic_hash/1`, `scene` and `actor` profile modes,
      addressed and ambient lanes, thread and non-thread scenes, and invalid NUL
      input.
-   - Acceptance: addressed IM enters a normal user turn; ambient IM writes to the
-     active ambient Conversation without per-actor splitting; companion ambient
-     behavior remains owned by `./AmbientAndEventMessages.md`.
+   - Acceptance: addressed IM and `bullx.action.submitted` enter normal user
+     turns; ambient IM writes to the active ambient Conversation without
+     per-actor splitting; companion ambient behavior remains owned by
+     `./AmbientAndEventMessages.md`.
    - Acceptance: `bullx.command.invoked` routed to `target_type = "ai_agent"`
      executes the AIAgent command control path without writing a Conversation
      Message or delegating through a generic Command Target.
@@ -1530,7 +1557,8 @@ Focused implementation verification should include:
   time-awareness metadata tests.
 - Target dispatch tests proving EventBus invokes `ai_agent` through the normal
   one-entry `Target.handle_event/2` contract.
-- Addressed IM, ambient IM, unsupported Event, command, and daily reset tests.
+- Addressed IM, directed action, ambient IM, unsupported Event, command, and
+  daily reset tests.
 - Prompt rendering tests for active branch, summary overlay, Message Meta
   Context Builder placement, System Prompt Builder handoff, tool-call/result
   pairing, and provider input safety.

@@ -27,15 +27,15 @@ defmodule BullX.EventBus.ChannelAdapterTest do
                type: "bullx.im.message.addressed",
                time: "2026-05-17T10:00:00Z",
                data: %{
-                 content: [%{"kind" => "text", "body" => %{"text" => "hello"}}],
-                 channel: %{adapter: "test", id: "default"},
+                 content: [%{"type" => "text", "text" => "hello"}],
+                 channel: %{adapter: "test", id: "default", kind: "dm"},
                  scope: %{id: "scope-1", thread_id: nil},
-                 actor: %{id: "actor-1", display: nil, bot: false, principal_ref: nil}
+                 actor: %{external_account_id: "actor-1", display_name: nil, principal: nil}
                }
              })
 
     assert event["specversion"] == "1.0"
-    assert event["data"]["channel"] == %{"adapter" => "test", "id" => "default"}
+    assert event["data"]["channel"] == %{"adapter" => "test", "id" => "default", "kind" => "dm"}
     assert event["data"]["refs"] == []
     assert event["data"]["routing_facts"] == %{}
   end
@@ -65,14 +65,13 @@ defmodule BullX.EventBus.ChannelAdapterTest do
     data =
       Map.merge(
         %{
-          "content" => [%{"kind" => "text", "body" => %{"text" => "hello"}}],
-          "channel" => %{"adapter" => "eventbus_test", "id" => "default"},
+          "content" => [%{"type" => "text", "text" => "hello"}],
+          "channel" => %{"adapter" => "eventbus_test", "id" => "default", "kind" => "dm"},
           "scope" => %{"id" => "scope-1", "thread_id" => nil},
           "actor" => %{
-            "id" => "actor-1",
-            "display" => nil,
-            "bot" => false,
-            "principal_ref" => nil
+            "external_account_id" => "actor-1",
+            "display_name" => nil,
+            "principal" => nil
           },
           "refs" => [],
           "reply_channel" => nil,

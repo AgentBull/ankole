@@ -1,9 +1,9 @@
 # EventBus normalized CloudEvent
 
 EventBus accepts decoded CloudEvents whose `data` field is the BullX normalized
-MessageEvent payload. Channel Adapters own provider verification and provider
-payload parsing; they normalize one provider occurrence into this common shape
-before calling `BullX.EventBus.accept/2`.
+Event payload. Channel Adapters own provider verification and provider payload
+parsing; they normalize one provider occurrence into this common shape before
+calling `BullX.EventBus.accept/2`.
 
 This document is the schema source of truth for the normalized CloudEvent data
 object. It is a data contract, not a new runtime entity, table, process, or
@@ -14,15 +14,23 @@ queue.
 ```text
 provider occurrence
   -> Channel Adapter verifies and parses provider input
-  -> adapter-normalized MessageEvent facts
+  -> adapter-normalized Event facts
   -> decoded CloudEvent with BullX normalized data
   -> BullX.EventBus.accept/2
 ```
 
-The adapter-normalized MessageEvent stage is a boundary discipline: AIAgent,
-Workflow, Command Target, EventBus matcher, and TargetSession code consume the
-normalized CloudEvent only. They must not recover scene, mention, actor, scope,
-or command facts from raw provider payloads.
+The adapter-normalized Event stage is a boundary discipline: AIAgent, Workflow,
+Command Target, EventBus matcher, and TargetSession code consume the normalized
+CloudEvent only. They must not recover scene, mention, actor, scope, reply, or
+command facts from raw provider payloads.
+
+Local shapes may exist on either side of this boundary, but they are projections,
+not competing Event schemas. A provider plugin may keep an outbound rendering
+shape that is convenient for its API, and a Target may persist a richer internal
+message shape for prompts, summaries, tool calls, and diagnostics. Those shapes
+must be derived from the normalized CloudEvent when they cross this boundary.
+They must not redefine `data.content`, `data.actor`, `data.scope`,
+`data.reply_channel`, or `data.routing_facts`.
 
 ## CloudEvents attributes
 
@@ -105,7 +113,7 @@ reuse the same `(source, id)` for provider redelivery of the same occurrence.
 | `actor.display_name` | yes | yes | Safe display name, or `null`. |
 | `actor.principal` | yes | yes | Resolved BullX Principal summary, or `null`. |
 | `refs` | yes | no | List of stable provider object references. Empty list is allowed. |
-| `reply_channel` | yes | yes | Transport hint for possible replies or callbacks, or `null`. |
+| `reply_channel` | yes | yes | Transport hint for possible replies or callbacks, or `null`. Non-null objects require non-empty `adapter` and `channel_id`. |
 | `routing_facts` | yes | no | Matcher-oriented normalized facts. Empty object is allowed. |
 | `raw_ref` | yes | yes | Provider raw reference or snapshot, or `null`. It is not a matcher surface. |
 
@@ -131,15 +139,22 @@ V1 adapters use these content part types:
 | `type` | Required fields | Optional fields |
 | --- | --- | --- |
 | `text` | `text` | `metadata` |
-| `image_url` | `url` | `media_type`, `metadata` |
-| `video_url` | `url` | `media_type`, `metadata` |
-| `image` | `data` | `media_type`, `filename`, `metadata`, `fallback_text` |
-| `file` | `data` or `url` | `media_type`, `filename`, `metadata`, `fallback_text` |
-| `card` | `format`, `payload` | `fallback_text`, `metadata` |
+| `image_url` | `url`, `fallback_text` | `media_type`, `metadata` |
+| `video_url` | `url`, `fallback_text` | `media_type`, `metadata` |
+| `image` | `data`, `fallback_text` | `media_type`, `filename`, `metadata` |
+| `file` | `data` or `url`, `fallback_text` | `media_type`, `filename`, `metadata` |
+| `card` | `format`, `payload`, `fallback_text` | `metadata` |
+| `action` | `action_id`, `text` | `values`, `metadata` |
 
-Audio, inline video, locations, stickers, and provider-specific rich objects use
-`file`, `image`, `video_url`, or `card` until a concrete Target needs a sharper
-content type.
+Audio, inline video, and provider-specific rich objects use `file`,
+`image_url`, `video_url`, or `card` when there is a useful stable reference or
+sanitized payload to preserve. If the provider occurrence has no useful stable
+reference, or its only useful BullX representation is already a safe text
+summary, the adapter may emit a deterministic `text` fallback instead. Provider
+callback submissions, button clicks, approval clicks, and card actions use
+`action` content parts. `fallback_text` and `action.text` are human-readable
+summaries for Targets that render normalized input into text transcripts; they
+must be deterministic, safe, and free of raw private provider payloads.
 
 The normalized schema allows inline `data` when the adapter has accepted and
 normalized the content. Adapters may also use stable provider-local URIs or safe
@@ -147,6 +162,19 @@ references when inline content is not useful.
 
 Machine-only Events may synthesize a short text content part so `content`
 remains non-empty.
+
+`content` is Target-consumable input, not a provider-rendering command. For
+example, an adapter that renders outbound Feishu messages with local
+`kind/body` blocks still publishes inbound Event content as `type`-discriminated
+parts.
+
+AIAgent is a first-class Target for this contract. When AIAgent persists inbound
+user or ambient transcript Messages, it deterministically projects normalized
+input into text blocks: `text.text` renders as-is; `card.fallback_text`,
+`action.text`, and media `fallback_text` render as safe text summaries. Rich
+`payload`, `values`, provider ids, and media references remain structured Event
+facts or metadata; they are not rendered as ordinary dialogue text unless a
+separate AIAgent capability explicitly retrieves and summarizes them.
 
 ## Routing and storage policy
 
@@ -166,6 +194,19 @@ payloads, unbounded message bodies, or provider SDK objects. Command arguments
 do not belong in `routing_facts`; use normalized content or a command-specific
 safe reference when a command design needs arguments.
 
+`actor.principal` is the trusted Principal summary when Principal matching has
+already resolved the external actor. Downstream ACL code may derive the caller
+Principal from `actor.principal.id`, but `actor.external_account_id` remains
+evidence only and never grants permission by itself.
+
+`reply_channel` is the transport answer key. A non-null `reply_channel` must
+contain the owning `adapter` and configured `channel_id` so
+`BullX.EventBus.ChannelAdapter.deliver/3` and `consume_stream/3` can resolve the
+source. It may also identify a chat, thread, message, callback target, or
+provider-local reply token reference, but it is not message content and does not
+authorize the Target to act. The adapter that owns the channel validates and
+renders it during outbound delivery.
+
 Telemetry, logs, safe errors, Oban args, stream metadata, and public receipts
 must use allowlisted metadata and must not copy credentials or bearer-like
 tokens.
@@ -175,9 +216,13 @@ tokens.
 IM message adapters use these normalized Event types:
 
 - `bullx.im.message.addressed` for direct messages, group mentions, and
-  provider-native directed interactions.
+  provider-native directed message interactions.
 - `bullx.im.message.ambient` for observed group or channel messages that do not
   address BullX.
+
+Provider card actions, buttons, approval clicks, and callback submissions are
+not IM messages. They use action-shaped Event types such as
+`bullx.action.submitted` with `action` content parts.
 
 Command input uses `bullx.command.invoked` only when the provider command
 surface or adapter command grammar accepts the input as a command. Ordinary text

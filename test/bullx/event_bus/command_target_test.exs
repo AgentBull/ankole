@@ -118,7 +118,7 @@ defmodule BullX.EventBus.CommandTargetTest do
                  "id" => "ordinary-message-status",
                  "type" => "bullx.im.message.addressed",
                  "data" => %{
-                   "content" => [%{"kind" => "text", "body" => %{"text" => "/status"}}],
+                   "content" => [%{"type" => "text", "text" => "/status"}],
                    "routing_facts" => %{}
                  }
                })
@@ -159,15 +159,14 @@ defmodule BullX.EventBus.CommandTargetTest do
       Map.merge(
         %{
           "content" => [
-            %{"kind" => "text", "body" => %{"text" => "/" <> command_name}}
+            %{"type" => "text", "text" => "/" <> command_name}
           ],
-          "channel" => %{"adapter" => "eventbus_test", "id" => "default"},
+          "channel" => %{"adapter" => "eventbus_test", "id" => "default", "kind" => "dm"},
           "scope" => %{"id" => "scope-1", "thread_id" => nil},
           "actor" => %{
-            "id" => "user-1",
-            "display" => "Alice",
-            "bot" => false,
-            "principal_ref" => nil
+            "external_account_id" => "user-1",
+            "display_name" => "Alice",
+            "principal" => nil
           },
           "refs" => [],
           "reply_channel" => %{

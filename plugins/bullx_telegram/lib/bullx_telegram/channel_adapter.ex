@@ -10,6 +10,7 @@ defmodule BullxTelegram.ChannelAdapter do
   @behaviour BullX.EventBus.ChannelAdapter
 
   alias BullX.EventBus.ChannelAdapter, as: EventBusAdapter
+  alias BullX.Principals.Principal
   alias BullxTelegram.{DirectCommand, Source, UpdateMapper}
 
   @impl BullX.EventBus.ChannelAdapter
@@ -64,7 +65,7 @@ defmodule BullxTelegram.ChannelAdapter do
     case BullX.Principals.match_or_create_human_from_channel(mapped.account_input) do
       {:ok, principal, _identity} ->
         mapped.attrs
-        |> put_principal_ref(principal.id)
+        |> put_actor_principal(principal)
         |> EventBusAdapter.build_cloud_event()
 
       {:error, :activation_required} when mapped.command? ->
@@ -85,7 +86,9 @@ defmodule BullxTelegram.ChannelAdapter do
 
   defp handle_mapped({:error, error}, _source), do: {:error, BullxTelegram.Error.map(error)}
 
-  defp put_principal_ref(attrs, principal_id), do: put_in(attrs, [:data, :actor, :principal_ref], principal_id)
+  defp put_actor_principal(attrs, %Principal{id: id, type: type}) do
+    put_in(attrs, [:data, :actor, :principal], %{id: id, type: Atom.to_string(type)})
+  end
 
   defp maybe_reply_activation_required(attrs, %Source{} = source) do
     case get_in(attrs, [:data, :routing_facts, "chat_type"]) do

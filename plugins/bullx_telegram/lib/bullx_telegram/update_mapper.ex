@@ -34,7 +34,17 @@ defmodule BullxTelegram.UpdateMapper do
           {:direct_command, Map.merge(command, direct_context(context, actor))}
 
         {:eventbus, command} ->
-          mapped(update_id, message_id, source, message, actor, blocks, context, "bullx.command.invoked", command)
+          mapped(
+            update_id,
+            message_id,
+            source,
+            message,
+            actor,
+            blocks,
+            context,
+            "bullx.command.invoked",
+            command
+          )
 
         _result ->
           mapped(
@@ -58,14 +68,28 @@ defmodule BullxTelegram.UpdateMapper do
   defp mapped(update_id, message_id, source, message, actor, blocks, context, event_type, command) do
     {:ok,
      %{
-       attrs: attrs(update_id, message_id, source, message, actor, blocks, context, event_type, command),
+       attrs:
+         attrs(
+           update_id,
+           message_id,
+           source,
+           message,
+           actor,
+           blocks,
+           context,
+           event_type,
+           command
+         ),
        account_input: account_input(source, actor, context),
        command?: event_type == "bullx.command.invoked"
      }}
   end
 
   defp update_message(%{"message" => message}) when is_map(message), do: {:ok, "message", message}
-  defp update_message(%{"edited_message" => message}) when is_map(message), do: {:ok, "edited_message", message}
+
+  defp update_message(%{"edited_message" => message}) when is_map(message),
+    do: {:ok, "edited_message", message}
+
   defp update_message(_update), do: :error
 
   defp attrs(update_id, message_id, source, message, actor, blocks, context, event_type, command) do
@@ -77,14 +101,12 @@ defmodule BullxTelegram.UpdateMapper do
       subject: "Telegram message #{message_id}",
       data: %{
         content: command_content(blocks, command),
-        channel: %{adapter: "telegram", id: source.id},
+        channel: %{adapter: "telegram", id: source.id, kind: channel_kind(context.chat_type)},
         scope: %{id: context.chat_id, thread_id: context.thread_id},
         actor: %{
-          id: actor.id,
-          display: actor.display,
-          bot: actor.bot,
-          principal_ref: nil,
-          profile: actor.profile
+          external_account_id: actor.id,
+          display_name: actor.display,
+          principal: nil
         },
         refs: refs(update_id, message_id, context, actor),
         reply_channel: %{
@@ -101,7 +123,7 @@ defmodule BullxTelegram.UpdateMapper do
   end
 
   defp command_content(blocks, %{args: args}) when is_binary(args) and args != "" do
-    [%{"kind" => "text", "body" => %{"text" => args}} | Enum.reject(blocks, &match?(%{"kind" => "text"}, &1))]
+    [%{"type" => "text", "text" => args} | Enum.reject(blocks, &match?(%{"type" => "text"}, &1))]
   end
 
   defp command_content(blocks, _command), do: blocks
@@ -165,7 +187,8 @@ defmodule BullxTelegram.UpdateMapper do
     end
   end
 
-  defp actor(_message), do: {:error, BullxTelegram.Error.payload("Telegram message is missing actor")}
+  defp actor(_message),
+    do: {:error, BullxTelegram.Error.payload("Telegram message is missing actor")}
 
   defp profile(from, id) do
     first = Map.get(from, "first_name")
@@ -233,8 +256,12 @@ defmodule BullxTelegram.UpdateMapper do
   end
 
   defp event_time(_message), do: DateTime.utc_now() |> DateTime.to_iso8601()
+  defp first_content_kind([%{"type" => type} | _rest]), do: type
   defp first_content_kind([%{"kind" => kind} | _rest]), do: kind
   defp first_content_kind(_blocks), do: nil
+  defp channel_kind("private"), do: "dm"
+  defp channel_kind(nil), do: nil
+  defp channel_kind(_chat_type), do: "group"
   defp maybe_ref(_kind, nil), do: nil
   defp maybe_ref(kind, id), do: %{"kind" => kind, "id" => id}
   defp stringify_id(value) when is_integer(value), do: Integer.to_string(value)

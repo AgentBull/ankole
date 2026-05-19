@@ -178,13 +178,21 @@ not call them during Event acceptance.
 @callback deliver(source :: map(), reply_channel :: map(), outbound :: map(), opts :: keyword()) ::
             {:ok, map()} | {:error, safe_error :: map()}
 
+@callback fetch_source(source_id :: String.t()) ::
+            {:ok, source :: map()} | {:error, safe_error :: term()}
+
 @callback consume_stream(source :: map(), reply_channel :: map(), stream_id :: String.t(), opts :: keyword()) ::
             :ok | {:error, safe_error :: map()}
 
 @callback capabilities() :: map()
 
-@optional_callbacks capabilities: 0, deliver: 4, consume_stream: 4
+@optional_callbacks capabilities: 0, deliver: 4, consume_stream: 4, fetch_source: 1
 ```
+
+`fetch_source/1` is optional for inbound-only adapters. It is required when an
+adapter exposes `deliver/4` or `consume_stream/4`, because EventBus outbound
+helpers receive only a normalized `reply_channel` and must resolve the configured
+source before invoking provider transport code.
 
 An implementation may split these callbacks across internal modules, but the
 extension module remains the public adapter contract. EventBus owns contract
@@ -204,7 +212,7 @@ Example shape:
 %{
   inbound_modes: [:webhook, :websocket],
   outbound_ops: [:send, :edit, :stream],
-  content_kinds: [:text, :image, :file, :card],
+  content_kinds: [:text, :image, :audio, :video, :file, :card],
   features: [:signature_verification, :reply, :threads],
   im_listen_modes: [:addressed_only, :all_messages]
 }
@@ -213,6 +221,10 @@ Example shape:
 Adapters may omit unsupported features. The absence of an outbound capability
 must fail closed at the caller boundary rather than falling back to an unsafe
 provider call.
+
+`content_kinds` is a coarse adapter capability list. Decoded CloudEvent content
+still uses the `NormalizedCloudEvent` content-part contract, with string `type`
+values such as `text`, `image_url`, `video_url`, `file`, `card`, and `action`.
 
 ### Source configuration
 
@@ -255,9 +267,11 @@ im_listen_mode = addressed_only | all_messages
 `addressed_only` means the source emits IM Events only when the provider
 occurrence is explicitly addressed to the BullX Agent surface, such as a direct
 message to the bot, an explicit bot mention in a group, or an equivalent
-provider-native directed interaction. `all_messages` means the source also emits
-ordinary group or channel messages that the bot can observe but that do not
-mention it.
+provider-native directed message interaction. Provider card actions, buttons,
+approval clicks, and similar action submissions are not IM listen-mode
+decisions; they normalize as their own action Events when supported.
+`all_messages` means the source also emits ordinary group or channel messages
+that the bot can observe but that do not mention it.
 
 The listen mode is transport admission. It does not decide the Event Routing
 Rule, TargetSession, AIAgent response policy, memory behavior, or whether a
@@ -339,12 +353,12 @@ field.
 
 Adapters normalize provider occurrences into the shared payload defined by
 [EventBus normalized CloudEvent](./NormalizedCloudEvent.md). The normalization
-stage is the common MessageEvent boundary between provider-specific input and
-BullX routing/Target code.
+stage is the common Event boundary between provider-specific input and BullX
+routing/Target code.
 
 | Field | Adapter responsibility |
 | --- | --- |
-| `data.content` | Produce at least one content block. Machine-only Events may synthesize a short text block. |
+| `data.content` | Produce at least one content block. Non-text blocks must include safe deterministic fallback text according to `NormalizedCloudEvent.md`. Machine-only Events may synthesize a short text block. |
 | `data.channel.adapter` | Set to the adapter id from the extension declaration. |
 | `data.channel.id` | Set to the configured source id. |
 | `data.channel.kind` | Set to `dm`, `group`, `webhook`, or `null`. Threading belongs to `data.scope.thread_id`. |
@@ -352,7 +366,7 @@ BullX routing/Target code.
 | `data.scope.thread_id` | Set only when the provider has a separate thread dimension under `scope.id`; otherwise `null`. |
 | `data.actor` | Normalize the external actor as evidence, not permission. |
 | `data.refs` | Record stable provider object references needed for later lookup or audit context. |
-| `data.reply_channel` | Store transport hints for possible replies or callbacks. |
+| `data.reply_channel` | Store transport hints for possible replies or callbacks. Non-null values must include non-empty `adapter` and `channel_id`. |
 | `data.routing_facts` | Store normalized matching facts only. |
 | `data.raw_ref` | Store provider raw reference or snapshot when useful, or `null`. It is not a matcher surface. |
 
@@ -368,9 +382,11 @@ is resolved, the adapter sets `principal` to `null` and leaves downstream
 Principal, AuthZ, Governance, Capability, Target, and business layers to decide
 permission.
 
-`data.reply_channel` is a transport hint, not authorization. It may include
-provider channel ids, thread ids, reply target ids, source ids, or opaque reply
-handles only when those values are safe to store in weak EventBus runtime state.
+`data.reply_channel` is a transport hint, not authorization. A non-null value
+must include the owning adapter id and configured source id as
+`reply_channel.adapter` and `reply_channel.channel_id`; other provider channel
+ids, thread ids, reply target ids, source ids, or opaque reply handles may be
+included only when those values are safe to store in weak EventBus runtime state.
 If a provider interaction token, callback URL, ephemeral response handle, or
 reply handle acts as a bearer credential, adapters must store only a safe
 reference or adapter-private handle, not the secret value itself. Secrets,
@@ -421,6 +437,11 @@ Direct messages to the bot and group messages that mention the bot both use this
 type. The difference between a DM and a group mention belongs in
 `data.channel`, `data.scope`, `data.reply_channel`, and safe routing facts, not
 in a separate AIAgent runtime mode.
+
+Provider-native message interactions that are equivalent to addressed IM input
+also use `bullx.im.message.addressed`. Provider card actions, buttons, approval
+clicks, and callback submissions use action-shaped Event types such as
+`bullx.action.submitted` instead of being disguised as IM messages.
 
 `bullx.im.message.ambient` is for ordinary group or channel messages received
 because the source uses `im_listen_mode = all_messages`. It represents shared
@@ -758,8 +779,8 @@ routing, TargetSession, Target, and business truth.
      string-keyed JSON-neutral payloads, normalized `content`, `channel`,
      `scope`, `actor`, `refs`, `reply_channel`, `routing_facts`, and `raw_ref`.
      IM helpers normalize direct messages, bot mentions, and equivalent
-     provider-directed interactions as `bullx.im.message.addressed`, and
-     normalize unmentioned group or channel messages as
+     provider-directed message interactions as `bullx.im.message.addressed`,
+     and normalize unmentioned group or channel messages as
      `bullx.im.message.ambient` only when the source uses
      `im_listen_mode = all_messages`.
      Command-shaped inputs normalize to `bullx.command.invoked` only when the
@@ -819,8 +840,10 @@ Implementation is complete when tests cover:
 - IM `im_listen_mode = addressed_only` ignores unmentioned group/channel
   messages before EventBus handoff, while `im_listen_mode = all_messages`
   emits them as `bullx.im.message.ambient`;
-- direct messages, group mentions, and equivalent provider-directed IM
+- direct messages, group mentions, and equivalent provider-directed message
   interactions normalize to `bullx.im.message.addressed`;
+- provider card actions, buttons, approval clicks, and callback submissions use
+  action-shaped Event types such as `bullx.action.submitted`;
 - provider-native commands and accepted slash-text commands normalize to
   `bullx.command.invoked`, while ordinary text, paths, code snippets, and
   unaddressed slash text remain message Events or are ignored by transport

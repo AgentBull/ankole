@@ -17,19 +17,42 @@ defmodule Discord.CommandNormalizer do
 
   def parse_text(_text), do: :not_command
 
-  @spec parse_interaction(map()) :: {:eventbus, map()} | {:direct, map()} | {:ignore, :unsupported_command}
+  @spec parse_interaction(map()) :: {:eventbus, map()} | {:direct, map()} | {:ignore, atom()}
   def parse_interaction(%{} = interaction) do
-    data = Map.get(interaction, "data") || %{}
-    name = Map.get(data, "name")
-    args = interaction_args(data)
-
-    case is_binary(name) and name != "" do
-      true -> classify(name, args, "provider_native", Map.get(data, "id"))
-      false -> {:ignore, :unsupported_command}
+    with true <- application_command_interaction?(interaction),
+         {:ok, data} <- interaction_data(interaction),
+         {:ok, name} <- interaction_name(data),
+         {:ok, args} <- interaction_args(data, name) do
+      classify(name, args, "provider_native", Map.get(data, "id"))
+    else
+      false -> {:ignore, :unsupported_interaction}
+      {:error, reason} -> {:ignore, reason}
     end
   end
 
   def parse_interaction(_interaction), do: {:ignore, :unsupported_command}
+
+  defp application_command_interaction?(%{"type" => type}) do
+    type in [2, "2", "APPLICATION_COMMAND", "application_command"]
+  end
+
+  defp application_command_interaction?(_interaction), do: false
+
+  defp interaction_data(interaction) do
+    data = Map.get(interaction, "data") || %{}
+
+    case data do
+      %{} -> {:ok, data}
+      _data -> {:error, :unsupported_command}
+    end
+  end
+
+  defp interaction_name(data) do
+    case Map.get(data, "name") do
+      name when is_binary(name) and name != "" -> {:ok, name}
+      _name -> {:error, :unsupported_command}
+    end
+  end
 
   defp classify(name, args, surface, provider_command_id \\ nil) do
     case canonical(name) do
@@ -56,14 +79,35 @@ defmodule Discord.CommandNormalizer do
   defp canonical("ask"), do: {:ok, "ask"}
   defp canonical(name), do: BullX.EventBus.CommandCatalog.canonical_command_name(name)
 
-  defp interaction_args(%{"options" => options}) when is_list(options) do
+  defp interaction_args(%{"options" => options}, "ask") when is_list(options) do
+    case prompt_option(options) do
+      prompt when is_binary(prompt) and prompt != "" -> {:ok, prompt}
+      _prompt -> {:error, :missing_required_prompt}
+    end
+  end
+
+  defp interaction_args(_data, "ask"), do: {:error, :missing_required_prompt}
+
+  defp interaction_args(%{"options" => options}, _name) when is_list(options) do
     options
     |> Enum.map(fn option -> Map.get(option, "value") end)
     |> Enum.filter(&is_binary/1)
     |> Enum.join(" ")
+    |> then(&{:ok, &1})
   end
 
-  defp interaction_args(_data), do: ""
+  defp interaction_args(_data, _name), do: {:ok, ""}
+
+  defp prompt_option(options) do
+    Enum.find_value(options, fn
+      %{"name" => "prompt", "value" => value} when is_binary(value) ->
+        value |> String.trim()
+
+      _option ->
+        nil
+    end)
+  end
+
   defp args_kind("", _surface), do: "none"
   defp args_kind(_args, "provider_native"), do: "options"
   defp args_kind(_args, _surface), do: "text"

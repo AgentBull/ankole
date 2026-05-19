@@ -349,15 +349,17 @@ Capabilities should include:
 %{
   inbound_modes: [:discord_gateway_ws, :interaction],
   outbound_ops: [:send, :edit, :stream],
-  content_kinds: [:text, :image, :file, :card],
+  content_kinds: [:text, :image, :audio, :video, :file, :card],
   features: [:threads, :application_commands, :ephemeral_provider_responses, :oauth2_login],
   stream_strategy: :edit_accumulate
 }
 ```
 
-`content_kinds` includes non-text content so upstream callers can pass standard
-BullX content blocks. The first implementation degrades non-text outbound
-content to fallback text instead of using Discord native attachments or embeds.
+`content_kinds` is a coarse transport capability list. Inbound decoded
+CloudEvents still use `NormalizedCloudEvent` content part types such as
+`image_url`, `video_url`, and `file`. The first implementation degrades
+non-text outbound content to fallback text instead of using Discord native
+attachments or embeds.
 
 EventBus core validates the decoded CloudEvent passed to `accept/2`. Discord
 still validates source config, payload shape, attention policy, target ids,
@@ -690,7 +692,7 @@ per attachment:
 
 ```elixir
 %{
-  "type" => "image",
+  "type" => "image_url",
   "url" => "discord://attachment/<channel_id>/<attachment_id>",
   "fallback_text" => "[image]"
 }
@@ -700,11 +702,11 @@ Mapping rules:
 
 | Discord content type or hint | Block `type` |
 | --- | --- |
-| `image/*` content type | `image` |
+| `image/*` content type | `image_url` |
 | `audio/*` content type | `file` with `media_type` |
-| `video/*` content type | `file` with `media_type` |
-| Any other attachment content type | `file` |
-| Sticker with image metadata | `image` |
+| `video/*` content type | `video_url` with `media_type` |
+| Any other attachment content type | `file`, with `media_type` when Discord provides one |
+| Sticker with image metadata | `image_url` |
 
 Embeds produce one text block when they have a title or description. The adapter
 does not normalize embed fields into structured content in the first
@@ -716,6 +718,11 @@ metadata produce one localized text fallback.
 The adapter must not publish empty `data.content` for a user-origin Event. If a
 provider occurrence has no meaningful user-facing body and is still accepted,
 the adapter synthesizes a deterministic localized fallback text block.
+
+All non-text attachment blocks include `fallback_text` so AIAgent can render a
+safe text transcript without downloading bytes or expanding raw provider
+payloads. Native interaction options that become EventBus input render as text
+blocks; provider-private interaction tokens remain outside the Event.
 
 `discord://attachment/<channel_id>/<attachment_id>` URIs are channel-local
 opaque references. The adapter does not download bytes during normalization. A
@@ -1066,8 +1073,8 @@ Content rules:
 
 - `text` sends a Discord message with rendered text.
 - Text exceeding 2000 UTF-16 units splits into multiple message creates.
-- `image`, `file`, and `card` degrade to one localized fallback text message in
-  the first implementation.
+- `image_url`, `video_url`, `file`, and `card` degrade to one localized fallback
+  text message in the first implementation.
 
 The adapter returns all created Discord message ids in `external_message_ids`.
 `primary_external_id` is the first message id. Degraded non-text sends include a

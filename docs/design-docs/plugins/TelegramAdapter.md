@@ -296,15 +296,17 @@ Capabilities should include:
 %{
   inbound_modes: [:polling],
   outbound_ops: [:send, :edit, :stream],
-  content_kinds: [:text, :image, :file, :card],
+  content_kinds: [:text, :image, :audio, :video, :file, :card],
   features: [:reply, :threads, :attention_policy],
   stream_strategy: :edit_accumulate
 }
 ```
 
-`content_kinds` includes non-text content so upstream callers can pass standard
-BullX content blocks. The first implementation degrades non-text outbound
-content to fallback text instead of using Telegram native upload methods.
+`content_kinds` is a coarse transport capability list. Inbound decoded
+CloudEvents still use `NormalizedCloudEvent` content part types such as
+`image_url`, `video_url`, and `file`. The first implementation degrades
+non-text outbound content to fallback text instead of using Telegram native
+upload methods.
 
 EventBus core validates the decoded CloudEvent passed to `accept/2`. Telegram
 still validates source config, update shape, attention policy, target ids,
@@ -588,7 +590,7 @@ native media block:
 [
   %{"type" => "text", "text" => "caption"},
   %{
-    "type" => "image",
+    "type" => "image_url",
     "url" => "telegram://file/<file_id>",
     "fallback_text" => "[image]"
   }
@@ -599,11 +601,11 @@ Mapping rules:
 
 | Telegram field | Block `type` | File id |
 | --- | --- | --- |
-| `message.photo` | `image` | largest photo entry `file_id` |
-| `message.sticker` | `image` | sticker `file_id` |
-| `message.audio` | `file` with `media_type` | audio `file_id` |
-| `message.voice` | `file` with `media_type` | voice `file_id` |
-| `message.video` | `file` with `media_type` | video `file_id` |
+| `message.photo` | `image_url` | largest photo entry `file_id` |
+| `message.sticker` | `image_url` | sticker `file_id` |
+| `message.audio` | `file` | audio `file_id` |
+| `message.voice` | `file` | voice `file_id` |
+| `message.video` | `video_url` | video `file_id` |
 | `message.document` | `file` | document `file_id` |
 
 Location or venue messages produce one deterministic text block with venue
@@ -758,8 +760,8 @@ Content rules:
 
 - `text` sends `sendMessage` with rendered text.
 - Text exceeding 4096 UTF-16 units splits into multiple `sendMessage` calls.
-- `image`, `file`, and `card` degrade to one localized fallback text message in
-  the first implementation.
+- `image_url`, `video_url`, `file`, and `card` degrade to one localized fallback
+  text message in the first implementation.
 
 The adapter returns all created Telegram message ids in `external_message_ids`.
 `primary_external_id` is the first message id. Degraded non-text sends include a

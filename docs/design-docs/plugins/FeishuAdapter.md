@@ -295,7 +295,7 @@ Capabilities should include:
 %{
   inbound_modes: [:websocket, :card_action_callback],
   outbound_ops: [:send, :edit, :stream],
-  content_kinds: [:text, :image, :file, :card],
+  content_kinds: [:text, :image, :audio, :video, :file, :card],
   features: [:reply, :threads, :principal_channel_actor, :oidc_login]
 }
 ```
@@ -303,6 +303,10 @@ Capabilities should include:
 EventBus core validates the decoded CloudEvent passed to `accept/2`. Feishu
 still validates provider-specific payloads, source config, target ids, media
 constraints, card formats, and Feishu API responses.
+
+`content_kinds` is a coarse transport capability list. Inbound decoded
+CloudEvents still use `NormalizedCloudEvent` content part types such as
+`image_url`, `video_url`, `file`, `card`, and `action`.
 
 ## Source runtime
 
@@ -537,7 +541,7 @@ Feishu maps provider occurrences to normalized BullX Event types:
 | Message update | `bullx.message.edited` | `refs` includes the Feishu message id. |
 | Message recall | `bullx.message.recalled` | Use source cache or provider lookup for missing chat context. |
 | Reaction create/delete | `bullx.reaction.changed` | `routing_facts.reaction_action` is `added` or `removed`. |
-| Interactive card action | `bullx.action.submitted` | CloudEvent id uses Feishu callback token when present; otherwise it is derived from message id, action id, and actor open id. Sanitized action values stay in `data.content` as action input. Routing facts include only stable non-private action identifiers. |
+| Interactive card action | `bullx.action.submitted` | CloudEvent id uses Feishu callback token when present; otherwise it is derived from message id, action id, and actor open id. Sanitized action values stay in `data.content` as structured Event facts. Routing facts include only stable non-private action identifiers. |
 
 Provider-specific names stay in `routing_facts.provider_event_type`, for example
 `im.message.receive_v1` or `card.action`. EventBus core must not maintain a
@@ -550,24 +554,31 @@ may be removed from the primary text while stable mention references remain in
 `refs` or normalized metadata. Sticker, emotion, and emoji-only messages
 produce deterministic text fallback.
 
-Images produce `image` content blocks. Audio, video, and generic files produce
-`file` content blocks with `media_type` and `fallback_text`. Small downloaded
-media may be embedded as `data:` URIs only when under `inline_media_max_bytes`
-and when doing so does not violate provider or operator policy. Large or
-unavailable media uses a stable
+Images produce `image_url` content blocks with `fallback_text`. Audio, video,
+and generic files produce `file` or `video_url` content blocks with
+`media_type` and `fallback_text`. Small downloaded media may be embedded as
+`data:` URIs only when under `inline_media_max_bytes` and when doing so does not
+violate provider or operator policy. Large or unavailable media uses a stable
 `feishu://message-resource/...` URI plus Feishu ids in `refs`. No local
 filesystem path enters an Event.
 
-Interactive card messages produce card content:
+Interactive card messages produce card content with safe fallback text for
+AIAgent transcript rendering:
 
 ```elixir
 %{
   "type" => "card",
   "format" => "feishu.card",
-  "fallback_text" => "card",
+  "fallback_text" => safe_card_summary,
   "payload" => sanitized_card_json
 }
 ```
+
+Card-action callbacks produce `action` content. `text` is the safe
+human-readable transcript summary; `action_id` and sanitized `values` remain
+structured Event facts and must not be expanded into ordinary dialogue text.
+When an Event Routing Rule sends `bullx.action.submitted` to an AIAgent Target,
+AIAgent uses only this text projection as the user-turn transcript.
 
 The adapter must not publish empty `data.content` for a user-origin Event. If a
 machine-only provider occurrence has no user-facing body, the adapter
@@ -630,9 +641,11 @@ Messages, or decide whether an AIAgent may speak in a chat.
 2. The operator creates or enables an Agent Principal, gives that AIAgent a
    model spec such as `openai_proxy:gpt-5.4`, enables any required ToolSets, and
    grants the relevant Human Principals access through AuthZ.
-3. The operator creates an Event Routing Rule for Feishu message Events with
-   `target_type = "ai_agent"` and `target_ref = <agent principal id>`. The rule
-   chooses the TargetSession scope/window fields for the Feishu chat or thread.
+3. The operator creates Event Routing Rules for Feishu message Events, and may
+   also route `bullx.action.submitted` when card actions should continue the
+   same AIAgent Conversation. Matching rules use `target_type = "ai_agent"` and
+   `target_ref = <agent principal id>`. Each rule chooses the TargetSession
+   scope/window fields for the Feishu chat, thread, or action surface.
 4. A Human Principal sends a message to the Feishu bot. The adapter verifies the
    provider occurrence, drops self-sent bot messages, records actor evidence,
    normalizes the occurrence into a decoded CloudEvents JSON object with
@@ -770,8 +783,8 @@ Content rules:
 - `text` sends Feishu text or post content.
 - `card` with `format = "feishu.card"` or `format = "feishu.card.v2"` sends an
   interactive card.
-- `image` and `file` upload native media when the content URI is readable and
-  provider limits permit it.
+- `image_url`, `video_url`, `image`, and `file` upload native media when the
+  content URI or embedded data is readable and provider limits permit it.
 - Unsupported rich combinations degrade to one localized or fallback text
   message when possible. If no safe fallback exists, the adapter returns a
   non-retryable safe error.

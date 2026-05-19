@@ -241,14 +241,13 @@ defmodule BullX.EventBus.CoreTest do
         "time" => "2026-05-17T10:00:00Z",
         "datacontenttype" => "application/json",
         "data" => %{
-          "content" => [%{"kind" => "text", "body" => %{"text" => "hello"}}],
-          "channel" => %{"adapter" => "feishu", "id" => "default"},
+          "content" => [%{"type" => "text", "text" => "hello"}],
+          "channel" => %{"adapter" => "feishu", "id" => "default", "kind" => "dm"},
           "scope" => %{"id" => "chat-1", "thread_id" => nil},
           "actor" => %{
-            "id" => "user-1",
-            "display" => "Alice",
-            "bot" => false,
-            "principal_ref" => nil
+            "external_account_id" => "user-1",
+            "display_name" => "Alice",
+            "principal" => nil
           },
           "refs" => [],
           "reply_channel" => %{

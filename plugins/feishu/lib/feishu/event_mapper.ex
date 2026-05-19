@@ -73,7 +73,7 @@ defmodule Feishu.EventMapper do
     with {:ok, env} <- common_event_env(event, source),
          {:ok, actor} <- actor_from_sender(env.sender, source),
          account_input <- account_input(source, actor.id, profile_from_sender(env.sender), env) do
-      blocks = [%{"kind" => "text", "body" => %{"text" => "[message recalled]"}}]
+      blocks = [%{"type" => "text", "text" => "[message recalled]"}]
 
       {:ok,
        %{
@@ -91,7 +91,7 @@ defmodule Feishu.EventMapper do
          account_input <- account_input(source, actor.id, profile_from_sender(env.sender), env),
          emoji when is_binary(emoji) and emoji != "" <- reaction_emoji(env.raw_event) do
       action = if type == @reaction_created, do: "added", else: "removed"
-      blocks = [%{"kind" => "text", "body" => %{"text" => ":#{emoji}:"}}]
+      blocks = [%{"type" => "text", "text" => ":#{emoji}:"}]
 
       {:ok,
        %{
@@ -217,11 +217,15 @@ defmodule Feishu.EventMapper do
     }
   end
 
-  defp bot_mentioned?(%{message: message}, %Source{bot_open_id: bot_open_id, bot_user_id: bot_user_id}) do
+  defp bot_mentioned?(%{message: message}, %Source{
+         bot_open_id: bot_open_id,
+         bot_user_id: bot_user_id
+       }) do
     mentions = Map.get(message, "mentions") || []
 
     Enum.any?(mentions, fn mention ->
       ids = Map.get(mention, "id") || %{}
+
       (present?(bot_open_id) and Map.get(ids, "open_id") == bot_open_id) or
         (present?(bot_user_id) and Map.get(ids, "user_id") == bot_user_id)
     end)
@@ -312,7 +316,7 @@ defmodule Feishu.EventMapper do
       subject: "feishu:chat:" <> env.chat_id,
       data: %{
         content: blocks,
-        channel: %{adapter: "feishu", id: source.id},
+        channel: %{adapter: "feishu", id: source.id, kind: channel_kind(env.chat_type)},
         scope: %{id: env.chat_id, thread_id: env.thread_id},
         actor: event_actor(actor),
         refs: refs(env),
@@ -330,17 +334,9 @@ defmodule Feishu.EventMapper do
 
   defp event_actor(actor) do
     %{
-      id: actor.id,
-      display: actor.display,
-      bot: actor.bot,
-      principal_ref: nil,
-      profile:
-        %{
-          open_id: actor.open_id,
-          union_id: actor.union_id,
-          user_id: actor.user_id
-        }
-        |> reject_nil_values()
+      external_account_id: actor.id,
+      display_name: actor.display,
+      principal: nil
     }
   end
 
@@ -507,6 +503,7 @@ defmodule Feishu.EventMapper do
   defp raw_ref(env) do
     %{
       kind: "feishu.event",
+      id: env.event_id,
       event_id: env.event_id,
       event_type: env.event_type,
       message_id: env.message_id,
@@ -549,14 +546,15 @@ defmodule Feishu.EventMapper do
   end
 
   defp action_blocks(%CardAction{} = action, action_id) do
-    body =
+    block =
       %{
-        "text" => "[card action]",
+        "type" => "action",
+        "text" => "submitted action: #{action_id}",
         "action_id" => action_id
       }
       |> maybe_put("values", action_values(action))
 
-    [%{"kind" => "card_action", "body" => body}]
+    [block]
   end
 
   defp action_values(%CardAction{action: action}) when is_map(action) do
@@ -614,8 +612,14 @@ defmodule Feishu.EventMapper do
   defp empty_to_nil(map) when map == %{}, do: nil
   defp empty_to_nil(map), do: map
 
+  defp first_content_kind([%{"type" => type} | _rest]), do: type
   defp first_content_kind([%{"kind" => kind} | _rest]), do: kind
   defp first_content_kind(_blocks), do: nil
+
+  defp channel_kind("p2p"), do: "dm"
+  defp channel_kind("group"), do: "group"
+  defp channel_kind(nil), do: nil
+  defp channel_kind(_chat_type), do: "group"
 
   defp first_string(map, keys) do
     Enum.find_value(keys, fn key ->

@@ -31,6 +31,11 @@ defmodule Feishu.ContentMapper do
     do: {:error, Feishu.Error.payload("invalid Feishu message")}
 
   @spec primary_text([map()]) :: String.t() | nil
+  def primary_text([%{"type" => "text", "text" => text} | _rest])
+      when is_binary(text) do
+    text
+  end
+
   def primary_text([%{"kind" => "text", "body" => %{"text" => text}} | _rest])
       when is_binary(text) do
     text
@@ -45,6 +50,11 @@ defmodule Feishu.ContentMapper do
 
   def render_outbound([block | _rest], source), do: render_outbound(block, source)
 
+  def render_outbound(%{"type" => "text", "text" => text}, _source)
+      when is_binary(text) and text != "" do
+    {:ok, %{msg_type: "text", content: Jason.encode!(%{text: text})}, []}
+  end
+
   def render_outbound(%{"kind" => "text", "body" => %{"text" => text}}, _source)
       when is_binary(text) and text != "" do
     {:ok, %{msg_type: "text", content: Jason.encode!(%{text: text})}, []}
@@ -54,11 +64,26 @@ defmodule Feishu.ContentMapper do
     do: render_outbound(%{"kind" => "text", "body" => %{"text" => text}}, source)
 
   def render_outbound(
+        %{"type" => "card", "format" => format, "payload" => payload},
+        _source
+      )
+      when format in ["feishu.card", "feishu.card.v2"] and is_map(payload) do
+    {:ok, %{msg_type: "interactive", content: Jason.encode!(payload)}, []}
+  end
+
+  def render_outbound(
         %{"kind" => "card", "body" => %{"format" => format, "payload" => payload}},
         _source
       )
       when format in ["feishu.card", "feishu.card.v2"] and is_map(payload) do
     {:ok, %{msg_type: "interactive", content: Jason.encode!(payload)}, []}
+  end
+
+  def render_outbound(%{"type" => type} = part, source)
+      when type in ["image_url", "image", "video_url", "file"] do
+    part
+    |> outbound_media_block()
+    |> render_outbound(source)
   end
 
   def render_outbound(%{"kind" => kind, "body" => body}, %Feishu.Source{} = source)
@@ -131,12 +156,10 @@ defmodule Feishu.ContentMapper do
 
   defp card_block(payload) when is_map(payload) do
     %{
-      "kind" => "card",
-      "body" => %{
-        "format" => "feishu.card",
-        "fallback_text" => card_fallback(payload),
-        "payload" => payload
-      }
+      "type" => "card",
+      "format" => "feishu.card",
+      "fallback_text" => card_fallback(payload),
+      "payload" => payload
     }
   end
 
@@ -146,16 +169,28 @@ defmodule Feishu.ContentMapper do
     filename = Map.get(body, "file_name") || Map.get(body, "name")
     fallback = filename || "[#{kind}]"
 
-    %{
-      "kind" => kind,
-      "body" =>
-        %{
-          "url" => media_url(kind, message_id, key, source),
-          "fallback_text" => fallback
-        }
-        |> maybe_put("filename", filename)
-    }
+    kind
+    |> normalized_media_type()
+    |> normalized_media_block(media_url(kind, message_id, key, source), fallback, filename)
   end
+
+  defp normalized_media_type("image"), do: "image_url"
+  defp normalized_media_type("video"), do: "video_url"
+  defp normalized_media_type(_kind), do: "file"
+
+  defp normalized_media_block(type, url, fallback, filename) do
+    %{
+      "type" => type,
+      "url" => url,
+      "fallback_text" => fallback
+    }
+    |> maybe_put("filename", filename)
+    |> maybe_put("media_type", media_type_for(type))
+  end
+
+  defp media_type_for("image_url"), do: "image/png"
+  defp media_type_for("video_url"), do: "video/mp4"
+  defp media_type_for("file"), do: "application/octet-stream"
 
   defp media_url(kind, message_id, key, %Feishu.Source{} = source)
        when is_binary(key) and key != "" and is_binary(message_id) and message_id != "unknown" do
@@ -314,7 +349,22 @@ defmodule Feishu.ContentMapper do
         value -> value
       end
 
-    %{"kind" => "text", "body" => %{"text" => text}}
+    %{"type" => "text", "text" => text}
+  end
+
+  defp outbound_media_block(%{"type" => "image_url"} = part), do: local_media_block("image", part)
+  defp outbound_media_block(%{"type" => "image"} = part), do: local_media_block("image", part)
+  defp outbound_media_block(%{"type" => "video_url"} = part), do: local_media_block("video", part)
+  defp outbound_media_block(%{"type" => "file"} = part), do: local_media_block("file", part)
+
+  defp local_media_block(kind, part) do
+    %{
+      "kind" => kind,
+      "body" =>
+        part
+        |> Map.take(["url", "data", "filename", "file_name", "fallback_text"])
+        |> Map.new()
+    }
   end
 
   defp emotion_text(%{"emoji_type" => emoji}) when is_binary(emoji), do: ":" <> emoji <> ":"

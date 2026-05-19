@@ -1,0 +1,485 @@
+defmodule BullX.AIAgent.Commands do
+  @moduledoc """
+  AIAgent-owned slash command catalog and Conversation-local handlers.
+  """
+
+  import Ecto.Query
+
+  alias BullX.AIAgent.{ACL, Conversation, Conversations, Message}
+  alias BullX.Repo
+
+  @catalog %{
+    "new" => %{token: "/new", aliases: ["/新会话"], access: :ordinary},
+    "compress" => %{token: "/compress", aliases: ["/压缩"], access: :ordinary},
+    "retry" => %{token: "/retry", aliases: [], access: :ordinary},
+    "steer" => %{token: "/steer", aliases: [], access: :ordinary},
+    "stop" => %{token: "/stop", aliases: [], access: :ordinary},
+    "undo" => %{token: "/undo", aliases: [], access: :ordinary}
+  }
+
+  @tokens @catalog
+          |> Enum.flat_map(fn {name, config} ->
+            [{config.token, name} | Enum.map(config.aliases, &{&1, name})]
+          end)
+          |> Map.new()
+
+  @type detected :: {:command, String.t(), String.t()} | :not_command | {:unknown, String.t()}
+
+  @spec catalog() :: map()
+  def catalog, do: @catalog
+
+  @spec detect_text(String.t()) :: detected()
+  def detect_text(text) when is_binary(text) do
+    trimmed = String.trim_leading(text)
+
+    case String.split(trimmed, ~r/\s+/, parts: 2) do
+      [<<"/", _rest::binary>> = token, args] -> normalize_token(token, args)
+      [<<"/", _rest::binary>> = token] -> normalize_token(token, "")
+      _other -> :not_command
+    end
+  end
+
+  def detect_text(_text), do: :not_command
+
+  @spec command_event_name(map()) :: String.t() | nil
+  def command_event_name(event_data) when is_map(event_data) do
+    event_data
+    |> get_in(["routing_facts", "command_name"])
+    |> case do
+      name when is_binary(name) -> canonical_name(name)
+      _other -> nil
+    end
+  end
+
+  @spec command_event_args(map()) :: String.t()
+  def command_event_args(event_data) when is_map(event_data) do
+    case safe_argument_text(event_data) do
+      text when is_binary(text) ->
+        String.trim(text)
+
+      nil ->
+        event_data
+        |> BullX.AIAgent.Event.text_content()
+        |> detect_text()
+        |> case do
+          {:command, _name, args} -> args
+          :not_command -> ""
+          {:unknown, _token} -> ""
+        end
+    end
+  end
+
+  @spec known?(String.t()) :: boolean()
+  def known?(name) when is_binary(name), do: Map.has_key?(@catalog, name)
+
+  @spec run(String.t(), map()) :: {:ok, map()} | {:error, term()}
+  def run(command_name, context) when is_binary(command_name) and is_map(context) do
+    with {:ok, command} <- fetch(command_name),
+         :allowed <-
+           ACL.authorize(
+             context.caller_principal_id,
+             context.agent_principal_id,
+             command.access,
+             Map.get(context, :acl_context, %{})
+           ) do
+      execute(command_name, context)
+    else
+      {:error, :unknown_command} -> {:ok, diagnostic(:unknown_command)}
+      {:denied, _reason} -> {:ok, diagnostic(:denied)}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp normalize_token(token, args) do
+    case Map.fetch(@tokens, token) do
+      {:ok, "steer"} -> {:command, "steer", String.trim(args)}
+      {:ok, name} -> {:command, name, String.trim(args)}
+      :error -> {:unknown, token}
+    end
+  end
+
+  defp canonical_name(name) do
+    case Map.has_key?(@catalog, name) do
+      true -> name
+      false -> nil
+    end
+  end
+
+  defp fetch(command_name) do
+    case Map.fetch(@catalog, command_name) do
+      {:ok, command} -> {:ok, command}
+      :error -> {:error, :unknown_command}
+    end
+  end
+
+  defp safe_argument_text(event_data) do
+    get_in(event_data, ["command_args", "text"]) ||
+      get_in(event_data, ["arguments", "text"]) ||
+      get_in(event_data, ["command", "args_text"])
+  end
+
+  defp execute("new", context) do
+    now = DateTime.utc_now(:microsecond)
+
+    Repo.transaction(fn ->
+      conversation = lock_conversation!(context.conversation_id)
+
+      if active_generation?(conversation, now) do
+        {:ok, _cancelled} = Conversations.cancel_generation(conversation, "new_session", now)
+      end
+
+      {:ok, _closed} = Conversations.close_active(conversation, "new_session", now)
+
+      {:ok, fresh} =
+        Conversations.find_or_create_active(
+          conversation.agent_principal_id,
+          conversation.conversation_key,
+          conversation.metadata
+        )
+
+      fresh
+    end)
+    |> case do
+      {:ok, %Conversation{} = fresh} ->
+        {:ok, %{status: :ok, command: "new", conversation_id: fresh.id}}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp execute("compress", context) do
+    case locked_inactive_conversation(context.conversation_id) do
+      {:ok, conversation} ->
+        BullX.AIAgent.Compression.manual_compress(conversation, context)
+
+      {:error, :active_generation_present} ->
+        {:ok, diagnostic(:active_generation_present)}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp execute("retry", context) do
+    case retry_with_lease(context) do
+      {:ok, result} -> {:ok, result}
+      {:error, :active_generation_present} -> {:ok, diagnostic(:active_generation_present)}
+      {:error, :no_retry_target} -> {:ok, diagnostic(:no_retry_target)}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp execute("steer", %{args: args}) when args in [nil, ""],
+    do: {:ok, diagnostic(:missing_prompt)}
+
+  defp execute("steer", context) do
+    now = DateTime.utc_now(:microsecond)
+
+    Repo.transaction(fn ->
+      conversation = lock_conversation!(context.conversation_id)
+
+      case active_generation?(conversation, now) do
+        true ->
+          BullX.AIAgent.Steering.put(
+            conversation.generation["lease_id"],
+            context.source_id,
+            context.args
+          )
+
+          %{status: :ok, command: "steer"}
+
+        false ->
+          diagnostic(:no_active_generation)
+      end
+    end)
+    |> ok_or_error()
+  end
+
+  defp execute("stop", context) do
+    now = DateTime.utc_now(:microsecond)
+
+    Repo.transaction(fn ->
+      conversation = lock_conversation!(context.conversation_id)
+
+      case active_generation?(conversation, now) do
+        true ->
+          lease_id = conversation.generation["lease_id"]
+
+          with {:ok, cancelled} <- Conversations.cancel_generation(conversation, "stop", now),
+               :ok <- interrupt_generating_messages(cancelled, lease_id, context, now) do
+            %{status: :ok, command: "stop"}
+          else
+            {:error, reason} -> Repo.rollback(reason)
+          end
+
+        false ->
+          diagnostic(:no_active_generation)
+      end
+    end)
+    |> ok_or_error()
+  end
+
+  defp execute("undo", context) do
+    case undo_locked(context) do
+      {:ok, conversation} ->
+        {:ok, %{status: :ok, command: "undo", conversation_id: conversation.id}}
+
+      {:error, :active_generation_present} ->
+        {:ok, diagnostic(:active_generation_present)}
+
+      {:error, :no_undo_target} ->
+        {:ok, diagnostic(:no_undo_target)}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp execute(_unknown, _context), do: {:ok, diagnostic(:unknown_command)}
+
+  defp diagnostic(reason), do: %{status: :diagnostic, reason: Atom.to_string(reason)}
+
+  defp ok_or_error({:ok, result}), do: {:ok, result}
+  defp ok_or_error({:error, reason}), do: {:error, reason}
+
+  defp locked_inactive_conversation(conversation_id) do
+    now = DateTime.utc_now(:microsecond)
+
+    Repo.transaction(fn ->
+      conversation = lock_conversation!(conversation_id)
+
+      case active_generation?(conversation, now) do
+        true -> Repo.rollback(:active_generation_present)
+        false -> conversation
+      end
+    end)
+  end
+
+  defp lock_conversation!(conversation_id) do
+    Conversation
+    |> where([c], c.id == ^conversation_id)
+    |> lock("FOR UPDATE")
+    |> Repo.one!()
+  end
+
+  defp active_generation?(%Conversation{} = conversation, now) do
+    Conversations.owned_active_lease?(
+      conversation,
+      conversation.generation["lease_id"] || "",
+      now
+    )
+  end
+
+  defp retry_with_lease(context) do
+    now = DateTime.utc_now(:microsecond)
+
+    Repo.transaction(fn ->
+      conversation = lock_conversation!(context.conversation_id)
+
+      if active_generation?(conversation, now) do
+        Repo.rollback(:active_generation_present)
+      end
+
+      with {:ok, source_message, retry_of_message_id} <- last_generation_source(conversation),
+           :ok <- mark_suffix(conversation, source_message, "retry", context),
+           {:ok, rewound} <- set_current_leaf(conversation, source_message.id),
+           {:ok, leased, lease_id} <-
+             Conversations.acquire_generation_lease_locked(
+               rewound,
+               generation_owner("command_retry", context.source_id, source_message.id, context),
+               now
+             ) do
+        %{
+          status: :start_generation,
+          command: "retry",
+          conversation_id: leased.id,
+          source_message_id: source_message.id,
+          retry_of_message_id: retry_of_message_id,
+          lease_id: lease_id
+        }
+      else
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end)
+  end
+
+  defp undo_locked(context) do
+    now = DateTime.utc_now(:microsecond)
+
+    Repo.transaction(fn ->
+      conversation = lock_conversation!(context.conversation_id)
+
+      if active_generation?(conversation, now) do
+        Repo.rollback(:active_generation_present)
+      end
+
+      with {:ok, source_message} <- last_exchange_source(conversation),
+           :ok <-
+             mark_suffix(conversation, source_message, "undo", context, include_source?: true),
+           {:ok, updated} <- set_current_leaf(conversation, source_message.parent_id) do
+        updated
+      else
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end)
+  end
+
+  defp last_generation_source(%Conversation{} = conversation) do
+    branch = Conversations.render_branch(conversation)
+    indexed = Map.new(branch, &{&1.id, &1})
+
+    case List.last(branch) do
+      %Message{} = tail when tail.role in [:user, :im_ambient] ->
+        case user_like_source?(tail) do
+          true -> {:ok, tail, tail.id}
+          false -> {:error, :no_retry_target}
+        end
+
+      %Message{} = tail ->
+        last_generated_source(tail, branch, indexed)
+
+      _tail ->
+        {:error, :no_retry_target}
+    end
+  end
+
+  defp last_generated_source(tail, branch, indexed) do
+    case retry_tail?(tail) do
+      true ->
+        branch
+        |> Enum.reverse()
+        |> Enum.find(fn
+          %Message{role: :assistant, kind: :normal, status: :complete} -> true
+          %Message{role: :assistant, kind: :error, status: :complete} -> true
+          _message -> false
+        end)
+        |> generation_source(indexed)
+
+      false ->
+        {:error, :no_retry_target}
+    end
+  end
+
+  defp generation_source(
+         %Message{
+           id: retry_of_message_id,
+           metadata: %{"generation" => %{"source_message_id" => source_message_id}}
+         },
+         indexed
+       ) do
+    case Map.get(indexed, source_message_id) do
+      %Message{} = message ->
+        case user_like_source?(message) do
+          true -> {:ok, message, retry_of_message_id}
+          false -> {:error, :no_retry_target}
+        end
+
+      nil ->
+        {:error, :no_retry_target}
+    end
+  end
+
+  defp generation_source(_message, _indexed), do: {:error, :no_retry_target}
+
+  defp user_like_source?(%Message{role: :user, kind: :normal}), do: true
+  defp user_like_source?(%Message{role: :im_ambient, kind: :introspection}), do: true
+  defp user_like_source?(_message), do: false
+
+  defp retry_tail?(%Message{role: :assistant, kind: :normal, status: :complete}), do: true
+  defp retry_tail?(%Message{role: :assistant, kind: :error, status: :complete}), do: true
+  defp retry_tail?(%Message{role: :tool, kind: :normal, status: :complete}), do: true
+  defp retry_tail?(_message), do: false
+
+  defp last_exchange_source(%Conversation{} = conversation) do
+    conversation
+    |> Conversations.render_branch()
+    |> Enum.reverse()
+    |> Enum.find(&user_like_source?/1)
+    |> case do
+      %Message{} = message -> {:ok, message}
+      nil -> {:error, :no_undo_target}
+    end
+  end
+
+  defp set_current_leaf(conversation, message_id) do
+    conversation
+    |> Conversation.changeset(%{current_leaf_message_id: message_id})
+    |> Repo.update()
+  end
+
+  defp mark_suffix(conversation, source_message, command, context, opts \\ []) do
+    include_source? = Keyword.get(opts, :include_source?, false)
+
+    conversation
+    |> Conversations.active_branch()
+    |> Enum.drop_while(&(&1.id != source_message.id))
+    |> maybe_drop_source(include_source?)
+    |> Enum.each(fn message ->
+      metadata =
+        Map.put(message.metadata, "branch_effect", %{
+          "state" => branch_state(command),
+          "command" => command,
+          "command_entry_id" => context.source_id,
+          "at" => DateTime.to_iso8601(DateTime.utc_now(:microsecond))
+        })
+
+      {:ok, _message} = Conversations.update_message(message, %{metadata: metadata})
+    end)
+
+    :ok
+  end
+
+  defp interrupt_generating_messages(conversation, lease_id, context, now) do
+    Message
+    |> where([m], m.conversation_id == ^conversation.id)
+    |> where([m], m.role == :assistant and m.kind == :normal and m.status == :generating)
+    |> where([m], fragment("?->'generation'->>'lease_id' = ?", m.metadata, ^lease_id))
+    |> Repo.all()
+    |> Enum.reduce_while(:ok, fn message, :ok ->
+      metadata =
+        message.metadata
+        |> Map.put("branch_effect", %{
+          "state" => "interrupted",
+          "command" => "stop",
+          "command_entry_id" => context.source_id,
+          "at" => DateTime.to_iso8601(now)
+        })
+        |> put_in(["stream", "status"], "interrupted")
+
+      attrs = %{
+        role: :assistant,
+        kind: :error,
+        status: :complete,
+        content: [Message.error_block("generation_stopped", "AIAgent generation stopped.", true)],
+        metadata: metadata
+      }
+
+      case Conversations.update_message(message, attrs) do
+        {:ok, _message} -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp maybe_drop_source(messages, true), do: messages
+  defp maybe_drop_source([_source | rest], false), do: rest
+  defp maybe_drop_source([], _include_source?), do: []
+
+  defp branch_state("retry"), do: "superseded"
+  defp branch_state("undo"), do: "undone"
+  defp branch_state(_command), do: "interrupted"
+
+  defp generation_owner(owner_source_type, owner_source_id, source_message_id, context) do
+    generation = context.profile.generation
+
+    %{
+      "owner_source_type" => owner_source_type,
+      "owner_source_id" => owner_source_id,
+      "source_message_id" => source_message_id,
+      "generation_lease_ttl_ms" => generation.generation_lease_ttl_ms,
+      "generation_heartbeat_interval_ms" => generation.generation_heartbeat_interval_ms,
+      "generation_max_runtime_ms" => generation.generation_max_runtime_ms
+    }
+  end
+end

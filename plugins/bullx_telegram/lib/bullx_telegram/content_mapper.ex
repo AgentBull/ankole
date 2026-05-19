@@ -26,30 +26,52 @@ defmodule BullxTelegram.ContentMapper do
     {:ok, blocks}
   end
 
-  def from_message(_message), do: {:error, BullxTelegram.Error.payload("invalid Telegram message")}
+  def from_message(_message),
+    do: {:error, BullxTelegram.Error.payload("invalid Telegram message")}
 
   @spec primary_text([map()]) :: String.t() | nil
-  def primary_text([%{"kind" => "text", "body" => %{"text" => text}} | _rest]) when is_binary(text), do: text
+  def primary_text([%{"type" => "text", "text" => text} | _rest]) when is_binary(text), do: text
+
+  def primary_text([%{"kind" => "text", "body" => %{"text" => text}} | _rest])
+      when is_binary(text), do: text
+
   def primary_text([_block | rest]), do: primary_text(rest)
   def primary_text([]), do: nil
 
   @spec render_outbound(term()) :: {:ok, [String.t()], [String.t()]} | {:error, map()}
-  def render_outbound([%{"kind" => "text", "body" => %{"text" => text}} | _rest]) when is_binary(text) and text != "" do
+  def render_outbound([%{"type" => "text", "text" => text} | _rest])
+      when is_binary(text) and text != "" do
     {:ok, split_text(text, @message_limit), []}
   end
 
-  def render_outbound(%{"kind" => "text", "body" => %{"text" => text}}) when is_binary(text) and text != "" do
+  def render_outbound([%{"kind" => "text", "body" => %{"text" => text}} | _rest])
+      when is_binary(text) and text != "" do
     {:ok, split_text(text, @message_limit), []}
   end
 
-  def render_outbound(%{kind: "text", body: %{text: text}}), do: render_outbound(%{"kind" => "text", "body" => %{"text" => text}})
+  def render_outbound(%{"type" => "text", "text" => text}) when is_binary(text) and text != "" do
+    {:ok, split_text(text, @message_limit), []}
+  end
+
+  def render_outbound(%{"kind" => "text", "body" => %{"text" => text}})
+      when is_binary(text) and text != "" do
+    {:ok, split_text(text, @message_limit), []}
+  end
+
+  def render_outbound(%{kind: "text", body: %{text: text}}),
+    do: render_outbound(%{"kind" => "text", "body" => %{"text" => text}})
+
+  def render_outbound([%{"type" => type} = block | _rest]), do: render_fallback(type, block)
+  def render_outbound(%{"type" => type} = block), do: render_fallback(type, block)
 
   def render_outbound([%{"kind" => kind, "body" => body} | _rest]) do
     render_fallback(kind, body)
   end
 
   def render_outbound(%{"kind" => kind, "body" => body}), do: render_fallback(kind, body)
-  def render_outbound(_content), do: {:error, BullxTelegram.Error.payload("Telegram delivery content is required")}
+
+  def render_outbound(_content),
+    do: {:error, BullxTelegram.Error.payload("Telegram delivery content is required")}
 
   @spec utf16_units(String.t()) :: non_neg_integer()
   def utf16_units(text) when is_binary(text) do
@@ -67,8 +89,11 @@ defmodule BullxTelegram.ContentMapper do
         code_units = if codepoint > 0xFFFF, do: 2, else: 1
 
         case units + code_units > limit and current != [] do
-          true -> {[current |> Enum.reverse() |> List.to_string() | chunks], [codepoint], code_units}
-          false -> {chunks, [codepoint | current], units + code_units}
+          true ->
+            {[current |> Enum.reverse() |> List.to_string() | chunks], [codepoint], code_units}
+
+          false ->
+            {chunks, [codepoint | current], units + code_units}
         end
       end)
 
@@ -115,8 +140,19 @@ defmodule BullxTelegram.ContentMapper do
     first_present([Map.get(message, "text"), Map.get(message, "caption")])
   end
 
-  defp text_block(text), do: %{"kind" => "text", "body" => %{"text" => String.trim(text)}}
-  defp media_block(kind, file_id), do: %{"kind" => kind, "body" => %{"url" => "telegram://file/#{file_id}", "fallback_text" => "[#{kind}]"}}
+  defp text_block(text), do: %{"type" => "text", "text" => String.trim(text)}
+
+  defp media_block(kind, file_id) do
+    %{
+      "type" => normalized_media_type(kind),
+      "url" => "telegram://file/#{file_id}",
+      "fallback_text" => "[#{kind}]"
+    }
+  end
+
+  defp normalized_media_type("image"), do: "image_url"
+  defp normalized_media_type("video"), do: "video_url"
+  defp normalized_media_type(_kind), do: "file"
 
   defp media_file_id(values, "photo") when is_list(values) do
     values
@@ -142,6 +178,9 @@ defmodule BullxTelegram.ContentMapper do
 
   defp coordinates(lat, lon), do: "#{lat}, #{lon}"
   defp maps_url(lat, lon), do: "https://maps.google.com/?q=#{lat},#{lon}"
-  defp first_present(values), do: Enum.find(values, fn value -> is_binary(value) and String.trim(value) != "" end)
+
+  defp first_present(values),
+    do: Enum.find(values, fn value -> is_binary(value) and String.trim(value) != "" end)
+
   defp blank?(value), do: is_nil(value) or value == ""
 end

@@ -6,16 +6,25 @@ defmodule Discord.EventMapper do
   @spec map(term(), Source.t()) ::
           {:ok, map()} | {:direct_command, map()} | {:ignore, atom()} | {:error, map()}
   def map({event_type, payload}, %Source{} = source), do: map_event(event_type, payload, source)
-  def map(%{"t" => event_type, "d" => payload}, %Source{} = source), do: map_event(event_type, payload, source)
-  def map(%{"event_type" => event_type, "payload" => payload}, %Source{} = source), do: map_event(event_type, payload, source)
-  def map(%{} = payload, %Source{} = source), do: map_event(Map.get(payload, "type", "message_create"), payload, source)
+
+  def map(%{"t" => event_type, "d" => payload}, %Source{} = source),
+    do: map_event(event_type, payload, source)
+
+  def map(%{"event_type" => event_type, "payload" => payload}, %Source{} = source),
+    do: map_event(event_type, payload, source)
+
+  def map(%{} = payload, %Source{} = source),
+    do: map_event(Map.get(payload, "type", "message_create"), payload, source)
+
   def map(_payload, _source), do: {:error, Discord.Error.payload("invalid Discord payload")}
 
-  defp map_event(event_type, payload, %Source{} = source) when event_type in ["MESSAGE_CREATE", :MESSAGE_CREATE, "message_create"] do
+  defp map_event(event_type, payload, %Source{} = source)
+       when event_type in ["MESSAGE_CREATE", :MESSAGE_CREATE, "message_create"] do
     map_message("message_create", payload, source, :im_message)
   end
 
-  defp map_event(event_type, payload, %Source{} = source) when event_type in ["MESSAGE_UPDATE", :MESSAGE_UPDATE, "message_update"] do
+  defp map_event(event_type, payload, %Source{} = source)
+       when event_type in ["MESSAGE_UPDATE", :MESSAGE_UPDATE, "message_update"] do
     case Map.get(payload, "edited_timestamp") do
       value when is_binary(value) and value != "" ->
         map_message("message_update", payload, source, "bullx.message.edited")
@@ -25,7 +34,8 @@ defmodule Discord.EventMapper do
     end
   end
 
-  defp map_event(event_type, payload, %Source{} = source) when event_type in ["INTERACTION_CREATE", :INTERACTION_CREATE, "interaction_create"] do
+  defp map_event(event_type, payload, %Source{} = source)
+       when event_type in ["INTERACTION_CREATE", :INTERACTION_CREATE, "interaction_create"] do
     map_interaction(payload, source)
   end
 
@@ -51,7 +61,15 @@ defmodule Discord.EventMapper do
           mapped(message_id, source, actor, blocks, context, "bullx.command.invoked", command)
 
         _result ->
-          mapped(event_id(resolved_type, message_id, payload), source, actor, blocks, context, resolved_type, %{})
+          mapped(
+            event_id(resolved_type, message_id, payload),
+            source,
+            actor,
+            blocks,
+            context,
+            resolved_type,
+            %{}
+          )
       end
     else
       {:attention, {:ignore, reason}} -> {:ignore, reason}
@@ -65,8 +83,9 @@ defmodule Discord.EventMapper do
 
   defp map_interaction(payload, %Source{} = source) do
     with {:ok, interaction_id} <- required_id(payload, "id"),
-         {:ok, actor} <- actor_from_interaction(payload),
          command_result <- CommandNormalizer.parse_interaction(payload),
+         :ok <- accepted_command_result(command_result),
+         {:ok, actor} <- actor_from_interaction(payload),
          {:attention, {:ok, attention_reason}} <-
            {:attention, AttentionPolicy.decide(payload, source, command_result)} do
       context = context("interaction_create", payload, source, attention_reason)
@@ -83,10 +102,14 @@ defmodule Discord.EventMapper do
           {:ignore, reason}
       end
     else
+      {:ignore, reason} -> {:ignore, reason}
       {:attention, {:ignore, reason}} -> {:ignore, reason}
       {:error, error} -> {:error, error}
     end
   end
+
+  defp accepted_command_result({:ignore, reason}), do: {:ignore, reason}
+  defp accepted_command_result(_command_result), do: :ok
 
   defp mapped(event_id, source, actor, blocks, context, event_type, command) do
     {:ok,
@@ -106,14 +129,12 @@ defmodule Discord.EventMapper do
       subject: "Discord #{context.provider_event_type} #{event_id}",
       data: %{
         content: command_content(blocks, command),
-        channel: %{adapter: "discord", id: source.id},
+        channel: %{adapter: "discord", id: source.id, kind: channel_kind(context)},
         scope: %{id: context.channel_id, thread_id: nil},
         actor: %{
-          id: actor.id,
-          display: actor.display,
-          bot: actor.bot,
-          principal_ref: nil,
-          profile: actor.profile
+          external_account_id: actor.id,
+          display_name: actor.display,
+          principal: nil
         },
         refs: refs(event_id, context, actor),
         reply_channel: %{
@@ -130,7 +151,7 @@ defmodule Discord.EventMapper do
   end
 
   defp command_content(blocks, %{args: args}) when is_binary(args) and args != "" do
-    [%{"kind" => "text", "body" => %{"text" => args}} | Enum.reject(blocks, &match?(%{"kind" => "text"}, &1))]
+    [%{"type" => "text", "text" => args} | Enum.reject(blocks, &match?(%{"type" => "text"}, &1))]
   end
 
   defp command_content(blocks, _command), do: blocks
@@ -141,7 +162,9 @@ defmodule Discord.EventMapper do
       channel_id: stringify_id(Map.get(payload, "channel_id")),
       guild_id: stringify_id(Map.get(payload, "guild_id")),
       message_id: stringify_id(Map.get(payload, "id")),
-      time: Map.get(payload, "timestamp") || Map.get(payload, "edited_timestamp") || DateTime.utc_now() |> DateTime.to_iso8601(),
+      time:
+        Map.get(payload, "timestamp") || Map.get(payload, "edited_timestamp") ||
+          DateTime.utc_now() |> DateTime.to_iso8601(),
       attention_reason: attention_reason,
       connected_realm_ref: source.connected_realm_ref
     }
@@ -176,14 +199,22 @@ defmodule Discord.EventMapper do
     case stringify_id(Map.get(author, "id")) do
       id when is_binary(id) and id != "" ->
         profile = profile(author, id)
-        {:ok, %{id: "discord:" <> id, display: Map.get(profile, "display_name"), bot: Map.get(author, "bot") == true, profile: profile}}
+
+        {:ok,
+         %{
+           id: "discord:" <> id,
+           display: Map.get(profile, "display_name"),
+           bot: Map.get(author, "bot") == true,
+           profile: profile
+         }}
 
       _value ->
         {:error, Discord.Error.payload("Discord author is missing user id")}
     end
   end
 
-  defp actor_from_author(_author), do: {:error, Discord.Error.payload("Discord message is missing author")}
+  defp actor_from_author(_author),
+    do: {:error, Discord.Error.payload("Discord message is missing author")}
 
   defp actor_from_interaction(payload) do
     user = get_in(payload, ["member", "user"]) || Map.get(payload, "user")
@@ -203,12 +234,15 @@ defmodule Discord.EventMapper do
     |> maybe_put("user_id", id)
   end
 
-  defp interaction_blocks(_payload, {:eventbus, %{name: "ask", args: args}}) when is_binary(args) and args != "" do
-    [%{"kind" => "text", "body" => %{"text" => args}}]
+  defp interaction_blocks(_payload, {:eventbus, %{name: "ask", args: args}})
+       when is_binary(args) and args != "" do
+    [%{"type" => "text", "text" => args}]
   end
 
-  defp interaction_blocks(_payload, {:eventbus, %{name: name}}), do: [%{"kind" => "text", "body" => %{"text" => "/" <> name}}]
-  defp interaction_blocks(_payload, _command), do: [%{"kind" => "text", "body" => %{"text" => "/command"}}]
+  defp interaction_blocks(_payload, {:eventbus, %{name: name}}),
+    do: [%{"type" => "text", "text" => "/" <> name}]
+
+  defp interaction_blocks(_payload, _command), do: [%{"type" => "text", "text" => "/command"}]
 
   defp routing_facts(source, context, blocks, command) do
     %{
@@ -244,7 +278,9 @@ defmodule Discord.EventMapper do
     |> Enum.reject(&is_nil/1)
   end
 
-  defp event_id("bullx.message.edited", message_id, payload), do: "edit:#{message_id}:#{Map.get(payload, "edited_timestamp")}"
+  defp event_id("bullx.message.edited", message_id, payload),
+    do: "edit:#{message_id}:#{Map.get(payload, "edited_timestamp")}"
+
   defp event_id(_type, message_id, _payload), do: message_id
   defp required_id(map, key), do: required_id_value(Map.get(map, key), key)
 
@@ -255,17 +291,27 @@ defmodule Discord.EventMapper do
       id -> {:ok, id}
     end
   end
+
   defp raw_ref_kind("interaction_create"), do: "discord.interaction"
   defp raw_ref_kind(_provider_event_type), do: "discord.message"
+  defp first_content_kind([%{"type" => type} | _rest]), do: type
   defp first_content_kind([%{"kind" => kind} | _rest]), do: kind
   defp first_content_kind(_blocks), do: nil
+
+  defp channel_kind(%{guild_id: guild_id}) when is_binary(guild_id) and guild_id != "",
+    do: "group"
+
+  defp channel_kind(_context), do: "dm"
   defp maybe_ref(_kind, nil), do: nil
   defp maybe_ref(kind, id), do: %{"kind" => kind, "id" => id}
   defp stringify_id(value) when is_integer(value), do: Integer.to_string(value)
   defp stringify_id(value) when is_binary(value), do: value
   defp stringify_id(_value), do: nil
   defp first_present(values), do: Enum.find(values, &(is_binary(&1) and &1 != ""))
-  defp avatar_url(%{"avatar" => avatar}, id) when is_binary(avatar) and avatar != "", do: "https://cdn.discordapp.com/avatars/#{id}/#{avatar}.png"
+
+  defp avatar_url(%{"avatar" => avatar}, id) when is_binary(avatar) and avatar != "",
+    do: "https://cdn.discordapp.com/avatars/#{id}/#{avatar}.png"
+
   defp avatar_url(_author, _id), do: nil
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)

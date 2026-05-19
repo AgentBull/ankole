@@ -43,7 +43,10 @@ defmodule Feishu.EventMapperTest do
     assert attrs.source == "feishu://main/tenant_x"
     assert get_in(attrs.data, [:channel, :adapter]) == "feishu"
     assert get_in(attrs.data, [:channel, :id]) == "main"
-    assert get_in(attrs.data, [:actor, :id]) == "feishu:ou_user"
+    assert get_in(attrs.data, [:channel, :kind]) == "dm"
+    assert get_in(attrs.data, [:actor, :external_account_id]) == "feishu:ou_user"
+    assert get_in(attrs.data, [:actor, :display_name]) == "Ada"
+    assert get_in(attrs.data, [:actor, :principal]) == nil
     assert get_in(attrs.data, [:routing_facts, "connected_realm_ref"]) == "feishu:tenant:acme"
     assert get_in(attrs.data, [:routing_facts, "im_listen_mode"]) == "addressed_only"
     assert get_in(attrs.data, [:routing_facts, "attention_reason"]) == "dm"
@@ -180,11 +183,10 @@ defmodule Feishu.EventMapperTest do
 
     assert [
              %{
-               "kind" => "card_action",
-               "body" => %{
-                 "action_id" => "approve",
-                 "values" => %{"decision" => "yes", "count" => 2}
-               }
+               "type" => "action",
+               "text" => "submitted action: approve",
+               "action_id" => "approve",
+               "values" => %{"decision" => "yes", "count" => 2}
              }
            ] = attrs.data.content
   end
