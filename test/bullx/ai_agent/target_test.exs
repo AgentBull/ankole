@@ -656,7 +656,7 @@ defmodule BullX.AIAgent.TargetTest do
         status: :generating,
         content: [],
         metadata: %{
-          "generation" => %{"lease_id" => lease_id, "source_message_id" => user.id},
+          "generation" => %{"lease_id" => lease_id, "trigger_message_id" => user.id},
           "delivery" => delivery_metadata("om_streaming"),
           "stream" => %{"stream_id" => "stream_stop_recall", "status" => "open"}
         }
@@ -701,7 +701,7 @@ defmodule BullX.AIAgent.TargetTest do
         status: :generating,
         content: [],
         metadata: %{
-          "generation" => %{"lease_id" => lease_id, "source_message_id" => user.id},
+          "generation" => %{"lease_id" => lease_id, "trigger_message_id" => user.id},
           "stream" => %{"stream_id" => "stream_stop_no_recall", "status" => "open"}
         }
       })
@@ -746,9 +746,9 @@ defmodule BullX.AIAgent.TargetTest do
       Conversations.acquire_generation_lease(
         conversation,
         %{
-          "owner_source_type" => "test",
-          "owner_source_id" => "steer-feedback",
-          "source_message_id" => Repo.one!(from m in Message, where: m.role == :user).id,
+          "owner_trigger_type" => "test",
+          "owner_trigger_id" => "steer-feedback",
+          "trigger_message_id" => Repo.one!(from m in Message, where: m.role == :user).id,
           "generation_lease_ttl_ms" => 60_000,
           "generation_heartbeat_interval_ms" => 5_000,
           "generation_max_runtime_ms" => 60_000
@@ -784,6 +784,11 @@ defmodule BullX.AIAgent.TargetTest do
   test "compress sends progress notice and updates it after summary write" do
     {:ok, agent} =
       create_ai_agent("ai-agent-target-compress-feedback", %{
+        "main_llm" => %{
+          "provider_id" => "openai_proxy",
+          "model" => "gpt-test",
+          "context_window" => 16_000
+        },
         "instructions" => "Answer briefly."
       })
 
@@ -937,6 +942,11 @@ defmodule BullX.AIAgent.TargetTest do
   test "target session queues steer behind in-flight compression feedback" do
     {:ok, agent} =
       create_ai_agent("ai-agent-target-compress-queue", %{
+        "main_llm" => %{
+          "provider_id" => "openai_proxy",
+          "model" => "gpt-test",
+          "context_window" => 16_000
+        },
         "instructions" => "Answer briefly."
       })
 
@@ -1250,19 +1260,17 @@ defmodule BullX.AIAgent.TargetTest do
         ~s(type == "bullx.im.message.addressed" && channel.adapter == "eventbus_test" && channel.id == "default"),
       target_type: :ai_agent,
       target_ref: agent_principal_id,
-      scope_fields: ["channel.adapter", "channel.id", "scope.id"],
-      window_type: :rolling_ttl,
-      window_ttl_seconds: 3600
+      scope_fields: ["channel.adapter", "channel.id", "scope.id"]
     })
   end
 
-  defp acquire_test_generation(conversation, source_message_id) do
+  defp acquire_test_generation(conversation, trigger_message_id) do
     Conversations.acquire_generation_lease(
       conversation,
       %{
-        "owner_source_type" => "test",
-        "owner_source_id" => "stop-test",
-        "source_message_id" => source_message_id,
+        "owner_trigger_type" => "test",
+        "owner_trigger_id" => "stop-test",
+        "trigger_message_id" => trigger_message_id,
         "generation_lease_ttl_ms" => 60_000,
         "generation_heartbeat_interval_ms" => 5_000,
         "generation_max_runtime_ms" => 60_000
@@ -1286,7 +1294,8 @@ defmodule BullX.AIAgent.TargetTest do
     profile =
       Map.merge(
         %{
-          "main_model" => "openai_proxy:gpt-test",
+          "main_llm" => %{"provider_id" => "openai_proxy", "model" => "gpt-test"},
+          "mission" => "Handle AIAgent target tests.",
           "instructions" => "Answer briefly.",
           "context" => %{"max_turns" => 3}
         },
@@ -1325,7 +1334,6 @@ defmodule BullX.AIAgent.TargetTest do
       target_type: :ai_agent,
       target_ref: agent_principal_id,
       scope_key: "scope",
-      window_key: "window",
       output: BullX.EventBus.StreamingOutput,
       close: fn -> send(self(), :closed) end,
       fail: fn reason -> send(self(), {:failed, reason}) end

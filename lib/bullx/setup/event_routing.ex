@@ -11,12 +11,10 @@ defmodule BullX.Setup.EventRouting do
   @spec status(map()) :: map()
   def status(session \\ %{}) do
     with {:ok, agent} <- selected_agent(session),
-         {:ok, source} <- ChannelSources.first_ready_source(),
-         {:ok, rule} <- setup_rule(source, agent.principal.id),
-         :ok <- live_rule_matches?(rule, source, agent.principal.id) do
-      %{complete?: true, rule: public_rule(rule), source: source}
+         {:ok, source} <- ChannelSources.first_ready_source() do
+      status_for_source(source, agent)
     else
-      {:error, reason} -> %{complete?: false, reason: reason}
+      {:error, reason} -> prerequisite_missing(reason)
     end
   end
 
@@ -28,7 +26,8 @@ defmodule BullX.Setup.EventRouting do
          {:ok, rule} <- upsert_setup_rule(source, attrs),
          :ok <- retire_legacy_split_rules(source, rule.id),
          :ok <- live_rule_matches?(rule, source, agent.principal.id) do
-      {:ok, %{rule: public_rule(rule), source: source}}
+      {:ok,
+       %{rule: public_rule(rule), source: public_source(source), target: public_agent(agent)}}
     else
       {:error, reason} -> {:error, normalize_error(reason)}
     end
@@ -51,13 +50,85 @@ defmodule BullX.Setup.EventRouting do
     end
   end
 
+  defp status_for_source(source, agent) do
+    base = base_projection(source, agent)
+
+    case setup_rule(source, agent.principal.id) do
+      {:ok, rule} -> live_status(base, rule, source, agent.principal.id)
+      {:error, :setup_rule_missing} -> base
+      {:error, {:setup_rule_targets_different_agent, rule}} -> target_mismatch(base, rule)
+    end
+  end
+
+  defp live_status(base, rule, source, agent_principal_id) do
+    case live_rule_matches?(rule, source, agent_principal_id) do
+      :ok -> %{base | complete?: true, state: "live", reason: nil, live_rule: public_rule(rule)}
+      {:error, {:routing_conflict, conflict_rule}} -> routing_conflict(base, rule, conflict_rule)
+      {:error, :routing_no_match} -> routing_no_match(base, rule)
+      {:error, reason} -> routing_error(base, rule, reason)
+    end
+  end
+
+  defp base_projection(source, agent) do
+    %{
+      complete?: false,
+      state: "missing",
+      reason: "setup_rule_missing",
+      source: public_source(source),
+      target: public_agent(agent),
+      expected_rule: public_rule_attrs(source, agent.principal.id),
+      live_rule: nil,
+      conflict_rule: nil
+    }
+  end
+
+  defp prerequisite_missing(reason) do
+    %{
+      complete?: false,
+      state: "prerequisite_missing",
+      reason: reason_code(reason),
+      source: nil,
+      target: nil,
+      expected_rule: nil,
+      live_rule: nil,
+      conflict_rule: nil
+    }
+  end
+
+  defp target_mismatch(base, %EventRoutingRule{} = rule) do
+    %{
+      base
+      | state: "target_mismatch",
+        reason: "setup_rule_targets_different_agent",
+        conflict_rule: public_rule(rule)
+    }
+  end
+
+  defp routing_conflict(base, %EventRoutingRule{} = rule, conflict_rule) do
+    %{
+      base
+      | state: "conflict",
+        reason: "routing_conflict",
+        live_rule: public_rule(rule),
+        conflict_rule: conflict_rule
+    }
+  end
+
+  defp routing_no_match(base, %EventRoutingRule{} = rule) do
+    %{base | state: "no_match", reason: "routing_no_match", live_rule: public_rule(rule)}
+  end
+
+  defp routing_error(base, %EventRoutingRule{} = rule, reason) do
+    %{base | state: "error", reason: reason_code(reason), live_rule: public_rule(rule)}
+  end
+
   defp setup_rule(source, agent_principal_id) do
     case Repo.get_by(EventRoutingRule, name: rule_name(source)) do
       %EventRoutingRule{target_type: :ai_agent, target_ref: ^agent_principal_id} = rule ->
         {:ok, rule}
 
-      %EventRoutingRule{} ->
-        {:error, :setup_rule_targets_different_agent}
+      %EventRoutingRule{} = rule ->
+        {:error, {:setup_rule_targets_different_agent, rule}}
 
       nil ->
         {:error, :setup_rule_missing}
@@ -132,9 +203,7 @@ defmodule BullX.Setup.EventRouting do
       match_expr: match_expr(source),
       target_type: :ai_agent,
       target_ref: agent_principal_id,
-      scope_fields: ["channel.adapter", "channel.id", "scope.id", "scope.thread_id"],
-      window_type: :rolling_ttl,
-      window_ttl_seconds: 3600
+      scope_fields: ["channel.adapter", "channel.id", "scope.id", "scope.thread_id"]
     }
   end
 
@@ -193,11 +262,51 @@ defmodule BullX.Setup.EventRouting do
       match_expr: rule.match_expr,
       target_type: Atom.to_string(rule.target_type),
       target_ref: rule.target_ref,
-      scope_fields: rule.scope_fields,
-      window_type: Atom.to_string(rule.window_type),
-      window_ttl_seconds: rule.window_ttl_seconds
+      scope_fields: rule.scope_fields
     }
   end
+
+  defp public_rule_attrs(source, agent_principal_id) do
+    source
+    |> rule_attrs(agent_principal_id)
+    |> Map.put(:name, rule_name(source))
+    |> Map.update!(:target_type, &Atom.to_string/1)
+  end
+
+  defp public_source(source) do
+    source_config = Map.get(source, :source) || Map.get(source, "source") || %{}
+
+    %{
+      adapter_id: Map.get(source, :adapter_id) || Map.get(source, "adapter_id"),
+      plugin_id: Map.get(source, :plugin_id) || Map.get(source, "plugin_id"),
+      source_id: Map.get(source, :source_id) || Map.get(source, "source_id"),
+      domain: Map.get(source_config, "domain") || Map.get(source_config, :domain),
+      im_listen_mode:
+        Map.get(source_config, "im_listen_mode") || Map.get(source_config, :im_listen_mode),
+      runtime:
+        public_runtime(Map.get(source_config, "runtime") || Map.get(source_config, :runtime))
+    }
+  end
+
+  defp public_runtime(%{} = runtime) do
+    %{
+      ready: Map.get(runtime, "ready") || Map.get(runtime, :ready) || false
+    }
+  end
+
+  defp public_runtime(_runtime), do: %{ready: false}
+
+  defp public_agent(%{principal: principal}) do
+    %{
+      principal_id: principal.id,
+      uid: principal.uid,
+      display_name: principal.display_name
+    }
+  end
+
+  defp reason_code(reason) when is_atom(reason), do: Atom.to_string(reason)
+  defp reason_code({reason, _details}) when is_atom(reason), do: Atom.to_string(reason)
+  defp reason_code(reason), do: inspect(reason)
 
   defp normalize_error(%Ecto.Changeset{} = changeset),
     do: %{message: "validation failed", errors: changeset_errors(changeset)}

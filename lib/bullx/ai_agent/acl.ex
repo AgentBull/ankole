@@ -99,14 +99,14 @@ defmodule BullX.AIAgent.ACL do
       :connected_realm_id,
       :channel_kind,
       :web_session?,
-      :source_type,
-      :source_id,
+      :trigger_type,
+      :trigger_id,
       "input_mode",
       "connected_realm_id",
       "channel_kind",
       "web_session?",
-      "source_type",
-      "source_id"
+      "trigger_type",
+      "trigger_id"
     ])
     |> Map.new(fn {key, value} ->
       {normalize_context_key(key), normalize_context_value(value)}

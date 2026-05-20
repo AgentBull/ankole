@@ -47,14 +47,14 @@ defmodule BullX.Setup.ChannelSources do
   @spec save(String.t(), map()) :: {:ok, map()} | {:error, map()}
   def save(adapter_id, payload) when is_binary(adapter_id) and is_map(payload) do
     with {:ok, extension} <- fetch_setup_extension(adapter_id),
-         {:ok, credentials} <- extension.setup_module.cast_credentials(payload),
-         {:ok, source} <- extension.setup_module.cast_source(payload, credentials),
-         :ok <- check_enabled_source(extension.setup_module, source, credentials),
-         :ok <- persist_source_config(extension.setup_module, credentials, source),
+         {:ok, source} <- extension.setup_module.cast_source(payload, %{}),
+         :ok <- check_enabled_source(extension.setup_module, source),
+         :ok <- persist_source_config(extension.setup_module, source),
          {:ok, runtime} <- extension.setup_module.reconcile_sources() do
       {:ok,
        %{
          adapter_id: adapter_id,
+         id: source_id(source),
          runtime: runtime,
          projection: extension.setup_module.public_projection()
        }}
@@ -68,10 +68,8 @@ defmodule BullX.Setup.ChannelSources do
   @spec check(String.t(), map()) :: {:ok, map()} | {:error, map()}
   def check(adapter_id, payload) when is_binary(adapter_id) and is_map(payload) do
     with {:ok, extension} <- fetch_setup_extension(adapter_id),
-         {:ok, credentials} <- extension.setup_module.cast_credentials(payload),
-         {:ok, source} <- extension.setup_module.cast_source(payload, credentials),
-         {:ok, result} <-
-           extension.setup_module.connectivity_check(source_for_check(source, credentials)) do
+         {:ok, source} <- extension.setup_module.cast_source(payload, %{}),
+         {:ok, result} <- extension.setup_module.connectivity_check(source) do
       {:ok, result}
     else
       {:error, reason} -> {:error, normalize_error(reason)}
@@ -104,6 +102,56 @@ defmodule BullX.Setup.ChannelSources do
     end
   end
 
+  @doc """
+  Lists every configured channel source across all enabled adapters.
+
+  Each entry is a uniform `%{adapter_id, id, enabled, config}` map. `config` is
+  the adapter's public projection of the source (secret values are masked to
+  `%{"present" => bool}`), so it is always safe to return to the browser.
+  """
+  @spec list() :: [map()]
+  def list do
+    Enum.flat_map(public_projection(), fn adapter ->
+      adapter
+      |> projection_sources()
+      |> Enum.map(&to_channel(adapter, &1))
+    end)
+  end
+
+  @doc "Fetches a single channel source by its `(adapter_id, id)` identity."
+  @spec get(String.t(), String.t()) :: {:ok, map()} | {:error, :not_found}
+  def get(adapter_id, id) when is_binary(adapter_id) and is_binary(id) do
+    case Enum.find(list(), &(&1.adapter_id == adapter_id and &1.id == id)) do
+      nil -> {:error, :not_found}
+      channel -> {:ok, channel}
+    end
+  end
+
+  def get(_adapter_id, _id), do: {:error, :not_found}
+
+  @doc """
+  Removes a channel source and reconciles the adapter's runtime.
+
+  Reads the decrypted source list from the config cache, drops the entry with
+  the matching id, and writes the remainder back (re-encrypting secrets for the
+  surviving sources). Returns `{:error, :not_found}` when no source matches.
+  """
+  @spec delete(String.t(), String.t()) :: {:ok, map()} | {:error, map()}
+  def delete(adapter_id, id) when is_binary(adapter_id) and is_binary(id) do
+    with {:ok, extension} <- fetch_setup_extension(adapter_id),
+         %{sources: key} <- extension.setup_module.config_keys(),
+         {:ok, remaining} <- drop_source(decode_sources(key), id),
+         :ok <- Config.put(key, Jason.encode!(remaining)),
+         {:ok, runtime} <- extension.setup_module.reconcile_sources() do
+      {:ok, %{adapter_id: adapter_id, id: id, runtime: runtime}}
+    else
+      {:error, reason} -> {:error, normalize_error(reason)}
+      _other -> {:error, %{message: "invalid channel adapter setup config keys"}}
+    end
+  end
+
+  def delete(_adapter_id, _id), do: {:error, %{message: "invalid channel delete request"}}
+
   defp setup_extension(%Extension{} = extension) do
     case setup_module(extension.opts) do
       nil ->
@@ -134,7 +182,6 @@ defmodule BullX.Setup.ChannelSources do
       {:config_keys, 0},
       {:form_schema, 0},
       {:public_projection, 0},
-      {:cast_credentials, 1},
       {:cast_source, 2},
       {:generated_secret_fields, 0},
       {:connectivity_check, 1},
@@ -163,14 +210,14 @@ defmodule BullX.Setup.ChannelSources do
     end
   end
 
-  defp check_enabled_source(module, %{"enabled" => false}, _credentials),
+  defp check_enabled_source(module, %{"enabled" => false}),
     do: check_disabled_source(module)
 
-  defp check_enabled_source(module, %{enabled: false}, _credentials),
+  defp check_enabled_source(module, %{enabled: false}),
     do: check_disabled_source(module)
 
-  defp check_enabled_source(module, source, credentials) do
-    case module.connectivity_check(source_for_check(source, credentials)) do
+  defp check_enabled_source(module, source) do
+    case module.connectivity_check(source) do
       {:ok, _result} -> :ok
       {:error, _reason} = error -> error
     end
@@ -178,30 +225,19 @@ defmodule BullX.Setup.ChannelSources do
 
   defp check_disabled_source(_module), do: :ok
 
-  defp source_for_check(source, credentials) do
-    credential_id =
-      Map.get(source, "credential_id") || Map.get(source, :credential_id) || "default"
-
-    credential = credential_profile(credentials, credential_id)
-
-    case credential do
-      %{} = credential -> Map.merge(source, credential)
-      _credential -> source
+  defp persist_source_config(module, source) do
+    case function_exported?(module, :persist_source, 2) do
+      true -> module.persist_source(%{}, source)
+      false -> persist_source_config_from_keys(module.config_keys(), source)
     end
   end
 
-  defp credential_profile(credentials, credential_id) when is_atom(credential_id),
-    do: Map.get(credentials, credential_id) || Map.get(credentials, Atom.to_string(credential_id))
+  defp persist_source_config_from_keys(%{sources: sources_key}, source) do
+    Config.put(sources_key, Jason.encode!([source]))
+  end
 
-  defp credential_profile(credentials, credential_id), do: Map.get(credentials, credential_id)
-
-  defp persist_source_config(module, credentials, source) do
-    %{credentials: credentials_key, sources: sources_key} = module.config_keys()
-
-    Config.put_many(%{
-      credentials_key => Jason.encode!(credentials),
-      sources_key => Jason.encode!([source])
-    })
+  defp persist_source_config_from_keys(_keys, _source) do
+    {:error, %{message: "invalid channel adapter setup config keys"}}
   end
 
   defp ready_sources(adapters) do
@@ -233,6 +269,45 @@ defmodule BullX.Setup.ChannelSources do
     apply(module, fun, args)
   rescue
     error -> %{error: Exception.message(error)}
+  end
+
+  defp projection_sources(adapter) do
+    projection = adapter.projection || %{}
+    Map.get(projection, :sources) || Map.get(projection, "sources") || []
+  end
+
+  defp to_channel(adapter, source) do
+    %{
+      adapter_id: adapter.id,
+      id: source_id(source),
+      enabled: source_enabled(source),
+      config: source
+    }
+  end
+
+  defp source_id(source), do: Map.get(source, "id") || Map.get(source, :id)
+
+  defp source_enabled(source) do
+    case Map.get(source, "enabled") do
+      nil -> Map.get(source, :enabled, true)
+      value -> value == true
+    end
+  end
+
+  defp decode_sources(key) do
+    with {:ok, raw} when is_binary(raw) <- Config.Cache.get_raw(key),
+         {:ok, sources} when is_list(sources) <- Jason.decode(raw) do
+      sources
+    else
+      _other -> []
+    end
+  end
+
+  defp drop_source(sources, id) do
+    case Enum.split_with(sources, &(source_id(&1) == id)) do
+      {[], _remaining} -> {:error, :not_found}
+      {_removed, remaining} -> {:ok, remaining}
+    end
   end
 
   defp normalize_error(:not_found), do: %{message: "channel adapter setup module not found"}

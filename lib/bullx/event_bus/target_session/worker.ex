@@ -1,13 +1,13 @@
 defmodule BullX.EventBus.TargetSession.Worker do
   @moduledoc """
-  Alive TargetSession Oban worker — one durable actor per (rule, scope, window).
+  Alive TargetSession Oban worker — one durable actor per (rule, target, scope).
 
   ## What a TargetSession is
 
   In an OpenClaw / Hermes-style harness, "the session" usually means *the
   conversation you are having with the agent* — a single, ambient context. In
-  BullX, sessions are derived: each combination of routing rule + scope key
-  (channel, thread, user, …) + time window gets its own TargetSession, and
+  BullX, sessions are derived: each combination of routing rule + target +
+  scope key (channel, thread, user, …) gets its own TargetSession, and
   one Agent will typically have many sessions live at once — a DM with each
   of 50 users, the ambient observer for 12 group channels, a batch of
   scheduled ticks — each progressing independently but serialized internally.
@@ -23,8 +23,8 @@ defmodule BullX.EventBus.TargetSession.Worker do
 
   ## Internal contract
 
-  One worker owns one active TargetSession window until terminal state or hard
-  max runtime. Event payloads stay in side-channel entries, not job args.
+  One worker owns one active TargetSession lane until terminal state. Event
+  payloads stay in side-channel entries, not job args.
   """
 
   use Oban.Worker, queue: :target_sessions, max_attempts: 20
@@ -33,13 +33,9 @@ defmodule BullX.EventBus.TargetSession.Worker do
 
   alias BullX.EventBus
   alias BullX.EventBus.{Config, Target, TargetSession, TargetSessionEntry}
-  alias BullX.EventBus.TargetSession.Resolver
   alias BullX.Repo
 
   @registry BullX.EventBus.TargetSession.Registry
-
-  @impl Oban.Worker
-  def timeout(_job), do: :timer.hours(24) + :timer.minutes(5)
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: %{"target_session_id" => target_session_id}}) do
@@ -121,15 +117,12 @@ defmodule BullX.EventBus.TargetSession.Worker do
     end
   end
 
-  # Not a pure read: when the locked session is active-but-past-expiry, this
-  # transitions it to `:expired` inside the same `FOR UPDATE` so no concurrent
-  # nudge can revive an expired window. Callers observe `:terminal` either way.
   defp terminal_state(target_session_id) do
     Repo.transaction(fn ->
       target_session_id
       |> lock_session_query()
       |> Repo.one()
-      |> locked_terminal_state(DateTime.utc_now(:microsecond))
+      |> locked_terminal_state()
     end)
     |> case do
       {:ok, state} -> state
@@ -137,28 +130,11 @@ defmodule BullX.EventBus.TargetSession.Worker do
     end
   end
 
-  defp locked_terminal_state(nil, _now), do: :terminal
+  defp locked_terminal_state(nil), do: :terminal
+  defp locked_terminal_state(%TargetSession{status: :active}), do: :active
 
-  defp locked_terminal_state(%TargetSession{status: status}, _now)
-       when status in [:closed, :failed, :expired],
-       do: :terminal
-
-  defp locked_terminal_state(%TargetSession{} = session, now) do
-    case Resolver.expiry_reason(session, now) do
-      nil -> :active
-      reason -> expire_session(session, reason)
-    end
-  end
-
-  defp expire_session(%TargetSession{} = session, reason) do
-    session
-    |> TargetSession.changeset(%{status: :expired, terminal_reason: reason})
-    |> Repo.update()
-    |> case do
-      {:ok, _session} -> :terminal
-      {:error, changeset} -> Repo.rollback(changeset)
-    end
-  end
+  defp locked_terminal_state(%TargetSession{status: status}) when status in [:closed, :failed],
+    do: :terminal
 
   defp lock_session_query(target_session_id) do
     TargetSession
@@ -201,7 +177,6 @@ defmodule BullX.EventBus.TargetSession.Worker do
       target_type: session.target_type,
       target_ref: session.target_ref,
       scope_key: session.scope_key,
-      window_key: session.window_key,
       close: fn -> TargetSession.close(session.id) end,
       fail: fn reason -> TargetSession.fail(session.id, reason) end,
       output: EventBus.StreamingOutput
@@ -249,10 +224,50 @@ defmodule BullX.EventBus.TargetSession.Worker do
     case Process.get({TargetSession, :close_requested}) do
       true ->
         Process.delete({TargetSession, :close_requested})
-        TargetSession.attempt_close(target_session_id)
+        wait_idle_grace_before_close(target_session_id)
 
       _other ->
         :ok
+    end
+  end
+
+  defp wait_idle_grace_before_close(target_session_id) do
+    deadline_ms = System.monotonic_time(:millisecond) + Config.target_session_idle_grace_ms()
+
+    wait_idle_grace_until(target_session_id, deadline_ms)
+  end
+
+  defp wait_idle_grace_until(target_session_id, deadline_ms) do
+    case pending_entry?(target_session_id) do
+      true ->
+        :ok
+
+      false ->
+        wait_idle_grace_or_close(target_session_id, deadline_ms)
+    end
+  end
+
+  defp wait_idle_grace_or_close(target_session_id, deadline_ms) do
+    remaining_ms = deadline_ms - System.monotonic_time(:millisecond)
+
+    case remaining_ms <= 0 do
+      true ->
+        TargetSession.attempt_close(target_session_id)
+
+      false ->
+        receive do
+          :drain_pending_entries -> wait_idle_grace_until(target_session_id, deadline_ms)
+        after
+          min(Config.target_session_idle_tick_ms(), remaining_ms) ->
+            wait_idle_grace_until(target_session_id, deadline_ms)
+        end
+    end
+  end
+
+  defp pending_entry?(target_session_id) do
+    case Repo.get(TargetSession, target_session_id) do
+      %TargetSession{} = session -> not is_nil(next_entry(session))
+      nil -> false
     end
   end
 

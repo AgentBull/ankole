@@ -15,8 +15,85 @@ defmodule BullX.LLM.PluginProviders do
     %Extension{
       plugin_id: "bullx",
       point: @extension_point,
+      id: "amazon_bedrock",
+      module: BullX.LLM.Providers.AmazonBedrock,
+      opts: [override: true]
+    },
+    %Extension{
+      plugin_id: "bullx",
+      point: @extension_point,
+      id: "anthropic",
+      module: BullX.LLM.Providers.Anthropic,
+      opts: [override: true]
+    },
+    %Extension{
+      plugin_id: "bullx",
+      point: @extension_point,
+      id: "azure",
+      module: BullX.LLM.Providers.Azure,
+      opts: [override: true]
+    },
+    %Extension{
+      plugin_id: "bullx",
+      point: @extension_point,
+      id: "deepseek",
+      module: BullX.LLM.Providers.Deepseek,
+      opts: [override: true]
+    },
+    %Extension{
+      plugin_id: "bullx",
+      point: @extension_point,
+      id: "google",
+      module: BullX.LLM.Providers.Google,
+      opts: [override: true]
+    },
+    %Extension{
+      plugin_id: "bullx",
+      point: @extension_point,
+      id: "google_vertex",
+      module: BullX.LLM.Providers.GoogleVertex,
+      opts: [override: true]
+    },
+    %Extension{
+      plugin_id: "bullx",
+      point: @extension_point,
+      id: "mistral",
+      module: BullX.LLM.Providers.Mistral,
+      opts: [override: true]
+    },
+    %Extension{
+      plugin_id: "bullx",
+      point: @extension_point,
+      id: "openai",
+      module: BullX.LLM.Providers.OpenAI,
+      opts: [override: true]
+    },
+    %Extension{
+      plugin_id: "bullx",
+      point: @extension_point,
       id: "openrouter",
       module: BullX.LLM.Providers.OpenRouter,
+      opts: [override: true]
+    },
+    %Extension{
+      plugin_id: "bullx",
+      point: @extension_point,
+      id: "vllm",
+      module: BullX.LLM.Providers.VLLM,
+      opts: [override: true]
+    },
+    %Extension{
+      plugin_id: "bullx",
+      point: @extension_point,
+      id: "xai",
+      module: BullX.LLM.Providers.XAI,
+      opts: [override: true]
+    },
+    %Extension{
+      plugin_id: "bullx",
+      point: @extension_point,
+      id: "zai",
+      module: BullX.LLM.Providers.Zai,
       opts: [override: true]
     }
   ]
@@ -47,6 +124,19 @@ defmodule BullX.LLM.PluginProviders do
 
   @spec sync_builtin_extensions() :: :ok | {:error, term()}
   def sync_builtin_extensions, do: sync_extensions(@builtin_extensions)
+
+  @spec available_extensions(GenServer.server()) :: [BullX.Plugins.Extension.t()]
+  def available_extensions(server \\ BullX.Plugins.Registry) do
+    @builtin_extensions ++ enabled_provider_extensions(server)
+  end
+
+  @spec available_provider_ids(GenServer.server()) :: [String.t()]
+  def available_provider_ids(server \\ BullX.Plugins.Registry) do
+    server
+    |> available_extensions()
+    |> Enum.map(&extension_id_string/1)
+    |> Enum.uniq()
+  end
 
   @spec sync_extensions([BullX.Plugins.Extension.t()]) :: :ok | {:error, term()}
   def sync_extensions(extensions) when is_list(extensions) do
@@ -119,6 +209,15 @@ defmodule BullX.LLM.PluginProviders do
   defp override?(%{override: true}), do: true
   defp override?(%{"override" => true}), do: true
   defp override?(_opts), do: false
+
+  defp enabled_provider_extensions(server) do
+    BullX.Plugins.Registry.enabled_extensions_for(@extension_point, server)
+  catch
+    :exit, _reason -> []
+  end
+
+  defp extension_id_string(%Extension{id: id}) when is_binary(id), do: id
+  defp extension_id_string(%Extension{id: id}) when is_atom(id), do: Atom.to_string(id)
 
   defp implements_provider?(module) do
     behaviours = module.__info__(:attributes)[:behaviour] || []

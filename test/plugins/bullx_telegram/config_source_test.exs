@@ -1,7 +1,7 @@
 defmodule BullxTelegram.ConfigSourceTest do
   use ExUnit.Case, async: true
 
-  alias BullxTelegram.Config.{Credentials, EventBusSources}
+  alias BullxTelegram.Config.EventBusSources
   alias BullxTelegram.Source
 
   defmodule API do
@@ -9,24 +9,19 @@ defmodule BullxTelegram.ConfigSourceTest do
       do: {:ok, %{"id" => 123_456, "username" => "bullx_bot"}}
   end
 
-  test "credentials cast keeps bot tokens under credential profiles" do
-    assert {:ok, %{"main" => %{"bot_token" => "123456:ABC", "bot_username" => "bullx_bot"}}} =
-             Credentials.cast(%{main: %{bot_token: "123456:ABC", bot_username: "bullx_bot"}})
-  end
-
-  test "eventbus source cast normalizes operator config without tokens" do
+  test "eventbus source cast normalizes one channel instance with its bot token" do
     assert {:ok, [source]} =
              EventBusSources.cast([
                %{
                  id: "main",
-                 credential_id: "default",
-                 connected_realm_ref: "telegram:bot:123456",
+                 bot_token: "123456:ABC",
                  bot_username: "bullx_bot",
                  attention: %{require_mention: false}
                }
              ])
 
     assert source["id"] == "main"
+    assert source["bot_token"] == "123456:ABC"
     assert source["enabled"] == true
     assert source["attention"] == %{"require_mention" => false}
   end
@@ -37,7 +32,6 @@ defmodule BullxTelegram.ConfigSourceTest do
                id: "main",
                bot_token: "123456:ABC",
                bot_username: "bullx_bot",
-               connected_realm_ref: "telegram:bot:123456",
                api_module: API,
                start_transport: false
              })
@@ -47,7 +41,7 @@ defmodule BullxTelegram.ConfigSourceTest do
 
     public = Source.public_config(source)
     refute Map.has_key?(public, "bot_token")
-    assert public["connected_realm_ref"] == "telegram:bot:123456"
+    assert public["bot_id"] == "123456"
 
     assert {:ok, %{details: %{"bot_username" => "bullx_bot"}}} =
              Source.connectivity_check(source)

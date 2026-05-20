@@ -122,10 +122,10 @@ Database-owned `event_routing_rules.priority` remains positive and starts at
 sort ahead of configured database rules while keeping the combined runtime
 snapshot globally unique by priority.
 
-| Match | Priority | Target | Scope/window |
+| Match | Priority | Target | Scope |
 | --- | --- | --- | --- |
-| `type == "bullx.command.invoked"` and `routing_facts.command_name == "command"` | `-20` | `target_type = "command"`, `target_ref = "bullx.system.command_list"` | one-shot, `new_per_event` |
-| `type == "bullx.command.invoked"` and `routing_facts.command_name == "status"` | `-19` | `target_type = "command"`, `target_ref = "bullx.system.status"` | one-shot, `new_per_event` |
+| `type == "bullx.command.invoked"` and `routing_facts.command_name == "command"` | `-20` | `target_type = "command"`, `target_ref = "bullx.system.command_list"` | command-scoped TargetSession lane |
+| `type == "bullx.command.invoked"` and `routing_facts.command_name == "status"` | `-19` | `target_type = "command"`, `target_ref = "bullx.system.status"` | command-scoped TargetSession lane |
 
 The first matched rule remains terminal. EventBus does not fan out the same
 command Event to AIAgent or Workflow after a system command rule matches.

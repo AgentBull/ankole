@@ -3,34 +3,6 @@ defmodule BullX.EventBus.PersistenceTest do
 
   alias BullX.EventBus.{Cleanup, TargetSession, TargetSessionEntry}
 
-  test "cleanup expires active sessions past the hard runtime cap" do
-    session = insert_session!(%{status: :active})
-    old_inserted_at = DateTime.add(DateTime.utc_now(:microsecond), -90_000, :second)
-
-    Repo.update_all(
-      from(s in TargetSession, where: s.id == ^session.id),
-      set: [inserted_at: old_inserted_at, updated_at: old_inserted_at]
-    )
-
-    assert :ok = Cleanup.run(DateTime.utc_now(:microsecond))
-
-    assert %TargetSession{status: :expired, terminal_reason: "hard_max_runtime"} =
-             Repo.get!(TargetSession, session.id)
-  end
-
-  test "cleanup expires active sessions past their rolling ttl window" do
-    session =
-      insert_session!(%{
-        status: :active,
-        expires_at: DateTime.add(DateTime.utc_now(:microsecond), -1, :second)
-      })
-
-    assert :ok = Cleanup.run(DateTime.utc_now(:microsecond))
-
-    assert %TargetSession{status: :expired, terminal_reason: "runtime_window_expired"} =
-             Repo.get!(TargetSession, session.id)
-  end
-
   test "cleanup deletes retained terminal sessions and entries" do
     session = insert_session!(%{status: :closed})
     entry = insert_entry!(session)
@@ -52,7 +24,6 @@ defmodule BullX.EventBus.PersistenceTest do
       target_type: :ai_agent,
       target_ref: BullX.Ext.gen_uuid_v7(),
       scope_key: Jason.encode!(["scope"]),
-      window_key: Jason.encode!(["window"]),
       status: :active
     }
 

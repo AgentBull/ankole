@@ -2,7 +2,7 @@ defmodule BullX.EventBus.TargetSession do
   @moduledoc """
   Weak runtime TargetSession row and lifecycle helpers.
 
-  The row identifies one execution window. It is not business truth.
+  The row identifies one execution lane. It is not business truth.
   """
 
   use Ecto.Schema
@@ -17,10 +17,10 @@ defmodule BullX.EventBus.TargetSession do
   @foreign_key_type :binary_id
   @timestamps_opts [type: :utc_datetime_usec]
 
-  @statuses [:active, :closed, :failed, :expired]
-  @target_types [:ai_agent, :workflow, :command, :external_agent_harness, :blackhole]
+  @statuses [:active, :closed, :failed]
+  @target_types [:ai_agent, :workflow, :command, :work, :blackhole]
 
-  @type status :: :active | :closed | :failed | :expired
+  @type status :: :active | :closed | :failed
   @type t :: %__MODULE__{}
 
   schema "target_sessions" do
@@ -28,11 +28,9 @@ defmodule BullX.EventBus.TargetSession do
     field :target_type, Ecto.Enum, values: @target_types
     field :target_ref, :string
     field :scope_key, :string
-    field :window_key, :string
     field :status, Ecto.Enum, values: @statuses, default: :active
     field :oban_job_id, :integer
     field :last_processed_entry_seq, :integer, default: 0
-    field :expires_at, :utc_datetime_usec
     field :terminal_reason, :string
 
     timestamps()
@@ -46,11 +44,9 @@ defmodule BullX.EventBus.TargetSession do
       :target_type,
       :target_ref,
       :scope_key,
-      :window_key,
       :status,
       :oban_job_id,
       :last_processed_entry_seq,
-      :expires_at,
       :terminal_reason
     ])
     |> validate_required([
@@ -58,12 +54,11 @@ defmodule BullX.EventBus.TargetSession do
       :target_type,
       :target_ref,
       :scope_key,
-      :window_key,
       :status,
       :last_processed_entry_seq
     ])
     |> unique_constraint(
-      [:event_routing_rule_id, :target_type, :target_ref, :scope_key, :window_key],
+      [:event_routing_rule_id, :target_type, :target_ref, :scope_key],
       name: :target_sessions_active_reuse_key_index
     )
   end
@@ -120,7 +115,7 @@ defmodule BullX.EventBus.TargetSession do
         end
       else
         nil -> Repo.rollback(:not_found)
-        status when status in [:closed, :failed, :expired] -> :ok
+        status when status in [:closed, :failed] -> :ok
         true -> :ok
       end
     end)

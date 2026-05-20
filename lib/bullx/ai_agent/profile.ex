@@ -7,21 +7,20 @@ defmodule BullX.AIAgent.Profile do
   ambient policy, ToolSet expansion, and ACL checks.
   """
 
-  @reasoning_efforts [:none, :minimal, :low, :medium, :high, :xhigh]
+  alias BullX.LLM.ModelConfig
+
+  @reasoning_efforts ModelConfig.reasoning_efforts()
   @conversation_isolation_modes [:scene, :actor]
   @ambient_modes [:observe_only, :may_intervene]
   @time_awareness_granularities [:minute, :hour, :day, :off]
   @access_tags [:ordinary, :privileged]
 
-  @enforce_keys [:main_model]
+  @enforce_keys [:main_llm, :mission]
   defstruct [
-    :main_model,
-    :compression_model,
-    :heavy_model,
-    main_model_reasoning_effort: :medium,
-    compression_model_reasoning_effort: :low,
-    heavy_model_reasoning_effort: :high,
-    mission: "",
+    :main_llm,
+    :compression_llm,
+    :heavy_llm,
+    :mission,
     ambient_intent_system_prompt: "",
     soul: "",
     instructions: "",
@@ -70,16 +69,13 @@ defmodule BullX.AIAgent.Profile do
   defp cast_ai_agent(profile) do
     errors =
       []
-      |> require_string(profile, "main_model")
-      |> validate_optional_nonempty_string(profile, "compression_model")
-      |> validate_optional_nonempty_string(profile, "heavy_model")
-      |> validate_optional_string(profile, "mission")
+      |> validate_model_config(profile, "main_llm", :required, :medium)
+      |> validate_model_config(profile, "compression_llm", :optional, :low)
+      |> validate_model_config(profile, "heavy_llm", :optional, :high)
+      |> validate_required_string(profile, "mission")
       |> validate_optional_string(profile, "ambient_intent_system_prompt")
       |> validate_optional_string(profile, "soul")
       |> validate_optional_string(profile, "instructions")
-      |> validate_reasoning(profile, "main_model_reasoning_effort")
-      |> validate_reasoning(profile, "compression_model_reasoning_effort")
-      |> validate_reasoning(profile, "heavy_model_reasoning_effort")
       |> validate_in(profile, "conversation_isolation_mode", @conversation_isolation_modes)
       |> validate_in(profile, "unmentioned_group_messages", @ambient_modes)
       |> validate_daily_reset(profile)
@@ -95,17 +91,36 @@ defmodule BullX.AIAgent.Profile do
   end
 
   defp build(profile) do
-    main_model = profile["main_model"]
+    {:ok, main_llm} =
+      profile
+      |> config_value("main_llm")
+      |> ModelConfig.cast(default_reasoning_effort: :medium)
+
+    compression_llm =
+      case config_value(profile, "compression_llm") do
+        %{} = config ->
+          {:ok, llm} = ModelConfig.cast(config, default_reasoning_effort: :low)
+          llm
+
+        _missing ->
+          %{main_llm | reasoning_effort: :low}
+      end
+
+    heavy_llm =
+      case config_value(profile, "heavy_llm") do
+        %{} = config ->
+          {:ok, llm} = ModelConfig.cast(config, default_reasoning_effort: :high)
+          llm
+
+        _missing ->
+          %{main_llm | reasoning_effort: :high}
+      end
 
     %__MODULE__{
-      main_model: main_model,
-      compression_model: profile["compression_model"] || main_model,
-      heavy_model: profile["heavy_model"] || main_model,
-      main_model_reasoning_effort: atom_value(profile, "main_model_reasoning_effort", :medium),
-      compression_model_reasoning_effort:
-        atom_value(profile, "compression_model_reasoning_effort", :low),
-      heavy_model_reasoning_effort: atom_value(profile, "heavy_model_reasoning_effort", :high),
-      mission: string_value(profile, "mission", ""),
+      main_llm: main_llm,
+      compression_llm: compression_llm,
+      heavy_llm: heavy_llm,
+      mission: string_value(profile, "mission", nil),
       ambient_intent_system_prompt: string_value(profile, "ambient_intent_system_prompt", ""),
       soul: string_value(profile, "soul", ""),
       instructions: string_value(profile, "instructions", ""),
@@ -120,18 +135,26 @@ defmodule BullX.AIAgent.Profile do
     }
   end
 
-  defp require_string(errors, profile, key) do
-    case Map.get(profile, key) do
-      value when is_binary(value) and value != "" -> errors
-      _other -> ["#{key} is required" | errors]
-    end
-  end
+  defp validate_model_config(errors, profile, key, presence, default_reasoning_effort) do
+    case {config_value(profile, key), presence} do
+      {nil, :optional} ->
+        errors
 
-  defp validate_optional_nonempty_string(errors, profile, key) do
-    case Map.get(profile, key) do
-      nil -> errors
-      value when is_binary(value) and value != "" -> errors
-      _other -> ["#{key} must be a non-empty string or null" | errors]
+      {nil, :required} ->
+        ["#{key} is required" | errors]
+
+      {%{} = config, _presence} ->
+        case ModelConfig.cast(config, default_reasoning_effort: default_reasoning_effort) do
+          {:ok, _config} ->
+            errors
+
+          {:error, {:invalid_llm_config, config_errors}} ->
+            prefixed = Enum.map(config_errors, &"#{key}.#{&1}")
+            prefixed ++ errors
+        end
+
+      {_other, _presence} ->
+        ["#{key} must be a JSON object" | errors]
     end
   end
 
@@ -143,8 +166,12 @@ defmodule BullX.AIAgent.Profile do
     end
   end
 
-  defp validate_reasoning(errors, profile, key),
-    do: validate_in(errors, profile, key, @reasoning_efforts)
+  defp validate_required_string(errors, profile, key) do
+    case string_value(profile, key, nil) do
+      value when is_binary(value) and value != "" -> errors
+      _other -> ["#{key} is required" | errors]
+    end
+  end
 
   defp validate_in(errors, profile, key, choices) do
     profile
@@ -439,45 +466,51 @@ defmodule BullX.AIAgent.Profile do
   end
 
   defp map_value(map, key, default) do
-    case Map.get(map, key) do
+    case config_value(map, key) do
       %{} = value -> value
       _other -> default
     end
   end
 
   defp string_value(map, key, default) do
-    case Map.get(map, key) do
+    case config_value(map, key) do
       value when is_binary(value) -> value
       _other -> default
     end
   end
 
   defp integer_value(map, key, default) do
-    case Map.get(map, key) do
+    case config_value(map, key) do
       value when is_integer(value) -> value
       _other -> default
     end
   end
 
   defp number_value(map, key, default) do
-    case Map.get(map, key) do
+    case config_value(map, key) do
       value when is_number(value) -> value
       _other -> default
     end
   end
 
   defp atom_value(map, key, default) do
-    case Map.fetch(map, key) do
-      {:ok, value} -> normalize_atom(value)
-      :error -> default
+    case config_value(map, key) do
+      nil -> default
+      value -> normalize_atom(value)
     end
   end
 
   defp optional_atom(map, key) do
-    case Map.fetch(map, key) do
-      {:ok, value} -> normalize_atom(value)
-      :error -> nil
+    case config_value(map, key) do
+      nil -> nil
+      value -> normalize_atom(value)
     end
+  end
+
+  defp config_value(map, key) when is_map(map) do
+    Map.get(map, key) || Map.get(map, String.to_existing_atom(key))
+  rescue
+    ArgumentError -> Map.get(map, key)
   end
 
   defp normalize_atom(value) when is_atom(value), do: value

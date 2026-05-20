@@ -4,28 +4,25 @@ defmodule Feishu.SourceSetup do
   alias BullX.EventBus.RoutingContext
   alias Feishu.Source
 
-  @credentials_key "bullx.plugins.feishu.credentials"
   @sources_key "bullx.plugins.feishu.eventbus_sources"
-  @generated_secret_fields [["credentials", "verification_token"]]
 
-  @spec config_keys() :: %{credentials: String.t(), sources: String.t()}
-  def config_keys, do: %{credentials: @credentials_key, sources: @sources_key}
+  @spec config_keys() :: %{sources: String.t()}
+  def config_keys, do: %{sources: @sources_key}
 
   @spec form_schema() :: map()
   def form_schema do
     %{
       adapter_id: "feishu",
       label: "Feishu / Lark",
+      channel_kind: "im",
       help_url: "https://open.feishu.cn/document/home/index",
       default_source: %{
-        "id" => "main",
-        "credential_id" => "default",
         "enabled" => true,
         "domain" => "feishu",
+        "app_type" => "self_built",
         "web_login_disabled" => false,
         "oidc" => %{"enabled" => true},
-        "im_listen_mode" => "addressed_only",
-        "start_transport" => true
+        "im_listen_mode" => "all_messages"
       },
       sections: [
         %{
@@ -38,26 +35,26 @@ defmodule Feishu.SourceSetup do
               required: true,
               options: ["feishu", "lark"]
             },
-            %{path: ["source", "connected_realm_ref"], kind: :text},
+            %{
+              path: ["source", "app_id"],
+              kind: :text,
+              required: true,
+              ui: %{group: "credentials"}
+            },
+            %{
+              path: ["source", "app_secret"],
+              kind: :secret,
+              required: true,
+              ui: %{group: "credentials"}
+            },
             %{path: ["source", "web_login_disabled"], kind: :boolean},
             %{path: ["source", "oidc", "enabled"], kind: :boolean},
-            %{path: ["source", "oidc", "redirect_uri"], kind: :text},
+            %{path: ["source", "oidc", "callback_url"], kind: :callback_url},
             %{
               path: ["source", "im_listen_mode"],
               kind: :select,
               options: ["addressed_only", "all_messages"]
-            },
-            %{path: ["source", "start_transport"], kind: :boolean}
-          ]
-        },
-        %{
-          key: "credentials",
-          fields: [
-            %{path: ["credentials", "credential_id"], kind: :text, required: true},
-            %{path: ["credentials", "app_id"], kind: :text, required: true},
-            %{path: ["credentials", "app_secret"], kind: :secret, required: true},
-            %{path: ["credentials", "verification_token"], kind: :generated_secret},
-            %{path: ["credentials", "encrypt_key"], kind: :secret}
+            }
           ]
         }
       ]
@@ -66,75 +63,55 @@ defmodule Feishu.SourceSetup do
 
   @spec public_projection() :: map()
   def public_projection do
-    credentials = Feishu.Config.credentials!()
     configured_sources = Feishu.Config.eventbus_sources!()
     runtime = runtime_status()
 
     %{
       adapter_id: "feishu",
-      credentials: public_credentials(credentials),
       sources: Enum.map(configured_sources, &public_source(&1, runtime))
     }
   end
 
-  @spec cast_credentials(map()) :: {:ok, map()} | {:error, map()}
-  def cast_credentials(payload) when is_map(payload) do
-    credentials = payload_map(payload, "credentials")
-    credential_id = string_field(credentials, "credential_id", "default")
+  @spec cast_source(map(), map()) :: {:ok, map()} | {:error, map()}
+  def cast_source(payload, _opts) when is_map(payload) do
+    source = payload_map(payload, "source")
+    oidc = payload_map(source, "oidc")
 
-    with {:ok, app_id} <- required_string(credentials, "app_id"),
-         {:ok, app_secret} <- secret_or_existing(credential_id, credentials, "app_secret") do
-      profile =
+    with {:ok, id} <- required_string(source, "id"),
+         {:ok, app_id} <- required_string(source, "app_id"),
+         {:ok, app_secret} <- secret_or_existing(id, source, "app_secret") do
+      attrs =
         %{
+          "id" => id,
+          "enabled" => boolean_field(source, "enabled", true),
+          "domain" => string_field(source, "domain", "feishu"),
           "app_id" => app_id,
           "app_secret" => app_secret,
-          "app_type" => string_field(credentials, "app_type", "self_built")
+          "app_type" => string_field(source, "app_type", "self_built"),
+          "web_login_disabled" => boolean_field(source, "web_login_disabled", false),
+          "oidc" => %{"enabled" => boolean_field(oidc, "enabled", true)},
+          "im_listen_mode" => string_field(source, "im_listen_mode", "all_messages")
         }
-        |> maybe_put("verification_token", string_field(credentials, "verification_token", nil))
-        |> maybe_put("encrypt_key", string_field(credentials, "encrypt_key", nil))
+        |> maybe_put("tenant_key", string_field(source, "tenant_key", nil))
 
-      merged =
-        Feishu.Config.credentials!()
-        |> Map.put(credential_id, profile)
-
-      case Feishu.Config.Credentials.cast(merged) do
-        {:ok, normalized} -> {:ok, normalized}
-        :error -> {:error, %{field: "credentials", message: "invalid Feishu credentials"}}
+      case Feishu.Config.EventBusSources.cast([attrs]) do
+        {:ok, [normalized]} -> {:ok, normalized}
+        :error -> {:error, %{field: "source", message: "invalid Feishu source"}}
       end
     end
   end
 
-  @spec cast_source(map(), map()) :: {:ok, map()} | {:error, map()}
-  def cast_source(payload, credentials) when is_map(payload) and is_map(credentials) do
-    source = payload_map(payload, "source")
-    oidc = payload_map(source, "oidc")
-    credentials_payload = payload_map(payload, "credentials")
-    credential_id = string_field(credentials_payload, "credential_id", "default")
+  @spec persist_source(map(), map()) :: :ok | {:error, term()}
+  def persist_source(_opts, source) when is_map(source) do
+    sources =
+      Feishu.Config.eventbus_sources!()
+      |> upsert_source(source)
 
-    attrs =
-      %{
-        "id" => string_field(source, "id", "main"),
-        "credential_id" => credential_id,
-        "enabled" => boolean_field(source, "enabled", true),
-        "domain" => string_field(source, "domain", "feishu"),
-        "connected_realm_ref" => string_field(source, "connected_realm_ref", nil),
-        "web_login_disabled" => boolean_field(source, "web_login_disabled", false),
-        "oidc" =>
-          %{"enabled" => boolean_field(oidc, "enabled", true)}
-          |> maybe_put("redirect_uri", string_field(oidc, "redirect_uri", nil)),
-        "im_listen_mode" => string_field(source, "im_listen_mode", "addressed_only"),
-        "start_transport" => boolean_field(source, "start_transport", true)
-      }
-      |> maybe_put("tenant_key", string_field(source, "tenant_key", nil))
-
-    case Feishu.Config.EventBusSources.cast([attrs]) do
-      {:ok, [normalized]} -> {:ok, normalized}
-      :error -> {:error, %{field: "source", message: "invalid Feishu source"}}
-    end
+    BullX.Config.put(@sources_key, Jason.encode!(sources))
   end
 
   @spec generated_secret_fields() :: [[String.t()]]
-  def generated_secret_fields, do: @generated_secret_fields
+  def generated_secret_fields, do: []
 
   @spec connectivity_check(map()) :: {:ok, map()} | {:error, map()}
   def connectivity_check(source) when is_map(source) do
@@ -166,22 +143,18 @@ defmodule Feishu.SourceSetup do
   @spec reconcile_sources() :: {:ok, map()} | {:error, term()}
   def reconcile_sources, do: Feishu.SourceSupervisor.reconcile_sources()
 
-  defp public_credentials(credentials) do
-    Map.new(credentials, fn {id, profile} ->
-      {id,
-       %{
-         "id" => id,
-         "app_id" => Map.get(profile, "app_id"),
-         "app_secret" => secret_status(profile["app_secret"]),
-         "verification_token" => secret_status(profile["verification_token"]),
-         "encrypt_key" => secret_status(profile["encrypt_key"])
-       }}
-    end)
+  defp upsert_source(sources, source) when is_list(sources) do
+    id = Map.fetch!(source, "id")
+
+    sources
+    |> Enum.reject(&((Map.get(&1, "id") || Map.get(&1, :id)) == id))
+    |> Kernel.++([source])
   end
 
   defp public_source(source, runtime) do
     source
     |> Source.public_config()
+    |> Map.put("app_secret", secret_status(source["app_secret"]))
     |> Map.put("runtime", runtime_for_source(runtime, source["id"]))
   end
 
@@ -218,16 +191,27 @@ defmodule Feishu.SourceSetup do
     end
   end
 
-  defp secret_or_existing(credential_id, map, key) do
+  defp secret_or_existing(source_id, map, key) do
     case string_field(map, key, nil) do
       value when is_binary(value) ->
         {:ok, value}
 
       nil ->
-        case get_in(Feishu.Config.credentials!(), [credential_id, key]) do
+        case existing_source_secret(source_id, key) do
           value when is_binary(value) -> {:ok, value}
           _value -> {:error, %{field: key, message: "is required"}}
         end
+    end
+  end
+
+  defp existing_source_secret(source_id, key) do
+    Feishu.Config.eventbus_sources!()
+    |> Enum.find(fn source ->
+      (Map.get(source, "id") || Map.get(source, :id)) == source_id
+    end)
+    |> case do
+      %{} = source -> Map.get(source, key) || Map.get(source, String.to_atom(key))
+      _source -> nil
     end
   end
 

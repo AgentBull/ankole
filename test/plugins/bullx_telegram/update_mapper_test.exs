@@ -19,7 +19,6 @@ defmodule BullxTelegram.UpdateMapperTest do
       bot_token: "123456:ABC",
       bot_id: "123456",
       bot_username: "bullx_bot",
-      connected_realm_ref: "telegram:bot:123456",
       attention: default_attention()
     }
 

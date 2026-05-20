@@ -120,7 +120,7 @@ defmodule BullX.EventBus.RoutingTable do
 
   # The matcher (a Rust NIF) returns only the winning rule_id to keep the FFI
   # cheap. Re-find the full EventRoutingRule from the cached list so callers
-  # get target_type, target_ref, window settings, etc. without a round trip.
+  # get target_type, target_ref, scope settings, etc. without a round trip.
   # `:matched_rule_missing` here means a rule was retired between the cache
   # snapshot the matcher saw and the rules list we have — caller will fall
   # through to re-fetch.

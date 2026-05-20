@@ -1,102 +1,10 @@
-defmodule Feishu.Config.Credentials do
-  @moduledoc false
-
-  use Skogsra.Type
-
-  import BullX.Utils.Map, only: [maybe_put: 3, present_string: 1]
-  import BullX.Config.MapType, only: [required_string: 2]
-
-  @impl Skogsra.Type
-  def cast(value) when is_binary(value) do
-    with {:ok, decoded} <- Jason.decode(value) do
-      cast(decoded)
-    else
-      _error -> :error
-    end
-  end
-
-  def cast(value) when is_map(value) do
-    value
-    |> stringify_keys()
-    |> normalize_profiles()
-  end
-
-  def cast(_value), do: :error
-
-  defp normalize_profiles({:ok, profiles}) do
-    profiles
-    |> Enum.map(&normalize_profile/1)
-    |> collect_profiles()
-  end
-
-  defp normalize_profiles(:error), do: :error
-
-  defp normalize_profile({id, %{} = profile}) when is_binary(id) and id != "" do
-    with {:ok, app_id} <- required_string(profile, "app_id"),
-         {:ok, app_secret} <- required_string(profile, "app_secret"),
-         {:ok, app_type} <-
-           optional_in(profile, "app_type", "self_built", ~w(self_built marketplace)) do
-      {:ok,
-       {id,
-        %{"app_id" => app_id, "app_secret" => app_secret, "app_type" => app_type}
-        |> maybe_put("app_ticket", present_string(Map.get(profile, "app_ticket")))
-        |> maybe_put("verification_token", present_string(Map.get(profile, "verification_token")))
-        |> maybe_put("encrypt_key", present_string(Map.get(profile, "encrypt_key")))}}
-    end
-  end
-
-  defp normalize_profile(_profile), do: :error
-
-  defp collect_profiles(profiles) do
-    case Enum.all?(profiles, &match?({:ok, _profile}, &1)) do
-      true -> {:ok, Map.new(profiles, fn {:ok, profile} -> profile end)}
-      false -> :error
-    end
-  end
-
-  defp stringify_keys(%{} = map) do
-    Enum.reduce_while(map, {:ok, %{}}, fn
-      {key, value}, {:ok, acc} when is_atom(key) ->
-        with {:ok, value} <- stringify_keys(value) do
-          {:cont, {:ok, Map.put(acc, Atom.to_string(key), value)}}
-        else
-          :error -> {:halt, :error}
-        end
-
-      {key, value}, {:ok, acc} when is_binary(key) ->
-        with {:ok, value} <- stringify_keys(value) do
-          {:cont, {:ok, Map.put(acc, key, value)}}
-        else
-          :error -> {:halt, :error}
-        end
-
-      _entry, _acc ->
-        {:halt, :error}
-    end)
-  end
-
-  defp stringify_keys(value) when is_binary(value), do: {:ok, String.trim(value)}
-  defp stringify_keys(_value), do: :error
-
-  defp optional_in(map, key, default, values) do
-    case Map.get(map, key, default) do
-      value when is_binary(value) ->
-        if value in values, do: {:ok, value}, else: :error
-
-      _value ->
-        :error
-    end
-  end
-
-end
-
 defmodule Feishu.Config.EventBusSources do
   @moduledoc false
 
   use Skogsra.Type
 
   import BullX.Config.MapType,
-    only: [required_string: 2, optional_string: 3, optional_boolean: 3, optional_map: 3]
+    only: [required_string: 2, optional_boolean: 3, optional_map: 3]
 
   @valid_domains ~w(feishu lark)
 
@@ -120,14 +28,16 @@ defmodule Feishu.Config.EventBusSources do
   defp normalize_source(%{} = source) do
     with {:ok, source} <- stringify_keys(source),
          {:ok, id} <- required_string(source, "id"),
-         {:ok, credential_id} <- optional_string(source, "credential_id", "default"),
+         {:ok, app_id} <- required_string(source, "app_id"),
+         {:ok, app_secret} <- required_string(source, "app_secret"),
          {:ok, enabled?} <- optional_boolean(source, "enabled", true),
          {:ok, domain} <- optional_in(source, "domain", "feishu", @valid_domains),
          {:ok, oidc} <- optional_map(source, "oidc", %{}) do
       {:ok,
        source
        |> Map.put("id", id)
-       |> Map.put("credential_id", credential_id)
+       |> Map.put("app_id", app_id)
+       |> Map.put("app_secret", app_secret)
        |> Map.put("enabled", enabled?)
        |> Map.put("domain", domain)
        |> Map.put("oidc", oidc)}
@@ -182,25 +92,19 @@ defmodule Feishu.Config do
   @moduledoc """
   Runtime configuration declarations owned by the Feishu plugin.
 
-  Credentials are encrypted as profile maps and referenced by EventBus source
-  config through `credential_id`; source config never stores app secrets.
+  Each configured Feishu source is one BullX channel instance backed by one
+  Feishu/Lark app credential. The source list is encrypted because it includes
+  app secrets.
   """
 
   use BullX.Config
 
   @envdoc false
-  bullx_env(:credentials,
-    key: [:plugins, :feishu, :credentials],
-    type: Feishu.Config.Credentials,
-    default: %{},
-    secret: true
-  )
-
-  @envdoc false
   bullx_env(:eventbus_sources,
     key: [:plugins, :feishu, :eventbus_sources],
     type: Feishu.Config.EventBusSources,
-    default: []
+    default: [],
+    secret: true
   )
 
   @envdoc false

@@ -100,7 +100,6 @@ defmodule BullxTelegram.DirectCommand do
       "external_id" => command.actor.id,
       "profile" => Map.get(command.actor, :profile, %{}),
       "metadata" => %{
-        "connected_realm_ref" => source.connected_realm_ref,
         "chat_id" => command.chat_id,
         "chat_type" => command.chat_type,
         "thread_id" => command.thread_id

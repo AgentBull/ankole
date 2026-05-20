@@ -17,8 +17,8 @@ defmodule BullX.AIAgent.Compression do
 
   alias BullX.AIAgent.{Conversation, Conversations, Message, Profile, Time}
   alias BullX.LLM
+  alias BullX.LLM.ModelConfig
 
-  @default_context_limit_tokens 16_000
   @compression_request_budget_ratio 0.80
   @protected_tail_ratio 0.20
   @large_tool_result_bytes 8_000
@@ -147,14 +147,14 @@ defmodule BullX.AIAgent.Compression do
   defp protected_message?(%Message{role: :im_ambient, kind: :normal}), do: true
   defp protected_message?(_message), do: false
 
-  # An "exchange" is the unit of compression: one source message (user or ambient
+  # An "exchange" is the unit of compression: one trigger Message (user or ambient
   # introspection) plus a closed assistant turn, including all tool_call/tool_result
   # pairs. We only compress complete exchanges so the summary boundary never lands
   # inside a half-finished tool-call group — provider APIs reject such histories.
   defp complete_exchanges(messages) do
     {exchanges, current} =
       Enum.reduce(messages, {[], []}, fn message, {exchanges, current} ->
-        case source_message?(message) do
+        case trigger_message?(message) do
           true -> {push_complete_exchange(exchanges, current), [message]}
           false -> {exchanges, current ++ [message]}
         end
@@ -172,12 +172,12 @@ defmodule BullX.AIAgent.Compression do
     end
   end
 
-  defp source_message?(%Message{role: :user, kind: :normal}), do: true
-  defp source_message?(%Message{role: :im_ambient, kind: :introspection}), do: true
-  defp source_message?(_message), do: false
+  defp trigger_message?(%Message{role: :user, kind: :normal}), do: true
+  defp trigger_message?(%Message{role: :im_ambient, kind: :introspection}), do: true
+  defp trigger_message?(_message), do: false
 
   defp complete_exchange?([source | rest]) do
-    source_message?(source) and Enum.any?(rest, &assistant_complete?/1) and
+    trigger_message?(source) and Enum.any?(rest, &assistant_complete?/1) and
       complete_tool_pairs?(rest)
   end
 
@@ -236,9 +236,8 @@ defmodule BullX.AIAgent.Compression do
     prompt = compression_prompt(seen_messages)
 
     case LLM.chat(
-           profile.compression_model,
+           profile.compression_llm,
            [%ReqLLM.Message{role: :user, content: [ReqLLM.Message.ContentPart.text(prompt)]}],
-           reasoning_effort: profile.compression_model_reasoning_effort,
            tools: []
          ) do
       {:ok, %{tool_calls: [_ | _]}} ->
@@ -458,34 +457,40 @@ defmodule BullX.AIAgent.Compression do
   end
 
   defp compression_threshold(%Profile{} = profile) do
-    limit =
-      profile.context
-      |> Map.get(:context_limit_tokens, @default_context_limit_tokens)
-      |> case do
-        value when is_integer(value) and value > 0 -> value
-        _other -> @default_context_limit_tokens
-      end
-
     ratio = profile.context.compression_threshold_ratio
-    max(1, trunc(limit * ratio))
+    max(1, trunc(context_limit_tokens(profile, :main) * ratio))
   end
 
   defp prompt_tail_budget(%Profile{} = profile),
     do: max(1, trunc(compression_threshold(profile) * @protected_tail_ratio))
 
   defp prompt_tail_budget(_profile),
-    do: max(1, trunc(@default_context_limit_tokens * 0.70 * @protected_tail_ratio))
+    do: max(1, trunc(ModelConfig.default_context_window() * 0.70 * @protected_tail_ratio))
 
   defp compression_request_budget(%Profile{} = profile) do
-    profile.context
-    |> Map.get(:context_limit_tokens, @default_context_limit_tokens)
-    |> case do
-      value when is_integer(value) and value > 0 -> value
-      _other -> @default_context_limit_tokens
-    end
+    profile
+    |> context_limit_tokens(:compression)
     |> Kernel.*(@compression_request_budget_ratio)
     |> trunc()
     |> max(1)
+  end
+
+  defp context_limit_tokens(%Profile{context: context, main_llm: main_llm}, :main) do
+    context_limit_tokens(context, main_llm)
+  end
+
+  defp context_limit_tokens(
+         %Profile{context: context, compression_llm: compression_llm},
+         :compression
+       ) do
+    context_limit_tokens(context, compression_llm)
+  end
+
+  defp context_limit_tokens(context, %ModelConfig{} = config) do
+    case Map.get(context, :context_limit_tokens) do
+      value when is_integer(value) and value > 0 -> value
+      _other -> ModelConfig.effective_context_window(config)
+    end
   end
 
   defp summary_text(body, time_range) do

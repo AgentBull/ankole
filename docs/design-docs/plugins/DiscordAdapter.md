@@ -19,8 +19,8 @@ contract.
 
 This design covers the Discord adapter plugin:
 
-- plugin placement, extension declarations, plugin-owned source configuration,
-  and plugin-owned credential configuration;
+- plugin placement, extension declarations, and plugin-owned source
+  configuration;
 - Discord bot source supervision through Nostrum, connectivity checks,
   application command reconciliation, inbound normalization, attention
   filtering, command normalization, `/ask`, auto-threading, and provider
@@ -42,7 +42,7 @@ This design depends on:
 - `docs/design-docs/eventbus/Core.md` for `BullX.EventBus.accept/2`,
   CloudEvents validation, and normalized payload shape;
 - `docs/design-docs/eventbus/Matcher.md` for `RoutingContext`,
-  `routing_facts`, Event Routing Rule priority, Blackhole, and scope/window
+  `routing_facts`, Event Routing Rule priority, Blackhole, and scope
   policy;
 - `docs/design-docs/eventbus/StreamingOutput.md` for output stream buffers that
   Discord stream transport may consume;
@@ -121,7 +121,7 @@ defmodule Discord.Plugin do
         point: :"bullx.event_bus.channel_adapter",
         id: "discord",
         module: Discord.ChannelAdapter,
-        opts: %{provider: "discord"}
+        opts: %{provider: "discord", setup_module: Discord.SourceSetup}
       },
       %{
         point: :"bullx.principals.login_provider",
@@ -144,6 +144,14 @@ end
 point. The Channel Adapter extension id `"discord"` must match
 `data.channel.adapter` in normalized Events.
 
+`Discord.SourceSetup` is the setup module referenced by the Channel Adapter
+extension. It casts source-local application id, bot token, optional OAuth2
+client secret, OAuth2 enabled/scopes settings, and IM listen mode into
+`bullx.plugins.discord.eventbus_sources`; redacts bot token and client secret in
+public projection; shows the BullX-derived OAuth2 callback URL as a read-only
+setup value; runs request-local connectivity checks; and reconciles
+`Discord.SourceSupervisor` after save.
+
 `:"bullx.principals.login_provider"` is a Principal-owned extension point for
 browser login providers. The extension id `"discord"` names the provider
 implementation type. The concrete Principal login provider id for one Discord
@@ -155,8 +163,8 @@ Suggested module ownership:
 | Module | Responsibility |
 | --- | --- |
 | `Discord.Plugin` | Plugin metadata, config modules, extension declarations, and plugin children. |
-| `Discord.Config` | Plugin-owned `BullX.Config` declarations and source/credential casters. |
-| `Discord.Source` | Runtime source normalization, credential lookup, bot/application validation, redacted public projection, and connectivity checks. |
+| `Discord.Config` | Plugin-owned `BullX.Config` declarations and source casters. |
+| `Discord.Source` | Runtime source normalization, bot/application validation, redacted public projection, and connectivity checks. |
 | `Discord.SourceSupervisor` | Enabled-source supervision under the plugin failure boundary. |
 | `Discord.SourceRuntime` | Per-source one-for-all supervisor wrapping `Discord.Channel` and the Nostrum bot subtree. |
 | `Discord.Channel` | Per-source runtime boundary: source context, READY handling, event dispatch, command sync, and cache key prefixes. |
@@ -195,7 +203,6 @@ Operators enable the plugin through the normal plugin list:
 Discord configuration lives under the plugin namespace:
 
 ```text
-bullx.plugins.discord.credentials
 bullx.plugins.discord.eventbus_sources
 bullx.plugins.discord.oauth2_state_ttl_seconds
 ```
@@ -204,44 +211,24 @@ Initial declarations:
 
 | Accessor | DB key | Secret | Default |
 | --- | --- | --- | --- |
-| `credentials!/0` | `bullx.plugins.discord.credentials` | yes | `{}` |
-| `eventbus_sources!/0` | `bullx.plugins.discord.eventbus_sources` | no | `[]` |
+| `eventbus_sources!/0` | `bullx.plugins.discord.eventbus_sources` | yes | `[]` |
 | `oauth2_state_ttl_seconds!/0` | `bullx.plugins.discord.oauth2_state_ttl_seconds` | no | `600` |
 
-`credentials` is a JSON object keyed by credential id. Each value contains one
-Discord application credential profile:
-
-```json
-{
-  "default": {
-    "application_id": "123456789012345678",
-    "bot_token": "MTIzNDU2.ABC.xyz",
-    "client_secret": "secret_xxx"
-  }
-}
-```
-
-The credentials map is encrypted by `BullX.Config`. It must not appear in
-Events, source public projections, `routing_facts`, `reply_channel`, Oban job
-args, stream metadata, telemetry, logs, safe errors, or operator receipts.
-
-`client_secret` may be omitted on a credential profile only when no source under
-that profile enables OAuth2 login. Source normalization validates this
-combination.
-
-`eventbus_sources` is a JSON array of Discord source entries:
+`eventbus_sources` is a JSON array of Discord source entries. It is encrypted
+by `BullX.Config` because each source is one configured channel instance and
+stores its own Discord application credential directly:
 
 ```json
 [
   {
     "id": "main",
     "enabled": true,
-    "credential_id": "default",
-    "connected_realm_ref": "discord:application:123456789012345678",
+    "application_id": "123456789012345678",
+    "bot_token": "MTIzNDU2.ABC.xyz",
+    "client_secret": "secret_xxx",
     "bot_user_id": null,
     "oauth2": {
       "enabled": true,
-      "redirect_uri": "https://bullx.example.com/sessions/oauth2/main/callback",
       "scopes": ["identify", "email"]
     },
     "message_context_ttl_seconds": 2592000,
@@ -271,27 +258,30 @@ The source `id` is the stable adapter-local source id. It becomes
 `data.channel.id` in Events, `channel_id` in Principal channel-actor
 references, and the concrete Principal login provider id when `oauth2.enabled`
 is true. It is not a Discord application id, bot user id, guild id, channel id,
-thread id, credential id, or display label.
+thread id, separate credential record id, or display label.
+
+`client_secret` is required only when the same source enables OAuth2 login.
+Source normalization validates this combination.
 
 Discord channel ids and thread channel ids become `data.scope.id`. Discord
 threads are channels, so `data.scope.thread_id` is always `null`.
 
 Discord rejects concurrent gateway WebSocket connections from the same bot token
 unless the implementation performs explicit shard coordination. Two enabled
-sources using the same credential id cannot both run their own bot gateway
+sources using the same bot token cannot both run their own bot gateway
 connection in the first implementation. The source runtime must detect an active
-credential collision on the same node and fail the second source with a `config`
+bot-token collision on the same node and fail the second source with a `config`
 error instead of starting a conflicting bot connection.
 
 ## Connectivity check
 
 `Discord.Source.connectivity_check/1` validates one normalized source without
 starting a bot, registering listeners, syncing application commands, publishing
-an Event, changing source config, or writing Principal data. It loads the
-referenced credential profile, verifies the bot token through Discord's current
-bot user endpoint, verifies the application id through Discord's application
-endpoint, validates `client_secret` presence when `oauth2.enabled` is true, and
-returns only redacted operator metadata.
+an Event, changing source config, or writing Principal data. It verifies the
+source bot token through Discord's current bot user endpoint, verifies the
+source application id through Discord's application endpoint, validates
+`client_secret` presence when `oauth2.enabled` is true, and returns only
+redacted operator metadata.
 
 Connectivity also records that Message Content Intent is required for guild
 message text. Operators must enable it in the Discord developer portal for
@@ -422,7 +412,7 @@ At startup `Discord.Channel`:
 
 1. Waits for the Nostrum READY event before accepting inbound occurrences.
 2. Resolves bot user id, bot username, and application id.
-3. Validates the resolved application id against the credential profile and the
+3. Validates the resolved application id against the source config and the
    configured `bot_user_id` when one is present.
 4. Runs `Discord.ApplicationCommands.sync/1` when
    `application_commands.sync_policy = "safe"`.
@@ -529,8 +519,7 @@ Example message Event:
       "guild_id": "111222333444555666",
       "discord_channel_id": "777888999000111222",
       "content_kind": "text",
-      "attention_reason": "mention",
-      "connected_realm_ref": "discord:application:123456789012345678"
+      "attention_reason": "mention"
     },
     "raw_ref": {
       "kind": "discord.message",
@@ -760,7 +749,6 @@ channel actor:
     "user_id" => "234567890123456789"
   },
   metadata: %{
-    "connected_realm_ref" => "discord:application:123456789012345678",
     "guild_id" => "111222333444555666",
     "discord_channel_id" => "777888999000111222"
   }
@@ -1028,8 +1016,8 @@ Login subject shape:
 ```
 
 `provider = "main"` is the Discord source id. Multiple Discord applications may
-be configured as different sources, each with its own source id, credential
-profile, application id, bot token, client secret, and OAuth2 setting. The
+be configured as different sources, each with its own source id, application id,
+bot token, client secret, and OAuth2 setting. The
 Principal `login_subject` provider namespace is therefore the source id, not
 `"discord"` and not the Discord application id.
 
@@ -1194,7 +1182,7 @@ Mapping rules:
 | HTTP 403, missing Discord permission, bot lacks guild access | `permission` |
 | HTTP 404 on edit or reply target | `payload` or `not_found` according to caller contract |
 | Timeout, DNS, TLS, gateway WebSocket disconnect, transient 5xx | `network` or `provider_unavailable` |
-| Invalid source config, missing credential profile, application id mismatch | `config` |
+| Invalid source config, missing source secret, application id mismatch | `config` |
 | Invalid content, missing target, malformed interaction option, unavailable stream content | `payload` |
 | Unsupported edit kind, unsupported event surface, content with no fallback | `unsupported` |
 | Stream cancellation observed by adapter | `stream_cancelled` |
@@ -1315,7 +1303,7 @@ The adapter must:
   payloads, private interaction values, and raw callback bodies out of Events,
   `routing_facts`, `reply_channel`, Oban args, stream metadata, telemetry, logs,
   and safe errors;
-- keep provider credential values in `BullX.Config` secret storage;
+- keep source secret values in `BullX.Config` secret storage;
 - keep provider ids as external evidence and let `BullX.Principals` own durable
   identity decisions;
 - refuse to start a second Discord gateway connection against the same bot token
@@ -1333,7 +1321,7 @@ acknowledgement paths; they are not a general outbound path.
 ## Failure behavior
 
 Provider authentication failures, malformed events, missing required Discord
-fields, missing credential profiles, unsupported content, unsupported
+fields, missing source secrets, unsupported content, unsupported
 interactions, and unsupported events fail closed. They produce redacted
 telemetry and safe logs.
 
@@ -1430,13 +1418,13 @@ and Principal boundaries.
    - Verify: plugin discovery and registry tests.
 
 2. Add Discord plugin configuration.
-   - Owns: `Discord.Config`, source/credential casters, redaction helpers, and
+   - Owns: `Discord.Config`, source casters, redaction helpers, and
      secret-key tests.
    - Depends on: Task 1.
-   - Acceptance: `bullx.plugins.discord.credentials` is secret,
+   - Acceptance: `bullx.plugins.discord.eventbus_sources` is secret,
      `eventbus_sources` validates enabled sources, OAuth2 requires a client
      secret, source ids are stable, and public projections never reveal
-     credentials.
+     bot tokens or OAuth2 client secrets.
    - Verify: config and secret writer tests.
 
 3. Implement Discord source connectivity and adapter capabilities.
@@ -1560,7 +1548,7 @@ Implementation should stop and ask if a change would require:
 - The plugin registers `:"bullx.principals.login_provider"` implementation id
   `"discord"`, and enabled Discord source ids route to it as concrete login
   provider ids.
-- Discord source config and plugin credentials validate through `BullX.Config`.
+- Discord source config and source secrets validate through `BullX.Config`.
 - Connectivity checks verify bot token, application identity, and OAuth2 client
   secret presence without starting a bot or leaking secrets.
 - Enabled Discord sources start isolated Nostrum bot runtimes under plugin

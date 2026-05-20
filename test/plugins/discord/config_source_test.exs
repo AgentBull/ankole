@@ -1,7 +1,7 @@
 defmodule Discord.ConfigSourceTest do
   use ExUnit.Case, async: true
 
-  alias Discord.Config.{Credentials, EventBusSources}
+  alias Discord.Config.EventBusSources
   alias Discord.Source
 
   defmodule API do
@@ -9,33 +9,23 @@ defmodule Discord.ConfigSourceTest do
     def request(source, :get_application, _params), do: {:ok, %{"id" => source.application_id}}
   end
 
-  test "credentials cast keeps bot tokens and client secrets under credential profiles" do
-    assert {:ok,
-            %{
-              "main" => %{
-                "application_id" => "app_1",
-                "bot_token" => "token",
-                "client_secret" => "secret"
-              }
-            }} =
-             Credentials.cast(%{
-               main: %{application_id: "app_1", bot_token: "token", client_secret: "secret"}
-             })
-  end
-
   test "eventbus source cast normalizes operator config" do
     assert {:ok, [source]} =
              EventBusSources.cast([
                %{
                  id: "main",
-                 credential_id: "default",
-                 connected_realm_ref: "discord:application:app_1",
+                 application_id: "app_1",
+                 bot_token: "token",
+                 client_secret: "secret",
                  oauth2: %{enabled: true, redirect_uri: "https://bullx.example/callback"}
                }
              ])
 
     assert source["id"] == "main"
     assert source["enabled"] == true
+    assert source["application_id"] == "app_1"
+    assert source["bot_token"] == "token"
+    assert source["client_secret"] == "secret"
 
     assert source["oauth2"] == %{
              "enabled" => true,

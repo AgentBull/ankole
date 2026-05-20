@@ -34,7 +34,7 @@ PostgreSQL enum values:
 - `ai_agent`
 - `workflow`
 - `command`
-- `external_agent_harness`
+- `work`
 - `blackhole`
 
 ## `target_session_status`
@@ -44,14 +44,6 @@ PostgreSQL enum values:
 - `active`
 - `closed`
 - `failed`
-- `expired`
-
-## `target_session_window_type`
-
-PostgreSQL enum values:
-
-- `new_per_event`
-- `rolling_ttl`
 
 ## `event_routing_rules`
 
@@ -69,8 +61,6 @@ this table; `RoutingTable` merges them into the runtime snapshot from code.
 | `target_type` | `eventbus_target_type` | Not null |
 | `target_ref` | `text` | Null only for Blackhole |
 | `scope_fields` | `text[]` | Not null |
-| `window_type` | `target_session_window_type` | Not null |
-| `window_ttl_seconds` | `integer` | Required only for `rolling_ttl` |
 | `inserted_at` | `timestamptz` | Not null |
 | `updated_at` | `timestamptz` | Not null |
 
@@ -88,11 +78,7 @@ Constraints and indexes:
 - Check `target_ref IS NOT NULL` when `target_type <> 'blackhole'`.
 - Check `target_ref = btrim(target_ref)` and `target_ref <> ''` when
   `target_type <> 'blackhole'`.
-- Check `window_ttl_seconds IS NOT NULL AND window_ttl_seconds > 0` when
-  `window_type = 'rolling_ttl'`.
-- Check `window_ttl_seconds IS NULL` when `window_type = 'new_per_event'`.
-- The rule writer stores `scope_fields = []`, `window_type = 'new_per_event'`,
-  and `window_ttl_seconds = NULL` when `target_type = 'blackhole'`.
+- The rule writer stores `scope_fields = []` when `target_type = 'blackhole'`.
 
 Rule semantics and matcher behavior are defined in
 [EventBus matcher](./Matcher.md).
@@ -108,11 +94,9 @@ Rule semantics and matcher behavior are defined in
 | `target_type` | `eventbus_target_type` | Not null |
 | `target_ref` | `text` | Not null |
 | `scope_key` | `text` | Not null |
-| `window_key` | `text` | Not null |
 | `status` | `target_session_status` | Not null |
 | `oban_job_id` | `bigint` | Null until associated |
 | `last_processed_entry_seq` | `bigint` | Not null, default `0` |
-| `expires_at` | `timestamptz` | Null except for rolling/window expiry |
 | `terminal_reason` | `text` | Null or safe terminal diagnostics |
 | `inserted_at` | `timestamptz` | Not null |
 | `updated_at` | `timestamptz` | Not null |
@@ -126,14 +110,9 @@ are not persisted in PostgreSQL.
 Constraints and indexes:
 
 - Partial unique index on
-  `(event_routing_rule_id, target_type, target_ref, scope_key, window_key)` where
+  `(event_routing_rule_id, target_type, target_ref, scope_key)` where
   `status = 'active'`.
-- Index on `expires_at` for cleanup and expiry.
 - Index on `oban_job_id`.
-
-The hard max runtime deadline is computed as `inserted_at + 24 hours`. Queries
-that need to find TargetSessions near the hard cap compute against
-`inserted_at`; this invariant does not require a separate deadline column.
 
 `oban_job_id` is the runtime association between the TargetSession and its
 long-running Oban job. The job ensure path updates this field idempotently while
@@ -187,14 +166,14 @@ Oban job for every `active` TargetSession runtime row. This repair is safe
 because EventBus and TargetSession runtime records are not business facts.
 
 Terminal `target_sessions` and their `target_session_entries` are retained only
-for bounded diagnostics. Cleanup deletes `closed`, `failed`, and `expired`
-sessions after configurable `target_session_runtime_retention_seconds`, which
-must have a default. Unless the implementation adds a clearer terminal
-timestamp, cleanup uses `updated_at` as the terminal timestamp.
+for bounded diagnostics. Cleanup deletes `closed` and `failed` sessions after
+configurable `target_session_runtime_retention_seconds`, which must have a
+default. Unless the implementation adds a clearer terminal timestamp, cleanup
+uses `updated_at` as the terminal timestamp.
 
-Cleanup does not directly delete active sessions. If an active session has
-exceeded `inserted_at + 24 hours` or its `expires_at` runtime window has passed,
-cleanup first marks it `expired`, then applies terminal retention.
+Cleanup does not directly delete or expire active sessions. Active
+TargetSessions remain runtime execution lanes until the Target closes or fails
+them, or until a future explicit recovery mechanism marks them terminal.
 
 Streaming output retention and Redis cleanup belong to
 [TargetSession streaming output](./StreamingOutput.md).

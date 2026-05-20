@@ -68,12 +68,12 @@ defmodule BullX.AIAgent.AmbientBatchWorker do
            write_introspection(conversation, meta, items, recognizer, idempotency_key),
          :ok <-
            Runner.run(conversation, message, profile, %{
-             source_type: "ambient_batch",
-             source_id: idempotency_key,
+             trigger_type: "ambient_batch",
+             trigger_id: idempotency_key,
              caller_principal_id: meta["agent_principal_id"],
              agent_principal_id: meta["agent_principal_id"],
              reply_channel: meta["reply_channel"],
-             acl_context: %{source_type: "ambient_batch"}
+             acl_context: %{trigger_type: "ambient_batch"}
            }) do
       AmbientBatch.cleanup(batch_key)
     else
@@ -114,7 +114,7 @@ defmodule BullX.AIAgent.AmbientBatchWorker do
       |> IO.iodata_to_binary()
 
     case BullX.LLM.chat(
-           profile.compression_model,
+           profile.compression_llm,
            [
              %ReqLLM.Message{
                role: :system,

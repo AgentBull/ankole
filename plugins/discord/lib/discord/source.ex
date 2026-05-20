@@ -3,15 +3,14 @@ defmodule Discord.Source do
   Runtime representation of one configured Discord EventBus source.
 
   The struct keeps bot tokens and OAuth2 client secrets out of `Inspect`.
-  Durable source config stores only non-secret source metadata plus a
-  `credential_id`; encrypted plugin credentials provide the provider secrets.
+  Each source is one BullX channel instance backed by one Discord application
+  and bot credential.
   """
 
   alias Discord.Error
 
   import BullX.Utils.Map,
     only: [
-      maybe_put: 3,
       reject_nil_values: 1,
       positive_integer: 3,
       bounded_integer: 5,
@@ -34,12 +33,10 @@ defmodule Discord.Source do
   @derive {Inspect, except: [:bot_token, :client_secret]}
   defstruct [
     :id,
-    :credential_id,
     :application_id,
     :bot_token,
     :client_secret,
     :bot_user_id,
-    :connected_realm_ref,
     :api_base,
     oauth2: %{"enabled" => false, "redirect_uri" => nil, "scopes" => @default_oauth2_scopes},
     attention: %{
@@ -78,28 +75,22 @@ defmodule Discord.Source do
   def normalize(%{} = source) do
     with {:ok, config} <- stringify_keys(source),
          {:ok, id} <- optional_string(config, "id", map_value(config, "source")),
-         {:ok, credential_id} <- optional_string(config, "credential_id", "default"),
-         {:ok, credential} <- credential(credential_id, config),
-         {:ok, oauth2} <- normalize_oauth2(Map.get(config, "oauth2", %{}), credential),
+         {:ok, application_id} <- optional_string(config, "application_id", nil),
+         {:ok, bot_token} <- optional_string(config, "bot_token", nil),
+         {:ok, oauth2} <- normalize_oauth2(Map.get(config, "oauth2", %{}), config),
          {:ok, attention} <- normalize_attention(Map.get(config, "attention", %{})),
          {:ok, auto_thread} <- normalize_auto_thread(Map.get(config, "auto_thread", %{})),
          {:ok, application_commands} <-
            normalize_application_commands(Map.get(config, "application_commands", %{})),
          {:ok, im_listen_mode} <- im_listen_mode(Map.get(config, "im_listen_mode")),
          {:ok, req_options} <- optional_keyword(config, "req_options", []) do
-      application_id = Map.fetch!(credential, "application_id")
-
       {:ok,
        %__MODULE__{
          id: id,
-         credential_id: credential_id,
          application_id: application_id,
-         bot_token: Map.fetch!(credential, "bot_token"),
-         client_secret: Map.get(credential, "client_secret"),
+         bot_token: bot_token,
+         client_secret: present_string(Map.get(config, "client_secret")),
          bot_user_id: present_string(Map.get(config, "bot_user_id")),
-         connected_realm_ref:
-           present_string(Map.get(config, "connected_realm_ref")) ||
-             "discord:application:" <> application_id,
          oauth2: oauth2,
          attention: attention,
          auto_thread: auto_thread,
@@ -170,10 +161,8 @@ defmodule Discord.Source do
   def public_config(%__MODULE__{} = source) do
     %{
       "id" => source.id,
-      "credential_id" => source.credential_id,
       "application_id" => source.application_id,
       "bot_user_id" => source.bot_user_id,
-      "connected_realm_ref" => source.connected_realm_ref,
       "oauth2" => source.oauth2,
       "attention" => source.attention,
       "auto_thread" => source.auto_thread,
@@ -218,11 +207,15 @@ defmodule Discord.Source do
   def oauth2_enabled?(_source), do: false
 
   @spec oauth2_redirect_uri(t()) :: String.t() | nil
-  def oauth2_redirect_uri(%__MODULE__{oauth2: %{"redirect_uri" => uri}}) when is_binary(uri) and uri != "", do: uri
+  def oauth2_redirect_uri(%__MODULE__{oauth2: %{"redirect_uri" => uri}})
+      when is_binary(uri) and uri != "", do: uri
+
   def oauth2_redirect_uri(_source), do: nil
 
   @spec oauth2_scopes(t()) :: [String.t()]
-  def oauth2_scopes(%__MODULE__{oauth2: %{"scopes" => scopes}}) when is_list(scopes) and scopes != [], do: scopes
+  def oauth2_scopes(%__MODULE__{oauth2: %{"scopes" => scopes}})
+      when is_list(scopes) and scopes != [], do: scopes
+
   def oauth2_scopes(_source), do: @default_oauth2_scopes
 
   @spec bot_options(t()) :: map()
@@ -258,8 +251,7 @@ defmodule Discord.Source do
              "bot_user_id" => stringify_id(Map.get(bot, "id")),
              "credential" => "verified",
              "message_content_intent_required" => true,
-             "application_commands_sync_policy" => source.application_commands["sync_policy"],
-             "connected_realm_ref" => source.connected_realm_ref
+             "application_commands_sync_policy" => source.application_commands["sync_policy"]
            }
            |> reject_nil_values()
        }}
@@ -269,51 +261,31 @@ defmodule Discord.Source do
     end
   end
 
-  defp credential(credential_id, config) do
-    case direct_credential(config) do
-      {:ok, credential} ->
-        {:ok, credential}
-
-      :error ->
-        case Map.fetch(Discord.Config.credentials!(), credential_id) do
-          {:ok, credential} ->
-            {:ok, credential}
-
-          :error ->
-            {:error, Error.config("missing Discord credential profile", %{credential_id: credential_id})}
-        end
-    end
-  end
-
-  defp direct_credential(%{"application_id" => application_id, "bot_token" => bot_token} = config)
-       when is_binary(application_id) and application_id != "" and is_binary(bot_token) and bot_token != "" do
-    {:ok,
-     %{"application_id" => application_id, "bot_token" => bot_token}
-     |> maybe_put("client_secret", present_string(Map.get(config, "client_secret")))}
-  end
-
-  defp direct_credential(_config), do: :error
-
-  defp normalize_oauth2(value, credential) when is_map(value) do
+  defp normalize_oauth2(value, config) when is_map(value) do
     with {:ok, value} <- stringify_keys(value) do
       enabled? = optional_boolean(value, "enabled", false)
-      redirect_uri = present_string(Map.get(value, "redirect_uri"))
       scopes = string_list(value, "scopes", @default_oauth2_scopes)
 
       cond do
-        enabled? and is_nil(present_string(Map.get(credential, "client_secret"))) ->
+        enabled? and is_nil(present_string(Map.get(config, "client_secret"))) ->
           {:error, Error.config("Discord OAuth2 requires client_secret")}
 
-        enabled? and is_nil(redirect_uri) ->
-          {:error, Error.config("Discord OAuth2 requires redirect_uri")}
-
         true ->
-          {:ok, %{"enabled" => enabled?, "redirect_uri" => redirect_uri, "scopes" => ensure_oauth2_scopes(scopes)}}
+          oauth2 =
+            %{
+              "enabled" => enabled?,
+              "redirect_uri" => present_string(Map.get(value, "redirect_uri")),
+              "scopes" => ensure_oauth2_scopes(scopes)
+            }
+            |> reject_nil_values()
+
+          {:ok, oauth2}
       end
     end
   end
 
-  defp normalize_oauth2(_value, _credential), do: {:error, Error.config("Discord oauth2 config must be an object")}
+  defp normalize_oauth2(_value, _credential),
+    do: {:error, Error.config("Discord oauth2 config must be an object")}
 
   defp normalize_attention(value) when is_map(value) do
     with {:ok, value} <- stringify_keys(value) do
@@ -328,7 +300,8 @@ defmodule Discord.Source do
     end
   end
 
-  defp normalize_attention(_value), do: {:error, Error.config("Discord attention config must be an object")}
+  defp normalize_attention(_value),
+    do: {:error, Error.config("Discord attention config must be an object")}
 
   defp normalize_auto_thread(value) when is_map(value) do
     with {:ok, value} <- stringify_keys(value) do
@@ -336,28 +309,41 @@ defmodule Discord.Source do
        %{
          "enabled" => optional_boolean(value, "enabled", true),
          "auto_archive_duration_minutes" =>
-           positive_integer(value, "auto_archive_duration_minutes", @default_auto_archive_duration_minutes),
+           positive_integer(
+             value,
+             "auto_archive_duration_minutes",
+             @default_auto_archive_duration_minutes
+           ),
          "no_thread_channel_ids" => string_list(value, "no_thread_channel_ids", [])
        }}
     end
   end
 
-  defp normalize_auto_thread(_value), do: {:error, Error.config("Discord auto_thread config must be an object")}
+  defp normalize_auto_thread(_value),
+    do: {:error, Error.config("Discord auto_thread config must be an object")}
 
   defp normalize_application_commands(value) when is_map(value) do
     with {:ok, value} <- stringify_keys(value) do
       case Map.get(value, "sync_policy", "safe") do
-        policy when policy in ["safe", "off"] -> {:ok, %{"sync_policy" => policy}}
-        _value -> {:error, Error.config("Discord application_commands.sync_policy must be safe or off")}
+        policy when policy in ["safe", "off"] ->
+          {:ok, %{"sync_policy" => policy}}
+
+        _value ->
+          {:error, Error.config("Discord application_commands.sync_policy must be safe or off")}
       end
     end
   end
 
-  defp normalize_application_commands(_value), do: {:error, Error.config("Discord application_commands config must be an object")}
+  defp normalize_application_commands(_value),
+    do: {:error, Error.config("Discord application_commands config must be an object")}
 
   defp im_listen_mode(nil), do: {:ok, @default_im_listen_mode}
-  defp im_listen_mode(value) when value in [:addressed_only, "addressed_only"], do: {:ok, :addressed_only}
-  defp im_listen_mode(value) when value in [:all_messages, "all_messages"], do: {:ok, :all_messages}
+
+  defp im_listen_mode(value) when value in [:addressed_only, "addressed_only"],
+    do: {:ok, :addressed_only}
+
+  defp im_listen_mode(value) when value in [:all_messages, "all_messages"],
+    do: {:ok, :all_messages}
 
   defp im_listen_mode(_value),
     do: {:error, Error.config("Discord im_listen_mode must be addressed_only or all_messages")}
@@ -371,9 +357,15 @@ defmodule Discord.Source do
 
   defp verify_application(%__MODULE__{application_id: expected}, %{} = application) do
     case stringify_id(Map.get(application, "id")) do
-      ^expected -> :ok
-      nil -> :ok
-      actual -> {:error, Error.config("Discord application id mismatch", %{expected: expected, actual: actual})}
+      ^expected ->
+        :ok
+
+      nil ->
+        :ok
+
+      actual ->
+        {:error,
+         Error.config("Discord application id mismatch", %{expected: expected, actual: actual})}
     end
   end
 

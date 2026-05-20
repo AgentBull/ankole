@@ -27,7 +27,7 @@ defmodule BullX.AIAgent.CommandsTest do
     assert {:ok,
             %{
               status: :start_generation,
-              source_message_id: user_id,
+              trigger_message_id: user_id,
               retry_of_message_id: assistant_id,
               lease_id: lease_id,
               recall_targets: [%{"message_id" => assistant_message_id, "external_id" => "om_old"}]
@@ -91,9 +91,9 @@ defmodule BullX.AIAgent.CommandsTest do
     now = DateTime.utc_now(:microsecond)
 
     owner = %{
-      "owner_source_type" => "target_session_entry",
-      "owner_source_id" => BullX.Ext.gen_uuid_v7(),
-      "source_message_id" => user.id,
+      "owner_trigger_type" => "target_session_entry",
+      "owner_trigger_id" => BullX.Ext.gen_uuid_v7(),
+      "trigger_message_id" => user.id,
       "generation_lease_ttl_ms" => profile.generation.generation_lease_ttl_ms,
       "generation_heartbeat_interval_ms" => profile.generation.generation_heartbeat_interval_ms,
       "generation_max_runtime_ms" => profile.generation.generation_max_runtime_ms
@@ -110,7 +110,7 @@ defmodule BullX.AIAgent.CommandsTest do
         status: :generating,
         content: [],
         metadata: %{
-          "generation" => %{"lease_id" => lease_id, "source_message_id" => user.id},
+          "generation" => %{"lease_id" => lease_id, "trigger_message_id" => user.id},
           "delivery" => delivery_metadata("om_stream"),
           "stream" => %{"stream_id" => "stream_1", "status" => "open"}
         }
@@ -151,7 +151,12 @@ defmodule BullX.AIAgent.CommandsTest do
       Principals.create_agent(%{
         uid: "ai-agent-command-agent-#{suffix}",
         display_name: "Agent #{suffix}",
-        profile: %{"ai_agent" => %{"main_model" => "openai_proxy:gpt-test"}}
+        profile: %{
+          "ai_agent" => %{
+            "main_llm" => %{"provider_id" => "openai_proxy", "model" => "gpt-test"},
+            "mission" => "Handle command tests."
+          }
+        }
       })
 
     {:ok, _grant} =
@@ -164,7 +169,8 @@ defmodule BullX.AIAgent.CommandsTest do
     {:ok, profile} =
       Profile.cast(%{
         "ai_agent" => %{
-          "main_model" => "openai_proxy:gpt-test",
+          "main_llm" => %{"provider_id" => "openai_proxy", "model" => "gpt-test"},
+          "mission" => "Handle command tests.",
           "context" => %{"max_turns" => 3}
         }
       })
@@ -183,7 +189,7 @@ defmodule BullX.AIAgent.CommandsTest do
     })
   end
 
-  defp append_assistant(conversation, source, text, external_id) do
+  defp append_assistant(conversation, trigger_message, text, external_id) do
     Conversations.append_message(conversation, %{
       conversation_id: conversation.id,
       role: :assistant,
@@ -193,9 +199,9 @@ defmodule BullX.AIAgent.CommandsTest do
       metadata:
         %{
           "generation" => %{
-            "source_message_id" => source.id,
-            "source_type" => "target_session_entry",
-            "source_id" => BullX.Ext.gen_uuid_v7()
+            "trigger_message_id" => trigger_message.id,
+            "trigger_type" => "target_session_entry",
+            "trigger_id" => BullX.Ext.gen_uuid_v7()
           }
         }
         |> maybe_put_delivery(external_id)
@@ -225,8 +231,8 @@ defmodule BullX.AIAgent.CommandsTest do
       caller_principal_id: caller.id,
       agent_principal_id: agent.id,
       profile: profile,
-      source_type: "target_session_entry",
-      source_id: entry_id,
+      trigger_type: "target_session_entry",
+      trigger_id: entry_id,
       target_session_id: BullX.Ext.gen_uuid_v7(),
       target_session_entry_id: entry_id,
       acl_context: %{}

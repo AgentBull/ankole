@@ -8,8 +8,6 @@ defmodule BullX.Principals.Bootstrap do
   alias BullX.Principals
   alias BullX.Repo
 
-  @bootstrap_activation_banner_line String.duplicate("=", 80)
-
   def start_link(_opts), do: Task.start_link(__MODULE__, :run, [])
 
   def child_spec(opts) do
@@ -37,16 +35,16 @@ defmodule BullX.Principals.Bootstrap do
         :ok
 
       true ->
-        create_or_refresh_and_log()
+        ensure_bootstrap_activation_code()
     end
   end
 
-  defp create_or_refresh_and_log do
+  # The plaintext code is logged when the operator opens /setup/sessions/new
+  # (see BullXWeb.SetupSessionController), not here — boot only guarantees a
+  # pending code exists so the home page can route into the setup flow.
+  defp ensure_bootstrap_activation_code do
     case Principals.create_or_refresh_bootstrap_activation_code() do
-      {:ok, %{code: code, action: action}} when action in [:created, :refreshed] ->
-        log_bootstrap_activation_code(code, action)
-
-      {:ok, %{action: :existing}} ->
+      {:ok, _result} ->
         :ok
 
       {:error, reason} when reason in [:bootstrap_not_required, :bootstrap_already_consumed] ->
@@ -76,21 +74,5 @@ defmodule BullX.Principals.Bootstrap do
 
     %{rows: [[principals, activation_codes]]} = Ecto.Adapters.SQL.query!(Repo, query, [])
     principals and activation_codes
-  end
-
-  defp log_bootstrap_activation_code(code, action) do
-    Logger.warning(
-      IO.iodata_to_binary([
-        "\n\n",
-        @bootstrap_activation_banner_line,
-        "\n BullX bootstrap activation code (",
-        Atom.to_string(action),
-        "): ",
-        code,
-        "\n",
-        @bootstrap_activation_banner_line,
-        "\n\n"
-      ])
-    )
   end
 end

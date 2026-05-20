@@ -1,5 +1,6 @@
 import { router } from "@inertiajs/react"
 import type React from "react"
+import { useTranslation } from "react-i18next"
 import { Alert, AlertDescription, AlertTitle } from "@/uikit/components/alert"
 import { Button } from "@/uikit/components/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/uikit/components/card"
@@ -16,13 +17,13 @@ export type SetupStep =
   | "event_routing"
   | "activate_admin"
 
-const STEPS: Array<{ id: SetupStep; label: string }> = [
-  { id: "plugins", label: "Plugins" },
-  { id: "llm_providers", label: "LLM" },
-  { id: "channel_sources", label: "Sources" },
-  { id: "ai_agents", label: "AIAgent" },
-  { id: "event_routing", label: "Routing" },
-  { id: "activate_admin", label: "Activate" },
+const STEP_IDS: SetupStep[] = [
+  "plugins",
+  "llm_providers",
+  "channel_sources",
+  "ai_agents",
+  "event_routing",
+  "activate_admin",
 ]
 
 export function SetupPage({
@@ -36,18 +37,19 @@ export function SetupPage({
   step?: SetupStep
   children: React.ReactNode
 }) {
+  const { t } = useTranslation()
   return (
-    <SetupLayout title={title} appName={appName}>
+    <SetupLayout title={title} appName={appName} subtitle={t("setup.app_subtitle")}>
       <section className="grid flex-1 grid-cols-1 gap-6 py-8 lg:grid-cols-[220px_minmax(0,1fr)]">
         <nav className="h-fit border border-border/70 bg-background/85 p-3 backdrop-blur">
           <ol className="flex flex-row gap-2 overflow-x-auto lg:flex-col lg:overflow-visible">
-            {STEPS.map((item, index) => (
-              <li key={item.id} className="min-w-28 lg:min-w-0">
+            {STEP_IDS.map((id, index) => (
+              <li key={id} className="min-w-28 lg:min-w-0">
                 <div
-                  data-active={item.id === step ? true : undefined}
+                  data-active={id === step ? true : undefined}
                   className="flex h-10 items-center gap-3 border border-transparent px-3 text-sm text-muted-foreground data-active:border-primary data-active:bg-primary data-active:text-primary-foreground">
                   <span className="font-mono text-xs">{String(index + 1).padStart(2, "0")}</span>
-                  <span className="truncate">{item.label}</span>
+                  <span className="truncate">{t(`setup.steps.${id}`)}</span>
                 </div>
               </li>
             ))}
@@ -83,12 +85,13 @@ export function SetupPanel({
   )
 }
 
-export function ErrorAlert({ error, title = "Could not save" }: { error?: unknown; title?: string }) {
+export function ErrorAlert({ error, title }: { error?: unknown; title?: string }) {
+  const { t } = useTranslation()
   if (!error) return null
 
   return (
     <Alert variant="destructive">
-      <AlertTitle>{title}</AlertTitle>
+      <AlertTitle>{title ?? t("setup.errors.generic_title")}</AlertTitle>
       <AlertDescription>
         <pre className="whitespace-pre-wrap text-xs">
           {typeof error === "string" ? error : JSON.stringify(error, null, 2)}

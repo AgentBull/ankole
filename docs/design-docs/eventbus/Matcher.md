@@ -3,7 +3,7 @@
 EventBus matcher defines the route-decision contract between Event acceptance
 and TargetSession handoff. It owns `RoutingContext` projection, route table
 snapshots, Rust matcher behavior, Event Routing Rule priority, Blackhole
-semantics, and scope/window key computation.
+semantics, and scope-key computation.
 
 The matcher decides which single Event Routing Rule receives an accepted Event.
 It does not execute Targets, create TargetSessions, append side-channel entries,
@@ -146,14 +146,13 @@ An Event Routing Rule declares:
 - `target_ref`: the target id for non-Blackhole targets.
 - `scope_fields`: the ordered `RoutingContext` field paths used to compute
   `scope_key`.
-- `window_type` and `window_ttl_seconds`: the TargetSession reuse window policy.
 
 `target_type` is a PostgreSQL native enum with these values:
 
 - `ai_agent`
 - `workflow`
 - `command`
-- `external_agent_harness`
+- `work`
 - `blackhole`
 
 Blackhole is the only current terminal drop target name. Its behavior is:
@@ -183,20 +182,18 @@ If a `bullx.command.invoked` Event matches no explicit command rule, EventBus
 may run the command fallback outside the matcher NIF by changing only the
 routing context type to `bullx.im.message.addressed` and matching the current
 snapshot again. A fallback match reuses the addressed route's Target and
-TargetSession policy but does not rewrite the side-channel CloudEvent. This is
+TargetSession scope but does not rewrite the side-channel CloudEvent. This is
 not lower-priority continuation after a matched rule; it runs only after direct
 command matching returns no match.
 
-Blackhole rules do not create TargetSessions and do not use scope or window
-values, but the writer stores neutral defaults to keep the schema simple:
+Blackhole rules do not create TargetSessions and do not use scope values, but
+the writer stores neutral defaults to keep the schema simple:
 
 - `scope_fields = []`
-- `window_type = 'new_per_event'`
-- `window_ttl_seconds = null`
 
 EventBus ignores those neutral defaults on the Blackhole path.
 
-## Scope and window policy
+## Scope policy
 
 Scope policy uses an ordered fields list, not CEL. Rules store
 `scope_fields text[]`.
@@ -255,19 +252,7 @@ Example:
 ]
 ```
 
-Window policy supports two `window_type` values:
-
-- `new_per_event`
-- `rolling_ttl`
-
-For `new_per_event`, `window_key` uses the Event identity's canonical JSON
-encoding, such as `[["event.source", source], ["event.id", id]]`.
-`window_ttl_seconds` must be `null`.
-
-For `rolling_ttl`, `window_key = "rolling"`. `window_ttl_seconds` is required
-and positive. EventBus reuses the same active TargetSession only while
-`expires_at` has not passed. On append, EventBus extends or refreshes
-`expires_at` to `min(now + window_ttl_seconds, inserted_at + 24 hours)`.
-
-This design does not define fixed bucket windows or arbitrary window
-expressions.
+EventBus reuses an active TargetSession for the same Event Routing Rule, Target,
+and `scope_key`. TargetSession idle closing is controlled by the EventBus
+runtime idle grace, not by route configuration. The default idle grace is 30
+minutes.

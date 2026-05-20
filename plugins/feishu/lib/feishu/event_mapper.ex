@@ -1,7 +1,7 @@
 defmodule Feishu.EventMapper do
   @moduledoc false
 
-  alias Feishu.{ContentMapper, DirectCommand, Source}
+  alias Feishu.{ContentMapper, DirectCommand, Source, UserInfo}
   alias FeishuOpenAPI.{CardAction, Event}
 
   import BullX.Utils.Map, only: [maybe_put: 3, reject_nil_values: 1]
@@ -401,16 +401,9 @@ defmodule Feishu.EventMapper do
         :error
 
       id ->
-        case FeishuOpenAPI.get(Source.client!(source), "/open-apis/contact/v3/users/:user_id",
-               path_params: %{user_id: id},
-               query: [user_id_type: id_type]
-             ) do
-          {:ok, %{"data" => %{"user" => %{"open_id" => open_id}}}}
-          when is_binary(open_id) and open_id != "" ->
-            {:ok, open_id}
-
-          {:ok, %{"data" => %{"open_id" => open_id}}} when is_binary(open_id) and open_id != "" ->
-            {:ok, open_id}
+        case UserInfo.fetch_contact(source, id, id_type) do
+          {:ok, userinfo} ->
+            UserInfo.open_id(userinfo)
 
           {:error, error} ->
             {:error, Feishu.Error.map(error)}
@@ -456,8 +449,7 @@ defmodule Feishu.EventMapper do
           "source" => "feishu_im",
           "tenant_key" => Map.get(env, :tenant_key),
           "chat_id" => Map.get(env, :chat_id),
-          "chat_type" => Map.get(env, :chat_type),
-          "connected_realm_ref" => source.connected_realm_ref
+          "chat_type" => Map.get(env, :chat_type)
         }
         |> reject_nil_values()
     }
@@ -506,7 +498,6 @@ defmodule Feishu.EventMapper do
       "provider_event_type" => env.event_type,
       "chat_type" => env.chat_type,
       "content_kind" => first_content_kind(blocks),
-      "connected_realm_ref" => source.connected_realm_ref,
       "im_listen_mode" => Atom.to_string(source.im_listen_mode)
     }
     |> reject_nil_values()

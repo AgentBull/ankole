@@ -6,12 +6,15 @@ defmodule BullX.Setup.AIAgents do
   alias BullX.AIAgent.Profile
   alias BullX.AuthZ
   alias BullX.AuthZ.{PermissionGrant, PrincipalGroup}
-  alias BullX.LLM.Catalog
+  alias BullX.LLM.{Catalog, ModelConfig}
   alias BullX.Principals
   alias BullX.Repo
+  alias BullXHarness.DefaultTemplate
 
   @setup_role "initial_ai_agent"
-  @default_mission "Help this BullX Installation handle addressed messages."
+
+  @spec default_soul() :: String.t()
+  def default_soul, do: DefaultTemplate.soul()
 
   @spec status(map()) :: map()
   def status(session \\ %{}) do
@@ -34,8 +37,7 @@ defmodule BullX.Setup.AIAgents do
     with :ok <- AuthZ.reconcile_bootstrap_admin_membership(),
          {:ok, groups} <- ensure_groups(),
          {:ok, profile} <- profile_from_attrs(attrs),
-         {:ok, _resolved} <-
-           Catalog.resolve_model_spec(get_in(profile, ["ai_agent", "main_model"])),
+         :ok <- resolve_profile_models(profile),
          {:ok, agent} <- create_or_update_agent(attrs, profile, session),
          :ok <- ensure_acl(agent.principal.id, groups, attrs) do
       {:ok,
@@ -77,9 +79,8 @@ defmodule BullX.Setup.AIAgents do
   defp selected_complete?(nil), do: false
 
   defp selected_complete?(agent) do
-    with {:ok, _profile} <- Profile.cast(agent.agent.profile),
-         {:ok, _resolved} <-
-           Catalog.resolve_model_spec(get_in(agent.agent.profile, ["ai_agent", "main_model"])),
+    with {:ok, profile} <- Profile.cast(agent.agent.profile),
+         {:ok, _resolved} <- Catalog.resolve_model_config(profile.main_llm),
          true <- required_acl_grants?(agent.principal.id) do
       true
     else
@@ -108,17 +109,51 @@ defmodule BullX.Setup.AIAgents do
   end
 
   defp default_profile(attrs) do
+    main_llm = llm_config(attrs, "main_llm", :medium)
+    compression_llm = llm_config(attrs, "compression_llm", :low) || with_effort(main_llm, :low)
+    heavy_llm = llm_config(attrs, "heavy_llm", :high) || with_effort(main_llm, :high)
+
     %{
       "ai_agent" => %{
-        "main_model" => string_value(attrs, "main_model", ""),
-        "mission" => string_value(attrs, "mission", @default_mission),
-        "soul" => string_value(attrs, "soul", ""),
+        "main_llm" => main_llm,
+        "compression_llm" => compression_llm,
+        "heavy_llm" => heavy_llm,
+        "mission" => string_value(attrs, "mission", nil),
+        "soul" => soul_value(attrs),
         "instructions" => string_value(attrs, "instructions", ""),
         "conversation_isolation_mode" => "scene",
         "unmentioned_group_messages" => "may_intervene",
         "acl" => %{"elevation_strategy" => "deny"}
       }
     }
+  end
+
+  defp llm_config(attrs, key, default_reasoning_effort) do
+    case map_value(attrs, key) do
+      %{} = config ->
+        Map.put_new(config, "reasoning_effort", Atom.to_string(default_reasoning_effort))
+
+      _missing ->
+        nil
+    end
+  end
+
+  defp with_effort(%{} = config, effort),
+    do: Map.put(config, "reasoning_effort", Atom.to_string(effort))
+
+  defp with_effort(nil, _effort), do: nil
+
+  defp resolve_profile_models(profile) do
+    with {:ok, cast_profile} <- Profile.cast(profile) do
+      [cast_profile.main_llm, cast_profile.compression_llm, cast_profile.heavy_llm]
+      |> Enum.uniq_by(&{&1.provider_id, &1.model})
+      |> Enum.reduce_while(:ok, fn model, :ok ->
+        case Catalog.resolve_model_config(model) do
+          {:ok, _resolved} -> {:cont, :ok}
+          {:error, reason} -> {:halt, {:error, {:unresolved_model, model, reason}}}
+        end
+      end)
+    end
   end
 
   defp create_or_update_agent(attrs, profile, session) do
@@ -286,10 +321,21 @@ defmodule BullX.Setup.AIAgents do
     ]
   end
 
-  defp map_value(attrs, key) when is_map(attrs),
-    do: Map.get(attrs, key) || Map.get(attrs, String.to_atom(key))
+  defp map_value(attrs, key) when is_map(attrs) do
+    Map.get(attrs, key) || Map.get(attrs, String.to_existing_atom(key))
+  rescue
+    ArgumentError -> Map.get(attrs, key)
+  end
 
   defp string_value(attrs, key, default), do: attrs |> map_value(key) |> trim_string(default)
+
+  defp soul_value(attrs) do
+    case map_value(attrs, "soul") do
+      nil -> default_soul()
+      value when is_binary(value) -> String.trim(value)
+      value -> value
+    end
+  end
 
   defp trim_string(value, default) when is_binary(value),
     do: if(String.trim(value) == "", do: default, else: String.trim(value))
@@ -303,6 +349,13 @@ defmodule BullX.Setup.AIAgents do
 
   defp normalize_error({:invalid_profile, errors}),
     do: %{field: "profile", message: "invalid profile", errors: errors}
+
+  defp normalize_error({:unresolved_model, %ModelConfig{} = config, reason}),
+    do: %{
+      field: "profile",
+      message: "unresolved model #{config.provider_id}:#{config.model}",
+      reason: inspect(reason)
+    }
 
   defp normalize_error(%Ecto.Changeset{} = changeset),
     do: %{message: "validation failed", errors: changeset_errors(changeset)}

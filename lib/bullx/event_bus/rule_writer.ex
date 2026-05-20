@@ -16,9 +16,7 @@ defmodule BullX.EventBus.RuleWriter do
     :match_expr,
     :target_type,
     :target_ref,
-    :scope_fields,
-    :window_type,
-    :window_ttl_seconds
+    :scope_fields
   ]
 
   @type refresh_error :: {:routing_table_refresh_failed, EventRoutingRule.t(), term()}

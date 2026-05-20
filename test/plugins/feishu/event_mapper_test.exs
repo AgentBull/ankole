@@ -10,7 +10,6 @@ defmodule Feishu.EventMapperTest do
       app_id: "cli_x",
       app_secret: "secret_x",
       tenant_key: "tenant_x",
-      connected_realm_ref: "feishu:tenant:acme",
       inline_media_max_bytes: 0
     }
 
@@ -47,7 +46,6 @@ defmodule Feishu.EventMapperTest do
     assert get_in(attrs.data, [:actor, :external_account_id]) == "feishu:ou_user"
     assert get_in(attrs.data, [:actor, :display_name]) == "Ada"
     assert get_in(attrs.data, [:actor, :principal]) == nil
-    assert get_in(attrs.data, [:routing_facts, "connected_realm_ref"]) == "feishu:tenant:acme"
     assert get_in(attrs.data, [:routing_facts, "im_listen_mode"]) == "addressed_only"
     assert get_in(attrs.data, [:routing_facts, "attention_reason"]) == "dm"
     assert get_in(attrs.data, [:reply_channel, :delivery_mode]) == "stream"

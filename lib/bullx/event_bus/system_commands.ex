@@ -42,8 +42,7 @@ defmodule BullX.EventBus.SystemCommands do
         ~s(type == "bullx.command.invoked" && routing_facts.command_name == "#{rule.command_name}"),
       target_type: :command,
       target_ref: rule.target_ref,
-      scope_fields: ["channel.adapter", "channel.id", "scope.id", "routing_facts.command_name"],
-      window_type: :new_per_event
+      scope_fields: ["channel.adapter", "channel.id", "scope.id", "routing_facts.command_name"]
     }
   end
 end

@@ -40,7 +40,7 @@ defmodule Feishu.ChannelAdapter do
   @impl BullX.EventBus.ChannelAdapter
   def capabilities do
     %{
-      inbound_modes: [:websocket, :card_action_callback],
+      inbound_modes: [:websocket],
       outbound_ops: [:send, :edit, :recall, :stream],
       stream_strategy: :native_cardkit,
       content_kinds: [

@@ -194,7 +194,7 @@ defmodule BullX.AIAgent.Commands do
         true ->
           BullX.AIAgent.Steering.put(
             conversation.generation["lease_id"],
-            context.source_id,
+            context.trigger_id,
             context.args
           )
 
@@ -311,20 +311,20 @@ defmodule BullX.AIAgent.Commands do
         Repo.rollback(:active_generation_present)
       end
 
-      with {:ok, source_message, retry_of_message_id} <- last_generation_source(conversation),
-           {:ok, recall_targets} <- mark_suffix(conversation, source_message, "retry", context),
-           {:ok, rewound} <- set_current_leaf(conversation, source_message.id),
+      with {:ok, trigger_message, retry_of_message_id} <- last_generation_trigger(conversation),
+           {:ok, recall_targets} <- mark_suffix(conversation, trigger_message, "retry", context),
+           {:ok, rewound} <- set_current_leaf(conversation, trigger_message.id),
            {:ok, leased, lease_id} <-
              Conversations.acquire_generation_lease_locked(
                rewound,
-               generation_owner("command_retry", context.source_id, source_message.id, context),
+               generation_owner("command_retry", context.trigger_id, trigger_message.id, context),
                now
              ) do
         %{
           status: :start_generation,
           command: "retry",
           conversation_id: leased.id,
-          source_message_id: source_message.id,
+          trigger_message_id: trigger_message.id,
           retry_of_message_id: retry_of_message_id,
           lease_id: lease_id,
           recall_targets: recall_targets
@@ -345,10 +345,12 @@ defmodule BullX.AIAgent.Commands do
         Repo.rollback(:active_generation_present)
       end
 
-      with {:ok, source_message} <- last_exchange_source(conversation),
+      with {:ok, trigger_message} <- last_exchange_trigger(conversation),
            {:ok, recall_targets} <-
-             mark_suffix(conversation, source_message, "undo", context, include_source?: true),
-           {:ok, updated} <- set_current_leaf(conversation, source_message.parent_id) do
+             mark_suffix(conversation, trigger_message, "undo", context,
+               include_trigger_message?: true
+             ),
+           {:ok, updated} <- set_current_leaf(conversation, trigger_message.parent_id) do
         %{conversation: updated, recall_targets: recall_targets}
       else
         {:error, reason} -> Repo.rollback(reason)
@@ -356,26 +358,26 @@ defmodule BullX.AIAgent.Commands do
     end)
   end
 
-  defp last_generation_source(%Conversation{} = conversation) do
+  defp last_generation_trigger(%Conversation{} = conversation) do
     branch = Conversations.render_branch(conversation)
     indexed = Map.new(branch, &{&1.id, &1})
 
     case List.last(branch) do
       %Message{} = tail when tail.role in [:user, :im_ambient] ->
-        case user_like_source?(tail) do
+        case user_like_trigger_message?(tail) do
           true -> {:ok, tail, tail.id}
           false -> {:error, :no_retry_target}
         end
 
       %Message{} = tail ->
-        last_generated_source(tail, branch, indexed)
+        last_generated_trigger(tail, branch, indexed)
 
       _tail ->
         {:error, :no_retry_target}
     end
   end
 
-  defp last_generated_source(tail, branch, indexed) do
+  defp last_generated_trigger(tail, branch, indexed) do
     case retry_tail?(tail) do
       true ->
         branch
@@ -385,23 +387,23 @@ defmodule BullX.AIAgent.Commands do
           %Message{role: :assistant, kind: :error, status: :complete} -> true
           _message -> false
         end)
-        |> generation_source(indexed)
+        |> generation_trigger(indexed)
 
       false ->
         {:error, :no_retry_target}
     end
   end
 
-  defp generation_source(
+  defp generation_trigger(
          %Message{
            id: retry_of_message_id,
-           metadata: %{"generation" => %{"source_message_id" => source_message_id}}
+           metadata: %{"generation" => %{"trigger_message_id" => trigger_message_id}}
          },
          indexed
        ) do
-    case Map.get(indexed, source_message_id) do
+    case Map.get(indexed, trigger_message_id) do
       %Message{} = message ->
-        case user_like_source?(message) do
+        case user_like_trigger_message?(message) do
           true -> {:ok, message, retry_of_message_id}
           false -> {:error, :no_retry_target}
         end
@@ -411,22 +413,22 @@ defmodule BullX.AIAgent.Commands do
     end
   end
 
-  defp generation_source(_message, _indexed), do: {:error, :no_retry_target}
+  defp generation_trigger(_message, _indexed), do: {:error, :no_retry_target}
 
-  defp user_like_source?(%Message{role: :user, kind: :normal}), do: true
-  defp user_like_source?(%Message{role: :im_ambient, kind: :introspection}), do: true
-  defp user_like_source?(_message), do: false
+  defp user_like_trigger_message?(%Message{role: :user, kind: :normal}), do: true
+  defp user_like_trigger_message?(%Message{role: :im_ambient, kind: :introspection}), do: true
+  defp user_like_trigger_message?(_message), do: false
 
   defp retry_tail?(%Message{role: :assistant, kind: :normal, status: :complete}), do: true
   defp retry_tail?(%Message{role: :assistant, kind: :error, status: :complete}), do: true
   defp retry_tail?(%Message{role: :tool, kind: :normal, status: :complete}), do: true
   defp retry_tail?(_message), do: false
 
-  defp last_exchange_source(%Conversation{} = conversation) do
+  defp last_exchange_trigger(%Conversation{} = conversation) do
     conversation
     |> Conversations.render_branch()
     |> Enum.reverse()
-    |> Enum.find(&user_like_source?/1)
+    |> Enum.find(&user_like_trigger_message?/1)
     |> case do
       %Message{} = message -> {:ok, message}
       nil -> {:error, :no_undo_target}
@@ -439,14 +441,14 @@ defmodule BullX.AIAgent.Commands do
     |> Repo.update()
   end
 
-  defp mark_suffix(conversation, source_message, command, context, opts \\ []) do
-    include_source? = Keyword.get(opts, :include_source?, false)
+  defp mark_suffix(conversation, trigger_message, command, context, opts \\ []) do
+    include_trigger_message? = Keyword.get(opts, :include_trigger_message?, false)
 
     messages =
       conversation
       |> Conversations.active_branch()
-      |> Enum.drop_while(&(&1.id != source_message.id))
-      |> maybe_drop_source(include_source?)
+      |> Enum.drop_while(&(&1.id != trigger_message.id))
+      |> maybe_drop_trigger_message(include_trigger_message?)
 
     recall_targets = delivery_recall_targets(messages)
 
@@ -456,7 +458,7 @@ defmodule BullX.AIAgent.Commands do
         Map.put(message.metadata, "branch_effect", %{
           "state" => branch_state(command),
           "command" => command,
-          "command_entry_id" => context.source_id,
+          "command_entry_id" => context.trigger_id,
           "at" => DateTime.to_iso8601(DateTime.utc_now(:microsecond))
         })
 
@@ -488,7 +490,7 @@ defmodule BullX.AIAgent.Commands do
         |> Map.put("branch_effect", %{
           "state" => "interrupted",
           "command" => "stop",
-          "command_entry_id" => context.source_id,
+          "command_entry_id" => context.trigger_id,
           "at" => DateTime.to_iso8601(now)
         })
         |> put_in(["stream", "status"], "interrupted")
@@ -555,21 +557,21 @@ defmodule BullX.AIAgent.Commands do
 
   defp external_message_ids(_metadata), do: []
 
-  defp maybe_drop_source(messages, true), do: messages
-  defp maybe_drop_source([_source | rest], false), do: rest
-  defp maybe_drop_source([], _include_source?), do: []
+  defp maybe_drop_trigger_message(messages, true), do: messages
+  defp maybe_drop_trigger_message([_trigger_message | rest], false), do: rest
+  defp maybe_drop_trigger_message([], _include_trigger_message?), do: []
 
   defp branch_state("retry"), do: "superseded"
   defp branch_state("undo"), do: "undone"
   defp branch_state(_command), do: "interrupted"
 
-  defp generation_owner(owner_source_type, owner_source_id, source_message_id, context) do
+  defp generation_owner(owner_trigger_type, owner_trigger_id, trigger_message_id, context) do
     generation = context.profile.generation
 
     %{
-      "owner_source_type" => owner_source_type,
-      "owner_source_id" => owner_source_id,
-      "source_message_id" => source_message_id,
+      "owner_trigger_type" => owner_trigger_type,
+      "owner_trigger_id" => owner_trigger_id,
+      "trigger_message_id" => trigger_message_id,
       "generation_lease_ttl_ms" => generation.generation_lease_ttl_ms,
       "generation_heartbeat_interval_ms" => generation.generation_heartbeat_interval_ms,
       "generation_max_runtime_ms" => generation.generation_max_runtime_ms

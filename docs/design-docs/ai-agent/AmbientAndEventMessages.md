@@ -60,7 +60,7 @@ classes:
 | Class | CloudEvents `type` | AIAgent behavior |
 | --- | --- | --- |
 | Addressed utterance | `bullx.im.message.addressed` | Persist normal input as `role = user, kind = normal`, or handle an AIAgent-owned slash command as a control input without writing a Conversation Message. |
-| Directed action | `bullx.action.submitted` | Persist the normalized action text projection as `role = user, kind = normal`; keep action identifiers and sanitized values as structured Event facts referenced by the Message source identifiers. |
+| Directed action | `bullx.action.submitted` | Persist the normalized action text projection as `role = user, kind = normal`; keep action identifiers and sanitized values as structured Event facts referenced by Message provenance identifiers. |
 | Ambient utterance | `bullx.im.message.ambient` | Persist as `role = im_ambient, kind = normal`, then follow the Agent profile's ambient policy. |
 | AIAgent command Event | `bullx.command.invoked` | Run the AIAgent-owned command control path without writing a Conversation Message. |
 | Unsupported Event | Any other type | Record allowlisted safety telemetry and return success without writing a user Message or invoking a model. |
@@ -216,8 +216,8 @@ Batching rules:
 - Batch creation captures one session-level `reply_channel` transport hint from
   the active ambient Conversation session. Later messages in the same batch do
   not participate in `reply_channel` selection and must not overwrite that hint.
-- The recognizer uses `compression_model`. If `compression_model` is null, it
-  uses `main_model`.
+- The recognizer uses `compression_llm`. If `compression_llm` is null, it
+  uses `main_llm`.
 - The batch worker must apply a freshness guard. If processing starts after the
   short grace window, it discards the batch instead of running a late recognizer.
 
@@ -260,12 +260,12 @@ batch metadata:
 
 - deterministic batch idempotency key;
 - batch time range;
-- ordered source Message ids or snippets;
+- ordered observed Message ids or snippets;
 - short trigger-reason summary;
 - the session-level `reply_channel` hint captured when the batch was created.
 
 After writing the introspection Message, the worker invokes the AIAgent Core
-internal generation runner with runtime context `source = ambient_batch`, absent
+internal generation runner with runtime context `trigger_type = ambient_batch`, absent
 TargetSession identifiers, and the captured `reply_channel` hint. Core still
 owns generation lease, Conversation active-state checks, ACL, tool policy,
 visible reply decisions, and outbound delivery.
@@ -327,10 +327,10 @@ Processing flow:
    `ambient_intent_system_prompt`.
 8. If intervention is needed, the worker writes `im_ambient introspection` with
    the deterministic processed-batch idempotency key. The key is scoped by the
-   ambient Conversation-session batch key and the normalized source item
+   ambient Conversation-session batch key and the normalized ambient item
    identities, so the same Redis batch is idempotent but later batches in the
    same ambient Conversation can still intervene.
-9. The worker invokes Core generation with `source = ambient_batch`, absent
+9. The worker invokes Core generation with `trigger_type = ambient_batch`, absent
    TargetSession identifiers, and the captured Conversation-session
    `reply_channel` hint.
 10. The worker cleans `meta`, `items`, the `due` entry, and the processing lock.
@@ -367,7 +367,7 @@ helpers. Proactive streaming requires an explicit EventBus re-entry design.
 ## Ambient brief
 
 When a single `role = im_ambient, kind = normal` text content exceeds 1000
-characters, the AIAgent uses `compression_model` to generate a brief of at most
+characters, the AIAgent uses `compression_llm` to generate a brief of at most
 200 words and stores it on the same Message at `metadata.brief`.
 
 Brief boundaries:
@@ -439,7 +439,7 @@ Ambient context handed to the builder includes:
 - normalized IM scene identifier;
 - ordered ambient snippets;
 - per-snippet safe sender display name, `sent_at`, brief-first content, and
-  source Message id.
+  observed Message id.
 
 The builder decides how to render these snippets as leading context blocks for
 the current user-like Message. AIAgent ambient handling must not bypass the
@@ -561,7 +561,7 @@ Implementation steps:
      idempotency, and Core generation handoff.
    - Acceptance: same-session ambient messages are batched without extending
      `due_at`; direct follow-up signals may shorten `due_at`; recognizer uses
-     `compression_model` or falls back to `main_model`; invalid recognizer output
+     `compression_llm` or falls back to `main_llm`; invalid recognizer output
      is treated as no intervention; batch creation captures a single
      session-level `reply_channel` hint; Redis loss or stale processing drops
      only the proactive opportunity.
@@ -620,8 +620,8 @@ Done when:
 - Redis ambient batch state is weak runtime state; loss, expiry, or ambient
   Conversation closure drops only one proactive opportunity and never replays
   stale intervention.
-- The ambient intent recognizer uses `compression_model`, with fallback to
-  `main_model`, and receives `mission`, `ambient_intent_system_prompt`, ambient
+- The ambient intent recognizer uses `compression_llm`, with fallback to
+  `main_llm`, and receives `mission`, `ambient_intent_system_prompt`, ambient
   recall, and addressed Conversation context.
 - Ambient brief generation and the ambient intent recognizer are Agent-owned
   auxiliary observation calls. They do not require caller ACL and do not perform

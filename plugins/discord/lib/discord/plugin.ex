@@ -8,7 +8,12 @@ defmodule Discord.Plugin do
   processing remain owned by EventBus and Targets.
   """
 
-  use BullX.Plugins.Plugin
+  use BullX.Plugins.Plugin,
+    display_name: %{"en-US" => "Discord", "zh-Hans-CN" => "Discord"},
+    description: %{
+      "en-US" => "Channel adapter and OAuth2 login hook for Discord servers.",
+      "zh-Hans-CN" => "面向 Discord 服务器的通道适配器与 OAuth2 登录钩子。"
+    }
 
   @impl BullX.Plugins.Plugin
   def extensions do
@@ -17,7 +22,7 @@ defmodule Discord.Plugin do
         point: :"bullx.event_bus.channel_adapter",
         id: "discord",
         module: Discord.ChannelAdapter,
-        opts: %{provider: "discord"}
+        opts: %{provider: "discord", setup_module: Discord.SourceSetup}
       },
       %{
         point: :"bullx.principals.login_provider",

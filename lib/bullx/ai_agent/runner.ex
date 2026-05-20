@@ -21,7 +21,7 @@ defmodule BullX.AIAgent.Runner do
 
   ## Internal contract
 
-  The runner owns the model/tool loop for one user-like source Message. It
+  The runner owns the model/tool loop for one user-like trigger Message. It
   keeps provider calls, tool execution, and visible delivery behind
   Conversation persistence and ACL checks.
   """
@@ -70,41 +70,47 @@ defmodule BullX.AIAgent.Runner do
   @spec run(Conversation.t(), Message.t(), Profile.t(), map()) :: :ok | {:error, term()}
   def run(
         %Conversation{} = conversation,
-        %Message{} = source_message,
+        %Message{} = trigger_message,
         %Profile{} = profile,
         context
       )
       when is_map(context) do
     # Retry/replay safety: if a completed assistant message already exists for this
-    # source, resume from after-generation steps (re-deliver, finish unfinished tool
+    # trigger Message, resume from after-generation steps (re-deliver, finish unfinished tool
     # results) instead of generating again. `force_generation?` bypasses the check
     # for explicit user-initiated retries.
     case {Map.get(context, :force_generation?, false),
-          Conversations.complete_assistant_for_source(source_message.id)} do
+          Conversations.complete_assistant_for_trigger(trigger_message.id)} do
       {true, _assistant_message} ->
-        start_generation(conversation, source_message, profile, context)
+        start_generation(conversation, trigger_message, profile, context)
 
       {false, %Message{} = assistant_message} ->
         recover_generated_output(
           conversation,
-          source_message,
+          trigger_message,
           assistant_message,
           profile,
           context
         )
 
       {false, nil} ->
-        start_generation(conversation, source_message, profile, context)
+        start_generation(conversation, trigger_message, profile, context)
     end
   end
 
-  defp recover_generated_output(conversation, source_message, assistant_message, profile, context) do
+  defp recover_generated_output(
+         conversation,
+         trigger_message,
+         assistant_message,
+         profile,
+         context
+       ) do
     now = DateTime.utc_now(:microsecond)
 
     owner = %{
-      "owner_source_type" => context.source_type,
-      "owner_source_id" => context.source_id,
-      "source_message_id" => source_message.id,
+      "owner_trigger_type" => context.trigger_type,
+      "owner_trigger_id" => context.trigger_id,
+      "trigger_message_id" => trigger_message.id,
       "generation_lease_ttl_ms" => profile.generation.generation_lease_ttl_ms,
       "generation_heartbeat_interval_ms" => profile.generation.generation_heartbeat_interval_ms,
       "generation_max_runtime_ms" => profile.generation.generation_max_runtime_ms
@@ -125,7 +131,7 @@ defmodule BullX.AIAgent.Runner do
          :ok <-
            maybe_recover_tool_results(
              active_conversation,
-             source_message,
+             trigger_message,
              assistant_message,
              profile,
              context
@@ -141,23 +147,23 @@ defmodule BullX.AIAgent.Runner do
     end
   end
 
-  defp start_generation(conversation, source_message, profile, context) do
+  defp start_generation(conversation, trigger_message, profile, context) do
     case Map.get(context, :lease_id) do
       lease_id when is_binary(lease_id) ->
-        run_existing_lease(conversation, source_message, profile, context, lease_id)
+        run_existing_lease(conversation, trigger_message, profile, context, lease_id)
 
       _missing ->
-        acquire_and_run_generation(conversation, source_message, profile, context)
+        acquire_and_run_generation(conversation, trigger_message, profile, context)
     end
   end
 
-  defp acquire_and_run_generation(conversation, source_message, profile, context) do
+  defp acquire_and_run_generation(conversation, trigger_message, profile, context) do
     now = DateTime.utc_now(:microsecond)
 
     owner = %{
-      "owner_source_type" => context.source_type,
-      "owner_source_id" => context.source_id,
-      "source_message_id" => source_message.id,
+      "owner_trigger_type" => context.trigger_type,
+      "owner_trigger_id" => context.trigger_id,
+      "trigger_message_id" => trigger_message.id,
       "generation_lease_ttl_ms" => profile.generation.generation_lease_ttl_ms,
       "generation_heartbeat_interval_ms" => profile.generation.generation_heartbeat_interval_ms,
       "generation_max_runtime_ms" => profile.generation.generation_max_runtime_ms
@@ -175,7 +181,7 @@ defmodule BullX.AIAgent.Runner do
          run_result <-
            loop(
              leased_conversation,
-             source_message,
+             trigger_message,
              profile,
              Map.put(context, :lease_id, lease_id),
              0
@@ -185,7 +191,7 @@ defmodule BullX.AIAgent.Runner do
       run_result
     else
       {:denied, _reason} ->
-        write_acl_denial(conversation, source_message, context)
+        write_acl_denial(conversation, trigger_message, context)
 
       {:error, :generation_active} ->
         :ok
@@ -195,7 +201,7 @@ defmodule BullX.AIAgent.Runner do
     end
   end
 
-  defp run_existing_lease(conversation, source_message, profile, context, lease_id) do
+  defp run_existing_lease(conversation, trigger_message, profile, context, lease_id) do
     with :allowed <-
            ACL.authorize(
              context.caller_principal_id,
@@ -204,13 +210,13 @@ defmodule BullX.AIAgent.Runner do
              Map.get(context, :acl_context, %{})
            ),
          {:ok, leased_conversation} <- ensure_owned_active(conversation.id, lease_id),
-         run_result <- loop(leased_conversation, source_message, profile, context, 0),
+         run_result <- loop(leased_conversation, trigger_message, profile, context, 0),
          {:ok, _conversation} <-
            Conversations.clear_generation_lease(leased_conversation, lease_id) do
       run_result
     else
       {:denied, _reason} ->
-        write_acl_denial(conversation, source_message, context)
+        write_acl_denial(conversation, trigger_message, context)
 
       {:error, :generation_inactive} ->
         :ok
@@ -220,19 +226,19 @@ defmodule BullX.AIAgent.Runner do
     end
   end
 
-  defp write_acl_denial(conversation, source_message, %{source_type: "ambient_batch"} = context) do
+  defp write_acl_denial(conversation, trigger_message, %{trigger_type: "ambient_batch"} = context) do
     :telemetry.execute([:bullx, :ai_agent, :acl_denied], %{}, %{
-      source_type: context.source_type,
-      source_id: context.source_id,
+      trigger_type: context.trigger_type,
+      trigger_id: context.trigger_id,
       agent_principal_id: context.agent_principal_id,
-      source_message_id: source_message.id
+      trigger_message_id: trigger_message.id
     })
 
     :ok = maybe_clear_context_lease(conversation, context)
   end
 
-  defp write_acl_denial(conversation, source_message, context) do
-    write_error(conversation, source_message, context, "acl_denied", "AIAgent access denied.")
+  defp write_acl_denial(conversation, trigger_message, context) do
+    write_error(conversation, trigger_message, context, "acl_denied", "AIAgent access denied.")
     maybe_clear_context_lease(conversation, context)
   end
 
@@ -249,14 +255,14 @@ defmodule BullX.AIAgent.Runner do
     end
   end
 
-  defp loop(conversation, source_message, profile, context, turn) do
+  defp loop(conversation, trigger_message, profile, context, turn) do
     case turn >= profile.context.max_turns do
-      true -> write_turn_limit_error(conversation, source_message, context)
-      false -> do_loop(conversation, source_message, profile, context, turn)
+      true -> write_turn_limit_error(conversation, trigger_message, context)
+      false -> do_loop(conversation, trigger_message, profile, context, turn)
     end
   end
 
-  defp do_loop(conversation, source_message, profile, context, turn) do
+  defp do_loop(conversation, trigger_message, profile, context, turn) do
     conversation = BullX.Repo.get!(Conversation, conversation.id)
 
     # Each loop iteration is gated by `owned_active_lease?` and every persist that
@@ -269,9 +275,9 @@ defmodule BullX.AIAgent.Runner do
              context.lease_id,
              DateTime.utc_now(:microsecond)
            ),
-         ambient_context <- ambient_context(conversation, source_message),
+         ambient_context <- ambient_context(conversation, trigger_message),
          {:ok, rendered} <-
-           render_with_budget(conversation, source_message, profile, context, ambient_context),
+           render_with_budget(conversation, trigger_message, profile, context, ambient_context),
          rendered <- Compression.apply_prompt_cache_hints(rendered, profile: profile),
          tools <-
            Tools.enabled_tools(
@@ -283,11 +289,11 @@ defmodule BullX.AIAgent.Runner do
          opts <- call_opts(profile, tools, rendered),
          {:ok, result} <-
            with_heartbeat(conversation, context, profile, fn ->
-             call_model(conversation, source_message, profile, context, rendered, opts)
+             call_model(conversation, trigger_message, profile, context, rendered, opts)
            end),
          {:ok, conversation} <- ensure_owned_active(conversation.id, context.lease_id),
          {:ok, assistant_message} <-
-           persist_assistant_result(conversation, source_message, result, context),
+           persist_assistant_result(conversation, trigger_message, result, context),
          {:ok, conversation} <- ensure_owned_active(conversation.id, context.lease_id),
          tool_calls <- normalize_tool_calls(result.tool_calls) do
       case tool_calls do
@@ -300,14 +306,14 @@ defmodule BullX.AIAgent.Runner do
                  with_heartbeat(conversation, context, profile, fn ->
                    persist_tool_results(
                      conversation,
-                     source_message,
+                     trigger_message,
                      assistant_message,
                      tool_calls,
                      profile,
                      context
                    )
                  end) do
-            loop(conversation, source_message, profile, context, turn + 1)
+            loop(conversation, trigger_message, profile, context, turn + 1)
           else
             {:error, :generation_inactive} -> :ok
             {:error, _reason} = error -> error
@@ -325,7 +331,7 @@ defmodule BullX.AIAgent.Runner do
           {:ok, active_conversation} ->
             case write_error(
                    active_conversation,
-                   source_message,
+                   trigger_message,
                    context,
                    "generation_failed",
                    "AIAgent generation failed."
@@ -340,14 +346,14 @@ defmodule BullX.AIAgent.Runner do
     end
   end
 
-  defp call_model(conversation, source_message, profile, context, rendered, opts) do
+  defp call_model(conversation, trigger_message, profile, context, rendered, opts) do
     case stream_requested?(context) do
-      true -> stream_model_call(conversation, source_message, profile, context, rendered, opts)
-      false -> LLM.chat(profile.main_model, rendered.messages, opts)
+      true -> stream_model_call(conversation, trigger_message, profile, context, rendered, opts)
+      false -> LLM.chat(profile.main_llm, rendered.messages, opts)
     end
   end
 
-  defp stream_model_call(conversation, source_message, profile, context, rendered, opts) do
+  defp stream_model_call(conversation, trigger_message, profile, context, rendered, opts) do
     output = context.output
     reply_channel = context.reply_channel
 
@@ -355,7 +361,7 @@ defmodule BullX.AIAgent.Runner do
       {:ok, stream_id} ->
         do_stream_model_call(
           conversation,
-          source_message,
+          trigger_message,
           profile,
           context,
           rendered,
@@ -372,7 +378,7 @@ defmodule BullX.AIAgent.Runner do
 
   defp do_stream_model_call(
          conversation,
-         source_message,
+         trigger_message,
          profile,
          context,
          rendered,
@@ -382,9 +388,9 @@ defmodule BullX.AIAgent.Runner do
          stream_id
        ) do
     with {:ok, generating_message} <-
-           persist_generating_assistant(conversation, source_message, context, stream_id),
+           persist_generating_assistant(conversation, trigger_message, context, stream_id),
          :ok <- start_stream_consumer(reply_channel, stream_id, generating_message, context) do
-      case LLM.stream_chat(profile.main_model, rendered.messages, opts,
+      case LLM.stream_chat(profile.main_llm, rendered.messages, opts,
              on_result: stream_chunk_callback(conversation.id, context, output, stream_id)
            ) do
         {:ok, result} ->
@@ -393,7 +399,7 @@ defmodule BullX.AIAgent.Runner do
                {:ok, complete_message} <-
                  complete_streaming_assistant(
                    generating_message,
-                   source_message,
+                   trigger_message,
                    result,
                    context
                  ),
@@ -435,7 +441,7 @@ defmodule BullX.AIAgent.Runner do
       Map.get(reply_channel, :delivery_mode) == "stream"
   end
 
-  defp persist_generating_assistant(conversation, source_message, context, stream_id) do
+  defp persist_generating_assistant(conversation, trigger_message, context, stream_id) do
     attrs = %{
       conversation_id: conversation.id,
       role: :assistant,
@@ -445,7 +451,7 @@ defmodule BullX.AIAgent.Runner do
       target_session_id: Map.get(context, :target_session_id),
       target_session_entry_id: Map.get(context, :target_session_entry_id),
       metadata:
-        generation_metadata(source_message, context, %{
+        generation_metadata(trigger_message, context, %{
           "delivery" => stream_delivery_metadata(stream_id, context),
           "stream" => %{
             "stream_id" => stream_id,
@@ -474,7 +480,7 @@ defmodule BullX.AIAgent.Runner do
     Conversations.update_message(message, %{metadata: metadata})
   end
 
-  defp persist_assistant_result(conversation, source_message, result, context)
+  defp persist_assistant_result(conversation, trigger_message, result, context)
        when is_map(result) do
     case Map.get(result, :persisted_assistant_message_id) do
       message_id when is_binary(message_id) ->
@@ -484,13 +490,13 @@ defmodule BullX.AIAgent.Runner do
         end
 
       _missing ->
-        persist_assistant(conversation, source_message, result, context)
+        persist_assistant(conversation, trigger_message, result, context)
     end
   end
 
   defp complete_streaming_assistant(
          %Message{} = generating_message,
-         source_message,
+         trigger_message,
          result,
          context
        ) do
@@ -498,7 +504,7 @@ defmodule BullX.AIAgent.Runner do
 
     metadata =
       current_message.metadata
-      |> Map.merge(generation_metadata(source_message, context, result_metadata(result)))
+      |> Map.merge(generation_metadata(trigger_message, context, result_metadata(result)))
       |> put_in(["stream", "finished_at"], DateTime.to_iso8601(DateTime.utc_now(:microsecond)))
       |> put_in(["stream", "status"], "completed")
 
@@ -596,7 +602,7 @@ defmodule BullX.AIAgent.Runner do
       "idempotency_key" =>
         Tools.idempotency_key(%{
           assistant_message_id: assistant_message_id || stream_id,
-          source_id: context.source_id,
+          trigger_id: context.trigger_id,
           reply_channel: reply_channel_identity(reply_channel)
         }),
       "status" => "unknown",
@@ -612,14 +618,14 @@ defmodule BullX.AIAgent.Runner do
 
   defp render_with_budget(
          conversation,
-         source_message,
+         trigger_message,
          profile,
          context,
          ambient_context,
          attempt \\ 0
        ) do
     with {:ok, rendered} <-
-           PromptRenderer.render(conversation, profile, source_message,
+           PromptRenderer.render(conversation, profile, trigger_message,
              ambient_context: ambient_context,
              runtime_context: runtime_context(context)
            ) do
@@ -639,7 +645,7 @@ defmodule BullX.AIAgent.Runner do
             {:ok, %{status: :ok}} ->
               render_with_budget(
                 conversation,
-                source_message,
+                trigger_message,
                 profile,
                 context,
                 ambient_context,
@@ -740,7 +746,7 @@ defmodule BullX.AIAgent.Runner do
 
   defp maybe_recover_tool_results(
          conversation,
-         source_message,
+         trigger_message,
          assistant_message,
          profile,
          context
@@ -752,19 +758,19 @@ defmodule BullX.AIAgent.Runner do
         :ok
 
       Conversations.tool_result_for_assistant?(assistant_message.id) ->
-        loop(conversation, source_message, profile, context, 0)
+        loop(conversation, trigger_message, profile, context, 0)
 
       true ->
         with {:ok, _message} <-
                persist_tool_results(
                  conversation,
-                 source_message,
+                 trigger_message,
                  assistant_message,
                  tool_calls,
                  profile,
                  context
                ) do
-          loop(conversation, source_message, profile, context, 0)
+          loop(conversation, trigger_message, profile, context, 0)
         end
     end
   end
@@ -783,19 +789,19 @@ defmodule BullX.AIAgent.Runner do
 
   defp runtime_context(context) do
     %{
-      source_type: context.source_type,
-      source_id: context.source_id,
+      trigger_type: context.trigger_type,
+      trigger_id: context.trigger_id,
       target_session_id: Map.get(context, :target_session_id)
     }
   end
 
   defp ambient_context(
          %Conversation{agent_principal_id: agent_principal_id},
-         %Message{metadata: metadata} = source_message
+         %Message{metadata: metadata} = trigger_message
        ) do
     case get_in(metadata, ["scene"]) do
       %{} = scene ->
-        MessageContextBuilder.ambient_recall(agent_principal_id, scene, source_message)
+        MessageContextBuilder.ambient_recall(agent_principal_id, scene, trigger_message)
 
       _other ->
         []
@@ -805,10 +811,7 @@ defmodule BullX.AIAgent.Runner do
   defp call_opts(%Profile{} = profile, tools, rendered) do
     provider_options = prompt_cache_provider_options(profile, rendered)
 
-    opts = [
-      reasoning_effort: profile.main_model_reasoning_effort,
-      tools: Enum.map(tools, & &1.tool)
-    ]
+    opts = [tools: Enum.map(tools, & &1.tool)]
 
     case provider_options do
       [] -> opts
@@ -830,7 +833,7 @@ defmodule BullX.AIAgent.Runner do
   defp prompt_cache_provider_options(_profile, _rendered), do: []
 
   defp prompt_cache_boundary_supported?(profile, rendered) do
-    with {:ok, resolved} <- Catalog.resolve_model_spec(profile.main_model),
+    with {:ok, resolved} <- Catalog.resolve_model_config(profile.main_llm),
          true <- resolved.req_llm_provider in [:anthropic, "anthropic"],
          stable_index when is_integer(stable_index) <-
            rendered.system_prompt.stable_prefix.content_part_index do
@@ -840,7 +843,7 @@ defmodule BullX.AIAgent.Runner do
     end
   end
 
-  defp persist_assistant(conversation, source_message, result, context) do
+  defp persist_assistant(conversation, trigger_message, result, context) do
     attrs = %{
       conversation_id: conversation.id,
       role: :assistant,
@@ -849,7 +852,7 @@ defmodule BullX.AIAgent.Runner do
       content: assistant_content(result),
       target_session_id: Map.get(context, :target_session_id),
       target_session_entry_id: Map.get(context, :target_session_entry_id),
-      metadata: generation_metadata(source_message, context, result_metadata(result))
+      metadata: generation_metadata(trigger_message, context, result_metadata(result))
     }
 
     case Conversations.append_message(conversation, attrs) do
@@ -882,7 +885,7 @@ defmodule BullX.AIAgent.Runner do
 
   defp persist_tool_results(
          conversation,
-         source_message,
+         trigger_message,
          assistant_message,
          tool_calls,
          profile,
@@ -892,8 +895,8 @@ defmodule BullX.AIAgent.Runner do
       caller_principal_id: context.caller_principal_id,
       agent_principal_id: context.agent_principal_id,
       conversation_id: conversation.id,
-      source_type: context.source_type,
-      source_id: context.source_id,
+      trigger_type: context.trigger_type,
+      trigger_id: context.trigger_id,
       deadline_at_ms: generation_deadline_at_ms(conversation),
       acl_context: Map.get(context, :acl_context, %{}),
       metadata: %{}
@@ -913,7 +916,7 @@ defmodule BullX.AIAgent.Runner do
       target_session_id: Map.get(context, :target_session_id),
       target_session_entry_id: Map.get(context, :target_session_entry_id),
       metadata:
-        generation_metadata(source_message, context, %{
+        generation_metadata(trigger_message, context, %{
           "root_assistant_message_id" => assistant_message.id
         })
     }
@@ -924,7 +927,7 @@ defmodule BullX.AIAgent.Runner do
     end
   end
 
-  defp write_error(conversation, source_message, context, code, message) do
+  defp write_error(conversation, trigger_message, context, code, message) do
     attrs = %{
       conversation_id: conversation.id,
       role: :assistant,
@@ -933,18 +936,18 @@ defmodule BullX.AIAgent.Runner do
       content: [Message.error_block(code, message, false)],
       target_session_id: Map.get(context, :target_session_id),
       target_session_entry_id: Map.get(context, :target_session_entry_id),
-      metadata: generation_metadata(source_message, context, %{"safe_error_code" => code})
+      metadata: generation_metadata(trigger_message, context, %{"safe_error_code" => code})
     }
 
     Conversations.append_message(conversation, attrs)
   end
 
-  defp write_turn_limit_error(conversation, source_message, context) do
+  defp write_turn_limit_error(conversation, trigger_message, context) do
     case ensure_owned_active(conversation.id, context.lease_id) do
       {:ok, active_conversation} ->
         case write_error(
                active_conversation,
-               source_message,
+               trigger_message,
                context,
                "max_turns_exceeded",
                "AIAgent generation reached the configured turn limit."
@@ -958,14 +961,14 @@ defmodule BullX.AIAgent.Runner do
     end
   end
 
-  defp generation_metadata(source_message, context, extra) do
+  defp generation_metadata(trigger_message, context, extra) do
     %{
       "generation" =>
         %{
           "lease_id" => Map.get(context, :lease_id),
-          "source_message_id" => source_message.id,
-          "source_type" => context.source_type,
-          "source_id" => context.source_id,
+          "trigger_message_id" => trigger_message.id,
+          "trigger_type" => context.trigger_type,
+          "trigger_id" => context.trigger_id,
           "root_assistant_message_id" => Map.get(extra, "root_assistant_message_id")
         }
         |> Enum.reject(fn {_key, value} -> is_nil(value) end)
@@ -1212,7 +1215,7 @@ defmodule BullX.AIAgent.Runner do
   defp delivery_idempotency_key(assistant_message, context, reply_channel) do
     Tools.idempotency_key(%{
       assistant_message_id: assistant_message.id,
-      source_id: context.source_id,
+      trigger_id: context.trigger_id,
       reply_channel: reply_channel_identity(reply_channel)
     })
   end

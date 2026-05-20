@@ -1,9 +1,9 @@
+import { dirname, resolve } from "node:path"
+import { fileURLToPath } from "node:url"
+import toml from "@iarna/toml"
 import { defineConfig } from "@rsbuild/core"
 import { pluginReact } from "@rsbuild/plugin-react"
 import tailwindcss from "@tailwindcss/postcss"
-import toml from "@iarna/toml"
-import { dirname, resolve } from "node:path"
-import { fileURLToPath } from "node:url"
 
 const appRoot = dirname(fileURLToPath(import.meta.url))
 const webuiRoot = resolve(appRoot, "webui/src")
@@ -58,6 +58,10 @@ export default defineConfig({
     entry: {
       app: {
         import: ["./webui/src/app.tsx", "./webui/src/globals.css"],
+        html: false,
+      },
+      "web-console": {
+        import: ["./webui/src/apps/web-console/main.tsx", "./webui/src/globals.css"],
         html: false,
       },
     },

@@ -3,18 +3,13 @@ defmodule BullX.Repo.Migrations.CreateEventbusTables do
 
   def change do
     execute(
-      "CREATE TYPE eventbus_target_type AS ENUM ('ai_agent', 'workflow', 'command', 'external_agent_harness', 'blackhole')",
+      "CREATE TYPE eventbus_target_type AS ENUM ('ai_agent', 'workflow', 'command', 'work', 'blackhole')",
       "DROP TYPE eventbus_target_type"
     )
 
     execute(
-      "CREATE TYPE target_session_status AS ENUM ('active', 'closed', 'failed', 'expired')",
+      "CREATE TYPE target_session_status AS ENUM ('active', 'closed', 'failed')",
       "DROP TYPE target_session_status"
-    )
-
-    execute(
-      "CREATE TYPE target_session_window_type AS ENUM ('new_per_event', 'rolling_ttl')",
-      "DROP TYPE target_session_window_type"
     )
 
     create table(:event_routing_rules, primary_key: false) do
@@ -26,8 +21,6 @@ defmodule BullX.Repo.Migrations.CreateEventbusTables do
       add :target_type, :eventbus_target_type, null: false
       add :target_ref, :text
       add :scope_fields, {:array, :text}, null: false, default: []
-      add :window_type, :target_session_window_type, null: false
-      add :window_ttl_seconds, :integer
 
       timestamps(type: :utc_datetime_usec)
     end
@@ -48,22 +41,15 @@ defmodule BullX.Repo.Migrations.CreateEventbusTables do
                "(target_type = 'blackhole' AND target_ref IS NULL) OR (target_type <> 'blackhole' AND target_ref IS NOT NULL)"
            )
 
-    create constraint(:event_routing_rules, :event_routing_rules_rolling_ttl_seconds,
-             check:
-               "(window_type = 'rolling_ttl' AND window_ttl_seconds IS NOT NULL AND window_ttl_seconds > 0) OR (window_type = 'new_per_event' AND window_ttl_seconds IS NULL)"
-           )
-
     create table(:target_sessions, primary_key: false) do
       add :id, :uuid, primary_key: true
       add :event_routing_rule_id, :uuid, null: false
       add :target_type, :eventbus_target_type, null: false
       add :target_ref, :text, null: false
       add :scope_key, :text, null: false
-      add :window_key, :text, null: false
       add :status, :target_session_status, null: false
       add :oban_job_id, :bigint
       add :last_processed_entry_seq, :bigint, null: false, default: 0
-      add :expires_at, :utc_datetime_usec
       add :terminal_reason, :text
 
       timestamps(type: :utc_datetime_usec)
@@ -73,12 +59,11 @@ defmodule BullX.Repo.Migrations.CreateEventbusTables do
 
     create unique_index(
              :target_sessions,
-             [:event_routing_rule_id, :target_type, :target_ref, :scope_key, :window_key],
+             [:event_routing_rule_id, :target_type, :target_ref, :scope_key],
              where: "status = 'active'",
              name: :target_sessions_active_reuse_key_index
            )
 
-    create index(:target_sessions, [:expires_at])
     create index(:target_sessions, [:oban_job_id])
 
     create table(:target_session_entries, primary_key: false) do

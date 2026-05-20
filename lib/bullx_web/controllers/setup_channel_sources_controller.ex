@@ -79,9 +79,11 @@ defmodule BullXWeb.SetupChannelSourcesController do
       setup: projection,
       adapters: status.adapters,
       ready_sources: status.ready_sources,
+      oidc_callback_url_template: url(~p"/sessions/oidc/__source_id__/callback"),
       form_action: ~p"/setup/channel-sources",
       check_path: ~p"/setup/channel-sources/check",
       generated_secret_path: ~p"/setup/channel-sources/generated-secret",
+      back_path: ~p"/setup/llm/providers",
       error: error
     })
     |> render_inertia("setup/channel-sources/App")

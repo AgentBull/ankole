@@ -7,7 +7,7 @@ defmodule BullX.LLM do
   returns a small provider-neutral chat result.
   """
 
-  alias BullX.LLM.Catalog
+  alias BullX.LLM.{Catalog, ModelConfig}
   alias ReqLLM.Response
 
   @type chat_result :: %{
@@ -21,23 +21,35 @@ defmodule BullX.LLM do
           required(:message) => ReqLLM.Message.t() | nil
         }
 
-  @spec chat(String.t(), ReqLLM.Context.prompt(), keyword()) ::
+  @spec chat(String.t() | ModelConfig.t(), ReqLLM.Context.prompt(), keyword()) ::
           {:ok, chat_result()} | {:error, term()}
-  def chat(model_spec, messages, opts \\ []) when is_binary(model_spec) and is_list(opts) do
-    with {:ok, resolved} <- Catalog.resolve_model_spec(model_spec),
+  def chat(model, messages, opts \\ []) when is_list(opts) do
+    with {:ok, resolved, opts} <- resolve_call(model, opts),
          {:ok, %Response{} = response} <- client().chat(resolved, messages, opts) do
       {:ok, response_result(response, resolved)}
     end
   end
 
-  @spec stream_chat(String.t(), ReqLLM.Context.prompt(), keyword(), keyword()) ::
+  @spec stream_chat(String.t() | ModelConfig.t(), ReqLLM.Context.prompt(), keyword(), keyword()) ::
           {:ok, chat_result()} | {:error, term()}
-  def stream_chat(model_spec, messages, opts, stream_opts)
-      when is_binary(model_spec) and is_list(opts) and is_list(stream_opts) do
-    with {:ok, resolved} <- Catalog.resolve_model_spec(model_spec),
+  def stream_chat(model, messages, opts, stream_opts)
+      when is_list(opts) and is_list(stream_opts) do
+    with {:ok, resolved, opts} <- resolve_call(model, opts),
          {:ok, %Response{} = response} <-
            call_stream_client(resolved, messages, opts, stream_opts) do
       {:ok, response_result(response, resolved)}
+    end
+  end
+
+  defp resolve_call(%ModelConfig{} = config, opts) do
+    with {:ok, resolved} <- Catalog.resolve_model_config(config) do
+      {:ok, resolved, Keyword.merge(ModelConfig.call_opts(config), opts)}
+    end
+  end
+
+  defp resolve_call(model_spec, opts) when is_binary(model_spec) do
+    with {:ok, resolved} <- Catalog.resolve_model_spec(model_spec) do
+      {:ok, resolved, opts}
     end
   end
 

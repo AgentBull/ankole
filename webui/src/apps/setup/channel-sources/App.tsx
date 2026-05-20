@@ -1,5 +1,7 @@
-import { useState } from "react"
+import { RiArrowRightSLine } from "@remixicon/react"
+import { useEffect, useMemo, useState } from "react"
 import { useForm as useHookForm } from "react-hook-form"
+import { useTranslation } from "react-i18next"
 import {
   Button,
   ErrorAlert,
@@ -14,112 +16,244 @@ import {
 
 type SourceForm = {
   adapter_id: string
-  source: {
-    id: string
-    domain: string
-    connected_realm_ref?: string
-    web_login_disabled: boolean
-    oidc: {
-      enabled: boolean
-      redirect_uri?: string
+  source: Record<string, any>
+}
+
+function formDefaults(adapter?: Record<string, any>): SourceForm {
+  const source = adapter?.projection?.sources?.[0] || adapter?.form_schema?.default_source || {}
+  const sourceDefaults = { ...source }
+
+  for (const field of schemaFields(adapter)) {
+    if (field.kind === "secret") setPath(sourceDefaults, field.path.slice(1), "")
+  }
+
+  return {
+    adapter_id: adapter?.id || "",
+    source: sourceDefaults,
+  }
+}
+
+function schemaFields(adapter: Record<string, any> | undefined) {
+  return adapter?.form_schema?.sections?.flatMap((section: Record<string, any>) => section.fields || []) || []
+}
+
+function schemaOptions(field: Record<string, any>, fallback: string[]) {
+  return field.options || fallback
+}
+
+function pathEquals(left: string[], right: string[]) {
+  return JSON.stringify(left) === JSON.stringify(right)
+}
+
+function fieldName(field: Record<string, any>) {
+  return field.path.join(".")
+}
+
+function getPath(value: Record<string, any>, path: string[]) {
+  return path.reduce((acc, key) => (acc && typeof acc === "object" ? acc[key] : undefined), value)
+}
+
+function setPath(value: Record<string, any>, path: string[], nextValue: any) {
+  let cursor = value
+
+  path.forEach((key, index) => {
+    if (index === path.length - 1) {
+      cursor[key] = nextValue
+      return
     }
-    im_listen_mode: string
-    start_transport: boolean
+
+    cursor[key] = cursor[key] && typeof cursor[key] === "object" ? { ...cursor[key] } : {}
+    cursor = cursor[key]
+  })
+}
+
+function labelKey(field: Record<string, any>) {
+  const path = field.path || []
+
+  if (pathEquals(path, ["source", "id"])) {
+    return "setup.channel_sources.source_id_label"
   }
-  credentials: {
-    credential_id: string
-    app_id: string
-    app_secret: string
-    verification_token?: string
-    encrypt_key?: string
+
+  const key = path[path.length - 1]
+
+  const labels: Record<string, string> = {
+    app_id: "setup.channel_sources.app_id_label",
+    app_secret: "setup.channel_sources.app_secret_label",
+    application_id: "setup.channel_sources.application_id_label",
+    bot_token: "setup.channel_sources.bot_token_label",
+    bot_username: "setup.channel_sources.bot_username_label",
+    callback_url: "setup.channel_sources.callback_url_label",
+    client_secret: "setup.channel_sources.client_secret_label",
+    domain: "setup.channel_sources.domain_label",
+    enabled: "setup.channel_sources.enabled_label",
+    im_listen_mode: "setup.channel_sources.im_listen_mode_label",
+    redirect_uri: "setup.channel_sources.oauth_redirect_label",
+    start_transport: "setup.channel_sources.start_transport_label",
+    web_login_disabled: "setup.channel_sources.web_login_disabled_label",
   }
+
+  if (pathEquals(path, ["source", "oidc", "enabled"]) || pathEquals(path, ["source", "oauth2", "enabled"])) {
+    return "setup.channel_sources.oauth_enabled_label"
+  }
+
+  return labels[key] || key
+}
+
+function secretPlaceholder(source: Record<string, any>, field: Record<string, any>, fallback: string) {
+  const status = getPath(source, field.path.slice(1))
+  return status?.present ? fallback : ""
+}
+
+function secretPresent(source: Record<string, any>, field: Record<string, any>) {
+  const status = getPath(source, field.path.slice(1))
+  return status?.present === true
+}
+
+function optionLabelKey(field: Record<string, any>, option: string) {
+  return pathEquals(field.path || [], ["source", "im_listen_mode"])
+    ? `setup.channel_sources.im_listen_modes.${option}`
+    : option
 }
 
 export default function SetupChannelSourcesApp({
   app_name = "BullX",
   adapters = [],
   ready_sources = [],
+  oidc_callback_url_template,
   form_action,
   check_path,
-  generated_secret_path,
+  back_path,
   error,
 }: {
   app_name?: string
   adapters: Array<Record<string, any>>
   ready_sources: Array<Record<string, any>>
+  oidc_callback_url_template?: string
   form_action: string
   check_path: string
-  generated_secret_path: string
+  back_path: string
   error?: unknown
 }) {
-  const adapter = adapters[0]
+  const { t } = useTranslation()
+  const [selectedAdapterId, setSelectedAdapterId] = useState(adapters[0]?.id || "")
+  const adapter = useMemo(
+    () => adapters.find(item => item.id === selectedAdapterId) || adapters[0],
+    [adapters, selectedAdapterId],
+  )
   const source = adapter?.projection?.sources?.[0] || adapter?.form_schema?.default_source || {}
+  const fields = schemaFields(adapter)
+  const sourceIdField = fields.find((field: Record<string, any>) => pathEquals(field.path, ["source", "id"]))
+  const credentialFields = fields.filter((field: Record<string, any>) => field.ui?.group === "credentials")
+  const regularFields = fields.filter(
+    (field: Record<string, any>) => !pathEquals(field.path, ["source", "id"]) && field.ui?.group !== "credentials",
+  )
   const [operationResult, setOperationResult] = useState<unknown>()
-  const { register, handleSubmit, getValues, setValue } = useHookForm<SourceForm>({
-    defaultValues: {
-      adapter_id: adapter?.id || "feishu",
-      source: {
-        id: source.id || "main",
-        domain: source.domain || "feishu",
-        connected_realm_ref: source.connected_realm_ref || "",
-        web_login_disabled: source.web_login_disabled ?? false,
-        oidc: {
-          enabled: source.oidc?.enabled ?? true,
-          redirect_uri: source.oidc?.redirect_uri || "",
-        },
-        im_listen_mode: source.im_listen_mode || "addressed_only",
-        start_transport: source.start_transport ?? true,
-      },
-      credentials: {
-        credential_id: source.credential_id || "default",
-        app_id: adapter?.projection?.credentials?.default?.app_id || "",
-        app_secret: "",
-        verification_token: "",
-        encrypt_key: "",
-      },
-    },
+  const { register, handleSubmit, getValues, reset, watch } = useHookForm<SourceForm>({
+    defaultValues: formDefaults(adapter),
   })
+  const watchedSourceId = watch("source.id")
+  const watchedSource = watch("source")
+
+  useEffect(() => {
+    reset(formDefaults(adapter))
+  }, [adapter, reset])
 
   async function checkSource() {
     const result = await postJson(check_path, getValues())
     setOperationResult(result)
   }
 
-  async function generateVerificationToken() {
-    const result = await postJson(generated_secret_path, {
-      adapter_id: getValues("adapter_id"),
-      path: ["credentials", "verification_token"],
-    })
-    if (result?.value) setValue("credentials.verification_token", result.value)
+  function renderField(field: Record<string, any>) {
+    const label = t(labelKey(field))
+    const name = fieldName(field)
+
+    if (field.kind === "callback_url") {
+      if (!callbackEnabled(watchedSource, field)) return null
+
+      return (
+        <TextField
+          key={name}
+          label={label}
+          readOnly
+          value={callbackUrl(oidc_callback_url_template, watchedSourceId)}
+          description={t("setup.channel_sources.callback_url_description")}
+        />
+      )
+    }
+
+    if (field.kind === "select") {
+      return (
+        <label key={name} className="flex flex-col gap-2 text-sm">
+          <span className="font-semibold uppercase">{label}</span>
+          <select className="h-10 border border-input bg-field px-3" {...register(name as any)}>
+            {schemaOptions(field, []).map((option: string) => (
+              <option key={option} value={option}>
+                {t(optionLabelKey(field, option), { defaultValue: option })}
+              </option>
+            ))}
+          </select>
+        </label>
+      )
+    }
+
+    if (field.kind === "boolean") {
+      return (
+        <label key={name} className="flex items-center gap-3 text-sm">
+          <input type="checkbox" className="size-4" {...register(name as any)} />
+          {label}
+        </label>
+      )
+    }
+
+    const isSavedSecret = field.kind === "secret" && secretPresent(source, field)
+
+    return (
+      <TextField
+        key={name}
+        label={label}
+        type={field.kind === "secret" ? "password" : "text"}
+        required={field.required === true && !isSavedSecret}
+        placeholder={
+          field.kind === "secret"
+            ? secretPlaceholder(source, field, t("setup.channel_sources.secret_saved_hint"))
+            : undefined
+        }
+        {...register(name as any)}
+      />
+    )
   }
 
   return (
-    <SetupPage title="Setup Channel Sources" appName={app_name} step="channel_sources">
+    <SetupPage title={t("setup.channel_sources.page_title")} appName={app_name} step="channel_sources">
       <SetupPanel
-        title="Channel source"
+        title={t("setup.channel_sources.panel_title")}
         footer={
-          adapters.length ? (
-            <>
-              <Button type="button" variant="outline" onClick={generateVerificationToken}>
-                Generate token
-              </Button>
-              <Button type="button" variant="outline" onClick={checkSource}>
-                Check
-              </Button>
+          <>
+            <Button type="button" variant="outline" onClick={() => window.location.assign(back_path)}>
+              {t("setup.back")}
+            </Button>
+            {adapters.length ? (
               <Button type="submit" form="setup-source-form">
-                Save source
+                {t("setup.channel_sources.save_button")}
+                <RiArrowRightSLine data-icon="inline-end" />
               </Button>
-            </>
-          ) : null
+            ) : null}
+          </>
         }>
         <ErrorAlert error={error} />
         {adapters.length ? null : (
-          <InfoAlert title="No setup-capable Channel Adapter">
-            Enable a first-party plugin with a setup module, then restart BullX.
+          <InfoAlert title={t("setup.channel_sources.no_adapter_title")}>
+            {t("setup.channel_sources.no_adapter_body")}
           </InfoAlert>
         )}
-        {ready_sources.length ? <InfoAlert title="Runtime ready">{JSON.stringify(ready_sources)}</InfoAlert> : null}
-        {operationResult ? <InfoAlert title="Operation result">{JSON.stringify(operationResult)}</InfoAlert> : null}
+        {ready_sources.length ? (
+          <InfoAlert title={t("setup.channel_sources.runtime_ready_label")}>{JSON.stringify(ready_sources)}</InfoAlert>
+        ) : null}
+        {operationResult ? (
+          <InfoAlert title={t("setup.channel_sources.operation_result_label")}>
+            {JSON.stringify(operationResult)}
+          </InfoAlert>
+        ) : null}
         {adapters.length ? (
           <form
             id="setup-source-form"
@@ -127,44 +261,45 @@ export default function SetupChannelSourcesApp({
             onSubmit={handleSubmit(data => submitInertia(form_action, data as any))}>
             <input type="hidden" {...register("adapter_id")} />
             <FieldGrid>
-              <TextField label="Source id" {...register("source.id")} />
               <label className="flex flex-col gap-2 text-sm">
-                <span className="font-semibold uppercase">Domain</span>
-                <select className="h-10 border border-input bg-field px-3" {...register("source.domain")}>
-                  <option value="feishu">feishu</option>
-                  <option value="lark">lark</option>
+                <span className="font-semibold uppercase">{t("setup.channel_sources.adapter_label")}</span>
+                <select
+                  className="h-10 border border-input bg-field px-3"
+                  value={selectedAdapterId}
+                  onChange={event => setSelectedAdapterId(event.target.value)}>
+                  {adapters.map(item => (
+                    <option key={item.id} value={item.id}>
+                      {item.form_schema?.label || item.id}
+                    </option>
+                  ))}
                 </select>
               </label>
-              <TextField label="Connected Realm ref" {...register("source.connected_realm_ref")} />
-              <label className="flex items-center gap-3 text-sm">
-                <input type="checkbox" className="size-4" {...register("source.oidc.enabled")} />
-                Enable OIDC login
-              </label>
-              <TextField label="OIDC redirect URI" {...register("source.oidc.redirect_uri")} />
-              <label className="flex items-center gap-3 text-sm">
-                <input type="checkbox" className="size-4" {...register("source.web_login_disabled")} />
-                Disable web login
-              </label>
-              <label className="flex flex-col gap-2 text-sm">
-                <span className="font-semibold uppercase">IM listen mode</span>
-                <select className="h-10 border border-input bg-field px-3" {...register("source.im_listen_mode")}>
-                  <option value="addressed_only">addressed_only</option>
-                  <option value="all_messages">all_messages</option>
-                </select>
-              </label>
-              <TextField label="Credential id" {...register("credentials.credential_id")} />
-              <TextField label="App id" {...register("credentials.app_id")} />
-              <TextField label="App secret" type="password" {...register("credentials.app_secret")} />
-              <TextField label="Verification token" {...register("credentials.verification_token")} />
-              <TextField label="Encrypt key" type="password" {...register("credentials.encrypt_key")} />
-              <label className="flex items-center gap-3 text-sm">
-                <input type="checkbox" className="size-4" {...register("source.start_transport")} />
-                Start transport
-              </label>
+              {sourceIdField ? renderField(sourceIdField) : null}
+              {credentialFields.length ? (
+                <div className="grid gap-5 md:col-span-2 md:grid-cols-2">{credentialFields.map(renderField)}</div>
+              ) : null}
+              <div className="md:col-span-2">
+                <Button type="button" variant="outline" onClick={checkSource}>
+                  {t("setup.channel_sources.check_button")}
+                </Button>
+              </div>
+              {regularFields.map(renderField)}
             </FieldGrid>
           </form>
         ) : null}
       </SetupPanel>
     </SetupPage>
   )
+}
+
+function callbackUrl(template: string | undefined, sourceId: unknown) {
+  const id = typeof sourceId === "string" ? sourceId.trim() : ""
+  if (!template || !id) return ""
+  return template.replace("__source_id__", encodeURIComponent(id))
+}
+
+function callbackEnabled(source: Record<string, any> | undefined, field: Record<string, any>) {
+  const [, providerKey] = field.path || []
+  const enabled = source?.[providerKey]?.enabled
+  return enabled !== false
 }

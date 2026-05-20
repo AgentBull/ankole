@@ -7,7 +7,12 @@ defmodule BullxTelegram.Plugin do
   adapter extension; Telegram browser login is out of scope for this design.
   """
 
-  use BullX.Plugins.Plugin
+  use BullX.Plugins.Plugin,
+    display_name: %{"en-US" => "Telegram", "zh-Hans-CN" => "Telegram"},
+    description: %{
+      "en-US" => "Channel adapter for Telegram bot conversations and outbound replies.",
+      "zh-Hans-CN" => "用于 Telegram 机器人会话和出站回复的通道适配器。"
+    }
 
   @impl BullX.Plugins.Plugin
   def extensions do
@@ -16,7 +21,7 @@ defmodule BullxTelegram.Plugin do
         point: :"bullx.event_bus.channel_adapter",
         id: "telegram",
         module: BullxTelegram.ChannelAdapter,
-        opts: %{provider: "telegram"}
+        opts: %{provider: "telegram", setup_module: BullxTelegram.SourceSetup}
       }
     ]
   end

@@ -1,12 +1,38 @@
 defmodule Feishu.DirectCommandTest do
-  use ExUnit.Case, async: false
+  use BullX.DataCase, async: false
 
   alias Feishu.{DirectCommand, Source}
+  alias FeishuOpenAPI.{Client, TokenManager}
 
   setup do
     BullX.Cache.clear()
-    on_exit(fn -> BullX.Cache.clear() end)
+    :ets.delete_all_objects(FeishuOpenAPI.TokenStore.table())
+
+    on_exit(fn ->
+      BullX.Cache.clear()
+      :ets.delete_all_objects(FeishuOpenAPI.TokenStore.table())
+    end)
+
     :ok
+  end
+
+  defp source_with_client do
+    app_id = "cli_direct_" <> Integer.to_string(:erlang.unique_integer([:positive]))
+    client = Client.new(app_id, "secret_x", req_options: [plug: {Req.Test, __MODULE__}])
+
+    %Source{
+      id: "main",
+      app_id: app_id,
+      app_secret: "secret_x",
+      client: client
+    }
+  end
+
+  defp allow_token_manager(client) do
+    {:ok, manager_pid} =
+      DynamicSupervisor.start_child(FeishuOpenAPI.TokenManager.Supervisor, {TokenManager, client})
+
+    Req.Test.allow(__MODULE__, self(), manager_pid)
   end
 
   test "parses slash commands" do
@@ -70,5 +96,126 @@ defmodule Feishu.DirectCommandTest do
 
     assert {:ok, %{"command_name" => "webauth", "status" => "sent"}} =
              DirectCommand.handle(source, command, delivery_fun: delivery_fun)
+  end
+
+  test "preauth fetches contact user with tenant token before consuming activation code" do
+    source = source_with_client()
+
+    {:ok, %{code: code}} = BullX.Principals.create_activation_code(nil, %{})
+
+    Req.Test.stub(__MODULE__, fn conn ->
+      case conn.request_path do
+        "/open-apis/auth/v3/tenant_access_token/internal" ->
+          Req.Test.json(conn, %{
+            "code" => 0,
+            "tenant_access_token" => "tenant_token",
+            "expire" => 7200
+          })
+
+        "/open-apis/contact/v3/users/ou_user" ->
+          assert conn.query_string == "user_id_type=open_id"
+          assert Plug.Conn.get_req_header(conn, "authorization") == ["Bearer tenant_token"]
+
+          Req.Test.json(conn, %{
+            "code" => 0,
+            "data" => %{
+              "user" => %{
+                "open_id" => "ou_user",
+                "user_id" => "user_x",
+                "name" => "Ada",
+                "email" => "ADA@example.com",
+                "enterprise_email" => "ADA@corp.example.com",
+                "mobile" => "13800000000",
+                "avatar" => %{"avatar_240" => "https://example.com/avatar.png"}
+              }
+            }
+          })
+
+        path ->
+          Req.Test.json(conn, %{"code" => 404, "msg" => "unexpected path #{path}"})
+      end
+    end)
+
+    allow_token_manager(source.client)
+
+    command = %{
+      event_id: "evt_preauth",
+      name: "preauth",
+      args: code,
+      chat_id: "oc_chat",
+      chat_type: "p2p",
+      message_id: "om_msg",
+      actor: %{id: "feishu:ou_user", open_id: "ou_user"},
+      account_input: %{}
+    }
+
+    delivery_fun = fn delivery, _source, _opts ->
+      assert get_in(delivery, ["content", Access.at(0), "body", "text"]) ==
+               BullX.I18n.t("eventbus.feishu.auth.activation_success")
+
+      {:ok, %{"delivery_id" => delivery["id"], "status" => "sent", "warnings" => []}}
+    end
+
+    assert {:ok, %{"command_name" => "preauth", "status" => "sent"}} =
+             DirectCommand.handle(source, command, delivery_fun: delivery_fun)
+
+    assert {:ok, principal} =
+             BullX.Principals.resolve_channel_actor("feishu", "main", "feishu:ou_user")
+
+    assert principal.display_name == "Ada"
+    assert principal.uid == "user_x"
+    assert principal.avatar_url == "https://example.com/avatar.png"
+
+    assert %{human_user: human_user} = BullX.Repo.preload(principal, :human_user)
+    assert human_user.email == "ada@corp.example.com"
+  end
+
+  test "preauth does not consume activation code when contact user is unavailable" do
+    source = source_with_client()
+
+    {:ok, %{code: code}} = BullX.Principals.create_activation_code(nil, %{})
+
+    Req.Test.stub(__MODULE__, fn conn ->
+      case conn.request_path do
+        "/open-apis/auth/v3/tenant_access_token/internal" ->
+          Req.Test.json(conn, %{
+            "code" => 0,
+            "tenant_access_token" => "tenant_token",
+            "expire" => 7200
+          })
+
+        "/open-apis/contact/v3/users/ou_user" ->
+          Req.Test.json(conn, %{"code" => 41050, "msg" => "no user authority"})
+
+        path ->
+          Req.Test.json(conn, %{"code" => 404, "msg" => "unexpected path #{path}"})
+      end
+    end)
+
+    allow_token_manager(source.client)
+
+    command = %{
+      event_id: "evt_preauth_missing_userinfo",
+      name: "preauth",
+      args: code,
+      chat_id: "oc_chat",
+      chat_type: "p2p",
+      message_id: "om_msg",
+      actor: %{id: "feishu:ou_user", open_id: "ou_user"},
+      account_input: %{}
+    }
+
+    delivery_fun = fn delivery, _source, _opts ->
+      assert get_in(delivery, ["content", Access.at(0), "body", "text"]) ==
+               BullX.I18n.t("eventbus.feishu.auth.activation_failed")
+
+      {:ok, %{"delivery_id" => delivery["id"], "status" => "sent", "warnings" => []}}
+    end
+
+    assert {:ok, %{"command_name" => "preauth", "status" => "sent"}} =
+             DirectCommand.handle(source, command, delivery_fun: delivery_fun)
+
+    assert {:error, :not_bound} =
+             BullX.Principals.resolve_channel_actor("feishu", "main", "feishu:ou_user")
   end
 end

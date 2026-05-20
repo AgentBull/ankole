@@ -419,11 +419,75 @@ defmodule BullX.Principals.AuthN do
   end
 
   defp match_unbound_login_subject(input) do
+    case bind_login_subject_from_identity_facts(input) do
+      {:ok, principal, identity} -> {:ok, principal, identity}
+      {:error, reason} -> {:error, reason}
+      :not_found -> match_unbound_login_subject_by_channel_or_rules(input)
+    end
+  end
+
+  defp match_unbound_login_subject_by_channel_or_rules(input) do
+    case bind_login_subject_from_channel_actor(input) do
+      {:ok, principal, identity} -> {:ok, principal, identity}
+      {:error, reason} -> {:error, reason}
+      :not_found -> match_unbound_login_subject_by_rules(input)
+    end
+  end
+
+  defp match_unbound_login_subject_by_rules(input) do
     case evaluate_match_rules(input) do
       {:bind, principal} -> bind_principal_to_login_subject(principal, input)
       :allow_create -> auto_create_login_subject_if_enabled(input)
       :no_match -> {:error, :not_bound}
       {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp bind_login_subject_from_identity_facts(input) do
+    input
+    |> login_subject_identity_facts()
+    |> Enum.reduce_while(:not_found, fn identity_fact, :not_found ->
+      case fetch_human_by_identity_fact(identity_fact) do
+        nil -> {:cont, :not_found}
+        %Principal{} = principal -> {:halt, bind_principal_to_login_subject(principal, input)}
+      end
+    end)
+  end
+
+  defp login_subject_identity_facts(input) do
+    [
+      {"uid", input.profile["uid"]},
+      {"email", input.profile["email"]},
+      {"phone", input.profile["phone"]}
+    ]
+    |> Enum.flat_map(&normalize_identity_fact/1)
+    |> Enum.uniq()
+  end
+
+  defp normalize_identity_fact({field, value}) do
+    case normalize_lookup_value(field, value) do
+      {:ok, normalized} -> [{field, normalized}]
+      :error -> []
+    end
+  end
+
+  defp bind_login_subject_from_channel_actor(input) do
+    with {:ok, channel_ref} <- login_subject_channel_ref(input),
+         {:ok, principal, _channel_identity} <- fetch_channel_binding_state(channel_ref) do
+      bind_principal_to_login_subject(principal, input)
+    else
+      :not_found -> :not_found
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp login_subject_channel_ref(input) do
+    adapter = Map.get(input.metadata, "adapter")
+    channel_id = Map.get(input.metadata, "channel_id") || Map.get(input.metadata, "source_id")
+
+    case normalize_channel_ref(adapter, channel_id, input.external_id) do
+      {:ok, channel_ref} -> {:ok, channel_ref}
+      {:error, _reason} -> :not_found
     end
   end
 
@@ -586,6 +650,21 @@ defmodule BullX.Principals.AuthN do
             identity.external_id == ^input.external_id,
         preload: [:principal]
     )
+  end
+
+  defp fetch_human_by_identity_fact({"uid", uid}) do
+    Repo.one(
+      from principal in Principal,
+        where: principal.uid == ^uid,
+        select: principal
+    )
+  end
+
+  defp fetch_human_by_identity_fact({field, value}) when field in ["email", "phone"] do
+    case fetch_human_by_field(String.to_existing_atom(field), value) do
+      nil -> nil
+      %HumanUser{principal: principal} -> principal
+    end
   end
 
   defp fetch_human_by_field(field, value) do
@@ -1247,6 +1326,13 @@ defmodule BullX.Principals.AuthN do
   end
 
   defp normalize_lookup_value("email", value) when is_binary(value) do
+    value
+    |> String.trim()
+    |> String.downcase()
+    |> non_blank_string()
+  end
+
+  defp normalize_lookup_value("uid", value) when is_binary(value) do
     value
     |> String.trim()
     |> String.downcase()

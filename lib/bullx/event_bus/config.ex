@@ -10,6 +10,11 @@ defmodule BullX.EventBus.Config do
     get_positive_integer(:target_session_idle_tick_ms, 5_000)
   end
 
+  @spec target_session_idle_grace_ms() :: pos_integer()
+  def target_session_idle_grace_ms do
+    get_positive_integer(:target_session_idle_grace_ms, 1_800_000)
+  end
+
   @spec target_session_runtime_retention_seconds() :: pos_integer()
   def target_session_runtime_retention_seconds do
     get_positive_integer(:target_session_runtime_retention_seconds, 3_600)

@@ -19,7 +19,6 @@ defmodule Discord.EventMapperTest do
       application_id: "app_1",
       bot_token: "token",
       bot_user_id: "bot_1",
-      connected_realm_ref: "discord:application:app_1",
       attention: default_attention()
     }
 

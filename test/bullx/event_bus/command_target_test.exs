@@ -183,7 +183,6 @@ defmodule BullX.EventBus.CommandTargetTest do
            ]
 
     assert Enum.map(system_rules, & &1.priority) == [-20, -19]
-    assert Enum.all?(system_rules, &(&1.window_type == :new_per_event))
     assert Repo.aggregate(EventRoutingRule, :count) == 0
   end
 
@@ -228,8 +227,7 @@ defmodule BullX.EventBus.CommandTargetTest do
       match_expr: "type == \"bullx.command.invoked\"",
       target_type: :ai_agent,
       target_ref: BullX.Ext.gen_uuid_v7(),
-      scope_fields: ["channel.adapter", "channel.id", "scope.id"],
-      window_type: :new_per_event
+      scope_fields: ["channel.adapter", "channel.id", "scope.id"]
     })
   end
 
@@ -241,9 +239,7 @@ defmodule BullX.EventBus.CommandTargetTest do
         ~s(type == "bullx.im.message.addressed" && channel.adapter == "eventbus_test" && channel.id == "default"),
       target_type: :ai_agent,
       target_ref: Keyword.fetch!(opts, :target_ref),
-      scope_fields: ["channel.adapter", "channel.id", "scope.id"],
-      window_type: :rolling_ttl,
-      window_ttl_seconds: 3600
+      scope_fields: ["channel.adapter", "channel.id", "scope.id"]
     })
   end
 
@@ -297,8 +293,7 @@ defmodule BullX.EventBus.CommandTargetTest do
       event_routing_rule_id: session.event_routing_rule_id,
       target_type: session.target_type,
       target_ref: session.target_ref,
-      scope_key: session.scope_key,
-      window_key: session.window_key
+      scope_key: session.scope_key
     }
   end
 

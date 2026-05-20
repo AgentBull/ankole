@@ -9,10 +9,10 @@ defmodule Feishu.OIDCProvider do
 
   @behaviour BullX.Principals.LoginProvider
 
-  alias Feishu.Source
+  alias Feishu.{Source, UserInfo}
   alias FeishuOpenAPI.Auth
 
-  import BullX.Utils.Map, only: [maybe_put: 3, reject_nil_values: 1]
+  import BullX.Utils.Map, only: [reject_nil_values: 1]
 
   @impl BullX.Principals.LoginProvider
   def fetch_source(provider_id), do: fetch_oidc_source(provider_id)
@@ -70,7 +70,8 @@ defmodule Feishu.OIDCProvider do
          {:ok, redirect_uri} <- redirect_uri(source, state),
          {:ok, tokens} <-
            Auth.user_access_token(Source.client!(source), code, redirect_uri: redirect_uri),
-         {:ok, userinfo} <- fetch_userinfo(source, tokens.access_token),
+         {:ok, userinfo} <- contact_userinfo(source, tokens),
+         :ok <- cache_user_token(source, userinfo, tokens),
          {:ok, subject} <- login_subject(source, userinfo) do
       {:ok, subject}
     else
@@ -210,91 +211,112 @@ defmodule Feishu.OIDCProvider do
     end
   end
 
-  defp fetch_userinfo(%Source{} = source, access_token) do
-    case FeishuOpenAPI.get(Source.client!(source), "/open-apis/authen/v1/user_info",
-           user_access_token: access_token
-         ) do
-      {:ok, %{"data" => data}} when is_map(data) -> {:ok, data}
-      {:ok, data} when is_map(data) -> {:ok, data}
-      {:error, error} -> {:error, Feishu.Error.map(error)}
+  defp contact_userinfo(%Source{} = source, tokens) when is_map(tokens) do
+    case token_user_ref(tokens) do
+      {:ok, id_type, user_id, token_userinfo} ->
+        fetch_contact_userinfo(source, id_type, user_id, token_userinfo)
+
+      :error ->
+        fetch_contact_userinfo_by_authn_userinfo(source, tokens)
+    end
+  end
+
+  defp fetch_contact_userinfo(%Source{} = source, id_type, user_id, token_userinfo) do
+    with {:ok, contact_userinfo} <- UserInfo.fetch_contact(source, user_id, id_type),
+         {:ok, open_id} <- contact_open_id(id_type, user_id, contact_userinfo),
+         :ok <- validate_contact_user(contact_userinfo, open_id) do
+      {:ok, merge_userinfo(token_userinfo, contact_userinfo, open_id)}
+    end
+  end
+
+  defp fetch_contact_userinfo_by_authn_userinfo(%Source{} = source, tokens) do
+    with {:ok, authn_userinfo} <- UserInfo.fetch_authn(source, tokens.access_token),
+         {:ok, open_id} <- UserInfo.open_id(authn_userinfo) do
+      fetch_contact_userinfo(source, "open_id", open_id, authn_userinfo)
+    end
+  end
+
+  defp contact_open_id("open_id", open_id, _contact_userinfo), do: {:ok, open_id}
+
+  defp contact_open_id(_id_type, _user_id, contact_userinfo) do
+    UserInfo.open_id(contact_userinfo)
+  end
+
+  defp token_user_ref(tokens) do
+    token_userinfo = token_userinfo(tokens)
+
+    case present_string(value(token_userinfo, "open_id") || value(token_userinfo, "sub")) do
+      open_id when is_binary(open_id) ->
+        {:ok, "open_id", open_id, token_userinfo}
+
+      nil ->
+        token_user_id_ref(token_userinfo)
+    end
+  end
+
+  defp token_user_id_ref(token_userinfo) do
+    case present_string(value(token_userinfo, "user_id")) do
+      user_id when is_binary(user_id) -> {:ok, "user_id", user_id, token_userinfo}
+      nil -> :error
+    end
+  end
+
+  defp token_userinfo(tokens) do
+    tokens
+    |> value("raw")
+    |> case do
+      raw when is_map(raw) -> raw
+      _other -> %{}
+    end
+  end
+
+  defp merge_userinfo(identity_userinfo, contact_userinfo, open_id) do
+    contact_userinfo
+    |> Map.put_new("open_id", open_id)
+    |> Map.put_new("tenant_key", value(identity_userinfo, "tenant_key"))
+  end
+
+  defp validate_contact_user(userinfo, open_id) do
+    case value(userinfo, "open_id") do
+      ^open_id -> :ok
+      nil -> :ok
+      _other_open_id -> {:error, Feishu.Error.payload("Feishu contact user mismatch")}
     end
   end
 
   defp login_subject(%Source{} = source, userinfo) when is_map(userinfo) do
-    case Map.get(userinfo, "open_id") do
-      open_id when is_binary(open_id) and open_id != "" ->
+    case UserInfo.open_id(userinfo) do
+      {:ok, open_id} ->
         {:ok,
          %{
            "provider" => source.id,
            "external_id" => "feishu:" <> open_id,
-           "profile" => profile(userinfo),
+           "profile" => UserInfo.profile(userinfo),
            "metadata" =>
              %{
                "adapter" => "feishu",
                "source_id" => source.id,
                "app_id" => source.app_id,
                "tenant_key" => Map.get(userinfo, "tenant_key") || source.tenant_key,
-               "domain" => Atom.to_string(source.domain),
-               "connected_realm_ref" => source.connected_realm_ref
+               "domain" => Atom.to_string(source.domain)
              }
              |> reject_nil_values()
          }}
 
-      _value ->
-        {:error, Feishu.Error.payload("Feishu userinfo is missing open_id")}
+      {:error, error} ->
+        {:error, error}
     end
   end
 
-  defp profile(userinfo) do
-    %{}
-    |> maybe_put("display_name", first_string(userinfo, ["name", "display_name", "en_name"]))
-    |> maybe_put("email", normalized_email(first_string(userinfo, ["email"])))
-    |> maybe_put_phone(first_string(userinfo, ["mobile", "phone"]))
-    |> maybe_put(
-      "avatar_url",
-      first_string(userinfo, ["avatar_url", "avatar_thumb", "avatar_middle"])
-    )
-    |> maybe_put("open_id", Map.get(userinfo, "open_id"))
-    |> maybe_put("union_id", Map.get(userinfo, "union_id"))
-    |> maybe_put("user_id", Map.get(userinfo, "user_id"))
-  end
+  defp cache_user_token(%Source{} = source, userinfo, tokens) do
+    case UserInfo.open_id(userinfo) do
+      {:ok, open_id} ->
+        client = Source.client!(source)
+        :ok = FeishuOpenAPI.UserTokenManager.put(client, open_id, tokens)
+        :ok = FeishuOpenAPI.UserTokenManager.put(client, "feishu:" <> open_id, tokens)
 
-  defp first_string(map, keys) do
-    Enum.find_value(keys, fn key ->
-      case Map.get(map, key) do
-        value when is_binary(value) and value != "" -> value
-        _value -> nil
-      end
-    end)
-  end
-
-  defp normalized_email(nil), do: nil
-  defp normalized_email(email), do: email |> String.trim() |> String.downcase()
-
-  defp maybe_put_phone(map, nil), do: map
-
-  defp maybe_put_phone(map, phone) do
-    phone
-    |> phone_candidates()
-    |> Enum.find_value(fn candidate ->
-      case BullX.Ext.phone_normalize_e164(candidate) do
-        normalized when is_binary(normalized) -> normalized
-        _other -> nil
-      end
-    end)
-    |> case do
-      nil -> map
-      normalized -> Map.put(map, "phone", normalized)
-    end
-  end
-
-  defp phone_candidates(phone) do
-    trimmed = String.trim(phone)
-    digits = String.replace(trimmed, ~r/\D/, "")
-
-    case String.length(digits) == 11 and String.starts_with?(digits, "1") do
-      true -> [trimmed, "+86" <> digits]
-      false -> [trimmed]
+      {:error, _error} ->
+        :ok
     end
   end
 
@@ -319,6 +341,15 @@ defmodule Feishu.OIDCProvider do
 
   defp present?(value), do: is_binary(value) and value != ""
 
+  defp present_string(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
+  defp present_string(_value), do: nil
+
   defp string_value(map, key) do
     case value(map, key) do
       value when is_binary(value) and value != "" -> {:ok, value}
@@ -336,13 +367,18 @@ defmodule Feishu.OIDCProvider do
   defp known_atom_key("code"), do: :code
   defp known_atom_key("issued_at"), do: :issued_at
   defp known_atom_key("nonce"), do: :nonce
+  defp known_atom_key("open_id"), do: :open_id
   defp known_atom_key("provider"), do: :provider
   defp known_atom_key("redirect_uri"), do: :redirect_uri
+  defp known_atom_key("raw"), do: :raw
   defp known_atom_key("return_to"), do: :return_to
   defp known_atom_key("signed_state"), do: :signed_state
   defp known_atom_key("source_id"), do: :source_id
+  defp known_atom_key("sub"), do: :sub
   defp known_atom_key("state"), do: :state
   defp known_atom_key("state_token"), do: :state_token
+  defp known_atom_key("tenant_key"), do: :tenant_key
+  defp known_atom_key("user_id"), do: :user_id
   defp known_atom_key(_key), do: nil
 
   defp nonce, do: Base.url_encode64(:crypto.strong_rand_bytes(18), padding: false)

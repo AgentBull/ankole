@@ -2,7 +2,8 @@
   "$schema": "https://biomejs.dev/schemas/2.4.11/schema.json",
   "root": true,
   "files": {
-    "maxSize": 2097152
+    "maxSize": 2097152,
+    "includes": ["**", "!webui/src/apps/web-console/api/client/**"]
   },
   "vcs": {
     "enabled": true,

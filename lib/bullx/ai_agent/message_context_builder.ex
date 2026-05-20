@@ -274,7 +274,7 @@ defmodule BullX.AIAgent.MessageContextBuilder do
 
   defp ambient_snippet(%Message{} = message) do
     %{
-      source_message_id: message.id,
+      trigger_message_id: message.id,
       sender_display_name: get_in(message.metadata, ["actor", "display_name"]),
       sent_at:
         get_in(message.metadata, ["time_awareness", "send_at"]) ||

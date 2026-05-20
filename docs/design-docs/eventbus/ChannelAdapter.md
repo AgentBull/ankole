@@ -35,7 +35,7 @@ This design intentionally excludes:
 - EventBus validation, route matching, TargetSession resolution, inbound
   side-channel append, dedupe internals, Oban job behavior, and Target dispatch.
 - Event Routing Rule authoring, priority reorder, `RoutingContext` field
-  projection, scope key encoding, and window policy.
+  projection, and scope key encoding.
 - Concrete provider adapters, provider-specific source schemas, OAuth routes,
   webhook routes, provider command names, message rendering rules, or upload
   details.
@@ -245,34 +245,38 @@ text.
 
 ### Source configuration
 
-A source is a plugin-owned provider entry point inside one BullX Installation.
-A source might represent one Feishu app, one Slack workspace bot, one GitHub
-organization webhook, one CRM webhook endpoint, or one polling credential
-profile.
+A source is a configured channel instance owned by a plugin inside one BullX
+Installation. The Channel Adapter is the implementation type; a source is one
+runtime instance using that adapter. One Installation may configure ten Feishu
+apps as ten sources with the same adapter id `"feishu"`, each with its own
+adapter-local id, runtime settings, and secrets.
+
+A source might represent one Feishu app, one Telegram bot, one Discord
+application, one Slack workspace bot, one GitHub organization webhook, one CRM
+webhook endpoint, or one polling credential.
 
 The common configuration convention is:
 
 ```text
 bullx.plugins.<plugin_id>.eventbus_sources
-bullx.plugins.<plugin_id>.credentials
 ```
 
-The exact source schema, credential references, connectivity checks, redacted
-operator projection, and listener child specs are plugin responsibilities. The
-Channel Adapter contract only requires that the runtime `source` value passed
-to adapter callbacks contains enough plugin-defined data to normalize provider
-input and delivery targets.
+The exact source schema, secret fields, connectivity checks, redacted operator
+projection, and listener child specs are plugin responsibilities. Source config
+is normally secret because it contains app secrets, bot tokens, OAuth client
+secrets, or provider API keys. The Channel Adapter contract only requires that
+the runtime `source` value passed to adapter callbacks contains enough
+plugin-defined data to normalize provider input and delivery targets.
 
 The source `id` should be the stable adapter-local source id. It becomes
 `data.channel.id` in normalized Events and `channel_id` in Principal
 channel-actor references. It is not a provider user id, chat id, thread id, bot
 id, webhook secret id, OAuth client id, or display label.
 
-Provider credentials live in secret plugin configuration, usually in
-`bullx.plugins.<plugin_id>.credentials`. Adapter code may use plaintext
-credentials inside the BEAM trust boundary. It must not copy credentials into
-Events, CloudEvents, `routing_facts`, `reply_channel`, Oban job args, stream
-metadata, or allowlisted telemetry/log metadata.
+Adapter code may use plaintext source secrets inside the BEAM trust boundary.
+It must not copy secrets into Events, CloudEvents, `routing_facts`,
+`reply_channel`, Oban job args, stream metadata, or allowlisted telemetry/log
+metadata.
 
 For IM-style sources, source configuration may choose how much of a shared
 conversation the adapter listens to:
@@ -430,7 +434,6 @@ Useful `routing_facts` examples include:
 
 - `provider_event_type`
 - `provider_event_name`
-- `connected_realm_ref`
 - `im_listen_mode`
 - `content_kind`
 - `command_name`
@@ -718,8 +721,8 @@ the same allowlist rule.
 Enabled adapter plugins are trusted code selected by the operator. EventBus
 does not sandbox them or provide unlimited guardrails around bad plugin
 behavior. Plugin authors and system administrators are responsible for provider
-credential handling, provider protocol correctness, and plugin-specific
-security posture.
+secret handling, provider protocol correctness, and plugin-specific security
+posture.
 
 Adapters treat external identity as evidence. They do not grant permission,
 create authorization, approve side effects, or decide business success.
@@ -728,10 +731,10 @@ Provider authenticity checks fail closed. A webhook signature failure, invalid
 provider challenge, rejected token, mismatched app id, expired callback token,
 or unsupported provider handshake must not call `EventBus.accept/2`.
 
-Provider secrets use `BullX.Config` secret storage. Plaintext credentials may
-exist in the BEAM trust boundary while a source runs. Adapter code must not
-place credentials into Events, `routing_facts`, `reply_channel`, Oban args,
-stream metadata, or allowlisted telemetry/log metadata.
+Provider secrets use `BullX.Config` secret storage. Plaintext secrets may exist
+in the BEAM trust boundary while a source runs. Adapter code must not place
+secrets into Events, `routing_facts`, `reply_channel`, Oban args, stream
+metadata, or allowlisted telemetry/log metadata.
 
 Adapters may call `BullX.Principals` APIs for channel-actor activation,
 channel-auth login, or trusted identity resolution when a provider-specific
@@ -761,7 +764,7 @@ designs should keep edge filters limited to transport admission and push
 operator business routing choices into Event Routing Rules.
 
 Outbound callbacks live beside inbound callbacks because provider transports
-often share credentials, source ids, reply targets, and SDK clients. This does
+often share source secrets, source ids, reply targets, and SDK clients. This does
 not make EventBus a business side-effect authority. Authorization and durable
 business records remain upstream of adapter delivery.
 
@@ -786,13 +789,13 @@ routing, TargetSession, Target, and business truth.
   supervision.
 - `docs/design-docs/Configuration.md` defines the `BullX.Config` runtime
   configuration and secret storage layer used by plugin-owned source and
-  credential configuration.
+  secret configuration.
 - `docs/design-docs/eventbus/Core.md` defines `BullX.EventBus.accept/2`,
   CloudEvents acceptance, adapter boundary, and fake adapter boundary tests.
 - `docs/design-docs/eventbus/NormalizedCloudEvent.md` defines the normalized
   CloudEvent data contract shared by adapters, EventBus, and Targets.
 - `docs/design-docs/eventbus/Matcher.md` defines `RoutingContext`,
-  `routing_facts`, priority, Blackhole, and scope/window policy.
+  `routing_facts`, priority, Blackhole, and scope policy.
 - `docs/design-docs/eventbus/Persistence.md` defines EventBus runtime state and
   confirms that side-channel rows are weak runtime state.
 - `docs/design-docs/eventbus/StreamingOutput.md` defines stream buffer APIs that
@@ -805,8 +808,8 @@ routing, TargetSession, Target, and business truth.
 - Use the plugin extension point `:"bullx.event_bus.channel_adapter"`.
 - Execute adapter modules only for enabled plugins.
 - Treat enabled adapter plugins as trusted code inside the BullX runtime.
-- Keep source and credential configuration plugin-owned.
-- Keep provider credentials in secret config storage and out of Events,
+- Keep source configuration plugin-owned.
+- Keep provider secrets in secret config storage and out of Events,
   `routing_facts`, `reply_channel`, Oban args, stream metadata, and allowlisted
   telemetry/log metadata.
 - Accept only decoded string-keyed JSON-neutral CloudEvents maps at the

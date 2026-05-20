@@ -158,7 +158,7 @@ defmodule Discord.EventMapper do
 
   defp command_content(blocks, _command), do: blocks
 
-  defp context(provider_event_type, payload, %Source{} = source, attention_reason) do
+  defp context(provider_event_type, payload, %Source{} = _source, attention_reason) do
     %{
       provider_event_type: provider_event_type,
       channel_id: stringify_id(Map.get(payload, "channel_id")),
@@ -167,8 +167,7 @@ defmodule Discord.EventMapper do
       time:
         Map.get(payload, "timestamp") || Map.get(payload, "edited_timestamp") ||
           DateTime.utc_now() |> DateTime.to_iso8601(),
-      attention_reason: attention_reason,
-      connected_realm_ref: source.connected_realm_ref
+      attention_reason: attention_reason
     }
   end
 
@@ -189,7 +188,6 @@ defmodule Discord.EventMapper do
       "profile" => actor.profile,
       "metadata" =>
         %{
-          "connected_realm_ref" => source.connected_realm_ref,
           "guild_id" => context.guild_id,
           "discord_channel_id" => context.channel_id
         }
@@ -253,8 +251,7 @@ defmodule Discord.EventMapper do
       "discord_channel_id" => context.channel_id,
       "content_kind" => first_content_kind(blocks),
       "attention_reason" => context.attention_reason,
-      "im_listen_mode" => Atom.to_string(source.im_listen_mode),
-      "connected_realm_ref" => source.connected_realm_ref
+      "im_listen_mode" => Atom.to_string(source.im_listen_mode)
     }
     |> put_command_facts(command)
     |> reject_nil_values()

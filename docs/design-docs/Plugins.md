@@ -15,6 +15,7 @@ This design covers the host-side plugin system:
 - the plugin metadata and API-version contract;
 - extension-point registration and lookup;
 - plugin runtime configuration and secret declarations;
+- setup-facing plugin presentation metadata;
 - startup behavior for enabled plugin children.
 
 This design sits below `docs/Architecture.md`. It defines the host mechanics
@@ -54,8 +55,8 @@ Node contracts, AuthN provider models, or Capability/Governance policy.
   administrator trusted code.
 - BullX does not implement hook priority, dependency graphs, plugin start/stop
   state machines, or runtime module generation.
-- BullX does not create a plugin marketplace, plugin UI, or plugin package
-  publishing workflow in this design.
+- BullX does not create a plugin marketplace, plugin package publishing
+  workflow, or plugin management UI beyond fresh-install setup enablement.
 
 ## Existing system
 
@@ -151,6 +152,27 @@ startup.
 Plugin metadata is descriptive and deterministic. It must not read external
 services, mutate process state, or perform registration side effects. The host
 owns registration.
+
+Every plugin metadata declaration includes `id` and `api_version`. A plugin may
+also provide setup-facing `display_name` and `description` fields. These fields
+are optional UI metadata; they do not affect discovery, enablement, supervision,
+or extension lookup. Each field may be either a plain string or a locale-keyed
+string map such as:
+
+```elixir
+%{
+  display_name: %{"en-US" => "Feishu / Lark", "zh-Hans-CN" => "飞书 / Lark"},
+  description: %{
+    "en-US" => "Channel adapter and source-scoped OIDC login.",
+    "zh-Hans-CN" => "通道适配器与来源域 OIDC 登录。"
+  }
+}
+```
+
+Locale maps use BCP 47 language tags and must contain only string keys and
+string values. Setup resolves the current locale first, then the base language,
+then `en-US`, then any available value. Missing fields fall back to stable
+technical identifiers in the UI.
 
 ### Extension-point registry
 
@@ -322,7 +344,8 @@ documentation-aligned startup behavior.
    `lib/bullx/plugins/discovery.ex`.
    Depends on: Task 1.
    Acceptance: discovery returns one validated plugin spec per plugin app and
-   fails on missing or duplicate marker modules.
+   fails on missing or duplicate marker modules. Optional setup metadata accepts
+   strings or locale-keyed string maps and rejects non-string localized values.
    Verify: focused unit tests for discovery.
 
 3. Add the registry and supervisor.

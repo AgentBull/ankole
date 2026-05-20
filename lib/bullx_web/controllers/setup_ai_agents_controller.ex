@@ -44,10 +44,15 @@ defmodule BullXWeb.SetupAIAgentsController do
       setup: projection,
       agents: status.agents,
       selected_agent: status.selected_agent,
+      default_soul: AIAgents.default_soul(),
       groups: status.groups,
       acl_preview: status.acl_preview,
       llm_providers: BullX.Setup.LLMProviders.public_providers(),
+      provider_models: BullX.LLM.ModelRegistry.public_provider_models(),
+      models_path: ~p"/setup/llm/models",
+      reasoning_efforts: BullX.AIAgent.Profile.reasoning_efforts() |> Enum.map(&Atom.to_string/1),
       form_action: ~p"/setup/ai-agents",
+      back_path: ~p"/setup/channel-sources",
       error: error
     })
     |> render_inertia("setup/ai-agents/App")

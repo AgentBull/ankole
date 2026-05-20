@@ -130,7 +130,7 @@ defmodule BullxTelegram.UpdateMapper do
 
   defp command_content(blocks, _command), do: blocks
 
-  defp context(update_id, provider_update_type, message, %Source{} = source, attention_reason) do
+  defp context(update_id, provider_update_type, message, %Source{} = _source, attention_reason) do
     chat = Map.get(message, "chat") || %{}
 
     %{
@@ -139,8 +139,7 @@ defmodule BullxTelegram.UpdateMapper do
       chat_id: stringify_id(Map.get(chat, "id")),
       chat_type: Map.get(chat, "type"),
       thread_id: stringify_id(Map.get(message, "message_thread_id")),
-      attention_reason: attention_reason,
-      connected_realm_ref: source.connected_realm_ref
+      attention_reason: attention_reason
     }
   end
 
@@ -162,7 +161,6 @@ defmodule BullxTelegram.UpdateMapper do
       "profile" => actor.profile,
       "metadata" =>
         %{
-          "connected_realm_ref" => source.connected_realm_ref,
           "chat_id" => context.chat_id,
           "chat_type" => context.chat_type,
           "thread_id" => context.thread_id
@@ -213,8 +211,7 @@ defmodule BullxTelegram.UpdateMapper do
       "chat_type" => context.chat_type,
       "content_kind" => first_content_kind(blocks),
       "attention_reason" => context.attention_reason,
-      "im_listen_mode" => Atom.to_string(source.im_listen_mode),
-      "connected_realm_ref" => source.connected_realm_ref
+      "im_listen_mode" => Atom.to_string(source.im_listen_mode)
     }
     |> put_command_facts(command)
     |> reject_nil_values()

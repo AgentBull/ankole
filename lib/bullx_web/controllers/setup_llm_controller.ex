@@ -48,6 +48,30 @@ defmodule BullXWeb.SetupLLMController do
     end
   end
 
+  def models(conn, %{"provider_id" => provider_id}) do
+    case BullXWeb.SetupAuth.require_json_step(conn, :ai_agents) do
+      {:ok, conn, _projection} ->
+        case BullX.LLM.ModelRegistry.public_models(provider_id) do
+          {:ok, models} ->
+            json(conn, %{ok: true, models: models})
+
+          {:error, reason} ->
+            conn
+            |> put_status(:unprocessable_entity)
+            |> json(%{ok: false, errors: [%{message: inspect(reason)}]})
+        end
+
+      {:halt, conn} ->
+        conn
+    end
+  end
+
+  def models(conn, _params) do
+    conn
+    |> put_status(:unprocessable_entity)
+    |> json(%{ok: false, errors: [%{message: "provider_id is required"}]})
+  end
+
   defp render_step(conn, projection, error) do
     status = LLMProviders.status()
 
@@ -59,8 +83,10 @@ defmodule BullXWeb.SetupLLMController do
       setup: projection,
       providers: status.providers,
       req_llm_providers: status.req_llm_providers,
+      provider_catalog: status.provider_catalog,
       form_action: ~p"/setup/llm/providers",
       check_path: ~p"/setup/llm/providers/check",
+      back_path: ~p"/setup/plugins",
       error: error
     })
     |> render_inertia("setup/llm/App")

@@ -148,6 +148,61 @@ defmodule BullX.Principals.AuthNTest do
              Principals.issue_login_auth_code("chat", "workplace", "user_agent")
   end
 
+  test "login subjects bind to existing Humans by trusted profile identity facts" do
+    {:ok, %{principal: uid_principal}} =
+      Principals.create_human(%{uid: "feishu-user-id", display_name: "UID Human"})
+
+    {:ok, %{principal: email_principal}} =
+      Principals.create_human(%{
+        uid: "email-human",
+        display_name: "Email Human",
+        email: "ada@example.com"
+      })
+
+    {:ok, %{principal: phone_principal}} =
+      Principals.create_human(%{
+        uid: "phone-human",
+        display_name: "Phone Human",
+        phone: "+8618511112441"
+      })
+
+    assert {:ok, ^uid_principal, %ExternalIdentity{}} =
+             Principals.match_or_create_human_from_login_subject(
+               login_subject_input("feishu:ou_uid", %{"uid" => "FEISHU-USER-ID"})
+             )
+
+    assert {:ok, ^email_principal, %ExternalIdentity{}} =
+             Principals.match_or_create_human_from_login_subject(
+               login_subject_input("feishu:ou_email", %{"email" => "ADA@example.com"})
+             )
+
+    assert {:ok, ^phone_principal, %ExternalIdentity{}} =
+             Principals.match_or_create_human_from_login_subject(
+               login_subject_input("feishu:ou_phone", %{"phone" => "+8618511112441"})
+             )
+  end
+
+  test "login subjects bind to an existing channel actor from metadata channel ref" do
+    {:ok, %{principal: principal}} =
+      Principals.create_human(%{uid: "feishu-user", display_name: "Feishu User"})
+
+    insert_channel_identity!(principal, "feishu", "main", "feishu:ou_user")
+
+    input = %{
+      provider: "main",
+      external_id: "feishu:ou_user",
+      profile: %{"uid" => "user_x", "email" => "ada@example.com"},
+      metadata: %{"adapter" => "feishu", "source_id" => "main"}
+    }
+
+    assert {:ok, ^principal, %ExternalIdentity{} = identity} =
+             Principals.match_or_create_human_from_login_subject(input)
+
+    assert identity.kind == :login_subject
+    assert identity.provider == "main"
+    assert identity.external_id == "feishu:ou_user"
+  end
+
   defp channel_input(adapter, channel_id, external_id, profile) do
     %{
       adapter: adapter,
@@ -155,6 +210,15 @@ defmodule BullX.Principals.AuthNTest do
       external_id: external_id,
       profile: profile,
       metadata: %{"tenant_key" => "tenant_xxx"}
+    }
+  end
+
+  defp login_subject_input(external_id, profile) do
+    %{
+      provider: "main",
+      external_id: external_id,
+      profile: profile,
+      metadata: %{"adapter" => "feishu", "source_id" => "main"}
     }
   end
 

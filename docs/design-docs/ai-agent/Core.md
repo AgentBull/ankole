@@ -75,7 +75,7 @@ entry, and ensures an alive TargetSession worker exists. EventBus does not
 understand AIAgent reasoning, execute tools, write Conversation records, or turn
 Target failure into business failure.
 
-TargetSession is an execution window. It may deliver several side-channel
+TargetSession is an execution lane. It may deliver several side-channel
 entries to the same AIAgent in stable order, but each callback receives one
 entry. Business continuity lives in Conversation, Message, Work, ChildRun,
 Artifact, Brain, future Budget, and domain records. After a TargetSession closes,
@@ -88,12 +88,15 @@ streams. It must not create TargetSessions, inspect AIAgent internal state, writ
 Conversation transcripts, decide whether an AIAgent operation is allowed, or
 infer business completion.
 
-LLMProvider is a provider/catalog support layer. AIAgent stores model specs in
-its profile and resolves them through `BullX.LLM.Catalog.resolve_model_spec/1`.
-Core consumes the returned `model_input` and base `req_llm` options, then adds
-call-specific prompt, tools, tool choice, generation options, reasoning effort,
-and validated `provider_options`. LLMProvider does not own prompts, model/tool
-loops, TargetSession behavior, ACL, usage policy, or AIAgent identity.
+LLMProvider is a provider/catalog support layer. AIAgent stores model config
+objects in its profile and resolves them through
+`BullX.LLM.Catalog.resolve_model_config/1`. Core consumes the returned
+`model_input` and base `req_llm` options, then adds call-specific prompt, tools,
+tool choice, and validated `provider_options`. Reasoning effort, effective
+context window, and optional max output tokens live with the model config
+because they are call-profile choices, not endpoint credentials. LLMProvider
+does not own prompts, model/tool loops, TargetSession behavior, ACL, usage
+policy, or AIAgent identity.
 
 Principal is the accountability boundary. An AIAgent normally has its own Agent
 Principal. For an Event Routing Rule with `target_type = "ai_agent"`,
@@ -111,13 +114,25 @@ Core owns casting and validation for the `ai_agent` object.
 ```json
 {
   "ai_agent": {
-    "main_model": "openai_proxy:gpt-5.4",
-    "main_model_reasoning_effort": "medium",
-    "compression_model": null,
-    "compression_model_reasoning_effort": "low",
-    "heavy_model": null,
-    "heavy_model_reasoning_effort": "high",
-    "mission": "...",
+    "main_llm": {
+      "provider_id": "openai_proxy",
+      "model": "gpt-5.4",
+      "reasoning_effort": "medium",
+      "context_window": 1048576
+    },
+    "compression_llm": {
+      "provider_id": "openai_proxy",
+      "model": "gpt-5.4",
+      "reasoning_effort": "low",
+      "context_window": 1048576
+    },
+    "heavy_llm": {
+      "provider_id": "openai_proxy",
+      "model": "gpt-5.4",
+      "reasoning_effort": "high",
+      "context_window": 1048576
+    },
+    "mission": "Track finance-related group discussions and answer or escalate within that work scope.",
     "ambient_intent_system_prompt": "",
     "soul": "...",
     "instructions": "...",
@@ -155,18 +170,29 @@ Core owns casting and validation for the `ai_agent` object.
 
 Profile rules:
 
-- `main_model` is required and is resolved by
-  `BullX.LLM.Catalog.resolve_model_spec/1`.
-- `compression_model` and `heavy_model` default to `main_model` when null.
-- `main_model_reasoning_effort`, `compression_model_reasoning_effort`, and
-  `heavy_model_reasoning_effort` are stored as strings and cast to one of
-  `:none`, `:minimal`, `:low`, `:medium`, `:high`, or `:xhigh`.
+- `main_llm` is required and is resolved by
+  `BullX.LLM.Catalog.resolve_model_config/1`.
+- `compression_llm` and `heavy_llm` default to `main_llm` when omitted, with
+  `low` and `high` reasoning effort defaults respectively.
+- Each model config stores `provider_id`, `model`, `reasoning_effort`,
+  `context_window`, and an optional `max_completion_tokens`.
+- `reasoning_effort` is cast to one of `:none`, `:minimal`, `:low`, `:medium`,
+  `:high`, or `:xhigh`.
+- `context_window` is the effective input context budget used by token
+  accounting and compression. Setup should populate it from model metadata or a
+  user override; runtime falls back to `80000` when it is absent. Setup UI may
+  show this fallback as placeholder guidance, but should not save it as an
+  explicit value unless the operator entered it.
+- `max_completion_tokens` is an optional output-token override. It is not the
+  context budget and may be omitted to let the provider default apply.
 - Reasoning effort remains independently effective even when the compression or
-  heavy model falls back to the same resolved model as `main_model`.
-- `mission`, `soul`, and `instructions` are request-time prompt inputs passed
+  heavy config uses the same provider and model as `main_llm`.
+- `mission` is required. It describes the AIAgent's long-term work function and
+  responsibility boundary: the scope within which the Agent may observe, judge,
+  and act proactively. It is not a default greeting or current run objective.
+- `soul` and `instructions` are optional request-time prompt inputs passed
   through `./SystemPromptBuilder.md`. They are not Conversation Messages and do
-  not participate in compression. `mission` describes long-term responsibility,
-  not the current run objective.
+  not participate in compression.
 - `ambient_intent_system_prompt` is an optional supplement for the ambient
   intent recognizer defined by `./AmbientAndEventMessages.md`. It does not
   replace main model instructions, change Event routing, or become a Message.
@@ -330,8 +356,8 @@ The context is built by Core and contains only explicit runtime facts:
   caller_principal_id: caller_principal_id,
   agent_principal_id: agent_principal_id,
   conversation_id: conversation_id,
-  source_type: source_type,
-  source_id: source_id,
+  trigger_type: trigger_type,
+  trigger_id: trigger_id,
   tool_call_id: tool_call_id,
   tool_name: tool_name,
   effective_access: :ordinary,
@@ -433,10 +459,10 @@ Constraints:
 
 `generation` is weak coordination metadata, not business truth. It only answers
 which generation attempt may still commit output for the active Conversation. It
-may hold `lease_id`, `owner_source_type`, `owner_source_id`,
-`source_message_id`, `started_at`, `expires_at`, `heartbeat_at`,
+may hold `lease_id`, `owner_trigger_type`, `owner_trigger_id`,
+`trigger_message_id`, `started_at`, `expires_at`, `heartbeat_at`,
 `cancelled_at`, and a content-free cancellation reason. Event-derived runs
-normally use `target_session_entry_id` as `owner_source_id`; ambient batch runs
+normally use `target_session_entry_id` as `owner_trigger_id`; ambient batch runs
 use a deterministic ambient batch idempotency key. Slash command input history,
 steering text, delivery state, and command responses do not live in the lease
 object.
@@ -496,7 +522,7 @@ Rules:
   rendering after redelivery or restart. The rendered time prefix is not written
   back into `content`.
 - Assistant, tool, and error Messages produced by AIAgent carry
-  `metadata.generation.source_message_id`, `source_type`, `source_id`, and
+  `metadata.generation.trigger_message_id`, `trigger_type`, `trigger_id`, and
   `root_assistant_message_id` for command recovery and branch audit. These are
   implementation metadata, not a turns table.
 - Assistant model metadata stores normalized `finish_reason` and allowlisted
@@ -653,7 +679,7 @@ AIAgent v1 handles one entry in this order:
 ```text
 Target.handle_event(invocation, entry)
   -> resolve target_ref to an active Agent Principal
-  -> cast and validate agents.profile.ai_agent with Installation defaults
+  -> cast and validate agents.profile.ai_agent, including explicit mission and runtime defaults
   -> normalize accepted CloudEvent content and Principal evidence for AIAgent use
   -> classify the Event through AmbientAndEventMessages policy
   -> return after safe diagnostics for unsupported Events
@@ -666,7 +692,7 @@ Target.handle_event(invocation, entry)
   -> acquire a Conversation generation lease when a model run is needed
   -> render prompt context from active branch, Work, and entry context
   -> call context compression if token limits require it
-  -> resolve the model spec through BullX.LLM.Catalog
+  -> resolve the model config through BullX.LLM.Catalog
   -> run the model/tool loop under ACL and max_turns
   -> persist assistant, tool, error, and business records
   -> release the generation lease
@@ -691,35 +717,35 @@ read EventBus matcher internals, or dispatch from database module names.
 AIAgent treats `docs/design-docs/eventbus/NormalizedCloudEvent.md` as the
 normalized inbound data contract.
 
-## Generation source contract
+## Generation trigger contract
 
 Core uses one generation runner for Event-derived user turns, ambient proactive
 turns, and command-driven retries. The runner input is explicit and does not
-infer source state from process-local context:
+infer trigger state from process-local context:
 
-| `source_type` | `source_id` | TargetSession ids | Reply channel |
+| `trigger_type` | `trigger_id` | TargetSession ids | Reply channel |
 | --- | --- | --- | --- |
 | `target_session_entry` | `target_session_entry_id` | Required from invocation. | From accepted Event `data.reply_channel`. |
 | `ambient_batch` | Deterministic processed-batch idempotency key. | Absent. | Captured session-level ambient `reply_channel` hint. |
-| `command_retry` | Command entry id. | Optional; present only when the command came from a TargetSession entry. | Reuses the retried source Message delivery context when still valid. |
+| `command_retry` | Command entry id. | Optional; present only when the command came from a TargetSession entry. | Reuses the retried trigger Message delivery context when still valid. |
 
 The runner always receives `agent_principal_id`, `conversation_id`,
-`source_message_id`, triggering Principal evidence, safe caller context, and the
+`trigger_message_id`, triggering Principal evidence, safe caller context, and the
 resolved `reply_channel` hint if one is available. Event-derived runs may also
 carry `target_session_id` and `target_session_entry_id`; ambient batch runs must
 not fabricate those identifiers because the Redis batch worker is not a
 TargetSession Target invocation.
 
-For `source_type = ambient_batch`, the source id identifies the processed batch,
+For `trigger_type = ambient_batch`, the trigger id identifies the processed batch,
 not the long-lived ambient Conversation. Reprocessing the same Redis batch must
-reuse the same source id, while later batches in the same ambient Conversation
-must receive different source ids. The triggering Principal and safe caller
+reuse the same trigger id, while later batches in the same ambient Conversation
+must receive different trigger ids. The triggering Principal and safe caller
 context are the Agent Principal itself. Ambient message speakers remain evidence
 and context only; they are not the ACL caller for proactive generation.
 
 Generated assistant, tool, and error Messages write
-`metadata.generation.lease_id`, `source_type`, `source_id`,
-`source_message_id`, and `root_assistant_message_id`. Event-derived Messages may
+`metadata.generation.lease_id`, `trigger_type`, `trigger_id`,
+`trigger_message_id`, and `root_assistant_message_id`. Event-derived Messages may
 also write `target_session_id` and `target_session_entry_id`. Ambient batch
 Messages leave those TargetSession fields null and rely on the deterministic
 batch idempotency key for recovery and outbound idempotency.
@@ -737,8 +763,8 @@ meta context; they do not create separate AIAgent runtime modes.
 AIAgent v1 also treats `bullx.action.submitted` as a directed user input when an
 Event Routing Rule sends it to an AIAgent Target. The normalized `action.text`
 projection becomes the transcript text block. Structured action identifiers and
-sanitized values remain structured Event facts referenced through the Message
-source identifiers; they are not expanded into prompt-private raw payloads. This
+sanitized values remain structured Event facts referenced through Message
+provenance identifiers; they are not expanded into prompt-private raw payloads. This
 lets provider cards, buttons, and approval clicks continue the same Conversation
 without requiring adapters to forge IM text messages.
 
@@ -793,7 +819,10 @@ fresh Conversation or appended to an ended branch.
 
 Daily reset is Conversation hygiene, not TargetSession identity. It closes stale
 active Conversations at a profile-local service-day boundary so the next Event
-starts a fresh Conversation while old Messages remain queryable.
+starts a fresh Conversation while old Messages remain queryable. It does not
+force-close or clear active TargetSessions; a still-active TargetSession may
+handle a later Event, and AIAgent then selects or creates the correct active
+Conversation from the Conversation key.
 
 Eligibility compares last Conversation activity against the profile-local daily
 reset boundary. V1 defines last activity as the latest completed Conversation
@@ -932,8 +961,8 @@ Prompt inputs include:
 
 - Profile fields such as mission, soul, instructions, model settings, and
   ToolSet hints.
-- Invocation context such as Principal evidence, TargetSession ids, scope/window
-  keys, and safe routing metadata.
+- Invocation context such as Principal evidence, TargetSession ids, scope keys,
+  and safe routing metadata.
 - Current inbound Message, time-awareness metadata, ambient reference context,
   actor context, and later user identity context.
 - Active branch Conversation history after summary overlay.
@@ -982,6 +1011,11 @@ Core owns estimation, provider usage capture, safe context limit selection, and
 safe usage metadata. It does not own summary overlay selection, compression
 prompts, prompt cache marker generation, or cache invalidation.
 
+The safe context limit is derived from the active model config's effective
+`context_window`, after applying any operator override and the BullX fallback for
+missing metadata. Output-token limits are reserved generation controls and do
+not determine when compression should trigger.
+
 Pre-call estimation runs after summary overlay, request-time large result
 compaction, and provider-structure validation. It uses model metadata when
 available, a conservative BullX estimator, and reserved output/tool overhead.
@@ -1026,10 +1060,10 @@ estimation, prompt-too-long, and retry handling.
 
 ## Model and provider runtime
 
-AIAgent resolves model specs through:
+AIAgent resolves model configs through:
 
 ```elixir
-BullX.LLM.Catalog.resolve_model_spec(spec)
+BullX.LLM.Catalog.resolve_model_config(config)
 ```
 
 Core records safe model metadata such as provider id, model id, request id,
@@ -1043,20 +1077,21 @@ uses `ReqLLM.stream_text/3` and materializes the final assistant result through
 path. Normal Target processing does not use bang helpers because provider errors
 must become safe AIAgent outcomes.
 
-Core builds call-time options from profile, run policy, and rendered context.
-Typical options include `tools`, `tool_choice`, `reasoning_effort`, generation
-parameters, and validated call-specific `provider_options`. Static
+Core builds call-time options from the model config, run policy, and rendered
+context. Typical options include `tools`, `tool_choice`, `reasoning_effort`,
+`max_tokens`, and validated call-specific `provider_options`. Static
 `llm_providers.provider_options` remains endpoint/provider configuration and
 must not store per-turn generation behavior.
 
-Reasoning effort is chosen from the call scenario:
+Reasoning effort and max completion token choices are read from the relevant
+model config:
 
-- main and tool-followup calls use `main_model_reasoning_effort`
-- compression calls use `compression_model_reasoning_effort`
-- heavy auxiliary calls use `heavy_model_reasoning_effort`
+- main and tool-followup calls use `main_llm`
+- compression calls use `compression_llm`
+- heavy auxiliary calls use `heavy_llm`
 
 Provider-specific behavior must pass through supported `req_llm` surfaces:
-model spec metadata, validated `provider_options`, `ReqLLM.Tool` schema/provider
+model metadata, validated `provider_options`, `ReqLLM.Tool` schema/provider
 options, `ReqLLM.Message.ContentPart` metadata, or a BullX-owned `req_llm`
 provider override. Core must not patch raw provider JSON bodies, depend on raw
 provider response payloads, or inspect `Req` internals.
@@ -1083,7 +1118,7 @@ Provider-private continuation state is not a first-class v1 model. If a selected
 `req_llm` provider requires an opaque continuation handle, Core may store it as
 short-term Message or Conversation metadata. It must be opaque, secret-free, and
 scoped to the provider, model, Conversation, branch, and assistant Message. It is
-dropped after `new`, daily reset, branch switch, model spec change, provider
+dropped after `new`, daily reset, branch switch, model config change, provider
 fallback, or Conversation end unless a later provider-specific design states
 otherwise.
 
@@ -1191,8 +1226,8 @@ when the assistant Message reaches a terminal state. The durable transcript is
 the assistant Message; stream chunks are weak runtime state.
 
 Outbound visible reply idempotency keys are derived from assistant Message id,
-generation source id, and reply-channel stable identity. Event-derived runs use
-`target_session_entry_id` as the generation source id; ambient batch runs use
+generation trigger id, and reply-channel stable identity. Event-derived runs use
+`target_session_entry_id` as the generation trigger id; ambient batch runs use
 the deterministic ambient batch idempotency key. V1 records delivery results on
 assistant Message metadata or existing business records and does not add a
 delivery table.
@@ -1339,8 +1374,8 @@ High-value partial-commit recovery cases:
 - A close request while TargetSession has pending entries follows EventBus
   safe-point drain/close behavior.
 
-`BullX.EventBus.TargetSession.close/1` and `fail/2` remain session-window
-controls. One-shot Events, command-only Events, ignored Events, and completed
+`BullX.EventBus.TargetSession.close/1` and `fail/2` remain TargetSession
+lifecycle controls. Command-only Events, ignored Events, and completed
 addressed replies should request `close/1` when no more pending work remains.
 Only terminal runtime failures requiring operator diagnosis should request
 `fail/2`. If Core requests close or fail after writing durable records,
@@ -1408,7 +1443,7 @@ EventBus, LLMProvider, Principal, Channel Adapter, or Workflow boundaries.
 - Conversation and Message UUID primary keys use `BullX.Ecto.UUIDv7`.
 - TargetSession side-channel state and output stream buffers do not become
   Conversation or Message truth.
-- Use `BullX.LLM.Catalog.resolve_model_spec/1`; do not move prompt
+- Use `BullX.LLM.Catalog.resolve_model_config/1`; do not move prompt
   orchestration, model selection storage, usage policy, failover, or tool
   behavior into LLMProvider.
 - Use `BullX.EventBus.TargetSession.close/1` and `fail/2`; do not extend
@@ -1430,7 +1465,7 @@ EventBus, LLMProvider, Principal, Channel Adapter, or Workflow boundaries.
 
 1. Add AIAgent profile casting and validation.
    - Owns: `agents.profile.ai_agent` casting and tests.
-   - Acceptance: model specs, reasoning effort values, daily reset fields,
+   - Acceptance: model configs, reasoning effort values, daily reset fields,
      time-awareness granularity, ambient fields, ACL strategy, and ToolSet
      fields validate; invalid profile fails safely without model calls or side
      effects.
@@ -1448,12 +1483,12 @@ EventBus, LLMProvider, Principal, Channel Adapter, or Workflow boundaries.
 3. Add AIAgent Target dispatch.
    - Owns: `ai_agent` Target registry entry and
      `BullX.AIAgent.handle_event/2`, plus the shared generation runner
-     source contract for `target_session_entry`, `ambient_batch`, and
+     trigger contract for `target_session_entry`, `ambient_batch`, and
      `command_retry`.
    - Acceptance: a fake side-channel entry invokes AIAgent without EventBus
      owning AIAgent internals; ambient batch generation can run without
      fabricated TargetSession identifiers and uses the Agent Principal itself as
-     ACL caller; command retry generation uses the command entry id as source id.
+     ACL caller; command retry generation uses the command entry id as trigger id.
 
 4. Add conversation key and Event message handling.
    - Owns: deterministic key builder, addressed IM and directed action user
@@ -1548,8 +1583,6 @@ Stop implementation and ask for a design decision if:
   has started.
 - Adapter must wait for Target execution, Conversation persistence, or
   TargetSession completion before acknowledging the provider.
-- A TargetSession must remain alive beyond 24 hours to wait for approval,
-  external agents, or human replies.
 - A provider conversation must bypass Channel Adapter outbound or stream
   boundary to send replies.
 - Visible delivery idempotency requires a dedicated delivery table in v1.

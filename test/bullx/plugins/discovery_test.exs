@@ -11,6 +11,8 @@ defmodule BullX.Plugins.DiscoveryTest do
     assert spec.id == "test_plugin"
     assert spec.module == BullX.Plugins.TestPlugin
     assert spec.api_version == 1
+    assert spec.metadata.display_name == %{"en-US" => "Test plugin", "zh-Hans-CN" => "测试插件"}
+    assert spec.metadata.description == "A test plugin."
     assert spec.config_modules == [BullX.Plugins.TestConfig]
     assert [%BullX.Plugins.Extension{point: :test_point, id: :primary}] = spec.extensions
   end
@@ -53,5 +55,12 @@ defmodule BullX.Plugins.DiscoveryTest do
   test "fails when plugin id does not match the app id" do
     assert {:error, {:plugin_id_mismatch, :bad_id_plugin, "wrong", "bad_id_plugin"}} =
              Discovery.discover_app(:bad_id_plugin, modules: [BullX.Plugins.TestBadIdPlugin])
+  end
+
+  test "fails when optional localized metadata fields are invalid" do
+    assert {:error, {:invalid_plugin_metadata_field, :display_name, %{"en-US" => :bad}}} =
+             Discovery.discover_app(:invalid_metadata_plugin,
+               modules: [BullX.Plugins.TestInvalidMetadataPlugin]
+             )
   end
 end

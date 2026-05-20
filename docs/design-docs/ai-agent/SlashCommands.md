@@ -181,9 +181,9 @@ The lease object only records which generation attempt may still commit output:
 ```json
 {
   "lease_id": "018f...",
-  "owner_source_type": "target_session_entry",
-  "owner_source_id": "018f...",
-  "source_message_id": "018f-user-or-introspection",
+  "owner_trigger_type": "target_session_entry",
+  "owner_trigger_id": "018f...",
+  "trigger_message_id": "018f-user-or-introspection",
   "started_at": "2026-05-18T14:35:00Z",
   "heartbeat_at": "2026-05-18T14:36:00Z",
   "expires_at": "2026-05-18T14:45:00Z",
@@ -216,18 +216,18 @@ generation metadata so `retry` and `undo` do not require a turns table:
 {
   "generation": {
     "lease_id": "018f-lease",
-    "source_message_id": "018f-user-or-introspection",
-    "source_type": "target_session_entry",
-    "source_id": "018f-entry-or-command",
+    "trigger_message_id": "018f-user-or-introspection",
+    "trigger_type": "target_session_entry",
+    "trigger_id": "018f-entry-or-command",
     "root_assistant_message_id": "018f-assistant"
   }
 }
 ```
 
 `lease_id` identifies the generation attempt that produced the Message.
-`source_message_id` points to the user-like Message that triggered this Agentic
-Loop. `source_type` is `target_session_entry`, `ambient_batch`, or
-`command_retry`. `source_id` is the entry id, batch idempotency key, or command
+`trigger_message_id` points to the user-like Message that triggered this Agentic
+Loop. `trigger_type` is `target_session_entry`, `ambient_batch`, or
+`command_retry`. `trigger_id` is the entry id, batch idempotency key, or command
 entry id. `root_assistant_message_id` points to the first assistant
 Message produced by the generation; later tool, assistant, and error Messages
 from the same generation reuse it.
@@ -264,7 +264,7 @@ Every command handler begins with the same transaction pattern:
 
 Command handlers do not call the model inside the command transaction. If a
 command starts or restarts generation, it first commits branch and lease state,
-then starts the normal AIAgent generation runner with an explicit source id.
+then starts the normal AIAgent generation runner with an explicit trigger id.
 
 ## Authorization And Safety
 
@@ -391,7 +391,7 @@ updateable provider-visible surface.
 ### `retry`
 
 `retry` retries the turn that produced the last eligible AI reply on the current
-Conversation. It is not a new user turn. It sends the original user-like source
+Conversation. It is not a new user turn. It sends the original user-like trigger
 Message back through the normal AIAgent generation runner and removes the old
 generated suffix from active branch rendering while preserving evidence.
 
@@ -402,10 +402,10 @@ target from the Message tree and content-free generation metadata:
   branch.
 - Eligible assistant replies exclude `kind = summary`, maintenance diagnostics,
   and `status = generating`.
-- The turn source is the user-like Message that produced that assistant reply:
+- The turn trigger is the user-like Message that produced that assistant reply:
   `role = user, kind = normal` or `role = im_ambient, kind = introspection`.
 - The turn includes generated assistant, tool, and error Messages after that
-  source under the same generation source, through the retry target.
+  trigger Message under the same generation trigger, through the retry target.
 
 `retry` uses the Core-resolved active branch after summary overlay. It does not
 treat the summary Message itself as an assistant reply and does not search inside
@@ -420,25 +420,25 @@ Handler behavior:
    with `reason = "active_generation_present"`.
 3. Resolve the active render branch through Core's summary overlay rules.
 4. Walk backward to find the last eligible assistant reply.
-5. Find `metadata.generation.source_message_id` for that reply, and validate the
-   source Message is on the active branch with an allowed user-like role and
+5. Find `metadata.generation.trigger_message_id` for that reply, and validate the
+   trigger Message is on the active branch with an allowed user-like role and
    kind.
-6. Mark generated suffix Messages from the source child through the retry target
+6. Mark generated suffix Messages from the trigger Message child through the retry target
    with `metadata.branch_effect.state = "superseded"` and the command entry id.
 7. Collect provider message ids from delivered assistant Messages in that suffix
    when delivery metadata contains them.
-8. Set `current_leaf_message_id = source_message_id`.
+8. Set `current_leaf_message_id = trigger_message_id`.
 9. Acquire a generation lease under the same Conversation lock with
-   `owner_source_type = "command_retry"`, `owner_source_id = command_entry_id`,
-   and the original `source_message_id`.
+   `owner_trigger_type = "command_retry"`, `owner_trigger_id = command_entry_id`,
+   and the original `trigger_message_id`.
 10. Commit.
 11. Best-effort recall previously delivered assistant output before starting the
     replacement generation, when the adapter supports recall.
 12. If no provider message was recalled because the channel lacks recall support,
     the old output had no provider message id, or recall failed, return
     control feedback before the replacement generation starts.
-13. Start the normal generation runner with `source_message_id`, `lease_id`,
-    `owner_source_type = "command_retry"`, and `owner_source_id =
+13. Start the normal generation runner with `trigger_message_id`, `lease_id`,
+    `owner_trigger_type = "command_retry"`, and `owner_trigger_id =
     command_entry_id`.
 
 The new generation writes `metadata.retry_of_message_id` and
@@ -531,18 +531,18 @@ is branch hygiene, not physical delete. Raw Messages remain durable evidence.
 
 An exchange is:
 
-- The last source Message on the active branch with
+- The last trigger Message on the active branch with
   `role = user, kind = normal` or
   `role = im_ambient, kind = introspection`.
-- The assistant, tool, and error Messages after that source whose
-  `metadata.generation.source_message_id = source_message_id`.
+- The assistant, tool, and error Messages after that trigger Message whose
+  `metadata.generation.trigger_message_id = trigger_message_id`.
 
 Summary overlay Messages, maintenance diagnostics, and ambient
 `kind = normal` Messages do not independently form undoable exchanges.
 
 `undo` uses the Core-resolved active branch after summary overlay. It does not
 look through the selected summary's covered interval to find an older hidden
-source Message. If undo rewinds the branch to a point where the selected summary
+trigger Message. If undo rewinds the branch to a point where the selected summary
 is no longer compatible, raw history becomes visible again until later
 compression writes a compatible summary.
 
@@ -552,15 +552,15 @@ Handler behavior:
 2. If a generation is active, return a safe no-op command response or diagnostic
    with `reason = "active_generation_present"`.
 3. Resolve the active render branch through Core's summary overlay rules.
-4. Walk backward to the last source Message with an allowed role and kind.
-5. If no source exists, return a safe no-op command response or diagnostic with
+4. Walk backward to the last trigger Message with an allowed role and kind.
+5. If no trigger Message exists, return a safe no-op command response or diagnostic with
    `reason = "no_undo_target"`.
-6. Mark the source and generated suffix Messages with
+6. Mark the trigger Message and generated suffix Messages with
    `metadata.branch_effect.state = "undone"` and the command entry id.
 7. Collect provider message ids from delivered assistant Messages in that suffix
    when delivery metadata contains them.
-8. Set `current_leaf_message_id = source.parent_id`; if the source is root, set
-   it to `null`.
+8. Set `current_leaf_message_id = trigger_message.parent_id`; if the trigger
+   Message is root, set it to `null`.
 9. Commit.
 10. Best-effort recall previously delivered assistant output when the adapter
     supports recall.
@@ -574,7 +574,7 @@ exchange produced an external side effect, compensation belongs to the owning
 Tool, future Capability, Work, or domain design.
 
 For IM channels that support recall, `undo` cleans up the assistant-visible part
-of the undone exchange. It does not recall the user's own source message and
+of the undone exchange. It does not recall the user's own trigger Message and
 does not claim external side effects have been undone.
 
 ## Recovery And Idempotency
@@ -675,10 +675,10 @@ TargetSession, Channel Adapter, LLMProvider, or Workflow ownership boundaries.
      privileged command added later additionally requires `invoke_privileged`.
 
 4. Add runtime generation metadata and generated Message metadata.
-   - Owns: `lease_id`, owner source fields, heartbeat/expiration,
+   - Owns: `lease_id`, owner trigger fields, heartbeat/expiration,
      cancellation fields, and `metadata.generation` for
      generated assistant, tool, and error Messages.
-   - Acceptance: `retry` and `undo` find source Message and generated suffix
+   - Acceptance: `retry` and `undo` find trigger Message and generated suffix
      without a turns table.
 
 5. Implement `new` and `compress`.
@@ -689,10 +689,10 @@ TargetSession, Channel Adapter, LLMProvider, or Workflow ownership boundaries.
      repeat summary effects.
 
 6. Implement `retry`.
-   - Owns: last assistant reply lookup, source derivation, generated suffix
+   - Owns: last assistant reply lookup, trigger derivation, generated suffix
      `metadata.branch_effect.state = "superseded"`, leaf rewind, and retry
      generation metadata.
-   - Acceptance: `retry` reruns the last AI reply's source turn without copying
+   - Acceptance: `retry` reruns the last AI reply's trigger turn without copying
      the user Message, creating a new user turn, or deleting old evidence.
    - Acceptance: when the old assistant output has provider delivery metadata
      and the reply channel supports recall, `retry` recalls the old visible
@@ -722,7 +722,7 @@ TargetSession, Channel Adapter, LLMProvider, or Workflow ownership boundaries.
      branch rendering while preserving durable raw Messages.
    - Acceptance: when undone assistant output has provider delivery metadata and
      the reply channel supports recall, `undo` recalls the assistant-visible
-     output without recalling the user's source message.
+     output without recalling the user's trigger Message.
 
 10. Add command transaction and recovery tests.
     - Owns: focused tests for redelivery, active-generation races, crash

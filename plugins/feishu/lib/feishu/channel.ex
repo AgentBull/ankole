@@ -62,10 +62,6 @@ defmodule Feishu.Channel do
     {:reply, accept({:event, event_type, event}, state.source), state}
   end
 
-  def handle_call({:card_action, action}, _from, %__MODULE__{} = state) do
-    {:reply, accept({:card_action, action}, state.source), state}
-  end
-
   defp maybe_start_ws(%Source{start_transport?: false}), do: {:ok, nil}
 
   defp maybe_start_ws(%Source{} = source) do

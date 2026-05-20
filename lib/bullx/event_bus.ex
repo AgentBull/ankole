@@ -19,8 +19,8 @@ defmodule BullX.EventBus do
   1. Matches the event against operator-defined Event Routing Rules
      (declarative match expressions evaluated by a Rust NIF — see
      `BullX.EventBus.RoutingTable`).
-  2. Resolves a **TargetSession** for the matched rule + scope/window
-     (`BullX.EventBus.TargetSession.Resolver`) — the durable per-window
+  2. Resolves a **TargetSession** for the matched rule + target + scope
+     (`BullX.EventBus.TargetSession.Resolver`) — the durable per-lane
      work-queue that serializes events to one consumer.
   3. Appends the event to that session and invokes the rule's Target.
 

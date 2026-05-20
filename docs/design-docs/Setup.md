@@ -4,7 +4,8 @@ The setup wizard is the one-time Web control surface for a fresh BullX
 Installation. It opens before any Human Principal exists, protects `/setup` with
 the bootstrap activation code, and guides the operator through plugin
 enablement, LLM provider configuration, Channel Adapter source configuration,
-initial AIAgent creation, AIAgent ACL grants, and Event Routing Rule creation.
+initial AIAgent creation, AIAgent ACL grants, and default Event Routing Rule
+creation.
 The final step shows the operator a `/preauth <activation-code>` command to run
 inside the configured message channel, which activates the first Human admin.
 
@@ -39,8 +40,8 @@ This design covers these setup surfaces:
 - Built-in `admin` group and `all_humans` dynamic group.
 - Initial AIAgent ordinary access group, privileged operation group, default
   grants, and editable ACL preview.
-- Event Routing Rule creation that sends the first configured source's BullX
-  channel Events to the initial AIAgent.
+- Default Event Routing Rule preview, creation, and live validation that sends
+  the first configured source's BullX channel Events to the initial AIAgent.
 - The activation-complete page, including plaintext activation command display
   and copy action.
 - `/preauth` completion and AuthZ bootstrap admin handoff.
@@ -55,6 +56,8 @@ This design does not cover these surfaces:
 - A generic provider-specific adapter schema abstraction.
 - EventBus fan-out, fallback routing, TargetSession queue topology, or business
   fact storage.
+- A generic Event Routing Rule editor, manual CEL editor, priority editor, or
+  operator-selected Target editor.
 - A full AuthZ management UI, generic authorization policy editor, or global
   grant seed catalog.
 - AIAgent session, message, compression, tool, memory, Brain, or long-running
@@ -76,7 +79,7 @@ compatibility layers.
   Phoenix/Inertia patterns.
 - **New persistence:** do not add setup-owned business tables. LLM providers,
   Principals, AuthZ groups and grants, Event Routing Rules, plugin enablement,
-  plugin credentials, and plugin source config remain owned by their
+  and plugin source config remain owned by their
   subsystems.
 - **Runtime ownership:** do not change OTP failure boundaries. Plugin source
   runtime refresh calls a plugin-owned boundary; setup and EventBus core do not
@@ -120,10 +123,10 @@ following table.
 | `internals/design-docs/drafts/Arch.md` and `docs/Architecture.md` | Use the current Installation, Principal, Connected Realm, EventBus, Event Routing Rule, Target, TargetSession, AIAgent, and Workflow vocabulary. |
 | `docs/design-docs/Plugins.md` | Read discovered plugins, write `bullx.enabled_plugins`, and require restart before the enabled plugin registry takes effect. |
 | `docs/design-docs/Configuration.md` | Use `BullX.Config` for plugin enablement, plugin config, secret config, and i18n config. |
-| `docs/design-docs/LLMProvider.md` | Write `llm_providers`. Setup does not manage model aliases; concrete model specs belong in AIAgent profile. |
+| `docs/design-docs/LLMProvider.md` | Write `llm_providers`. Setup does not manage model aliases; concrete model configs belong in AIAgent profile. |
 | `docs/design-docs/Principal.md` | Use the bootstrap activation code gate, create Agent Principals, and let `/preauth` consume the activation code to create the first Human Principal. |
 | `docs/design-docs/AuthZ.md` | Use bootstrap admin handoff, the built-in `admin` group, the `all_humans` dynamic group, and visible setup seed grants. |
-| `docs/design-docs/eventbus/Core.md` and `docs/design-docs/eventbus/Matcher.md` | Create ordinary Event Routing Rules and obey priority, first-match terminal behavior, Blackhole, scope, and window semantics. |
+| `docs/design-docs/eventbus/Core.md` and `docs/design-docs/eventbus/Matcher.md` | Create ordinary Event Routing Rules and obey priority, first-match terminal behavior, Blackhole, and scope semantics. |
 | `docs/design-docs/eventbus/Persistence.md` | Treat `event_routing_rules` as database-owned routing config. |
 | `docs/design-docs/eventbus/ChannelAdapter.md` | Treat Channel Adapters as transport extensions; source config and routing policy do not move into EventBus core. |
 | `docs/design-docs/eventbus/CommandTarget.md` and `docs/design-docs/eventbus/SystemCommands.md` | Do not create setup-owned `/command` or `/status` routes. |
@@ -168,8 +171,8 @@ return JSON. JSON results are operation feedback, not durable completion facts.
 | `POST /setup/channel-sources` | `SetupChannelSourcesController.save/2` | Check, save, and refresh plugin-owned source runtime state. |
 | `GET /setup/ai-agents` | `SetupAIAgentsController.show/2` | Render the AIAgents step. |
 | `POST /setup/ai-agents` | `SetupAIAgentsController.save/2` | Create or update the initial AIAgent Principal and its visible ACL grants. |
-| `GET /setup/event-routing-rules` | `SetupEventRoutingController.show/2` | Render the Event Routing step. |
-| `POST /setup/event-routing-rules` | `SetupEventRoutingController.save/2` | Create or update the default channel Event Routing Rule for the initial AIAgent. |
+| `GET /setup/event-routing-rules` | `SetupEventRoutingController.show/2` | Render the non-editable default Event Routing Rule preview and validation state. |
+| `POST /setup/event-routing-rules` | `SetupEventRoutingController.save/2` | Create or update the server-derived default channel Event Routing Rule for the initial AIAgent. |
 | `GET /setup/activate-admin` | `SetupActivationController.show/2` | Render the completion page with activation command and polling state. |
 | `GET /setup/activation/status` | `SetupActivationController.status/2` | Poll bootstrap activation status, clear setup session after AuthZ handoff, and return a redirect target. |
 
@@ -451,7 +454,7 @@ earliest incomplete step from durable state and current runtime state.
 | --- | --- |
 | `plugins` | Persisted `bullx.enabled_plugins` matches the current runtime enabled plugin registry, and at least one setup-capable Channel Adapter extension is visible. |
 | `llm_providers` | `BullX.LLM.Catalog.list_providers/0` returns at least one provider. |
-| `channel_sources` | At least one enabled plugin-owned source is saved, references existing credentials, and has a ready plugin-owned source runtime. |
+| `channel_sources` | At least one enabled plugin-owned source is saved with required source secrets and has a ready plugin-owned source runtime. |
 | `ai_agents` | At least one active Agent Principal exists; setup projection resolves a selected or marked initial AIAgent, or requires explicit selection when multiple unmarked active Agents exist; `BullX.AIAgent.Profile.cast/1` accepts `agents.profile["ai_agent"]`; required AIAgent ACL grants exist. |
 | `event_routing` | A sample `RoutingContext` for the setup source first-matches the setup rule in the current runtime `RoutingTable` snapshot, with `target_type = "ai_agent"` and `target_ref = <agent_principal_id>`. A database row alone is not enough. |
 | `activate_admin` | All previous steps are complete and bootstrap admin handoff is not complete. |
@@ -544,10 +547,10 @@ delete for persisted provider rows. The UI may remove unsaved local draft rows.
 A persisted provider delete action requires a later explicit design for
 ownership, reference checks, and preserving at least one usable provider.
 
-The AIAgent step stores concrete model specs such as
-`openai_proxy:gpt-4.1-mini` in `agents.profile["ai_agent"]["main_model"]`,
-`compression_model`, or `heavy_model`. Model selection does not belong to the
-LLM provider row.
+The AIAgent step stores concrete model config objects in
+`agents.profile["ai_agent"]["main_llm"]`, `compression_llm`, and `heavy_llm`.
+Each object points to a saved local BullX provider row and a provider model id.
+Model selection does not belong to the LLM provider row.
 
 ### Channel Adapter sources
 
@@ -576,13 +579,13 @@ A first-party Channel Adapter extension has this shape:
 
 The minimum source setup module exposes these functions:
 
-- `config_keys/0`, returning the credentials config key and sources config key.
+- `config_keys/0`, returning the source config key.
 - `form_schema/0`, returning field descriptors, defaults, secret/generated
-  markers, and help links for the setup UI.
-- `public_projection/0`, returning redacted credential/source state and runtime
+  markers, adapter UI metadata, and help links for the setup UI.
+- `public_projection/0`, returning redacted source state and runtime
   readiness.
-- `cast_credentials/1` and `cast_source/2`, normalizing controller payloads into
-  plugin-owned config.
+- `cast_source/2`, normalizing controller payloads into plugin-owned source
+  config. First-party V1 source secrets live directly inside source config.
 - `generated_secret_fields/0`, listing field paths that setup may generate.
 - `connectivity_check/1`, checking a request-local normalized source.
 - `routing_sample/1`, building a representative sample `RoutingContext` for
@@ -603,19 +606,34 @@ V1 `form_schema/0` returns shallow sections and fields:
 %{
   adapter_id: "feishu",
   label: "Feishu / Lark",
+  channel_kind: "im",
   help_url: "https://...",
   default_source: %{},
   sections: [
     %{
-      key: "credentials",
+      key: "source",
       fields: [
-        %{path: ["credentials", "app_id"], kind: :text, required: true},
-        %{path: ["credentials", "app_secret"], kind: :secret, required: true}
+        %{path: ["source", "id"], kind: :text, required: true},
+        %{path: ["source", "app_id"], kind: :text, required: true, ui: %{group: "credentials"}},
+        %{path: ["source", "app_secret"], kind: :secret, required: true, ui: %{group: "credentials"}}
       ]
     }
   ]
 }
 ```
+
+`channel_kind: "im"` tells the UI that this source is an IM channel adapter.
+`source.id` remains the BullX source instance id, not a provider bot username.
+Setup must not prefill this field for IM adapters; the operator must choose and
+submit the visible source id explicitly.
+OAuth/OIDC callback URLs are display-only setup values. BullX derives them from
+its own web origin and the source id, then shows them so the operator can copy
+them into the provider application console. They are not user-entered fields
+and setup does not persist them into source config. IM adapter setup defaults
+`im_listen_mode` to `all_messages`; the UI localizes the option labels while
+submitting the stable values. Setup does not expose `start_transport` as a
+field. Sources saved through setup are expected to start their transport, and
+plugin runtime code owns any later operator controls for pausing a source.
 
 V1 supports these field kinds: `:text`, `:url`, `:secret`,
 `:generated_secret`, `:number`, `:boolean`, `:select`, `:string_list`, and
@@ -632,36 +650,41 @@ Even if a plugin later owns a stable JSON Schema, setup V1 must not switch to
 RJSF without a separately approved stable-schema use case.
 
 Setup depends only on the source setup integration. It does not hard-code
-Feishu, Telegram, or Discord module paths. If an enabled first-party plugin does
-not implement the integration, setup reports that the plugin is not configurable
-or runtime ready instead of guessing its schema. The generic contract is part of
-V1, while Feishu is the required first-party acceptance path.
+Feishu, Telegram, or Discord module paths and does not assume that Feishu is the
+only adapter type. The Channel source step first selects a Channel Adapter type,
+then creates or edits one configured channel instance for that adapter. If an
+enabled first-party plugin does not implement the integration, setup reports
+that the plugin is not configurable or runtime ready instead of guessing its
+schema. The generic contract is part of V1, while Feishu is the required
+first-party acceptance path.
 
 Current first-party plugin config keys are:
 
-| Plugin | Adapter id | Credentials key | Sources key |
+| Plugin | Adapter id | Source config key | Secret |
 | --- | --- | --- | --- |
-| Feishu | `feishu` | `bullx.plugins.feishu.credentials` | `bullx.plugins.feishu.eventbus_sources` |
-| Telegram | `telegram` | `bullx.plugins.bullx_telegram.credentials` | `bullx.plugins.bullx_telegram.eventbus_sources` |
-| Discord | `discord` | `bullx.plugins.discord.credentials` | `bullx.plugins.discord.eventbus_sources` |
+| Feishu | `feishu` | `bullx.plugins.feishu.eventbus_sources` | yes |
+| Telegram | `telegram` | `bullx.plugins.bullx_telegram.eventbus_sources` | yes |
+| Discord | `discord` | `bullx.plugins.discord.eventbus_sources` | yes |
 
-`credentials` is plugin-owned encrypted config. `eventbus_sources` is a
-plugin-owned public config array. Setup does not create a central source table
-or write a central source config key.
+`eventbus_sources` is plugin-owned encrypted config. Each source entry is one
+configured BullX channel instance for its adapter and directly stores the
+instance secrets it needs, such as Feishu app secrets, Telegram bot tokens,
+Discord bot tokens, or OAuth client secrets. Setup does not create a central
+source table, a central credential table, a separate secret-profile concept,
+or a central source config key.
 
-The source entry's stable `id` is the adapter-local source id:
+The source entry's stable `id` is the adapter-local channel instance id:
 
 - It becomes normalized Event `data.channel.id`.
 - It becomes the Principal channel actor `channel_id`.
 - If the plugin exposes a browser login provider, it is also the concrete login
   provider id.
 - It is not a Feishu tenant id, Telegram chat id, Discord application id,
-  credential id, or display label.
+  separate secret-record id, or display label.
 
-Each enabled source references one credential profile. The credential profile
-stores app secrets, bot tokens, OAuth client secrets, and similar secret values.
-The source entry stores `credential_id` and non-secret runtime config only.
-Source public projection may expose only redacted secret status.
+Source public projection may expose only redacted secret status. Public
+projections must not include app secrets, bot tokens, OAuth client secrets, or
+provider access tokens.
 
 When a source enables a browser login provider, `/sessions/new` must show that
 provider as a normal Web login method. For Feishu, setup may enable
@@ -674,47 +697,47 @@ send `/webauth` to the bot in a private chat to receive a one-time login code.
 
 Connectivity check flow is:
 
-1. The controller normalizes the source draft and credential draft.
+1. The controller normalizes the source draft for the selected adapter.
 2. The controller calls the source setup module's `connectivity_check/1`.
 3. The connectivity check does not start listeners, publish Events, write
    Principals, or save source config.
 4. Success returns redacted operation feedback, such as adapter id, source id,
-   Connected Realm, capabilities, and safe diagnostics.
+   capabilities, and safe diagnostics.
 5. A standalone check request only serves UI feedback. The following save
    request cannot reuse it as proof.
 6. Disabled drafts can be saved, but disabled drafts do not satisfy completion.
 
 Saving an enabled source runs connectivity check and save in the same request.
-The controller normalizes the drafts, calls plugin-owned
-`connectivity_check/1`, then writes credentials and sources only after a
-successful check. Setup does not persist cross-request check results and does
-not store check results in Phoenix session.
+The controller normalizes the draft, calls plugin-owned `connectivity_check/1`,
+then writes source config only after a successful check. Setup does not persist
+cross-request check results and does not store check results in Phoenix session.
 
-`generated-secret` only works for plugin-declared generated fields such as a
-webhook verification token. It cannot generate replacements for app secrets,
-bot tokens, OAuth client secrets, provider API keys, activation codes, or login
+`generated-secret` only works for plugin-declared generated fields. Current
+first-party Channel Adapter setup schemas do not require generated webhook
+tokens. Generated secrets cannot replace operator-provided app secrets, bot
+tokens, OAuth client secrets, provider API keys, activation codes, or login
 codes.
 
 The source save flow is:
 
-1. Normalize each enabled source draft and credential draft.
+1. Normalize each enabled source draft for the selected adapter.
 2. Run plugin-owned `connectivity_check/1` in the current request.
-3. Let the plugin source setup module cast and serialize credential/source
-   config into the final binary persistence shape for its `BullX.Config` keys.
-4. Use `BullX.Config.put_many/1` to write plugin credential config to the secret
-   key and plugin source entries to the `eventbus_sources` key.
+3. Let the plugin source setup module cast and serialize source config into the
+   final binary persistence shape for its `BullX.Config` key.
+4. Use plugin-owned persistence or `BullX.Config.put/2` to write the plugin
+   source entries to the secret `eventbus_sources` key.
 5. Call plugin-owned `reconcile_sources/0` or the equivalent runtime refresh
    boundary.
 6. Reread plugin public source projection.
 7. Advance to the AIAgent step only after at least one setup activation source
    is runtime ready.
 
-`BullX.Config.put_many/1` only guarantees atomic PostgreSQL commit for the
-credential key and sources key. It accepts binary key/value pairs and does not
-cast plugin schemas for setup. ETS refresh, plugin public projection refresh,
-and source runtime refresh are post-commit readiness. If the commit succeeds but
-cache or runtime refresh fails, setup shows stale-cache, restart-required, or
-runtime-not-ready state and stays on the Channel source step.
+`BullX.Config.put/2` guarantees the PostgreSQL commit for the source config key.
+It accepts a binary key/value pair and does not cast plugin schemas for setup.
+ETS refresh, plugin public projection refresh, and source runtime refresh are
+post-commit readiness. If the commit succeeds but cache or runtime refresh
+fails, setup shows stale-cache, restart-required, or runtime-not-ready state and
+stays on the Channel source step.
 
 Source runtime refresh is not EventBus core behavior. First-party plugins own
 their source runtime supervisors and expose `reconcile_sources/0` or an
@@ -725,7 +748,7 @@ or runtime-not-ready instead of advancing.
 A plugin source runtime is ready when all of these facts are true:
 
 - The source is enabled.
-- The credential profile exists and the secret can decrypt.
+- Required source secrets are present and can decrypt.
 - The adapter can establish or prepare inbound transport.
 - Adapter-local `/preauth` is available on a safe surface.
 - The source can hand addressed IM messages or command-shaped Events to
@@ -763,8 +786,9 @@ The AIAgent step captures these fields:
 
 - Agent Principal selection, following the projection order for session-selected,
   setup-marked, sole active, or explicit operator-selected Agents.
-- Principal `uid`, either generated by normal Principal creation rules or
-  entered by the operator.
+- Principal `uid`, shown in setup as the AIAgent Bot Username with a visual
+  `@` prefix but stored as the bare uid. The operator enters this value because
+  it is the AIAgent's addressable identity, not a Channel Source id.
 - Display name, bio, avatar, and other presentation fields.
 - `agents.profile` JSON object.
 - `agents.created_by_principal_id = nil`, because a fresh Installation has no
@@ -776,9 +800,26 @@ top-level non-runtime setup marker records the source of an initial Agent:
 ```json
 {
   "ai_agent": {
-    "main_model": "openai_proxy:gpt-4.1-mini",
-    "mission": "Help this BullX Installation handle addressed messages.",
-    "soul": "",
+    "main_llm": {
+      "provider_id": "openai_proxy",
+      "model": "gpt-4.1-mini",
+      "reasoning_effort": "medium",
+      "context_window": 1048576
+    },
+    "compression_llm": {
+      "provider_id": "openai_proxy",
+      "model": "gpt-4.1-mini",
+      "reasoning_effort": "low",
+      "context_window": 1048576
+    },
+    "heavy_llm": {
+      "provider_id": "openai_proxy",
+      "model": "gpt-4.1",
+      "reasoning_effort": "high",
+      "context_window": 1048576
+    },
+    "mission": "Track finance-related group discussions and answer or escalate within that work scope.",
+    "soul": "<setup default soul prompt>",
     "instructions": "",
     "conversation_isolation_mode": "scene",
     "unmentioned_group_messages": "may_intervene",
@@ -796,14 +837,33 @@ top-level non-runtime setup marker records the source of an initial Agent:
 object. The top-level `setup` marker is setup-owned metadata and is not consumed
 by AIAgent runtime.
 
-`main_model` is required and must resolve through
-`BullX.LLM.Catalog.resolve_model_spec/1` before save. `compression_model` and
-`heavy_model` may be omitted; `BullX.AIAgent.Profile` falls back to
-`main_model`. Setup does not write obsolete model field names.
+Setup derives each saved model config's `context_window` from model discovery
+metadata when possible, then local model metadata. When no metadata is
+available, setup shows the BullX runtime fallback of `80000` as placeholder
+guidance rather than saving it as an explicit value. The operator may override
+the value before save, which is important for local and OpenAI-compatible
+providers whose practical context limit may be lower than public metadata.
+`max_completion_tokens` is optional and normally omitted unless the operator
+wants to force a provider output-token cap.
 
-`mission`, `soul`, and `instructions` are initial personality and responsibility
-text. They are not the full system-prompt schema. AIAgent runtime owns how those
-fields become prompt material.
+`main_llm` is required and must resolve through
+`BullX.LLM.Catalog.resolve_model_config/1` before save. `compression_llm` and
+`heavy_llm` may be omitted; `BullX.AIAgent.Profile` falls back to `main_llm`
+with `low` and `high` reasoning defaults. When setup receives explicit
+secondary configs, they must also resolve through the LLM catalog before save.
+Setup does not write obsolete model field names.
+
+`mission` is required and has no setup default. It is the initial AIAgent's
+work function: the scope of work the digital colleague is responsible for and
+the boundary within which it may observe, judge, and act proactively. `soul`
+and `instructions` are optional personality and constraint-rule text. Setup
+pre-fills `soul` with the built-in default prompt so the operator can edit it
+in place. The default prompt is maintained by the backend harness boundary and
+exposed to setup through backend props; because this value is prompt material,
+not interface copy, it is not client i18n text. The setup UI labels
+`instructions` as constraint rules because the field is durable guidance, not a
+generic command line. These fields are not the full system-prompt schema.
+AIAgent runtime owns how they become prompt material.
 
 #### AIAgent ACL defaults
 
@@ -895,6 +955,13 @@ Principal and the first created runtime-ready Channel source. Channel source
 projection must provide stable ordering. If plugin-owned source config has no
 `created_at`, the source list save order defines "first."
 
+This step is not a general Event Routing Rule editor. The UI shows the
+server-derived source, Target, route name, match expression, scope fields,
+priority, and validation result as a preview. The operator can save and verify
+the setup-owned default route, go back to earlier setup steps, or handle a
+routing conflict outside setup. The operator cannot edit CEL, priority, scope
+fields, Target, fan-out behavior, or fallback behavior from this step.
+
 Setup does not create code-owned system command routes, setup-only fallback
 routes, or fan-out from one Event to many Targets.
 
@@ -919,21 +986,23 @@ The minimum route is a source-scoped BullX channel rule:
        channel.id == "#{source_id}"),
   target_type: :ai_agent,
   target_ref: agent_principal_id,
-  scope_fields: ["channel.adapter", "channel.id", "scope.id", "scope.thread_id"],
-  window_type: :rolling_ttl,
-  window_ttl_seconds: 3600
+  scope_fields: ["channel.adapter", "channel.id", "scope.id", "scope.thread_id"]
 }
 ```
 
 `scope_fields` uses EventBus-supported `RoutingContext` field paths. The scope
-keeps one DM, group, or thread on the same source in a short TargetSession
-window, while different `scope.id` values remain separate. AIAgent Conversation
-and Message records carry long-term business facts. `window_ttl_seconds` is a
-runtime window, not conversation retention.
+keeps one DM, group, or thread on the same source in the same active
+TargetSession lane, while different `scope.id` values remain separate. Idle
+TargetSession close is controlled by EventBus runtime idle grace, not by setup
+route configuration. The default idle grace is 30 minutes. AIAgent Conversation
+and Message records carry long-term business facts; `/new` and daily reset close
+Conversations, not TargetSessions.
 
 Rule `name` is the durable idempotency key. Repeated saves use
 `BullX.EventBus.RuleWriter.upsert_by_name/2` and never update by non-unique
 display name.
+The POST payload does not define route semantics; it only requests persistence
+and live validation of the route derived from current setup state.
 
 Setup-generated rule names use slug-safe adapter and source identifiers, or an
 encoded slug when a plugin source id needs a wider character set for
@@ -1157,8 +1226,8 @@ chat surfaces on the first configured source.
 - Do not add setup-owned business tables.
 - Do not add a central Channel Adapter source table or central source config
   key.
-- Do not bypass `BullX.Config` for plugin enablement, plugin credentials,
-  plugin source config, or i18n config.
+- Do not bypass `BullX.Config` for plugin enablement, plugin source config, or
+  i18n config.
 - Do not write provider secrets, bot tokens, OAuth client secrets, or API keys
   to source public config, session, Inertia props, logs, or telemetry.
   Activation code plaintext follows only the completion-page rules in this
@@ -1228,10 +1297,11 @@ chat surfaces on the first configured source.
    plugin source setup integration.
 
    Acceptance: setup discovers source setup modules from enabled Channel Adapter
-   extension `opts.setup_module`; Feishu implements the V1 required setup module
-   and restricted `form_schema/0`; credentials and plugin-owned
+   extension `opts.setup_module`; Feishu, Telegram, and Discord implement the
+   V1 required setup module and restricted `form_schema/0`; plugin-owned
    `eventbus_sources` are cast and serialized by the plugin setup module before
-   writing binary key/value entries through `BullX.Config.put_many/1` via
+   writing binary key/value entries through `BullX.Config.put/2` or
+   plugin-owned persistence via
    Inertia form; generated secrets work only for plugin-declared fields and
    display through a masked/plain toggle component; enabled sources run
    connectivity check in the same save request; source runtime refresh calls
@@ -1247,10 +1317,11 @@ chat surfaces on the first configured source.
    setup-marked active Agent, uses the sole active Agent when exactly one
    exists, and requires explicit selection when multiple unmarked active Agents
    exist; store valid `agents.profile["ai_agent"]` and optional non-runtime
-   setup marker; `main_model` stores a resolvable
-   `provider_id:model_id` spec; default profile uses
-   `unmentioned_group_messages = "may_intervene"`; UI shows ordinary access
-   group, privileged operation group, and derived ACL grants; default ordinary
+   setup marker; `main_llm` stores a resolvable model config object; default
+   profile uses
+   `unmentioned_group_messages = "may_intervene"` and a user-entered required
+   `mission`; UI shows ordinary access group, privileged operation group, and
+   derived ACL grants; default ordinary
    group is `all_humans`; default privileged group is `admin`; setup V1 does not
    expose advanced CEL conditions; AuthZ writes setup metadata grants for
    `all_humans -> invoke`, `admin -> invoke`, `admin -> invoke_privileged`, and
@@ -1264,14 +1335,17 @@ chat surfaces on the first configured source.
    one active positive-priority source-scoped BullX channel Event Routing Rule
    named `setup.default.<adapter>.<source_id>.channel`; the rule uses
    `target_type = "ai_agent"` and `target_ref = <agent principal id>` for the
-   first runtime-ready setup source; setup does not create AIAgent slash-command
-   routes; code-owned system command routes keep negative priority and win before
-   the setup AIAgent route; rule names use slug-safe or encoded source identifiers, and
-   `match_expr` is built through a shared CEL string-literal helper; runtime
-   first-match preview for the setup source sample `RoutingContext` hits the
-   setup rule; an existing non-setup rule that swallows the sample returns
-   routing conflict instead of being reordered; no setup-only routing fallback
-   exists; routing table refresh succeeds.
+   first runtime-ready setup source; the Web UI presents this route as a
+   non-editable preview with save-and-verify action, not as a CEL, priority,
+   scope, Target, fan-out, or fallback editor; POST ignores operator-submitted
+   route semantics and derives route attrs from current setup state; setup does
+   not create AIAgent slash-command routes; code-owned system command routes
+   keep negative priority and win before the setup AIAgent route; rule names use
+   slug-safe or encoded source identifiers, and `match_expr` is built through a
+   shared CEL string-literal helper; runtime first-match preview for the setup
+   source sample `RoutingContext` hits the setup rule; an existing non-setup rule
+   that swallows the sample returns routing conflict instead of being reordered;
+   no setup-only routing fallback exists; routing table refresh succeeds.
 
 8. Implement Activate admin step.
 
@@ -1328,7 +1402,8 @@ chat surfaces on the first configured source.
 - The Event Routing step upserts at least one positive-priority
   `target_type = "ai_agent"` source-scoped BullX channel rule named
   `setup.default.<adapter>.<source_id>.channel` for the first runtime-ready
-  setup source, and runtime first-match preview reaches it.
+  setup source, shows it as a non-editable default-route preview, and runtime
+  first-match preview reaches it.
 - The completion page displays `/preauth <activation-code>` using
   server-provided Inertia props.
 - The completion page shows the activation command plaintext by default and

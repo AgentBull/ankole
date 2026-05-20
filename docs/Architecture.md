@@ -11,8 +11,8 @@ the EventBus evaluates Event Routing Rules by numeric priority ascending:
 the smaller priority value has higher priority. Duplicate priority is
 invalid. There is no tie-breaker and no implicit specificity ordering. The
 first matched rule is terminal. Each Event Routing Rule declares a match
-condition, a Target, and how the scope and time window of the TargetSession
-are determined.
+condition, a Target, and the ordered scope fields used to select the
+TargetSession lane.
 
 A Target is an Event consumer and handler. The typical processing Targets
 are AIAgent and Workflow; Blackhole is the only current terminal drop
@@ -22,21 +22,20 @@ conversations, use tools, advance Work, request human help, and use the
 Brain. A Workflow is an explicit process suited for branching, approval,
 parallelism, and deterministic steps.
 
-A TargetSession is the execution window formed by one Event Routing Rule
-within a particular scope and time window. It receives the Events matched by
-that rule within the window and dispatches them to the Target. In the
-current runtime, every non-Blackhole TargetSession is carried by one
+A TargetSession is the execution lane formed by one Event Routing Rule,
+Target, and scope. It receives the Events matched by that rule for that
+scope and dispatches them to the Target. In the current runtime, every
+non-Blackhole TargetSession is carried by one
 long-running Oban Job. The Oban Job is the alive TargetSession session
-owner: its `perform/1` runs until the TargetSession is closed, expired,
-failed, or reaches the hard max runtime. The hard max runtime for one
-TargetSession Job is 24 hours. The Job is not a short one-entry worker, and
-it does not normally snooze or reschedule after each entry. Oban Job
+owner: its `perform/1` runs until the TargetSession is closed or failed. The
+Job is not a short one-entry worker, and it does not normally snooze or
+reschedule after each entry. Oban Job
 arguments contain only TargetSession identity and minimal diagnostics
 metadata. Event payloads are never written into Oban Job arguments; Events
 enter TargetSessions through the TargetSession side channel.
 
 The EventBus and TargetSession layer is responsible for Event delivery and
-execution-window management. Event Routing Rules are durable configuration.
+execution-lane management. Event Routing Rules are durable configuration.
 TargetSession runtime records and side-channel entries are weak PostgreSQL
 runtime state. TargetSession output stream buffers use weak Redis runtime
 state. These runtime records are not business facts. Business facts are
@@ -46,9 +45,13 @@ in Work and Task, approvals live in ApprovalRequest, child tasks live in
 ChildRun, long-term memory and representation live in Brain, costs and
 quotas live in Budget, produced outputs live in Artifact when they must be
 durable, and audit or domain records hold other committed business facts.
-Once a TargetSession closes, expires, or fails, any later approval,
-callback, or child-task completion arrives as a new Event on the EventBus
-and enters a new TargetSession.
+When a Target asks to close after draining its current entry, the worker
+keeps the active TargetSession open for a short internal idle grace before
+closing it. The default idle grace is 30 minutes. This grace is runtime
+coordination, not a route policy and not business conversation retention.
+Once a TargetSession closes or fails, any later approval, callback, or
+child-task completion arrives as a new Event on the EventBus and enters a new
+TargetSession if the rule still matches.
 
 One BullX Installation is one deployment and one operating domain. A
 Connected Realm provides an external identity and event space. Principal,
@@ -104,6 +107,13 @@ GitHub organization, or a CRM space. A Connected Realm supplies external
 accounts, Event sources, login assertions, and outbound credentials.
 Internal BullX identity is expressed by Principal.
 
+**Channel Adapter** A Channel Adapter is the plugin-provided implementation
+for one external channel family, such as Feishu, Telegram, Discord, Slack,
+GitHub, or a webhook provider. The adapter is not itself a configured
+channel. One Installation may configure many channel instances that all use
+the same adapter id, and each instance carries its own adapter-local id,
+runtime settings, and secrets inside plugin-owned configuration.
+
 **EventBus** The EventBus is the Event entry point of BullX. It receives
 Events, evaluates Event Routing Rules by numeric priority ascending, and
 dispatches Events whose first matched Target is not Blackhole into
@@ -111,7 +121,7 @@ TargetSessions.
 
 **Event Routing Rule** An Event Routing Rule is an entry in the global
 routing table. It describes the Event match condition, the Target invoked on
-match, and the scope and time window of the resulting TargetSession. Each
+match, and the scope of the resulting TargetSession. Each
 rule has a unique numeric priority; smaller values are evaluated first. Its
 responsibility is limited to routing; business processing belongs to the
 Target.
@@ -121,10 +131,9 @@ Routing Rule matches. A Target may be an AIAgent, a Workflow, a
 Blackhole, an External Agent Harness, or another Target defined by a
 subsequent design document.
 
-**TargetSession** A TargetSession is the execution window formed by one
-Event Routing Rule within a particular scope and time window. It receives
-the Events matched by that rule within the window and dispatches them to the
-Target.
+**TargetSession** A TargetSession is the execution lane formed by one Event
+Routing Rule, Target, and scope. It receives the Events matched by that rule
+for that scope and dispatches them to the Target.
 
 **TargetSession side channel** The TargetSession side channel is the runtime
 path by which an Event reaches a TargetSession. It is a weak runtime
@@ -196,7 +205,7 @@ three things:
 
 - which Events it matches,
 - which Target receives the Event on match,
-- how the scope and time window of the TargetSession are determined.
+- which scope fields select the TargetSession lane.
 
 Event Routing Rules are evaluated by numeric priority ascending: smaller
 priority value means higher priority. Duplicate priority is invalid. There
@@ -237,24 +246,23 @@ Blackhole.
 Different Event Routing Rules pointing to the same Target form different
 TargetSessions by default. The same Target can be invoked by many
 TargetSessions; whether a TargetSession is reused is determined by the
-scope and time window defined on the matched Event Routing Rule.
+scope defined on the matched Event Routing Rule.
 
 ## TargetSession
 
-A TargetSession is the execution window formed by one Event Routing Rule
-within a particular scope and time window. It receives the Events matched by
-that rule within the window and dispatches them to the Target.
+A TargetSession is the execution lane formed by one Event Routing Rule,
+Target, and scope. It receives the Events matched by that rule for that
+scope and dispatches them to the Target.
 
-TargetSession identity is the TargetSession record id. `scope_key` and
-`window_key` are reuse keys, not identity. A single TargetSession has a hard
-max lifetime of 24 hours.
+TargetSession identity is the TargetSession record id. `scope_key` is a
+reuse key, not identity. An active TargetSession remains reusable until the
+Target closes or fails it.
 
 In the current runtime, every non-Blackhole TargetSession is carried by one
 long-running Oban Job. The Oban Job is the alive TargetSession session
-owner. Its `perform/1` runs until the TargetSession is closed, expired,
-failed, or reaches the hard max runtime. The hard max runtime for one
-TargetSession Job is 24 hours. The Oban Job is not a short one-entry worker,
-and it does not normally snooze or reschedule after each side-channel entry.
+owner. Its `perform/1` runs until the TargetSession is closed or failed. The
+Oban Job is not a short one-entry worker, and it does not
+normally snooze or reschedule after each side-channel entry.
 
 Event payloads are never written into Oban Job arguments. Oban Job arguments
 contain only TargetSession identity and minimal diagnostics metadata. Events
@@ -265,16 +273,16 @@ TargetSession Job drains side-channel entries in stable order and invokes
 delivery to Target, not exactly-once Target execution. Business side effects
 must remain idempotent in Target, Capability, and business layers.
 
-Once a TargetSession is closed, expired, or failed, it is not reopened and
+Once a TargetSession is closed or failed, it is not reopened and
 does not accept new business Events. Later approval clicks, callbacks,
 ChildRun completion events, later IM replies, and Time Events return through
 the EventBus. If those Events need to continue the same business work, the
 EventBus matches the corresponding Event Routing Rule and may create a new
-TargetSession with the same `scope_key` and `window_key` when the old
-TargetSession is no longer reusable.
+TargetSession with the same `scope_key` when the old TargetSession is no
+longer reusable.
 
-A TargetSession is an execution window. The business layer holds the
-complete business history and business facts.
+A TargetSession is an execution lane. The business layer holds the complete
+business history and business facts.
 
 ## Runtime output stream
 
@@ -341,11 +349,12 @@ Skills, call external APIs, delegate SubAgents, create Work and Tasks,
 request human help, and use Brain, all under permission and Budget
 constraints.
 
-An AIAgent should declare its mission, responsibility boundaries, KPIs, the
-Work it can handle, the Skills it can read, the models, Model Providers,
-Integrations, Capabilities, and SubAgent runtimes it can call. It should also
-declare its outbound identity, its Agent Principal, its Budget constraints,
-and how its results enter Brain and KPI evaluation.
+An AIAgent must declare its mission: the long-term work function and
+responsibility boundary within which it may observe, judge, and act
+proactively. It should also declare KPIs, the Work it can handle, the Skills it
+can read, the models, Model Providers, Integrations, Capabilities, and SubAgent
+runtimes it can call, its outbound identity, its Agent Principal, its Budget
+constraints, and how its results enter Brain and KPI evaluation.
 
 An AIAgent may read context provided by Brain; its conversations, tool
 results, Work processing, and external Events may become inputs that Brain
@@ -473,7 +482,7 @@ privacy policy belong to the Trajectory / Learning design document.
 ## Persistence boundary
 
 The EventBus and TargetSession layer is responsible for Event delivery and
-execution-window management. EventBus and TargetSession runtime records are
+execution-lane management. EventBus and TargetSession runtime records are
 not business facts. Business facts are stored by the business layer:
 
 - Conversation / Message holds AIAgent conversations.
@@ -512,10 +521,10 @@ outcome, Principal delegation, high-risk external action, Artifact, and
 cost. It does not require persisting every internal reasoning step, every
 streaming chunk, or every runtime forwarding step.
 
-## Subsequent Events and cross-window continuity
+## Subsequent Events and continuity
 
 A subsequent Event may continue the same piece of business work, but it
-does not return to a TargetSession that has closed, expired, or failed.
+does not return to a TargetSession that has closed or failed.
 Human approval, supplemental information, human takeover, correction, task
 completion, external callback, and ChildRun completion all arrive as new
 Events on the EventBus and are routed to a new TargetSession by the
@@ -532,7 +541,7 @@ A cross-day approval flow looks like this:
 Initial Event matches an Event Routing Rule
   -> TargetSession invokes Target
   -> Target writes ApprovalRequest
-  -> TargetSession closes, expires, or reaches the hard max runtime
+  -> TargetSession closes after its current entry and idle grace
   -> days later, an approval click becomes a new Event
   -> EventBus matches the corresponding Event Routing Rule
   -> a new TargetSession invokes the Target
@@ -563,9 +572,10 @@ Those branches belong to the Workflow Target.
 
 ### Multi-turn IM conversation
 
-The same Event Routing Rule forms the same TargetSession within the same
-conversation or thread and time window. Different channels, even with the
-same SalesAgent Target, form different TargetSessions by default.
+The same Event Routing Rule forms the same TargetSession for the same
+conversation or thread scope while that TargetSession remains active.
+Different channels, even with the same SalesAgent Target, form different
+TargetSessions by default.
 
 ### Cross-day approval
 
@@ -653,15 +663,14 @@ This document does not define:
   a Workflow.
 - Workflow is the explicit-process Target; BullX may also process Events
   directly through an AIAgent.
-- A TargetSession is the execution window formed by one Event Routing Rule
-  within a particular scope and time window.
-- TargetSession identity is the TargetSession record id; `scope_key` and
-  `window_key` are reuse keys, not identity.
-- A single TargetSession has a hard max lifetime of 24 hours.
+- A TargetSession is the execution lane formed by one Event Routing Rule,
+  Target, and scope.
+- TargetSession identity is the TargetSession record id; `scope_key` is a
+  reuse key, not identity.
+- An active TargetSession remains reusable until the Target closes or fails it.
 - In the current runtime, every non-Blackhole TargetSession is carried by an
   Oban Job. The Oban Job is the alive TargetSession session owner, and its
-  `perform/1` runs until the TargetSession is closed, expired, failed, or
-  reaches the 24-hour hard max runtime.
+  `perform/1` runs until the TargetSession is closed or failed.
 - The Oban Job is not a short one-entry worker and does not normally snooze
   or reschedule after each side-channel entry.
 - Oban Job arguments contain only TargetSession identity and minimal
@@ -675,9 +684,9 @@ This document does not define:
 - EventBus provides at-least-once delivery to Target, not exactly-once Target
   execution; business side effects must remain idempotent in Target,
   Capability, and business layers.
-- A closed, expired, or failed TargetSession is not reopened and does not
+- A closed or failed TargetSession is not reopened and does not
   accept new business Events; a later Event may create a new TargetSession
-  with the same `scope_key` and `window_key`.
+  with the same `scope_key`.
 - TargetSession output stream buffers are required runtime infrastructure for
   AIAgent and Workflow streaming output.
 - Runtime output stream buffers are runtime output state, not Event routing,
@@ -690,7 +699,7 @@ This document does not define:
   `no_content`.
 - Redis is not the inbound Event side channel, does not replace Oban, and is
   not used as the TargetSession accepted Event mailbox.
-- Business objects express cross-window continuity; a closed TargetSession
+- Business objects express cross-TargetSession continuity; a closed TargetSession
   does not carry that continuity.
 - Business facts are persisted by business-layer objects such as
   Conversation / Message, Work / Task, ApprovalRequest, ChildRun, Brain,

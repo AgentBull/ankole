@@ -246,28 +246,28 @@ defmodule BullX.AIAgent.Conversations do
     end
   end
 
-  @spec generated_output_for_source?(String.t()) :: boolean()
-  def generated_output_for_source?(source_message_id) when is_binary(source_message_id) do
+  @spec generated_output_for_trigger?(String.t()) :: boolean()
+  def generated_output_for_trigger?(trigger_message_id) when is_binary(trigger_message_id) do
     Message
     |> where([m], m.role in [:assistant, :tool])
     |> where([m], m.status == :complete)
     |> where(
       [m],
-      fragment("?->'generation'->>'source_message_id' = ?", m.metadata, ^source_message_id)
+      fragment("?->'generation'->>'trigger_message_id' = ?", m.metadata, ^trigger_message_id)
     )
     |> where([m], is_nil(fragment("?->'branch_effect'", m.metadata)))
     |> Repo.exists?()
   end
 
-  @spec complete_assistant_for_source(String.t()) :: Message.t() | nil
-  def complete_assistant_for_source(source_message_id) when is_binary(source_message_id) do
+  @spec complete_assistant_for_trigger(String.t()) :: Message.t() | nil
+  def complete_assistant_for_trigger(trigger_message_id) when is_binary(trigger_message_id) do
     Message
     |> where([m], m.role == :assistant)
     |> where([m], m.kind == :normal)
     |> where([m], m.status == :complete)
     |> where(
       [m],
-      fragment("?->'generation'->>'source_message_id' = ?", m.metadata, ^source_message_id)
+      fragment("?->'generation'->>'trigger_message_id' = ?", m.metadata, ^trigger_message_id)
     )
     |> where([m], is_nil(fragment("?->'branch_effect'", m.metadata)))
     |> order_by([m], desc: m.inserted_at)
@@ -352,7 +352,7 @@ defmodule BullX.AIAgent.Conversations do
 
         generation =
           owner
-          |> Map.take(["owner_source_type", "owner_source_id", "source_message_id"])
+          |> Map.take(["owner_trigger_type", "owner_trigger_id", "trigger_message_id"])
           |> Map.merge(%{
             "lease_id" => lease_id,
             "started_at" => DateTime.to_iso8601(now),

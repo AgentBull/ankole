@@ -75,9 +75,13 @@ BullX separates three concepts that are easy to confuse:
 - **req_llm provider:** a `req_llm` adapter id such as `:openai`,
   `:anthropic`, or a plugin-provided id. A single adapter can back many BullX
   provider rows.
-- **LLM spec:** a caller-provided string in the form
-  `"provider_id:model_id"`. The part before the first colon is a BullX
-  `provider_id`; the remainder is the model id passed to `req_llm`.
+- **Model config:** a caller-owned object with `provider_id`, `model`,
+  `reasoning_effort`, `context_window`, and an optional
+  `max_completion_tokens`. The `provider_id` points to a BullX provider row. The
+  `model` value is passed to `req_llm` as the provider model id.
+- **LLM spec:** a lower-level string form, `"provider_id:model_id"`, kept for
+  direct catalog resolution and tests. AIAgent profiles store model configs, not
+  LLM spec strings.
 
 A BullX provider row contains:
 
@@ -123,6 +127,33 @@ Resolving an LLM spec returns a `ResolvedModel`:
 
 Callers pass `model_input` and `opts` to `req_llm`. If `base_url` is nil, the
 resolver omits it and lets `req_llm` use its provider metadata or default.
+A model config resolves through the same provider row and returns the same
+`ResolvedModel`; its generation controls are merged into call options by
+`BullX.LLM`, not stored on the provider row.
+
+Model configs use this shape:
+
+```json
+{
+  "provider_id": "openai_proxy",
+  "model": "gpt-4.1-mini",
+  "reasoning_effort": "medium",
+  "context_window": 1048576,
+  "max_completion_tokens": 32768
+}
+```
+
+`reasoning_effort` is normalized to one of `none`, `minimal`, `low`, `medium`,
+`high`, or `xhigh`. `context_window` is the effective input context budget used
+by AIAgent history budgeting and compression decisions. Setup derives it from
+dynamic provider metadata when available, then local model metadata when
+available, and otherwise falls back to `80000`. Operators may override this
+value, especially for local or OpenAI-compatible deployments where the served
+model or available memory differs from public metadata.
+
+`max_completion_tokens` is only an optional output limit override. When it is
+omitted, BullX does not pass a max-output token override and lets the provider or
+adapter default apply.
 
 ## Data model
 
@@ -152,6 +183,46 @@ row per endpoint/model pair.
 The database does not enforce relationships from caller-owned model selections
 to `llm_providers`. Runtime resolution returns `{:error, :not_found}` when an
 LLM spec points to a deleted provider.
+
+## Local model registry
+
+BullX treats saved `llm_providers` rows as the local provider registry. Model
+discovery is an enhancement of those local rows, not a separate global truth
+source.
+
+`BullX.LLM.ModelRegistry` lists model descriptors for one saved provider row:
+
+```json
+{
+  "provider_id": "openrouter_default",
+  "model": "openai/gpt-4.1-mini",
+  "label": "GPT-4.1 Mini",
+  "context_window": 1048576,
+  "fallback_context_window": 80000,
+  "max_completion_tokens": 32768,
+  "reasoning": {
+    "efforts": ["none", "minimal", "low", "medium", "high", "xhigh"]
+  },
+  "source": "dynamic"
+}
+```
+
+Provider modules may expose `list_models/1`. OpenRouter uses `GET /models` and
+maps `context_length` plus provider output-token metadata into descriptors.
+OpenAI and OpenAI-compatible adapters use `/models` for dynamic ids and enrich
+known models with local `LLMDB` metadata. Anthropic uses `/v1/models` and also
+enriches known models with local metadata. Google Gemini uses `/models` and maps
+`inputTokenLimit` and `outputTokenLimit`. If dynamic discovery fails, the
+registry falls back to local metadata so setup remains usable offline. If neither
+dynamic nor local metadata provides a context window, `context_window` is absent
+or null and `fallback_context_window` carries the BullX runtime fallback of
+`80000`. The setup UI should show that fallback as placeholder guidance, not as
+a saved value, and still let the operator override the saved value.
+
+The descriptor intentionally has no per-model tool-capability flag. BullX only
+exposes chat/agent models that can satisfy the agent contract. A model that
+cannot support tool-capable agent calls is outside the supported model set
+rather than a selectable model with a disabled capability bit.
 
 ## API key storage
 
@@ -208,6 +279,11 @@ BullX.LLM.Catalog.find_provider(provider_id)
 BullX.LLM.Catalog.resolve_provider(provider_id)
 BullX.LLM.Catalog.resolve_model_spec(spec)
 BullX.LLM.Catalog.resolve_model_spec!(spec)
+BullX.LLM.Catalog.resolve_model_config(config)
+
+BullX.LLM.ModelRegistry.list_provider_models(provider_id)
+BullX.LLM.ModelRegistry.public_models(provider_id)
+BullX.LLM.ModelRegistry.public_provider_models()
 
 BullX.LLM.Writer.put_provider(attrs)
 BullX.LLM.Writer.update_provider(provider_id, attrs)
@@ -218,7 +294,8 @@ BullX.LLM.Writer.refresh_provider(provider_id)
 `resolve_provider/1` returns the endpoint configuration without a model id.
 `resolve_model_spec/1` parses a string such as
 `"openai_proxy:gpt-4.1-mini"`, looks up the provider row, and returns
-`ResolvedModel`.
+`ResolvedModel`. `resolve_model_config/1` resolves the canonical model config
+object used by AIAgent profiles.
 
 Writer operations commit PostgreSQL changes first and refresh the cache after
 the transaction succeeds. A post-commit cache refresh failure is not reported as
@@ -297,19 +374,51 @@ These `req_llm` settings are not bridged:
 ## Built-in provider overrides
 
 BullX owns a small built-in provider registration pass that runs before plugin
-provider registration. The initial built-in override is
-`BullX.LLM.Providers.OpenRouter`, registered as `:openrouter` with
-`override: true`.
+provider registration. BullX-owned provider modules are registered with
+`override: true` for the req_llm provider ids BullX needs to keep locally
+controllable:
 
-The OpenRouter override keeps the upstream `req_llm` provider id so existing
+- `:openai`
+- `:anthropic`
+- `:google`
+- `:google_vertex`
+- `:vllm`
+- `:mistral`
+- `:azure`
+- `:amazon_bedrock`
+- `:deepseek`
+- `:zai`
+- `:xai`
+- `:openrouter`
+
+The BullX-owned modules are synchronized from the corresponding `req_llm`
+provider modules and keep the same provider ids. They may still delegate to
+`req_llm` internal helper or formatter modules; the durable contract is the
+provider id, schema, and callback behavior exposed through the req_llm provider
+registry.
+
+Provider option schemas are BullX-owned declarations. They must not be produced
+by importing an upstream `ReqLLM.Providers.*.provider_schema/0` result and
+patching it at runtime. BullX may intentionally remove or hide req_llm options;
+unknown provider options are rejected during catalog resolution and therefore
+cannot be persisted as supported configuration.
+
+The setup provider catalog is derived from these BullX declarations plus enabled
+plugin declarations, not from `ReqLLM.Providers.list/0`. Raw providers registered
+by `req_llm` remain implementation detail until BullX declares or enables them.
+Each setup catalog entry carries an i18n label key in the form
+`setup.llm.providers.<provider_id>`; the provider id remains the stable stored
+value.
+
+The OpenRouter module keeps the upstream `req_llm` provider id so existing
 `req_llm_provider: "openrouter"` rows continue to resolve. It delegates the
 OpenRouter-compatible request and response behavior to `req_llm` and narrows
 BullX-specific behavior to the parts BullX needs to control:
 
-- add `openrouter_reasoning_effort` and `openrouter_reasoning` to the provider
-  schema;
-- encode reasoning defaults as OpenRouter's unified `reasoning` request object;
-- translate `reasoning_token_budget` into `openrouter_reasoning.max_tokens`;
+- keep setup-visible provider options locally curated;
+- encode call-level `reasoning_effort` as OpenRouter's unified `reasoning`
+  request object;
+- translate call-level `reasoning_token_budget` into `reasoning.max_tokens`;
 - preserve OpenRouter app attribution headers.
 
 The override is runtime registry state, not durable truth. Restarting BullX
@@ -349,7 +458,7 @@ provider id in the current runtime. Restarting without the plugin restores the
 base `req_llm` registry.
 
 The first plugin using this hook is `chinese_llm_providers_extra`. It declares
-two new provider ids:
+four provider ids:
 
 - `xiaomi_mimo`, implemented by
   `ChineseLLMProvidersExtra.Providers.XiaomiMiMo`, delegates to the Anthropic
@@ -357,6 +466,12 @@ two new provider ids:
 - `volcengine_ark`, implemented by
   `ChineseLLMProvidersExtra.Providers.VolcengineArk`, uses the OpenAI-compatible
   default provider behavior with Ark's default base URL.
+- `alibaba_cn`, implemented by
+  `ChineseLLMProvidersExtra.Providers.AlibabaCN`, mirrors req_llm's DashScope
+  mainland China endpoint provider.
+- `zai_coding_plan`, implemented by
+  `ChineseLLMProvidersExtra.Providers.ZaiCodingPlan`, mirrors req_llm's Z.AI
+  coding endpoint provider.
 
 The same hook can still support deliberate provider replacement when a plugin
 marks that declaration with `override: true`.
@@ -386,15 +501,14 @@ until an operator re-enables the plugin or migrates the rows.
 
 ## Alternatives considered
 
-The legacy RFC included model aliases and setup UI. This design omits both
-because the current requirement only needs provider/model resolution for a spec
-string. Storing or naming caller-level model choices belongs to the caller's
-design.
+The legacy RFC included durable model aliases. This design omits aliases:
+provider rows store endpoint credentials, while AIAgent and future callers store
+their own model config objects.
 
 BullX could store one row per endpoint/model pair. This would simplify a
 provider/model foreign key but would duplicate credentials and endpoint options
 for every model served by the same endpoint. This design stores endpoint
-configuration once and keeps model ids in caller-owned specs.
+configuration once and keeps model ids in caller-owned model configs.
 
 BullX could register custom providers through `Application` env before
 `:req_llm` starts. That does not fit BullX plugin startup ordering. Runtime
@@ -431,8 +545,8 @@ to the configured BullX provider and model id.
 - Use `BullX.Ext.derive_key/3`, `BullX.Ext.aead_encrypt/2`, and
   `BullX.Ext.aead_decrypt/2` for API key storage.
 - Keep caller-owned model-selection storage, including Workflow/Node
-  definitions and AIAgent profiles, plus Agentic Loop behavior out of this
-  implementation.
+  definitions and AIAgent profiles, plus Agentic Loop behavior out of provider
+  row storage. AIAgent profiles store model config objects.
 - Keep runtime state reconstructible from PostgreSQL.
 - Do not introduce an AIAgent runtime supervisor or AIAgent namespace for the
   provider catalog.
@@ -445,7 +559,8 @@ to the configured BullX provider and model id.
    database and changeset validation for provider ids, req_llm provider ids,
    URLs, encrypted API key storage, and JSON object provider options.
 2. Add `BullX.LLM.Crypto` for per-row API key encryption and decryption.
-3. Add `BullX.LLM.Spec`, `ResolvedProvider`, and `ResolvedModel`.
+3. Add `BullX.LLM.Spec`, `ModelConfig`, `ModelDescriptor`,
+   `ModelRegistry`, `ResolvedProvider`, and `ResolvedModel`.
 4. Add `BullX.LLM.Catalog.Cache` under `BullX.Runtime.Supervisor`,
    backed by `BullX.Cache`, and public `BullX.LLM.Catalog` read APIs.
 5. Add `BullX.LLM.Writer` for put, update, delete, and refresh
@@ -457,14 +572,17 @@ to the configured BullX provider and model id.
    `BullX.Config.Writer` for `bullx.req_llm.` keys.
 7. Add `BullX.LLM.PluginProviders` and start its sync child under
    `BullX.Runtime.Supervisor` after the plugin supervisor has started.
-8. Add `BullX.LLM.Providers.OpenRouter` and register it as a BullX
-   built-in provider override for `:openrouter`.
-9. Add the `chinese_llm_providers_extra` plugin with `xiaomi_mimo` and
-   `volcengine_ark` provider declarations through the
+8. Add BullX-owned provider modules for `openai`, `anthropic`, `google`,
+   `google_vertex`, `vllm`, `mistral`, `azure`, `amazon_bedrock`, `deepseek`,
+   `zai`, `xai`, and `openrouter`, and register them as built-in provider
+   overrides.
+9. Add the `chinese_llm_providers_extra` plugin with `xiaomi_mimo`,
+   `volcengine_ark`, `alibaba_cn`, and `zai_coding_plan` provider declarations through the
    `bullx.llm.req_llm_provider` extension point.
-10. Add focused tests for spec parsing, provider writes, storage encryption,
-   cache-backed resolution, invalid provider options, req_llm bridge behavior,
-   built-in provider overrides, and plugin provider registration.
+10. Add focused tests for spec parsing, model-config resolution, model registry
+   discovery/fallback, provider writes, storage encryption, cache-backed
+   resolution, invalid provider options, req_llm bridge behavior, built-in
+   provider overrides, and plugin provider registration.
 
 ### Done when
 
@@ -473,10 +591,11 @@ to the configured BullX provider and model id.
 - Plaintext provider API keys are not stored in PostgreSQL.
 - Provider options are validated against the active `req_llm` provider schema
   before resolution returns request options.
-- `req_llm_provider: "openrouter"` resolves through BullX's OpenRouter override
+- The built-in provider ids listed above resolve through BullX-owned modules
   after runtime startup.
-- Enabling `chinese_llm_providers_extra` exposes `xiaomi_mimo` and
-  `volcengine_ark` through the provider hook.
+- Enabling `chinese_llm_providers_extra` exposes `xiaomi_mimo`,
+  `volcengine_ark`, `alibaba_cn`, and `zai_coding_plan` through the provider
+  hook.
 - Enabled plugin providers can add new provider ids and can replace an existing
   provider only with `override: true`.
 - `bun precommit` passes.

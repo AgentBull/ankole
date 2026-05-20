@@ -1,17 +1,26 @@
 defmodule BullX.Setup.LLMProviders do
   @moduledoc false
 
-  alias BullX.LLM.{Catalog, Provider, ProviderRegistry, Writer}
+  alias BullX.LLM.{Catalog, PluginProviders, Provider, ProviderRegistry, Writer}
 
   @spec status() :: map()
   def status do
     providers = public_providers()
+    catalog = provider_catalog()
 
     %{
       complete?: providers != [],
       providers: providers,
-      req_llm_providers: Enum.map(ReqLLM.Providers.list(), &Atom.to_string/1)
+      req_llm_providers: Enum.map(catalog, & &1.id),
+      provider_catalog: catalog
     }
+  end
+
+  @spec provider_catalog() :: [map()]
+  def provider_catalog do
+    PluginProviders.available_extensions()
+    |> Enum.map(&provider_catalog_entry/1)
+    |> Enum.sort_by(& &1.id)
   end
 
   @spec public_providers() :: [map()]
@@ -77,9 +86,11 @@ defmodule BullX.Setup.LLMProviders do
   end
 
   defp validate_req_llm_provider(%{req_llm_provider: provider}) when is_binary(provider) do
-    case ProviderRegistry.known?(provider) do
-      true -> :ok
-      false -> {:error, {:unknown_req_llm_provider, provider}}
+    with true <- provider in PluginProviders.available_provider_ids(),
+         true <- ProviderRegistry.known?(provider) do
+      :ok
+    else
+      _other -> {:error, {:unknown_req_llm_provider, provider}}
     end
   end
 
@@ -222,4 +233,140 @@ defmodule BullX.Setup.LLMProviders do
       end)
     end)
   end
+
+  defp provider_catalog_entry(%BullX.Plugins.Extension{} = extension) do
+    module = extension.module
+
+    %{
+      id: extension_id(extension.id),
+      label_key: "setup.llm.providers.#{extension_id(extension.id)}",
+      default_base_url: provider_default_base_url(module),
+      api_key_supported: provider_api_key_supported?(module),
+      provider_options: provider_option_fields(module)
+    }
+  end
+
+  defp extension_id(id) when is_binary(id), do: id
+  defp extension_id(id) when is_atom(id), do: Atom.to_string(id)
+
+  defp provider_default_base_url(module) when is_atom(module) and not is_nil(module) do
+    case function_exported?(module, :default_base_url, 0) do
+      true -> module.default_base_url()
+      false -> nil
+    end
+  end
+
+  defp provider_default_base_url(_module), do: nil
+
+  defp provider_api_key_supported?(module) do
+    provider_api_key_env?(module) or provider_schema_has_key?(module, :api_key)
+  end
+
+  defp provider_api_key_env?(module) when is_atom(module) and not is_nil(module) do
+    case function_exported?(module, :default_env_key, 0) do
+      true -> String.contains?(module.default_env_key(), ["API_KEY", "BEARER_TOKEN"])
+      false -> false
+    end
+  end
+
+  defp provider_api_key_env?(_module), do: false
+
+  defp provider_schema_has_key?(module, key) when is_atom(module) and not is_nil(module) do
+    with true <- function_exported?(module, :provider_schema, 0) do
+      Keyword.has_key?(module.provider_schema().schema, key)
+    else
+      _other -> false
+    end
+  end
+
+  defp provider_schema_has_key?(_module, _key), do: false
+
+  defp provider_option_fields(module) when is_atom(module) and not is_nil(module) do
+    with true <- function_exported?(module, :provider_schema, 0) do
+      module.provider_schema().schema
+      |> Keyword.delete(:api_key)
+      |> Enum.map(&provider_option_field/1)
+      |> Enum.sort_by(& &1.key)
+    else
+      _other -> []
+    end
+  end
+
+  defp provider_option_fields(_module), do: []
+
+  defp provider_option_field({key, opts}) do
+    type = Keyword.get(opts, :type, :any)
+
+    %{
+      key: Atom.to_string(key),
+      label: key |> Atom.to_string() |> String.replace("_", " "),
+      input_type: provider_option_input_type(type),
+      options: provider_option_select_options(type),
+      required: Keyword.get(opts, :required, false),
+      default: provider_option_default(opts),
+      doc: Keyword.get(opts, :doc, "")
+    }
+  end
+
+  defp provider_option_input_type(:boolean), do: "boolean"
+  defp provider_option_input_type(:integer), do: "integer"
+  defp provider_option_input_type(:pos_integer), do: "integer"
+  defp provider_option_input_type(:non_neg_integer), do: "integer"
+  defp provider_option_input_type(:float), do: "float"
+  defp provider_option_input_type(:string), do: "string"
+  defp provider_option_input_type(:atom), do: "string"
+  defp provider_option_input_type({:in, _values}), do: "select"
+  defp provider_option_input_type({:list, {:in, _values}}), do: "select_list"
+
+  defp provider_option_input_type({:list, item_type}) when item_type in [:string, :atom],
+    do: "string_list"
+
+  defp provider_option_input_type({:list, _item_type}), do: "json_list"
+  defp provider_option_input_type({:or, types}), do: provider_option_or_input_type(types)
+  defp provider_option_input_type(_type), do: "json"
+
+  defp provider_option_or_input_type(types) do
+    select_options =
+      types
+      |> Enum.flat_map(&provider_option_select_options/1)
+      |> Enum.uniq()
+
+    cond do
+      select_options != [] -> "select"
+      Enum.all?(types, &(&1 in [:atom, :string])) -> "string"
+      Enum.all?(types, &(&1 in [:integer, :pos_integer, :non_neg_integer])) -> "integer"
+      true -> "json"
+    end
+  end
+
+  defp provider_option_select_options({:in, values}), do: Enum.map(values, &to_string/1)
+  defp provider_option_select_options({:list, {:in, values}}), do: Enum.map(values, &to_string/1)
+
+  defp provider_option_select_options({:or, types}) do
+    types
+    |> Enum.flat_map(&provider_option_select_options/1)
+    |> Enum.uniq()
+  end
+
+  defp provider_option_select_options(_type), do: []
+
+  defp provider_option_default(opts) do
+    case Keyword.fetch(opts, :default) do
+      {:ok, value} -> jsonable_provider_option_value(value)
+      :error -> nil
+    end
+  end
+
+  defp jsonable_provider_option_value(value)
+       when is_atom(value) and not is_boolean(value) and not is_nil(value),
+       do: Atom.to_string(value)
+
+  defp jsonable_provider_option_value(value) when is_list(value),
+    do: Enum.map(value, &jsonable_provider_option_value/1)
+
+  defp jsonable_provider_option_value(value) when is_map(value) do
+    Map.new(value, fn {key, item} -> {to_string(key), jsonable_provider_option_value(item)} end)
+  end
+
+  defp jsonable_provider_option_value(value), do: value
 end

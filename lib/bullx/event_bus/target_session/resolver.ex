@@ -3,14 +3,13 @@ defmodule BullX.EventBus.TargetSession.Resolver do
   Resolves an incoming Event to an active TargetSession to append into.
 
   A TargetSession is keyed by (`event_routing_rule_id`, `target_type`,
-  `target_ref`, `scope_key`, `window_key`). For each new Event we either reuse
-  an existing active session under that key or insert a new one. Two time
-  limits bound a session:
+  `target_ref`, `scope_key`). For each new Event we either reuse an existing
+  active session under that key or insert a new one.
 
-  * `expires_at` — rolling per-window TTL (refreshes on reuse for
-    `:rolling_ttl` rules)
-  * `hard_cap_at` — absolute @hard_cap_seconds cap from insertion (never
-    extended; protects against runaway sessions)
+  TargetSession continuity is a runtime lane concern, not conversation truth.
+  The resolver does not enforce a wall-clock lifetime. A TargetSession remains
+  reusable while it is active and becomes terminal only when the Target closes
+  or fails it.
   """
 
   import Ecto.Query
@@ -18,69 +17,54 @@ defmodule BullX.EventBus.TargetSession.Resolver do
   alias BullX.EventBus.{AppendFailed, EventRoutingRule, Scope, TargetSession}
   alias BullX.Repo
 
-  @hard_cap_seconds 86_400
-
   @type resolved :: %{
           session: TargetSession.t(),
-          scope_key: String.t(),
-          window_key: String.t()
+          scope_key: String.t()
         }
 
   @spec resolve(EventRoutingRule.t(), map(), DateTime.t()) ::
           {:ok, resolved()} | {:error, AppendFailed.t()}
-  def resolve(%EventRoutingRule{} = rule, routing_context, now) do
-    with {:ok, scope_key} <- Scope.scope_key(routing_context, rule.scope_fields),
-         window_key <- Scope.window_key(routing_context, rule.window_type) do
-      do_resolve(rule, scope_key, window_key, now, :first)
+  def resolve(%EventRoutingRule{} = rule, routing_context, _now) do
+    with {:ok, scope_key} <- Scope.scope_key(routing_context, rule.scope_fields) do
+      do_resolve(rule, scope_key, :first)
     end
   end
 
-  defp do_resolve(rule, scope_key, window_key, now, attempt) do
-    expires_at = initial_expires_at(rule, now)
-
-    # Sweep expired sessions under this key first so `reusable_or_insert/6`
-    # only sees sessions that are still genuinely active — otherwise we might
-    # reuse one that's already past its window and immediately get expired by
-    # the worker on its next tick.
-    with :ok <- expire_stale_candidates(rule, scope_key, window_key, now),
-         {:ok, session} <-
-           reusable_or_insert(rule, scope_key, window_key, expires_at, now, attempt) do
-      {:ok, %{session: session, scope_key: scope_key, window_key: window_key}}
+  defp do_resolve(rule, scope_key, attempt) do
+    with {:ok, session} <- reusable_or_insert(rule, scope_key, attempt) do
+      {:ok, %{session: session, scope_key: scope_key}}
     end
   end
 
-  defp reusable_or_insert(rule, scope_key, window_key, expires_at, now, attempt) do
-    case find_active(rule, scope_key, window_key) do
+  defp reusable_or_insert(rule, scope_key, attempt) do
+    case find_active(rule, scope_key) do
       nil ->
-        insert_session(rule, scope_key, window_key, expires_at, now, attempt)
+        insert_session(rule, scope_key, attempt)
 
       %TargetSession{} = session ->
-        refresh_reused_session(session, rule, now)
+        {:ok, session}
     end
   end
 
-  defp find_active(rule, scope_key, window_key) do
+  defp find_active(rule, scope_key) do
     TargetSession
     |> where([s], s.event_routing_rule_id == ^rule.id)
     |> where([s], s.target_type == ^rule.target_type)
     |> where([s], s.target_ref == ^rule.target_ref)
     |> where([s], s.scope_key == ^scope_key)
-    |> where([s], s.window_key == ^window_key)
     |> where([s], s.status == :active)
     |> lock("FOR UPDATE")
     |> Repo.one()
   end
 
-  defp insert_session(rule, scope_key, window_key, expires_at, _now, attempt) do
+  defp insert_session(rule, scope_key, attempt) do
     %TargetSession{}
     |> TargetSession.changeset(%{
       event_routing_rule_id: rule.id,
       target_type: rule.target_type,
       target_ref: rule.target_ref,
       scope_key: scope_key,
-      window_key: window_key,
-      status: :active,
-      expires_at: expires_at
+      status: :active
     })
     |> Repo.insert()
     |> case do
@@ -88,18 +72,18 @@ defmodule BullX.EventBus.TargetSession.Resolver do
         {:ok, session}
 
       {:error, %Ecto.Changeset{} = changeset} ->
-        retry_or_fail(rule, scope_key, window_key, expires_at, changeset, attempt)
+        retry_or_fail(rule, scope_key, changeset, attempt)
     end
   end
 
   # A unique-index violation here means a concurrent caller inserted the same
-  # (rule_id, target_type, target_ref, scope_key, window_key, active) row
-  # between our `find_active` and `insert`. Retry once — the second pass will
-  # take the reuse branch.
-  defp retry_or_fail(rule, scope_key, window_key, _expires_at, changeset, :first) do
+  # (rule_id, target_type, target_ref, scope_key, active) row between our
+  # `find_active` and `insert`. Retry once — the second pass will take the
+  # reuse branch.
+  defp retry_or_fail(rule, scope_key, changeset, :first) do
     case unique_conflict?(changeset) do
       true ->
-        do_resolve(rule, scope_key, window_key, DateTime.utc_now(:microsecond), :retry)
+        do_resolve(rule, scope_key, :retry)
 
       false ->
         {:error,
@@ -107,117 +91,12 @@ defmodule BullX.EventBus.TargetSession.Resolver do
     end
   end
 
-  defp retry_or_fail(_rule, _scope_key, _window_key, _expires_at, _changeset, :retry) do
+  defp retry_or_fail(_rule, _scope_key, _changeset, :retry) do
     {:error,
      append_failed(
        :target_session_resolution_failed,
        "could not resolve TargetSession after retry"
      )}
-  end
-
-  defp refresh_reused_session(
-         %TargetSession{} = session,
-         %EventRoutingRule{window_type: :rolling_ttl} = rule,
-         now
-       ) do
-    expires_at = refreshed_expires_at(session, rule, now)
-
-    session
-    |> TargetSession.changeset(%{expires_at: expires_at})
-    |> Repo.update()
-    |> case do
-      {:ok, session} ->
-        {:ok, session}
-
-      {:error, _changeset} ->
-        {:error,
-         append_failed(:target_session_resolution_failed, "could not refresh TargetSession")}
-    end
-  end
-
-  defp refresh_reused_session(%TargetSession{} = session, _rule, _now), do: {:ok, session}
-
-  defp expire_stale_candidates(rule, scope_key, window_key, now) do
-    rule
-    |> active_candidates(scope_key, window_key)
-    |> Repo.all()
-    |> Enum.each(&expire_if_stale(&1, now))
-
-    :ok
-  end
-
-  defp active_candidates(rule, scope_key, window_key) do
-    TargetSession
-    |> where([s], s.event_routing_rule_id == ^rule.id)
-    |> where([s], s.target_type == ^rule.target_type)
-    |> where([s], s.target_ref == ^rule.target_ref)
-    |> where([s], s.scope_key == ^scope_key)
-    |> where([s], s.window_key == ^window_key)
-    |> where([s], s.status == :active)
-    |> lock("FOR UPDATE")
-  end
-
-  defp expire_if_stale(%TargetSession{} = session, now) do
-    case expiry_reason(session, now) do
-      nil ->
-        {:ok, session}
-
-      reason ->
-        session
-        |> TargetSession.changeset(%{status: :expired, terminal_reason: reason})
-        |> Repo.update()
-    end
-  end
-
-  @spec hard_cap_at(TargetSession.t()) :: DateTime.t()
-  def hard_cap_at(%TargetSession{inserted_at: inserted_at}) do
-    DateTime.add(inserted_at, @hard_cap_seconds, :second)
-  end
-
-  @spec expiry_reason(TargetSession.t(), DateTime.t()) :: String.t() | nil
-  def expiry_reason(%TargetSession{} = session, now) do
-    case {hard_cap_passed?(session, now), expires_at_passed?(session, now)} do
-      {true, _expires_at_passed?} -> "hard_max_runtime"
-      {false, true} -> "runtime_window_expired"
-      {false, false} -> nil
-    end
-  end
-
-  @spec expired?(TargetSession.t(), DateTime.t()) :: boolean()
-  def expired?(%TargetSession{} = session, now), do: not is_nil(expiry_reason(session, now))
-
-  defp hard_cap_passed?(%TargetSession{} = session, now) do
-    DateTime.compare(now, hard_cap_at(session)) != :lt
-  end
-
-  defp expires_at_passed?(%TargetSession{expires_at: nil}, _now), do: false
-
-  defp expires_at_passed?(%TargetSession{expires_at: expires_at}, now) do
-    DateTime.compare(now, expires_at) != :lt
-  end
-
-  defp initial_expires_at(%EventRoutingRule{window_type: :new_per_event}, _now), do: nil
-
-  defp initial_expires_at(%EventRoutingRule{window_type: :rolling_ttl} = rule, now) do
-    ttl_expires_at = DateTime.add(now, rule.window_ttl_seconds, :second)
-    hard_cap_at = DateTime.add(now, @hard_cap_seconds, :second)
-    min_datetime(ttl_expires_at, hard_cap_at)
-  end
-
-  # Rolling TTL refresh never extends past the original hard cap — the cap is
-  # anchored at `inserted_at`, not "now", so an actively-used session still
-  # terminates within @hard_cap_seconds of its first event.
-  defp refreshed_expires_at(%TargetSession{} = session, %EventRoutingRule{} = rule, now) do
-    ttl_expires_at = DateTime.add(now, rule.window_ttl_seconds, :second)
-    hard_cap_at = hard_cap_at(session)
-    min_datetime(ttl_expires_at, hard_cap_at)
-  end
-
-  defp min_datetime(left, right) do
-    case DateTime.compare(left, right) do
-      :gt -> right
-      _other -> left
-    end
   end
 
   defp unique_conflict?(%Ecto.Changeset{} = changeset) do

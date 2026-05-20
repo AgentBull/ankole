@@ -197,17 +197,16 @@ rules by using reserved negative priorities. Database-owned command rules still
 use ordinary positive `event_routing_rules.priority` values and the same matcher
 path.
 
-Command rules normally use one-shot scope and window policy, such as
-`new_per_event`, because `/command` and `/status` do not need a TargetSession that
-idles until the 24-hour hard cap. A command can share a runtime window only when
-its specific command design says so. The default command handler requests close
-after it handles the entry.
+Command rules use the same scope policy as other Event Routing Rules. Built-in
+system commands request `BullX.EventBus.TargetSession.close/1` after handling the
+entry; the worker then applies the EventBus runtime idle grace before closing the
+TargetSession.
 
 When `bullx.command.invoked` matches no explicit command route, EventBus runs a
 code-owned command fallback after the direct matcher miss. The fallback changes
 only the routing context type to `bullx.im.message.addressed` and tries the same
 route table again. If the shadow addressed context matches, EventBus reuses that
-route's Target and TargetSession policy while preserving the original
+route's Target and TargetSession scope while preserving the original
 `bullx.command.invoked` CloudEvent in the side-channel entry. This lets
 AIAgent-owned slash commands such as `/stop` and `/steer` use the same source
 and conversation routing as addressed messages without making Command Target a
@@ -321,7 +320,7 @@ Routing Rule:
 - high priority
 - `target_type = "command"`
 - `target_ref = "bullx.system.status"`
-- one-shot scope/window
+- command-scoped TargetSession lane
 
 Command Target:
 
@@ -408,7 +407,7 @@ boundaries.
 - `docs/design-docs/eventbus/Core.md` defines Event acceptance, TargetSession,
   Target invocation, close/fail helpers, and EventBus non-semantics.
 - `docs/design-docs/eventbus/Matcher.md` defines `RoutingContext`, priority,
-  first-match terminal behavior, `routing_facts`, and scope/window policy.
+  first-match terminal behavior, `routing_facts`, and scope policy.
 - `docs/design-docs/eventbus/Persistence.md` defines EventBus target type,
   `target_ref`, routing rule, TargetSession, and side-channel persistence.
 - `docs/design-docs/eventbus/ChannelAdapter.md` defines command normalization

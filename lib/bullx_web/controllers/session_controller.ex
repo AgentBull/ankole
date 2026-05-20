@@ -42,6 +42,13 @@ defmodule BullXWeb.SessionController do
     |> redirect(to: ~p"/sessions/new")
   end
 
+  def delete(conn, _params) do
+    conn
+    |> configure_session(renew: true)
+    |> clear_session()
+    |> redirect(to: ~p"/sessions/new")
+  end
+
   def oidc(conn, %{"provider" => provider} = params) do
     redirect_uri = url(~p"/sessions/oidc/#{provider}/callback")
 

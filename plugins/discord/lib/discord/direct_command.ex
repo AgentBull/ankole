@@ -89,7 +89,6 @@ defmodule Discord.DirectCommand do
       "external_id" => command.actor.id,
       "profile" => Map.get(command.actor, :profile, %{}),
       "metadata" => %{
-        "connected_realm_ref" => source.connected_realm_ref,
         "guild_id" => command.guild_id,
         "discord_channel_id" => command.channel_id
       }

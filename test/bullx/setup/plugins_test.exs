@@ -3,6 +3,7 @@ defmodule BullX.Setup.PluginsTest do
 
   alias BullX.Config.AppConfig
   alias BullX.Repo
+  alias BullX.Setup.ChannelSources
   alias BullX.Setup.Plugins
 
   @enabled_plugins_key "bullx.enabled_plugins"
@@ -32,5 +33,14 @@ defmodule BullX.Setup.PluginsTest do
              Plugins.save_enabled(["feishu", "missing_plugin"])
 
     refute Repo.get(AppConfig, @enabled_plugins_key)
+  end
+
+  test "default setup-capable channel adapters include Feishu and Telegram" do
+    adapter_ids =
+      ChannelSources.public_projection()
+      |> Enum.map(& &1.id)
+
+    assert "feishu" in adapter_ids
+    assert "telegram" in adapter_ids
   end
 end

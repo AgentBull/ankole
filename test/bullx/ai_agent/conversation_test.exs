@@ -9,7 +9,12 @@ defmodule BullX.AIAgent.ConversationTest do
       Principals.create_agent(%{
         uid: "ai-agent-conversation-test",
         display_name: "Agent",
-        profile: %{"ai_agent" => %{"main_model" => "openai_proxy:gpt-test"}}
+        profile: %{
+          "ai_agent" => %{
+            "main_llm" => %{"provider_id" => "openai_proxy", "model" => "gpt-test"},
+            "mission" => "Handle conversation storage tests."
+          }
+        }
       })
 
     assert {:ok, conversation} =
@@ -50,7 +55,12 @@ defmodule BullX.AIAgent.ConversationTest do
       Principals.create_agent(%{
         uid: "ai-agent-dedupe-test",
         display_name: "Agent",
-        profile: %{"ai_agent" => %{"main_model" => "openai_proxy:gpt-test"}}
+        profile: %{
+          "ai_agent" => %{
+            "main_llm" => %{"provider_id" => "openai_proxy", "model" => "gpt-test"},
+            "mission" => "Handle conversation dedupe tests."
+          }
+        }
       })
 
     {:ok, conversation} = Conversations.find_or_create_active(agent.id, "v1:dedupe", %{})

@@ -517,8 +517,8 @@ defmodule BullX.AIAgent do
       caller_principal_id: caller_principal_id,
       agent_principal_id: principal.id,
       profile: profile,
-      source_type: "target_session_entry",
-      source_id: entry.id,
+      trigger_type: "target_session_entry",
+      trigger_id: entry.id,
       target_session_id: invocation.target_session_id,
       target_session_entry_id: entry.id,
       acl_context: acl_context(entry, "command"),
@@ -528,19 +528,19 @@ defmodule BullX.AIAgent do
       {:ok,
        %{
          status: :start_generation,
-         source_message_id: source_message_id,
+         trigger_message_id: trigger_message_id,
          retry_of_message_id: retry_of_message_id,
          lease_id: lease_id
        } = result} ->
-        with %Message{} = source_message <- Repo.get(Message, source_message_id),
+        with %Message{} = trigger_message <- Repo.get(Message, trigger_message_id),
              :ok <-
                result
                |> recall_command_targets(entry)
                |> maybe_send_recall_fallback(entry, "retry_started"),
              :ok <-
-               Runner.run(conversation, source_message, profile, %{
-                 source_type: "command_retry",
-                 source_id: entry.id,
+               Runner.run(conversation, trigger_message, profile, %{
+                 trigger_type: "command_retry",
+                 trigger_id: entry.id,
                  lease_id: lease_id,
                  caller_principal_id: caller_principal_id,
                  agent_principal_id: principal.id,
@@ -555,7 +555,7 @@ defmodule BullX.AIAgent do
                }) do
           :ok
         else
-          nil -> {:error, :retry_source_message_not_found}
+          nil -> {:error, :retry_trigger_message_not_found}
           {:error, reason} -> {:error, reason}
         end
 
@@ -615,8 +615,8 @@ defmodule BullX.AIAgent do
     case caller_principal_id do
       caller when is_binary(caller) ->
         Runner.run(conversation, message, profile, %{
-          source_type: "target_session_entry",
-          source_id: entry.id,
+          trigger_type: "target_session_entry",
+          trigger_id: entry.id,
           caller_principal_id: caller,
           agent_principal_id: principal.id,
           target_session_id: invocation.target_session_id,
@@ -631,8 +631,8 @@ defmodule BullX.AIAgent do
     end
   end
 
-  defp write_access_denial(conversation, source_message, invocation, entry) do
-    case Conversations.generated_output_for_source?(source_message.id) do
+  defp write_access_denial(conversation, trigger_message, invocation, entry) do
+    case Conversations.generated_output_for_trigger?(trigger_message.id) do
       true ->
         :ok
 
@@ -647,9 +647,9 @@ defmodule BullX.AIAgent do
           target_session_entry_id: entry.id,
           metadata: %{
             "generation" => %{
-              "source_message_id" => source_message.id,
-              "source_type" => "target_session_entry",
-              "source_id" => entry.id
+              "trigger_message_id" => trigger_message.id,
+              "trigger_type" => "target_session_entry",
+              "trigger_id" => entry.id
             },
             "safe_error_code" => "acl_denied"
           }
@@ -1023,8 +1023,8 @@ defmodule BullX.AIAgent do
   defp acl_context(entry, input_mode) do
     %{
       input_mode: input_mode,
-      source_type: "target_session_entry",
-      source_id: entry.id,
+      trigger_type: "target_session_entry",
+      trigger_id: entry.id,
       channel_kind: get_in(entry.cloud_event, ["data", "channel", "kind"])
     }
   end

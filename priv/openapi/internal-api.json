@@ -1,0 +1,641 @@
+{
+  "components": {
+    "responses": {},
+    "schemas": {
+      "Channel": {
+        "additionalProperties": false,
+        "description": "A configured channel source, identified by (adapter_id, id).",
+        "properties": {
+          "adapter_id": {
+            "description": "Channel adapter id, e.g. \"feishu\".",
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "config": {
+            "additionalProperties": true,
+            "description": "Public source projection. Secret fields are masked to {present: boolean}.",
+            "type": "object",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "enabled": {
+            "type": "boolean",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "id": {
+            "description": "Source id within the adapter, e.g. \"main\".",
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          }
+        },
+        "required": [
+          "adapter_id",
+          "id",
+          "enabled",
+          "config"
+        ],
+        "title": "Channel",
+        "type": "object",
+        "x-struct": "Elixir.BullXWeb.Api.Schemas.Channel",
+        "x-validate": null
+      },
+      "ChannelAdapter": {
+        "additionalProperties": false,
+        "description": "An available channel adapter and the schema describing its config form.",
+        "properties": {
+          "form_schema": {
+            "additionalProperties": true,
+            "description": "Adapter-provided form schema (sections, fields, defaults).",
+            "type": "object",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "id": {
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "label": {
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "plugin_id": {
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          }
+        },
+        "required": [
+          "id",
+          "plugin_id",
+          "label",
+          "form_schema"
+        ],
+        "title": "ChannelAdapter",
+        "type": "object",
+        "x-struct": "Elixir.BullXWeb.Api.Schemas.ChannelAdapter",
+        "x-validate": null
+      },
+      "ChannelAdapterList": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/ChannelAdapter"
+            },
+            "type": "array",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "oidc_callback_url_template": {
+            "description": "OIDC callback URL with __source_id__ placeholder for the source id.",
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          }
+        },
+        "required": [
+          "data",
+          "oidc_callback_url_template"
+        ],
+        "title": "ChannelAdapterList",
+        "type": "object",
+        "x-struct": "Elixir.BullXWeb.Api.Schemas.ChannelAdapterList",
+        "x-validate": null
+      },
+      "ChannelCreateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "adapter_id": {
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "source": {
+            "additionalProperties": true,
+            "description": "Raw form values for the source (must include id for multi-source adapters).",
+            "type": "object",
+            "x-struct": null,
+            "x-validate": null
+          }
+        },
+        "required": [
+          "adapter_id",
+          "source"
+        ],
+        "title": "ChannelCreateRequest",
+        "type": "object",
+        "x-struct": "Elixir.BullXWeb.Api.Schemas.ChannelCreateRequest",
+        "x-validate": null
+      },
+      "ChannelList": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/Channel"
+            },
+            "type": "array",
+            "x-struct": null,
+            "x-validate": null
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "title": "ChannelList",
+        "type": "object",
+        "x-struct": "Elixir.BullXWeb.Api.Schemas.ChannelList",
+        "x-validate": null
+      },
+      "ChannelUpdateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "source": {
+            "additionalProperties": true,
+            "description": "Raw form values. Omitted secret fields keep their stored value.",
+            "type": "object",
+            "x-struct": null,
+            "x-validate": null
+          }
+        },
+        "required": [
+          "source"
+        ],
+        "title": "ChannelUpdateRequest",
+        "type": "object",
+        "x-struct": "Elixir.BullXWeb.Api.Schemas.ChannelUpdateRequest",
+        "x-validate": null
+      },
+      "ConnectivityCheckRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "adapter_id": {
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "source": {
+            "additionalProperties": true,
+            "type": "object",
+            "x-struct": null,
+            "x-validate": null
+          }
+        },
+        "required": [
+          "adapter_id",
+          "source"
+        ],
+        "title": "ConnectivityCheckRequest",
+        "type": "object",
+        "x-struct": "Elixir.BullXWeb.Api.Schemas.ConnectivityCheckRequest",
+        "x-validate": null
+      },
+      "ConnectivityCheckResult": {
+        "additionalProperties": false,
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "result": {
+            "additionalProperties": true,
+            "type": "object",
+            "x-struct": null,
+            "x-validate": null
+          }
+        },
+        "required": [
+          "ok",
+          "result"
+        ],
+        "title": "ConnectivityCheckResult",
+        "type": "object",
+        "x-struct": "Elixir.BullXWeb.Api.Schemas.ConnectivityCheckResult",
+        "x-validate": null
+      },
+      "Error": {
+        "additionalProperties": true,
+        "properties": {
+          "errors": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object",
+              "x-struct": null,
+              "x-validate": null
+            },
+            "nullable": true,
+            "type": "array",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "field": {
+            "nullable": true,
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "message": {
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          }
+        },
+        "required": [
+          "message"
+        ],
+        "title": "Error",
+        "type": "object",
+        "x-struct": "Elixir.BullXWeb.Api.Schemas.Error",
+        "x-validate": null
+      }
+    },
+    "securitySchemes": {
+      "cookieAuth": {
+        "description": "Session cookie issued after sign-in.",
+        "in": "cookie",
+        "name": "_bullx_key",
+        "type": "apiKey"
+      }
+    }
+  },
+  "info": {
+    "title": "BullX API",
+    "version": "0.1.0"
+  },
+  "openapi": "3.0.0",
+  "paths": {
+    "/.internal-apis/v1/channel-adapters": {
+      "get": {
+        "callbacks": {},
+        "description": "Lists installed channel adapters and the schema describing their config form.",
+        "operationId": "listChannelAdapters",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChannelAdapterList"
+                }
+              }
+            },
+            "description": "Adapters"
+          }
+        },
+        "summary": "List channel adapters",
+        "tags": [
+          "Channels"
+        ]
+      }
+    },
+    "/.internal-apis/v1/channels": {
+      "get": {
+        "callbacks": {},
+        "description": "Lists every configured channel source across all enabled adapters.",
+        "operationId": "listChannels",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChannelList"
+                }
+              }
+            },
+            "description": "Channels"
+          }
+        },
+        "summary": "List channels",
+        "tags": [
+          "Channels"
+        ]
+      },
+      "post": {
+        "callbacks": {},
+        "operationId": "createChannel",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChannelCreateRequest"
+              }
+            }
+          },
+          "description": "Channel to create",
+          "required": false
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Channel"
+                }
+              }
+            },
+            "description": "Created channel"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Create a channel",
+        "tags": [
+          "Channels"
+        ]
+      }
+    },
+    "/.internal-apis/v1/channels/connectivity-check": {
+      "post": {
+        "callbacks": {},
+        "description": "Validates a source payload and probes the adapter without persisting anything.",
+        "operationId": "checkChannelConnectivity",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectivityCheckRequest"
+              }
+            }
+          },
+          "description": "Source to check",
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectivityCheckResult"
+                }
+              }
+            },
+            "description": "Connectivity result"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Check channel connectivity",
+        "tags": [
+          "Channels"
+        ]
+      }
+    },
+    "/.internal-apis/v1/channels/{adapter_id}/{id}": {
+      "delete": {
+        "callbacks": {},
+        "operationId": "deleteChannel",
+        "parameters": [
+          {
+            "description": "Channel adapter id.",
+            "in": "path",
+            "name": "adapter_id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          },
+          {
+            "description": "Source id within the adapter.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Channel deleted"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Error"
+          }
+        },
+        "summary": "Delete a channel",
+        "tags": [
+          "Channels"
+        ]
+      },
+      "get": {
+        "callbacks": {},
+        "operationId": "getChannel",
+        "parameters": [
+          {
+            "description": "Channel adapter id.",
+            "in": "path",
+            "name": "adapter_id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          },
+          {
+            "description": "Source id within the adapter.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Channel"
+                }
+              }
+            },
+            "description": "Channel"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "summary": "Get a channel",
+        "tags": [
+          "Channels"
+        ]
+      },
+      "put": {
+        "callbacks": {},
+        "operationId": "updateChannel",
+        "parameters": [
+          {
+            "description": "Channel adapter id.",
+            "in": "path",
+            "name": "adapter_id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          },
+          {
+            "description": "Source id within the adapter.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChannelUpdateRequest"
+              }
+            }
+          },
+          "description": "Channel changes",
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Channel"
+                }
+              }
+            },
+            "description": "Updated channel"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Update a channel",
+        "tags": [
+          "Channels"
+        ]
+      }
+    },
+    "/.well-known/service-desc": {
+      "get": {
+        "callbacks": {},
+        "deprecated": false,
+        "operationId": "BullXWeb.ApiSpec.service_desc",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "x-struct": null,
+                  "x-validate": null
+                }
+              }
+            },
+            "description": "OpenAPI document."
+          }
+        },
+        "security": [],
+        "summary": "Well-known service description",
+        "tags": [
+          "System"
+        ]
+      }
+    }
+  },
+  "security": [
+    {
+      "cookieAuth": []
+    }
+  ],
+  "servers": [
+    {
+      "url": "http://localhost:4000",
+      "variables": {}
+    }
+  ],
+  "tags": [
+    {
+      "description": "Channel source management for the console.",
+      "name": "Channels"
+    }
+  ]
+}

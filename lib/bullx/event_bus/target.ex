@@ -14,7 +14,7 @@ defmodule BullX.EventBus.Target do
   Currently registered target types: `:ai_agent` (flexible model/tool loop,
   see `BullX.AIAgent`), `:workflow` (explicit branching/approval/parallel
   process steps — under development), `:command` (in-process side effects
-  triggered by routed slash-commands), and `:external_agent_harness` (a
+  triggered by routed slash-commands), and `:work` (a
   bridge to delegate work to an external runtime — under development).
   Blackhole rules are handled inside `BullX.EventBus.accept/2` itself and
   never reach a Target.
@@ -34,7 +34,7 @@ defmodule BullX.EventBus.Target do
   @callback handle_event(invocation :: map(), side_channel_entry :: map()) ::
               :ok | {:error, term()}
 
-  @target_types [:ai_agent, :workflow, :command, :external_agent_harness]
+  @target_types [:ai_agent, :workflow, :command, :work]
   @built_in_targets [command: BullX.EventBus.CommandTarget]
 
   @spec dispatch(map(), map()) :: :ok | {:error, term()}

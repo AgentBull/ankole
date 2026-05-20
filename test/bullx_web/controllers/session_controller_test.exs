@@ -1,7 +1,6 @@
 defmodule BullXWeb.SessionControllerTest do
   use BullXWeb.ConnCase, async: false
 
-  @credentials_key "bullx.plugins.feishu.credentials"
   @sources_key "bullx.plugins.feishu.eventbus_sources"
 
   setup do
@@ -9,7 +8,6 @@ defmodule BullXWeb.SessionControllerTest do
     Ecto.Adapters.SQL.Sandbox.allow(BullX.Repo, self(), cache_pid)
 
     on_exit(fn ->
-      BullX.Config.Cache.delete_raw(@credentials_key)
       BullX.Config.Cache.delete_raw(@sources_key)
     end)
 
@@ -28,26 +26,20 @@ defmodule BullXWeb.SessionControllerTest do
 
   test "GET /sessions/new exposes configured OIDC login providers", %{conn: conn} do
     assert :ok =
-             BullX.Config.put_many(%{
-               @credentials_key =>
-                 Jason.encode!(%{
-                   "default" => %{
-                     "app_id" => "cli_session",
-                     "app_secret" => "app_secret"
-                   }
-                 }),
-               @sources_key =>
-                 Jason.encode!([
-                   %{
-                     "id" => "main",
-                     "credential_id" => "default",
-                     "enabled" => true,
-                     "domain" => "feishu",
-                     "oidc" => %{"enabled" => true},
-                     "start_transport" => false
-                   }
-                 ])
-             })
+             BullX.Config.put(
+               @sources_key,
+               Jason.encode!([
+                 %{
+                   "id" => "main",
+                   "app_id" => "cli_session",
+                   "app_secret" => "app_secret",
+                   "enabled" => true,
+                   "domain" => "feishu",
+                   "oidc" => %{"enabled" => true},
+                   "start_transport" => false
+                 }
+               ])
+             )
 
     conn = get(conn, ~p"/sessions/new?return_to=/console")
 

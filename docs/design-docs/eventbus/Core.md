@@ -8,7 +8,7 @@ into a TargetSession side channel. Every non-Blackhole TargetSession is carried
 by one alive long-running Oban job. Blackhole accepts the Event without creating
 a TargetSession.
 
-EventBus core owns delivery and execution-window runtime state, not business
+EventBus core owns delivery and execution-lane runtime state, not business
 truth. Event Routing Rules are durable configuration. TargetSession records and
 inbound side-channel entries are weak PostgreSQL runtime state. Conversations,
 Work, ApprovalRequest, ChildRun, Brain, Budget, Artifact, audit records, and
@@ -31,7 +31,7 @@ This document defines the current intended design for EventBus core:
 - Event acceptance and the decoded CloudEvents input contract.
 - The requirement that accepted Events satisfy
   [EventBus normalized CloudEvent](./NormalizedCloudEvent.md).
-- `RoutingContext`, `RoutingTable`, Event Routing Rule, scope, and window
+- `RoutingContext`, `RoutingTable`, Event Routing Rule, and scope
   contracts as linked matcher details.
 - TargetSession identity and reuse.
 - The acceptance transaction, weak dedupe, side-channel append, and progress
@@ -59,8 +59,7 @@ This document intentionally excludes:
   Target expresses that fan-out explicitly.
 - A durable inbound Event log, a durable dedupe ledger, a complex policy
   language, or an operator UI.
-- Arbitrary window expressions, fixed bucket windows, and batch Target
-  invocation.
+- Batch Target invocation.
 
 ## Execution model
 
@@ -142,7 +141,7 @@ sequenceDiagram
   E-->>P: Accepted result
   O->>W: perform(target_session_id)
   W->>G: Register target_session_id
-  loop until terminal or 24-hour hard cap
+  loop until terminal
     W->>R: Read pending entries by entry_seq
     W->>T: Target.handle_event(invocation, entry)
     T-->>W: :ok
@@ -234,8 +233,8 @@ Events.
 ## Matcher and route policy
 
 `RoutingContext` projection, `RoutingTable` snapshots, Rust matcher behavior,
-Event Routing Rule priority, Blackhole rule semantics, and scope/window key
-policy are defined in [EventBus matcher](./Matcher.md).
+Event Routing Rule priority, Blackhole rule semantics, and scope-key policy are
+defined in [EventBus matcher](./Matcher.md).
 
 Command routing rules usually have higher priority than generic AIAgent message
 rules when provider-native command Events should not enter an AIAgent model
@@ -252,8 +251,8 @@ of treating it as an ordinary user Message.
 
 ## TargetSession identity and reuse
 
-`target_sessions.id` is TargetSession identity. `scope_key` and `window_key` are
-reuse keys, not identity.
+`target_sessions.id` is TargetSession identity. `scope_key` is a reuse key, not
+identity.
 
 The reuse key is:
 
@@ -261,59 +260,52 @@ The reuse key is:
 - `target_type`
 - `target_ref`
 - `scope_key`
-- `window_key`
 
-Only `active` TargetSessions can be reused. `closed`, `expired`, and `failed`
+Only `active` TargetSessions can be reused. `closed` and `failed`
 TargetSessions are never reopened. If a later Event computes the same
-`scope_key` and `window_key` after the existing TargetSession is terminal,
-EventBus creates a new `target_sessions.id` and keeps the same reuse-key values.
+`scope_key` after the existing TargetSession is terminal, EventBus creates a new
+`target_sessions.id` and keeps the same reuse-key values.
 
 Different Event Routing Rules that point to the same Target form different
 TargetSessions by default because `event_routing_rule_id` is part of the reuse
 key.
 
 `target_sessions.status` expresses only TargetSession lifecycle: `active`,
-`closed`, `failed`, or `expired`. Whether the TargetSession job is currently
+`closed`, or `failed`. Whether the TargetSession job is currently
 processing an entry is ephemeral diagnostics visible through telemetry, the
 local Registry, Oban executing state, or runtime diagnostics; it is not written
 into `target_sessions.status`.
 
-A single TargetSession has a hard max lifetime of 24 hours. The deadline is
-computed as `inserted_at + 24 hours`. When `rolling_ttl` refreshes
-`expires_at`, the refresh clamps to `inserted_at + 24 hours`. At the hard cap,
-the TargetSession becomes terminal, usually `expired`, unless it already became
-`closed` or `failed`.
-
 CloudEvents `time` is Event occurrence time and may be used by a Target or
-observability. TargetSession window calculation uses the BullX acceptance time
-generated during `EventBus.accept/2`. `rolling_ttl`, `expires_at`, `inserted_at`,
-`appended_at`, and the 24-hour hard cap use BullX runtime time.
+observability. TargetSession runtime timestamps such as `inserted_at` and
+`appended_at` are BullX acceptance/runtime timestamps; they do not define a
+TargetSession lifetime cap.
 
 TargetSession resolution happens inside the acceptance transaction:
 
-1. Compute `scope_key` and `window_key`.
+1. Compute `scope_key`.
 2. `SELECT ... FOR UPDATE` active `target_sessions` rows with the same reuse
    key.
-3. Mark active candidates as `expired` when `expires_at` has passed or
-   `inserted_at + 24 hours` has passed.
-4. Reuse a remaining active, non-expired candidate when one exists.
-5. Otherwise insert a new `active` TargetSession.
-6. Rely on a partial unique index where `status = 'active'` as final concurrency
+3. Reuse an active candidate when one exists.
+4. Otherwise insert a new `active` TargetSession.
+5. Rely on a partial unique index where `status = 'active'` as final concurrency
    protection.
-7. If a unique conflict occurs, read the row again with `FOR UPDATE` and retry
+6. If a unique conflict occurs, read the row again with `FOR UPDATE` and retry
    resolver once.
 
 EventBus append/reuse and TargetSession close/fail transitions serialize on the
 same `target_sessions` row lock.
 
-Scope and window key computation are defined in
-[EventBus matcher](./Matcher.md#scope-and-window-policy).
+Scope key computation is defined in
+[EventBus matcher](./Matcher.md#scope-policy).
 
-Command Target rules normally use one-shot scope and window policy, such as
-`new_per_event`, so a `/command` or `/status` Event does not keep a TargetSession
-idle until the 24-hour hard cap. A command design may deliberately share a
-runtime window when the command needs it, but the default one-shot handler
-requests `BullX.EventBus.TargetSession.close/1` after processing the entry.
+When a Target requests `BullX.EventBus.TargetSession.close/1` after processing an
+entry, the worker does not close immediately. It keeps the active lane open for
+an internal idle grace so nearby Events with the same rule, target, and scope can
+append into the same active TargetSession. The default idle grace is 30 minutes.
+If no pending entry appears before the grace expires, the worker closes the
+TargetSession. This setting is runtime coordination, not route configuration and
+not AIAgent Conversation retention.
 
 ## Acceptance boundary and dedupe
 
@@ -423,9 +415,8 @@ hit the same TargetSession must converge on the same job association.
 
 TargetSession jobs run on a dedicated queue, such as `:target_sessions`. Queue
 concurrency limits how many TargetSessions can be active at the same time. The
-TargetSession loop enforces the 24-hour hard max internally. If the worker
-defines `timeout/1`, the timeout must be compatible with the hard max or be
-omitted. A shorter timeout must not silently kill active sessions.
+TargetSession loop does not enforce a wall-clock cutoff. It exits only when the
+TargetSession is terminal or the runtime row is missing.
 
 If the current application dependency set does not already include Oban, this
 design explicitly allows adding Oban for TargetSession runtime.
@@ -439,9 +430,8 @@ Accepted CloudEvents, per-event `RoutingContext`, and entry metadata live in
 `target_session_entries`, not in Oban job args.
 
 `perform/1` keeps running while the TargetSession is `active`. It returns only
-when the TargetSession is `closed`, `expired`, `failed`, orphaned, or the job
-reaches the 24-hour hard max. A single `perform/1` lifetime may process multiple
-entries.
+when the TargetSession is `closed`, `failed`, or orphaned. A single `perform/1`
+lifetime may process multiple entries.
 
 On startup, the TargetSession job registers itself in a local Registry keyed by
 `target_session_id`. The Registry serves only optional local nudge. Correctness
@@ -454,18 +444,18 @@ Cross-node live nudge is out of scope. An alive job periodically checks for
 pending entries while idle, so a lost local nudge does not lose an accepted
 Event. The job must not hold a database transaction or checked-out database
 connection while waiting idle. It may use a receive loop, timer, or equivalent
-internal wait mechanism until pending entries, a close signal, an expiry check,
-a failure, or the hard max wakes it.
+internal wait mechanism until pending entries, a close signal, or a failure
+wakes it.
 
 Conceptual loop:
 
 ```text
 perform(job):
   register target_session_id in local Registry
-  loop until terminal or 24-hour hard cap:
+  loop until terminal:
     drain pending entries in entry_seq order
     if no entries:
-      wait for local nudge, close signal, internal idle tick, expiry check, or hard cap
+      wait for local nudge, close signal, or internal idle tick
   return only when terminal
 ```
 
@@ -497,7 +487,7 @@ BullX.EventBus.TargetSession.fail(target_session_id, reason)
 `fail/2` means the Target explicitly marks the TargetSession failed and records
 safe diagnostics. One-shot Targets, such as a webhook classifier or UI action,
 should call `close/1` after successfully processing their entry so the session
-does not idle until the 24-hour hard cap.
+does not stay active until a later cleanup or operator action.
 
 If a Target calls `close/1` or `fail/2` after successfully handling the current
 entry, `Target.handle_event/2` should still return `:ok` so progress can
@@ -532,7 +522,6 @@ chunks, credentials, or raw provider payloads.
 - `target_type`
 - `target_ref`
 - `scope_key`
-- `window_key`
 - principal or actor evidence needed by downstream governance
 - close/fail helpers and output helpers when applicable
 
@@ -791,9 +780,9 @@ the runtime table exists. Target and business layers still own idempotency for
 side effects because Event delivery to Target is at least once.
 
 The alive-session Oban model spends worker capacity on active TargetSessions.
-That cost is the chosen guarantee: the job owns the active execution window and
-serially drains pending entries until terminal or the 24-hour hard cap. The
-design avoids per-entry jobs and avoids placing Event payloads into Oban args.
+That cost is the chosen guarantee: the job owns the active execution lane and
+serially drains pending entries until terminal. The design avoids per-entry jobs
+and avoids placing Event payloads into Oban args.
 
 The local nudge path optimizes latency but is outside the correctness path. Idle
 jobs periodically check pending entries, and repair hooks can ensure active
@@ -820,7 +809,7 @@ telemetry.
   PostgreSQL type preferences, and verification expectations.
 - `docs/Architecture.md` defines top-level vocabulary and invariants.
 - `docs/design-docs/eventbus/Matcher.md` owns route matching, rule, and
-  scope/window policy details.
+  scope policy details.
 - `docs/design-docs/eventbus/Persistence.md` owns EventBus schema, index,
   repair, and runtime cleanup details.
 - `docs/design-docs/eventbus/CommandTarget.md` owns the first-class Command
@@ -846,7 +835,7 @@ telemetry.
 - CloudEvents structured mode, BullX normalized payload, `subject`, raw payload,
   dedupe, and extension-attribute boundaries follow this document.
 - `RoutingContext` projection, route table behavior, Event Routing Rule
-  semantics, and scope/window policy follow
+  semantics, and scope policy follow
   `docs/design-docs/eventbus/Matcher.md`.
 - Route matching uses the Rust-owned matcher NIF and
   `BullX.EventBus.RoutingTable` snapshots.
@@ -862,17 +851,15 @@ telemetry.
   UTF-8 encoding. On `dedupe_hash` conflict, implementation verifies the
   original row's `event_source` and `event_id`, and duplicate handling must not
   leave a newly created TargetSession or Oban job.
-- The TargetSession hard cap is computed as `inserted_at + 24 hours`.
 - Scope key encoding and scope resolution behavior follow
   `docs/design-docs/eventbus/Matcher.md`.
 - TargetSession resolver locks same-reuse-key active rows in the acceptance
-  transaction, expires stale rows, then reuses or creates a TargetSession.
+  transaction, then reuses or creates a TargetSession.
 - Append/reuse and close/fail transitions serialize on the `target_sessions` row
   lock.
 - TargetSession worker uses the alive-session model. `perform/1` does not return
-  while the session is active, runs for at most 24 hours, periodically checks
-  pending entries while idle, and treats local nudge only as a latency
-  optimization.
+  while the session is active, periodically checks pending entries while idle,
+  and treats local nudge only as a latency optimization.
 - Target invocation handles one entry per callback. Session end uses close/fail
   helpers. Business semantics belong to the Target.
 - `target_type = "command"` dispatches through the code-owned Target registry
@@ -900,9 +887,8 @@ telemetry.
    - Depends on: Task 1 for payload and schema constraints.
    - Acceptance: Enums, tables, indexes, constraints, `UNLOGGED` posture,
      UUIDv7 primary keys, priority uniqueness, Blackhole constraints, neutral
-     Blackhole scope/window defaults, window constraints, `scope_fields text[]`,
-     `terminal_reason`, and `UNIQUE(dedupe_hash)` match the Persistence
-     contract.
+     Blackhole scope defaults, `scope_fields text[]`, `terminal_reason`, and
+     `UNIQUE(dedupe_hash)` match the Persistence contract.
 
 3. Implement `BullX.EventBus.RoutingTable` and the Rust matcher NIF boundary.
    - Owns: RoutingTable module, route matcher NIF, Elixir wrapper, and matcher
@@ -935,18 +921,16 @@ telemetry.
    - Owns: TargetSession resolver, schemas, and tests.
    - Depends on: Tasks 2 and 5.
    - Acceptance: Reuse key, active-only reuse, terminal-session non-reopen,
-     resolver row locking, stale active expiry, create/reuse behavior, partial
-     unique conflict retry, acceptance-time window calculation, and
-     `inserted_at + 24 hours` hard cap match this document.
+     resolver row locking, create/reuse behavior, and partial unique conflict
+     retry match this document.
 
-7. Implement scope and window policies.
-   - Owns: Scope fields validator, scope key encoder, window resolver, and
-     tests.
+7. Implement scope policy.
+   - Owns: Scope fields validator, scope key encoder, and tests.
    - Depends on: Task 6.
    - Acceptance: Allowed paths, `routing_facts.<key>` handling, scope
      resolution errors for missing paths, objects, and lists, canonical JSON
-     array `scope_key`, `new_per_event`, `rolling_ttl`, and rolling refresh
-     clamp match the Matcher contract.
+     array `scope_key`, and idle-grace reuse behavior match the Matcher and
+     TargetSession contracts.
 
 8. Implement side-channel append and weak dedupe.
    - Owns: Side-channel storage, acceptance transaction, and tests.
@@ -961,10 +945,10 @@ telemetry.
    - Owns: Worker module, job ensure path, target invocation wrapper, and tests.
    - Depends on: Tasks 6 and 8.
    - Acceptance: Oban dependency, job uniqueness, Oban unique configuration,
-     `target_sessions.oban_job_id` row locking, dedicated queue, timeout
-     compatibility, alive `perform/1` lifecycle, Registry registration, idle
-     tick, stable drain, progress, redelivery, terminal exit, and missing-pid
-     ensure behavior match this document.
+     `target_sessions.oban_job_id` row locking, dedicated queue, alive
+     `perform/1` lifecycle, Registry registration, idle tick, stable drain,
+     progress, redelivery, terminal exit, and missing-pid ensure behavior match
+     this document.
 
 10. Implement Target invocation dispatch.
     - Owns: Target dispatch modules and tests.
@@ -979,9 +963,8 @@ telemetry.
     - Depends on: Tasks 2, 6, and 9.
     - Acceptance: `ensure_active_target_session_jobs/0` idempotently ensures
       jobs for active sessions; orphan Oban jobs after runtime row loss complete
-      or discard safely; terminal runtime rows respect retention; active rows
-      over the hard cap become `expired`; behavior matches the Persistence
-      contract.
+      or discard safely; terminal runtime rows respect retention; behavior
+      matches the Persistence contract.
 
 12. Add fake Gateway adapter boundary tests.
     - Owns: Fake adapter tests.
@@ -1004,8 +987,7 @@ Implementation should stop and ask when any of these questions appears:
   `routing_facts` or another explicit normalized field.
 - A target type needs a `target_ref` that cannot be represented as a stable text
   registry reference.
-- A rule needs route fan-out, fixed bucket windows, arbitrary window
-  expressions, or batch Target invocation.
+- A rule needs route fan-out or batch Target invocation.
 - A business layer wants EventBus runtime rows to become audit truth or replay
   truth.
 - A Target asks EventBus to decide business success, policy approval, or user
@@ -1024,22 +1006,19 @@ Implementation is complete when tests cover:
   failure, writer refresh, `no_match`, CEL evaluation error, first-match
   priority, priority uniqueness, and Blackhole `accepted_ignored`.
 - Rule schema: Blackhole neutral defaults, `scope_fields text[]`, priority
-  uniqueness, target constraints, and window constraints.
-- TargetSession reuse: scope/window create and reuse, resolver row locking,
-  scope resolution failure, stale active row expiry, unique conflict retry,
-  terminal session non-reopen, same reuse key with new session id after
-  terminal, acceptance-time window calculation, and `inserted_at + 24 hours`
-  hard cap.
+  uniqueness, and target constraints.
+- TargetSession reuse: scope create and reuse, resolver row locking,
+  scope resolution failure, unique conflict retry, terminal session non-reopen,
+  same reuse key with new session id after terminal, and idle-grace reuse.
 - Acceptance and dedupe: transactional append, BullX.Ext.generic_hash length-prefixed
   `dedupe_hash` golden tests, `UNIQUE(dedupe_hash)`, duplicate handling, hash
   collision behavior, no empty TargetSession or Oban job on duplicate, NUL-free
   persistence, duplicate identifiers, and post-commit nudge.
 - Oban alive session: non-Blackhole session job creation, job uniqueness, Oban
   unique configuration, `target_sessions.oban_job_id` row locking, dedicated
-  queue, timeout compatibility, `perform/1` active-session liveness, multi-entry
-  lifetime, local Registry, missing-pid ensure, lost nudge repair, stable drain,
-  per-entry callback, success-only progress, crash redelivery, and terminal
-  exit.
+  queue, `perform/1` active-session liveness, multi-entry lifetime, local
+  Registry, missing-pid ensure, lost nudge repair, stable drain, per-entry
+  callback, success-only progress, crash redelivery, and terminal exit.
 - Target invocation: close/fail helpers, append/reuse and close/fail row-level
   serialization, close safe point, safe `terminal_reason`, one-shot Target close
   after successful entry handling, and no EventBus-owned business records for

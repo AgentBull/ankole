@@ -69,7 +69,7 @@ adapters.
 This keeps the current BullX architecture boundaries intact:
 
 - AIAgent is the Target that owns reasoning and tool-use behavior.
-- TargetSession is the runtime window that invokes the Target; it is not the
+- TargetSession is the runtime lane that invokes the Target; it is not the
   durable source of prompt truth.
 - Conversation / Message, Work, Brain, Budget, Artifact, and audit or domain
   records hold durable business facts.

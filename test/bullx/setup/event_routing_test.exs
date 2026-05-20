@@ -6,7 +6,6 @@ defmodule BullX.Setup.EventRoutingTest do
   alias BullX.Repo
   alias BullX.Setup.{AIAgents, EventRouting}
 
-  @credentials_key "bullx.plugins.feishu.credentials"
   @sources_key "bullx.plugins.feishu.eventbus_sources"
 
   setup do
@@ -16,26 +15,20 @@ defmodule BullX.Setup.EventRoutingTest do
     allow_process(BullX.LLM.Catalog.Cache)
 
     :ok =
-      BullX.Config.put_many(%{
-        @credentials_key =>
-          Jason.encode!(%{
-            "default" => %{
-              "app_id" => "cli_setup",
-              "app_secret" => "app_secret"
-            }
-          }),
-        @sources_key =>
-          Jason.encode!([
-            %{
-              "id" => "main",
-              "credential_id" => "default",
-              "enabled" => true,
-              "domain" => "feishu",
-              "im_listen_mode" => "all_messages",
-              "start_transport" => false
-            }
-          ])
-      })
+      BullX.Config.put(
+        @sources_key,
+        Jason.encode!([
+          %{
+            "id" => "main",
+            "app_id" => "cli_setup",
+            "app_secret" => "app_secret",
+            "enabled" => true,
+            "domain" => "feishu",
+            "im_listen_mode" => "all_messages",
+            "start_transport" => false
+          }
+        ])
+      )
 
     assert {:ok, %{sources: [%{id: "main", ready: true}]}} =
              Feishu.SourceSetup.reconcile_sources()
@@ -51,7 +44,6 @@ defmodule BullX.Setup.EventRoutingTest do
     BullX.LLM.Catalog.Cache.refresh_all()
 
     on_exit(fn ->
-      BullX.Config.Cache.delete_raw(@credentials_key)
       BullX.Config.Cache.delete_raw(@sources_key)
       _ = Feishu.SourceSetup.reconcile_sources()
       BullX.LLM.Catalog.Cache.refresh_all()
@@ -88,6 +80,39 @@ defmodule BullX.Setup.EventRoutingTest do
     assert system_rule.target_ref == "bullx.system.status"
   end
 
+  test "status projects the pending setup route without leaking raw runtime internals" do
+    agent_id = setup_agent_id()
+
+    status = EventRouting.status(%{agent_principal_id: agent_id})
+
+    refute status.complete?
+    assert status.state == "missing"
+    assert status.reason == "setup_rule_missing"
+    assert status.source.adapter_id == "feishu"
+    assert status.source.source_id == "main"
+    assert status.source.runtime.ready == true
+    refute Map.has_key?(status.source, :setup_module)
+    assert status.target.principal_id == agent_id
+    assert status.expected_rule.name == "setup.default.feishu.main.channel"
+    assert status.expected_rule.target_type == "ai_agent"
+    assert status.expected_rule.target_ref == agent_id
+    assert {:ok, _json} = Jason.encode(status)
+  end
+
+  test "status reports a live route after save" do
+    agent_id = setup_agent_id()
+
+    assert {:ok, %{rule: rule}} = EventRouting.save(%{agent_principal_id: agent_id})
+
+    status = EventRouting.status(%{agent_principal_id: agent_id})
+
+    assert status.complete?
+    assert status.state == "live"
+    assert status.reason == nil
+    assert status.live_rule.name == rule.name
+    assert status.conflict_rule == nil
+  end
+
   test "save migrates legacy split setup routes instead of adding another route" do
     agent_id = setup_agent_id()
 
@@ -99,9 +124,7 @@ defmodule BullX.Setup.EventRoutingTest do
           ~s(type == "bullx.im.message.addressed" && channel.adapter == "feishu" && channel.id == "main"),
         target_type: :ai_agent,
         target_ref: agent_id,
-        scope_fields: ["channel.adapter", "channel.id", "scope.id"],
-        window_type: :rolling_ttl,
-        window_ttl_seconds: 3600
+        scope_fields: ["channel.adapter", "channel.id", "scope.id"]
       })
 
     {:ok, _legacy_ambient} =
@@ -112,9 +135,7 @@ defmodule BullX.Setup.EventRoutingTest do
           ~s(type == "bullx.im.message.ambient" && channel.adapter == "feishu" && channel.id == "main"),
         target_type: :ai_agent,
         target_ref: agent_id,
-        scope_fields: ["channel.adapter", "channel.id", "scope.id"],
-        window_type: :rolling_ttl,
-        window_ttl_seconds: 3600
+        scope_fields: ["channel.adapter", "channel.id", "scope.id"]
       })
 
     assert {:ok, %{rule: rule}} = EventRouting.save(%{agent_principal_id: agent_id})
@@ -134,8 +155,9 @@ defmodule BullX.Setup.EventRoutingTest do
   defp setup_agent_id do
     assert {:ok, %{agent: %{principal_id: agent_id}}} =
              AIAgents.save(%{
-               "main_model" => "openai_proxy:gpt-test",
-               "display_name" => "BullX Agent"
+               "main_llm" => %{"provider_id" => "openai_proxy", "model" => "gpt-test"},
+               "display_name" => "BullX Agent",
+               "mission" => "Handle setup-routed messages."
              })
 
     agent_id

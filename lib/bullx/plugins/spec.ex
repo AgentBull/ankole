@@ -16,6 +16,8 @@ defmodule BullX.Plugins.Spec do
           config_modules: [module()]
         }
 
+  @type localized_text :: String.t() | %{String.t() => String.t()}
+
   @supported_api_version 1
 
   @spec build(atom(), module()) :: {:ok, t()} | {:error, term()}
@@ -53,7 +55,9 @@ defmodule BullX.Plugins.Spec do
     with {:ok, id} <- fetch(metadata, :id),
          {:ok, api_version} <- fetch(metadata, :api_version),
          true <- is_binary(id),
-         true <- is_integer(api_version) do
+         true <- is_integer(api_version),
+         :ok <- validate_optional_localized_text(metadata, :display_name),
+         :ok <- validate_optional_localized_text(metadata, :description) do
       {:ok, %{id: id, api_version: api_version, raw: metadata}}
     else
       false -> {:error, {:invalid_plugin_metadata, metadata}}
@@ -62,6 +66,32 @@ defmodule BullX.Plugins.Spec do
   end
 
   defp normalize_metadata(metadata), do: {:error, {:invalid_plugin_metadata, metadata}}
+
+  defp validate_optional_localized_text(metadata, key) do
+    case fetch_optional(metadata, key) do
+      {:ok, nil} -> :ok
+      {:ok, value} -> validate_localized_text(key, value)
+    end
+  end
+
+  defp fetch_optional(metadata, key) do
+    case Map.fetch(metadata, key) do
+      {:ok, value} -> {:ok, value}
+      :error -> {:ok, Map.get(metadata, Atom.to_string(key))}
+    end
+  end
+
+  defp validate_localized_text(_key, value) when is_binary(value), do: :ok
+
+  defp validate_localized_text(key, value) when is_map(value) do
+    case Enum.all?(value, fn {locale, text} -> is_binary(locale) and is_binary(text) end) do
+      true -> :ok
+      false -> {:error, {:invalid_plugin_metadata_field, key, value}}
+    end
+  end
+
+  defp validate_localized_text(key, value),
+    do: {:error, {:invalid_plugin_metadata_field, key, value}}
 
   defp fetch(data, key) do
     case Map.fetch(data, key) do

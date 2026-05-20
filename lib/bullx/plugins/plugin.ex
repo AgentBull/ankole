@@ -5,9 +5,21 @@ defmodule BullX.Plugins.Plugin do
   Plugin modules are declarative. They describe metadata, config modules,
   extension declarations, and optional children. The host performs registration
   and supervision.
+
+  Metadata always includes `:id` and `:api_version`. Plugins may also declare
+  UI-facing `:display_name` and `:description` values as plain strings or
+  locale-keyed string maps.
   """
 
-  @callback __bullx_plugin__() :: map() | keyword()
+  @type localized_text :: String.t() | %{String.t() => String.t()}
+  @type metadata :: %{
+          required(:id) => String.t(),
+          required(:api_version) => pos_integer(),
+          optional(:display_name) => localized_text(),
+          optional(:description) => localized_text()
+        }
+
+  @callback __bullx_plugin__() :: metadata() | keyword()
   @callback extensions() :: list(map() | keyword() | BullX.Plugins.Extension.t())
   @callback config_modules() :: [module()]
   @callback children(map()) :: [Supervisor.child_spec() | module() | {module(), term()}]
@@ -20,7 +32,10 @@ defmodule BullX.Plugins.Plugin do
     api_version = Keyword.get(opts, :api_version, 1)
 
     metadata =
-      opts |> Keyword.drop([:app]) |> Map.new() |> Map.merge(%{id: id, api_version: api_version})
+      opts
+      |> Keyword.drop([:app])
+      |> Map.new(fn {key, value} -> {key, expand_metadata_value!(value, __CALLER__)} end)
+      |> Map.merge(%{id: id, api_version: api_version})
 
     escaped_metadata = Macro.escape(metadata)
 
@@ -76,4 +91,11 @@ defmodule BullX.Plugins.Plugin do
 
   defp validate_id!(id),
     do: raise(ArgumentError, "plugin :id must be a string, got: #{inspect(id)}")
+
+  defp expand_metadata_value!(value, caller) when is_tuple(value) or is_list(value) do
+    {expanded, _binding} = Code.eval_quoted(value, [], caller)
+    expanded
+  end
+
+  defp expand_metadata_value!(value, _caller), do: value
 end

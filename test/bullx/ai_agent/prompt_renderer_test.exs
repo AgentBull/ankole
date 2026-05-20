@@ -9,11 +9,21 @@ defmodule BullX.AIAgent.PromptRendererTest do
       Principals.create_agent(%{
         uid: "ai-agent-prompt-renderer-tools",
         display_name: "Agent",
-        profile: %{"ai_agent" => %{"main_model" => "openai_proxy:gpt-test"}}
+        profile: %{
+          "ai_agent" => %{
+            "main_llm" => %{"provider_id" => "openai_proxy", "model" => "gpt-test"},
+            "mission" => "Handle prompt rendering tests."
+          }
+        }
       })
 
     {:ok, profile} =
-      Profile.cast(%{"ai_agent" => %{"main_model" => "openai_proxy:gpt-test"}})
+      Profile.cast(%{
+        "ai_agent" => %{
+          "main_llm" => %{"provider_id" => "openai_proxy", "model" => "gpt-test"},
+          "mission" => "Handle prompt rendering tests."
+        }
+      })
 
     {:ok, conversation} = Conversations.find_or_create_active(agent.id, "v1:tools", %{})
 

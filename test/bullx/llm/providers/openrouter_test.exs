@@ -3,13 +3,13 @@ defmodule BullX.LLM.Providers.OpenRouterTest do
 
   alias BullX.LLM.Providers.OpenRouter
 
-  test "provider schema adds BullX OpenRouter reasoning options" do
+  test "provider schema exposes BullX OpenRouter setup options" do
     schema = OpenRouter.provider_schema().schema
 
-    assert Keyword.fetch!(schema, :openrouter_reasoning_effort)[:type] ==
-             {:in, [:none, :minimal, :low, :medium, :high, :xhigh, :default]}
-
-    assert Keyword.fetch!(schema, :openrouter_reasoning)[:type] == :map
+    assert Keyword.fetch!(schema, :app_referer)[:default] == "https://github.com/AgentBull/bullx"
+    assert Keyword.fetch!(schema, :app_title)[:default] == "BullX"
+    refute Keyword.has_key?(schema, :openrouter_reasoning_effort)
+    refute Keyword.has_key?(schema, :openrouter_reasoning)
   end
 
   test "encodes reasoning effort through OpenRouter unified reasoning object" do

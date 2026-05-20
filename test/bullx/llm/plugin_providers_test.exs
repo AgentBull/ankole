@@ -3,7 +3,21 @@ defmodule BullX.LLM.PluginProvidersTest do
 
   alias BullX.Plugins.Extension
   alias BullX.LLM.PluginProviders
-  alias BullX.LLM.Providers.OpenRouter
+
+  alias BullX.LLM.Providers.{
+    AmazonBedrock,
+    Anthropic,
+    Azure,
+    Deepseek,
+    Google,
+    GoogleVertex,
+    Mistral,
+    OpenAI,
+    OpenRouter,
+    VLLM,
+    XAI,
+    Zai
+  }
 
   defmodule XiaomiMimo do
     use ReqLLM.Provider,
@@ -38,8 +52,19 @@ defmodule BullX.LLM.PluginProvidersTest do
     :ok
   end
 
-  test "registers the BullX OpenRouter provider as a built-in override" do
+  test "registers BullX-owned providers as built-in overrides" do
+    assert {:ok, AmazonBedrock} = ReqLLM.provider(:amazon_bedrock)
+    assert {:ok, Anthropic} = ReqLLM.provider(:anthropic)
+    assert {:ok, Azure} = ReqLLM.provider(:azure)
+    assert {:ok, Deepseek} = ReqLLM.provider(:deepseek)
+    assert {:ok, Google} = ReqLLM.provider(:google)
+    assert {:ok, GoogleVertex} = ReqLLM.provider(:google_vertex)
+    assert {:ok, Mistral} = ReqLLM.provider(:mistral)
+    assert {:ok, OpenAI} = ReqLLM.provider(:openai)
     assert {:ok, OpenRouter} = ReqLLM.provider(:openrouter)
+    assert {:ok, VLLM} = ReqLLM.provider(:vllm)
+    assert {:ok, XAI} = ReqLLM.provider(:xai)
+    assert {:ok, Zai} = ReqLLM.provider(:zai)
   end
 
   test "registers new enabled plugin providers" do

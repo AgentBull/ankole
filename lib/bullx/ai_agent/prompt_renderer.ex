@@ -21,7 +21,7 @@ defmodule BullX.AIAgent.PromptRenderer do
   def render(
         %Conversation{} = conversation,
         %Profile{} = profile,
-        %Message{} = source_message,
+        %Message{} = trigger_message,
         opts \\ []
       ) do
     branch = Conversations.render_branch(conversation)
@@ -30,7 +30,7 @@ defmodule BullX.AIAgent.PromptRenderer do
 
     with {:ok, system} <- SystemPromptBuilder.render(sections),
          {:ok, messages} <-
-           render_branch(conversation, branch, profile, source_message, ambient_context),
+           render_branch(conversation, branch, profile, trigger_message, ambient_context),
          messages <- Compression.compact_large_results(messages, profile: profile),
          :ok <- validate_tool_pairs(messages) do
       {:ok,
@@ -97,10 +97,10 @@ defmodule BullX.AIAgent.PromptRenderer do
     end
   end
 
-  defp render_branch(_conversation, branch, profile, source_message, ambient_context) do
+  defp render_branch(_conversation, branch, profile, trigger_message, ambient_context) do
     branch
     |> Enum.reduce_while({:ok, []}, fn message, {:ok, acc} ->
-      case render_message(message, profile, source_message, ambient_context) do
+      case render_message(message, profile, trigger_message, ambient_context) do
         {:ok, nil} ->
           {:cont, {:ok, acc}}
 
@@ -117,13 +117,13 @@ defmodule BullX.AIAgent.PromptRenderer do
     end
   end
 
-  defp render_message(%Message{kind: :error}, _profile, _source_message, _ambient_context),
+  defp render_message(%Message{kind: :error}, _profile, _trigger_message, _ambient_context),
     do: {:ok, nil}
 
   defp render_message(
          %Message{role: :im_ambient, kind: :normal},
          _profile,
-         _source_message,
+         _trigger_message,
          _ambient_context
        ),
        do: {:ok, nil}
@@ -131,27 +131,27 @@ defmodule BullX.AIAgent.PromptRenderer do
   defp render_message(
          %Message{role: :user, kind: :normal} = message,
          profile,
-         source_message,
+         trigger_message,
          ambient_context
        ) do
-    prefixes = prefixes_for(message, profile, source_message, ambient_context)
+    prefixes = prefixes_for(message, profile, trigger_message, ambient_context)
     {:ok, %ReqLLM.Message{role: :user, content: text_parts(prefixes, message)}}
   end
 
   defp render_message(
          %Message{role: :im_ambient, kind: :introspection} = message,
          profile,
-         source_message,
+         trigger_message,
          ambient_context
        ) do
-    prefixes = prefixes_for(message, profile, source_message, ambient_context)
+    prefixes = prefixes_for(message, profile, trigger_message, ambient_context)
     {:ok, %ReqLLM.Message{role: :user, content: text_parts(prefixes, message)}}
   end
 
   defp render_message(
          %Message{role: :assistant, kind: :normal} = message,
          _profile,
-         _source_message,
+         _trigger_message,
          _ambient_context
        ) do
     tool_calls =
@@ -176,7 +176,7 @@ defmodule BullX.AIAgent.PromptRenderer do
   defp render_message(
          %Message{role: :assistant, kind: :summary} = message,
          _profile,
-         _source_message,
+         _trigger_message,
          _ambient_context
        ) do
     {:ok, %ReqLLM.Message{role: :assistant, content: summary_parts(message)}}
@@ -185,7 +185,7 @@ defmodule BullX.AIAgent.PromptRenderer do
   defp render_message(
          %Message{role: :tool, kind: :normal} = message,
          _profile,
-         _source_message,
+         _trigger_message,
          _ambient_context
        ) do
     results = Enum.filter(message.content, &(Map.get(&1, "type") == "tool_result"))
@@ -210,7 +210,7 @@ defmodule BullX.AIAgent.PromptRenderer do
     end
   end
 
-  defp render_message(_message, _profile, _source_message, _ambient_context), do: {:ok, nil}
+  defp render_message(_message, _profile, _trigger_message, _ambient_context), do: {:ok, nil}
 
   defp tool_result_content(result, attach_steering?, steering_parts) do
     payload =
@@ -239,9 +239,9 @@ defmodule BullX.AIAgent.PromptRenderer do
 
   defp steering_content_parts(_attach?, _steering_parts), do: []
 
-  defp prefixes_for(message, profile, source_message, ambient_context) do
+  defp prefixes_for(message, profile, trigger_message, ambient_context) do
     context =
-      case message.id == source_message.id do
+      case message.id == trigger_message.id do
         true -> ambient_context
         false -> []
       end

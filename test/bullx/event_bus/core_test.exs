@@ -61,9 +61,7 @@ defmodule BullX.EventBus.CoreTest do
         match_expr: "type == \"bullx.im.message.addressed\"",
         target_type: :ai_agent,
         target_ref: target_ref,
-        scope_fields: ["channel.adapter", "channel.id", "scope.id"],
-        window_type: :rolling_ttl,
-        window_ttl_seconds: 60
+        scope_fields: ["channel.adapter", "channel.id", "scope.id"]
       })
 
     assert {:ok, %Accepted{status: :accepted}} = EventBus.accept(event)
@@ -91,9 +89,7 @@ defmodule BullX.EventBus.CoreTest do
         match_expr: "type == \"bullx.im.message.addressed\"",
         target_type: :ai_agent,
         target_ref: target_ref,
-        scope_fields: ["channel.adapter", "channel.id", "scope.id", "scope.thread_id"],
-        window_type: :rolling_ttl,
-        window_ttl_seconds: 60
+        scope_fields: ["channel.adapter", "channel.id", "scope.id", "scope.thread_id"]
       })
 
     assert {:ok, %Accepted{status: :accepted} = first} = EventBus.accept(event())
@@ -122,9 +118,7 @@ defmodule BullX.EventBus.CoreTest do
         match_expr: "type == \"bullx.im.message.addressed\"",
         target_type: :ai_agent,
         target_ref: target_ref,
-        scope_fields: ["channel.adapter", "channel.id", "scope.id"],
-        window_type: :rolling_ttl,
-        window_ttl_seconds: 60
+        scope_fields: ["channel.adapter", "channel.id", "scope.id"]
       })
 
     assert {:ok, %Accepted{status: :accepted} = first} =
@@ -161,8 +155,7 @@ defmodule BullX.EventBus.CoreTest do
         match_expr: "type == \"bullx.im.message.addressed\"",
         target_type: :ai_agent,
         target_ref: target_ref,
-        scope_fields: ["channel.adapter", "channel.id", "scope.id"],
-        window_type: :new_per_event
+        scope_fields: ["channel.adapter", "channel.id", "scope.id"]
       })
 
     {:ok, %Accepted{} = accepted} = EventBus.accept(event(%{"id" => "worker-event"}))
@@ -181,24 +174,52 @@ defmodule BullX.EventBus.CoreTest do
     assert session.status == :closed
   end
 
-  test "TargetSession worker expires idle rolling ttl sessions" do
-    session =
-      %TargetSession{}
-      |> TargetSession.changeset(%{
-        event_routing_rule_id: BullX.Ext.gen_uuid_v7(),
+  test "TargetSession worker keeps a close-requested lane reusable during idle grace" do
+    previous_event_bus_config = Application.get_env(:bullx, :event_bus, [])
+
+    Application.put_env(
+      :bullx,
+      :event_bus,
+      Keyword.put(previous_event_bus_config, :target_session_idle_grace_ms, 200)
+    )
+
+    on_exit(fn -> restore_env(:event_bus, previous_event_bus_config) end)
+
+    target_ref = BullX.Ext.gen_uuid_v7()
+
+    {:ok, _rule} =
+      RuleWriter.create_rule(%{
+        name: "idle grace reuse",
+        priority: 35,
+        match_expr: "type == \"bullx.im.message.addressed\"",
         target_type: :ai_agent,
-        target_ref: BullX.Ext.gen_uuid_v7(),
-        scope_key: Jason.encode!(["scope"]),
-        window_key: "rolling",
-        status: :active,
-        expires_at: DateTime.add(DateTime.utc_now(:microsecond), -1, :second)
+        target_ref: target_ref,
+        scope_fields: ["channel.adapter", "channel.id", "scope.id"]
       })
-      |> Repo.insert!()
 
-    assert :ok = Worker.perform(%Oban.Job{args: %{"target_session_id" => session.id}})
+    assert {:ok, %Accepted{} = first} = EventBus.accept(event(%{"id" => "grace-event-1"}))
 
-    assert %TargetSession{status: :expired, terminal_reason: "runtime_window_expired"} =
-             Repo.get!(TargetSession, session.id)
+    task =
+      Task.async(fn ->
+        Worker.perform(%Oban.Job{args: %{"target_session_id" => first.target_session_id}})
+      end)
+
+    assert_receive {:event_bus_target_called, _first_invocation, first_entry}
+    assert first_entry.event_id == "grace-event-1"
+
+    assert {:ok, %Accepted{} = second} = EventBus.accept(event(%{"id" => "grace-event-2"}))
+    assert second.target_session_id == first.target_session_id
+
+    assert_receive {:event_bus_target_called, _second_invocation, second_entry}
+    assert second_entry.event_id == "grace-event-2"
+
+    assert :ok = Task.await(task, 1_000)
+
+    session = Repo.get!(TargetSession, first.target_session_id)
+    second_entry = Repo.get!(TargetSessionEntry, second.side_channel_entry_id)
+
+    assert session.last_processed_entry_seq == second_entry.entry_seq
+    assert session.status == :closed
   end
 
   test "scope resolution failure returns AppendFailed without appending" do
@@ -209,8 +230,7 @@ defmodule BullX.EventBus.CoreTest do
         match_expr: "true",
         target_type: :ai_agent,
         target_ref: BullX.Ext.gen_uuid_v7(),
-        scope_fields: ["routing_facts.missing"],
-        window_type: :new_per_event
+        scope_fields: ["routing_facts.missing"]
       })
 
     assert {:error, %AppendFailed{code: :scope_resolution_failed}} = EventBus.accept(event())
@@ -225,8 +245,7 @@ defmodule BullX.EventBus.CoreTest do
                match_expr: "true",
                target_type: :workflow,
                target_ref: "workflow:missing",
-               scope_fields: [],
-               window_type: :new_per_event
+               scope_fields: []
              })
 
     assert {"has no configured handler", _metadata} = changeset.errors[:target_type]
@@ -241,8 +260,7 @@ defmodule BullX.EventBus.CoreTest do
                match_expr: "true",
                target_type: :workflow,
                target_ref: "workflow:future",
-               scope_fields: [],
-               window_type: :new_per_event
+               scope_fields: []
              })
 
     assert {:ok, rules} = BullX.EventBus.RoutingTable.snapshot()

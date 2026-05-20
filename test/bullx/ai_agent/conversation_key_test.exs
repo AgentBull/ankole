@@ -7,7 +7,8 @@ defmodule BullX.AIAgent.ConversationKeyTest do
     {:ok, profile} =
       Profile.cast(%{
         "ai_agent" => %{
-          "main_model" => "openai_proxy:gpt-test",
+          "main_llm" => %{"provider_id" => "openai_proxy", "model" => "gpt-test"},
+          "mission" => "Handle conversation key tests.",
           "conversation_isolation_mode" => "scene"
         }
       })
@@ -45,7 +46,8 @@ defmodule BullX.AIAgent.ConversationKeyTest do
     {:ok, profile} =
       Profile.cast(%{
         "ai_agent" => %{
-          "main_model" => "openai_proxy:gpt-test",
+          "main_llm" => %{"provider_id" => "openai_proxy", "model" => "gpt-test"},
+          "mission" => "Handle conversation key tests.",
           "conversation_isolation_mode" => "actor"
         }
       })
@@ -60,7 +62,13 @@ defmodule BullX.AIAgent.ConversationKeyTest do
   end
 
   test "rejects NUL-containing normalized key parts" do
-    {:ok, profile} = Profile.cast(%{"ai_agent" => %{"main_model" => "openai_proxy:gpt-test"}})
+    {:ok, profile} =
+      Profile.cast(%{
+        "ai_agent" => %{
+          "main_llm" => %{"provider_id" => "openai_proxy", "model" => "gpt-test"},
+          "mission" => "Handle conversation key tests."
+        }
+      })
 
     data = %{
       "channel" => %{"adapter" => "feishu", "id" => "chat" <> <<0>>, "kind" => "group"},

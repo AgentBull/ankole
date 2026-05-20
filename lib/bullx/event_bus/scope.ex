@@ -50,15 +50,6 @@ defmodule BullX.EventBus.Scope do
     end
   end
 
-  @spec window_key(map(), atom()) :: String.t()
-  def window_key(context, :new_per_event) do
-    source = get_in(context, ["event", "identity", "source"])
-    id = get_in(context, ["event", "identity", "id"])
-    Jason.encode!([["event.source", source], ["event.id", id]])
-  end
-
-  def window_key(_context, :rolling_ttl), do: "rolling"
-
   defp resolve_scalar(context, field) do
     value =
       field

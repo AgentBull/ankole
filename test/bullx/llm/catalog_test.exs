@@ -1,7 +1,7 @@
 defmodule BullX.LLM.CatalogTest do
   use BullX.DataCase, async: false
 
-  alias BullX.LLM.{Catalog, PluginProviders, Provider, Writer}
+  alias BullX.LLM.{Catalog, ModelConfig, PluginProviders, Provider, Writer}
   alias BullX.LLM.Providers.OpenRouter
 
   setup do
@@ -52,6 +52,35 @@ defmodule BullX.LLM.CatalogTest do
     assert resolved.opts[:provider_options] == [auth_mode: :api_key]
   end
 
+  test "resolves model config through a local provider row" do
+    assert {:ok, _provider} =
+             Writer.put_provider(%{
+               provider_id: "openai_proxy",
+               req_llm_provider: "openai",
+               base_url: "https://proxy.example.com/v1",
+               api_key: "sk-test-secret",
+               provider_options: %{"auth_mode" => "api_key"}
+             })
+
+    config = %ModelConfig{
+      provider_id: "openai_proxy",
+      model: "gpt-4.1-mini",
+      reasoning_effort: :high,
+      max_completion_tokens: 32_768
+    }
+
+    assert {:ok, resolved} = Catalog.resolve_model_config(config)
+
+    assert resolved.provider_id == "openai_proxy"
+    assert resolved.model_id == "gpt-4.1-mini"
+
+    assert resolved.model_input == %{
+             provider: :openai,
+             id: "gpt-4.1-mini",
+             base_url: "https://proxy.example.com/v1"
+           }
+  end
+
   test "resolution keeps colons inside the model id" do
     assert {:ok, _provider} =
              Writer.put_provider(%{
@@ -66,7 +95,7 @@ defmodule BullX.LLM.CatalogTest do
     assert resolved.model_id == "model:with:colon"
   end
 
-  test "resolves OpenRouter static reasoning options through the BullX provider override" do
+  test "rejects OpenRouter reasoning options on provider rows" do
     assert {:ok, OpenRouter} = ReqLLM.provider(:openrouter)
 
     assert {:ok, _provider} =
@@ -76,11 +105,10 @@ defmodule BullX.LLM.CatalogTest do
                provider_options: %{"openrouter_reasoning_effort" => "high"}
              })
 
-    assert {:ok, resolved} =
+    assert {:error,
+            {:invalid_provider_options, "openrouter_default",
+             {:unknown_key, "openrouter_reasoning_effort"}}} =
              Catalog.resolve_model_spec("openrouter_default:openai/gpt-oss-120b")
-
-    assert resolved.req_llm_provider == :openrouter
-    assert resolved.opts[:provider_options] == [openrouter_reasoning_effort: :high]
   end
 
   test "unknown req_llm providers are rejected on write" do
@@ -88,6 +116,17 @@ defmodule BullX.LLM.CatalogTest do
              Writer.put_provider(%{
                provider_id: "missing",
                req_llm_provider: "missing_provider",
+               provider_options: %{}
+             })
+  end
+
+  test "req_llm providers not declared by BullX are rejected on write" do
+    assert :groq in ReqLLM.Providers.list()
+
+    assert {:error, {:unknown_req_llm_provider, "groq"}} =
+             Writer.put_provider(%{
+               provider_id: "groq",
+               req_llm_provider: "groq",
                provider_options: %{}
              })
   end

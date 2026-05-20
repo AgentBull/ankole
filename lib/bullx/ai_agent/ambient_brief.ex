@@ -29,9 +29,8 @@ defmodule BullX.AIAgent.AmbientBrief do
       |> IO.iodata_to_binary()
 
     case LLM.chat(
-           profile.compression_model,
+           profile.compression_llm,
            [%ReqLLM.Message{role: :user, content: [ReqLLM.Message.ContentPart.text(prompt)]}],
-           reasoning_effort: profile.compression_model_reasoning_effort,
            tools: []
          ) do
       {:ok, result} ->

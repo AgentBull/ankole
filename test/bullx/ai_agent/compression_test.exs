@@ -43,11 +43,21 @@ defmodule BullX.AIAgent.CompressionTest do
       Principals.create_agent(%{
         uid: "ai-agent-compression",
         display_name: "Agent",
-        profile: %{"ai_agent" => %{"main_model" => "openai_proxy:gpt-test"}}
+        profile: %{
+          "ai_agent" => %{
+            "main_llm" => %{"provider_id" => "openai_proxy", "model" => "gpt-test"},
+            "mission" => "Handle compression tests."
+          }
+        }
       })
 
     {:ok, profile} =
-      Profile.cast(%{"ai_agent" => %{"main_model" => "openai_proxy:gpt-test"}})
+      Profile.cast(%{
+        "ai_agent" => %{
+          "main_llm" => %{"provider_id" => "openai_proxy", "model" => "gpt-test"},
+          "mission" => "Handle compression tests."
+        }
+      })
 
     profile = %{
       profile

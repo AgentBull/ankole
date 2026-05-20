@@ -10,6 +10,7 @@ defmodule BullX.LLM.Catalog do
   alias BullX.LLM.{
     Catalog.Cache,
     Crypto,
+    ModelConfig,
     Provider,
     ProviderRegistry,
     ResolvedModel,
@@ -68,6 +69,26 @@ defmodule BullX.LLM.Catalog do
          model_id: parsed.model_id,
          req_llm_provider: provider.req_llm_provider,
          model_input: model_input(provider, parsed.model_id),
+         opts: provider.opts
+       }}
+    end
+  end
+
+  @spec resolve_model_config(ModelConfig.t()) ::
+          {:ok, ResolvedModel.t()}
+          | {:error,
+             :not_found
+             | {:unknown_req_llm_provider, String.t()}
+             | {:decrypt_failed, String.t()}
+             | {:invalid_provider_options, String.t(), term()}}
+  def resolve_model_config(%ModelConfig{} = config) do
+    with {:ok, %ResolvedProvider{} = provider} <- resolve_provider(config.provider_id) do
+      {:ok,
+       %ResolvedModel{
+         provider_id: provider.provider_id,
+         model_id: config.model,
+         req_llm_provider: provider.req_llm_provider,
+         model_input: model_input(provider, config.model),
          opts: provider.opts
        }}
     end

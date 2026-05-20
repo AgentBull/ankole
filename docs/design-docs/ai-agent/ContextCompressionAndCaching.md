@@ -225,6 +225,11 @@ provider-input tokens until that budget is reached, then moves the cut backward
 to a complete provider-round boundary. The middle interval between the protected
 head and protected tail is the summarization candidate.
 
+`safe_context_limit` is based on the active model config's effective
+`context_window`, not the provider's max-output token limit. Setup should fill
+that value from dynamic provider metadata, local model metadata, or an operator
+override. Runtime falls back to `80000` when the profile lacks a usable value.
+
 Compression execution follows these rules:
 
 1. Preserve the system prompt builder output. Compression must not paraphrase,
@@ -237,7 +242,7 @@ Compression execution follows these rules:
 4. Select one complete provider-round interval from the active branch for
    summarization.
 5. Preserve provider-required tool-call and tool-result structure.
-6. Resolve `compression_model` through the same model-call boundary used by the
+6. Resolve `compression_llm` through the same model-call boundary used by the
    AIAgent runtime, and treat the call as an AIAgent-owned auxiliary model call.
 7. Invoke the auxiliary compression call with no executable tools, no
    `tool_choice`, and no provider-native tool schemas. The expected result is
@@ -265,13 +270,13 @@ Compression execution follows these rules:
 13. Move `current_leaf_message_id` to the summary Message only after the summary
     Message is written and lease/leaf checks still pass.
 
-When `compression_model` resolves to the same provider and model as the main
+When `compression_llm` resolves to the same provider and model as the main
 generation model, the compression request may reuse the same system prompt
 builder output and stable-prefix boundary for vocabulary and safety context, but
 it still omits executable tools and provider tool schemas. It then appends a
 transient compression instruction after the rendered history. It does not
 introduce a separate summarizer-specific stable system prompt. If a different
-`compression_model` is configured, the different provider/model and cache
+`compression_llm` is configured, the different provider/model and cache
 namespace are an AIAgent profile tradeoff.
 
 The transient compression instruction is auxiliary provider input. It is not a
@@ -635,7 +640,7 @@ durable Conversation truth or EventBus/TargetSession boundaries.
      redelivery.
 
 5. Add context compression execution.
-   - Owns: `compression_model` resolution, no-tools auxiliary model call,
+   - Owns: `compression_llm` resolution, no-tools auxiliary model call,
      structured summary envelope, bounded retry for oversized compression input,
      complete summary write, and lease/leaf recheck before moving the
      Conversation leaf.

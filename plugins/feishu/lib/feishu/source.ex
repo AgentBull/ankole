@@ -3,7 +3,7 @@ defmodule Feishu.Source do
   Runtime representation of one configured Feishu EventBus source.
 
   The struct keeps secrets out of `Inspect` and rebuilds the SDK client from
-  encrypted plugin credentials plus source-local non-secret config.
+  encrypted source config.
   """
 
   alias FeishuOpenAPI.{Auth, Client}
@@ -18,7 +18,12 @@ defmodule Feishu.Source do
       present_string: 1
     ]
 
-  @default_scopes ["openid", "profile", "email", "phone"]
+  @default_scopes [
+    "auth:user_access_token:read",
+    "offline_access",
+    "component:user_profile",
+    "auth:user.id:read"
+  ]
   @default_message_context_ttl_seconds 2_592_000
   @default_card_action_dedupe_ttl_seconds 900
   @default_direct_command_dedupe_ttl_seconds 300
@@ -27,16 +32,12 @@ defmodule Feishu.Source do
   @default_im_listen_mode :addressed_only
   @im_listen_modes [:addressed_only, :all_messages]
 
-  @derive {Inspect, except: [:app_secret, :verification_token, :encrypt_key, :client]}
+  @derive {Inspect, except: [:app_secret, :client]}
   defstruct [
     :id,
-    :credential_id,
     :app_id,
     :app_secret,
     :tenant_key,
-    :verification_token,
-    :encrypt_key,
-    :connected_realm_ref,
     :client,
     app_type: :self_built,
     domain: :feishu,
@@ -65,10 +66,10 @@ defmodule Feishu.Source do
   def normalize(%{} = source) do
     with {:ok, config} <- stringify_keys(source),
          {:ok, id} <- optional_string(config, "id", map_value(config, "source")),
-         {:ok, credential_id} <- optional_string(config, "credential_id", "default"),
-         {:ok, credential} <- credential(credential_id, config),
+         {:ok, app_id} <- optional_string(config, "app_id", nil),
+         {:ok, app_secret} <- optional_string(config, "app_secret", nil),
          {:ok, domain} <- domain(Map.get(config, "domain", "feishu")),
-         {:ok, app_type} <- app_type(Map.get(credential, "app_type", "self_built")),
+         {:ok, app_type} <- app_type(Map.get(config, "app_type", "self_built")),
          {:ok, oidc} <- oidc(Map.get(config, "oidc", %{})),
          {:ok, im_listen_mode} <- im_listen_mode(Map.get(config, "im_listen_mode")),
          {:ok, req_options} <- optional_keyword(config, "req_options", []),
@@ -76,14 +77,10 @@ defmodule Feishu.Source do
       {:ok,
        %__MODULE__{
          id: id,
-         credential_id: credential_id,
-         app_id: credential["app_id"],
-         app_secret: credential["app_secret"],
+         app_id: app_id,
+         app_secret: app_secret,
          app_type: app_type,
          tenant_key: present_string(Map.get(config, "tenant_key")),
-         verification_token: present_string(credential["verification_token"]),
-         encrypt_key: present_string(credential["encrypt_key"]),
-         connected_realm_ref: present_string(Map.get(config, "connected_realm_ref")),
          domain: domain,
          oidc: oidc,
          web_login_disabled?: optional_boolean(config, "web_login_disabled", false),
@@ -151,9 +148,9 @@ defmodule Feishu.Source do
   def public_config(%__MODULE__{} = source) do
     %{
       "id" => source.id,
-      "credential_id" => source.credential_id,
+      "app_id" => source.app_id,
+      "app_type" => Atom.to_string(source.app_type),
       "domain" => Atom.to_string(source.domain),
-      "connected_realm_ref" => source.connected_realm_ref,
       "tenant_key" => source.tenant_key,
       "oidc" => source.oidc,
       "web_login_disabled" => source.web_login_disabled?,
@@ -167,7 +164,7 @@ defmodule Feishu.Source do
     config
     |> stringify_keys()
     |> case do
-      {:ok, config} -> Map.drop(config, ["app_id", "app_secret", "headers", "req_options"])
+      {:ok, config} -> Map.drop(config, ["app_secret", "headers", "req_options"])
       {:error, _reason} -> %{}
     end
   end
@@ -197,21 +194,6 @@ defmodule Feishu.Source do
   def web_login_enabled?(%__MODULE__{web_login_disabled?: false}), do: true
   def web_login_enabled?(_source), do: false
 
-  @spec card_action_verify_config(t()) :: {:ok, map()} | {:error, map()}
-  def card_action_verify_config(%__MODULE__{} = source) do
-    case present_string(source.verification_token) do
-      token when is_binary(token) ->
-        {:ok,
-         %{
-           verification_token: token,
-           encrypt_key: present_string(source.encrypt_key)
-         }}
-
-      nil ->
-        {:error, Feishu.Error.config("Feishu card-action verification_token is required")}
-    end
-  end
-
   @spec oidc_redirect_uri(t()) :: String.t() | nil
   def oidc_redirect_uri(%__MODULE__{oidc: oidc}), do: Map.get(oidc, "redirect_uri")
 
@@ -233,55 +215,13 @@ defmodule Feishu.Source do
              "domain" => Atom.to_string(source.domain),
              "transport" => "websocket",
              "credential" => "verified",
-             "expires_in_seconds" => token.expire,
-             "connected_realm_ref" => source.connected_realm_ref
+             "expires_in_seconds" => token.expire
            }
            |> reject_nil_values()
        }}
     else
       {:error, error} -> {:error, Feishu.Error.map(error)}
     end
-  end
-
-  defp credential(credential_id, config) do
-    case direct_credential(config) do
-      {:ok, credential} ->
-        {:ok, credential}
-
-      :error ->
-        case Map.fetch(Feishu.Config.credentials!(), credential_id) do
-          {:ok, credential} ->
-            {:ok, credential}
-
-          :error ->
-            {:error,
-             Feishu.Error.config("missing Feishu credential profile", %{
-               credential_id: credential_id
-             })}
-        end
-    end
-  end
-
-  defp direct_credential(%{"app_id" => app_id, "app_secret" => app_secret} = config)
-       when is_binary(app_id) and app_id != "" and is_binary(app_secret) and app_secret != "" do
-    {:ok,
-     %{
-       "app_id" => app_id,
-       "app_secret" => app_secret,
-       "app_type" => Map.get(config, "app_type", "self_built")
-     }}
-    |> put_optional_credential_secrets(config)
-  end
-
-  defp direct_credential(_config), do: :error
-
-  defp put_optional_credential_secrets({:ok, credential}, config) do
-    credential =
-      credential
-      |> maybe_put("verification_token", present_string(Map.get(config, "verification_token")))
-      |> maybe_put("encrypt_key", present_string(Map.get(config, "encrypt_key")))
-
-    {:ok, credential}
   end
 
   defp domain(value) when value in [:feishu, "feishu"], do: {:ok, :feishu}

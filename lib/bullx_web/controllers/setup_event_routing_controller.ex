@@ -41,6 +41,7 @@ defmodule BullXWeb.SetupEventRoutingController do
       setup: projection,
       routing: status,
       form_action: ~p"/setup/event-routing-rules",
+      back_path: ~p"/setup/ai-agents",
       error: error
     })
     |> render_inertia("setup/event-routing/App")

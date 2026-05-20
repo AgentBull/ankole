@@ -105,7 +105,7 @@ reuse the same `(source, id)` for provider redelivery of the same occurrence.
 | --- | --- | --- | --- |
 | `content` | yes | no | Non-empty list of normalized content parts. |
 | `channel.adapter` | yes | no | Stable Channel Adapter id, such as `feishu`, `discord`, or `telegram`. |
-| `channel.id` | yes | no | Adapter-local source id from plugin configuration. |
+| `channel.id` | yes | no | Adapter-local channel instance id from plugin source configuration. |
 | `channel.kind` | yes | yes | `dm`, `group`, `webhook`, or `null`. Threading belongs to `scope.thread_id`. |
 | `scope.id` | yes | no | Provider conversation, room, repository, object, or callback scope. |
 | `scope.thread_id` | yes | yes | Provider thread dimension under `scope.id`, or `null`. |

@@ -16,8 +16,8 @@ Telegram actors uses the built-in `/preauth <code>` activation flow and
 
 This design covers the Telegram adapter plugin:
 
-- plugin placement, extension declaration, plugin-owned source configuration,
-  and plugin-owned credential configuration;
+- plugin placement, extension declaration, and plugin-owned source
+  configuration;
 - long-poll source supervision, connectivity checks, inbound normalization,
   attention filtering, command normalization, and provider acknowledgement by
   polling offset;
@@ -37,7 +37,7 @@ This design depends on:
 - `docs/design-docs/eventbus/Core.md` for `BullX.EventBus.accept/2`,
   CloudEvents validation, and normalized payload shape;
 - `docs/design-docs/eventbus/Matcher.md` for `RoutingContext`,
-  `routing_facts`, Event Routing Rule priority, Blackhole, and scope/window
+  `routing_facts`, Event Routing Rule priority, Blackhole, and scope
   policy;
 - `docs/design-docs/eventbus/StreamingOutput.md` for output stream buffers that
   Telegram stream transport may consume;
@@ -108,7 +108,7 @@ defmodule BullxTelegram.Plugin do
         point: :"bullx.event_bus.channel_adapter",
         id: "telegram",
         module: BullxTelegram.ChannelAdapter,
-        opts: %{provider: "telegram"}
+        opts: %{provider: "telegram", setup_module: BullxTelegram.SourceSetup}
       }
     ]
   end
@@ -126,8 +126,9 @@ Suggested module ownership:
 | Module | Responsibility |
 | --- | --- |
 | `BullxTelegram.Plugin` | Plugin metadata, config modules, extension declarations, and plugin children. |
-| `BullxTelegram.Config` | Plugin-owned `BullX.Config` declarations and source/credential casters. |
-| `BullxTelegram.Source` | Runtime source normalization, credential lookup, bot identity validation, redacted public projection, and connectivity checks. |
+| `BullxTelegram.Config` | Plugin-owned `BullX.Config` declarations and source casters. |
+| `BullxTelegram.Source` | Runtime source normalization, bot identity validation, redacted public projection, and connectivity checks. |
+| `BullxTelegram.SourceSetup` | Setup module that casts source-local bot credentials, redacts public state, checks connectivity, and reconciles source runtime. |
 | `BullxTelegram.SourceSupervisor` | Enabled-source supervision under the plugin failure boundary. |
 | `BullxTelegram.Channel` | Per-source runtime boundary, source-local dispatch, cache key prefixes, command sync, and bot identity context. |
 | `BullxTelegram.Poller` | Long-poll worker holding `getUpdates` offset and retry state. |
@@ -159,7 +160,6 @@ include the Telegram plugin id to keep this plugin active:
 Telegram configuration lives under the plugin namespace:
 
 ```text
-bullx.plugins.bullx_telegram.credentials
 bullx.plugins.bullx_telegram.eventbus_sources
 ```
 
@@ -167,39 +167,18 @@ Initial declarations:
 
 | Accessor | DB key | Secret | Default |
 | --- | --- | --- | --- |
-| `credentials!/0` | `bullx.plugins.bullx_telegram.credentials` | yes | `{}` |
-| `eventbus_sources!/0` | `bullx.plugins.bullx_telegram.eventbus_sources` | no | `[]` |
+| `eventbus_sources!/0` | `bullx.plugins.bullx_telegram.eventbus_sources` | yes | `[]` |
 
-`credentials` is a JSON object keyed by credential id. Each value contains the
-bot token and optional bot username metadata:
-
-```json
-{
-  "default": {
-    "bot_token": "123456:ABCDEF",
-    "bot_username": "bullx_bot"
-  }
-}
-```
-
-The credentials map is encrypted by `BullX.Config`. It must not appear in
-Events, source public projections, `routing_facts`, `reply_channel`, Oban job
-args, stream metadata, telemetry, logs, safe errors, or operator receipts.
-
-`bot_username` is optional. If absent, the adapter resolves it from `getMe` at
-startup and connectivity check time. If present, it must match the resolved
-`getMe.username` case-insensitively. The username is used for mention and
-`/command@bot_username` parsing; it is not identity truth.
-
-`eventbus_sources` is a JSON array of Telegram source entries:
+`eventbus_sources` is a JSON array of Telegram source entries. It is encrypted
+by `BullX.Config` because each source is one configured channel instance and
+stores its own bot token directly:
 
 ```json
 [
   {
     "id": "main",
     "enabled": true,
-    "credential_id": "default",
-    "connected_realm_ref": "telegram:bot:123456",
+    "bot_token": "123456:ABCDEF",
     "bot_username": "bullx_bot",
     "web_login_disabled": false,
     "poll_timeout_s": 30,
@@ -226,14 +205,19 @@ startup and connectivity check time. If present, it must match the resolved
 The source `id` is the stable adapter-local source id. It becomes
 `data.channel.id` in Events and `channel_id` in Principal channel-actor
 references. It is not a Telegram chat id, user id, bot id, bot username, or
-credential id.
+separate credential record id.
+
+`bot_username` is optional. If absent, the adapter resolves it from `getMe` at
+startup and connectivity check time. If present, it must match the resolved
+`getMe.username` case-insensitively. The username is used for mention and
+`/command@bot_username` parsing; it is not identity truth.
 
 Telegram chat ids become `data.scope.id`. Telegram forum topic ids become
 `data.scope.thread_id`.
 
 Telegram enforces one active `getUpdates` long poll per bot token. Two enabled
-sources using the same credential id cannot long-poll at the same time. The
-source runtime must detect an active credential collision on the same node and
+sources using the same bot token cannot long-poll at the same time. The
+source runtime must detect an active bot-token collision on the same node and
 fail the second source with a `config` error instead of starting a conflicting
 poller.
 
@@ -241,12 +225,12 @@ poller.
 
 `BullxTelegram.Source.connectivity_check/1` validates one normalized source
 without starting a poller, syncing commands, publishing an Event, changing
-source config, or writing Principal data. It loads the referenced credential
-profile, constructs a Telegram Bot API client, calls `getMe`, and returns only
-redacted operator metadata.
+source config, or writing Principal data. It constructs a Telegram Bot API
+client from the source bot token, calls `getMe`, and returns only redacted
+operator metadata.
 
-If `bot_username` is set in source or credential config, it must match the
-resolved username case-insensitively. If absent, the resolved username is
+If `bot_username` is set in source config, it must match the resolved username
+case-insensitively. If absent, the resolved username is
 returned for operator confirmation.
 
 Success shape:
@@ -461,8 +445,7 @@ Example message Event:
       "provider_update_type": "message",
       "chat_type": "supergroup",
       "content_kind": "text",
-      "attention_reason": "mention",
-      "connected_realm_ref": "telegram:bot:123456"
+      "attention_reason": "mention"
     },
     "raw_ref": {
       "kind": "telegram.update",
@@ -653,7 +636,6 @@ channel actor:
     "user_id" => "987654321"
   },
   metadata: %{
-    "connected_realm_ref" => "telegram:bot:123456",
     "chat_id" => "-100123456",
     "chat_type" => "supergroup",
     "thread_id" => "12"
@@ -876,7 +858,7 @@ Mapping rules:
 | HTTP 403, bot kicked, missing permission, blocked by user | `permission` |
 | Timeout, DNS, TLS, transient 5xx | `network` or `provider_unavailable` |
 | 409 with `terminated by other getUpdates` | `polling_conflict` |
-| Invalid source config or missing credential profile | `config` |
+| Invalid source config or missing bot token | `config` |
 | Invalid content, missing target, reply not found, empty message text, unavailable stream content | `payload` |
 | Unsupported edit kind, unsupported inbound update, or content with no fallback | `unsupported` |
 | Missing or disabled Principal where required | `principal` |
@@ -995,7 +977,7 @@ Bot API calls bypass the adapter delivery contract for business effects.
 ## Failure behavior
 
 Bot API authentication failures, malformed updates, missing required fields,
-missing credential profiles, unsupported content, and unsupported updates fail
+missing bot tokens, unsupported content, and unsupported updates fail
 closed. They produce redacted telemetry and safe logs.
 
 For inbound updates, the adapter advances the `getUpdates` offset only when one
@@ -1056,8 +1038,8 @@ EventBus, Channel Adapter, StreamingOutput, and Principal boundaries.
   contract.
 - Use `BullX.EventBus.accept/2`, not a second publish path.
 - Use `BullX.Principals`, not provider-owned account tables.
-- Store bot tokens through `BullX.Config`; do not persist tokens in source
-  config or Events.
+- Store bot tokens only inside encrypted source config through `BullX.Config`;
+  do not copy tokens into Events, routing facts, public projections, or logs.
 - Use the Telegram Bot API client as a stateless client; do not use
   package-owned poller or webhook supervisors as BullX runtime owners.
 - Do not add webhook ingress, `setWebhook`, webhook secret generation, native
@@ -1079,10 +1061,10 @@ EventBus, Channel Adapter, StreamingOutput, and Principal boundaries.
    - Verify: plugin discovery and registry tests.
 
 2. Add Telegram plugin configuration.
-   - Owns: `BullxTelegram.Config`, source/credential casters, redaction helpers,
+   - Owns: `BullxTelegram.Config`, source casters, redaction helpers,
      and secret-key tests.
    - Depends on: Task 1.
-   - Acceptance: `bullx.plugins.bullx_telegram.credentials` is secret,
+   - Acceptance: `bullx.plugins.bullx_telegram.eventbus_sources` is secret,
      `eventbus_sources` validates enabled sources, source ids are stable, and
      public projections never reveal bot tokens.
    - Verify: config and secret writer tests.
@@ -1179,8 +1161,7 @@ Implementation should stop and ask if a change would require:
 - `plugins/bullx_telegram` compiles as a BullX plugin.
 - The plugin registers `:"bullx.event_bus.channel_adapter"` id `"telegram"` and
   does not register a Principal login provider.
-- Telegram source config and plugin credentials validate through
-  `BullX.Config`.
+- Telegram source config and source secrets validate through `BullX.Config`.
 - Connectivity checks verify the bot token through `getMe` without starting a
   poller or leaking secrets.
 - Enabled Telegram sources start long-poll loops under plugin supervision.

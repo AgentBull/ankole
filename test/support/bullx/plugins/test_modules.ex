@@ -3,7 +3,10 @@ defmodule BullX.Plugins.TestExtensionModule do
 end
 
 defmodule BullX.Plugins.TestPlugin do
-  use BullX.Plugins.Plugin, app: :test_plugin
+  use BullX.Plugins.Plugin,
+    app: :test_plugin,
+    display_name: %{"en-US" => "Test plugin", "zh-Hans-CN" => "测试插件"},
+    description: "A test plugin."
 
   @impl true
   def extensions do
@@ -52,6 +55,10 @@ end
 
 defmodule BullX.Plugins.TestBadIdPlugin do
   use BullX.Plugins.Plugin, app: :bad_id_plugin, id: "wrong"
+end
+
+defmodule BullX.Plugins.TestInvalidMetadataPlugin do
+  use BullX.Plugins.Plugin, app: :invalid_metadata_plugin, display_name: %{"en-US" => :bad}
 end
 
 defmodule BullX.Plugins.TestWorker do

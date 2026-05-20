@@ -8,7 +8,12 @@ defmodule Feishu.Plugin do
   core and Targets.
   """
 
-  use BullX.Plugins.Plugin
+  use BullX.Plugins.Plugin,
+    display_name: %{"en-US" => "Feishu / Lark", "zh-Hans-CN" => "飞书 / Lark"},
+    description: %{
+      "en-US" => "Channel adapter and source-scoped OIDC login for Feishu and Lark workspaces.",
+      "zh-Hans-CN" => "面向飞书和 Lark 工作空间的通道适配器与来源域 OIDC 登录。"
+    }
 
   @impl BullX.Plugins.Plugin
   def extensions do

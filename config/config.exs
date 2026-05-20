@@ -72,6 +72,7 @@ config :bullx, Oban,
 
 config :bullx, :event_bus,
   target_session_idle_tick_ms: 5_000,
+  target_session_idle_grace_ms: 1_800_000,
   target_session_runtime_retention_seconds: 3_600,
   target_session_cleanup_interval_ms: 60_000,
   stream_retention_seconds: 900,

@@ -2,8 +2,8 @@ defmodule BullX.EventBus.EventRoutingRule do
   @moduledoc """
   Durable EventBus route configuration.
 
-  Rules own only matching, target selection, and TargetSession reuse policy.
-  Business processing belongs to the Target.
+  Rules own only matching, target selection, and TargetSession scope policy.
+  Business processing and target-owned session continuity belong to the Target.
   """
 
   use Ecto.Schema
@@ -17,11 +17,8 @@ defmodule BullX.EventBus.EventRoutingRule do
   @foreign_key_type :binary_id
   @timestamps_opts [type: :utc_datetime_usec]
 
-  @target_types [:ai_agent, :workflow, :command, :external_agent_harness, :blackhole]
-  @window_types [:new_per_event, :rolling_ttl]
-
-  @type target_type :: :ai_agent | :workflow | :command | :external_agent_harness | :blackhole
-  @type window_type :: :new_per_event | :rolling_ttl
+  @target_types [:ai_agent, :workflow, :command, :work, :blackhole]
+  @type target_type :: :ai_agent | :workflow | :command | :work | :blackhole
   @type t :: %__MODULE__{}
 
   schema "event_routing_rules" do
@@ -32,8 +29,6 @@ defmodule BullX.EventBus.EventRoutingRule do
     field :target_type, Ecto.Enum, values: @target_types
     field :target_ref, :string
     field :scope_fields, {:array, :string}, default: []
-    field :window_type, Ecto.Enum, values: @window_types
-    field :window_ttl_seconds, :integer
 
     timestamps()
   end
@@ -48,9 +43,7 @@ defmodule BullX.EventBus.EventRoutingRule do
       :match_expr,
       :target_type,
       :target_ref,
-      :scope_fields,
-      :window_type,
-      :window_ttl_seconds
+      :scope_fields
     ])
     |> normalize_blackhole_defaults()
     |> validate_required([
@@ -59,22 +52,19 @@ defmodule BullX.EventBus.EventRoutingRule do
       :priority,
       :match_expr,
       :target_type,
-      :scope_fields,
-      :window_type
+      :scope_fields
     ])
     |> validate_name()
     |> validate_number(:priority, greater_than: 0)
     |> validate_scope_fields()
     |> validate_target_ref()
     |> validate_target_handler()
-    |> validate_window()
     |> validate_match_expr()
     |> unique_constraint(:name)
     |> unique_constraint(:priority)
     |> check_constraint(:name, name: :event_routing_rules_name_trimmed_non_empty)
     |> check_constraint(:priority, name: :event_routing_rules_priority_positive)
     |> check_constraint(:target_ref, name: :event_routing_rules_blackhole_target_ref)
-    |> check_constraint(:window_ttl_seconds, name: :event_routing_rules_rolling_ttl_seconds)
   end
 
   defp validate_name(changeset) do
@@ -96,8 +86,6 @@ defmodule BullX.EventBus.EventRoutingRule do
         changeset
         |> put_change(:target_ref, nil)
         |> put_change(:scope_fields, [])
-        |> put_change(:window_type, :new_per_event)
-        |> put_change(:window_ttl_seconds, nil)
 
       _target_type ->
         changeset
@@ -131,7 +119,7 @@ defmodule BullX.EventBus.EventRoutingRule do
   defp validate_target_handler(changeset) do
     case {get_field(changeset, :active), get_field(changeset, :target_type)} do
       {true, target_type}
-      when target_type in [:ai_agent, :workflow, :command, :external_agent_harness] ->
+      when target_type in [:ai_agent, :workflow, :command, :work] ->
         case Target.handler_for(target_type) do
           {:ok, _module} ->
             changeset
@@ -141,21 +129,6 @@ defmodule BullX.EventBus.EventRoutingRule do
         end
 
       _other ->
-        changeset
-    end
-  end
-
-  defp validate_window(changeset) do
-    case get_field(changeset, :window_type) do
-      :rolling_ttl ->
-        changeset
-        |> validate_required([:window_ttl_seconds])
-        |> validate_number(:window_ttl_seconds, greater_than: 0)
-
-      :new_per_event ->
-        validate_absent(changeset, :window_ttl_seconds)
-
-      _window_type ->
         changeset
     end
   end
@@ -185,13 +158,6 @@ defmodule BullX.EventBus.EventRoutingRule do
 
       _expr ->
         changeset
-    end
-  end
-
-  defp validate_absent(changeset, field) do
-    case get_field(changeset, field) do
-      nil -> changeset
-      _value -> add_error(changeset, field, "must be empty")
     end
   end
 end

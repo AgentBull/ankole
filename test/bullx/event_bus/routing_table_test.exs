@@ -28,8 +28,6 @@ defmodule BullX.EventBus.RoutingTableTest do
         target_type: :blackhole,
         target_ref: nil,
         scope_fields: [],
-        window_type: :new_per_event,
-        window_ttl_seconds: nil,
         inserted_at: now,
         updated_at: now
       }

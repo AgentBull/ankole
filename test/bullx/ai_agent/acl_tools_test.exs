@@ -13,7 +13,12 @@ defmodule BullX.AIAgent.ACLToolsTest do
       Principals.create_agent(%{
         uid: "ai-agent-acl-agent",
         display_name: "Agent",
-        profile: %{"ai_agent" => %{"main_model" => "openai_proxy:gpt-test"}}
+        profile: %{
+          "ai_agent" => %{
+            "main_llm" => %{"provider_id" => "openai_proxy", "model" => "gpt-test"},
+            "mission" => "Handle ACL tests."
+          }
+        }
       })
 
     resource = ACL.resource(agent.id)
@@ -48,13 +53,19 @@ defmodule BullX.AIAgent.ACLToolsTest do
       Principals.create_agent(%{
         uid: "ai-agent-tool-agent",
         display_name: "Agent",
-        profile: %{"ai_agent" => %{"main_model" => "openai_proxy:gpt-test"}}
+        profile: %{
+          "ai_agent" => %{
+            "main_llm" => %{"provider_id" => "openai_proxy", "model" => "gpt-test"},
+            "mission" => "Handle tool ACL tests."
+          }
+        }
       })
 
     {:ok, profile} =
       Profile.cast(%{
         "ai_agent" => %{
-          "main_model" => "openai_proxy:gpt-test",
+          "main_llm" => %{"provider_id" => "openai_proxy", "model" => "gpt-test"},
+          "mission" => "Handle tool ACL tests.",
           "toolsets" => %{
             "web_research" => %{
               "enabled" => true,

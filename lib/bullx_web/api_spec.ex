@@ -6,6 +6,7 @@ defmodule BullXWeb.ApiSpec do
   @behaviour OpenApiSpex.OpenApi
 
   alias OpenApiSpex.{
+    Components,
     Info,
     MediaType,
     OpenApi,
@@ -14,7 +15,9 @@ defmodule BullXWeb.ApiSpec do
     Paths,
     Response,
     Schema,
-    Server
+    SecurityScheme,
+    Server,
+    Tag
   }
 
   @impl OpenApiSpex.OpenApi
@@ -25,6 +28,20 @@ defmodule BullXWeb.ApiSpec do
         title: "BullX API",
         version: to_string(Application.spec(:bullx, :vsn))
       },
+      tags: [
+        %Tag{name: "Channels", description: "Channel source management for the console."}
+      ],
+      components: %Components{
+        securitySchemes: %{
+          "cookieAuth" => %SecurityScheme{
+            type: "apiKey",
+            in: "cookie",
+            name: "_bullx_key",
+            description: "Session cookie issued after sign-in."
+          }
+        }
+      },
+      security: [%{"cookieAuth" => []}],
       paths: paths()
     }
     |> OpenApiSpex.resolve_schema_modules()
@@ -45,6 +62,7 @@ defmodule BullXWeb.ApiSpec do
         tags: ["System"],
         summary: summary,
         operationId: operation_id,
+        security: [],
         responses: %{
           200 => %Response{
             description: "OpenAPI document.",

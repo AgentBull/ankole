@@ -2,15 +2,14 @@ defmodule BullxTelegram.Source do
   @moduledoc """
   Runtime representation of one configured Telegram EventBus source.
 
-  The struct keeps bot tokens out of `Inspect` and resolves them from encrypted
-  plugin credentials. Source config carries only adapter-local source metadata.
+  The struct keeps bot tokens out of `Inspect`. Each source is one BullX
+  channel instance backed by one Telegram bot token.
   """
 
   alias BullxTelegram.Error
 
   import BullX.Utils.Map,
     only: [
-      maybe_put: 3,
       reject_nil_values: 1,
       positive_integer: 3,
       bounded_integer: 5,
@@ -36,11 +35,9 @@ defmodule BullxTelegram.Source do
   @derive {Inspect, except: [:bot_token]}
   defstruct [
     :id,
-    :credential_id,
     :bot_token,
     :bot_username,
     :bot_id,
-    :connected_realm_ref,
     :api_base,
     web_login_disabled?: false,
     poll_timeout_s: @default_poll_timeout_s,
@@ -77,27 +74,19 @@ defmodule BullxTelegram.Source do
   def normalize(%{} = source) do
     with {:ok, config} <- stringify_keys(source),
          {:ok, id} <- optional_string(config, "id", map_value(config, "source")),
-         {:ok, credential_id} <- optional_string(config, "credential_id", "default"),
-         {:ok, credential} <- credential(credential_id, config),
+         {:ok, bot_token} <- optional_string(config, "bot_token", nil),
          {:ok, attention} <- normalize_attention(Map.get(config, "attention", %{})),
          {:ok, commands} <- normalize_commands(Map.get(config, "commands", %{})),
          {:ok, im_listen_mode} <- im_listen_mode(Map.get(config, "im_listen_mode")),
          {:ok, req_options} <- optional_keyword(config, "req_options", []) do
-      bot_token = Map.fetch!(credential, "bot_token")
       bot_id = bot_token |> String.split(":", parts: 2) |> List.first()
 
       {:ok,
        %__MODULE__{
          id: id,
-         credential_id: credential_id,
          bot_token: bot_token,
-         bot_username:
-           present_string(Map.get(config, "bot_username")) ||
-             present_string(Map.get(credential, "bot_username")),
+         bot_username: present_string(Map.get(config, "bot_username")),
          bot_id: present_string(Map.get(config, "bot_id")) || bot_id,
-         connected_realm_ref:
-           present_string(Map.get(config, "connected_realm_ref")) ||
-             "telegram:bot:" <> bot_id,
          web_login_disabled?: optional_boolean(config, "web_login_disabled", false),
          poll_timeout_s: positive_integer(config, "poll_timeout_s", @default_poll_timeout_s),
          poll_limit: bounded_integer(config, "poll_limit", @default_poll_limit, 1, 100),
@@ -152,10 +141,8 @@ defmodule BullxTelegram.Source do
   def public_config(%__MODULE__{} = source) do
     %{
       "id" => source.id,
-      "credential_id" => source.credential_id,
       "bot_id" => source.bot_id,
       "bot_username" => source.bot_username,
-      "connected_realm_ref" => source.connected_realm_ref,
       "web_login_disabled" => source.web_login_disabled?,
       "attention" => source.attention,
       "commands" => source.commands,
@@ -197,8 +184,7 @@ defmodule BullxTelegram.Source do
              "transport" => "polling",
              "bot_id" => stringify_id(Map.get(bot, "id")) || source.bot_id,
              "bot_username" => present_string(Map.get(bot, "username")) || source.bot_username,
-             "credential" => "verified",
-             "connected_realm_ref" => source.connected_realm_ref
+             "credential" => "verified"
            }
            |> reject_nil_values()
        }}
@@ -222,28 +208,6 @@ defmodule BullxTelegram.Source do
   end
 
   defp maybe_retry_after(result, _source, _method, _params), do: result
-
-  defp credential(credential_id, config) do
-    case direct_credential(config) do
-      {:ok, credential} ->
-        {:ok, credential}
-
-      :error ->
-        case Map.fetch(BullxTelegram.Config.credentials!(), credential_id) do
-          {:ok, credential} ->
-            {:ok, credential}
-
-          :error ->
-            {:error, Error.config("missing Telegram credential profile", %{credential_id: credential_id})}
-        end
-    end
-  end
-
-  defp direct_credential(%{"bot_token" => bot_token} = config) when is_binary(bot_token) and bot_token != "" do
-    {:ok, maybe_put(%{"bot_token" => bot_token}, "bot_username", present_string(Map.get(config, "bot_username")))}
-  end
-
-  defp direct_credential(_config), do: :error
 
   defp normalize_attention(value) when is_map(value) do
     with {:ok, value} <- stringify_keys(value) do

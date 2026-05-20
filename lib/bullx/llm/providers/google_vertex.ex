@@ -1,0 +1,1017 @@
+defmodule BullX.LLM.Providers.GoogleVertex do
+  @moduledoc """
+  Google Vertex AI provider implementation.
+
+  Supports Vertex AI's unified API for accessing multiple AI models including:
+  - Anthropic Claude models (claude-haiku-4-5, claude-sonnet-4-5, claude-opus-4-1)
+  - Google Gemini models (gemini-2.0-flash, gemini-2.5-flash, gemini-2.5-pro)
+  - Mistral AI models (mistral-medium-3, mistral-small-2503, codestral-2)
+  - Third-party MaaS models via OpenAI-compatible format:
+    - GLM models (zai-org/glm-4.7-maas)
+    - OpenAI OSS models (openai/gpt-oss-120b-maas, openai/gpt-oss-20b-maas)
+  - And more as Google adds them
+
+  ## Authentication
+
+  Vertex AI uses Google Cloud OAuth2 authentication with service accounts.
+
+  ### Service Account (Recommended)
+
+      # Option 1: Environment variables
+      export GOOGLE_APPLICATION_CREDENTIALS="/path/to/service-account.json"
+      export GOOGLE_CLOUD_PROJECT="your-project-id"
+      export GOOGLE_CLOUD_REGION="us-central1"
+
+      # Option 2: File path in options
+      ReqLLM.generate_text(
+        "google-vertex:claude-haiku-4-5@20251001",
+        "Hello",
+        provider_options: [
+          service_account_json: "/path/to/service-account.json",
+          project_id: "your-project-id",
+          region: "us-central1"
+        ]
+      )
+
+      # Option 3: JSON string directly (no file needed)
+      ReqLLM.generate_text(
+        "google-vertex:claude-haiku-4-5@20251001",
+        "Hello",
+        provider_options: [
+          service_account_json: ~s({"client_email": "...", "private_key": "..."}),
+          project_id: "your-project-id"
+        ]
+      )
+
+      # Option 4: Pre-parsed map
+      ReqLLM.generate_text(
+        "google-vertex:claude-haiku-4-5@20251001",
+        "Hello",
+        provider_options: [
+          service_account_json: %{"client_email" => "...", "private_key" => "..."},
+          project_id: "your-project-id"
+        ]
+      )
+
+  ### Access Token
+
+      ReqLLM.generate_text(
+        "google-vertex:gemini-2.5-flash",
+        "Hello from Vertex",
+        provider_options: [
+          access_token: "your-access-token",
+          project_id: "your-project-id",
+          region: "us-central1"
+        ]
+      )
+
+  ## Examples
+
+      # Simple text generation with Claude on Vertex
+      {:ok, response} = ReqLLM.generate_text(
+        "google-vertex:claude-haiku-4-5@20251001",
+        "Hello!"
+      )
+
+      # Streaming
+      {:ok, response} = ReqLLM.stream_text(
+        "google-vertex:claude-haiku-4-5@20251001",
+        "Tell me a story"
+      )
+
+  ## Extending for New Models
+
+  To add support for a new model family:
+
+  1. Add the model family to `@model_families`
+  2. Implement the formatter module (e.g., `BullX.LLM.Providers.GoogleVertex.Gemini`)
+  3. The formatter needs:
+     - `format_request/3` - Convert ReqLLM context to provider format
+     - `parse_response/2` - Convert provider response to ReqLLM format
+     - `extract_usage/2` - Extract usage information
+  """
+
+  use ReqLLM.Provider,
+    id: :google_vertex,
+    default_base_url: "https://{region}-aiplatform.googleapis.com",
+    default_env_key: "GOOGLE_APPLICATION_CREDENTIALS"
+
+  alias ReqLLM.ModelHelpers
+
+  require Logger
+
+  @provider_schema [
+    service_account_json: [
+      type: {:or, [:string, :map]},
+      doc:
+        "Service account credentials: file path, JSON string, or pre-parsed map " <>
+          "(can also use GOOGLE_APPLICATION_CREDENTIALS env var for file path)"
+    ],
+    access_token: [
+      type: :string,
+      doc:
+        "Pre-existing OAuth2 access token (bypasses service account authentication and token caching)"
+    ],
+    project_id: [
+      type: :string,
+      doc: "Google Cloud project ID (can also use GOOGLE_CLOUD_PROJECT env var)"
+    ],
+    region: [
+      type: :string,
+      default: "global",
+      doc: "Google Cloud region where Vertex AI is available (default 'global' for newest models)"
+    ],
+    additional_model_request_fields: [
+      type: :map,
+      doc:
+        "Additional model-specific request fields (e.g., thinking config for extended thinking support)"
+    ],
+    anthropic_prompt_cache: [
+      type: :boolean,
+      doc: "Enable Anthropic prompt caching for Claude models on Vertex"
+    ],
+    anthropic_prompt_cache_ttl: [
+      type: :string,
+      doc: "TTL for cache (\"1h\" for one hour; omit for default ~5m)"
+    ],
+    anthropic_cache_messages: [
+      type: {:or, [:boolean, :integer]},
+      doc: """
+      Add cache breakpoint at a message position (requires anthropic_prompt_cache: true).
+      - `-1` or `true` - last message
+      - `-2` - second-to-last, `-3` - third-to-last, etc.
+      - `0` - first message, `1` - second, etc.
+      """
+    ],
+    google_thinking_budget: [
+      type: :non_neg_integer,
+      doc: "Thinking token budget for Gemini 2.5 models (0 disables thinking, omit for dynamic)"
+    ],
+    google_grounding: [
+      type: :map,
+      doc:
+        "Enable Google Search grounding for Gemini models - allows model to search the web. Set to %{enable: true}."
+    ],
+    dimensions: [
+      type: :pos_integer,
+      doc: "Number of dimensions for the embedding vector (model-dependent, e.g. 768, 1536, 3072)"
+    ],
+    task_type: [
+      type: :string,
+      doc:
+        "Task type for embedding (e.g., RETRIEVAL_QUERY, RETRIEVAL_DOCUMENT, SEMANTIC_SIMILARITY)"
+    ],
+    response_format: [
+      type: :map,
+      doc:
+        "Response format constraint (e.g., %{type: \"json_object\"}) for OpenAI-compatible MaaS models"
+    ],
+    labels: [
+      type: {:map, :string, :string},
+      doc:
+        "Custom metadata labels for the request as key-value string pairs. Used for billing and reporting."
+    ]
+  ]
+
+  @default_region "global"
+  @vertex_base_url_global "https://aiplatform.googleapis.com"
+  @vertex_base_url_regional "https://{region}-aiplatform.googleapis.com"
+
+  # Model family to formatter module mapping
+  @model_families %{
+    "claude" => BullX.LLM.Providers.GoogleVertex.Anthropic,
+    "gemini" => BullX.LLM.Providers.GoogleVertex.Gemini,
+    "mistral" => BullX.LLM.Providers.GoogleVertex.OpenAICompat,
+    "openai_compat" => BullX.LLM.Providers.GoogleVertex.OpenAICompat
+  }
+
+  @impl ReqLLM.Provider
+  def prepare_request(:chat, model_input, input, opts) do
+    do_prepare_request(model_input, input, opts)
+  end
+
+  @impl ReqLLM.Provider
+  def prepare_request(:object, model_input, input, opts) do
+    opts_with_operation = Keyword.put(opts, :operation, :object)
+    do_prepare_request(model_input, input, opts_with_operation)
+  end
+
+  @impl ReqLLM.Provider
+  def prepare_request(:ocr, model_input, document_binary, opts) do
+    with {:ok, model} <- ReqLLM.model(model_input),
+         :ok <- validate_ocr_model(model) do
+      {gcp_creds, other_opts} = extract_gcp_credentials(opts)
+      validate_gcp_credentials!(gcp_creds)
+
+      region = gcp_creds[:region] || @default_region
+      project_id = gcp_creds[:project_id]
+      model_id = model.provider_model_id || model.id
+      model_family = get_model_family(model)
+
+      body = ReqLLM.OCR.build_ocr_body(model_id, document_binary, other_opts)
+
+      base_url = build_base_url(region)
+      path = build_model_path(model_family, model_id, project_id, region)
+      url = "#{base_url}#{path}"
+
+      http_opts = Keyword.get(other_opts, :req_http_options, [])
+
+      request =
+        Req.new(
+          [
+            url: url,
+            method: :post,
+            json: body,
+            receive_timeout: 120_000,
+            headers: [{"content-type", "application/json"}]
+          ] ++ http_opts
+        )
+        |> Req.Request.register_options([:operation])
+        |> Req.Request.merge_options(operation: :ocr)
+        |> Req.Request.put_private(:gcp_credentials, gcp_creds)
+        |> Req.Request.put_private(:model, model)
+        |> attach_ocr(model, gcp_creds, other_opts)
+
+      {:ok, request}
+    end
+  end
+
+  @impl ReqLLM.Provider
+  def prepare_request(:embedding, model_input, text, opts) do
+    with {:ok, model} <- ReqLLM.model(model_input) do
+      {gcp_creds, other_opts} = extract_gcp_credentials(opts)
+      validate_gcp_credentials!(gcp_creds)
+
+      region = gcp_creds[:region] || @default_region
+      project_id = gcp_creds[:project_id]
+      model_id = model.provider_model_id || model.id
+
+      body = build_embedding_body(text, other_opts)
+
+      base_url = build_base_url(region)
+      path = build_embedding_path(model_id, project_id, region)
+      url = "#{base_url}#{path}"
+
+      http_opts = Keyword.get(other_opts, :req_http_options, [])
+
+      request =
+        Req.new(
+          [
+            url: url,
+            method: :post,
+            json: body,
+            receive_timeout: 60_000,
+            headers: [{"content-type", "application/json"}]
+          ] ++ http_opts
+        )
+        |> Req.Request.register_options([:operation, :text])
+        |> Req.Request.merge_options(operation: :embedding, text: text)
+        |> Req.Request.put_private(:gcp_credentials, gcp_creds)
+        |> Req.Request.put_private(:model, model)
+        |> attach_embedding(model, gcp_creds, other_opts)
+
+      {:ok, request}
+    end
+  end
+
+  defp do_prepare_request(model_input, input, opts) do
+    with {:ok, model} <- ReqLLM.model(model_input),
+         {:ok, context} <- ReqLLM.Context.normalize(input, opts) do
+      # Process and validate options
+      operation = opts[:operation] || :chat
+
+      {gcp_creds, other_opts, model_family, formatter} =
+        process_and_validate_opts(opts, model, operation)
+
+      # Add context to opts so it can be stored in request.options
+      other_opts = Keyword.put(other_opts, :context, context)
+
+      context =
+        ReqLLM.ToolCallIdCompat.apply_context(__MODULE__, operation, model, context, other_opts)
+
+      other_opts = Keyword.put(other_opts, :context, context)
+
+      formatter_opts = Keyword.put(other_opts, :provider_model, model)
+
+      body =
+        formatter.format_request(model.provider_model_id || model.id, context, formatter_opts)
+
+      # Build Vertex AI endpoint URL
+      region = gcp_creds[:region] || @default_region
+      project_id = gcp_creds[:project_id]
+
+      # Vertex AI URL structure depends on model family
+      path =
+        build_model_path(model_family, model.provider_model_id || model.id, project_id, region)
+
+      base_url = build_base_url(region)
+      url = "#{base_url}#{path}"
+
+      # Reasoning models with extended thinking need longer timeouts
+      http_opts = Keyword.get(other_opts, :req_http_options, [])
+
+      timeout =
+        if ModelHelpers.reasoning_enabled?(model) do
+          180_000
+        else
+          60_000
+        end
+
+      # Create request
+      request =
+        Req.new(
+          [
+            url: url,
+            method: :post,
+            json: body,
+            receive_timeout: timeout,
+            headers: [
+              {"content-type", "application/json"}
+            ]
+          ] ++ http_opts
+        )
+        |> Req.Request.register_options([:context, :operation, :model_family])
+        |> Req.Request.merge_options(
+          Keyword.take(other_opts, [:context, :operation]) ++ [model_family: model_family]
+        )
+        |> Req.Request.put_private(:gcp_credentials, gcp_creds)
+        |> Req.Request.put_private(:model, model)
+        |> Req.Request.put_private(:formatter, formatter)
+        |> attach(model, other_opts)
+
+      {:ok, request}
+    end
+  end
+
+  @impl ReqLLM.Provider
+  def attach(request, model, opts) do
+    # Get GCP credentials - store them for lazy auth in request step
+    gcp_creds = Req.Request.get_private(request, :gcp_credentials)
+
+    request
+    |> Req.Request.merge_options(ReqLLM.Provider.Defaults.finch_option(request))
+    |> ReqLLM.Step.Error.attach()
+    |> ReqLLM.Step.Retry.attach()
+    |> Req.Request.append_response_steps(llm_decode_response: &decode_response/1)
+    |> ReqLLM.Step.Usage.attach(model)
+    |> ReqLLM.Step.Telemetry.attach(model, opts)
+    |> ReqLLM.Step.Fixture.maybe_attach(model, opts)
+    |> put_gcp_auth(gcp_creds)
+  end
+
+  # Attach GCP OAuth2 authentication as a request step
+  # This runs AFTER Fixture.maybe_attach so replay mode can intercept before auth
+  defp put_gcp_auth(request, gcp_creds) do
+    Req.Request.append_request_steps(request,
+      gcp_vertex_auth: fn req ->
+        Logger.debug("Getting GCP access token for Vertex AI")
+
+        case fetch_access_token(gcp_creds) do
+          {:ok, access_token} ->
+            Logger.debug("Successfully obtained GCP access token")
+            Req.Request.put_header(req, "authorization", "Bearer #{access_token}")
+
+          {:error, reason} ->
+            Logger.error("Failed to get GCP access token: #{inspect(reason)}")
+            raise "Failed to get GCP access token: #{inspect(reason)}"
+        end
+      end
+    )
+  end
+
+  defp attach_ocr(request, model, gcp_creds, opts) do
+    request
+    |> Req.Request.merge_options(ReqLLM.Provider.Defaults.finch_option(request))
+    |> ReqLLM.Step.Error.attach()
+    |> ReqLLM.Step.Retry.attach()
+    |> ReqLLM.Step.Fixture.maybe_attach(model, opts)
+    |> put_gcp_auth(gcp_creds)
+  end
+
+  defp attach_embedding(request, model, gcp_creds, opts) do
+    request
+    |> Req.Request.merge_options(ReqLLM.Provider.Defaults.finch_option(request))
+    |> ReqLLM.Step.Error.attach()
+    |> ReqLLM.Step.Retry.attach()
+    |> ReqLLM.Step.Usage.attach(model)
+    |> Req.Request.append_response_steps(llm_decode_response: &decode_embedding_response/1)
+    |> ReqLLM.Step.Telemetry.attach(model, opts)
+    |> ReqLLM.Step.Fixture.maybe_attach(model, opts)
+    |> put_gcp_auth(gcp_creds)
+  end
+
+  defp build_embedding_body(text, opts) when is_binary(text) do
+    instance = %{"content" => text}
+
+    instance =
+      case Keyword.get(opts, :task_type) || get_in(opts, [:provider_options, :task_type]) do
+        nil -> instance
+        task -> Map.put(instance, "task_type", task)
+      end
+
+    body = %{"instances" => [instance]}
+
+    case Keyword.get(opts, :dimensions) || get_in(opts, [:provider_options, :dimensions]) do
+      nil -> body
+      dims -> Map.put(body, "parameters", %{"outputDimensionality" => dims})
+    end
+  end
+
+  defp build_embedding_body(texts, opts) when is_list(texts) do
+    task_type = Keyword.get(opts, :task_type) || get_in(opts, [:provider_options, :task_type])
+
+    instances =
+      Enum.map(texts, fn t ->
+        instance = %{"content" => t}
+        if task_type, do: Map.put(instance, "task_type", task_type), else: instance
+      end)
+
+    body = %{"instances" => instances}
+
+    case Keyword.get(opts, :dimensions) || get_in(opts, [:provider_options, :dimensions]) do
+      nil -> body
+      dims -> Map.put(body, "parameters", %{"outputDimensionality" => dims})
+    end
+  end
+
+  defp build_embedding_path(model_id, project_id, region) do
+    "/v1/projects/#{project_id}/locations/#{region}/publishers/google/models/#{model_id}:predict"
+  end
+
+  @doc false
+  def decode_embedding_response({request, %Req.Response{status: status} = response})
+      when status in 200..299 do
+    body =
+      case response.body do
+        b when is_binary(b) -> Jason.decode!(b)
+        b when is_map(b) -> b
+      end
+
+    normalized = normalize_vertex_embedding_response(body)
+    {request, %{response | body: normalized}}
+  end
+
+  def decode_embedding_response({request, response}), do: {request, response}
+
+  defp normalize_vertex_embedding_response(%{"predictions" => predictions})
+       when is_list(predictions) do
+    data =
+      predictions
+      |> Enum.with_index()
+      |> Enum.map(fn {prediction, idx} ->
+        values = get_in(prediction, ["embeddings", "values"]) || []
+        %{"index" => idx, "embedding" => values}
+      end)
+
+    %{"data" => data}
+  end
+
+  defp normalize_vertex_embedding_response(other), do: other
+
+  defp fetch_access_token(%{access_token: token})
+       when is_binary(token) and byte_size(token) > 0 do
+    {:ok, token}
+  end
+
+  defp fetch_access_token(%{service_account_json: service_account_json})
+       when is_binary(service_account_json) do
+    BullX.LLM.Providers.GoogleVertex.TokenCache.get_or_refresh(service_account_json)
+  end
+
+  defp fetch_access_token(_), do: {:error, :missing_credentials}
+
+  # Get model family from model metadata.
+  # First tries prefix matching on model ID for backward compatibility,
+  # then falls back to extra.family metadata for third-party MaaS models.
+  defp get_model_family(%LLMDB.Model{} = model),
+    do: classify_model_family(model.provider_model_id || model.id, model)
+
+  defp get_model_family(model) when is_map(model),
+    do: classify_model_family(extract_model_id(model), model)
+
+  defp get_model_family(model_id) when is_binary(model_id),
+    do: classify_model_family(model_id, %{})
+
+  defp classify_model_family(model_id, model) when is_binary(model_id) do
+    cond do
+      String.starts_with?(model_id, "claude-") -> "claude"
+      String.starts_with?(model_id, "gemini-") -> "gemini"
+      mistral_model?(model_id) -> "mistral"
+      true -> resolve_family_from_metadata(model, model_id)
+    end
+  end
+
+  defp extract_model_id(model) do
+    Map.get(model, :provider_model_id) ||
+      Map.get(model, "provider_model_id") ||
+      Map.get(model, :id) ||
+      Map.get(model, "id")
+  end
+
+  defp mistral_model?(model_id) do
+    String.starts_with?(model_id, "mistral-") or String.starts_with?(model_id, "codestral")
+  end
+
+  defp resolve_family_from_metadata(model, model_id) do
+    extra = Map.get(model, :extra) || Map.get(model, "extra") || %{}
+    extra_family = Map.get(extra, :family) || Map.get(extra, "family")
+
+    cond do
+      is_binary(extra_family) and String.starts_with?(extra_family, "claude") ->
+        "claude"
+
+      is_binary(extra_family) and String.starts_with?(extra_family, "gemini") ->
+        "gemini"
+
+      is_binary(extra_family) and
+          (String.starts_with?(extra_family, "mistral") or
+             String.starts_with?(extra_family, "codestral")) ->
+        "mistral"
+
+      is_binary(extra_family) ->
+        "openai_compat"
+
+      true ->
+        raise ArgumentError, "Unknown model family for: #{model_id}"
+    end
+  end
+
+  # Get formatter module for model family
+  defp get_formatter_module(model_family) do
+    case Map.fetch(@model_families, model_family) do
+      {:ok, module} ->
+        module
+
+      :error ->
+        raise ArgumentError, """
+        No formatter implemented for model family: #{model_family}
+        Currently supported: #{Map.keys(@model_families) |> Enum.join(", ")}
+        """
+    end
+  end
+
+  # Get formatter module for model (combines model_family + formatter lookup)
+  defp get_formatter(%LLMDB.Model{} = model) do
+    model
+    |> get_model_family()
+    |> get_formatter_module()
+  end
+
+  # Build the model path for Vertex AI
+  defp build_model_path("claude", model_id, project_id, region) do
+    # Anthropic models on Vertex use the publishers/anthropic path
+    "/v1/projects/#{project_id}/locations/#{region}/publishers/anthropic/models/#{model_id}:rawPredict"
+  end
+
+  defp build_model_path("gemini", model_id, project_id, region) do
+    # Gemini models on Vertex use the publishers/google path
+    "/v1/projects/#{project_id}/locations/#{region}/publishers/google/models/#{model_id}:generateContent"
+  end
+
+  defp build_model_path("mistral", model_id, project_id, region) do
+    # Mistral AI models on Vertex use the publishers/mistralai path with rawPredict
+    "/v1/projects/#{project_id}/locations/#{region}/publishers/mistralai/models/#{model_id}:rawPredict"
+  end
+
+  defp build_model_path("openai_compat", _model_id, project_id, region) do
+    "/v1/projects/#{project_id}/locations/#{region}/endpoints/openapi/chat/completions"
+  end
+
+  defp build_model_path(family, _model_id, _project_id, _region) do
+    raise ArgumentError, "No model path builder for Vertex AI model family: #{family}"
+  end
+
+  # Build base URL based on region
+  defp build_base_url(region) do
+    if region == "global" do
+      @vertex_base_url_global
+    else
+      String.replace(@vertex_base_url_regional, "{region}", region)
+    end
+  end
+
+  # Process and validate options (shared between do_prepare_request and attach_stream)
+  defp process_and_validate_opts(opts, model, operation) do
+    # Extract and validate GCP credentials
+    {gcp_creds, other_opts} = extract_gcp_credentials(opts)
+    validate_gcp_credentials!(gcp_creds)
+
+    # Extract Req HTTP options before validation (they'll be re-added later)
+    {req_opts, other_opts} =
+      Keyword.split(other_opts, [:json, :retry, :max_retries, :retry_log_level])
+
+    # Process options (validates, normalizes, and calls translate_options)
+    other_opts =
+      case ReqLLM.Provider.Options.process(__MODULE__, operation, model, other_opts) do
+        {:ok, processed_opts} -> processed_opts
+        {:error, error} -> raise error
+      end
+
+    # Merge Req options back
+    other_opts = Keyword.merge(other_opts, req_opts)
+
+    # Get model family and formatter
+    model_family = get_model_family(model)
+    formatter = get_formatter_module(model_family)
+
+    # Clean thinking after translation if incompatible
+    other_opts =
+      if function_exported?(formatter, :maybe_clean_thinking_after_translation, 2) do
+        formatter.maybe_clean_thinking_after_translation(other_opts, operation)
+      else
+        other_opts
+      end
+
+    {gcp_creds, other_opts, model_family, formatter}
+  end
+
+  # Extract GCP credentials from options.
+  # Credentials can be passed at the top level or inside :provider_options.
+  # Top-level values take precedence over :provider_options values.
+  defp extract_gcp_credentials(opts) do
+    gcp_keys = [:service_account_json, :access_token, :project_id, :region]
+
+    # Extract from top-level opts
+    {top_creds, other_opts} = Keyword.split(opts, gcp_keys)
+
+    # Also extract from provider_options (users may pass credentials there per docs)
+    {provider_creds, remaining_provider_opts} =
+      case Keyword.get(other_opts, :provider_options) do
+        po when is_list(po) and po != [] ->
+          {extracted, rest} = Keyword.split(po, gcp_keys)
+          {extracted, rest}
+
+        _ ->
+          {[], nil}
+      end
+
+    # Update provider_options if we extracted credentials from it
+    other_opts =
+      case remaining_provider_opts do
+        nil -> other_opts
+        [] -> Keyword.delete(other_opts, :provider_options)
+        rest -> Keyword.put(other_opts, :provider_options, rest)
+      end
+
+    # Merge: top-level takes precedence over provider_options
+    merged = Keyword.merge(provider_creds, top_creds)
+
+    creds = %{
+      service_account_json:
+        merged[:service_account_json] ||
+          System.get_env("GOOGLE_APPLICATION_CREDENTIALS"),
+      project_id: merged[:project_id] || System.get_env("GOOGLE_CLOUD_PROJECT"),
+      region: merged[:region] || System.get_env("GOOGLE_CLOUD_REGION") || "global",
+      access_token: merged[:access_token]
+    }
+
+    {creds, other_opts}
+  end
+
+  # Validate GCP credentials
+  defp validate_gcp_credentials!(creds) do
+    if !creds[:service_account_json] and !creds[:access_token] do
+      raise ArgumentError, """
+      Google Cloud credentials required for Vertex AI. Please provide either:
+
+      1. Environment variables:
+         GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json
+         GOOGLE_CLOUD_PROJECT=your-project-id
+
+      2. Service account:
+         provider_options: [
+           service_account_json: "/path/to/service-account.json",
+           project_id: "your-project-id"
+         ]
+
+      3. Access token:
+         provider_options: [
+           access_token: "ya29.ci...",
+           project_id: "your-project-id"
+         ]
+      """
+    end
+
+    if !creds[:project_id] do
+      raise ArgumentError, """
+      Google Cloud project ID required for Vertex AI.
+      Set GOOGLE_CLOUD_PROJECT environment variable or pass project_id in provider_options.
+      """
+    end
+
+    creds
+  end
+
+  # Decode response
+  def decode_response({request, response}) do
+    # Get formatter for this model
+    model = Req.Request.get_private(request, :model)
+    formatter = get_formatter(model)
+
+    # Build opts with operation and context from request.options (which is a map)
+    opts =
+      []
+      |> then(
+        &if request.options[:operation],
+          do: Keyword.put(&1, :operation, request.options[:operation]),
+          else: &1
+      )
+      |> then(
+        &if request.options[:context],
+          do: Keyword.put(&1, :context, request.options[:context]),
+          else: &1
+      )
+
+    # Parse response using formatter
+    result = formatter.parse_response(response.body, model, opts)
+
+    case result do
+      {:ok, parsed} ->
+        {request, %{response | body: parsed}}
+
+      {:error, %ReqLLM.Error.API.Request{} = error} ->
+        {request, error}
+
+      {:error, reason} ->
+        raise "Failed to parse Vertex AI response: #{inspect(reason)}"
+    end
+  end
+
+  @impl ReqLLM.Provider
+  def thinking_constraints do
+    # Google Vertex AI requires the same constraints as Bedrock for extended thinking
+    # temperature=1.0 and max_tokens > thinking.budget_tokens (4000 for :low effort)
+    # See: https://docs.claude.com/en/docs/build-with-claude/extended-thinking
+    %{required_temperature: 1.0, min_max_tokens: 4001}
+  end
+
+  @impl ReqLLM.Provider
+  def extract_usage(body, model) do
+    case extract_embedding_usage(body) do
+      {:ok, _usage} = usage ->
+        usage
+
+      :error ->
+        formatter = get_formatter(model)
+
+        if function_exported?(formatter, :extract_usage, 2) do
+          formatter.extract_usage(body, model)
+        else
+          {:error, :no_usage_extractor}
+        end
+    end
+  end
+
+  defp extract_embedding_usage(%{"predictions" => predictions}) when is_list(predictions) do
+    total_tokens =
+      predictions
+      |> Enum.map(&get_in(&1, ["embeddings", "statistics", "token_count"]))
+      |> Enum.filter(&is_integer/1)
+      |> Enum.sum()
+
+    if total_tokens > 0 do
+      {:ok, %{input_tokens: total_tokens, output_tokens: 0, total_tokens: total_tokens}}
+    else
+      :error
+    end
+  end
+
+  defp extract_embedding_usage(_), do: :error
+
+  defp validate_ocr_model(%LLMDB.Model{} = model) do
+    if ReqLLM.OCR.ocr_capable_model?(model) do
+      :ok
+    else
+      model_string = LLMDB.Model.spec(model)
+
+      {:error,
+       ReqLLM.Error.Invalid.Parameter.exception(
+         parameter: "model: #{model_string} does not support OCR operations"
+       )}
+    end
+  end
+
+  def pre_validate_options(operation, model, opts) do
+    model_family = get_model_family(model)
+
+    case model_family do
+      "gemini" ->
+        # Delegate to Google provider for Gemini-specific pre-validation
+        # (handles reasoning_effort inside provider_options)
+        BullX.LLM.Providers.Google.pre_validate_options(operation, model, opts)
+
+      _ ->
+        # Delegate to model-specific formatter if it has pre_validate_options
+        formatter = get_formatter(model)
+
+        if function_exported?(formatter, :pre_validate_options, 3) do
+          formatter.pre_validate_options(operation, model, opts)
+        else
+          {opts, []}
+        end
+    end
+  end
+
+  @impl ReqLLM.Provider
+  def translate_options(operation, model, opts) do
+    # Delegate to native Anthropic option translation for Anthropic models
+    # This ensures we get all Anthropic-specific handling (temperature/top_p conflicts, etc.)
+    model_family = get_model_family(model)
+
+    case model_family do
+      "claude" ->
+        opts = warn_and_strip_response_format(opts, "Claude")
+        # Delegate to Anthropic provider for Anthropic-specific option handling
+        BullX.LLM.Providers.Anthropic.translate_options(operation, model, opts)
+
+      "gemini" ->
+        opts = warn_and_strip_response_format(opts, "Gemini")
+        # Delegate to Google provider for Gemini-specific option handling
+        BullX.LLM.Providers.Google.translate_options(operation, model, opts)
+
+      _ ->
+        # Other model families (openai_compat): no translation needed
+        {opts, []}
+    end
+  end
+
+  # Called from translate_options where opts are already flattened (no :provider_options key)
+  defp warn_and_strip_response_format(opts, family_name) do
+    if opts[:response_format] do
+      Logger.warning(
+        "response_format is not supported for #{family_name} models on Vertex AI. " <>
+          "Use generate_object/4 with a schema instead. Ignoring response_format."
+      )
+
+      Keyword.delete(opts, :response_format)
+    else
+      opts
+    end
+  end
+
+  @impl ReqLLM.Provider
+  def tool_call_id_policy(_operation, model, _opts) do
+    case get_model_family(model) do
+      "claude" ->
+        %{
+          mode: :sanitize,
+          invalid_chars_regex: ~r/[^A-Za-z0-9_-]/,
+          enforce_turn_boundary: true
+        }
+
+      "gemini" ->
+        %{
+          mode: :drop,
+          drop_function_call_ids: true
+        }
+
+      _ ->
+        %{mode: :passthrough}
+    end
+  end
+
+  @impl ReqLLM.Provider
+  def attach_stream(model, context, opts, _finch_name) do
+    # Process and validate options
+    operation = opts[:operation] || :chat
+
+    {gcp_creds, other_opts, model_family, formatter} =
+      process_and_validate_opts(opts, model, operation)
+
+    context =
+      ReqLLM.ToolCallIdCompat.apply_context(__MODULE__, operation, model, context, other_opts)
+
+    other_opts = Keyword.put(other_opts, :context, context)
+
+    formatter_opts = Keyword.put(other_opts, :provider_model, model)
+
+    body =
+      formatter.format_request(
+        model.provider_model_id || model.id,
+        context,
+        Keyword.put(formatter_opts, :stream, true)
+      )
+
+    # Build Vertex AI endpoint URL for streaming
+    region = gcp_creds[:region] || @default_region
+    project_id = gcp_creds[:project_id]
+
+    path =
+      build_stream_path(model_family, model.provider_model_id || model.id, project_id, region)
+
+    base_url = build_base_url(region)
+    url = "#{base_url}#{path}"
+
+    case fetch_access_token(gcp_creds) do
+      {:ok, access_token} ->
+        headers = [
+          {"Authorization", "Bearer #{access_token}"},
+          {"Content-Type", "application/json"},
+          {"Accept", "text/event-stream"}
+        ]
+
+        finch_request = Finch.build(:post, url, headers, Jason.encode!(body))
+        {:ok, finch_request}
+
+      {:error, reason} ->
+        {:error,
+         ReqLLM.Error.API.Request.exception(
+           reason: "Failed to get GCP access token: #{inspect(reason)}"
+         )}
+    end
+  rescue
+    error ->
+      {:error,
+       ReqLLM.Error.API.Request.exception(
+         reason: "Failed to build Vertex stream request: #{inspect(error)}"
+       )}
+  end
+
+  @impl ReqLLM.Provider
+  def parse_stream_protocol(chunk, state) do
+    BullX.LLM.Providers.Google.parse_stream_protocol(chunk, state)
+  end
+
+  @impl ReqLLM.Provider
+  def decode_stream_event(event, model) do
+    formatter = get_formatter(model)
+
+    if function_exported?(formatter, :decode_stream_event, 2) do
+      formatter.decode_stream_event(event, model)
+    else
+      BullX.LLM.Providers.Anthropic.Response.decode_stream_event(event, model)
+    end
+  end
+
+  @impl ReqLLM.Provider
+  def init_stream_state(model) do
+    formatter = get_formatter(model)
+
+    if function_exported?(formatter, :init_stream_state, 0) do
+      formatter.init_stream_state()
+    end
+  end
+
+  @impl ReqLLM.Provider
+  def decode_stream_event(event, model, state) do
+    formatter = get_formatter(model)
+
+    cond do
+      function_exported?(formatter, :decode_stream_event, 3) ->
+        formatter.decode_stream_event(event, model, state)
+
+      function_exported?(formatter, :decode_stream_event, 2) ->
+        {formatter.decode_stream_event(event, model), state}
+
+      true ->
+        BullX.LLM.Providers.Anthropic.Response.decode_stream_event(event, model, state)
+    end
+  end
+
+  @impl ReqLLM.Provider
+  def flush_stream_state(model, state) do
+    formatter = get_formatter(model)
+
+    cond do
+      function_exported?(formatter, :flush_stream_state, 2) ->
+        formatter.flush_stream_state(model, state)
+
+      function_exported?(formatter, :flush_stream_state, 1) ->
+        formatter.flush_stream_state(state)
+
+      true ->
+        {[], state}
+    end
+  end
+
+  # Build streaming path for model
+  defp build_stream_path("claude", model_id, project_id, region) do
+    # Use streamRawPredict for streaming
+    "/v1/projects/#{project_id}/locations/#{region}/publishers/anthropic/models/#{model_id}:streamRawPredict"
+  end
+
+  defp build_stream_path("gemini", model_id, project_id, region) do
+    # Use streamGenerateContent for Gemini streaming
+    "/v1/projects/#{project_id}/locations/#{region}/publishers/google/models/#{model_id}:streamGenerateContent"
+  end
+
+  defp build_stream_path("mistral", model_id, project_id, region) do
+    # Mistral AI models on Vertex use streamRawPredict for streaming
+    "/v1/projects/#{project_id}/locations/#{region}/publishers/mistralai/models/#{model_id}:streamRawPredict"
+  end
+
+  defp build_stream_path("openai_compat", _model_id, project_id, region) do
+    "/v1/projects/#{project_id}/locations/#{region}/endpoints/openapi/chat/completions"
+  end
+
+  defp build_stream_path(family, _model_id, _project_id, _region) do
+    raise ArgumentError, "No stream path builder for Vertex AI model family: #{family}"
+  end
+
+  @impl ReqLLM.Provider
+  def credential_missing?(%ArgumentError{message: msg}) when is_binary(msg) do
+    String.contains?(msg, "Google Cloud credentials required")
+  end
+
+  def credential_missing?(_), do: false
+end

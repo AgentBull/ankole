@@ -21,12 +21,88 @@ defmodule ChineseLLMProvidersExtra.Providers.XiaomiMiMo do
     default_base_url: "https://api.xiaomimimo.com/anthropic",
     default_env_key: "XIAOMI_MIMO_API_KEY"
 
-  @provider_schema ReqLLM.Providers.Anthropic.provider_schema().schema
-                   |> Keyword.put(:xiaomi_mimo_billing_plan,
-                     type: {:in, @billing_plans},
-                     default: :pay_as_you_go,
-                     doc: "MiMo billing plan. Token Plan uses the token-plan-cn base URL."
-                   )
+  @provider_schema [
+    access_token: [
+      type: :string,
+      doc: "OAuth access token used as Authorization Bearer credential"
+    ],
+    auth_mode: [
+      type: {:in, [:api_key, :oauth]},
+      default: :api_key,
+      doc: "Authentication mode: :api_key (default) or :oauth"
+    ],
+    oauth_file: [
+      type: :string,
+      doc: "Path to an oauth/auth JSON file with provider credentials"
+    ],
+    auth_file: [
+      type: :string,
+      doc: "Alias for :oauth_file"
+    ],
+    oauth_http_options: [
+      type: {:list, :any},
+      doc: "Req options for OAuth refresh HTTP requests"
+    ],
+    anthropic_top_k: [
+      type: :pos_integer,
+      doc: "Sample from the top K options for each subsequent token (1-40)"
+    ],
+    anthropic_version: [
+      type: :string,
+      default: "2023-06-01",
+      doc: "Anthropic API version to use"
+    ],
+    stop_sequences: [
+      type: {:list, :string},
+      doc: "Custom sequences that will cause the model to stop generating"
+    ],
+    anthropic_metadata: [
+      type: :map,
+      doc: "Optional metadata to include with the request"
+    ],
+    thinking: [
+      type: :map,
+      doc: "Enable thinking/reasoning for supported models"
+    ],
+    anthropic_prompt_cache: [
+      type: :boolean,
+      doc: "Enable Anthropic prompt caching"
+    ],
+    anthropic_prompt_cache_ttl: [
+      type: :string,
+      doc: "TTL for cache, e.g. \"1h\""
+    ],
+    anthropic_cache_messages: [
+      type: {:or, [:boolean, :integer]},
+      doc: "Add cache breakpoint at a message position"
+    ],
+    anthropic_structured_output_mode: [
+      type: {:in, [:auto, :json_schema, :tool_strict]},
+      default: :auto,
+      doc: "Strategy for structured output generation"
+    ],
+    output_format: [
+      type: :map,
+      doc: "Internal use: structured output format configuration"
+    ],
+    anthropic_beta: [
+      type: {:list, :string},
+      doc: "Internal use: beta feature flags"
+    ],
+    web_search: [
+      type: :map,
+      doc: "Enable web search tool with optional configuration"
+    ],
+    web_fetch: [
+      type: :map,
+      doc: "Enable web fetch tool with optional configuration"
+    ],
+    xiaomi_mimo_billing_plan: [
+      type: {:in, @billing_plans},
+      default: :pay_as_you_go,
+      doc: "MiMo billing plan. Token Plan uses the token-plan-cn base URL."
+    ]
+  ]
 
   @impl ReqLLM.Provider
   def prepare_request(operation, model_spec, input, opts) do
