@@ -36,6 +36,71 @@ defmodule BullX.AIAgent.SystemPromptBuilderTest do
     assert rendered.diagnostics.omitted_section_ids == ["profile.empty"]
   end
 
+  test "renders an embedded template with tagged sections" do
+    sections = [
+      %SystemPromptBuilder.Section{
+        id: "runtime.context",
+        kind: :runtime,
+        stability: :volatile,
+        priority: 100,
+        tag: "context",
+        cache_break_reason: "current input",
+        content: "now"
+      },
+      %SystemPromptBuilder.Section{
+        id: "profile.soul",
+        kind: :profile,
+        stability: :stable,
+        priority: 20,
+        tag: "soul",
+        content: "calm and precise"
+      },
+      %SystemPromptBuilder.Section{
+        id: "profile.empty",
+        kind: :profile,
+        stability: :stable,
+        tag: "empty",
+        content: nil
+      }
+    ]
+
+    template = [
+      SystemPromptBuilder.text("""
+      You are Test Agent, an AI colleague powered by BullX.
+      """),
+      SystemPromptBuilder.optional("profile.mission", "Handle tests.", fn mission ->
+        """
+        Your mission is:
+
+        #{mission}
+        """
+      end),
+      SystemPromptBuilder.sections()
+    ]
+
+    assert {:ok, rendered} = SystemPromptBuilder.render(sections, template: template)
+
+    stable_text =
+      """
+      You are Test Agent, an AI colleague powered by BullX.
+
+      Your mission is:
+
+      Handle tests.
+
+      <soul>
+      calm and precise
+      </soul>
+      """
+      |> String.trim()
+
+    assert rendered.system_text == stable_text <> "\n\n<context>\nnow\n</context>"
+
+    assert rendered.stable_prefix.byte_offset == byte_size(stable_text)
+    assert rendered.stable_prefix.last_stable_section_id == "profile.soul"
+    assert rendered.diagnostics.omitted_section_ids == ["profile.empty"]
+  end
+
   test "rejects duplicate ids and empty content" do
     duplicate = [
       %SystemPromptBuilder.Section{id: "a", kind: :x, stability: :stable, content: "one"},
@@ -75,7 +140,7 @@ defmodule BullX.AIAgent.SystemPromptBuilderTest do
              ])
   end
 
-  test "rejects invalid text and ignores stable cache break reasons" do
+  test "rejects invalid text and invalid cache break reasons" do
     assert {:error, {:system_prompt_builder, :invalid_content, %{section_id: "a"}}} =
              SystemPromptBuilder.render([
                %SystemPromptBuilder.Section{
@@ -95,22 +160,29 @@ defmodule BullX.AIAgent.SystemPromptBuilderTest do
                  id: "a",
                  kind: :runtime,
                  stability: :stable,
-                 content: invalid_utf8,
-                 cache_break_reason: "ignored for stable section"
+                 content: invalid_utf8
                }
              ])
 
-    assert {:ok, rendered} =
+    assert {:error, {:system_prompt_builder, :invalid_cache_break_reason, %{section_id: "a"}}} =
              SystemPromptBuilder.render([
                %SystemPromptBuilder.Section{
                  id: "a",
                  kind: :runtime,
                  stability: :stable,
                  content: "stable",
-                 cache_break_reason: "ignored for stable section"
+                 cache_break_reason: "stable sections do not break cache"
                }
              ])
 
-    assert rendered.system_text == "stable"
+    assert {:error, {:system_prompt_builder, :invalid_cache_break_reason, %{section_id: "b"}}} =
+             SystemPromptBuilder.render([
+               %SystemPromptBuilder.Section{
+                 id: "b",
+                 kind: :runtime,
+                 stability: :volatile,
+                 content: "volatile"
+               }
+             ])
   end
 end

@@ -1,10 +1,11 @@
 # System Prompt Builder
 
 The System Prompt Builder is the deterministic request-time renderer for the
-AIAgent system prompt. It accepts caller-prepared typed sections, validates the
-section contract, renders them in a stable order into `req_llm`-compatible
-`:system` content, and reports the stable-prefix boundary that token accounting
-and prompt caching can consume.
+AIAgent system prompt. It accepts caller-prepared typed sections plus an optional
+small embedded prompt template, validates the section contract, renders stable
+prompt text and tagged sections into `req_llm`-compatible `:system` content, and
+reports the stable-prefix boundary that token accounting and prompt caching can
+consume.
 
 The stable-prefix discipline follows the same practical shape used by strong
 agent runtimes such as Claude Code: keep durable instructions and stable context
@@ -27,8 +28,9 @@ This design defines:
 
 - The System Prompt Builder as a stateless request-time component.
 - The section input contract, including identity, stability, ordering,
-  provenance, and payload shape.
-- Deterministic rendering rules for optional, stable, and volatile sections.
+  provenance, optional prompt tags, and payload shape.
+- Deterministic rendering rules for embedded template text, optional template
+  segments, stable sections, and volatile sections.
 - The output shape for `req_llm` system content and stable-prefix metadata.
 - The boundary with token accounting, context compression, and prompt caching.
 - Security constraints, length behavior, recovery behavior, failure behavior,
@@ -82,9 +84,10 @@ Caller responsibilities:
 
 - Collect system-prompt-eligible content from caller-owned sources.
 - Normalize each content source into a section that follows this design.
+- Provide any short product-level prompt text as an embedded template segment
+  rather than hiding it inside a catch-all section.
 - Decide whether each section is `:stable` or `:volatile`.
-- Provide a short `cache_break_reason` for `:volatile` sections when it helps
-  diagnostics or tests.
+- Provide a short `cache_break_reason` for every `:volatile` section.
 - Complete retrieval, authorization, redaction, policy checks, and
   source-specific truncation before calling the builder.
 - Pass the builder output and stable-prefix boundary to the provider call,
@@ -94,9 +97,11 @@ Caller responsibilities:
 Builder responsibilities:
 
 - Validate section shape, section identity, stability classification,
-  duplicate ids, and coarse payload allowlist rules.
+  duplicate ids, optional tag shape, cache-break reasons, and coarse payload
+  allowlist rules.
 - Omit optional empty sections without changing stable-prefix bytes.
-- Render non-empty sections in the deterministic order defined below.
+- Render template text and non-empty sections in the deterministic order defined
+  below.
 - Produce `req_llm`-compatible `:system` content.
 - Return total size, per-section size, stable-prefix size, volatile suffix size,
   rendered section order, omitted section ids, and stable-prefix metadata.
@@ -112,7 +117,8 @@ fields:
 | `id` | yes | Caller-stable identifier, unique within one request. |
 | `kind` | yes | Caller-defined coarse semantic atom used for diagnostics and ordering tie-breaks. |
 | `stability` | yes | `:stable` or `:volatile`. |
-| `cache_break_reason` | no | Optional short diagnostic reason for `:volatile` sections. Ignored for `:stable`. |
+| `cache_break_reason` | conditional | Required non-empty short diagnostic reason for `:volatile` sections. Must be absent or empty for `:stable` sections. |
+| `tag` | no | Optional prompt block tag. When present, the builder renders the section as `<tag>...</tag>`. |
 | `priority` | no | Integer secondary sort key. Defaults to `0`. |
 | `content` | yes | `nil`, normalized text, or normalized parts compatible with `ReqLLM.Message.ContentPart`. |
 | `provenance` | no | Small caller-owned metadata map for diagnostics and tests. Keys may be reported; values never render or appear in telemetry. |
@@ -128,6 +134,13 @@ embedded in section ids.
 enum for prompt sources and does not interpret `kind` as profile, Skill, Brain,
 Principal, or policy semantics. It only requires an atom so diagnostics and
 telemetry stay bounded and testable.
+
+`tag` is prompt markup, not a provider protocol. It is useful for long,
+source-shaped blocks such as `soul`, `instructions`, `context`, Skill guidance,
+or Brain context. Tags must be low-cardinality lowercase names made from
+letters, digits, `_`, or `-`, starting with a letter. Tags are rendered into the
+system prompt; section ids, kinds, priorities, cache-break reasons, and
+provenance are not.
 
 `content = nil` means the section was considered but produced no renderable
 content for this request. That is a valid optional path. A missing required field
@@ -165,36 +178,43 @@ diagnostics, or other request-volatile data.
 them into system content, but always after all rendered stable sections and
 outside the stable-prefix boundary.
 
-`:volatile` sections may include a short `cache_break_reason`, such as
+`:volatile` sections must include a short `cache_break_reason`, such as
 `current inbound event summary`, `retry diagnostic`, or `request-specific
-language override`. The builder validates bounded shape when the reason is
-present. It does not require every volatile section to explain itself because the
-stable/volatile classification already carries the runtime contract.
+language override`. The builder validates bounded shape so cache-breaking prompt
+content stays reviewable. Stable sections must not carry a cache-break reason.
 
 The builder does not try to prove that a `:stable` section is semantically
 stable. Runtime heuristics for detecting timestamps, request ids, or other
 volatile facts would be noisy and incomplete. Callers that render stable
 sections must test their own rendering code.
 
-## Rendering Order
+## Embedded Template And Rendering Order
 
 Rendering is deterministic:
 
 1. Validate the full section list before rendering any output.
 2. Reject duplicate `id` values within the request.
 3. Omit sections whose `content` is `nil`; record them in omitted diagnostics.
-4. Render all non-empty `:stable` sections before all non-empty `:volatile`
+4. Normalize embedded template text and optional template segments. Empty
+   optional segments are omitted.
+5. Render all non-empty `:stable` sections before all non-empty `:volatile`
    sections.
-5. Within the same stability class, sort by `priority` ascending.
-6. For equal priority within the same stability class, keep caller-supplied list
+6. Within the same stability class, sort by `priority` ascending.
+7. For equal priority within the same stability class, keep caller-supplied list
    order as the stable tie-breaker.
-7. Do not cross the stable/volatile boundary to improve prompt cache utility.
-8. Do not silently drop, merge, truncate, summarize, or reorder content to fit a
+8. Do not cross the stable/volatile boundary to improve prompt cache utility.
+9. Do not silently drop, merge, truncate, summarize, or reorder content to fit a
    length limit or cache geometry preference.
-9. Produce byte-identical output and boundary metadata when called twice with
+10. Produce byte-identical output and boundary metadata when called twice with
    the same normalized input.
 
-Canonical rendering template:
+The embedded template is deliberately not EEx, HEEx, Liquid, Jinja, or a general
+prompt DSL. It supports only stable literal text, optional stable segments, and a
+sections placeholder. This gives caller code a readable place for short
+first-principles product text while preserving typed section diagnostics and
+stable-prefix accounting.
+
+Canonical rendering shape:
 
 ```elixir
 rendered_sections =
@@ -204,29 +224,39 @@ rendered_sections =
   |> sort_by_stability_priority_and_input_order()
   |> Enum.map(&section_text!/1)
 
-system_text = Enum.join(rendered_sections, "\n\n")
+rendered_units =
+  render_template_segments(template, sections_placeholder: rendered_sections)
+
+system_text = Enum.join(rendered_units, "\n\n")
 ```
 
-`section_text!/1` renders plain text as-is. For a text content-part list, it
-extracts each part's text in part order and joins those texts with exactly
-`"\n\n"`. Section ids, kinds, stability labels, priorities, cache-break reasons,
-and provenance are never rendered into provider input. The builder does not add
-headers, wrap sections, trim content, normalize whitespace, add trailing
-newlines, or convert line endings. Normalized text means valid UTF-8 text with LF
-line endings and no NUL bytes; invalid UTF-8, CRLF, and NUL bytes are contract
-errors.
+`section_text!/1` renders plain text as-is unless the section has a `tag`. A
+tagged section renders as:
+
+```text
+<tag>
+section content
+</tag>
+```
+
+For a text content-part list, `section_text!/1` extracts each part's text in part
+order and joins those texts with exactly `"\n\n"` before optional tag wrapping.
+Section ids, kinds, stability labels, priorities, cache-break reasons, and
+provenance are never rendered into provider input. Normalized text means valid
+UTF-8 text with LF line endings and no NUL bytes; invalid UTF-8, CRLF, and NUL
+bytes are contract errors.
 
 `system_text` is the canonical byte sequence. If the returned `system_content`
 uses `ReqLLM.Message.ContentPart` values instead of one plain text value, the
-builder emits one text part per rendered section: the first part is the first
-section text, and every later part is `"\n\n" <> section_text`. Concatenating all
-returned text parts must exactly equal `system_text`.
+builder emits one text part per rendered unit: the first part is the first unit
+text, and every later part is `"\n\n" <> unit_text`. Concatenating all returned
+text parts must exactly equal `system_text`.
 
 The stable-prefix boundary is the position immediately after the last rendered
-`:stable` section. If volatile sections also render, the `"\n\n"` separator
-between the last stable section and first volatile section belongs to the
-volatile suffix, not the stable prefix. The result reports the boundary as a
-typed descriptor:
+stable unit, whether that unit is template text or a stable section. If volatile
+sections also render, the `"\n\n"` separator between the last stable unit and
+first volatile section belongs to the volatile suffix, not the stable prefix.
+The result reports the boundary as a typed descriptor:
 
 ```elixir
 %{
@@ -237,17 +267,18 @@ typed descriptor:
 }
 ```
 
-`last_stable_section_id` and `stable_section_count` are the required logical
-boundary. `content_part_index` and `byte_offset` are optional exact-position
-metadata for provider mappings that need explicit cache marker placement. When
-present, they must be derived from the same rendered output. Providers with
-automatic prefix caching or no prompt-cache support may ignore exact-position
-metadata. If no stable section renders, `last_stable_section_id` is `nil` and
-`stable_section_count` is `0`. `byte_offset` is measured with Elixir binary byte
-semantics, equivalent to `byte_size(stable_prefix_text)`, not grapheme count or
-display width. When `system_content` is returned as text parts,
-`content_part_index` is the zero-based index of the last text part wholly inside
-the stable prefix; it is `nil` when no stable section renders.
+`last_stable_section_id` is the id of the final stable section when the boundary
+lands on a section; it may be `nil` when only template text renders. The stable
+count includes rendered stable units so callers can tell whether a stable prefix
+exists. `content_part_index` and `byte_offset` are exact-position metadata for
+provider mappings that need explicit cache marker placement. When present, they
+must be derived from the same rendered output. Providers with automatic prefix
+caching or no prompt-cache support may ignore exact-position metadata.
+`byte_offset` is measured with Elixir binary byte semantics, equivalent to
+`byte_size(stable_prefix_text)`, not grapheme count or display width. When
+`system_content` is returned as text parts, `content_part_index` is the
+zero-based index of the last text part wholly inside the stable prefix; it is
+`nil` when no stable unit renders.
 
 ## Output Shape
 
@@ -389,7 +420,11 @@ Failure cases include:
 - Non-atom `kind`.
 - Unknown `stability` value.
 - Duplicate `id`.
-- Malformed `cache_break_reason`, when present.
+- Missing or malformed `cache_break_reason` for a volatile section.
+- Cache-break reason present on a stable section.
+- Malformed prompt block tag.
+- Template text placed after a volatile section, which would make the stable
+  prefix non-contiguous.
 - Explicit credential or raw-payload content shape rejected by the allowlist.
 - Optional `max_total_bytes` cap exceeded.
 
@@ -479,16 +514,17 @@ content, and pass stable-prefix metadata to token accounting and prompt caching.
 
 1. Define the section struct and validator.
    - Owns: section fields, atom `kind` validation, stability validation,
-     duplicate id detection, optional cache-break validation, and coarse content
-     allowlist.
+     duplicate id detection, prompt tag validation, cache-break validation, and
+     coarse content allowlist.
    - Acceptance: malformed input returns structured errors before rendering;
-     malformed cache-break reasons fail when present.
+     volatile sections without cache-break reasons fail; stable sections with
+     cache-break reasons fail.
 
 2. Implement deterministic ordering and rendering.
    - Owns: nil-content omission, stable-before-volatile rendering,
-     priority sorting, input-position tie-breaks, canonical `"\n\n"` section
-     joining, section-level text-part output, and `req_llm` system content
-     generation.
+     priority sorting, input-position tie-breaks, embedded template segments,
+     tagged section rendering, canonical `"\n\n"` unit joining, unit-level
+     text-part output, and `req_llm` system content generation.
    - Acceptance: identical input produces byte-identical output; adding or
      removing `content = nil` sections does not change stable-prefix bytes;
      empty strings and empty text parts fail validation.
@@ -551,7 +587,11 @@ Implementation must stop for review if any of these become necessary:
   caching.
 - Section rendering uses the canonical `"\n\n"` template, and any returned text
   parts concatenate to the same canonical system text.
-- Volatile sections may carry bounded cache-break diagnostics, but the
+- Embedded template text can provide short stable product framing without
+  becoming a general template language.
+- Tagged sections render source-shaped prompt blocks such as `<soul>`,
+  `<instructions>`, and `<context>`.
+- Volatile sections carry bounded cache-break diagnostics, and the
   stable/volatile boundary remains the required cache contract.
 - Optional `content = nil` sections are omitted without producing empty prompt
   blocks or changing stable-prefix bytes.

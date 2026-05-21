@@ -50,30 +50,15 @@ defmodule BullXWeb.SessionController do
   end
 
   def oidc(conn, %{"provider" => provider} = params) do
-    redirect_uri = url(~p"/sessions/oidc/#{provider}/callback")
+    return_to = local_return_to(params["return_to"])
+    login_path = ~p"/sessions/oidc/#{provider}?#{%{return_to: return_to}}"
 
-    request = %{
-      "return_to" => local_return_to(params["return_to"]),
-      "redirect_uri" => redirect_uri
-    }
+    case canonical_origin_redirect(conn, login_path) do
+      {:redirect, canonical_url} ->
+        redirect(conn, external: canonical_url)
 
-    case BullX.Principals.LoginProviders.authorization_url(provider, request) do
-      {:ok, %{url: url, state: %{"nonce" => nonce} = state}} ->
-        token = Phoenix.Token.sign(conn, @oidc_state_salt, state)
-
-        conn
-        |> put_session(state_session_key(provider, nonce), token)
-        |> redirect(external: url)
-
-      {:ok, _result} ->
-        conn
-        |> put_status(:bad_gateway)
-        |> html("login provider returned invalid state")
-
-      {:error, reason} ->
-        conn
-        |> put_status(:bad_request)
-        |> html(escape(login_error(reason)))
+      :ok ->
+        start_oidc(conn, provider, return_to)
     end
   end
 
@@ -122,6 +107,34 @@ defmodule BullXWeb.SessionController do
     |> put_session(:principal_id, principal_id)
   end
 
+  defp start_oidc(conn, provider, return_to) do
+    redirect_uri = url(~p"/sessions/oidc/#{provider}/callback")
+
+    request = %{
+      "return_to" => return_to,
+      "redirect_uri" => redirect_uri
+    }
+
+    case BullX.Principals.LoginProviders.authorization_url(provider, request) do
+      {:ok, %{url: url, state: %{"nonce" => nonce} = state}} ->
+        token = Phoenix.Token.sign(conn, @oidc_state_salt, state)
+
+        conn
+        |> put_session(state_session_key(provider, nonce), token)
+        |> redirect(external: url)
+
+      {:ok, _result} ->
+        conn
+        |> put_status(:bad_gateway)
+        |> html("login provider returned invalid state")
+
+      {:error, reason} ->
+        conn
+        |> put_status(:bad_request)
+        |> html(escape(login_error(reason)))
+    end
+  end
+
   defp local_return_to(nil), do: "/"
   defp local_return_to("//" <> _path), do: "/"
   defp local_return_to("/\\" <> _path), do: "/"
@@ -152,9 +165,38 @@ defmodule BullXWeb.SessionController do
   defp session_token(conn, key) do
     case get_session(conn, key) do
       token when is_binary(token) and token != "" -> {:ok, token}
-      _value -> {:error, :invalid_or_expired_code}
+      _value -> {:error, {:invalid, :missing_oidc_state}}
     end
   end
+
+  defp canonical_origin_redirect(conn, path) do
+    canonical_url = Phoenix.VerifiedRoutes.unverified_url(BullXWeb.Endpoint, path)
+
+    case same_origin?(Plug.Conn.request_url(conn), canonical_url) do
+      true -> :ok
+      false -> {:redirect, canonical_url}
+    end
+  end
+
+  defp same_origin?(left, right) do
+    left_uri = URI.parse(left)
+    right_uri = URI.parse(right)
+
+    uri_scheme(left_uri) == uri_scheme(right_uri) and
+      uri_host(left_uri) == uri_host(right_uri) and
+      uri_port(left_uri) == uri_port(right_uri)
+  end
+
+  defp uri_scheme(%URI{scheme: scheme}) when is_binary(scheme), do: String.downcase(scheme)
+  defp uri_scheme(_uri), do: nil
+
+  defp uri_host(%URI{host: host}) when is_binary(host), do: String.downcase(host)
+  defp uri_host(_uri), do: nil
+
+  defp uri_port(%URI{port: port}) when is_integer(port), do: port
+  defp uri_port(%URI{scheme: "https"}), do: 443
+  defp uri_port(%URI{scheme: "http"}), do: 80
+  defp uri_port(_uri), do: nil
 
   defp state_session_key(provider, nonce) do
     "oidc_state:#{provider}:#{nonce}"

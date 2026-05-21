@@ -63,9 +63,9 @@ privileged.
 
 ToolSet is a configuration and expansion layer, not an authorization subject.
 Agentic Loop core expands enabled ToolSets, computes each tool's effective
-access tag, and passes the tag to AIAgent ACL. A Skill may later point to a
-ToolSet, but a Skill remains a knowledge asset and does not grant execution
-power.
+access tag, and passes the tag to AIAgent ACL. A Skill may describe how to use a
+Tool in its instructions, but a Skill remains a knowledge asset and does not
+grant execution power or map to a ToolSet.
 
 ## Access Model
 
@@ -212,8 +212,8 @@ the AIAgent runtime.
 
 ### Tool Call
 
-Each tool has an effective access tag computed by Agentic Loop core from the
-enabled ToolSet configuration. AIAgent ACL consumes the computed tag.
+Each tool has an effective access tag read by Agentic Loop core from the
+code-owned Tool registry definition. AIAgent ACL consumes the computed tag.
 
 The runtime applies ACL at two enforcement points:
 

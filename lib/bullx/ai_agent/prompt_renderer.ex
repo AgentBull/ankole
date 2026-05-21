@@ -13,6 +13,8 @@ defmodule BullX.AIAgent.PromptRenderer do
     SystemPromptBuilder
   }
 
+  alias BullX.Principals
+  alias BullX.Principals.Principal
   alias ReqLLM.Message.ContentPart
 
   @type render_result :: {:ok, map()} | {:error, term()}
@@ -27,8 +29,9 @@ defmodule BullX.AIAgent.PromptRenderer do
     branch = Conversations.render_branch(conversation)
     ambient_context = Keyword.get(opts, :ambient_context, [])
     sections = system_sections(profile, opts)
+    template = system_template(conversation, profile)
 
-    with {:ok, system} <- SystemPromptBuilder.render(sections),
+    with {:ok, system} <- SystemPromptBuilder.render(sections, template: template),
          {:ok, messages} <-
            render_branch(conversation, branch, profile, trigger_message, ambient_context),
          messages <- Compression.compact_large_results(messages, profile: profile),
@@ -48,24 +51,11 @@ defmodule BullX.AIAgent.PromptRenderer do
   defp system_sections(%Profile{} = profile, opts) do
     [
       %SystemPromptBuilder.Section{
-        id: "profile.mission",
-        kind: :profile,
-        stability: :stable,
-        priority: 10,
-        content: nil_if_empty(profile.mission)
-      },
-      %SystemPromptBuilder.Section{
-        id: "profile.soul",
-        kind: :profile,
-        stability: :stable,
-        priority: 20,
-        content: nil_if_empty(profile.soul)
-      },
-      %SystemPromptBuilder.Section{
         id: "profile.instructions",
         kind: :profile,
         stability: :stable,
         priority: 30,
+        tag: "instructions",
         content: nil_if_empty(profile.instructions)
       },
       %SystemPromptBuilder.Section{
@@ -73,14 +63,51 @@ defmodule BullX.AIAgent.PromptRenderer do
         kind: :runtime_context,
         stability: :volatile,
         priority: 100,
+        tag: "context",
         cache_break_reason: "current generation context",
         content: runtime_context(opts)
       }
     ]
   end
 
+  defp system_template(%Conversation{} = conversation, %Profile{} = profile) do
+    [
+      SystemPromptBuilder.text("""
+      You are #{agent_display_name(conversation)}, an AI colleague powered by BullX.
+      """),
+      SystemPromptBuilder.text("""
+      #{profile.soul}
+      """),
+      SystemPromptBuilder.optional("profile.mission", profile.mission, fn mission ->
+        """
+        Your mission is:
+
+        #{mission}
+        """
+      end),
+      SystemPromptBuilder.sections()
+    ]
+  end
+
   defp nil_if_empty(""), do: nil
   defp nil_if_empty(value), do: value
+
+  defp agent_display_name(%Conversation{agent_principal: %Principal{} = principal}),
+    do: principal_display_name(principal)
+
+  defp agent_display_name(%Conversation{agent_principal_id: agent_principal_id}) do
+    case Principals.get_principal(agent_principal_id) do
+      {:ok, principal} -> principal_display_name(principal)
+      {:error, :not_found} -> "BullX AIAgent"
+    end
+  end
+
+  defp principal_display_name(%Principal{display_name: display_name, uid: uid}) do
+    case nil_if_empty(display_name) do
+      nil -> uid || "BullX AIAgent"
+      name -> name
+    end
+  end
 
   defp runtime_context(opts) do
     opts

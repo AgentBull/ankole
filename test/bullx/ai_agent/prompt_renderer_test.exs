@@ -95,6 +95,12 @@ defmodule BullX.AIAgent.PromptRendererTest do
 
     assert {:ok, rendered} = PromptRenderer.render(conversation, profile, source)
 
+    assert rendered.system_prompt.system_text =~
+             "You are Agent, an AI colleague powered by BullX."
+
+    assert rendered.system_prompt.system_text =~
+             "Your mission is:\n\nHandle prompt rendering tests."
+
     assert ["call_1", "call_2"] =
              rendered.messages
              |> Enum.filter(&(&1.role == :tool))

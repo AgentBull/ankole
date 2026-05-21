@@ -34,14 +34,38 @@ defmodule BullX.AIAgent.SystemPromptBuilder do
       :kind,
       :stability,
       :cache_break_reason,
+      :tag,
       priority: 0,
       content: nil,
       provenance: %{}
     ]
   end
 
+  defmodule Segment do
+    @moduledoc false
+
+    @enforce_keys [:type]
+    defstruct [
+      :type,
+      :id,
+      :content,
+      :render
+    ]
+  end
+
   @type section :: Section.t() | map()
+  @type segment :: Segment.t()
   @type render_error :: {:system_prompt_builder, atom(), map()}
+
+  @spec text(String.t()) :: segment()
+  def text(content) when is_binary(content), do: %Segment{type: :text, content: content}
+
+  @spec optional(String.t(), term(), (term() -> String.t())) :: segment()
+  def optional(id, content, render) when is_binary(id) and is_function(render, 1),
+    do: %Segment{type: :optional, id: id, content: content, render: render}
+
+  @spec sections() :: segment()
+  def sections, do: %Segment{type: :sections}
 
   @spec render([section()], keyword()) :: {:ok, map()} | {:error, render_error()}
   def render(sections, opts \\ [])
@@ -52,7 +76,9 @@ defmodule BullX.AIAgent.SystemPromptBuilder do
     with {:ok, normalized} <- normalize_sections(sections),
          :ok <- reject_duplicate_ids(normalized),
          {:ok, rendered_sections} <- rendered_sections(normalized),
-         result <- build_result(rendered_sections, normalized),
+         {:ok, rendered_units} <- rendered_units(rendered_sections, Keyword.get(opts, :template)),
+         :ok <- validate_stable_prefix(rendered_units),
+         result <- build_result(rendered_units, rendered_sections, normalized),
          result <- add_build_duration(result, started),
          :ok <- validate_size_cap(result, opts) do
       emit(:built, result)
@@ -98,6 +124,7 @@ defmodule BullX.AIAgent.SystemPromptBuilder do
           kind: kind,
           stability: stability,
           cache_break_reason: field_value(section, :cache_break_reason),
+          tag: field_value(section, :tag),
           priority: optional_field_value(section, :priority, 0),
           content: content,
           provenance: optional_field_value(section, :provenance, %{})
@@ -129,6 +156,9 @@ defmodule BullX.AIAgent.SystemPromptBuilder do
 
       not valid_cache_break_reason?(section) ->
         {:error, :invalid_cache_break_reason, %{section_id: section.id, input_index: index}}
+
+      not valid_tag?(section.tag) ->
+        {:error, :invalid_tag, %{section_id: section.id, input_index: index}}
 
       not is_map(section.provenance) ->
         {:error, :invalid_provenance, %{section_id: section.id, input_index: index}}
@@ -162,16 +192,27 @@ defmodule BullX.AIAgent.SystemPromptBuilder do
     end
   end
 
-  defp valid_cache_break_reason?(%Section{stability: :stable}), do: true
+  defp valid_cache_break_reason?(%Section{stability: :stable, cache_break_reason: nil}), do: true
 
-  defp valid_cache_break_reason?(%Section{cache_break_reason: nil}), do: true
+  defp valid_cache_break_reason?(%Section{stability: :stable, cache_break_reason: ""}), do: true
 
-  defp valid_cache_break_reason?(%Section{cache_break_reason: reason}) when is_binary(reason) do
-    String.valid?(reason) and byte_size(reason) <= 120 and not String.contains?(reason, <<0>>) and
-      not String.contains?(reason, "\r")
+  defp valid_cache_break_reason?(%Section{stability: :volatile, cache_break_reason: reason})
+       when is_binary(reason) do
+    reason = String.trim(reason)
+
+    reason != "" and String.valid?(reason) and byte_size(reason) <= 120 and
+      not String.contains?(reason, <<0>>) and not String.contains?(reason, "\r")
   end
 
   defp valid_cache_break_reason?(_section), do: false
+
+  defp valid_tag?(nil), do: true
+
+  defp valid_tag?(tag) when is_binary(tag) do
+    String.match?(tag, ~r/^[a-z][a-z0-9_-]*$/)
+  end
+
+  defp valid_tag?(_tag), do: false
 
   defp validate_content(%Section{content: nil} = section, _index), do: {:ok, section}
 
@@ -301,7 +342,8 @@ defmodule BullX.AIAgent.SystemPromptBuilder do
         {stability_order(section.stability), section.priority, index}
       end)
       |> Enum.map(fn {%Section{} = section, _index} ->
-        %{section: section, text: section_text(section), size: byte_size(section_text(section))}
+        text = section_text(section)
+        %{type: :section, id: section.id, section: section, text: text, size: byte_size(text)}
       end)
 
     {:ok, rendered}
@@ -310,9 +352,12 @@ defmodule BullX.AIAgent.SystemPromptBuilder do
   defp stability_order(:stable), do: 0
   defp stability_order(:volatile), do: 1
 
-  defp section_text(%Section{content: content}) when is_binary(content), do: content
+  defp section_text(%Section{} = section),
+    do: wrap_section(section, section_content_text(section))
 
-  defp section_text(%Section{content: parts}) when is_list(parts) do
+  defp section_content_text(%Section{content: content}) when is_binary(content), do: content
+
+  defp section_content_text(%Section{content: parts}) when is_list(parts) do
     parts
     |> Enum.map(&part_text/1)
     |> Enum.join("\n\n")
@@ -322,24 +367,160 @@ defmodule BullX.AIAgent.SystemPromptBuilder do
   defp part_text(%{text: text}), do: text
   defp part_text(%{"text" => text}), do: text
 
-  defp build_result(rendered_sections, all_sections) do
+  defp wrap_section(%Section{tag: nil}, text), do: text
+
+  defp wrap_section(%Section{tag: tag}, text) do
+    IO.iodata_to_binary(["<", tag, ">\n", text, "\n</", tag, ">"])
+  end
+
+  defp rendered_units(rendered_sections, nil),
+    do: {:ok, Enum.map(rendered_sections, &section_unit/1)}
+
+  defp rendered_units(rendered_sections, template) when is_list(template) do
+    sorted_sections = rendered_sections
+
+    template
+    |> Enum.reduce_while({:ok, [], MapSet.new()}, fn segment, {:ok, acc, used} ->
+      case render_segment(segment, sorted_sections, used) do
+        {:ok, rendered, used} -> {:cont, {:ok, acc ++ rendered, used}}
+        {:error, reason, meta} -> {:halt, {:error, {:system_prompt_builder, reason, meta}}}
+      end
+    end)
+    |> case do
+      {:ok, units, used} ->
+        unused =
+          sorted_sections
+          |> Enum.reject(&MapSet.member?(used, &1.section.id))
+          |> Enum.map(&section_unit/1)
+
+        {:ok, units ++ unused}
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp rendered_units(_rendered_sections, _template),
+    do: {:error, {:system_prompt_builder, :invalid_template, %{}}}
+
+  defp render_segment(%Segment{type: :text, content: content}, _sections, used)
+       when is_binary(content) do
+    case normalize_template_text(content) do
+      {:ok, nil} -> {:ok, [], used}
+      {:ok, text} -> {:ok, [template_unit(text)], used}
+      {:error, reason} -> {:error, reason, %{}}
+    end
+  end
+
+  defp render_segment(
+         %Segment{type: :optional, id: id, content: content, render: render},
+         _sections,
+         used
+       )
+       when is_binary(id) and is_function(render, 1) do
+    case blank?(content) do
+      true ->
+        {:ok, [], used}
+
+      false ->
+        content
+        |> render.()
+        |> normalize_template_text()
+        |> case do
+          {:ok, nil} -> {:ok, [], used}
+          {:ok, text} -> {:ok, [template_unit(text)], used}
+          {:error, reason} -> {:error, reason, %{template_segment_id: id}}
+        end
+    end
+  end
+
+  defp render_segment(%Segment{type: :sections}, sections, used) do
+    units =
+      sections
+      |> Enum.reject(&MapSet.member?(used, &1.section.id))
+      |> Enum.map(&section_unit/1)
+
+    next_used = Enum.reduce(sections, used, &MapSet.put(&2, &1.section.id))
+    {:ok, units, next_used}
+  end
+
+  defp render_segment(_segment, _sections, _used),
+    do: {:error, :invalid_template_segment, %{}}
+
+  defp normalize_template_text(content) when is_binary(content) do
+    cond do
+      not String.valid?(content) ->
+        {:error, :invalid_template_content}
+
+      String.contains?(content, <<0>>) ->
+        {:error, :invalid_template_content}
+
+      String.contains?(content, "\r") ->
+        {:error, :invalid_template_content}
+
+      true ->
+        content
+        |> String.trim()
+        |> case do
+          "" -> {:ok, nil}
+          text -> {:ok, text}
+        end
+    end
+  end
+
+  defp normalize_template_text(_content), do: {:error, :invalid_template_content}
+
+  defp blank?(nil), do: true
+  defp blank?(content) when is_binary(content), do: String.trim(content) == ""
+  defp blank?(_content), do: false
+
+  defp template_unit(text),
+    do: %{type: :template, text: text, size: byte_size(text), stability: :stable}
+
+  defp section_unit(%{section: %Section{} = section} = rendered) do
+    rendered
+    |> Map.put(:stability, section.stability)
+    |> Map.put(:type, :section)
+  end
+
+  defp validate_stable_prefix(units) do
+    units
+    |> Enum.reduce_while(:stable, fn
+      %{stability: :stable}, :volatile_seen ->
+        {:halt, {:error, {:system_prompt_builder, :stable_after_volatile, %{}}}}
+
+      %{stability: :volatile}, _state ->
+        {:cont, :volatile_seen}
+
+      %{stability: :stable}, :stable ->
+        {:cont, :stable}
+    end)
+    |> case do
+      :stable -> :ok
+      :volatile_seen -> :ok
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp build_result(rendered_units, rendered_sections, all_sections) do
     system_text =
-      rendered_sections
+      rendered_units
       |> Enum.map(& &1.text)
       |> Enum.join("\n\n")
 
+    stable_units = Enum.filter(rendered_units, &(&1.stability == :stable))
     stable_sections = Enum.filter(rendered_sections, &(&1.section.stability == :stable))
-    stable_prefix_text = stable_prefix_text(stable_sections)
+    stable_prefix_text = stable_prefix_text(stable_units)
     stable_size = byte_size(stable_prefix_text)
     total_size = byte_size(system_text)
 
     %{
-      system_content: system_content_parts(rendered_sections),
+      system_content: system_content_parts(rendered_units),
       system_text: system_text,
       stable_prefix: %{
-        last_stable_section_id: last_stable_section_id(stable_sections),
-        stable_section_count: length(stable_sections),
-        content_part_index: stable_content_part_index(stable_sections),
+        last_stable_section_id: last_stable_section_id(stable_units),
+        stable_section_count: length(stable_units),
+        content_part_index: stable_content_part_index(stable_units),
         byte_offset: stable_size
       },
       diagnostics: %{
@@ -379,8 +560,8 @@ defmodule BullX.AIAgent.SystemPromptBuilder do
 
   defp stable_prefix_text([]), do: ""
 
-  defp stable_prefix_text(stable_sections),
-    do: stable_sections |> Enum.map(& &1.text) |> Enum.join("\n\n")
+  defp stable_prefix_text(stable_units),
+    do: stable_units |> Enum.map(& &1.text) |> Enum.join("\n\n")
 
   defp system_content_parts([]), do: []
 
@@ -396,11 +577,15 @@ defmodule BullX.AIAgent.SystemPromptBuilder do
 
   defp last_stable_section_id([]), do: nil
 
-  defp last_stable_section_id(stable_sections),
-    do: (stable_sections |> List.last()).section.id
+  defp last_stable_section_id(stable_units) do
+    case List.last(stable_units) do
+      %{section: %Section{id: id}} -> id
+      %{type: :template} -> nil
+    end
+  end
 
   defp stable_content_part_index([]), do: nil
-  defp stable_content_part_index(stable_sections), do: length(stable_sections) - 1
+  defp stable_content_part_index(stable_units), do: length(stable_units) - 1
 
   defp validate_size_cap(result, opts) do
     case Keyword.get(opts, :max_total_bytes) do

@@ -108,6 +108,7 @@ defmodule BullX.AIAgent.Tools do
       name: entry.name,
       description: entry.description,
       parameter_schema: entry.parameter_schema,
+      strict: Map.get(entry, :strict, false),
       callback:
         {BullX.AIAgent.Tools.Dispatcher, :execute_with_context,
          [entry.name, access, runtime_seed]},

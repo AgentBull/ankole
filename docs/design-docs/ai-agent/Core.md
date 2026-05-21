@@ -58,8 +58,8 @@ This document does not define:
   external API adapters, or independent audit subsystems.
 - Real external tool implementations, their provider-specific schemas, result
   ranking, or usage accounting. V1 defines the ToolSet, registry, dispatcher,
-  ACL, tool-result, timeout, parallel-safety, and idempotency contracts with one
-  fake test tool only.
+  ACL, tool-result, timeout, parallel-safety, execution-order, and idempotency
+  contracts with one fake test tool only.
 - LLMProvider catalog storage, provider credential encryption, plugin provider
   registration, or the `req_llm` bridge.
 - Context compression, summary overlay, prompt caching, system prompt assembly,
@@ -154,14 +154,8 @@ Core owns casting and validation for the `ai_agent` object.
       "elevation_strategy": "deny"
     },
     "toolsets": {
-      "web_research": {
-        "enabled": true,
-        "access": "ordinary",
-        "tools": {
-          "web_search": {
-            "access": "privileged"
-          }
-        }
+      "web": {
+        "enabled": true
       }
     }
   }
@@ -216,13 +210,15 @@ Profile rules:
 - `context.time_awareness_granularity` supports `minute`, `hour`, `day`, and
   `off`, defaulting to `hour`. It affects rendered user-like model input only.
 - `acl.elevation_strategy` is defined by `./ACL.md`. V1 only allows `deny`.
-- `toolsets` declares enabled ToolSets, default access tags, and per-tool access
-  overrides. These tags describe operation requirements; they do not grant the
-  caller permission.
+- `toolsets` declares explicit ToolSet enablement overrides. Tool access tags
+  are code-owned registry facts and cannot be set through ToolSet default access,
+  per-tool enablement, or per-tool access overrides in profile.
 - Unknown fields in `agents.profile.ai_agent` are ignored. They are not errors,
   not rendered into provider input, and not copied into runtime policy.
-- Unknown ToolSets and unknown tools under `toolsets` are ignored at runtime.
-  They do not render schemas and cannot execute.
+- Unknown ToolSet ids under `toolsets` are ignored at runtime. They do not
+  render schemas and cannot execute.
+- Known disallowed ToolSet fields such as `access` or `tools` are invalid
+  profile data because they imply unsupported policy surfaces.
 
 Executable defaults and ranges:
 
@@ -252,18 +248,19 @@ AIAgent Target.
 
 ToolSet is Core's batch configuration layer for tools. ACL does not expand
 ToolSets; Core computes the tools available to the current request from the
-profile, registry, and ACL result.
+profile, registry, and code-owned tool access tags.
 
 Rules:
 
 - Every tool has exactly one owning ToolSet. V1 does not allow orphan tools.
-- AIAgent can use only enabled ToolSets in its profile.
-- A ToolSet may declare a default access tag: `ordinary` or `privileged`.
-- A tool may override its owning ToolSet access tag.
-- Disabled ToolSets and disabled tools are not rendered to provider input and
-  cannot execute.
-- Access tags define whether an operation is ordinary or requires an extra
-  privileged-operation grant.
+- A missing ToolSet profile entry uses the registry `default_enabled` value.
+- A ToolSet profile entry may only contain a boolean `enabled` override for the
+  whole ToolSet.
+- Profile does not support per-tool enablement, ToolSet default access, or
+  per-tool access overrides.
+- Access tags come from each Tool's code-owned registry definition. They define
+  whether an operation is ordinary or requires an extra privileged-operation
+  grant.
 - Caller permission comes from the ACL gate defined by `./ACL.md`.
 - A new tool must be registered under a ToolSet before any AIAgent can render or
   execute it.
@@ -271,10 +268,8 @@ Rules:
 Effective access is computed in this order:
 
 ```text
-disabled tool or disabled ToolSet -> disabled
-per-tool profile override         -> ordinary | privileged
-ToolSet profile default           -> ordinary | privileged
-ToolSet registry default          -> ordinary | privileged
+disabled ToolSet     -> disabled
+Tool registry access -> ordinary | privileged
 ```
 
 V1 does not support one tool shared by multiple ToolSets. If the same underlying
@@ -299,9 +294,9 @@ failure.
 
 ## Tool registry and dispatcher
 
-V1 ships the AIAgent tool registry and dispatcher contract with one fake tool
-used by tests. It does not ship real external tools and does not require a
-future Capability governance layer before the loop can be implemented.
+V1 ships the AIAgent code-owned tool registry and dispatcher contract. Concrete
+built-in ToolSets are defined by the ToolSet design; Core owns expansion,
+provider rendering, dispatch hard boundaries, and transcript persistence.
 
 The registry is code-owned and reconstructible. It has no PostgreSQL table,
 runtime plugin discovery requirement, or operator-editable state in v1. Core uses
@@ -319,27 +314,32 @@ v1. It must satisfy `ReqLLM.Tool.valid_name?/1`; dotted names such as
 `web.search` are not v1 AIAgent tool names. If a later design wants separate
 BullX ids and provider names, it must define the mapping and recovery behavior.
 
-A registry entry has this shape:
+A registry entry has a Hermes-style thin shape plus BullX execution fields:
 
 ```elixir
 %{
   name: "web_search",
-  toolset_id: "web_research",
-  description: "Fake search tool used by AIAgent loop tests.",
+  toolset_id: "web",
+  description: "Search the web through the configured BullX web search adapter.",
   parameter_schema: [
     query: [type: :string, required: true, doc: "Search query"]
   ],
-  default_access: :ordinary,
-  timeout_ms: 30_000,
+  strict: false,
+  provider_options: %{},
+  access: :ordinary,
   parallel_safe: true,
   module: BullX.AIAgent.Tools.FakeSearch
 }
 ```
 
-`parameter_schema` is the value passed to `ReqLLM.Tool.new/1`. It may be a
-NimbleOptions keyword list or a JSON Schema map supported by `req_llm`.
-`description` must be safe to show to the model and must not contain secrets,
-private policy data, or raw provider payloads.
+`description`, `parameter_schema`, `strict`, and `provider_options` follow
+`ReqLLM.Tool.new/1`. `parameter_schema` may use the `req_llm` keyword surface or
+a JSON Schema map supported by `req_llm`. These fields must not contain secrets,
+private policy data, or raw provider payloads. `provider_options` is optional and
+is limited to `ReqLLM.Tool` provider-specific schema/rendering options. It does
+not select a tool backend, does not store credentials, and is not Agent profile
+configuration. `parallel_safe` is a BullX-owned scheduling hint used only by Core
+tool execution; it defaults to `false` when absent.
 
 Tool modules implement:
 
@@ -362,17 +362,15 @@ The context is built by Core and contains only explicit runtime facts:
   tool_name: tool_name,
   effective_access: :ordinary,
   timeout_ms: 30_000,
-  idempotency_key: idempotency_key,
-  metadata: %{}
+  idempotency_key: idempotency_key
 }
 ```
 
 The idempotency key is deterministic and derived by Core from stable business
 ids: Conversation id, assistant Message id, provider tool-call id, tool name, and
 canonicalized tool arguments. It is passed to the tool context before execution.
-Real side-effecting tools added by a later design must use this key or a
-stronger domain idempotency key. The v1 fake tool records that it received the
-key and performs no external side effects.
+Tool implementations with side effects must use this key or a stronger
+domain-owned idempotency key.
 
 Core renders tools by creating `ReqLLM.Tool` structs from registry entries:
 
@@ -381,17 +379,16 @@ ReqLLM.Tool.new(
   name: entry.name,
   description: entry.description,
   parameter_schema: entry.parameter_schema,
+  strict: Map.get(entry, :strict, false),
   callback: {BullX.AIAgent.Tools.Dispatcher, :execute, [entry.name, context_seed]},
-  provider_options: entry[:provider_options] || %{}
+  provider_options: Map.get(entry, :provider_options, %{})
 )
 ```
 
 The dispatcher rechecks registry presence, profile enablement, effective access,
 ACL result, timeout, and the tool-call name before invoking the tool module. The
-current generation deadline clamps tool execution timeout. A registry entry may
-explicitly opt into bounded retry for retryable tool errors; retry is off by
-default. The dispatcher does not trust the rendered tool list or the model output
-as authority.
+current generation deadline clamps tool execution timeout. The dispatcher does
+not trust the rendered tool list or the model output as authority.
 
 Tool errors returned to the model use a structured `ReqLLM.ToolResult` output:
 
@@ -1146,7 +1143,7 @@ Rules:
 - BullX-owned tools must belong to ToolSet and pass ACL gate.
 - V1 ships no real BullX-owned external tools. The fake registry tool is enough
   to validate loop wiring, ACL filtering, tool-call/result pairing, timeout,
-  parallel ordering, and recovery behavior.
+  tool-call order preservation, and recovery behavior.
 - Unknown, malformed, denied, disabled, or disallowed tool calls become
   structured tool-result errors unless policy requires terminal failure.
 - Tool crashes inside the tool contract become tool-result errors. Runtime
@@ -1158,14 +1155,11 @@ Rules:
   selected provider.
 - Tool calls are extracted from normalized `req_llm` response surfaces, not raw
   provider payloads. Core preserves provider tool-call order.
-- Parallel tool execution is a default runtime capability when tool metadata
-  says the calls are parallel-safe and arguments/idempotency keys do not
-  conflict. Calls whose safety cannot be determined run serially or return a
-  structured error.
-- Parallel results are written in original tool-call order, not completion
-  order.
-- `parallel_safe` defaults to `false` when absent. Timeout defaults to
-  `30_000` milliseconds when absent.
+- Core may execute tool calls in parallel only when every tool call in the same
+  assistant turn resolves to a registry entry with `parallel_safe = true`.
+  Missing or false values run serially.
+- Parallel results are written in original provider tool-call order, not
+  completion order.
 - Durable tool-result Messages preserve raw evidence. Prompt rendering may apply
   request-time large result compaction defined by
   `./ContextCompressionAndCaching.md`.
@@ -1313,9 +1307,8 @@ Required idempotency:
 - Conversation mutation is serialized by the active Conversation row and its
   generation lease.
 - Tool dispatch receives idempotency keys derived from stable business ids, not
-  process state. The v1 fake tool performs no external side effects; real tools
-  added later must either use the Core-provided key or define a stronger
-  domain-owned key.
+  process state. Tool implementations with side effects must either use the
+  Core-provided key or define a stronger domain-owned key.
 - ChildRun, Work, Artifact, and domain writes use natural unique keys or
   explicit idempotency keys where redelivery could duplicate facts.
 - A completed repeated entry must not call the model again unless durable state
@@ -1532,19 +1525,17 @@ EventBus, LLMProvider, Principal, Channel Adapter, or Workflow boundaries.
      raw provider body patching; no durable `ReqLLM.Response.context`.
 
 8. Add ToolSet and tool loop.
-   - Owns: code-owned registry, one fake tool, ToolSet validation, `ReqLLM.Tool`
+   - Owns: code-owned registry, ToolSet validation, `ReqLLM.Tool`
      rendering, tool-call normalization, ACL filtering, dispatcher context,
      timeout, idempotency key propagation, result persistence, result compaction,
-     max turns, and parallel execution.
-   - Acceptance: an enabled fake `web_search` tool can render through
+     max turns, parallel execution, and tool-call order preservation.
+   - Acceptance: an enabled `web_search` tool can render through
      `ReqLLM.Tool`, execute through the Core dispatcher, receive timeout and
      idempotency context, write correlated tool results, and feed the next model
      turn; denied, malformed, crashed, timed-out, disabled, or unknown tool calls
      become safe structured errors.
    - Acceptance: the main Agentic Loop does not use a `req_llm` auto-execution
      path that can run tools before the assistant tool-call Message is durable.
-   - Acceptance: v1 does not ship real external tools and does not require
-     future Capability governance before the fake tool loop works.
 
 9. Add output stream production.
    - Owns: producer-side use of EventBus stream helpers.
@@ -1589,8 +1580,8 @@ Stop implementation and ask for a design decision if:
 - Core needs to bypass System Prompt Builder or Message Meta Context Builder.
 - One ambient Message must be copied into multiple per-actor Conversations.
 - Daily reset needs Redis ambient batch lease or wait semantics.
-- AIAgent v1 cannot ship without adding future Capability governance, future
-  Budget, sandbox, or independent audit subsystems.
+- AIAgent v1 cannot ship without adding future Budget, sandbox, or independent
+  audit subsystems.
 
 ## Verification
 
