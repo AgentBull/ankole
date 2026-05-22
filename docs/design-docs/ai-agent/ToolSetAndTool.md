@@ -3,16 +3,16 @@
 BullX exposes AIAgent tools through a code-owned ToolSet registry. A ToolSet is
 the only profile enablement unit for related tools, and a Tool is a small,
 model-callable runtime primitive implemented by BullX core or trusted compiled
-plugin code. AIAgent ACL decides whether the current caller may see or execute
-ordinary or privileged operations; ToolSet does not become a second
-authorization layer, business catalog, Skill catalog, persistent entity, or web
-safety gateway.
+plugin code. AIAgent ACL decides whether the current caller may execute ordinary
+or privileged operations; it does not decide whether the provider schema is
+visible. ToolSet does not become a second authorization layer, business catalog,
+Skill catalog, persistent entity, or web safety gateway.
 
 The design keeps the runtime narrow. AIAgent Core computes the effective tool
 list for each provider request from registry defaults, Agent profile overrides,
-availability checks, and ACL. The final list is rendered as `ReqLLM.Tool`
-schemas, and every tool call must pass through a BullX-owned dispatcher before
-any implementation code runs.
+Agent/Session availability checks. The final list is rendered as `ReqLLM.Tool`
+schemas, and every tool call must pass through a BullX-owned dispatcher and ACL
+check before any implementation code runs.
 
 ## Scope
 
@@ -70,16 +70,16 @@ The current implementation already has the minimal tool path:
 
 - `BullX.AIAgent.Profile` parses `agents.profile["ai_agent"]["toolsets"]`.
 - `BullX.AIAgent.Tools.Registry` is code-owned and reconstructible.
-- `BullX.AIAgent.Tools.enabled_tools/5` renders allowed tools as
+- `BullX.AIAgent.Tools.enabled_tools/5` renders ToolSet/profile/availability-enabled tools as
   `ReqLLM.Tool` structs.
 - `BullX.AIAgent.Tools.Dispatcher` rechecks profile, registry, effective access,
   ACL, and timeout before execution.
 - `BullX.AIAgent.Tools.Context` passes explicit caller, Agent, Conversation,
   trigger, tool-call, timeout, and idempotency facts to implementations.
 
-The existing fake `web_research` ToolSet and fake `web_search` tool are test
-scaffolding for the loop. The formal built-ins are `basic` and `web`; the
-implementation migrates test naming to those registry ids.
+The old fake `web_research` ToolSet and fake `web_search` tool are removed once
+the formal `basic` and `web` built-ins exist. Tests use mocked live adapters or
+plugin ToolSets instead of a production registry entry that pretends to search.
 
 ## Core model
 
@@ -91,7 +91,7 @@ ToolSet and Tool stay separate from Skill:
   exposed as a provider-visible tool schema.
 - A `Tool` is a model-callable runtime primitive. A Tool is few, stable,
   general, and code-owned. It must pass registry lookup, profile resolution,
-  availability checks, ACL filtering, dispatcher enforcement, and Core
+  availability checks, dispatcher ACL enforcement, and Core
   transcript recording.
 - A `ToolSet` is the unique ownership group for tools and the smallest Agent
   profile enablement unit. ToolSet does not store business facts, own secrets,
@@ -101,9 +101,8 @@ ToolSet and Tool stay separate from Skill:
 ToolSet grouping should follow runtime coupling. Put tools in the same ToolSet
 when real tasks need them together or when they share state, configuration,
 permission assumptions, or safety boundaries. Split tools into separate ToolSets
-when they should be enabled independently. If several tools must always appear
-together, give them the same access tag or split the ToolSet to avoid a partial
-runtime surface after ACL filtering.
+when they should be enabled independently. Access tags do not split the provider
+schema; they are enforced when the dispatcher receives a tool call.
 
 ## ToolSet registry contract
 
@@ -117,8 +116,8 @@ A ToolSet is a stable registry entry with these fields:
 | `description` | Optional human-facing description for configuration UI, diagnostics, and docs. |
 | `availability` | Optional request-time `available?(context)` check for shared prerequisites. |
 
-ToolSet availability checks filter the whole group when common prerequisites
-fail. Tool availability checks filter one Tool when only that Tool is
+ToolSet availability checks filter the whole group when Agent/Session-level
+prerequisites fail. Tool availability checks filter one Tool when only that Tool is
 unavailable. The `web` ToolSet mostly uses tool-level availability because
 `web_search` and `web_extract` may depend on different adapters or credentials.
 Availability callbacks return `:ok | {:error, code}`. A failed availability
@@ -286,6 +285,12 @@ provider-visible tool names. The plugin contributes adapter id, configuration
 declarations, secret declarations, and callbacks; `web_search` and
 `web_extract` continue to select adapters through `BullX.Config`.
 
+The internal `yuma_serp` plugin contributes a `web_search` adapter through this
+extension point. Because `internals/plugins/*` entries are appended to the
+enabled plugin set automatically, `web_search` can select `yuma_serp` when no
+earlier configured search adapter is available, or directly when
+`bullx.ai_agent.web.search_provider = "yuma_serp"`.
+
 Built-in web adapter configuration uses these `BullX.Config` keys:
 
 | Key | Type | Secret | Meaning |
@@ -328,6 +333,12 @@ The built-in adapters use fixed request shapes:
 | `tavily` | `web_extract` | `POST https://api.tavily.com/extract` with `urls`, `extract_depth = "basic"`, `format = "markdown"`, and image/favicon flags disabled. | `Authorization: Bearer <key>`. | `url` and `raw_content` as `text`; `failed_results` become per-URL errors. |
 | `serpapi` | `web_search` | `GET https://serpapi.com/search` with `engine = "google"`, `q = query`, `output = "json"`, and `api_key`; take up to `limit` `organic_results`. | `api_key` query parameter. | `title`, `link` as `url`, `snippet`, and optional `position`. |
 | `jina_reader` | `web_extract` | One `POST https://r.jina.ai/` per URL with JSON body `%{"url" => url}`, `Accept: application/json`, and `X-Respond-With: content`. | Optional `Authorization: Bearer <key>`. | `data.url`, `data.title`, and `data.content || data.text` as `text`. |
+
+The internal `yuma_serp` adapter uses the same normalized `web_search` output:
+
+| Adapter | Tool | Request | Auth | Mapping |
+| --- | --- | --- | --- | --- |
+| `yuma_serp` | `web_search` | `POST https://serp.yuma.host/search` with `q`, `sources`, `timeRange`, `top`, and optional `skip_cache`. | none | `items[].title`, `url`, and `snippet`, plus optional `publishedAt`, `primarySource`, `sources`, and `rerankScore`. |
 
 Adapters do not expose provider-specific knobs as tool arguments. Provider
 request defaults change only through this design or adapter-owned code changes,
@@ -422,17 +433,20 @@ The rendering order is:
 6. Core expands enabled ToolSets into flat Tool entries.
 7. Core runs tool-level availability checks.
 8. Core reads each Tool's code-owned access tag.
-9. ACL filters tools unavailable to the current caller.
-10. Core converts the remaining entries to `ReqLLM.Tool` structs and passes
+9. Core converts the remaining entries to `ReqLLM.Tool` structs and passes
     them through the provider `tools` option.
 
 Executable schemas do not enter System Prompt Builder. Prompt text may describe
 when to use tools, but model-visible executable availability comes only from the
-provider `tools` option. A model-emitted tool call that was not rendered for the
-current request is still rejected by the dispatcher.
+provider `tools` option. Provider schema visibility is a ToolSet/profile and
+availability decision, not an ACL decision. A model-emitted tool call that was
+not rendered for the current request is still rejected by the dispatcher.
 
-Prompt caching does not decide tool availability. When ToolSet profile, ACL, or
-availability changes, Core builds a fresh provider input for that request.
+Prompt caching does not decide executable tool availability. Stable System
+Prompt Builder text may mention the Agent/Session tool surface, but each
+provider request remains authoritative through its `tools` option. When ToolSet
+profile or Agent/Session availability changes, Core builds a fresh provider
+input for that request.
 
 ## Tool call execution
 
@@ -535,7 +549,7 @@ Plugin ToolSets obey the same rules as built-ins:
 - A plugin cannot declare orphan tools.
 - A plugin cannot attach tools to another plugin's ToolSet or to a built-in
   ToolSet.
-- A plugin cannot bypass profile resolution, availability checks, ACL filtering,
+- A plugin cannot bypass profile resolution, availability checks, dispatcher ACL checks,
   provider schema rendering, dispatcher execution, or secret custody.
 - A plugin must keep secrets out of provider schema, prompt guidance, tool
   result content, and telemetry.
@@ -567,10 +581,10 @@ The runtime handles failures as follows:
 
 ## Security and privacy
 
-Tool visibility and execution are caller constrained. AIAgent filters provider
-schemas before model calls and rechecks ACL before execution. Ordinary tools
-require `invoke`; privileged tools require both `invoke` and
-`invoke_privileged`.
+Tool execution is caller constrained. AIAgent renders provider schemas from
+ToolSet profile state and Agent/Session availability, then enforces ACL when a
+tool call is executed. Ordinary tools require `invoke`; privileged tools require
+both `invoke` and `invoke_privileged`.
 
 Tool descriptions, schemas, prompt guidance, and result content must not contain
 secrets, private ACL/profile data, credential ids, raw external Events, raw
@@ -706,7 +720,7 @@ a second authorization layer, or runtime plugin lifecycle machinery.
    - Owns: `test/bullx/ai_agent/*tool*test.exs` and related support modules.
    - Acceptance: tests cover registry defaults, `basic` non-disableability,
      `web` disablement, invalid names, deterministic plugin merge, profile
-     validation, privileged filtering, forged tool-call denial, timeout and
+     validation, privileged call denial, forged tool-call denial, timeout and
      crash errors, `clarify.requested` terminal behavior,
      `clarify.unavailable`, tool-level web availability, adapter selection,
      live-adapter request/response shape through mocked HTTP responses, skipped
@@ -737,8 +751,8 @@ Stop and ask before implementation if the work appears to require:
 
 The implementation is complete when:
 
-- AIAgent computes provider `tools` from registry, profile, availability, and
-  ACL for every main model request.
+- AIAgent computes provider `tools` from registry, profile, and Agent/Session
+  availability for every main model request.
 - ToolSet `default_enabled` drives omitted profile entries.
 - Tool enablement exists only at ToolSet granularity.
 - `basic` is default-enabled, non-disableable, and contains only `clarify`.

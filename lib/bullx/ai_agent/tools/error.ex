@@ -6,6 +6,7 @@ defmodule BullX.AIAgent.Tools.Error do
   @codes [
     :tool_unknown,
     :tool_disabled,
+    :tool_unavailable,
     :tool_denied,
     :tool_malformed_arguments,
     :tool_timeout,
@@ -18,6 +19,7 @@ defmodule BullX.AIAgent.Tools.Error do
   @type code ::
           :tool_unknown
           | :tool_disabled
+          | :tool_unavailable
           | :tool_denied
           | :tool_malformed_arguments
           | :tool_timeout

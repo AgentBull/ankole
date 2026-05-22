@@ -1,11 +1,12 @@
 # Plugins
 
 BullX plugins are trusted, compile-time Elixir extensions discovered from
-`plugins/*` and activated from runtime configuration. A plugin contributes
-typed extension-point declarations, runtime configuration declarations, and
-optional supervised children. BullX does not install or compile plugins at
-runtime; changing the enabled plugin list requires an application restart. The
-code default enables the first-party Feishu and Telegram plugins.
+`plugins/*` and, when present, `internals/plugins/*`. A plugin contributes typed
+extension-point declarations, runtime configuration declarations, and optional
+supervised children. BullX does not install or compile plugins at runtime;
+changing the enabled plugin list requires an application restart. The code
+default enables the first-party Feishu and Telegram plugins. Every internal
+plugin under `internals/plugins/*` is always added to the enabled set.
 
 ## Scope
 
@@ -32,8 +33,8 @@ Node contracts, AuthN provider models, or Capability/Governance policy.
 - Keep plugins simple: local source code, compile-time dependencies, trusted
   BEAM modules, and restart-required activation.
 - Keep enablement in `app_configs` instead of adding plugin-specific tables.
-- Enable the first-party Feishu and Telegram plugins by default while preserving
-  one complete operator-owned enabled list.
+- Enable the first-party Feishu and Telegram plugins by default while always
+  loading internal plugins from `internals/plugins/*`.
 - Let plugins declare `BullX.Config` settings, including secret settings, using
   the same resolution and encryption behavior as core settings.
 - Make invalid plugin contracts fail close to startup instead of producing
@@ -67,9 +68,12 @@ starts `BullX.Repo`, then `BullX.Config.Supervisor`, then runtime consumers.
 plugin host.
 
 The `packages/*` directory holds reusable libraries whose semantics do not
-depend on BullX. The new `plugins/*` directory is different: every immediate
-child Mix project under `plugins/` is a BullX plugin and may depend on BullX
-extension-point contracts.
+depend on BullX. The `plugins/*` directory is different: every immediate child
+Mix project under `plugins/` is a BullX plugin and may depend on BullX
+extension-point contracts. `internals/plugins/*` follows the same plugin
+contract for Installation-local/internal plugins; those plugins compile with the
+release and are appended to the enabled plugin set even when an operator
+provides an explicit enabled-plugin override.
 
 ## Design
 
@@ -108,9 +112,10 @@ does not make plugin processes part of `BullX.Runtime`.
 ### Compile-time discovery
 
 The root Mix project discovers plugin dependencies by scanning immediate
-children of `plugins/` for `mix.exs`. Each plugin directory name must match the
-plugin Mix `app` name. For example, `plugins/feishu/mix.exs` must declare
-`app: :feishu`.
+children of `plugins/` and `internals/plugins/` for `mix.exs`. Each plugin
+directory name must match the plugin Mix `app` name. For example,
+`plugins/feishu/mix.exs` must declare `app: :feishu`, and
+`internals/plugins/yuma_serp/mix.exs` must declare `app: :yuma_serp`.
 
 The root project adds each discovered plugin's `lib` directory to BullX's
 compile paths. Plugin modules compile as part of the BullX application, so they
@@ -124,10 +129,11 @@ merges those dependencies into BullX's dependency list. A plugin must not depend
 on `:bullx`; plugin code is compiled inside BullX instead.
 
 The host discovers plugin entry modules from BullX's compiled application
-modules. For each plugin id from `plugins/*`, `BullX.Plugins.Discovery` finds
-modules that export `__bullx_plugin__/0` and whose declared id matches that
-plugin id. Exactly one module must export that matching marker. Zero matching
-marker modules or more than one matching marker module is a startup error.
+modules. For each plugin id from the discovered plugin roots,
+`BullX.Plugins.Discovery` finds modules that export `__bullx_plugin__/0` and
+whose declared id matches that plugin id. Exactly one module must export that
+matching marker. Zero matching marker modules or more than one matching marker
+module is a startup error.
 
 ### Plugin contract
 
@@ -143,11 +149,11 @@ small declaration surface:
 
 `use BullX.Plugins.Plugin` may generate `__bullx_plugin__/0` from compile-time
 options, but the runtime contract stays the same. When plugin source lives under
-`plugins/<id>/`, the macro infers the plugin app id from that path. Tests and
-unusual layouts may pass `app:` explicitly. The plugin id is the app atom
-rendered as a string unless the behaviour later allows a stricter explicit id.
-The host supports plugin API version `1` exactly. Unsupported versions fail
-startup.
+`plugins/<id>/` or `internals/plugins/<id>/`, the macro infers the plugin app id
+from that path. Tests and unusual layouts may pass `app:` explicitly. The plugin
+id is the app atom rendered as a string unless the behaviour later allows a
+stricter explicit id. The host supports plugin API version `1` exactly.
+Unsupported versions fail startup.
 
 Plugin metadata is descriptive and deterministic. It must not read external
 services, mutate process state, or perform registration side effects. The host
@@ -210,27 +216,33 @@ state.
 
 Enabled plugins are stored in `app_configs` through the normal configuration
 writer. The key is `bullx.enabled_plugins`. The stored value is a JSON array of
-plugin ids. The default enabled list is:
+plugin ids. The configured value controls normal plugins. Plugins discovered
+under `internals/plugins/*` are appended to that configured value so local
+internal adapters load without setup UI changes. Without a configured override,
+the base default is the first-party plugin list plus internal plugins. In this
+checkout the effective default is:
 
 ```json
-["feishu", "bullx_telegram"]
+["feishu", "bullx_telegram", "yuma_serp"]
 ```
 
 `BullX.Config.Plugins` declares the accessor:
 
 | Accessor | DB key | OS env | Application config | Default |
 | --- | --- | --- | --- | --- |
-| `enabled_plugins!/0` | `bullx.enabled_plugins` | `BULLX_ENABLED_PLUGINS` | `:enabled_plugins` | `["feishu", "bullx_telegram"]` |
+| `enabled_plugins!/0` | `bullx.enabled_plugins` | `BULLX_ENABLED_PLUGINS` | `:enabled_plugins` | configured value or `["feishu", "bullx_telegram"]`, then `++ internals/plugins ids` |
 
 The config type accepts a native list of strings from application config and a
 JSON array string from PostgreSQL or the OS environment. Invalid values follow
 the normal `BullX.Config` rule: the invalid source is ignored and resolution
 continues to the next source.
 
-An operator override is the complete enabled list, not a patch against the
-default. To disable every plugin, store `[]`. To keep Feishu or Telegram enabled
-while adding another plugin, include `"feishu"` or `"bullx_telegram"` in the
-override.
+An operator override is the complete enabled list for normal plugins, not a
+patch against the default. Internal plugins are appended after the override. To
+disable every normal plugin, store `[]`; internal plugins still load because
+they are source-tree-local code rather than setup-managed integrations. To keep
+Feishu or Telegram enabled while adding another normal plugin, include
+`"feishu"` or `"bullx_telegram"` in the override.
 
 Changing `bullx.enabled_plugins` changes the durable configuration value but
 does not change running plugin children or registry entries. The operator must
@@ -306,8 +318,8 @@ operator restores the old root secret or overwrites the affected rows.
 ### Goal
 
 Implement the plugin host, compile-time plugin discovery, runtime enablement via
-`BullX.Config`, the Feishu/Telegram default enabled list, and
-documentation-aligned startup behavior.
+`BullX.Config`, the first-party default enabled list, automatic internal plugin
+loading, and documentation-aligned startup behavior.
 
 ### Context pointers
 

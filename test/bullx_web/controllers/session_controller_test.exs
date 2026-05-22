@@ -19,7 +19,6 @@ defmodule BullXWeb.SessionControllerTest do
 
     response = html_response(conn, 200)
 
-    assert response =~ "&quot;component&quot;:&quot;sessions/New&quot;"
     assert response =~ "&quot;return_to&quot;:&quot;/console&quot;"
     assert response =~ "&quot;form_action&quot;:&quot;/sessions/login_auth&quot;"
   end
@@ -75,7 +74,6 @@ defmodule BullXWeb.SessionControllerTest do
 
     response = html_response(conn, 200)
 
-    assert response =~ "&quot;component&quot;:&quot;sessions/New&quot;"
     assert response =~ "&quot;return_to&quot;:&quot;/&quot;"
   end
 

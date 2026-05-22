@@ -23,6 +23,7 @@ This document defines:
 - Request-time compaction of large historical tool results.
 - Compression auxiliary-call constraints and structured summary content.
 - Oversized compression request retry and failure behavior.
+- Provider context-overflow and request-too-large retry during generation.
 - Manual compression after a canonical AIAgent command has been accepted by the
   command path.
 - Content-free telemetry and repeated compression failure guards.
@@ -95,7 +96,11 @@ Each model call prepares provider input in a deterministic order:
    context budget. If the input is still too large, the AIAgent runtime invokes
    durable context compression, writes a complete summary when successful, and
    repeats preparation.
-6. Prompt cache hints are added last. Hint placement is based on the final
+6. If the provider rejects the request with a recognized context overflow,
+   request-too-large, or payload-too-large error, the AIAgent runtime uses the
+   same durable compression path, re-renders provider input, and retries the
+   generation under the existing generation lease.
+7. Prompt cache hints are added last. Hint placement is based on the final
    provider input after summary overlay and large-result compaction.
 
 This order prevents three classes of bugs: rearranging history for cache
@@ -300,11 +305,14 @@ batches until the estimator returns under the safe compression-request budget.
 Compression must not claim coverage for omitted Messages. If bounded retry
 cannot produce a final provider input within safe budget, compression fails.
 
-Automatic generation-time compression failure fails the current entry's
-generation path. The AIAgent writes a safe diagnostic `kind = error` Message,
-releases the generation lease through normal recovery, and returns success from
-the Target path when the failure has been durably recorded. It must not write a
-fake summary to pretend context was safely preserved.
+Automatic generation-time compression may be triggered before the provider call
+by BullX token accounting or after a provider call rejects the input as context
+overflow or request-too-large. Both triggers use the same summary write path and
+attempt guard. Compression failure fails the current entry's generation path.
+The AIAgent writes a safe diagnostic `kind = error` Message, releases the
+generation lease through normal recovery, and returns success from the Target
+path when the failure has been durably recorded. It must not write a fake
+summary to pretend context was safely preserved.
 
 Manual compression failure is a command result. It may write a safe diagnostic
 `kind = error` Message or return a safe command response, but it does not call

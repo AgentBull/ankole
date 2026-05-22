@@ -25,10 +25,11 @@ defmodule BullX.AIAgent do
     ambient messages and direct mentions are routed to separate
     TargetSessions, so observing a noisy channel does not pollute the Agent's
     1-on-1 context.
-  * **Tools are gated per-caller, not per-agent.** Each invocation carries the
-    triggering Principal; the model only sees the subset of tools the caller's
-    ACL tags permit (see `BullX.AIAgent.Tools`). Authorization happens at
-    schema rendering, not as a runtime reject.
+  * **Tools are rendered from ToolSet/profile/availability state, then gated
+    per-caller at execution.** Each invocation carries the triggering
+    Principal; `BullX.AIAgent.Tools` builds the provider-visible schemas for
+    the current Agent/Session context, and the dispatcher rechecks ACL when the
+    model actually calls a tool.
 
   See [docs/Architecture.md](../docs/Architecture.md) and the README's "Three
   Models, One Distinction" section for the broader colleague-vs-assistant
@@ -908,11 +909,7 @@ defmodule BullX.AIAgent do
   end
 
   defp command_response_content("no_active_generation") do
-    control_notice(
-      "There is no active generation.",
-      "Idle",
-      %{"zh_CN" => "当前没有正在生成的回复", "en_US" => "Idle"}
-    )
+    localized_control_notice("no_active_generation")
   end
 
   defp command_response_content("no_retry_target") do
@@ -980,6 +977,21 @@ defmodule BullX.AIAgent do
         "i18n" => i18n
       }
     }
+  end
+
+  defp localized_control_notice(code) do
+    control_notice(
+      localized_command_response(code, "text"),
+      localized_command_response(code, "short_text"),
+      %{
+        "zh_CN" => localized_command_response(code, "short_text", locale: :"zh-Hans-CN"),
+        "en_US" => localized_command_response(code, "short_text", locale: :"en-US")
+      }
+    )
+  end
+
+  defp localized_command_response(code, field, opts \\ []) do
+    BullX.I18n.t("ai_agent.commands.responses.#{code}.#{field}", %{}, opts)
   end
 
   defp compress_progress_notice(:running) do

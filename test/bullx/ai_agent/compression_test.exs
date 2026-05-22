@@ -38,6 +38,35 @@ defmodule BullX.AIAgent.CompressionTest do
     :ok
   end
 
+  test "context overflow classifier detects provider request-too-large patterns" do
+    errors = [
+      :request_too_large,
+      :context_length_exceeded,
+      {:api_error, %{code: "request_too_large"}},
+      %{"error" => %{"code" => "request_too_large"}},
+      %{"message" => "context length exceeded"},
+      %{"message" => "input exceeds the maximum number of tokens"},
+      %{"message" => "input token count exceeds the maximum number of input tokens"},
+      %{"message" => "input is too long for the model"},
+      "ollama error: context length exceeded",
+      ReqLLM.Error.API.Request.exception(
+        reason: "Request Entity Too Large",
+        status: 413,
+        response_body: %{"error" => %{"message" => "payload too large"}}
+      )
+    ]
+
+    assert Enum.all?(errors, &Compression.context_overflow_error?/1)
+
+    refute Compression.context_overflow_error?(
+             ReqLLM.Error.API.Request.exception(
+               reason: "Unauthorized - Invalid or missing API key",
+               status: 401,
+               response_body: %{"error" => %{"message" => "invalid api key"}}
+             )
+           )
+  end
+
   test "manual compression writes a summary overlay without rewriting raw messages" do
     {:ok, %{principal: agent}} =
       Principals.create_agent(%{

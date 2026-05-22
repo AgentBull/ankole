@@ -337,8 +337,8 @@ defmodule BullX.AIAgent.Profile do
   defp validate_toolset_config(errors, toolset_id, %{} = config) do
     errors
     |> validate_toolset_enabled(toolset_id, config)
-    |> validate_toolset_access(toolset_id, config)
-    |> validate_tool_configs(toolset_id, config)
+    |> validate_toolset_supported_fields(toolset_id, config)
+    |> validate_basic_enabled(toolset_id, config)
   end
 
   defp validate_toolset_config(errors, toolset_id, _config) do
@@ -346,60 +346,50 @@ defmodule BullX.AIAgent.Profile do
   end
 
   defp validate_toolset_enabled(errors, toolset_id, config) do
-    case Map.get(config, "enabled", true) do
-      value when is_boolean(value) -> errors
-      _other -> ["toolset #{toolset_id}.enabled must be boolean" | errors]
-    end
-  end
-
-  defp validate_toolset_access(errors, toolset_id, config) do
-    case atom_value(config, "access", :ordinary) do
-      value when value in @access_tags -> errors
-      _other -> ["toolset #{toolset_id}.access has unsupported value" | errors]
-    end
-  end
-
-  defp validate_tool_configs(errors, toolset_id, config) do
-    case Map.get(config, "tools", %{}) do
-      %{} = tools ->
-        Enum.reduce(tools, errors, fn {tool_name, tool_config}, acc ->
-          validate_tool_config(acc, toolset_id, tool_name, tool_config)
-        end)
-
-      _other ->
-        ["toolset #{toolset_id}.tools must be a JSON object" | errors]
-    end
-  end
-
-  defp validate_tool_config(errors, toolset_id, tool_name, %{} = config)
-       when is_binary(tool_name) and tool_name != "" do
-    errors
-    |> validate_tool_enabled(toolset_id, tool_name, config)
-    |> validate_tool_access(toolset_id, tool_name, config)
-  end
-
-  defp validate_tool_config(errors, toolset_id, tool_name, _config) do
-    ["tool #{toolset_id}.#{inspect(tool_name)} config must be a JSON object" | errors]
-  end
-
-  defp validate_tool_enabled(errors, toolset_id, tool_name, config) do
-    case Map.get(config, "enabled", true) do
-      value when is_boolean(value) -> errors
-      _other -> ["tool #{toolset_id}.#{tool_name}.enabled must be boolean" | errors]
-    end
-  end
-
-  defp validate_tool_access(errors, toolset_id, tool_name, config) do
-    case Map.fetch(config, "access") do
-      :error ->
+    case fetch_config(config, "enabled") do
+      {:ok, value} when is_boolean(value) ->
         errors
 
-      {:ok, value} ->
-        case normalize_atom(value) do
-          access when access in @access_tags -> errors
-          _other -> ["tool #{toolset_id}.#{tool_name}.access has unsupported value" | errors]
-        end
+      {:ok, _value} ->
+        ["toolset #{toolset_id}.enabled must be boolean" | errors]
+
+      :error ->
+        ["toolset #{toolset_id}.enabled is required" | errors]
     end
+  end
+
+  defp validate_toolset_supported_fields(errors, toolset_id, config) do
+    config
+    |> Map.keys()
+    |> Enum.reject(&(&1 == "enabled" or &1 == :enabled))
+    |> case do
+      [] ->
+        errors
+
+      fields ->
+        [
+          "toolset #{toolset_id} has unsupported fields: #{Enum.map_join(fields, ", ", &to_string/1)}"
+          | errors
+        ]
+    end
+  end
+
+  defp validate_basic_enabled(errors, toolset_id, config) when toolset_id in ["basic", :basic] do
+    case fetch_config(config, "enabled") do
+      {:ok, false} -> ["toolset basic cannot be disabled" | errors]
+      _value -> errors
+    end
+  end
+
+  defp validate_basic_enabled(errors, _toolset_id, _config), do: errors
+
+  defp fetch_config(config, key) do
+    case Map.fetch(config, key) do
+      {:ok, value} -> {:ok, value}
+      :error -> Map.fetch(config, String.to_existing_atom(key))
+    end
+  rescue
+    ArgumentError -> :error
   end
 
   defp daily_reset(profile) do
@@ -435,21 +425,7 @@ defmodule BullX.AIAgent.Profile do
     |> Map.new(fn {toolset_id, config} ->
       {toolset_id,
        %{
-         enabled: Map.get(config, "enabled", true),
-         access: atom_value(config, "access", :ordinary),
-         tools: tools(config)
-       }}
-    end)
-  end
-
-  defp tools(config) do
-    config
-    |> Map.get("tools", %{})
-    |> Map.new(fn {tool_name, tool_config} ->
-      {tool_name,
-       %{
-         enabled: Map.get(tool_config, "enabled", true),
-         access: optional_atom(tool_config, "access")
+         enabled: Map.get(config, "enabled", Map.get(config, :enabled))
        }}
     end)
   end
@@ -496,13 +472,6 @@ defmodule BullX.AIAgent.Profile do
   defp atom_value(map, key, default) do
     case config_value(map, key) do
       nil -> default
-      value -> normalize_atom(value)
-    end
-  end
-
-  defp optional_atom(map, key) do
-    case config_value(map, key) do
-      nil -> nil
       value -> normalize_atom(value)
     end
   end

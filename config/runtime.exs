@@ -55,8 +55,6 @@ if config_env() == :prod do
 
   host = BullX.Config.Bootstrap.env_string("PHX_HOST", "example.com")
 
-  config :bullx, :dns_cluster_query, BullX.Config.Bootstrap.env_string("DNS_CLUSTER_QUERY")
-
   config :bullx, BullXWeb.Endpoint,
     url: [host: host, port: 443, scheme: "https"],
     http: [

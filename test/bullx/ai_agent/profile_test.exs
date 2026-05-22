@@ -15,11 +15,8 @@ defmodule BullX.AIAgent.ProfileTest do
                  "mission" => "Answer finance questions.",
                  "unknown" => "ignored",
                  "toolsets" => %{
-                   "web_research" => %{
-                     "enabled" => true,
-                     "access" => "ordinary",
-                     "tools" => %{"web_search" => %{"access" => "privileged"}}
-                   }
+                   "web" => %{"enabled" => false},
+                   "future_plugin" => %{"enabled" => true}
                  }
                }
              })
@@ -34,7 +31,8 @@ defmodule BullX.AIAgent.ProfileTest do
     assert profile.context.max_turns == 50
     assert profile.context.time_awareness_granularity == :hour
     assert profile.acl.elevation_strategy == :deny
-    assert profile.toolsets["web_research"].tools["web_search"].access == :privileged
+    assert profile.toolsets["web"].enabled == false
+    assert profile.toolsets["future_plugin"].enabled == true
   end
 
   test "rejects invalid profile fields before model calls" do
@@ -68,5 +66,24 @@ defmodule BullX.AIAgent.ProfileTest do
              })
 
     assert "acl must be a JSON object" in errors
+  end
+
+  test "rejects unsupported ToolSet profile fields and disabling basic" do
+    assert {:error, {:invalid_profile, errors}} =
+             Profile.cast(%{
+               "ai_agent" => %{
+                 "main_llm" => %{"provider_id" => "openai_proxy", "model" => "gpt-test"},
+                 "mission" => "Answer finance questions.",
+                 "toolsets" => %{
+                   "basic" => %{"enabled" => false},
+                   "web" => %{"enabled" => true, "tools" => %{}},
+                   "ops" => %{}
+                 }
+               }
+             })
+
+    assert "toolset basic cannot be disabled" in errors
+    assert "toolset web has unsupported fields: tools" in errors
+    assert "toolset ops.enabled is required" in errors
   end
 end

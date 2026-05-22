@@ -384,10 +384,17 @@ defmodule BullX.EventBus.StreamingOutput do
   defp pub_key(stream_id), do: "bullx:stream:#{stream_id}:pub"
 
   defp safe_terminal_reason(nil), do: ""
-  defp safe_terminal_reason(reason) when is_binary(reason), do: String.slice(reason, 0, 200)
+  defp safe_terminal_reason(reason) when is_atom(reason), do: Atom.to_string(reason)
+
+  defp safe_terminal_reason(reason) when is_binary(reason) do
+    case String.valid?(reason) do
+      true -> reason
+      false -> inspect(reason, limit: :infinity, printable_limit: :infinity)
+    end
+  end
 
   defp safe_terminal_reason(reason),
-    do: reason |> inspect(limit: 5, printable_limit: 120) |> String.slice(0, 200)
+    do: inspect(reason, limit: :infinity, printable_limit: :infinity)
 
   defp emit(event, measurements, metadata) do
     :telemetry.execute([:bullx, :event_bus, :stream, event], measurements, metadata)

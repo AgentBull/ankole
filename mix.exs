@@ -21,7 +21,7 @@ defmodule BullX.MixProject do
     [
       mod: {BullX.Application, []},
       extra_applications: [:logger, :runtime_tools, :cachetastic],
-      env: [plugin_apps: plugin_apps()]
+      env: [plugin_apps: plugin_apps(), internal_plugin_apps: internal_plugin_apps()]
     ]
   end
 
@@ -35,29 +35,28 @@ defmodule BullX.MixProject do
   defp deps do
     core_deps = [
       {:archdo, ">= 0.0.0", github: "BadBeta/archdo", only: [:dev, :test], runtime: false},
-      {:phoenix, "~> 1.8.5"},
-      {:phoenix_ecto, "~> 4.5"},
-      {:ecto_sql, "~> 3.13"},
+      {:phoenix, "~> 1.8.7"},
+      {:phoenix_ecto, "~> 4.7"},
+      {:ecto_sql, "~> 3.14"},
       {:postgrex, ">= 0.0.0"},
-      {:phoenix_html, "~> 4.1"},
+      {:phoenix_html, "~> 4.3"},
       {:lazy_html, ">= 0.1.0", only: :test},
       {:rustler, "~> 0.37.3", runtime: false},
       {:inertia, "~> 2.6"},
       {:open_api_spex, "~> 3.22"},
       {:nimble_options, "~> 1.1"},
-      {:swoosh, "~> 1.16"},
+      {:swoosh, "~> 1.25"},
       {:req, "~> 0.5"},
       {:req_llm, "~> 1.11"},
       {:telemetry_metrics, "~> 1.0"},
       {:telemetry_poller, "~> 1.0"},
-      {:localize, "~> 0.28.0"},
+      {:localize, "~> 0.37.0"},
       {:toml_elixir, "~> 3.0"},
       {:jason, "~> 1.4"},
-      {:dns_cluster, "~> 0.2.0"},
       {:bandit, "~> 1.11"},
       {:skogsra, "~> 2.5"},
       {:dotenvy, "~> 1.1"},
-      {:zoi, "~> 0.17"},
+      {:zoi, "~> 0.18"},
       {:cachetastic, "~> 1.0"},
       {:redix, "~> 1.5"},
       {:oban, "~> 2.22"}
@@ -83,18 +82,18 @@ defmodule BullX.MixProject do
   end
 
   defp plugin_elixirc_paths do
-    plugin_apps()
-    |> Enum.map(&Path.join(["plugins", Atom.to_string(&1), "lib"]))
+    plugin_dirs()
+    |> Enum.map(fn {_app, dir} -> Path.join(dir, "lib") end)
     |> Enum.filter(&File.dir?/1)
   end
 
   defp plugin_project_deps do
-    plugin_apps()
-    |> Enum.flat_map(&plugin_deps_for/1)
+    plugin_dirs()
+    |> Enum.flat_map(fn {app, dir} -> plugin_deps_for(app, dir) end)
   end
 
-  defp plugin_deps_for(app) do
-    Mix.Project.in_project(app, Path.join("plugins", Atom.to_string(app)), fn _module ->
+  defp plugin_deps_for(app, dir) do
+    Mix.Project.in_project(app, dir, fn _module ->
       Mix.Project.config()
       |> Keyword.get(:deps, [])
       |> reject_bullx_dep(app)
@@ -102,12 +101,37 @@ defmodule BullX.MixProject do
   end
 
   defp plugin_apps do
-    "plugins/*/mix.exs"
-    |> Path.wildcard()
+    plugin_dirs()
+    |> Enum.map(&elem(&1, 0))
+  end
+
+  defp internal_plugin_apps do
+    plugin_dirs()
+    |> Enum.filter(fn {_app, dir} -> String.starts_with?(dir, "internals/plugins/") end)
+    |> Enum.map(&elem(&1, 0))
+  end
+
+  defp plugin_dirs do
+    ["plugins/*/mix.exs", "internals/plugins/*/mix.exs"]
+    |> Enum.flat_map(&Path.wildcard/1)
     |> Enum.map(&Path.dirname/1)
-    |> Enum.map(&Path.basename/1)
-    |> Enum.map(&String.to_atom/1)
+    |> Enum.map(&{&1 |> Path.basename() |> String.to_atom(), &1})
     |> Enum.sort()
+    |> reject_duplicate_plugin_dirs()
+  end
+
+  defp reject_duplicate_plugin_dirs(plugin_dirs) do
+    plugin_dirs
+    |> Enum.frequencies_by(&elem(&1, 0))
+    |> Enum.filter(fn {_app, count} -> count > 1 end)
+    |> case do
+      [] ->
+        plugin_dirs
+
+      duplicates ->
+        apps = duplicates |> Enum.map(&elem(&1, 0)) |> Enum.sort()
+        raise ArgumentError, "duplicate BullX plugin app directories: #{inspect(apps)}"
+    end
   end
 
   defp reject_bullx_dep(deps, app) do

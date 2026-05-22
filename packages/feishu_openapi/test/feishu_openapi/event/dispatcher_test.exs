@@ -127,6 +127,33 @@ defmodule FeishuOpenAPI.Event.DispatcherTest do
                   %{"schema" => "2.0", "header" => %{"event_type" => "x"}, "event" => %{}}}
                )
     end
+
+    test "trusted decoded card action payloads route to card callback handlers" do
+      me = self()
+
+      d =
+        Dispatcher.new()
+        |> Dispatcher.on_callback("card.action.trigger", fn event_type, event ->
+          send(me, {:card_action, event_type, event})
+          :handled
+        end)
+
+      decoded = %{
+        "open_message_id" => "om_card",
+        "open_chat_id" => "oc_chat",
+        "open_id" => "ou_user",
+        "action" => %{
+          "tag" => "button",
+          "value" => %{"bullx_action" => "clarify_answer", "choice_value" => "Beta"}
+        }
+      }
+
+      assert {:ok, :handled} = Dispatcher.dispatch(d, {:trusted_decoded, decoded})
+
+      assert_receive {:card_action, "card.action.trigger", %Event{} = event}
+      assert event.raw == decoded
+      assert event.content == nil
+    end
   end
 
   describe "signature verification" do

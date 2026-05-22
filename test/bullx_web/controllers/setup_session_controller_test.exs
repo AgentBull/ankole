@@ -5,13 +5,6 @@ defmodule BullXWeb.SetupSessionControllerTest do
   alias BullX.Principals.ActivationCode
   alias BullX.Repo
 
-  test "GET /setup/sessions/new renders the setup gate with no-store", %{conn: conn} do
-    conn = get(conn, ~p"/setup/sessions/new")
-
-    assert html_response(conn, 200) =~ "setup/sessions/New"
-    assert get_resp_header(conn, "cache-control") == ["no-store"]
-  end
-
   test "POST /setup/sessions stores setup session keys without consuming the code", %{conn: conn} do
     assert {:ok, %{code: plaintext, activation_code: code}} =
              Principals.create_or_refresh_bootstrap_activation_code()

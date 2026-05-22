@@ -83,6 +83,14 @@ defmodule BullX.EventBus.TargetSession.Worker do
     ArgumentError -> :ok
   end
 
+  def registered?(target_session_id) when is_binary(target_session_id) do
+    @registry
+    |> Registry.lookup(target_session_id)
+    |> Enum.any?(fn {pid, _value} -> Process.alive?(pid) end)
+  rescue
+    ArgumentError -> false
+  end
+
   defp register(target_session_id) do
     case Registry.register(@registry, target_session_id, []) do
       {:ok, _pid} -> :ok

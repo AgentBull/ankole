@@ -28,8 +28,8 @@ defmodule BullX.AIAgent.PromptRenderer do
       ) do
     branch = Conversations.render_branch(conversation)
     ambient_context = Keyword.get(opts, :ambient_context, [])
-    sections = system_sections(profile, opts)
-    template = system_template(conversation, profile)
+    sections = system_sections(profile)
+    template = system_template(conversation, profile, Keyword.get(opts, :agent_tool_names, []))
 
     with {:ok, system} <- SystemPromptBuilder.render(sections, template: template),
          {:ok, messages} <-
@@ -48,7 +48,7 @@ defmodule BullX.AIAgent.PromptRenderer do
     end
   end
 
-  defp system_sections(%Profile{} = profile, opts) do
+  defp system_sections(%Profile{} = profile) do
     [
       %SystemPromptBuilder.Section{
         id: "profile.instructions",
@@ -57,20 +57,11 @@ defmodule BullX.AIAgent.PromptRenderer do
         priority: 30,
         tag: "instructions",
         content: nil_if_empty(profile.instructions)
-      },
-      %SystemPromptBuilder.Section{
-        id: "runtime.context",
-        kind: :runtime_context,
-        stability: :volatile,
-        priority: 100,
-        tag: "context",
-        cache_break_reason: "current generation context",
-        content: runtime_context(opts)
       }
     ]
   end
 
-  defp system_template(%Conversation{} = conversation, %Profile{} = profile) do
+  defp system_template(%Conversation{} = conversation, %Profile{} = profile, agent_tool_names) do
     [
       SystemPromptBuilder.text("""
       You are #{agent_display_name(conversation)}, an AI colleague powered by BullX.
@@ -85,8 +76,29 @@ defmodule BullX.AIAgent.PromptRenderer do
         #{mission}
         """
       end),
+      SystemPromptBuilder.optional(
+        "runtime.tool_guidance",
+        tool_guidance(agent_tool_names),
+        & &1
+      ),
       SystemPromptBuilder.sections()
     ]
+  end
+
+  defp tool_guidance(agent_tool_names) do
+    agent_tool_names
+    |> Enum.uniq()
+    |> case do
+      [] ->
+        nil
+
+      names ->
+        """
+        This AIAgent may be given tool schemas such as: #{Enum.join(names, ", ")}.
+
+        The tool schemas attached to the current provider request are authoritative for this generation. Use tools when they materially improve correctness or grounding. Do not describe a tool action you can perform without calling the tool in that generation. Use web tools for current external facts or source content when they are present. Use clarify only when missing information changes the next action and cannot be inferred or retrieved; after requesting clarification, wait for later user input.
+        """
+    end
   end
 
   defp nil_if_empty(""), do: nil
@@ -106,21 +118,6 @@ defmodule BullX.AIAgent.PromptRenderer do
     case nil_if_empty(display_name) do
       nil -> uid || "BullX AIAgent"
       name -> name
-    end
-  end
-
-  defp runtime_context(opts) do
-    opts
-    |> Keyword.get(:runtime_context, %{})
-    |> case do
-      context when map_size(context) == 0 ->
-        nil
-
-      context ->
-        context
-        |> Enum.map_join("\n", fn {key, value} ->
-          "#{key}: #{inspect(value, limit: 10, printable_limit: 200)}"
-        end)
     end
   end
 

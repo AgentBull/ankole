@@ -7,8 +7,6 @@ defmodule BullX.EventBus.TargetSession.Job do
   alias BullX.EventBus.TargetSession.Worker
   alias BullX.Repo
 
-  @open_job_states ["available", "scheduled", "executing", "retryable"]
-
   @spec ensure(TargetSession.t()) :: {:ok, TargetSession.t()} | {:error, AppendFailed.t()}
   def ensure(%TargetSession{} = session) do
     Repo.transaction(fn ->
@@ -42,19 +40,31 @@ defmodule BullX.EventBus.TargetSession.Job do
   end
 
   defp ensure_locked(%TargetSession{oban_job_id: job_id} = session) when is_integer(job_id) do
-    case open_job?(job_id) do
-      true -> {:ok, session}
-      false -> insert_job(session)
+    case job_state(job_id) do
+      "executing" -> ensure_executing_job(session, job_id)
+      state when state in ["available", "scheduled", "retryable"] -> {:ok, session}
+      _missing_or_terminal -> insert_job(session)
     end
   end
 
   defp ensure_locked(%TargetSession{} = session), do: insert_job(session)
 
-  defp open_job?(job_id) do
+  defp ensure_executing_job(%TargetSession{} = session, job_id) do
+    case Worker.registered?(session.id) do
+      true ->
+        {:ok, session}
+
+      false ->
+        :ok = Oban.cancel_job(job_id)
+        insert_job(session)
+    end
+  end
+
+  defp job_state(job_id) do
     Oban.Job
     |> where([j], j.id == ^job_id)
-    |> where([j], j.state in ^@open_job_states)
-    |> Repo.exists?()
+    |> select([j], j.state)
+    |> Repo.one()
   end
 
   defp insert_job(%TargetSession{} = session) do

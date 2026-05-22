@@ -515,7 +515,7 @@ defmodule BullX.AIAgent.SystemPromptBuilder do
     total_size = byte_size(system_text)
 
     %{
-      system_content: system_content_parts(rendered_units),
+      system_content: system_content(system_text),
       system_text: system_text,
       stable_prefix: %{
         last_stable_section_id: last_stable_section_id(stable_units),
@@ -563,11 +563,8 @@ defmodule BullX.AIAgent.SystemPromptBuilder do
   defp stable_prefix_text(stable_units),
     do: stable_units |> Enum.map(& &1.text) |> Enum.join("\n\n")
 
-  defp system_content_parts([]), do: []
-
-  defp system_content_parts([first | rest]) do
-    [ContentPart.text(first.text) | Enum.map(rest, &ContentPart.text("\n\n" <> &1.text))]
-  end
+  defp system_content(""), do: []
+  defp system_content(system_text), do: [ContentPart.text(system_text)]
 
   defp omitted_section_ids(sections) do
     sections
@@ -585,7 +582,7 @@ defmodule BullX.AIAgent.SystemPromptBuilder do
   end
 
   defp stable_content_part_index([]), do: nil
-  defp stable_content_part_index(stable_units), do: length(stable_units) - 1
+  defp stable_content_part_index(_stable_units), do: 0
 
   defp validate_size_cap(result, opts) do
     case Keyword.get(opts, :max_total_bytes) do

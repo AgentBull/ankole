@@ -315,14 +315,10 @@ defmodule Feishu.EventMapper do
     }
   end
 
-  defp reject_self_sent(%{sender: sender}, %Source{}) do
-    sender_type = Map.get(sender, "sender_type")
+  defp reject_self_sent(%{sender: %{"sender_type" => "bot"}}, %Source{}),
+    do: {:ignore, :self_sent_bot_message}
 
-    case sender_type in ["bot", "app"] do
-      true -> {:ignore, :self_sent_bot_message}
-      false -> :ok
-    end
-  end
+  defp reject_self_sent(%{sender: _sender}, %Source{}), do: :ok
 
   defp attrs(%Source{} = source, env, actor, blocks, event_type, extra_facts) do
     %{
@@ -534,13 +530,15 @@ defmodule Feishu.EventMapper do
       Map.get(reaction, "reaction_type")
   end
 
-  defp action_id(%CardAction{action: %{"tag" => tag}}) when is_binary(tag), do: tag
-  defp action_id(%CardAction{action: %{"name" => name}}) when is_binary(name), do: name
-
-  defp action_id(%CardAction{action: %{"value" => %{"action_id" => id}}}) when is_binary(id),
-    do: id
-
-  defp action_id(_action), do: "submit"
+  defp action_id(%CardAction{} = action) do
+    action
+    |> action_id_candidates()
+    |> Enum.find_value(&present_string/1)
+    |> case do
+      nil -> "submit"
+      id -> id
+    end
+  end
 
   defp card_action_event_id(%CardAction{token: token}, _actor, _action_id)
        when is_binary(token) and token != "",
@@ -557,16 +555,59 @@ defmodule Feishu.EventMapper do
   end
 
   defp action_blocks(%CardAction{} = action, action_id) do
+    values = action_values(action)
+
     block =
       %{
         "type" => "action",
-        "text" => "submitted action: #{action_id}",
+        "text" => action_text(action_id, values),
         "action_id" => action_id
       }
-      |> maybe_put("values", action_values(action))
+      |> maybe_put("values", values)
 
     [block]
   end
+
+  defp action_id_candidates(%CardAction{action: action} = card) when is_map(action) do
+    values = action_values(card) || %{}
+
+    [
+      Map.get(values, "action_id"),
+      Map.get(values, "bullx_action"),
+      Map.get(action, "tag"),
+      Map.get(action, "name")
+    ]
+  end
+
+  defp action_id_candidates(_action), do: []
+
+  defp action_text(_action_id, %{"bullx_action" => "clarify_answer"} = values) do
+    case clarify_choice_text(values) do
+      nil -> "clarification answer submitted"
+      choice -> "Clarification answer: #{choice}"
+    end
+  end
+
+  defp action_text(action_id, _values), do: "submitted action: #{action_id}"
+
+  defp clarify_choice_text(%{"choice_value" => value} = values) do
+    present_string(value) || values |> Map.delete("choice_value") |> clarify_choice_text()
+  end
+
+  defp clarify_choice_text(%{"choice_index" => index}), do: clarify_choice_index_text(index)
+  defp clarify_choice_text(_values), do: nil
+
+  defp clarify_choice_index_text(index) when is_integer(index) and index >= 0,
+    do: "choice #{index + 1}"
+
+  defp clarify_choice_index_text(index) when is_binary(index) do
+    case Integer.parse(index) do
+      {parsed, ""} when parsed >= 0 -> clarify_choice_index_text(parsed)
+      _other -> nil
+    end
+  end
+
+  defp clarify_choice_index_text(_index), do: nil
 
   defp action_values(%CardAction{action: action}) when is_map(action) do
     action

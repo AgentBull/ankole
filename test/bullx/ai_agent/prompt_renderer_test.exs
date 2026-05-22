@@ -93,13 +93,29 @@ defmodule BullX.AIAgent.PromptRendererTest do
         metadata: %{}
       })
 
-    assert {:ok, rendered} = PromptRenderer.render(conversation, profile, source)
+    assert {:ok, rendered} =
+             PromptRenderer.render(conversation, profile, source,
+               runtime_context: %{
+                 target_session_id: "must-not-render",
+                 target_session_entry: %{"raw" => "must-not-render"}
+               }
+             )
 
     assert rendered.system_prompt.system_text =~
              "You are Agent, an AI colleague powered by BullX."
 
     assert rendered.system_prompt.system_text =~
              "Your mission is:\n\nHandle prompt rendering tests."
+
+    [system_message | _messages] = rendered.messages
+    system_text = rendered.system_prompt.system_text
+
+    assert [%ReqLLM.Message.ContentPart{type: :text, text: ^system_text}] =
+             system_message.content
+
+    refute system_text =~ "<context>"
+    refute system_text =~ "target_session_id"
+    refute system_text =~ "target_session_entry"
 
     assert ["call_1", "call_2"] =
              rendered.messages

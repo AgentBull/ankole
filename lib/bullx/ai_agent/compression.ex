@@ -23,6 +23,66 @@ defmodule BullX.AIAgent.Compression do
   @protected_tail_ratio 0.20
   @large_tool_result_bytes 8_000
   @max_auto_attempts 3
+  @context_overflow_codes ~w(
+    context_length_exceeded
+    context_window_exceeded
+    model_context_window_exceeded
+    payload_too_large
+    request_too_large
+    token_limit_exceeded
+  )
+  @context_overflow_phrases [
+    "context length exceeded",
+    "context size has been exceeded",
+    "context window exceeded",
+    "context window exceeds limit",
+    "exceeds the max_model_len",
+    "exceeds the maximum number of input tokens",
+    "input exceeds the maximum number of tokens",
+    "input is too long",
+    "input is too long for the model",
+    "input token count exceeds the maximum number of input tokens",
+    "maximum context length",
+    "maximum context size",
+    "maximum model length",
+    "max input token",
+    "max_model_len",
+    "ollama error: context length exceeded",
+    "prompt is too long",
+    "prompt length",
+    "request entity too large",
+    "reduce the length",
+    "too many input tokens"
+  ]
+  @context_overflow_map_keys [
+    :body,
+    :cause,
+    :code,
+    :detail,
+    :details,
+    :error,
+    :error_code,
+    :message,
+    :original,
+    :reason,
+    :response,
+    :response_body,
+    :type,
+    "body",
+    "cause",
+    "code",
+    "detail",
+    "details",
+    "error",
+    "error_code",
+    "message",
+    "original",
+    "reason",
+    "response",
+    "response_body",
+    "type"
+  ]
+  @status_keys [:status, :status_code, "status", "status_code"]
 
   @spec manual_compress(Conversation.t(), map()) :: {:ok, map()} | {:error, term()}
   def manual_compress(%Conversation{} = conversation, context) when is_map(context) do
@@ -99,6 +159,39 @@ defmodule BullX.AIAgent.Compression do
     estimate_messages(rendered.messages || []) >= compression_threshold(profile)
   end
 
+  @spec context_overflow_error?(term()) :: boolean()
+  def context_overflow_error?(%{status: 413}), do: true
+  def context_overflow_error?(%{status_code: 413}), do: true
+
+  def context_overflow_error?(%{__exception__: true} = exception) do
+    context_overflow_map?(exception) or context_overflow_error?(Exception.message(exception))
+  end
+
+  def context_overflow_error?(reason) when is_atom(reason) do
+    reason
+    |> Atom.to_string()
+    |> context_overflow_text?()
+  end
+
+  def context_overflow_error?(reason) when is_binary(reason) do
+    case Jason.decode(reason) do
+      {:ok, decoded} -> context_overflow_error?(decoded) or context_overflow_text?(reason)
+      {:error, _decode_error} -> context_overflow_text?(reason)
+    end
+  end
+
+  def context_overflow_error?(reason) when is_tuple(reason) do
+    reason
+    |> Tuple.to_list()
+    |> Enum.any?(&context_overflow_error?/1)
+  end
+
+  def context_overflow_error?(reason) when is_list(reason),
+    do: Enum.any?(reason, &context_overflow_error?/1)
+
+  def context_overflow_error?(%{} = reason), do: context_overflow_map?(reason)
+  def context_overflow_error?(_reason), do: false
+
   @spec auto_compress(Conversation.t(), map(), non_neg_integer()) ::
           {:ok, map()} | {:error, term()}
   def auto_compress(%Conversation{} = conversation, context, attempt \\ 0) when is_map(context) do
@@ -108,7 +201,7 @@ defmodule BullX.AIAgent.Compression do
 
       true ->
         context
-        |> Map.put(:compression_trigger, "auto_generation")
+        |> Map.put_new(:compression_trigger, "auto_generation")
         |> then(&manual_compress(conversation, &1))
     end
   end
@@ -259,7 +352,7 @@ defmodule BullX.AIAgent.Compression do
         end
 
       {:error, reason} ->
-        case oversized_error?(reason) do
+        case context_overflow_error?(reason) do
           true -> retry_shrunken_compression(profile, seen_messages, attempt)
           false -> {:error, reason}
         end
@@ -577,18 +670,33 @@ defmodule BullX.AIAgent.Compression do
   defp tl_or_empty([_oldest | rest]), do: rest
   defp tl_or_empty([]), do: []
 
-  defp oversized_error?(reason) when is_atom(reason),
-    do: reason in [:context_length_exceeded, :token_limit_exceeded, :request_too_large]
+  defp context_overflow_map?(map) do
+    status_413?(map) or
+      map
+      |> selected_context_error_values()
+      |> Enum.any?(&context_overflow_error?/1)
+  end
 
-  defp oversized_error?({reason, _detail}) when is_atom(reason), do: oversized_error?(reason)
+  defp status_413?(map) do
+    Enum.any?(@status_keys, fn key ->
+      Map.get(map, key) in [413, "413"]
+    end)
+  end
 
-  defp oversized_error?(%{code: code}) when is_binary(code), do: oversized_error_code?(code)
-  defp oversized_error?(%{"code" => code}) when is_binary(code), do: oversized_error_code?(code)
-  defp oversized_error?(_reason), do: false
+  defp selected_context_error_values(map) do
+    @context_overflow_map_keys
+    |> Enum.map(&Map.get(map, &1))
+    |> Enum.reject(&is_nil/1)
+  end
 
-  defp oversized_error_code?(code) do
-    String.contains?(code, "context") or String.contains?(code, "token") or
-      String.contains?(code, "too_large")
+  defp context_overflow_text?(text) when is_binary(text) do
+    normalized =
+      text
+      |> String.downcase()
+      |> String.trim()
+
+    normalized in @context_overflow_codes or
+      Enum.any?(@context_overflow_phrases, &String.contains?(normalized, &1))
   end
 
   defp original_dialogue_time_range(messages) do

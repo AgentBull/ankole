@@ -17,6 +17,8 @@ defmodule BullX.AIAgent.TargetTest do
     BullX.LLM.Catalog.Cache.refresh_all()
 
     previous_llm = Application.get_env(:bullx, :llm, [])
+    previous_ai_agent = Application.get_env(:bullx, :ai_agent)
+    previous_web_req_options = Application.get_env(:bullx, :ai_agent_web_req_options)
     previous_adapter_registry = Application.get_env(:bullx, :event_bus_channel_adapter_registry)
     previous_delivery_gate = Application.get_env(:bullx, :event_bus_test_delivery_gate)
     previous_pid = Application.get_env(:bullx, :event_bus_test_pid)
@@ -36,9 +38,26 @@ defmodule BullX.AIAgent.TargetTest do
       Keyword.put(previous_llm, :client, BullX.AIAgent.FakeLLMClient)
     )
 
+    Application.put_env(:bullx, :ai_agent,
+      web: [search_provider: "exa", exa: [api_key: "sk-exa-test"]]
+    )
+
+    Application.put_env(:bullx, :ai_agent_web_req_options, plug: {Req.Test, __MODULE__})
     Application.put_env(:bullx, :event_bus_channel_adapter_registry, registry)
     Application.put_env(:bullx, :event_bus_test_pid, self())
     TestingChannel.clear()
+
+    Req.Test.stub(__MODULE__, fn conn ->
+      Req.Test.json(conn, %{
+        "results" => [
+          %{
+            "title" => "Result",
+            "url" => "https://example.com/result",
+            "highlights" => ["stubbed result"]
+          }
+        ]
+      })
+    end)
 
     BullX.AIAgent.FakeLLMClient.reset()
 
@@ -52,6 +71,8 @@ defmodule BullX.AIAgent.TargetTest do
 
     on_exit(fn ->
       Application.put_env(:bullx, :llm, previous_llm)
+      restore_env(:ai_agent, previous_ai_agent)
+      restore_env(:ai_agent_web_req_options, previous_web_req_options)
       restore_env(:event_bus_channel_adapter_registry, previous_adapter_registry)
       restore_env(:event_bus_test_delivery_gate, previous_delivery_gate)
       restore_env(:event_bus_test_pid, previous_pid)
@@ -128,6 +149,72 @@ defmodule BullX.AIAgent.TargetTest do
              content: [%{"text" => "streamed answer"}],
              metadata: %{"delivery" => %{"mode" => "stream"}}
            } = Repo.one!(from m in Message, where: m.role == :assistant)
+  end
+
+  test "stop preempts an active streaming generation before the queued command drains" do
+    {:ok, agent} = create_ai_agent("ai-agent-target-streaming-stop")
+    {:ok, caller} = create_human("ai-agent-streaming-stop-caller")
+    grant(caller.id, agent.id, "invoke")
+    {:ok, _route} = create_addressed_route(agent.id, "ai agent streaming stop target")
+
+    parent = self()
+
+    stream_event =
+      "evt-streaming-stop-1"
+      |> addressed_bus_event("hello", caller)
+      |> put_in(["data", "reply_channel", "delivery_mode"], "stream")
+
+    assert {:ok, accepted} = EventBus.accept(stream_event)
+
+    worker =
+      Task.async(fn ->
+        BullX.AIAgent.FakeLLMClient.push_stream_response(["first chunk", " late chunk"],
+          notify: parent,
+          block_after_chunks: [0]
+        )
+
+        Worker.perform(%Oban.Job{args: %{"target_session_id" => accepted.target_session_id}})
+      end)
+
+    assert_receive {:event_bus_adapter_stream_consumed, _source, _reply_channel, _stream_id}
+    assert_receive {BullX.AIAgent.FakeLLMClient, :stream_chunk, 0, "first chunk"}
+
+    assert {:ok, accepted_stop} =
+             EventBus.accept(addressed_bus_event("evt-streaming-stop-2", "/stop", caller))
+
+    send(worker.pid, {BullX.AIAgent.FakeLLMClient, :continue_stream, 0})
+    assert :ok = Task.await(worker, 5_000)
+
+    assert_receive {:event_bus_adapter_delivered, _source, _reply_channel, stop_outbound}
+
+    assert [
+             %{
+               "kind" => "control_notice",
+               "body" => %{
+                 "text" => "Stopped generation.",
+                 "short_text" => "Stopped"
+               }
+             }
+           ] = stop_outbound["content"]
+
+    refute get_in(stop_outbound, ["content", Access.at(0), "body", "text"]) ==
+             "There is no active generation."
+
+    assert %Conversation{
+             generation: %{
+               "cancellation_reason" => "stop",
+               "cancelled_by_command_entry_id" => stop_entry_id
+             }
+           } = Repo.one!(Conversation)
+
+    assert stop_entry_id == accepted_stop.side_channel_entry_id
+
+    stop_entry = Repo.get!(TargetSessionEntry, accepted_stop.side_channel_entry_id)
+
+    assert %TargetSession{last_processed_entry_seq: processed_seq} =
+             Repo.get!(TargetSession, accepted.target_session_id)
+
+    assert processed_seq == stop_entry.entry_seq
   end
 
   test "addressed IM events project normalized rich input into transcript text" do
@@ -304,7 +391,7 @@ defmodule BullX.AIAgent.TargetTest do
   test "tool loop persists ordered tool results before visible follow-up" do
     {:ok, agent} =
       create_ai_agent("ai-agent-target-tool-loop", %{
-        "toolsets" => %{"web_research" => %{"enabled" => true}}
+        "toolsets" => %{"web" => %{"enabled" => true}}
       })
 
     {:ok, caller} = create_human("ai-agent-tool-loop-caller")
@@ -330,6 +417,177 @@ defmodule BullX.AIAgent.TargetTest do
 
     assert Enum.map(tool_results, & &1["tool_call_id"]) == ["call_1", "call_2"]
     assert Enum.all?(tool_results, &(&1["is_error"] == false))
+  end
+
+  test "streaming tool loop uses one visible stream for one external turn" do
+    {:ok, agent} =
+      create_ai_agent("ai-agent-target-streaming-tool-loop", %{
+        "toolsets" => %{"web" => %{"enabled" => true}}
+      })
+
+    {:ok, caller} = create_human("ai-agent-streaming-tool-loop-caller")
+    grant(caller.id, agent.id, "invoke")
+
+    BullX.AIAgent.FakeLLMClient.push_response("", [
+      %{"id" => "call_1", "name" => "web_search", "arguments" => %{"query" => "alpha"}}
+    ])
+
+    BullX.AIAgent.FakeLLMClient.push_response("tools complete")
+
+    invocation = invocation(agent.id)
+
+    entry =
+      invocation.target_session_id
+      |> addressed_entry("evt-streaming-tool-loop-1", "search", caller.id)
+      |> put_in([:cloud_event, "data", "reply_channel", "delivery_mode"], "stream")
+
+    assert :ok = BullX.AIAgent.handle_event(invocation, entry)
+    assert_received :closed
+    assert_receive {:event_bus_adapter_stream_consumed, _source, _reply_channel, stream_id}
+    refute_receive {:event_bus_adapter_stream_consumed, _source, _reply_channel, _stream_id}, 50
+    refute_receive {:event_bus_adapter_delivered, _source, _reply_channel, _outbound}, 50
+    refute_received {:failed, _reason}
+
+    messages =
+      Message
+      |> order_by([m], asc: m.inserted_at, asc: m.id)
+      |> Repo.all()
+
+    assert [
+             %Message{role: :user},
+             %Message{role: :assistant, content: [%{"type" => "tool_call"}]} = tool_call_message,
+             %Message{role: :tool, content: tool_results},
+             %Message{
+               role: :assistant,
+               content: [%{"type" => "text", "text" => "tools complete"}],
+               metadata: %{
+                 "delivery" => %{"mode" => "stream", "stream_id" => ^stream_id},
+                 "stream" => %{"status" => "completed"}
+               }
+             }
+           ] = messages
+
+    refute get_in(tool_call_message.metadata, ["delivery", "mode"]) == "stream"
+    assert [%{"is_error" => false, "tool_call_id" => "call_1"}] = tool_results
+  end
+
+  test "streaming generation failure after tool results preserves the provider reason" do
+    {:ok, agent} =
+      create_ai_agent("ai-agent-target-streaming-generation-failure", %{
+        "toolsets" => %{"web" => %{"enabled" => true}}
+      })
+
+    {:ok, caller} = create_human("ai-agent-streaming-generation-failure-caller")
+    grant(caller.id, agent.id, "invoke")
+
+    BullX.AIAgent.FakeLLMClient.push_response("", [
+      %{"id" => "call_1", "name" => "web_search", "arguments" => %{"query" => "alpha"}}
+    ])
+
+    BullX.AIAgent.FakeLLMClient.push_error(
+      RuntimeError.exception("openrouter stream closed before tool-call response")
+    )
+
+    invocation = invocation(agent.id)
+
+    entry =
+      invocation.target_session_id
+      |> addressed_entry("evt-streaming-generation-failure-1", "search", caller.id)
+      |> put_in([:cloud_event, "data", "reply_channel", "delivery_mode"], "stream")
+
+    assert :ok = BullX.AIAgent.handle_event(invocation, entry)
+    assert_received :closed
+    assert_receive {:event_bus_adapter_stream_consumed, _source, _reply_channel, stream_id}
+    refute_receive {:event_bus_adapter_delivered, _source, _reply_channel, _outbound}, 50
+    refute_received {:failed, _reason}
+
+    expected_reason = "RuntimeError: openrouter stream closed before tool-call response"
+
+    assert {:ok, %{status: :failed, chunks: []}} =
+             BullX.EventBus.StreamingOutput.resume_stream(stream_id, nil)
+
+    assert {:ok, ^expected_reason} =
+             BullX.EventBus.StreamingOutput.Redis.command([
+               "HGET",
+               "bullx:stream:#{stream_id}:meta",
+               "terminal_reason"
+             ])
+
+    assert %Message{
+             role: :assistant,
+             kind: :error,
+             metadata: %{
+               "safe_error_code" => "generation_failed",
+               "safe_error_reason" => ^expected_reason
+             }
+           } =
+             Repo.one!(
+               from m in Message,
+                 where: m.role == :assistant and m.kind == :error,
+                 order_by: [desc: m.inserted_at],
+                 limit: 1
+             )
+  end
+
+  test "clarify requested stops the current generation and delivers the question" do
+    {:ok, agent} = create_ai_agent("ai-agent-target-clarify")
+    {:ok, caller} = create_human("ai-agent-clarify-caller")
+    grant(caller.id, agent.id, "invoke")
+
+    BullX.AIAgent.FakeLLMClient.push_response("", [
+      %{
+        "id" => "call_1",
+        "name" => "clarify",
+        "arguments" => %{
+          "question" => "Which account should I use?",
+          "choices" => ["Alpha", "Beta", "", "Gamma", "Delta", "Epsilon"]
+        }
+      }
+    ])
+
+    invocation = invocation(agent.id)
+    entry = addressed_entry(invocation.target_session_id, "evt-clarify-1", "start", caller.id)
+
+    assert :ok = BullX.AIAgent.handle_event(invocation, entry)
+    assert_received :closed
+    assert_received {:event_bus_adapter_delivered, _source, _reply_channel, outbound}
+    text = get_in(outbound, ["content", Access.at(0), "body", "text"])
+    assert text =~ "Which account should I use?"
+    assert text =~ "1. Alpha"
+
+    assert %Message{role: :tool, content: [result_block]} =
+             Repo.one!(from m in Message, where: m.role == :tool)
+
+    assert get_in(result_block, ["result", "status"]) == "requested"
+    assert get_in(result_block, ["result", "choices"]) == ["Alpha", "Beta", "Gamma", "Delta"]
+
+    assert Repo.aggregate(from(m in Message, where: m.role == :assistant), :count) == 1
+  end
+
+  test "directed action submitted appends the selected clarify answer and runs" do
+    {:ok, agent} = create_ai_agent("ai-agent-target-clarify-action")
+    {:ok, caller} = create_human("ai-agent-clarify-action-caller")
+    grant(caller.id, agent.id, "invoke")
+    BullX.AIAgent.FakeLLMClient.push_response("Using Beta.")
+
+    invocation = invocation(agent.id)
+
+    entry =
+      entry(
+        invocation.target_session_id,
+        "evt-clarify-answer-1",
+        "bullx.action.submitted",
+        "Clarification answer: Beta",
+        caller.id
+      )
+
+    assert :ok = BullX.AIAgent.handle_event(invocation, entry)
+    assert_received :closed
+    assert_received {:event_bus_adapter_delivered, _source, _reply_channel, outbound}
+    assert get_in(outbound, ["content", Access.at(0), "body", "text"]) == "Using Beta."
+
+    assert %Message{role: :user, content: [%{"text" => "Clarification answer: Beta"}]} =
+             Repo.one!(from m in Message, where: m.role == :user)
   end
 
   test "denied command sends safe response without writing command messages" do
@@ -869,6 +1127,107 @@ defmodule BullX.AIAgent.TargetTest do
                     }}
 
     assert %Message{kind: :summary} = Repo.one!(from m in Message, where: m.kind == :summary)
+  end
+
+  test "provider context overflow triggers compression and retries generation" do
+    {:ok, agent} =
+      create_ai_agent("ai-agent-target-overflow-retry", %{
+        "main_llm" => %{
+          "provider_id" => "openai_proxy",
+          "model" => "gpt-test",
+          "context_window" => 16_000
+        },
+        "instructions" => "Answer briefly.",
+        "context" => %{"max_turns" => 5, "compression_threshold_ratio" => 0.95}
+      })
+
+    {:ok, caller} = create_human("ai-agent-target-overflow-retry-caller")
+    grant(caller.id, agent.id, "invoke")
+
+    invocation = invocation(agent.id)
+    long_text = String.duplicate("compressible context ", 900)
+
+    BullX.AIAgent.FakeLLMClient.push_response("first answer")
+
+    first_entry =
+      addressed_entry(
+        invocation.target_session_id,
+        "evt-overflow-retry-1",
+        long_text,
+        caller.id
+      )
+
+    assert :ok = BullX.AIAgent.handle_event(invocation, first_entry)
+    assert_received :closed
+    assert_receive {:event_bus_adapter_delivered, _source, _reply_channel, _first_outbound}
+
+    BullX.AIAgent.FakeLLMClient.push_response("second answer")
+
+    second_entry =
+      addressed_entry(
+        invocation.target_session_id,
+        "evt-overflow-retry-2",
+        long_text,
+        caller.id
+      )
+
+    assert :ok = BullX.AIAgent.handle_event(invocation, second_entry)
+    assert_received :closed
+    assert_receive {:event_bus_adapter_delivered, _source, _reply_channel, _second_outbound}
+
+    BullX.AIAgent.FakeLLMClient.push_error(
+      ReqLLM.Error.API.Request.exception(
+        reason: "context length exceeded",
+        status: 400,
+        response_body: %{
+          "error" => %{
+            "code" => "context_length_exceeded",
+            "message" => "input token count exceeds the maximum number of input tokens"
+          }
+        }
+      )
+    )
+
+    BullX.AIAgent.FakeLLMClient.push_response("compressed after overflow")
+    BullX.AIAgent.FakeLLMClient.push_response("answer after compression")
+
+    third_entry =
+      addressed_entry(
+        invocation.target_session_id,
+        "evt-overflow-retry-3",
+        "third context",
+        caller.id
+      )
+
+    assert :ok = BullX.AIAgent.handle_event(invocation, third_entry)
+    assert_received :closed
+    assert_receive {:event_bus_adapter_delivered, _source, _reply_channel, third_outbound}
+
+    assert [
+             %{
+               "kind" => "text",
+               "body" => %{"text" => "answer after compression"}
+             }
+           ] = third_outbound["content"]
+
+    assert [] = Repo.all(from m in Message, where: m.kind == :error)
+
+    assert %Message{
+             kind: :summary,
+             metadata: %{"trigger" => "provider_context_overflow"}
+           } = Repo.one!(from m in Message, where: m.kind == :summary)
+
+    assert %Message{
+             role: :assistant,
+             kind: :normal,
+             content: [%{"text" => "answer after compression"}]
+           } =
+             Repo.one!(
+               from m in Message,
+                 where: m.role == :assistant and m.kind == :normal,
+                 order_by: [desc: m.inserted_at],
+                 limit: 1
+             )
   end
 
   test "compress no-op updates progress notice without duplicate control notice" do

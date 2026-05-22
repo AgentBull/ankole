@@ -145,6 +145,50 @@ defmodule BullX.EventBus.CoreTest do
            )
   end
 
+  test "reused active TargetSession replaces stale executing job without a registered worker" do
+    target_ref = BullX.Ext.gen_uuid_v7()
+
+    {:ok, _rule} =
+      RuleWriter.create_rule(%{
+        name: "route with stale executing job",
+        priority: 25,
+        match_expr: "type == \"bullx.im.message.addressed\"",
+        target_type: :ai_agent,
+        target_ref: target_ref,
+        scope_fields: ["channel.adapter", "channel.id", "scope.id"]
+      })
+
+    assert {:ok, %Accepted{status: :accepted} = first} =
+             EventBus.accept(event(%{"id" => "stale-executing-job-1"}))
+
+    session = Repo.get!(TargetSession, first.target_session_id)
+    old_job_id = session.oban_job_id
+    assert is_integer(old_job_id)
+    refute Worker.registered?(session.id)
+
+    Repo.update_all(
+      from(j in Oban.Job, where: j.id == ^old_job_id),
+      set: [state: "executing", attempted_at: NaiveDateTime.utc_now(:second)]
+    )
+
+    assert {:ok, %Accepted{status: :accepted, target_session_id: target_session_id}} =
+             EventBus.accept(event(%{"id" => "stale-executing-job-2"}))
+
+    assert target_session_id == first.target_session_id
+    refreshed = Repo.get!(TargetSession, first.target_session_id)
+    assert refreshed.oban_job_id != old_job_id
+
+    assert Repo.one!(from(j in Oban.Job, where: j.id == ^old_job_id, select: j.state)) ==
+             "cancelled"
+
+    assert Repo.exists?(
+             from(j in Oban.Job,
+               where: j.id == ^refreshed.oban_job_id,
+               where: j.state in ["available", "scheduled", "executing", "retryable"]
+             )
+           )
+  end
+
   test "TargetSession worker invokes Target one entry at a time and advances progress before close" do
     target_ref = BullX.Ext.gen_uuid_v7()
 

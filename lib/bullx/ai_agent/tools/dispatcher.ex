@@ -3,7 +3,8 @@ defmodule BullX.AIAgent.Tools.Dispatcher do
   Thin execution boundary for BullX-owned AIAgent tools.
 
   The dispatcher rechecks registry presence, profile enablement, effective
-  access, ACL, and timeout before invoking the tool module.
+  access, availability, ACL, arguments, and timeout before invoking the tool
+  module.
   """
 
   alias BullX.AIAgent.{ACL, Profile, Tools}
@@ -38,7 +39,7 @@ defmodule BullX.AIAgent.Tools.Dispatcher do
       when is_binary(tool_name) and expected_access in [:ordinary, :privileged] and is_map(args) and
              is_map(seed) do
     with {:ok, profile} <- fetch_profile(seed),
-         {:ok, entry, access} <- Tools.effective_tool(profile, tool_name),
+         {:ok, entry, access} <- Tools.effective_tool(profile, tool_name, seed),
          :ok <- ensure_access_match(access, expected_access),
          :allowed <-
            ACL.authorize(
@@ -47,16 +48,17 @@ defmodule BullX.AIAgent.Tools.Dispatcher do
              access,
              Map.get(seed, :acl_context, %{})
            ),
+         {:ok, validated_args} <- Tools.validate_arguments(entry, args),
          context <-
            Tools.build_context(
              Map.merge(seed, %{effective_access: access, timeout_ms: entry.timeout_ms}),
              %{
                id: seed.tool_call_id,
                name: tool_name,
-               arguments: args
+               arguments: validated_args
              }
            ),
-         {:ok, result} <- run_tool(entry, args, context) do
+         {:ok, result} <- run_tool(entry, validated_args, context) do
       {:ok, result}
     else
       {:denied, _reason} ->
@@ -71,8 +73,15 @@ defmodule BullX.AIAgent.Tools.Dispatcher do
       {:error, :tool_disabled} ->
         {:error, Error.new(:tool_disabled, message_for(:tool_disabled), false)}
 
+      {:error, :tool_unavailable} ->
+        {:error, Error.new(:tool_unavailable, message_for(:tool_unavailable), false)}
+
       {:error, :tool_denied} ->
         {:error, Error.new(:tool_denied, message_for(:tool_denied), false)}
+
+      {:error, :tool_malformed_arguments} ->
+        {:error,
+         Error.new(:tool_malformed_arguments, message_for(:tool_malformed_arguments), false)}
 
       {:error, reason} ->
         {:error, Error.new(:tool_failed, safe_reason(reason), true)}
@@ -97,7 +106,7 @@ defmodule BullX.AIAgent.Tools.Dispatcher do
 
     result =
       with true <- is_binary(tool_name) and is_binary(tool_call_id),
-           {:ok, _entry, access} <- Tools.effective_tool(profile, tool_name),
+           {:ok, _entry, access} <- Tools.effective_tool(profile, tool_name, seed),
            :allowed <-
              ACL.authorize(
                seed.caller_principal_id,
@@ -124,6 +133,12 @@ defmodule BullX.AIAgent.Tools.Dispatcher do
 
         {:error, :tool_disabled} ->
           tool_error_block(tool_call_id, :tool_disabled)
+
+        {:error, :tool_unavailable} ->
+          tool_error_block(tool_call_id, :tool_unavailable)
+
+        {:error, :tool_malformed_arguments} ->
+          tool_error_block(tool_call_id, :tool_malformed_arguments)
 
         {:error, %Error{} = error} ->
           tool_error_block(tool_call_id, error)
@@ -210,6 +225,7 @@ defmodule BullX.AIAgent.Tools.Dispatcher do
 
   defp message_for(:tool_unknown), do: "Tool is not available for this request."
   defp message_for(:tool_disabled), do: "Tool is not available for this request."
+  defp message_for(:tool_unavailable), do: "Tool is not available for this request."
   defp message_for(:tool_denied), do: "Tool is not available for this request."
   defp message_for(:tool_malformed_arguments), do: "Tool arguments are invalid."
   defp message_for(:tool_timeout), do: "Tool timed out."

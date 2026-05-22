@@ -2,118 +2,87 @@ defmodule BullX.AIAgent.Tools do
   @moduledoc """
   ToolSet expansion and `ReqLLM.Tool` rendering for AIAgent runtime.
 
-  In an OpenClaw / Hermes-style harness, tool access is configured per-agent:
-  the operator enables or denies a tool for the assistant, and that policy is
-  evaluated either as the model invokes the tool or even just as guidance in
-  the system prompt. BullX gates tools per-**caller**-per-**call**.
+  Tools are organized into code-owned **ToolSets**. Each Tool declares an access
+  tag (`:ordinary` or `:privileged`) and optional Agent/Session availability
+  checks. Agent profiles can only enable or disable ToolSets; they cannot
+  change tool access, schemas, or callbacks.
 
-  Tools are organized into **ToolSets** (a registered package of related
-  tools), and each tool declares an access tag (`:ordinary` or
-  `:privileged`). When the Runner prepares a generation, it asks `ACL` which
-  tags the *caller's* Principal holds in the *agent's* scope, and renders
-  only the tools whose tag the caller has into the schema sent to the model.
-  The model never sees tools the caller isn't authorized to invoke —
-  authorization happens at schema rendering, so the boundary is what the
-  model can even *propose*, not what gets rejected at execution time.
-
-  `enabled_tools/5` is the per-generation entry point used by `Runner`.
+  `enabled_tools/5` renders ToolSet/profile/availability-enabled tools for the
+  provider request. ACL is deliberately enforced by the dispatcher when a tool
+  call is executed, not by hiding provider schemas.
   """
 
-  alias BullX.AIAgent.{ACL, Profile}
+  alias BullX.AIAgent.Profile
   alias BullX.AIAgent.Tools.{Context, Registry}
+  alias BullX.AIAgent.Tools.Registry.{Tool, ToolSet}
 
-  @type rendered_tool :: %{entry: map(), access: atom(), tool: ReqLLM.Tool.t()}
+  @type rendered_tool :: %{entry: Tool.t(), access: atom(), tool: ReqLLM.Tool.t()}
 
   @spec enabled_tools(Profile.t(), String.t(), String.t(), map(), map()) :: [rendered_tool()]
   def enabled_tools(
         %Profile{} = profile,
-        caller_principal_id,
-        agent_principal_id,
-        acl_context,
+        _caller_principal_id,
+        _agent_principal_id,
+        _acl_context,
         runtime_seed \\ %{}
-      )
-      when is_binary(caller_principal_id) and is_binary(agent_principal_id) do
-    allowed_tags = ACL.filter_allowed_tags(caller_principal_id, agent_principal_id, acl_context)
-
-    profile.toolsets
-    |> Enum.flat_map(fn {toolset_id, toolset_config} ->
-      expand_toolset(toolset_id, toolset_config, allowed_tags, runtime_seed)
-    end)
+      ) do
+    runtime_seed
+    |> Registry.list_toolsets()
+    |> Enum.flat_map(&expand_toolset(profile, &1, runtime_seed))
   end
 
-  @spec effective_tool(Profile.t(), String.t()) ::
-          {:ok, map(), atom()} | {:error, :tool_unknown | :tool_disabled}
-  def effective_tool(%Profile{} = profile, tool_name) when is_binary(tool_name) do
-    with {:ok, entry} <- Registry.get_tool(tool_name),
-         {:ok, toolset_config} <- enabled_toolset_config(profile, entry.toolset_id),
-         {:ok, tool_config} <- enabled_tool_config(toolset_config, tool_name),
-         {:ok, access} <- effective_access(entry, toolset_config, tool_config) do
-      {:ok, entry, access}
+  @spec effective_tool(Profile.t(), String.t(), map()) ::
+          {:ok, Tool.t(), atom()}
+          | {:error, :tool_unknown | :tool_disabled | :tool_unavailable}
+  def effective_tool(%Profile{} = profile, tool_name, runtime_seed \\ %{})
+      when is_binary(tool_name) do
+    with {:ok, entry} <- Registry.get_tool(tool_name, runtime_seed),
+         {:ok, toolset} <- Registry.toolset(entry.toolset_id, runtime_seed),
+         true <- toolset_enabled?(profile, toolset),
+         :ok <- available?(toolset.availability, runtime_seed),
+         :ok <- available?(entry.availability, runtime_seed) do
+      {:ok, entry, entry.access}
     else
       {:error, :not_found} -> {:error, :tool_unknown}
-      {:error, reason} -> {:error, reason}
+      false -> {:error, :tool_disabled}
+      {:error, :tool_unavailable} -> {:error, :tool_unavailable}
+      {:error, _reason} -> {:error, :tool_unavailable}
     end
   end
+
+  @spec profile_tool_names(Profile.t(), map()) :: [String.t()]
+  def profile_tool_names(%Profile{} = profile, runtime_seed \\ %{}) do
+    runtime_seed
+    |> Registry.list_toolsets()
+    |> Enum.filter(&toolset_enabled?(profile, &1))
+    |> Enum.filter(&(available?(&1.availability, runtime_seed) == :ok))
+    |> Enum.flat_map(fn toolset ->
+      toolset.id
+      |> Registry.tools_for_toolset(runtime_seed)
+      |> Enum.filter(&(available?(&1.availability, runtime_seed) == :ok))
+    end)
+    |> Enum.map(& &1.name)
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
+
+  @spec validate_arguments(Tool.t(), map()) :: {:ok, map()} | {:error, :tool_malformed_arguments}
+  def validate_arguments(%Tool{} = entry, args) when is_map(args) do
+    with {:ok, validator} <- validator_tool(entry),
+         {:ok, validated} <- ReqLLM.Tool.execute(validator, args) do
+      {:ok, normalize_validated_arguments(validated)}
+    else
+      {:error, _reason} -> {:error, :tool_malformed_arguments}
+    end
+  end
+
+  def validate_arguments(%Tool{}, _args), do: {:error, :tool_malformed_arguments}
 
   @spec idempotency_key(map()) :: String.t()
   def idempotency_key(parts) when is_map(parts) do
     parts
     |> Jason.encode!()
     |> BullX.Ext.generic_hash()
-  end
-
-  defp expand_toolset(toolset_id, %{enabled: true} = toolset_config, allowed_tags, runtime_seed) do
-    Registry.tools_for_toolset(toolset_id)
-    |> Enum.flat_map(fn entry ->
-      with {:ok, tool_config} <- enabled_tool_config(toolset_config, entry.name),
-           {:ok, access} <- effective_access(entry, toolset_config, tool_config),
-           true <- MapSet.member?(allowed_tags, access),
-           {:ok, tool} <- req_llm_tool(entry, access, runtime_seed) do
-        [%{entry: entry, access: access, tool: tool}]
-      else
-        _other -> []
-      end
-    end)
-  end
-
-  defp expand_toolset(_toolset_id, _toolset_config, _allowed_tags, _runtime_seed), do: []
-
-  defp enabled_toolset_config(%Profile{} = profile, toolset_id) do
-    case Map.fetch(profile.toolsets, toolset_id) do
-      {:ok, %{enabled: true} = config} -> {:ok, config}
-      {:ok, _config} -> {:error, :tool_disabled}
-      :error -> {:error, :tool_disabled}
-    end
-  end
-
-  defp enabled_tool_config(toolset_config, tool_name) do
-    case Map.get(toolset_config.tools, tool_name, %{enabled: true, access: nil}) do
-      %{enabled: true} = tool_config -> {:ok, tool_config}
-      _tool_config -> {:error, :tool_disabled}
-    end
-  end
-
-  defp effective_access(entry, toolset_config, tool_config) do
-    registry_default =
-      entry[:default_access] || default_toolset_access(Registry.toolset(entry.toolset_id))
-
-    {:ok, tool_config.access || toolset_config.access || registry_default}
-  end
-
-  defp default_toolset_access({:ok, toolset}), do: toolset.default_access
-  defp default_toolset_access(_other), do: :ordinary
-
-  defp req_llm_tool(entry, access, runtime_seed) do
-    ReqLLM.Tool.new(
-      name: entry.name,
-      description: entry.description,
-      parameter_schema: entry.parameter_schema,
-      strict: Map.get(entry, :strict, false),
-      callback:
-        {BullX.AIAgent.Tools.Dispatcher, :execute_with_context,
-         [entry.name, access, runtime_seed]},
-      provider_options: Map.get(entry, :provider_options, %{})
-    )
   end
 
   @spec build_context(map(), map()) :: Context.t()
@@ -146,4 +115,108 @@ defmodule BullX.AIAgent.Tools do
       metadata: Map.get(seed, :metadata, %{})
     }
   end
+
+  defp expand_toolset(profile, %ToolSet{} = toolset, runtime_seed) do
+    with true <- toolset_enabled?(profile, toolset),
+         :ok <- available?(toolset.availability, runtime_seed) do
+      toolset.id
+      |> Registry.tools_for_toolset(runtime_seed)
+      |> Enum.flat_map(&render_tool(&1, runtime_seed))
+    else
+      _other -> []
+    end
+  end
+
+  defp render_tool(%Tool{} = entry, runtime_seed) do
+    with :ok <- available?(entry.availability, runtime_seed),
+         {:ok, tool} <- req_llm_tool(entry, runtime_seed) do
+      [%{entry: entry, access: entry.access, tool: tool}]
+    else
+      _other -> []
+    end
+  end
+
+  defp toolset_enabled?(_profile, %ToolSet{id: "basic"}), do: true
+
+  defp toolset_enabled?(%Profile{} = profile, %ToolSet{} = toolset) do
+    case Map.fetch(profile.toolsets, toolset.id) do
+      {:ok, %{enabled: enabled}} when is_boolean(enabled) -> enabled
+      :error -> toolset.default_enabled
+      _other -> false
+    end
+  end
+
+  defp available?(nil, _runtime_seed), do: :ok
+
+  defp available?(fun, runtime_seed) when is_function(fun, 1) do
+    fun
+    |> safe_availability_call([runtime_seed])
+    |> normalize_availability()
+  end
+
+  defp available?({module, function, args}, runtime_seed)
+       when is_atom(module) and is_atom(function) and is_list(args) do
+    {module, function}
+    |> safe_availability_call(args ++ [runtime_seed])
+    |> normalize_availability()
+  end
+
+  defp available?({module, function}, runtime_seed)
+       when is_atom(module) and is_atom(function) do
+    {module, function}
+    |> safe_availability_call([runtime_seed])
+    |> normalize_availability()
+  end
+
+  defp available?(_availability, _runtime_seed), do: {:error, :tool_unavailable}
+
+  defp safe_availability_call(fun, args) when is_function(fun, 1) do
+    apply(fun, args)
+  rescue
+    _error -> {:error, :tool_unavailable}
+  catch
+    :exit, _reason -> {:error, :tool_unavailable}
+  end
+
+  defp safe_availability_call({module, function}, args) do
+    apply(module, function, args)
+  rescue
+    _error -> {:error, :tool_unavailable}
+  catch
+    :exit, _reason -> {:error, :tool_unavailable}
+  end
+
+  defp normalize_availability(:ok), do: :ok
+  defp normalize_availability(true), do: :ok
+  defp normalize_availability({:ok, _value}), do: :ok
+  defp normalize_availability({:error, _reason}), do: {:error, :tool_unavailable}
+  defp normalize_availability(false), do: {:error, :tool_unavailable}
+  defp normalize_availability(_other), do: {:error, :tool_unavailable}
+
+  defp req_llm_tool(%Tool{} = entry, runtime_seed) do
+    ReqLLM.Tool.new(
+      name: entry.name,
+      description: entry.description,
+      parameter_schema: entry.parameter_schema,
+      strict: entry.strict,
+      callback:
+        {BullX.AIAgent.Tools.Dispatcher, :execute_with_context,
+         [entry.name, entry.access, runtime_seed]},
+      provider_options: entry.provider_options
+    )
+  end
+
+  defp validator_tool(%Tool{} = entry) do
+    ReqLLM.Tool.new(
+      name: entry.name,
+      description: entry.description,
+      parameter_schema: entry.parameter_schema,
+      strict: entry.strict,
+      callback: fn input -> {:ok, input} end,
+      provider_options: entry.provider_options
+    )
+  end
+
+  defp normalize_validated_arguments(validated) when is_list(validated), do: Map.new(validated)
+  defp normalize_validated_arguments(validated) when is_map(validated), do: validated
 end

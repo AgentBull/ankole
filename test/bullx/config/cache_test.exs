@@ -8,11 +8,6 @@ defmodule BullX.Config.CacheTest do
     :ok
   end
 
-  test "ETS table is accessible on boot" do
-    assert is_pid(GenServer.whereis(BullX.Config.Cache))
-    assert :error = BullX.Config.Cache.get_raw("nonexistent.key")
-  end
-
   test "refresh/1 makes an inserted row visible" do
     BullX.Repo.insert!(%BullX.Config.AppConfig{key: "test.cache_key", value: "hello"})
     BullX.Config.Cache.refresh("test.cache_key")

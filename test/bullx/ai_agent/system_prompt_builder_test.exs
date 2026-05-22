@@ -30,6 +30,12 @@ defmodule BullX.AIAgent.SystemPromptBuilderTest do
 
     assert {:ok, rendered} = SystemPromptBuilder.render(sections)
     assert rendered.system_text == "follow policy\n\nnow"
+
+    system_text = rendered.system_text
+
+    assert [%ReqLLM.Message.ContentPart{type: :text, text: ^system_text}] =
+             rendered.system_content
+
     assert rendered.stable_prefix.last_stable_section_id == "profile.instructions"
     assert rendered.stable_prefix.stable_section_count == 1
     assert rendered.stable_prefix.byte_offset == byte_size("follow policy")
@@ -95,6 +101,11 @@ defmodule BullX.AIAgent.SystemPromptBuilderTest do
       |> String.trim()
 
     assert rendered.system_text == stable_text <> "\n\n<context>\nnow\n</context>"
+
+    system_text = rendered.system_text
+
+    assert [%ReqLLM.Message.ContentPart{type: :text, text: ^system_text}] =
+             rendered.system_content
 
     assert rendered.stable_prefix.byte_offset == byte_size(stable_text)
     assert rendered.stable_prefix.last_stable_section_id == "profile.soul"

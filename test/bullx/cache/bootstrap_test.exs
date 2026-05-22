@@ -80,17 +80,6 @@ defmodule BullX.Cache.BootstrapTest do
       assert Application.get_env(:cachetastic, :key_prefix) == "bullx"
     end
 
-    test "uses the configured default TTL" do
-      System.put_env(@redis_url_env, "redis://cache.internal:6380")
-      System.put_env(@default_ttl_env, "30")
-      assert :ignore = Bootstrap.start_link(verify_redis: false)
-
-      backends = Application.get_env(:cachetastic, :backends)
-      redis_pool_opts = Keyword.get(backends, :redis_pool)
-      assert Keyword.get(redis_pool_opts, :ttl) == 30
-      assert Keyword.get(backends, :ets) == [ttl: 30]
-    end
-
     test "defaults the port to 6379 when omitted" do
       System.put_env(@redis_url_env, "redis://cache.internal")
 

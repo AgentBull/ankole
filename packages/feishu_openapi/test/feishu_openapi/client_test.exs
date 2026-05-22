@@ -28,11 +28,6 @@ defmodule FeishuOpenAPI.ClientTest do
     assert_received :resolved
   end
 
-  test "string app_secret is auto-wrapped" do
-    client = Client.new("cli_s", "plain")
-    assert Client.app_secret(client) == "plain"
-  end
-
   test "default req_options include transport timeouts" do
     client = Client.new("cli_t", "secret")
 

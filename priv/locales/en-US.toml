@@ -75,6 +75,10 @@ steer = "add a steering note to the active generation"
 stop = "stop the active generation"
 undo = "undo the previous exchange"
 
+[ai_agent.commands.responses.no_active_generation]
+text = "There is no active generation."
+short_text = "Idle"
+
 [gateway.telegram.auth]
 activation_required = "This Telegram account is not activated yet. Send /preauth <code> to me in a private chat to activate."
 activation_success = "Activation complete."

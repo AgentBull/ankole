@@ -434,18 +434,41 @@ defmodule BullX.AIAgent.Conversations do
     |> unwrap_transaction()
   end
 
-  @spec cancel_generation(Conversation.t(), String.t(), DateTime.t()) ::
+  @spec cancel_generation(Conversation.t(), String.t(), DateTime.t(), map()) ::
           {:ok, Conversation.t()} | {:error, Ecto.Changeset.t()}
-  def cancel_generation(%Conversation{} = conversation, reason, now)
-      when is_binary(reason) and is_struct(now, DateTime) do
+  def cancel_generation(%Conversation{} = conversation, reason, now, metadata \\ %{})
+      when is_binary(reason) and is_struct(now, DateTime) and is_map(metadata) do
     generation =
       conversation.generation
+      |> Map.merge(metadata)
       |> Map.put("cancelled_at", DateTime.to_iso8601(now))
       |> Map.put("cancellation_reason", reason)
 
     conversation
     |> Conversation.changeset(%{generation: generation})
     |> Repo.update()
+  end
+
+  @spec cancel_generation_lease(String.t(), String.t(), String.t(), DateTime.t(), map()) ::
+          {:ok, Conversation.t()} | {:error, :generation_inactive | Ecto.Changeset.t()}
+  def cancel_generation_lease(conversation_id, lease_id, reason, now, metadata \\ %{})
+      when is_binary(conversation_id) and is_binary(lease_id) and is_binary(reason) and
+             is_struct(now, DateTime) and is_map(metadata) do
+    Repo.transaction(fn ->
+      locked = lock_conversation!(conversation_id)
+
+      case owned_active_lease?(locked, lease_id, now) do
+        true ->
+          case cancel_generation(locked, reason, now, metadata) do
+            {:ok, cancelled} -> cancelled
+            {:error, changeset} -> Repo.rollback(changeset)
+          end
+
+        false ->
+          Repo.rollback(:generation_inactive)
+      end
+    end)
+    |> unwrap_transaction()
   end
 
   defp active_query(agent_principal_id, conversation_key) do

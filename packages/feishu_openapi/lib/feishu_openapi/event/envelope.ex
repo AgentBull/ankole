@@ -54,7 +54,23 @@ defmodule FeishuOpenAPI.Event.Envelope do
     do: t
 
   def event_type(%{"type" => t}) when is_binary(t), do: t
+
+  def event_type(%{"action" => action} = payload) when is_map(action) do
+    case card_action_payload?(payload) do
+      true -> "card.action.trigger"
+      false -> nil
+    end
+  end
+
   def event_type(_), do: nil
+
+  defp card_action_payload?(%{"open_message_id" => id}) when is_binary(id) and id != "",
+    do: true
+
+  defp card_action_payload?(%{"open_chat_id" => id}) when is_binary(id) and id != "",
+    do: true
+
+  defp card_action_payload?(_payload), do: false
 
   @doc "Extract the event payload (P2: `event`; P1: `event`)."
   @spec event(map()) :: map() | nil

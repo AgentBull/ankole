@@ -8,9 +8,9 @@ defmodule BullX.AIAgent.ACL do
   invocation carries the triggering caller's Principal, and ACL answers two
   questions for that specific call against this specific Agent — "may this
   caller talk to this Agent at all?" and "does this caller also hold the
-  privileged grant for tools tagged that way?". The model only sees the
-  toolset the caller's grants permit (see `BullX.AIAgent.Tools` for how
-  that subset reaches the schema).
+  privileged grant for tools tagged that way?". Tool schemas are rendered from
+  ToolSet/profile/availability state; ACL is enforced when the dispatcher
+  handles a concrete tool call.
 
   ACL does not own a separate policy store; the actual grants live in the
   general authorization system (`BullX.AuthZ`), which the rest of BullX

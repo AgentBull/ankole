@@ -217,7 +217,10 @@ defmodule BullX.AIAgent.Commands do
         true ->
           lease_id = conversation.generation["lease_id"]
 
-          with {:ok, cancelled} <- Conversations.cancel_generation(conversation, "stop", now),
+          with {:ok, cancelled} <-
+                 Conversations.cancel_generation(conversation, "stop", now, %{
+                   "cancelled_by_command_entry_id" => context.trigger_id
+                 }),
                {:ok, recall_targets} <-
                  interrupt_generating_messages(cancelled, lease_id, context, now) do
             %{status: :ok, command: "stop", recall_targets: recall_targets}
@@ -226,7 +229,10 @@ defmodule BullX.AIAgent.Commands do
           end
 
         false ->
-          diagnostic(:no_active_generation)
+          case generation_cancelled_by_command?(conversation, context) do
+            true -> %{status: :ok, command: "stop", recall_targets: []}
+            false -> diagnostic(:no_active_generation)
+          end
       end
     end)
     |> ok_or_error()
@@ -255,6 +261,13 @@ defmodule BullX.AIAgent.Commands do
   end
 
   defp execute(_unknown, _context), do: {:ok, diagnostic(:unknown_command)}
+
+  defp generation_cancelled_by_command?(%Conversation{} = conversation, context) do
+    generation = conversation.generation || %{}
+
+    generation["cancellation_reason"] == "stop" and
+      generation["cancelled_by_command_entry_id"] == context.trigger_id
+  end
 
   defp tag_command_result({:ok, result}, command) when is_map(result),
     do: {:ok, Map.put_new(result, :command, command)}

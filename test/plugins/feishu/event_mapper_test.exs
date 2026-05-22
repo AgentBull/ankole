@@ -219,7 +219,49 @@ defmodule Feishu.EventMapperTest do
            ] = attrs.data.content
   end
 
-  test "ignores bot or app sender messages without configured bot identity" do
+  test "maps clarify card choices as prompt-visible action answers" do
+    source = %Source{id: "main", app_id: "cli_x", app_secret: "secret_x"}
+
+    action = %CardAction{
+      open_id: "ou_user",
+      open_message_id: "om_card",
+      open_chat_id: "oc_chat",
+      tenant_key: "tenant_x",
+      action: %{
+        "tag" => "button",
+        "value" => %{
+          "bullx_action" => "clarify_answer",
+          "correlation_id" => "call_1",
+          "choice_index" => 1,
+          "choice_value" => "Beta",
+          "drop" => nil
+        }
+      },
+      raw: %{}
+    }
+
+    assert {:ok, %{attrs: attrs}} = EventMapper.map({:card_action, action}, source)
+
+    assert attrs.id == "card_action:om_card:clarify_answer:ou_user"
+    assert attrs.type == "bullx.action.submitted"
+    assert get_in(attrs.data, [:routing_facts, "action_id"]) == "clarify_answer"
+
+    assert [
+             %{
+               "type" => "action",
+               "text" => "Clarification answer: Beta",
+               "action_id" => "clarify_answer",
+               "values" => %{
+                 "bullx_action" => "clarify_answer",
+                 "correlation_id" => "call_1",
+                 "choice_index" => 1,
+                 "choice_value" => "Beta"
+               }
+             }
+           ] = attrs.data.content
+  end
+
+  test "ignores bot sender messages" do
     source = %Source{
       id: "main",
       app_id: "cli_x",

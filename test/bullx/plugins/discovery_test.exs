@@ -31,6 +31,20 @@ defmodule BullX.Plugins.DiscoveryTest do
     assert module.__bullx_plugin__().id == "inferred_path"
   end
 
+  test "plugin macro infers app id from internals plugins path" do
+    [{module, _bytecode}] =
+      Code.compile_string(
+        """
+        defmodule BullX.Plugins.InferredInternalPathPlugin do
+          use BullX.Plugins.Plugin
+        end
+        """,
+        "internals/plugins/internal_path/lib/internal_path_plugin.ex"
+      )
+
+    assert module.__bullx_plugin__().id == "internal_path"
+  end
+
   test "fails when no module exports the plugin marker" do
     assert {:error, {:plugin_entry_not_found, :test_plugin}} =
              Discovery.discover_app(:test_plugin, modules: [BullX.Plugins.TestExtensionModule])

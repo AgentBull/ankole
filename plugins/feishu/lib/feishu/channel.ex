@@ -6,6 +6,7 @@ defmodule Feishu.Channel do
   require Logger
 
   alias Feishu.Source
+  alias FeishuOpenAPI.{CardAction, Event}
   alias FeishuOpenAPI.Event.Dispatcher
 
   @event_types [
@@ -15,6 +16,7 @@ defmodule Feishu.Channel do
     "im.message.reaction.created_v1",
     "im.message.reaction.deleted_v1"
   ]
+  @card_action_types ["card.action.trigger"]
 
   defstruct [:source, :ws_pid]
 
@@ -62,6 +64,10 @@ defmodule Feishu.Channel do
     {:reply, accept({:event, event_type, event}, state.source), state}
   end
 
+  def handle_call({:card_action, %CardAction{} = action}, _from, %__MODULE__{} = state) do
+    {:reply, accept({:card_action, action}, state.source), state}
+  end
+
   defp maybe_start_ws(%Source{start_transport?: false}), do: {:ok, nil}
 
   defp maybe_start_ws(%Source{} = source) do
@@ -81,12 +87,44 @@ defmodule Feishu.Channel do
   end
 
   defp register_event_handlers(%Dispatcher{} = dispatcher, server) do
+    dispatcher
+    |> register_message_event_handlers(server)
+    |> register_card_action_handlers(server)
+  end
+
+  defp register_message_event_handlers(%Dispatcher{} = dispatcher, server) do
     Enum.reduce(@event_types, dispatcher, fn event_type, acc ->
       Dispatcher.on(acc, event_type, fn type, event ->
         GenServer.call(server, {:event, type, event}, 30_000)
       end)
     end)
   end
+
+  defp register_card_action_handlers(%Dispatcher{} = dispatcher, server) do
+    Enum.reduce(@card_action_types, dispatcher, fn callback_type, acc ->
+      Dispatcher.on_callback(acc, callback_type, fn _type, event ->
+        GenServer.call(server, {:card_action, card_action_from_event(event)}, 30_000)
+      end)
+    end)
+  end
+
+  defp card_action_from_event(%Event{} = event) do
+    event
+    |> card_action_payload()
+    |> CardAction.from_payload()
+  end
+
+  defp card_action_payload(%Event{content: %{} = content, raw: raw}) do
+    case card_action_payload?(content) do
+      true -> content
+      false -> raw
+    end
+  end
+
+  defp card_action_payload(%Event{raw: raw}), do: raw
+
+  defp card_action_payload?(%{"action" => action}) when is_map(action), do: true
+  defp card_action_payload?(_payload), do: false
 
   defp accept(provider_input, %Source{} = source) do
     :telemetry.execute(
