@@ -3,7 +3,7 @@ defmodule BullX.AIAgent.AmbientBatchTest do
 
   alias BullX.AIAgent.{AmbientBatch, AmbientBatchWorker}
 
-  test "enqueue refreshes the reply channel to the latest item in the batch window" do
+  test "enqueue refreshes the reply address to the latest item in the batch window" do
     agent_principal_id = BullX.Ext.gen_uuid_v7()
     ambient_conversation_id = BullX.Ext.gen_uuid_v7()
     batch_key = "#{agent_principal_id}:#{ambient_conversation_id}"
@@ -18,7 +18,7 @@ defmodule BullX.AIAgent.AmbientBatchTest do
 
     assert {:ok, meta, items} = AmbientBatch.take(batch_key)
 
-    assert get_in(meta, ["reply_channel", "reply_to_external_id"]) == "second"
+    assert get_in(meta, ["reply_address", "reply_to_external_id"]) == "second"
     assert Enum.map(items, & &1["message_id"]) == ["first", "second"]
   end
 
@@ -43,6 +43,41 @@ defmodule BullX.AIAgent.AmbientBatchTest do
 
     assert meta["due_at"] - System.system_time(:millisecond) <= 5_000
     assert Enum.map(items, & &1["message_id"]) == ["first", "second"]
+  end
+
+  test "update_item rewrites a pending batch item" do
+    agent_principal_id = BullX.Ext.gen_uuid_v7()
+    ambient_conversation_id = BullX.Ext.gen_uuid_v7()
+    batch_key = "#{agent_principal_id}:#{ambient_conversation_id}"
+
+    on_exit(fn -> AmbientBatch.cleanup(batch_key) end)
+
+    assert :ok =
+             AmbientBatch.enqueue(batch(agent_principal_id, ambient_conversation_id, "first"))
+
+    assert :ok =
+             AmbientBatch.update_item(
+               agent_principal_id,
+               ambient_conversation_id,
+               "first",
+               "edited ambient"
+             )
+
+    assert {:ok, _meta, [%{"text" => "edited ambient"}]} = AmbientBatch.take(batch_key)
+  end
+
+  test "remove_item drops pending item and cleans up an empty batch" do
+    agent_principal_id = BullX.Ext.gen_uuid_v7()
+    ambient_conversation_id = BullX.Ext.gen_uuid_v7()
+    batch_key = "#{agent_principal_id}:#{ambient_conversation_id}"
+
+    on_exit(fn -> AmbientBatch.cleanup(batch_key) end)
+
+    assert :ok =
+             AmbientBatch.enqueue(batch(agent_principal_id, ambient_conversation_id, "first"))
+
+    assert :ok = AmbientBatch.remove_item(agent_principal_id, ambient_conversation_id, "first")
+    assert {:error, :missing} = AmbientBatch.take(batch_key)
   end
 
   test "durable idempotency key is per processed ambient batch, not per conversation" do
@@ -88,7 +123,7 @@ defmodule BullX.AIAgent.AmbientBatchTest do
         agent_principal_id: agent_principal_id,
         ambient_conversation_id: ambient_conversation_id,
         scene_key: "feishu:group:oc_test",
-        reply_channel: %{
+        reply_address: %{
           "adapter" => "feishu",
           "channel_id" => "main",
           "scope_id" => "oc_test",

@@ -141,39 +141,42 @@ Confirm which area you are editing before applying framework-specific rules belo
 
 ## Product Direction
 
-The long-term product direction is BullX as a general-purpose AgentOS for durable digital work. It should work for an enterprise department, a small team, or an OPC operator with the same core model: Events enter EventBus; EventBus matches the first applicable Event Routing Rule by priority; the matched rule creates or reuses a TargetSession; TargetSession invokes the matched Target. Typical Targets are AIAgents and Workflows. AIAgents are AI colleagues that can directly handle Events, conversations, Work, tools, human collaboration, and Brain context. Workflows are explicit process Targets for branching, approval, parallelism, deterministic steps, external actions, and human intervention. PostgreSQL remains the source of committed business facts; EventBus and TargetSession manage delivery and runtime windows, not business truth. The detailed schema and runtime design are not committed yet, so code and docs should stay at the user-story and invariant level unless a design doc specifies implementation detail. `internals/design-docs/drafts/Arch.md` is the source of truth for the vocabulary and invariants below.
+The long-term product direction is BullX as a general-purpose AgentOS for durable digital work. It should work for an enterprise department, a small team, or an OPC operator with the same core model: external inputs enter a Gateway; the Gateway saves the external-world fact it owns and emits CloudEvents mail; MailBox creates receiver entries; each Receiver handles the entry and saves its own business facts. AIAgents are AI colleagues that can handle conversations, Work, tools, human collaboration, and Brain context. Workflows are explicit process Receivers for branching, approval, parallelism, deterministic steps, external actions, and human intervention. PostgreSQL remains the source of committed business facts; MailBox manages weak delivery windows, not business truth. `docs/Architecture.md` is the current source of truth for committed architecture.
 
 Stable vocabulary for user stories:
 
 - **Installation** — one BullX deployment and its single operating domain. Do not introduce multi-tenant `Tenant` concepts without a design doc.
 - **Principal** — an internal subject that can be authorized, audited, and held responsible. Human users, Agents, services, and system actors are all Principals.
 - **Connected Realm** — an external identity and event space connected to BullX (Feishu tenant, Slack workspace, GitHub org). It is not a BullX tenant.
-- **Event** — an external or internal input received by BullX. IM messages, webhooks, timers, approval clicks, ChildRun completion events, and human UI operations can all be Events.
-- **EventBus** — the Event entry point. It receives Events, matches Event Routing Rules by priority, and sends each accepted Event into a TargetSession.
-- **Event Routing Rule** — a global routing-table entry: Event match criteria, matched Target, and TargetSession scope/window. Its responsibility is routing; business processing belongs to the Target.
-- **Target** — the consumer or processor invoked after an Event Routing Rule matches. Targets can be AIAgents, Workflows, Blackhole / Ignore, External Agent Harnesses, or later design-doc-defined consumers.
-- **TargetSession** — the runtime window formed by one Event Routing Rule within a scope and time window. It receives matched Events through a side channel and invokes the Target.
-- **AIAgent** — an AI colleague. It can directly act as a Target for conversations, long-running Work, judgment, collaboration, memory, tool use, and human collaboration.
+- **CloudEvents mail** — the normalized internal envelope passed between Gateways, MailBox, and Receivers. IM messages, webhooks, timers, approval clicks, ChildRun completion events, and human UI operations can all produce mail.
+- **Gateway** — a boundary module for an external input/output space. It validates external input, stores the fact it owns, and emits CloudEvents mail.
+- **IMGateway** — the current concrete Gateway for IM rooms and messages. It stores `im_rooms` and `im_messages`, including outbound IM facts.
+- **MailBox** — the internal delivery runtime. It accepts CloudEvents mail, matches delivery rules, creates mailbox entries and sessions, and invokes Receivers.
+- **MailBox Delivery Rule** — a delivery rule entry: mail match criteria, receiver address, attention, and session key. Route matching is fan-out by matched rule; priority orders evaluation but is not a uniqueness boundary.
+- **Receiver** — an internal mail address expressed as `receiver_type + receiver_ref`. Receivers can be AIAgents, Workflows, SubAgents, gateways, Blackhole / Ignore, External Agent Harnesses, or later design-doc-defined consumers.
+- **Mailbox Entry** — one delivered mail item for one Receiver.
+- **Mailbox Session** — a weak short-term processing window for a Receiver. It is not a Conversation, Workflow run, Work, or business process instance.
+- **AIAgent** — an AI colleague. It can directly act as a Receiver for conversations, long-running Work, judgment, collaboration, memory, tool use, and human collaboration.
 - **Agentic Loop** — one reasoning and tool-use loop of an AIAgent. It belongs inside an AIAgent or SubAgent and does not automatically expand into Workflow Nodes.
-- **Workflow** — an explicit process Target made of Nodes, used when branching, approval, parallelism, deterministic steps, external actions, or human intervention need explicit process structure. Workflow is not the default entry point for every Event.
-- **Node** — a step inside a Workflow Target. Concrete Node contracts belong to the relevant Workflow design document, not to the root product guidance.
+- **Workflow** — an explicit process Receiver made of Nodes, used when branching, approval, parallelism, deterministic steps, external actions, or human intervention need explicit process structure. Workflow is not the default entry point for every mail.
+- **Node** — a step inside a Workflow. Concrete Node contracts belong to the relevant Workflow design document, not to the root product guidance.
 - **Capability** — a governed ability an AIAgent or Workflow can call: model, tool, browser, sandbox, messaging channel, external API, or External Agent Runtime.
 - **Skill** — a procedural knowledge asset whose durable truth lives in PostgreSQL, projected through a virtual file system. A Skill provides knowledge and materials; it does not grant execution power.
 - **SubAgent** — a child Agentic Loop delegated by an AIAgent or Workflow with bounded context, Skill, tool policy, sandbox policy, Budget, timeout, and result format.
 - **Human-in-the-loop** — a participation pattern where human input, approval, correction, handoff, or real-world work returns as Events and business records.
-- **Work** — a durable work responsibility that persists across TargetSessions. TargetSessions may create or process Work, but Work carries the long-term responsibility.
+- **Work** — a durable work responsibility that persists across mailbox sessions. Receivers may create or process Work, but Work carries the long-term responsibility.
 - **Budget** — a governance constraint over tokens, model cost, runtime, tool calls, external spend, or quota.
 - **Brain** — the long-term memory and reasoning world model. Brain durable truth lives in PostgreSQL.
 
 Core product stories to keep in mind:
 
-- A customer-success Agent can watch a group conversation, process a risk Event silently, create Work, and notify the account owner privately without speaking in the group.
-- One Event can enter EventBus, match a routing rule, and reach an AIAgent or Workflow Target. If it needs multiple paths, the matched Target must express that fan-out explicitly.
+- A customer-success Agent can watch a group conversation, process a risk mail silently, create Work, and notify the account owner privately without speaking in the group.
+- One IM message can be stored once by IMGateway and delivered to multiple Receivers through multiple MailBox entries.
 - A research Agent can combine conversation memory with external market events and retrieve context through an ontology-backed world model.
 - An Agent can learn from recorded business facts and execution evidence, so future Work planning reflects previous failures and successful patterns.
 - Customer-facing, financial, legal, or otherwise risky outbound actions must form auditable business records and pass through policy or approval when needed before the side effect executes.
 
-Do not encode the long-term table design, queue topology, adapter list, or runtime process model as if it were already implemented. Those details need a committed design doc before implementation.
+Do not encode future table design, queue topology, adapter list, or runtime process model as if it were already implemented. Those details need a committed design doc before implementation.
 
 ## Design-doc-first workflow
 
@@ -189,7 +192,7 @@ BullX implements meaningful features, architectural changes, and complex bug fix
 
    - What existing utility or pattern can be reused?
 
-   - What code path, process, schema, Event routing rule, Target, TargetSession behavior, or public contract is actually changing?
+   - What code path, process, schema, CloudEvents mail, delivery rule, Receiver, mailbox entry/session behavior, or public contract is actually changing?
 
    - What invariant must remain true?
 
@@ -232,7 +235,7 @@ Do not relitigate durability, consistency, latency, availability, purity, normal
 - Do not add dependencies unless the user explicitly requests or approves them.
 - Do not introduce a new abstraction for a single use. Wait for repeated pressure or a clearly named domain boundary.
 - Do not optimize for the local patch at the cost of future change. Code is not static. It will move, split, merge, and be deleted.
-- Keep public contracts boring. Prefer explicit structs, schemas, Events, Event Routing Rules, Targets, TargetSessions, and audit records over loose maps and freeform strings.
+- Keep public contracts boring. Prefer explicit structs, schemas, CloudEvents mail, delivery rules, Receivers, mailbox entries/sessions, and business records over loose maps and freeform strings.
 - Keep process state reconstructible. Process-local state is ephemeral and must be safe to rebuild on restart.
 - Multiple coding agents may work in parallel on the same branch. Unrelated files or diffs in Git status are normal; do not revert or touch them unless your task explicitly requires it.
 - Verify outcomes before final claims. Do not say a bug is fixed, a feature works, or a migration is safe unless you ran the relevant command or clearly state what remains unverified.

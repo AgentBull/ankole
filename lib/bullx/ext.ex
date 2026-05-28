@@ -231,19 +231,20 @@ defmodule BullX.Ext do
   def authz_resource_pattern_validate(_pattern), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """
-  Validate an EventBus route table through the Rust-owned route matcher.
+  Validate MailBox delivery-rule CEL expressions through the Rust-owned matcher.
   """
-  @spec eventbus_route_table_validate([map()]) :: true | {:error, error_reason()}
-  def eventbus_route_table_validate(_rules), do: :erlang.nif_error(:nif_not_loaded)
+  @spec mailbox_delivery_rules_validate([map()]) :: true | {:error, error_reason()}
+  def mailbox_delivery_rules_validate(_rules), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """
-  Match a RoutingContext against Event Routing Rules by priority.
+  Evaluate a routing context against MailBox delivery-rule candidates.
   """
-  @spec eventbus_match_route([map()], map()) ::
+  @spec mailbox_match_delivery_rule([map()], map()) ::
           {:matched, String.t(), [{String.t(), atom(), String.t()}]}
           | {:no_match, [{String.t(), atom(), String.t()}]}
           | {:error, error_reason()}
-  def eventbus_match_route(_rules, _routing_context), do: :erlang.nif_error(:nif_not_loaded)
+  def mailbox_match_delivery_rule(_rules, _routing_context),
+    do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """
   Evaluate already-loaded AuthZ computed groups against a Principal-only CEL

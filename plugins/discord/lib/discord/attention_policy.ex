@@ -1,7 +1,7 @@
 defmodule Discord.AttentionPolicy do
   @moduledoc false
 
-  alias BullX.EventBus.ChannelAdapter.Mentions
+  alias BullX.IMGateway.ChannelAdapter.Mentions
 
   @type decision ::
           {:ok, String.t()}
@@ -48,7 +48,7 @@ defmodule Discord.AttentionPolicy do
     end
   end
 
-  defp command?({:eventbus, _command}), do: true
+  defp command?({:agent_command, _command}), do: true
   defp command?({:direct, _command}), do: true
   defp command?(_command), do: false
 

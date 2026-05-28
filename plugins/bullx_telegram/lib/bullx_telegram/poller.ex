@@ -95,7 +95,7 @@ defmodule BullxTelegram.Poller do
     cond do
       Error.polling_conflict?(error) ->
         :telemetry.execute(
-          [:bullx, :event_bus, :adapter, :telegram, :poller, :conflict],
+          [:bullx, :im_gateway, :adapter, :telegram, :poller, :conflict],
           %{count: 1},
           %{source_id: state.source.id}
         )
@@ -109,7 +109,7 @@ defmodule BullxTelegram.Poller do
         backoff = backoff_ms(state.retry_count)
 
         :telemetry.execute(
-          [:bullx, :event_bus, :adapter, :telegram, :poller, :retry],
+          [:bullx, :im_gateway, :adapter, :telegram, :poller, :retry],
           %{retry_count: state.retry_count, backoff_ms: backoff},
           %{source_id: state.source.id}
         )

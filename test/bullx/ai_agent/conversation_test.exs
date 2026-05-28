@@ -50,7 +50,7 @@ defmodule BullX.AIAgent.ConversationTest do
     assert %{role: [_ | _]} = errors_on(changeset)
   end
 
-  test "inbound messages dedupe by target_session_entry_id" do
+  test "inbound messages dedupe by mailbox_entry_id" do
     {:ok, %{principal: agent}} =
       Principals.create_agent(%{
         uid: "ai-agent-dedupe-test",

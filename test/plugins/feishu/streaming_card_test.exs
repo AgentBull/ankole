@@ -41,6 +41,16 @@ defmodule Feishu.StreamingCardTest do
     defp test_pid(stream_id), do: :persistent_term.get({__MODULE__, stream_id})
   end
 
+  defmodule EmptyCompletedStreamingOutput do
+    def resume_stream(stream_id, nil) do
+      send(test_pid(stream_id), {:empty_completed_resume_after_offset, nil})
+
+      {:ok, %{status: :completed, chunks: [], follow?: false}}
+    end
+
+    defp test_pid(stream_id), do: :persistent_term.get({__MODULE__, stream_id})
+  end
+
   test "follows an open stream after the last resumed offset" do
     stream_id = "stream_follow_offset"
     :persistent_term.put({StreamingOutput, stream_id}, self())
@@ -80,7 +90,7 @@ defmodule Feishu.StreamingCardTest do
       stream_update_interval_ms: 1_000
     }
 
-    reply_channel = %{"scope_id" => "oc_chat"}
+    reply_address = %{"scope_id" => "oc_chat"}
 
     delivery_fun = fn delivery, _source, _opts ->
       refute delivery["id"] == stream_id
@@ -113,7 +123,7 @@ defmodule Feishu.StreamingCardTest do
 
     assert :ok =
              BullX.I18n.with_locale(:"zh-Hans-CN", fn ->
-               StreamingCard.consume(source, reply_channel, stream_id,
+               StreamingCard.consume(source, reply_address, stream_id,
                  streaming_output: StreamingOutput,
                  delivery_fun: delivery_fun,
                  delivery_update_fun: delivery_update_fun,
@@ -246,5 +256,67 @@ defmodule Feishu.StreamingCardTest do
 
     assert_received {:content_body, %{"content" => "hello", "sequence" => 2}}
     assert_received {:settings_body, %{"sequence" => 3}}
+  end
+
+  test "completed empty streams do not finalize as thinking" do
+    stream_id = "stream_completed_empty"
+    :persistent_term.put({EmptyCompletedStreamingOutput, stream_id}, self())
+    on_exit(fn -> :persistent_term.erase({EmptyCompletedStreamingOutput, stream_id}) end)
+    parent = self()
+
+    Req.Test.stub(__MODULE__, fn conn ->
+      case conn.request_path do
+        "/open-apis/auth/v3/tenant_access_token/internal" ->
+          Req.Test.json(conn, %{
+            "code" => 0,
+            "tenant_access_token" => "tenant_token",
+            "expire" => 7200
+          })
+
+        "/open-apis/cardkit/v1/cards" ->
+          Req.Test.json(conn, %{"code" => 0, "data" => %{"card_id" => "card_1"}})
+
+        "/open-apis/cardkit/v1/cards/card_1/elements/content" ->
+          send(parent, {:empty_replace_body, conn.body_params})
+          Req.Test.json(conn, %{"code" => 0})
+
+        "/open-apis/cardkit/v1/cards/card_1/settings" ->
+          send(parent, {:empty_settings_body, conn.body_params})
+          Req.Test.json(conn, %{"code" => 0})
+      end
+    end)
+
+    app_id = "cli_stream_" <> Integer.to_string(:erlang.unique_integer([:positive]))
+    client = Client.new(app_id, "secret_x", req_options: [plug: {Req.Test, __MODULE__}])
+
+    {:ok, manager_pid} =
+      DynamicSupervisor.start_child(FeishuOpenAPI.TokenManager.Supervisor, {TokenManager, client})
+
+    Req.Test.allow(__MODULE__, self(), manager_pid)
+
+    source = %Source{
+      id: "main",
+      app_id: app_id,
+      app_secret: "secret_x",
+      client: client,
+      stream_update_interval_ms: 1_000
+    }
+
+    delivery_fun = fn _delivery, _source, _opts ->
+      {:ok, %{"status" => "sent", "primary_external_id" => "om_card", "warnings" => []}}
+    end
+
+    assert :ok =
+             BullX.I18n.with_locale(:"zh-Hans-CN", fn ->
+               StreamingCard.consume(source, %{"scope_id" => "oc_chat"}, stream_id,
+                 streaming_output: EmptyCompletedStreamingOutput,
+                 delivery_fun: delivery_fun
+               )
+             end)
+
+    assert_received {:empty_completed_resume_after_offset, nil}
+    assert_received {:empty_replace_body, %{"element" => encoded_element, "sequence" => 1}}
+    assert %{"content" => "已完成，但没有生成可显示内容。"} = Jason.decode!(encoded_element)
+    assert_received {:empty_settings_body, %{"sequence" => 2}}
   end
 end

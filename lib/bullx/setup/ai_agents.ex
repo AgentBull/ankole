@@ -34,18 +34,14 @@ defmodule BullX.Setup.AIAgents do
   def save(attrs, session \\ %{})
 
   def save(attrs, session) when is_map(attrs) do
-    with :ok <- AuthZ.reconcile_bootstrap_admin_membership(),
-         {:ok, groups} <- ensure_groups(),
-         {:ok, profile} <- profile_from_attrs(attrs),
+    with {:ok, profile} <- profile_from_attrs(attrs),
          :ok <- resolve_profile_models(profile),
          {:ok, agent} <- create_or_update_agent(attrs, profile, session),
-         :ok <- ensure_acl(agent.principal.id, groups, attrs) do
+         :ok <- ensure_agent_acl(agent.principal.id) do
       {:ok,
        %{
          agent: public_agent(agent),
-         acl_preview: acl_preview(agent),
-         ordinary_group_id: groups.all_humans.id,
-         privileged_group_id: groups.admin.id
+         acl_preview: acl_preview(agent)
        }}
     else
       {:error, reason} -> {:error, normalize_error(reason)}
@@ -81,7 +77,7 @@ defmodule BullX.Setup.AIAgents do
   defp selected_complete?(agent) do
     with {:ok, profile} <- Profile.cast(agent.agent.profile),
          {:ok, _resolved} <- Catalog.resolve_model_config(profile.main_llm),
-         true <- required_acl_grants?(agent.principal.id) do
+         true <- required_agent_acl_grant?(agent.principal.id) do
       true
     else
       _other -> false
@@ -181,43 +177,13 @@ defmodule BullX.Setup.AIAgents do
     end
   end
 
-  defp ensure_groups do
-    with {:ok, all_humans, _} <- AuthZ.ensure_built_in_all_humans_group(),
-         {:ok, admin, _} <- AuthZ.ensure_built_in_admin_group() do
-      {:ok, %{all_humans: all_humans, admin: admin}}
+  defp ensure_agent_acl(agent_principal_id) do
+    case AuthZ.upsert_permission_grant(
+           principal_grant(agent_principal_id, agent_principal_id, "invoke")
+         ) do
+      {:ok, _grant} -> :ok
+      {:error, reason} -> {:error, reason}
     end
-  end
-
-  defp ensure_acl(agent_principal_id, groups, attrs) do
-    ordinary_group_id = string_value(attrs, "ordinary_group_id", groups.all_humans.id)
-    privileged_group_id = string_value(attrs, "privileged_group_id", groups.admin.id)
-
-    grants =
-      [
-        group_grant(ordinary_group_id, agent_principal_id, "invoke"),
-        group_grant(privileged_group_id, agent_principal_id, "invoke"),
-        group_grant(privileged_group_id, agent_principal_id, "invoke_privileged"),
-        principal_grant(agent_principal_id, agent_principal_id, "invoke")
-      ]
-      |> Enum.uniq_by(&{&1[:principal_id], &1[:group_id], &1[:resource_pattern], &1[:action]})
-
-    Enum.reduce_while(grants, :ok, fn grant, :ok ->
-      case AuthZ.upsert_permission_grant(grant) do
-        {:ok, _grant} -> {:cont, :ok}
-        {:error, reason} -> {:halt, {:error, reason}}
-      end
-    end)
-  end
-
-  defp group_grant(group_id, agent_principal_id, action) do
-    %{
-      group_id: group_id,
-      resource_pattern: "ai_agent:#{agent_principal_id}",
-      action: action,
-      condition: "true",
-      description: "Setup initial AIAgent #{action} grant.",
-      metadata: %{"created_by" => "setup", "setup_role" => "initial_ai_agent_acl"}
-    }
   end
 
   defp principal_grant(principal_id, agent_principal_id, action) do
@@ -231,30 +197,9 @@ defmodule BullX.Setup.AIAgents do
     }
   end
 
-  defp required_acl_grants?(agent_principal_id) do
+  defp required_agent_acl_grant?(agent_principal_id) do
     resource = "ai_agent:#{agent_principal_id}"
-
-    with %PrincipalGroup{id: all_humans_id} <-
-           Repo.get_by(PrincipalGroup, name: "all_humans", built_in: true),
-         %PrincipalGroup{id: admin_id} <-
-           Repo.get_by(PrincipalGroup, name: "admin", built_in: true) do
-      group_grant_exists?(all_humans_id, resource, "invoke") and
-        group_grant_exists?(admin_id, resource, "invoke") and
-        group_grant_exists?(admin_id, resource, "invoke_privileged") and
-        principal_grant_exists?(agent_principal_id, resource, "invoke")
-    else
-      _other -> false
-    end
-  end
-
-  defp group_grant_exists?(group_id, resource, action) do
-    Repo.exists?(
-      from grant in PermissionGrant,
-        where:
-          grant.group_id == ^group_id and grant.resource_pattern == ^resource and
-            grant.action == ^action and grant.condition == "true",
-        select: 1
-    )
+    principal_grant_exists?(agent_principal_id, resource, "invoke")
   end
 
   defp principal_grant_exists?(principal_id, resource, action) do
@@ -281,8 +226,6 @@ defmodule BullX.Setup.AIAgents do
   end
 
   defp group_projection do
-    _ = AuthZ.reconcile_bootstrap_admin_membership()
-
     PrincipalGroup
     |> where([group], group.name in ["admin", "all_humans"])
     |> order_by([group], asc: group.name)

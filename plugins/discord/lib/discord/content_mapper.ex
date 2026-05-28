@@ -1,7 +1,7 @@
 defmodule Discord.ContentMapper do
   @moduledoc false
 
-  alias BullX.EventBus.ChannelAdapter.Content
+  alias BullX.IMGateway.ChannelAdapter.Content
 
   @message_limit 2_000
 
@@ -19,7 +19,7 @@ defmodule Discord.ContentMapper do
       |> add_embeds(Map.get(message, "embeds", []))
       |> add_stickers(Map.get(message, "sticker_items", []))
       |> case do
-        [] -> [text_block(BullX.I18n.t("eventbus.discord.errors.unsupported_message"))]
+        [] -> [text_block(BullX.I18n.t("im_gateway.discord.errors.unsupported_message"))]
         blocks -> Enum.reverse(blocks)
       end
 
@@ -29,7 +29,7 @@ defmodule Discord.ContentMapper do
   def from_message(_message, _source),
     do: {:error, Discord.Error.payload("invalid Discord message")}
 
-  defdelegate primary_text(blocks), to: BullX.EventBus.ChannelAdapter.Content
+  defdelegate primary_text(blocks), to: BullX.IMGateway.ChannelAdapter.Content
 
   @spec render_outbound(term()) :: {:ok, [String.t()], [String.t()]} | {:error, map()}
   def render_outbound([%{"type" => "text", "text" => text} | _rest])
@@ -153,7 +153,7 @@ defmodule Discord.ContentMapper do
     Enum.reduce(stickers, blocks, fn sticker, acc ->
       case Map.get(sticker, "id") do
         id when is_binary(id) -> [media_block("image", "discord://sticker/#{id}", sticker) | acc]
-        _value -> maybe_add_text(acc, BullX.I18n.t("eventbus.discord.media.sticker"))
+        _value -> maybe_add_text(acc, BullX.I18n.t("im_gateway.discord.media.sticker"))
       end
     end)
   end
@@ -200,7 +200,7 @@ defmodule Discord.ContentMapper do
     text =
       case Content.delivery_text(body) || get_in(body, ["fallback_text"]) do
         value when is_binary(value) and value != "" -> value
-        _value -> BullX.I18n.t("eventbus.discord.delivery.fallback_text")
+        _value -> BullX.I18n.t("im_gateway.discord.delivery.fallback_text")
       end
 
     {:ok, [text], ["#{kind}_degraded_to_fallback_text"]}

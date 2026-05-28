@@ -1,7 +1,7 @@
 defmodule BullxTelegram.ConfigSourceTest do
   use ExUnit.Case, async: true
 
-  alias BullxTelegram.Config.EventBusSources
+  alias BullxTelegram.Config.IMGatewaySources
   alias BullxTelegram.Source
 
   defmodule API do
@@ -9,9 +9,9 @@ defmodule BullxTelegram.ConfigSourceTest do
       do: {:ok, %{"id" => 123_456, "username" => "bullx_bot"}}
   end
 
-  test "eventbus source cast normalizes one channel instance with its bot token" do
+  test "im_gateway source cast normalizes one channel instance with its bot token" do
     assert {:ok, [source]} =
-             EventBusSources.cast([
+             IMGatewaySources.cast([
                %{
                  id: "main",
                  bot_token: "123456:ABC",

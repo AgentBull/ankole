@@ -44,7 +44,7 @@ defmodule BullxTelegram.Channel do
 
   @impl true
   def handle_call({:update, update}, _from, %__MODULE__{source: source} = state) do
-    result = BullX.EventBus.ChannelAdapter.accept_inbound("telegram", source, update)
+    result = BullX.IMGateway.ChannelAdapter.accept_inbound("telegram", source, update)
     {:reply, result, state}
   end
 

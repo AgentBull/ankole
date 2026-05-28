@@ -33,10 +33,10 @@ defmodule BullX.AIAgent.Event do
     |> Enum.flat_map(&content_part_text/1)
   end
 
-  @spec reply_channel(map()) :: map() | nil
-  def reply_channel(data) when is_map(data) do
-    case Map.get(data, "reply_channel") || Map.get(data, :reply_channel) do
-      %{} = reply_channel -> reply_channel
+  @spec reply_address(map()) :: map() | nil
+  def reply_address(data) when is_map(data) do
+    case Map.get(data, "reply_address") || Map.get(data, :reply_address) do
+      %{} = reply_address -> reply_address
       _other -> nil
     end
   end

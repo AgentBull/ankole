@@ -20,6 +20,7 @@ import {
 } from "../shared"
 
 const DEFAULT_CONTEXT_WINDOW = 80_000
+const MIN_MAX_COMPLETION_TOKENS = 200
 
 type LLMConfig = {
   provider_id: string
@@ -312,7 +313,7 @@ function LLMConfigFields({
         <TextField
           label={t("setup.ai_agents.max_completion_tokens_label")}
           type="number"
-          min={1}
+          min={MIN_MAX_COMPLETION_TOKENS}
           description={t("setup.ai_agents.max_completion_tokens_description")}
           {...register(`agent.${path}.max_completion_tokens`, { valueAsNumber: true })}
         />
@@ -415,7 +416,9 @@ function normalizeSubmit(data: AgentForm) {
 function normalizeLLM(config: LLMConfig) {
   const normalized: LLMConfig = {
     ...config,
-    max_completion_tokens: positiveInteger(config.max_completion_tokens) ? config.max_completion_tokens : null,
+    max_completion_tokens: minimumInteger(config.max_completion_tokens, MIN_MAX_COMPLETION_TOKENS)
+      ? config.max_completion_tokens
+      : null,
   }
 
   if (positiveInteger(config.context_window)) {
@@ -424,7 +427,7 @@ function normalizeLLM(config: LLMConfig) {
     delete normalized.context_window
   }
 
-  if (!positiveInteger(normalized.max_completion_tokens)) {
+  if (!minimumInteger(normalized.max_completion_tokens, MIN_MAX_COMPLETION_TOKENS)) {
     delete normalized.max_completion_tokens
   }
 
@@ -433,4 +436,8 @@ function normalizeLLM(config: LLMConfig) {
 
 function blankLLM(config: LLMConfig | undefined) {
   return !config?.provider_id && !config?.model
+}
+
+function minimumInteger(value: unknown, min: number): value is number {
+  return Number.isInteger(value) && Number(value) >= min
 }

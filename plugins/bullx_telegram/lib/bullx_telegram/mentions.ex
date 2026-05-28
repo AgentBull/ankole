@@ -1,9 +1,9 @@
 defmodule BullxTelegram.Mentions do
   @moduledoc false
 
-  @behaviour BullX.EventBus.ChannelAdapter.Mentions
+  @behaviour BullX.IMGateway.ChannelAdapter.Mentions
 
-  alias BullX.EventBus.ChannelAdapter.Mentions
+  alias BullX.IMGateway.ChannelAdapter.Mentions
 
   @impl true
   def parse_mentions(%{} = message, _source) do

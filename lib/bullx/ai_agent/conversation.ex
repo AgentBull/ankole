@@ -3,7 +3,7 @@ defmodule BullX.AIAgent.Conversation do
   Durable AIAgent conversation continuity.
 
   A Conversation is business state owned by AIAgent. It is separate from
-  TargetSession runtime state and may be touched by many TargetSessions over
+  MailboxSession runtime state and may be touched by many MailboxSessions over
   time.
   """
 

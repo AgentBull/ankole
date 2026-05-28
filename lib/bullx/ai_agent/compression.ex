@@ -206,7 +206,7 @@ defmodule BullX.AIAgent.Compression do
     end
   end
 
-  defp existing_summary_for_context(%{target_session_entry_id: entry_id})
+  defp existing_summary_for_context(%{mailbox_entry_id: entry_id})
        when is_binary(entry_id),
        do: Conversations.summary_for_entry(entry_id)
 
@@ -408,8 +408,8 @@ defmodule BullX.AIAgent.Compression do
       status: :complete,
       content: [%{"type" => "summary_text", "text" => summary_text}],
       covers_range: %{"from_id" => from_message.id, "to_id" => to_message.id},
-      target_session_id: Map.get(context, :target_session_id),
-      target_session_entry_id: Map.get(context, :target_session_entry_id),
+      mailbox_session_id: Map.get(context, :mailbox_session_id),
+      mailbox_entry_id: Map.get(context, :mailbox_entry_id),
       metadata: %{
         "source_leaf_message_id" => expected_raw_leaf_id,
         "original_dialogue_time_range" => time_range,

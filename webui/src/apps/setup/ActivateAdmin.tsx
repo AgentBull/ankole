@@ -48,7 +48,7 @@ function ActivateAdminInner({
   back_path,
 }: ActivateProps) {
   const { t } = useTranslation()
-  const activationCommand = command || (activation_code ? `/preauth ${activation_code}` : null)
+  const activationCommand = command || (activation_code ? `/root_init ${activation_code}` : null)
   const { data, isFetching } = useQuery<ActivationStatus>({
     queryKey: ["setup-activation-status", status_path],
     queryFn: async () => {

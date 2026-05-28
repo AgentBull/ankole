@@ -36,7 +36,7 @@ defmodule Feishu.DirectCommandTest do
   end
 
   test "parses slash commands" do
-    assert {:ok, %{name: "preauth", args: "CODE"}} = DirectCommand.parse("/preauth CODE")
+    assert {:ok, %{name: "root_init", args: "CODE"}} = DirectCommand.parse("/root_init CODE")
     assert {:ok, %{name: "webauth", args: ""}} = DirectCommand.parse("/webauth")
     assert :error = DirectCommand.parse("hello")
   end
@@ -87,7 +87,7 @@ defmodule Feishu.DirectCommandTest do
       account_input: %{}
     }
 
-    expected = BullX.I18n.t("eventbus.feishu.auth.webauth_disabled")
+    expected = BullX.I18n.t("im_gateway.feishu.auth.webauth_disabled")
 
     delivery_fun = fn delivery, _source, _opts ->
       assert get_in(delivery, ["content", Access.at(0), "body", "text"]) == expected
@@ -98,10 +98,10 @@ defmodule Feishu.DirectCommandTest do
              DirectCommand.handle(source, command, delivery_fun: delivery_fun)
   end
 
-  test "preauth fetches contact user with tenant token before consuming activation code" do
+  test "root_init fetches contact user with tenant token before consuming activation code" do
     source = source_with_client()
 
-    {:ok, %{code: code}} = BullX.Principals.create_activation_code(nil, %{})
+    {:ok, %{code: code}} = BullX.Principals.create_or_refresh_bootstrap_activation_code()
 
     Req.Test.stub(__MODULE__, fn conn ->
       case conn.request_path do
@@ -139,8 +139,8 @@ defmodule Feishu.DirectCommandTest do
     allow_token_manager(source.client)
 
     command = %{
-      event_id: "evt_preauth",
-      name: "preauth",
+      event_id: "evt_root_init",
+      name: "root_init",
       args: code,
       chat_id: "oc_chat",
       chat_type: "p2p",
@@ -151,29 +151,29 @@ defmodule Feishu.DirectCommandTest do
 
     delivery_fun = fn delivery, _source, _opts ->
       assert get_in(delivery, ["content", Access.at(0), "body", "text"]) ==
-               BullX.I18n.t("eventbus.feishu.auth.activation_success")
+               BullX.I18n.t("im_gateway.feishu.auth.root_init_success")
 
       {:ok, %{"delivery_id" => delivery["id"], "status" => "sent", "warnings" => []}}
     end
 
-    assert {:ok, %{"command_name" => "preauth", "status" => "sent"}} =
+    assert {:ok, %{"command_name" => "root_init", "status" => "sent"}} =
              DirectCommand.handle(source, command, delivery_fun: delivery_fun)
 
     assert {:ok, principal} =
              BullX.Principals.resolve_channel_actor("feishu", "main", "feishu:ou_user")
 
     assert principal.display_name == "Ada"
-    assert principal.uid == "user_x"
+    assert principal.uid == "ada"
     assert principal.avatar_url == "https://example.com/avatar.png"
 
     assert %{human_user: human_user} = BullX.Repo.preload(principal, :human_user)
     assert human_user.email == "ada@corp.example.com"
   end
 
-  test "preauth does not consume activation code when contact user is unavailable" do
+  test "root_init does not consume activation code when contact user is unavailable" do
     source = source_with_client()
 
-    {:ok, %{code: code}} = BullX.Principals.create_activation_code(nil, %{})
+    {:ok, %{code: code}} = BullX.Principals.create_or_refresh_bootstrap_activation_code()
 
     Req.Test.stub(__MODULE__, fn conn ->
       case conn.request_path do
@@ -195,8 +195,8 @@ defmodule Feishu.DirectCommandTest do
     allow_token_manager(source.client)
 
     command = %{
-      event_id: "evt_preauth_missing_userinfo",
-      name: "preauth",
+      event_id: "evt_root_init_missing_userinfo",
+      name: "root_init",
       args: code,
       chat_id: "oc_chat",
       chat_type: "p2p",
@@ -207,12 +207,12 @@ defmodule Feishu.DirectCommandTest do
 
     delivery_fun = fn delivery, _source, _opts ->
       assert get_in(delivery, ["content", Access.at(0), "body", "text"]) ==
-               BullX.I18n.t("eventbus.feishu.auth.activation_failed")
+               BullX.I18n.t("im_gateway.feishu.auth.root_init_failed")
 
       {:ok, %{"delivery_id" => delivery["id"], "status" => "sent", "warnings" => []}}
     end
 
-    assert {:ok, %{"command_name" => "preauth", "status" => "sent"}} =
+    assert {:ok, %{"command_name" => "root_init", "status" => "sent"}} =
              DirectCommand.handle(source, command, delivery_fun: delivery_fun)
 
     assert {:error, :not_bound} =

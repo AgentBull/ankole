@@ -35,7 +35,7 @@ defmodule BullxTelegram.UpdateMapper do
         {:direct, command} ->
           {:direct_command, Map.merge(command, direct_context(context, actor))}
 
-        {:eventbus, command} ->
+        {:agent_command, command} ->
           mapped(
             update_id,
             message_id,
@@ -103,7 +103,12 @@ defmodule BullxTelegram.UpdateMapper do
       subject: "Telegram message #{message_id}",
       data: %{
         content: command_content(blocks, command),
-        channel: %{adapter: "telegram", id: source.id, kind: channel_kind(context.chat_type)},
+        channel: %{
+          adapter: "telegram",
+          id: source.id,
+          kind: channel_kind(context.chat_type),
+          trusted_realm_by_default: source.trusted_realm_by_default
+        },
         scope: %{id: context.chat_id, thread_id: context.thread_id},
         actor: %{
           external_account_id: actor.id,
@@ -111,7 +116,7 @@ defmodule BullxTelegram.UpdateMapper do
           principal: nil
         },
         refs: refs(update_id, message_id, context, actor),
-        reply_channel: %{
+        reply_address: %{
           adapter: "telegram",
           channel_id: source.id,
           scope_id: context.chat_id,
@@ -158,6 +163,7 @@ defmodule BullxTelegram.UpdateMapper do
       "adapter" => "telegram",
       "channel_id" => source.id,
       "external_id" => actor.id,
+      "trusted_realm_by_default" => source.trusted_realm_by_default,
       "profile" => actor.profile,
       "metadata" =>
         %{

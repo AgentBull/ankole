@@ -5,7 +5,7 @@ defmodule Feishu.SourceSetupTest do
   alias BullX.Repo
   alias Feishu.SourceSetup
 
-  @sources_key "bullx.plugins.feishu.eventbus_sources"
+  @sources_key "bullx.plugins.feishu.im_gateway_sources"
 
   setup do
     cache_pid = GenServer.whereis(BullX.Config.Cache)

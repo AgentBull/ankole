@@ -2,11 +2,9 @@ defmodule BullXWeb.SetupSessionControllerTest do
   use BullXWeb.ConnCase, async: false
 
   alias BullX.Principals
-  alias BullX.Principals.ActivationCode
-  alias BullX.Repo
 
   test "POST /setup/sessions stores setup session keys without consuming the code", %{conn: conn} do
-    assert {:ok, %{code: plaintext, activation_code: code}} =
+    assert {:ok, %{code: plaintext, code_hash: code_hash}} =
              Principals.create_or_refresh_bootstrap_activation_code()
 
     conn =
@@ -16,14 +14,9 @@ defmodule BullXWeb.SetupSessionControllerTest do
 
     assert redirected_to(conn) == ~p"/setup"
 
-    code_hash = get_session(conn, :bootstrap_activation_code_hash)
-    assert is_binary(code_hash)
+    assert get_session(conn, :bootstrap_activation_code_hash) == code_hash
     assert get_session(conn, :bootstrap_activation_code_plaintext) == plaintext
     assert get_session(conn, :setup_step) == "plugins"
-
-    stored = Repo.get!(ActivationCode, code.id)
-    assert stored.used_at == nil
-    assert stored.metadata["setup_gate_verified_at"]
   end
 
   test "POST /setup/sessions clears old setup session keys on invalid code", %{conn: conn} do

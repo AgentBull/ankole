@@ -1,6 +1,6 @@
 defmodule Feishu.Source do
   @moduledoc """
-  Runtime representation of one configured Feishu EventBus source.
+  Runtime representation of one configured Feishu IMGateway source.
 
   The struct keeps secrets out of `Inspect` and rebuilds the SDK client from
   encrypted source config.
@@ -30,6 +30,7 @@ defmodule Feishu.Source do
   @default_inline_media_max_bytes 524_288
   @default_stream_update_interval_ms 100
   @default_im_listen_mode :addressed_only
+  @default_trusted_realm_by_default true
   @im_listen_modes [:addressed_only, :all_messages]
 
   @derive {Inspect, except: [:app_secret, :client]}
@@ -49,6 +50,7 @@ defmodule Feishu.Source do
     inline_media_max_bytes: @default_inline_media_max_bytes,
     stream_update_interval_ms: @default_stream_update_interval_ms,
     im_listen_mode: @default_im_listen_mode,
+    trusted_realm_by_default: @default_trusted_realm_by_default,
     req_options: [],
     headers: [],
     start_transport?: true
@@ -111,6 +113,8 @@ defmodule Feishu.Source do
              @default_stream_update_interval_ms
            ),
          im_listen_mode: im_listen_mode,
+         trusted_realm_by_default:
+           optional_boolean(config, "trusted_realm_by_default", @default_trusted_realm_by_default),
          req_options: req_options,
          headers: headers,
          start_transport?: optional_boolean(config, "start_transport", true)
@@ -120,16 +124,16 @@ defmodule Feishu.Source do
 
   @spec enabled_sources() :: {:ok, [t()]} | {:error, map()}
   def enabled_sources do
-    BullX.EventBus.ChannelAdapter.SourceRegistry.enabled_sources(
-      &Feishu.Config.eventbus_sources!/0,
+    BullX.IMGateway.ChannelAdapter.SourceRegistry.enabled_sources(
+      &Feishu.Config.im_gateway_sources!/0,
       &normalize/1
     )
   end
 
   @spec enabled_sources!() :: [t()]
   def enabled_sources! do
-    BullX.EventBus.ChannelAdapter.SourceRegistry.enabled_sources!(
-      &Feishu.Config.eventbus_sources!/0,
+    BullX.IMGateway.ChannelAdapter.SourceRegistry.enabled_sources!(
+      &Feishu.Config.im_gateway_sources!/0,
       &normalize/1,
       "Feishu"
     )
@@ -138,7 +142,7 @@ defmodule Feishu.Source do
   @spec fetch_enabled_source(String.t()) :: {:ok, t()} | {:error, :not_found | map()}
   def fetch_enabled_source(source_id) when is_binary(source_id) do
     with {:ok, sources} <- enabled_sources() do
-      BullX.EventBus.ChannelAdapter.SourceRegistry.fetch_enabled_source(sources, source_id)
+      BullX.IMGateway.ChannelAdapter.SourceRegistry.fetch_enabled_source(sources, source_id)
     end
   end
 
@@ -155,6 +159,7 @@ defmodule Feishu.Source do
       "oidc" => source.oidc,
       "web_login_disabled" => source.web_login_disabled?,
       "im_listen_mode" => Atom.to_string(source.im_listen_mode),
+      "trusted_realm_by_default" => source.trusted_realm_by_default,
       "start_transport" => source.start_transport?
     }
     |> reject_nil_values()

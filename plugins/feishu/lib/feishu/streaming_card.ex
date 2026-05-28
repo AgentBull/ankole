@@ -6,15 +6,15 @@ defmodule Feishu.StreamingCard do
   @streaming_element_id "content"
 
   @spec consume(Source.t() | map(), map(), String.t(), keyword()) :: :ok | {:error, map()}
-  def consume(source_config, reply_channel, stream_id, opts \\ [])
-      when is_map(reply_channel) and is_binary(stream_id) and is_list(opts) do
+  def consume(source_config, reply_address, stream_id, opts \\ [])
+      when is_map(reply_address) and is_binary(stream_id) and is_list(opts) do
     with {:ok, source} <- Source.normalize(source_config),
          {:ok, card_id, message_id} <-
-           create_and_send_card(source, reply_channel, stream_id, opts),
+           create_and_send_card(source, reply_address, stream_id, opts),
          :ok <- notify_delivery(opts, stream_id, card_id, message_id),
          :ok <- consume_stream(source, card_id, stream_id, opts) do
       :telemetry.execute(
-        [:bullx, :event_bus, :adapter, :stream, :delivered],
+        [:bullx, :im_gateway, :adapter, :stream, :delivered],
         %{count: 1},
         %{
           adapter_id: "feishu",
@@ -33,17 +33,37 @@ defmodule Feishu.StreamingCard do
     end
   end
 
-  defp create_and_send_card(%Source{} = source, reply_channel, stream_id, opts) do
-    initial_text = BullX.I18n.t("eventbus.feishu.delivery.stream_thinking")
+  defp create_and_send_card(%Source{} = source, reply_address, stream_id, opts) do
+    initial_text = BullX.I18n.t("im_gateway.feishu.delivery.stream_thinking")
 
     with {:ok, card_id} <- create_card(source, initial_text),
-         outbound <- card_outbound(stream_id, card_id, reply_channel),
-         {:ok, result} <- Feishu.Outbound.deliver(source, reply_channel, outbound, opts),
+         outbound <- card_outbound(stream_id, card_id, reply_address),
+         {:ok, result} <- send_card_outbound(source, reply_address, outbound, opts),
          message_id when is_binary(message_id) <- Map.get(result, "primary_external_id") do
       {:ok, card_id, message_id}
     else
       nil -> {:error, Feishu.Error.payload("Feishu streaming card send returned no message_id")}
       {:error, _error} = error -> error
+    end
+  end
+
+  defp send_card_outbound(%Source{} = source, reply_address, outbound, opts) do
+    case Keyword.get(opts, :persist_outbound?, false) do
+      true ->
+        outbound
+        |> Map.put("reply_address", reply_address)
+        |> Map.put("provider_occurrence_id", outbound["id"])
+        |> Map.put("actor_kind", "agent")
+        |> Map.put("actor_principal_id", Keyword.get(opts, :actor_principal_id))
+        |> BullX.IMGateway.send_message(Keyword.delete(opts, :persist_outbound?))
+        |> case do
+          {:ok, %{delivery: delivery}} -> {:ok, delivery}
+          {:error, %{reason: reason}} -> {:error, reason}
+          {:error, reason} -> {:error, reason}
+        end
+
+      false ->
+        Feishu.Outbound.deliver(source, reply_address, outbound, opts)
     end
   end
 
@@ -85,7 +105,7 @@ defmodule Feishu.StreamingCard do
   end
 
   defp consume_stream(%Source{} = source, card_id, stream_id, opts) do
-    streaming = Keyword.get(opts, :streaming_output, BullX.EventBus.StreamingOutput)
+    streaming = Keyword.get(opts, :streaming_output, BullX.MailBox.StreamingOutput)
     update_fun = Keyword.get(opts, :card_update_fun, &put_card_content/4)
     replace_fun = Keyword.get(opts, :card_replace_content_fun, &replace_card_content_element/4)
     finalize_fun = Keyword.get(opts, :card_finalize_fun, &finalize_card/4)
@@ -281,10 +301,13 @@ defmodule Feishu.StreamingCard do
   defp terminal_status(_status), do: nil
 
   defp final_text(%{terminal_status: :failed}),
-    do: BullX.I18n.t("eventbus.feishu.delivery.stream_failed")
+    do: BullX.I18n.t("im_gateway.feishu.delivery.stream_failed")
 
   defp final_text(%{terminal_status: :interrupted}),
-    do: BullX.I18n.t("eventbus.feishu.delivery.stream_cancelled")
+    do: BullX.I18n.t("im_gateway.feishu.delivery.stream_cancelled")
+
+  defp final_text(%{text: ""}),
+    do: BullX.I18n.t("im_gateway.feishu.delivery.stream_completed_empty")
 
   defp final_text(%{text: text}), do: stream_text(text)
 
@@ -296,8 +319,8 @@ defmodule Feishu.StreamingCard do
     :ok
   end
 
-  defp failure_text(:interrupted), do: BullX.I18n.t("eventbus.feishu.delivery.stream_cancelled")
-  defp failure_text(_reason), do: BullX.I18n.t("eventbus.feishu.delivery.stream_failed")
+  defp failure_text(:interrupted), do: BullX.I18n.t("im_gateway.feishu.delivery.stream_cancelled")
+  defp failure_text(_reason), do: BullX.I18n.t("im_gateway.feishu.delivery.stream_failed")
 
   defp finalize_success(source, card_id, state, update_fun, replace_fun, finalize_fun) do
     text = final_text(state)
@@ -410,13 +433,13 @@ defmodule Feishu.StreamingCard do
     end
   end
 
-  defp card_outbound(stream_id, card_id, reply_channel) do
+  defp card_outbound(stream_id, card_id, reply_address) do
     %{
       "id" => stream_id,
       "op" => "send",
-      "scope_id" => map_value(reply_channel, "scope_id"),
-      "thread_id" => map_value(reply_channel, "thread_id"),
-      "reply_to_external_id" => map_value(reply_channel, "reply_to_external_id"),
+      "scope_id" => map_value(reply_address, "scope_id"),
+      "thread_id" => map_value(reply_address, "thread_id"),
+      "reply_to_external_id" => map_value(reply_address, "reply_to_external_id"),
       "content" => [
         %{
           "kind" => "card",
@@ -455,7 +478,7 @@ defmodule Feishu.StreamingCard do
       config: %{
         update_multi: true,
         streaming_mode: true,
-        summary: %{content: BullX.I18n.t("eventbus.feishu.delivery.stream_thinking")},
+        summary: %{content: BullX.I18n.t("im_gateway.feishu.delivery.stream_thinking")},
         streaming_config: %{
           print_frequency_ms: %{default: 70, android: 70, ios: 70, pc: 70},
           print_step: %{default: 1, android: 1, ios: 1, pc: 1},
@@ -500,7 +523,7 @@ defmodule Feishu.StreamingCard do
     }
   end
 
-  defp stream_text(""), do: BullX.I18n.t("eventbus.feishu.delivery.stream_thinking")
+  defp stream_text(""), do: BullX.I18n.t("im_gateway.feishu.delivery.stream_thinking")
   defp stream_text(text), do: text
 
   defp truncate_summary(text) when is_binary(text) do

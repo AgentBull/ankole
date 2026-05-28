@@ -3,13 +3,14 @@ bcp47 = "zh-Hans-CN"
 fallback = "en-US"
 
 [gateway.feishu.auth]
-activation_required = "这个飞书账号还没有激活。请在当前私聊中发送 /preauth <code> 完成激活。"
-activation_success = "激活完成。"
+activation_required = "这个账号尚未验证。请联系管理员验证。"
+identity_unverified = "这个账号尚未验证。请联系管理员验证。"
+root_init_success = "根初始化完成。"
 activation_code_invalid = "激活码无效或已过期。"
-activation_failed = "激活失败，请稍后重试。"
+root_init_failed = "根初始化失败，请稍后重试。"
 already_linked = "这个飞书账号已经绑定。"
 webauth_created = "登录验证码：{$code}\n打开 {$login_url} 继续登录。"
-webauth_not_bound = "这个飞书账号还没有绑定。请先使用 /preauth 激活。"
+webauth_not_bound = "这个账号尚未绑定或验证。"
 webauth_failed = "无法创建登录验证码，请稍后重试。"
 login_not_bound = "这个飞书账号还没有绑定。"
 denied = "这个 Principal 已被禁用。"
@@ -19,6 +20,7 @@ direct_command_dm_only = "请在和机器人的私聊中发送这个命令。"
 fallback_text = "不支持的飞书内容"
 stream_generating = "生成中..."
 stream_thinking = "正在思考..."
+stream_completed_empty = "已完成，但没有生成可显示内容。"
 stream_failed = "流式回复失败。"
 stream_cancelled = "流式回复已取消。"
 reply_target_missing_sent_to_scope = "被回复的消息不存在，已发送到当前会话。"
@@ -27,33 +29,35 @@ reply_target_missing_sent_to_scope = "被回复的消息不存在，已发送到
 unsupported_message = "不支持的飞书消息"
 profile_unavailable = "无法获取飞书用户资料"
 
-[eventbus.feishu.auth]
-activation_required = "这个飞书账号还没有激活。请在当前私聊中发送 /preauth <code> 完成激活。"
-activation_success = "激活完成。"
+[im_gateway.feishu.auth]
+activation_required = "这个账号尚未验证。请联系管理员验证。"
+identity_unverified = "这个账号尚未验证。请联系管理员验证。"
+root_init_success = "根初始化完成。"
 activation_code_invalid = "激活码无效或已过期。"
-activation_failed = "激活失败，请稍后重试。"
+root_init_failed = "根初始化失败，请稍后重试。"
 already_linked = "这个飞书账号已经绑定。"
 webauth_created = "登录验证码：{$code}\n打开 {$login_url} 继续登录。"
-webauth_not_bound = "这个飞书账号还没有绑定。请先使用 /preauth 激活。"
+webauth_not_bound = "这个账号尚未绑定或验证。"
 webauth_disabled = "这个飞书来源已禁用网页登录。"
 webauth_failed = "无法创建登录验证码，请稍后重试。"
 login_not_bound = "这个飞书账号还没有绑定。"
 denied = "这个 Principal 已被禁用。"
 direct_command_dm_only = "请在和机器人的私聊中发送这个命令。"
 
-[eventbus.feishu.delivery]
+[im_gateway.feishu.delivery]
 fallback_text = "不支持的飞书内容"
 stream_generating = "生成中..."
 stream_thinking = "正在思考..."
+stream_completed_empty = "已完成，但没有生成可显示内容。"
 stream_failed = "流式回复失败。"
 stream_cancelled = "流式回复已取消。"
 reply_target_missing_sent_to_scope = "被回复的消息不存在，已发送到当前会话。"
 
-[eventbus.feishu.errors]
+[im_gateway.feishu.errors]
 unsupported_message = "不支持的飞书消息"
 profile_unavailable = "无法获取飞书用户资料"
 
-[eventbus.commands.aliases]
+[ai_agent.commands.aliases]
 command = "命令"
 status = "状态"
 new = "新会话"
@@ -63,10 +67,10 @@ steer = "引导"
 stop = "停止"
 undo = "撤销"
 
-[eventbus.commands.list]
+[ai_agent.commands.list]
 header = "可用命令："
 
-[eventbus.commands.descriptions]
+[ai_agent.commands.descriptions]
 command = "列出可用命令"
 status = "显示 BullX 运行状态、环境和版本"
 new = "开启新的会话"
@@ -81,13 +85,14 @@ text = "当前没有正在生成的回复。"
 short_text = "空闲"
 
 [gateway.telegram.auth]
-activation_required = "这个 Telegram 账号还没有激活。请在与机器人的私聊中发送 /preauth <code> 完成激活。"
-activation_success = "激活完成。"
+activation_required = "这个账号尚未验证。请联系管理员验证。"
+identity_unverified = "这个账号尚未验证。请联系管理员验证。"
+root_init_success = "根初始化完成。"
 activation_code_invalid = "激活码无效或已过期。"
-activation_failed = "激活失败，请稍后重试。"
+root_init_failed = "根初始化失败，请稍后重试。"
 already_linked = "这个 Telegram 账号已经绑定。"
 webauth_created = "登录验证码：{$code}\n打开 {$login_url} 继续登录。"
-webauth_not_bound = "这个 Telegram 账号还没有绑定。请先使用 /preauth 激活。"
+webauth_not_bound = "这个账号尚未绑定或验证。"
 webauth_failed = "无法创建登录验证码，请稍后重试。"
 webauth_disabled = "当前 Telegram 接入禁用了网页端登录。"
 login_not_bound = "这个 Telegram 账号还没有绑定。"
@@ -112,17 +117,18 @@ unsupported_message = "不支持的 Telegram 消息"
 profile_unavailable = "无法获取 Telegram 用户资料"
 
 [gateway.telegram.commands]
-preauth = "使用激活码绑定：/preauth <code>"
+root_init = "初始化首个管理员：/root_init <code>"
 webauth = "获取一次性网页登录验证码"
 
 [gateway.discord.auth]
-activation_required = "这个 Discord 账号还没有激活。请私聊机器人并发送 /preauth <code> 完成激活。"
-activation_success = "激活完成。"
+activation_required = "这个账号尚未验证。请联系管理员验证。"
+identity_unverified = "这个账号尚未验证。请联系管理员验证。"
+root_init_success = "根初始化完成。"
 activation_code_invalid = "激活码无效或已过期。"
-activation_failed = "激活失败，请稍后重试。"
+root_init_failed = "根初始化失败，请稍后重试。"
 already_linked = "这个 Discord 账号已经绑定。"
 webauth_created = "登录验证码：{$code}\n打开 {$login_url} 继续登录。"
-webauth_not_bound = "这个 Discord 账号还没有绑定。请先使用 /preauth 激活。"
+webauth_not_bound = "这个账号尚未绑定或验证。"
 webauth_failed = "无法创建登录验证码，请稍后重试。"
 webauth_disabled = "当前 Discord 接入禁用了网页端登录。"
 login_not_bound = "这个 Discord 账号还没有绑定。"
@@ -151,21 +157,22 @@ unsupported_message = "不支持的 Discord 消息"
 profile_unavailable = "无法获取 Discord 用户资料"
 thread_create_failed = "无法为该请求创建 Discord 子帖。"
 
-[eventbus.telegram.auth]
-activation_required = "这个 Telegram 账号还没有激活。请在与机器人的私聊中发送 /preauth <code> 完成激活。"
-activation_success = "激活完成。"
+[im_gateway.telegram.auth]
+activation_required = "这个账号尚未验证。请联系管理员验证。"
+identity_unverified = "这个账号尚未验证。请联系管理员验证。"
+root_init_success = "根初始化完成。"
 activation_code_invalid = "激活码无效或已过期。"
-activation_failed = "激活失败，请稍后重试。"
+root_init_failed = "根初始化失败，请稍后重试。"
 already_linked = "这个 Telegram 账号已经绑定。"
 webauth_created = "登录验证码：{$code}\n打开 {$login_url} 继续登录。"
-webauth_not_bound = "这个 Telegram 账号还没有绑定。请先使用 /preauth 激活。"
+webauth_not_bound = "这个账号尚未绑定或验证。"
 webauth_failed = "无法创建登录验证码，请稍后重试。"
 webauth_disabled = "当前 Telegram 接入禁用了网页端登录。"
 login_not_bound = "这个 Telegram 账号还没有绑定。"
 denied = "这个 Principal 已被禁用。"
 direct_command_dm_only = "请在和机器人的私聊中发送这个命令。"
 
-[eventbus.telegram.delivery]
+[im_gateway.telegram.delivery]
 fallback_text = "不支持的 Telegram 内容"
 stream_generating = "生成中..."
 stream_failed = "流式回复失败。"
@@ -173,34 +180,35 @@ stream_cancelled = "流式回复已取消。"
 reply_target_missing_sent_to_scope = "被回复的消息不存在，已发送到当前会话。"
 message_unchanged = "消息已经是最新内容。"
 
-[eventbus.telegram.media]
+[im_gateway.telegram.media]
 image = "[图片]"
 audio = "[音频]"
 video = "[视频]"
 file = "[文件]"
 
-[eventbus.telegram.errors]
+[im_gateway.telegram.errors]
 unsupported_message = "不支持的 Telegram 消息"
 profile_unavailable = "无法获取 Telegram 用户资料"
 
-[eventbus.discord.auth]
-activation_required = "这个 Discord 账号还没有激活。请私聊机器人并发送 /preauth <code> 完成激活。"
-activation_success = "激活完成。"
+[im_gateway.discord.auth]
+activation_required = "这个账号尚未验证。请联系管理员验证。"
+identity_unverified = "这个账号尚未验证。请联系管理员验证。"
+root_init_success = "根初始化完成。"
 activation_code_invalid = "激活码无效或已过期。"
-activation_failed = "激活失败，请稍后重试。"
+root_init_failed = "根初始化失败，请稍后重试。"
 already_linked = "这个 Discord 账号已经绑定。"
 webauth_created = "登录验证码：{$code}\n打开 {$login_url} 继续登录。"
-webauth_not_bound = "这个 Discord 账号还没有绑定。请先使用 /preauth 激活。"
+webauth_not_bound = "这个账号尚未绑定或验证。"
 webauth_failed = "无法创建登录验证码，请稍后重试。"
 webauth_disabled = "当前 Discord 接入禁用了网页端登录。"
 login_not_bound = "这个 Discord 账号还没有绑定。"
 denied = "这个 Principal 已被禁用。"
 direct_command_dm_only = "请私聊机器人并发送这个命令。"
 
-[eventbus.discord.ask]
+[im_gateway.discord.ask]
 accepted = "已收到，回复会出现在这条对话中。"
 
-[eventbus.discord.delivery]
+[im_gateway.discord.delivery]
 fallback_text = "不支持的 Discord 内容"
 stream_generating = "生成中..."
 stream_failed = "流式回复失败。"
@@ -208,14 +216,14 @@ stream_cancelled = "流式回复已取消。"
 reply_target_missing_sent_to_scope = "被回复的消息不存在，已发送到当前频道。"
 message_unchanged = "消息已经是最新内容。"
 
-[eventbus.discord.media]
+[im_gateway.discord.media]
 image = "[图片]"
 audio = "[音频]"
 video = "[视频]"
 file = "[文件]"
 sticker = "[贴纸]"
 
-[eventbus.discord.errors]
+[im_gateway.discord.errors]
 unsupported_message = "不支持的 Discord 消息"
 profile_unavailable = "无法获取 Discord 用户资料"
 thread_create_failed = "无法为该请求创建 Discord 子帖。"

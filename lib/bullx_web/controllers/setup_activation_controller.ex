@@ -41,13 +41,6 @@ defmodule BullXWeb.SetupActivationController do
             |> BullXWeb.SetupAuth.clear_setup_session()
             |> json(%{activated: true, redirect_to: "/"})
 
-          :handoff_pending ->
-            json(conn, %{
-              activated: false,
-              handoff: "pending",
-              message: "admin membership handoff pending"
-            })
-
           :not_activated ->
             json(conn, %{activated: false})
 
@@ -64,5 +57,5 @@ defmodule BullXWeb.SetupActivationController do
   end
 
   defp activation_command(nil), do: nil
-  defp activation_command(code), do: "/preauth #{code}"
+  defp activation_command(code), do: "/root_init #{code}"
 end

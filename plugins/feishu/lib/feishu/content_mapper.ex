@@ -1,7 +1,7 @@
 defmodule Feishu.ContentMapper do
   @moduledoc false
 
-  alias BullX.EventBus.ChannelAdapter.Content
+  alias BullX.IMGateway.ChannelAdapter.Content
 
   import BullX.Utils.Map, only: [maybe_put: 3]
 
@@ -58,7 +58,7 @@ defmodule Feishu.ContentMapper do
   def from_message(_message, _source),
     do: {:error, Feishu.Error.payload("invalid Feishu message")}
 
-  defdelegate primary_text(blocks), to: BullX.EventBus.ChannelAdapter.Content
+  defdelegate primary_text(blocks), to: BullX.IMGateway.ChannelAdapter.Content
 
   @spec render_outbound(term(), Feishu.Source.t() | nil, keyword()) ::
           {:ok, map(), [String.t()]} | {:error, map()}
@@ -612,7 +612,7 @@ defmodule Feishu.ContentMapper do
   defp text_block(text) do
     text =
       case String.trim(to_string(text)) do
-        "" -> BullX.I18n.t("eventbus.feishu.errors.unsupported_message")
+        "" -> BullX.I18n.t("im_gateway.feishu.errors.unsupported_message")
         value -> value
       end
 
@@ -639,7 +639,7 @@ defmodule Feishu.ContentMapper do
   defp emotion_text(_body), do: "[sticker]"
 
   defp fallback_text(type) when type in @media_kinds, do: "[#{type}]"
-  defp fallback_text(_type), do: BullX.I18n.t("eventbus.feishu.errors.unsupported_message")
+  defp fallback_text(_type), do: BullX.I18n.t("im_gateway.feishu.errors.unsupported_message")
 
   defp card_fallback(%{"header" => %{"title" => %{"content" => content}}})
        when is_binary(content) do

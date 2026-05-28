@@ -1,6 +1,6 @@
 defmodule Discord.Source do
   @moduledoc """
-  Runtime representation of one configured Discord EventBus source.
+  Runtime representation of one configured Discord IMGateway source.
 
   The struct keeps bot tokens and OAuth2 client secrets out of `Inspect`.
   Each source is one BullX channel instance backed by one Discord application
@@ -27,6 +27,7 @@ defmodule Discord.Source do
   @default_stream_chunk_soft_limit 1_850
   @default_auto_archive_duration_minutes 1_440
   @default_im_listen_mode :addressed_only
+  @default_trusted_realm_by_default false
   @im_listen_modes [:addressed_only, :all_messages]
   @discord_message_hard_limit 2_000
 
@@ -57,6 +58,7 @@ defmodule Discord.Source do
     stream_update_interval_ms: @default_stream_update_interval_ms,
     stream_chunk_soft_limit: @default_stream_chunk_soft_limit,
     im_listen_mode: @default_im_listen_mode,
+    trusted_realm_by_default: @default_trusted_realm_by_default,
     req_options: [],
     api_module: Discord.Rest,
     start_transport?: true,
@@ -122,6 +124,8 @@ defmodule Discord.Source do
              @discord_message_hard_limit
            ),
          im_listen_mode: im_listen_mode,
+         trusted_realm_by_default:
+           optional_boolean(config, "trusted_realm_by_default", @default_trusted_realm_by_default),
          req_options: req_options,
          api_module: module_or(config, "api_module", Discord.Rest),
          api_base: present_string(Map.get(config, "api_base")),
@@ -133,16 +137,16 @@ defmodule Discord.Source do
 
   @spec enabled_sources() :: {:ok, [t()]} | {:error, map()}
   def enabled_sources do
-    BullX.EventBus.ChannelAdapter.SourceRegistry.enabled_sources(
-      &Discord.Config.eventbus_sources!/0,
+    BullX.IMGateway.ChannelAdapter.SourceRegistry.enabled_sources(
+      &Discord.Config.im_gateway_sources!/0,
       &normalize/1
     )
   end
 
   @spec enabled_sources!() :: [t()]
   def enabled_sources! do
-    BullX.EventBus.ChannelAdapter.SourceRegistry.enabled_sources!(
-      &Discord.Config.eventbus_sources!/0,
+    BullX.IMGateway.ChannelAdapter.SourceRegistry.enabled_sources!(
+      &Discord.Config.im_gateway_sources!/0,
       &normalize/1,
       "Discord"
     )
@@ -151,7 +155,7 @@ defmodule Discord.Source do
   @spec fetch_enabled_source(String.t()) :: {:ok, t()} | {:error, :not_found | map()}
   def fetch_enabled_source(source_id) when is_binary(source_id) do
     with {:ok, sources} <- enabled_sources() do
-      BullX.EventBus.ChannelAdapter.SourceRegistry.fetch_enabled_source(sources, source_id)
+      BullX.IMGateway.ChannelAdapter.SourceRegistry.fetch_enabled_source(sources, source_id)
     end
   end
 
@@ -168,6 +172,7 @@ defmodule Discord.Source do
       "auto_thread" => source.auto_thread,
       "application_commands" => source.application_commands,
       "im_listen_mode" => Atom.to_string(source.im_listen_mode),
+      "trusted_realm_by_default" => source.trusted_realm_by_default,
       "start_transport" => source.start_transport?
     }
     |> reject_nil_values()

@@ -1,10 +1,10 @@
 defmodule BullxTelegram.CommandNormalizer do
   @moduledoc false
 
-  @direct_commands ~w(preauth webauth)
+  @direct_commands ~w(root_init webauth)
 
   @spec parse(String.t() | nil, String.t() | nil) ::
-          {:eventbus, map()} | {:direct, map()} | {:ignore, :unsupported_command} | :not_command
+          {:agent_command, map()} | {:direct, map()} | {:ignore, :unsupported_command} | :not_command
   def parse(text, bot_username) when is_binary(text) do
     with "/" <> rest <- String.trim_leading(text),
          [token | tail] <- String.split(rest, ~r/\s+/, parts: 2),
@@ -17,7 +17,7 @@ defmodule BullxTelegram.CommandNormalizer do
           {:direct, %{name: name, args: args}}
 
         {:ok, name} ->
-          {:eventbus,
+          {:agent_command,
            %{
              name: name,
              args: args,
@@ -48,7 +48,7 @@ defmodule BullxTelegram.CommandNormalizer do
     end
   end
 
-  defp canonical("preauth"), do: {:ok, "preauth"}
+  defp canonical("root_init"), do: {:ok, "root_init"}
   defp canonical("webauth"), do: {:ok, "webauth"}
-  defp canonical(name), do: BullX.EventBus.CommandCatalog.canonical_command_name(name)
+  defp canonical(name), do: BullX.AIAgent.CommandCatalog.canonical_command_name(name)
 end

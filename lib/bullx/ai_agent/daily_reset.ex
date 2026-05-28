@@ -3,7 +3,7 @@ defmodule BullX.AIAgent.DailyReset do
   Profile-local Conversation reset helper.
 
   This closes stale active Conversations without deleting Messages or changing
-  TargetSession identity. Durable timestamps stay UTC while reset boundaries
+  MailboxSession identity. Durable timestamps stay UTC while reset boundaries
   are evaluated in the profile's configured IANA time zone.
   """
 

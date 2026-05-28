@@ -3,8 +3,6 @@ defmodule BullX.Setup.ProjectionTest do
 
   alias BullX.AuthZ
   alias BullX.Principals
-  alias BullX.Principals.ActivationCode
-  alias BullX.Repo
   alias BullX.Setup.Projection
 
   test "missing setup session redirects to the setup gate" do
@@ -13,10 +11,10 @@ defmodule BullX.Setup.ProjectionTest do
   end
 
   test "valid setup hash keeps the bootstrap code unconsumed and clamps future steps" do
-    assert {:ok, %{code: plaintext, activation_code: code}} =
+    assert {:ok, %{code: plaintext, code_hash: code_hash}} =
              Principals.create_or_refresh_bootstrap_activation_code()
 
-    assert {:ok, code_hash} = Principals.verify_bootstrap_activation_code_for_setup(plaintext)
+    assert {:ok, ^code_hash} = Principals.verify_bootstrap_activation_code_for_setup(plaintext)
 
     assert {:pending, projection} =
              Projection.state_for_session(%{
@@ -25,29 +23,22 @@ defmodule BullX.Setup.ProjectionTest do
              })
 
     assert projection.status == :pending
-    assert projection.activation_code_id == code.id
     assert step_index(projection.current_step) < step_index(:event_routing)
     assert projection.current_step == projection.earliest_incomplete_step
     assert projection.current_path == Projection.step_path(projection.current_step)
-
-    stored = Repo.get!(ActivationCode, code.id)
-    assert stored.used_at == nil
-    assert stored.metadata["setup_gate_verified_at"]
   end
 
-  test "consumed bootstrap code completes after AuthZ handoff is ready" do
+  test "root init completes setup projection" do
     assert {:ok, %{code: plaintext}} = Principals.create_or_refresh_bootstrap_activation_code()
     assert {:ok, code_hash} = Principals.verify_bootstrap_activation_code_for_setup(plaintext)
 
     assert {:ok, principal, _identity} =
-             Principals.consume_activation_code(plaintext, %{
+             Principals.root_init_with_bootstrap_code(plaintext, %{
                adapter: "feishu",
                channel_id: "main",
                external_id: "ou_setup_admin",
                profile: %{"display_name" => "Setup Admin", "email" => "setup@example.com"}
              })
-
-    assert :ok = AuthZ.reconcile_bootstrap_admin_membership()
 
     assert {:completed, projection} =
              Projection.state_for_session(%{

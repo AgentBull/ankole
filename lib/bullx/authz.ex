@@ -14,7 +14,6 @@ defmodule BullX.AuthZ do
   alias BullX.AuthZ.PrincipalGroup
   alias BullX.AuthZ.PrincipalGroupMembership
   alias BullX.AuthZ.Request
-  alias BullX.Principals.ActivationCode
   alias BullX.Principals.Principal
   alias BullX.Repo
 
@@ -23,7 +22,6 @@ defmodule BullX.AuthZ do
   @admin_group_name "admin"
   @all_humans_group_name "all_humans"
   @all_humans_condition ~s(principal.type == "human" && principal.status == "active")
-  @bootstrap_metadata_key "bootstrap"
 
   @type authz_error :: :forbidden | :not_found | :principal_disabled | :invalid_request
 
@@ -216,35 +214,38 @@ defmodule BullX.AuthZ do
     end)
   end
 
-  @spec reconcile_bootstrap_admin_membership() :: :ok | {:error, term()}
-  def reconcile_bootstrap_admin_membership do
-    transaction(fn ->
-      with {:ok, _all_humans, _all_humans_status} <- ensure_built_in_all_humans_group(),
-           {:ok, group, _status} <- ensure_built_in_admin_group() do
-        bootstrap_admin_principals()
-        |> Enum.reduce_while(:ok, fn principal, :ok ->
-          case insert_membership(principal.id, group.id) do
-            :ok -> {:cont, :ok}
-            {:error, reason} -> {:halt, {:error, reason}}
-          end
-        end)
-      end
-    end)
+  @doc false
+  @spec root_initialized?() :: boolean()
+  def root_initialized? do
+    storage_ready?() and built_in_group_exists?(@admin_group_name) and
+      built_in_group_exists?(@all_humans_group_name)
   end
 
   @doc false
-  @spec grant_bootstrap_admin(Principal.t() | Ecto.UUID.t()) :: :ok | {:error, term()}
-  def grant_bootstrap_admin(principal_or_id) do
-    case bootstrap_storage_ready?() do
-      true ->
-        with {:ok, principal} <- fetch_principal(principal_or_id, :not_found) do
-          grant_bootstrap_admin_to_loaded_principal(principal)
-        end
-
-      false ->
-        Logger.warning("BullX.AuthZ bootstrap admin handoff skipped because tables do not exist")
-        :ok
+  @spec ensure_root_init_open() :: :ok | {:error, :root_init_closed}
+  def ensure_root_init_open do
+    case admin_member_exists?() do
+      true -> {:error, :root_init_closed}
+      false -> :ok
     end
+  end
+
+  @doc false
+  @spec root_init_admin(Principal.t() | Ecto.UUID.t()) :: :ok | {:error, term()}
+  def root_init_admin(principal_or_id) do
+    transaction(fn ->
+      with {:ok, principal} <- fetch_principal_for_update(principal_or_id, :not_found),
+           :ok <- ensure_root_init_human(principal),
+           {:ok, _all_humans, _all_humans_status} <- ensure_built_in_all_humans_group(),
+           {:ok, group, _status} <- ensure_built_in_admin_group(),
+           %PrincipalGroup{} = group <- lock_group_for_update(group.id),
+           :ok <- ensure_root_init_open_for_group(group) do
+        insert_membership(principal.id, group.id)
+      else
+        nil -> {:error, :not_found}
+        {:error, reason} -> {:error, reason}
+      end
+    end)
   end
 
   @doc false
@@ -282,9 +283,7 @@ defmodule BullX.AuthZ do
     )
   end
 
-  @doc false
-  @spec bootstrap_storage_ready?() :: boolean()
-  def bootstrap_storage_ready? do
+  defp storage_ready? do
     query = """
     SELECT
       EXISTS (
@@ -302,10 +301,6 @@ defmodule BullX.AuthZ do
       EXISTS (
         SELECT 1 FROM information_schema.tables
         WHERE table_schema = current_schema() AND table_name = 'principals'
-      ),
-      EXISTS (
-        SELECT 1 FROM information_schema.tables
-        WHERE table_schema = current_schema() AND table_name = 'activation_codes'
       )
     """
 
@@ -739,27 +734,40 @@ defmodule BullX.AuthZ do
     end
   end
 
-  defp grant_bootstrap_admin_to_loaded_principal(%Principal{type: :human} = principal) do
-    transaction(fn ->
-      with {:ok, _all_humans, _all_humans_status} <- ensure_built_in_all_humans_group(),
-           {:ok, group, _status} <- ensure_built_in_admin_group() do
-        insert_membership(principal.id, group.id)
-      end
-    end)
+  defp ensure_root_init_human(%Principal{type: :human, status: :active}), do: :ok
+
+  defp ensure_root_init_human(%Principal{type: :human, status: :disabled}),
+    do: {:error, :principal_disabled}
+
+  defp ensure_root_init_human(%Principal{}), do: {:error, :not_human}
+
+  defp ensure_root_init_open_for_group(%PrincipalGroup{} = group) do
+    case admin_member_exists?(group.id) do
+      true -> {:error, :root_init_closed}
+      false -> :ok
+    end
   end
 
-  defp grant_bootstrap_admin_to_loaded_principal(%Principal{}), do: :ok
+  defp admin_member_exists? do
+    case Repo.get_by(PrincipalGroup, name: @admin_group_name) do
+      %PrincipalGroup{id: group_id} -> admin_member_exists?(group_id)
+      nil -> false
+    end
+  end
 
-  defp bootstrap_admin_principals do
-    Repo.all(
-      from code in ActivationCode,
-        join: principal in Principal,
-        on: principal.id == code.used_by_principal_id,
-        where:
-          not is_nil(code.used_by_principal_id) and
-            fragment("? ->> ?", code.metadata, ^@bootstrap_metadata_key) == "true" and
-            principal.type == :human,
-        select: principal
+  defp admin_member_exists?(group_id) when is_binary(group_id) do
+    Repo.exists?(
+      from membership in PrincipalGroupMembership,
+        where: membership.group_id == ^group_id,
+        select: 1
+    )
+  end
+
+  defp built_in_group_exists?(name) do
+    Repo.exists?(
+      from group in PrincipalGroup,
+        where: group.name == ^name and group.built_in == true,
+        select: 1
     )
   end
 
@@ -820,7 +828,7 @@ defmodule BullX.AuthZ do
   end
 
   defp log_table_check_error(reason) do
-    Logger.warning("BullX.AuthZ bootstrap table check failed: #{inspect(reason)}")
+    Logger.warning("BullX.AuthZ table check failed: #{inspect(reason)}")
     false
   end
 

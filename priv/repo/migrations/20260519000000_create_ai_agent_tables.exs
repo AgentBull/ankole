@@ -57,8 +57,8 @@ defmodule BullX.Repo.Migrations.CreateAiAgentTables do
       add :status, :ai_agent_message_status, null: false
       add :content, :map, null: false
       add :covers_range, :map
-      add :target_session_id, :uuid
-      add :target_session_entry_id, :uuid
+      add :mailbox_session_id, :uuid
+      add :mailbox_entry_id, :uuid
       add :event_source, :text
       add :event_id, :text
       add :metadata, :map, null: false, default: %{}
@@ -71,12 +71,12 @@ defmodule BullX.Repo.Migrations.CreateAiAgentTables do
            )
 
     create index(:conversation_messages, [:conversation_id, :inserted_at])
-    create index(:conversation_messages, [:target_session_id])
-    create index(:conversation_messages, [:target_session_entry_id])
+    create index(:conversation_messages, [:mailbox_session_id])
+    create index(:conversation_messages, [:mailbox_entry_id])
 
-    create unique_index(:conversation_messages, [:target_session_entry_id],
+    create unique_index(:conversation_messages, [:mailbox_entry_id],
              where:
-               "target_session_entry_id IS NOT NULL AND role IN ('user', 'im_ambient') AND kind = 'normal'",
+               "mailbox_entry_id IS NOT NULL AND role IN ('user', 'im_ambient') AND kind = 'normal'",
              name: :conversation_messages_inbound_entry_unique_index
            )
 

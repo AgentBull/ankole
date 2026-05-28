@@ -123,22 +123,55 @@ defmodule BullX.AIAgent.PromptRenderer do
 
   defp render_branch(_conversation, branch, profile, trigger_message, ambient_context) do
     branch
-    |> Enum.reduce_while({:ok, []}, fn message, {:ok, acc} ->
-      case render_message(message, profile, trigger_message, ambient_context) do
-        {:ok, nil} ->
-          {:cont, {:ok, acc}}
+    |> Enum.reduce_while({:ok, [], []}, fn
+      %Message{role: :user, kind: :introspection} = message, {:ok, acc, pending} ->
+        {:cont, {:ok, acc, [message | pending]}}
 
-        {:ok, rendered} when is_list(rendered) ->
-          {:cont, {:ok, Enum.reduce(rendered, acc, &[&1 | &2])}}
+      message, {:ok, acc, pending} ->
+        pending_messages = Enum.reverse(pending)
+        consume_pending? = match?(%Message{role: :user, kind: :normal}, message)
 
-        {:ok, rendered} ->
-          {:cont, {:ok, [rendered | acc]}}
-      end
+        case render_message_with_pending(
+               message,
+               profile,
+               trigger_message,
+               ambient_context,
+               pending_messages
+             ) do
+          {:ok, nil} ->
+            {:cont, {:ok, acc, pending}}
+
+          {:ok, rendered} when is_list(rendered) ->
+            {:cont,
+             {:ok, Enum.reduce(rendered, acc, &[&1 | &2]),
+              next_pending(pending, consume_pending?)}}
+
+          {:ok, rendered} ->
+            {:cont, {:ok, [rendered | acc], next_pending(pending, consume_pending?)}}
+        end
     end)
     |> case do
-      {:ok, messages} -> {:ok, Enum.reverse(messages)}
+      {:ok, messages, _pending} -> {:ok, Enum.reverse(messages)}
       {:error, _reason} = error -> error
     end
+  end
+
+  defp next_pending(_pending, true), do: []
+  defp next_pending(pending, false), do: pending
+
+  defp render_message_with_pending(
+         %Message{role: :user, kind: :normal} = message,
+         profile,
+         trigger_message,
+         ambient_context,
+         pending
+       ) do
+    prefixes = prefixes_for(message, profile, trigger_message, ambient_context)
+    {:ok, %ReqLLM.Message{role: :user, content: text_parts(prefixes, pending, message)}}
+  end
+
+  defp render_message_with_pending(message, profile, trigger_message, ambient_context, _pending) do
+    render_message(message, profile, trigger_message, ambient_context)
   end
 
   defp render_message(%Message{kind: :error}, _profile, _trigger_message, _ambient_context),
@@ -161,6 +194,14 @@ defmodule BullX.AIAgent.PromptRenderer do
     prefixes = prefixes_for(message, profile, trigger_message, ambient_context)
     {:ok, %ReqLLM.Message{role: :user, content: text_parts(prefixes, message)}}
   end
+
+  defp render_message(
+         %Message{role: :user, kind: :introspection},
+         _profile,
+         _trigger_message,
+         _ambient_context
+       ),
+       do: {:ok, nil}
 
   defp render_message(
          %Message{role: :im_ambient, kind: :introspection} = message,
@@ -276,11 +317,15 @@ defmodule BullX.AIAgent.PromptRenderer do
     |> Enum.map(& &1.text)
   end
 
-  defp text_parts(prefixes, message) do
+  defp text_parts(prefixes, message), do: text_parts(prefixes, [], message)
+
+  defp text_parts(prefixes, pending_messages, message) do
     body =
-      message.content
-      |> Enum.filter(&(Map.get(&1, "type") in ["text", "human_steering_note"]))
-      |> Enum.map_join("\n", &block_text/1)
+      pending_messages
+      |> Enum.map(&message_text/1)
+      |> Kernel.++([message_text(message)])
+      |> Enum.reject(&(&1 == ""))
+      |> Enum.join("\n")
 
     text =
       case prefixes do
@@ -289,6 +334,12 @@ defmodule BullX.AIAgent.PromptRenderer do
       end
 
     [ContentPart.text(text)]
+  end
+
+  defp message_text(message) do
+    message.content
+    |> Enum.filter(&(Map.get(&1, "type") in ["text", "human_steering_note"]))
+    |> Enum.map_join("\n", &block_text/1)
   end
 
   defp text_content_parts(message) do

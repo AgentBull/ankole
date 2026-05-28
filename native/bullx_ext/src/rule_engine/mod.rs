@@ -1,3 +1,3 @@
 pub mod authz;
 pub mod cel;
-pub mod eventbus;
+pub mod mailbox;

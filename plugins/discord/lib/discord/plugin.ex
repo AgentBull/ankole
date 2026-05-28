@@ -1,11 +1,11 @@
 defmodule Discord.Plugin do
   @moduledoc """
-  Registers the trusted Discord EventBus channel adapter and OAuth2 login hook.
+  Registers the trusted Discord IMGateway channel adapter and OAuth2 login hook.
 
   Discord stays inside the plugin boundary. It normalizes Discord gateway and
   interaction occurrences into Events, exposes Discord transport delivery, and
   provides source-scoped OAuth2 login subjects. Event routing and business
-  processing remain owned by EventBus and Targets.
+  processing remain owned by IMGateway and Targets.
   """
 
   use BullX.Plugins.Plugin,
@@ -19,7 +19,7 @@ defmodule Discord.Plugin do
   def extensions do
     [
       %{
-        point: :"bullx.event_bus.channel_adapter",
+        point: :"bullx.im_gateway.channel_adapter",
         id: "discord",
         module: Discord.ChannelAdapter,
         opts: %{provider: "discord", setup_module: Discord.SourceSetup}

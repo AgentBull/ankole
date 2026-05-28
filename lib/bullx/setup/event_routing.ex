@@ -3,7 +3,8 @@ defmodule BullX.Setup.EventRouting do
 
   import Ecto.Query
 
-  alias BullX.EventBus.{EventRoutingRule, RoutingTable, RuleWriter}
+  alias BullX.MailBox.Matcher
+  alias BullX.MailBox.DeliveryRule
   alias BullX.Repo
   alias BullX.RuleEngine.CEL
   alias BullX.Setup.{AIAgents, ChannelSources}
@@ -24,7 +25,6 @@ defmodule BullX.Setup.EventRouting do
          {:ok, source} <- ChannelSources.first_ready_source(),
          attrs <- rule_attrs(source, agent.principal.id),
          {:ok, rule} <- upsert_setup_rule(source, attrs),
-         :ok <- retire_legacy_split_rules(source, rule.id),
          :ok <- live_rule_matches?(rule, source, agent.principal.id) do
       {:ok,
        %{rule: public_rule(rule), source: public_source(source), target: public_agent(agent)}}
@@ -95,7 +95,7 @@ defmodule BullX.Setup.EventRouting do
     }
   end
 
-  defp target_mismatch(base, %EventRoutingRule{} = rule) do
+  defp target_mismatch(base, %DeliveryRule{} = rule) do
     %{
       base
       | state: "target_mismatch",
@@ -104,7 +104,7 @@ defmodule BullX.Setup.EventRouting do
     }
   end
 
-  defp routing_conflict(base, %EventRoutingRule{} = rule, conflict_rule) do
+  defp routing_conflict(base, %DeliveryRule{} = rule, conflict_rule) do
     %{
       base
       | state: "conflict",
@@ -114,20 +114,20 @@ defmodule BullX.Setup.EventRouting do
     }
   end
 
-  defp routing_no_match(base, %EventRoutingRule{} = rule) do
+  defp routing_no_match(base, %DeliveryRule{} = rule) do
     %{base | state: "no_match", reason: "routing_no_match", live_rule: public_rule(rule)}
   end
 
-  defp routing_error(base, %EventRoutingRule{} = rule, reason) do
+  defp routing_error(base, %DeliveryRule{} = rule, reason) do
     %{base | state: "error", reason: reason_code(reason), live_rule: public_rule(rule)}
   end
 
   defp setup_rule(source, agent_principal_id) do
-    case Repo.get_by(EventRoutingRule, name: rule_name(source)) do
-      %EventRoutingRule{target_type: :ai_agent, target_ref: ^agent_principal_id} = rule ->
+    case Repo.get_by(DeliveryRule, name: rule_name(source)) do
+      %DeliveryRule{receiver_type: "ai_agent", receiver_ref: ^agent_principal_id} = rule ->
         {:ok, rule}
 
-      %EventRoutingRule{} = rule ->
+      %DeliveryRule{} = rule ->
         {:error, {:setup_rule_targets_different_agent, rule}}
 
       nil ->
@@ -138,53 +138,28 @@ defmodule BullX.Setup.EventRouting do
   defp upsert_setup_rule(source, attrs) do
     name = rule_name(source)
 
-    case Repo.get_by(EventRoutingRule, name: name) do
-      %EventRoutingRule{} ->
-        RuleWriter.upsert_by_name(name, attrs)
+    case Repo.get_by(DeliveryRule, name: name) do
+      %DeliveryRule{} = rule ->
+        rule
+        |> DeliveryRule.changeset(attrs)
+        |> Repo.update()
 
       nil ->
-        upsert_or_migrate_legacy_rule(source, attrs)
+        attrs = Map.put(attrs, :name, name)
+
+        %DeliveryRule{}
+        |> DeliveryRule.changeset(attrs)
+        |> Repo.insert()
     end
   end
 
-  defp upsert_or_migrate_legacy_rule(source, attrs) do
-    case Repo.get_by(EventRoutingRule, name: legacy_rule_name(source, "addressed")) do
-      %EventRoutingRule{} = legacy_rule ->
-        attrs =
-          attrs
-          |> Map.put(:name, rule_name(source))
-          |> Map.put(:priority, legacy_rule.priority)
-
-        RuleWriter.update_rule(legacy_rule, attrs)
-
-      nil ->
-        RuleWriter.upsert_by_name(rule_name(source), attrs)
-    end
-  end
-
-  defp retire_legacy_split_rules(source, keep_rule_id) do
-    names = [
-      legacy_rule_name(source, "addressed"),
-      legacy_rule_name(source, "ambient")
-    ]
-
-    EventRoutingRule
-    |> where([rule], rule.name in ^names and rule.id != ^keep_rule_id)
-    |> Repo.delete_all()
-    |> case do
-      {0, _rules} -> :ok
-      {_count, _rules} -> RoutingTable.refresh()
-    end
-  end
-
-  defp live_rule_matches?(%EventRoutingRule{} = expected, source, agent_principal_id) do
+  defp live_rule_matches?(%DeliveryRule{} = expected, source, agent_principal_id) do
     with {:ok, context} <- routing_context(source),
-         {:ok, {:matched, %EventRoutingRule{} = matched, _diagnostics}} <-
-           RoutingTable.match(context) do
-      case matched.id == expected.id and matched.target_type == :ai_agent and
-             matched.target_ref == agent_principal_id do
+         {:ok, {:matched, matched_id, _diagnostics}} <- Matcher.match([expected], context) do
+      case matched_id == expected.id and expected.receiver_type == "ai_agent" and
+             expected.receiver_ref == agent_principal_id do
         true -> :ok
-        false -> {:error, {:routing_conflict, public_rule(matched)}}
+        false -> {:error, {:routing_conflict, public_rule(expected)}}
       end
     else
       {:ok, {:no_match, _diagnostics}} -> {:error, :routing_no_match}
@@ -201,21 +176,22 @@ defmodule BullX.Setup.EventRouting do
       active: true,
       priority: priority_for(rule_name(source)),
       match_expr: match_expr(source),
-      target_type: :ai_agent,
-      target_ref: agent_principal_id,
-      scope_fields: ["channel.adapter", "channel.id", "scope.id", "scope.thread_id"]
+      receiver_type: "ai_agent",
+      receiver_ref: agent_principal_id,
+      attention: :addressed,
+      session_key_template: nil
     }
   end
 
   defp priority_for(name) do
-    case Repo.get_by(EventRoutingRule, name: name) do
-      %EventRoutingRule{priority: priority} ->
+    case Repo.get_by(DeliveryRule, name: name) do
+      %DeliveryRule{priority: priority} ->
         priority
 
       nil ->
         max_priority =
           Repo.one(
-            from rule in EventRoutingRule,
+            from rule in DeliveryRule,
               where: rule.priority > 0,
               select: max(rule.priority)
           ) || 999
@@ -227,7 +203,7 @@ defmodule BullX.Setup.EventRouting do
   defp match_expr(%{adapter_id: adapter_id, source_id: source_id}) do
     [
       "type.startsWith(",
-      CEL.string_literal("bullx."),
+      CEL.string_literal("bullx.im.message."),
       ")",
       " && channel.adapter == ",
       CEL.string_literal(adapter_id),
@@ -241,10 +217,6 @@ defmodule BullX.Setup.EventRouting do
     "setup.default.#{slug(adapter_id)}.#{slug(source_id)}.channel"
   end
 
-  defp legacy_rule_name(%{adapter_id: adapter_id, source_id: source_id}, suffix) do
-    "setup.default.#{slug(adapter_id)}.#{slug(source_id)}.#{suffix}"
-  end
-
   defp slug(value) do
     value = to_string(value)
 
@@ -254,15 +226,18 @@ defmodule BullX.Setup.EventRouting do
     end
   end
 
-  defp public_rule(%EventRoutingRule{} = rule) do
+  defp public_rule(%DeliveryRule{} = rule) do
     %{
       id: rule.id,
       name: rule.name,
       priority: rule.priority,
       match_expr: rule.match_expr,
-      target_type: Atom.to_string(rule.target_type),
-      target_ref: rule.target_ref,
-      scope_fields: rule.scope_fields
+      target_type: rule.receiver_type,
+      target_ref: rule.receiver_ref,
+      receiver_type: rule.receiver_type,
+      receiver_ref: rule.receiver_ref,
+      attention: Atom.to_string(rule.attention),
+      session_key_template: rule.session_key_template
     }
   end
 
@@ -270,7 +245,9 @@ defmodule BullX.Setup.EventRouting do
     source
     |> rule_attrs(agent_principal_id)
     |> Map.put(:name, rule_name(source))
-    |> Map.update!(:target_type, &Atom.to_string/1)
+    |> Map.update!(:attention, &Atom.to_string/1)
+    |> Map.put(:target_type, "ai_agent")
+    |> Map.put(:target_ref, agent_principal_id)
   end
 
   defp public_source(source) do
@@ -310,9 +287,6 @@ defmodule BullX.Setup.EventRouting do
 
   defp normalize_error(%Ecto.Changeset{} = changeset),
     do: %{message: "validation failed", errors: changeset_errors(changeset)}
-
-  defp normalize_error({:routing_table_refresh_failed, _rule, reason}),
-    do: %{message: "routing table refresh failed", details: inspect(reason)}
 
   defp normalize_error({:routing_conflict, rule}), do: %{message: "routing conflict", rule: rule}
   defp normalize_error(reason), do: %{message: inspect(reason)}

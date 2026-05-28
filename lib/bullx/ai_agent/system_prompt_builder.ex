@@ -306,8 +306,8 @@ defmodule BullX.AIAgent.SystemPromptBuilder do
         "raw_cloud_event",
         "raw_stream_chunk",
         "private_policy",
-        "raw_target_session_entry",
-        "target_session_entry",
+        "raw_mailbox_entry",
+        "mailbox_entry",
         "raw_side_channel_entry",
         "side_channel_entry"
       ])

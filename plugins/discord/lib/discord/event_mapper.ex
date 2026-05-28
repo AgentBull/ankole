@@ -59,7 +59,7 @@ defmodule Discord.EventMapper do
         {:direct, command} ->
           {:direct_command, Map.merge(command, direct_context(context, actor))}
 
-        {:eventbus, command} ->
+        {:agent_command, command} ->
           mapped(message_id, source, actor, blocks, context, "bullx.command.invoked", command)
 
         _result ->
@@ -97,7 +97,7 @@ defmodule Discord.EventMapper do
         {:direct, command} ->
           {:direct_command, Map.merge(command, direct_context(context, actor))}
 
-        {:eventbus, command} ->
+        {:agent_command, command} ->
           mapped(interaction_id, source, actor, blocks, context, "bullx.command.invoked", command)
 
         {:ignore, reason} ->
@@ -131,15 +131,20 @@ defmodule Discord.EventMapper do
       subject: "Discord #{context.provider_event_type} #{event_id}",
       data: %{
         content: command_content(blocks, command),
-        channel: %{adapter: "discord", id: source.id, kind: channel_kind(context)},
+        channel: %{
+          adapter: "discord",
+          id: source.id,
+          kind: channel_kind(context),
+          trusted_realm_by_default: source.trusted_realm_by_default
+        },
         scope: %{id: context.channel_id, thread_id: nil},
         actor: %{
           external_account_id: actor.id,
           display_name: actor.display,
           principal: nil
         },
-        refs: refs(event_id, context, actor),
-        reply_channel: %{
+        refs: refs(context, actor),
+        reply_address: %{
           adapter: "discord",
           channel_id: source.id,
           scope_id: context.channel_id,
@@ -147,7 +152,7 @@ defmodule Discord.EventMapper do
           reply_to_external_id: context.message_id
         },
         routing_facts: routing_facts(source, context, blocks, command),
-        raw_ref: %{"kind" => raw_ref_kind(context.provider_event_type), "id" => event_id}
+        raw_ref: raw_ref(event_id, context)
       }
     }
   end
@@ -185,6 +190,7 @@ defmodule Discord.EventMapper do
       "adapter" => "discord",
       "channel_id" => source.id,
       "external_id" => actor.id,
+      "trusted_realm_by_default" => source.trusted_realm_by_default,
       "profile" => actor.profile,
       "metadata" =>
         %{
@@ -234,12 +240,12 @@ defmodule Discord.EventMapper do
     |> maybe_put("user_id", id)
   end
 
-  defp interaction_blocks(_payload, {:eventbus, %{name: "ask", args: args}})
+  defp interaction_blocks(_payload, {:agent_command, %{name: "ask", args: args}})
        when is_binary(args) and args != "" do
     [%{"type" => "text", "text" => args}]
   end
 
-  defp interaction_blocks(_payload, {:eventbus, %{name: name}}),
+  defp interaction_blocks(_payload, {:agent_command, %{name: name}}),
     do: [%{"type" => "text", "text" => "/" <> name}]
 
   defp interaction_blocks(_payload, _command), do: [%{"type" => "text", "text" => "/command"}]
@@ -267,14 +273,34 @@ defmodule Discord.EventMapper do
 
   defp put_command_facts(facts, _command), do: facts
 
-  defp refs(event_id, context, actor) do
+  defp refs(context, actor) do
     [
-      %{"kind" => raw_ref_kind(context.provider_event_type), "id" => event_id},
+      source_ref(context),
       maybe_ref("discord.channel", context.channel_id),
       maybe_ref("discord.guild", context.guild_id),
       %{"kind" => "discord.user", "id" => String.replace_prefix(actor.id, "discord:", "")}
     ]
     |> Enum.reject(&is_nil/1)
+  end
+
+  defp source_ref(%{provider_event_type: "interaction_create"} = context),
+    do: %{"kind" => "discord.interaction", "id" => context.message_id}
+
+  defp source_ref(context), do: %{"kind" => "discord.message", "id" => context.message_id}
+
+  defp raw_ref(event_id, %{provider_event_type: "interaction_create"} = context) do
+    %{
+      "kind" => raw_ref_kind(context.provider_event_type),
+      "id" => event_id
+    }
+  end
+
+  defp raw_ref(event_id, context) do
+    %{
+      "kind" => raw_ref_kind(context.provider_event_type),
+      "id" => event_id,
+      "message_id" => context.message_id
+    }
   end
 
   defp event_id("bullx.message.edited", message_id, payload),

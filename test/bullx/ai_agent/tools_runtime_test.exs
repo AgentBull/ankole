@@ -68,7 +68,7 @@ defmodule BullX.AIAgent.ToolsRuntimeTest do
           caller_principal_id: "caller",
           agent_principal_id: "agent",
           conversation_id: "conversation",
-          trigger_type: "target_session_entry",
+          trigger_type: "mailbox_entry",
           trigger_id: "source",
           tool_call_id: "tool-call",
           tool_name: "tool",

@@ -63,13 +63,13 @@ defmodule Discord.Channel do
   defp ready(ready, state) do
     bot_user_id = ready |> field(:user) |> field(:id) |> stringify_id()
     source = if bot_user_id, do: %{state.source | bot_user_id: bot_user_id}, else: state.source
-    :telemetry.execute([:bullx, :event_bus, :adapter, :discord, :ready], %{count: 1}, %{source_id: source.id})
+    :telemetry.execute([:bullx, :im_gateway, :adapter, :discord, :ready], %{count: 1}, %{source_id: source.id})
     {{:ok, %{status: :ready}}, %{state | source: source, ready?: true}}
   end
 
   defp accept(event_type, payload, state) do
     result =
-      BullX.EventBus.ChannelAdapter.accept_inbound(
+      BullX.IMGateway.ChannelAdapter.accept_inbound(
         "discord",
         state.source,
         {event_type, stringify_payload(payload)}

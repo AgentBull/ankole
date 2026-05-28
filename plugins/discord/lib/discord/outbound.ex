@@ -7,13 +7,13 @@ defmodule Discord.Outbound do
   @allowed_mentions %{"parse" => ["users"], "replied_user" => true}
 
   @spec deliver(Source.t() | map(), map() | nil, map(), keyword()) :: {:ok, map()} | {:error, map()}
-  def deliver(source_config, reply_channel, outbound, opts \\ [])
+  def deliver(source_config, reply_address, outbound, opts \\ [])
       when is_map(outbound) and is_list(opts) do
     with {:ok, source} <- Source.normalize(source_config) do
       delivery =
         outbound
         |> stringify_keys()
-        |> Map.merge(reply_channel_defaults(reply_channel), fn _key, outbound_value, _reply_value ->
+        |> Map.merge(reply_address_defaults(reply_address), fn _key, outbound_value, _reply_value ->
           outbound_value
         end)
         |> put_delivery_id()
@@ -147,7 +147,7 @@ defmodule Discord.Outbound do
 
   defp outcome(delivery, status, responses, warnings) do
     ids = Enum.map(responses, &message_id/1) |> Enum.reject(&is_nil/1)
-    BullX.EventBus.ChannelAdapter.Outcome.build(delivery_id(delivery), status, ids, warnings)
+    BullX.IMGateway.ChannelAdapter.Outcome.build(delivery_id(delivery), status, ids, warnings)
   end
 
   defp message_id(%{"id" => id}), do: to_string(id)
@@ -163,10 +163,10 @@ defmodule Discord.Outbound do
     end
   end
 
-  defp reply_channel_defaults(nil), do: %{}
+  defp reply_address_defaults(nil), do: %{}
 
-  defp reply_channel_defaults(reply_channel) when is_map(reply_channel) do
-    reply_channel
+  defp reply_address_defaults(reply_address) when is_map(reply_address) do
+    reply_address
     |> stringify_keys()
     |> Map.take(["scope_id", "thread_id", "reply_to_external_id"])
   end

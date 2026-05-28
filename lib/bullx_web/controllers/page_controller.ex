@@ -6,8 +6,7 @@ defmodule BullXWeb.PageController do
       get_session(conn, :principal_id) ->
         redirect(conn, to: ~p"/console")
 
-      BullX.Principals.setup_required?() and
-          BullX.Principals.bootstrap_activation_code_pending?() ->
+      BullX.Principals.setup_required?() ->
         redirect(conn, to: ~p"/setup")
 
       true ->

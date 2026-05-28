@@ -2,14 +2,14 @@ defmodule Discord.Streamer do
   @moduledoc false
 
   @spec consume(Discord.Source.t() | map(), map(), String.t(), keyword()) :: :ok | {:error, map()}
-  def consume(source_config, reply_channel, stream_id, opts \\ []) do
+  def consume(source_config, reply_address, stream_id, opts \\ []) do
     with {:ok, source} <- Discord.Source.normalize(source_config),
-         {:ok, resume} <- BullX.EventBus.StreamingOutput.resume_stream(stream_id, Keyword.get(opts, :after_offset)),
+         {:ok, resume} <- BullX.MailBox.StreamingOutput.resume_stream(stream_id, Keyword.get(opts, :after_offset)),
          text when is_binary(text) and text != "" <- chunks_text(resume.chunks),
          {:ok, _result} <-
            Discord.Outbound.deliver(
              source,
-             reply_channel,
+             reply_address,
              %{"op" => "send", "content" => [%{"kind" => "text", "body" => %{"text" => text}}]},
              opts
            ) do

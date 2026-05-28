@@ -1,12 +1,12 @@
 defmodule BullX.Setup.EventRoutingTest do
   use BullX.DataCase, async: false
 
-  alias BullX.EventBus.{EventRoutingRule, RoutingContext, RoutingTable, RuleWriter}
   alias BullX.LLM.{PluginProviders, Writer}
+  alias BullX.MailBox.{DeliveryRule, Matcher, RoutingContext}
   alias BullX.Repo
   alias BullX.Setup.{AIAgents, EventRouting}
 
-  @sources_key "bullx.plugins.feishu.eventbus_sources"
+  @sources_key "bullx.plugins.feishu.im_gateway_sources"
 
   setup do
     ReqLLM.Providers.initialize()
@@ -52,7 +52,7 @@ defmodule BullX.Setup.EventRoutingTest do
     :ok
   end
 
-  test "save creates one broad source-scoped BullX route for the setup AIAgent" do
+  test "save creates one source-scoped MailBox delivery rule for the setup AIAgent" do
     agent_id = setup_agent_id()
 
     assert {:ok, %{rule: rule}} = EventRouting.save(%{agent_principal_id: agent_id})
@@ -60,24 +60,17 @@ defmodule BullX.Setup.EventRoutingTest do
     assert rule.name == "setup.default.feishu.main.channel"
 
     assert rule.match_expr ==
-             "type.startsWith(\"bullx.\") && channel.adapter == \"feishu\" && channel.id == \"main\""
+             "type.startsWith(\"bullx.im.message.\") && channel.adapter == \"feishu\" && channel.id == \"main\""
 
     assert rule.target_type == "ai_agent"
     assert rule.target_ref == agent_id
-    assert Repo.aggregate(EventRoutingRule, :count) == 1
+    assert rule.receiver_type == "ai_agent"
+    assert rule.receiver_ref == agent_id
+    assert rule.attention == "addressed"
+    assert Repo.aggregate(DeliveryRule, :count) == 1
 
-    assert_setup_rule_matches("bullx.im.message.addressed", agent_id)
-    assert_setup_rule_matches("bullx.im.message.ambient", agent_id)
-    assert_setup_rule_matches("bullx.action.submitted", agent_id)
-    assert_setup_rule_matches("bullx.command.invoked", agent_id, %{"command_name" => "new"})
-
-    assert {:ok, {:matched, system_rule, _diagnostics}} =
-             RoutingTable.match(
-               routing_context("bullx.command.invoked", %{"command_name" => "status"})
-             )
-
-    assert system_rule.target_type == :command
-    assert system_rule.target_ref == "bullx.system.status"
+    assert_setup_rule_matches("bullx.im.message.received", agent_id)
+    refute_setup_rule_matches("bullx.action.submitted")
   end
 
   test "status projects the pending setup route without leaking raw runtime internals" do
@@ -113,43 +106,36 @@ defmodule BullX.Setup.EventRoutingTest do
     assert status.conflict_rule == nil
   end
 
-  test "save migrates legacy split setup routes instead of adding another route" do
+  test "save updates the existing MailBox delivery rule instead of adding another rule" do
     agent_id = setup_agent_id()
 
-    {:ok, legacy_addressed} =
-      RuleWriter.create_rule(%{
-        name: "setup.default.feishu.main.addressed",
+    existing =
+      %DeliveryRule{}
+      |> DeliveryRule.changeset(%{
+        name: "setup.default.feishu.main.channel",
         priority: 1000,
-        match_expr:
-          ~s(type == "bullx.im.message.addressed" && channel.adapter == "feishu" && channel.id == "main"),
-        target_type: :ai_agent,
-        target_ref: agent_id,
-        scope_fields: ["channel.adapter", "channel.id", "scope.id"]
+        match_expr: ~s(type == "bullx.im.message.received"),
+        receiver_type: "blackhole",
+        receiver_ref: "old",
+        attention: :ambient,
+        available_delay_ms: 0,
+        metadata: %{}
       })
-
-    {:ok, _legacy_ambient} =
-      RuleWriter.create_rule(%{
-        name: "setup.default.feishu.main.ambient",
-        priority: 1001,
-        match_expr:
-          ~s(type == "bullx.im.message.ambient" && channel.adapter == "feishu" && channel.id == "main"),
-        target_type: :ai_agent,
-        target_ref: agent_id,
-        scope_fields: ["channel.adapter", "channel.id", "scope.id"]
-      })
+      |> Repo.insert!()
 
     assert {:ok, %{rule: rule}} = EventRouting.save(%{agent_principal_id: agent_id})
 
-    assert rule.id == legacy_addressed.id
+    assert rule.id == existing.id
     assert rule.name == "setup.default.feishu.main.channel"
     assert rule.priority == 1000
 
     assert rule.match_expr ==
-             "type.startsWith(\"bullx.\") && channel.adapter == \"feishu\" && channel.id == \"main\""
+             "type.startsWith(\"bullx.im.message.\") && channel.adapter == \"feishu\" && channel.id == \"main\""
 
-    assert Repo.aggregate(EventRoutingRule, :count) == 1
-    refute Repo.get_by(EventRoutingRule, name: "setup.default.feishu.main.addressed")
-    refute Repo.get_by(EventRoutingRule, name: "setup.default.feishu.main.ambient")
+    assert rule.receiver_type == "ai_agent"
+    assert rule.receiver_ref == agent_id
+    assert rule.attention == "addressed"
+    assert Repo.aggregate(DeliveryRule, :count) == 1
   end
 
   defp setup_agent_id do
@@ -164,12 +150,21 @@ defmodule BullX.Setup.EventRoutingTest do
   end
 
   defp assert_setup_rule_matches(type, agent_id, routing_facts \\ %{}) do
-    assert {:ok, {:matched, rule, _diagnostics}} =
-             RoutingTable.match(routing_context(type, routing_facts))
+    rule = Repo.get_by!(DeliveryRule, name: "setup.default.feishu.main.channel")
+
+    assert {:ok, {:matched, _rule_id, _diagnostics}} =
+             Matcher.match([rule], routing_context(type, routing_facts))
 
     assert rule.name == "setup.default.feishu.main.channel"
-    assert rule.target_type == :ai_agent
-    assert rule.target_ref == agent_id
+    assert rule.receiver_type == "ai_agent"
+    assert rule.receiver_ref == agent_id
+  end
+
+  defp refute_setup_rule_matches(type, routing_facts \\ %{}) do
+    rule = Repo.get_by!(DeliveryRule, name: "setup.default.feishu.main.channel")
+
+    assert {:ok, {:no_match, _diagnostics}} =
+             Matcher.match([rule], routing_context(type, routing_facts))
   end
 
   defp routing_context(type, routing_facts) do
@@ -183,7 +178,7 @@ defmodule BullX.Setup.EventRoutingTest do
         "scope" => %{"id" => "scope-1", "thread_id" => nil},
         "actor" => %{"external_account_id" => "ou_1"},
         "refs" => [],
-        "reply_channel" => %{"adapter" => "feishu", "channel_id" => "main"},
+        "reply_address" => %{"adapter" => "feishu", "channel_id" => "main"},
         "routing_facts" => routing_facts
       }
     }

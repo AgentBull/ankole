@@ -94,7 +94,7 @@ defmodule BullX.AuthZ.AuthorizationTest do
     end
 
     test "all_humans computed group grants authorize active Human Principals without membership rows" do
-      assert :ok = AuthZ.reconcile_bootstrap_admin_membership()
+      ensure_built_in_groups!()
 
       all_humans = Repo.get_by!(PrincipalGroup, name: "all_humans")
       human = human!("all-humans-member")
@@ -280,7 +280,7 @@ defmodule BullX.AuthZ.AuthorizationTest do
 
   describe "group management and admin recoverability" do
     test "built-in admin group is protected and non-magical" do
-      assert :ok = AuthZ.reconcile_bootstrap_admin_membership()
+      ensure_built_in_groups!()
 
       admin = Repo.get_by!(PrincipalGroup, name: "admin")
       all_humans = Repo.get_by!(PrincipalGroup, name: "all_humans")
@@ -295,7 +295,7 @@ defmodule BullX.AuthZ.AuthorizationTest do
     end
 
     test "computed groups reject manual membership edits" do
-      assert :ok = AuthZ.reconcile_bootstrap_admin_membership()
+      ensure_built_in_groups!()
 
       human = human!("all-humans-manual")
       all_humans = Repo.get_by!(PrincipalGroup, name: "all_humans")
@@ -358,15 +358,13 @@ defmodule BullX.AuthZ.AuthorizationTest do
     end
   end
 
-  describe "bootstrap admin handoff" do
-    test "bootstrap activation grants admin membership after commit" do
-      {:ok, %{code: plaintext}} = Principals.create_activation_code(nil, %{"bootstrap" => true})
+  describe "root initialization" do
+    test "root_init_admin creates built-in groups and the first admin membership" do
+      principal = human!("root-admin")
 
-      assert {:ok, principal, _identity} =
-               Principals.consume_activation_code(
-                 plaintext,
-                 channel_input("bootstrap-admin", "bootstrap-admin@example.com")
-               )
+      refute AuthZ.root_initialized?()
+      assert :ok = AuthZ.root_init_admin(principal)
+      assert AuthZ.root_initialized?()
 
       admin = Repo.get_by!(PrincipalGroup, name: "admin")
       all_humans = Repo.get_by!(PrincipalGroup, name: "all_humans")
@@ -377,42 +375,12 @@ defmodule BullX.AuthZ.AuthorizationTest do
       refute membership_exists?(principal.id, all_humans.id)
     end
 
-    test "non-bootstrap activation does not add admin membership" do
-      {:ok, %{code: plaintext}} = Principals.create_activation_code(nil, %{"purpose" => "test"})
+    test "root_init_admin closes after the first admin membership exists" do
+      first = human!("root-first")
+      second = human!("root-second")
 
-      assert {:ok, principal, _identity} =
-               Principals.consume_activation_code(
-                 plaintext,
-                 channel_input("ordinary-activation", "ordinary@example.com")
-               )
-
-      case Repo.get_by(PrincipalGroup, name: "admin") do
-        nil -> refute Repo.exists?(from membership in PrincipalGroupMembership, select: 1)
-        admin -> refute membership_exists?(principal.id, admin.id)
-      end
-    end
-
-    test "bootstrap worker repairs missed admin membership handoff" do
-      {:ok, %{code: plaintext}} = Principals.create_activation_code(nil, %{"bootstrap" => true})
-
-      assert {:ok, principal, _identity} =
-               Principals.consume_activation_code(
-                 plaintext,
-                 channel_input("repair-admin", "repair@example.com")
-               )
-
-      admin = Repo.get_by!(PrincipalGroup, name: "admin")
-
-      Repo.delete_all(
-        from membership in PrincipalGroupMembership,
-          where: membership.principal_id == ^principal.id and membership.group_id == ^admin.id
-      )
-
-      refute membership_exists?(principal.id, admin.id)
-
-      BullX.AuthZ.Bootstrap.run()
-
-      assert membership_exists?(principal.id, admin.id)
+      assert :ok = AuthZ.root_init_admin(first)
+      assert {:error, :root_init_closed} = AuthZ.root_init_admin(second)
     end
   end
 
@@ -434,14 +402,10 @@ defmodule BullX.AuthZ.AuthorizationTest do
     principal
   end
 
-  defp channel_input(external_id, email) do
-    %{
-      adapter: "chat",
-      channel_id: "workplace",
-      external_id: external_id,
-      profile: %{"email" => email},
-      metadata: %{}
-    }
+  defp ensure_built_in_groups! do
+    assert {:ok, _all_humans, _status} = AuthZ.ensure_built_in_all_humans_group()
+    assert {:ok, _admin, _status} = AuthZ.ensure_built_in_admin_group()
+    :ok
   end
 
   defp membership_exists?(principal_id, group_id) do

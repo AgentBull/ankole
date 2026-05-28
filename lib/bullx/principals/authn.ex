@@ -5,7 +5,6 @@ defmodule BullX.Principals.AuthN do
 
   alias BullX.AuthZ
   alias BullX.Config.Principals, as: PrincipalsConfig
-  alias BullX.Principals.ActivationCode
   alias BullX.Principals.Agent
   alias BullX.Principals.Code
   alias BullX.Principals.ExternalIdentity
@@ -17,10 +16,7 @@ defmodule BullX.Principals.AuthN do
   @bind_existing_human "bind_existing_human"
   @allow_create_human "allow_create_human"
   @human_fields %{"email" => :email, "phone" => :phone}
-  @bootstrap_metadata_key "bootstrap"
-  @setup_gate_verified_at_key "setup_gate_verified_at"
-  @bootstrap_activation_code_lock_namespace 92_409
-  @bootstrap_activation_code_lock_id 8
+  @bootstrap_activation_code_key {__MODULE__, :bootstrap_activation_code}
 
   @spec get_principal(Ecto.UUID.t()) :: {:ok, Principal.t()} | {:error, :not_found}
   def get_principal(id) when is_binary(id) do
@@ -103,84 +99,31 @@ defmodule BullX.Principals.AuthN do
   end
 
   @spec setup_required?() :: boolean()
-  def setup_required? do
-    not Repo.exists?(from principal in Principal, where: principal.type == :human, select: 1)
-  end
-
-  @spec bootstrap_activation_code_consumed?() :: boolean()
-  def bootstrap_activation_code_consumed? do
-    Repo.exists?(
-      from code in ActivationCode,
-        where:
-          not is_nil(code.used_at) and
-            fragment("? ->> ?", code.metadata, ^@bootstrap_metadata_key) == "true",
-        select: 1
-    )
-  end
+  def setup_required?, do: not AuthZ.root_initialized?()
 
   @spec bootstrap_activation_code_pending?() :: boolean()
   def bootstrap_activation_code_pending? do
-    now = utc_now()
-
-    Repo.exists?(
-      from code in ActivationCode,
-        where:
-          is_nil(code.used_at) and is_nil(code.revoked_at) and code.expires_at > ^now and
-            fragment("? ->> ?", code.metadata, ^@bootstrap_metadata_key) == "true",
-        select: 1
-    )
+    setup_required?() and valid_bootstrap_code?(current_bootstrap_code())
   end
 
   @spec verify_bootstrap_activation_code(String.t()) ::
           {:ok, String.t()} | {:error, :invalid_or_expired_code}
   def verify_bootstrap_activation_code(plaintext) when is_binary(plaintext) do
-    now = utc_now()
-
-    # We can't index by the plaintext (it's never stored) so we load every live
-    # bootstrap hash and walk them. `Code.verified?/2` uses a constant-time
-    # compare, so this linear scan does not leak per-hash timing — the only
-    # observable thing is total candidate count, which is bounded and benign.
-    hashes =
-      Repo.all(
-        from code in ActivationCode,
-          where:
-            is_nil(code.used_at) and is_nil(code.revoked_at) and code.expires_at > ^now and
-              fragment("? ->> ?", code.metadata, ^@bootstrap_metadata_key) == "true",
-          order_by: [asc: code.inserted_at],
-          select: code.code_hash
-      )
-
-    case Enum.find(hashes, &Code.verified?(plaintext, &1)) do
-      nil -> {:error, :invalid_or_expired_code}
-      hash -> {:ok, hash}
-    end
+    verify_current_bootstrap_code(plaintext)
   end
 
   @spec verify_bootstrap_activation_code_for_setup(String.t()) ::
-          {:ok, String.t()} | {:error, :invalid_or_expired_code | Ecto.Changeset.t()}
+          {:ok, String.t()} | {:error, :invalid_or_expired_code}
   def verify_bootstrap_activation_code_for_setup(plaintext) when is_binary(plaintext) do
-    transaction(fn ->
-      now = utc_now()
-
-      case find_valid_bootstrap_activation_code_for_update(plaintext, now) do
-        nil -> {:error, :invalid_or_expired_code}
-        %ActivationCode{} = code -> mark_setup_gate_verified(code, now)
-      end
-    end)
+    verify_current_bootstrap_code(plaintext)
   end
 
   @spec bootstrap_activation_code_valid_for_hash?(String.t() | nil) :: boolean()
   def bootstrap_activation_code_valid_for_hash?(code_hash) when is_binary(code_hash) do
-    now = utc_now()
-
-    Repo.exists?(
-      from code in ActivationCode,
-        where:
-          code.code_hash == ^code_hash and is_nil(code.used_at) and is_nil(code.revoked_at) and
-            code.expires_at > ^now and
-            fragment("? ->> ?", code.metadata, ^@bootstrap_metadata_key) == "true",
-        select: 1
-    )
+    case current_bootstrap_code() do
+      %{code_hash: ^code_hash} = code -> setup_required?() and valid_bootstrap_code?(code)
+      _code -> false
+    end
   end
 
   def bootstrap_activation_code_valid_for_hash?(_code_hash), do: false
@@ -188,25 +131,22 @@ defmodule BullX.Principals.AuthN do
   @spec create_or_refresh_bootstrap_activation_code() ::
           {:ok,
            %{
-             code: String.t() | nil,
-             activation_code: ActivationCode.t(),
-             action: :created | :refreshed | :existing
+             code: String.t(),
+             code_hash: String.t(),
+             expires_at: DateTime.t(),
+             action: :created | :refreshed
            }}
           | {:error, term()}
   def create_or_refresh_bootstrap_activation_code do
-    transaction(fn ->
-      :ok = lock_bootstrap_activation_code!()
-
-      cond do
-        not setup_required?() -> {:error, :bootstrap_not_required}
-        bootstrap_activation_code_consumed?() -> {:error, :bootstrap_already_consumed}
-        true -> create_or_refresh_bootstrap_activation_code_in_transaction()
-      end
-    end)
+    case setup_required?() do
+      true -> put_fresh_bootstrap_activation_code()
+      false -> {:error, :bootstrap_not_required}
+    end
   end
 
   @spec resolve_channel_actor(atom() | String.t(), String.t(), String.t()) ::
-          {:ok, Principal.t()} | {:error, :not_bound} | {:error, :principal_disabled}
+          {:ok, Principal.t()}
+          | {:error, :not_bound | :identity_unverified | :principal_disabled}
   def resolve_channel_actor(adapter, channel_id, external_id) do
     with {:ok, input} <- normalize_channel_ref(adapter, channel_id, external_id) do
       case fetch_channel_binding_state(input) do
@@ -219,7 +159,7 @@ defmodule BullX.Principals.AuthN do
 
   @spec match_or_create_human_from_channel(map()) ::
           {:ok, Principal.t(), ExternalIdentity.t()}
-          | {:error, :activation_required}
+          | {:error, :identity_unverified}
           | {:error, :principal_disabled}
           | {:error, term()}
   def match_or_create_human_from_channel(input) when is_map(input) do
@@ -233,6 +173,26 @@ defmodule BullX.Principals.AuthN do
       end)
     end
   end
+
+  @spec ensure_human_from_channel_actor(map()) ::
+          {:ok, Principal.t(), ExternalIdentity.t()}
+          | {:error, :not_human}
+          | {:error, term()}
+  def ensure_human_from_channel_actor(input) when is_map(input) do
+    with {:ok, normalized} <- normalize_channel_input(input) do
+      transaction(fn ->
+        case fetch_channel_binding_for_im_fact(normalized) do
+          {:ok, principal, identity} -> {:ok, principal, identity}
+          {:error, reason} -> {:error, reason}
+          :not_found -> ensure_unbound_channel_human(normalized)
+        end
+      end)
+    end
+  end
+
+  @spec channel_identity_verified?(ExternalIdentity.t() | nil) :: boolean()
+  def channel_identity_verified?(%ExternalIdentity{verified_at: %DateTime{}}), do: true
+  def channel_identity_verified?(_identity), do: false
 
   @spec match_or_create_human_from_login_subject(map()) ::
           {:ok, Principal.t(), ExternalIdentity.t()}
@@ -252,47 +212,26 @@ defmodule BullX.Principals.AuthN do
     end
   end
 
-  @spec create_activation_code(Principal.t() | nil, map()) ::
-          {:ok, %{code: String.t(), activation_code: ActivationCode.t()}}
-          | {:error, Ecto.Changeset.t()}
-          | {:error, term()}
-  def create_activation_code(created_by_principal, metadata \\ %{}) do
-    plaintext = Code.activation_code()
-
-    with {:ok, code_hash} <- Code.hash(plaintext) do
-      attrs = %{
-        code_hash: code_hash,
-        expires_at: expires_at(PrincipalsConfig.principals_activation_code_ttl_seconds!()),
-        created_by_principal_id: principal_id(created_by_principal),
-        metadata: normalize_metadata(metadata)
-      }
-
-      %ActivationCode{}
-      |> ActivationCode.changeset(attrs)
-      |> Repo.insert()
-      |> case do
-        {:ok, activation_code} -> {:ok, %{code: plaintext, activation_code: activation_code}}
-        {:error, changeset} -> {:error, changeset}
-      end
-    end
-  end
-
-  @spec consume_activation_code(String.t(), map()) ::
+  @spec root_init_with_bootstrap_code(String.t(), map()) ::
           {:ok, Principal.t(), ExternalIdentity.t()}
           | {:error, :invalid_or_expired_code}
-          | {:error, :already_bound}
+          | {:error, :root_init_closed}
           | {:error, term()}
-  def consume_activation_code(plaintext_code, input)
+  def root_init_with_bootstrap_code(plaintext_code, input)
       when is_binary(plaintext_code) and is_map(input) do
-    with {:ok, normalized} <- normalize_channel_input(input) do
-      transaction(fn -> consume_activation_code_in_transaction(plaintext_code, normalized) end)
-      |> maybe_grant_bootstrap_admin_after_commit()
+    with :ok <- AuthZ.ensure_root_init_open(),
+         {:ok, _code_hash} <- verify_current_bootstrap_code(plaintext_code),
+         {:ok, normalized} <- normalize_channel_input(input),
+         {:ok, principal, identity} <- ensure_verified_channel_human(normalized),
+         :ok <- AuthZ.root_init_admin(principal) do
+      {:ok, principal, identity}
     end
   end
 
   @spec issue_login_auth_code(atom() | String.t(), String.t(), String.t()) ::
           {:ok, String.t()}
           | {:error, :not_bound}
+          | {:error, :identity_unverified}
           | {:error, :principal_disabled}
           | {:error, :not_human}
           | {:error, term()}
@@ -418,6 +357,37 @@ defmodule BullX.Principals.AuthN do
     end
   end
 
+  defp ensure_unbound_channel_human(input) do
+    case evaluate_im_fact_match_rules(input) do
+      {:bind, principal} -> bind_principal_to_channel_for_im_fact(principal, input)
+      _other -> create_human_and_channel_identity(input)
+    end
+  end
+
+  defp ensure_verified_channel_human(input) do
+    transaction(fn ->
+      case fetch_channel_binding_for_im_fact(%{input | trusted_realm_by_default: true}) do
+        {:ok, %Principal{status: :active} = principal, %ExternalIdentity{} = identity} ->
+          with {:ok, principal} <- refresh_channel_human_profile(principal, input),
+               {:ok, identity} <- verify_channel_identity(identity, input) do
+            {:ok, principal, identity}
+          end
+
+        {:ok, %Principal{status: :disabled}, %ExternalIdentity{}} ->
+          {:error, :principal_disabled}
+
+        {:error, reason} ->
+          {:error, reason}
+
+        :not_found ->
+          with {:ok, principal, identity} <-
+                 ensure_unbound_channel_human(%{input | trusted_realm_by_default: true}) do
+            {:ok, principal, identity}
+          end
+      end
+    end)
+  end
+
   defp match_unbound_login_subject(input) do
     case bind_login_subject_from_identity_facts(input) do
       {:ok, principal, identity} -> {:ok, principal, identity}
@@ -493,8 +463,8 @@ defmodule BullX.Principals.AuthN do
 
   defp auto_create_channel_if_enabled(input) do
     case PrincipalsConfig.principals_authn_auto_create_humans!() do
-      true -> create_human_and_channel_identity(input)
-      false -> {:error, :activation_required}
+      true -> create_human_and_channel_identity(input, verified_at: verification_timestamp(input))
+      false -> {:error, :identity_unverified}
     end
   end
 
@@ -505,63 +475,22 @@ defmodule BullX.Principals.AuthN do
     end
   end
 
-  defp auto_create_unmatched_channel(input) do
-    case {PrincipalsConfig.principals_authn_auto_create_humans!(),
-          PrincipalsConfig.principals_authn_require_activation_code!()} do
-      {true, false} -> create_human_and_channel_identity(input)
-      _other -> {:error, :activation_required}
-    end
-  end
-
-  defp consume_activation_code_in_transaction(plaintext_code, input) do
-    case fetch_channel_binding(input) do
-      nil -> consume_activation_code_for_unbound_actor(plaintext_code, input)
-      %ExternalIdentity{} -> {:error, :already_bound}
-    end
-  end
-
-  defp consume_activation_code_for_unbound_actor(plaintext_code, input) do
-    case evaluate_match_rules(input) do
-      {:bind, principal} ->
-        bind_principal_to_channel(principal, input)
-
-      {:error, reason} ->
-        {:error, reason}
-
-      _no_binding ->
-        with {:ok, activation_code} <- find_valid_activation_code(plaintext_code),
-             {:ok, principal, identity} <- create_human_and_channel_identity(input),
-             :ok <- mark_activation_code_used(activation_code, principal, input) do
-          activation_code_consume_result(activation_code, principal, identity)
-        end
-    end
-  end
-
-  defp activation_code_consume_result(%ActivationCode{} = activation_code, principal, identity) do
-    case bootstrap_activation_code?(activation_code) do
-      true -> {:ok, principal, identity, :bootstrap_admin}
-      false -> {:ok, principal, identity}
-    end
-  end
-
-  defp maybe_grant_bootstrap_admin_after_commit({:ok, principal, identity, :bootstrap_admin}) do
-    case AuthZ.grant_bootstrap_admin(principal) do
-      :ok -> {:ok, principal, identity}
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  defp maybe_grant_bootstrap_admin_after_commit(result), do: result
-
-  defp bootstrap_activation_code?(%ActivationCode{metadata: metadata}) do
-    metadata = normalize_metadata(metadata)
-    metadata[@bootstrap_metadata_key] == true
-  end
+  defp auto_create_unmatched_channel(input), do: auto_create_channel_if_enabled(input)
 
   defp evaluate_match_rules(input) do
     PrincipalsConfig.principals_authn_match_rules!()
     |> Enum.reduce_while(:no_match, fn rule, :no_match ->
       case evaluate_rule(rule, input) do
+        :no_match -> {:cont, :no_match}
+        result -> {:halt, result}
+      end
+    end)
+  end
+
+  defp evaluate_im_fact_match_rules(input) do
+    PrincipalsConfig.principals_authn_match_rules!()
+    |> Enum.reduce_while(:no_match, fn rule, :no_match ->
+      case evaluate_im_fact_rule(rule, input) do
         :no_match -> {:cont, :no_match}
         result -> {:halt, result}
       end
@@ -605,18 +534,82 @@ defmodule BullX.Principals.AuthN do
 
   defp evaluate_rule(_rule, _input), do: :no_match
 
+  defp evaluate_im_fact_rule(%{"result" => @bind_existing_human} = rule, input) do
+    with {:ok, value} <- get_source_value(input, rule["source_path"]),
+         {:ok, field} <- fetch_human_field(rule["human_field"]),
+         {:ok, normalized_value} <- normalize_lookup_value(rule["human_field"], value) do
+      case fetch_human_by_field(field, normalized_value) do
+        nil -> :no_match
+        %HumanUser{principal: %Principal{type: :human} = principal} -> {:bind, principal}
+        %HumanUser{} -> :no_match
+      end
+    else
+      _other -> :no_match
+    end
+  end
+
+  defp evaluate_im_fact_rule(rule, input), do: evaluate_rule(rule, input)
+
   defp fetch_channel_binding_state(input) do
     case fetch_channel_binding(input) do
       nil ->
         :not_found
 
-      %ExternalIdentity{principal: %Principal{status: :active} = principal} = identity ->
+      %ExternalIdentity{
+        verified_at: %DateTime{},
+        principal: %Principal{status: :active} = principal
+      } =
+          identity ->
         {:ok, principal, identity}
+
+      %ExternalIdentity{principal: %Principal{status: :active}} = identity ->
+        maybe_verify_active_channel_binding(identity, input)
 
       %ExternalIdentity{principal: %Principal{status: :disabled}} ->
         {:error, :principal_disabled}
     end
   end
+
+  defp fetch_channel_binding_for_im_fact(input) do
+    case fetch_channel_binding(input) do
+      nil ->
+        :not_found
+
+      %ExternalIdentity{principal: %Principal{type: :human} = principal} = identity ->
+        {:ok, principal, maybe_verify_channel_identity_for_fact(identity, input)}
+
+      %ExternalIdentity{principal: %Principal{}} ->
+        {:error, :not_human}
+    end
+  end
+
+  defp maybe_verify_active_channel_binding(
+         %ExternalIdentity{principal: %Principal{status: :active} = principal} = identity,
+         input
+       ) do
+    case input.trusted_realm_by_default do
+      true ->
+        with {:ok, identity} <- verify_channel_identity(identity, input) do
+          {:ok, principal, identity}
+        end
+
+      false ->
+        {:error, :identity_unverified}
+    end
+  end
+
+  defp maybe_verify_channel_identity_for_fact(
+         %ExternalIdentity{verified_at: nil} = identity,
+         %{trusted_realm_by_default: true} = input
+       ) do
+    case verify_channel_identity(identity, input) do
+      {:ok, identity} -> identity
+      {:error, _reason} -> identity
+    end
+  end
+
+  defp maybe_verify_channel_identity_for_fact(%ExternalIdentity{} = identity, _input),
+    do: identity
 
   defp fetch_login_subject_state(input) do
     case fetch_login_subject(input) do
@@ -677,7 +670,7 @@ defmodule BullX.Principals.AuthN do
   end
 
   defp bind_principal_to_channel(%Principal{status: :active, type: :human} = principal, input) do
-    attrs = channel_identity_attrs(principal, input)
+    attrs = channel_identity_attrs(principal, input, verification_timestamp(input))
 
     %ExternalIdentity{}
     |> ExternalIdentity.changeset(attrs)
@@ -692,6 +685,20 @@ defmodule BullX.Principals.AuthN do
     do: {:error, :principal_disabled}
 
   defp bind_principal_to_channel(%Principal{}, _input), do: {:error, :not_human}
+
+  defp bind_principal_to_channel_for_im_fact(%Principal{type: :human} = principal, input) do
+    attrs = channel_identity_attrs(principal, input, verification_timestamp(input))
+
+    %ExternalIdentity{}
+    |> ExternalIdentity.changeset(attrs)
+    |> Repo.insert()
+    |> case do
+      {:ok, identity} -> {:ok, principal, identity}
+      {:error, changeset} -> existing_channel_binding_for_im_fact_after_conflict(changeset, input)
+    end
+  end
+
+  defp bind_principal_to_channel_for_im_fact(%Principal{}, _input), do: {:error, :not_human}
 
   defp bind_principal_to_login_subject(
          %Principal{status: :active, type: :human} = principal,
@@ -713,9 +720,12 @@ defmodule BullX.Principals.AuthN do
 
   defp bind_principal_to_login_subject(%Principal{}, _input), do: {:error, :not_human}
 
-  defp create_human_and_channel_identity(input) do
+  defp create_human_and_channel_identity(input, opts \\ []) do
+    verified_at = Keyword.get(opts, :verified_at, verification_timestamp(input))
+
     with {:ok, %{principal: principal}} <- insert_human_record(channel_human_attrs(input)),
-         {:ok, identity} <- insert_new_channel_identity(principal, input) do
+         {:ok, identity} <-
+           insert_new_channel_identity(principal, input, verified_at) do
       {:ok, principal, identity}
     end
   end
@@ -727,9 +737,9 @@ defmodule BullX.Principals.AuthN do
     end
   end
 
-  defp insert_new_channel_identity(principal, input) do
+  defp insert_new_channel_identity(principal, input, verified_at) do
     %ExternalIdentity{}
-    |> ExternalIdentity.changeset(channel_identity_attrs(principal, input))
+    |> ExternalIdentity.changeset(channel_identity_attrs(principal, input, verified_at))
     |> Repo.insert()
   end
 
@@ -746,6 +756,24 @@ defmodule BullX.Principals.AuthN do
          ) do
       true ->
         case fetch_channel_binding_state(input) do
+          {:ok, principal, identity} -> {:ok, principal, identity}
+          {:error, :identity_unverified} -> {:error, :identity_unverified}
+          {:error, :principal_disabled} -> {:error, :principal_disabled}
+          _other -> {:error, changeset}
+        end
+
+      false ->
+        {:error, changeset}
+    end
+  end
+
+  defp existing_channel_binding_for_im_fact_after_conflict(changeset, input) do
+    case external_identity_unique_conflict?(
+           changeset,
+           "principal_external_identities_channel_actor_index"
+         ) do
+      true ->
+        case fetch_channel_binding_for_im_fact(input) do
           {:ok, principal, identity} -> {:ok, principal, identity}
           _other -> {:error, changeset}
         end
@@ -784,199 +812,55 @@ defmodule BullX.Principals.AuthN do
     end)
   end
 
-  defp find_valid_activation_code(plaintext_code) do
-    now = utc_now()
+  defp put_fresh_bootstrap_activation_code do
+    plaintext = Code.bootstrap_activation_code()
+    previous = current_bootstrap_code()
 
-    ActivationCode
-    |> valid_activation_codes_query(now)
-    |> lock("FOR UPDATE")
-    |> Repo.all()
-    |> Enum.find(&Code.verified?(plaintext_code, &1.code_hash))
-    |> case do
-      nil -> {:error, :invalid_or_expired_code}
-      activation_code -> {:ok, activation_code}
+    with {:ok, code_hash} <- Code.hash(plaintext) do
+      code = %{
+        code_hash: code_hash,
+        expires_at: expires_at(PrincipalsConfig.principals_activation_code_ttl_seconds!())
+      }
+
+      :persistent_term.put(@bootstrap_activation_code_key, code)
+
+      {:ok,
+       %{
+         code: plaintext,
+         code_hash: code_hash,
+         expires_at: code.expires_at,
+         action: bootstrap_code_action(previous)
+       }}
     end
   end
 
-  defp valid_activation_codes_query(query, now) do
-    from code in query,
-      where: is_nil(code.revoked_at) and is_nil(code.used_at) and code.expires_at > ^now,
-      order_by: [asc: code.inserted_at]
-  end
-
-  defp mark_activation_code_used(
-         %ActivationCode{} = activation_code,
-         %Principal{} = principal,
-         input
-       ) do
-    now = utc_now()
-    metadata = activation_code_metadata(activation_code.metadata, input, now)
-
-    {count, _rows} =
-      Repo.update_all(
-        from(code in ActivationCode,
-          where:
-            code.id == ^activation_code.id and is_nil(code.revoked_at) and is_nil(code.used_at) and
-              code.expires_at > ^now
-        ),
-        set: [
-          used_at: now,
-          used_by_principal_id: principal.id,
-          used_by_adapter: input.adapter,
-          used_by_channel_id: input.channel_id,
-          used_by_external_id: input.external_id,
-          metadata: metadata,
-          updated_at: now
-        ]
-      )
-
-    case count do
-      1 -> :ok
-      0 -> {:error, :invalid_or_expired_code}
-    end
-  end
-
-  defp activation_code_metadata(metadata, input, now) do
-    metadata
-    |> normalize_metadata()
-    |> Map.put("consumed", %{
-      "adapter" => input.adapter,
-      "channel_id" => input.channel_id,
-      "external_id" => input.external_id,
-      "at" => DateTime.to_iso8601(now)
-    })
-  end
-
-  defp fetch_unused_bootstrap_activation_code do
-    Repo.one(
-      from code in ActivationCode,
-        where:
-          is_nil(code.used_at) and is_nil(code.revoked_at) and
-            fragment("? ->> ?", code.metadata, ^@bootstrap_metadata_key) == "true",
-        order_by: [asc: code.inserted_at],
-        limit: 1,
-        lock: "FOR UPDATE"
-    )
-  end
-
-  defp lock_bootstrap_activation_code! do
-    Ecto.Adapters.SQL.query!(
-      Repo,
-      "SELECT pg_advisory_xact_lock($1::integer, $2::integer)",
-      [@bootstrap_activation_code_lock_namespace, @bootstrap_activation_code_lock_id]
-    )
-
-    :ok
-  end
-
-  defp create_or_refresh_bootstrap_activation_code_in_transaction do
-    case fetch_unused_bootstrap_activation_code() do
-      nil ->
-        create_bootstrap_activation_code()
-
-      %ActivationCode{} = existing ->
-        case setup_in_progress_unexpired?(existing, utc_now()) do
-          true -> {:ok, %{code: nil, activation_code: existing, action: :existing}}
-          false -> refresh_bootstrap_activation_code(existing)
+  defp verify_current_bootstrap_code(plaintext) do
+    case current_bootstrap_code() do
+      %{code_hash: code_hash} = code ->
+        cond do
+          not setup_required?() -> {:error, :invalid_or_expired_code}
+          not valid_bootstrap_code?(code) -> {:error, :invalid_or_expired_code}
+          Code.verified?(plaintext, code_hash) -> {:ok, code_hash}
+          true -> {:error, :invalid_or_expired_code}
         end
+
+      _code ->
+        {:error, :invalid_or_expired_code}
     end
   end
 
-  defp create_bootstrap_activation_code do
-    plaintext = Code.activation_code()
-
-    with {:ok, code_hash} <- Code.hash(plaintext) do
-      attrs = %{
-        code_hash: code_hash,
-        expires_at: expires_at(PrincipalsConfig.principals_activation_code_ttl_seconds!()),
-        created_by_principal_id: nil,
-        metadata: %{@bootstrap_metadata_key => true}
-      }
-
-      %ActivationCode{}
-      |> ActivationCode.changeset(attrs)
-      |> Repo.insert()
-      |> case do
-        {:ok, activation_code} ->
-          {:ok, %{code: plaintext, activation_code: activation_code, action: :created}}
-
-        {:error, changeset} ->
-          {:error, changeset}
-      end
-    end
+  defp current_bootstrap_code do
+    :persistent_term.get(@bootstrap_activation_code_key, nil)
   end
 
-  defp refresh_bootstrap_activation_code(%ActivationCode{} = existing) do
-    plaintext = Code.activation_code()
-    now = utc_now()
-
-    with {:ok, code_hash} <- Code.hash(plaintext) do
-      attrs = %{
-        code_hash: code_hash,
-        expires_at: expires_at(PrincipalsConfig.principals_activation_code_ttl_seconds!()),
-        metadata: refreshed_bootstrap_metadata(existing.metadata, now)
-      }
-
-      existing
-      |> ActivationCode.changeset(attrs)
-      |> Repo.update()
-      |> case do
-        {:ok, activation_code} ->
-          {:ok, %{code: plaintext, activation_code: activation_code, action: :refreshed}}
-
-        {:error, changeset} ->
-          {:error, changeset}
-      end
-    end
+  defp valid_bootstrap_code?(%{expires_at: %DateTime{} = expires_at}) do
+    DateTime.compare(expires_at, utc_now()) == :gt
   end
 
-  defp refreshed_bootstrap_metadata(metadata, now) do
-    metadata
-    |> normalize_metadata()
-    |> Map.put(@bootstrap_metadata_key, true)
-    |> Map.delete(@setup_gate_verified_at_key)
-    |> Map.put("refreshed_at", DateTime.to_iso8601(now))
-  end
+  defp valid_bootstrap_code?(_code), do: false
 
-  defp find_valid_bootstrap_activation_code_for_update(plaintext, now) do
-    now
-    |> valid_bootstrap_activation_codes_for_update()
-    |> Enum.find(&Code.verified?(plaintext, &1.code_hash))
-  end
-
-  defp valid_bootstrap_activation_codes_for_update(now) do
-    Repo.all(
-      from code in ActivationCode,
-        where:
-          is_nil(code.used_at) and is_nil(code.revoked_at) and code.expires_at > ^now and
-            fragment("? ->> ?", code.metadata, ^@bootstrap_metadata_key) == "true",
-        order_by: [asc: code.inserted_at],
-        lock: "FOR UPDATE"
-    )
-  end
-
-  defp mark_setup_gate_verified(%ActivationCode{} = code, now) do
-    metadata =
-      code.metadata
-      |> normalize_metadata()
-      |> Map.put(@bootstrap_metadata_key, true)
-      |> Map.put(@setup_gate_verified_at_key, DateTime.to_iso8601(now))
-
-    code
-    |> ActivationCode.changeset(%{metadata: metadata})
-    |> Repo.update()
-    |> case do
-      {:ok, updated} -> {:ok, updated.code_hash}
-      {:error, changeset} -> {:error, changeset}
-    end
-  end
-
-  defp setup_in_progress_unexpired?(%ActivationCode{} = code, now) do
-    metadata = normalize_metadata(code.metadata)
-
-    Map.has_key?(metadata, @setup_gate_verified_at_key) and
-      DateTime.compare(code.expires_at, now) == :gt
-  end
+  defp bootstrap_code_action(nil), do: :created
+  defp bootstrap_code_action(_code), do: :refreshed
 
   defp find_valid_login_auth_code(plaintext_code) do
     threshold =
@@ -1077,7 +961,7 @@ defmodule BullX.Principals.AuthN do
   defp channel_human_attrs(input) do
     %{
       principal: %{
-        uid: unique_uid(uid_candidate(input.profile, input.external_id)),
+        uid: unique_uid(uid_candidate(input.profile)),
         type: :human,
         status: :active,
         display_name: display_name(input),
@@ -1093,7 +977,7 @@ defmodule BullX.Principals.AuthN do
   defp login_subject_human_attrs(input) do
     %{
       principal: %{
-        uid: unique_uid(uid_candidate(input.profile, input.external_id)),
+        uid: unique_uid(uid_candidate(input.profile)),
         type: :human,
         status: :active,
         display_name: display_name(input),
@@ -1106,13 +990,63 @@ defmodule BullX.Principals.AuthN do
     }
   end
 
-  defp channel_identity_attrs(%Principal{id: principal_id}, input) do
+  defp refresh_channel_human_profile(%Principal{} = principal, input) do
+    principal = Repo.preload(principal, :human_user)
+
+    with {:ok, principal} <- update_channel_principal_profile(principal, input),
+         {:ok, _human_user} <- update_channel_human_user_profile(principal.human_user, input) do
+      {:ok, principal}
+    end
+  end
+
+  defp update_channel_principal_profile(%Principal{} = principal, input) do
+    attrs =
+      %{
+        uid: unique_uid(uid_candidate(input.profile), principal.id),
+        display_name: preferred_display_name(input),
+        avatar_url: input.profile["avatar_url"]
+      }
+      |> reject_nil_values()
+
+    principal
+    |> Principal.changeset(attrs)
+    |> Repo.update()
+  end
+
+  defp update_channel_human_user_profile(%HumanUser{} = human_user, input) do
+    attrs =
+      %{
+        email: input.profile["email"],
+        phone: input.profile["phone"]
+      }
+      |> reject_nil_values()
+
+    human_user
+    |> HumanUser.changeset(attrs)
+    |> Repo.update()
+  end
+
+  defp update_channel_human_user_profile(nil, _input), do: {:error, :not_human}
+
+  defp verify_channel_identity(%ExternalIdentity{} = identity, input) do
+    metadata = identity_metadata(input)
+
+    identity
+    |> ExternalIdentity.changeset(%{verified_at: utc_now(), metadata: metadata})
+    |> Repo.update()
+  end
+
+  defp verification_timestamp(%{trusted_realm_by_default: true}), do: utc_now()
+  defp verification_timestamp(_input), do: nil
+
+  defp channel_identity_attrs(%Principal{id: principal_id}, input, verified_at) do
     %{
       principal_id: principal_id,
       kind: :channel_actor,
       adapter: input.adapter,
       channel_id: input.channel_id,
       external_id: input.external_id,
+      verified_at: verified_at,
       metadata: identity_metadata(input)
     }
   end
@@ -1153,14 +1087,17 @@ defmodule BullX.Principals.AuthN do
   end
 
   defp display_name(input) do
-    input.profile["display_name"] || input.profile["display"] || input.profile["email"] ||
-      input.external_id
+    preferred_display_name(input) || "Human"
   end
 
-  defp uid_candidate(profile, external_id) do
-    profile["uid"] || profile["username"] || email_local_part(profile["email"]) ||
-      profile["phone"] ||
-      external_id
+  defp preferred_display_name(input) do
+    input.profile["display_name"] || input.profile["display"] || input.profile["username"] ||
+      input.profile["email"]
+  end
+
+  defp uid_candidate(profile) do
+    profile["username"] || email_local_part(profile["email"]) || profile["uid"] ||
+      profile["display_name"] || profile["display"] || profile["phone"] || "human"
   end
 
   defp email_local_part(nil), do: nil
@@ -1171,13 +1108,25 @@ defmodule BullX.Principals.AuthN do
     |> List.first()
   end
 
-  defp unique_uid(candidate) do
+  defp unique_uid(candidate, excluded_principal_id \\ nil) do
     base = canonical_uid(candidate)
 
-    case Repo.exists?(from principal in Principal, where: principal.uid == ^base, select: 1) do
+    case Repo.exists?(unique_uid_query(base, excluded_principal_id)) do
       false -> base
       true -> base <> "-" <> String.slice(BullX.Ext.gen_base36_uuid(), 0, 8)
     end
+  end
+
+  defp unique_uid_query(base, nil) do
+    from principal in Principal,
+      where: principal.uid == ^base,
+      select: 1
+  end
+
+  defp unique_uid_query(base, excluded_principal_id) do
+    from principal in Principal,
+      where: principal.uid == ^base and principal.id != ^excluded_principal_id,
+      select: 1
   end
 
   defp canonical_uid(value) do
@@ -1197,7 +1146,13 @@ defmodule BullX.Principals.AuthN do
     with {:ok, adapter} <- normalize_identifier(adapter),
          {:ok, channel_id} <- normalize_identifier(channel_id),
          {:ok, external_id} <- normalize_identifier(external_id) do
-      {:ok, %{adapter: adapter, channel_id: channel_id, external_id: external_id}}
+      {:ok,
+       %{
+         adapter: adapter,
+         channel_id: channel_id,
+         external_id: external_id,
+         trusted_realm_by_default: false
+       }}
     end
   end
 
@@ -1207,14 +1162,17 @@ defmodule BullX.Principals.AuthN do
          {:ok, channel_id} <- fetch_identifier(input, "channel_id"),
          {:ok, external_id} <- fetch_identifier(input, "external_id"),
          {:ok, profile} <- optional_map(input, "profile"),
-         {:ok, metadata} <- optional_map(input, "metadata") do
+         {:ok, metadata} <- optional_map(input, "metadata"),
+         {:ok, trusted_realm_by_default} <-
+           optional_boolean(input, "trusted_realm_by_default", false) do
       {:ok,
        %{
          adapter: adapter,
          channel_id: channel_id,
          external_id: external_id,
          profile: normalize_identity_map(profile),
-         metadata: metadata
+         metadata: metadata,
+         trusted_realm_by_default: trusted_realm_by_default
        }}
     end
   end
@@ -1238,6 +1196,15 @@ defmodule BullX.Principals.AuthN do
   defp optional_map(map, key) do
     case Map.get(map, key, %{}) do
       value when is_map(value) -> {:ok, value}
+      _value -> {:error, {:invalid_identity_input, key}}
+    end
+  end
+
+  defp optional_boolean(map, key, default) do
+    case Map.get(map, key, default) do
+      value when is_boolean(value) -> {:ok, value}
+      "true" -> {:ok, true}
+      "false" -> {:ok, false}
       _value -> {:error, {:invalid_identity_input, key}}
     end
   end
@@ -1388,14 +1355,9 @@ defmodule BullX.Principals.AuthN do
   defp stringify_value(value) when is_map(value), do: stringify_map(value)
   defp stringify_value(value), do: {:ok, value}
 
-  defp normalize_metadata(metadata) when is_map(metadata) do
-    case stringify_map(metadata) do
-      {:ok, normalized} -> normalized
-      {:error, _reason} -> %{}
-    end
+  defp reject_nil_values(map) do
+    Map.reject(map, fn {_key, value} -> is_nil(value) end)
   end
-
-  defp normalize_metadata(_metadata), do: %{}
 
   defp attr(map, key) when is_map(map) do
     Map.get(map, key) || Map.get(map, Atom.to_string(key))
@@ -1409,9 +1371,6 @@ defmodule BullX.Principals.AuthN do
       _value -> nil
     end
   end
-
-  defp principal_id(nil), do: nil
-  defp principal_id(%Principal{id: id}), do: id
 
   defp ensure_human_principal(%Principal{type: :human}), do: :ok
   defp ensure_human_principal(%Principal{}), do: {:error, :not_human}

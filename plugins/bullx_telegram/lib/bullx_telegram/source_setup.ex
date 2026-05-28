@@ -1,10 +1,10 @@
 defmodule BullxTelegram.SourceSetup do
   @moduledoc false
 
-  alias BullX.EventBus.RoutingContext
+  alias BullX.MailBox.RoutingContext
   alias BullxTelegram.Source
 
-  @sources_key "bullx.plugins.bullx_telegram.eventbus_sources"
+  @sources_key "bullx.plugins.bullx_telegram.im_gateway_sources"
 
   @spec config_keys() :: %{sources: String.t()}
   def config_keys, do: %{sources: @sources_key}
@@ -18,7 +18,8 @@ defmodule BullxTelegram.SourceSetup do
       help_url: "https://core.telegram.org/bots/api",
       default_source: %{
         "enabled" => true,
-        "im_listen_mode" => "all_messages"
+        "im_listen_mode" => "all_messages",
+        "trusted_realm_by_default" => false
       },
       sections: [
         %{
@@ -44,7 +45,7 @@ defmodule BullxTelegram.SourceSetup do
 
   @spec public_projection() :: map()
   def public_projection do
-    configured_sources = BullxTelegram.Config.eventbus_sources!()
+    configured_sources = BullxTelegram.Config.im_gateway_sources!()
     runtime = runtime_status()
 
     %{
@@ -64,11 +65,12 @@ defmodule BullxTelegram.SourceSetup do
           "id" => id,
           "enabled" => boolean_field(source, "enabled", true),
           "bot_token" => bot_token,
-          "im_listen_mode" => string_field(source, "im_listen_mode", "all_messages")
+          "im_listen_mode" => string_field(source, "im_listen_mode", "all_messages"),
+          "trusted_realm_by_default" => boolean_field(source, "trusted_realm_by_default", false)
         }
         |> maybe_put("bot_username", string_field(source, "bot_username", nil))
 
-      case BullxTelegram.Config.EventBusSources.cast([attrs]) do
+      case BullxTelegram.Config.IMGatewaySources.cast([attrs]) do
         {:ok, [normalized]} -> {:ok, normalized}
         :error -> {:error, %{field: "source", message: "invalid Telegram source"}}
       end
@@ -78,7 +80,7 @@ defmodule BullxTelegram.SourceSetup do
   @spec persist_source(map(), map()) :: :ok | {:error, term()}
   def persist_source(_opts, source) when is_map(source) do
     sources =
-      BullxTelegram.Config.eventbus_sources!()
+      BullxTelegram.Config.im_gateway_sources!()
       |> upsert_source(source)
 
     BullX.Config.put(@sources_key, Jason.encode!(sources))
@@ -104,7 +106,7 @@ defmodule BullxTelegram.SourceSetup do
         "scope" => %{"id" => "setup-scope", "thread_id" => nil},
         "actor" => %{"external_id" => "telegram:setup-operator"},
         "refs" => %{},
-        "reply_channel" => %{"adapter" => "telegram", "source_id" => id},
+        "reply_address" => %{"adapter" => "telegram", "source_id" => id},
         "routing_facts" => %{"chat_type" => "private"}
       }
     }
@@ -175,7 +177,7 @@ defmodule BullxTelegram.SourceSetup do
   end
 
   defp existing_source_secret(source_id, key) do
-    BullxTelegram.Config.eventbus_sources!()
+    BullxTelegram.Config.im_gateway_sources!()
     |> Enum.find(fn source ->
       (Map.get(source, "id") || Map.get(source, :id)) == source_id
     end)

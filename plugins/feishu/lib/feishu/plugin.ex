@@ -1,6 +1,6 @@
 defmodule Feishu.Plugin do
   @moduledoc """
-  Registers the trusted Feishu/Lark EventBus channel adapter and Principal login hook.
+  Registers the trusted Feishu/Lark IMGateway channel adapter and Principal login hook.
 
   Feishu remains a transport and identity-evidence plugin. It normalizes
   provider input into Events, sends provider replies, and exposes source-scoped
@@ -19,7 +19,7 @@ defmodule Feishu.Plugin do
   def extensions do
     [
       %{
-        point: :"bullx.event_bus.channel_adapter",
+        point: :"bullx.im_gateway.channel_adapter",
         id: "feishu",
         module: Feishu.ChannelAdapter,
         opts: %{provider: "feishu", setup_module: Feishu.SourceSetup}

@@ -54,3 +54,4 @@ npm-debug.log
 
 /storybook-static/
 .claude
+priv/static/.rsbuild

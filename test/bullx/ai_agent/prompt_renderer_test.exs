@@ -96,8 +96,8 @@ defmodule BullX.AIAgent.PromptRendererTest do
     assert {:ok, rendered} =
              PromptRenderer.render(conversation, profile, source,
                runtime_context: %{
-                 target_session_id: "must-not-render",
-                 target_session_entry: %{"raw" => "must-not-render"}
+                 mailbox_session_id: "must-not-render",
+                 mailbox_entry: %{"raw" => "must-not-render"}
                }
              )
 
@@ -114,12 +114,78 @@ defmodule BullX.AIAgent.PromptRendererTest do
              system_message.content
 
     refute system_text =~ "<context>"
-    refute system_text =~ "target_session_id"
-    refute system_text =~ "target_session_entry"
+    refute system_text =~ "mailbox_session_id"
+    refute system_text =~ "mailbox_entry"
 
     assert ["call_1", "call_2"] =
              rendered.messages
              |> Enum.filter(&(&1.role == :tool))
              |> Enum.map(& &1.tool_call_id)
+  end
+
+  test "merges user introspection into the next normal user message" do
+    {:ok, %{principal: agent}} =
+      Principals.create_agent(%{
+        uid: "ai-agent-prompt-renderer-user-introspection",
+        display_name: "Agent",
+        profile: %{
+          "ai_agent" => %{
+            "main_llm" => %{"provider_id" => "openai_proxy", "model" => "gpt-test"},
+            "mission" => "Handle prompt rendering tests."
+          }
+        }
+      })
+
+    {:ok, profile} =
+      Profile.cast(%{
+        "ai_agent" => %{
+          "main_llm" => %{"provider_id" => "openai_proxy", "model" => "gpt-test"},
+          "mission" => "Handle prompt rendering tests."
+        }
+      })
+
+    {:ok, conversation} = Conversations.find_or_create_active(agent.id, "v1:introspection", %{})
+
+    {:ok, conversation, _first} =
+      Conversations.append_message(conversation, %{
+        conversation_id: conversation.id,
+        role: :user,
+        kind: :normal,
+        status: :complete,
+        content: [Message.text_block("first")],
+        metadata: %{}
+      })
+
+    {:ok, conversation, _introspection} =
+      Conversations.append_message(conversation, %{
+        conversation_id: conversation.id,
+        role: :user,
+        kind: :introspection,
+        status: :complete,
+        content: [Message.text_block("<btw>old message was edited</btw>")],
+        metadata: %{}
+      })
+
+    {:ok, conversation, next_user} =
+      Conversations.append_message(conversation, %{
+        conversation_id: conversation.id,
+        role: :user,
+        kind: :normal,
+        status: :complete,
+        content: [Message.text_block("next")],
+        metadata: %{}
+      })
+
+    assert {:ok, rendered} = PromptRenderer.render(conversation, profile, next_user)
+
+    user_texts =
+      rendered.messages
+      |> Enum.filter(&(&1.role == :user))
+      |> Enum.map(fn message ->
+        message.content
+        |> Enum.map_join("\n", & &1.text)
+      end)
+
+    assert ["first", "<btw>old message was edited</btw>\nnext"] = user_texts
   end
 end

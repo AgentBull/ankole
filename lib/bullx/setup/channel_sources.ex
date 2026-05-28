@@ -5,7 +5,7 @@ defmodule BullX.Setup.ChannelSources do
   alias BullX.Plugins
   alias BullX.Plugins.Extension
 
-  @extension_point :"bullx.event_bus.channel_adapter"
+  @extension_point :"bullx.im_gateway.channel_adapter"
 
   @spec status() :: map()
   def status do

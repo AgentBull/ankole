@@ -1,7 +1,7 @@
 defmodule Feishu.DirectCommand do
   @moduledoc false
 
-  alias BullX.EventBus.CommandCatalog
+  alias BullX.AIAgent.CommandCatalog
   alias Feishu.{Source, UserInfo}
 
   import BullX.Utils.Map, only: [maybe_put: 3]
@@ -62,7 +62,7 @@ defmodule Feishu.DirectCommand do
     meta = %{source_id: source.id, command_name: command.name}
 
     :telemetry.execute(
-      [:bullx, :event_bus, :adapter, :feishu, :direct_command, :start],
+      [:bullx, :im_gateway, :adapter, :feishu, :direct_command, :start],
       %{system_time: System.system_time()},
       meta
     )
@@ -70,7 +70,7 @@ defmodule Feishu.DirectCommand do
     result = do_handle(source, command, event_id, opts)
 
     :telemetry.execute(
-      [:bullx, :event_bus, :adapter, :feishu, :direct_command, :stop],
+      [:bullx, :im_gateway, :adapter, :feishu, :direct_command, :stop],
       %{duration: System.monotonic_time() - start_time},
       Map.put(meta, :result, telemetry_result(result))
     )
@@ -108,25 +108,11 @@ defmodule Feishu.DirectCommand do
     end
   end
 
-  defp run(%Source{} = source, %{name: "preauth", chat_type: chat_type} = command, opts)
-       when chat_type != "p2p" do
-    reply_text(
-      command,
-      source,
-      BullX.I18n.t("eventbus.feishu.auth.direct_command_dm_only"),
-      "preauth",
-      opts
-    )
-  end
-
-  defp run(%Source{} = source, %{name: "preauth", args: args} = command, opts) do
-    text =
-      source
-      |> preauth_account_input(command)
-      |> consume_activation_code(args)
-      |> activation_reply()
-
-    reply_text(command, source, text, "preauth", opts)
+  defp run(%Source{} = source, %{name: "root_init"} = command, opts) do
+    case BullX.AuthZ.ensure_root_init_open() do
+      :ok -> run_root_init_open(source, command, opts)
+      {:error, :root_init_closed} -> {:ok, %{"command_name" => "root_init", "status" => "ignored"}}
+    end
   end
 
   defp run(%Source{} = source, %{name: "webauth", chat_type: chat_type} = command, opts)
@@ -134,7 +120,7 @@ defmodule Feishu.DirectCommand do
     reply_text(
       command,
       source,
-      BullX.I18n.t("eventbus.feishu.auth.direct_command_dm_only"),
+      BullX.I18n.t("im_gateway.feishu.auth.direct_command_dm_only"),
       "webauth",
       opts
     )
@@ -145,7 +131,7 @@ defmodule Feishu.DirectCommand do
     reply_text(
       command,
       source,
-      BullX.I18n.t("eventbus.feishu.auth.webauth_disabled"),
+      BullX.I18n.t("im_gateway.feishu.auth.webauth_disabled"),
       "webauth",
       opts
     )
@@ -153,8 +139,9 @@ defmodule Feishu.DirectCommand do
 
   defp run(%Source{} = source, %{name: "webauth"} = command, opts) do
     text =
-      "feishu"
-      |> BullX.Principals.issue_login_auth_code(source.id, command.actor.id)
+      source
+      |> maybe_ensure_command_actor(command)
+      |> issue_login_auth_code("feishu", source.id, command.actor.id)
       |> webauth_reply(BullX.Principals.web_login_url())
 
     reply_text(command, source, text, "webauth", opts)
@@ -164,43 +151,84 @@ defmodule Feishu.DirectCommand do
     reply_text(
       command,
       source,
-      BullX.I18n.t("eventbus.feishu.errors.unsupported_message"),
+      BullX.I18n.t("im_gateway.feishu.errors.unsupported_message"),
       command.name,
       opts
     )
   end
 
-  defp activation_reply({:ok, _principal, _identity}),
-    do: BullX.I18n.t("eventbus.feishu.auth.activation_success")
+  defp run_root_init_open(%Source{} = source, %{chat_type: chat_type} = command, opts)
+       when chat_type != "p2p" do
+    reply_text(
+      command,
+      source,
+      BullX.I18n.t("im_gateway.feishu.auth.direct_command_dm_only"),
+      "root_init",
+      opts
+    )
+  end
 
-  defp activation_reply({:error, :invalid_or_expired_code}),
-    do: BullX.I18n.t("eventbus.feishu.auth.activation_code_invalid")
+  defp run_root_init_open(%Source{} = source, %{args: args} = command, opts) do
+    text =
+      source
+      |> root_init_account_input(command)
+      |> root_init(args)
+      |> root_init_reply()
 
-  defp activation_reply({:error, :already_bound}),
-    do: BullX.I18n.t("eventbus.feishu.auth.already_linked")
+    reply_text(command, source, text, "root_init", opts)
+  end
 
-  defp activation_reply({:error, :principal_disabled}),
-    do: BullX.I18n.t("eventbus.feishu.auth.denied")
+  defp root_init_reply({:ok, _principal, _identity}),
+    do: BullX.I18n.t("im_gateway.feishu.auth.root_init_success")
 
-  defp activation_reply({:error, _reason}),
-    do: BullX.I18n.t("eventbus.feishu.auth.activation_failed")
+  defp root_init_reply({:error, :invalid_or_expired_code}),
+    do: BullX.I18n.t("im_gateway.feishu.auth.activation_code_invalid")
 
-  defp consume_activation_code({:ok, account_input}, args) do
+  defp root_init_reply({:error, :principal_disabled}),
+    do: BullX.I18n.t("im_gateway.feishu.auth.denied")
+
+  defp root_init_reply({:error, _reason}),
+    do: BullX.I18n.t("im_gateway.feishu.auth.root_init_failed")
+
+  defp root_init({:ok, account_input}, args) do
     args
     |> to_string()
     |> String.trim()
-    |> BullX.Principals.consume_activation_code(account_input)
+    |> BullX.Principals.root_init_with_bootstrap_code(account_input)
   end
 
-  defp consume_activation_code({:error, reason}, _args), do: {:error, reason}
+  defp root_init({:error, reason}, _args), do: {:error, reason}
 
-  defp preauth_account_input(%Source{} = source, command) do
+  defp maybe_ensure_command_actor(%Source{trusted_realm_by_default: true} = source, command) do
+    case BullX.Principals.ensure_human_from_channel_actor(command_account_input(source, command)) do
+      {:ok, _principal, _identity} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp maybe_ensure_command_actor(%Source{}, _command), do: :ok
+
+  defp issue_login_auth_code(:ok, adapter, source_id, external_id) do
+    BullX.Principals.issue_login_auth_code(adapter, source_id, external_id)
+  end
+
+  defp issue_login_auth_code({:error, reason}, _adapter, _source_id, _external_id),
+    do: {:error, reason}
+
+  defp command_account_input(%Source{} = source, command) do
+    command
+    |> map_value(:account_input)
+    |> stringify_map()
+    |> Map.put("trusted_realm_by_default", source.trusted_realm_by_default)
+  end
+
+  defp root_init_account_input(%Source{} = source, command) do
     with {:ok, open_id} <- command_actor_open_id(command),
          {:ok, userinfo} <- UserInfo.fetch_contact(source, open_id),
          :ok <- validate_contact_open_id(userinfo, open_id),
          userinfo <- Map.put_new(userinfo, "open_id", open_id),
-         :ok <- validate_preauth_actor(command, open_id) do
-      {:ok, build_preauth_account_input(source, command, open_id, userinfo)}
+         :ok <- validate_root_init_actor(command, open_id) do
+      {:ok, build_root_init_account_input(source, command, open_id, userinfo)}
     end
   end
 
@@ -212,15 +240,15 @@ defmodule Feishu.DirectCommand do
     end
   end
 
-  defp validate_preauth_actor(command, open_id) do
+  defp validate_root_init_actor(command, open_id) do
     case command_actor_open_id(command) do
       {:ok, ^open_id} -> :ok
-      {:ok, _other_open_id} -> {:error, Feishu.Error.payload("Feishu preauth actor mismatch")}
+      {:ok, _other_open_id} -> {:error, Feishu.Error.payload("Feishu root_init actor mismatch")}
       {:error, error} -> {:error, error}
     end
   end
 
-  defp build_preauth_account_input(%Source{} = source, command, open_id, userinfo) do
+  defp build_root_init_account_input(%Source{} = source, command, open_id, userinfo) do
     account_input = command |> map_value(:account_input) |> stringify_map()
     metadata = account_input |> Map.get("metadata", %{}) |> stringify_map()
 
@@ -228,6 +256,7 @@ defmodule Feishu.DirectCommand do
       "adapter" => "feishu",
       "channel_id" => source.id,
       "external_id" => "feishu:" <> open_id,
+      "trusted_realm_by_default" => true,
       "profile" => UserInfo.profile(userinfo),
       "metadata" =>
         metadata
@@ -253,25 +282,28 @@ defmodule Feishu.DirectCommand do
         {:ok, String.trim_leading(actor["id"], "feishu:")}
 
       true ->
-        {:error, Feishu.Error.payload("Feishu preauth actor is missing open_id")}
+        {:error, Feishu.Error.payload("Feishu root_init actor is missing open_id")}
     end
   end
 
   defp webauth_reply({:ok, code}, login_url) do
-    BullX.I18n.t("eventbus.feishu.auth.webauth_created", %{code: code, login_url: login_url})
+    BullX.I18n.t("im_gateway.feishu.auth.webauth_created", %{code: code, login_url: login_url})
   end
 
   defp webauth_reply({:error, :not_bound}, _login_url),
-    do: BullX.I18n.t("eventbus.feishu.auth.webauth_not_bound")
+    do: BullX.I18n.t("im_gateway.feishu.auth.webauth_not_bound")
+
+  defp webauth_reply({:error, :identity_unverified}, _login_url),
+    do: BullX.I18n.t("im_gateway.feishu.auth.webauth_not_bound")
 
   defp webauth_reply({:error, :not_human}, _login_url),
-    do: BullX.I18n.t("eventbus.feishu.auth.webauth_not_bound")
+    do: BullX.I18n.t("im_gateway.feishu.auth.webauth_not_bound")
 
   defp webauth_reply({:error, :principal_disabled}, _login_url),
-    do: BullX.I18n.t("eventbus.feishu.auth.denied")
+    do: BullX.I18n.t("im_gateway.feishu.auth.denied")
 
   defp webauth_reply({:error, _reason}, _login_url),
-    do: BullX.I18n.t("eventbus.feishu.auth.webauth_failed")
+    do: BullX.I18n.t("im_gateway.feishu.auth.webauth_failed")
 
   defp direct_cache_key(%Source{} = source, event_id) do
     "feishu:#{source.id}:direct_command:#{event_id}"

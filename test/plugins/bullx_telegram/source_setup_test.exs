@@ -5,7 +5,7 @@ defmodule BullxTelegram.SourceSetupTest do
   alias BullX.Repo
   alias BullxTelegram.SourceSetup
 
-  @sources_key "bullx.plugins.bullx_telegram.eventbus_sources"
+  @sources_key "bullx.plugins.bullx_telegram.im_gateway_sources"
 
   setup do
     cache_pid = GenServer.whereis(BullX.Config.Cache)

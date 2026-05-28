@@ -4,7 +4,7 @@ defmodule BullX.Setup do
 
   Setup composes existing subsystem facades. It owns wizard projection and
   request normalization; durable facts remain in Config, Principals, AuthZ,
-  LLMProvider, plugin-owned source config, AIAgent, and EventBus.
+  LLMProvider, plugin-owned source config, AIAgent, and MailBox.
   """
 
   alias BullX.Setup.Projection

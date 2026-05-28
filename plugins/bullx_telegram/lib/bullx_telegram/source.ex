@@ -1,6 +1,6 @@
 defmodule BullxTelegram.Source do
   @moduledoc """
-  Runtime representation of one configured Telegram EventBus source.
+  Runtime representation of one configured Telegram IMGateway source.
 
   The struct keeps bot tokens out of `Inspect`. Each source is one BullX
   channel instance backed by one Telegram bot token.
@@ -29,6 +29,7 @@ defmodule BullxTelegram.Source do
   @default_message_context_ttl_seconds 2_592_000
   @default_direct_command_dedupe_ttl_seconds 300
   @default_im_listen_mode :addressed_only
+  @default_trusted_realm_by_default false
   @im_listen_modes [:addressed_only, :all_messages]
   @telegram_message_hard_limit 4_096
 
@@ -57,6 +58,7 @@ defmodule BullxTelegram.Source do
     },
     commands: %{"sync_policy" => "replace"},
     im_listen_mode: @default_im_listen_mode,
+    trusted_realm_by_default: @default_trusted_realm_by_default,
     req_options: [],
     api_module: BullxTelegram.BotAPI,
     start_transport?: true
@@ -103,6 +105,8 @@ defmodule BullxTelegram.Source do
          attention: attention,
          commands: commands,
          im_listen_mode: im_listen_mode,
+         trusted_realm_by_default:
+           optional_boolean(config, "trusted_realm_by_default", @default_trusted_realm_by_default),
          req_options: req_options,
          api_module: module_or(config, "api_module", BullxTelegram.BotAPI),
          api_base: present_string(Map.get(config, "api_base")),
@@ -113,16 +117,16 @@ defmodule BullxTelegram.Source do
 
   @spec enabled_sources() :: {:ok, [t()]} | {:error, map()}
   def enabled_sources do
-    BullX.EventBus.ChannelAdapter.SourceRegistry.enabled_sources(
-      &BullxTelegram.Config.eventbus_sources!/0,
+    BullX.IMGateway.ChannelAdapter.SourceRegistry.enabled_sources(
+      &BullxTelegram.Config.im_gateway_sources!/0,
       &normalize/1
     )
   end
 
   @spec enabled_sources!() :: [t()]
   def enabled_sources! do
-    BullX.EventBus.ChannelAdapter.SourceRegistry.enabled_sources!(
-      &BullxTelegram.Config.eventbus_sources!/0,
+    BullX.IMGateway.ChannelAdapter.SourceRegistry.enabled_sources!(
+      &BullxTelegram.Config.im_gateway_sources!/0,
       &normalize/1,
       "Telegram"
     )
@@ -131,7 +135,7 @@ defmodule BullxTelegram.Source do
   @spec fetch_enabled_source(String.t()) :: {:ok, t()} | {:error, :not_found | map()}
   def fetch_enabled_source(source_id) when is_binary(source_id) do
     with {:ok, sources} <- enabled_sources() do
-      BullX.EventBus.ChannelAdapter.SourceRegistry.fetch_enabled_source(sources, source_id)
+      BullX.IMGateway.ChannelAdapter.SourceRegistry.fetch_enabled_source(sources, source_id)
     end
   end
 
@@ -147,6 +151,7 @@ defmodule BullxTelegram.Source do
       "attention" => source.attention,
       "commands" => source.commands,
       "im_listen_mode" => Atom.to_string(source.im_listen_mode),
+      "trusted_realm_by_default" => source.trusted_realm_by_default,
       "start_transport" => source.start_transport?
     }
     |> reject_nil_values()

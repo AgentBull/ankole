@@ -10,15 +10,16 @@ defmodule BullX.Principals do
   ("which tools is the assistant allowed to call"). Multi-user support is a
   separately requested feature, typically bolted on with web-layer RBAC.
 
-  BullX is multi-tenant in its primitives. A **Principal** is the stable,
-  durable identity of any subject that can act, be acted upon, or hold
-  authority: humans, AI Agents, and (in future) other automated subjects all
-  share the same row shape. Every Conversation, Message, tool invocation,
-  Budget charge, ApprovalRequest, and routing decision references one or
-  more Principals — so the answer to "who did this?" and "who is authorized
-  to do that?" is a database fact, not a runtime convention.
+  BullX has one Installation-level operating domain. Inside that domain, a
+  **Principal** is the stable, durable identity of any subject that can act,
+  be acted upon, or hold authority: humans, AI Agents, and (in future) other
+  automated subjects all share the same row shape. Every Conversation,
+  Message, tool invocation, Budget charge, ApprovalRequest, and routing
+  decision references one or more Principals — so the answer to "who did
+  this?" and "who is authorized to do that?" is a database fact, not a
+  runtime convention.
 
-  Concretely, an `AIAgent` Target is itself a Principal (with an Agent
+  Concretely, an `AIAgent` Receiver is itself a Principal (with an Agent
   extension row carrying its profile, soul, mission, toolsets, etc.), and so
   is every human reachable via a channel adapter or a login flow. This means
   ACL checks, audit trails, and human-in-the-loop approvals operate on a
@@ -43,9 +44,10 @@ defmodule BullX.Principals do
   defdelegate list_active_agents(), to: AuthN
   defdelegate resolve_channel_actor(adapter, channel_id, external_id), to: AuthN
   defdelegate match_or_create_human_from_channel(input), to: AuthN
+  defdelegate ensure_human_from_channel_actor(input), to: AuthN
+  defdelegate channel_identity_verified?(identity), to: AuthN
   defdelegate match_or_create_human_from_login_subject(input), to: AuthN
-  defdelegate create_activation_code(created_by_principal, metadata \\ %{}), to: AuthN
-  defdelegate consume_activation_code(plaintext_code, input), to: AuthN
+  defdelegate root_init_with_bootstrap_code(plaintext_code, input), to: AuthN
   defdelegate create_or_refresh_bootstrap_activation_code(), to: AuthN
   defdelegate bootstrap_activation_code_pending?(), to: AuthN
   defdelegate verify_bootstrap_activation_code(plaintext), to: AuthN

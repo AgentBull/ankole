@@ -45,9 +45,11 @@ defmodule BullX.AIAgent.Runner do
   }
 
   alias BullX.AIAgent.Tools.Dispatcher
-  alias BullX.EventBus.{ChannelAdapter, TargetSessionEntry}
+  alias BullX.IMGateway
+  alias BullX.IMGateway.ChannelAdapter
   alias BullX.LLM
   alias BullX.LLM.Catalog
+  alias BullX.MailBox.Entry, as: MailboxEntry
   alias BullX.Repo
 
   @max_auto_compression_attempts 3
@@ -316,6 +318,7 @@ defmodule BullX.AIAgent.Runner do
          tool_calls <- normalize_tool_calls(result.tool_calls) do
       case tool_calls do
         [] ->
+          maybe_append_final_visible_stream_text(result, context)
           finish_visible_stream(context, :completed, "completed")
           assistant_message = finalize_visible_stream_delivery(assistant_message, context)
           maybe_deliver(assistant_message, context)
@@ -552,9 +555,9 @@ defmodule BullX.AIAgent.Runner do
   defp create_visible_stream(context) do
     output = context.output
 
-    case output.create_stream(context.target_session_id, context.target_session_entry_id) do
+    case output.create_stream(context.mailbox_session_id, context.mailbox_entry_id) do
       {:ok, stream_id} ->
-        case start_stream_consumer(context.reply_channel, stream_id) do
+        case start_stream_consumer(context.reply_address, stream_id, context) do
           :ok ->
             {:ok,
              Map.put(context, :visible_stream, %{
@@ -584,18 +587,18 @@ defmodule BullX.AIAgent.Runner do
     end
   end
 
-  defp stream_requested?(%{reply_channel: %{} = reply_channel} = context) do
-    is_binary(Map.get(context, :target_session_id)) and
+  defp stream_requested?(%{reply_address: %{} = reply_address} = context) do
+    is_binary(Map.get(context, :mailbox_session_id)) and
       is_atom(Map.get(context, :output)) and
-      stream_requested_by_reply_channel?(reply_channel)
+      stream_requested_by_reply_address?(reply_address)
   end
 
   defp stream_requested?(_context), do: false
 
-  defp stream_requested_by_reply_channel?(reply_channel) do
-    Map.get(reply_channel, "stream") == true or Map.get(reply_channel, :stream) == true or
-      Map.get(reply_channel, "delivery_mode") == "stream" or
-      Map.get(reply_channel, :delivery_mode) == "stream"
+  defp stream_requested_by_reply_address?(reply_address) do
+    Map.get(reply_address, "stream") == true or Map.get(reply_address, :stream) == true or
+      Map.get(reply_address, "delivery_mode") == "stream" or
+      Map.get(reply_address, :delivery_mode) == "stream"
   end
 
   defp persist_assistant_result(conversation, trigger_message, result, context)
@@ -603,17 +606,19 @@ defmodule BullX.AIAgent.Runner do
     persist_assistant(conversation, trigger_message, result, context)
   end
 
-  defp start_stream_consumer(reply_channel, stream_id) do
+  defp start_stream_consumer(reply_address, stream_id, context) do
     parent = self()
 
     opts = [
+      persist_outbound?: true,
+      actor_principal_id: Map.get(context, :agent_principal_id),
       delivery_update_fun: fn result ->
         send(parent, {:ai_agent_stream_delivery_result, stream_id, result})
         :ok
       end
     ]
 
-    case Task.start(fn -> ChannelAdapter.consume_stream(reply_channel, stream_id, opts) end) do
+    case Task.start(fn -> ChannelAdapter.consume_stream(reply_address, stream_id, opts) end) do
       {:ok, _pid} -> :ok
       {:error, reason} -> {:error, reason}
     end
@@ -641,7 +646,7 @@ defmodule BullX.AIAgent.Runner do
 
   defp maybe_cancel_for_pending_stop(conversation_id, context) do
     case pending_authorized_stop_entry(context) do
-      %TargetSessionEntry{} = entry ->
+      %MailboxEntry{} = entry ->
         now = DateTime.utc_now(:microsecond)
 
         case Conversations.cancel_generation_lease(
@@ -664,12 +669,12 @@ defmodule BullX.AIAgent.Runner do
   end
 
   defp pending_authorized_stop_entry(context) do
-    with target_session_id when is_binary(target_session_id) <-
-           Map.get(context, :target_session_id),
+    with mailbox_session_id when is_binary(mailbox_session_id) <-
+           Map.get(context, :mailbox_session_id),
          current_entry_id when is_binary(current_entry_id) <-
-           Map.get(context, :target_session_entry_id),
-         %TargetSessionEntry{} = current_entry <- Repo.get(TargetSessionEntry, current_entry_id) do
-      target_session_id
+           Map.get(context, :mailbox_entry_id),
+         %MailboxEntry{} = current_entry <- Repo.get(MailboxEntry, current_entry_id) do
+      mailbox_session_id
       |> pending_entries_after(current_entry.entry_seq)
       |> Enum.find(&authorized_stop_entry?(&1, context))
     else
@@ -677,17 +682,17 @@ defmodule BullX.AIAgent.Runner do
     end
   end
 
-  defp pending_entries_after(target_session_id, current_entry_seq) do
-    TargetSessionEntry
-    |> where([e], e.target_session_id == ^target_session_id)
+  defp pending_entries_after(mailbox_session_id, current_entry_seq) do
+    MailboxEntry
+    |> where([e], e.mailbox_session_id == ^mailbox_session_id)
     |> where([e], e.entry_seq > ^current_entry_seq)
     |> order_by([e], asc: e.entry_seq)
     |> limit(10)
     |> Repo.all()
   end
 
-  defp authorized_stop_entry?(%TargetSessionEntry{} = entry, context) do
-    case {stop_command_entry?(entry), Event.trigger_principal_id(entry.routing_context)} do
+  defp authorized_stop_entry?(%MailboxEntry{} = entry, context) do
+    case {stop_command_entry?(entry), entry_trigger_principal_id(entry)} do
       {true, caller_principal_id} when is_binary(caller_principal_id) ->
         ACL.authorize(
           caller_principal_id,
@@ -702,7 +707,7 @@ defmodule BullX.AIAgent.Runner do
   end
 
   defp stop_command_entry?(
-         %TargetSessionEntry{cloud_event: %{"type" => "bullx.command.invoked"}} =
+         %MailboxEntry{cloud_event: %{"type" => "bullx.command.invoked"}} =
            entry
        ) do
     entry.cloud_event
@@ -712,7 +717,27 @@ defmodule BullX.AIAgent.Runner do
   end
 
   defp stop_command_entry?(
-         %TargetSessionEntry{cloud_event: %{"type" => "bullx.im.message.addressed"}} = entry
+         %MailboxEntry{cloud_event: %{"type" => "bullx.im.message.received"}} = entry
+       ) do
+    data = Event.data(entry.cloud_event)
+
+    case Commands.command_event_name(data) do
+      "stop" ->
+        true
+
+      _name ->
+        data
+        |> Event.text_content()
+        |> Commands.detect_text()
+        |> case do
+          {:command, "stop", _args} -> true
+          _other -> false
+        end
+    end
+  end
+
+  defp stop_command_entry?(
+         %MailboxEntry{cloud_event: %{"type" => "bullx.im.message.addressed"}} = entry
        ) do
     entry.cloud_event
     |> Event.data()
@@ -726,10 +751,16 @@ defmodule BullX.AIAgent.Runner do
 
   defp stop_command_entry?(_entry), do: false
 
+  defp entry_trigger_principal_id(%MailboxEntry{} = entry) do
+    entry.cloud_event
+    |> BullX.MailBox.RoutingContext.project()
+    |> Event.trigger_principal_id()
+  end
+
   defp pending_command_acl_context(entry) do
     %{
       input_mode: "command",
-      trigger_type: "target_session_entry",
+      trigger_type: "mailbox_entry",
       trigger_id: entry.id,
       channel_kind: get_in(entry.cloud_event, ["data", "channel", "kind"])
     }
@@ -739,6 +770,26 @@ defmodule BullX.AIAgent.Runner do
     case output.finish_stream(stream_id, status, reason) do
       :ok -> :ok
       {:error, _reason} -> :ok
+    end
+  end
+
+  defp maybe_append_final_visible_stream_text(result, context) do
+    with %{stream_id: stream_id} <- Map.get(context, :visible_stream),
+         text when is_binary(text) <- Map.get(result, :text),
+         text <- String.trim(text),
+         true <- text != "",
+         true <- visible_stream_empty?(context.output, stream_id),
+         {:ok, _offset} <- context.output.append_chunk(stream_id, text) do
+      :ok
+    else
+      _other -> :ok
+    end
+  end
+
+  defp visible_stream_empty?(output, stream_id) do
+    case output.resume_stream(stream_id, nil) do
+      {:ok, %{chunks: []}} -> true
+      _other -> false
     end
   end
 
@@ -805,18 +856,18 @@ defmodule BullX.AIAgent.Runner do
   end
 
   defp stream_delivery_metadata(stream_id, context, assistant_message_id \\ nil) do
-    reply_channel = context.reply_channel
+    reply_address = context.reply_address
 
     %{
       "mode" => "stream",
       "stream_id" => stream_id,
-      "adapter" => Map.get(reply_channel, "adapter") || Map.get(reply_channel, :adapter),
-      "reply_channel_identity" => reply_channel_identity(reply_channel),
+      "adapter" => Map.get(reply_address, "adapter") || Map.get(reply_address, :adapter),
+      "reply_address_identity" => reply_address_identity(reply_address),
       "idempotency_key" =>
         Tools.idempotency_key(%{
           assistant_message_id: assistant_message_id || stream_id,
           trigger_id: context.trigger_id,
-          reply_channel: reply_channel_identity(reply_channel)
+          reply_address: reply_address_identity(reply_address)
         }),
       "status" => "unknown",
       "adapter_result_ref" => nil,
@@ -1032,7 +1083,7 @@ defmodule BullX.AIAgent.Runner do
 
   defp tool_runtime_seed(context) do
     %{}
-    |> put_present(:reply_channel, Map.get(context, :reply_channel))
+    |> put_present(:reply_address, Map.get(context, :reply_address))
     |> put_present(:clarify_mode, Map.get(context, :clarify_mode))
     |> put_present(:web_req_options, Map.get(context, :web_req_options))
     |> put_present(:plugin_registry, Map.get(context, :plugin_registry))
@@ -1097,8 +1148,8 @@ defmodule BullX.AIAgent.Runner do
       kind: :normal,
       status: :complete,
       content: assistant_content(result),
-      target_session_id: Map.get(context, :target_session_id),
-      target_session_entry_id: Map.get(context, :target_session_entry_id),
+      mailbox_session_id: Map.get(context, :mailbox_session_id),
+      mailbox_entry_id: Map.get(context, :mailbox_entry_id),
       metadata:
         trigger_message
         |> generation_metadata(context, result_metadata(result))
@@ -1188,8 +1239,8 @@ defmodule BullX.AIAgent.Runner do
       kind: :normal,
       status: :complete,
       content: result_blocks,
-      target_session_id: Map.get(context, :target_session_id),
-      target_session_entry_id: Map.get(context, :target_session_entry_id),
+      mailbox_session_id: Map.get(context, :mailbox_session_id),
+      mailbox_entry_id: Map.get(context, :mailbox_entry_id),
       metadata:
         generation_metadata(trigger_message, context, %{
           "root_assistant_message_id" => assistant_message.id
@@ -1211,8 +1262,8 @@ defmodule BullX.AIAgent.Runner do
       kind: :error,
       status: :complete,
       content: [Message.error_block(code, message, false)],
-      target_session_id: Map.get(context, :target_session_id),
-      target_session_entry_id: Map.get(context, :target_session_entry_id),
+      mailbox_session_id: Map.get(context, :mailbox_session_id),
+      mailbox_entry_id: Map.get(context, :mailbox_entry_id),
       metadata: generation_metadata(trigger_message, context, error_metadata)
     }
 
@@ -1400,17 +1451,17 @@ defmodule BullX.AIAgent.Runner do
       streamed_delivery?(assistant_message) ->
         :ok
 
-      not is_map(Map.get(context, :reply_channel)) ->
+      not is_map(Map.get(context, :reply_address)) ->
         update_delivery_metadata(assistant_message, %{
           "mode" => "outbound",
           "status" => "failed",
-          "safe_error_code" => "missing_reply_channel",
+          "safe_error_code" => "missing_reply_address",
           "delivered_at" => nil
         })
 
       true ->
-        reply_channel = context.reply_channel
-        idempotency_key = delivery_idempotency_key(assistant_message, context, reply_channel)
+        reply_address = context.reply_address
+        idempotency_key = delivery_idempotency_key(assistant_message, context, reply_address)
 
         outbound = %{
           "id" => idempotency_key,
@@ -1420,12 +1471,12 @@ defmodule BullX.AIAgent.Runner do
 
         delivery_base = %{
           "mode" => "outbound",
-          "adapter" => Map.get(reply_channel, "adapter") || Map.get(reply_channel, :adapter),
-          "reply_channel_identity" => reply_channel_identity(reply_channel),
+          "adapter" => Map.get(reply_address, "adapter") || Map.get(reply_address, :adapter),
+          "reply_address_identity" => reply_address_identity(reply_address),
           "idempotency_key" => idempotency_key
         }
 
-        case ChannelAdapter.deliver(reply_channel, outbound) do
+        case deliver_im_outbound(reply_address, outbound, context) do
           {:ok, result} ->
             update_delivery_metadata(
               assistant_message,
@@ -1483,20 +1534,20 @@ defmodule BullX.AIAgent.Runner do
   defp clarify_control_result(_content), do: nil
 
   defp deliver_clarify_request(%Message{} = tool_message, result, context) do
-    case Map.get(context, :reply_channel) do
-      %{} = reply_channel ->
-        idempotency_key = clarify_delivery_idempotency_key(tool_message, result, reply_channel)
-        outbound = clarify_outbound(reply_channel, result, idempotency_key)
+    case Map.get(context, :reply_address) do
+      %{} = reply_address ->
+        idempotency_key = clarify_delivery_idempotency_key(tool_message, result, reply_address)
+        outbound = clarify_outbound(reply_address, result, idempotency_key)
 
         delivery_base = %{
           "mode" => "clarify",
-          "adapter" => Map.get(reply_channel, "adapter") || Map.get(reply_channel, :adapter),
-          "reply_channel_identity" => reply_channel_identity(reply_channel),
+          "adapter" => Map.get(reply_address, "adapter") || Map.get(reply_address, :adapter),
+          "reply_address_identity" => reply_address_identity(reply_address),
           "idempotency_key" => idempotency_key,
           "correlation_id" => result["correlation_id"]
         }
 
-        case ChannelAdapter.deliver(reply_channel, outbound) do
+        case deliver_im_outbound(reply_address, outbound, context) do
           {:ok, delivery_result} ->
             update_delivery_metadata(
               tool_message,
@@ -1538,16 +1589,33 @@ defmodule BullX.AIAgent.Runner do
     })
   end
 
-  defp clarify_outbound(reply_channel, result, idempotency_key) do
+  defp clarify_outbound(reply_address, result, idempotency_key) do
     %{
       "id" => idempotency_key,
       "op" => "send",
-      "content" => [clarify_content_block(reply_channel, result)]
+      "content" => [clarify_content_block(reply_address, result)]
     }
   end
 
-  defp clarify_content_block(reply_channel, result) do
-    case feishu_reply_channel?(reply_channel) do
+  defp deliver_im_outbound(reply_address, outbound, context) do
+    attrs = %{
+      "reply_address" => reply_address,
+      "provider_occurrence_id" => outbound["id"],
+      "op" => outbound["op"] || "send",
+      "content" => outbound["content"] || [],
+      "actor_kind" => "agent",
+      "actor_principal_id" => Map.get(context, :agent_principal_id)
+    }
+
+    case IMGateway.send_message(attrs) do
+      {:ok, %{delivery: delivery}} -> {:ok, delivery}
+      {:error, %{reason: reason}} -> {:error, reason}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp clarify_content_block(reply_address, result) do
+    case feishu_reply_address?(reply_address) do
       true ->
         %{
           "kind" => "card",
@@ -1562,8 +1630,8 @@ defmodule BullX.AIAgent.Runner do
     end
   end
 
-  defp feishu_reply_channel?(reply_channel) do
-    (Map.get(reply_channel, "adapter") || Map.get(reply_channel, :adapter)) in ["feishu", :feishu]
+  defp feishu_reply_address?(reply_address) do
+    (Map.get(reply_address, "adapter") || Map.get(reply_address, :adapter)) in ["feishu", :feishu]
   end
 
   defp clarify_feishu_card(result) do
@@ -1646,11 +1714,11 @@ defmodule BullX.AIAgent.Runner do
     end
   end
 
-  defp clarify_delivery_idempotency_key(%Message{} = tool_message, result, reply_channel) do
+  defp clarify_delivery_idempotency_key(%Message{} = tool_message, result, reply_address) do
     Tools.idempotency_key(%{
       tool_message_id: tool_message.id,
       correlation_id: result["correlation_id"],
-      reply_channel: reply_channel_identity(reply_channel)
+      reply_address: reply_address_identity(reply_address)
     })
   end
 
@@ -1692,16 +1760,16 @@ defmodule BullX.AIAgent.Runner do
     end
   end
 
-  defp delivery_idempotency_key(assistant_message, context, reply_channel) do
+  defp delivery_idempotency_key(assistant_message, context, reply_address) do
     Tools.idempotency_key(%{
       assistant_message_id: assistant_message.id,
       trigger_id: context.trigger_id,
-      reply_channel: reply_channel_identity(reply_channel)
+      reply_address: reply_address_identity(reply_address)
     })
   end
 
-  defp reply_channel_identity(reply_channel) do
-    reply_channel
+  defp reply_address_identity(reply_address) do
+    reply_address
     |> Map.take(["adapter", "channel_id", "thread_id", :adapter, :channel_id, :thread_id])
     |> Jason.encode!()
     |> BullX.Ext.generic_hash()

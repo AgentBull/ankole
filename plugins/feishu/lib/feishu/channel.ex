@@ -128,12 +128,12 @@ defmodule Feishu.Channel do
 
   defp accept(provider_input, %Source{} = source) do
     :telemetry.execute(
-      [:bullx, :event_bus, :adapter, :event, :received],
+      [:bullx, :im_gateway, :adapter, :event, :received],
       %{count: 1},
       %{adapter_id: "feishu", source_id: source.id}
     )
 
-    BullX.EventBus.ChannelAdapter.accept_inbound(
+    BullX.IMGateway.ChannelAdapter.accept_inbound(
       "feishu",
       source,
       provider_input

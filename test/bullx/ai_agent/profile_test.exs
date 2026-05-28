@@ -42,7 +42,8 @@ defmodule BullX.AIAgent.ProfileTest do
                  "main_llm" => %{
                    "provider_id" => "",
                    "model" => "gpt-test",
-                   "reasoning_effort" => "magic"
+                   "reasoning_effort" => "magic",
+                   "max_completion_tokens" => 1
                  },
                  "mission" => "",
                  "acl" => %{"elevation_strategy" => "approval"},
@@ -52,6 +53,7 @@ defmodule BullX.AIAgent.ProfileTest do
 
     assert "main_llm.provider_id is required" in errors
     assert "main_llm.reasoning_effort has unsupported value" in errors
+    assert "main_llm.max_completion_tokens must be at least 200" in errors
     assert "mission is required" in errors
     assert "acl.elevation_strategy must be deny" in errors
     assert "context.compression_threshold_ratio must be > 0 and < 1" in errors

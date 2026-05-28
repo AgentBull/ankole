@@ -1,9 +1,9 @@
 defmodule BullxTelegram.Plugin do
   @moduledoc """
-  Registers the trusted Telegram EventBus channel adapter.
+  Registers the trusted Telegram IMGateway channel adapter.
 
   The plugin uses the `BullxTelegram.*` namespace because third-party Telegram
-  libraries commonly own `Telegram.*`. It contributes only the EventBus channel
+  libraries commonly own `Telegram.*`. It contributes only the IMGateway channel
   adapter extension; Telegram browser login is out of scope for this design.
   """
 
@@ -18,7 +18,7 @@ defmodule BullxTelegram.Plugin do
   def extensions do
     [
       %{
-        point: :"bullx.event_bus.channel_adapter",
+        point: :"bullx.im_gateway.channel_adapter",
         id: "telegram",
         module: BullxTelegram.ChannelAdapter,
         opts: %{provider: "telegram", setup_module: BullxTelegram.SourceSetup}

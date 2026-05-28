@@ -1,7 +1,7 @@
 defmodule BullXWeb.SessionControllerTest do
   use BullXWeb.ConnCase, async: false
 
-  @sources_key "bullx.plugins.feishu.eventbus_sources"
+  @sources_key "bullx.plugins.feishu.im_gateway_sources"
 
   setup do
     cache_pid = GenServer.whereis(BullX.Config.Cache)

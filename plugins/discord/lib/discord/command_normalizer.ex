@@ -1,10 +1,10 @@
 defmodule Discord.CommandNormalizer do
   @moduledoc false
 
-  @direct_commands ~w(preauth webauth)
+  @direct_commands ~w(root_init webauth)
 
   @spec parse_text(String.t() | nil) ::
-          {:eventbus, map()} | {:direct, map()} | {:ignore, :unsupported_command} | :not_command
+          {:agent_command, map()} | {:direct, map()} | {:ignore, :unsupported_command} | :not_command
   def parse_text(text) when is_binary(text) do
     with "/" <> rest <- String.trim_leading(text),
          [token | tail] <- String.split(rest, ~r/\s+/, parts: 2) do
@@ -17,7 +17,7 @@ defmodule Discord.CommandNormalizer do
 
   def parse_text(_text), do: :not_command
 
-  @spec parse_interaction(map()) :: {:eventbus, map()} | {:direct, map()} | {:ignore, atom()}
+  @spec parse_interaction(map()) :: {:agent_command, map()} | {:direct, map()} | {:ignore, atom()}
   def parse_interaction(%{} = interaction) do
     with true <- application_command_interaction?(interaction),
          {:ok, data} <- interaction_data(interaction),
@@ -60,7 +60,7 @@ defmodule Discord.CommandNormalizer do
         {:direct, %{name: command_name, args: args, surface: surface}}
 
       {:ok, command_name} ->
-        {:eventbus,
+        {:agent_command,
          %{
            name: command_name,
            args: args,
@@ -74,10 +74,10 @@ defmodule Discord.CommandNormalizer do
     end
   end
 
-  defp canonical("preauth"), do: {:ok, "preauth"}
+  defp canonical("root_init"), do: {:ok, "root_init"}
   defp canonical("webauth"), do: {:ok, "webauth"}
   defp canonical("ask"), do: {:ok, "ask"}
-  defp canonical(name), do: BullX.EventBus.CommandCatalog.canonical_command_name(name)
+  defp canonical(name), do: BullX.AIAgent.CommandCatalog.canonical_command_name(name)
 
   defp interaction_args(%{"options" => options}, "ask") when is_list(options) do
     case prompt_option(options) do

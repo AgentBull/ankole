@@ -5,7 +5,7 @@ defmodule BullX.AIAgent.Commands do
 
   import Ecto.Query
 
-  alias BullX.AIAgent.{ACL, Conversation, Conversations, Message}
+  alias BullX.AIAgent.{ACL, Conversation, Conversations, DeliveryRecall, Message}
   alias BullX.Repo
 
   @catalog %{
@@ -528,47 +528,8 @@ defmodule BullX.AIAgent.Commands do
   end
 
   defp delivery_recall_targets(messages) do
-    messages
-    |> Enum.filter(&assistant_message?/1)
-    |> Enum.flat_map(&message_recall_targets/1)
-    |> Enum.uniq_by(& &1["external_id"])
+    DeliveryRecall.targets_for_messages(messages)
   end
-
-  defp assistant_message?(%Message{role: :assistant}), do: true
-  defp assistant_message?(_message), do: false
-
-  defp message_recall_targets(%Message{id: message_id, metadata: metadata}) do
-    delivery = Map.get(metadata, "delivery") || %{}
-
-    delivery
-    |> adapter_result_ref()
-    |> Map.merge(delivery)
-    |> external_message_ids()
-    |> Enum.map(&%{"message_id" => message_id, "external_id" => &1})
-  end
-
-  defp adapter_result_ref(%{"adapter_result_ref" => ref}) when is_binary(ref) do
-    case Jason.decode(ref) do
-      {:ok, %{} = decoded} -> decoded
-      _error -> %{}
-    end
-  end
-
-  defp adapter_result_ref(%{"adapter_result_ref" => %{} = ref}), do: ref
-  defp adapter_result_ref(_delivery), do: %{}
-
-  defp external_message_ids(metadata) when is_map(metadata) do
-    [
-      map_value(metadata, "primary_external_id"),
-      map_value(metadata, "message_id"),
-      map_value(metadata, "external_id")
-      | List.wrap(map_value(metadata, "external_message_ids"))
-    ]
-    |> Enum.filter(&(is_binary(&1) and &1 != ""))
-    |> Enum.uniq()
-  end
-
-  defp external_message_ids(_metadata), do: []
 
   defp maybe_drop_trigger_message(messages, true), do: messages
   defp maybe_drop_trigger_message([_trigger_message | rest], false), do: rest
@@ -590,6 +551,4 @@ defmodule BullX.AIAgent.Commands do
       "generation_max_runtime_ms" => generation.generation_max_runtime_ms
     }
   end
-
-  defp map_value(%{} = map, key), do: Map.get(map, key) || Map.get(map, String.to_atom(key))
 end

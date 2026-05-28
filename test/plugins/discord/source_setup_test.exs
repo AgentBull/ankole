@@ -5,7 +5,7 @@ defmodule Discord.SourceSetupTest do
   alias BullX.Repo
   alias Discord.SourceSetup
 
-  @sources_key "bullx.plugins.discord.eventbus_sources"
+  @sources_key "bullx.plugins.discord.im_gateway_sources"
 
   setup do
     cache_pid = GenServer.whereis(BullX.Config.Cache)

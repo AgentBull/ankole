@@ -37,7 +37,7 @@ defmodule BullX.AIAgent.Conversations do
   write past its lease.
 
   Mutations that can affect the active branch lock the Conversation row. This
-  keeps TargetSession redelivery, command handling, and generation recovery on
+  keeps MailboxSession redelivery, command handling, and generation recovery on
   one boring persistence path.
   """
 
@@ -175,10 +175,10 @@ defmodule BullX.AIAgent.Conversations do
   end
 
   @spec inbound_message_for_entry(String.t()) :: Message.t() | nil
-  def inbound_message_for_entry(target_session_entry_id)
-      when is_binary(target_session_entry_id) do
+  def inbound_message_for_entry(mailbox_entry_id)
+      when is_binary(mailbox_entry_id) do
     Message
-    |> where([m], m.target_session_entry_id == ^target_session_entry_id)
+    |> where([m], m.mailbox_entry_id == ^mailbox_entry_id)
     |> where([m], m.role in [:user, :im_ambient])
     |> where([m], m.kind == :normal)
     |> Repo.one()
@@ -187,14 +187,14 @@ defmodule BullX.AIAgent.Conversations do
   @spec append_inbound_once(Conversation.t(), String.t(), map(), keyword()) :: append_result()
   def append_inbound_once(
         %Conversation{} = conversation,
-        target_session_entry_id,
+        mailbox_entry_id,
         attrs,
         opts \\ []
       )
-      when is_binary(target_session_entry_id) and is_map(attrs) do
+      when is_binary(mailbox_entry_id) and is_map(attrs) do
     existing =
       Message
-      |> where([m], m.target_session_entry_id == ^target_session_entry_id)
+      |> where([m], m.mailbox_entry_id == ^mailbox_entry_id)
       |> where([m], m.role in [:user, :im_ambient])
       |> where([m], m.kind == :normal)
       |> Repo.one()
@@ -205,7 +205,7 @@ defmodule BullX.AIAgent.Conversations do
 
       nil ->
         attrs
-        |> Map.put(:target_session_entry_id, target_session_entry_id)
+        |> Map.put(:mailbox_entry_id, mailbox_entry_id)
         |> then(&append_message(conversation, &1, opts))
     end
   end
@@ -214,6 +214,15 @@ defmodule BullX.AIAgent.Conversations do
   def update_message(%Message{} = message, attrs) when is_map(attrs) do
     message
     |> Message.changeset(attrs)
+    |> Repo.update()
+  end
+
+  @spec set_current_leaf(Conversation.t(), String.t() | nil) ::
+          {:ok, Conversation.t()} | {:error, Ecto.Changeset.t()}
+  def set_current_leaf(%Conversation{} = conversation, message_id)
+      when is_binary(message_id) or is_nil(message_id) do
+    conversation
+    |> Conversation.changeset(%{current_leaf_message_id: message_id})
     |> Repo.update()
   end
 
@@ -294,9 +303,9 @@ defmodule BullX.AIAgent.Conversations do
   end
 
   @spec summary_for_entry(String.t()) :: Message.t() | nil
-  def summary_for_entry(target_session_entry_id) when is_binary(target_session_entry_id) do
+  def summary_for_entry(mailbox_entry_id) when is_binary(mailbox_entry_id) do
     Message
-    |> where([m], m.target_session_entry_id == ^target_session_entry_id)
+    |> where([m], m.mailbox_entry_id == ^mailbox_entry_id)
     |> where([m], m.role == :assistant and m.kind == :summary and m.status == :complete)
     |> order_by([m], desc: m.inserted_at)
     |> limit(1)

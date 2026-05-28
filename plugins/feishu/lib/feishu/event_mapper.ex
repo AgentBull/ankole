@@ -146,7 +146,7 @@ defmodule Feishu.EventMapper do
       {:ignore, reason} ->
         {:ignore, reason}
 
-      {:ok, %{name: name} = parsed} when name in ["preauth", "webauth"] ->
+      {:ok, %{name: name} = parsed} when name in ["root_init", "webauth"] ->
         {:direct_command,
          Map.merge(parsed, %{
            event_id: env.event_id,
@@ -157,7 +157,7 @@ defmodule Feishu.EventMapper do
            message_id: env.message_id,
            actor: actor,
            account_input: context.account_input,
-           reply_channel: reply_channel(source, env)
+           reply_address: reply_address(source, env)
          })}
 
       {:ok, %{name: name, args: args} = parsed} ->
@@ -329,11 +329,16 @@ defmodule Feishu.EventMapper do
       subject: "feishu:chat:" <> env.chat_id,
       data: %{
         content: blocks,
-        channel: %{adapter: "feishu", id: source.id, kind: channel_kind(env.chat_type)},
+        channel: %{
+          adapter: "feishu",
+          id: source.id,
+          kind: channel_kind(env.chat_type),
+          trusted_realm_by_default: source.trusted_realm_by_default
+        },
         scope: %{id: env.chat_id, thread_id: env.thread_id},
         actor: event_actor(actor),
         refs: refs(env),
-        reply_channel: reply_channel(source, env),
+        reply_address: reply_address(source, env),
         routing_facts: routing_facts(source, env, blocks, extra_facts),
         raw_ref: raw_ref(env)
       }
@@ -349,6 +354,7 @@ defmodule Feishu.EventMapper do
     %{
       external_account_id: actor.id,
       display_name: actor.display,
+      avatar_url: actor.avatar_url,
       principal: nil
     }
   end
@@ -377,6 +383,7 @@ defmodule Feishu.EventMapper do
       user_id: Map.get(ids, "user_id"),
       union_id: Map.get(ids, "union_id"),
       display: profile["display_name"] || profile["name"] || open_id,
+      avatar_url: profile["avatar_url"],
       bot: false
     }
   end
@@ -384,7 +391,7 @@ defmodule Feishu.EventMapper do
   defp resolve_open_id(ids, %Source{} = source) do
     with :error <- resolve_open_id_by(ids, source, "user_id"),
          :error <- resolve_open_id_by(ids, source, "union_id") do
-      {:error, Feishu.Error.payload(BullX.I18n.t("eventbus.feishu.errors.profile_unavailable"))}
+      {:error, Feishu.Error.payload(BullX.I18n.t("im_gateway.feishu.errors.profile_unavailable"))}
     else
       {:ok, open_id} -> {:ok, open_id}
       {:error, error} -> {:error, error}
@@ -420,7 +427,7 @@ defmodule Feishu.EventMapper do
 
     %{}
     |> maybe_put("display_name", first_string(sender, ["name", "display_name", "sender_name"]))
-    |> maybe_put("avatar_url", first_string(sender, ["avatar_url", "avatar"]))
+    |> maybe_put("avatar_url", avatar_url(sender))
     |> maybe_put("email", normalized_email(first_string(sender, ["email"])))
     |> maybe_put_phone(first_string(sender, ["mobile", "phone"]))
     |> maybe_put("open_id", ids["open_id"])
@@ -439,6 +446,7 @@ defmodule Feishu.EventMapper do
       "adapter" => "feishu",
       "channel_id" => source.id,
       "external_id" => external_id,
+      "trusted_realm_by_default" => source.trusted_realm_by_default,
       "profile" => profile,
       "metadata" =>
         %{
@@ -474,7 +482,7 @@ defmodule Feishu.EventMapper do
     ]
   end
 
-  defp reply_channel(%Source{} = source, env) do
+  defp reply_address(%Source{} = source, env) do
     %{
       adapter: "feishu",
       channel_id: source.id,
@@ -681,6 +689,16 @@ defmodule Feishu.EventMapper do
       end
     end)
   end
+
+  defp avatar_url(sender) do
+    first_string(sender, ["avatar_url", "avatar_thumb", "avatar_middle", "picture"]) ||
+      avatar_map_url(Map.get(sender, "avatar") || Map.get(sender, :avatar))
+  end
+
+  defp avatar_map_url(%{} = avatar),
+    do: first_string(avatar, ["avatar_origin", "avatar_640", "avatar_240", "avatar_72"])
+
+  defp avatar_map_url(_avatar), do: nil
 
   defp normalized_email(nil), do: nil
   defp normalized_email(email), do: email |> String.trim() |> String.downcase()

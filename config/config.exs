@@ -65,20 +65,12 @@ config :bullx, :i18n, locales_dir: "priv/locales"
 
 config :bullx, :installation_timezone, "Etc/UTC"
 
-config :bullx, Oban,
-  repo: BullX.Repo,
-  queues: [target_sessions: 10],
-  plugins: false
-
-config :bullx, :event_bus,
-  target_session_idle_tick_ms: 5_000,
-  target_session_idle_grace_ms: 1_800_000,
-  target_session_runtime_retention_seconds: 3_600,
-  target_session_cleanup_interval_ms: 60_000,
+config :bullx, :mail_box,
+  dispatcher: true,
+  dispatcher_interval_ms: 500,
+  dispatcher_claim_limit: 20,
   stream_retention_seconds: 900,
   max_stream_chunk_bytes: 65_536
-
-config :bullx, :event_bus_targets, ai_agent: BullX.AIAgent
 
 # Import environment specific config. This must remain at the bottom
 # of this file so it overrides the configuration defined above.

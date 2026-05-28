@@ -54,7 +54,7 @@ defmodule BullX.AIAgent.Tools.Clarify do
       metadata_value(metadata, "clarify_mode") in ["no_response", :no_response] ->
         :no_response
 
-      is_map(metadata_value(metadata, "reply_channel")) ->
+      is_map(metadata_value(metadata, "reply_address")) ->
         :requested
 
       true ->

@@ -4,7 +4,7 @@ defmodule Feishu.EventMapperTest do
   alias Feishu.{EventMapper, Source}
   alias FeishuOpenAPI.{CardAction, Event}
 
-  test "maps a Feishu message into EventBus CloudEvent attrs" do
+  test "maps a Feishu message into IMGateway CloudEvent attrs" do
     source = %Source{
       id: "main",
       app_id: "cli_x",
@@ -30,7 +30,8 @@ defmodule Feishu.EventMapperTest do
         "sender" => %{
           "sender_id" => %{"open_id" => "ou_user"},
           "sender_type" => "user",
-          "name" => "Ada"
+          "name" => "Ada",
+          "avatar" => %{"avatar_240" => "https://example.com/avatar.png"}
         }
       },
       raw: %{"raw" => "not copied"}
@@ -45,18 +46,20 @@ defmodule Feishu.EventMapperTest do
     assert get_in(attrs.data, [:channel, :kind]) == "dm"
     assert get_in(attrs.data, [:actor, :external_account_id]) == "feishu:ou_user"
     assert get_in(attrs.data, [:actor, :display_name]) == "Ada"
+    assert get_in(attrs.data, [:actor, :avatar_url]) == "https://example.com/avatar.png"
     assert get_in(attrs.data, [:actor, :principal]) == nil
     assert get_in(attrs.data, [:routing_facts, "im_listen_mode"]) == "addressed_only"
     assert get_in(attrs.data, [:routing_facts, "attention_reason"]) == "dm"
-    assert get_in(attrs.data, [:reply_channel, :delivery_mode]) == "stream"
+    assert get_in(attrs.data, [:reply_address, :delivery_mode]) == "stream"
     refute inspect(attrs.data.raw_ref) =~ "not copied"
 
-    assert {:ok, cloud_event} = BullX.EventBus.ChannelAdapter.build_cloud_event(attrs)
-    assert get_in(cloud_event, ["data", "reply_channel", "delivery_mode"]) == "stream"
+    assert {:ok, cloud_event} = BullX.IMGateway.ChannelAdapter.build_cloud_event(attrs)
+    assert get_in(cloud_event, ["data", "reply_address", "delivery_mode"]) == "stream"
 
     assert account_input["adapter"] == "feishu"
     assert account_input["channel_id"] == "main"
     assert account_input["external_id"] == "feishu:ou_user"
+    assert get_in(account_input, ["profile", "avatar_url"]) == "https://example.com/avatar.png"
   end
 
   test "status is normalized as a command event instead of adapter-local direct command" do
@@ -82,10 +85,10 @@ defmodule Feishu.EventMapperTest do
 
     assert attrs.type == "bullx.command.invoked"
     assert get_in(attrs.data, [:routing_facts, "command_name"]) == "status"
-    assert get_in(attrs.data, [:reply_channel, :scope_id]) == "oc_chat"
-    assert get_in(attrs.data, [:reply_channel, :scope_kind]) == "dm"
-    assert get_in(attrs.data, [:reply_channel, :chat_type]) == "p2p"
-    assert get_in(attrs.data, [:reply_channel, :delivery_mode]) == "stream"
+    assert get_in(attrs.data, [:reply_address, :scope_id]) == "oc_chat"
+    assert get_in(attrs.data, [:reply_address, :scope_kind]) == "dm"
+    assert get_in(attrs.data, [:reply_address, :chat_type]) == "p2p"
+    assert get_in(attrs.data, [:reply_address, :delivery_mode]) == "stream"
   end
 
   test "localized status alias is normalized to the canonical command name" do
@@ -140,11 +143,11 @@ defmodule Feishu.EventMapperTest do
     assert get_in(attrs.data, [:routing_facts, "command_name"]) == "new"
   end
 
-  test "preauth remains an adapter-local direct command" do
+  test "root_init remains an adapter-local direct command" do
     source = %Source{id: "main", app_id: "cli_x", app_secret: "secret_x"}
 
     event = %Event{
-      id: "evt_preauth",
+      id: "evt_root_init",
       type: "im.message.receive_v1",
       content: %{
         "message" => %{
@@ -152,14 +155,14 @@ defmodule Feishu.EventMapperTest do
           "chat_type" => "p2p",
           "message_id" => "om_msg",
           "message_type" => "text",
-          "content" => Jason.encode!(%{text: "/preauth CODE"})
+          "content" => Jason.encode!(%{text: "/root_init CODE"})
         },
         "sender" => %{"sender_id" => %{"open_id" => "ou_user"}}
       },
       raw: %{}
     }
 
-    assert {:direct_command, %{name: "preauth", args: "CODE"}} =
+    assert {:direct_command, %{name: "root_init", args: "CODE"}} =
              EventMapper.map(event, source)
   end
 

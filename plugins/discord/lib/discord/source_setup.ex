@@ -1,10 +1,10 @@
 defmodule Discord.SourceSetup do
   @moduledoc false
 
-  alias BullX.EventBus.RoutingContext
+  alias BullX.MailBox.RoutingContext
   alias Discord.Source
 
-  @sources_key "bullx.plugins.discord.eventbus_sources"
+  @sources_key "bullx.plugins.discord.im_gateway_sources"
 
   @spec config_keys() :: %{sources: String.t()}
   def config_keys, do: %{sources: @sources_key}
@@ -19,7 +19,8 @@ defmodule Discord.SourceSetup do
       default_source: %{
         "enabled" => true,
         "oauth2" => %{"enabled" => true, "scopes" => ["identify", "email"]},
-        "im_listen_mode" => "all_messages"
+        "im_listen_mode" => "all_messages",
+        "trusted_realm_by_default" => false
       },
       sections: [
         %{
@@ -59,7 +60,7 @@ defmodule Discord.SourceSetup do
 
   @spec public_projection() :: map()
   def public_projection do
-    configured_sources = Discord.Config.eventbus_sources!()
+    configured_sources = Discord.Config.im_gateway_sources!()
     runtime = runtime_status()
 
     %{
@@ -87,11 +88,12 @@ defmodule Discord.SourceSetup do
             "enabled" => boolean_field(oauth2, "enabled", true),
             "scopes" => list_field(oauth2, "scopes", ["identify", "email"])
           },
-          "im_listen_mode" => string_field(source, "im_listen_mode", "all_messages")
+          "im_listen_mode" => string_field(source, "im_listen_mode", "all_messages"),
+          "trusted_realm_by_default" => boolean_field(source, "trusted_realm_by_default", false)
         }
         |> maybe_put("client_secret", client_secret)
 
-      case Discord.Config.EventBusSources.cast([attrs]) do
+      case Discord.Config.IMGatewaySources.cast([attrs]) do
         {:ok, [normalized]} -> {:ok, normalized}
         :error -> {:error, %{field: "source", message: "invalid Discord source"}}
       end
@@ -101,7 +103,7 @@ defmodule Discord.SourceSetup do
   @spec persist_source(map(), map()) :: :ok | {:error, term()}
   def persist_source(_opts, source) when is_map(source) do
     sources =
-      Discord.Config.eventbus_sources!()
+      Discord.Config.im_gateway_sources!()
       |> upsert_source(source)
 
     BullX.Config.put(@sources_key, Jason.encode!(sources))
@@ -127,7 +129,7 @@ defmodule Discord.SourceSetup do
         "scope" => %{"id" => "setup-scope", "thread_id" => nil},
         "actor" => %{"external_id" => "discord:setup-operator"},
         "refs" => %{},
-        "reply_channel" => %{"adapter" => "discord", "source_id" => id},
+        "reply_address" => %{"adapter" => "discord", "source_id" => id},
         "routing_facts" => %{"chat_type" => "dm"}
       }
     }
@@ -206,7 +208,7 @@ defmodule Discord.SourceSetup do
   end
 
   defp existing_source_secret(source_id, key) do
-    Discord.Config.eventbus_sources!()
+    Discord.Config.im_gateway_sources!()
     |> Enum.find(fn source ->
       (Map.get(source, "id") || Map.get(source, :id)) == source_id
     end)

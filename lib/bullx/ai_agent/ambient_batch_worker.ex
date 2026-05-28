@@ -72,7 +72,7 @@ defmodule BullX.AIAgent.AmbientBatchWorker do
              trigger_id: idempotency_key,
              caller_principal_id: meta["agent_principal_id"],
              agent_principal_id: meta["agent_principal_id"],
-             reply_channel: meta["reply_channel"],
+             reply_address: meta["reply_address"],
              acl_context: %{trigger_type: "ambient_batch"}
            }) do
       AmbientBatch.cleanup(batch_key)
@@ -207,7 +207,7 @@ defmodule BullX.AIAgent.AmbientBatchWorker do
           "trigger_reason_summary" => reason,
           "recognizer" => Map.delete(recognizer, "reason_summary"),
           "batch_time_range" => batch_time_range(items),
-          "reply_channel_hint" => reply_channel_hint(meta["reply_channel"]),
+          "reply_address_hint" => reply_address_hint(meta["reply_address"]),
           "source_items" => Enum.map(items, &Map.take(&1, ["message_id", "text", "sent_at"]))
         },
         "scene" => %{"scene_key" => meta["scene_key"]}
@@ -268,9 +268,9 @@ defmodule BullX.AIAgent.AmbientBatchWorker do
 
   defp parse_item_sent_at(_item), do: nil
 
-  defp reply_channel_hint(%{} = reply_channel) do
+  defp reply_address_hint(%{} = reply_address) do
     identity =
-      reply_channel
+      reply_address
       |> Map.take(["adapter", "channel_id", "thread_id", :adapter, :channel_id, :thread_id])
       |> stringify_keys()
 
@@ -286,7 +286,7 @@ defmodule BullX.AIAgent.AmbientBatchWorker do
     end
   end
 
-  defp reply_channel_hint(_reply_channel), do: nil
+  defp reply_address_hint(_reply_address), do: nil
 
   defp message_text(%BullX.AIAgent.Message{content: content}) do
     content

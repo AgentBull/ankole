@@ -3,7 +3,7 @@ defmodule BullX.Principals.Code do
 
   require Logger
 
-  @activation_code_length 8
+  @bootstrap_activation_code_length 8
   @login_auth_code_length 8
   @alphabet "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
   @alphabet_size byte_size(@alphabet)
@@ -12,8 +12,8 @@ defmodule BullX.Principals.Code do
     raise "BullX.Principals.Code alphabet size must divide 256 for unbiased byte mapping"
   end
 
-  @spec activation_code() :: String.t()
-  def activation_code, do: random_code(@activation_code_length)
+  @spec bootstrap_activation_code() :: String.t()
+  def bootstrap_activation_code, do: random_code(@bootstrap_activation_code_length)
 
   @spec login_auth_code() :: String.t()
   def login_auth_code, do: random_code(@login_auth_code_length)

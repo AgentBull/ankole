@@ -1,7 +1,7 @@
 defmodule BullxTelegram.ContentMapper do
   @moduledoc false
 
-  alias BullX.EventBus.ChannelAdapter.Content
+  alias BullX.IMGateway.ChannelAdapter.Content
 
   @media_fields [
     {"photo", "image"},
@@ -21,7 +21,7 @@ defmodule BullxTelegram.ContentMapper do
       |> add_media_blocks(message)
       |> maybe_add_location(message)
       |> case do
-        [] -> [text_block(BullX.I18n.t("eventbus.telegram.errors.unsupported_message"))]
+        [] -> [text_block(BullX.I18n.t("im_gateway.telegram.errors.unsupported_message"))]
         blocks -> Enum.reverse(blocks)
       end
 
@@ -31,7 +31,7 @@ defmodule BullxTelegram.ContentMapper do
   def from_message(_message),
     do: {:error, BullxTelegram.Error.payload("invalid Telegram message")}
 
-  defdelegate primary_text(blocks), to: BullX.EventBus.ChannelAdapter.Content
+  defdelegate primary_text(blocks), to: BullX.IMGateway.ChannelAdapter.Content
 
   @spec render_outbound(term()) :: {:ok, [String.t()], [String.t()]} | {:error, map()}
   def render_outbound([%{"type" => "text", "text" => text} | _rest])
@@ -174,7 +174,7 @@ defmodule BullxTelegram.ContentMapper do
     text =
       case Content.delivery_text(body) || get_in(body, ["fallback_text"]) do
         value when is_binary(value) and value != "" -> value
-        _value -> BullX.I18n.t("eventbus.telegram.delivery.fallback_text")
+        _value -> BullX.I18n.t("im_gateway.telegram.delivery.fallback_text")
       end
 
     {:ok, [text], ["#{kind}_degraded_to_fallback_text"]}

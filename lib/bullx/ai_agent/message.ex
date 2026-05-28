@@ -4,7 +4,7 @@ defmodule BullX.AIAgent.Message do
 
   Message content is BullX-normalized evidence. It must not contain raw
   CloudEvents, raw provider payloads, credentials, bearer-like reply handles, or
-  TargetSession output stream chunks.
+  MailboxSession output stream chunks.
   """
 
   use Ecto.Schema
@@ -44,8 +44,8 @@ defmodule BullX.AIAgent.Message do
     field :status, Ecto.Enum, values: @statuses
     field :content, BullX.Ecto.JSONB, default: []
     field :covers_range, :map
-    field :target_session_id, :binary_id
-    field :target_session_entry_id, :binary_id
+    field :mailbox_session_id, :binary_id
+    field :mailbox_entry_id, :binary_id
     field :event_source, :string
     field :event_id, :string
     field :metadata, :map, default: %{}
@@ -73,8 +73,8 @@ defmodule BullX.AIAgent.Message do
       :status,
       :content,
       :covers_range,
-      :target_session_id,
-      :target_session_entry_id,
+      :mailbox_session_id,
+      :mailbox_entry_id,
       :event_source,
       :event_id,
       :metadata
@@ -89,7 +89,7 @@ defmodule BullX.AIAgent.Message do
     |> foreign_key_constraint(:parent_id,
       name: :conversation_messages_parent_same_conversation_fkey
     )
-    |> unique_constraint(:target_session_entry_id,
+    |> unique_constraint(:mailbox_entry_id,
       name: :conversation_messages_inbound_entry_unique_index
     )
     |> unique_constraint(:metadata, name: :conversation_messages_ambient_batch_unique_index)
@@ -141,6 +141,7 @@ defmodule BullX.AIAgent.Message do
   end
 
   defp valid_combination?(:user, :normal, :complete), do: true
+  defp valid_combination?(:user, :introspection, :complete), do: true
   defp valid_combination?(:assistant, :normal, status), do: status in [:generating, :complete]
   defp valid_combination?(:assistant, :summary, :complete), do: true
   defp valid_combination?(:assistant, :error, :complete), do: true

@@ -11,8 +11,6 @@ defmodule BullX.Application do
       BullXWeb.Telemetry,
       BullX.Repo,
       BullX.Config.Supervisor,
-      BullX.Principals.Bootstrap,
-      BullX.AuthZ.Bootstrap,
       BullX.I18n.Catalog,
       {Phoenix.PubSub, name: BullX.PubSub},
       BullX.Plugins.Supervisor,

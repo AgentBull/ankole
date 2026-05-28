@@ -3,8 +3,8 @@ defmodule BullX.Principals.AuthNTest do
 
   import Ecto.Changeset
 
+  alias BullX.AuthZ
   alias BullX.Principals
-  alias BullX.Principals.ActivationCode
   alias BullX.Principals.ExternalIdentity
   alias BullX.Principals.Principal
   alias BullX.Principals.PrincipalLoginAuthCode
@@ -38,7 +38,9 @@ defmodule BullX.Principals.AuthNTest do
         email: "alice@example.com"
       })
 
-    input = channel_input("chat", "workplace", "user_alice", %{"email" => "ALICE@example.com"})
+    input =
+      channel_input("chat", "workplace", "user_alice", %{"email" => "ALICE@example.com"})
+      |> Map.put(:trusted_realm_by_default, true)
 
     assert {:ok, ^principal, %ExternalIdentity{} = identity} =
              Principals.match_or_create_human_from_channel(input)
@@ -61,41 +63,52 @@ defmodule BullX.Principals.AuthNTest do
              Principals.resolve_channel_actor("chat", "workplace", "user_disabled")
   end
 
-  test "unmatched channel actors require activation with the default policy" do
-    assert {:error, :activation_required} =
+  test "unmatched channel actors auto-create unverified identities with the default policy" do
+    assert {:ok, %Principal{type: :human}, %ExternalIdentity{} = identity} =
              Principals.match_or_create_human_from_channel(
                channel_input("chat", "workplace", "user_new", %{"email" => "new@example.com"})
              )
+
+    refute Principals.channel_identity_verified?(identity)
+
+    assert {:error, :identity_unverified} =
+             Principals.resolve_channel_actor("chat", "workplace", "user_new")
   end
 
-  test "activation codes create a new Human and first channel binding exactly once" do
-    {:ok, %{code: plaintext, activation_code: activation_code}} =
-      Principals.create_activation_code(nil, %{"purpose" => "test"})
-
-    stored = Repo.get!(ActivationCode, activation_code.id)
-    refute stored.code_hash == plaintext
-
-    input =
-      channel_input("chat", "workplace", "user_activated", %{"email" => "activated@example.com"})
-
+  test "IM message human actors are created before admission" do
     assert {:ok, %Principal{type: :human} = principal, %ExternalIdentity{} = identity} =
-             Principals.consume_activation_code(plaintext, input)
+             Principals.ensure_human_from_channel_actor(
+               channel_input("chat", "workplace", "user_fact", %{"email" => "fact@example.com"})
+             )
 
+    assert identity.kind == :channel_actor
     assert identity.principal_id == principal.id
+    refute Principals.channel_identity_verified?(identity)
 
-    used = Repo.get!(ActivationCode, activation_code.id)
-    assert used.used_by_principal_id == principal.id
-    assert used.used_by_adapter == "chat"
-    assert used.used_by_external_id == "user_activated"
-
-    other_input =
-      channel_input("chat", "workplace", "user_second", %{"email" => "second@example.com"})
-
-    assert {:error, :invalid_or_expired_code} =
-             Principals.consume_activation_code(plaintext, other_input)
+    assert {:error, :identity_unverified} =
+             Principals.resolve_channel_actor("chat", "workplace", "user_fact")
   end
 
-  test "activation does not consume a code when automatic matching binds an existing Human" do
+  test "IM message human actors can reference disabled bound Humans" do
+    {:ok, %{principal: principal}} =
+      Principals.create_human(%{uid: "disabled-fact-human", display_name: "Disabled Fact"})
+
+    insert_channel_identity!(principal, "chat", "workplace", "user_disabled_fact")
+
+    principal
+    |> change(%{status: :disabled})
+    |> Repo.update!()
+
+    assert {:ok, %Principal{status: :disabled} = disabled, %ExternalIdentity{} = identity} =
+             Principals.ensure_human_from_channel_actor(
+               channel_input("chat", "workplace", "user_disabled_fact", %{})
+             )
+
+    assert disabled.id == principal.id
+    assert identity.principal_id == principal.id
+  end
+
+  test "trusted channel actors are verified when created" do
     put_principals_config(
       authn_auto_create_humans: false,
       authn_match_rules: [
@@ -111,16 +124,40 @@ defmodule BullX.Principals.AuthNTest do
     {:ok, %{principal: principal}} =
       Principals.create_human(%{uid: "matched", email: "matched@example.com"})
 
-    {:ok, %{code: plaintext, activation_code: activation_code}} =
-      Principals.create_activation_code(nil, %{"purpose" => "test"})
-
     input =
       channel_input("chat", "workplace", "user_matched", %{"email" => "matched@example.com"})
+      |> Map.put(:trusted_realm_by_default, true)
 
-    assert {:ok, ^principal, %ExternalIdentity{}} =
-             Principals.consume_activation_code(plaintext, input)
+    assert {:ok, ^principal, %ExternalIdentity{} = identity} =
+             Principals.match_or_create_human_from_channel(input)
 
-    refute Repo.get!(ActivationCode, activation_code.id).used_at
+    assert Principals.channel_identity_verified?(identity)
+  end
+
+  test "root init uses a process-local bootstrap code to create the first admin" do
+    assert {:ok, %{code: plaintext, code_hash: code_hash}} =
+             Principals.create_or_refresh_bootstrap_activation_code()
+
+    assert {:ok, ^code_hash} = Principals.verify_bootstrap_activation_code_for_setup(plaintext)
+
+    input =
+      channel_input("chat", "workplace", "user_root", %{
+        "display_name" => "Root User",
+        "email" => "root@example.com"
+      })
+
+    assert {:ok, %Principal{type: :human} = principal, %ExternalIdentity{} = identity} =
+             Principals.root_init_with_bootstrap_code(plaintext, input)
+
+    assert identity.principal_id == principal.id
+    assert Principals.channel_identity_verified?(identity)
+
+    assert {:ok, groups} = AuthZ.list_principal_groups(principal)
+    assert Enum.any?(groups, &(&1.name == "admin" and &1.built_in))
+    assert Enum.any?(groups, &(&1.name == "all_humans" and &1.built_in))
+
+    assert {:error, :root_init_closed} =
+             Principals.root_init_with_bootstrap_code(plaintext, input)
   end
 
   test "login auth codes issue and consume for active Human channel actors" do
@@ -230,6 +267,7 @@ defmodule BullX.Principals.AuthNTest do
       adapter: adapter,
       channel_id: channel_id,
       external_id: external_id,
+      verified_at: DateTime.utc_now(:microsecond),
       metadata: %{}
     })
     |> Repo.insert!()

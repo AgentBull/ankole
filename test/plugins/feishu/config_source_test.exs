@@ -1,12 +1,12 @@
 defmodule Feishu.ConfigSourceTest do
   use ExUnit.Case, async: true
 
-  alias Feishu.Config.EventBusSources
+  alias Feishu.Config.IMGatewaySources
   alias Feishu.Source
 
-  test "eventbus source cast normalizes one channel instance with source-local app secret" do
+  test "im_gateway source cast normalizes one channel instance with source-local app secret" do
     assert {:ok, [source]} =
-             EventBusSources.cast([
+             IMGatewaySources.cast([
                %{
                  id: "main",
                  app_id: "cli_x",

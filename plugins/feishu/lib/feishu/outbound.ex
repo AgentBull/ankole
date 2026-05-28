@@ -5,13 +5,13 @@ defmodule Feishu.Outbound do
 
   @spec deliver(Source.t() | map(), map() | nil, map(), keyword()) ::
           {:ok, map()} | {:error, map()}
-  def deliver(source_config, reply_channel, outbound, opts \\ [])
+  def deliver(source_config, reply_address, outbound, opts \\ [])
       when is_map(outbound) and is_list(opts) do
     with {:ok, source} <- Source.normalize(source_config) do
       delivery =
         outbound
         |> stringify_keys()
-        |> Map.merge(reply_channel_defaults(reply_channel), fn _key,
+        |> Map.merge(reply_address_defaults(reply_address), fn _key,
                                                                outbound_value,
                                                                _reply_value ->
           outbound_value
@@ -43,7 +43,7 @@ defmodule Feishu.Outbound do
 
     try do
       :telemetry.execute(
-        [:bullx, :event_bus, :adapter, :delivery, :start],
+        [:bullx, :im_gateway, :adapter, :delivery, :start],
         %{system_time: System.system_time()},
         meta
       )
@@ -55,7 +55,7 @@ defmodule Feishu.Outbound do
         end
 
       :telemetry.execute(
-        [:bullx, :event_bus, :adapter, :delivery, :stop],
+        [:bullx, :im_gateway, :adapter, :delivery, :stop],
         %{duration: System.monotonic_time() - start_time},
         Map.put(meta, :result, telemetry_result(result))
       )
@@ -64,7 +64,7 @@ defmodule Feishu.Outbound do
     catch
       kind, reason ->
         :telemetry.execute(
-          [:bullx, :event_bus, :adapter, :delivery, :exception],
+          [:bullx, :im_gateway, :adapter, :delivery, :exception],
           %{duration: System.monotonic_time() - start_time},
           Map.merge(meta, %{kind: kind, reason: inspect(reason)})
         )
@@ -264,7 +264,7 @@ defmodule Feishu.Outbound do
         id -> [id]
       end
 
-    BullX.EventBus.ChannelAdapter.Outcome.build(delivery_id(delivery), status, ids, warnings)
+    BullX.IMGateway.ChannelAdapter.Outcome.build(delivery_id(delivery), status, ids, warnings)
   end
 
   defp message_id(%{"data" => data}) when is_map(data) do
@@ -306,10 +306,10 @@ defmodule Feishu.Outbound do
     end
   end
 
-  defp reply_channel_defaults(nil), do: %{}
+  defp reply_address_defaults(nil), do: %{}
 
-  defp reply_channel_defaults(reply_channel) when is_map(reply_channel) do
-    reply_channel
+  defp reply_address_defaults(reply_address) when is_map(reply_address) do
+    reply_address
     |> stringify_keys()
     |> Map.take(["scope_id", "thread_id", "reply_to_external_id", "scope_kind", "chat_type"])
   end

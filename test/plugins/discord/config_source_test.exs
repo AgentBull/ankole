@@ -1,7 +1,7 @@
 defmodule Discord.ConfigSourceTest do
   use ExUnit.Case, async: true
 
-  alias Discord.Config.EventBusSources
+  alias Discord.Config.IMGatewaySources
   alias Discord.Source
 
   defmodule API do
@@ -9,9 +9,9 @@ defmodule Discord.ConfigSourceTest do
     def request(source, :get_application, _params), do: {:ok, %{"id" => source.application_id}}
   end
 
-  test "eventbus source cast normalizes operator config" do
+  test "im_gateway source cast normalizes operator config" do
     assert {:ok, [source]} =
-             EventBusSources.cast([
+             IMGatewaySources.cast([
                %{
                  id: "main",
                  application_id: "app_1",

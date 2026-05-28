@@ -10,6 +10,7 @@ defmodule BullX.LLM.ModelConfig do
 
   @reasoning_efforts [:none, :minimal, :low, :medium, :high, :xhigh]
   @default_context_window 80_000
+  @min_max_completion_tokens 200
 
   @enforce_keys [:provider_id, :model]
   defstruct [
@@ -35,6 +36,9 @@ defmodule BullX.LLM.ModelConfig do
 
   @spec default_context_window() :: pos_integer()
   def default_context_window, do: @default_context_window
+
+  @spec min_max_completion_tokens() :: pos_integer()
+  def min_max_completion_tokens, do: @min_max_completion_tokens
 
   @spec cast(map(), keyword()) :: {:ok, t()} | {:error, error()}
   def cast(attrs, opts \\ [])
@@ -120,7 +124,12 @@ defmodule BullX.LLM.ModelConfig do
   end
 
   defp validate_max_completion_tokens(errors, attrs) do
-    validate_optional_positive_integer(errors, attrs, "max_completion_tokens")
+    validate_optional_min_integer(
+      errors,
+      attrs,
+      "max_completion_tokens",
+      @min_max_completion_tokens
+    )
   end
 
   defp validate_optional_positive_integer(errors, attrs, key) do
@@ -137,6 +146,23 @@ defmodule BullX.LLM.ModelConfig do
     case Integer.parse(String.trim(value)) do
       {integer, ""} when integer > 0 -> errors
       _other -> ["#{key} must be a positive integer" | errors]
+    end
+  end
+
+  defp validate_optional_min_integer(errors, attrs, key, min) do
+    case get_known(attrs, key) do
+      nil -> errors
+      "" -> errors
+      value when is_integer(value) and value >= min -> errors
+      value when is_binary(value) -> validate_min_integer_string(errors, key, value, min)
+      _other -> ["#{key} must be at least #{min}" | errors]
+    end
+  end
+
+  defp validate_min_integer_string(errors, key, value, min) do
+    case Integer.parse(String.trim(value)) do
+      {integer, ""} when integer >= min -> errors
+      _other -> ["#{key} must be at least #{min}" | errors]
     end
   end
 

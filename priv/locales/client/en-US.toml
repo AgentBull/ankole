@@ -158,7 +158,7 @@ route_pending = "Route needs save"
 source_label = "Source"
 source_description = "The first runtime-ready channel source configured during setup."
 source_missing = "Complete the Channel source step before creating a route."
-rule_label = "EventBus rule"
+rule_label = "MailBox rule"
 rule_default_title = "Default channel route"
 rule_pending_name = "Default setup channel rule"
 rule_description = "Matches BullX events from this channel source and hands them to one Target."
@@ -174,7 +174,7 @@ route_match_label = "Match"
 route_target_label = "Target"
 route_effect_label = "Effect"
 match_summary = "BullX events from this channel source"
-route_effect_summary = "Saved into EventBus; runtime matching uses priority-ordered first match."
+route_effect_summary = "Saved into MailBox; runtime matching uses priority-ordered first match."
 advanced_details_label = "Advanced details"
 rule_name_label = "Rule name"
 match_label = "Match"
@@ -197,7 +197,7 @@ body = "{$rule} exists, but the setup source sample reaches another higher-prior
 
 [setup.event_routing.states.no_match]
 title = "Saved rule is not matching yet"
-body = "{$rule} exists, but the current RoutingTable snapshot does not match the setup source sample. Save again to refresh, or check EventBus runtime errors."
+body = "{$rule} exists, but the current RoutingTable snapshot does not match the setup source sample. Save again to refresh, or check MailBox runtime errors."
 
 [setup.event_routing.states.target_mismatch]
 title = "Existing setup rule targets another Agent"

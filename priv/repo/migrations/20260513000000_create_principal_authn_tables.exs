@@ -67,6 +67,7 @@ defmodule BullX.Repo.Migrations.CreatePrincipalAuthnTables do
       add :adapter, :text
       add :channel_id, :text
       add :external_id, :text
+      add :verified_at, :utc_datetime_usec
       add :metadata, :map, null: false, default: %{}
 
       timestamps(type: :utc_datetime_usec)
@@ -112,33 +113,6 @@ defmodule BullX.Repo.Migrations.CreatePrincipalAuthnTables do
     create constraint(
              :principal_external_identities,
              :principal_external_identities_metadata_object,
-             check: "jsonb_typeof(metadata) = 'object'"
-           )
-
-    create table(:activation_codes, primary_key: false) do
-      add :id, :uuid, primary_key: true
-      add :code_hash, :text, null: false
-      add :expires_at, :utc_datetime_usec, null: false
-      add :created_by_principal_id, references(:principals, type: :uuid, on_delete: :nilify_all)
-      add :revoked_at, :utc_datetime_usec
-      add :used_at, :utc_datetime_usec
-      add :used_by_principal_id, references(:principals, type: :uuid, on_delete: :nilify_all)
-      add :used_by_adapter, :text
-      add :used_by_channel_id, :text
-      add :used_by_external_id, :text
-      add :metadata, :map, null: false, default: %{}
-
-      timestamps(type: :utc_datetime_usec)
-    end
-
-    create unique_index(:activation_codes, [:code_hash])
-    create index(:activation_codes, [:expires_at])
-    create index(:activation_codes, [:created_by_principal_id])
-    create index(:activation_codes, [:used_by_principal_id])
-
-    create constraint(
-             :activation_codes,
-             :activation_codes_metadata_object,
              check: "jsonb_typeof(metadata) = 'object'"
            )
 

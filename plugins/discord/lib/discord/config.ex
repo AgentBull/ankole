@@ -1,4 +1,4 @@
-defmodule Discord.Config.EventBusSources do
+defmodule Discord.Config.IMGatewaySources do
   @moduledoc false
 
   use Skogsra.Type
@@ -81,9 +81,9 @@ defmodule Discord.Config do
   use BullX.Config
 
   @envdoc false
-  bullx_env(:eventbus_sources,
-    key: [:plugins, :discord, :eventbus_sources],
-    type: Discord.Config.EventBusSources,
+  bullx_env(:im_gateway_sources,
+    key: [:plugins, :discord, :im_gateway_sources],
+    type: Discord.Config.IMGatewaySources,
     default: [],
     secret: true
   )

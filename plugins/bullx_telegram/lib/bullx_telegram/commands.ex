@@ -2,7 +2,7 @@ defmodule BullxTelegram.Commands do
   @moduledoc false
 
   @commands [
-    %{"command" => "preauth", "description" => "Link this Telegram account to BullX"},
+    %{"command" => "root_init", "description" => "Initialize the first BullX administrator"},
     %{"command" => "webauth", "description" => "Create a BullX web login code"},
     %{"command" => "command", "description" => "List BullX commands"},
     %{"command" => "status", "description" => "Show BullX status"}

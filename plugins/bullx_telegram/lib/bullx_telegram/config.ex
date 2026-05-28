@@ -1,4 +1,4 @@
-defmodule BullxTelegram.Config.EventBusSources do
+defmodule BullxTelegram.Config.IMGatewaySources do
   @moduledoc false
 
   use Skogsra.Type
@@ -74,9 +74,9 @@ defmodule BullxTelegram.Config do
   use BullX.Config
 
   @envdoc false
-  bullx_env(:eventbus_sources,
-    key: [:plugins, :bullx_telegram, :eventbus_sources],
-    type: BullxTelegram.Config.EventBusSources,
+  bullx_env(:im_gateway_sources,
+    key: [:plugins, :bullx_telegram, :im_gateway_sources],
+    type: BullxTelegram.Config.IMGatewaySources,
     default: [],
     secret: true
   )

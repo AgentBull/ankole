@@ -2,13 +2,14 @@
 bcp47 = "en-US"
 
 [gateway.feishu.auth]
-activation_required = "This Feishu account is not activated yet. Send /preauth <code> in this chat to activate."
-activation_success = "Activation complete."
+activation_required = "This account is not verified. Ask an administrator to verify it."
+identity_unverified = "This account is not verified. Ask an administrator to verify it."
+root_init_success = "Root initialization complete."
 activation_code_invalid = "The activation code is invalid or expired."
-activation_failed = "Activation failed. Please try again later."
+root_init_failed = "Root initialization failed. Please try again later."
 already_linked = "This Feishu account is already linked."
 webauth_created = "Use this login code: {$code}\nOpen {$login_url} to continue."
-webauth_not_bound = "This Feishu account is not linked yet. Activate it with /preauth first."
+webauth_not_bound = "This account is not linked or verified yet."
 webauth_failed = "Could not create a login code. Please try again later."
 login_not_bound = "This Feishu account is not linked yet."
 denied = "This Principal is disabled."
@@ -18,6 +19,7 @@ direct_command_dm_only = "Please send this command to the bot in a private chat.
 fallback_text = "Unsupported Feishu content"
 stream_generating = "Generating..."
 stream_thinking = "Thinking..."
+stream_completed_empty = "Completed, but no displayable content was generated."
 stream_failed = "The streamed response failed."
 stream_cancelled = "The streamed response was cancelled."
 reply_target_missing_sent_to_scope = "The reply target was missing, so the message was sent to the chat."
@@ -26,33 +28,35 @@ reply_target_missing_sent_to_scope = "The reply target was missing, so the messa
 unsupported_message = "Unsupported Feishu message"
 profile_unavailable = "Feishu user profile is unavailable"
 
-[eventbus.feishu.auth]
-activation_required = "This Feishu account is not activated yet. Send /preauth <code> in this chat to activate."
-activation_success = "Activation complete."
+[im_gateway.feishu.auth]
+activation_required = "This account is not verified. Ask an administrator to verify it."
+identity_unverified = "This account is not verified. Ask an administrator to verify it."
+root_init_success = "Root initialization complete."
 activation_code_invalid = "The activation code is invalid or expired."
-activation_failed = "Activation failed. Please try again later."
+root_init_failed = "Root initialization failed. Please try again later."
 already_linked = "This Feishu account is already linked."
 webauth_created = "Use this login code: {$code}\nOpen {$login_url} to continue."
-webauth_not_bound = "This Feishu account is not linked yet. Activate it with /preauth first."
+webauth_not_bound = "This account is not linked or verified yet."
 webauth_disabled = "Feishu web login is disabled for this source."
 webauth_failed = "Could not create a login code. Please try again later."
 login_not_bound = "This Feishu account is not linked yet."
 denied = "This Principal is disabled."
 direct_command_dm_only = "Please send this command to the bot in a private chat."
 
-[eventbus.feishu.delivery]
+[im_gateway.feishu.delivery]
 fallback_text = "Unsupported Feishu content"
 stream_generating = "Generating..."
 stream_thinking = "Thinking..."
+stream_completed_empty = "Completed, but no displayable content was generated."
 stream_failed = "The streamed response failed."
 stream_cancelled = "The streamed response was cancelled."
 reply_target_missing_sent_to_scope = "The reply target was missing, so the message was sent to the chat."
 
-[eventbus.feishu.errors]
+[im_gateway.feishu.errors]
 unsupported_message = "Unsupported Feishu message"
 profile_unavailable = "Feishu user profile is unavailable"
 
-[eventbus.commands.aliases]
+[ai_agent.commands.aliases]
 command = "command"
 status = "status"
 new = "new"
@@ -62,10 +66,10 @@ steer = "steer"
 stop = "stop"
 undo = "undo"
 
-[eventbus.commands.list]
+[ai_agent.commands.list]
 header = "Available commands:"
 
-[eventbus.commands.descriptions]
+[ai_agent.commands.descriptions]
 command = "list available commands"
 status = "show BullX runtime status, environment, and version"
 new = "start a new conversation session"
@@ -80,13 +84,14 @@ text = "There is no active generation."
 short_text = "Idle"
 
 [gateway.telegram.auth]
-activation_required = "This Telegram account is not activated yet. Send /preauth <code> to me in a private chat to activate."
-activation_success = "Activation complete."
+activation_required = "This account is not verified. Ask an administrator to verify it."
+identity_unverified = "This account is not verified. Ask an administrator to verify it."
+root_init_success = "Root initialization complete."
 activation_code_invalid = "The activation code is invalid or expired."
-activation_failed = "Activation failed. Please try again later."
+root_init_failed = "Root initialization failed. Please try again later."
 already_linked = "This Telegram account is already linked."
 webauth_created = "Use this login code: {$code}\nOpen {$login_url} to continue."
-webauth_not_bound = "This Telegram account is not linked yet. Activate it with /preauth first."
+webauth_not_bound = "This account is not linked or verified yet."
 webauth_failed = "Could not create a login code. Please try again later."
 webauth_disabled = "Web login is disabled for this Telegram source."
 login_not_bound = "This Telegram account is not linked yet."
@@ -111,17 +116,18 @@ unsupported_message = "Unsupported Telegram message"
 profile_unavailable = "Telegram user profile is unavailable"
 
 [gateway.telegram.commands]
-preauth = "Activate with /preauth <code>"
+root_init = "Initialize the first administrator: /root_init <code>"
 webauth = "Issue a one-time web login code"
 
 [gateway.discord.auth]
-activation_required = "This Discord account is not activated yet. DM the bot and send /preauth <code> to activate."
-activation_success = "Activation complete."
+activation_required = "This account is not verified. Ask an administrator to verify it."
+identity_unverified = "This account is not verified. Ask an administrator to verify it."
+root_init_success = "Root initialization complete."
 activation_code_invalid = "The activation code is invalid or expired."
-activation_failed = "Activation failed. Please try again later."
+root_init_failed = "Root initialization failed. Please try again later."
 already_linked = "This Discord account is already linked."
 webauth_created = "Use this login code: {$code}\nOpen {$login_url} to continue."
-webauth_not_bound = "This Discord account is not linked yet. Activate it with /preauth first."
+webauth_not_bound = "This account is not linked or verified yet."
 webauth_failed = "Could not create a login code. Please try again later."
 webauth_disabled = "Web login is disabled for this Discord source."
 login_not_bound = "This Discord account is not linked yet."
@@ -150,21 +156,22 @@ unsupported_message = "Unsupported Discord message"
 profile_unavailable = "Discord user profile is unavailable"
 thread_create_failed = "Could not create a Discord thread for this request."
 
-[eventbus.telegram.auth]
-activation_required = "This Telegram account is not activated yet. Send /preauth <code> to me in a private chat to activate."
-activation_success = "Activation complete."
+[im_gateway.telegram.auth]
+activation_required = "This account is not verified. Ask an administrator to verify it."
+identity_unverified = "This account is not verified. Ask an administrator to verify it."
+root_init_success = "Root initialization complete."
 activation_code_invalid = "The activation code is invalid or expired."
-activation_failed = "Activation failed. Please try again later."
+root_init_failed = "Root initialization failed. Please try again later."
 already_linked = "This Telegram account is already linked."
 webauth_created = "Use this login code: {$code}\nOpen {$login_url} to continue."
-webauth_not_bound = "This Telegram account is not linked yet. Activate it with /preauth first."
+webauth_not_bound = "This account is not linked or verified yet."
 webauth_failed = "Could not create a login code. Please try again later."
 webauth_disabled = "Web login is disabled for this Telegram source."
 login_not_bound = "This Telegram account is not linked yet."
 denied = "This Principal is disabled."
 direct_command_dm_only = "Please send this command to the bot in a private chat."
 
-[eventbus.telegram.delivery]
+[im_gateway.telegram.delivery]
 fallback_text = "Unsupported Telegram content"
 stream_generating = "Generating..."
 stream_failed = "The streamed response failed."
@@ -172,34 +179,35 @@ stream_cancelled = "The streamed response was cancelled."
 reply_target_missing_sent_to_scope = "The reply target was missing, so the message was sent to the chat."
 message_unchanged = "The message was already up to date."
 
-[eventbus.telegram.media]
+[im_gateway.telegram.media]
 image = "[image]"
 audio = "[audio]"
 video = "[video]"
 file = "[file]"
 
-[eventbus.telegram.errors]
+[im_gateway.telegram.errors]
 unsupported_message = "Unsupported Telegram message"
 profile_unavailable = "Telegram user profile is unavailable"
 
-[eventbus.discord.auth]
-activation_required = "This Discord account is not activated yet. DM the bot and send /preauth <code> to activate."
-activation_success = "Activation complete."
+[im_gateway.discord.auth]
+activation_required = "This account is not verified. Ask an administrator to verify it."
+identity_unverified = "This account is not verified. Ask an administrator to verify it."
+root_init_success = "Root initialization complete."
 activation_code_invalid = "The activation code is invalid or expired."
-activation_failed = "Activation failed. Please try again later."
+root_init_failed = "Root initialization failed. Please try again later."
 already_linked = "This Discord account is already linked."
 webauth_created = "Use this login code: {$code}\nOpen {$login_url} to continue."
-webauth_not_bound = "This Discord account is not linked yet. Activate it with /preauth first."
+webauth_not_bound = "This account is not linked or verified yet."
 webauth_failed = "Could not create a login code. Please try again later."
 webauth_disabled = "Web login is disabled for this Discord source."
 login_not_bound = "This Discord account is not linked yet."
 denied = "This Principal is disabled."
 direct_command_dm_only = "Please DM the bot and send this command privately."
 
-[eventbus.discord.ask]
+[im_gateway.discord.ask]
 accepted = "On it. Reply will appear in this conversation."
 
-[eventbus.discord.delivery]
+[im_gateway.discord.delivery]
 fallback_text = "Unsupported Discord content"
 stream_generating = "Generating..."
 stream_failed = "The streamed response failed."
@@ -207,14 +215,14 @@ stream_cancelled = "The streamed response was cancelled."
 reply_target_missing_sent_to_scope = "The reply target was missing, so the message was sent to the channel."
 message_unchanged = "The message was already up to date."
 
-[eventbus.discord.media]
+[im_gateway.discord.media]
 image = "[image]"
 audio = "[audio]"
 video = "[video]"
 file = "[file]"
 sticker = "[sticker]"
 
-[eventbus.discord.errors]
+[im_gateway.discord.errors]
 unsupported_message = "Unsupported Discord message"
 profile_unavailable = "Discord user profile is unavailable"
 thread_create_failed = "Could not create a Discord thread for this request."

@@ -1,4 +1,4 @@
-defmodule Feishu.Config.EventBusSources do
+defmodule Feishu.Config.IMGatewaySources do
   @moduledoc false
 
   use Skogsra.Type
@@ -100,9 +100,9 @@ defmodule Feishu.Config do
   use BullX.Config
 
   @envdoc false
-  bullx_env(:eventbus_sources,
-    key: [:plugins, :feishu, :eventbus_sources],
-    type: Feishu.Config.EventBusSources,
+  bullx_env(:im_gateway_sources,
+    key: [:plugins, :feishu, :im_gateway_sources],
+    type: Feishu.Config.IMGatewaySources,
     default: [],
     secret: true
   )

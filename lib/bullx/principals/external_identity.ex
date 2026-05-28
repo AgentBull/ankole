@@ -27,6 +27,7 @@ defmodule BullX.Principals.ExternalIdentity do
     field :adapter, :string
     field :channel_id, :string
     field :external_id, :string
+    field :verified_at, :utc_datetime_usec
     field :metadata, :map, default: %{}
 
     timestamps()
@@ -41,6 +42,7 @@ defmodule BullX.Principals.ExternalIdentity do
       :adapter,
       :channel_id,
       :external_id,
+      :verified_at,
       :metadata
     ])
     |> normalize_blank([:provider, :adapter, :channel_id, :external_id])

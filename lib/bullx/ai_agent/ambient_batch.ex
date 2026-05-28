@@ -6,7 +6,7 @@ defmodule BullX.AIAgent.AmbientBatch do
   Messages remain durable context.
   """
 
-  alias BullX.EventBus.StreamingOutput.Redis
+  alias BullX.MailBox.StreamingOutput.Redis
 
   @ttl_ms 90_000
   @window_ms 30_000
@@ -34,8 +34,8 @@ defmodule BullX.AIAgent.AmbientBatch do
       redis.call('ZREM', due, batch_key)
     else
       local incoming = cjson.decode(meta_json)
-      if incoming['reply_channel'] ~= nil then
-        existing['reply_channel'] = incoming['reply_channel']
+      if incoming['reply_address'] ~= nil then
+        existing['reply_address'] = incoming['reply_address']
       end
       if due_at < existing_due_at then
         existing['due_at'] = due_at
@@ -66,7 +66,7 @@ defmodule BullX.AIAgent.AmbientBatch do
 
     meta =
       batch
-      |> Map.take([:agent_principal_id, :ambient_conversation_id, :scene_key, :reply_channel])
+      |> Map.take([:agent_principal_id, :ambient_conversation_id, :scene_key, :reply_address])
       |> Map.merge(%{
         batch_key: batch_key,
         due_at: due_at,
@@ -144,6 +144,40 @@ defmodule BullX.AIAgent.AmbientBatch do
     :ok
   end
 
+  @spec update_item(String.t(), String.t(), String.t(), String.t()) :: :ok | {:error, term()}
+  def update_item(agent_principal_id, conversation_id, message_id, text)
+      when is_binary(agent_principal_id) and is_binary(conversation_id) and is_binary(message_id) and
+             is_binary(text) do
+    batch_key = batch_key(agent_principal_id, conversation_id)
+
+    with {:ok, items} <- load_items(batch_key),
+         {:changed, updated} <- update_items(items, message_id, text) do
+      replace_items(batch_key, updated)
+    else
+      :unchanged -> :ok
+      {:error, :missing} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @spec remove_item(String.t(), String.t(), String.t()) :: :ok | {:error, term()}
+  def remove_item(agent_principal_id, conversation_id, message_id)
+      when is_binary(agent_principal_id) and is_binary(conversation_id) and is_binary(message_id) do
+    batch_key = batch_key(agent_principal_id, conversation_id)
+
+    with {:ok, items} <- load_items(batch_key),
+         {:changed, updated} <- remove_items(items, message_id) do
+      case updated do
+        [] -> cleanup(batch_key)
+        [_ | _] -> replace_items(batch_key, updated)
+      end
+    else
+      :unchanged -> :ok
+      {:error, :missing} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
   defp redis_get(key) do
     case Redis.command(["GET", key]) do
       {:ok, nil} -> {:error, :missing}
@@ -163,6 +197,56 @@ defmodule BullX.AIAgent.AmbientBatch do
     |> case do
       {:ok, items} -> {:ok, Enum.reverse(items)}
       {:error, _reason} = error -> error
+    end
+  end
+
+  defp load_items(batch_key) do
+    case Redis.command(["LRANGE", items_key(batch_key), 0, -1]) do
+      {:ok, []} -> {:error, :missing}
+      {:ok, item_jsons} -> decode_items(item_jsons)
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp update_items(items, message_id, text) do
+    updated =
+      Enum.map(items, fn
+        %{"message_id" => ^message_id} = item -> Map.put(item, "text", text)
+        item -> item
+      end)
+
+    case updated == items do
+      true -> :unchanged
+      false -> {:changed, updated}
+    end
+  end
+
+  defp remove_items(items, message_id) do
+    updated = Enum.reject(items, &(Map.get(&1, "message_id") == message_id))
+
+    case updated == items do
+      true -> :unchanged
+      false -> {:changed, updated}
+    end
+  end
+
+  defp replace_items(batch_key, items) do
+    ttl_ms =
+      case Redis.command(["PTTL", items_key(batch_key)]) do
+        {:ok, ttl} when is_integer(ttl) and ttl > 0 -> ttl
+        _other -> @ttl_ms
+      end
+
+    commands =
+      [
+        ["DEL", items_key(batch_key)],
+        ["RPUSH", items_key(batch_key) | Enum.map(items, &Jason.encode!(&1))],
+        ["PEXPIRE", items_key(batch_key), ttl_ms]
+      ]
+
+    case Redis.pipeline(commands) do
+      {:ok, _results} -> :ok
+      {:error, reason} -> {:error, reason}
     end
   end
 

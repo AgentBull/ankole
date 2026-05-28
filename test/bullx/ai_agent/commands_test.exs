@@ -91,7 +91,7 @@ defmodule BullX.AIAgent.CommandsTest do
     now = DateTime.utc_now(:microsecond)
 
     owner = %{
-      "owner_trigger_type" => "target_session_entry",
+      "owner_trigger_type" => "mailbox_entry",
       "owner_trigger_id" => BullX.Ext.gen_uuid_v7(),
       "trigger_message_id" => user.id,
       "generation_lease_ttl_ms" => profile.generation.generation_lease_ttl_ms,
@@ -200,7 +200,7 @@ defmodule BullX.AIAgent.CommandsTest do
         %{
           "generation" => %{
             "trigger_message_id" => trigger_message.id,
-            "trigger_type" => "target_session_entry",
+            "trigger_type" => "mailbox_entry",
             "trigger_id" => BullX.Ext.gen_uuid_v7()
           }
         }
@@ -231,10 +231,10 @@ defmodule BullX.AIAgent.CommandsTest do
       caller_principal_id: caller.id,
       agent_principal_id: agent.id,
       profile: profile,
-      trigger_type: "target_session_entry",
+      trigger_type: "mailbox_entry",
       trigger_id: entry_id,
-      target_session_id: BullX.Ext.gen_uuid_v7(),
-      target_session_entry_id: entry_id,
+      mailbox_session_id: BullX.Ext.gen_uuid_v7(),
+      mailbox_entry_id: entry_id,
       acl_context: %{}
     }
   end

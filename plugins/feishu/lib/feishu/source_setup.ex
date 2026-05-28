@@ -1,10 +1,10 @@
 defmodule Feishu.SourceSetup do
   @moduledoc false
 
-  alias BullX.EventBus.RoutingContext
+  alias BullX.MailBox.RoutingContext
   alias Feishu.Source
 
-  @sources_key "bullx.plugins.feishu.eventbus_sources"
+  @sources_key "bullx.plugins.feishu.im_gateway_sources"
 
   @spec config_keys() :: %{sources: String.t()}
   def config_keys, do: %{sources: @sources_key}
@@ -22,7 +22,8 @@ defmodule Feishu.SourceSetup do
         "app_type" => "self_built",
         "web_login_disabled" => false,
         "oidc" => %{"enabled" => true},
-        "im_listen_mode" => "all_messages"
+        "im_listen_mode" => "all_messages",
+        "trusted_realm_by_default" => true
       },
       sections: [
         %{
@@ -63,7 +64,7 @@ defmodule Feishu.SourceSetup do
 
   @spec public_projection() :: map()
   def public_projection do
-    configured_sources = Feishu.Config.eventbus_sources!()
+    configured_sources = Feishu.Config.im_gateway_sources!()
     runtime = runtime_status()
 
     %{
@@ -90,11 +91,12 @@ defmodule Feishu.SourceSetup do
           "app_type" => string_field(source, "app_type", "self_built"),
           "web_login_disabled" => boolean_field(source, "web_login_disabled", false),
           "oidc" => %{"enabled" => boolean_field(oidc, "enabled", true)},
-          "im_listen_mode" => string_field(source, "im_listen_mode", "all_messages")
+          "im_listen_mode" => string_field(source, "im_listen_mode", "all_messages"),
+          "trusted_realm_by_default" => boolean_field(source, "trusted_realm_by_default", true)
         }
         |> maybe_put("tenant_key", string_field(source, "tenant_key", nil))
 
-      case Feishu.Config.EventBusSources.cast([attrs]) do
+      case Feishu.Config.IMGatewaySources.cast([attrs]) do
         {:ok, [normalized]} -> {:ok, normalized}
         :error -> {:error, %{field: "source", message: "invalid Feishu source"}}
       end
@@ -104,7 +106,7 @@ defmodule Feishu.SourceSetup do
   @spec persist_source(map(), map()) :: :ok | {:error, term()}
   def persist_source(_opts, source) when is_map(source) do
     sources =
-      Feishu.Config.eventbus_sources!()
+      Feishu.Config.im_gateway_sources!()
       |> upsert_source(source)
 
     BullX.Config.put(@sources_key, Jason.encode!(sources))
@@ -132,7 +134,7 @@ defmodule Feishu.SourceSetup do
         "scope" => %{"id" => "setup-scope", "thread_id" => nil},
         "actor" => %{"external_id" => "setup-operator"},
         "refs" => %{},
-        "reply_channel" => %{"adapter" => "feishu", "source_id" => id},
+        "reply_address" => %{"adapter" => "feishu", "source_id" => id},
         "routing_facts" => %{"chat_type" => "p2p"}
       }
     }
@@ -205,7 +207,7 @@ defmodule Feishu.SourceSetup do
   end
 
   defp existing_source_secret(source_id, key) do
-    Feishu.Config.eventbus_sources!()
+    Feishu.Config.im_gateway_sources!()
     |> Enum.find(fn source ->
       (Map.get(source, "id") || Map.get(source, :id)) == source_id
     end)

@@ -2,7 +2,7 @@ defmodule BullX.RuleEngine.CEL do
   @moduledoc """
   Shared CEL wrapper for BullX rule-engine surfaces.
 
-  AuthZ and EventBus use different decision contracts, but they share CEL
+  AuthZ and MailBox use different decision contracts, but they share CEL
   expression compilation and the same native rule-engine crate boundary.
   """
 
