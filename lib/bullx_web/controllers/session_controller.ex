@@ -26,7 +26,7 @@ defmodule BullXWeb.SessionController do
     case BullX.Principals.consume_login_auth_code(normalize_code(code)) do
       {:ok, principal} ->
         conn
-        |> put_principal_session(principal.id)
+        |> put_principal_session(principal.uid)
         |> redirect(to: return_to)
 
       {:error, reason} ->
@@ -81,7 +81,7 @@ defmodule BullXWeb.SessionController do
            BullX.Principals.match_or_create_human_from_login_subject(subject) do
       conn
       |> delete_session(session_key)
-      |> put_principal_session(principal.id)
+      |> put_principal_session(principal.uid)
       |> redirect(to: local_return_to(state["return_to"]))
     else
       {:error, reason} ->
@@ -98,13 +98,13 @@ defmodule BullXWeb.SessionController do
     |> html("missing oidc callback state")
   end
 
-  defp put_principal_session(conn, principal_id) do
+  defp put_principal_session(conn, principal_uid) do
     delete_csrf_token()
 
     conn
     |> configure_session(renew: true)
     |> clear_session()
-    |> put_session(:principal_id, principal_id)
+    |> put_session(:principal_uid, principal_uid)
   end
 
   defp start_oidc(conn, provider, return_to) do

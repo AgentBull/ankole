@@ -29,7 +29,7 @@ defmodule BullX.Health do
   @spec ready(keyword()) :: {:ok, report()} | {:error, report()}
   def ready(opts \\ []) do
     repo = Keyword.get(opts, :repo, Repo)
-    redis = Keyword.get(opts, :redis, BullX.MailBox.StreamingOutput.Redis)
+    redis = Keyword.get(opts, :redis, BullX.Redis)
 
     %{postgres: check_postgres(repo), redis: check_redis(redis)}
     |> readiness_report()

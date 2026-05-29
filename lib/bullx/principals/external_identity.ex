@@ -14,13 +14,15 @@ defmodule BullX.Principals.ExternalIdentity do
   alias BullX.Principals.Principal
 
   @primary_key {:id, BullX.Ecto.UUIDv7, autogenerate: true}
-  @foreign_key_type :binary_id
   @timestamps_opts [type: :utc_datetime_usec]
 
   @type t :: %__MODULE__{}
 
   schema "principal_external_identities" do
-    belongs_to :principal, Principal
+    belongs_to :principal, Principal,
+      foreign_key: :principal_uid,
+      references: :uid,
+      type: :string
 
     field :kind, Ecto.Enum, values: [:channel_actor, :login_subject, :outbound_actor]
     field :provider, :string
@@ -36,7 +38,7 @@ defmodule BullX.Principals.ExternalIdentity do
   def changeset(external_identity, attrs) do
     external_identity
     |> cast(attrs, [
-      :principal_id,
+      :principal_uid,
       :kind,
       :provider,
       :adapter,
@@ -46,10 +48,10 @@ defmodule BullX.Principals.ExternalIdentity do
       :metadata
     ])
     |> normalize_blank([:provider, :adapter, :channel_id, :external_id])
-    |> validate_required([:principal_id, :kind, :metadata])
+    |> validate_required([:principal_uid, :kind, :metadata])
     |> validate_map(:metadata)
     |> validate_kind_fields()
-    |> foreign_key_constraint(:principal_id)
+    |> foreign_key_constraint(:principal_uid)
     |> unique_constraint(:external_id, name: :principal_external_identities_channel_actor_index)
     |> unique_constraint(:external_id, name: :principal_external_identities_login_subject_index)
     |> unique_constraint(:external_id, name: :principal_external_identities_outbound_actor_index)

@@ -5,6 +5,7 @@ defmodule BullX.MailBox.DeliveryRule do
 
   import Ecto.Changeset
 
+  alias BullX.Principals.Agent
   alias BullX.RuleEngine.CEL
 
   @primary_key {:id, BullX.Ecto.UUIDv7, autogenerate: true}
@@ -20,8 +21,7 @@ defmodule BullX.MailBox.DeliveryRule do
     field :active, :boolean, default: true
     field :priority, :integer
     field :match_expr, :string
-    field :receiver_type, :string
-    field :receiver_ref, :string
+    belongs_to :agent, Agent, foreign_key: :agent_uid, references: :uid, type: :string
     field :attention, Ecto.Enum, values: @attention
     field :session_key_template, :string
     field :available_delay_ms, :integer, default: 0
@@ -39,8 +39,7 @@ defmodule BullX.MailBox.DeliveryRule do
       :active,
       :priority,
       :match_expr,
-      :receiver_type,
-      :receiver_ref,
+      :agent_uid,
       :attention,
       :session_key_template,
       :available_delay_ms,
@@ -52,26 +51,22 @@ defmodule BullX.MailBox.DeliveryRule do
       :active,
       :priority,
       :match_expr,
-      :receiver_type,
-      :receiver_ref,
+      :agent_uid,
       :attention,
       :available_delay_ms,
       :metadata
     ])
     |> validate_non_empty(:name)
     |> validate_non_empty(:match_expr)
-    |> validate_non_empty(:receiver_type)
-    |> validate_non_empty(:receiver_ref)
     |> validate_number(:priority, greater_than: 0)
     |> validate_number(:available_delay_ms, greater_than_or_equal_to: 0)
     |> validate_match_expr()
     |> validate_json_object(:metadata)
+    |> foreign_key_constraint(:agent_uid)
     |> unique_constraint(:name)
     |> check_constraint(:name, name: :mailbox_delivery_rules_name_present)
     |> check_constraint(:priority, name: :mailbox_delivery_rules_priority_positive)
     |> check_constraint(:match_expr, name: :mailbox_delivery_rules_match_expr_present)
-    |> check_constraint(:receiver_type, name: :mailbox_delivery_rules_receiver_type_present)
-    |> check_constraint(:receiver_ref, name: :mailbox_delivery_rules_receiver_ref_present)
     |> check_constraint(:available_delay_ms,
       name: :mailbox_delivery_rules_available_delay_ms_nonnegative
     )

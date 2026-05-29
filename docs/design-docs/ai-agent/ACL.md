@@ -11,17 +11,22 @@ The implementation lives in `BullX.AIAgent.ACL`.
 For ordinary generation, AIAgent calls:
 
 ```elixir
-BullX.AuthZ.authorize(caller, "ai_agent:<agent_id>", "invoke", context)
+BullX.AuthZ.authorize(caller, "ai_agent:<agent_uid>", "invoke", context)
 ```
 
 The caller is the Principal resolved from IMGateway actor facts. Missing or
 invalid callers are denied.
 
+Setup-created AIAgents grant ordinary `invoke` to the built-in `all_humans`
+computed group by default, so active Human Principals may invoke the initial
+agent without per-user grants. The setup flow also keeps an agent self `invoke`
+grant for self-addressed internal calls.
+
 Privileged operations also require:
 
 ```text
 action = "invoke_privileged"
-resource = "ai_agent:<agent_id>"
+resource = "ai_agent:<agent_uid>"
 ```
 
 The current profile elevation strategy is only `deny`; unsupported strategies

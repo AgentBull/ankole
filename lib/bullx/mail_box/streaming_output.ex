@@ -4,7 +4,7 @@ defmodule BullX.MailBox.StreamingOutput do
   """
 
   alias BullX.MailBox.Config
-  alias BullX.MailBox.StreamingOutput.Redis
+  alias BullX.Redis
 
   @open_status "open"
   @terminal_statuses [:completed, :failed, :interrupted]
@@ -218,7 +218,7 @@ defmodule BullX.MailBox.StreamingOutput do
   end
 
   defp follow_open_stream(stream_id, last_offset, consumer) do
-    with {:ok, opts} <- Config.redix_options(),
+    with {:ok, opts} <- Redis.redix_options(),
          {:ok, pubsub} <- Redix.PubSub.start_link(opts),
          :ok <- subscribe(pubsub, pub_key(stream_id)) do
       case catch_up_after_subscribe(stream_id, last_offset, consumer) do

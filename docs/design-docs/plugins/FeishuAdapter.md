@@ -47,26 +47,34 @@ when the source config chooses that trust model.
 ## Inbound
 
 `Feishu.ChannelAdapter.normalize_inbound/2` delegates provider event mapping to
-Feishu modules and returns CloudEvents maps for IMGateway.
+Feishu modules and returns IMGateway message events.
 
 Current event mapping includes:
 
-- message receive -> `bullx.im.message.addressed` or
-  `bullx.im.message.ambient`
+- message receive -> `bullx.message.received`
 - message updated -> `bullx.message.edited`
 - message recalled -> `bullx.message.recalled`
-- card action -> `bullx.action.submitted`
+- card action -> `bullx.message.received` with an action content block
 - reaction changed -> `bullx.reaction.changed`
 
 Direct commands are handled before IMGateway handoff:
 
 - `/root_init <code>`
 - `/webauth`
+- `/command`
+- `/status`
 
-Other agent commands are normalized to `bullx.command.invoked`.
+Other slash commands, including unknown command names, are normalized to
+`bullx.command.invoked`.
+
+Card actions that continue an AIAgent conversation are normalized as
+`bullx.message.received`; AIAgent sees the selected action as user message
+content instead of a separate action event type.
 
 Self bot messages are ignored. Addressed and ambient admission follows the
-source listen mode and mention/DM policy.
+source listen mode and mention/DM policy. Unsupported or empty inbound Feishu
+message bodies are ignored; they are not converted into prompt-visible fallback
+text.
 
 ## Principal Binding
 
@@ -113,6 +121,6 @@ after source config changes.
 
 - Feishu adapter code normalizes provider payloads; IMGateway stores IM facts.
 - MailBox delivery rules decide which receiver gets the mail.
-- Direct setup/auth commands are adapter-local and do not depend on MailBox.
+- Direct commands are adapter-local and do not depend on MailBox.
 - Feishu secrets are stored through BullX config secret handling and masked in
   public setup projections.

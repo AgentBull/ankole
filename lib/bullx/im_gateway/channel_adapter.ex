@@ -4,8 +4,8 @@ defmodule BullX.IMGateway.ChannelAdapter do
 
   IM-style adapters declare `im_listen_modes: [:addressed_only, :all_messages]`
   in `capabilities/0` and honor a per-source `im_listen_mode` for transport
-  admission. The adapter normalizes provider input to CloudEvents and hands it
-  to `BullX.IMGateway`.
+  admission. The adapter normalizes provider input to IMGateway message events
+  and hands them to `BullX.IMGateway`.
   """
 
   alias BullX.Plugins.Extension
@@ -15,7 +15,7 @@ defmodule BullX.IMGateway.ChannelAdapter do
   @adapter_id ~r/\A[a-z][a-z0-9_]*\z/
 
   @callback normalize_inbound(source :: map(), provider_input :: term()) ::
-              {:ok, decoded_cloud_event :: map()}
+              {:ok, message_event :: map()}
               | :ignore
               | {:error, safe_error :: map()}
 
@@ -116,10 +116,10 @@ defmodule BullX.IMGateway.ChannelAdapter do
 
     with {:ok, extension} <- fetch_enabled_adapter(adapter_id, registry),
          metadata <- Map.merge(metadata, extension_metadata(extension)),
-         {:ok, event} <- normalize(extension.module, source, provider_input),
-         :ok <- validate_event_adapter(extension, event) do
-      emit([:event, :normalized], %{}, Map.put(metadata, :event_type, event["type"]))
-      accept_event(extension, event, im_gateway_opts, metadata)
+         {:ok, message_event} <- normalize(extension.module, source, provider_input),
+         :ok <- validate_message_adapter(extension, message_event) do
+      emit([:event, :normalized], %{}, Map.put(metadata, :event_type, message_event["type"]))
+      accept_message_event(extension, message_event, im_gateway_opts, metadata)
     else
       :ignore ->
         emit([:event, :ignored], %{}, Map.put(metadata, :diagnostic_code, :ignored))
@@ -130,23 +130,21 @@ defmodule BullX.IMGateway.ChannelAdapter do
     end
   end
 
-  @spec build_cloud_event(map()) :: {:ok, map()} | {:error, map()}
-  def build_cloud_event(attrs) when is_map(attrs) do
+  @spec build_message_event(map()) :: {:ok, map()} | {:error, map()}
+  def build_message_event(attrs) when is_map(attrs) do
     data = Map.fetch!(attrs, :data)
 
-    event = %{
-      "specversion" => "1.0",
+    %{
       "id" => Map.fetch!(attrs, :id),
       "source" => Map.fetch!(attrs, :source),
       "type" => Map.fetch!(attrs, :type),
       "time" => Map.fetch!(attrs, :time),
-      "datacontenttype" => "application/json",
       "data" => normalize_payload(data)
     }
-
-    {:ok, maybe_put_subject(event, Map.get(attrs, :subject))}
+    |> maybe_put_subject(Map.get(attrs, :subject))
+    |> then(&{:ok, &1})
   rescue
-    KeyError -> {:error, %{"kind" => "invalid_cloud_event_attrs"}}
+    KeyError -> {:error, %{"kind" => "invalid_message_event_attrs"}}
   end
 
   defp normalize(module, source, provider_input) do
@@ -208,11 +206,11 @@ defmodule BullX.IMGateway.ChannelAdapter do
   defp valid_adapter_id?(id) when is_binary(id), do: Regex.match?(@adapter_id, id)
 
   # Adapters are trusted code but `normalize_inbound/2` returns user-influenced
-  # data — refuse to accept an Event whose `channel.adapter` doesn't match the
+  # data — refuse to accept a message event whose `channel.adapter` doesn't match the
   # adapter we just invoked. Otherwise a misbehaving or compromised adapter
-  # could mint Events that appear to come from a different adapter and reach
+  # could mint messages that appear to come from a different adapter and reach
   # rules scoped to it.
-  defp validate_event_adapter(%Extension{} = extension, event) do
+  defp validate_message_adapter(%Extension{} = extension, event) do
     expected = normalize_id(extension.id)
 
     case get_in(event, ["data", "channel", "adapter"]) do
@@ -229,7 +227,7 @@ defmodule BullX.IMGateway.ChannelAdapter do
     end
   end
 
-  defp accept_event(%Extension{} = extension, event, opts, metadata) do
+  defp accept_message_event(%Extension{} = extension, event, opts, metadata) do
     accept_metadata =
       metadata
       |> Map.merge(extension_metadata(extension))
@@ -238,7 +236,7 @@ defmodule BullX.IMGateway.ChannelAdapter do
     emit([:event, :accept, :start], %{}, accept_metadata)
 
     try do
-      result = BullX.IMGateway.accept_cloud_event(event, opts)
+      result = BullX.IMGateway.accept_message_event(event, opts)
 
       emit(
         [:event, :accept, :stop],
@@ -291,7 +289,13 @@ defmodule BullX.IMGateway.ChannelAdapter do
       "routing_facts" => stringify_keys(Map.get(data, :routing_facts, %{})),
       "raw_ref" => stringify_value(Map.get(data, :raw_ref))
     }
+    |> maybe_put_command(Map.get(data, :command))
   end
+
+  defp maybe_put_command(payload, %{} = command),
+    do: Map.put(payload, "command", stringify_keys(command))
+
+  defp maybe_put_command(payload, _command), do: payload
 
   defp maybe_put_subject(event, nil), do: event
 

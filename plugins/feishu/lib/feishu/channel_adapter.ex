@@ -68,7 +68,8 @@ defmodule Feishu.ChannelAdapter do
     end
   end
 
-  defp handle_mapped({:ok, %{attrs: attrs}}, %Source{}), do: IMGatewayAdapter.build_cloud_event(attrs)
+  defp handle_mapped({:ok, %{attrs: attrs}}, %Source{}),
+    do: IMGatewayAdapter.build_message_event(attrs)
 
   defp handle_mapped({:error, error}, _source), do: {:error, Feishu.Error.map(error)}
 end

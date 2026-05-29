@@ -342,7 +342,7 @@ fn decode_authz_env(term: Term<'_>) -> NifResult<AuthzEnv> {
 
   let principal = term_to_json(require_field(&map, "principal")?)?;
   require_object(&principal, "principal")?;
-  require_json_string_field(&principal, "id", "principal")?;
+  require_json_string_field(&principal, "uid", "principal")?;
   require_json_string_field(&principal, "type", "principal")?;
   require_json_string_field(&principal, "status", "principal")?;
 
@@ -364,7 +364,7 @@ fn decode_principal_env(term: Term<'_>) -> NifResult<PrincipalEnv> {
 
   let principal = term_to_json(require_field(&map, "principal")?)?;
   require_object(&principal, "principal")?;
-  require_json_string_field(&principal, "id", "principal")?;
+  require_json_string_field(&principal, "uid", "principal")?;
   require_json_string_field(&principal, "type", "principal")?;
   require_json_string_field(&principal, "status", "principal")?;
 
@@ -419,7 +419,7 @@ mod tests {
   fn eval_computed_groups_returns_matching_ids_and_invalids() {
     let principal_env = PrincipalEnv {
       principal: json!({
-        "id": "019dc9bc-0000-7000-8000-000000000001",
+        "uid": "authz-test-principal",
         "type": "human",
         "status": "active"
       }),
@@ -436,7 +436,7 @@ mod tests {
       },
       LoadedComputedGroup {
         id: "invalid".to_owned(),
-        condition: "principal.id".to_owned(),
+        condition: "principal.uid".to_owned(),
       },
     ];
 
@@ -524,7 +524,7 @@ mod tests {
       LoadedGrant {
         id: "non_bool".to_owned(),
         resource_pattern: "web_*".to_owned(),
-        condition: "principal.id".to_owned(),
+        condition: "principal.uid".to_owned(),
       },
       LoadedGrant {
         id: "missing".to_owned(),
@@ -551,7 +551,7 @@ mod tests {
   fn authz_env(context: JsonValue) -> AuthzEnv {
     AuthzEnv {
       principal: json!({
-        "id": "019dc9bc-0000-7000-8000-000000000001",
+        "uid": "authz-test-principal",
         "type": "human",
         "status": "active"
       }),

@@ -10,7 +10,8 @@ defmodule BullX.MailBox do
 
   alias BullX.MailBox.Dispatcher
   alias BullX.MailBox.Matcher
-  alias BullX.MailBox.{DeliveryRule, Entry, Mailbox, Session}
+  alias BullX.MailBox.{DeliveryRule, Entry, Session}
+  alias BullX.Principals.Agent
   alias BullX.Repo
 
   @lease_seconds 60
@@ -18,9 +19,8 @@ defmodule BullX.MailBox do
   @attention [:addressed, :ambient, :command, :action, :lifecycle, :system]
 
   @type deliver_result ::
-          {:ok, %{mailbox: Mailbox.t(), session: Session.t(), entry: Entry.t()}}
-          | {:ok,
-             %{status: :duplicate, mailbox: Mailbox.t(), session: Session.t(), entry: Entry.t()}}
+          {:ok, %{agent: Agent.t(), session: Session.t(), entry: Entry.t()}}
+          | {:ok, %{status: :duplicate, agent: Agent.t(), session: Session.t(), entry: Entry.t()}}
           | {:error, term()}
 
   @spec route(map(), keyword()) :: {:ok, [deliver_result()]} | {:error, term()}
@@ -40,13 +40,13 @@ defmodule BullX.MailBox do
     attrs = normalize_request(request)
 
     Repo.transaction(fn ->
-      with {:ok, mailbox} <- get_or_create_mailbox(attrs),
-           {:ok, session} <- get_or_create_session(mailbox, attrs),
-           {:ok, entry} <- insert_entry(mailbox, session, attrs) do
-        %{mailbox: mailbox, session: session, entry: entry}
+      with {:ok, agent} <- get_agent(attrs),
+           {:ok, session} <- get_or_create_session(agent, attrs),
+           {:ok, entry} <- insert_entry(agent, session, attrs) do
+        %{agent: agent, session: session, entry: entry}
       else
-        {:duplicate, mailbox, session, entry} ->
-          %{status: :duplicate, mailbox: mailbox, session: session, entry: entry}
+        {:duplicate, agent, session, entry} ->
+          %{status: :duplicate, agent: agent, session: session, entry: entry}
 
         {:error, reason} ->
           Repo.rollback(reason)
@@ -109,7 +109,7 @@ defmodule BullX.MailBox do
           Entry
           |> where([entry], entry.id in ^ids)
           |> order_by([entry], asc: entry.entry_seq)
-          |> preload([:mailbox, :session])
+          |> preload([:agent, :session])
           |> Repo.all()
       end
     end)
@@ -140,7 +140,7 @@ defmodule BullX.MailBox do
 
   @spec process_entry(Entry.t(), keyword()) :: :ok | {:error, term()}
   def process_entry(%Entry{} = entry, opts \\ []) when is_list(opts) do
-    entry = Repo.preload(entry, [:mailbox, :session])
+    entry = Repo.preload(entry, [:agent, :session])
 
     case dispatch(entry, opts) do
       :ok -> mark_entry(entry, :processed, nil)
@@ -182,8 +182,7 @@ defmodule BullX.MailBox do
   defp rule_request(%DeliveryRule{} = rule, cloud_event) do
     %{
       cloud_event: cloud_event,
-      receiver_type: rule.receiver_type,
-      receiver_ref: rule.receiver_ref,
+      agent_uid: rule.agent_uid,
       attention: rule.attention,
       session_key: render_template(rule.session_key_template, cloud_event),
       available_delay_ms: rule.available_delay_ms,
@@ -200,8 +199,7 @@ defmodule BullX.MailBox do
 
     %{
       cloud_event: stringify!(cloud_event || %{}),
-      receiver_type: string_value(map_value(request, :receiver_type)),
-      receiver_ref: string_value(map_value(request, :receiver_ref)),
+      agent_uid: string_value(map_value(request, :agent_uid)),
       attention: attention_value(map_value(request, :attention)),
       session_key: session_key_value(map_value(request, :session_key), cloud_event),
       reply_address: maybe_stringify_map(map_value(request, :reply_address)),
@@ -215,44 +213,17 @@ defmodule BullX.MailBox do
     }
   end
 
-  defp get_or_create_mailbox(%{receiver_type: receiver_type, receiver_ref: receiver_ref} = attrs) do
-    case Repo.get_by(Mailbox, receiver_type: receiver_type, receiver_ref: receiver_ref) do
-      %Mailbox{} = mailbox ->
-        {:ok, mailbox}
-
-      nil ->
-        %Mailbox{}
-        |> Mailbox.changeset(%{
-          receiver_type: receiver_type,
-          receiver_ref: receiver_ref,
-          metadata: attrs.metadata
-        })
-        |> Repo.insert()
-        |> case do
-          {:ok, mailbox} -> {:ok, mailbox}
-          {:error, changeset} -> existing_mailbox_after_conflict(changeset, attrs)
-        end
+  defp get_agent(%{agent_uid: agent_uid}) when is_binary(agent_uid) and agent_uid != "" do
+    case Repo.get(Agent, agent_uid) do
+      %Agent{} = agent -> {:ok, agent}
+      nil -> {:error, :agent_not_found}
     end
   end
 
-  defp existing_mailbox_after_conflict(changeset, attrs) do
-    case unique_conflict?(changeset) do
-      true ->
-        case Repo.get_by(Mailbox,
-               receiver_type: attrs.receiver_type,
-               receiver_ref: attrs.receiver_ref
-             ) do
-          %Mailbox{} = mailbox -> {:ok, mailbox}
-          nil -> {:error, changeset}
-        end
+  defp get_agent(_attrs), do: {:error, :agent_uid_required}
 
-      false ->
-        {:error, changeset}
-    end
-  end
-
-  defp get_or_create_session(%Mailbox{} = mailbox, attrs) do
-    case Repo.get_by(Session, mailbox_id: mailbox.id, session_key: attrs.session_key) do
+  defp get_or_create_session(%Agent{} = agent, attrs) do
+    case Repo.get_by(Session, agent_uid: agent.uid, session_key: attrs.session_key) do
       %Session{} = session ->
         session
         |> Session.changeset(%{last_entry_at: attrs.now})
@@ -261,7 +232,7 @@ defmodule BullX.MailBox do
       nil ->
         %Session{}
         |> Session.changeset(%{
-          mailbox_id: mailbox.id,
+          agent_uid: agent.uid,
           session_key: attrs.session_key,
           status: :active,
           last_entry_at: attrs.now,
@@ -270,15 +241,15 @@ defmodule BullX.MailBox do
         |> Repo.insert()
         |> case do
           {:ok, session} -> {:ok, session}
-          {:error, changeset} -> existing_session_after_conflict(changeset, mailbox, attrs)
+          {:error, changeset} -> existing_session_after_conflict(changeset, agent, attrs)
         end
     end
   end
 
-  defp existing_session_after_conflict(changeset, mailbox, attrs) do
+  defp existing_session_after_conflict(changeset, agent, attrs) do
     case unique_conflict?(changeset) do
       true ->
-        case Repo.get_by(Session, mailbox_id: mailbox.id, session_key: attrs.session_key) do
+        case Repo.get_by(Session, agent_uid: agent.uid, session_key: attrs.session_key) do
           %Session{} = session -> {:ok, session}
           nil -> {:error, changeset}
         end
@@ -288,10 +259,10 @@ defmodule BullX.MailBox do
     end
   end
 
-  defp insert_entry(%Mailbox{} = mailbox, %Session{} = session, attrs) do
+  defp insert_entry(%Agent{} = agent, %Session{} = session, attrs) do
     %Entry{}
     |> Entry.changeset(%{
-      mailbox_id: mailbox.id,
+      agent_uid: agent.uid,
       mailbox_session_id: session.id,
       status: :pending,
       attention: attrs.attention,
@@ -305,19 +276,19 @@ defmodule BullX.MailBox do
     |> Repo.insert()
     |> case do
       {:ok, entry} ->
-        {:ok, Repo.preload(entry, [:mailbox, :session])}
+        {:ok, Repo.preload(entry, [:agent, :session])}
 
       {:error, changeset} ->
-        existing_entry_after_conflict(changeset, mailbox, session, attrs)
+        existing_entry_after_conflict(changeset, agent, session, attrs)
     end
   end
 
-  defp existing_entry_after_conflict(changeset, mailbox, session, attrs) do
+  defp existing_entry_after_conflict(changeset, agent, session, attrs) do
     case unique_conflict?(changeset) do
       true ->
-        case Repo.get_by(Entry, mailbox_id: mailbox.id, dedupe_hash: attrs.dedupe_hash) do
+        case Repo.get_by(Entry, agent_uid: agent.uid, dedupe_hash: attrs.dedupe_hash) do
           %Entry{} = entry ->
-            {:duplicate, mailbox, session, Repo.preload(entry, [:mailbox, :session])}
+            {:duplicate, agent, session, Repo.preload(entry, [:agent, :session])}
 
           nil ->
             {:error, changeset}
@@ -328,10 +299,9 @@ defmodule BullX.MailBox do
     end
   end
 
-  defp dispatch(%Entry{mailbox: %Mailbox{receiver_type: "ai_agent"} = mailbox} = entry, _opts) do
+  defp dispatch(%Entry{agent: %Agent{type: :ai_agent} = agent} = entry, _opts) do
     invocation = %{
-      target_ref: mailbox.receiver_ref,
-      mailbox_id: mailbox.id,
+      target_ref: agent.uid,
       mailbox_session_id: entry.mailbox_session_id,
       mailbox_entry_id: entry.id,
       output: BullX.MailBox.StreamingOutput,
@@ -342,10 +312,10 @@ defmodule BullX.MailBox do
     BullX.AIAgent.handle_mailbox_entry(invocation, entry)
   end
 
-  defp dispatch(%Entry{mailbox: %Mailbox{receiver_type: "blackhole"}}, _opts), do: :ok
+  defp dispatch(%Entry{agent: %Agent{type: :blackhole}}, _opts), do: :ok
 
-  defp dispatch(%Entry{mailbox: %Mailbox{receiver_type: receiver_type}}, _opts),
-    do: {:error, {:unknown_mailbox_receiver_type, receiver_type}}
+  defp dispatch(%Entry{agent: %Agent{type: agent_type}}, _opts),
+    do: {:error, {:unknown_agent_type, agent_type}}
 
   defp mark_entry(%Entry{} = entry, status, safe_error) do
     entry
@@ -421,7 +391,7 @@ defmodule BullX.MailBox do
     request
     |> dedupe_material()
     |> Jason.encode!()
-    |> then(&:crypto.hash(:sha256, &1))
+    |> BullX.Ext.generic_hash()
   end
 
   defp dedupe_material(request) do
@@ -429,8 +399,7 @@ defmodule BullX.MailBox do
     dedupe_key = map_value(request, :dedupe_key)
 
     %{
-      receiver_type: map_value(request, :receiver_type),
-      receiver_ref: map_value(request, :receiver_ref),
+      agent_uid: map_value(request, :agent_uid),
       source: map_value(cloud_event, :source),
       id: map_value(cloud_event, :id),
       attention: map_value(request, :attention),

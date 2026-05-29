@@ -17,38 +17,14 @@ defmodule BullX.AIAgent.Commands do
     "undo" => %{token: "/undo", aliases: [], access: :ordinary}
   }
 
-  @tokens @catalog
-          |> Enum.flat_map(fn {name, config} ->
-            [{config.token, name} | Enum.map(config.aliases, &{&1, name})]
-          end)
-          |> Map.new()
-
-  @type detected :: {:command, String.t(), String.t()} | :not_command | {:unknown, String.t()}
-
   @spec catalog() :: map()
   def catalog, do: @catalog
 
-  @spec detect_text(String.t()) :: detected()
-  def detect_text(text) when is_binary(text) do
-    trimmed = String.trim_leading(text)
-
-    case String.split(trimmed, ~r/\s+/, parts: 2) do
-      [<<"/", _rest::binary>> = token, args] -> normalize_token(token, args)
-      [<<"/", _rest::binary>> = token] -> normalize_token(token, "")
-      _other -> :not_command
-    end
-  end
-
-  def detect_text(_text), do: :not_command
-
   @spec command_event_name(map()) :: String.t() | nil
   def command_event_name(event_data) when is_map(event_data) do
-    event_data
-    |> get_in(["routing_facts", "command_name"])
-    |> case do
-      name when is_binary(name) -> canonical_name(name)
-      _other -> nil
-    end
+    event_data["command"]
+    |> command_name()
+    |> fallback_command_name(get_in(event_data, ["routing_facts", "command_name"]))
   end
 
   @spec command_event_args(map()) :: String.t()
@@ -58,14 +34,7 @@ defmodule BullX.AIAgent.Commands do
         String.trim(text)
 
       nil ->
-        event_data
-        |> BullX.AIAgent.Event.text_content()
-        |> detect_text()
-        |> case do
-          {:command, _name, args} -> args
-          :not_command -> ""
-          {:unknown, _token} -> ""
-        end
+        ""
     end
   end
 
@@ -77,8 +46,8 @@ defmodule BullX.AIAgent.Commands do
     with {:ok, command} <- fetch(command_name),
          :allowed <-
            ACL.authorize(
-             context.caller_principal_id,
-             context.agent_principal_id,
+             context.caller_principal_uid,
+             context.agent_uid,
              command.access,
              Map.get(context, :acl_context, %{})
            ) do
@@ -90,21 +59,6 @@ defmodule BullX.AIAgent.Commands do
     end
   end
 
-  defp normalize_token(token, args) do
-    case Map.fetch(@tokens, token) do
-      {:ok, "steer"} -> {:command, "steer", String.trim(args)}
-      {:ok, name} -> {:command, name, String.trim(args)}
-      :error -> {:unknown, token}
-    end
-  end
-
-  defp canonical_name(name) do
-    case Map.has_key?(@catalog, name) do
-      true -> name
-      false -> nil
-    end
-  end
-
   defp fetch(command_name) do
     case Map.fetch(@catalog, command_name) do
       {:ok, command} -> {:ok, command}
@@ -112,10 +66,28 @@ defmodule BullX.AIAgent.Commands do
     end
   end
 
+  defp command_name(%{"name" => name}) when is_binary(name), do: normalize_name(name)
+  defp command_name(%{name: name}) when is_binary(name), do: normalize_name(name)
+  defp command_name(_command), do: nil
+
+  defp fallback_command_name(name, _fallback) when is_binary(name) and name != "", do: name
+
+  defp fallback_command_name(_name, fallback) when is_binary(fallback),
+    do: normalize_name(fallback)
+
+  defp fallback_command_name(_name, _fallback), do: nil
+
   defp safe_argument_text(event_data) do
     get_in(event_data, ["command_args", "text"]) ||
       get_in(event_data, ["arguments", "text"]) ||
       get_in(event_data, ["command", "args_text"])
+  end
+
+  defp normalize_name(name) do
+    name
+    |> String.trim()
+    |> String.trim_leading("/")
+    |> String.downcase()
   end
 
   defp execute("new", context) do
@@ -132,7 +104,7 @@ defmodule BullX.AIAgent.Commands do
 
       {:ok, fresh} =
         Conversations.find_or_create_active(
-          conversation.agent_principal_id,
+          conversation.agent_uid,
           conversation.conversation_key,
           conversation.metadata
         )

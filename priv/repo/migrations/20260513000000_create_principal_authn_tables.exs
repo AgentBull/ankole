@@ -17,13 +17,17 @@ defmodule BullX.Repo.Migrations.CreatePrincipalAuthnTables do
       "DROP TYPE principal_external_identity_kind"
     )
 
+    execute(
+      "CREATE TYPE agent_type AS ENUM ('ai_agent', 'blackhole')",
+      "DROP TYPE agent_type"
+    )
+
     create table(:principals, primary_key: false) do
       add :id, :uuid, primary_key: true
       add :uid, :text, null: false
       add :type, :principal_type, null: false
       add :status, :principal_status, null: false
       add :display_name, :text
-      add :bio, :text
       add :avatar_url, :text
 
       timestamps(type: :utc_datetime_usec)
@@ -33,8 +37,9 @@ defmodule BullX.Repo.Migrations.CreatePrincipalAuthnTables do
     create constraint(:principals, :principals_uid_lowercase, check: "uid = lower(uid)")
 
     create table(:human_users, primary_key: false) do
-      add :principal_id, references(:principals, type: :uuid, on_delete: :delete_all),
-        primary_key: true
+      add :principal_uid,
+          references(:principals, column: :uid, type: :text, on_delete: :delete_all),
+          primary_key: true
 
       add :email, :text
       add :phone, :text
@@ -46,22 +51,28 @@ defmodule BullX.Repo.Migrations.CreatePrincipalAuthnTables do
     create unique_index(:human_users, [:phone], where: "phone IS NOT NULL")
 
     create table(:agents, primary_key: false) do
-      add :principal_id, references(:principals, type: :uuid, on_delete: :delete_all),
+      add :uid, references(:principals, column: :uid, type: :text, on_delete: :delete_all),
         primary_key: true
 
+      add :type, :agent_type, null: false, default: "ai_agent"
       add :profile, :map, null: false, default: %{}
 
-      add :created_by_principal_id, references(:principals, type: :uuid, on_delete: :nilify_all)
+      add :created_by_principal_uid,
+          references(:principals, column: :uid, type: :text, on_delete: :nilify_all)
 
       timestamps(type: :utc_datetime_usec)
     end
 
-    create index(:agents, [:created_by_principal_id])
+    create index(:agents, [:created_by_principal_uid])
     create constraint(:agents, :agents_profile_object, check: "jsonb_typeof(profile) = 'object'")
 
     create table(:principal_external_identities, primary_key: false) do
       add :id, :uuid, primary_key: true
-      add :principal_id, references(:principals, type: :uuid, on_delete: :delete_all), null: false
+
+      add :principal_uid,
+          references(:principals, column: :uid, type: :text, on_delete: :delete_all),
+          null: false
+
       add :kind, :principal_external_identity_kind, null: false
       add :provider, :text
       add :adapter, :text
@@ -73,7 +84,7 @@ defmodule BullX.Repo.Migrations.CreatePrincipalAuthnTables do
       timestamps(type: :utc_datetime_usec)
     end
 
-    create index(:principal_external_identities, [:principal_id])
+    create index(:principal_external_identities, [:principal_uid])
 
     create unique_index(
              :principal_external_identities,
@@ -119,14 +130,18 @@ defmodule BullX.Repo.Migrations.CreatePrincipalAuthnTables do
     create table(:principal_login_auth_codes, primary_key: false) do
       add :id, :uuid, primary_key: true
       add :code_hash, :text, null: false
-      add :principal_id, references(:principals, type: :uuid, on_delete: :delete_all), null: false
+
+      add :principal_uid,
+          references(:principals, column: :uid, type: :text, on_delete: :delete_all),
+          null: false
+
       add :metadata, :map, null: false, default: %{}
 
       timestamps(type: :utc_datetime_usec)
     end
 
     create unique_index(:principal_login_auth_codes, [:code_hash])
-    create index(:principal_login_auth_codes, [:principal_id])
+    create index(:principal_login_auth_codes, [:principal_uid])
     create index(:principal_login_auth_codes, [:inserted_at])
 
     create constraint(

@@ -59,7 +59,7 @@ defmodule BullX.AIAgent.AmbientBatchWorker do
     # log the latter so non-intervention stays quiet.
     with %Conversation{ended_at: nil} = conversation <-
            Repo.get(Conversation, meta["ambient_conversation_id"]),
-         %Agent{profile: raw_profile} <- Repo.get(Agent, meta["agent_principal_id"]),
+         %Agent{profile: raw_profile} <- Repo.get(Agent, meta["agent_uid"]),
          {:ok, profile} <- Profile.cast(raw_profile),
          :may_intervene <- profile.unmentioned_group_messages,
          {:intervene, recognizer} <- recognizer_decision(profile, conversation, meta, items),
@@ -70,8 +70,8 @@ defmodule BullX.AIAgent.AmbientBatchWorker do
            Runner.run(conversation, message, profile, %{
              trigger_type: "ambient_batch",
              trigger_id: idempotency_key,
-             caller_principal_id: meta["agent_principal_id"],
-             agent_principal_id: meta["agent_principal_id"],
+             caller_principal_uid: meta["agent_uid"],
+             agent_uid: meta["agent_uid"],
              reply_address: meta["reply_address"],
              acl_context: %{trigger_type: "ambient_batch"}
            }) do
@@ -163,7 +163,7 @@ defmodule BullX.AIAgent.AmbientBatchWorker do
 
     ambient_recall =
       BullX.AIAgent.MessageContextBuilder.ambient_recall(
-        conversation.agent_principal_id,
+        conversation.agent_uid,
         scene,
         nil
       )
@@ -219,7 +219,7 @@ defmodule BullX.AIAgent.AmbientBatchWorker do
     conversation_ids =
       Message
       |> join(:inner, [m], c in Conversation, on: c.id == m.conversation_id)
-      |> where([m, c], c.agent_principal_id == ^conversation.agent_principal_id)
+      |> where([m, c], c.agent_uid == ^conversation.agent_uid)
       |> where([m, c], fragment("?->'conversation_key_parts'->>'lane' = 'addressed'", c.metadata))
       |> where([m], m.role == :user and m.kind == :normal)
       |> where([m], fragment("?->'scene'->>'scene_key' = ?", m.metadata, ^scene_key))

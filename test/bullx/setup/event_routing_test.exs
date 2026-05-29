@@ -7,6 +7,23 @@ defmodule BullX.Setup.EventRoutingTest do
   alias BullX.Setup.{AIAgents, EventRouting}
 
   @sources_key "bullx.plugins.feishu.im_gateway_sources"
+  @setup_match_expr [
+                      "(",
+                      ~s(type == "bullx.message.received"),
+                      " || ",
+                      ~s(type == "bullx.message.edited"),
+                      " || ",
+                      ~s(type == "bullx.message.recalled"),
+                      " || ",
+                      ~s(type == "bullx.message.deleted"),
+                      " || ",
+                      ~s(type == "bullx.command.invoked"),
+                      ") && ",
+                      ~s(channel.adapter == "feishu"),
+                      " && ",
+                      ~s(channel.id == "main")
+                    ]
+                    |> IO.iodata_to_binary()
 
   setup do
     ReqLLM.Providers.initialize()
@@ -53,30 +70,34 @@ defmodule BullX.Setup.EventRoutingTest do
   end
 
   test "save creates one source-scoped MailBox delivery rule for the setup AIAgent" do
-    agent_id = setup_agent_id()
+    agent_uid = setup_agent_uid()
 
-    assert {:ok, %{rule: rule}} = EventRouting.save(%{agent_principal_id: agent_id})
+    assert {:ok, %{rule: rule}} = EventRouting.save(%{agent_uid: agent_uid})
 
     assert rule.name == "setup.default.feishu.main.channel"
 
-    assert rule.match_expr ==
-             "type.startsWith(\"bullx.im.message.\") && channel.adapter == \"feishu\" && channel.id == \"main\""
+    assert rule.match_expr == @setup_match_expr
 
-    assert rule.target_type == "ai_agent"
-    assert rule.target_ref == agent_id
-    assert rule.receiver_type == "ai_agent"
-    assert rule.receiver_ref == agent_id
+    assert rule.target_type == "agent"
+    assert rule.target_ref == agent_uid
+    assert rule.agent_uid == agent_uid
     assert rule.attention == "addressed"
     assert Repo.aggregate(DeliveryRule, :count) == 1
 
-    assert_setup_rule_matches("bullx.im.message.received", agent_id)
+    assert_setup_rule_matches("bullx.message.received", agent_uid)
+    assert_setup_rule_matches("bullx.message.edited", agent_uid)
+    assert_setup_rule_matches("bullx.message.recalled", agent_uid)
+    assert_setup_rule_matches("bullx.message.deleted", agent_uid)
+    assert_setup_rule_matches("bullx.command.invoked", agent_uid)
     refute_setup_rule_matches("bullx.action.submitted")
+    refute_setup_rule_matches("bullx.agent.abort")
+    refute_setup_rule_matches("bullx.reaction.changed")
   end
 
   test "status projects the pending setup route without leaking raw runtime internals" do
-    agent_id = setup_agent_id()
+    agent_uid = setup_agent_uid()
 
-    status = EventRouting.status(%{agent_principal_id: agent_id})
+    status = EventRouting.status(%{agent_uid: agent_uid})
 
     refute status.complete?
     assert status.state == "missing"
@@ -85,19 +106,19 @@ defmodule BullX.Setup.EventRoutingTest do
     assert status.source.source_id == "main"
     assert status.source.runtime.ready == true
     refute Map.has_key?(status.source, :setup_module)
-    assert status.target.principal_id == agent_id
+    assert status.target.principal_uid == agent_uid
     assert status.expected_rule.name == "setup.default.feishu.main.channel"
-    assert status.expected_rule.target_type == "ai_agent"
-    assert status.expected_rule.target_ref == agent_id
+    assert status.expected_rule.target_type == "agent"
+    assert status.expected_rule.target_ref == agent_uid
     assert {:ok, _json} = Jason.encode(status)
   end
 
   test "status reports a live route after save" do
-    agent_id = setup_agent_id()
+    agent_uid = setup_agent_uid()
 
-    assert {:ok, %{rule: rule}} = EventRouting.save(%{agent_principal_id: agent_id})
+    assert {:ok, %{rule: rule}} = EventRouting.save(%{agent_uid: agent_uid})
 
-    status = EventRouting.status(%{agent_principal_id: agent_id})
+    status = EventRouting.status(%{agent_uid: agent_uid})
 
     assert status.complete?
     assert status.state == "live"
@@ -106,58 +127,65 @@ defmodule BullX.Setup.EventRoutingTest do
     assert status.conflict_rule == nil
   end
 
-  test "save updates the existing MailBox delivery rule instead of adding another rule" do
-    agent_id = setup_agent_id()
+  test "save updates the legacy IM MailBox delivery rule instead of adding another rule" do
+    agent_uid = setup_agent_uid()
 
     existing =
       %DeliveryRule{}
       |> DeliveryRule.changeset(%{
         name: "setup.default.feishu.main.channel",
         priority: 1000,
-        match_expr: ~s(type == "bullx.im.message.received"),
-        receiver_type: "blackhole",
-        receiver_ref: "old",
+        match_expr:
+          ~S|type.startsWith("bullx.im.message.") && channel.adapter == "feishu" && channel.id == "main"|,
+        agent_uid: blackhole_agent!("old-route"),
         attention: :ambient,
         available_delay_ms: 0,
         metadata: %{}
       })
       |> Repo.insert!()
 
-    assert {:ok, %{rule: rule}} = EventRouting.save(%{agent_principal_id: agent_id})
+    assert {:ok, %{rule: rule}} = EventRouting.save(%{agent_uid: agent_uid})
 
     assert rule.id == existing.id
     assert rule.name == "setup.default.feishu.main.channel"
     assert rule.priority == 1000
 
-    assert rule.match_expr ==
-             "type.startsWith(\"bullx.im.message.\") && channel.adapter == \"feishu\" && channel.id == \"main\""
+    assert rule.match_expr == @setup_match_expr
 
-    assert rule.receiver_type == "ai_agent"
-    assert rule.receiver_ref == agent_id
+    assert rule.agent_uid == agent_uid
     assert rule.attention == "addressed"
     assert Repo.aggregate(DeliveryRule, :count) == 1
   end
 
-  defp setup_agent_id do
-    assert {:ok, %{agent: %{principal_id: agent_id}}} =
+  defp setup_agent_uid do
+    assert {:ok, %{agent: %{principal_uid: agent_uid}}} =
              AIAgents.save(%{
                "main_llm" => %{"provider_id" => "openai_proxy", "model" => "gpt-test"},
                "display_name" => "BullX Agent",
                "mission" => "Handle setup-routed messages."
              })
 
-    agent_id
+    agent_uid
   end
 
-  defp assert_setup_rule_matches(type, agent_id, routing_facts \\ %{}) do
+  defp assert_setup_rule_matches(type, agent_uid, routing_facts \\ %{}) do
     rule = Repo.get_by!(DeliveryRule, name: "setup.default.feishu.main.channel")
 
     assert {:ok, {:matched, _rule_id, _diagnostics}} =
              Matcher.match([rule], routing_context(type, routing_facts))
 
     assert rule.name == "setup.default.feishu.main.channel"
-    assert rule.receiver_type == "ai_agent"
-    assert rule.receiver_ref == agent_id
+    assert rule.agent_uid == agent_uid
+  end
+
+  defp blackhole_agent!(uid) do
+    {:ok, %{principal: principal}} =
+      BullX.Principals.create_agent(%{
+        principal: %{uid: "blackhole-#{uid}", display_name: "Blackhole #{uid}"},
+        agent: %{type: :blackhole, profile: %{}}
+      })
+
+    principal.uid
   end
 
   defp refute_setup_rule_matches(type, routing_facts \\ %{}) do

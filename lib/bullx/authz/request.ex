@@ -11,27 +11,27 @@ defmodule BullX.AuthZ.Request do
 
   @resource_glob_metacharacters ~r/[\*\?\[\]\{\}]/
 
-  @enforce_keys [:principal_id, :resource, :action, :context]
-  defstruct [:principal_id, :resource, :action, :context, :principal]
+  @enforce_keys [:principal_uid, :resource, :action, :context]
+  defstruct [:principal_uid, :resource, :action, :context, :principal]
 
   @type t :: %__MODULE__{
-          principal_id: Ecto.UUID.t(),
+          principal_uid: String.t(),
           resource: String.t(),
           action: String.t(),
           context: map(),
           principal: Principal.t() | nil
         }
 
-  @spec build(Principal.t() | Ecto.UUID.t() | nil, String.t(), String.t(), term()) ::
+  @spec build(Principal.t() | String.t() | nil, String.t(), String.t(), term()) ::
           {:ok, t()} | {:error, :invalid_request}
   def build(principal, resource, action, context) do
-    with {:ok, principal_id} <- normalize_principal(principal),
+    with {:ok, principal_uid} <- normalize_principal(principal),
          {:ok, resource} <- normalize_resource(resource),
          {:ok, action} <- normalize_action(action),
          {:ok, context} <- normalize_context(context) do
       {:ok,
        %__MODULE__{
-         principal_id: principal_id,
+         principal_uid: principal_uid,
          resource: resource,
          action: action,
          context: context
@@ -41,7 +41,7 @@ defmodule BullX.AuthZ.Request do
 
   @spec with_principal(t(), Principal.t()) :: t()
   def with_principal(%__MODULE__{} = request, %Principal{} = principal) do
-    %__MODULE__{request | principal_id: principal.id, principal: principal}
+    %__MODULE__{request | principal_uid: principal.uid, principal: principal}
   end
 
   @spec split_permission_key(String.t()) ::
@@ -71,12 +71,12 @@ defmodule BullX.AuthZ.Request do
     end
   end
 
-  defp normalize_principal(%Principal{id: id}), do: normalize_principal(id)
+  defp normalize_principal(%Principal{uid: uid}), do: normalize_principal(uid)
 
-  defp normalize_principal(id) when is_binary(id) do
-    case Ecto.UUID.cast(id) do
-      {:ok, uuid} -> {:ok, uuid}
-      :error -> {:error, :invalid_request}
+  defp normalize_principal(uid) when is_binary(uid) do
+    case String.trim(uid) do
+      "" -> {:error, :invalid_request}
+      trimmed -> {:ok, trimmed}
     end
   end
 

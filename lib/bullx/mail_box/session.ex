@@ -5,7 +5,8 @@ defmodule BullX.MailBox.Session do
 
   import Ecto.Changeset
 
-  alias BullX.MailBox.{Entry, Mailbox}
+  alias BullX.MailBox.Entry
+  alias BullX.Principals.Agent
 
   @primary_key {:id, BullX.Ecto.UUIDv7, autogenerate: true}
   @foreign_key_type :binary_id
@@ -16,7 +17,7 @@ defmodule BullX.MailBox.Session do
   @type t :: %__MODULE__{}
 
   schema "mailbox_sessions" do
-    belongs_to :mailbox, Mailbox
+    belongs_to :agent, Agent, foreign_key: :agent_uid, references: :uid, type: :string
 
     field :session_key, :string
     field :status, Ecto.Enum, values: @statuses, default: :active
@@ -35,7 +36,7 @@ defmodule BullX.MailBox.Session do
   def changeset(session, attrs) when is_map(attrs) do
     session
     |> cast(attrs, [
-      :mailbox_id,
+      :agent_uid,
       :session_key,
       :status,
       :last_entry_at,
@@ -44,11 +45,11 @@ defmodule BullX.MailBox.Session do
       :closed_at,
       :metadata
     ])
-    |> validate_required([:mailbox_id, :session_key, :status, :last_entry_at, :metadata])
+    |> validate_required([:agent_uid, :session_key, :status, :last_entry_at, :metadata])
     |> validate_non_empty(:session_key)
     |> validate_json_object(:metadata)
-    |> foreign_key_constraint(:mailbox_id)
-    |> unique_constraint([:mailbox_id, :session_key])
+    |> foreign_key_constraint(:agent_uid)
+    |> unique_constraint([:agent_uid, :session_key])
     |> check_constraint(:session_key, name: :mailbox_sessions_session_key_present)
     |> check_constraint(:metadata, name: :mailbox_sessions_metadata_object)
   end

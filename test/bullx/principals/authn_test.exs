@@ -82,7 +82,7 @@ defmodule BullX.Principals.AuthNTest do
              )
 
     assert identity.kind == :channel_actor
-    assert identity.principal_id == principal.id
+    assert identity.principal_uid == principal.uid
     refute Principals.channel_identity_verified?(identity)
 
     assert {:error, :identity_unverified} =
@@ -104,8 +104,8 @@ defmodule BullX.Principals.AuthNTest do
                channel_input("chat", "workplace", "user_disabled_fact", %{})
              )
 
-    assert disabled.id == principal.id
-    assert identity.principal_id == principal.id
+    assert disabled.uid == principal.uid
+    assert identity.principal_uid == principal.uid
   end
 
   test "trusted channel actors are verified when created" do
@@ -149,7 +149,7 @@ defmodule BullX.Principals.AuthNTest do
     assert {:ok, %Principal{type: :human} = principal, %ExternalIdentity{} = identity} =
              Principals.root_init_with_bootstrap_code(plaintext, input)
 
-    assert identity.principal_id == principal.id
+    assert identity.principal_uid == principal.uid
     assert Principals.channel_identity_verified?(identity)
 
     assert {:ok, groups} = AuthZ.list_principal_groups(principal)
@@ -262,7 +262,7 @@ defmodule BullX.Principals.AuthNTest do
   defp insert_channel_identity!(principal, adapter, channel_id, external_id) do
     %ExternalIdentity{}
     |> ExternalIdentity.changeset(%{
-      principal_id: principal.id,
+      principal_uid: principal.uid,
       kind: :channel_actor,
       adapter: adapter,
       channel_id: channel_id,

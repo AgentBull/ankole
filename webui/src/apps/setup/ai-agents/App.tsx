@@ -32,10 +32,9 @@ type LLMConfig = {
 
 type AgentForm = {
   agent: {
-    agent_principal_id?: string
+    agent_uid?: string
     uid: string
     display_name: string
-    bio?: string
     main_llm: LLMConfig
     compression_llm: LLMConfig
     heavy_llm: LLMConfig
@@ -92,10 +91,9 @@ export default function SetupAIAgentsApp({
   const { register, handleSubmit, watch, setValue } = useHookForm<AgentForm>({
     defaultValues: {
       agent: {
-        agent_principal_id: selected_agent?.principal_id || "",
+        agent_uid: selected_agent?.principal_uid || "",
         uid: selected_agent?.uid || "",
         display_name: selected_agent?.display_name || "BullX Agent",
-        bio: selected_agent?.bio || "",
         main_llm: mainLLM,
         compression_llm: defaultLLM(profile.compression_llm, "low", provider_models),
         heavy_llm: defaultLLM(profile.heavy_llm, "high", provider_models),
@@ -142,7 +140,7 @@ export default function SetupAIAgentsApp({
           id="setup-agent-form"
           className="flex flex-col gap-5"
           onSubmit={handleSubmit(data => submitInertia(form_action, normalizeSubmit(data)))}>
-          <input type="hidden" {...register("agent.agent_principal_id")} />
+          <input type="hidden" {...register("agent.agent_uid")} />
           <FieldGrid>
             <Field>
               <FieldLabel>{t("setup.ai_agents.bot_username_label")}</FieldLabel>
@@ -153,7 +151,6 @@ export default function SetupAIAgentsApp({
               <FieldError />
             </Field>
             <TextField label={t("setup.ai_agents.display_name_label")} {...register("agent.display_name")} />
-            <TextField label={t("setup.ai_agents.bio_label")} {...register("agent.bio")} />
           </FieldGrid>
 
           <LLMConfigFields

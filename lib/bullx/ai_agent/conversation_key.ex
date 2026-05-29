@@ -15,9 +15,9 @@ defmodule BullX.AIAgent.ConversationKey do
   @type result :: {:ok, String.t(), map()} | {:error, term()}
 
   @spec build(Profile.t(), String.t(), lane(), map()) :: result()
-  def build(%Profile{} = profile, agent_principal_id, lane, event_data)
-      when is_binary(agent_principal_id) and lane in [:addressed, :ambient] and is_map(event_data) do
-    with {:ok, parts} <- key_parts(profile, agent_principal_id, lane, event_data),
+  def build(%Profile{} = profile, agent_uid, lane, event_data)
+      when is_binary(agent_uid) and lane in [:addressed, :ambient] and is_map(event_data) do
+    with {:ok, parts} <- key_parts(profile, agent_uid, lane, event_data),
          :ok <- reject_nul(parts),
          serialized <- serialize(parts),
          hash <- BullX.Ext.generic_hash(serialized) do
@@ -25,37 +25,29 @@ defmodule BullX.AIAgent.ConversationKey do
     end
   end
 
-  def build(_profile, _agent_principal_id, _lane, _event_data), do: {:error, :invalid_key_input}
+  def build(_profile, _agent_uid, _lane, _event_data), do: {:error, :invalid_key_input}
 
   @spec scene_identity(map()) :: map()
   def scene_identity(event_data) when is_map(event_data) do
-    channel = map_value(event_data, "channel")
-    scope = map_value(event_data, "scope")
-
-    %{
-      "channel_adapter" => string_value(channel, "adapter"),
-      "channel_id" => string_value(channel, "id"),
-      "channel_kind" => string_value(channel, "kind"),
-      "scope_id" => string_value(scope, "id"),
-      "thread_id" => string_value(scope, "thread_id")
-    }
+    event_data
+    |> scene_parts()
+    |> Map.take(["channel_adapter", "channel_id", "channel_kind", "scope_id", "thread_id"])
   end
 
-  defp key_parts(profile, agent_principal_id, lane, event_data) do
-    channel = map_value(event_data, "channel")
-    scope = map_value(event_data, "scope")
-    actor = map_value(event_data, "actor")
+  defp key_parts(profile, agent_uid, lane, event_data) do
+    scene = scene_parts(event_data)
+    actor = actor_parts(event_data)
     isolation = resolved_isolation(profile, lane)
     actor_part = actor_part(actor, lane, isolation)
 
     parts = %{
       lane: Atom.to_string(lane),
-      agent_principal_id: agent_principal_id,
-      channel_adapter: string_value(channel, "adapter"),
-      channel_id: string_value(channel, "id"),
-      channel_kind: string_value(channel, "kind"),
-      scope_id: string_value(scope, "id"),
-      thread_id: string_value(scope, "thread_id"),
+      agent_uid: agent_uid,
+      channel_adapter: scene["channel_adapter"],
+      channel_id: scene["channel_id"],
+      channel_kind: scene["channel_kind"],
+      scope_id: scene["scope_id"],
+      thread_id: scene["thread_id"],
       resolved_isolation: Atom.to_string(isolation),
       actor_external_account_id: actor_part
     }
@@ -71,11 +63,60 @@ defmodule BullX.AIAgent.ConversationKey do
 
   defp actor_part(_actor, :ambient, _isolation), do: ""
   defp actor_part(_actor, :addressed, :scene), do: ""
-  defp actor_part(actor, :addressed, :actor), do: string_value(actor, "external_account_id")
+  defp actor_part(actor, :addressed, :actor), do: Map.get(actor, "external_account_id", "")
+
+  defp scene_parts(event_data) do
+    context = map_value(event_data, "conversation_context")
+    scene = map_value(context, "scene")
+
+    case scene_present?(scene) do
+      true ->
+        %{
+          "channel_adapter" => string_value(scene, "channel_adapter"),
+          "channel_id" => string_value(scene, "channel_id"),
+          "channel_kind" => string_value(scene, "channel_kind"),
+          "scope_id" => string_value(scene, "scope_id"),
+          "thread_id" => string_value(scene, "thread_id")
+        }
+
+      false ->
+        legacy_scene_parts(event_data)
+    end
+  end
+
+  defp legacy_scene_parts(event_data) do
+    channel = map_value(event_data, "channel")
+    scope = map_value(event_data, "scope")
+
+    %{
+      "channel_adapter" => string_value(channel, "adapter"),
+      "channel_id" => string_value(channel, "id"),
+      "channel_kind" => string_value(channel, "kind"),
+      "scope_id" => string_value(scope, "id"),
+      "thread_id" => string_value(scope, "thread_id")
+    }
+  end
+
+  defp actor_parts(event_data) do
+    context = map_value(event_data, "conversation_context")
+    actor = map_value(context, "actor")
+
+    case string_value(actor, "external_account_id") do
+      "" ->
+        event_data
+        |> map_value("actor")
+        |> then(&%{"external_account_id" => string_value(&1, "external_account_id")})
+
+      external_account_id ->
+        %{"external_account_id" => external_account_id}
+    end
+  end
+
+  defp scene_present?(scene), do: string_value(scene, "channel_adapter") != ""
 
   defp required_present?(%{
          lane: lane,
-         agent_principal_id: agent_principal_id,
+         agent_uid: agent_uid,
          channel_adapter: channel_adapter,
          channel_id: channel_id,
          scope_id: scope_id,
@@ -85,7 +126,7 @@ defmodule BullX.AIAgent.ConversationKey do
     Enum.all?(
       [
         lane,
-        agent_principal_id,
+        agent_uid,
         channel_adapter,
         channel_id,
         scope_id,
@@ -97,19 +138,19 @@ defmodule BullX.AIAgent.ConversationKey do
 
   defp required_present?(%{
          lane: lane,
-         agent_principal_id: agent_principal_id,
+         agent_uid: agent_uid,
          channel_adapter: channel_adapter,
          channel_id: channel_id,
          scope_id: scope_id
        }) do
-    Enum.all?([lane, agent_principal_id, channel_adapter, channel_id, scope_id], &(&1 != ""))
+    Enum.all?([lane, agent_uid, channel_adapter, channel_id, scope_id], &(&1 != ""))
   end
 
   defp serialize(parts) do
     [
       @prefix,
       encode_part(parts.lane),
-      encode_part(parts.agent_principal_id),
+      encode_part(parts.agent_uid),
       encode_part(parts.channel_adapter),
       encode_part(parts.channel_id),
       encode_part(parts.channel_kind),

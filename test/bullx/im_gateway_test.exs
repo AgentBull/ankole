@@ -11,11 +11,11 @@ defmodule BullX.IMGatewayTest do
   alias BullX.Principals.Principal
   alias BullX.Repo
 
-  test "accept_cloud_event stores an IM message, creates human Principal, and routes mailbox entry" do
+  test "accept_message_event stores an IM message, creates human Principal, and routes mailbox entry" do
     insert_delivery_rule!("im received", :ambient)
 
     assert {:ok, %{message: %Message{} = message}} =
-             IMGateway.accept_cloud_event(im_cloud_event("evt-1", "om_1", "hello"))
+             IMGateway.accept_message_event(im_message_event("evt-1", "om_1", "hello"))
 
     message = Repo.preload(message, [:actor_principal, :actor_external_identity, :room])
 
@@ -33,11 +33,28 @@ defmodule BullX.IMGatewayTest do
     assert message.room.source_id == "main"
     assert message.room.provider_room_id == "chat_1"
 
-    entry = Repo.one!(Entry) |> Repo.preload([:mailbox, :session])
+    entry = Repo.one!(Entry) |> Repo.preload([:agent, :session])
     assert entry.attention == :ambient
-    assert entry.cloud_event["type"] == "bullx.im.message.received"
-    assert entry.cloud_event["data"]["im_message_id"] == message.id
-    assert entry.mailbox.receiver_type == "blackhole"
+    assert entry.cloud_event["type"] == "bullx.message.received"
+
+    assert entry.cloud_event["data"]["source_fact"] == %{
+             "gateway" => "im_gateway",
+             "kind" => "im_message",
+             "id" => message.id,
+             "room_id" => message.room_id,
+             "event_type" => "bullx.message.received"
+           }
+
+    assert get_in(entry.cloud_event, ["data", "conversation_context", "scene"]) == %{
+             "kind" => "im",
+             "channel_adapter" => "feishu",
+             "channel_id" => "main",
+             "channel_kind" => "group",
+             "scope_id" => "chat_1",
+             "thread_id" => ""
+           }
+
+    assert entry.agent.type == :blackhole
   end
 
   test "mailbox runtime tables are unlogged" do
@@ -57,8 +74,8 @@ defmodule BullX.IMGatewayTest do
     insert_delivery_rule!("im received", :addressed)
 
     assert {:ok, %{message: %Message{} = message, mailbox: :skipped_unverified_actor}} =
-             IMGateway.accept_cloud_event(
-               im_cloud_event("evt-unverified", "om_unverified", "hello", false)
+             IMGateway.accept_message_event(
+               im_message_event("evt-unverified", "om_unverified", "hello", false)
              )
 
     message = Repo.preload(message, :actor_external_identity)
@@ -71,13 +88,13 @@ defmodule BullX.IMGatewayTest do
     insert_delivery_rule!("im received", :ambient)
 
     assert {:ok, %{message: %Message{} = message, mailbox: _mailbox}} =
-             IMGateway.accept_cloud_event(
-               im_cloud_event(
+             IMGateway.accept_message_event(
+               im_message_event(
                  "evt-unverified-ambient",
                  "om_unverified_ambient",
                  "background",
                  false,
-                 "bullx.im.message.ambient"
+                 %{"attention_reason" => "unaddressed", "im_listen_mode" => "all_messages"}
                )
              )
 
@@ -85,6 +102,42 @@ defmodule BullX.IMGatewayTest do
 
     refute BullX.Principals.channel_identity_verified?(message.actor_external_identity)
     assert Repo.aggregate(Entry, :count) == 1
+  end
+
+  test "message edit facts route as source-neutral lifecycle mail" do
+    insert_delivery_rule!("message edit", :addressed, ~s(type == "bullx.message.edited"))
+
+    event =
+      "evt-edit"
+      |> im_message_event("om_edit", "edited")
+      |> Map.put("type", "bullx.message.edited")
+
+    assert {:ok, %{message: %Message{} = message, mailbox: [_result]}} =
+             IMGateway.accept_message_event(event)
+
+    assert message.status == :edited
+
+    entry = Repo.one!(Entry)
+    assert entry.cloud_event["type"] == "bullx.message.edited"
+    assert get_in(entry.cloud_event, ["data", "source_fact", "revision", "action"]) == "edited"
+  end
+
+  test "message delete facts route as source-neutral lifecycle mail" do
+    insert_delivery_rule!("message delete", :addressed, ~s(type == "bullx.message.deleted"))
+
+    event =
+      "evt-delete"
+      |> im_message_event("om_delete", "deleted")
+      |> Map.put("type", "bullx.message.deleted")
+
+    assert {:ok, %{message: %Message{} = message, mailbox: [_result]}} =
+             IMGateway.accept_message_event(event)
+
+    assert message.status == :deleted
+
+    entry = Repo.one!(Entry)
+    assert entry.cloud_event["type"] == "bullx.message.deleted"
+    assert get_in(entry.cloud_event, ["data", "source_fact", "revision", "action"]) == "deleted"
   end
 
   test "IMGateway to MailBox to AIAgent writes conversation message end to end" do
@@ -102,12 +155,12 @@ defmodule BullX.IMGatewayTest do
         }
       })
 
-    agent_id = agent.id
-    insert_agent_delivery_rule!(agent_id, :ambient)
+    agent_uid = agent.uid
+    insert_agent_delivery_rule!(agent_uid, :ambient)
 
     assert {:ok, %{message: %Message{} = im_message}} =
-             IMGateway.accept_cloud_event(
-               im_cloud_event("evt-agent-1", "om_agent_1", "background")
+             IMGateway.accept_message_event(
+               im_message_event("evt-agent-1", "om_agent_1", "background")
              )
 
     entry = Repo.one!(Entry)
@@ -117,7 +170,7 @@ defmodule BullX.IMGatewayTest do
     assert {:ok, 1} = BullX.MailBox.process_ready(1)
 
     assert %Entry{status: :processed} = Repo.get!(Entry, entry_id)
-    assert %Conversation{agent_principal_id: ^agent_id} = Repo.one!(Conversation)
+    assert %Conversation{agent_uid: ^agent_uid} = Repo.one!(Conversation)
 
     assert %AgentMessage{
              role: :im_ambient,
@@ -128,8 +181,8 @@ defmodule BullX.IMGatewayTest do
              event_id: event_id
            } = Repo.one!(AgentMessage)
 
-    assert event_id == "feishu://main/tenant:evt-agent-1:bullx.im.message.received"
-    assert im_message.actor_principal_id != nil
+    assert event_id == "feishu://main/tenant:evt-agent-1:bullx.message.received"
+    assert im_message.actor_principal_uid != nil
   end
 
   test "Feishu message maps through IMGateway, MailBox, and AIAgent" do
@@ -147,7 +200,7 @@ defmodule BullX.IMGatewayTest do
         }
       })
 
-    insert_agent_delivery_rule!(agent.id, :ambient)
+    insert_agent_delivery_rule!(agent.uid, :ambient)
 
     source = %Feishu.Source{
       id: "main",
@@ -181,13 +234,13 @@ defmodule BullX.IMGatewayTest do
     }
 
     assert {:ok, %{attrs: attrs}} = Feishu.EventMapper.map(event, source)
-    assert {:ok, cloud_event} = BullX.IMGateway.ChannelAdapter.build_cloud_event(attrs)
+    assert {:ok, message_event} = BullX.IMGateway.ChannelAdapter.build_message_event(attrs)
 
     assert {:ok, %{message: %Message{} = im_message}} =
-             IMGateway.accept_cloud_event(cloud_event)
+             IMGateway.accept_message_event(message_event)
 
     assert im_message.provider_message_id == "om_feishu_e2e"
-    assert im_message.actor_principal_id != nil
+    assert im_message.actor_principal_uid != nil
 
     assert {:ok, 1} = BullX.MailBox.process_ready(1)
 
@@ -199,7 +252,7 @@ defmodule BullX.IMGatewayTest do
            } = Repo.one!(AgentMessage)
   end
 
-  test "human im_messages require actor_principal_id" do
+  test "human im_messages require actor_principal_uid" do
     room =
       %BullX.IMGateway.Room{}
       |> BullX.IMGateway.Room.changeset(%{
@@ -228,18 +281,19 @@ defmodule BullX.IMGatewayTest do
              })
              |> Repo.insert()
 
-    assert "is required for human actor" in errors_on(changeset).actor_principal_id
+    assert "is required for human actor" in errors_on(changeset).actor_principal_uid
   end
 
-  defp insert_delivery_rule!(name, attention) do
+  defp insert_delivery_rule!(name, attention, match_expr \\ ~s(type == "bullx.message.received")) do
+    agent_uid = blackhole_agent!("sink-#{name}")
+
     %DeliveryRule{}
     |> DeliveryRule.changeset(%{
       name: name,
       active: true,
       priority: 100,
-      match_expr: ~s(type == "bullx.im.message.received"),
-      receiver_type: "blackhole",
-      receiver_ref: "sink",
+      match_expr: match_expr,
+      agent_uid: agent_uid,
       attention: attention,
       available_delay_ms: 0,
       metadata: %{}
@@ -247,15 +301,14 @@ defmodule BullX.IMGatewayTest do
     |> Repo.insert!()
   end
 
-  defp insert_agent_delivery_rule!(agent_principal_id, attention) do
+  defp insert_agent_delivery_rule!(agent_uid, attention) do
     %DeliveryRule{}
     |> DeliveryRule.changeset(%{
-      name: "im received agent #{agent_principal_id}",
+      name: "im received agent #{agent_uid}",
       active: true,
       priority: 100,
-      match_expr: ~s(type == "bullx.im.message.received"),
-      receiver_type: "ai_agent",
-      receiver_ref: agent_principal_id,
+      match_expr: ~s(type == "bullx.message.received"),
+      agent_uid: agent_uid,
       attention: attention,
       available_delay_ms: 0,
       metadata: %{}
@@ -263,20 +316,28 @@ defmodule BullX.IMGatewayTest do
     |> Repo.insert!()
   end
 
-  defp im_cloud_event(
+  defp blackhole_agent!(uid) do
+    {:ok, %{principal: principal}} =
+      BullX.Principals.create_agent(%{
+        principal: %{uid: "blackhole-#{uid}", display_name: "Blackhole #{uid}"},
+        agent: %{type: :blackhole, profile: %{}}
+      })
+
+    principal.uid
+  end
+
+  defp im_message_event(
          id,
          message_id,
          text,
          trusted_realm_by_default \\ true,
-         type \\ "bullx.im.message.addressed"
+         routing_facts \\ %{"attention_reason" => "dm", "im_listen_mode" => "addressed_only"}
        ) do
     %{
-      "specversion" => "1.0",
       "id" => id,
       "source" => "feishu://main/tenant",
-      "type" => type,
+      "type" => "bullx.message.received",
       "time" => "2026-05-27T00:00:00Z",
-      "datacontenttype" => "application/json",
       "data" => %{
         "content" => [%{"type" => "text", "text" => text}],
         "channel" => %{
@@ -298,7 +359,7 @@ defmodule BullX.IMGatewayTest do
           "scope_id" => "chat_1",
           "reply_to_external_id" => message_id
         },
-        "routing_facts" => %{"chat_type" => "group"},
+        "routing_facts" => Map.put(routing_facts, "chat_type", "group"),
         "raw_ref" => %{"message_id" => message_id}
       }
     }

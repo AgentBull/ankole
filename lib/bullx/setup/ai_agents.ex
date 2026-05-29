@@ -19,7 +19,7 @@ defmodule BullX.Setup.AIAgents do
   @spec status(map()) :: map()
   def status(session \\ %{}) do
     agents = Principals.list_active_agents()
-    selected = select_initial_agent(agents, session[:agent_principal_id])
+    selected = select_initial_agent(agents, session[:agent_uid])
 
     %{
       complete?: selected_complete?(selected),
@@ -37,7 +37,7 @@ defmodule BullX.Setup.AIAgents do
     with {:ok, profile} <- profile_from_attrs(attrs),
          :ok <- resolve_profile_models(profile),
          {:ok, agent} <- create_or_update_agent(attrs, profile, session),
-         :ok <- ensure_agent_acl(agent.principal.id) do
+         :ok <- ensure_agent_acl(agent.principal.uid) do
       {:ok,
        %{
          agent: public_agent(agent),
@@ -58,7 +58,7 @@ defmodule BullX.Setup.AIAgents do
   end
 
   defp select_session_agent(agents, selected_id) when is_binary(selected_id) do
-    Enum.find(agents, &(&1.principal.id == selected_id))
+    Enum.find(agents, &(&1.principal.uid == selected_id))
   end
 
   defp select_session_agent(_agents, _selected_id), do: nil
@@ -77,7 +77,7 @@ defmodule BullX.Setup.AIAgents do
   defp selected_complete?(agent) do
     with {:ok, profile} <- Profile.cast(agent.agent.profile),
          {:ok, _resolved} <- Catalog.resolve_model_config(profile.main_llm),
-         true <- required_agent_acl_grant?(agent.principal.id) do
+         true <- required_agent_acl_grant?(agent.principal.uid) do
       true
     else
       _other -> false
@@ -153,17 +153,16 @@ defmodule BullX.Setup.AIAgents do
   end
 
   defp create_or_update_agent(attrs, profile, session) do
-    selected_id = string_value(attrs, "agent_principal_id", session[:agent_principal_id])
+    selected_id = string_value(attrs, "agent_uid", session[:agent_uid])
 
     principal_attrs = %{
       uid: string_value(attrs, "uid", generated_uid()),
       display_name: string_value(attrs, "display_name", "BullX Agent"),
-      bio: string_value(attrs, "bio", nil),
       avatar_url: string_value(attrs, "avatar_url", nil),
       status: :active
     }
 
-    agent_attrs = %{profile: profile, created_by_principal_id: nil}
+    agent_attrs = %{type: :ai_agent, profile: profile, created_by_principal_uid: nil}
 
     case selected_id do
       id when is_binary(id) and id != "" ->
@@ -177,19 +176,26 @@ defmodule BullX.Setup.AIAgents do
     end
   end
 
-  defp ensure_agent_acl(agent_principal_id) do
-    case AuthZ.upsert_permission_grant(
-           principal_grant(agent_principal_id, agent_principal_id, "invoke")
-         ) do
+  defp ensure_agent_acl(agent_uid) do
+    with {:ok, all_humans, _status} <- AuthZ.ensure_built_in_all_humans_group(),
+         :ok <-
+           upsert_agent_acl_grant(principal_grant(agent_uid, agent_uid, "invoke")),
+         :ok <- upsert_agent_acl_grant(group_grant(all_humans.id, agent_uid, "invoke")) do
+      :ok
+    end
+  end
+
+  defp upsert_agent_acl_grant(attrs) do
+    case AuthZ.upsert_permission_grant(attrs) do
       {:ok, _grant} -> :ok
       {:error, reason} -> {:error, reason}
     end
   end
 
-  defp principal_grant(principal_id, agent_principal_id, action) do
+  defp principal_grant(principal_uid, agent_uid, action) do
     %{
-      principal_id: principal_id,
-      resource_pattern: "ai_agent:#{agent_principal_id}",
+      principal_uid: principal_uid,
+      resource_pattern: "ai_agent:#{agent_uid}",
       action: action,
       condition: "true",
       description: "Setup initial AIAgent self grant.",
@@ -197,16 +203,44 @@ defmodule BullX.Setup.AIAgents do
     }
   end
 
-  defp required_agent_acl_grant?(agent_principal_id) do
-    resource = "ai_agent:#{agent_principal_id}"
-    principal_grant_exists?(agent_principal_id, resource, "invoke")
+  defp group_grant(group_id, agent_uid, action) do
+    %{
+      group_id: group_id,
+      resource_pattern: "ai_agent:#{agent_uid}",
+      action: action,
+      condition: "true",
+      description: "Setup initial AIAgent all humans grant.",
+      metadata: %{
+        "created_by" => "setup",
+        "setup_role" => "initial_ai_agent_acl",
+        "subject" => "all_humans"
+      }
+    }
   end
 
-  defp principal_grant_exists?(principal_id, resource, action) do
+  defp required_agent_acl_grant?(agent_uid) do
+    resource = "ai_agent:#{agent_uid}"
+
+    principal_grant_exists?(agent_uid, resource, "invoke") and
+      group_grant_exists?("all_humans", resource, "invoke")
+  end
+
+  defp principal_grant_exists?(principal_uid, resource, action) do
     Repo.exists?(
       from grant in PermissionGrant,
         where:
-          grant.principal_id == ^principal_id and grant.resource_pattern == ^resource and
+          grant.principal_uid == ^principal_uid and grant.resource_pattern == ^resource and
+            grant.action == ^action and grant.condition == "true",
+        select: 1
+    )
+  end
+
+  defp group_grant_exists?(group_name, resource, action) do
+    Repo.exists?(
+      from grant in PermissionGrant,
+        join: group in assoc(grant, :group),
+        where:
+          group.name == ^group_name and grant.resource_pattern == ^resource and
             grant.action == ^action and grant.condition == "true",
         select: 1
     )
@@ -216,11 +250,11 @@ defmodule BullX.Setup.AIAgents do
 
   defp public_agent(%{principal: principal, agent: agent}) do
     %{
-      principal_id: principal.id,
+      principal_uid: principal.uid,
       uid: principal.uid,
       display_name: principal.display_name,
-      bio: principal.bio,
       avatar_url: principal.avatar_url,
+      type: Atom.to_string(agent.type),
       profile: agent.profile
     }
   end
@@ -239,25 +273,13 @@ defmodule BullX.Setup.AIAgents do
     [
       %{
         subject: "group:all_humans",
-        resource: "ai_agent:#{principal.id}",
+        resource: "ai_agent:#{principal.uid}",
         action: "invoke",
         condition: "true"
       },
       %{
-        subject: "group:admin",
-        resource: "ai_agent:#{principal.id}",
-        action: "invoke",
-        condition: "true"
-      },
-      %{
-        subject: "group:admin",
-        resource: "ai_agent:#{principal.id}",
-        action: "invoke_privileged",
-        condition: "true"
-      },
-      %{
-        subject: "principal:#{principal.id}",
-        resource: "ai_agent:#{principal.id}",
+        subject: "principal:#{principal.uid}",
+        resource: "ai_agent:#{principal.uid}",
         action: "invoke",
         condition: "true"
       }

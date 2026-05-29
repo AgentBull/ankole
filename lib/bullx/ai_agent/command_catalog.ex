@@ -4,7 +4,7 @@ defmodule BullX.AIAgent.CommandCatalog do
 
   Command names that reach AIAgent routing are canonical English ids. Localized
   slash tokens are aliases that adapters normalize before they set
-  `data.routing_facts.command_name`.
+  `data.command.name` and `data.routing_facts.command_name`.
   """
 
   @system_commands [

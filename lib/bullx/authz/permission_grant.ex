@@ -17,7 +17,6 @@ defmodule BullX.AuthZ.PermissionGrant do
   alias BullX.Principals.Principal
 
   @primary_key {:id, BullX.Ecto.UUIDv7, autogenerate: true}
-  @foreign_key_type :binary_id
   @timestamps_opts [type: :utc_datetime_usec]
 
   @type t :: %__MODULE__{}
@@ -29,8 +28,12 @@ defmodule BullX.AuthZ.PermissionGrant do
     field :description, :string
     field :metadata, :map, default: %{}
 
-    belongs_to :principal, Principal
-    belongs_to :group, PrincipalGroup
+    belongs_to :principal, Principal,
+      foreign_key: :principal_uid,
+      references: :uid,
+      type: :string
+
+    belongs_to :group, PrincipalGroup, type: :binary_id
 
     timestamps()
   end
@@ -41,7 +44,7 @@ defmodule BullX.AuthZ.PermissionGrant do
 
     grant
     |> cast(attrs, [
-      :principal_id,
+      :principal_uid,
       :group_id,
       :resource_pattern,
       :action,
@@ -58,9 +61,9 @@ defmodule BullX.AuthZ.PermissionGrant do
     |> validate_action()
     |> assoc_constraint(:principal)
     |> assoc_constraint(:group)
-    |> check_constraint(:principal_id,
+    |> check_constraint(:principal_uid,
       name: :permission_grants_principal_exclusive,
-      message: "exactly one of principal_id or group_id must be set"
+      message: "exactly one of principal_uid or group_id must be set"
     )
     |> check_constraint(:resource_pattern,
       name: :permission_grants_resource_pattern_present,
@@ -129,25 +132,25 @@ defmodule BullX.AuthZ.PermissionGrant do
   end
 
   defp validate_principal_exclusive(changeset) do
-    principal_id = get_field(changeset, :principal_id)
+    principal_uid = get_field(changeset, :principal_uid)
     group_id = get_field(changeset, :group_id)
 
-    case {principal_id, group_id} do
+    case {principal_uid, group_id} do
       {nil, nil} ->
         changeset
-        |> add_error(:principal_id, "or group_id must be set")
-        |> add_error(:group_id, "or principal_id must be set")
+        |> add_error(:principal_uid, "or group_id must be set")
+        |> add_error(:group_id, "or principal_uid must be set")
 
-      {_principal_id, nil} ->
+      {_principal_uid, nil} ->
         changeset
 
       {nil, _group_id} ->
         changeset
 
-      {_principal_id, _group_id} ->
+      {_principal_uid, _group_id} ->
         changeset
-        |> add_error(:principal_id, "must be empty when group_id is set")
-        |> add_error(:group_id, "must be empty when principal_id is set")
+        |> add_error(:principal_uid, "must be empty when group_id is set")
+        |> add_error(:group_id, "must be empty when principal_uid is set")
     end
   end
 

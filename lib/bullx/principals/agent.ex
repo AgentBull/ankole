@@ -14,27 +14,38 @@ defmodule BullX.Principals.Agent do
   alias BullX.Principals.Principal
 
   @primary_key false
-  @foreign_key_type :binary_id
   @timestamps_opts [type: :utc_datetime_usec]
+
+  @types [:ai_agent, :blackhole]
 
   @type t :: %__MODULE__{}
 
   schema "agents" do
-    belongs_to :principal, Principal, primary_key: true
+    belongs_to :principal, Principal,
+      foreign_key: :uid,
+      references: :uid,
+      type: :string,
+      primary_key: true
+
+    field :type, Ecto.Enum, values: @types, default: :ai_agent
     field :profile, :map, default: %{}
-    belongs_to :created_by_principal, Principal
+
+    belongs_to :created_by_principal, Principal,
+      foreign_key: :created_by_principal_uid,
+      references: :uid,
+      type: :string
 
     timestamps()
   end
 
   def changeset(agent, attrs) do
     agent
-    |> cast(attrs, [:principal_id, :profile, :created_by_principal_id])
-    |> validate_required([:principal_id, :profile])
+    |> cast(attrs, [:uid, :type, :profile, :created_by_principal_uid])
+    |> validate_required([:uid, :type, :profile])
     |> validate_map(:profile)
-    |> foreign_key_constraint(:principal_id)
-    |> foreign_key_constraint(:created_by_principal_id)
-    |> unique_constraint(:principal_id, name: :agents_pkey)
+    |> foreign_key_constraint(:uid)
+    |> foreign_key_constraint(:created_by_principal_uid)
+    |> unique_constraint(:uid, name: :agents_pkey)
     |> check_constraint(:profile, name: :agents_profile_object)
   end
 end

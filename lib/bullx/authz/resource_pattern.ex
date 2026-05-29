@@ -26,7 +26,7 @@ defmodule BullX.AuthZ.ResourcePattern do
     }
 
     env = %BullX.AuthZ.CEL.Env{
-      principal: %{"id" => "resource_pattern_match", "type" => "system", "status" => "active"},
+      principal: %{"uid" => "resource_pattern_match", "type" => "system", "status" => "active"},
       action: "match",
       resource: resource,
       context: %{}

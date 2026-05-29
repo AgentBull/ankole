@@ -43,8 +43,8 @@ defmodule BullX.AIAgent.Tools.Dispatcher do
          :ok <- ensure_access_match(access, expected_access),
          :allowed <-
            ACL.authorize(
-             seed.caller_principal_id,
-             seed.agent_principal_id,
+             seed.caller_principal_uid,
+             seed.agent_uid,
              access,
              Map.get(seed, :acl_context, %{})
            ),
@@ -109,8 +109,8 @@ defmodule BullX.AIAgent.Tools.Dispatcher do
            {:ok, _entry, access} <- Tools.effective_tool(profile, tool_name, seed),
            :allowed <-
              ACL.authorize(
-               seed.caller_principal_id,
-               seed.agent_principal_id,
+               seed.caller_principal_uid,
+               seed.agent_uid,
                access,
                Map.get(seed, :acl_context, %{})
              ),

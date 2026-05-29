@@ -31,7 +31,7 @@ type RoutingProjection = {
     runtime?: { ready?: boolean }
   } | null
   target?: {
-    principal_id?: string
+    principal_uid?: string
     uid?: string
     display_name?: string
   } | null
@@ -273,7 +273,7 @@ function sourceLabel(source: RoutingProjection["source"] | undefined) {
 
 function targetLabel(target: RoutingProjection["target"] | undefined) {
   if (!target) return "-"
-  return target.display_name || (target.uid ? `@${target.uid}` : target.principal_id || "-")
+  return target.display_name || (target.uid ? `@${target.uid}` : target.principal_uid || "-")
 }
 
 function targetDisplay(target: RoutingProjection["target"] | undefined) {

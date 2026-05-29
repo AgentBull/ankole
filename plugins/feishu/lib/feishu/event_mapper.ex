@@ -131,9 +131,10 @@ defmodule Feishu.EventMapper do
       {:ok,
        %{
          attrs:
-           attrs(source, env, actor, blocks, "bullx.action.submitted", %{
+           attrs(source, env, actor, blocks, "bullx.message.received", %{
              "action_id" => action_id,
-             "action_actor_open_id" => actor.open_id
+             "action_actor_open_id" => actor.open_id,
+             "attention_reason" => "action"
            }),
          account_input: account_input,
          context: context(env, actor, blocks, account_input)
@@ -146,37 +147,39 @@ defmodule Feishu.EventMapper do
       {:ignore, reason} ->
         {:ignore, reason}
 
-      {:ok, %{name: name} = parsed} when name in ["root_init", "webauth"] ->
-        {:direct_command,
-         Map.merge(parsed, %{
-           event_id: env.event_id,
-           source_id: source.id,
-           chat_id: env.chat_id,
-           chat_type: env.chat_type,
-           thread_id: env.thread_id,
-           message_id: env.message_id,
-           actor: actor,
-           account_input: context.account_input,
-           reply_address: reply_address(source, env)
-         })}
-
       {:ok, %{name: name, args: args} = parsed} ->
-        {:ok,
-         %{
-           attrs:
-             attrs(source, env, actor, blocks, "bullx.command.invoked", %{
-               "command_name" => name,
-               "command_surface" => Map.get(parsed, :surface, "slash_text"),
-               "command_args_kind" => command_args_kind(args),
-               "attention_reason" => command_attention_reason(parsed)
-             }),
-           account_input: context.account_input,
-           context: context
-         }}
+        case BullX.IMGateway.CommandResponses.direct_command?(name) do
+          true ->
+            {:direct_command,
+             Map.merge(parsed, %{
+               event_id: env.event_id,
+               source_id: source.id,
+               chat_id: env.chat_id,
+               chat_type: env.chat_type,
+               thread_id: env.thread_id,
+               message_id: env.message_id,
+               actor: actor,
+               account_input: context.account_input,
+               reply_address: reply_address(source, env)
+             })}
+
+          false ->
+            {:ok,
+             %{
+               attrs:
+                 attrs(source, env, actor, blocks, "bullx.command.invoked", %{
+                   "command_name" => name,
+                   "command_surface" => Map.get(parsed, :surface, "slash_text"),
+                   "command_args_kind" => command_args_kind(args),
+                   "command_args_text" => args,
+                   "attention_reason" => command_attention_reason(parsed)
+                 }),
+               account_input: context.account_input,
+               context: context
+             }}
+        end
 
       :error ->
-        event_type = im_message_event_type(attention)
-
         {:ok,
          %{
            attrs:
@@ -185,7 +188,7 @@ defmodule Feishu.EventMapper do
                env,
                actor,
                blocks,
-               event_type,
+               "bullx.message.received",
                attention_facts(attention, source)
              ),
            account_input: context.account_input,
@@ -236,9 +239,6 @@ defmodule Feishu.EventMapper do
 
   defp listen_admission({:ambient, _reason}, %Source{im_listen_mode: :all_messages}), do: :emit
   defp listen_admission({:ambient, _reason}, _source), do: :ignore
-
-  defp im_message_event_type({:addressed, _reason}), do: "bullx.im.message.addressed"
-  defp im_message_event_type({:ambient, _reason}), do: "bullx.im.message.ambient"
 
   defp attention_facts({_decision, reason}, %Source{} = source) do
     %{
@@ -339,6 +339,7 @@ defmodule Feishu.EventMapper do
         actor: event_actor(actor),
         refs: refs(env),
         reply_address: reply_address(source, env),
+        command: command_data(extra_facts),
         routing_facts: routing_facts(source, env, blocks, extra_facts),
         raw_ref: raw_ref(env)
       }
@@ -505,8 +506,20 @@ defmodule Feishu.EventMapper do
       "im_listen_mode" => Atom.to_string(source.im_listen_mode)
     }
     |> reject_nil_values()
-    |> Map.merge(extra_facts)
+    |> Map.merge(Map.drop(extra_facts, ["command_args_text"]))
   end
+
+  defp command_data(%{"command_name" => name} = facts) do
+    %{
+      name: name,
+      args_text: Map.get(facts, "command_args_text", ""),
+      args_kind: Map.get(facts, "command_args_kind"),
+      surface: Map.get(facts, "command_surface")
+    }
+    |> reject_nil_values()
+  end
+
+  defp command_data(_facts), do: nil
 
   defp command_args_kind(args) when is_binary(args) do
     case String.trim(args) do

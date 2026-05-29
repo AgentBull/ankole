@@ -37,15 +37,15 @@ defmodule BullX.AIAgent.MessageContextBuilder do
   end
 
   @spec ambient_recall(String.t(), map(), Message.t() | nil) :: [map()]
-  def ambient_recall(agent_principal_id, scene, current_message)
-      when is_binary(agent_principal_id) and is_map(scene) do
+  def ambient_recall(agent_uid, scene, current_message)
+      when is_binary(agent_uid) and is_map(scene) do
     import Ecto.Query
 
     scene_key = scene_key(scene)
     previous_assistant = previous_assistant_boundary(current_message)
 
     recent =
-      agent_principal_id
+      agent_uid
       |> ambient_query(scene_key)
       |> maybe_before(current_message)
       |> maybe_after(previous_assistant)
@@ -55,16 +55,16 @@ defmodule BullX.AIAgent.MessageContextBuilder do
       |> Enum.reverse()
 
     recent
-    |> expand_one_hour_window(agent_principal_id, scene_key, current_message)
+    |> expand_one_hour_window(agent_uid, scene_key, current_message)
     |> Enum.map(&ambient_snippet/1)
   end
 
-  defp ambient_query(agent_principal_id, scene_key) do
+  defp ambient_query(agent_uid, scene_key) do
     import Ecto.Query
 
     BullX.AIAgent.Message
     |> join(:inner, [m], c in BullX.AIAgent.Conversation, on: c.id == m.conversation_id)
-    |> where([m, c], c.agent_principal_id == ^agent_principal_id)
+    |> where([m, c], c.agent_uid == ^agent_uid)
     |> where([m], m.role == :im_ambient and m.kind == :normal)
     |> where([m], fragment("?->'scene'->>'scene_key' = ?", m.metadata, ^scene_key))
   end
@@ -83,7 +83,7 @@ defmodule BullX.AIAgent.MessageContextBuilder do
     where(query, [m], m.inserted_at > ^inserted_at)
   end
 
-  defp expand_one_hour_window([], _agent_principal_id, _scene_key, _current_message),
+  defp expand_one_hour_window([], _agent_uid, _scene_key, _current_message),
     do: []
 
   # Two-pass widening: the first pass took the last 10 ambient messages (LIMIT 10
@@ -92,7 +92,7 @@ defmodule BullX.AIAgent.MessageContextBuilder do
   # one-hour conversational neighborhood" rather than "everything in the last hour"
   # — important when the channel is quiet (we still get 10) or noisy (we still get
   # the full conversational burst surrounding those 10).
-  defp expand_one_hour_window(recent, agent_principal_id, scene_key, current_message) do
+  defp expand_one_hour_window(recent, agent_uid, scene_key, current_message) do
     import Ecto.Query
 
     earliest = List.first(recent)
@@ -100,7 +100,7 @@ defmodule BullX.AIAgent.MessageContextBuilder do
     ids = MapSet.new(Enum.map(recent, & &1.id))
 
     expanded =
-      agent_principal_id
+      agent_uid
       |> ambient_query(scene_key)
       |> maybe_before(current_message)
       |> where([m], m.inserted_at >= ^window_start)

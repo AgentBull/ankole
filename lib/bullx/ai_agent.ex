@@ -62,21 +62,21 @@ defmodule BullX.AIAgent do
 
   @spec handle_mailbox_entry(map(), MailboxEntry.t()) :: :ok | {:error, term()}
   def handle_mailbox_entry(
-        %{target_ref: agent_principal_id} = invocation,
+        %{target_ref: agent_uid} = invocation,
         %MailboxEntry{} = entry
       )
-      when is_binary(agent_principal_id) do
+      when is_binary(agent_uid) do
     invocation
     |> Map.put_new(:mailbox_session_id, entry.mailbox_session_id)
     |> handle_event(mailbox_entry_event(entry))
   end
 
-  def handle_event(%{target_ref: agent_principal_id} = invocation, entry)
-      when is_binary(agent_principal_id) and is_map(entry) do
-    with {:ok, principal, agent} <- load_agent(agent_principal_id),
+  def handle_event(%{target_ref: agent_uid} = invocation, entry)
+      when is_binary(agent_uid) and is_map(entry) do
+    with {:ok, principal, agent} <- load_agent(agent_uid),
          {:ok, profile} <- Profile.cast(agent.profile),
          {:ok, event_type, event_data} <- normalize_event(entry),
-         caller_principal_id <- caller_principal_id(entry),
+         caller_principal_uid <- caller_principal_uid(entry),
          :ok <-
            dispatch_event(
              event_type,
@@ -85,13 +85,13 @@ defmodule BullX.AIAgent do
              profile,
              invocation,
              entry,
-             caller_principal_id
+             caller_principal_uid
            ) do
       maybe_close(invocation)
       :ok
     else
       {:safe_ignore, reason} ->
-        emit(:ignored, %{reason: reason, target_ref: agent_principal_id})
+        emit(:ignored, %{reason: reason, target_ref: agent_uid})
         maybe_close(invocation)
         :ok
 
@@ -100,7 +100,7 @@ defmodule BullX.AIAgent do
         :ok
 
       {:error, {:invalid_profile, errors}} ->
-        emit(:profile_invalid, %{errors: errors, target_ref: agent_principal_id})
+        emit(:profile_invalid, %{errors: errors, target_ref: agent_uid})
         safe_fail(invocation, :invalid_ai_agent_profile)
         :ok
 
@@ -112,10 +112,14 @@ defmodule BullX.AIAgent do
   def handle_event(%{target_ref: target_ref}, _entry),
     do: {:error, {:invalid_ai_agent_target_ref, target_ref}}
 
-  defp load_agent(agent_principal_id) do
-    case Repo.get(Principal, agent_principal_id) |> Repo.preload(:agent) do
-      %Principal{type: :agent, status: :active, agent: %Agent{} = agent} = principal ->
+  defp load_agent(agent_uid) do
+    case Repo.get_by(Principal, uid: agent_uid) |> Repo.preload(:agent) do
+      %Principal{type: :agent, status: :active, agent: %Agent{type: :ai_agent} = agent} =
+          principal ->
         {:ok, principal, agent}
+
+      %Principal{type: :agent, status: :active, agent: %Agent{} = agent} ->
+        {:safe_fail, {:unsupported_agent_type, agent.type}}
 
       %Principal{type: :agent, status: :disabled} ->
         {:safe_fail, :agent_principal_disabled}
@@ -138,11 +142,12 @@ defmodule BullX.AIAgent do
   defp normalize_event(_entry), do: {:safe_ignore, :missing_cloud_event}
 
   defp mailbox_entry_event(%MailboxEntry{} = entry) do
-    cloud_event = mailbox_cloud_event(entry)
+    cloud_event = entry.cloud_event || %{}
 
     %{
       id: entry.id,
       entry_seq: entry.entry_seq || 0,
+      attention: entry.attention,
       cloud_event: cloud_event,
       routing_context: BullX.MailBox.RoutingContext.project(cloud_event),
       event_source: cloud_event["source"],
@@ -151,83 +156,32 @@ defmodule BullX.AIAgent do
     }
   end
 
-  defp mailbox_cloud_event(
-         %MailboxEntry{cloud_event: %{"type" => "bullx.im.message.received"} = event} = entry
+  defp dispatch_event(
+         "bullx.message.received",
+         event_data,
+         principal,
+         profile,
+         invocation,
+         entry,
+         caller_principal_uid
        ) do
-    event
-    |> Map.put("type", mailbox_received_event_type(entry.attention))
-    |> Map.put("data", im_event_data(event))
-  end
+    case mailbox_attention(entry) do
+      :ambient ->
+        handle_ambient(event_data, principal, profile, invocation, entry, caller_principal_uid)
 
-  defp mailbox_cloud_event(%MailboxEntry{
-         cloud_event: %{"type" => "bullx.im.message.edited"} = event
-       }) do
-    event
-    |> Map.put("type", "bullx.message.edited")
-    |> Map.put("data", im_event_data(event))
-  end
+      :addressed ->
+        handle_addressed(
+          event_data,
+          principal,
+          profile,
+          invocation,
+          entry,
+          caller_principal_uid
+        )
 
-  defp mailbox_cloud_event(%MailboxEntry{
-         cloud_event: %{"type" => "bullx.im.message.recalled"} = event
-       }) do
-    event
-    |> Map.put("type", "bullx.message.recalled")
-    |> Map.put("data", im_event_data(event))
-  end
-
-  defp mailbox_cloud_event(%MailboxEntry{cloud_event: %{} = event}), do: event
-
-  defp mailbox_received_event_type(:ambient), do: "bullx.im.message.ambient"
-  defp mailbox_received_event_type(:command), do: "bullx.command.invoked"
-  defp mailbox_received_event_type(_attention), do: "bullx.im.message.addressed"
-
-  defp im_event_data(%{"data" => %{"im_message_id" => im_message_id} = data}) do
-    case BullX.IMGateway.get_message(im_message_id) do
-      {:ok, message} -> im_message_event_data(message, data)
-      {:error, _reason} -> data
+      _other ->
+        unsupported_event("bullx.message.received")
     end
-  end
-
-  defp im_event_data(%{"data" => data}) when is_map(data), do: data
-  defp im_event_data(_event), do: %{}
-
-  defp im_message_event_data(message, fallback) do
-    content = message.content || %{}
-
-    %{
-      "content" => content["blocks"] || fallback["content"] || [],
-      "channel" => content["channel"] || fallback["channel"] || %{},
-      "scope" => content["scope"] || fallback["scope"] || %{},
-      "actor" => message.actor || fallback["actor"] || %{},
-      "refs" => content["refs"] || fallback["refs"] || [],
-      "reply_address" => message.reply_address || fallback["reply_address"],
-      "routing_facts" => content["routing_facts"] || fallback["routing_facts"] || %{},
-      "raw_ref" => content["raw_ref"] || fallback["raw_ref"]
-    }
-  end
-
-  defp dispatch_event(
-         "bullx.im.message.addressed",
-         event_data,
-         principal,
-         profile,
-         invocation,
-         entry,
-         caller_principal_id
-       ) do
-    handle_addressed(event_data, principal, profile, invocation, entry, caller_principal_id)
-  end
-
-  defp dispatch_event(
-         "bullx.im.message.ambient",
-         event_data,
-         principal,
-         profile,
-         invocation,
-         entry,
-         caller_principal_id
-       ) do
-    handle_ambient(event_data, principal, profile, invocation, entry, caller_principal_id)
   end
 
   defp dispatch_event(
@@ -237,9 +191,9 @@ defmodule BullX.AIAgent do
          profile,
          invocation,
          entry,
-         caller_principal_id
+         caller_principal_uid
        ) do
-    handle_command_event(event_data, principal, profile, invocation, entry, caller_principal_id)
+    handle_command_event(event_data, principal, profile, invocation, entry, caller_principal_uid)
   end
 
   defp dispatch_event(
@@ -249,7 +203,7 @@ defmodule BullX.AIAgent do
          _profile,
          invocation,
          entry,
-         caller_principal_id
+         caller_principal_uid
        ) do
     MessageRevisions.handle(
       :edited,
@@ -257,7 +211,7 @@ defmodule BullX.AIAgent do
       principal,
       invocation,
       entry,
-      caller_principal_id
+      caller_principal_uid
     )
   end
 
@@ -268,7 +222,7 @@ defmodule BullX.AIAgent do
          _profile,
          invocation,
          entry,
-         caller_principal_id
+         caller_principal_uid
        ) do
     MessageRevisions.handle(
       :recalled,
@@ -276,20 +230,27 @@ defmodule BullX.AIAgent do
       principal,
       invocation,
       entry,
-      caller_principal_id
+      caller_principal_uid
     )
   end
 
   defp dispatch_event(
-         "bullx.action.submitted",
+         "bullx.message.deleted",
          event_data,
          principal,
-         profile,
+         _profile,
          invocation,
          entry,
-         caller_principal_id
+         caller_principal_uid
        ) do
-    handle_directed_action(event_data, principal, profile, invocation, entry, caller_principal_id)
+    MessageRevisions.handle(
+      :deleted,
+      event_data,
+      principal,
+      invocation,
+      entry,
+      caller_principal_uid
+    )
   end
 
   defp dispatch_event(
@@ -299,70 +260,22 @@ defmodule BullX.AIAgent do
          _profile,
          _invocation,
          _entry,
-         _caller_principal_id
+         _caller_principal_uid
        ) do
+    unsupported_event(type)
+  end
+
+  defp mailbox_attention(%{attention: attention}), do: attention
+  defp mailbox_attention(_entry), do: nil
+
+  defp unsupported_event(type) do
     emit(:unsupported_event, %{event_type: type})
     :ok
   end
 
-  defp handle_addressed(event_data, principal, profile, invocation, entry, caller_principal_id) do
+  defp handle_addressed(event_data, principal, profile, invocation, entry, caller_principal_uid) do
     with {:ok, conversation, key_metadata} <-
-           conversation_for(profile, principal.id, :addressed, event_data, entry),
-         text <- Event.text_content(event_data) do
-      case Commands.detect_text(text) do
-        {:command, command_name, args} ->
-          case caller_principal_id do
-            caller when is_binary(caller) ->
-              run_command(
-                command_name,
-                args,
-                conversation,
-                principal,
-                profile,
-                invocation,
-                entry,
-                caller
-              )
-
-            _missing ->
-              write_command_error(conversation, principal, invocation, entry, "acl_denied")
-          end
-
-        {:unknown, _token} ->
-          emit(:unknown_command, %{mailbox_entry_id: entry.id})
-          :ok
-
-        :not_command ->
-          append_user_and_run(
-            conversation,
-            key_metadata,
-            event_data,
-            principal,
-            profile,
-            invocation,
-            entry,
-            caller_principal_id
-          )
-      end
-    else
-      {:error, :missing_conversation_key_parts} ->
-        {:safe_fail, :invalid_conversation_key}
-
-      {:error, :conversation_key_part_contains_nul} ->
-        {:safe_fail, :invalid_conversation_key}
-    end
-  end
-
-  defp handle_directed_action(
-         event_data,
-         principal,
-         profile,
-         invocation,
-         entry,
-         caller_principal_id
-       ) do
-    with {:ok, conversation, key_metadata} <-
-           conversation_for(profile, principal.id, :addressed, event_data, entry) do
+           conversation_for(profile, principal.uid, :addressed, event_data, entry) do
       append_user_and_run(
         conversation,
         key_metadata,
@@ -371,7 +284,7 @@ defmodule BullX.AIAgent do
         profile,
         invocation,
         entry,
-        caller_principal_id
+        caller_principal_uid
       )
     else
       {:error, :missing_conversation_key_parts} ->
@@ -388,12 +301,12 @@ defmodule BullX.AIAgent do
          profile,
          invocation,
          entry,
-         caller_principal_id
+         caller_principal_uid
        ) do
     with command_name when is_binary(command_name) <- Commands.command_event_name(event_data),
          {:ok, conversation, _key_metadata} <-
-           conversation_for(profile, principal.id, :addressed, event_data, entry) do
-      case caller_principal_id do
+           conversation_for(profile, principal.uid, :addressed, event_data, entry) do
+      case caller_principal_uid do
         caller when is_binary(caller) ->
           run_command(
             command_name,
@@ -416,9 +329,9 @@ defmodule BullX.AIAgent do
     end
   end
 
-  defp handle_ambient(event_data, principal, profile, invocation, entry, _caller_principal_id) do
+  defp handle_ambient(event_data, principal, profile, invocation, entry, _caller_principal_uid) do
     with {:ok, conversation, key_metadata} <-
-           conversation_for(profile, principal.id, :ambient, event_data, entry),
+           conversation_for(profile, principal.uid, :ambient, event_data, entry),
          existing? <- not is_nil(Conversations.inbound_message_for_entry(entry.id)),
          {:ok, _conversation, message} <-
            append_ambient(conversation, key_metadata, event_data, invocation, entry),
@@ -427,11 +340,11 @@ defmodule BullX.AIAgent do
     end
   end
 
-  defp conversation_for(profile, agent_principal_id, lane, event_data, _entry) do
+  defp conversation_for(profile, agent_uid, lane, event_data, _entry) do
     with {:ok, conversation_key, key_metadata} <-
-           ConversationKey.build(profile, agent_principal_id, lane, event_data),
+           ConversationKey.build(profile, agent_uid, lane, event_data),
          {:ok, conversation} <-
-           Conversations.find_or_create_active(agent_principal_id, conversation_key, key_metadata) do
+           Conversations.find_or_create_active(agent_uid, conversation_key, key_metadata) do
       {:ok, conversation, key_metadata}
     end
   end
@@ -444,7 +357,7 @@ defmodule BullX.AIAgent do
          profile,
          invocation,
          entry,
-         caller_principal_id
+         caller_principal_uid
        ) do
     branch = Conversations.active_branch(conversation)
     now = DateTime.utc_now(:microsecond)
@@ -454,7 +367,7 @@ defmodule BullX.AIAgent do
       |> MessageContextBuilder.metadata_for_user_message(event_data, branch, now)
       |> put_scene_key()
       |> Map.merge(key_metadata)
-      |> Map.merge(MessageRevisions.provider_ref_metadata(event_data))
+      |> Map.merge(Event.provider_ref_metadata(event_data))
 
     attrs = %{
       conversation_id: conversation.id,
@@ -478,7 +391,7 @@ defmodule BullX.AIAgent do
              principal,
              invocation,
              entry,
-             caller_principal_id,
+             caller_principal_uid,
              event_data
            ) do
       :ok
@@ -501,7 +414,7 @@ defmodule BullX.AIAgent do
         }
       }
       |> Map.merge(key_metadata)
-      |> Map.merge(MessageRevisions.provider_ref_metadata(event_data))
+      |> Map.merge(Event.provider_ref_metadata(event_data))
 
     attrs = %{
       conversation_id: conversation.id,
@@ -547,7 +460,7 @@ defmodule BullX.AIAgent do
          false
        ) do
     %{
-      agent_principal_id: conversation.agent_principal_id,
+      agent_uid: conversation.agent_uid,
       ambient_conversation_id: conversation.id,
       scene_key: scene_key(event_data),
       reply_address: ambient_reply_address(Event.reply_address(event_data)),
@@ -625,13 +538,13 @@ defmodule BullX.AIAgent do
          profile,
          invocation,
          entry,
-         caller_principal_id
+         caller_principal_uid
        ) do
     Commands.run(command_name, %{
       args: args,
       conversation_id: conversation.id,
-      caller_principal_id: caller_principal_id,
-      agent_principal_id: principal.id,
+      caller_principal_uid: caller_principal_uid,
+      agent_uid: principal.uid,
       profile: profile,
       trigger_type: "mailbox_entry",
       trigger_id: entry.id,
@@ -658,8 +571,8 @@ defmodule BullX.AIAgent do
                  trigger_type: "command_retry",
                  trigger_id: entry.id,
                  lease_id: lease_id,
-                 caller_principal_id: caller_principal_id,
-                 agent_principal_id: principal.id,
+                 caller_principal_uid: caller_principal_uid,
+                 agent_uid: principal.uid,
                  mailbox_session_id: invocation.mailbox_session_id,
                  mailbox_entry_id: entry.id,
                  output: Map.get(invocation, :output),
@@ -725,16 +638,16 @@ defmodule BullX.AIAgent do
          principal,
          invocation,
          entry,
-         caller_principal_id,
+         caller_principal_uid,
          event_data
        ) do
-    case caller_principal_id do
+    case caller_principal_uid do
       caller when is_binary(caller) ->
         Runner.run(conversation, message, profile, %{
           trigger_type: "mailbox_entry",
           trigger_id: entry.id,
-          caller_principal_id: caller,
-          agent_principal_id: principal.id,
+          caller_principal_uid: caller,
+          agent_uid: principal.uid,
           mailbox_session_id: invocation.mailbox_session_id,
           mailbox_entry_id: entry.id,
           output: Map.get(invocation, :output),
@@ -781,7 +694,7 @@ defmodule BullX.AIAgent do
     emit(:command_diagnostic, %{
       diagnostic_code: code,
       mailbox_entry_id: entry.id,
-      agent_principal_id: principal.id
+      agent_uid: principal.uid
     })
 
     maybe_send_command_response(entry, code)
@@ -1118,7 +1031,7 @@ defmodule BullX.AIAgent do
   defp compress_result_state({:error, _reason}), do: :failed
   defp compress_result_state(_result), do: :failed
 
-  defp caller_principal_id(entry), do: Event.trigger_principal_id(entry.routing_context)
+  defp caller_principal_uid(entry), do: Event.trigger_principal_uid(entry.routing_context)
 
   defp acl_context(entry, input_mode) do
     %{

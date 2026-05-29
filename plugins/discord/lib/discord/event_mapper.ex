@@ -79,8 +79,7 @@ defmodule Discord.EventMapper do
     end
   end
 
-  defp resolve_event_type(:im_message, {:ambient, _reason}), do: "bullx.im.message.ambient"
-  defp resolve_event_type(:im_message, _attention), do: "bullx.im.message.addressed"
+  defp resolve_event_type(:im_message, _attention), do: "bullx.message.received"
   defp resolve_event_type(event_type, _attention), do: event_type
 
   defp map_interaction(payload, %Source{} = source) do
@@ -151,6 +150,7 @@ defmodule Discord.EventMapper do
           thread_id: nil,
           reply_to_external_id: context.message_id
         },
+        command: command_data(command),
         routing_facts: routing_facts(source, context, blocks, command),
         raw_ref: raw_ref(event_id, context)
       }
@@ -162,6 +162,19 @@ defmodule Discord.EventMapper do
   end
 
   defp command_content(blocks, _command), do: blocks
+
+  defp command_data(%{name: name} = command) do
+    %{
+      name: name,
+      args_text: Map.get(command, :args, ""),
+      args_kind: Map.get(command, :args_kind),
+      surface: Map.get(command, :surface),
+      provider_command_id: Map.get(command, :provider_command_id)
+    }
+    |> reject_nil_values()
+  end
+
+  defp command_data(_command), do: nil
 
   defp context(provider_event_type, payload, %Source{} = _source, attention_reason) do
     %{

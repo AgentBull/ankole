@@ -3,7 +3,7 @@ defmodule BullXWeb.PageController do
 
   def home(conn, _params) do
     cond do
-      get_session(conn, :principal_id) ->
+      get_session(conn, :principal_uid) ->
         redirect(conn, to: ~p"/console")
 
       BullX.Principals.setup_required?() ->

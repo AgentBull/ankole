@@ -25,27 +25,27 @@ defmodule BullX.AuthZ do
 
   @type authz_error :: :forbidden | :not_found | :principal_disabled | :invalid_request
 
-  @spec authorize(Principal.t() | Ecto.UUID.t(), String.t(), String.t()) ::
+  @spec authorize(Principal.t() | String.t(), String.t(), String.t()) ::
           :ok | {:error, authz_error()}
   def authorize(principal, resource, action), do: authorize(principal, resource, action, %{})
 
-  @spec authorize(Principal.t() | Ecto.UUID.t(), String.t(), String.t(), map()) ::
+  @spec authorize(Principal.t() | String.t(), String.t(), String.t(), map()) ::
           :ok | {:error, authz_error()}
   def authorize(principal, resource, action, context) do
     with {:ok, request} <- Request.build(principal, resource, action, context),
-         {:ok, principal} <- load_active_principal(request.principal_id) do
+         {:ok, principal} <- load_active_principal(request.principal_uid) do
       request
       |> Request.with_principal(principal)
       |> authorize_request()
     end
   end
 
-  @spec authorize_permission(Principal.t() | Ecto.UUID.t(), String.t()) ::
+  @spec authorize_permission(Principal.t() | String.t(), String.t()) ::
           :ok | {:error, authz_error()}
   def authorize_permission(principal, permission_key),
     do: authorize_permission(principal, permission_key, %{})
 
-  @spec authorize_permission(Principal.t() | Ecto.UUID.t(), String.t(), map()) ::
+  @spec authorize_permission(Principal.t() | String.t(), String.t(), map()) ::
           :ok | {:error, authz_error()}
   def authorize_permission(principal, permission_key, context) do
     with {:ok, resource, action} <- Request.split_permission_key(permission_key) do
@@ -53,10 +53,10 @@ defmodule BullX.AuthZ do
     end
   end
 
-  @spec allowed?(Principal.t() | Ecto.UUID.t(), String.t(), String.t()) :: boolean()
+  @spec allowed?(Principal.t() | String.t(), String.t(), String.t()) :: boolean()
   def allowed?(principal, resource, action), do: allowed?(principal, resource, action, %{})
 
-  @spec allowed?(Principal.t() | Ecto.UUID.t(), String.t(), String.t(), map()) :: boolean()
+  @spec allowed?(Principal.t() | String.t(), String.t(), String.t(), map()) :: boolean()
   def allowed?(principal, resource, action, context) do
     case authorize(principal, resource, action, context) do
       :ok -> true
@@ -64,10 +64,10 @@ defmodule BullX.AuthZ do
     end
   end
 
-  @spec list_principal_groups(Principal.t() | Ecto.UUID.t()) ::
+  @spec list_principal_groups(Principal.t() | String.t()) ::
           {:ok, [PrincipalGroup.t()]} | {:error, :not_found | :invalid_request}
-  def list_principal_groups(principal_or_id) do
-    with {:ok, principal} <- fetch_principal(principal_or_id, :invalid_request) do
+  def list_principal_groups(principal_or_uid) do
+    with {:ok, principal} <- fetch_principal(principal_or_uid, :invalid_request) do
       {:ok, list_effective_principal_groups(principal)}
     end
   end
@@ -119,13 +119,13 @@ defmodule BullX.AuthZ do
 
   def delete_principal_group(_group), do: {:error, :not_found}
 
-  @spec add_principal_to_group(Principal.t() | Ecto.UUID.t(), PrincipalGroup.t() | Ecto.UUID.t()) ::
+  @spec add_principal_to_group(Principal.t() | String.t(), PrincipalGroup.t() | Ecto.UUID.t()) ::
           :ok | {:error, :not_found | :invalid_request | :computed_group}
-  def add_principal_to_group(principal_or_id, group_or_id) do
-    with {:ok, principal} <- fetch_principal(principal_or_id, :invalid_request),
+  def add_principal_to_group(principal_or_uid, group_or_id) do
+    with {:ok, principal} <- fetch_principal(principal_or_uid, :invalid_request),
          {:ok, group} <- fetch_group(group_or_id),
          :ok <- ensure_static_membership_group(group) do
-      attrs = %{principal_id: principal.id, group_id: group.id}
+      attrs = %{principal_uid: principal.uid, group_id: group.id}
 
       %PrincipalGroupMembership{}
       |> PrincipalGroupMembership.changeset(attrs)
@@ -138,13 +138,13 @@ defmodule BullX.AuthZ do
   end
 
   @spec remove_principal_from_group(
-          Principal.t() | Ecto.UUID.t(),
+          Principal.t() | String.t(),
           PrincipalGroup.t() | Ecto.UUID.t()
         ) ::
           :ok
           | {:error, :not_found | :last_admin_member | :last_active_human_admin | :computed_group}
-  def remove_principal_from_group(principal_or_id, group_or_id) do
-    with {:ok, principal} <- fetch_principal(principal_or_id, :not_found),
+  def remove_principal_from_group(principal_or_uid, group_or_id) do
+    with {:ok, principal} <- fetch_principal(principal_or_uid, :not_found),
          {:ok, group} <- fetch_group(group_or_id),
          :ok <- ensure_static_membership_group(group) do
       remove_membership(principal, group)
@@ -204,11 +204,11 @@ defmodule BullX.AuthZ do
 
   def delete_permission_grant(_grant), do: {:error, :not_found}
 
-  @spec ensure_can_disable_principal(Principal.t() | Ecto.UUID.t()) ::
+  @spec ensure_can_disable_principal(Principal.t() | String.t()) ::
           :ok | {:error, :not_found | :invalid_request | :last_active_human_admin}
-  def ensure_can_disable_principal(principal_or_id) do
+  def ensure_can_disable_principal(principal_or_uid) do
     transaction(fn ->
-      with {:ok, principal} <- fetch_principal_for_update(principal_or_id, :invalid_request) do
+      with {:ok, principal} <- fetch_principal_for_update(principal_or_uid, :invalid_request) do
         ensure_can_disable_loaded_principal(principal)
       end
     end)
@@ -231,16 +231,16 @@ defmodule BullX.AuthZ do
   end
 
   @doc false
-  @spec root_init_admin(Principal.t() | Ecto.UUID.t()) :: :ok | {:error, term()}
-  def root_init_admin(principal_or_id) do
+  @spec root_init_admin(Principal.t() | String.t()) :: :ok | {:error, term()}
+  def root_init_admin(principal_or_uid) do
     transaction(fn ->
-      with {:ok, principal} <- fetch_principal_for_update(principal_or_id, :not_found),
+      with {:ok, principal} <- fetch_principal_for_update(principal_or_uid, :not_found),
            :ok <- ensure_root_init_human(principal),
            {:ok, _all_humans, _all_humans_status} <- ensure_built_in_all_humans_group(),
            {:ok, group, _status} <- ensure_built_in_admin_group(),
            %PrincipalGroup{} = group <- lock_group_for_update(group.id),
            :ok <- ensure_root_init_open_for_group(group) do
-        insert_membership(principal.id, group.id)
+        insert_membership(principal.uid, group.id)
       else
         nil -> {:error, :not_found}
         {:error, reason} -> {:error, reason}
@@ -312,7 +312,7 @@ defmodule BullX.AuthZ do
 
   defp authorize_request(%Request{principal: %Principal{} = principal} = request) do
     group_ids = effective_principal_group_ids(principal)
-    grants = list_candidate_grants(request.principal_id, group_ids, request.action)
+    grants = list_candidate_grants(request.principal_uid, group_ids, request.action)
 
     case any_loaded_grant_allows?(grants, request) do
       true -> :ok
@@ -348,7 +348,7 @@ defmodule BullX.AuthZ do
   defp cel_env(%Request{principal: %Principal{} = principal} = request) do
     %CEL.Env{
       principal: %{
-        "id" => principal.id,
+        "uid" => principal.uid,
         "type" => Atom.to_string(principal.type),
         "status" => Atom.to_string(principal.status)
       },
@@ -361,7 +361,7 @@ defmodule BullX.AuthZ do
   defp principal_env(%Principal{} = principal) do
     %CEL.PrincipalEnv{
       principal: %{
-        "id" => principal.id,
+        "uid" => principal.uid,
         "type" => Atom.to_string(principal.type),
         "status" => Atom.to_string(principal.status)
       }
@@ -439,11 +439,11 @@ defmodule BullX.AuthZ do
     |> Enum.map(& &1.id)
   end
 
-  defp static_principal_groups(%Principal{id: principal_id}) do
+  defp static_principal_groups(%Principal{uid: principal_uid}) do
     Repo.all(
       from membership in PrincipalGroupMembership,
         join: group in assoc(membership, :group),
-        where: membership.principal_id == ^principal_id,
+        where: membership.principal_uid == ^principal_uid,
         where: group.kind == :static,
         select: group
     )
@@ -472,12 +472,12 @@ defmodule BullX.AuthZ do
     }
   end
 
-  defp list_candidate_grants(principal_id, group_ids, action) do
+  defp list_candidate_grants(principal_uid, group_ids, action) do
     Repo.all(
       from grant in PermissionGrant,
         where:
           grant.action == ^action and
-            (grant.principal_id == ^principal_id or grant.group_id in ^group_ids)
+            (grant.principal_uid == ^principal_uid or grant.group_id in ^group_ids)
     )
   end
 
@@ -491,10 +491,10 @@ defmodule BullX.AuthZ do
     ]
   end
 
-  defp permission_grant_upsert_target(%PermissionGrant{principal_id: principal_id})
-       when is_binary(principal_id) do
+  defp permission_grant_upsert_target(%PermissionGrant{principal_uid: principal_uid})
+       when is_binary(principal_uid) do
     {:unsafe_fragment,
-     "(principal_id, resource_pattern, action, condition) WHERE principal_id IS NOT NULL"}
+     "(principal_uid, resource_pattern, action, condition) WHERE principal_uid IS NOT NULL"}
   end
 
   defp permission_grant_upsert_target(%PermissionGrant{group_id: group_id})
@@ -503,26 +503,21 @@ defmodule BullX.AuthZ do
      "(group_id, resource_pattern, action, condition) WHERE group_id IS NOT NULL"}
   end
 
-  defp load_active_principal(principal_id) do
-    case Repo.get(Principal, principal_id) do
+  defp load_active_principal(principal_uid) do
+    case Repo.get_by(Principal, uid: principal_uid) do
       nil -> {:error, :not_found}
       %Principal{status: :active} = principal -> {:ok, principal}
       %Principal{status: :disabled} -> {:error, :principal_disabled}
     end
   end
 
-  defp fetch_principal(%Principal{id: id}, invalid_error), do: fetch_principal(id, invalid_error)
+  defp fetch_principal(%Principal{uid: uid}, invalid_error),
+    do: fetch_principal(uid, invalid_error)
 
-  defp fetch_principal(id, invalid_error) when is_binary(id) do
-    case Ecto.UUID.cast(id) do
-      {:ok, uuid} ->
-        case Repo.get(Principal, uuid) do
-          nil -> {:error, :not_found}
-          principal -> {:ok, principal}
-        end
-
-      :error ->
-        {:error, invalid_error}
+  defp fetch_principal(uid, _invalid_error) when is_binary(uid) do
+    case Repo.get_by(Principal, uid: uid) do
+      nil -> {:error, :not_found}
+      principal -> {:ok, principal}
     end
   end
 
@@ -577,7 +572,7 @@ defmodule BullX.AuthZ do
          name: @admin_group_name
        }) do
     transaction(fn ->
-      case lock_principal_for_update(principal.id) do
+      case lock_principal_for_update(principal.uid) do
         nil ->
           {:error, :not_found}
 
@@ -587,10 +582,10 @@ defmodule BullX.AuthZ do
               {:error, :not_found}
 
             group ->
-              with :ok <- ensure_membership_exists_for_update(locked_principal.id, group.id),
-                   :ok <- ensure_not_last_admin_member(group, locked_principal.id),
-                   :ok <- ensure_not_last_active_human_admin(group, locked_principal.id) do
-                delete_membership(locked_principal.id, group.id)
+              with :ok <- ensure_membership_exists_for_update(locked_principal.uid, group.id),
+                   :ok <- ensure_not_last_admin_member(group, locked_principal.uid),
+                   :ok <- ensure_not_last_active_human_admin(group, locked_principal.uid) do
+                delete_membership(locked_principal.uid, group.id)
               end
           end
       end
@@ -598,46 +593,40 @@ defmodule BullX.AuthZ do
   end
 
   defp remove_membership(%Principal{} = principal, %PrincipalGroup{} = group) do
-    delete_membership(principal.id, group.id)
+    delete_membership(principal.uid, group.id)
   end
 
   defp ensure_can_disable_loaded_principal(%Principal{status: :disabled}), do: :ok
   defp ensure_can_disable_loaded_principal(%Principal{type: :agent}), do: :ok
 
-  defp ensure_can_disable_loaded_principal(%Principal{type: :human, id: principal_id}) do
+  defp ensure_can_disable_loaded_principal(%Principal{type: :human, uid: principal_uid}) do
     case lock_admin_group_for_update() do
       nil ->
         :ok
 
       group ->
-        case lock_membership_for_update(principal_id, group.id) do
-          %PrincipalGroupMembership{} -> ensure_not_last_active_human_admin(group, principal_id)
+        case lock_membership_for_update(principal_uid, group.id) do
+          %PrincipalGroupMembership{} -> ensure_not_last_active_human_admin(group, principal_uid)
           nil -> :ok
         end
     end
   end
 
-  defp fetch_principal_for_update(%Principal{id: id}, invalid_error),
-    do: fetch_principal_for_update(id, invalid_error)
+  defp fetch_principal_for_update(%Principal{uid: uid}, invalid_error),
+    do: fetch_principal_for_update(uid, invalid_error)
 
-  defp fetch_principal_for_update(id, invalid_error) when is_binary(id) do
-    case Ecto.UUID.cast(id) do
-      {:ok, uuid} ->
-        case lock_principal_for_update(uuid) do
-          nil -> {:error, :not_found}
-          principal -> {:ok, principal}
-        end
-
-      :error ->
-        {:error, invalid_error}
+  defp fetch_principal_for_update(uid, _invalid_error) when is_binary(uid) do
+    case lock_principal_for_update(uid) do
+      nil -> {:error, :not_found}
+      principal -> {:ok, principal}
     end
   end
 
   defp fetch_principal_for_update(_principal, invalid_error), do: {:error, invalid_error}
 
-  defp lock_principal_for_update(principal_id) do
+  defp lock_principal_for_update(principal_uid) do
     Repo.one(
-      from principal in Principal, where: principal.id == ^principal_id, lock: "FOR UPDATE"
+      from principal in Principal, where: principal.uid == ^principal_uid, lock: "FOR UPDATE"
     )
   end
 
@@ -653,15 +642,15 @@ defmodule BullX.AuthZ do
     )
   end
 
-  defp ensure_membership_exists_for_update(principal_id, group_id) do
-    case lock_membership_for_update(principal_id, group_id) do
+  defp ensure_membership_exists_for_update(principal_uid, group_id) do
+    case lock_membership_for_update(principal_uid, group_id) do
       %PrincipalGroupMembership{} -> :ok
       nil -> {:error, :not_found}
     end
   end
 
-  defp ensure_not_last_admin_member(%PrincipalGroup{id: group_id}, principal_id) do
-    remaining = locked_admin_member_count_excluding(group_id, principal_id)
+  defp ensure_not_last_admin_member(%PrincipalGroup{id: group_id}, principal_uid) do
+    remaining = locked_admin_member_count_excluding(group_id, principal_uid)
 
     case remaining do
       0 -> {:error, :last_admin_member}
@@ -669,8 +658,8 @@ defmodule BullX.AuthZ do
     end
   end
 
-  defp ensure_not_last_active_human_admin(%PrincipalGroup{id: group_id}, principal_id) do
-    remaining = active_human_admin_count_excluding(group_id, principal_id)
+  defp ensure_not_last_active_human_admin(%PrincipalGroup{id: group_id}, principal_uid) do
+    remaining = active_human_admin_count_excluding(group_id, principal_uid)
 
     case remaining do
       0 -> {:error, :last_active_human_admin}
@@ -678,44 +667,44 @@ defmodule BullX.AuthZ do
     end
   end
 
-  defp active_human_admin_count_excluding(group_id, principal_id) do
+  defp active_human_admin_count_excluding(group_id, principal_uid) do
     Repo.all(
       from(membership in PrincipalGroupMembership,
         join: principal in Principal,
-        on: principal.id == membership.principal_id,
+        on: principal.uid == membership.principal_uid,
         where:
-          membership.group_id == ^group_id and membership.principal_id != ^principal_id and
+          membership.group_id == ^group_id and membership.principal_uid != ^principal_uid and
             principal.type == :human and principal.status == :active,
         lock: "FOR UPDATE",
-        select: principal.id
+        select: principal.uid
       )
     )
     |> length()
   end
 
-  defp locked_admin_member_count_excluding(group_id, principal_id) do
+  defp locked_admin_member_count_excluding(group_id, principal_uid) do
     Repo.all(
       from membership in PrincipalGroupMembership,
-        where: membership.group_id == ^group_id and membership.principal_id != ^principal_id,
+        where: membership.group_id == ^group_id and membership.principal_uid != ^principal_uid,
         lock: "FOR UPDATE",
-        select: membership.principal_id
+        select: membership.principal_uid
     )
     |> length()
   end
 
-  defp lock_membership_for_update(principal_id, group_id) do
+  defp lock_membership_for_update(principal_uid, group_id) do
     Repo.one(
       from membership in PrincipalGroupMembership,
-        where: membership.principal_id == ^principal_id and membership.group_id == ^group_id,
+        where: membership.principal_uid == ^principal_uid and membership.group_id == ^group_id,
         lock: "FOR UPDATE"
     )
   end
 
-  defp delete_membership(principal_id, group_id) do
+  defp delete_membership(principal_uid, group_id) do
     {count, _rows} =
       Repo.delete_all(
         from membership in PrincipalGroupMembership,
-          where: membership.principal_id == ^principal_id and membership.group_id == ^group_id
+          where: membership.principal_uid == ^principal_uid and membership.group_id == ^group_id
       )
 
     case count do
@@ -724,8 +713,8 @@ defmodule BullX.AuthZ do
     end
   end
 
-  defp insert_membership(principal_id, group_id) do
-    %{principal_id: principal_id, group_id: group_id}
+  defp insert_membership(principal_uid, group_id) do
+    %{principal_uid: principal_uid, group_id: group_id}
     |> then(&PrincipalGroupMembership.changeset(%PrincipalGroupMembership{}, &1))
     |> Repo.insert(on_conflict: :nothing)
     |> case do

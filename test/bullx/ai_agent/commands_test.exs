@@ -5,20 +5,22 @@ defmodule BullX.AIAgent.CommandsTest do
   alias BullX.AuthZ
   alias BullX.Principals
 
-  test "detect_text recognizes the command catalog and aliases" do
-    assert {:command, "new", ""} = Commands.detect_text("/new")
-    assert {:command, "new", ""} = Commands.detect_text("/新会话")
+  test "command events preserve gateway-normalized names and args" do
+    data = %{
+      "command" => %{
+        "name" => "UNKNOWN",
+        "args_text" => "focus on the latest incident"
+      },
+      "routing_facts" => %{"command_name" => "ignored"}
+    }
 
-    assert {:command, "steer", "focus on the latest incident"} =
-             Commands.detect_text("  /steer focus on the latest incident")
-
-    assert {:unknown, "/unknown"} = Commands.detect_text("/unknown arg")
-    assert :not_command = Commands.detect_text("ordinary message")
+    assert Commands.command_event_name(data) == "unknown"
+    assert Commands.command_event_args(data) == "focus on the latest incident"
   end
 
   test "retry supersedes generated suffix and acquires replacement lease" do
     %{agent: agent, caller: caller, profile: profile} = setup_command_subjects("retry")
-    {:ok, conversation} = Conversations.find_or_create_active(agent.id, "v1:commands-retry", %{})
+    {:ok, conversation} = Conversations.find_or_create_active(agent.uid, "v1:commands-retry", %{})
     {:ok, conversation, user} = append_user(conversation, "search again")
     {:ok, _conversation, assistant} = append_assistant(conversation, user, "old answer", "om_old")
 
@@ -54,7 +56,7 @@ defmodule BullX.AIAgent.CommandsTest do
 
   test "undo marks the latest exchange as undone and rewinds the leaf" do
     %{agent: agent, caller: caller, profile: profile} = setup_command_subjects("undo")
-    {:ok, conversation} = Conversations.find_or_create_active(agent.id, "v1:commands-undo", %{})
+    {:ok, conversation} = Conversations.find_or_create_active(agent.uid, "v1:commands-undo", %{})
     {:ok, conversation, user} = append_user(conversation, "remove this")
 
     {:ok, _conversation, assistant} =
@@ -85,7 +87,7 @@ defmodule BullX.AIAgent.CommandsTest do
 
   test "stop marks generating assistant output interrupted and recalls streamed delivery" do
     %{agent: agent, caller: caller, profile: profile} = setup_command_subjects("stop")
-    {:ok, conversation} = Conversations.find_or_create_active(agent.id, "v1:commands-stop", %{})
+    {:ok, conversation} = Conversations.find_or_create_active(agent.uid, "v1:commands-stop", %{})
     {:ok, conversation, user} = append_user(conversation, "stream this")
 
     now = DateTime.utc_now(:microsecond)
@@ -161,8 +163,8 @@ defmodule BullX.AIAgent.CommandsTest do
 
     {:ok, _grant} =
       AuthZ.create_permission_grant(%{
-        principal_id: caller.id,
-        resource_pattern: ACL.resource(agent.id),
+        principal_uid: caller.uid,
+        resource_pattern: ACL.resource(agent.uid),
         action: "invoke"
       })
 
@@ -228,8 +230,8 @@ defmodule BullX.AIAgent.CommandsTest do
     %{
       args: "",
       conversation_id: conversation.id,
-      caller_principal_id: caller.id,
-      agent_principal_id: agent.id,
+      caller_principal_uid: caller.uid,
+      agent_uid: agent.uid,
       profile: profile,
       trigger_type: "mailbox_entry",
       trigger_id: entry_id,

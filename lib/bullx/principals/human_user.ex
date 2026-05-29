@@ -14,7 +14,6 @@ defmodule BullX.Principals.HumanUser do
   alias BullX.Principals.Principal
 
   @primary_key false
-  @foreign_key_type :binary_id
   @timestamps_opts [type: :utc_datetime_usec]
 
   @email_format ~r/^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -22,7 +21,11 @@ defmodule BullX.Principals.HumanUser do
   @type t :: %__MODULE__{}
 
   schema "human_users" do
-    belongs_to :principal, Principal, primary_key: true
+    belongs_to :principal, Principal,
+      foreign_key: :principal_uid,
+      references: :uid,
+      type: :string,
+      primary_key: true
 
     field :email, :string
     field :phone, :string
@@ -32,14 +35,14 @@ defmodule BullX.Principals.HumanUser do
 
   def changeset(human_user, attrs) do
     human_user
-    |> cast(attrs, [:principal_id, :email, :phone])
+    |> cast(attrs, [:principal_uid, :email, :phone])
     |> normalize_blank([:email, :phone])
     |> normalize_email()
-    |> validate_required([:principal_id])
+    |> validate_required([:principal_uid])
     |> validate_format(:email, @email_format, message: "is not a valid email")
     |> normalize_phone()
-    |> foreign_key_constraint(:principal_id)
-    |> unique_constraint(:principal_id, name: :human_users_pkey)
+    |> foreign_key_constraint(:principal_uid)
+    |> unique_constraint(:principal_uid, name: :human_users_pkey)
     |> unique_constraint(:email)
     |> unique_constraint(:phone)
   end

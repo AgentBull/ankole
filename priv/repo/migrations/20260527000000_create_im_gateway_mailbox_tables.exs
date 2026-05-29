@@ -6,7 +6,6 @@ defmodule BullX.Repo.Migrations.CreateImGatewayMailboxTables do
     create_mailbox_types()
     create_im_rooms()
     create_im_messages()
-    create_mailboxes()
     create_mailbox_delivery_rules()
     create_mailbox_sessions()
     create_mailbox_entries()
@@ -85,7 +84,9 @@ defmodule BullX.Repo.Migrations.CreateImGatewayMailboxTables do
       add :provider_message_id, :text
       add :provider_occurrence_id, :text
       add :actor_kind, :text, null: false, default: "unknown"
-      add :actor_principal_id, references(:principals, type: :uuid, on_delete: :nilify_all)
+
+      add :actor_principal_uid,
+          references(:principals, column: :uid, type: :text, on_delete: :nilify_all)
 
       add :actor_external_identity_id,
           references(:principal_external_identities, type: :uuid, on_delete: :nilify_all)
@@ -121,7 +122,7 @@ defmodule BullX.Repo.Migrations.CreateImGatewayMailboxTables do
              name: :im_messages_room_time_idx
            )
 
-    create index(:im_messages, [:actor_principal_id], where: "actor_principal_id IS NOT NULL")
+    create index(:im_messages, [:actor_principal_uid], where: "actor_principal_uid IS NOT NULL")
 
     create constraint(:im_messages, :im_messages_message_kind_present,
              check: "message_kind <> ''"
@@ -130,7 +131,7 @@ defmodule BullX.Repo.Migrations.CreateImGatewayMailboxTables do
     create constraint(:im_messages, :im_messages_actor_kind_present, check: "actor_kind <> ''")
 
     create constraint(:im_messages, :im_messages_human_actor_has_principal,
-             check: "actor_kind <> 'human' OR actor_principal_id IS NOT NULL"
+             check: "actor_kind <> 'human' OR actor_principal_uid IS NOT NULL"
            )
 
     create constraint(:im_messages, :im_messages_actor_object,
@@ -158,25 +159,6 @@ defmodule BullX.Repo.Migrations.CreateImGatewayMailboxTables do
            )
   end
 
-  defp create_mailboxes do
-    create table(:mailboxes, primary_key: false) do
-      add :id, :uuid, primary_key: true
-      add :receiver_type, :text, null: false
-      add :receiver_ref, :text, null: false
-      add :metadata, :map, null: false, default: %{}
-
-      timestamps(type: :utc_datetime_usec)
-    end
-
-    create unique_index(:mailboxes, [:receiver_type, :receiver_ref])
-    create constraint(:mailboxes, :mailboxes_receiver_type_present, check: "receiver_type <> ''")
-    create constraint(:mailboxes, :mailboxes_receiver_ref_present, check: "receiver_ref <> ''")
-
-    create constraint(:mailboxes, :mailboxes_metadata_object,
-             check: "jsonb_typeof(metadata) = 'object'"
-           )
-  end
-
   defp create_mailbox_delivery_rules do
     create table(:mailbox_delivery_rules, primary_key: false) do
       add :id, :uuid, primary_key: true
@@ -184,8 +166,11 @@ defmodule BullX.Repo.Migrations.CreateImGatewayMailboxTables do
       add :active, :boolean, null: false, default: true
       add :priority, :integer, null: false
       add :match_expr, :text, null: false
-      add :receiver_type, :text, null: false
-      add :receiver_ref, :text, null: false
+
+      add :agent_uid,
+          references(:agents, column: :uid, type: :text, on_delete: :delete_all),
+          null: false
+
       add :attention, :mailbox_attention, null: false
       add :session_key_template, :text
       add :available_delay_ms, :integer, null: false, default: 0
@@ -197,6 +182,7 @@ defmodule BullX.Repo.Migrations.CreateImGatewayMailboxTables do
 
     create unique_index(:mailbox_delivery_rules, [:name])
     create index(:mailbox_delivery_rules, [:priority, :id], where: "active = true")
+    create index(:mailbox_delivery_rules, [:agent_uid])
 
     create constraint(:mailbox_delivery_rules, :mailbox_delivery_rules_name_present,
              check: "name = btrim(name) AND name <> ''"
@@ -208,14 +194,6 @@ defmodule BullX.Repo.Migrations.CreateImGatewayMailboxTables do
 
     create constraint(:mailbox_delivery_rules, :mailbox_delivery_rules_match_expr_present,
              check: "match_expr <> ''"
-           )
-
-    create constraint(:mailbox_delivery_rules, :mailbox_delivery_rules_receiver_type_present,
-             check: "receiver_type <> ''"
-           )
-
-    create constraint(:mailbox_delivery_rules, :mailbox_delivery_rules_receiver_ref_present,
-             check: "receiver_ref <> ''"
            )
 
     create constraint(
@@ -232,7 +210,11 @@ defmodule BullX.Repo.Migrations.CreateImGatewayMailboxTables do
   defp create_mailbox_sessions do
     create table(:mailbox_sessions, primary_key: false) do
       add :id, :uuid, primary_key: true
-      add :mailbox_id, references(:mailboxes, type: :uuid, on_delete: :delete_all), null: false
+
+      add :agent_uid,
+          references(:agents, column: :uid, type: :text, on_delete: :delete_all),
+          null: false
+
       add :session_key, :text, null: false
       add :status, :mailbox_session_status, null: false, default: "active"
       add :last_entry_at, :utc_datetime_usec, null: false
@@ -249,8 +231,8 @@ defmodule BullX.Repo.Migrations.CreateImGatewayMailboxTables do
       "ALTER TABLE mailbox_sessions SET LOGGED"
     )
 
-    create unique_index(:mailbox_sessions, [:mailbox_id, :session_key])
-    create index(:mailbox_sessions, [:mailbox_id, :last_entry_at], where: "status = 'active'")
+    create unique_index(:mailbox_sessions, [:agent_uid, :session_key])
+    create index(:mailbox_sessions, [:agent_uid, :last_entry_at], where: "status = 'active'")
 
     create constraint(:mailbox_sessions, :mailbox_sessions_session_key_present,
              check: "session_key <> ''"
@@ -265,7 +247,10 @@ defmodule BullX.Repo.Migrations.CreateImGatewayMailboxTables do
     create table(:mailbox_entries, primary_key: false) do
       add :id, :uuid, primary_key: true
       add :entry_seq, :bigserial, null: false
-      add :mailbox_id, references(:mailboxes, type: :uuid, on_delete: :delete_all), null: false
+
+      add :agent_uid,
+          references(:agents, column: :uid, type: :text, on_delete: :delete_all),
+          null: false
 
       add :mailbox_session_id, :uuid
 
@@ -274,7 +259,7 @@ defmodule BullX.Repo.Migrations.CreateImGatewayMailboxTables do
       add :cloud_event, :map, null: false
       add :reply_address, :map
       add :available_at, :utc_datetime_usec, null: false
-      add :dedupe_hash, :binary, null: false
+      add :dedupe_hash, :text, null: false
       add :coalesce_key, :text
       add :lease_holder, :text
       add :lease_expires_at, :utc_datetime_usec
@@ -297,7 +282,7 @@ defmodule BullX.Repo.Migrations.CreateImGatewayMailboxTables do
       "ALTER TABLE mailbox_entries DROP CONSTRAINT mailbox_entries_mailbox_session_id_fkey"
     )
 
-    create unique_index(:mailbox_entries, [:mailbox_id, :dedupe_hash])
+    create unique_index(:mailbox_entries, [:agent_uid, :dedupe_hash])
 
     create index(:mailbox_entries, [:available_at, :lease_expires_at, :entry_seq],
              where: "status IN ('pending', 'leased')",

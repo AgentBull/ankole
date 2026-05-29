@@ -1,13 +1,17 @@
 defmodule BullxTelegram.CommandNormalizer do
   @moduledoc false
 
-  @direct_commands ~w(root_init webauth)
+  @direct_commands ~w(root_init webauth command status)
 
   @spec parse(String.t() | nil, String.t() | nil) ::
-          {:agent_command, map()} | {:direct, map()} | {:ignore, :unsupported_command} | :not_command
+          {:agent_command, map()}
+          | {:direct, map()}
+          | {:ignore, :unsupported_command}
+          | :not_command
   def parse(text, bot_username) when is_binary(text) do
     with "/" <> rest <- String.trim_leading(text),
          [token | tail] <- String.split(rest, ~r/\s+/, parts: 2),
+         true <- token != "",
          {:ok, command_name, addressed?} <- split_token(token, bot_username),
          true <- addressed? do
       args = tail |> List.first() |> to_string() |> String.trim()
@@ -17,16 +21,10 @@ defmodule BullxTelegram.CommandNormalizer do
           {:direct, %{name: name, args: args}}
 
         {:ok, name} ->
-          {:agent_command,
-           %{
-             name: name,
-             args: args,
-             args_kind: if(args == "", do: "none", else: "text"),
-             surface: "slash_text"
-           }}
+          {:agent_command, command(name, args)}
 
         :error ->
-          {:ignore, :unsupported_command}
+          {:agent_command, command(normalize_unknown(command_name), args)}
       end
     else
       false -> {:ignore, :unsupported_command}
@@ -51,4 +49,21 @@ defmodule BullxTelegram.CommandNormalizer do
   defp canonical("root_init"), do: {:ok, "root_init"}
   defp canonical("webauth"), do: {:ok, "webauth"}
   defp canonical(name), do: BullX.AIAgent.CommandCatalog.canonical_command_name(name)
+
+  defp command(name, args) do
+    %{
+      name: name,
+      args: args,
+      args_kind: if(args == "", do: "none", else: "text"),
+      surface: "slash_text"
+    }
+  end
+
+  defp normalize_unknown(name) do
+    name
+    |> to_string()
+    |> String.trim()
+    |> String.trim_leading("/")
+    |> String.downcase()
+  end
 end

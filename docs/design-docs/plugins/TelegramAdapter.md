@@ -41,7 +41,7 @@ Telegram updates are normalized by `BullxTelegram.ChannelAdapter` and
 
 Current event mapping includes:
 
-- message updates -> addressed or ambient IM message mail
+- message updates -> `bullx.message.received`
 - edited message updates -> `bullx.message.edited`
 - agent commands -> `bullx.command.invoked`
 
@@ -49,6 +49,11 @@ Direct commands are handled before IMGateway handoff:
 
 - `/root_init <code>`
 - `/webauth`
+- `/command`
+- `/status`
+
+Other slash commands, including unknown command names, are normalized to
+`bullx.command.invoked`.
 
 Telegram currently has no provider recall event mapping.
 
@@ -82,4 +87,4 @@ supervisor after source config changes.
 - Telegram adapter id in normalized mail is `telegram`, not `bullx_telegram`.
 - IMGateway stores inbound and outbound IM facts.
 - MailBox delivery rules decide receivers.
-- Direct setup/auth commands are adapter-local.
+- Direct commands are adapter-local.

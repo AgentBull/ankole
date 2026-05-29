@@ -18,9 +18,9 @@ defmodule BullXWeb.SetupAIAgentsController do
         session = BullXWeb.SetupAuth.session_input(conn)
 
         case AIAgents.save(params["agent"] || params, session) do
-          {:ok, %{agent: %{principal_id: principal_id}}} ->
+          {:ok, %{agent: %{principal_uid: principal_uid}}} ->
             conn
-            |> BullXWeb.SetupAuth.put_setup_agent(principal_id)
+            |> BullXWeb.SetupAuth.put_setup_agent(principal_uid)
             |> BullXWeb.SetupAuth.put_setup_step(:event_routing)
             |> redirect(to: ~p"/setup")
 

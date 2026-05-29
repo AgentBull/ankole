@@ -1,23 +1,22 @@
 # AIAgent Core
 
-AIAgent is the current implemented MailBox receiver for AI colleague behavior.
-It handles a `mailbox_entries` row, reads referenced IM facts, persists
-conversation state, runs ACL checks, calls tools and LLM providers, and sends
-visible IM output through IMGateway.
+AIAgent is the current implemented MailBox Agent type for AI colleague behavior.
+It handles a `mailbox_entries` row, consumes normalized CloudEvents mail data,
+persists conversation state, runs ACL checks, calls tools and LLM providers, and
+sends visible IM output through IMGateway.
 
 The implementation lives in `BullX.AIAgent` and `BullX.AIAgent.*`.
 
 ## Entry Point
 
-MailBox dispatches `receiver_type = "ai_agent"` entries by calling:
+MailBox dispatches entries for `agents.type = "ai_agent"` by calling:
 
 ```elixir
 BullX.AIAgent.handle_mailbox_entry(invocation, entry)
 ```
 
-`invocation.target_ref` is the Agent Principal id. The entry carries:
+`invocation.target_ref` is the Agent uid. The entry carries:
 
-- `mailbox_id`
 - `mailbox_session_id`
 - `mailbox_entry_id`
 - `cloud_event`
@@ -27,26 +26,36 @@ BullX.AIAgent.handle_mailbox_entry(invocation, entry)
 AIAgent loads the active agent Principal and validates
 `agents.profile["ai_agent"]` through `BullX.AIAgent.Profile`.
 
-## Event Conversion
+## Event Handling
 
-MailBox receives IMGateway mail types such as:
+MailBox delivers source-neutral AIAgent input mail:
 
-- `bullx.im.message.received`
-- `bullx.im.message.edited`
-- `bullx.im.message.recalled`
-- `bullx.im.message.deleted`
+- `bullx.message.received`
+- `bullx.message.edited`
+- `bullx.message.recalled`
+- `bullx.message.deleted`
+- `bullx.command.invoked`
 
-AIAgent converts them into agent event classes using the MailBox entry
-attention and the referenced IM message:
+AIAgent dispatches by CloudEvents type and MailBox entry attention:
 
-- ambient entry attention -> `bullx.im.message.ambient`
-- command entry attention -> `bullx.command.invoked`
-- other received IM mail -> `bullx.im.message.addressed`
-- edited lifecycle -> `bullx.message.edited`
-- recalled lifecycle -> `bullx.message.recalled`
+- `bullx.message.received` with `attention = addressed` appends a normal user
+  message and may start generation.
+- `bullx.message.received` with `attention = ambient` appends ambient context.
+- `bullx.message.edited`, `bullx.message.recalled`, and
+  `bullx.message.deleted` enter the source-neutral message revision handler.
+- `bullx.command.invoked` enters the command handler.
 
 Unsupported event types are ignored with telemetry instead of creating
 conversation state.
+
+Message revision handling is not prompt construction. AIAgent finds the existing
+conversation message from provider refs, then applies the change only when the
+target belongs to the current mailbox session and is still visible in the
+branch rendered after the latest compatible compression. A latest addressed turn
+with visible output may cancel generation, recall output, and republish the new
+message content. Historical revisions add a stable ref marker to the original
+message and append an introspection message describing the edit, recall, or
+delete without immediately starting generation.
 
 ## Profile
 
@@ -79,10 +88,12 @@ Setup currently creates a default profile with
 
 ## Conversation Identity
 
-`BullX.AIAgent.ConversationKey` builds stable conversation keys from:
+`BullX.AIAgent.ConversationKey` builds stable conversation keys from
+`data.conversation_context` when present, falling back to the legacy normalized
+channel/scope shape for callers that have not supplied that context yet:
 
 - lane: addressed or ambient;
-- agent Principal id;
+- agent uid;
 - channel adapter;
 - channel id;
 - scope id;
@@ -96,7 +107,7 @@ conversations use the profile's `conversation_isolation_mode`.
 
 `conversations` stores:
 
-- `agent_principal_id`
+- `agent_uid`
 - `conversation_key`
 - `current_leaf_message_id`
 - `ended_at`
@@ -165,8 +176,8 @@ AIAgent handles canonical command names:
 - `stop`
 - `undo`
 
-Adapter-local setup/auth commands such as `/root_init` and `/webauth` are
-handled before IMGateway handoff.
+IMGateway-direct commands such as `/root_init`, `/webauth`, `/command`, and
+`/status` are handled before IMGateway handoff.
 
 ## Ambient Input
 
@@ -180,7 +191,7 @@ compressed as normal user/assistant exchange content.
 
 ## Invariants
 
-- AIAgent is receiver-owned business state; MailBox only delivers entries.
+- AIAgent owns its business state; MailBox only delivers entries.
 - Visible IM output goes through IMGateway.
 - Generation lease state is persisted on the conversation and can be inspected
   after process restart.

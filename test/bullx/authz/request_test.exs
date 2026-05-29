@@ -4,18 +4,18 @@ defmodule BullX.AuthZ.RequestTest do
   alias BullX.AuthZ.Request
   alias BullX.AuthZ.ResourcePattern
 
-  @principal_id "019dc9bc-0000-7000-8000-000000000001"
+  @principal_uid "authz-request-principal"
 
   test "build/4 normalizes request strings and CEL-compatible context" do
     assert {:ok, request} =
-             Request.build(@principal_id, " web_console ", " read ", %{
+             Request.build(@principal_uid, " web_console ", " read ", %{
                "nested" => %{count: 1},
                allowed: true,
                list: ["x", false, nil],
                score: 1.5
              })
 
-    assert request.principal_id == @principal_id
+    assert request.principal_uid == @principal_uid
     assert request.resource == "web_console"
     assert request.action == "read"
 
@@ -29,19 +29,19 @@ defmodule BullX.AuthZ.RequestTest do
 
   test "build/4 rejects malformed subjects, resource wildcards, action colons, and non-CEL terms" do
     assert {:error, :invalid_request} = Request.build(nil, "web_console", "read", %{})
-    assert {:error, :invalid_request} = Request.build("not-a-uuid", "web_console", "read", %{})
-    assert {:error, :invalid_request} = Request.build(@principal_id, "", "read", %{})
-    assert {:error, :invalid_request} = Request.build(@principal_id, "web*", "read", %{})
-    assert {:error, :invalid_request} = Request.build(@principal_id, "web?", "read", %{})
-    assert {:error, :invalid_request} = Request.build(@principal_id, "web", "", %{})
-    assert {:error, :invalid_request} = Request.build(@principal_id, "web", "read:all", %{})
-    assert {:error, :invalid_request} = Request.build(@principal_id, "web", "read", nil)
-    assert {:error, :invalid_request} = Request.build(@principal_id, "web", "read", %{k: self()})
-    assert {:error, :invalid_request} = Request.build(@principal_id, "web", "read", %{k: {1, 2}})
-    assert {:error, :invalid_request} = Request.build(@principal_id, "web", "read", %{k: :admin})
+    assert {:error, :invalid_request} = Request.build("   ", "web_console", "read", %{})
+    assert {:error, :invalid_request} = Request.build(@principal_uid, "", "read", %{})
+    assert {:error, :invalid_request} = Request.build(@principal_uid, "web*", "read", %{})
+    assert {:error, :invalid_request} = Request.build(@principal_uid, "web?", "read", %{})
+    assert {:error, :invalid_request} = Request.build(@principal_uid, "web", "", %{})
+    assert {:error, :invalid_request} = Request.build(@principal_uid, "web", "read:all", %{})
+    assert {:error, :invalid_request} = Request.build(@principal_uid, "web", "read", nil)
+    assert {:error, :invalid_request} = Request.build(@principal_uid, "web", "read", %{k: self()})
+    assert {:error, :invalid_request} = Request.build(@principal_uid, "web", "read", %{k: {1, 2}})
+    assert {:error, :invalid_request} = Request.build(@principal_uid, "web", "read", %{k: :admin})
 
     assert {:error, :invalid_request} =
-             Request.build(@principal_id, "web", "read", %{nil => true})
+             Request.build(@principal_uid, "web", "read", %{nil => true})
   end
 
   test "permission keys split at the final colon" do

@@ -65,8 +65,8 @@ defmodule BullX.AIAgent.ToolsRuntimeTest do
       Context,
       Map.merge(
         %{
-          caller_principal_id: "caller",
-          agent_principal_id: "agent",
+          caller_principal_uid: "caller",
+          agent_uid: "agent",
           conversation_id: "conversation",
           trigger_type: "mailbox_entry",
           trigger_id: "source",

@@ -122,7 +122,7 @@ defmodule Discord.SourceSetup do
     %{
       "id" => "setup-routing-sample",
       "source" => "discord://#{id}",
-      "type" => "bullx.im.message.addressed",
+      "type" => "bullx.message.received",
       "time" => DateTime.utc_now(:microsecond) |> DateTime.to_iso8601(),
       "data" => %{
         "channel" => %{"adapter" => "discord", "id" => id},

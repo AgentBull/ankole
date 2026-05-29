@@ -1,7 +1,8 @@
 # IMGateway
 
 IMGateway is the current IM boundary. It stores the provider room/message facts
-that BullX owns, then hands an internal CloudEvents mail item to MailBox.
+that BullX owns, then hands routeable conversation input or command mail to
+MailBox.
 
 The implementation lives in `BullX.IMGateway` and `BullX.IMGateway.*`.
 
@@ -17,7 +18,7 @@ IMGateway owns:
 
 IMGateway does not own:
 
-- MailBox routing rules or receiver dispatch
+- MailBox routing rules or Agent dispatch
 - AIAgent conversations or LLM turns
 - room membership
 - provider setup storage
@@ -32,34 +33,37 @@ The adapter boundary:
 1. fetches the enabled channel adapter extension;
 2. calls `normalize_inbound/2`;
 3. validates `data.channel.adapter` against the extension id;
-4. calls `BullX.IMGateway.accept_cloud_event/2`.
+4. calls `BullX.IMGateway.accept_message_event/2`.
 
-`accept_cloud_event/2` treats these event types as IM facts:
+`accept_message_event/2` treats these message event types as IM facts:
 
-- `bullx.im.message.addressed`
-- `bullx.im.message.ambient`
+- `bullx.message.received`
 - `bullx.command.invoked`
 - `bullx.action.submitted`
 - `bullx.message.edited`
 - `bullx.message.recalled`
 - `bullx.message.deleted`
 
-Any other CloudEvents map is passed directly to `BullX.MailBox.route/2`.
+Any other message event type is rejected by IMGateway. Non-IM CloudEvents enter
+MailBox through the gateway that owns those facts, not through IMGateway.
 
 ## Human Actor Rule
 
 If `data.actor` is a human actor, IMGateway calls
 `BullX.Principals.ensure_human_from_channel_actor/1` before inserting the
-message. The resulting Principal id and external identity id are copied back
+message. The resulting Principal uid and external identity id are copied back
 into the actor map and the `im_messages` row.
 
-A human `im_messages` row must have `actor_principal_id`; PostgreSQL enforces
+A human `im_messages` row must have `actor_principal_uid`; PostgreSQL enforces
 this with `im_messages_human_actor_has_principal`.
 
-Addressed, command, and action mail from a human channel actor is routed only
-when the channel external identity has `verified_at`. Unverified human actors
-can still be stored as IM facts. Ambient and lifecycle mail is routed even when
-the identity is unverified.
+Addressed received messages and command mail from a human channel actor are
+routed only when the channel external identity has `verified_at`. Unverified
+human actors can still be stored as IM facts. Ambient received messages can be
+routed without identity verification. Lifecycle facts are stored by IMGateway
+and routed as source-neutral lifecycle mail. Legacy action facts are stored by
+IMGateway but skipped; provider actions that continue a conversation should be
+normalized as `bullx.message.received` with an action content block.
 
 ## Tables
 
@@ -83,7 +87,7 @@ the identity is unverified.
 - `status`: `pending`, `received`, `sent`, `edited`, `recalled`, `deleted`, or
   `failed`
 - provider message and occurrence ids
-- actor kind, Principal id, external identity id, provider actor id, and raw
+- actor kind, Principal uid, external identity id, provider actor id, and raw
   actor map
 - `message_kind`, `text`, `content`, `attachments`, and `mentions`
 - `reply_address`
@@ -95,31 +99,43 @@ unique partial indexes when present.
 ## Inbound Flow
 
 ```text
-normalized provider CloudEvent
+normalized provider message event
   -> ensure human actor Principal when needed
   -> upsert im_rooms
   -> insert or update im_messages
-  -> build BullX IM mail
-  -> MailBox.route/2 when routeable
+  -> build source-neutral BullX CloudEvents mail
+  -> MailBox.route/2 when the fact is routeable agent input
 ```
 
 IMGateway builds internal mail with:
 
 - `source = bullx://im-gateway/<provider>/<source_id>`
-- `type = bullx.im.message.received` or an IM lifecycle type
+- `type = bullx.message.received`, `bullx.message.edited`,
+  `bullx.message.recalled`, `bullx.message.deleted`, or
+  `bullx.command.invoked` for routeable AIAgent input
 - `subject = im://<provider>/<source_id>/<room_id>/<message_id>`
-- `data.im_message_id`
-- `data.im_room_id`
+- `data.source_fact.gateway = "im_gateway"`
+- `data.source_fact.kind = "im_message"`
+- `data.source_fact.id`
+- `data.source_fact.room_id`
+- `data.source_fact.event_type`
+- optional `data.source_fact.revision` for lifecycle mail
+- `data.conversation_context`
+- optional `data.command` for command events
 - channel, scope, actor, refs, reply address, routing facts, and raw reference
 
-AIAgent later reads the current message through `BullX.IMGateway.get_message/1`.
+The mail data contains the normalized content and source-neutral conversation
+context AIAgent needs for conversation handling. Provider edit/recall/delete
+events update the `im_messages` fact and create lifecycle mailbox entries.
+AIAgent handles those entries as revisions to existing conversation context; it
+does not call back into IMGateway to reconstruct context.
 
 ## Outbound Flow
 
-Receivers send visible IM output through `BullX.IMGateway.send_message/2`.
+Agents send visible IM output through `BullX.IMGateway.send_message/2`.
 
 ```text
-receiver output
+agent output
   -> send_message/2
   -> upsert outbound room from reply_address
   -> insert or update outbound im_messages(status = pending)
@@ -159,5 +175,5 @@ The optional `consume_stream/4` callback is used by visible streaming output.
 - MailBox entries reference IM facts; they do not duplicate the provider
   message as business truth.
 - Human IM message rows must reference a Principal.
-- The adapter id in a normalized event must match the plugin extension id.
+- The adapter id in a normalized message event must match the plugin extension id.
 - Outbound visible IM output goes through IMGateway, not directly to adapters.

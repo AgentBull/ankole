@@ -39,7 +39,7 @@ defmodule Feishu.EventMapperTest do
 
     assert {:ok, %{attrs: attrs, account_input: account_input}} = EventMapper.map(event, source)
 
-    assert attrs.type == "bullx.im.message.addressed"
+    assert attrs.type == "bullx.message.received"
     assert attrs.source == "feishu://main/tenant_x"
     assert get_in(attrs.data, [:channel, :adapter]) == "feishu"
     assert get_in(attrs.data, [:channel, :id]) == "main"
@@ -53,8 +53,8 @@ defmodule Feishu.EventMapperTest do
     assert get_in(attrs.data, [:reply_address, :delivery_mode]) == "stream"
     refute inspect(attrs.data.raw_ref) =~ "not copied"
 
-    assert {:ok, cloud_event} = BullX.IMGateway.ChannelAdapter.build_cloud_event(attrs)
-    assert get_in(cloud_event, ["data", "reply_address", "delivery_mode"]) == "stream"
+    assert {:ok, message_event} = BullX.IMGateway.ChannelAdapter.build_message_event(attrs)
+    assert get_in(message_event, ["data", "reply_address", "delivery_mode"]) == "stream"
 
     assert account_input["adapter"] == "feishu"
     assert account_input["channel_id"] == "main"
@@ -62,7 +62,7 @@ defmodule Feishu.EventMapperTest do
     assert get_in(account_input, ["profile", "avatar_url"]) == "https://example.com/avatar.png"
   end
 
-  test "status is normalized as a command event instead of adapter-local direct command" do
+  test "status is handled as an adapter-local direct command" do
     source = %Source{id: "main", app_id: "cli_x", app_secret: "secret_x"}
 
     event = %Event{
@@ -81,17 +81,22 @@ defmodule Feishu.EventMapperTest do
       raw: %{}
     }
 
-    assert {:ok, %{attrs: attrs}} = EventMapper.map(event, source)
-
-    assert attrs.type == "bullx.command.invoked"
-    assert get_in(attrs.data, [:routing_facts, "command_name"]) == "status"
-    assert get_in(attrs.data, [:reply_address, :scope_id]) == "oc_chat"
-    assert get_in(attrs.data, [:reply_address, :scope_kind]) == "dm"
-    assert get_in(attrs.data, [:reply_address, :chat_type]) == "p2p"
-    assert get_in(attrs.data, [:reply_address, :delivery_mode]) == "stream"
+    assert {:direct_command,
+            %{
+              name: "status",
+              args: "",
+              reply_address: %{
+                adapter: "feishu",
+                channel_id: "main",
+                scope_id: "oc_chat",
+                scope_kind: "dm",
+                chat_type: "p2p",
+                delivery_mode: "stream"
+              }
+            }} = EventMapper.map(event, source)
   end
 
-  test "localized status alias is normalized to the canonical command name" do
+  test "localized status alias maps to a direct command" do
     source = %Source{id: "main", app_id: "cli_x", app_secret: "secret_x"}
 
     event = %Event{
@@ -110,11 +115,8 @@ defmodule Feishu.EventMapperTest do
       raw: %{}
     }
 
-    assert {:ok, %{attrs: attrs}} =
+    assert {:direct_command, %{name: "status", args: ""}} =
              BullX.I18n.with_locale(:"zh-Hans-CN", fn -> EventMapper.map(event, source) end)
-
-    assert attrs.type == "bullx.command.invoked"
-    assert get_in(attrs.data, [:routing_facts, "command_name"]) == "status"
   end
 
   test "localized new-conversation alias is normalized to the canonical ai agent command name" do
@@ -141,6 +143,34 @@ defmodule Feishu.EventMapperTest do
 
     assert attrs.type == "bullx.command.invoked"
     assert get_in(attrs.data, [:routing_facts, "command_name"]) == "new"
+    assert attrs.data.command.name == "new"
+    assert attrs.data.command.args_text == ""
+  end
+
+  test "unknown slash commands are delivered as command mail" do
+    source = %Source{id: "main", app_id: "cli_x", app_secret: "secret_x"}
+
+    event = %Event{
+      id: "evt_unknown_command",
+      type: "im.message.receive_v1",
+      content: %{
+        "message" => %{
+          "chat_id" => "oc_chat",
+          "chat_type" => "p2p",
+          "message_id" => "om_msg",
+          "message_type" => "text",
+          "content" => Jason.encode!(%{text: "/does_not_exist arg"})
+        },
+        "sender" => %{"sender_id" => %{"open_id" => "ou_user"}}
+      },
+      raw: %{}
+    }
+
+    assert {:ok, %{attrs: attrs}} = EventMapper.map(event, source)
+
+    assert attrs.type == "bullx.command.invoked"
+    assert get_in(attrs.data, [:routing_facts, "command_name"]) == "does_not_exist"
+    assert attrs.data.command.args_text == "arg"
   end
 
   test "root_init remains an adapter-local direct command" do
@@ -208,9 +238,10 @@ defmodule Feishu.EventMapperTest do
     assert {:ok, %{attrs: attrs}} = EventMapper.map({:card_action, action}, source)
 
     assert attrs.id == "card_action:om_card:approve:ou_user"
-    assert attrs.type == "bullx.action.submitted"
+    assert attrs.type == "bullx.message.received"
     assert get_in(attrs.data, [:routing_facts, "action_id"]) == "approve"
     assert get_in(attrs.data, [:routing_facts, "action_actor_open_id"]) == "ou_user"
+    assert get_in(attrs.data, [:routing_facts, "attention_reason"]) == "action"
 
     assert [
              %{
@@ -246,7 +277,7 @@ defmodule Feishu.EventMapperTest do
     assert {:ok, %{attrs: attrs}} = EventMapper.map({:card_action, action}, source)
 
     assert attrs.id == "card_action:om_card:clarify_answer:ou_user"
-    assert attrs.type == "bullx.action.submitted"
+    assert attrs.type == "bullx.message.received"
     assert get_in(attrs.data, [:routing_facts, "action_id"]) == "clarify_answer"
 
     assert [
@@ -291,6 +322,50 @@ defmodule Feishu.EventMapperTest do
     }
 
     assert {:ignore, :self_sent_bot_message} = EventMapper.map(event, source)
+  end
+
+  test "ignores unsupported message types instead of delivering fallback text" do
+    source = %Source{id: "main", app_id: "cli_x", app_secret: "secret_x"}
+
+    event = %Event{
+      id: "evt_unsupported_message",
+      type: "im.message.receive_v1",
+      content: %{
+        "message" => %{
+          "chat_id" => "oc_chat",
+          "chat_type" => "p2p",
+          "message_id" => "om_unsupported",
+          "message_type" => "share_chat",
+          "content" => Jason.encode!(%{})
+        },
+        "sender" => %{"sender_id" => %{"open_id" => "ou_user"}}
+      },
+      raw: %{}
+    }
+
+    assert {:ignore, :unsupported_message} = EventMapper.map(event, source)
+  end
+
+  test "ignores empty text messages instead of delivering unsupported fallback text" do
+    source = %Source{id: "main", app_id: "cli_x", app_secret: "secret_x"}
+
+    event = %Event{
+      id: "evt_empty_text",
+      type: "im.message.receive_v1",
+      content: %{
+        "message" => %{
+          "chat_id" => "oc_chat",
+          "chat_type" => "p2p",
+          "message_id" => "om_empty_text",
+          "message_type" => "text",
+          "content" => Jason.encode!(%{text: "   "})
+        },
+        "sender" => %{"sender_id" => %{"open_id" => "ou_user"}}
+      },
+      raw: %{}
+    }
+
+    assert {:ignore, :unsupported_message} = EventMapper.map(event, source)
   end
 
   test "addressed_only ignores unmentioned group messages" do
@@ -345,7 +420,7 @@ defmodule Feishu.EventMapperTest do
     }
 
     assert {:ok, %{attrs: attrs}} = EventMapper.map(event, source)
-    assert attrs.type == "bullx.im.message.ambient"
+    assert attrs.type == "bullx.message.received"
     assert get_in(attrs.data, [:routing_facts, "im_listen_mode"]) == "all_messages"
     assert get_in(attrs.data, [:routing_facts, "attention_reason"]) == "unaddressed"
   end
@@ -405,7 +480,7 @@ defmodule Feishu.EventMapperTest do
     }
 
     assert {:ok, %{attrs: attrs}} = EventMapper.map(event, source)
-    assert attrs.type == "bullx.im.message.addressed"
+    assert attrs.type == "bullx.message.received"
     assert attrs.data.content == [%{"type" => "text", "text" => "hello"}]
     assert get_in(attrs.data, [:routing_facts, "attention_reason"]) == "mention"
   end
@@ -437,11 +512,7 @@ defmodule Feishu.EventMapperTest do
       raw: %{}
     }
 
-    assert {:ok, %{attrs: attrs}} = EventMapper.map(event, source)
-
-    assert attrs.type == "bullx.command.invoked"
-    assert attrs.data.content == [%{"type" => "text", "text" => "/status"}]
-    assert get_in(attrs.data, [:routing_facts, "command_name"]) == "status"
+    assert {:direct_command, %{name: "status", args: ""}} = EventMapper.map(event, source)
   end
 
   test "provider mention text can invoke a known command without a slash" do
@@ -509,7 +580,7 @@ defmodule Feishu.EventMapperTest do
 
     assert {:ok, %{attrs: attrs}} = EventMapper.map(event, source)
 
-    assert attrs.type == "bullx.im.message.addressed"
+    assert attrs.type == "bullx.message.received"
     assert attrs.data.content == [%{"type" => "text", "text" => "retry the failed task"}]
   end
 

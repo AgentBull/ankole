@@ -28,10 +28,10 @@ defmodule BullX.AIAgent.DailyReset do
 
   @spec close_eligible(Profile.t(), DateTime.t(), String.t() | nil) ::
           {:ok, non_neg_integer()} | {:error, term()}
-  def close_eligible(%Profile{} = profile, now, agent_principal_id) do
+  def close_eligible(%Profile{} = profile, now, agent_uid) do
     Conversation
     |> where([c], is_nil(c.ended_at))
-    |> maybe_agent(agent_principal_id)
+    |> maybe_agent(agent_uid)
     |> Repo.all()
     |> Enum.reduce_while({:ok, 0}, fn conversation, {:ok, count} ->
       cond do
@@ -58,8 +58,8 @@ defmodule BullX.AIAgent.DailyReset do
 
   defp maybe_agent(query, nil), do: query
 
-  defp maybe_agent(query, agent_principal_id) when is_binary(agent_principal_id) do
-    where(query, [c], c.agent_principal_id == ^agent_principal_id)
+  defp maybe_agent(query, agent_uid) when is_binary(agent_uid) do
+    where(query, [c], c.agent_uid == ^agent_uid)
   end
 
   defp active_generation?(conversation, now) do

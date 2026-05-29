@@ -21,8 +21,8 @@ defmodule BullX.AIAgent.Tools do
   @spec enabled_tools(Profile.t(), String.t(), String.t(), map(), map()) :: [rendered_tool()]
   def enabled_tools(
         %Profile{} = profile,
-        _caller_principal_id,
-        _agent_principal_id,
+        _caller_principal_uid,
+        _agent_uid,
         _acl_context,
         runtime_seed \\ %{}
       ) do
@@ -101,8 +101,8 @@ defmodule BullX.AIAgent.Tools do
       })
 
     %Context{
-      caller_principal_id: seed.caller_principal_id,
-      agent_principal_id: seed.agent_principal_id,
+      caller_principal_uid: seed.caller_principal_uid,
+      agent_uid: seed.agent_uid,
       conversation_id: seed.conversation_id,
       trigger_type: seed.trigger_type,
       trigger_id: seed.trigger_id,

@@ -104,11 +104,11 @@ defmodule BullX.AIAgent.PromptRenderer do
   defp nil_if_empty(""), do: nil
   defp nil_if_empty(value), do: value
 
-  defp agent_display_name(%Conversation{agent_principal: %Principal{} = principal}),
+  defp agent_display_name(%Conversation{agent: %{principal: %Principal{} = principal}}),
     do: principal_display_name(principal)
 
-  defp agent_display_name(%Conversation{agent_principal_id: agent_principal_id}) do
-    case Principals.get_principal(agent_principal_id) do
+  defp agent_display_name(%Conversation{agent_uid: agent_uid}) do
+    case Principals.get_principal(agent_uid) do
       {:ok, principal} -> principal_display_name(principal)
       {:error, :not_found} -> "BullX AIAgent"
     end

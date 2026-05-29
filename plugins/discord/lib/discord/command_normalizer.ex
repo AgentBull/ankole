@@ -1,13 +1,17 @@
 defmodule Discord.CommandNormalizer do
   @moduledoc false
 
-  @direct_commands ~w(root_init webauth)
+  @direct_commands ~w(root_init webauth command status)
 
   @spec parse_text(String.t() | nil) ::
-          {:agent_command, map()} | {:direct, map()} | {:ignore, :unsupported_command} | :not_command
+          {:agent_command, map()}
+          | {:direct, map()}
+          | {:ignore, :unsupported_command}
+          | :not_command
   def parse_text(text) when is_binary(text) do
     with "/" <> rest <- String.trim_leading(text),
-         [token | tail] <- String.split(rest, ~r/\s+/, parts: 2) do
+         [token | tail] <- String.split(rest, ~r/\s+/, parts: 2),
+         true <- token != "" do
       args = tail |> List.first() |> to_string() |> String.trim()
       classify(token, args, "slash_text")
     else
@@ -60,17 +64,10 @@ defmodule Discord.CommandNormalizer do
         {:direct, %{name: command_name, args: args, surface: surface}}
 
       {:ok, command_name} ->
-        {:agent_command,
-         %{
-           name: command_name,
-           args: args,
-           args_kind: args_kind(args, surface),
-           surface: surface,
-           provider_command_id: provider_command_id
-         }}
+        {:agent_command, command(command_name, args, surface, provider_command_id)}
 
       :error ->
-        {:ignore, :unsupported_command}
+        {:agent_command, command(normalize_unknown(name), args, surface, provider_command_id)}
     end
   end
 
@@ -78,6 +75,24 @@ defmodule Discord.CommandNormalizer do
   defp canonical("webauth"), do: {:ok, "webauth"}
   defp canonical("ask"), do: {:ok, "ask"}
   defp canonical(name), do: BullX.AIAgent.CommandCatalog.canonical_command_name(name)
+
+  defp command(name, args, surface, provider_command_id) do
+    %{
+      name: name,
+      args: args,
+      args_kind: args_kind(args, surface),
+      surface: surface,
+      provider_command_id: provider_command_id
+    }
+  end
+
+  defp normalize_unknown(name) do
+    name
+    |> to_string()
+    |> String.trim()
+    |> String.trim_leading("/")
+    |> String.downcase()
+  end
 
   defp interaction_args(%{"options" => options}, "ask") when is_list(options) do
     case prompt_option(options) do

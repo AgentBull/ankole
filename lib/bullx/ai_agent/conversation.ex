@@ -12,7 +12,7 @@ defmodule BullX.AIAgent.Conversation do
   import Ecto.Changeset
 
   alias BullX.AIAgent.Message
-  alias BullX.Principals.Principal
+  alias BullX.Principals.Agent
 
   @primary_key {:id, BullX.Ecto.UUIDv7, autogenerate: true}
   @foreign_key_type :binary_id
@@ -21,7 +21,7 @@ defmodule BullX.AIAgent.Conversation do
   @type t :: %__MODULE__{}
 
   schema "conversations" do
-    belongs_to :agent_principal, Principal
+    belongs_to :agent, Agent, foreign_key: :agent_uid, references: :uid, type: :string
     field :conversation_key, :string
     belongs_to :current_leaf_message, Message
     field :ended_at, :utc_datetime_usec
@@ -35,21 +35,21 @@ defmodule BullX.AIAgent.Conversation do
   def changeset(conversation, attrs) do
     conversation
     |> cast(attrs, [
-      :agent_principal_id,
+      :agent_uid,
       :conversation_key,
       :current_leaf_message_id,
       :ended_at,
       :generation,
       :metadata
     ])
-    |> validate_required([:agent_principal_id, :conversation_key, :generation, :metadata])
+    |> validate_required([:agent_uid, :conversation_key, :generation, :metadata])
     |> validate_json_object(:generation)
     |> validate_json_object(:metadata)
-    |> foreign_key_constraint(:agent_principal_id)
+    |> foreign_key_constraint(:agent_uid)
     |> foreign_key_constraint(:current_leaf_message_id,
       name: :conversations_current_leaf_same_conversation_fkey
     )
-    |> unique_constraint([:agent_principal_id, :conversation_key],
+    |> unique_constraint([:agent_uid, :conversation_key],
       name: :conversations_active_agent_key_index
     )
     |> check_constraint(:generation, name: :conversations_generation_object)

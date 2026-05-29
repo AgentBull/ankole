@@ -97,7 +97,7 @@ defmodule BullX.AIAgent.CompressionTest do
           })
     }
 
-    {:ok, conversation} = Conversations.find_or_create_active(agent.id, "v1:compress", %{})
+    {:ok, conversation} = Conversations.find_or_create_active(agent.uid, "v1:compress", %{})
 
     {:ok, conversation, _first} =
       Conversations.append_message(conversation, %{

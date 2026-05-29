@@ -45,7 +45,7 @@ Discord gateway and interaction payloads are normalized by
 
 Current event mapping includes:
 
-- `MESSAGE_CREATE` -> addressed or ambient IM message mail
+- `MESSAGE_CREATE` -> `bullx.message.received`
 - `MESSAGE_UPDATE` with an edit timestamp -> `bullx.message.edited`
 - `INTERACTION_CREATE` -> command or action mail depending on payload
 
@@ -53,8 +53,11 @@ Direct commands are handled before IMGateway handoff:
 
 - `/root_init <code>`
 - `/webauth`
+- `/command`
+- `/status`
 
-Other agent commands are normalized to `bullx.command.invoked`.
+Other slash commands, including unknown command names, are normalized to
+`bullx.command.invoked`.
 
 Addressed and ambient admission follows the source listen mode and Discord
 mention/DM policy. MailBox stores the selected attention on the delivered entry.
@@ -85,4 +88,4 @@ supervisor after source config changes.
 - Discord adapter code owns provider normalization and transport calls.
 - IMGateway stores inbound and outbound IM facts.
 - MailBox delivery rules decide receivers.
-- Direct setup/auth commands are adapter-local.
+- Direct commands are adapter-local.

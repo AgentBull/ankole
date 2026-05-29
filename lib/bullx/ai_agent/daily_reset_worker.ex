@@ -30,10 +30,10 @@ defmodule BullX.AIAgent.DailyResetWorker do
     |> where([_a, p], p.status == :active)
     |> select([a, p], {p.id, a.profile})
     |> Repo.all()
-    |> Enum.each(fn {principal_id, raw_profile} ->
+    |> Enum.each(fn {principal_uid, raw_profile} ->
       with {:ok, profile} <- Profile.cast(raw_profile),
            true <- profile.daily_reset.enabled do
-        DailyReset.close_eligible(profile, now, principal_id)
+        DailyReset.close_eligible(profile, now, principal_uid)
       end
     end)
 

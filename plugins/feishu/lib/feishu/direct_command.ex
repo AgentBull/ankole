@@ -110,9 +110,32 @@ defmodule Feishu.DirectCommand do
 
   defp run(%Source{} = source, %{name: "root_init"} = command, opts) do
     case BullX.AuthZ.ensure_root_init_open() do
-      :ok -> run_root_init_open(source, command, opts)
-      {:error, :root_init_closed} -> {:ok, %{"command_name" => "root_init", "status" => "ignored"}}
+      :ok ->
+        run_root_init_open(source, command, opts)
+
+      {:error, :root_init_closed} ->
+        {:ok, %{"command_name" => "root_init", "status" => "ignored"}}
     end
+  end
+
+  defp run(%Source{} = source, %{name: "status"} = command, opts) do
+    reply_text(
+      command,
+      source,
+      BullX.IMGateway.CommandResponses.status_text(opts),
+      "status",
+      opts
+    )
+  end
+
+  defp run(%Source{} = source, %{name: "command"} = command, opts) do
+    reply_text(
+      command,
+      source,
+      BullX.IMGateway.CommandResponses.command_list_text(opts),
+      "command",
+      opts
+    )
   end
 
   defp run(%Source{} = source, %{name: "webauth", chat_type: chat_type} = command, opts)

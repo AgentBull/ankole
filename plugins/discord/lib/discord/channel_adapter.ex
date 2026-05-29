@@ -69,7 +69,8 @@ defmodule Discord.ChannelAdapter do
     end
   end
 
-  defp handle_mapped({:ok, mapped}, %Source{}), do: IMGatewayAdapter.build_cloud_event(mapped.attrs)
+  defp handle_mapped({:ok, mapped}, %Source{}),
+    do: IMGatewayAdapter.build_message_event(mapped.attrs)
 
   defp handle_mapped({:error, error}, _source), do: {:error, Discord.Error.map(error)}
 end

@@ -123,6 +123,7 @@ defmodule BullxTelegram.UpdateMapper do
           thread_id: context.thread_id,
           reply_to_external_id: message_id
         },
+        command: command_data(command),
         routing_facts: routing_facts(source, context, blocks, command),
         raw_ref: %{"kind" => "telegram.update", "id" => update_id}
       }
@@ -134,6 +135,18 @@ defmodule BullxTelegram.UpdateMapper do
   end
 
   defp command_content(blocks, _command), do: blocks
+
+  defp command_data(%{name: name} = command) do
+    %{
+      name: name,
+      args_text: Map.get(command, :args, ""),
+      args_kind: Map.get(command, :args_kind),
+      surface: Map.get(command, :surface)
+    }
+    |> reject_nil_values()
+  end
+
+  defp command_data(_command), do: nil
 
   defp context(update_id, provider_update_type, message, %Source{} = _source, attention_reason) do
     chat = Map.get(message, "chat") || %{}
@@ -244,8 +257,7 @@ defmodule BullxTelegram.UpdateMapper do
   end
 
   defp event_type("edited_message", _attention), do: "bullx.message.edited"
-  defp event_type(_type, {:ambient, _reason}), do: "bullx.im.message.ambient"
-  defp event_type(_type, _attention), do: "bullx.im.message.addressed"
+  defp event_type(_type, _attention), do: "bullx.message.received"
 
   defp required_id(map, key) do
     case stringify_id(Map.get(map, key)) do

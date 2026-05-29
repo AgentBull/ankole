@@ -35,7 +35,7 @@ defmodule BullxTelegram.UpdateMapperTest do
 
     assert {:ok, %{attrs: attrs, account_input: account_input}} = UpdateMapper.map(update, source)
 
-    assert attrs.type == "bullx.im.message.addressed"
+    assert attrs.type == "bullx.message.received"
     assert attrs.source == "telegram://main/bot/123456"
     assert get_in(attrs.data, [:channel, :adapter]) == "telegram"
     assert get_in(attrs.data, [:channel, :kind]) == "dm"
@@ -69,7 +69,7 @@ defmodule BullxTelegram.UpdateMapperTest do
     }
 
     assert {:ok, %{attrs: attrs}} = UpdateMapper.map(update, source)
-    assert attrs.type == "bullx.im.message.ambient"
+    assert attrs.type == "bullx.message.received"
     assert get_in(attrs.data, [:routing_facts, "attention_reason"]) == "unaddressed"
     assert get_in(attrs.data, [:routing_facts, "im_listen_mode"]) == "all_messages"
   end
@@ -117,7 +117,7 @@ defmodule BullxTelegram.UpdateMapperTest do
     }
 
     assert {:ok, %{attrs: attrs}} = UpdateMapper.map(update, source)
-    assert attrs.type == "bullx.im.message.addressed"
+    assert attrs.type == "bullx.message.received"
     assert get_in(attrs.data, [:routing_facts, "attention_reason"]) == "mention"
   end
 
@@ -158,7 +158,7 @@ defmodule BullxTelegram.UpdateMapperTest do
         "message_id" => 2,
         "chat" => %{"id" => 3, "type" => "private"},
         "from" => %{"id" => 4, "is_bot" => false},
-        "text" => "/状态"
+        "text" => "/新会话"
       }
     }
 
@@ -166,7 +166,55 @@ defmodule BullxTelegram.UpdateMapperTest do
              BullX.I18n.with_locale(:"zh-Hans-CN", fn -> UpdateMapper.map(update, source) end)
 
     assert attrs.type == "bullx.command.invoked"
-    assert get_in(attrs.data, [:routing_facts, "command_name"]) == "status"
+    assert get_in(attrs.data, [:routing_facts, "command_name"]) == "new"
+    assert attrs.data.command.name == "new"
+  end
+
+  test "maps status to a direct gateway command" do
+    source = %Source{
+      id: "main",
+      bot_token: "123456:ABC",
+      bot_id: "123456",
+      bot_username: "bullx_bot",
+      attention: default_attention()
+    }
+
+    update = %{
+      "update_id" => 1,
+      "message" => %{
+        "message_id" => 2,
+        "chat" => %{"id" => 3, "type" => "private"},
+        "from" => %{"id" => 4, "is_bot" => false},
+        "text" => "/status"
+      }
+    }
+
+    assert {:direct_command, %{name: "status", args: ""}} = UpdateMapper.map(update, source)
+  end
+
+  test "keeps unknown slash commands as command events" do
+    source = %Source{
+      id: "main",
+      bot_token: "123456:ABC",
+      bot_id: "123456",
+      bot_username: "bullx_bot",
+      attention: default_attention()
+    }
+
+    update = %{
+      "update_id" => 1,
+      "message" => %{
+        "message_id" => 2,
+        "chat" => %{"id" => 3, "type" => "private"},
+        "from" => %{"id" => 4, "is_bot" => false},
+        "text" => "/does_not_exist arg"
+      }
+    }
+
+    assert {:ok, %{attrs: attrs}} = UpdateMapper.map(update, source)
+    assert attrs.type == "bullx.command.invoked"
+    assert get_in(attrs.data, [:routing_facts, "command_name"]) == "does_not_exist"
+    assert attrs.data.command.args_text == "arg"
   end
 
   test "UTF-16 splitting respects emoji code units" do

@@ -20,7 +20,6 @@ defmodule BullXWeb.WebConsoleController do
 
   defp principal_view(principal) do
     %{
-      id: principal.id,
       uid: principal.uid,
       display_name: principal.display_name,
       type: principal.type,

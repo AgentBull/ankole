@@ -20,7 +20,7 @@ defmodule BullX.Repo.Migrations.CreateAiAgentTables do
     create table(:conversations, primary_key: false) do
       add :id, :uuid, primary_key: true
 
-      add :agent_principal_id, references(:principals, type: :uuid, on_delete: :restrict),
+      add :agent_uid, references(:agents, column: :uid, type: :text, on_delete: :restrict),
         null: false
 
       add :conversation_key, :text, null: false
@@ -40,7 +40,7 @@ defmodule BullX.Repo.Migrations.CreateAiAgentTables do
              check: "jsonb_typeof(metadata) = 'object'"
            )
 
-    create unique_index(:conversations, [:agent_principal_id, :conversation_key],
+    create unique_index(:conversations, [:agent_uid, :conversation_key],
              where: "ended_at IS NULL",
              name: :conversations_active_agent_key_index
            )

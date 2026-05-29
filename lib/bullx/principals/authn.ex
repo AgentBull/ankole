@@ -18,25 +18,23 @@ defmodule BullX.Principals.AuthN do
   @human_fields %{"email" => :email, "phone" => :phone}
   @bootstrap_activation_code_key {__MODULE__, :bootstrap_activation_code}
 
-  @spec get_principal(Ecto.UUID.t()) :: {:ok, Principal.t()} | {:error, :not_found}
-  def get_principal(id) when is_binary(id) do
-    with {:ok, uuid} <- Ecto.UUID.cast(id),
-         %Principal{} = principal <- Repo.get(Principal, uuid) do
-      {:ok, principal}
-    else
-      _other -> {:error, :not_found}
+  @spec get_principal(String.t()) :: {:ok, Principal.t()} | {:error, :not_found}
+  def get_principal(uid) when is_binary(uid) do
+    case Repo.get_by(Principal, uid: uid) do
+      %Principal{} = principal -> {:ok, principal}
+      nil -> {:error, :not_found}
     end
   end
 
-  def get_principal(_id), do: {:error, :not_found}
+  def get_principal(_uid), do: {:error, :not_found}
 
-  @spec update_principal_status(Principal.t() | Ecto.UUID.t(), :active | :disabled) ::
+  @spec update_principal_status(Principal.t() | String.t(), :active | :disabled) ::
           {:ok, Principal.t()}
           | {:error, :not_found | :invalid_status | :last_active_human_admin}
           | {:error, Ecto.Changeset.t()}
-  def update_principal_status(principal_or_id, status) when status in [:active, :disabled] do
+  def update_principal_status(principal_or_uid, status) when status in [:active, :disabled] do
     transaction(fn ->
-      with {:ok, principal} <- fetch_principal_for_update(principal_or_id),
+      with {:ok, principal} <- fetch_principal_for_update(principal_or_uid),
            :ok <- ensure_status_change_allowed(principal, status) do
         principal
         |> Ecto.Changeset.change(%{status: status})
@@ -45,13 +43,14 @@ defmodule BullX.Principals.AuthN do
     end)
   end
 
-  def update_principal_status(_principal_or_id, _status), do: {:error, :invalid_status}
+  def update_principal_status(_principal_or_uid, _status), do: {:error, :invalid_status}
 
-  @spec disable_principal(Principal.t() | Ecto.UUID.t()) ::
+  @spec disable_principal(Principal.t() | String.t()) ::
           {:ok, Principal.t()}
           | {:error, :not_found | :last_active_human_admin}
           | {:error, Ecto.Changeset.t()}
-  def disable_principal(principal_or_id), do: update_principal_status(principal_or_id, :disabled)
+  def disable_principal(principal_or_uid),
+    do: update_principal_status(principal_or_uid, :disabled)
 
   @spec create_human(map()) ::
           {:ok, %{principal: Principal.t(), human_user: HumanUser.t()}}
@@ -68,15 +67,15 @@ defmodule BullX.Principals.AuthN do
     transaction(fn -> insert_agent_record(normalized) end)
   end
 
-  @spec update_agent(Principal.t() | Ecto.UUID.t(), map()) ::
+  @spec update_agent(Principal.t() | String.t(), map()) ::
           {:ok, %{principal: Principal.t(), agent: Agent.t()}}
           | {:error, :not_found | :not_agent}
           | {:error, Ecto.Changeset.t()}
-  def update_agent(principal_or_id, attrs) when is_map(attrs) do
+  def update_agent(principal_or_uid, attrs) when is_map(attrs) do
     normalized = normalize_agent_update_attrs(attrs)
 
     transaction(fn ->
-      with {:ok, principal} <- fetch_principal_for_update(principal_or_id),
+      with {:ok, principal} <- fetch_principal_for_update(principal_or_uid),
            :ok <- ensure_agent_principal(principal),
            {:ok, principal} <- update_agent_principal(principal, normalized.principal),
            {:ok, agent} <- update_agent_record(principal, normalized.agent) do
@@ -282,16 +281,16 @@ defmodule BullX.Principals.AuthN do
     |> Repo.insert()
   end
 
-  defp insert_human_user(%Principal{id: principal_id}, attrs) do
-    attrs = Map.put(attrs, :principal_id, principal_id)
+  defp insert_human_user(%Principal{uid: principal_uid}, attrs) do
+    attrs = Map.put(attrs, :principal_uid, principal_uid)
 
     %HumanUser{}
     |> HumanUser.changeset(attrs)
     |> Repo.insert()
   end
 
-  defp insert_agent(%Principal{id: principal_id}, attrs) do
-    attrs = Map.put(attrs, :principal_id, principal_id)
+  defp insert_agent(%Principal{uid: agent_uid}, attrs) do
+    attrs = Map.put(attrs, :uid, agent_uid)
 
     %Agent{}
     |> Agent.changeset(attrs)
@@ -304,11 +303,11 @@ defmodule BullX.Principals.AuthN do
     |> Repo.update()
   end
 
-  defp update_agent_record(%Principal{id: principal_id}, attrs) do
-    case Repo.get(Agent, principal_id) do
+  defp update_agent_record(%Principal{uid: agent_uid}, attrs) do
+    case Repo.get(Agent, agent_uid) do
       nil ->
         %Agent{}
-        |> Agent.changeset(Map.put(attrs, :principal_id, principal_id))
+        |> Agent.changeset(Map.put(attrs, :uid, agent_uid))
         |> Repo.insert()
 
       %Agent{} = agent ->
@@ -318,22 +317,16 @@ defmodule BullX.Principals.AuthN do
     end
   end
 
-  defp fetch_principal_for_update(%Principal{id: id}), do: fetch_principal_for_update(id)
+  defp fetch_principal_for_update(%Principal{uid: uid}), do: fetch_principal_for_update(uid)
 
-  defp fetch_principal_for_update(id) when is_binary(id) do
-    case Ecto.UUID.cast(id) do
-      {:ok, uuid} ->
-        case Repo.one(
-               from principal in Principal,
-                 where: principal.id == ^uuid,
-                 lock: "FOR UPDATE"
-             ) do
-          nil -> {:error, :not_found}
-          principal -> {:ok, principal}
-        end
-
-      :error ->
-        {:error, :not_found}
+  defp fetch_principal_for_update(uid) when is_binary(uid) do
+    case Repo.one(
+           from principal in Principal,
+             where: principal.uid == ^uid,
+             lock: "FOR UPDATE"
+         ) do
+      nil -> {:error, :not_found}
+      principal -> {:ok, principal}
     end
   end
 
@@ -908,7 +901,6 @@ defmodule BullX.Principals.AuthN do
         type: :human,
         status: attr(principal_source, :status) || :active,
         display_name: attr(principal_source, :display_name),
-        bio: attr(principal_source, :bio),
         avatar_url: attr(principal_source, :avatar_url)
       },
       human_user: %{
@@ -928,12 +920,12 @@ defmodule BullX.Principals.AuthN do
         type: :agent,
         status: attr(principal_source, :status) || :active,
         display_name: attr(principal_source, :display_name),
-        bio: attr(principal_source, :bio),
         avatar_url: attr(principal_source, :avatar_url)
       },
       agent: %{
+        type: attr(agent_source, :type) || :ai_agent,
         profile: attr(agent_source, :profile),
-        created_by_principal_id: attr(agent_source, :created_by_principal_id)
+        created_by_principal_uid: attr(agent_source, :created_by_principal_uid)
       }
     }
   end
@@ -948,12 +940,12 @@ defmodule BullX.Principals.AuthN do
         type: :agent,
         status: attr(principal_source, :status) || :active,
         display_name: attr(principal_source, :display_name),
-        bio: attr(principal_source, :bio),
         avatar_url: attr(principal_source, :avatar_url)
       },
       agent: %{
+        type: attr(agent_source, :type) || :ai_agent,
         profile: attr(agent_source, :profile),
-        created_by_principal_id: attr(agent_source, :created_by_principal_id)
+        created_by_principal_uid: attr(agent_source, :created_by_principal_uid)
       }
     }
   end
@@ -1002,7 +994,7 @@ defmodule BullX.Principals.AuthN do
   defp update_channel_principal_profile(%Principal{} = principal, input) do
     attrs =
       %{
-        uid: unique_uid(uid_candidate(input.profile), principal.id),
+        uid: unique_uid(uid_candidate(input.profile), principal.uid),
         display_name: preferred_display_name(input),
         avatar_url: input.profile["avatar_url"]
       }
@@ -1039,9 +1031,9 @@ defmodule BullX.Principals.AuthN do
   defp verification_timestamp(%{trusted_realm_by_default: true}), do: utc_now()
   defp verification_timestamp(_input), do: nil
 
-  defp channel_identity_attrs(%Principal{id: principal_id}, input, verified_at) do
+  defp channel_identity_attrs(%Principal{uid: principal_uid}, input, verified_at) do
     %{
-      principal_id: principal_id,
+      principal_uid: principal_uid,
       kind: :channel_actor,
       adapter: input.adapter,
       channel_id: input.channel_id,
@@ -1051,9 +1043,9 @@ defmodule BullX.Principals.AuthN do
     }
   end
 
-  defp login_subject_identity_attrs(%Principal{id: principal_id}, input) do
+  defp login_subject_identity_attrs(%Principal{uid: principal_uid}, input) do
     %{
-      principal_id: principal_id,
+      principal_uid: principal_uid,
       kind: :login_subject,
       provider: input.provider,
       external_id: input.external_id,
@@ -1063,14 +1055,14 @@ defmodule BullX.Principals.AuthN do
 
   defp login_auth_code_attrs(
          code_hash,
-         %Principal{id: principal_id},
+         %Principal{uid: principal_uid},
          adapter,
          channel_id,
          external_id
        ) do
     %{
       code_hash: code_hash,
-      principal_id: principal_id,
+      principal_uid: principal_uid,
       metadata: %{
         "adapter" => to_string(adapter),
         "channel_id" => channel_id,
@@ -1108,10 +1100,10 @@ defmodule BullX.Principals.AuthN do
     |> List.first()
   end
 
-  defp unique_uid(candidate, excluded_principal_id \\ nil) do
+  defp unique_uid(candidate, excluded_principal_uid \\ nil) do
     base = canonical_uid(candidate)
 
-    case Repo.exists?(unique_uid_query(base, excluded_principal_id)) do
+    case Repo.exists?(unique_uid_query(base, excluded_principal_uid)) do
       false -> base
       true -> base <> "-" <> String.slice(BullX.Ext.gen_base36_uuid(), 0, 8)
     end
@@ -1123,9 +1115,9 @@ defmodule BullX.Principals.AuthN do
       select: 1
   end
 
-  defp unique_uid_query(base, excluded_principal_id) do
+  defp unique_uid_query(base, excluded_principal_uid) do
     from principal in Principal,
-      where: principal.uid == ^base and principal.id != ^excluded_principal_id,
+      where: principal.uid == ^base and principal.uid != ^excluded_principal_uid,
       select: 1
   end
 

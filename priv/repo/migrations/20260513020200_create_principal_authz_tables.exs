@@ -33,9 +33,10 @@ defmodule BullX.Repo.Migrations.CreatePrincipalAuthzTables do
            )
 
     create table(:principal_group_memberships, primary_key: false) do
-      add :principal_id, references(:principals, type: :uuid, on_delete: :delete_all),
-        null: false,
-        primary_key: true
+      add :principal_uid,
+          references(:principals, column: :uid, type: :text, on_delete: :delete_all),
+          null: false,
+          primary_key: true
 
       add :group_id, references(:principal_groups, type: :uuid, on_delete: :delete_all),
         null: false,
@@ -48,7 +49,10 @@ defmodule BullX.Repo.Migrations.CreatePrincipalAuthzTables do
 
     create table(:permission_grants, primary_key: false) do
       add :id, :uuid, primary_key: true
-      add :principal_id, references(:principals, type: :uuid, on_delete: :delete_all)
+
+      add :principal_uid,
+          references(:principals, column: :uid, type: :text, on_delete: :delete_all)
+
       add :group_id, references(:principal_groups, type: :uuid, on_delete: :delete_all)
       add :resource_pattern, :text, null: false
       add :action, :text, null: false
@@ -61,8 +65,8 @@ defmodule BullX.Repo.Migrations.CreatePrincipalAuthzTables do
 
     create constraint(:permission_grants, :permission_grants_principal_exclusive,
              check: """
-             (principal_id IS NOT NULL AND group_id IS NULL)
-             OR (principal_id IS NULL AND group_id IS NOT NULL)
+             (principal_uid IS NOT NULL AND group_id IS NULL)
+             OR (principal_uid IS NULL AND group_id IS NOT NULL)
              """
            )
 
@@ -86,7 +90,7 @@ defmodule BullX.Repo.Migrations.CreatePrincipalAuthzTables do
              check: "jsonb_typeof(metadata) = 'object'"
            )
 
-    create index(:permission_grants, [:principal_id])
+    create index(:permission_grants, [:principal_uid])
     create index(:permission_grants, [:group_id])
     create index(:permission_grants, [:action])
   end

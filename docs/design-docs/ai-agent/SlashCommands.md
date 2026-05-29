@@ -1,18 +1,21 @@
 # Slash Commands
 
-Slash commands enter BullX through IM adapters. Adapter-local setup/auth
-commands are handled before IMGateway handoff; AIAgent commands are normalized
-and delivered through MailBox.
+Slash commands enter BullX through IM adapters. Commands that can be answered at
+the IM boundary are handled before IMGateway handoff. Other slash commands,
+including unknown command names, are delivered through MailBox as
+`bullx.command.invoked`.
 
 ## Catalog
 
 `BullX.AIAgent.CommandCatalog` is code-owned. It defines canonical English
 command names, display slashes, localized aliases, and descriptions.
 
-Current system commands:
+Current IMGateway-direct commands:
 
 - `command`
 - `status`
+- `root_init`
+- `webauth`
 
 Current AIAgent commands:
 
@@ -24,21 +27,29 @@ Current AIAgent commands:
 - `undo`
 
 Localized aliases are normalized by adapters before they set
-`data.routing_facts.command_name`.
+`data.command.name` and `data.routing_facts.command_name`. Unknown slash command
+names are still delivered as command events so the Receiver can decide how to
+respond.
 
-## Adapter-Local Commands
+## IMGateway-Direct Commands
 
-These commands are handled inside the provider adapter:
+These commands are handled inside the provider adapter before IMGateway storage
+or MailBox routing:
 
 - `/root_init <code>`
 - `/webauth`
+- `/command`
+- `/status`
 
-They are restricted to direct/private contexts by the adapters and do not depend
-on IMGateway storage, MailBox routing, or AIAgent conversations.
+`/root_init` and `/webauth` are restricted to direct/private contexts by the
+adapters. `/command` and `/status` return boundary-owned status/help text. These
+commands do not depend on IMGateway storage, MailBox routing, or AIAgent
+conversations.
 
 ## AIAgent Handling
 
-`BullX.AIAgent.Commands` handles canonical AIAgent commands:
+`BullX.AIAgent.Commands` handles `bullx.command.invoked` mail for canonical
+AIAgent commands:
 
 - `new`: cancels any active generation, closes the active conversation, and
   creates a fresh active conversation for the same key.
@@ -61,7 +72,8 @@ generation lease and interrupts the visible stream.
 ## Invariants
 
 - Canonical command names in AIAgent are English ids.
-- Setup/auth commands are adapter-local.
+- IMGateway-direct commands are adapter-local.
+- AIAgent does not parse addressed message text for slash commands.
 - Command responses do not bypass IMGateway.
 - Command idempotency is owned by AIAgent conversation and generation state, not
   by MailBox retries.

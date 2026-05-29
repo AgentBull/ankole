@@ -25,7 +25,7 @@ defmodule BullX.AIAgent.PromptRendererTest do
         }
       })
 
-    {:ok, conversation} = Conversations.find_or_create_active(agent.id, "v1:tools", %{})
+    {:ok, conversation} = Conversations.find_or_create_active(agent.uid, "v1:tools", %{})
 
     {:ok, conversation, _user} =
       Conversations.append_message(conversation, %{
@@ -144,7 +144,7 @@ defmodule BullX.AIAgent.PromptRendererTest do
         }
       })
 
-    {:ok, conversation} = Conversations.find_or_create_active(agent.id, "v1:introspection", %{})
+    {:ok, conversation} = Conversations.find_or_create_active(agent.uid, "v1:introspection", %{})
 
     {:ok, conversation, _first} =
       Conversations.append_message(conversation, %{

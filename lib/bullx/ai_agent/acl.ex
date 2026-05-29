@@ -25,21 +25,21 @@ defmodule BullX.AIAgent.ACL do
   @type decision :: :allowed | {:denied, atom()} | {:error, term()}
 
   @spec resource(String.t()) :: String.t()
-  def resource(agent_principal_id) when is_binary(agent_principal_id) do
-    "ai_agent:" <> agent_principal_id
+  def resource(agent_uid) when is_binary(agent_uid) do
+    "ai_agent:" <> agent_uid
   end
 
   @spec authorize(String.t(), String.t(), operation_tag(), map()) :: decision()
-  def authorize(caller_principal_id, agent_principal_id, operation_tag, context \\ %{})
+  def authorize(caller_principal_uid, agent_uid, operation_tag, context \\ %{})
 
-  def authorize(caller_principal_id, agent_principal_id, operation_tag, context)
-      when is_binary(caller_principal_id) and is_binary(agent_principal_id) and is_map(context) do
+  def authorize(caller_principal_uid, agent_uid, operation_tag, context)
+      when is_binary(caller_principal_uid) and is_binary(agent_uid) and is_map(context) do
     sanitized_context = sanitize_context(context)
-    resource = resource(agent_principal_id)
+    resource = resource(agent_uid)
 
-    with :ok <- authz(caller_principal_id, resource, "invoke", sanitized_context),
+    with :ok <- authz(caller_principal_uid, resource, "invoke", sanitized_context),
          :ok <-
-           authorize_operation(caller_principal_id, resource, operation_tag, sanitized_context) do
+           authorize_operation(caller_principal_uid, resource, operation_tag, sanitized_context) do
       :allowed
     else
       {:denied, reason} -> {:denied, reason}
@@ -47,18 +47,18 @@ defmodule BullX.AIAgent.ACL do
     end
   end
 
-  def authorize(_caller_principal_id, _agent_principal_id, _operation_tag, _context),
+  def authorize(_caller_principal_uid, _agent_uid, _operation_tag, _context),
     do: {:denied, :invalid_request}
 
   @spec allowed?(String.t(), String.t(), operation_tag(), map()) :: boolean()
-  def allowed?(caller_principal_id, agent_principal_id, operation_tag, context \\ %{}) do
-    authorize(caller_principal_id, agent_principal_id, operation_tag, context) == :allowed
+  def allowed?(caller_principal_uid, agent_uid, operation_tag, context \\ %{}) do
+    authorize(caller_principal_uid, agent_uid, operation_tag, context) == :allowed
   end
 
   @spec filter_allowed_tags(String.t(), String.t(), map()) :: MapSet.t(operation_tag())
-  def filter_allowed_tags(caller_principal_id, agent_principal_id, context \\ %{}) do
+  def filter_allowed_tags(caller_principal_uid, agent_uid, context \\ %{}) do
     [:ordinary, :privileged]
-    |> Enum.filter(&(authorize(caller_principal_id, agent_principal_id, &1, context) == :allowed))
+    |> Enum.filter(&(authorize(caller_principal_uid, agent_uid, &1, context) == :allowed))
     |> MapSet.new()
   end
 

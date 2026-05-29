@@ -50,10 +50,10 @@ defmodule BullX.AIAgent.Conversations do
 
   @spec find_or_create_active(String.t(), String.t(), map()) ::
           {:ok, Conversation.t()} | {:error, term()}
-  def find_or_create_active(agent_principal_id, conversation_key, metadata)
-      when is_binary(agent_principal_id) and is_binary(conversation_key) and is_map(metadata) do
+  def find_or_create_active(agent_uid, conversation_key, metadata)
+      when is_binary(agent_uid) and is_binary(conversation_key) and is_map(metadata) do
     Repo.transaction(fn ->
-      case active_query(agent_principal_id, conversation_key)
+      case active_query(agent_uid, conversation_key)
            |> lock("FOR UPDATE")
            |> Repo.one() do
         %Conversation{} = conversation ->
@@ -62,7 +62,7 @@ defmodule BullX.AIAgent.Conversations do
         nil ->
           %Conversation{}
           |> Conversation.changeset(%{
-            agent_principal_id: agent_principal_id,
+            agent_uid: agent_uid,
             conversation_key: conversation_key,
             generation: %{},
             metadata: metadata
@@ -83,10 +83,10 @@ defmodule BullX.AIAgent.Conversations do
 
   @spec lock_active(String.t(), String.t(), (Conversation.t() | nil -> term())) ::
           {:ok, term()} | {:error, term()}
-  def lock_active(agent_principal_id, conversation_key, fun)
-      when is_binary(agent_principal_id) and is_binary(conversation_key) and is_function(fun, 1) do
+  def lock_active(agent_uid, conversation_key, fun)
+      when is_binary(agent_uid) and is_binary(conversation_key) and is_function(fun, 1) do
     Repo.transaction(fn ->
-      agent_principal_id
+      agent_uid
       |> active_query(conversation_key)
       |> lock("FOR UPDATE")
       |> Repo.one()
@@ -480,9 +480,9 @@ defmodule BullX.AIAgent.Conversations do
     |> unwrap_transaction()
   end
 
-  defp active_query(agent_principal_id, conversation_key) do
+  defp active_query(agent_uid, conversation_key) do
     Conversation
-    |> where([c], c.agent_principal_id == ^agent_principal_id)
+    |> where([c], c.agent_uid == ^agent_uid)
     |> where([c], c.conversation_key == ^conversation_key)
     |> where([c], is_nil(c.ended_at))
   end

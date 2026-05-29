@@ -18,7 +18,7 @@ defmodule BullX.AIAgent.ConversationTest do
       })
 
     assert {:ok, conversation} =
-             Conversations.find_or_create_active(agent.id, "v1:test", %{
+             Conversations.find_or_create_active(agent.uid, "v1:test", %{
                "conversation_key_parts" => %{"lane" => "addressed"}
              })
 
@@ -63,7 +63,7 @@ defmodule BullX.AIAgent.ConversationTest do
         }
       })
 
-    {:ok, conversation} = Conversations.find_or_create_active(agent.id, "v1:dedupe", %{})
+    {:ok, conversation} = Conversations.find_or_create_active(agent.uid, "v1:dedupe", %{})
     entry_id = BullX.Ext.gen_uuid_v7()
 
     attrs = %{

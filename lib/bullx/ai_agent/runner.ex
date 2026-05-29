@@ -125,8 +125,8 @@ defmodule BullX.AIAgent.Runner do
 
     with :allowed <-
            ACL.authorize(
-             context.caller_principal_id,
-             context.agent_principal_id,
+             context.caller_principal_uid,
+             context.agent_uid,
              :ordinary,
              Map.get(context, :acl_context, %{})
            ),
@@ -178,8 +178,8 @@ defmodule BullX.AIAgent.Runner do
 
     with :allowed <-
            ACL.authorize(
-             context.caller_principal_id,
-             context.agent_principal_id,
+             context.caller_principal_uid,
+             context.agent_uid,
              :ordinary,
              Map.get(context, :acl_context, %{})
            ),
@@ -209,8 +209,8 @@ defmodule BullX.AIAgent.Runner do
   defp run_existing_lease(conversation, trigger_message, profile, context, lease_id) do
     with :allowed <-
            ACL.authorize(
-             context.caller_principal_id,
-             context.agent_principal_id,
+             context.caller_principal_uid,
+             context.agent_uid,
              :ordinary,
              Map.get(context, :acl_context, %{})
            ),
@@ -240,7 +240,7 @@ defmodule BullX.AIAgent.Runner do
     :telemetry.execute([:bullx, :ai_agent, :acl_denied], %{}, %{
       trigger_type: context.trigger_type,
       trigger_id: context.trigger_id,
-      agent_principal_id: context.agent_principal_id,
+      agent_uid: context.agent_uid,
       trigger_message_id: trigger_message.id
     })
 
@@ -295,8 +295,8 @@ defmodule BullX.AIAgent.Runner do
          tools <-
            Tools.enabled_tools(
              profile,
-             context.caller_principal_id,
-             context.agent_principal_id,
+             context.caller_principal_uid,
+             context.agent_uid,
              Map.get(context, :acl_context, %{}),
              tool_runtime_seed
            ),
@@ -611,7 +611,7 @@ defmodule BullX.AIAgent.Runner do
 
     opts = [
       persist_outbound?: true,
-      actor_principal_id: Map.get(context, :agent_principal_id),
+      actor_principal_uid: Map.get(context, :agent_uid),
       delivery_update_fun: fn result ->
         send(parent, {:ai_agent_stream_delivery_result, stream_id, result})
         :ok
@@ -692,11 +692,11 @@ defmodule BullX.AIAgent.Runner do
   end
 
   defp authorized_stop_entry?(%MailboxEntry{} = entry, context) do
-    case {stop_command_entry?(entry), entry_trigger_principal_id(entry)} do
-      {true, caller_principal_id} when is_binary(caller_principal_id) ->
+    case {stop_command_entry?(entry), entry_trigger_principal_uid(entry)} do
+      {true, caller_principal_uid} when is_binary(caller_principal_uid) ->
         ACL.authorize(
-          caller_principal_id,
-          context.agent_principal_id,
+          caller_principal_uid,
+          context.agent_uid,
           :ordinary,
           pending_command_acl_context(entry)
         ) == :allowed
@@ -716,45 +716,12 @@ defmodule BullX.AIAgent.Runner do
     |> Kernel.==("stop")
   end
 
-  defp stop_command_entry?(
-         %MailboxEntry{cloud_event: %{"type" => "bullx.im.message.received"}} = entry
-       ) do
-    data = Event.data(entry.cloud_event)
-
-    case Commands.command_event_name(data) do
-      "stop" ->
-        true
-
-      _name ->
-        data
-        |> Event.text_content()
-        |> Commands.detect_text()
-        |> case do
-          {:command, "stop", _args} -> true
-          _other -> false
-        end
-    end
-  end
-
-  defp stop_command_entry?(
-         %MailboxEntry{cloud_event: %{"type" => "bullx.im.message.addressed"}} = entry
-       ) do
-    entry.cloud_event
-    |> Event.data()
-    |> Event.text_content()
-    |> Commands.detect_text()
-    |> case do
-      {:command, "stop", _args} -> true
-      _other -> false
-    end
-  end
-
   defp stop_command_entry?(_entry), do: false
 
-  defp entry_trigger_principal_id(%MailboxEntry{} = entry) do
+  defp entry_trigger_principal_uid(%MailboxEntry{} = entry) do
     entry.cloud_event
     |> BullX.MailBox.RoutingContext.project()
-    |> Event.trigger_principal_id()
+    |> Event.trigger_principal_uid()
   end
 
   defp pending_command_acl_context(entry) do
@@ -1093,12 +1060,12 @@ defmodule BullX.AIAgent.Runner do
   defp put_present(map, key, value), do: Map.put(map, key, value)
 
   defp ambient_context(
-         %Conversation{agent_principal_id: agent_principal_id},
+         %Conversation{agent_uid: agent_uid},
          %Message{metadata: metadata} = trigger_message
        ) do
     case get_in(metadata, ["scene"]) do
       %{} = scene ->
-        MessageContextBuilder.ambient_recall(agent_principal_id, scene, trigger_message)
+        MessageContextBuilder.ambient_recall(agent_uid, scene, trigger_message)
 
       _other ->
         []
@@ -1217,8 +1184,8 @@ defmodule BullX.AIAgent.Runner do
        ) do
     seed =
       %{
-        caller_principal_id: context.caller_principal_id,
-        agent_principal_id: context.agent_principal_id,
+        caller_principal_uid: context.caller_principal_uid,
+        agent_uid: context.agent_uid,
         conversation_id: conversation.id,
         trigger_type: context.trigger_type,
         trigger_id: context.trigger_id,
@@ -1604,7 +1571,7 @@ defmodule BullX.AIAgent.Runner do
       "op" => outbound["op"] || "send",
       "content" => outbound["content"] || [],
       "actor_kind" => "agent",
-      "actor_principal_id" => Map.get(context, :agent_principal_id)
+      "actor_principal_uid" => Map.get(context, :agent_uid)
     }
 
     case IMGateway.send_message(attrs) do

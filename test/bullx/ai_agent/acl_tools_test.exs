@@ -49,28 +49,28 @@ defmodule BullX.AIAgent.ACLToolsTest do
         }
       })
 
-    resource = ACL.resource(agent.id)
+    resource = ACL.resource(agent.uid)
 
-    assert {:denied, :forbidden} = ACL.authorize(caller.id, agent.id, :ordinary, %{})
+    assert {:denied, :forbidden} = ACL.authorize(caller.uid, agent.uid, :ordinary, %{})
 
     {:ok, _grant} =
       AuthZ.create_permission_grant(%{
-        principal_id: caller.id,
+        principal_uid: caller.uid,
         resource_pattern: resource,
         action: "invoke"
       })
 
-    assert :allowed = ACL.authorize(caller.id, agent.id, :ordinary, %{})
-    assert {:denied, :forbidden} = ACL.authorize(caller.id, agent.id, :privileged, %{})
+    assert :allowed = ACL.authorize(caller.uid, agent.uid, :ordinary, %{})
+    assert {:denied, :forbidden} = ACL.authorize(caller.uid, agent.uid, :privileged, %{})
 
     {:ok, _grant} =
       AuthZ.create_permission_grant(%{
-        principal_id: caller.id,
+        principal_uid: caller.uid,
         resource_pattern: resource,
         action: "invoke_privileged"
       })
 
-    assert :allowed = ACL.authorize(caller.id, agent.id, :privileged, %{})
+    assert :allowed = ACL.authorize(caller.uid, agent.uid, :privileged, %{})
   end
 
   test "ToolSet expansion is not caller-ACL visibility filtering" do
@@ -104,7 +104,7 @@ defmodule BullX.AIAgent.ACLToolsTest do
     registry = plugin_registry()
 
     rendered =
-      Tools.enabled_tools(profile, caller.id, agent.id, %{}, %{plugin_registry: registry})
+      Tools.enabled_tools(profile, caller.uid, agent.uid, %{}, %{plugin_registry: registry})
 
     assert Enum.any?(rendered, &(&1.entry.name == "clarify"))
     assert Enum.any?(rendered, &(&1.entry.name == "delete_record"))
@@ -136,8 +136,8 @@ defmodule BullX.AIAgent.ACLToolsTest do
       })
 
     seed = %{
-      caller_principal_id: caller.id,
-      agent_principal_id: agent.id,
+      caller_principal_uid: caller.uid,
+      agent_uid: agent.uid,
       conversation_id: "conversation-1",
       trigger_type: "test",
       trigger_id: "trigger-1",

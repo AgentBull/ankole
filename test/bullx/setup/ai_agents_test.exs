@@ -1,7 +1,13 @@
 defmodule BullX.Setup.AIAgentsTest do
   use BullX.DataCase, async: false
 
+  import Ecto.Query
+
+  alias BullX.AuthZ
+  alias BullX.AuthZ.{PermissionGrant, PrincipalGroup}
   alias BullX.LLM.{PluginProviders, Writer}
+  alias BullX.Principals
+  alias BullX.Repo
   alias BullX.Setup.AIAgents
 
   setup do
@@ -81,6 +87,34 @@ defmodule BullX.Setup.AIAgentsTest do
     assert agent.profile["ai_agent"]["soul"] == AIAgents.default_soul()
   end
 
+  test "save grants all active humans ordinary invoke access to the setup agent" do
+    assert {:ok, %{agent: agent}} =
+             AIAgents.save(%{
+               "uid" => "agentbull",
+               "display_name" => "AgentBull",
+               "main_llm" => %{"provider_id" => "openai_proxy", "model" => "gpt-test"},
+               "mission" => "Answer finance questions."
+             })
+
+    resource = "ai_agent:#{agent.principal_uid}"
+    all_humans = Repo.get_by!(PrincipalGroup, name: "all_humans")
+
+    assert grant_exists?(%{principal_uid: agent.principal_uid}, resource, "invoke")
+    assert grant_exists?(%{group_id: all_humans.id}, resource, "invoke")
+
+    assert {:ok, %{principal: human}} =
+             Principals.create_human(%{
+               uid: "setup-human-caller",
+               display_name: "Setup Human Caller",
+               email: "setup-human-caller@example.com"
+             })
+
+    assert :ok = AuthZ.authorize(human.uid, resource, "invoke")
+    assert :ok = AuthZ.authorize(agent.principal_uid, resource, "invoke")
+    assert {:error, :forbidden} = AuthZ.authorize(human.uid, resource, "invoke_privileged")
+    assert AIAgents.status(%{agent_uid: agent.principal_uid}).complete?
+  end
+
   test "save rejects explicit unresolved secondary models" do
     assert {:error, %{message: message}} =
              AIAgents.save(%{
@@ -110,5 +144,26 @@ defmodule BullX.Setup.AIAgentsTest do
       pid when is_pid(pid) -> Ecto.Adapters.SQL.Sandbox.allow(BullX.Repo, self(), pid)
       nil -> :ok
     end
+  end
+
+  defp grant_exists?(%{principal_uid: principal_uid}, resource, action) do
+    Repo.exists?(
+      from grant in PermissionGrant,
+        where:
+          grant.principal_uid == ^principal_uid and grant.resource_pattern == ^resource and
+            grant.action == ^action and grant.condition == "true",
+        select: 1
+    )
+  end
+
+  defp grant_exists?(%{group_id: group_id}, resource, action) do
+    Repo.exists?(
+      from grant in PermissionGrant,
+        where:
+          grant.group_id == ^group_id and grant.resource_pattern == ^resource and
+            grant.action == ^action and
+            grant.condition == "true",
+        select: 1
+    )
   end
 end

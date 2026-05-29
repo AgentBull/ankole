@@ -1,7 +1,7 @@
 # MailBox
 
 MailBox is BullX's internal CloudEvents delivery runtime. It answers one
-question: which receivers should handle this mail, and when?
+question: which Agents should handle this mail, and when?
 
 The implementation lives in `BullX.MailBox` and `BullX.MailBox.*`.
 
@@ -9,7 +9,7 @@ The implementation lives in `BullX.MailBox` and `BullX.MailBox.*`.
 
 MailBox owns:
 
-- receiver mailboxes
+- Agent-addressed delivery rules
 - delivery rules
 - short processing sessions
 - delivery entries
@@ -34,7 +34,7 @@ There are two entry points:
 
 - `BullX.MailBox.route/2` matches active delivery rules and delivers one entry
   per matched rule.
-- `BullX.MailBox.deliver/2` directly delivers a caller-specified receiver
+- `BullX.MailBox.deliver/2` directly delivers a caller-specified `agent_uid`
   request.
 
 ## Delivery Rules
@@ -45,8 +45,7 @@ There are two entry points:
 - `active`
 - `priority`
 - `match_expr`
-- `receiver_type`
-- `receiver_ref`
+- `agent_uid`
 - `attention`
 - `session_key_template`
 - `available_delay_ms`
@@ -85,15 +84,9 @@ used by setup modules.
 
 ## Tables
 
-`mailboxes` identifies one receiver mailbox by:
+`mailbox_sessions` stores a weak processing window for one Agent:
 
-- `receiver_type`
-- `receiver_ref`
-- `metadata`
-
-`mailbox_sessions` stores a weak processing window for one mailbox:
-
-- `mailbox_id`
+- `agent_uid`
 - `session_key`
 - `status`: `active`, `closed`, or `failed`
 - `last_entry_at`
@@ -101,10 +94,10 @@ used by setup modules.
 - `closed_at`
 - `metadata`
 
-`mailbox_entries` stores one delivered item for one receiver:
+`mailbox_entries` stores one delivered item for one Agent:
 
 - monotonic `entry_seq`
-- `mailbox_id`
+- `agent_uid`
 - `mailbox_session_id`
 - `status`: `pending`, `leased`, `processed`, `discarded`, or `failed`
 - `attention`: `addressed`, `ambient`, `command`, `action`, `lifecycle`, or
@@ -125,7 +118,7 @@ window state, not business truth.
 
 `deliver/2` normalizes the request, then in one database transaction:
 
-1. gets or creates the `mailboxes` row;
+1. loads the target Agent row;
 2. gets or creates the `mailbox_sessions` row;
 3. inserts a `mailbox_entries` row.
 
@@ -135,9 +128,9 @@ The default session key is:
 - otherwise `<source>#<id>`;
 - otherwise `default`.
 
-The dedupe hash includes receiver type/ref, CloudEvents source/id, attention,
-and a dedupe key. Routed mail uses the delivery rule id as the dedupe key, so
-one external event can be delivered to multiple receivers without colliding.
+The dedupe hash includes `agent_uid`, CloudEvents source/id, attention, and a
+dedupe key. Routed mail uses the delivery rule id as the dedupe key, so one
+external event can be delivered to multiple Agents without colliding.
 
 After a successful insert, MailBox wakes the dispatcher with a delay based on
 `available_at`.
@@ -149,14 +142,14 @@ After a successful insert, MailBox wakes the dispatcher with a delay based on
 `FOR UPDATE SKIP LOCKED`, sets `status = leased`, increments `attempts`, and
 sets a 60-second lease.
 
-`process_entry/2` preloads the mailbox and session, dispatches the entry, and
+`process_entry/2` preloads the Agent and session, dispatches the entry, and
 marks it `processed` or `failed`.
 
 Current dispatch behavior:
 
-- `ai_agent` calls `BullX.AIAgent.handle_mailbox_entry/2`.
-- `blackhole` succeeds without side effects.
-- any other receiver type fails with `unknown_mailbox_receiver_type`.
+- `agents.type = "ai_agent"` calls `BullX.AIAgent.handle_mailbox_entry/2`.
+- `agents.type = "blackhole"` succeeds without side effects.
+- any other Agent type fails with `unknown_agent_type`.
 
 `BullX.MailBox.Dispatcher` is a GenServer. It processes ready entries on a
 timer, wakes when new work arrives, and schedules the next wake from
@@ -168,16 +161,16 @@ timer, wakes when new work arrives, and schedules the next wake from
 output chunks. It stores stream metadata and chunks with TTLs, publishes chunk
 pointers over Redis Pub/Sub, and supports resume/follow operations.
 
-The Redis child is `BullX.MailBox.StreamingOutput.Redis`. It uses the configured
-MailBox stream Redis URL, which defaults to the cache Redis URL.
+The Redis child is `BullX.Redis`. It is a neutral runtime dependency backed by
+the configured cache Redis URL; MailBox and AIAgent depend on it as peers.
 
-Streaming output is not business truth. The receiver still persists its own
+Streaming output is not business truth. The Agent still persists its own
 conversation facts, and IMGateway still persists outbound IM facts.
 
 ## Invariants
 
-- MailBox stores delivery windows, not receiver business state.
+- MailBox stores delivery windows, not Agent business state.
 - Rule priority does not stop fan-out.
-- Duplicate delivery is scoped to one receiver mailbox.
+- Duplicate delivery is scoped to one Agent.
 - Process-local dispatcher state is reconstructible from database rows.
-- Receivers are responsible for idempotency inside their own business facts.
+- Agents are responsible for idempotency inside their own business facts.

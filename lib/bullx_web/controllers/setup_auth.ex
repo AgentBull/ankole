@@ -11,7 +11,7 @@ defmodule BullXWeb.SetupAuth do
     :bootstrap_activation_code_hash,
     :bootstrap_activation_code_plaintext,
     :setup_step,
-    :setup_agent_principal_id
+    :setup_agent_uid
   ]
 
   @spec put_no_store(Plug.Conn.t()) :: Plug.Conn.t()
@@ -28,8 +28,8 @@ defmodule BullXWeb.SetupAuth do
   def put_setup_step(conn, step), do: put_session(conn, :setup_step, Atom.to_string(step))
 
   @spec put_setup_agent(Plug.Conn.t(), String.t()) :: Plug.Conn.t()
-  def put_setup_agent(conn, principal_id) when is_binary(principal_id) do
-    put_session(conn, :setup_agent_principal_id, principal_id)
+  def put_setup_agent(conn, principal_uid) when is_binary(principal_uid) do
+    put_session(conn, :setup_agent_uid, principal_uid)
   end
 
   @spec session_input(Plug.Conn.t()) :: map()
@@ -39,7 +39,7 @@ defmodule BullXWeb.SetupAuth do
       bootstrap_activation_code_plaintext:
         get_session(conn, :bootstrap_activation_code_plaintext),
       setup_step: get_session(conn, :setup_step),
-      agent_principal_id: get_session(conn, :setup_agent_principal_id)
+      agent_uid: get_session(conn, :setup_agent_uid)
     }
   end
 

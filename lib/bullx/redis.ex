@@ -1,7 +1,7 @@
-defmodule BullX.MailBox.StreamingOutput.Redis do
+defmodule BullX.Redis do
   @moduledoc false
 
-  alias BullX.MailBox.Config
+  alias BullX.Config.CacheSettings
 
   @spec child_spec(keyword()) :: Supervisor.child_spec()
   def child_spec(opts) do
@@ -13,9 +13,17 @@ defmodule BullX.MailBox.StreamingOutput.Redis do
 
   @spec start_link(keyword()) :: GenServer.on_start() | :ignore
   def start_link(_opts) do
-    case Config.redix_options() do
+    case redix_options() do
       {:ok, opts} -> Redix.start_link(Keyword.put(opts, :name, __MODULE__))
       {:error, _reason} -> :ignore
+    end
+  end
+
+  @spec redix_options() :: {:ok, keyword()} | {:error, term()}
+  def redix_options do
+    with {:ok, url} <- CacheSettings.redis_url(),
+         {:ok, {host, port}} <- parse_redis_url(url) do
+      {:ok, [host: host, port: port, sync_connect: false]}
     end
   end
 
@@ -31,5 +39,14 @@ defmodule BullX.MailBox.StreamingOutput.Redis do
     Redix.pipeline(__MODULE__, commands, opts)
   catch
     :exit, reason -> {:error, reason}
+  end
+
+  defp parse_redis_url(url) do
+    uri = URI.parse(url)
+
+    case {uri.scheme, uri.host, uri.port} do
+      {"redis", host, port} when is_binary(host) -> {:ok, {host, port || 6379}}
+      _other -> {:error, :invalid_redis_url}
+    end
   end
 end

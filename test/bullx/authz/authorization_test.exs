@@ -16,20 +16,20 @@ defmodule BullX.AuthZ.AuthorizationTest do
 
       {:ok, _grant} =
         AuthZ.create_permission_grant(%{
-          principal_id: human.id,
+          principal_uid: human.uid,
           resource_pattern: "web_console",
           action: "read"
         })
 
       {:ok, _grant} =
         AuthZ.create_permission_grant(%{
-          principal_id: agent.id,
+          principal_uid: agent.uid,
           resource_pattern: "capability:browser_use",
           action: "execute"
         })
 
       assert :ok = AuthZ.authorize(human, "web_console", "read")
-      assert :ok = AuthZ.authorize(agent.id, "capability:browser_use", "execute")
+      assert :ok = AuthZ.authorize(agent.uid, "capability:browser_use", "execute")
       assert {:error, :forbidden} = AuthZ.authorize(human, "web_console", "write")
     end
 
@@ -38,7 +38,7 @@ defmodule BullX.AuthZ.AuthorizationTest do
 
       {:ok, _grant} =
         AuthZ.create_permission_grant(%{
-          principal_id: human.id,
+          principal_uid: human.uid,
           resource_pattern: "web_console",
           action: "read"
         })
@@ -84,7 +84,7 @@ defmodule BullX.AuthZ.AuthorizationTest do
           action: "execute"
         })
 
-      refute membership_exists?(agent.id, group.id)
+      refute membership_exists?(agent.uid, group.id)
 
       assert :ok = AuthZ.authorize(agent, "capability:browser", "execute")
       assert {:error, :forbidden} = AuthZ.authorize(human, "capability:browser", "execute")
@@ -115,8 +115,8 @@ defmodule BullX.AuthZ.AuthorizationTest do
           action: "invoke"
         })
 
-      refute membership_exists?(human.id, all_humans.id)
-      refute membership_exists?(disabled_human.id, all_humans.id)
+      refute membership_exists?(human.uid, all_humans.id)
+      refute membership_exists?(disabled_human.uid, all_humans.id)
 
       assert :ok = AuthZ.authorize(human, "ai_agent:default", "invoke")
 
@@ -137,7 +137,7 @@ defmodule BullX.AuthZ.AuthorizationTest do
 
       {:ok, _grant} =
         AuthZ.create_permission_grant(%{
-          principal_id: human.id,
+          principal_uid: human.uid,
           resource_pattern: "web_console",
           action: "read"
         })
@@ -151,7 +151,7 @@ defmodule BullX.AuthZ.AuthorizationTest do
 
       {:ok, _grant} =
         AuthZ.create_permission_grant(%{
-          principal_id: human.id,
+          principal_uid: human.uid,
           resource_pattern: "web_console",
           action: "read",
           condition: "context.request.business_hours"
@@ -170,7 +170,7 @@ defmodule BullX.AuthZ.AuthorizationTest do
 
       {:ok, grant} =
         AuthZ.create_permission_grant(%{
-          principal_id: human.id,
+          principal_uid: human.uid,
           resource_pattern: "web_console",
           action: "read",
           condition: "true"
@@ -200,10 +200,10 @@ defmodule BullX.AuthZ.AuthorizationTest do
 
       {:ok, grant} =
         AuthZ.create_permission_grant(%{
-          principal_id: human.id,
+          principal_uid: human.uid,
           resource_pattern: "web_console",
           action: "read",
-          condition: "principal.id"
+          condition: "principal.uid"
         })
 
       attach_telemetry()
@@ -225,7 +225,7 @@ defmodule BullX.AuthZ.AuthorizationTest do
 
       {:ok, _grant} =
         AuthZ.create_permission_grant(%{
-          principal_id: human.id,
+          principal_uid: human.uid,
           resource_pattern: "web_console",
           action: "read",
           condition: "context.request.business_hours"
@@ -260,7 +260,7 @@ defmodule BullX.AuthZ.AuthorizationTest do
 
       Repo.update_all(
         from(g in PrincipalGroup, where: g.id == ^group.id),
-        set: [computed_condition: "principal.id"]
+        set: [computed_condition: "principal.uid"]
       )
 
       attach_telemetry()
@@ -302,7 +302,7 @@ defmodule BullX.AuthZ.AuthorizationTest do
 
       assert {:error, :computed_group} = AuthZ.add_principal_to_group(human, all_humans)
       assert {:error, :computed_group} = AuthZ.remove_principal_from_group(human, all_humans)
-      refute membership_exists?(human.id, all_humans.id)
+      refute membership_exists?(human.uid, all_humans.id)
     end
 
     test "groups with grants cannot be deleted" do
@@ -369,10 +369,10 @@ defmodule BullX.AuthZ.AuthorizationTest do
       admin = Repo.get_by!(PrincipalGroup, name: "admin")
       all_humans = Repo.get_by!(PrincipalGroup, name: "all_humans")
 
-      assert membership_exists?(principal.id, admin.id)
+      assert membership_exists?(principal.uid, admin.id)
       assert all_humans.built_in == true
       assert all_humans.kind == :computed
-      refute membership_exists?(principal.id, all_humans.id)
+      refute membership_exists?(principal.uid, all_humans.id)
     end
 
     test "root_init_admin closes after the first admin membership exists" do
@@ -408,10 +408,10 @@ defmodule BullX.AuthZ.AuthorizationTest do
     :ok
   end
 
-  defp membership_exists?(principal_id, group_id) do
+  defp membership_exists?(principal_uid, group_id) do
     Repo.exists?(
       from membership in PrincipalGroupMembership,
-        where: membership.principal_id == ^principal_id and membership.group_id == ^group_id,
+        where: membership.principal_uid == ^principal_uid and membership.group_id == ^group_id,
         select: 1
     )
   end

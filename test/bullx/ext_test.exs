@@ -104,7 +104,7 @@ defmodule BullX.ExtTest do
 
   test "rule_engine_cel_condition_validate/1 accepts a CEL condition" do
     assert Ext.rule_engine_cel_condition_validate("true") == true
-    assert Ext.rule_engine_cel_condition_validate("principal.id") == true
+    assert Ext.rule_engine_cel_condition_validate("principal.uid") == true
   end
 
   test "authz_resource_pattern_validate/1 accepts resource globs" do
@@ -158,7 +158,7 @@ defmodule BullX.ExtTest do
   defp cel_env(context) do
     %{
       "principal" => %{
-        "id" => "principal-1",
+        "uid" => "principal-1",
         "type" => "human",
         "status" => "active"
       },

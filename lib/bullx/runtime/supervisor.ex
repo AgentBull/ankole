@@ -13,7 +13,7 @@ defmodule BullX.Runtime.Supervisor do
       [
         BullX.LLM.PluginProviders,
         BullX.LLM.Catalog.Cache,
-        BullX.MailBox.StreamingOutput.Redis,
+        BullX.Redis,
         mail_box_dispatcher_child(),
         BullX.AIAgent.AmbientBatchWorker,
         BullX.AIAgent.DailyResetWorker

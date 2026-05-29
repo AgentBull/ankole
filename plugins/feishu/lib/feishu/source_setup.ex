@@ -127,7 +127,7 @@ defmodule Feishu.SourceSetup do
     %{
       "id" => "setup-routing-sample",
       "source" => "feishu://#{id}",
-      "type" => "bullx.im.message.addressed",
+      "type" => "bullx.message.received",
       "time" => DateTime.utc_now(:microsecond) |> DateTime.to_iso8601(),
       "data" => %{
         "channel" => %{"adapter" => "feishu", "id" => id},

@@ -9,6 +9,14 @@ defmodule BullX.Setup.EventRouting do
   alias BullX.RuleEngine.CEL
   alias BullX.Setup.{AIAgents, ChannelSources}
 
+  @setup_route_types [
+    "bullx.message.received",
+    "bullx.message.edited",
+    "bullx.message.recalled",
+    "bullx.message.deleted",
+    "bullx.command.invoked"
+  ]
+
   @spec status(map()) :: map()
   def status(session \\ %{}) do
     with {:ok, agent} <- selected_agent(session),
@@ -23,9 +31,9 @@ defmodule BullX.Setup.EventRouting do
   def save(session \\ %{}) do
     with {:ok, agent} <- selected_agent(session),
          {:ok, source} <- ChannelSources.first_ready_source(),
-         attrs <- rule_attrs(source, agent.principal.id),
+         attrs <- rule_attrs(source, agent.principal.uid),
          {:ok, rule} <- upsert_setup_rule(source, attrs),
-         :ok <- live_rule_matches?(rule, source, agent.principal.id) do
+         :ok <- live_rule_matches?(rule, source, agent.principal.uid) do
       {:ok,
        %{rule: public_rule(rule), source: public_source(source), target: public_agent(agent)}}
     else
@@ -37,9 +45,9 @@ defmodule BullX.Setup.EventRouting do
     status = AIAgents.status(session)
 
     case status.selected_agent do
-      %{principal_id: id} when is_binary(id) ->
+      %{principal_uid: uid} when is_binary(uid) ->
         BullX.Principals.list_active_agents()
-        |> Enum.find(&(&1.principal.id == id))
+        |> Enum.find(&(&1.principal.uid == uid))
         |> case do
           nil -> {:error, :agent_not_found}
           agent -> {:ok, agent}
@@ -53,15 +61,15 @@ defmodule BullX.Setup.EventRouting do
   defp status_for_source(source, agent) do
     base = base_projection(source, agent)
 
-    case setup_rule(source, agent.principal.id) do
-      {:ok, rule} -> live_status(base, rule, source, agent.principal.id)
+    case setup_rule(source, agent.principal.uid) do
+      {:ok, rule} -> live_status(base, rule, source, agent.principal.uid)
       {:error, :setup_rule_missing} -> base
       {:error, {:setup_rule_targets_different_agent, rule}} -> target_mismatch(base, rule)
     end
   end
 
-  defp live_status(base, rule, source, agent_principal_id) do
-    case live_rule_matches?(rule, source, agent_principal_id) do
+  defp live_status(base, rule, source, agent_uid) do
+    case live_rule_matches?(rule, source, agent_uid) do
       :ok -> %{base | complete?: true, state: "live", reason: nil, live_rule: public_rule(rule)}
       {:error, {:routing_conflict, conflict_rule}} -> routing_conflict(base, rule, conflict_rule)
       {:error, :routing_no_match} -> routing_no_match(base, rule)
@@ -76,7 +84,7 @@ defmodule BullX.Setup.EventRouting do
       reason: "setup_rule_missing",
       source: public_source(source),
       target: public_agent(agent),
-      expected_rule: public_rule_attrs(source, agent.principal.id),
+      expected_rule: public_rule_attrs(source, agent.principal.uid),
       live_rule: nil,
       conflict_rule: nil
     }
@@ -122,9 +130,9 @@ defmodule BullX.Setup.EventRouting do
     %{base | state: "error", reason: reason_code(reason), live_rule: public_rule(rule)}
   end
 
-  defp setup_rule(source, agent_principal_id) do
+  defp setup_rule(source, agent_uid) do
     case Repo.get_by(DeliveryRule, name: rule_name(source)) do
-      %DeliveryRule{receiver_type: "ai_agent", receiver_ref: ^agent_principal_id} = rule ->
+      %DeliveryRule{agent_uid: ^agent_uid} = rule ->
         {:ok, rule}
 
       %DeliveryRule{} = rule ->
@@ -153,11 +161,10 @@ defmodule BullX.Setup.EventRouting do
     end
   end
 
-  defp live_rule_matches?(%DeliveryRule{} = expected, source, agent_principal_id) do
+  defp live_rule_matches?(%DeliveryRule{} = expected, source, agent_uid) do
     with {:ok, context} <- routing_context(source),
          {:ok, {:matched, matched_id, _diagnostics}} <- Matcher.match([expected], context) do
-      case matched_id == expected.id and expected.receiver_type == "ai_agent" and
-             expected.receiver_ref == agent_principal_id do
+      case matched_id == expected.id and expected.agent_uid == agent_uid do
         true -> :ok
         false -> {:error, {:routing_conflict, public_rule(expected)}}
       end
@@ -171,13 +178,12 @@ defmodule BullX.Setup.EventRouting do
     module.routing_sample(source)
   end
 
-  defp rule_attrs(source, agent_principal_id) do
+  defp rule_attrs(source, agent_uid) do
     %{
       active: true,
       priority: priority_for(rule_name(source)),
       match_expr: match_expr(source),
-      receiver_type: "ai_agent",
-      receiver_ref: agent_principal_id,
+      agent_uid: agent_uid,
       attention: :addressed,
       session_key_template: nil
     }
@@ -201,9 +207,14 @@ defmodule BullX.Setup.EventRouting do
   end
 
   defp match_expr(%{adapter_id: adapter_id, source_id: source_id}) do
+    type_expr =
+      @setup_route_types
+      |> Enum.map(&["type == ", CEL.string_literal(&1)])
+      |> Enum.intersperse(" || ")
+
     [
-      "type.startsWith(",
-      CEL.string_literal("bullx.im.message."),
+      "(",
+      type_expr,
       ")",
       " && channel.adapter == ",
       CEL.string_literal(adapter_id),
@@ -232,22 +243,21 @@ defmodule BullX.Setup.EventRouting do
       name: rule.name,
       priority: rule.priority,
       match_expr: rule.match_expr,
-      target_type: rule.receiver_type,
-      target_ref: rule.receiver_ref,
-      receiver_type: rule.receiver_type,
-      receiver_ref: rule.receiver_ref,
+      target_type: "agent",
+      target_ref: rule.agent_uid,
+      agent_uid: rule.agent_uid,
       attention: Atom.to_string(rule.attention),
       session_key_template: rule.session_key_template
     }
   end
 
-  defp public_rule_attrs(source, agent_principal_id) do
+  defp public_rule_attrs(source, agent_uid) do
     source
-    |> rule_attrs(agent_principal_id)
+    |> rule_attrs(agent_uid)
     |> Map.put(:name, rule_name(source))
     |> Map.update!(:attention, &Atom.to_string/1)
-    |> Map.put(:target_type, "ai_agent")
-    |> Map.put(:target_ref, agent_principal_id)
+    |> Map.put(:target_type, "agent")
+    |> Map.put(:target_ref, agent_uid)
   end
 
   defp public_source(source) do
@@ -275,7 +285,7 @@ defmodule BullX.Setup.EventRouting do
 
   defp public_agent(%{principal: principal}) do
     %{
-      principal_id: principal.id,
+      principal_uid: principal.uid,
       uid: principal.uid,
       display_name: principal.display_name
     }

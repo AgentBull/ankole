@@ -7,58 +7,64 @@ defmodule Feishu.ContentMapper do
 
   @media_kinds ~w(image file audio video)
 
-  @spec from_message(map(), Feishu.Source.t()) :: {:ok, [map()]} | {:error, map()}
+  @spec from_message(map(), Feishu.Source.t()) ::
+          {:ok, [map()]} | {:ignore, atom()} | {:error, map()}
   def from_message(message, source) when is_map(message) do
     type = Map.get(message, "message_type") || Map.get(message, :message_type)
     body = decoded_content(message)
     mention_replacements = mention_replacements(message)
 
-    blocks =
-      case type do
-        "text" ->
-          [text_block(normalize_text_mentions(text_from_body(body), mention_replacements))]
-
-        "post" ->
-          [text_block(normalize_text_mentions(post_text(body), mention_replacements))]
-
-        "interactive" ->
-          [card_block(body)]
-
-        "image" ->
-          [media_block("image", message, body, source)]
-
-        "file" ->
-          [media_block("file", message, body, source)]
-
-        "audio" ->
-          [media_block("audio", message, body, source)]
-
-        "video" ->
-          [media_block("video", message, body, source)]
-
-        "sticker" ->
-          [text_block("[sticker]")]
-
-        "emotion" ->
-          [text_block(emotion_text(body))]
-
-        "emoji" ->
-          [text_block(emotion_text(body))]
-
-        nil ->
-          [text_block(normalize_text_mentions(text_from_body(body), mention_replacements))]
-
-        _other ->
-          [text_block(fallback_text(type))]
-      end
-
-    {:ok, Enum.reject(blocks, &is_nil/1)}
+    case content_blocks(type, body, message, source, mention_replacements) do
+      [_ | _] = blocks -> {:ok, blocks}
+      [] -> {:ignore, :unsupported_message}
+      :unsupported -> {:ignore, :unsupported_message}
+    end
   end
 
   def from_message(_message, _source),
     do: {:error, Feishu.Error.payload("invalid Feishu message")}
 
   defdelegate primary_text(blocks), to: BullX.IMGateway.ChannelAdapter.Content
+
+  defp content_blocks("text", body, _message, _source, mention_replacements) do
+    body
+    |> text_from_body()
+    |> normalize_text_mentions(mention_replacements)
+    |> text_block()
+    |> List.wrap()
+  end
+
+  defp content_blocks("post", body, _message, _source, mention_replacements) do
+    body
+    |> post_text()
+    |> normalize_text_mentions(mention_replacements)
+    |> text_block()
+    |> List.wrap()
+  end
+
+  defp content_blocks("interactive", body, _message, _source, _mention_replacements),
+    do: [card_block(body)]
+
+  defp content_blocks(type, body, message, source, _mention_replacements)
+       when type in @media_kinds,
+       do: [media_block(type, message, body, source)]
+
+  defp content_blocks(type, body, _message, _source, _mention_replacements)
+       when type in ["emotion", "emoji"],
+       do: [text_block(emotion_text(body))]
+
+  defp content_blocks("sticker", _body, _message, _source, _mention_replacements),
+    do: [text_block("[sticker]")]
+
+  defp content_blocks(nil, body, _message, _source, mention_replacements) do
+    body
+    |> text_from_body()
+    |> normalize_text_mentions(mention_replacements)
+    |> text_block()
+    |> List.wrap()
+  end
+
+  defp content_blocks(_type, _body, _message, _source, _mention_replacements), do: :unsupported
 
   @spec render_outbound(term(), Feishu.Source.t() | nil, keyword()) ::
           {:ok, map(), [String.t()]} | {:error, map()}
@@ -609,15 +615,8 @@ defmodule Feishu.ContentMapper do
   defp media_key(body, "audio"), do: Map.get(body, "file_key") || Map.get(body, "audio_key")
   defp media_key(body, "video"), do: Map.get(body, "file_key") || Map.get(body, "video_key")
 
-  defp text_block(text) do
-    text =
-      case String.trim(to_string(text)) do
-        "" -> BullX.I18n.t("im_gateway.feishu.errors.unsupported_message")
-        value -> value
-      end
-
-    %{"type" => "text", "text" => text}
-  end
+  defp text_block(""), do: nil
+  defp text_block(text), do: %{"type" => "text", "text" => text}
 
   defp outbound_media_block(%{"type" => "image_url"} = part), do: local_media_block("image", part)
   defp outbound_media_block(%{"type" => "image"} = part), do: local_media_block("image", part)
@@ -637,9 +636,6 @@ defmodule Feishu.ContentMapper do
   defp emotion_text(%{"emoji_type" => emoji}) when is_binary(emoji), do: ":" <> emoji <> ":"
   defp emotion_text(%{"text" => text}) when is_binary(text), do: text
   defp emotion_text(_body), do: "[sticker]"
-
-  defp fallback_text(type) when type in @media_kinds, do: "[#{type}]"
-  defp fallback_text(_type), do: BullX.I18n.t("im_gateway.feishu.errors.unsupported_message")
 
   defp card_fallback(%{"header" => %{"title" => %{"content" => content}}})
        when is_binary(content) do

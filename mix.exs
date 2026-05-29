@@ -47,7 +47,7 @@ defmodule BullX.MixProject do
       {:nimble_options, "~> 1.1"},
       {:swoosh, "~> 1.25"},
       {:req, "~> 0.5"},
-      {:req_llm, "~> 1.11"},
+      {:req_llm, "~> 1.11.0"},
       {:telemetry_metrics, "~> 1.0"},
       {:telemetry_poller, "~> 1.0"},
       {:localize, "~> 0.37.0"},

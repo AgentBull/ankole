@@ -71,8 +71,9 @@ generated secret fields.
 ## AIAgent
 
 `BullX.Setup.AIAgents` creates or updates an active Agent Principal with an
-`ai_agent` profile. It also ensures the agent has a self `invoke` grant through
-AuthZ.
+`ai_agent` profile. It also ensures AuthZ has the built-in `all_humans`
+computed group, grants `all_humans` ordinary `invoke` access to the agent, and
+keeps the agent self `invoke` grant.
 
 The setup default profile includes:
 
@@ -83,7 +84,8 @@ The setup default profile includes:
 - deny-by-default elevation strategy.
 
 The step is complete when the selected agent has a valid profile, its main
-model resolves, and the self invoke grant exists.
+model resolves, the self `invoke` grant exists, and `all_humans` has an
+ordinary `invoke` grant on the agent.
 
 ## Event Routing
 
@@ -96,9 +98,9 @@ The rule shape is:
 - active: `true`
 - priority: existing rule priority, or the next priority at or above `1000`
 - match expression:
-  `type.startsWith("bullx.im.message.") && channel.adapter == <adapter> && channel.id == <source_id>`
+  `(type == "bullx.message.received" || type == "bullx.message.edited" || type == "bullx.message.recalled" || type == "bullx.message.deleted" || type == "bullx.command.invoked") && channel.adapter == <adapter> && channel.id == <source_id>`
 - receiver type: `ai_agent`
-- receiver ref: selected Agent Principal id
+- receiver ref: selected Agent uid
 - attention: `addressed`
 - session key template: `nil`
 

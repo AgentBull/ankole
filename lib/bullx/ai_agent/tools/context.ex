@@ -4,8 +4,8 @@ defmodule BullX.AIAgent.Tools.Context do
   """
 
   @enforce_keys [
-    :caller_principal_id,
-    :agent_principal_id,
+    :caller_principal_uid,
+    :agent_uid,
     :conversation_id,
     :trigger_type,
     :trigger_id,
@@ -16,8 +16,8 @@ defmodule BullX.AIAgent.Tools.Context do
     :idempotency_key
   ]
   defstruct [
-    :caller_principal_id,
-    :agent_principal_id,
+    :caller_principal_uid,
+    :agent_uid,
     :conversation_id,
     :trigger_type,
     :trigger_id,

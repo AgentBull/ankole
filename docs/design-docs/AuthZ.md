@@ -35,12 +35,12 @@ non-empty CEL condition.
 `principal_group_memberships` stores static group membership by composite
 primary key:
 
-- `principal_id`
+- `principal_uid`
 - `group_id`
 
 `permission_grants` stores allow grants:
 
-- exactly one of `principal_id` or `group_id`;
+- exactly one of `principal_uid` or `group_id`;
 - `resource_pattern`;
 - `action`;
 - `condition`, defaulting to `true`;
@@ -101,8 +101,8 @@ CEL conditions receive:
 - `action`
 - `context`
 
-The Principal object includes id, type, status, display name, bio, and avatar
-URL. Caller-supplied context is normalized through `BullX.AuthZ.Request`.
+The Principal object includes id, type, status, display name, and avatar URL.
+Caller-supplied context is normalized through `BullX.AuthZ.Request`.
 
 AuthZ and MailBox both use CEL support, but they are separate business
 surfaces. AuthZ evaluates permission grants; MailBox evaluates delivery rules.

@@ -25,7 +25,12 @@ defmodule BullX.IMGateway.Message do
     field :provider_message_id, :string
     field :provider_occurrence_id, :string
     field :actor_kind, :string, default: "unknown"
-    belongs_to :actor_principal, Principal
+
+    belongs_to :actor_principal, Principal,
+      foreign_key: :actor_principal_uid,
+      references: :uid,
+      type: :string
+
     belongs_to :actor_external_identity, ExternalIdentity
     field :actor_provider_id, :string
     field :actor, :map, default: %{}
@@ -54,7 +59,7 @@ defmodule BullX.IMGateway.Message do
       :provider_message_id,
       :provider_occurrence_id,
       :actor_kind,
-      :actor_principal_id,
+      :actor_principal_uid,
       :actor_external_identity_id,
       :actor_provider_id,
       :actor,
@@ -92,7 +97,7 @@ defmodule BullX.IMGateway.Message do
     |> validate_optional_json_object(:reply_address)
     |> validate_optional_json_object(:safe_error)
     |> foreign_key_constraint(:room_id)
-    |> foreign_key_constraint(:actor_principal_id)
+    |> foreign_key_constraint(:actor_principal_uid)
     |> foreign_key_constraint(:actor_external_identity_id)
     |> unique_constraint([:room_id, :provider_message_id],
       name: :im_messages_provider_message_unique_idx
@@ -102,7 +107,7 @@ defmodule BullX.IMGateway.Message do
     )
     |> check_constraint(:message_kind, name: :im_messages_message_kind_present)
     |> check_constraint(:actor_kind, name: :im_messages_actor_kind_present)
-    |> check_constraint(:actor_principal_id, name: :im_messages_human_actor_has_principal)
+    |> check_constraint(:actor_principal_uid, name: :im_messages_human_actor_has_principal)
     |> check_constraint(:actor, name: :im_messages_actor_object)
     |> check_constraint(:content, name: :im_messages_content_object)
     |> check_constraint(:attachments, name: :im_messages_attachments_array)
@@ -112,12 +117,12 @@ defmodule BullX.IMGateway.Message do
   end
 
   defp validate_human_actor_has_principal(changeset) do
-    case {get_field(changeset, :actor_kind), get_field(changeset, :actor_principal_id)} do
-      {"human", principal_id} when is_binary(principal_id) ->
+    case {get_field(changeset, :actor_kind), get_field(changeset, :actor_principal_uid)} do
+      {"human", principal_uid} when is_binary(principal_uid) ->
         changeset
 
       {"human", _missing} ->
-        add_error(changeset, :actor_principal_id, "is required for human actor")
+        add_error(changeset, :actor_principal_uid, "is required for human actor")
 
       _other ->
         changeset

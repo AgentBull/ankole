@@ -35,7 +35,7 @@ defmodule Discord.EventMapperTest do
     assert {:ok, %{attrs: attrs, account_input: account_input}} =
              EventMapper.map({"message_create", payload}, source)
 
-    assert attrs.type == "bullx.im.message.addressed"
+    assert attrs.type == "bullx.message.received"
     assert attrs.source == "discord://main/application/app_1"
     assert get_in(attrs.data, [:channel, :adapter]) == "discord"
     assert get_in(attrs.data, [:channel, :kind]) == "group"
@@ -59,13 +59,54 @@ defmodule Discord.EventMapperTest do
     payload = %{
       "id" => "msg_1",
       "channel_id" => "dm_1",
-      "content" => "/status",
+      "content" => "/retry",
       "author" => %{"id" => "user_1", "username" => "Alice"}
     }
 
     assert {:ok, %{attrs: attrs}} = EventMapper.map({"message_create", payload}, source)
     assert attrs.type == "bullx.command.invoked"
-    assert get_in(attrs.data, [:routing_facts, "command_name"]) == "status"
+    assert get_in(attrs.data, [:routing_facts, "command_name"]) == "retry"
+    assert attrs.data.command.name == "retry"
+  end
+
+  test "keeps unknown slash commands as command events" do
+    source = %Source{
+      id: "main",
+      application_id: "app_1",
+      bot_token: "token",
+      attention: default_attention()
+    }
+
+    payload = %{
+      "id" => "msg_1",
+      "channel_id" => "dm_1",
+      "content" => "/does_not_exist arg",
+      "author" => %{"id" => "user_1", "username" => "Alice"}
+    }
+
+    assert {:ok, %{attrs: attrs}} = EventMapper.map({"message_create", payload}, source)
+    assert attrs.type == "bullx.command.invoked"
+    assert get_in(attrs.data, [:routing_facts, "command_name"]) == "does_not_exist"
+    assert attrs.data.command.args_text == "arg"
+  end
+
+  test "maps status to a direct gateway command" do
+    source = %Source{
+      id: "main",
+      application_id: "app_1",
+      bot_token: "token",
+      attention: default_attention()
+    }
+
+    payload = %{
+      "id" => "msg_1",
+      "channel_id" => "dm_1",
+      "content" => "/status",
+      "author" => %{"id" => "user_1", "username" => "Alice"}
+    }
+
+    assert {:direct_command, %{name: "status", args: ""}} =
+             EventMapper.map({"message_create", payload}, source)
   end
 
   test "normalizes application command ask prompt into command content" do
@@ -142,7 +183,7 @@ defmodule Discord.EventMapperTest do
     }
 
     assert {:ok, %{attrs: attrs}} = EventMapper.map({"message_create", payload}, source)
-    assert attrs.type == "bullx.im.message.ambient"
+    assert attrs.type == "bullx.message.received"
     assert get_in(attrs.data, [:routing_facts, "attention_reason"]) == "unaddressed"
     assert get_in(attrs.data, [:routing_facts, "im_listen_mode"]) == "all_messages"
   end

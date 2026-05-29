@@ -76,7 +76,7 @@ defmodule BullX.AuthZ.SchemaTest do
 
     assert {:ok, grant} =
              AuthZ.create_permission_grant(%{
-               principal_id: human.id,
+               principal_uid: human.uid,
                resource_pattern: "web_console",
                action: "read"
              })
@@ -86,17 +86,17 @@ defmodule BullX.AuthZ.SchemaTest do
 
     assert {:error, changeset} =
              AuthZ.create_permission_grant(%{
-               principal_id: human.id,
+               principal_uid: human.uid,
                group_id: group.id,
                resource_pattern: "web_console",
                action: "read"
              })
 
-    assert %{principal_id: [_ | _], group_id: [_ | _]} = errors_on(changeset)
+    assert %{principal_uid: [_ | _], group_id: [_ | _]} = errors_on(changeset)
 
     assert {:error, changeset} =
              AuthZ.create_permission_grant(%{
-               principal_id: human.id,
+               principal_uid: human.uid,
                resource_pattern: "[",
                action: "read:all",
                metadata: [],
@@ -108,14 +108,14 @@ defmodule BullX.AuthZ.SchemaTest do
 
     assert {:ok, _grant} =
              AuthZ.create_permission_grant(%{
-               principal_id: human.id,
+               principal_uid: human.uid,
                resource_pattern: "workspace:**:member",
                action: "read"
              })
 
     assert {:error, changeset} =
              AuthZ.create_permission_grant(%{
-               principal_id: human.id,
+               principal_uid: human.uid,
                resource_pattern: "web_console",
                action: "read",
                condition: "true }; permit(principal, action, resource) when { true"
@@ -130,7 +130,7 @@ defmodule BullX.AuthZ.SchemaTest do
 
     assert {:ok, principal_grant} =
              AuthZ.upsert_permission_grant(%{
-               principal_id: human.id,
+               principal_uid: human.uid,
                resource_pattern: "ai_agent:agent-a",
                action: "invoke",
                condition: "true",
@@ -140,7 +140,7 @@ defmodule BullX.AuthZ.SchemaTest do
 
     assert {:ok, updated_principal_grant} =
              AuthZ.upsert_permission_grant(%{
-               principal_id: human.id,
+               principal_uid: human.uid,
                resource_pattern: "ai_agent:agent-a",
                action: "invoke",
                condition: "true",

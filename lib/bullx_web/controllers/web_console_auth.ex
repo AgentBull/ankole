@@ -21,8 +21,8 @@ defmodule BullXWeb.WebConsoleAuth do
   end
 
   defp authenticate(conn) do
-    with principal_id when is_binary(principal_id) <- get_session(conn, :principal_id),
-         {:ok, %{status: :active} = principal} <- Principals.get_principal(principal_id) do
+    with principal_uid when is_binary(principal_uid) <- get_session(conn, :principal_uid),
+         {:ok, %{status: :active} = principal} <- Principals.get_principal(principal_uid) do
       {:ok, principal}
     else
       _ -> :error

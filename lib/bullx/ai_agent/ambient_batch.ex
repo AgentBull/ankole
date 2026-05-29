@@ -6,7 +6,7 @@ defmodule BullX.AIAgent.AmbientBatch do
   Messages remain durable context.
   """
 
-  alias BullX.MailBox.StreamingOutput.Redis
+  alias BullX.Redis
 
   @ttl_ms 90_000
   @window_ms 30_000
@@ -62,11 +62,11 @@ defmodule BullX.AIAgent.AmbientBatch do
   def enqueue(%{} = batch) do
     now_ms = now_ms()
     due_at = now_ms + due_in_ms(batch)
-    batch_key = batch_key(batch.agent_principal_id, batch.ambient_conversation_id)
+    batch_key = batch_key(batch.agent_uid, batch.ambient_conversation_id)
 
     meta =
       batch
-      |> Map.take([:agent_principal_id, :ambient_conversation_id, :scene_key, :reply_address])
+      |> Map.take([:agent_uid, :ambient_conversation_id, :scene_key, :reply_address])
       |> Map.merge(%{
         batch_key: batch_key,
         due_at: due_at,
@@ -145,10 +145,10 @@ defmodule BullX.AIAgent.AmbientBatch do
   end
 
   @spec update_item(String.t(), String.t(), String.t(), String.t()) :: :ok | {:error, term()}
-  def update_item(agent_principal_id, conversation_id, message_id, text)
-      when is_binary(agent_principal_id) and is_binary(conversation_id) and is_binary(message_id) and
+  def update_item(agent_uid, conversation_id, message_id, text)
+      when is_binary(agent_uid) and is_binary(conversation_id) and is_binary(message_id) and
              is_binary(text) do
-    batch_key = batch_key(agent_principal_id, conversation_id)
+    batch_key = batch_key(agent_uid, conversation_id)
 
     with {:ok, items} <- load_items(batch_key),
          {:changed, updated} <- update_items(items, message_id, text) do
@@ -161,9 +161,9 @@ defmodule BullX.AIAgent.AmbientBatch do
   end
 
   @spec remove_item(String.t(), String.t(), String.t()) :: :ok | {:error, term()}
-  def remove_item(agent_principal_id, conversation_id, message_id)
-      when is_binary(agent_principal_id) and is_binary(conversation_id) and is_binary(message_id) do
-    batch_key = batch_key(agent_principal_id, conversation_id)
+  def remove_item(agent_uid, conversation_id, message_id)
+      when is_binary(agent_uid) and is_binary(conversation_id) and is_binary(message_id) do
+    batch_key = batch_key(agent_uid, conversation_id)
 
     with {:ok, items} <- load_items(batch_key),
          {:changed, updated} <- remove_items(items, message_id) do
@@ -264,8 +264,8 @@ defmodule BullX.AIAgent.AmbientBatch do
 
   defp due_in_ms(_batch), do: @window_ms
 
-  defp batch_key(agent_principal_id, conversation_id),
-    do: "#{agent_principal_id}:#{conversation_id}"
+  defp batch_key(agent_uid, conversation_id),
+    do: "#{agent_uid}:#{conversation_id}"
 
   defp meta_key(batch_key), do: "ai_agent:ambient_batch:#{batch_key}:meta"
   defp items_key(batch_key), do: "ai_agent:ambient_batch:#{batch_key}:items"
