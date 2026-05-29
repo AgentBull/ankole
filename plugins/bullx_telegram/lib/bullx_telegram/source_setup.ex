@@ -18,7 +18,7 @@ defmodule BullxTelegram.SourceSetup do
       help_url: "https://core.telegram.org/bots/api",
       default_source: %{
         "enabled" => true,
-        "im_listen_mode" => "all_messages",
+        "group_message_mode" => "engage_all",
         "trusted_realm_by_default" => false
       },
       sections: [
@@ -33,9 +33,9 @@ defmodule BullxTelegram.SourceSetup do
               ui: %{group: "credentials"}
             },
             %{
-              path: ["source", "im_listen_mode"],
+              path: ["source", "group_message_mode"],
               kind: :select,
-              options: ["addressed_only", "all_messages"]
+              options: ["addressed_only", "observe_all", "engage_all"]
             }
           ]
         }
@@ -65,7 +65,7 @@ defmodule BullxTelegram.SourceSetup do
           "id" => id,
           "enabled" => boolean_field(source, "enabled", true),
           "bot_token" => bot_token,
-          "im_listen_mode" => string_field(source, "im_listen_mode", "all_messages"),
+          "group_message_mode" => string_field(source, "group_message_mode", "engage_all"),
           "trusted_realm_by_default" => boolean_field(source, "trusted_realm_by_default", false)
         }
         |> maybe_put("bot_username", string_field(source, "bot_username", nil))

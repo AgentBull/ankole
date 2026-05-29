@@ -92,7 +92,7 @@ export function ChannelForm({
     }
 
     if (field.kind === "select") {
-      const listenMode = field.path[field.path.length - 1] === "im_listen_mode"
+      const groupMessageMode = field.path[field.path.length - 1] === "group_message_mode"
       return (
         <Field key={key}>
           <RequiredLabel label={fieldLabel(field)} required={required} />
@@ -103,8 +103,8 @@ export function ChannelForm({
             <SelectContent>
               {(field.options ?? []).map(option => (
                 <SelectItem key={option} value={option}>
-                  {listenMode
-                    ? t(`setup.channel_sources.im_listen_modes.${option}`, { defaultValue: humanizeOption(option) })
+                  {groupMessageMode
+                    ? t(`setup.channel_sources.group_message_modes.${option}`, { defaultValue: humanizeOption(option) })
                     : humanizeOption(option)}
                 </SelectItem>
               ))}

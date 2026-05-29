@@ -35,7 +35,7 @@ The default source shape includes:
 - `verification_token`
 - `oidc`
 - `web_login_disabled`
-- `im_listen_mode`
+- `group_message_mode`
 - `trusted_realm_by_default`
 
 `app_id` and `app_secret` are required. Public projections mask secrets.
@@ -55,7 +55,6 @@ Current event mapping includes:
 - message updated -> `bullx.message.edited`
 - message recalled -> `bullx.message.recalled`
 - card action -> `bullx.message.received` with an action content block
-- reaction changed -> `bullx.reaction.changed`
 
 Direct commands are handled before IMGateway handoff:
 
@@ -72,9 +71,9 @@ Card actions that continue an AIAgent conversation are normalized as
 content instead of a separate action event type.
 
 Self bot messages are ignored. Addressed and ambient admission follows the
-source listen mode and mention/DM policy. Unsupported or empty inbound Feishu
-message bodies are ignored; they are not converted into prompt-visible fallback
-text.
+source `group_message_mode` and mention/DM policy. Unsupported or empty inbound
+Feishu message bodies are ignored; they are not converted into prompt-visible
+fallback text.
 
 ## Principal Binding
 
@@ -91,7 +90,7 @@ the web login URL.
 
 ## Outbound
 
-Visible AIAgent output reaches Feishu through IMGateway:
+Regular visible AIAgent assistant output reaches Feishu through IMGateway:
 
 ```text
 AIAgent
@@ -100,13 +99,13 @@ AIAgent
   -> Feishu.Outbound
 ```
 
-The adapter supports normal send/edit/recall-style delivery outcomes and stores
-the provider message id back on the outbound `im_messages` row through
-IMGateway.
+The adapter supports normal send/edit/recall-style delivery outcomes. IMGateway
+best-effort mirrors provider ids and delivery status to `im_messages` after the
+adapter call completes.
 
 Streaming output uses `Feishu.ChannelAdapter.consume_stream/4` and
-Feishu streaming card support. The initial outbound card message is still
-persisted through IMGateway.
+Feishu streaming card support. The initial outbound card message is still sent
+through IMGateway and mirrored on a best-effort basis.
 
 ## Setup
 
@@ -119,7 +118,8 @@ after source config changes.
 
 ## Invariants
 
-- Feishu adapter code normalizes provider payloads; IMGateway stores IM facts.
+- Feishu adapter code normalizes provider payloads; IMGateway routes IM mail and
+  mirrors IM facts best-effort.
 - MailBox delivery rules decide which receiver gets the mail.
 - Direct commands are adapter-local and do not depend on MailBox.
 - Feishu secrets are stored through BullX config secret handling and masked in

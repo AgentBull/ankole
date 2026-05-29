@@ -27,10 +27,10 @@ defmodule BullxTelegram.Source do
   @default_stream_update_interval_ms 1_000
   @default_stream_chunk_soft_limit 3_900
   @default_message_context_ttl_seconds 2_592_000
-  @default_direct_command_dedupe_ttl_seconds 300
-  @default_im_listen_mode :addressed_only
+  @default_direct_command_dedupe_ttl_seconds 90_000
+  @default_group_message_mode :addressed_only
+  @group_message_modes [:addressed_only, :observe_all, :engage_all]
   @default_trusted_realm_by_default false
-  @im_listen_modes [:addressed_only, :all_messages]
   @telegram_message_hard_limit 4_096
 
   @derive {Inspect, except: [:bot_token]}
@@ -57,7 +57,7 @@ defmodule BullxTelegram.Source do
       "free_response_chat_ids" => []
     },
     commands: %{"sync_policy" => "replace"},
-    im_listen_mode: @default_im_listen_mode,
+    group_message_mode: @default_group_message_mode,
     trusted_realm_by_default: @default_trusted_realm_by_default,
     req_options: [],
     api_module: BullxTelegram.BotAPI,
@@ -66,9 +66,9 @@ defmodule BullxTelegram.Source do
 
   @type t :: %__MODULE__{}
 
-  @doc "Supported IM listen modes for transport admission."
-  @spec im_listen_modes() :: [atom()]
-  def im_listen_modes, do: @im_listen_modes
+  @doc "Supported group message modes for transport admission and ambient handling."
+  @spec group_message_modes() :: [atom()]
+  def group_message_modes, do: @group_message_modes
 
   @spec normalize(t() | map()) :: {:ok, t()} | {:error, map()}
   def normalize(%__MODULE__{} = source), do: {:ok, source}
@@ -79,7 +79,7 @@ defmodule BullxTelegram.Source do
          {:ok, bot_token} <- optional_string(config, "bot_token", nil),
          {:ok, attention} <- normalize_attention(Map.get(config, "attention", %{})),
          {:ok, commands} <- normalize_commands(Map.get(config, "commands", %{})),
-         {:ok, im_listen_mode} <- im_listen_mode(Map.get(config, "im_listen_mode")),
+         {:ok, group_message_mode} <- group_message_mode(Map.get(config, "group_message_mode")),
          {:ok, req_options} <- optional_keyword(config, "req_options", []) do
       bot_id = bot_token |> String.split(":", parts: 2) |> List.first()
 
@@ -93,18 +93,37 @@ defmodule BullxTelegram.Source do
          poll_timeout_s: positive_integer(config, "poll_timeout_s", @default_poll_timeout_s),
          poll_limit: bounded_integer(config, "poll_limit", @default_poll_limit, 1, 100),
          poll_retry_max: non_negative_integer(config, "poll_retry_max", @default_poll_retry_max),
-         flood_wait_max_ms: non_negative_integer(config, "flood_wait_max_ms", @default_flood_wait_max_ms),
+         flood_wait_max_ms:
+           non_negative_integer(config, "flood_wait_max_ms", @default_flood_wait_max_ms),
          stream_update_interval_ms:
-           positive_integer(config, "stream_update_interval_ms", @default_stream_update_interval_ms),
+           positive_integer(
+             config,
+             "stream_update_interval_ms",
+             @default_stream_update_interval_ms
+           ),
          stream_chunk_soft_limit:
-           bounded_integer(config, "stream_chunk_soft_limit", @default_stream_chunk_soft_limit, 1, @telegram_message_hard_limit),
+           bounded_integer(
+             config,
+             "stream_chunk_soft_limit",
+             @default_stream_chunk_soft_limit,
+             1,
+             @telegram_message_hard_limit
+           ),
          direct_command_dedupe_ttl_seconds:
-           positive_integer(config, "direct_command_dedupe_ttl_seconds", @default_direct_command_dedupe_ttl_seconds),
+           positive_integer(
+             config,
+             "direct_command_dedupe_ttl_seconds",
+             @default_direct_command_dedupe_ttl_seconds
+           ),
          message_context_ttl_seconds:
-           positive_integer(config, "message_context_ttl_seconds", @default_message_context_ttl_seconds),
+           positive_integer(
+             config,
+             "message_context_ttl_seconds",
+             @default_message_context_ttl_seconds
+           ),
          attention: attention,
          commands: commands,
-         im_listen_mode: im_listen_mode,
+         group_message_mode: group_message_mode,
          trusted_realm_by_default:
            optional_boolean(config, "trusted_realm_by_default", @default_trusted_realm_by_default),
          req_options: req_options,
@@ -150,7 +169,7 @@ defmodule BullxTelegram.Source do
       "web_login_disabled" => source.web_login_disabled?,
       "attention" => source.attention,
       "commands" => source.commands,
-      "im_listen_mode" => Atom.to_string(source.im_listen_mode),
+      "group_message_mode" => Atom.to_string(source.group_message_mode),
       "trusted_realm_by_default" => source.trusted_realm_by_default,
       "start_transport" => source.start_transport?
     }
@@ -199,7 +218,8 @@ defmodule BullxTelegram.Source do
     end
   end
 
-  defp do_request(%__MODULE__{} = source, method, params), do: source.api_module.request(source, method, params)
+  defp do_request(%__MODULE__{} = source, method, params),
+    do: source.api_module.request(source, method, params)
 
   defp maybe_retry_after({:error, reason} = error, %__MODULE__{} = source, method, params) do
     case Error.retry_after_ms(reason) do
@@ -227,7 +247,8 @@ defmodule BullxTelegram.Source do
     end
   end
 
-  defp normalize_attention(_value), do: {:error, Error.config("Telegram attention config must be an object")}
+  defp normalize_attention(_value),
+    do: {:error, Error.config("Telegram attention config must be an object")}
 
   defp normalize_commands(value) when is_map(value) do
     with {:ok, value} <- stringify_keys(value) do
@@ -238,27 +259,44 @@ defmodule BullxTelegram.Source do
     end
   end
 
-  defp normalize_commands(_value), do: {:error, Error.config("Telegram commands config must be an object")}
+  defp normalize_commands(_value),
+    do: {:error, Error.config("Telegram commands config must be an object")}
 
-  defp im_listen_mode(nil), do: {:ok, @default_im_listen_mode}
-  defp im_listen_mode(value) when value in [:addressed_only, "addressed_only"], do: {:ok, :addressed_only}
-  defp im_listen_mode(value) when value in [:all_messages, "all_messages"], do: {:ok, :all_messages}
+  defp group_message_mode(nil), do: {:ok, @default_group_message_mode}
 
-  defp im_listen_mode(_value),
-    do: {:error, Error.config("Telegram im_listen_mode must be addressed_only or all_messages")}
+  defp group_message_mode(value) when value in [:addressed_only, "addressed_only"],
+    do: {:ok, :addressed_only}
+
+  defp group_message_mode(value) when value in [:observe_all, "observe_all"],
+    do: {:ok, :observe_all}
+
+  defp group_message_mode(value) when value in [:engage_all, "engage_all"],
+    do: {:ok, :engage_all}
+
+  defp group_message_mode(_value),
+    do:
+      {:error,
+       Error.config(
+         "Telegram group_message_mode must be addressed_only, observe_all, or engage_all"
+       )}
 
   defp verify_bot_username(%__MODULE__{bot_username: nil}, _bot), do: :ok
 
   defp verify_bot_username(%__MODULE__{bot_username: expected}, %{"username" => actual})
        when is_binary(actual) do
     case String.downcase(expected) == String.downcase(actual) do
-      true -> :ok
-      false -> {:error, Error.config("Telegram bot_username mismatch", %{expected: expected, actual: actual})}
+      true ->
+        :ok
+
+      false ->
+        {:error,
+         Error.config("Telegram bot_username mismatch", %{expected: expected, actual: actual})}
     end
   end
 
   defp verify_bot_username(%__MODULE__{bot_username: expected}, _bot),
-    do: {:error, Error.config("Telegram getMe response is missing username", %{expected: expected})}
+    do:
+      {:error, Error.config("Telegram getMe response is missing username", %{expected: expected})}
 
   defp stringify_keys(%{} = map) do
     Enum.reduce_while(map, {:ok, %{}}, fn
@@ -281,6 +319,7 @@ defmodule BullxTelegram.Source do
       {:error, _reason} -> map
     end
   end
+
   defp stringify_value(values) when is_list(values), do: Enum.map(values, &stringify_value/1)
   defp stringify_value(value), do: value
 

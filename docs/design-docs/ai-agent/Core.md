@@ -3,7 +3,7 @@
 AIAgent is the current implemented MailBox Agent type for AI colleague behavior.
 It handles a `mailbox_entries` row, consumes normalized CloudEvents mail data,
 persists conversation state, runs ACL checks, calls tools and LLM providers, and
-sends visible IM output through IMGateway.
+sends visible assistant output through IMGateway.
 
 The implementation lives in `BullX.AIAgent` and `BullX.AIAgent.*`.
 
@@ -21,7 +21,9 @@ BullX.AIAgent.handle_mailbox_entry(invocation, entry)
 - `mailbox_entry_id`
 - `cloud_event`
 - `attention`
-- optional `reply_address`
+
+Reply addresses, channel facts, and conversation context are read from
+`entry.cloud_event["data"]`.
 
 AIAgent loads the active agent Principal and validates
 `agents.profile["ai_agent"]` through `BullX.AIAgent.Profile`.
@@ -53,9 +55,17 @@ conversation message from provider refs, then applies the change only when the
 target belongs to the current mailbox session and is still visible in the
 branch rendered after the latest compatible compression. A latest addressed turn
 with visible output may cancel generation, recall output, and republish the new
-message content. Historical revisions add a stable ref marker to the original
-message and append an introspection message describing the edit, recall, or
-delete without immediately starting generation.
+message content when the revised input is still deliverable. If the revised
+payload is no longer addressed or ambient-deliverable, the revision only
+cancels or recalls the already-triggered turn. Historical revisions add a stable
+ref marker to the original message and append an introspection message
+describing the edit, recall, or delete without immediately starting generation.
+
+For coalesced IM batches, revision handling uses ordered batch item metadata to
+update or remove only the affected source message. The effective lane is
+recomputed after the revision; any active addressed item makes the whole batch
+addressed. If no addressed item remains, only `engage_all` ambient remainder is
+republished; ignored remainder does not create a new AIAgent turn.
 
 ## Profile
 
@@ -72,7 +82,6 @@ Defaulted fields include:
 - `compression_llm`: main LLM with low reasoning effort;
 - `heavy_llm`: main LLM with high reasoning effort;
 - `conversation_isolation_mode = :scene`;
-- `unmentioned_group_messages = :observe_only`;
 - daily reset enabled at `04:00` in `Etc/UTC`;
 - context `max_turns = 50`;
 - compression threshold ratio `0.70`;
@@ -82,9 +91,6 @@ Defaulted fields include:
 - generation lease TTL `600_000` ms;
 - generation heartbeat interval `30_000` ms;
 - generation max runtime `1_800_000` ms.
-
-Setup currently creates a default profile with
-`unmentioned_group_messages = "may_intervene"`.
 
 ## Conversation Identity
 
@@ -97,6 +103,7 @@ channel/scope shape for callers that have not supplied that context yet:
 - channel adapter;
 - channel id;
 - scope id;
+- thread id;
 - actor external account id when addressed actor isolation is configured.
 
 The key does not include raw provider payload, MailBox entry id, or CloudEvents
@@ -179,12 +186,14 @@ AIAgent handles canonical command names:
 IMGateway-direct commands such as `/root_init`, `/webauth`, `/command`, and
 `/status` are handled before IMGateway handoff.
 
+AIAgent command feedback is control-plane output delivered through the current
+IM reply address and is not mirrored to `im_messages`.
+
 ## Ambient Input
 
-Ambient IM messages are stored as `im_ambient` conversation messages. When the
-profile mode is `observe_only`, they become context only. When the mode is
-`may_intervene`, ambient batching can produce an introspection message and start
-generation when the batch policy decides to intervene.
+Ambient IM messages are stored as `im_ambient` conversation messages. The
+source `group_message_mode` decides whether they are context only
+(`observe_all`) or eligible for proactive intervention (`engage_all`).
 
 Normal ambient messages are not rendered as regular prompt dialogue and are not
 compressed as normal user/assistant exchange content.
@@ -192,7 +201,7 @@ compressed as normal user/assistant exchange content.
 ## Invariants
 
 - AIAgent owns its business state; MailBox only delivers entries.
-- Visible IM output goes through IMGateway.
+- Visible assistant output goes through IMGateway.
 - Generation lease state is persisted on the conversation and can be inspected
   after process restart.
 - Raw conversation messages are kept; summaries are overlay messages.

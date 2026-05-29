@@ -29,7 +29,7 @@ defmodule BullxTelegram.SourceSetupTest do
     refute Map.has_key?(schema, :source_id_label)
     refute Map.has_key?(schema.default_source, "id")
     refute Map.has_key?(schema.default_source, "start_transport")
-    assert schema.default_source["im_listen_mode"] == "all_messages"
+    assert schema.default_source["group_message_mode"] == "engage_all"
     assert schema_field?(schema, ["source", "bot_token"])
     refute schema_field?(schema, ["source", "bot_username"])
     refute schema_field?(schema, ["source", "start_transport"])
@@ -42,7 +42,7 @@ defmodule BullxTelegram.SourceSetupTest do
                  "source" => %{
                    "id" => "bullx_bot",
                    "bot_token" => "123456:ABC",
-                   "im_listen_mode" => "all_messages",
+                   "group_message_mode" => "engage_all",
                    "start_transport" => false
                  }
                },
@@ -52,7 +52,7 @@ defmodule BullxTelegram.SourceSetupTest do
     assert source["id"] == "bullx_bot"
     refute Map.has_key?(source, "bot_username")
     assert source["bot_token"] == "123456:ABC"
-    assert source["im_listen_mode"] == "all_messages"
+    assert source["group_message_mode"] == "engage_all"
     refute Map.has_key?(source, "start_transport")
   end
 

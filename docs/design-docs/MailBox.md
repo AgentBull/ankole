@@ -9,12 +9,11 @@ The implementation lives in `BullX.MailBox` and `BullX.MailBox.*`.
 
 MailBox owns:
 
-- Agent-addressed delivery rules
 - delivery rules
 - short processing sessions
 - delivery entries
 - weak Redis-backed visible-output streams
-- entry leasing and dispatch
+- session and control-entry leasing and dispatch
 
 MailBox does not own:
 
@@ -46,10 +45,6 @@ There are two entry points:
 - `priority`
 - `match_expr`
 - `agent_uid`
-- `attention`
-- `session_key_template`
-- `available_delay_ms`
-- `coalesce_key_template`
 - `metadata`
 
 `match_expr` is CEL validated through the Rust NIF-backed matcher. Active rules
@@ -88,11 +83,8 @@ used by setup modules.
 
 - `agent_uid`
 - `session_key`
-- `status`: `active`, `closed`, or `failed`
 - `last_entry_at`
 - lease fields
-- `closed_at`
-- `metadata`
 
 `mailbox_entries` stores one delivered item for one Agent:
 
@@ -103,10 +95,8 @@ used by setup modules.
 - `attention`: `addressed`, `ambient`, `command`, `action`, `lifecycle`, or
   `system`
 - `cloud_event`
-- `reply_address`
 - `available_at`
-- `dedupe_hash`
-- `coalesce_key`
+- `idempotency_key`
 - lease fields
 - `attempts`
 - `safe_error`
@@ -124,36 +114,63 @@ window state, not business truth.
 
 The default session key is:
 
-- `cloud_event.subject`, when present;
+- `cloud_event.data.queue_key`, when present;
+- otherwise `cloud_event.subject`, when present;
 - otherwise `<source>#<id>`;
 - otherwise `default`.
 
-The dedupe hash includes `agent_uid`, CloudEvents source/id, attention, and a
-dedupe key. Routed mail uses the delivery rule id as the dedupe key, so one
-external event can be delivered to multiple Agents without colliding.
+The idempotency key is derived from `agent_uid`, CloudEvents source/id,
+attention, and a dedupe key. Routed mail uses the delivery rule id as the dedupe
+key, so one external event can be delivered to multiple Agents without
+colliding.
 
-After a successful insert, MailBox wakes the dispatcher with a delay based on
-`available_at`.
+Entry attention is derived from a direct delivery request when provided, or
+from the CloudEvents type and IM routing facts. Delivery rules select receivers;
+they do not assign attention or delay.
+
+After a successful insert, MailBox starts a control-entry worker immediately for
+control mail, or wakes the dispatcher with a delay based on `available_at` for
+normal session mail.
 
 ## Processing
 
-`claim_ready/2` leases entries whose `available_at` is due and whose status is
-`pending` or whose previous lease has expired. It uses
-`FOR UPDATE SKIP LOCKED`, sets `status = leased`, increments `attempts`, and
-sets a 60-second lease.
+`BullX.MailBox.process_ready/2` leases sessions that have due non-control
+entries. It uses `FOR UPDATE SKIP LOCKED` so multiple Elixir nodes can claim
+different sessions without sharing process-local state. A session worker
+heartbeats the session lease while it drains entries for that session serially.
+
+The same processing pass separately leases due command, abort, edit, recall,
+and delete entries. These entries are started as standalone workers so they can
+affect an active generation without waiting behind normal message work in the
+same session. Leased entries or sessions become claimable again after their
+lease expires.
 
 `process_entry/2` preloads the Agent and session, dispatches the entry, and
 marks it `processed` or `failed`.
 
+Lifecycle entries first check whether their target received-message entry is
+still pending in the same session. Pending targets are rewritten or discarded
+before AIAgent sees stale input. Leased targets are deferred only until the
+target has materialized into conversation state; once materialized, lifecycle
+entries dispatch immediately so an edit or recall can cancel an active
+generation.
+
+For `bullx.message.received` mail with `data.coalesce`, `process_entry/2` can
+merge later pending entries from the same actor in the same session when they
+arrived inside the window and the combined text stays under the character
+limit. Covered entries are marked processed after the merged entry succeeds. If
+any active item in the merged batch is addressed, the whole delivered batch is
+addressed.
+
 Current dispatch behavior:
 
 - `agents.type = "ai_agent"` calls `BullX.AIAgent.handle_mailbox_entry/2`.
-- `agents.type = "blackhole"` succeeds without side effects.
 - any other Agent type fails with `unknown_agent_type`.
 
-`BullX.MailBox.Dispatcher` is a GenServer. It processes ready entries on a
-timer, wakes when new work arrives, and schedules the next wake from
-`next_ready_at/0` when the queue is idle.
+`BullX.MailBox.Dispatcher` is a GenServer. It claims realtime control entries
+and ready sessions on a timer, starts work through
+`BullX.MailBox.SessionWorker`, wakes when new work arrives, and schedules the
+next wake from `next_ready_at/0` when the queue is idle.
 
 ## Streaming Output
 
@@ -165,12 +182,15 @@ The Redis child is `BullX.Redis`. It is a neutral runtime dependency backed by
 the configured cache Redis URL; MailBox and AIAgent depend on it as peers.
 
 Streaming output is not business truth. The Agent still persists its own
-conversation facts, and IMGateway still persists outbound IM facts.
+conversation facts, and IMGateway best-effort mirrors outbound IM facts.
 
 ## Invariants
 
 - MailBox stores delivery windows, not Agent business state.
 - Rule priority does not stop fan-out.
 - Duplicate delivery is scoped to one Agent.
+- Normal entries in one session are processed serially; different sessions may
+  be processed concurrently.
+- Control entries do not wait behind normal session entries.
 - Process-local dispatcher state is reconstructible from database rows.
 - Agents are responsible for idempotency inside their own business facts.

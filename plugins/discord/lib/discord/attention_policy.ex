@@ -40,7 +40,7 @@ defmodule Discord.AttentionPolicy do
           source.attention["require_mention"] == false ->
         {:ok, "free_response"}
 
-      source.im_listen_mode == :all_messages ->
+      ambient_admitted?(source) ->
         {:ambient, "unaddressed"}
 
       true ->
@@ -51,6 +51,12 @@ defmodule Discord.AttentionPolicy do
   defp command?({:agent_command, _command}), do: true
   defp command?({:direct, _command}), do: true
   defp command?(_command), do: false
+
+  defp ambient_admitted?(%Discord.Source{group_message_mode: mode})
+       when mode in [:observe_all, :engage_all],
+       do: true
+
+  defp ambient_admitted?(_source), do: false
 
   defp bot_or_webhook_author?(%{"webhook_id" => webhook_id})
        when is_binary(webhook_id) and webhook_id != "", do: true

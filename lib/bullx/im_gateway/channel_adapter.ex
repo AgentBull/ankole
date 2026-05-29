@@ -2,10 +2,11 @@ defmodule BullX.IMGateway.ChannelAdapter do
   @moduledoc """
   Common trusted plugin channel adapter contract.
 
-  IM-style adapters declare `im_listen_modes: [:addressed_only, :all_messages]`
-  in `capabilities/0` and honor a per-source `im_listen_mode` for transport
-  admission. The adapter normalizes provider input to IMGateway message events
-  and hands them to `BullX.IMGateway`.
+  IM-style adapters declare
+  `group_message_modes: [:addressed_only, :observe_all, :engage_all]` in
+  `capabilities/0` and honor a per-source `group_message_mode` for group
+  transport admission. The adapter normalizes provider input to IMGateway
+  message events and hands them to `BullX.IMGateway`.
   """
 
   alias BullX.Plugins.Extension

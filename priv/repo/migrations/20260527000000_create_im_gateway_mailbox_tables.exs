@@ -13,7 +13,7 @@ defmodule BullX.Repo.Migrations.CreateImGatewayMailboxTables do
 
   defp create_im_gateway_types do
     execute(
-      "CREATE TYPE im_room_kind AS ENUM ('direct', 'group', 'channel', 'thread', 'unknown')",
+      "CREATE TYPE im_room_kind AS ENUM ('direct', 'group', 'unknown')",
       "DROP TYPE im_room_kind"
     )
 
@@ -32,11 +32,6 @@ defmodule BullX.Repo.Migrations.CreateImGatewayMailboxTables do
     execute(
       "CREATE TYPE mailbox_entry_status AS ENUM ('pending', 'leased', 'processed', 'discarded', 'failed')",
       "DROP TYPE mailbox_entry_status"
-    )
-
-    execute(
-      "CREATE TYPE mailbox_session_status AS ENUM ('active', 'closed', 'failed')",
-      "DROP TYPE mailbox_session_status"
     )
 
     execute(
@@ -130,10 +125,6 @@ defmodule BullX.Repo.Migrations.CreateImGatewayMailboxTables do
 
     create constraint(:im_messages, :im_messages_actor_kind_present, check: "actor_kind <> ''")
 
-    create constraint(:im_messages, :im_messages_human_actor_has_principal,
-             check: "actor_kind <> 'human' OR actor_principal_uid IS NOT NULL"
-           )
-
     create constraint(:im_messages, :im_messages_actor_object,
              check: "jsonb_typeof(actor) = 'object'"
            )
@@ -171,10 +162,6 @@ defmodule BullX.Repo.Migrations.CreateImGatewayMailboxTables do
           references(:agents, column: :uid, type: :text, on_delete: :delete_all),
           null: false
 
-      add :attention, :mailbox_attention, null: false
-      add :session_key_template, :text
-      add :available_delay_ms, :integer, null: false, default: 0
-      add :coalesce_key_template, :text
       add :metadata, :map, null: false, default: %{}
 
       timestamps(type: :utc_datetime_usec)
@@ -196,12 +183,6 @@ defmodule BullX.Repo.Migrations.CreateImGatewayMailboxTables do
              check: "match_expr <> ''"
            )
 
-    create constraint(
-             :mailbox_delivery_rules,
-             :mailbox_delivery_rules_available_delay_ms_nonnegative,
-             check: "available_delay_ms >= 0"
-           )
-
     create constraint(:mailbox_delivery_rules, :mailbox_delivery_rules_metadata_object,
              check: "jsonb_typeof(metadata) = 'object'"
            )
@@ -216,30 +197,19 @@ defmodule BullX.Repo.Migrations.CreateImGatewayMailboxTables do
           null: false
 
       add :session_key, :text, null: false
-      add :status, :mailbox_session_status, null: false, default: "active"
       add :last_entry_at, :utc_datetime_usec, null: false
       add :lease_holder, :text
       add :lease_expires_at, :utc_datetime_usec
-      add :closed_at, :utc_datetime_usec
-      add :metadata, :map, null: false, default: %{}
 
       timestamps(type: :utc_datetime_usec)
     end
 
-    execute(
-      "ALTER TABLE mailbox_sessions SET UNLOGGED",
-      "ALTER TABLE mailbox_sessions SET LOGGED"
-    )
-
     create unique_index(:mailbox_sessions, [:agent_uid, :session_key])
-    create index(:mailbox_sessions, [:agent_uid, :last_entry_at], where: "status = 'active'")
+    create index(:mailbox_sessions, [:agent_uid, :last_entry_at])
+    create index(:mailbox_sessions, [:lease_expires_at], where: "lease_holder IS NOT NULL")
 
     create constraint(:mailbox_sessions, :mailbox_sessions_session_key_present,
              check: "session_key <> ''"
-           )
-
-    create constraint(:mailbox_sessions, :mailbox_sessions_metadata_object,
-             check: "jsonb_typeof(metadata) = 'object'"
            )
   end
 
@@ -252,15 +222,15 @@ defmodule BullX.Repo.Migrations.CreateImGatewayMailboxTables do
           references(:agents, column: :uid, type: :text, on_delete: :delete_all),
           null: false
 
-      add :mailbox_session_id, :uuid
+      add :mailbox_session_id,
+          references(:mailbox_sessions, type: :uuid, on_delete: :delete_all),
+          null: false
 
       add :status, :mailbox_entry_status, null: false, default: "pending"
       add :attention, :mailbox_attention, null: false
       add :cloud_event, :map, null: false
-      add :reply_address, :map
       add :available_at, :utc_datetime_usec, null: false
-      add :dedupe_hash, :text, null: false
-      add :coalesce_key, :text
+      add :idempotency_key, :text, null: false
       add :lease_holder, :text
       add :lease_expires_at, :utc_datetime_usec
       add :attempts, :integer, null: false, default: 0
@@ -272,17 +242,11 @@ defmodule BullX.Repo.Migrations.CreateImGatewayMailboxTables do
     execute("ALTER TABLE mailbox_entries SET UNLOGGED", "ALTER TABLE mailbox_entries SET LOGGED")
 
     execute(
-      """
-      ALTER TABLE mailbox_entries
-      ADD CONSTRAINT mailbox_entries_mailbox_session_id_fkey
-      FOREIGN KEY (mailbox_session_id)
-      REFERENCES mailbox_sessions(id)
-      ON DELETE SET NULL
-      """,
-      "ALTER TABLE mailbox_entries DROP CONSTRAINT mailbox_entries_mailbox_session_id_fkey"
+      "ALTER TABLE mailbox_sessions SET UNLOGGED",
+      "ALTER TABLE mailbox_sessions SET LOGGED"
     )
 
-    create unique_index(:mailbox_entries, [:agent_uid, :dedupe_hash])
+    create unique_index(:mailbox_entries, [:agent_uid, :idempotency_key])
 
     create index(:mailbox_entries, [:available_at, :lease_expires_at, :entry_seq],
              where: "status IN ('pending', 'leased')",
@@ -293,10 +257,6 @@ defmodule BullX.Repo.Migrations.CreateImGatewayMailboxTables do
 
     create constraint(:mailbox_entries, :mailbox_entries_cloud_event_object,
              check: "jsonb_typeof(cloud_event) = 'object'"
-           )
-
-    create constraint(:mailbox_entries, :mailbox_entries_reply_address_object,
-             check: "reply_address IS NULL OR jsonb_typeof(reply_address) = 'object'"
            )
 
     create constraint(:mailbox_entries, :mailbox_entries_safe_error_object,

@@ -33,7 +33,7 @@ respond.
 
 ## IMGateway-Direct Commands
 
-These commands are handled inside the provider adapter before IMGateway storage
+These commands are handled inside the provider adapter before IMGateway handoff
 or MailBox routing:
 
 - `/root_init <code>`
@@ -61,19 +61,22 @@ AIAgent commands:
 - `undo`: rewinds the last exchange and recalls visible delivery targets when
   possible.
 
-Visible command responses go through IMGateway.
+Visible command responses are control-plane output. They use the current IM
+reply address for provider delivery and are not mirrored to `im_messages`.
 
 ## Stop Preemption
 
 During streaming generation, Runner checks later pending entries in the same
-MailBox session for an authorized `stop` command. When found, it cancels the
-generation lease and interrupts the visible stream.
+MailBox session for an authorized `stop` command. MailBox also dispatches
+command entries as realtime control entries, so stop and steer do not wait
+behind normal message entries in the session queue. When an authorized stop is
+found, Runner cancels the generation lease and interrupts the visible stream.
 
 ## Invariants
 
 - Canonical command names in AIAgent are English ids.
 - IMGateway-direct commands are adapter-local.
 - AIAgent does not parse addressed message text for slash commands.
-- Command responses do not bypass IMGateway.
+- Command responses are not persisted as IM message facts.
 - Command idempotency is owned by AIAgent conversation and generation state, not
   by MailBox retries.

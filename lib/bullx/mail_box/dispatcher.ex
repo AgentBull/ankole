@@ -50,7 +50,7 @@ defmodule BullX.MailBox.Dispatcher do
 
   defp run_dispatch(state) do
     state = %{state | timer_id: nil, timer_ref: nil}
-    result = BullX.MailBox.process_ready(state.claim_limit)
+    result = BullX.MailBox.process_ready(state.claim_limit, async?: true)
 
     {:noreply, schedule_next_dispatch(state, result)}
   end
@@ -94,6 +94,12 @@ defmodule BullX.MailBox.Dispatcher do
     timestamp
     |> DateTime.diff(DateTime.utc_now(:microsecond), :millisecond)
     |> max(0)
+  end
+
+  defp delay_until(%NaiveDateTime{} = timestamp) do
+    timestamp
+    |> DateTime.from_naive!("Etc/UTC")
+    |> delay_until()
   end
 
   defp cancel_timer(%{timer_ref: nil} = state), do: state

@@ -61,7 +61,7 @@ defmodule BullX.AIAgent.AmbientBatchWorker do
            Repo.get(Conversation, meta["ambient_conversation_id"]),
          %Agent{profile: raw_profile} <- Repo.get(Agent, meta["agent_uid"]),
          {:ok, profile} <- Profile.cast(raw_profile),
-         :may_intervene <- profile.unmentioned_group_messages,
+         :may_intervene <- ambient_mode(profile, meta),
          {:intervene, recognizer} <- recognizer_decision(profile, conversation, meta, items),
          idempotency_key <- batch_idempotency_key(meta, items),
          {:ok, _conversation, message} <-
@@ -89,6 +89,10 @@ defmodule BullX.AIAgent.AmbientBatchWorker do
         AmbientBatch.cleanup(batch_key)
     end
   end
+
+  defp ambient_mode(_profile, %{"ambient_mode" => "may_intervene"}), do: :may_intervene
+  defp ambient_mode(_profile, %{"ambient_mode" => "observe_only"}), do: :observe_only
+  defp ambient_mode(_profile, _meta), do: :observe_only
 
   defp recognizer_decision(%Profile{} = profile, conversation, meta, items) do
     context = ambient_recognizer_context(conversation, meta)

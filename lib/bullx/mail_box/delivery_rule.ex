@@ -12,8 +12,6 @@ defmodule BullX.MailBox.DeliveryRule do
   @foreign_key_type :binary_id
   @timestamps_opts [type: :utc_datetime_usec]
 
-  @attention [:addressed, :ambient, :command, :action, :lifecycle, :system]
-
   @type t :: %__MODULE__{}
 
   schema "mailbox_delivery_rules" do
@@ -22,10 +20,6 @@ defmodule BullX.MailBox.DeliveryRule do
     field :priority, :integer
     field :match_expr, :string
     belongs_to :agent, Agent, foreign_key: :agent_uid, references: :uid, type: :string
-    field :attention, Ecto.Enum, values: @attention
-    field :session_key_template, :string
-    field :available_delay_ms, :integer, default: 0
-    field :coalesce_key_template, :string
     field :metadata, :map, default: %{}
 
     timestamps()
@@ -40,10 +34,6 @@ defmodule BullX.MailBox.DeliveryRule do
       :priority,
       :match_expr,
       :agent_uid,
-      :attention,
-      :session_key_template,
-      :available_delay_ms,
-      :coalesce_key_template,
       :metadata
     ])
     |> validate_required([
@@ -52,14 +42,11 @@ defmodule BullX.MailBox.DeliveryRule do
       :priority,
       :match_expr,
       :agent_uid,
-      :attention,
-      :available_delay_ms,
       :metadata
     ])
     |> validate_non_empty(:name)
     |> validate_non_empty(:match_expr)
     |> validate_number(:priority, greater_than: 0)
-    |> validate_number(:available_delay_ms, greater_than_or_equal_to: 0)
     |> validate_match_expr()
     |> validate_json_object(:metadata)
     |> foreign_key_constraint(:agent_uid)
@@ -67,9 +54,6 @@ defmodule BullX.MailBox.DeliveryRule do
     |> check_constraint(:name, name: :mailbox_delivery_rules_name_present)
     |> check_constraint(:priority, name: :mailbox_delivery_rules_priority_positive)
     |> check_constraint(:match_expr, name: :mailbox_delivery_rules_match_expr_present)
-    |> check_constraint(:available_delay_ms,
-      name: :mailbox_delivery_rules_available_delay_ms_nonnegative
-    )
     |> check_constraint(:metadata, name: :mailbox_delivery_rules_metadata_object)
   end
 

@@ -49,7 +49,7 @@ defmodule BullxTelegram.AttentionPolicy do
           source.attention["require_mention"] == false ->
         {:ok, "free_response"}
 
-      source.im_listen_mode == :all_messages ->
+      ambient_admitted?(source) ->
         {:ambient, "unaddressed"}
 
       true ->
@@ -60,6 +60,12 @@ defmodule BullxTelegram.AttentionPolicy do
   defp command?({:agent_command, _command}), do: true
   defp command?({:direct, _command}), do: true
   defp command?(_result), do: false
+
+  defp ambient_admitted?(%BullxTelegram.Source{group_message_mode: mode})
+       when mode in [:observe_all, :engage_all],
+       do: true
+
+  defp ambient_admitted?(_source), do: false
 
   defp bot_author?(%{"is_bot" => true} = from, %BullxTelegram.Source{} = source) do
     stringify_id(Map.get(from, "id")) == source.bot_id or true

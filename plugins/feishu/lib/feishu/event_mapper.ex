@@ -237,13 +237,18 @@ defmodule Feishu.EventMapper do
 
   defp listen_admission({:addressed, _reason}, _source), do: :emit
 
-  defp listen_admission({:ambient, _reason}, %Source{im_listen_mode: :all_messages}), do: :emit
+  defp listen_admission({:ambient, _reason}, %Source{
+         group_message_mode: mode
+       })
+       when mode in [:observe_all, :engage_all],
+       do: :emit
+
   defp listen_admission({:ambient, _reason}, _source), do: :ignore
 
   defp attention_facts({_decision, reason}, %Source{} = source) do
     %{
       "attention_reason" => reason,
-      "im_listen_mode" => Atom.to_string(source.im_listen_mode)
+      "group_message_mode" => Atom.to_string(source.group_message_mode)
     }
   end
 
@@ -503,7 +508,7 @@ defmodule Feishu.EventMapper do
       "provider_event_type" => env.event_type,
       "chat_type" => env.chat_type,
       "content_kind" => first_content_kind(blocks),
-      "im_listen_mode" => Atom.to_string(source.im_listen_mode)
+      "group_message_mode" => Atom.to_string(source.group_message_mode)
     }
     |> reject_nil_values()
     |> Map.merge(Map.drop(extra_facts, ["command_args_text"]))

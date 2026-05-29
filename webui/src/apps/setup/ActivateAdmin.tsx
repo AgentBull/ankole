@@ -185,7 +185,7 @@ function SourceSummary({ source }: { source: ReadySource }) {
     [t("setup.activate_admin.source_domain_label"), readString(config, "domain")],
     [t("setup.activate_admin.source_adapter_label"), source.adapter_id],
     [t("setup.activate_admin.source_transport_label"), readString(runtime, "transport")],
-    [t("setup.activate_admin.source_listen_mode_label"), readString(config, "im_listen_mode")],
+    [t("setup.activate_admin.source_group_message_mode_label"), readString(config, "group_message_mode")],
     [
       t("setup.activate_admin.source_login_label"),
       webLoginDisabled === undefined

@@ -32,7 +32,7 @@ The default source shape includes:
 - `client_id`
 - `client_secret`
 - OAuth2 scopes
-- `im_listen_mode`
+- `group_message_mode`
 - `trusted_realm_by_default`
 
 `application_id` and `bot_token` are required. Public projections mask secrets.
@@ -59,12 +59,13 @@ Direct commands are handled before IMGateway handoff:
 Other slash commands, including unknown command names, are normalized to
 `bullx.command.invoked`.
 
-Addressed and ambient admission follows the source listen mode and Discord
-mention/DM policy. MailBox stores the selected attention on the delivered entry.
+Addressed and ambient admission follows `group_message_mode` and Discord
+mention/DM policy. The adapter emits routing facts; IMGateway and MailBox derive
+the delivered entry attention from those facts.
 
 ## Outbound
 
-Visible AIAgent output reaches Discord through IMGateway:
+Regular visible AIAgent assistant output reaches Discord through IMGateway:
 
 ```text
 AIAgent
@@ -74,8 +75,8 @@ AIAgent
 ```
 
 The adapter supports send/edit-style output and stream accumulation. Delivery
-outcomes return provider ids to IMGateway, which updates the outbound
-`im_messages` row.
+outcomes return provider ids to IMGateway, which best-effort mirrors outbound
+delivery status to `im_messages`.
 
 ## Setup
 
@@ -86,6 +87,7 @@ supervisor after source config changes.
 ## Invariants
 
 - Discord adapter code owns provider normalization and transport calls.
-- IMGateway stores inbound and outbound IM facts.
+- IMGateway routes IM mail and mirrors inbound and outbound IM facts
+  best-effort.
 - MailBox delivery rules decide receivers.
 - Direct commands are adapter-local.

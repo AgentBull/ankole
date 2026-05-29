@@ -184,8 +184,7 @@ defmodule BullX.Setup.EventRouting do
       priority: priority_for(rule_name(source)),
       match_expr: match_expr(source),
       agent_uid: agent_uid,
-      attention: :addressed,
-      session_key_template: nil
+      metadata: %{}
     }
   end
 
@@ -245,9 +244,7 @@ defmodule BullX.Setup.EventRouting do
       match_expr: rule.match_expr,
       target_type: "agent",
       target_ref: rule.agent_uid,
-      agent_uid: rule.agent_uid,
-      attention: Atom.to_string(rule.attention),
-      session_key_template: rule.session_key_template
+      agent_uid: rule.agent_uid
     }
   end
 
@@ -255,7 +252,6 @@ defmodule BullX.Setup.EventRouting do
     source
     |> rule_attrs(agent_uid)
     |> Map.put(:name, rule_name(source))
-    |> Map.update!(:attention, &Atom.to_string/1)
     |> Map.put(:target_type, "agent")
     |> Map.put(:target_ref, agent_uid)
   end
@@ -268,8 +264,9 @@ defmodule BullX.Setup.EventRouting do
       plugin_id: Map.get(source, :plugin_id) || Map.get(source, "plugin_id"),
       source_id: Map.get(source, :source_id) || Map.get(source, "source_id"),
       domain: Map.get(source_config, "domain") || Map.get(source_config, :domain),
-      im_listen_mode:
-        Map.get(source_config, "im_listen_mode") || Map.get(source_config, :im_listen_mode),
+      group_message_mode:
+        Map.get(source_config, "group_message_mode") ||
+          Map.get(source_config, :group_message_mode),
       runtime:
         public_runtime(Map.get(source_config, "runtime") || Map.get(source_config, :runtime))
     }

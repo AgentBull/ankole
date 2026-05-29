@@ -80,7 +80,6 @@ The setup default profile includes:
 - main, compression, and heavy LLM selections;
 - the default BullX harness soul;
 - `conversation_isolation_mode = "scene"`;
-- `unmentioned_group_messages = "may_intervene"`;
 - deny-by-default elevation strategy.
 
 The step is complete when the selected agent has a valid profile, its main
@@ -101,8 +100,7 @@ The rule shape is:
   `(type == "bullx.message.received" || type == "bullx.message.edited" || type == "bullx.message.recalled" || type == "bullx.message.deleted" || type == "bullx.command.invoked") && channel.adapter == <adapter> && channel.id == <source_id>`
 - receiver type: `ai_agent`
 - receiver ref: selected Agent uid
-- attention: `addressed`
-- session key template: `nil`
+- session key: derived by MailBox from `cloud_event.data.queue_key`
 
 After saving, setup validates the live rule against the adapter setup module's
 routing sample through `BullX.MailBox.Matcher`.

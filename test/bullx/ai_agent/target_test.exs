@@ -5,6 +5,7 @@ defmodule BullX.AIAgent.TargetTest do
   alias BullX.AuthZ
   alias BullX.IMGateway.TestingChannel
   alias BullX.LLM.{PluginProviders, Writer}
+  alias BullX.MailBox.Entry
   alias BullX.Plugins.{Discovery, Registry}
   alias BullX.Principals
 
@@ -896,6 +897,79 @@ defmodule BullX.AIAgent.TargetTest do
                    50
   end
 
+  test "latest addressed edit to ignored text aborts active generation without republish" do
+    {:ok, agent} = create_ai_agent("ai-agent-target-edit-abort")
+    {:ok, caller} = create_human("ai-agent-target-edit-abort-caller")
+    grant(caller.uid, agent.uid, "invoke")
+    BullX.AIAgent.FakeLLMClient.push_response("initial answer")
+
+    invocation = invocation(agent.uid)
+
+    entry =
+      invocation.mailbox_session_id
+      |> addressed_entry("evt-edit-abort-1", "@agent please handle this", caller.uid)
+      |> with_provider_message_id("provider-edit-abort-1")
+
+    assert :ok = BullX.AIAgent.handle_event(invocation, entry)
+    assert_received :closed
+    assert_receive {:im_gateway_adapter_delivered, _source, _reply_address, _initial_outbound}
+
+    conversation = Repo.one!(Conversation)
+    user = Repo.one!(from message in Message, where: message.role == :user)
+    {:ok, leased, lease_id} = acquire_test_generation(conversation, user.id)
+
+    {:ok, _conversation, generating} =
+      Conversations.append_message(leased, %{
+        conversation_id: leased.id,
+        role: :assistant,
+        kind: :normal,
+        status: :generating,
+        content: [],
+        metadata: %{
+          "generation" => %{"lease_id" => lease_id, "trigger_message_id" => user.id},
+          "delivery" => delivery_metadata("om_edit_abort_streaming"),
+          "stream" => %{"stream_id" => "stream_edit_abort", "status" => "open"}
+        }
+      })
+
+    edit_entry =
+      invocation.mailbox_session_id
+      |> edit_entry("evt-edit-abort-2", "不用管了", caller.uid)
+      |> with_provider_message_id("provider-edit-abort-1")
+      |> with_routing_facts(%{
+        "attention_reason" => "unaddressed",
+        "group_message_mode" => "addressed_only"
+      })
+
+    assert :ok = BullX.AIAgent.handle_event(invocation, edit_entry)
+    assert_received :closed
+
+    assert_receive {:im_gateway_adapter_delivered, _source, _reply_address,
+                    %{"op" => "recall", "target_external_id" => "om_edit_abort_streaming"}}
+
+    assert Repo.get!(Conversation, conversation.id).generation["cancellation_reason"] ==
+             "source_message_edited"
+
+    assert get_in(Repo.get!(Message, user.id).metadata, ["branch_effect", "state"]) ==
+             "superseded"
+
+    assert %Message{
+             kind: :error,
+             status: :complete,
+             content: [
+               %{
+                 "type" => "error",
+                 "code" => "generation_interrupted",
+                 "retryable" => true
+               }
+             ]
+           } = interrupted = Repo.get!(Message, generating.id)
+
+    assert get_in(interrupted.metadata, ["branch_effect", "state"]) == "interrupted"
+    assert get_in(interrupted.metadata, ["stream", "status"]) == "interrupted"
+    refute Repo.exists?(from entry in Entry, where: entry.status == :pending)
+  end
+
   test "stop sends control notice when unfinished output is not recallable" do
     {:ok, agent} = create_ai_agent("ai-agent-target-stop-no-recall")
     {:ok, caller} = create_human("ai-agent-target-stop-no-recall-caller")
@@ -1263,8 +1337,7 @@ defmodule BullX.AIAgent.TargetTest do
   end
 
   test "ambient observe-only events are recorded but do not invoke generation" do
-    {:ok, agent} =
-      create_ai_agent("ai-agent-target-ambient", %{"unmentioned_group_messages" => "observe_only"})
+    {:ok, agent} = create_ai_agent("ai-agent-target-ambient")
 
     BullX.AIAgent.FakeLLMClient.push_response("should not be consumed")
 
@@ -1284,11 +1357,50 @@ defmodule BullX.AIAgent.TargetTest do
            ] = Repo.all(Message)
   end
 
+  test "ambient group observe_all mode records context without intervention" do
+    {:ok, agent} = create_ai_agent("ai-agent-target-ambient-observe-all")
+
+    invocation = invocation(agent.uid)
+
+    entry =
+      invocation.mailbox_session_id
+      |> ambient_entry("evt-ambient-observe-all", "background note")
+      |> put_in([:cloud_event, "data", "routing_facts", "group_message_mode"], "observe_all")
+
+    assert :ok = BullX.AIAgent.handle_event(invocation, entry)
+    assert_received :closed
+    refute_received {:failed, _reason}
+
+    conversation = Repo.one!(Conversation)
+    batch_key = "#{agent.uid}:#{conversation.id}"
+
+    assert {:error, :missing} = AmbientBatch.take(batch_key)
+    AmbientBatch.cleanup(batch_key)
+  end
+
+  test "ambient group engage_all mode can intervene" do
+    {:ok, agent} = create_ai_agent("ai-agent-target-ambient-engage-all")
+
+    invocation = invocation(agent.uid)
+
+    entry =
+      invocation.mailbox_session_id
+      |> ambient_entry("evt-ambient-engage-all", "background note")
+      |> put_in([:cloud_event, "data", "routing_facts", "group_message_mode"], "engage_all")
+
+    assert :ok = BullX.AIAgent.handle_event(invocation, entry)
+    assert_received :closed
+    refute_received {:failed, _reason}
+
+    conversation = Repo.one!(Conversation)
+    batch_key = "#{agent.uid}:#{conversation.id}"
+
+    assert {:ok, %{"ambient_mode" => "may_intervene"}, _items} = AmbientBatch.take(batch_key)
+    AmbientBatch.cleanup(batch_key)
+  end
+
   test "long ambient messages store a brief on the same ambient message" do
-    {:ok, agent} =
-      create_ai_agent("ai-agent-target-ambient-brief", %{
-        "unmentioned_group_messages" => "observe_only"
-      })
+    {:ok, agent} = create_ai_agent("ai-agent-target-ambient-brief")
 
     BullX.AIAgent.FakeLLMClient.push_response("short safe brief")
 
@@ -1311,10 +1423,7 @@ defmodule BullX.AIAgent.TargetTest do
   end
 
   test "ambient intervention batches send to the scene without replying to one message" do
-    {:ok, agent} =
-      create_ai_agent("ai-agent-target-ambient-no-reply-anchor", %{
-        "unmentioned_group_messages" => "may_intervene"
-      })
+    {:ok, agent} = create_ai_agent("ai-agent-target-ambient-no-reply-anchor")
 
     invocation = invocation(agent.uid)
 
@@ -1328,6 +1437,7 @@ defmodule BullX.AIAgent.TargetTest do
         "scope_kind" => "group",
         "reply_to_external_id" => "provider-message-1"
       })
+      |> put_in([:cloud_event, "data", "routing_facts", "group_message_mode"], "engage_all")
 
     assert :ok = BullX.AIAgent.handle_event(invocation, entry)
     assert_received :closed
@@ -1344,15 +1454,14 @@ defmodule BullX.AIAgent.TargetTest do
   end
 
   test "ambient intervention batches use a short window when text names the agent" do
-    {:ok, agent} =
-      create_ai_agent("ai-agent-target-ambient-agent-name", %{
-        "unmentioned_group_messages" => "may_intervene"
-      })
+    {:ok, agent} = create_ai_agent("ai-agent-target-ambient-agent-name")
 
     invocation = invocation(agent.uid)
 
     entry =
-      ambient_entry(invocation.mailbox_session_id, "evt-ambient-agent-name", "#{agent.uid} 看一下")
+      invocation.mailbox_session_id
+      |> ambient_entry("evt-ambient-agent-name", "#{agent.uid} 看一下")
+      |> put_in([:cloud_event, "data", "routing_facts", "group_message_mode"], "engage_all")
 
     assert :ok = BullX.AIAgent.handle_event(invocation, entry)
     assert_received :closed
@@ -1368,15 +1477,14 @@ defmodule BullX.AIAgent.TargetTest do
   end
 
   test "ambient intervention shortens an open batch after the agent has answered" do
-    {:ok, agent} =
-      create_ai_agent("ai-agent-target-ambient-after-answer", %{
-        "unmentioned_group_messages" => "may_intervene"
-      })
+    {:ok, agent} = create_ai_agent("ai-agent-target-ambient-after-answer")
 
     invocation = invocation(agent.uid)
 
     first_entry =
-      ambient_entry(invocation.mailbox_session_id, "evt-ambient-after-answer-1", "first")
+      invocation.mailbox_session_id
+      |> ambient_entry("evt-ambient-after-answer-1", "first")
+      |> put_in([:cloud_event, "data", "routing_facts", "group_message_mode"], "engage_all")
 
     assert :ok = BullX.AIAgent.handle_event(invocation, first_entry)
     assert_received :closed
@@ -1395,7 +1503,9 @@ defmodule BullX.AIAgent.TargetTest do
              })
 
     second_entry =
-      ambient_entry(invocation.mailbox_session_id, "evt-ambient-after-answer-2", "follow up")
+      invocation.mailbox_session_id
+      |> ambient_entry("evt-ambient-after-answer-2", "follow up")
+      |> put_in([:cloud_event, "data", "routing_facts", "group_message_mode"], "engage_all")
 
     assert :ok = BullX.AIAgent.handle_event(invocation, second_entry)
     assert_received :closed
@@ -1520,6 +1630,241 @@ defmodule BullX.AIAgent.TargetTest do
 
     introspection = Repo.get_by!(Message, role: :user, kind: :introspection)
     assert get_in(List.first(introspection.content), ["text"]) =~ "已被删除"
+  end
+
+  test "latest addressed batch edit republishes the full revised batch" do
+    {:ok, agent} = create_ai_agent("ai-agent-target-batch-edit")
+    {:ok, caller} = create_human("ai-agent-target-batch-edit-caller")
+    grant(caller.uid, agent.uid, "invoke")
+    BullX.AIAgent.FakeLLMClient.push_response("old answer")
+    BullX.AIAgent.FakeLLMClient.push_response("new answer")
+
+    invocation = invocation(agent.uid)
+
+    batch_entry =
+      invocation.mailbox_session_id
+      |> addressed_entry("evt-batch-edit-1", "@agent first\nsecond", caller.uid)
+      |> with_im_batch(
+        [
+          {"provider-batch-edit-1", "@agent first", "addressed"},
+          {"provider-batch-edit-2", "second", "ambient"}
+        ],
+        "addressed"
+      )
+
+    assert :ok = BullX.AIAgent.handle_event(invocation, batch_entry)
+    assert_received :closed
+    assert_receive {:im_gateway_adapter_delivered, _source, _reply_address, _outbound}
+
+    edit_entry =
+      invocation.mailbox_session_id
+      |> edit_entry("evt-batch-edit-2", "second edited", caller.uid)
+      |> with_provider_message_id("provider-batch-edit-2")
+      |> with_routing_facts(%{
+        "attention_reason" => "unaddressed",
+        "group_message_mode" => "engage_all"
+      })
+
+    assert :ok = BullX.AIAgent.handle_event(invocation, edit_entry)
+    assert_received :closed
+
+    old_user = Repo.get_by!(Message, event_id: "evt-batch-edit-1", role: :user)
+    assert get_in(old_user.metadata, ["branch_effect", "state"]) == "superseded"
+
+    republished_entry =
+      Entry
+      |> where([entry], entry.status == :pending)
+      |> Repo.one!()
+
+    assert republished_entry.attention == :addressed
+
+    assert get_in(republished_entry.cloud_event, ["data", "content"]) == [
+             %{"type" => "text", "text" => "@agent first\nsecond edited"}
+           ]
+
+    assert get_in(republished_entry.cloud_event, ["data", "im_batch", "effective_attention"]) ==
+             "addressed"
+
+    force_mailbox_entries_ready()
+    assert {:ok, 1} = BullX.MailBox.process_ready(1)
+    assert_receive {:im_gateway_adapter_delivered, _source, _reply_address, _outbound}
+
+    assert %Message{
+             role: :user,
+             kind: :normal,
+             content: [%{"type" => "text", "text" => "@agent first\nsecond edited"}],
+             metadata: %{"im_batch" => %{"effective_attention" => "addressed"}}
+           } =
+             Message
+             |> where([message], message.role == :user)
+             |> where([message], is_nil(fragment("?->'branch_effect'", message.metadata)))
+             |> order_by([message], desc: message.inserted_at)
+             |> Repo.one!()
+  end
+
+  test "latest addressed batch edit can downgrade to ambient when the source engages all" do
+    {:ok, agent} = create_ai_agent("ai-agent-target-batch-downgrade-ambient")
+    {:ok, caller} = create_human("ai-agent-target-batch-downgrade-ambient-caller")
+    grant(caller.uid, agent.uid, "invoke")
+    BullX.AIAgent.FakeLLMClient.push_response("old answer")
+
+    invocation = invocation(agent.uid)
+
+    batch_entry =
+      invocation.mailbox_session_id
+      |> addressed_entry("evt-batch-downgrade-1", "@agent first\nsecond", caller.uid)
+      |> with_im_batch(
+        [
+          {"provider-batch-downgrade-1", "@agent first", "addressed"},
+          {"provider-batch-downgrade-2", "second", "ambient"}
+        ],
+        "addressed"
+      )
+
+    assert :ok = BullX.AIAgent.handle_event(invocation, batch_entry)
+    assert_received :closed
+    assert_receive {:im_gateway_adapter_delivered, _source, _reply_address, _outbound}
+
+    edit_entry =
+      invocation.mailbox_session_id
+      |> edit_entry("evt-batch-downgrade-2", "first", caller.uid)
+      |> with_provider_message_id("provider-batch-downgrade-1")
+      |> with_routing_facts(%{
+        "attention_reason" => "unaddressed",
+        "group_message_mode" => "engage_all"
+      })
+
+    assert :ok = BullX.AIAgent.handle_event(invocation, edit_entry)
+    assert_received :closed
+    drain_deliveries()
+
+    old_user = Repo.get_by!(Message, event_id: "evt-batch-downgrade-1", role: :user)
+    assert get_in(old_user.metadata, ["branch_effect", "state"]) == "superseded"
+
+    republished_entry =
+      Entry
+      |> where([entry], entry.status == :pending)
+      |> Repo.one!()
+
+    assert republished_entry.attention == :ambient
+
+    assert get_in(republished_entry.cloud_event, ["data", "content"]) == [
+             %{"type" => "text", "text" => "first\nsecond"}
+           ]
+
+    assert get_in(republished_entry.cloud_event, ["data", "im_batch", "effective_attention"]) ==
+             "ambient"
+
+    force_mailbox_entries_ready()
+    assert {:ok, 1} = BullX.MailBox.process_ready(1)
+    refute_receive {:im_gateway_adapter_delivered, _source, _reply_address, _outbound}, 50
+
+    assert %Message{
+             role: :im_ambient,
+             kind: :normal,
+             content: [%{"type" => "text", "text" => "first\nsecond"}],
+             metadata: %{"im_batch" => %{"effective_attention" => "ambient"}}
+           } =
+             Message
+             |> where([message], message.role == :im_ambient)
+             |> where([message], is_nil(fragment("?->'branch_effect'", message.metadata)))
+             |> Repo.one!()
+  end
+
+  test "latest addressed batch edit to unaddressed addressed-only content does not republish" do
+    {:ok, agent} = create_ai_agent("ai-agent-target-batch-downgrade-ignored")
+    {:ok, caller} = create_human("ai-agent-target-batch-downgrade-ignored-caller")
+    grant(caller.uid, agent.uid, "invoke")
+    BullX.AIAgent.FakeLLMClient.push_response("old answer")
+
+    invocation = invocation(agent.uid)
+
+    batch_entry =
+      invocation.mailbox_session_id
+      |> addressed_entry("evt-batch-ignored-1", "@agent first", caller.uid)
+      |> with_im_batch(
+        [
+          {"provider-batch-ignored-1", "@agent first", "addressed"}
+        ],
+        "addressed"
+      )
+
+    assert :ok = BullX.AIAgent.handle_event(invocation, batch_entry)
+    assert_received :closed
+    assert_receive {:im_gateway_adapter_delivered, _source, _reply_address, _outbound}
+
+    edit_entry =
+      invocation.mailbox_session_id
+      |> edit_entry("evt-batch-ignored-2", "first", caller.uid)
+      |> with_provider_message_id("provider-batch-ignored-1")
+      |> with_routing_facts(%{
+        "attention_reason" => "unaddressed",
+        "group_message_mode" => "addressed_only"
+      })
+
+    assert :ok = BullX.AIAgent.handle_event(invocation, edit_entry)
+    assert_received :closed
+    drain_deliveries()
+
+    old_user = Repo.get_by!(Message, event_id: "evt-batch-ignored-1", role: :user)
+    assert get_in(old_user.metadata, ["branch_effect", "state"]) == "superseded"
+
+    refute Repo.exists?(from entry in Entry, where: entry.status == :pending)
+
+    refute Repo.exists?(
+             from message in Message,
+               where: message.role in [:user, :im_ambient],
+               where: is_nil(fragment("?->'branch_effect'", message.metadata))
+           )
+  end
+
+  test "ambient batch edit rewrites only the matching item" do
+    {:ok, agent} = create_ai_agent("ai-agent-target-ambient-batch-edit")
+    {:ok, caller} = create_human("ai-agent-target-ambient-batch-edit-caller")
+    invocation = invocation(agent.uid)
+
+    batch_entry =
+      invocation.mailbox_session_id
+      |> ambient_entry("evt-ambient-batch-edit-1", "first\nsecond")
+      |> put_in([:routing_context], routing_context(caller.uid))
+      |> with_im_batch(
+        [
+          {"provider-ambient-batch-edit-1", "first", "ambient"},
+          {"provider-ambient-batch-edit-2", "second", "ambient"}
+        ],
+        "ambient"
+      )
+
+    assert :ok = BullX.AIAgent.handle_event(invocation, batch_entry)
+    assert_received :closed
+
+    edit_entry =
+      invocation.mailbox_session_id
+      |> edit_entry("evt-ambient-batch-edit-2", "second edited", caller.uid)
+      |> with_provider_message_id("provider-ambient-batch-edit-2")
+      |> with_routing_facts(%{
+        "attention_reason" => "unaddressed",
+        "group_message_mode" => "engage_all"
+      })
+
+    assert :ok = BullX.AIAgent.handle_event(invocation, edit_entry)
+    assert_received :closed
+    refute_received {:im_gateway_adapter_delivered, _source, _reply_address, _outbound}
+
+    assert %Message{
+             role: :im_ambient,
+             kind: :normal,
+             content: [%{"type" => "text", "text" => "first\nsecond edited"}],
+             metadata: %{
+               "im_batch" => %{
+                 "effective_attention" => "ambient",
+                 "items" => [first, second]
+               }
+             }
+           } = Repo.get_by!(Message, event_id: "evt-ambient-batch-edit-1")
+
+    assert first["text"] == "first"
+    assert second["text"] == "second edited"
   end
 
   test "unsupported events close the invocation without creating business records" do
@@ -1693,6 +2038,19 @@ defmodule BullX.AIAgent.TargetTest do
     entry(mailbox_session_id, event_id, "example.unsupported", "ignored", nil, :system)
   end
 
+  defp force_mailbox_entries_ready do
+    Repo.update_all(Entry, set: [available_at: DateTime.utc_now(:microsecond)])
+  end
+
+  defp drain_deliveries do
+    receive do
+      {:im_gateway_adapter_delivered, _source, _reply_address, _outbound} ->
+        drain_deliveries()
+    after
+      25 -> :ok
+    end
+  end
+
   defp with_provider_message_id(entry, provider_message_id) do
     entry
     |> put_in([:cloud_event, "data", "refs"], [
@@ -1708,6 +2066,62 @@ defmodule BullX.AIAgent.TargetTest do
       provider_message_id
     )
   end
+
+  defp with_routing_facts(entry, facts) do
+    update_in(entry, [:cloud_event, "data", "routing_facts"], fn current ->
+      Map.merge(current || %{}, facts)
+    end)
+  end
+
+  defp with_im_batch(entry, items, effective_attention) do
+    batch_items = Enum.map(items, &batch_item/1)
+    refs = Enum.flat_map(batch_items, &(&1["refs"] || []))
+
+    entry
+    |> put_in([:cloud_event, "data", "content"], [
+      %{"type" => "text", "text" => batch_text(batch_items)}
+    ])
+    |> put_in([:cloud_event, "data", "refs"], refs)
+    |> put_in([:cloud_event, "data", "im_batch"], %{
+      "effective_attention" => effective_attention,
+      "items" => batch_items
+    })
+    |> with_routing_facts(%{
+      "attention_reason" => batch_attention_reason(effective_attention),
+      "batch_effective_attention" => effective_attention,
+      "group_message_mode" => "engage_all"
+    })
+  end
+
+  defp batch_item({provider_message_id, text, attention}) do
+    %{
+      "provider_message_ids" => [provider_message_id],
+      "text" => text,
+      "content" => [%{"type" => "text", "text" => text}],
+      "attention" => attention,
+      "state" => "active",
+      "refs" => [%{"kind" => "im_gateway_test.message", "id" => provider_message_id}],
+      "raw_ref" => %{
+        "kind" => "im_gateway_test.message",
+        "id" => provider_message_id,
+        "message_id" => provider_message_id
+      },
+      "routing_facts" => %{
+        "attention_reason" => batch_attention_reason(attention),
+        "group_message_mode" => "engage_all"
+      }
+    }
+  end
+
+  defp batch_text(items) do
+    items
+    |> Enum.map(& &1["text"])
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.join("\n")
+  end
+
+  defp batch_attention_reason("addressed"), do: "batch_addressed"
+  defp batch_attention_reason(_attention), do: "unaddressed"
 
   defp entry(mailbox_session_id, event_id, event_type, text, caller_principal_uid, attention) do
     %{

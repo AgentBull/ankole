@@ -4,14 +4,13 @@ defmodule BullX.AIAgent.Profile do
 
   Principal storage only guarantees a JSON object. This module owns the
   AIAgent-specific runtime fields consumed before model calls, command handling,
-  ambient policy, ToolSet expansion, and ACL checks.
+  ToolSet expansion, and ACL checks.
   """
 
   alias BullX.LLM.ModelConfig
 
   @reasoning_efforts ModelConfig.reasoning_efforts()
   @conversation_isolation_modes [:scene, :actor]
-  @ambient_modes [:observe_only, :may_intervene]
   @time_awareness_granularities [:minute, :hour, :day, :off]
   @access_tags [:ordinary, :privileged]
 
@@ -25,7 +24,6 @@ defmodule BullX.AIAgent.Profile do
     soul: "",
     instructions: "",
     conversation_isolation_mode: :scene,
-    unmentioned_group_messages: :observe_only,
     daily_reset: %{
       enabled: true,
       hour: "04:00",
@@ -77,7 +75,6 @@ defmodule BullX.AIAgent.Profile do
       |> validate_optional_string(profile, "soul")
       |> validate_optional_string(profile, "instructions")
       |> validate_in(profile, "conversation_isolation_mode", @conversation_isolation_modes)
-      |> validate_in(profile, "unmentioned_group_messages", @ambient_modes)
       |> validate_daily_reset(profile)
       |> validate_context(profile)
       |> validate_acl(profile)
@@ -125,8 +122,6 @@ defmodule BullX.AIAgent.Profile do
       soul: string_value(profile, "soul", ""),
       instructions: string_value(profile, "instructions", ""),
       conversation_isolation_mode: atom_value(profile, "conversation_isolation_mode", :scene),
-      unmentioned_group_messages:
-        atom_value(profile, "unmentioned_group_messages", :observe_only),
       daily_reset: daily_reset(profile),
       context: context(profile),
       acl: acl(profile),
@@ -490,9 +485,6 @@ defmodule BullX.AIAgent.Profile do
         String.to_existing_atom(value)
 
       value in Enum.map(@conversation_isolation_modes, &Atom.to_string/1) ->
-        String.to_existing_atom(value)
-
-      value in Enum.map(@ambient_modes, &Atom.to_string/1) ->
         String.to_existing_atom(value)
 
       value in Enum.map(@time_awareness_granularities, &Atom.to_string/1) ->

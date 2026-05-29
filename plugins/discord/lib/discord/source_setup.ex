@@ -19,7 +19,7 @@ defmodule Discord.SourceSetup do
       default_source: %{
         "enabled" => true,
         "oauth2" => %{"enabled" => true, "scopes" => ["identify", "email"]},
-        "im_listen_mode" => "all_messages",
+        "group_message_mode" => "engage_all",
         "trusted_realm_by_default" => false
       },
       sections: [
@@ -48,9 +48,9 @@ defmodule Discord.SourceSetup do
             %{path: ["source", "oauth2", "enabled"], kind: :boolean},
             %{path: ["source", "oauth2", "callback_url"], kind: :callback_url},
             %{
-              path: ["source", "im_listen_mode"],
+              path: ["source", "group_message_mode"],
               kind: :select,
-              options: ["addressed_only", "all_messages"]
+              options: ["addressed_only", "observe_all", "engage_all"]
             }
           ]
         }
@@ -88,7 +88,7 @@ defmodule Discord.SourceSetup do
             "enabled" => boolean_field(oauth2, "enabled", true),
             "scopes" => list_field(oauth2, "scopes", ["identify", "email"])
           },
-          "im_listen_mode" => string_field(source, "im_listen_mode", "all_messages"),
+          "group_message_mode" => string_field(source, "group_message_mode", "engage_all"),
           "trusted_realm_by_default" => boolean_field(source, "trusted_realm_by_default", false)
         }
         |> maybe_put("client_secret", client_secret)

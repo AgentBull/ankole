@@ -10,6 +10,8 @@ The implementation lives in `BullX.Cache` and `BullX.Cache.*`.
 `BullX.Cache` exposes:
 
 - `get/1`
+- `take/1`
+- `put_new/3`
 - `put/2`
 - `put/3`
 - `fetch/2`
@@ -48,10 +50,11 @@ raises and the config supervisor restarts according to its normal OTP strategy.
 
 ## Current Consumers
 
-Current in-tree consumers include direct command dedupe and runtime helpers that
-need a small shared cache. MailBox streaming output uses its own Redis-backed
-stream module and is documented in [MailBox](MailBox.md); it is not implemented
-through `BullX.Cache`.
+Current in-tree consumers include direct command dedupe, IMGateway inbound event
+dedupe, AIAgent steering handoff, and runtime helpers that need a small shared
+cache. MailBox streaming output uses its own Redis-backed stream module and is
+documented in [MailBox](MailBox.md); it is not implemented through
+`BullX.Cache`.
 
 ## Failure Behavior
 
@@ -61,6 +64,9 @@ underlying operation.
 
 Cache failures are not hidden. Callers that use cache for idempotency or
 performance must decide whether to continue, retry, or fail their own operation.
+`put_new/3` provides atomic insert-if-absent semantics in Redis mode and falls
+back to the configured local cache when Redis-specific calls fail. `take/1`
+uses Redis `GETDEL` semantics when available, with a local get/delete fallback.
 
 ## Boundaries
 

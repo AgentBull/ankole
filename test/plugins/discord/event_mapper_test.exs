@@ -43,7 +43,7 @@ defmodule Discord.EventMapperTest do
     assert get_in(attrs.data, [:actor, :display_name]) == "Alice"
     assert get_in(attrs.data, [:actor, :principal]) == nil
     assert get_in(attrs.data, [:routing_facts, "attention_reason"]) == "mention"
-    assert get_in(attrs.data, [:routing_facts, "im_listen_mode"]) == "addressed_only"
+    assert get_in(attrs.data, [:routing_facts, "group_message_mode"]) == "addressed_only"
     assert [%{"type" => "text", "text" => "hello"}] = attrs.data.content
     assert account_input["external_id"] == "discord:user_1"
   end
@@ -163,14 +163,14 @@ defmodule Discord.EventMapperTest do
              EventMapper.map({"interaction_create", payload}, source)
   end
 
-  test "all_messages emits unmentioned guild messages as ambient" do
+  test "engage_all emits unmentioned guild messages as ambient" do
     source = %Source{
       id: "main",
       application_id: "app_1",
       bot_token: "token",
       bot_user_id: "bot_1",
       attention: default_attention(),
-      im_listen_mode: :all_messages
+      group_message_mode: :engage_all
     }
 
     payload = %{
@@ -185,7 +185,7 @@ defmodule Discord.EventMapperTest do
     assert {:ok, %{attrs: attrs}} = EventMapper.map({"message_create", payload}, source)
     assert attrs.type == "bullx.message.received"
     assert get_in(attrs.data, [:routing_facts, "attention_reason"]) == "unaddressed"
-    assert get_in(attrs.data, [:routing_facts, "im_listen_mode"]) == "all_messages"
+    assert get_in(attrs.data, [:routing_facts, "group_message_mode"]) == "engage_all"
   end
 
   test "addressed_only ignores unmentioned guild messages" do

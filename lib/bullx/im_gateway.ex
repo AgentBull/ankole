@@ -2,9 +2,10 @@ defmodule BullX.IMGateway do
   @moduledoc """
   IM boundary for normalized provider messages.
 
-  IMGateway stores IM room/message facts, then hands a CloudEvents mail to
-  `BullX.MailBox`. Human actors written into `im_messages` are resolved through
-  `BullX.Principals` before the message row is inserted.
+  IMGateway validates normalized IM events, emits CloudEvents mail to
+  `BullX.MailBox`, and mirrors message facts into `im_rooms`/`im_messages` as
+  best-effort long-term-memory input. Mail routing does not depend on those
+  mirror rows.
   """
 
   alias BullX.IMGateway.{ChannelAdapter, Message, Room}
@@ -12,7 +13,9 @@ defmodule BullX.IMGateway do
   alias BullX.Principals.{ExternalIdentity, Principal}
   alias BullX.Repo
 
-  @im_message_types [
+  @inbound_dedupe_ttl_seconds 90_000
+
+  @im_event_types [
     "bullx.message.received",
     "bullx.command.invoked",
     "bullx.action.submitted",
@@ -21,41 +24,43 @@ defmodule BullX.IMGateway do
     "bullx.message.deleted"
   ]
 
-  @addressed_attention_reasons ~w(dm mention free_response command reply_to_bot application_command mention_text)
+  @addressed_attention_reasons ~w(dm mention free_response command reply_to_bot application_command mention_text batch_addressed)
 
   @spec accept_message_event(map(), keyword()) :: {:ok, term()} | :ignore | {:error, term()}
   def accept_message_event(message_event, opts \\ [])
       when is_map(message_event) and is_list(opts) do
     case im_message_event?(message_event) do
-      true -> accept_im_message_event(message_event, opts)
-      false -> {:error, {:unsupported_im_message_event_type, message_event["type"]}}
+      true ->
+        with :ok <- dedupe_inbound_event(message_event, opts) do
+          accept_im_message_event(message_event, opts)
+        end
+
+      false ->
+        {:error, {:unsupported_im_message_event_type, message_event["type"]}}
     end
   end
 
   @spec send_message(map(), keyword()) ::
-          {:ok, %{message: Message.t(), delivery: map()}}
-          | {:error, %{message: Message.t(), reason: term()}}
+          {:ok, %{message: Message.t() | nil, delivery: map()}}
+          | {:error, %{message: Message.t() | nil, reason: term()}}
           | {:error, term()}
   def send_message(attrs, opts \\ []) when is_map(attrs) and is_list(opts) do
-    with {:ok, room} <- upsert_room(outbound_room_attrs(attrs)),
-         {:ok, message} <- insert_or_update_message(room, outbound_message_attrs(attrs, opts)) do
-      deliver_outbound(message, attrs, opts)
-    end
+    deliver_outbound(attrs, opts)
   end
 
   defp accept_im_message_event(message_event, opts) do
-    with {:ok, actor} <- ensure_human_actor(message_event),
-         {:ok, room} <- upsert_room(room_attrs(message_event)),
-         {:ok, message} <- insert_or_update_message(room, message_attrs(message_event, actor)) do
+    with {:ok, actor} <- ensure_human_actor(message_event) do
       case route_im_mail(message_event, actor) do
         :route ->
-          with {:ok, result} <-
-                 BullX.MailBox.route(mail_for_message(message_event, message), opts) do
-            {:ok, %{message: message, mailbox: result}}
+          with {:ok, result} <- BullX.MailBox.route(mail_for_event(message_event, actor), opts) do
+            {:ok, %{message: persist_inbound_mirror(message_event, actor), mailbox: result}}
           end
 
+        {:blackhole, reason} ->
+          {:ok, %{message: persist_inbound_mirror(message_event, actor), mailbox: reason}}
+
         {:skip, reason} ->
-          {:ok, %{message: message, mailbox: reason}}
+          {:ok, %{message: persist_inbound_mirror(message_event, actor), mailbox: reason}}
       end
     end
   end
@@ -144,6 +149,45 @@ defmodule BullX.IMGateway do
     end
   end
 
+  defp persist_inbound_mirror(%{"type" => type}, _actor)
+       when type in ["bullx.command.invoked", "bullx.action.submitted"],
+       do: nil
+
+  defp persist_inbound_mirror(message_event, actor) do
+    with {:ok, room} <- safe_mirror(fn -> upsert_room(room_attrs(message_event)) end),
+         {:ok, message} <-
+           safe_mirror(fn ->
+             insert_or_update_message(room, message_attrs(message_event, actor))
+           end) do
+      message
+    else
+      {:error, _reason} -> nil
+    end
+  end
+
+  defp safe_mirror(fun) when is_function(fun, 0) do
+    try do
+      fun.()
+    rescue
+      error -> {:error, error}
+    catch
+      kind, reason -> {:error, {kind, reason}}
+    end
+  end
+
+  defp dedupe_inbound_event(%{"id" => id} = event, _opts) when is_binary(id) and id != "" do
+    source = string_value(event["source"] || "unknown")
+    key = "im_gateway:inbound:#{source}:#{id}"
+
+    case BullX.Cache.put_new(key, "1", @inbound_dedupe_ttl_seconds) do
+      :inserted -> :ok
+      :exists -> :ignore
+      {:error, _reason} -> :ok
+    end
+  end
+
+  defp dedupe_inbound_event(_event, _opts), do: :ok
+
   defp ensure_human_actor(%{"data" => %{"actor" => %{} = actor, "channel" => %{} = channel}}) do
     case human_actor?(actor) do
       true -> ensure_actor_principal(actor, channel)
@@ -224,42 +268,52 @@ defmodule BullX.IMGateway do
     }
   end
 
-  defp mail_for_message(cloud_event, %Message{} = message) do
+  defp mail_for_event(cloud_event, actor) do
     data = cloud_event["data"] || %{}
     mail_type = cloud_event["type"] || "bullx.message.received"
+    channel = data["channel"] || %{}
+    queue_key = queue_key(data)
+    provider_message_id = provider_message_id(data, cloud_event)
+    content = data["content"] || []
 
     %{
       "specversion" => "1.0",
       "id" => "#{cloud_event["source"]}:#{cloud_event["id"]}:#{mail_type}",
-      "source" =>
-        "bullx://im-gateway/#{provider(data["channel"] || %{})}/#{source_id(data["channel"] || %{})}",
+      "source" => "bullx://im-gateway/#{provider(channel)}/#{source_id(channel)}",
       "type" => mail_type,
-      "subject" =>
-        "im://#{provider(data["channel"] || %{})}/#{source_id(data["channel"] || %{})}/#{message.room_id}/#{message.id}",
+      "subject" => queue_key,
       "time" => cloud_event["time"] || DateTime.to_iso8601(utc_now()),
       "datacontenttype" => "application/json",
       "data" =>
         %{
+          "queue_key" => queue_key,
           "source_fact" =>
             %{
               "gateway" => "im_gateway",
               "kind" => "im_message",
-              "id" => message.id,
-              "room_id" => message.room_id,
+              "id" => provider_message_id,
+              "room_key" => queue_key,
+              "provider_message_id" => provider_message_id,
+              "provider_occurrence_id" => cloud_event["id"],
               "event_type" => mail_type,
               "revision" => source_revision(mail_type)
             }
             |> reject_nil_values(),
-          "provider" => provider(data["channel"] || %{}),
-          "source_id" => source_id(data["channel"] || %{}),
-          "actor_principal_uid" => message.actor_principal_uid,
-          "message_kind" => message.message_kind,
-          "text_preview" => message.text,
-          "conversation_context" => conversation_context(data, message),
-          "content" => data["content"] || [],
-          "channel" => data["channel"] || %{},
+          "provider" => provider(channel),
+          "source_id" => source_id(channel),
+          "actor_principal_uid" => get_in(actor, ["principal", "uid"]),
+          "message_kind" => first_content_kind(content),
+          "text_preview" => primary_text(content),
+          "attention" => Atom.to_string(event_attention(mail_type, data)),
+          "coalesce" => %{
+            "window_ms" => 6_000,
+            "max_chars" => 8_000
+          },
+          "conversation_context" => conversation_context(data, actor),
+          "content" => content,
+          "channel" => channel,
           "scope" => data["scope"] || %{},
-          "actor" => message.actor,
+          "actor" => actor,
           "refs" => data["refs"] || [],
           "reply_address" => reply_address(data),
           "command" => data["command"],
@@ -284,14 +338,23 @@ defmodule BullX.IMGateway do
             map_value(attrs, :source_id)
         ),
       provider_realm_id: nil,
-      provider_room_id:
-        string_value(
-          reply_address["scope_id"] || reply_address[:scope_id] ||
-            map_value(attrs, :provider_room_id)
-        ),
+      provider_room_id: outbound_provider_room_id(reply_address, attrs),
       kind: :unknown,
       metadata: %{}
     }
+  end
+
+  defp outbound_provider_room_id(reply_address, attrs) do
+    scope_id =
+      string_value(
+        reply_address["scope_id"] || reply_address[:scope_id] ||
+          map_value(attrs, :provider_room_id) || "unknown"
+      )
+
+    case string_or_nil(reply_address["thread_id"] || reply_address[:thread_id]) do
+      nil -> scope_id
+      thread_id -> "#{scope_id}#thread:#{thread_id}"
+    end
   end
 
   defp outbound_message_attrs(attrs, _opts) do
@@ -322,54 +385,71 @@ defmodule BullX.IMGateway do
     }
   end
 
-  defp deliver_outbound(%Message{} = message, attrs, opts) do
-    reply_address = message.reply_address || %{}
-    outbound = outbound_delivery_payload(message, attrs)
+  defp deliver_outbound(attrs, opts) do
+    reply_address = maybe_stringify_map(map_value(attrs, :reply_address)) || %{}
+    occurrence_id = outbound_occurrence_id(attrs)
+    attrs = Map.put(attrs, :provider_occurrence_id, occurrence_id)
+    outbound = outbound_delivery_payload(attrs, occurrence_id)
 
     case ChannelAdapter.deliver(reply_address, outbound, opts) do
       {:ok, delivery} ->
-        with {:ok, message} <- mark_outbound_sent(message, delivery) do
-          {:ok, %{message: message, delivery: delivery}}
-        end
+        message = persist_sent_outbound_mirror(attrs, delivery)
+        {:ok, %{message: message, delivery: delivery}}
 
       {:error, reason} ->
-        case mark_outbound_failed(message, reason) do
-          {:ok, failed_message} -> {:error, %{message: failed_message, reason: reason}}
-          {:error, update_reason} -> {:error, update_reason}
-        end
+        message = persist_failed_outbound_mirror(attrs, reason)
+        {:error, %{message: message, reason: reason}}
     end
   end
 
-  defp outbound_delivery_payload(%Message{} = message, attrs) do
+  defp outbound_delivery_payload(attrs, occurrence_id) do
     %{
-      "id" => message.provider_occurrence_id || message.id,
+      "id" => occurrence_id,
       "op" => string_value(map_value(attrs, :op) || "send"),
       "content" => outbound_content(attrs)
     }
     |> put_optional("target_external_id", map_value(attrs, :target_external_id))
   end
 
-  defp mark_outbound_sent(%Message{} = message, delivery) when is_map(delivery) do
-    now = utc_now()
-
-    message
-    |> Message.changeset(%{
+  defp persist_sent_outbound_mirror(attrs, delivery) when is_map(delivery) do
+    persist_outbound_mirror(attrs, %{
       status: outbound_success_status(delivery),
-      provider_message_id: primary_external_id(delivery) || message.provider_message_id,
-      sent_at: now,
+      provider_message_id: primary_external_id(delivery),
+      sent_at: utc_now(),
       safe_error: nil
     })
-    |> Repo.update()
   end
 
-  defp mark_outbound_failed(%Message{} = message, reason) do
-    message
-    |> Message.changeset(%{
+  defp persist_failed_outbound_mirror(attrs, reason) do
+    persist_outbound_mirror(attrs, %{
       status: :failed,
       safe_error: safe_error(reason)
     })
-    |> Repo.update()
   end
+
+  defp persist_outbound_mirror(attrs, extra_attrs) do
+    safe_mirror(fn ->
+      with {:ok, room} <- upsert_room(outbound_room_attrs(attrs)),
+           {:ok, message} <-
+             insert_or_update_message(
+               room,
+               attrs
+               |> outbound_message_attrs([])
+               |> Map.merge(extra_attrs)
+             ) do
+        {:ok, message}
+      end
+    end)
+    |> case do
+      {:ok, message} -> message
+      {:error, _reason} -> nil
+    end
+  end
+
+  defp outbound_occurrence_id(attrs),
+    do:
+      string_or_nil(map_value(attrs, :provider_occurrence_id) || map_value(attrs, :id)) ||
+        BullX.Ext.gen_uuid_v7()
 
   defp outbound_success_status(%{"status" => "recalled"}), do: :recalled
   defp outbound_success_status(_delivery), do: :sent
@@ -411,10 +491,10 @@ defmodule BullX.IMGateway do
   defp put_optional(map, _key, ""), do: map
   defp put_optional(map, key, value), do: Map.put(map, key, value)
 
-  defp conversation_context(data, %Message{} = message) do
+  defp conversation_context(data, actor) do
     channel = data["channel"] || %{}
     scope = data["scope"] || %{}
-    actor = message.actor || data["actor"] || %{}
+    actor = actor || data["actor"] || %{}
 
     %{
       "scene" => %{
@@ -426,7 +506,7 @@ defmodule BullX.IMGateway do
         "thread_id" => optional_string(scope["thread_id"] || scope[:thread_id])
       },
       "actor" => %{
-        "principal_uid" => message.actor_principal_uid,
+        "principal_uid" => get_in(actor, ["principal", "uid"]),
         "external_account_id" => actor["external_account_id"] || actor[:external_account_id]
       },
       "reply_address" => reply_address(data)
@@ -453,17 +533,25 @@ defmodule BullX.IMGateway do
   end
 
   defp route_im_mail(%{"type" => "bullx.message.received", "data" => data}, actor) do
-    case (not human_actor?(actor) or not addressed_received?(data)) ||
-           actor["external_identity_verified"] == true do
-      true -> :route
-      false -> {:skip, :skipped_unverified_actor}
+    attention = event_attention("bullx.message.received", data)
+
+    cond do
+      attention == :addressed and human_actor?(actor) and
+          actor["external_identity_verified"] != true ->
+        {:skip, :skipped_unverified_actor}
+
+      attention == :ambient and group_message_mode(data) != "engage_all" ->
+        {:blackhole, :blackholed_unaddressed_group_message}
+
+      true ->
+        :route
     end
   end
 
   defp route_im_mail(%{"type" => "bullx.action.submitted"}, _actor),
     do: {:skip, :skipped_non_message_input}
 
-  defp route_im_mail(%{"type" => type}, _actor)
+  defp route_im_mail(%{"type" => type, "data" => _data}, _actor)
        when type in [
               "bullx.message.edited",
               "bullx.message.recalled",
@@ -480,7 +568,7 @@ defmodule BullX.IMGateway do
 
   defp route_im_mail(_cloud_event, _actor), do: :route
 
-  defp im_message_event?(%{"type" => type}) when type in @im_message_types, do: true
+  defp im_message_event?(%{"type" => type}) when type in @im_event_types, do: true
   defp im_message_event?(_event), do: false
 
   defp source_revision("bullx.message.edited"), do: %{"action" => "edited"}
@@ -514,22 +602,35 @@ defmodule BullX.IMGateway do
   defp trusted_realm_by_default?(_channel), do: false
 
   defp provider_room_id(scope, data) do
-    string_value(
-      scope["id"] ||
-        scope[:id] ||
-        get_in(data, ["reply_address", "scope_id"]) ||
-        get_in(data, [:reply_address, :scope_id]) ||
-        "unknown"
-    )
+    scope_id =
+      string_value(
+        scope["id"] ||
+          scope[:id] ||
+          get_in(data, ["reply_address", "scope_id"]) ||
+          get_in(data, [:reply_address, :scope_id]) ||
+          "unknown"
+      )
+
+    case string_or_nil(scope["thread_id"] || scope[:thread_id]) do
+      nil -> scope_id
+      thread_id -> "#{scope_id}#thread:#{thread_id}"
+    end
   end
 
   defp room_kind(%{"kind" => "dm"}, _facts), do: :direct
   defp room_kind(%{"kind" => "direct"}, _facts), do: :direct
   defp room_kind(%{"kind" => "group"}, _facts), do: :group
-  defp room_kind(%{"kind" => "channel"}, _facts), do: :channel
+  defp room_kind(%{"kind" => "channel"}, _facts), do: :group
   defp room_kind(_channel, %{"chat_type" => "p2p"}), do: :direct
   defp room_kind(_channel, %{"chat_type" => "private"}), do: :direct
   defp room_kind(_channel, _facts), do: :unknown
+
+  defp queue_key(%{} = data) do
+    channel = data["channel"] || %{}
+    scope = data["scope"] || %{}
+
+    "im://#{provider(channel)}/#{source_id(channel)}/#{provider_room_id(scope, data)}"
+  end
 
   defp message_status("bullx.message.edited"), do: :edited
   defp message_status("bullx.message.recalled"), do: :recalled
@@ -538,17 +639,36 @@ defmodule BullX.IMGateway do
 
   defp addressed_received?(%{"routing_facts" => %{} = facts}) do
     reason = string_value(facts["attention_reason"])
-    listen_mode = string_value(facts["im_listen_mode"])
 
     cond do
       reason in @addressed_attention_reasons -> true
-      reason == "unaddressed" and listen_mode == "all_messages" -> false
       reason == "unaddressed" -> false
       true -> true
     end
   end
 
   defp addressed_received?(_data), do: true
+
+  defp event_attention("bullx.command.invoked", _data), do: :command
+
+  defp event_attention(type, _data)
+       when type in ["bullx.message.edited", "bullx.message.recalled", "bullx.message.deleted"],
+       do: :lifecycle
+
+  defp event_attention("bullx.message.received", %{} = data) do
+    case addressed_received?(data) do
+      true -> :addressed
+      false -> :ambient
+    end
+  end
+
+  defp event_attention(_type, _data), do: :system
+
+  defp group_message_mode(%{"routing_facts" => %{} = facts}) do
+    string_value(facts["group_message_mode"])
+  end
+
+  defp group_message_mode(_data), do: ""
 
   defp provider_message_id(data, cloud_event) do
     data
@@ -636,9 +756,9 @@ defmodule BullX.IMGateway do
   defp map_value(_value, _key), do: nil
 
   defp string_value(value) when is_binary(value), do: String.trim(value)
+  defp string_value(nil), do: ""
   defp string_value(value) when is_atom(value), do: Atom.to_string(value)
   defp string_value(value) when is_integer(value), do: Integer.to_string(value)
-  defp string_value(nil), do: ""
   defp string_value(value), do: to_string(value)
 
   defp string_or_nil(value) do

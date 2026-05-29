@@ -26,10 +26,8 @@ defmodule BullX.MailBox.Entry do
     field :status, Ecto.Enum, values: @statuses, default: :pending
     field :attention, Ecto.Enum, values: @attention
     field :cloud_event, BullX.Ecto.JSONB
-    field :reply_address, :map
     field :available_at, :utc_datetime_usec
-    field :dedupe_hash, :string
-    field :coalesce_key, :string
+    field :idempotency_key, :string
     field :lease_holder, :string
     field :lease_expires_at, :utc_datetime_usec
     field :attempts, :integer, default: 0
@@ -47,10 +45,8 @@ defmodule BullX.MailBox.Entry do
       :status,
       :attention,
       :cloud_event,
-      :reply_address,
       :available_at,
-      :dedupe_hash,
-      :coalesce_key,
+      :idempotency_key,
       :lease_holder,
       :lease_expires_at,
       :attempts,
@@ -61,19 +57,18 @@ defmodule BullX.MailBox.Entry do
       :status,
       :attention,
       :cloud_event,
+      :mailbox_session_id,
       :available_at,
-      :dedupe_hash,
+      :idempotency_key,
       :attempts
     ])
     |> validate_json_object(:cloud_event)
-    |> validate_optional_json_object(:reply_address)
     |> validate_optional_json_object(:safe_error)
     |> validate_number(:attempts, greater_than_or_equal_to: 0)
     |> foreign_key_constraint(:agent_uid)
     |> foreign_key_constraint(:mailbox_session_id)
-    |> unique_constraint([:agent_uid, :dedupe_hash])
+    |> unique_constraint([:agent_uid, :idempotency_key])
     |> check_constraint(:cloud_event, name: :mailbox_entries_cloud_event_object)
-    |> check_constraint(:reply_address, name: :mailbox_entries_reply_address_object)
     |> check_constraint(:safe_error, name: :mailbox_entries_safe_error_object)
     |> check_constraint(:attempts, name: :mailbox_entries_attempts_nonnegative)
   end

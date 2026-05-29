@@ -6,19 +6,38 @@ defmodule BullxTelegram.DirectCommand do
   @spec handle(Source.t(), map(), keyword()) :: {:ok, map()} | {:error, map()}
   def handle(%Source{} = source, %{event_id: event_id} = command, opts \\ []) do
     key = "telegram:#{source.id}:direct_command:#{event_id}"
+    ttl = source.direct_command_dedupe_ttl_seconds
 
+    case BullX.Cache.put_new(key, %{"status" => "processing"}, ttl) do
+      :inserted ->
+        run_and_cache(source, command, key, ttl, opts)
+
+      :exists ->
+        cached_duplicate(key)
+
+      {:error, reason} ->
+        {:error, BullxTelegram.Error.map(reason)}
+    end
+  end
+
+  defp cached_duplicate(key) do
     case BullX.Cache.get(key) do
-      {:ok, result} ->
-        {:ok, Map.put(result, "duplicate", true)}
+      {:ok, result} -> {:ok, Map.put(result, "duplicate", true)}
+      {:error, :not_found} -> {:ok, %{"status" => "processing", "duplicate" => true}}
+      {:error, reason} -> {:error, BullxTelegram.Error.map(reason)}
+    end
+  end
 
-      {:error, :not_found} ->
-        with {:ok, result} <- run(source, command, opts),
-             :ok <- BullX.Cache.put(key, result, source.direct_command_dedupe_ttl_seconds) do
+  defp run_and_cache(%Source{} = source, command, key, ttl, opts) do
+    case run(source, command, opts) do
+      {:ok, result} ->
+        with :ok <- BullX.Cache.put(key, result, ttl) do
           {:ok, result}
         end
 
       {:error, reason} ->
-        {:error, BullxTelegram.Error.map(reason)}
+        _ignored = BullX.Cache.delete(key)
+        {:error, reason}
     end
   end
 

@@ -26,9 +26,9 @@ defmodule Discord.Source do
   @default_stream_update_interval_ms 1_000
   @default_stream_chunk_soft_limit 1_850
   @default_auto_archive_duration_minutes 1_440
-  @default_im_listen_mode :addressed_only
+  @default_group_message_mode :addressed_only
+  @group_message_modes [:addressed_only, :observe_all, :engage_all]
   @default_trusted_realm_by_default false
-  @im_listen_modes [:addressed_only, :all_messages]
   @discord_message_hard_limit 2_000
 
   @derive {Inspect, except: [:bot_token, :client_secret]}
@@ -57,7 +57,7 @@ defmodule Discord.Source do
     thread_ownership_cache_ttl_seconds: @default_thread_ownership_cache_ttl_seconds,
     stream_update_interval_ms: @default_stream_update_interval_ms,
     stream_chunk_soft_limit: @default_stream_chunk_soft_limit,
-    im_listen_mode: @default_im_listen_mode,
+    group_message_mode: @default_group_message_mode,
     trusted_realm_by_default: @default_trusted_realm_by_default,
     req_options: [],
     api_module: Discord.Rest,
@@ -67,9 +67,9 @@ defmodule Discord.Source do
 
   @type t :: %__MODULE__{}
 
-  @doc "Supported IM listen modes for transport admission."
-  @spec im_listen_modes() :: [atom()]
-  def im_listen_modes, do: @im_listen_modes
+  @doc "Supported group message modes for transport admission and ambient handling."
+  @spec group_message_modes() :: [atom()]
+  def group_message_modes, do: @group_message_modes
 
   @spec normalize(t() | map()) :: {:ok, t()} | {:error, map()}
   def normalize(%__MODULE__{} = source), do: {:ok, source}
@@ -84,7 +84,7 @@ defmodule Discord.Source do
          {:ok, auto_thread} <- normalize_auto_thread(Map.get(config, "auto_thread", %{})),
          {:ok, application_commands} <-
            normalize_application_commands(Map.get(config, "application_commands", %{})),
-         {:ok, im_listen_mode} <- im_listen_mode(Map.get(config, "im_listen_mode")),
+         {:ok, group_message_mode} <- group_message_mode(Map.get(config, "group_message_mode")),
          {:ok, req_options} <- optional_keyword(config, "req_options", []) do
       {:ok,
        %__MODULE__{
@@ -123,7 +123,7 @@ defmodule Discord.Source do
              1,
              @discord_message_hard_limit
            ),
-         im_listen_mode: im_listen_mode,
+         group_message_mode: group_message_mode,
          trusted_realm_by_default:
            optional_boolean(config, "trusted_realm_by_default", @default_trusted_realm_by_default),
          req_options: req_options,
@@ -171,7 +171,7 @@ defmodule Discord.Source do
       "attention" => source.attention,
       "auto_thread" => source.auto_thread,
       "application_commands" => source.application_commands,
-      "im_listen_mode" => Atom.to_string(source.im_listen_mode),
+      "group_message_mode" => Atom.to_string(source.group_message_mode),
       "trusted_realm_by_default" => source.trusted_realm_by_default,
       "start_transport" => source.start_transport?
     }
@@ -342,16 +342,23 @@ defmodule Discord.Source do
   defp normalize_application_commands(_value),
     do: {:error, Error.config("Discord application_commands config must be an object")}
 
-  defp im_listen_mode(nil), do: {:ok, @default_im_listen_mode}
+  defp group_message_mode(nil), do: {:ok, @default_group_message_mode}
 
-  defp im_listen_mode(value) when value in [:addressed_only, "addressed_only"],
+  defp group_message_mode(value) when value in [:addressed_only, "addressed_only"],
     do: {:ok, :addressed_only}
 
-  defp im_listen_mode(value) when value in [:all_messages, "all_messages"],
-    do: {:ok, :all_messages}
+  defp group_message_mode(value) when value in [:observe_all, "observe_all"],
+    do: {:ok, :observe_all}
 
-  defp im_listen_mode(_value),
-    do: {:error, Error.config("Discord im_listen_mode must be addressed_only or all_messages")}
+  defp group_message_mode(value) when value in [:engage_all, "engage_all"],
+    do: {:ok, :engage_all}
+
+  defp group_message_mode(_value),
+    do:
+      {:error,
+       Error.config(
+         "Discord group_message_mode must be addressed_only, observe_all, or engage_all"
+       )}
 
   defp ensure_oauth2_config(%__MODULE__{} = source) do
     case source.oauth2["enabled"] == true and not oauth2_enabled?(source) do

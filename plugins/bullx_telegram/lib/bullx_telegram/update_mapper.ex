@@ -230,7 +230,7 @@ defmodule BullxTelegram.UpdateMapper do
       "chat_type" => context.chat_type,
       "content_kind" => first_content_kind(blocks),
       "attention_reason" => context.attention_reason,
-      "im_listen_mode" => Atom.to_string(source.im_listen_mode)
+      "group_message_mode" => Atom.to_string(source.group_message_mode)
     }
     |> put_command_facts(command)
     |> reject_nil_values()

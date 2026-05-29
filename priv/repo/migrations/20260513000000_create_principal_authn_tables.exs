@@ -17,10 +17,7 @@ defmodule BullX.Repo.Migrations.CreatePrincipalAuthnTables do
       "DROP TYPE principal_external_identity_kind"
     )
 
-    execute(
-      "CREATE TYPE agent_type AS ENUM ('ai_agent', 'blackhole')",
-      "DROP TYPE agent_type"
-    )
+    execute("CREATE TYPE agent_type AS ENUM ('ai_agent')", "DROP TYPE agent_type")
 
     create table(:principals, primary_key: false) do
       add :id, :uuid, primary_key: true

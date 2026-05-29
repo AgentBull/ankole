@@ -29,7 +29,7 @@ defmodule Discord.SourceSetupTest do
     refute Map.has_key?(schema, :source_id_label)
     refute Map.has_key?(schema.default_source, "id")
     refute Map.has_key?(schema.default_source, "start_transport")
-    assert schema.default_source["im_listen_mode"] == "all_messages"
+    assert schema.default_source["group_message_mode"] == "engage_all"
     assert schema_field?(schema, ["source", "application_id"])
     assert schema_field?(schema, ["source", "bot_token"])
     assert schema_field?(schema, ["source", "client_secret"])
@@ -50,7 +50,7 @@ defmodule Discord.SourceSetupTest do
                    "oauth2" => %{
                      "enabled" => true
                    },
-                   "im_listen_mode" => "all_messages",
+                   "group_message_mode" => "engage_all",
                    "start_transport" => false
                  }
                },
@@ -62,6 +62,7 @@ defmodule Discord.SourceSetupTest do
     assert source["bot_token"] == "bot_token"
     assert source["client_secret"] == "client_secret"
     assert source["oauth2"]["enabled"] == true
+    assert source["group_message_mode"] == "engage_all"
     refute Map.has_key?(source["oauth2"], "redirect_uri")
     refute Map.has_key?(source, "start_transport")
   end

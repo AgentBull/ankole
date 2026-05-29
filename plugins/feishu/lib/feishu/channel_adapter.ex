@@ -52,7 +52,7 @@ defmodule Feishu.ChannelAdapter do
         :progress_notice
       ],
       identity_evidence: [:channel_actor, :oidc_login_subject],
-      im_listen_modes: Source.im_listen_modes()
+      group_message_modes: Source.group_message_modes()
     }
   end
 

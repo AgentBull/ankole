@@ -41,7 +41,7 @@ defmodule BullX.Setup.EventRoutingTest do
             "app_secret" => "app_secret",
             "enabled" => true,
             "domain" => "feishu",
-            "im_listen_mode" => "all_messages",
+            "group_message_mode" => "engage_all",
             "start_transport" => false
           }
         ])
@@ -81,7 +81,6 @@ defmodule BullX.Setup.EventRoutingTest do
     assert rule.target_type == "agent"
     assert rule.target_ref == agent_uid
     assert rule.agent_uid == agent_uid
-    assert rule.attention == "addressed"
     assert Repo.aggregate(DeliveryRule, :count) == 1
 
     assert_setup_rule_matches("bullx.message.received", agent_uid)
@@ -137,9 +136,7 @@ defmodule BullX.Setup.EventRoutingTest do
         priority: 1000,
         match_expr:
           ~S|type.startsWith("bullx.im.message.") && channel.adapter == "feishu" && channel.id == "main"|,
-        agent_uid: blackhole_agent!("old-route"),
-        attention: :ambient,
-        available_delay_ms: 0,
+        agent_uid: ai_agent_uid!("old-route"),
         metadata: %{}
       })
       |> Repo.insert!()
@@ -153,7 +150,6 @@ defmodule BullX.Setup.EventRoutingTest do
     assert rule.match_expr == @setup_match_expr
 
     assert rule.agent_uid == agent_uid
-    assert rule.attention == "addressed"
     assert Repo.aggregate(DeliveryRule, :count) == 1
   end
 
@@ -178,11 +174,18 @@ defmodule BullX.Setup.EventRoutingTest do
     assert rule.agent_uid == agent_uid
   end
 
-  defp blackhole_agent!(uid) do
+  defp ai_agent_uid!(uid) do
     {:ok, %{principal: principal}} =
       BullX.Principals.create_agent(%{
-        principal: %{uid: "blackhole-#{uid}", display_name: "Blackhole #{uid}"},
-        agent: %{type: :blackhole, profile: %{}}
+        principal: %{uid: "setup-agent-#{uid}", display_name: "Setup Agent #{uid}"},
+        agent: %{
+          profile: %{
+            "ai_agent" => %{
+              "main_llm" => %{"provider_id" => "openai_proxy", "model" => "gpt-test"},
+              "mission" => "Handle setup routing tests."
+            }
+          }
+        }
       })
 
     principal.uid

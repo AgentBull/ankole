@@ -16,7 +16,7 @@ defmodule BullX.Principals.Agent do
   @primary_key false
   @timestamps_opts [type: :utc_datetime_usec]
 
-  @types [:ai_agent, :blackhole]
+  @types [:ai_agent]
 
   @type t :: %__MODULE__{}
 

@@ -68,7 +68,7 @@ const FIELD_LABELS: Record<string, string> = {
   domain: "Domain",
   app_type: "App type",
   web_login_disabled: "Disable web login",
-  im_listen_mode: "Listen mode",
+  group_message_mode: "Group message mode",
   redirect_uri: "Redirect URI",
   start_transport: "Start transport",
   tenant_key: "Tenant key",

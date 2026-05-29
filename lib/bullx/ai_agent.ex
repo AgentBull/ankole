@@ -432,57 +432,57 @@ defmodule BullX.AIAgent do
   end
 
   defp maybe_enqueue_ambient(
-         %Profile{unmentioned_group_messages: :observe_only},
-         _principal,
-         _conversation,
-         _message,
-         _event_data,
-         _existing?
-       ),
-       do: :ok
-
-  defp maybe_enqueue_ambient(
-         %Profile{unmentioned_group_messages: :may_intervene},
-         _principal,
-         _conversation,
-         _message,
-         _event_data,
-         true
-       ),
-       do: :ok
-
-  defp maybe_enqueue_ambient(
-         %Profile{unmentioned_group_messages: :may_intervene},
+         %Profile{} = profile,
          %Principal{} = principal,
          conversation,
          message,
          event_data,
-         false
+         existing?
        ) do
-    %{
-      agent_uid: conversation.agent_uid,
-      ambient_conversation_id: conversation.id,
-      scene_key: scene_key(event_data),
-      reply_address: ambient_reply_address(Event.reply_address(event_data)),
-      item: %{
-        message_id: message.id,
-        text: ambient_message_text(message),
-        sent_at:
-          get_in(message.metadata, ["time_awareness", "send_at"]) ||
-            DateTime.to_iso8601(message.inserted_at)
-      }
-    }
-    |> maybe_shorten_ambient_batch_window(principal, message)
-    |> AmbientBatch.enqueue()
-    |> case do
-      :ok ->
-        :ok
+    case {ambient_handling_mode(profile, event_data), existing?} do
+      {:may_intervene, false} ->
+        %{
+          agent_uid: conversation.agent_uid,
+          ambient_conversation_id: conversation.id,
+          scene_key: scene_key(event_data),
+          reply_address: ambient_reply_address(Event.reply_address(event_data)),
+          ambient_mode: "may_intervene",
+          item: %{
+            message_id: message.id,
+            text: ambient_message_text(message),
+            sent_at:
+              get_in(message.metadata, ["time_awareness", "send_at"]) ||
+                DateTime.to_iso8601(message.inserted_at)
+          }
+        }
+        |> maybe_shorten_ambient_batch_window(principal, message)
+        |> AmbientBatch.enqueue()
+        |> case do
+          :ok ->
+            :ok
 
-      {:error, reason} ->
-        emit(:ambient_batch_dropped, %{reason: safe_reason(reason)})
+          {:error, reason} ->
+            emit(:ambient_batch_dropped, %{reason: safe_reason(reason)})
+            :ok
+        end
+
+      _observe_or_existing ->
         :ok
     end
   end
+
+  defp ambient_handling_mode(_profile, %{
+         "routing_facts" => %{"group_message_mode" => "engage_all"}
+       }),
+       do: :may_intervene
+
+  defp ambient_handling_mode(_profile, %{
+         "routing_facts" => %{"group_message_mode" => mode}
+       })
+       when mode in ["addressed_only", "observe_all"],
+       do: :observe_only
+
+  defp ambient_handling_mode(_profile, _event_data), do: :observe_only
 
   defp maybe_shorten_ambient_batch_window(batch, %Principal{} = principal, %Message{} = message) do
     case previous_assistant_answer?(message) or mentions_agent_identity?(message, principal) do

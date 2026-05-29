@@ -41,6 +41,26 @@ defmodule BullX.CacheTest do
     end
   end
 
+  describe "put_new/3" do
+    test "inserts only when a key is absent" do
+      key = unique_key("put-new")
+
+      assert :inserted = BullX.Cache.put_new(key, "first", 60)
+      assert :exists = BullX.Cache.put_new(key, "second", 60)
+      assert {:ok, "first"} = BullX.Cache.get(key)
+    end
+  end
+
+  describe "take/1" do
+    test "returns and deletes a cached value" do
+      key = unique_key("take")
+
+      assert :ok = BullX.Cache.put(key, %{value: 1}, 60)
+      assert {:ok, %{value: 1}} = BullX.Cache.take(key)
+      assert {:error, :not_found} = BullX.Cache.take(key)
+    end
+  end
+
   describe "fetch/2" do
     test "calls the fallback on miss and caches the result" do
       key = unique_key("fetch-miss")

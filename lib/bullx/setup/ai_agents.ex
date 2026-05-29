@@ -118,7 +118,6 @@ defmodule BullX.Setup.AIAgents do
         "soul" => soul_value(attrs),
         "instructions" => string_value(attrs, "instructions", ""),
         "conversation_isolation_mode" => "scene",
-        "unmentioned_group_messages" => "may_intervene",
         "acl" => %{"elevation_strategy" => "deny"}
       }
     }

@@ -48,7 +48,7 @@ defmodule Feishu.EventMapperTest do
     assert get_in(attrs.data, [:actor, :display_name]) == "Ada"
     assert get_in(attrs.data, [:actor, :avatar_url]) == "https://example.com/avatar.png"
     assert get_in(attrs.data, [:actor, :principal]) == nil
-    assert get_in(attrs.data, [:routing_facts, "im_listen_mode"]) == "addressed_only"
+    assert get_in(attrs.data, [:routing_facts, "group_message_mode"]) == "addressed_only"
     assert get_in(attrs.data, [:routing_facts, "attention_reason"]) == "dm"
     assert get_in(attrs.data, [:reply_address, :delivery_mode]) == "stream"
     refute inspect(attrs.data.raw_ref) =~ "not copied"
@@ -373,7 +373,7 @@ defmodule Feishu.EventMapperTest do
       id: "main",
       app_id: "cli_x",
       app_secret: "secret_x",
-      im_listen_mode: :addressed_only
+      group_message_mode: :addressed_only
     }
 
     event = %Event{
@@ -395,12 +395,12 @@ defmodule Feishu.EventMapperTest do
     assert {:ignore, :unaddressed_group_message} = EventMapper.map(event, source)
   end
 
-  test "all_messages emits unmentioned group messages as ambient" do
+  test "engage_all emits unmentioned group messages as ambient" do
     source = %Source{
       id: "main",
       app_id: "cli_x",
       app_secret: "secret_x",
-      im_listen_mode: :all_messages
+      group_message_mode: :engage_all
     }
 
     event = %Event{
@@ -421,16 +421,16 @@ defmodule Feishu.EventMapperTest do
 
     assert {:ok, %{attrs: attrs}} = EventMapper.map(event, source)
     assert attrs.type == "bullx.message.received"
-    assert get_in(attrs.data, [:routing_facts, "im_listen_mode"]) == "all_messages"
+    assert get_in(attrs.data, [:routing_facts, "group_message_mode"]) == "engage_all"
     assert get_in(attrs.data, [:routing_facts, "attention_reason"]) == "unaddressed"
   end
 
-  test "all_messages ignores unmentioned group slash commands" do
+  test "engage_all ignores unmentioned group slash commands" do
     source = %Source{
       id: "main",
       app_id: "cli_x",
       app_secret: "secret_x",
-      im_listen_mode: :all_messages
+      group_message_mode: :engage_all
     }
 
     event = %Event{
@@ -457,7 +457,7 @@ defmodule Feishu.EventMapperTest do
       id: "main",
       app_id: "cli_x",
       app_secret: "secret_x",
-      im_listen_mode: :addressed_only
+      group_message_mode: :addressed_only
     }
 
     event = %Event{
@@ -490,7 +490,7 @@ defmodule Feishu.EventMapperTest do
       id: "main",
       app_id: "cli_x",
       app_secret: "secret_x",
-      im_listen_mode: :addressed_only
+      group_message_mode: :addressed_only
     }
 
     event = %Event{
@@ -520,7 +520,7 @@ defmodule Feishu.EventMapperTest do
       id: "main",
       app_id: "cli_x",
       app_secret: "secret_x",
-      im_listen_mode: :addressed_only
+      group_message_mode: :addressed_only
     }
 
     event = %Event{
@@ -556,7 +556,7 @@ defmodule Feishu.EventMapperTest do
       id: "main",
       app_id: "cli_x",
       app_secret: "secret_x",
-      im_listen_mode: :addressed_only
+      group_message_mode: :addressed_only
     }
 
     event = %Event{

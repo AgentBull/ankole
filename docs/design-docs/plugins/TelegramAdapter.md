@@ -28,7 +28,7 @@ The default source shape includes:
 - `enabled`
 - `bot_token`
 - `bot_username`
-- `im_listen_mode`
+- `group_message_mode`
 - `trusted_realm_by_default`
 
 `bot_token` is required. Public projections mask it.
@@ -57,13 +57,13 @@ Other slash commands, including unknown command names, are normalized to
 
 Telegram currently has no provider recall event mapping.
 
-Addressed and ambient admission follows the source listen mode and Telegram
-mention/private-chat policy. MailBox stores the selected attention on the
-delivered entry.
+Addressed and ambient admission follows `group_message_mode` and Telegram
+mention/private-chat policy. The adapter emits routing facts; IMGateway and
+MailBox derive the delivered entry attention from those facts.
 
 ## Outbound
 
-Visible AIAgent output reaches Telegram through IMGateway:
+Regular visible AIAgent assistant output reaches Telegram through IMGateway:
 
 ```text
 AIAgent
@@ -73,8 +73,8 @@ AIAgent
 ```
 
 The adapter supports send/edit-style output and stream accumulation. Delivery
-outcomes return provider ids to IMGateway, which updates the outbound
-`im_messages` row.
+outcomes return provider ids to IMGateway, which best-effort mirrors outbound
+delivery status to `im_messages`.
 
 ## Setup
 
@@ -85,6 +85,7 @@ supervisor after source config changes.
 ## Invariants
 
 - Telegram adapter id in normalized mail is `telegram`, not `bullx_telegram`.
-- IMGateway stores inbound and outbound IM facts.
+- IMGateway routes IM mail and mirrors inbound and outbound IM facts
+  best-effort.
 - MailBox delivery rules decide receivers.
 - Direct commands are adapter-local.

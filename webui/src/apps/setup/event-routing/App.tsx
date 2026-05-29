@@ -27,7 +27,7 @@ type RoutingProjection = {
     plugin_id?: string
     source_id?: string
     domain?: string
-    im_listen_mode?: string
+    group_message_mode?: string
     runtime?: { ready?: boolean }
   } | null
   target?: {

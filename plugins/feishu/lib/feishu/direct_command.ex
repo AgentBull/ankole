@@ -88,23 +88,38 @@ defmodule Feishu.DirectCommand do
 
   defp do_handle(%Source{} = source, command, event_id, opts) do
     key = direct_cache_key(source, event_id)
+    ttl = source.direct_command_dedupe_ttl_seconds
 
-    case BullX.Cache.get(key) do
-      {:ok, result} ->
-        {:ok, Map.put(result, "duplicate", true)}
+    case BullX.Cache.put_new(key, %{"status" => "processing"}, ttl) do
+      :inserted ->
+        run_and_cache(source, command, key, ttl, opts)
 
-      {:error, :not_found} ->
-        run_and_cache(source, command, key, opts)
+      :exists ->
+        cached_duplicate(key)
 
       {:error, reason} ->
         {:error, Feishu.Error.map(reason)}
     end
   end
 
-  defp run_and_cache(%Source{} = source, command, key, opts) do
-    with {:ok, result} <- run(source, command, opts),
-         :ok <- BullX.Cache.put(key, result, source.direct_command_dedupe_ttl_seconds) do
-      {:ok, result}
+  defp cached_duplicate(key) do
+    case BullX.Cache.get(key) do
+      {:ok, result} -> {:ok, Map.put(result, "duplicate", true)}
+      {:error, :not_found} -> {:ok, %{"status" => "processing", "duplicate" => true}}
+      {:error, reason} -> {:error, Feishu.Error.map(reason)}
+    end
+  end
+
+  defp run_and_cache(%Source{} = source, command, key, ttl, opts) do
+    case run(source, command, opts) do
+      {:ok, result} ->
+        with :ok <- BullX.Cache.put(key, result, ttl) do
+          {:ok, result}
+        end
+
+      {:error, reason} ->
+        _ignored = BullX.Cache.delete(key)
+        {:error, reason}
     end
   end
 

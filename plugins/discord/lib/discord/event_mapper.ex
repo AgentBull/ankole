@@ -270,7 +270,7 @@ defmodule Discord.EventMapper do
       "discord_channel_id" => context.channel_id,
       "content_kind" => first_content_kind(blocks),
       "attention_reason" => context.attention_reason,
-      "im_listen_mode" => Atom.to_string(source.im_listen_mode)
+      "group_message_mode" => Atom.to_string(source.group_message_mode)
     }
     |> put_command_facts(command)
     |> reject_nil_values()

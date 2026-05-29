@@ -44,18 +44,18 @@ defmodule BullxTelegram.UpdateMapperTest do
     assert get_in(attrs.data, [:actor, :display_name]) == "Alice"
     assert get_in(attrs.data, [:actor, :principal]) == nil
     assert get_in(attrs.data, [:routing_facts, "attention_reason"]) == "dm"
-    assert get_in(attrs.data, [:routing_facts, "im_listen_mode"]) == "addressed_only"
+    assert get_in(attrs.data, [:routing_facts, "group_message_mode"]) == "addressed_only"
     assert account_input["external_id"] == "telegram:987654321"
   end
 
-  test "all_messages emits unmentioned group messages as ambient" do
+  test "engage_all emits unmentioned group messages as ambient" do
     source = %Source{
       id: "main",
       bot_token: "123456:ABC",
       bot_id: "123456",
       bot_username: "bullx_bot",
       attention: default_attention(),
-      im_listen_mode: :all_messages
+      group_message_mode: :engage_all
     }
 
     update = %{
@@ -71,7 +71,7 @@ defmodule BullxTelegram.UpdateMapperTest do
     assert {:ok, %{attrs: attrs}} = UpdateMapper.map(update, source)
     assert attrs.type == "bullx.message.received"
     assert get_in(attrs.data, [:routing_facts, "attention_reason"]) == "unaddressed"
-    assert get_in(attrs.data, [:routing_facts, "im_listen_mode"]) == "all_messages"
+    assert get_in(attrs.data, [:routing_facts, "group_message_mode"]) == "engage_all"
   end
 
   test "addressed_only ignores unmentioned group messages" do

@@ -7,39 +7,30 @@ defmodule BullX.AIAgent.Steering do
   result so restart recovery never depends on process memory.
   """
 
-  @table __MODULE__
+  @ttl_seconds 3_600
 
   @spec put(String.t(), String.t(), String.t()) :: :ok
   def put(lease_id, command_entry_id, text)
       when is_binary(lease_id) and is_binary(command_entry_id) and is_binary(text) do
-    ensure_table()
-    :ets.insert(@table, {lease_id, %{command_entry_id: command_entry_id, text: text}})
+    _result =
+      BullX.Cache.put(
+        cache_key(lease_id),
+        %{command_entry_id: command_entry_id, text: text},
+        @ttl_seconds
+      )
+
     :ok
   end
 
   @spec pop(String.t() | nil) :: map() | nil
   def pop(lease_id) when is_binary(lease_id) do
-    ensure_table()
-
-    case :ets.take(@table, lease_id) do
-      [{^lease_id, payload}] -> payload
-      [] -> nil
+    case BullX.Cache.take(cache_key(lease_id)) do
+      {:ok, payload} -> payload
+      {:error, _reason} -> nil
     end
   end
 
   def pop(_lease_id), do: nil
 
-  defp ensure_table do
-    case :ets.whereis(@table) do
-      :undefined ->
-        try do
-          :ets.new(@table, [:named_table, :public, read_concurrency: true])
-        rescue
-          ArgumentError -> @table
-        end
-
-      _tid ->
-        @table
-    end
-  end
+  defp cache_key(lease_id), do: "ai_agent:steering:#{lease_id}"
 end

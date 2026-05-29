@@ -26,12 +26,12 @@ defmodule Feishu.Source do
   ]
   @default_message_context_ttl_seconds 2_592_000
   @default_card_action_dedupe_ttl_seconds 900
-  @default_direct_command_dedupe_ttl_seconds 300
+  @default_direct_command_dedupe_ttl_seconds 90_000
   @default_inline_media_max_bytes 524_288
   @default_stream_update_interval_ms 100
-  @default_im_listen_mode :addressed_only
+  @default_group_message_mode :addressed_only
+  @group_message_modes [:addressed_only, :observe_all, :engage_all]
   @default_trusted_realm_by_default true
-  @im_listen_modes [:addressed_only, :all_messages]
 
   @derive {Inspect, except: [:app_secret, :client]}
   defstruct [
@@ -49,16 +49,16 @@ defmodule Feishu.Source do
     direct_command_dedupe_ttl_seconds: @default_direct_command_dedupe_ttl_seconds,
     inline_media_max_bytes: @default_inline_media_max_bytes,
     stream_update_interval_ms: @default_stream_update_interval_ms,
-    im_listen_mode: @default_im_listen_mode,
+    group_message_mode: @default_group_message_mode,
     trusted_realm_by_default: @default_trusted_realm_by_default,
     req_options: [],
     headers: [],
     start_transport?: true
   ]
 
-  @doc "Supported IM listen modes for transport admission."
-  @spec im_listen_modes() :: [atom()]
-  def im_listen_modes, do: @im_listen_modes
+  @doc "Supported group message modes for transport admission and ambient handling."
+  @spec group_message_modes() :: [atom()]
+  def group_message_modes, do: @group_message_modes
 
   @type t :: %__MODULE__{}
 
@@ -73,7 +73,7 @@ defmodule Feishu.Source do
          {:ok, domain} <- domain(Map.get(config, "domain", "feishu")),
          {:ok, app_type} <- app_type(Map.get(config, "app_type", "self_built")),
          {:ok, oidc} <- oidc(Map.get(config, "oidc", %{})),
-         {:ok, im_listen_mode} <- im_listen_mode(Map.get(config, "im_listen_mode")),
+         {:ok, group_message_mode} <- group_message_mode(Map.get(config, "group_message_mode")),
          {:ok, req_options} <- optional_keyword(config, "req_options", []),
          {:ok, headers} <- optional_list(config, "headers", []) do
       {:ok,
@@ -112,7 +112,7 @@ defmodule Feishu.Source do
              "stream_update_interval_ms",
              @default_stream_update_interval_ms
            ),
-         im_listen_mode: im_listen_mode,
+         group_message_mode: group_message_mode,
          trusted_realm_by_default:
            optional_boolean(config, "trusted_realm_by_default", @default_trusted_realm_by_default),
          req_options: req_options,
@@ -158,7 +158,7 @@ defmodule Feishu.Source do
       "tenant_key" => source.tenant_key,
       "oidc" => source.oidc,
       "web_login_disabled" => source.web_login_disabled?,
-      "im_listen_mode" => Atom.to_string(source.im_listen_mode),
+      "group_message_mode" => Atom.to_string(source.group_message_mode),
       "trusted_realm_by_default" => source.trusted_realm_by_default,
       "start_transport" => source.start_transport?
     }
@@ -254,18 +254,23 @@ defmodule Feishu.Source do
 
   defp oidc(_value), do: {:error, Feishu.Error.config("Feishu oidc config must be an object")}
 
-  defp im_listen_mode(nil), do: {:ok, @default_im_listen_mode}
+  defp group_message_mode(nil), do: {:ok, @default_group_message_mode}
 
-  defp im_listen_mode(value) when value in [:addressed_only, "addressed_only"],
+  defp group_message_mode(value) when value in [:addressed_only, "addressed_only"],
     do: {:ok, :addressed_only}
 
-  defp im_listen_mode(value) when value in [:all_messages, "all_messages"],
-    do: {:ok, :all_messages}
+  defp group_message_mode(value) when value in [:observe_all, "observe_all"],
+    do: {:ok, :observe_all}
 
-  defp im_listen_mode(_value),
+  defp group_message_mode(value) when value in [:engage_all, "engage_all"],
+    do: {:ok, :engage_all}
+
+  defp group_message_mode(_value),
     do:
       {:error,
-       Feishu.Error.config("Feishu im_listen_mode must be addressed_only or all_messages")}
+       Feishu.Error.config(
+         "Feishu group_message_mode must be addressed_only, observe_all, or engage_all"
+       )}
 
   defp stringify_keys(%{} = map) do
     Enum.reduce_while(map, {:ok, %{}}, fn

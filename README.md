@@ -20,8 +20,8 @@ BullX is built around AI Agents as colleagues, not RAG support bots or digital a
 BullX does not optimize for "one more chat interface." It turns AI Colleagues into a durable work system:
 
 - **Agents** carry long-term missions, responsibilities, permissions, memory, outbound identity, and KPI/OKR-style success metrics.
-- **IMGateway and other gateways** save external-world facts and emit CloudEvents mail.
-- **MailBox** creates internal delivery entries for receivers such as AIAgents, Workflows, SubAgents, gateways, and blackholes.
+- **IMGateway and other gateways** emit CloudEvents mail and mirror or save the external-world facts they own.
+- **MailBox** creates internal delivery entries for receivers such as AIAgents, Workflows, SubAgents, and gateways.
 - **Receivers** do the work: most commonly an AIAgent for flexible judgment or a Workflow for explicit process structure.
 - **Principals**, **Budgets**, and human collaboration paths make responsibility explicit before expensive or risky work happens.
 - **Capabilities** expose models, tools, browsers, sandboxes, messaging channels, APIs, and external agent harnesses without hiding power inside prompts.
@@ -141,6 +141,6 @@ BullX loads dotenv files from the repository root. Later files override earlier 
 
 ## Project Status
 
-BullX runs IMGateway, MailBox, and the AIAgent receiver end-to-end today, with channel adapters for Discord, Feishu (Lark), and Telegram, on an Elixir/OTP, PostgreSQL, and Phoenix/Inertia foundation. Feishu IM messages can be normalized, stored as `im_messages`, routed through MailBox, handled by AIAgent, and replied to through outbound `im_messages`. Brain, Budget, durable Work/Task records, the Workflow receiver, and trajectory-driven self-evolution are still being built.
+BullX runs IMGateway, MailBox, and the AIAgent receiver end-to-end today, with channel adapters for Discord, Feishu (Lark), and Telegram, on an Elixir/OTP, PostgreSQL, and Phoenix/Inertia foundation. Feishu IM messages can be normalized, routed through MailBox, mirrored to `im_messages` for memory, handled by AIAgent, and replied to through IMGateway with outbound mirror rows when persistence succeeds. Brain, Budget, durable Work/Task records, the Workflow receiver, and trajectory-driven self-evolution are still being built.
 
 See [docs/Architecture.md](./docs/Architecture.md) for the architecture source of truth, and [docs/design-docs/](./docs/design-docs/) for detailed designs.

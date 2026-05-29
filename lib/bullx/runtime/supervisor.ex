@@ -14,6 +14,7 @@ defmodule BullX.Runtime.Supervisor do
         BullX.LLM.PluginProviders,
         BullX.LLM.Catalog.Cache,
         BullX.Redis,
+        {Task.Supervisor, name: BullX.MailBox.SessionWorkerSupervisor},
         mail_box_dispatcher_child(),
         BullX.AIAgent.AmbientBatchWorker,
         BullX.AIAgent.DailyResetWorker

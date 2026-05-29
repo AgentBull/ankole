@@ -22,7 +22,7 @@ defmodule Feishu.SourceSetup do
         "app_type" => "self_built",
         "web_login_disabled" => false,
         "oidc" => %{"enabled" => true},
-        "im_listen_mode" => "all_messages",
+        "group_message_mode" => "engage_all",
         "trusted_realm_by_default" => true
       },
       sections: [
@@ -52,9 +52,9 @@ defmodule Feishu.SourceSetup do
             %{path: ["source", "oidc", "enabled"], kind: :boolean},
             %{path: ["source", "oidc", "callback_url"], kind: :callback_url},
             %{
-              path: ["source", "im_listen_mode"],
+              path: ["source", "group_message_mode"],
               kind: :select,
-              options: ["addressed_only", "all_messages"]
+              options: ["addressed_only", "observe_all", "engage_all"]
             }
           ]
         }
@@ -91,7 +91,7 @@ defmodule Feishu.SourceSetup do
           "app_type" => string_field(source, "app_type", "self_built"),
           "web_login_disabled" => boolean_field(source, "web_login_disabled", false),
           "oidc" => %{"enabled" => boolean_field(oidc, "enabled", true)},
-          "im_listen_mode" => string_field(source, "im_listen_mode", "all_messages"),
+          "group_message_mode" => string_field(source, "group_message_mode", "engage_all"),
           "trusted_realm_by_default" => boolean_field(source, "trusted_realm_by_default", true)
         }
         |> maybe_put("tenant_key", string_field(source, "tenant_key", nil))

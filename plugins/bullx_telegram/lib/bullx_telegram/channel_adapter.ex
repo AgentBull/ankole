@@ -52,7 +52,7 @@ defmodule BullxTelegram.ChannelAdapter do
       ],
       features: [:reply, :threads, :attention_policy],
       stream_strategy: :edit_accumulate,
-      im_listen_modes: Source.im_listen_modes()
+      group_message_modes: Source.group_message_modes()
     }
   end
 

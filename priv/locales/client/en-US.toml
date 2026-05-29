@@ -98,7 +98,7 @@ callback_url_description = "Copy this URL into the corresponding provider applic
 oidc_enabled_label = "Enable OIDC login"
 oidc_redirect_label = "OIDC redirect URI"
 web_login_disabled_label = "Disable web login"
-im_listen_mode_label = "Group message listen mode"
+group_message_mode_label = "Group message mode"
 app_id_label = "App id"
 app_secret_label = "App secret"
 application_id_label = "Application ID"
@@ -109,9 +109,10 @@ app_secret_saved_hint = "Stored secret will be kept"
 secret_saved_hint = "Stored secret will be kept"
 start_transport_label = "Start transport"
 
-[setup.channel_sources.im_listen_modes]
+[setup.channel_sources.group_message_modes]
 addressed_only = "Only messages that explicitly @mention the bot"
-all_messages = "All group chat messages"
+observe_all = "Observe all group messages"
+engage_all = "Engage with all group messages"
 
 [setup.ai_agents]
 page_title = "Setup AIAgent"
@@ -242,7 +243,7 @@ source_ready_label = "Ready"
 source_domain_label = "Domain"
 source_adapter_label = "Adapter"
 source_transport_label = "Transport"
-source_listen_mode_label = "Listen mode"
+source_group_message_mode_label = "Group message mode"
 source_login_label = "Web login"
 web_login_enabled = "Enabled"
 web_login_disabled = "Disabled"

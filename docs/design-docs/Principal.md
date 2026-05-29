@@ -68,7 +68,7 @@ Current public calls include:
 `agents` stores agent-only fields:
 
 - `uid` as primary key, referencing `principals.uid`;
-- `type`: `ai_agent` or `blackhole`;
+- `type`: `ai_agent`;
 - `profile` JSON object;
 - optional `created_by_principal_uid`.
 
@@ -96,8 +96,8 @@ Codes are consumed by deleting the row.
 
 ## Channel Actors
 
-IMGateway calls `ensure_human_from_channel_actor/1` before writing a human
-`im_messages` row.
+IMGateway calls `ensure_human_from_channel_actor/1` before routing or mirroring
+a human IM message.
 
 The input includes:
 

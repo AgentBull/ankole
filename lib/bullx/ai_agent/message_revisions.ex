@@ -18,7 +18,7 @@ defmodule BullX.AIAgent.MessageRevisions do
   alias BullX.Principals.Principal
   alias BullX.Repo
 
-  @addressed_reasons ~w(dm mention free_response command reply_to_bot application_command mention_text action)
+  @addressed_reasons ~w(dm mention free_response command reply_to_bot application_command mention_text action batch_addressed)
   @preview_chars 500
 
   @type action :: :edited | :recalled | :deleted
@@ -142,9 +142,15 @@ defmodule BullX.AIAgent.MessageRevisions do
          _invocation,
          entry
        ) do
-    case latest_addressed_with_output?(conversation, target) do
-      true -> latest_addressed_edit(target, conversation, event_data, entry)
-      false -> historical_addressed_revision(:edited, target, conversation, event_data, entry)
+    case batch_addressed_revision(:edited, target, conversation, event_data, entry) do
+      :not_batch ->
+        case latest_addressed_with_output?(conversation, target) do
+          true -> latest_addressed_edit(target, conversation, event_data, entry)
+          false -> historical_addressed_revision(:edited, target, conversation, event_data, entry)
+        end
+
+      effects ->
+        effects
     end
   end
 
@@ -157,9 +163,15 @@ defmodule BullX.AIAgent.MessageRevisions do
          entry
        )
        when action in [:recalled, :deleted] do
-    case latest_addressed_with_output?(conversation, target) do
-      true -> latest_addressed_remove(action, target, conversation, entry)
-      false -> historical_addressed_revision(action, target, conversation, event_data, entry)
+    case batch_addressed_revision(action, target, conversation, event_data, entry) do
+      :not_batch ->
+        case latest_addressed_with_output?(conversation, target) do
+          true -> latest_addressed_remove(action, target, conversation, entry)
+          false -> historical_addressed_revision(action, target, conversation, event_data, entry)
+        end
+
+      effects ->
+        effects
     end
   end
 
@@ -171,15 +183,21 @@ defmodule BullX.AIAgent.MessageRevisions do
          _invocation,
          entry
        ) do
-    case {lane_for_event_data(event_data), latest_ambient_turn?(conversation, target)} do
-      {:addressed, true} ->
-        latest_ambient_to_addressed_edit(target, conversation, event_data, entry)
+    case batch_ambient_revision(:edited, target, conversation, event_data, entry) do
+      :not_batch ->
+        case {lane_for_event_data(event_data), latest_ambient_turn?(conversation, target)} do
+          {:addressed, true} ->
+            latest_ambient_to_addressed_edit(target, conversation, event_data, entry)
 
-      {:ambient, _latest} ->
-        ambient_edit_by_old_lane(target, conversation, event_data)
+          {:ambient, _latest} ->
+            ambient_edit_by_old_lane(target, conversation, event_data)
 
-      _other ->
-        historical_ambient_revision(:edited, target, conversation, event_data, entry)
+          _other ->
+            historical_ambient_revision(:edited, target, conversation, event_data, entry)
+        end
+
+      effects ->
+        effects
     end
   end
 
@@ -192,22 +210,320 @@ defmodule BullX.AIAgent.MessageRevisions do
          entry
        )
        when action in [:recalled, :deleted] do
-    case later_ambient_introspection?(target) do
-      false ->
-        with :ok <- delete_message_and_rewire(conversation, target) do
-          empty_effects()
-          |> Map.put(:batch_remove, batch_ref(conversation, target))
-        else
-          {:error, reason} -> Repo.rollback(reason)
+    case batch_ambient_revision(action, target, conversation, event_data, entry) do
+      :not_batch ->
+        case later_ambient_introspection?(target) do
+          false ->
+            with :ok <- delete_message_and_rewire(conversation, target) do
+              empty_effects()
+              |> Map.put(:batch_remove, batch_ref(conversation, target))
+            else
+              {:error, reason} -> Repo.rollback(reason)
+            end
+
+          true ->
+            historical_ambient_revision(action, target, conversation, event_data, entry)
         end
 
-      true ->
-        historical_ambient_revision(action, target, conversation, event_data, entry)
+      effects ->
+        effects
     end
   end
 
   defp revise_locked(_action, _target, _conversation, _event_data, _invocation, _entry),
     do: empty_effects()
+
+  defp batch_addressed_revision(action, target, conversation, event_data, entry) do
+    with {:ok, revised_items} <- revise_batch_items(target, action, event_data) do
+      case latest_addressed_with_output?(conversation, target) do
+        true ->
+          latest_addressed_batch_revision(
+            action,
+            target,
+            conversation,
+            revised_items,
+            event_data,
+            entry
+          )
+
+        false ->
+          historical_addressed_revision(action, target, conversation, event_data, entry)
+      end
+    else
+      :not_batch ->
+        :not_batch
+
+      :missing_item ->
+        historical_addressed_revision(action, target, conversation, event_data, entry)
+    end
+  end
+
+  defp batch_ambient_revision(action, target, conversation, event_data, entry) do
+    with {:ok, revised_items} <- revise_batch_items(target, action, event_data) do
+      lane = effective_batch_lane(revised_items)
+
+      cond do
+        action == :edited and lane == :addressed and latest_ambient_turn?(conversation, target) ->
+          latest_ambient_batch_to_addressed(target, conversation, revised_items, event_data)
+
+        later_ambient_introspection?(target) ->
+          historical_ambient_revision(action, target, conversation, event_data, entry)
+
+        lane == :empty ->
+          with :ok <- delete_message_and_rewire(conversation, target) do
+            empty_effects()
+            |> Map.put(:batch_remove, batch_ref(conversation, target))
+          else
+            {:error, reason} -> Repo.rollback(reason)
+          end
+
+        lane == :ambient ->
+          update_ambient_batch_message(target, conversation, revised_items, event_data)
+
+        lane == :addressed ->
+          latest_ambient_batch_to_addressed(target, conversation, revised_items, event_data)
+      end
+    else
+      :not_batch ->
+        :not_batch
+
+      :missing_item ->
+        historical_ambient_revision(action, target, conversation, event_data, entry)
+    end
+  end
+
+  defp latest_addressed_batch_revision(
+         action,
+         target,
+         conversation,
+         revised_items,
+         event_data,
+         entry
+       ) do
+    now = DateTime.utc_now(:microsecond)
+    lane = effective_batch_lane(revised_items)
+    reason = "source_message_#{action}"
+
+    with {:ok, conversation} <- maybe_cancel_generation(conversation, target.id, reason, now),
+         branch <- Conversations.active_branch(conversation),
+         suffix <- suffix_from(branch, target),
+         recall_targets <- DeliveryRecall.targets_for_messages(suffix),
+         :ok <- mark_suffix(suffix, batch_revision_state(action), reason, entry.id, now),
+         {:ok, _conversation} <- Conversations.set_current_leaf(conversation, target.parent_id) do
+      empty_effects()
+      |> Map.put(:recall_targets, recall_targets)
+      |> maybe_republish_revised_batch(lane, revised_items, event_data)
+    else
+      {:error, reason} -> Repo.rollback(reason)
+    end
+  end
+
+  defp latest_ambient_batch_to_addressed(target, conversation, revised_items, event_data) do
+    with :ok <- delete_message_and_rewire(conversation, target) do
+      empty_effects()
+      |> Map.put(:batch_remove, batch_ref(conversation, target))
+      |> maybe_republish_revised_batch(:addressed, revised_items, event_data)
+    else
+      {:error, reason} -> Repo.rollback(reason)
+    end
+  end
+
+  defp update_ambient_batch_message(target, conversation, revised_items, event_data) do
+    content = batch_content_blocks(revised_items)
+    revised_event_data = revised_batch_event_data(revised_items, event_data, :ambient)
+
+    with {:ok, _target} <- update_content(target, content, revised_event_data) do
+      empty_effects()
+      |> Map.put(
+        :batch_update,
+        Map.put(batch_ref(conversation, target), :text, batch_text(revised_items))
+      )
+    else
+      {:error, reason} -> Repo.rollback(reason)
+    end
+  end
+
+  defp maybe_republish_revised_batch(effects, :addressed, revised_items, event_data) do
+    effects
+    |> Map.put(:republish_lane, :addressed)
+    |> Map.put(
+      :republish_event_data,
+      revised_batch_event_data(revised_items, event_data, :addressed)
+    )
+  end
+
+  defp maybe_republish_revised_batch(effects, :ambient, revised_items, event_data) do
+    case ambient_batch_republish_allowed?(revised_items, event_data) do
+      true ->
+        effects
+        |> Map.put(:republish_lane, :ambient)
+        |> Map.put(
+          :republish_event_data,
+          revised_batch_event_data(revised_items, event_data, :ambient)
+        )
+
+      false ->
+        effects
+    end
+  end
+
+  defp maybe_republish_revised_batch(effects, _lane, _revised_items, _event_data), do: effects
+
+  defp ambient_batch_republish_allowed?(revised_items, event_data) do
+    group_message_mode(event_data) == "engage_all" or
+      Enum.any?(active_batch_items(revised_items), fn item ->
+        mode =
+          item
+          |> Map.get("routing_facts")
+          |> map_value("group_message_mode")
+          |> safe_string()
+
+        mode == "engage_all"
+      end)
+  end
+
+  defp group_message_mode(event_data) do
+    event_data
+    |> map_value("routing_facts")
+    |> map_value("group_message_mode")
+    |> safe_string()
+  end
+
+  defp revise_batch_items(
+         %Message{metadata: %{"im_batch" => %{"items" => items}}},
+         action,
+         event_data
+       )
+       when is_list(items) do
+    target_ids = MapSet.new(Event.source_message_ids(event_data))
+
+    case MapSet.size(target_ids) do
+      0 ->
+        :missing_item
+
+      _size ->
+        {revised_items, matched?} =
+          Enum.map_reduce(items, false, fn item, matched? ->
+            case batch_item_matches?(item, target_ids) do
+              true -> {revise_batch_item(item, action, event_data), true}
+              false -> {item, matched?}
+            end
+          end)
+
+        case matched? do
+          true -> {:ok, revised_items}
+          false -> :missing_item
+        end
+    end
+  end
+
+  defp revise_batch_items(_target, _action, _event_data), do: :not_batch
+
+  defp batch_item_matches?(%{} = item, target_ids) do
+    item
+    |> Map.get("provider_message_ids", [])
+    |> List.wrap()
+    |> Enum.any?(&MapSet.member?(target_ids, safe_string(&1)))
+  end
+
+  defp revise_batch_item(%{} = item, :edited, event_data) do
+    item
+    |> Map.put("state", "active")
+    |> Map.put("attention", batch_item_attention(event_data))
+    |> Map.put("text", Event.text_content(event_data))
+    |> Map.put("content", content_blocks(event_data))
+    |> Map.put("refs", map_value(event_data, "refs") || [])
+    |> Map.put("raw_ref", map_value(event_data, "raw_ref"))
+    |> Map.put("routing_facts", map_value(event_data, "routing_facts") || %{})
+    |> Map.update("provider_message_ids", Event.source_message_ids(event_data), fn ids ->
+      (List.wrap(ids) ++ Event.source_message_ids(event_data))
+      |> Enum.map(&safe_string/1)
+      |> Enum.reject(&(&1 == ""))
+      |> Enum.uniq()
+    end)
+  end
+
+  defp revise_batch_item(%{} = item, action, _event_data) when action in [:recalled, :deleted] do
+    item
+    |> Map.put("state", Atom.to_string(action))
+    |> Map.put("text", "")
+    |> Map.put("content", [])
+  end
+
+  defp batch_item_attention(event_data) do
+    case lane_for_event_data(event_data) do
+      :addressed -> "addressed"
+      :ambient -> "ambient"
+      _lane -> "ignored"
+    end
+  end
+
+  defp effective_batch_lane(items) do
+    active = active_batch_items(items)
+
+    cond do
+      active == [] -> :empty
+      Enum.any?(active, &(Map.get(&1, "attention") == "addressed")) -> :addressed
+      Enum.any?(active, &(Map.get(&1, "attention") == "ambient")) -> :ambient
+      true -> :empty
+    end
+  end
+
+  defp active_batch_items(items), do: Enum.filter(items, &(Map.get(&1, "state") == "active"))
+
+  defp deliverable_batch_items(items) do
+    Enum.filter(
+      active_batch_items(items),
+      &(Map.get(&1, "attention") in ["addressed", "ambient"])
+    )
+  end
+
+  defp revised_batch_event_data(revised_items, event_data, lane) do
+    active = deliverable_batch_items(revised_items)
+
+    event_data
+    |> put_map_value("content", batch_content_blocks(revised_items))
+    |> put_map_value("refs", Enum.flat_map(active, &(Map.get(&1, "refs") || [])) |> Enum.uniq())
+    |> put_map_value("im_batch", %{
+      "effective_attention" => Atom.to_string(lane),
+      "items" => revised_items
+    })
+    |> put_map_value("routing_facts", revised_batch_routing_facts(event_data, lane))
+  end
+
+  defp revised_batch_routing_facts(event_data, lane) do
+    event_data
+    |> map_value("routing_facts")
+    |> case do
+      %{} = facts -> facts
+      _facts -> %{}
+    end
+    |> Map.put("batch_effective_attention", Atom.to_string(lane))
+    |> Map.put("attention_reason", revised_attention_reason(lane))
+  end
+
+  defp revised_attention_reason(:addressed), do: "batch_addressed"
+  defp revised_attention_reason(_lane), do: "unaddressed"
+
+  defp batch_content_blocks(revised_items) do
+    case batch_text(revised_items) do
+      "" -> [%{"type" => "omitted_marker", "reason" => "empty_normalized_content"}]
+      text -> [Message.text_block(text)]
+    end
+  end
+
+  defp batch_text(revised_items) do
+    revised_items
+    |> deliverable_batch_items()
+    |> Enum.map(&(Map.get(&1, "text") || ""))
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.join("\n")
+  end
+
+  defp batch_revision_state(:edited), do: "superseded"
+
+  defp batch_revision_state(action) when action in [:recalled, :deleted],
+    do: Atom.to_string(action)
 
   defp latest_addressed_edit(target, conversation, event_data, entry) do
     now = DateTime.utc_now(:microsecond)
@@ -372,13 +688,15 @@ defmodule BullX.AIAgent.MessageRevisions do
   defp maybe_recall_outputs(_effects, _event_data, _entry), do: :ok
 
   defp maybe_republish(
-         %{republish_lane: lane},
+         %{republish_lane: lane} = effects,
          event_data,
          invocation,
          entry,
          caller_principal_uid
        )
        when lane in [:addressed, :ambient] do
+    event_data = Map.get(effects, :republish_event_data) || event_data
+
     MailBox.deliver(%{
       cloud_event: republished_event(event_data, entry, caller_principal_uid),
       agent_uid: invocation.target_ref,
@@ -721,14 +1039,14 @@ defmodule BullX.AIAgent.MessageRevisions do
   defp lane_for_event_data(event_data) do
     facts = map_value(event_data, "routing_facts")
     reason = safe_string(map_value(facts, "attention_reason"))
-    listen_mode = safe_string(map_value(facts, "im_listen_mode"))
+    group_message_mode = safe_string(map_value(facts, "group_message_mode"))
     channel_kind = event_data |> map_value("channel") |> map_value("kind") |> safe_string()
 
     cond do
       reason in @addressed_reasons -> :addressed
       is_binary(map_value(facts, "command_name")) -> :addressed
       channel_kind == "dm" -> :addressed
-      reason == "unaddressed" and listen_mode == "all_messages" -> :ambient
+      reason == "unaddressed" and group_message_mode in ["observe_all", "engage_all"] -> :ambient
       reason == "unaddressed" -> :ignored
       true -> :ignored
     end
@@ -746,6 +1064,7 @@ defmodule BullX.AIAgent.MessageRevisions do
     %{
       recall_targets: [],
       republish_lane: nil,
+      republish_event_data: nil,
       batch_update: nil,
       batch_remove: nil
     }

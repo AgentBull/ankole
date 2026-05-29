@@ -86,7 +86,7 @@ function labelKey(field: Record<string, any>) {
     client_secret: "setup.channel_sources.client_secret_label",
     domain: "setup.channel_sources.domain_label",
     enabled: "setup.channel_sources.enabled_label",
-    im_listen_mode: "setup.channel_sources.im_listen_mode_label",
+    group_message_mode: "setup.channel_sources.group_message_mode_label",
     redirect_uri: "setup.channel_sources.oauth_redirect_label",
     start_transport: "setup.channel_sources.start_transport_label",
     web_login_disabled: "setup.channel_sources.web_login_disabled_label",
@@ -110,8 +110,8 @@ function secretPresent(source: Record<string, any>, field: Record<string, any>) 
 }
 
 function optionLabelKey(field: Record<string, any>, option: string) {
-  return pathEquals(field.path || [], ["source", "im_listen_mode"])
-    ? `setup.channel_sources.im_listen_modes.${option}`
+  return pathEquals(field.path || [], ["source", "group_message_mode"])
+    ? `setup.channel_sources.group_message_modes.${option}`
     : option
 }
 

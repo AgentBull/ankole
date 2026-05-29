@@ -11,7 +11,7 @@ defmodule BullX.IMGateway.Room do
   @foreign_key_type :binary_id
   @timestamps_opts [type: :utc_datetime_usec]
 
-  @kinds [:direct, :group, :channel, :thread, :unknown]
+  @kinds [:direct, :group, :unknown]
 
   @type t :: %__MODULE__{}
 

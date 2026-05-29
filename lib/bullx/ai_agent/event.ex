@@ -43,11 +43,18 @@ defmodule BullX.AIAgent.Event do
 
   @spec provider_ref_metadata(map()) :: map()
   def provider_ref_metadata(data) when is_map(data) do
-    case source_message_ids(data) do
-      [] -> %{}
-      ids -> %{"provider_refs" => %{"message_ids" => ids}}
-    end
+    %{}
+    |> put_provider_refs(source_message_ids(data))
+    |> put_im_batch(value(data, "im_batch"))
   end
+
+  defp put_provider_refs(metadata, []), do: metadata
+
+  defp put_provider_refs(metadata, ids),
+    do: Map.put(metadata, "provider_refs", %{"message_ids" => ids})
+
+  defp put_im_batch(metadata, %{} = batch), do: Map.put(metadata, "im_batch", batch)
+  defp put_im_batch(metadata, _batch), do: metadata
 
   @spec source_message_ids(map()) :: [String.t()]
   def source_message_ids(data) when is_map(data) do

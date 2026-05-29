@@ -66,7 +66,13 @@ defmodule BullX.AIAgent.AmbientBatch do
 
     meta =
       batch
-      |> Map.take([:agent_uid, :ambient_conversation_id, :scene_key, :reply_address])
+      |> Map.take([
+        :agent_uid,
+        :ambient_conversation_id,
+        :scene_key,
+        :reply_address,
+        :ambient_mode
+      ])
       |> Map.merge(%{
         batch_key: batch_key,
         due_at: due_at,

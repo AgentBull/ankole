@@ -89,7 +89,6 @@ defmodule BullX.IMGateway.Message do
     ])
     |> validate_non_empty(:actor_kind)
     |> validate_non_empty(:message_kind)
-    |> validate_human_actor_has_principal()
     |> validate_json_object(:actor)
     |> validate_json_object(:content)
     |> validate_json_array(:attachments)
@@ -107,26 +106,12 @@ defmodule BullX.IMGateway.Message do
     )
     |> check_constraint(:message_kind, name: :im_messages_message_kind_present)
     |> check_constraint(:actor_kind, name: :im_messages_actor_kind_present)
-    |> check_constraint(:actor_principal_uid, name: :im_messages_human_actor_has_principal)
     |> check_constraint(:actor, name: :im_messages_actor_object)
     |> check_constraint(:content, name: :im_messages_content_object)
     |> check_constraint(:attachments, name: :im_messages_attachments_array)
     |> check_constraint(:mentions, name: :im_messages_mentions_array)
     |> check_constraint(:reply_address, name: :im_messages_reply_address_object)
     |> check_constraint(:safe_error, name: :im_messages_safe_error_object)
-  end
-
-  defp validate_human_actor_has_principal(changeset) do
-    case {get_field(changeset, :actor_kind), get_field(changeset, :actor_principal_uid)} do
-      {"human", principal_uid} when is_binary(principal_uid) ->
-        changeset
-
-      {"human", _missing} ->
-        add_error(changeset, :actor_principal_uid, "is required for human actor")
-
-      _other ->
-        changeset
-    end
   end
 
   defp validate_non_empty(changeset, field) do

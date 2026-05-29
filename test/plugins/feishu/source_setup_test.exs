@@ -29,7 +29,7 @@ defmodule Feishu.SourceSetupTest do
     refute Map.has_key?(schema, :source_id_label)
     refute Map.has_key?(schema.default_source, "id")
     refute Map.has_key?(schema.default_source, "start_transport")
-    assert schema.default_source["im_listen_mode"] == "all_messages"
+    assert schema.default_source["group_message_mode"] == "engage_all"
     assert schema.default_source["oidc"]["enabled"] == true
     assert schema_field?(schema, ["source", "oidc", "enabled"])
     assert schema_field?(schema, ["source", "oidc", "callback_url"])
@@ -46,7 +46,7 @@ defmodule Feishu.SourceSetupTest do
     assert source["id"] == "main"
     assert source["app_id"] == "cli_setup"
     assert source["app_secret"] == "app_secret"
-    assert source["im_listen_mode"] == "all_messages"
+    assert source["group_message_mode"] == "engage_all"
     refute Map.has_key?(source, "start_transport")
 
     assert source["oidc"] == %{"enabled" => true}
@@ -76,7 +76,7 @@ defmodule Feishu.SourceSetupTest do
                    "app_secret" => "app_secret",
                    "enabled" => true,
                    "domain" => "feishu",
-                   "im_listen_mode" => "addressed_only"
+                   "group_message_mode" => "addressed_only"
                  }
                ])
              )
@@ -102,7 +102,7 @@ defmodule Feishu.SourceSetupTest do
         "enabled" => true,
         "domain" => "feishu",
         "oidc" => %{"enabled" => true},
-        "im_listen_mode" => "all_messages",
+        "group_message_mode" => "engage_all",
         "start_transport" => false
       }
     }
