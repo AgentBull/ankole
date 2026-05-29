@@ -14,9 +14,6 @@ defmodule BullX.Setup do
   @spec steps() :: [atom()]
   def steps, do: @steps
 
-  @spec setup_step?(term()) :: boolean()
-  def setup_step?(step), do: normalize_step(step) in @steps
-
   @spec normalize_step(term()) :: atom() | nil
   def normalize_step(step) when step in @steps, do: step
 

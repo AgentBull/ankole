@@ -57,13 +57,6 @@ defmodule BullX.Plugins.Registry do
   @spec enabled?(String.t(), GenServer.server()) :: boolean()
   def enabled?(id, server \\ __MODULE__), do: GenServer.call(server, {:enabled?, id})
 
-  @spec all_extensions(GenServer.server()) :: [BullX.Plugins.Extension.t()]
-  def all_extensions(server \\ __MODULE__), do: GenServer.call(server, :extensions)
-
-  @spec extensions_for(atom() | String.t(), GenServer.server()) :: [BullX.Plugins.Extension.t()]
-  def extensions_for(point, server \\ __MODULE__),
-    do: GenServer.call(server, {:extensions, point})
-
   @spec enabled_extensions_for(atom() | String.t(), GenServer.server()) :: [
           BullX.Plugins.Extension.t()
         ]
@@ -79,12 +72,6 @@ defmodule BullX.Plugins.Registry do
 
   def handle_call({:enabled?, id}, _from, state) do
     {:reply, MapSet.member?(state.enabled_ids, id), state}
-  end
-
-  def handle_call(:extensions, _from, state), do: {:reply, state.extensions, state}
-
-  def handle_call({:extensions, point}, _from, state) do
-    {:reply, Enum.filter(state.extensions, &(&1.point == point)), state}
   end
 
   def handle_call({:enabled_extensions, point}, _from, state) do

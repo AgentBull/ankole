@@ -14,20 +14,6 @@ defmodule BullX.MailBox.Matcher do
           | {:ok, {:no_match, [diagnostic()]}}
           | {:error, String.t()}
 
-  @spec validate_delivery_rules([DeliveryRule.t() | map()]) :: :ok | {:error, String.t()}
-  def validate_delivery_rules(rules) when is_list(rules) do
-    case BullX.Ext.mailbox_delivery_rules_validate(encode_rules(rules)) do
-      true -> :ok
-      {:error, reason} -> {:error, to_string(reason)}
-    end
-  rescue
-    ErlangError -> {:error, "mailbox route matcher nif unavailable"}
-    UndefinedFunctionError -> {:error, "mailbox route matcher nif unavailable"}
-  catch
-    :error, :nif_not_loaded -> {:error, "mailbox route matcher nif unavailable"}
-    kind, reason -> {:error, "mailbox route matcher #{kind}: #{inspect(reason)}"}
-  end
-
   @spec match([DeliveryRule.t() | map()], map()) :: match_result()
   def match(rules, routing_context) when is_list(rules) and is_map(routing_context) do
     case BullX.Ext.mailbox_match_delivery_rule(encode_rules(rules), routing_context) do

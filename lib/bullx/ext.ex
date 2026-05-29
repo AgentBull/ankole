@@ -231,12 +231,6 @@ defmodule BullX.Ext do
   def authz_resource_pattern_validate(_pattern), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """
-  Validate MailBox delivery-rule CEL expressions through the Rust-owned matcher.
-  """
-  @spec mailbox_delivery_rules_validate([map()]) :: true | {:error, error_reason()}
-  def mailbox_delivery_rules_validate(_rules), do: :erlang.nif_error(:nif_not_loaded)
-
-  @doc """
   Evaluate a routing context against MailBox delivery-rule candidates.
   """
   @spec mailbox_match_delivery_rule([map()], map()) ::

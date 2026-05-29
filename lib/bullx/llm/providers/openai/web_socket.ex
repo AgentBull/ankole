@@ -25,12 +25,6 @@ defmodule BullX.LLM.Providers.OpenAI.WebSocket do
     websocket_url(base_url, "/responses")
   end
 
-  @spec realtime_url(LLMDB.Model.t(), keyword()) :: String.t()
-  def realtime_url(%LLMDB.Model{} = model, opts) do
-    base_url = ReqLLM.Provider.Options.effective_base_url(BullX.LLM.Providers.OpenAI, model, opts)
-    websocket_url(base_url, "/realtime", model: model.provider_model_id || model.id)
-  end
-
   @spec http_context(String.t(), [{String.t(), String.t()}]) :: HTTPContext.t()
   def http_context(url, headers) do
     HTTPContext.new(url, :get, Map.new(headers))

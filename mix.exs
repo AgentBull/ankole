@@ -45,7 +45,6 @@ defmodule BullX.MixProject do
       {:inertia, "~> 2.6"},
       {:open_api_spex, "~> 3.22"},
       {:nimble_options, "~> 1.1"},
-      {:swoosh, "~> 1.25"},
       {:req, "~> 0.5"},
       {:req_llm, "~> 1.11.0"},
       {:telemetry_metrics, "~> 1.0"},

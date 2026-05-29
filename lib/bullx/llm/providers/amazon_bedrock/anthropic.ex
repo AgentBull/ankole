@@ -29,14 +29,6 @@ defmodule BullX.LLM.Providers.AmazonBedrock.Anthropic do
   def supports_converse_tool_choice?, do: true
 
   @doc """
-  Preserve inference profile prefix for all Anthropic models.
-
-  All Anthropic inference profile models require the region prefix to be preserved
-  in the API request path.
-  """
-  def preserve_inference_profile?(_model_id), do: true
-
-  @doc """
   Formats a ReqLLM context into Anthropic request format for Bedrock.
 
   Delegates to the native Anthropic.Context module and adds Bedrock-specific

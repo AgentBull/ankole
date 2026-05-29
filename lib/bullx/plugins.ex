@@ -29,8 +29,6 @@ defmodule BullX.Plugins do
   defdelegate plugins(server \\ BullX.Plugins.Registry), to: BullX.Plugins.Registry
   defdelegate enabled_plugins(server \\ BullX.Plugins.Registry), to: BullX.Plugins.Registry
   defdelegate enabled?(id, server \\ BullX.Plugins.Registry), to: BullX.Plugins.Registry
-  defdelegate all_extensions(server \\ BullX.Plugins.Registry), to: BullX.Plugins.Registry
-  defdelegate extensions_for(point, server \\ BullX.Plugins.Registry), to: BullX.Plugins.Registry
 
   defdelegate enabled_extensions_for(point, server \\ BullX.Plugins.Registry),
     to: BullX.Plugins.Registry

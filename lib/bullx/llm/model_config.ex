@@ -60,17 +60,6 @@ defmodule BullX.LLM.ModelConfig do
 
   def cast(_attrs, _opts), do: {:error, {:invalid_llm_config, ["llm config must be an object"]}}
 
-  @spec profile_map(t()) :: map()
-  def profile_map(%__MODULE__{} = config) do
-    %{
-      "provider_id" => config.provider_id,
-      "model" => config.model,
-      "reasoning_effort" => Atom.to_string(config.reasoning_effort)
-    }
-    |> maybe_put("context_window", config.context_window)
-    |> maybe_put("max_completion_tokens", config.max_completion_tokens)
-  end
-
   @spec call_opts(t()) :: keyword()
   def call_opts(%__MODULE__{} = config) do
     [reasoning_effort: config.reasoning_effort]
@@ -210,9 +199,6 @@ defmodule BullX.LLM.ModelConfig do
   defp atom_key("reasoning_effort"), do: :reasoning_effort
   defp atom_key("context_window"), do: :context_window
   defp atom_key("max_completion_tokens"), do: :max_completion_tokens
-
-  defp maybe_put(map, _key, nil), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
   defp maybe_keyword_put(keyword, _key, nil), do: keyword
   defp maybe_keyword_put(keyword, key, value), do: Keyword.put(keyword, key, value)

@@ -70,10 +70,6 @@ defmodule BullX.Repo.Migrations.CreatePrincipalAuthzTables do
              """
            )
 
-    create constraint(:permission_grants, :permission_grants_resource_pattern_wildcards,
-             check: "(length(resource_pattern) - length(replace(resource_pattern, '*', ''))) <= 1"
-           )
-
     create constraint(:permission_grants, :permission_grants_action_no_colon,
              check: "position(':' in action) = 0"
            )
@@ -93,6 +89,18 @@ defmodule BullX.Repo.Migrations.CreatePrincipalAuthzTables do
     create index(:permission_grants, [:principal_uid])
     create index(:permission_grants, [:group_id])
     create index(:permission_grants, [:action])
+
+    create unique_index(
+             :permission_grants,
+             [:principal_uid, :resource_pattern, :action, :condition],
+             name: :permission_grants_principal_upsert_index,
+             where: "principal_uid IS NOT NULL"
+           )
+
+    create unique_index(:permission_grants, [:group_id, :resource_pattern, :action, :condition],
+             name: :permission_grants_group_upsert_index,
+             where: "group_id IS NOT NULL"
+           )
   end
 
   def down do

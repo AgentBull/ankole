@@ -1124,8 +1124,8 @@ defmodule BullX.LLM.Providers.AmazonBedrock do
     # (e.g., "us.anthropic.claude-3-sonnet" -> "anthropic.claude-3-sonnet")
     # (e.g., "au.anthropic.claude-sonnet-4-5" -> "anthropic.claude-sonnet-4-5")
     #
-    # Note: This is ONLY for metadata lookup. The preserve_inference_profile? callback
-    # controls whether the prefix is kept in API requests (see prepare_request/4).
+    # This is only for metadata lookup; request paths use provider_model_id before
+    # this normalization and keep inference profile prefixes.
     case String.split(model_id, ".", parts: 3) do
       [possible_region, _provider, _rest] when possible_region in @region_prefixes ->
         [_region, rest] = String.split(model_id, ".", parts: 2)

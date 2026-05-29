@@ -100,17 +100,6 @@ defmodule BullX.Principals.AuthN do
   @spec setup_required?() :: boolean()
   def setup_required?, do: not AuthZ.root_initialized?()
 
-  @spec bootstrap_activation_code_pending?() :: boolean()
-  def bootstrap_activation_code_pending? do
-    setup_required?() and valid_bootstrap_code?(current_bootstrap_code())
-  end
-
-  @spec verify_bootstrap_activation_code(String.t()) ::
-          {:ok, String.t()} | {:error, :invalid_or_expired_code}
-  def verify_bootstrap_activation_code(plaintext) when is_binary(plaintext) do
-    verify_current_bootstrap_code(plaintext)
-  end
-
   @spec verify_bootstrap_activation_code_for_setup(String.t()) ::
           {:ok, String.t()} | {:error, :invalid_or_expired_code}
   def verify_bootstrap_activation_code_for_setup(plaintext) when is_binary(plaintext) do

@@ -23,11 +23,6 @@ defmodule BullX.Config.Plugins do
     |> with_internal_plugins()
   end
 
-  @spec default_enabled_plugins() :: [String.t()]
-  def default_enabled_plugins do
-    with_internal_plugins(@first_party_default_plugins)
-  end
-
   defp with_internal_plugins(plugins), do: Enum.uniq(plugins ++ internal_plugin_ids())
 
   defp internal_plugin_ids do

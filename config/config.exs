@@ -25,15 +25,6 @@ config :bullx, BullXWeb.Endpoint,
   ],
   pubsub_server: BullX.PubSub
 
-# Configure the mailer
-#
-# By default it uses the "Local" adapter which stores the emails
-# locally. You can see the emails in your browser, at "/dev/mailbox".
-#
-# For production it's recommended to configure a different adapter
-# at the `config/runtime.exs`.
-config :bullx, BullX.Mailer, adapter: Swoosh.Adapters.Local
-
 config :inertia,
   endpoint: BullXWeb.Endpoint,
   static_paths: ["/.rsbuild/manifest.json"],

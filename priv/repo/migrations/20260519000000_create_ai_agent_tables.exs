@@ -106,6 +106,7 @@ defmodule BullX.Repo.Migrations.CreateAiAgentTables do
     create constraint(:conversation_messages, :conversation_messages_valid_role_kind_status,
              check: """
              (role = 'user' AND kind = 'normal' AND status = 'complete') OR
+             (role = 'user' AND kind = 'introspection' AND status = 'complete') OR
              (role = 'assistant' AND kind = 'normal' AND status IN ('generating', 'complete')) OR
              (role = 'assistant' AND kind = 'summary' AND status = 'complete') OR
              (role = 'assistant' AND kind = 'error' AND status = 'complete') OR

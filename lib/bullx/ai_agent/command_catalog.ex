@@ -68,12 +68,6 @@ defmodule BullX.AIAgent.CommandCatalog do
   @spec catalog() :: [map()]
   def catalog, do: @commands
 
-  @spec system_catalog() :: [map()]
-  def system_catalog, do: @system_commands
-
-  @spec system_target_refs() :: [String.t()]
-  def system_target_refs, do: Enum.map(@system_commands, & &1.target_ref)
-
   @spec display_slash(map(), keyword()) :: String.t()
   def display_slash(%{slash: slash} = command, opts \\ []) do
     command

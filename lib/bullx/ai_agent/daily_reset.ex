@@ -13,14 +13,6 @@ defmodule BullX.AIAgent.DailyReset do
   alias BullX.AIAgent.Time, as: AgentTime
   alias BullX.Repo
 
-  @spec eligible?(Conversation.t(), Profile.t(), DateTime.t()) :: boolean()
-  def eligible?(%Conversation{ended_at: nil} = conversation, %Profile{} = profile, now) do
-    profile.daily_reset.enabled and due_for_reset?(conversation, profile, now) and
-      not active_generation?(conversation, now) and not retry_pending?(conversation, now)
-  end
-
-  def eligible?(_conversation, _profile, _now), do: false
-
   @spec close_eligible(Profile.t(), DateTime.t()) :: {:ok, non_neg_integer()} | {:error, term()}
   def close_eligible(%Profile{} = profile, now \\ DateTime.utc_now(:microsecond)) do
     close_eligible(profile, now, nil)

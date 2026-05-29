@@ -81,20 +81,6 @@ defmodule BullX.AIAgent.Conversations do
   def get(conversation_id) when is_binary(conversation_id),
     do: Repo.get(Conversation, conversation_id)
 
-  @spec lock_active(String.t(), String.t(), (Conversation.t() | nil -> term())) ::
-          {:ok, term()} | {:error, term()}
-  def lock_active(agent_uid, conversation_key, fun)
-      when is_binary(agent_uid) and is_binary(conversation_key) and is_function(fun, 1) do
-    Repo.transaction(fn ->
-      agent_uid
-      |> active_query(conversation_key)
-      |> lock("FOR UPDATE")
-      |> Repo.one()
-      |> fun.()
-    end)
-    |> unwrap_transaction()
-  end
-
   @spec append_message(Conversation.t(), map(), keyword()) :: append_result()
   def append_message(%Conversation{} = conversation, attrs, opts \\ []) when is_map(attrs) do
     move_leaf? = Keyword.get(opts, :move_leaf?, true)

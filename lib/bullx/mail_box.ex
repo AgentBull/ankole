@@ -73,11 +73,6 @@ defmodule BullX.MailBox do
     end
   end
 
-  @spec deliver_many([map()], keyword()) :: [deliver_result()]
-  def deliver_many(requests, opts \\ []) when is_list(requests) do
-    Enum.map(requests, &deliver(&1, opts))
-  end
-
   defp claim_ready_sessions(limit, opts)
        when is_integer(limit) and limit > 0 and is_list(opts) do
     now = utc_now()
@@ -1278,11 +1273,19 @@ defmodule BullX.MailBox do
   end
 
   defp earlier_datetime(left, right) do
+    left = normalize_datetime(left)
+    right = normalize_datetime(right)
+
     case DateTime.compare(left, right) do
       :lt -> left
       _gte -> right
     end
   end
+
+  defp normalize_datetime(%DateTime{} = datetime), do: datetime
+
+  defp normalize_datetime(%NaiveDateTime{} = datetime),
+    do: DateTime.from_naive!(datetime, "Etc/UTC")
 
   defp safe_error(reason) do
     %{"reason" => inspect(reason, limit: 6)}

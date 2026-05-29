@@ -117,12 +117,11 @@ defmodule BullXWeb.Router do
     get "/.well-known/service-desc", OpenApiSpex.Plug.RenderSpec, []
   end
 
-  # Enable Swoosh mailbox preview and Swagger UI in development
+  # Enable Swagger UI in development
   if Application.compile_env(:bullx, :dev_routes) do
     scope "/dev" do
       pipe_through :browser
 
-      forward "/mailbox", Plug.Swoosh.MailboxPreview
       get "/swaggerui", OpenApiSpex.Plug.SwaggerUI, path: "/.well-known/service-desc"
     end
   end

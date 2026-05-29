@@ -37,6 +37,7 @@ bullx-*.tar
 npm-debug.log
 /node_modules/
 /.turbo/
+*.tsbuildinfo
 
 
 *.env.local

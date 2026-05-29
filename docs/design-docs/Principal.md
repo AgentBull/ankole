@@ -38,13 +38,11 @@ Current public calls include:
 - `channel_identity_verified?/1`
 - `match_or_create_human_from_login_subject/1`
 - `create_or_refresh_bootstrap_activation_code/0`
-- `verify_bootstrap_activation_code/1`
 - `verify_bootstrap_activation_code_for_setup/1`
 - `bootstrap_activation_code_valid_for_hash?/1`
 - `root_init_with_bootstrap_code/2`
 - `issue_login_auth_code/3`
 - `consume_login_auth_code/1`
-- `login_provider_ids/1`
 - `login_provider_options/1`
 - `web_login_url/0`
 

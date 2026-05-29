@@ -196,9 +196,6 @@ defmodule Discord.Source do
     end
   end
 
-  @spec source_map(t()) :: map()
-  def source_map(%__MODULE__{} = source), do: public_config(source)
-
   @spec request(t(), atom(), map() | keyword()) :: {:ok, term()} | {:error, term()}
   def request(%__MODULE__{} = source, operation, params \\ %{}) do
     source.api_module.request(source, operation, stringify_value(params))

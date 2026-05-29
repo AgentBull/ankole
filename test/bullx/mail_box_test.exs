@@ -184,6 +184,36 @@ defmodule BullX.MailBoxTest do
     assert_processed(entry.id)
   end
 
+  test "next_ready_at normalizes mixed aggregate timestamp types" do
+    agent_uid = ai_agent!("next-ready")
+    future = DateTime.add(DateTime.utc_now(:microsecond), 60, :second)
+
+    assert {:ok, _result} =
+             MailBox.deliver(%{
+               cloud_event: cloud_event("next-ready-pending"),
+               agent_uid: agent_uid,
+               attention: :system,
+               session_key: "next-ready",
+               available_at: future
+             })
+
+    assert {:ok, %{entry: %Entry{} = leased_entry}} =
+             MailBox.deliver(%{
+               cloud_event: cloud_event("next-ready-leased"),
+               agent_uid: agent_uid,
+               attention: :system,
+               session_key: "next-ready",
+               available_at: future
+             })
+
+    Repo.update_all(
+      from(entry in Entry, where: entry.id == ^leased_entry.id),
+      set: [status: :leased, lease_holder: "worker", lease_expires_at: nil]
+    )
+
+    assert %DateTime{} = MailBox.next_ready_at()
+  end
+
   test "dispatcher stops scheduling itself when there is no pending work" do
     pid = start_supervised!({BullX.MailBox.Dispatcher, interval_ms: 10, claim_limit: 20})
 

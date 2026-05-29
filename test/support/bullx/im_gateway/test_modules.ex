@@ -1,37 +1,10 @@
 defmodule BullX.IMGateway.TestingChannel do
   @moduledoc false
 
-  @gate_key :im_gateway_test_delivery_gate
-
-  def block_next_delivery(content_kind) when is_atom(content_kind) do
-    block_next_delivery(Atom.to_string(content_kind))
-  end
-
-  def block_next_delivery(content_kind) when is_binary(content_kind) do
-    ref = make_ref()
-    Application.put_env(:bullx, @gate_key, %{owner: self(), ref: ref, content_kind: content_kind})
-    ref
-  end
-
-  def await_blocked_delivery(ref, timeout \\ 1_000) do
-    receive do
-      {:im_gateway_test_delivery_blocked, ^ref, blocked} -> {:ok, blocked}
-    after
-      timeout -> {:error, :timeout}
-    end
-  end
-
-  def release_delivery(%{pid: pid, ref: ref}) when is_pid(pid) do
-    send(pid, {:im_gateway_test_delivery_continue, ref})
-    :ok
-  end
-
   def clear do
-    Application.delete_env(:bullx, @gate_key)
+    Application.delete_env(:bullx, :im_gateway_test_delivery_gate)
     :ok
   end
-
-  def gate, do: Application.get_env(:bullx, @gate_key)
 end
 
 defmodule BullX.IMGateway.TestChannelAdapter do
@@ -68,8 +41,6 @@ defmodule BullX.IMGateway.TestChannelAdapter do
 
   @impl BullX.IMGateway.ChannelAdapter
   def deliver(source, reply_address, %{"force_error" => true} = outbound, _opts) do
-    maybe_block_delivery(source, reply_address, outbound)
-
     if pid = Application.get_env(:bullx, :im_gateway_test_pid) do
       send(pid, {:im_gateway_adapter_delivery_failed, source, reply_address, outbound})
     end
@@ -78,8 +49,6 @@ defmodule BullX.IMGateway.TestChannelAdapter do
   end
 
   def deliver(source, reply_address, %{"op" => "recall"} = outbound, _opts) do
-    maybe_block_delivery(source, reply_address, outbound)
-
     if pid = Application.get_env(:bullx, :im_gateway_test_pid) do
       send(pid, {:im_gateway_adapter_delivered, source, reply_address, outbound})
     end
@@ -93,8 +62,6 @@ defmodule BullX.IMGateway.TestChannelAdapter do
   end
 
   def deliver(source, reply_address, outbound, _opts) do
-    maybe_block_delivery(source, reply_address, outbound)
-
     if pid = Application.get_env(:bullx, :im_gateway_test_pid) do
       send(pid, {:im_gateway_adapter_delivered, source, reply_address, outbound})
     end
@@ -110,58 +77,6 @@ defmodule BullX.IMGateway.TestChannelAdapter do
        "warnings" => []
      }}
   end
-
-  defp maybe_block_delivery(source, reply_address, outbound) do
-    case BullX.IMGateway.TestingChannel.gate() do
-      %{owner: owner, ref: ref, content_kind: content_kind} when is_pid(owner) ->
-        maybe_block_matching_delivery(owner, ref, content_kind, source, reply_address, outbound)
-
-      _other ->
-        :ok
-    end
-  end
-
-  defp maybe_block_matching_delivery(owner, ref, content_kind, source, reply_address, outbound) do
-    case outbound_has_content_kind?(outbound, content_kind) do
-      true ->
-        BullX.IMGateway.TestingChannel.clear()
-
-        send(owner, {
-          :im_gateway_test_delivery_blocked,
-          ref,
-          %{
-            pid: self(),
-            ref: ref,
-            source: source,
-            reply_address: reply_address,
-            outbound: outbound
-          }
-        })
-
-        receive do
-          {:im_gateway_test_delivery_continue, ^ref} -> :ok
-        after
-          5_000 -> :ok
-        end
-
-      false ->
-        :ok
-    end
-  end
-
-  defp outbound_has_content_kind?(%{"content" => content}, content_kind) when is_list(content) do
-    Enum.any?(content, &(content_kind(&1) == content_kind))
-  end
-
-  defp outbound_has_content_kind?(_outbound, _content_kind), do: false
-
-  defp content_kind(%{"kind" => kind}) when is_binary(kind), do: kind
-  defp content_kind(%{"type" => type}) when is_binary(type), do: type
-  defp content_kind(%{kind: kind}) when is_atom(kind), do: Atom.to_string(kind)
-  defp content_kind(%{kind: kind}) when is_binary(kind), do: kind
-  defp content_kind(%{type: type}) when is_atom(type), do: Atom.to_string(type)
-  defp content_kind(%{type: type}) when is_binary(type), do: type
-  defp content_kind(_block), do: nil
 end
 
 defmodule BullX.IMGateway.TestAdapterPlugin do

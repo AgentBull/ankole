@@ -22,17 +22,6 @@ mod atoms {
   }
 }
 
-#[rustler::nif(schedule = "DirtyCpu")]
-pub fn mailbox_delivery_rules_validate(rules: Term<'_>) -> NifResult<bool> {
-  let rules = decode_rules(rules)?;
-
-  for rule in rules {
-    cel::compile_condition(&rule.match_expr).map_err(error)?;
-  }
-
-  Ok(true)
-}
-
 /// Match `routing_context` against priority-sorted candidate `rules`, returning
 /// `{:matched, rule_id, diagnostics}` on the first satisfied candidate or
 /// `{:no_match, diagnostics}` if none match. Per-rule compile or execution

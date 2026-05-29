@@ -18,7 +18,6 @@ defmodule BullX.AIAgent.ACL do
   same Principal/grant tables.
   """
 
-  alias BullX.AIAgent.Profile
   alias BullX.AuthZ
 
   @type operation_tag :: :ordinary | :privileged
@@ -53,20 +52,6 @@ defmodule BullX.AIAgent.ACL do
   @spec allowed?(String.t(), String.t(), operation_tag(), map()) :: boolean()
   def allowed?(caller_principal_uid, agent_uid, operation_tag, context \\ %{}) do
     authorize(caller_principal_uid, agent_uid, operation_tag, context) == :allowed
-  end
-
-  @spec filter_allowed_tags(String.t(), String.t(), map()) :: MapSet.t(operation_tag())
-  def filter_allowed_tags(caller_principal_uid, agent_uid, context \\ %{}) do
-    [:ordinary, :privileged]
-    |> Enum.filter(&(authorize(caller_principal_uid, agent_uid, &1, context) == :allowed))
-    |> MapSet.new()
-  end
-
-  @spec validate_profile(Profile.t()) :: :ok | {:error, {:invalid_profile, [String.t()]}}
-  def validate_profile(%Profile{acl: %{elevation_strategy: :deny}}), do: :ok
-
-  def validate_profile(%Profile{}) do
-    {:error, {:invalid_profile, ["acl.elevation_strategy must be deny"]}}
   end
 
   defp authorize_operation(_caller, _resource, :ordinary, _context), do: :ok

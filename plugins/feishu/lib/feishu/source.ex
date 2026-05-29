@@ -174,9 +174,6 @@ defmodule Feishu.Source do
     end
   end
 
-  @spec source_map(t()) :: map()
-  def source_map(%__MODULE__{} = source), do: public_config(source)
-
   @spec client!(t()) :: Client.t()
   def client!(%__MODULE__{client: %Client{} = client}), do: client
 

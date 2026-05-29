@@ -176,15 +176,6 @@ defmodule BullX.AIAgent.Tools.Registry do
     |> Enum.sort_by(& &1.id)
   end
 
-  @spec list_tools(map()) :: [Tool.t()]
-  def list_tools(opts \\ %{}) do
-    opts
-    |> registry()
-    |> Map.fetch!(:tools)
-    |> Map.values()
-    |> Enum.sort_by(& &1.name)
-  end
-
   @spec get_tool(String.t(), map()) :: {:ok, Tool.t()} | {:error, :not_found}
   def get_tool(tool_name, opts \\ %{}) when is_binary(tool_name) do
     case Map.fetch(registry(opts).tools, tool_name) do

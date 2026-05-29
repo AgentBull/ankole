@@ -50,22 +50,6 @@ defmodule BullX.AIAgent.Tools do
     end
   end
 
-  @spec profile_tool_names(Profile.t(), map()) :: [String.t()]
-  def profile_tool_names(%Profile{} = profile, runtime_seed \\ %{}) do
-    runtime_seed
-    |> Registry.list_toolsets()
-    |> Enum.filter(&toolset_enabled?(profile, &1))
-    |> Enum.filter(&(available?(&1.availability, runtime_seed) == :ok))
-    |> Enum.flat_map(fn toolset ->
-      toolset.id
-      |> Registry.tools_for_toolset(runtime_seed)
-      |> Enum.filter(&(available?(&1.availability, runtime_seed) == :ok))
-    end)
-    |> Enum.map(& &1.name)
-    |> Enum.uniq()
-    |> Enum.sort()
-  end
-
   @spec validate_arguments(Tool.t(), map()) :: {:ok, map()} | {:error, :tool_malformed_arguments}
   def validate_arguments(%Tool{} = entry, args) when is_map(args) do
     with {:ok, validator} <- validator_tool(entry),
