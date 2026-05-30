@@ -354,7 +354,7 @@ defmodule BullX.LLM.Providers.AmazonBedrock.AWSEventStream do
 
   # Handle incoming data chunks
   defp handle_chunk(buffer, chunk, pid, process_event_fun) when is_binary(chunk) do
-    data = buffer <> chunk
+    data = append_buffer(buffer, chunk)
 
     case parse_binary(data) do
       {:ok, events, rest} ->
@@ -371,4 +371,7 @@ defmodule BullX.LLM.Providers.AmazonBedrock.AWSEventStream do
         {[], {"", pid}}
     end
   end
+
+  defp append_buffer("", chunk), do: chunk
+  defp append_buffer(buffer, chunk), do: buffer <> chunk
 end

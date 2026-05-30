@@ -53,7 +53,7 @@ defmodule BullX.AIAgent.AmbientBatchWorker do
   end
 
   defp handle_batch(batch_key, meta, items) do
-    # The single cleanup branch handles both genuine "don't intervene" outcomes
+    # The single cleanup path handles both genuine "don't intervene" outcomes
     # (agent disabled, profile says ignore, recognizer returns :ignore) and real
     # downstream errors (Profile.cast, write_introspection, Runner.run). We only
     # log the latter so non-intervention stays quiet.
@@ -200,7 +200,6 @@ defmodule BullX.AIAgent.AmbientBatchWorker do
         "Ambient batch matched the Agent mission."
 
     Conversations.append_message(conversation, %{
-      conversation_id: conversation.id,
       role: :im_ambient,
       kind: :introspection,
       status: :complete,

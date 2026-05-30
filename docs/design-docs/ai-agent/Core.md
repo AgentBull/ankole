@@ -53,7 +53,7 @@ conversation state.
 Message revision handling is not prompt construction. AIAgent finds the existing
 conversation message from provider refs, then applies the change only when the
 target belongs to the current mailbox session and is still visible in the
-branch rendered after the latest compatible compression. A latest addressed turn
+transcript rendered after the latest compatible compression. A latest addressed turn
 with visible output may cancel generation, recall output, and republish the new
 message content when the revised input is still deliverable. If the revised
 payload is no longer addressed or ambient-deliverable, the revision only
@@ -116,27 +116,28 @@ conversations use the profile's `conversation_isolation_mode`.
 
 - `agent_uid`
 - `conversation_key`
-- `current_leaf_message_id`
 - `ended_at`
 - `generation`
 - `metadata`
 
 There can be only one active conversation for one agent and key.
 
-`conversation_messages` stores a tree:
+`conversation_messages` stores an append-only AIAgent transcript:
 
 - `conversation_id`
-- `parent_id`
 - `role`: `user`, `assistant`, `tool`, or `im_ambient`
 - `kind`: `normal`, `summary`, `introspection`, or `error`
 - `status`: `generating` or `complete`
 - `content`
 - optional `covers_range`
-- optional MailBox session and entry ids
+- optional MailBox session id for the current processing window
+- optional `metadata.transcript_effect` for superseded, undone, recalled,
+  deleted, or interrupted rows
 - event source/id
 - `metadata`
 
-Inbound normal user and ambient messages are idempotent by `mailbox_entry_id`.
+Inbound normal user and ambient messages are idempotent by
+`conversation_id + event_source + event_id`.
 Ambient introspection messages are idempotent by an
 `ambient_batch_idempotency_key` metadata field.
 
@@ -169,8 +170,14 @@ BullX.IMGateway.send_message(attrs)
 
 Streaming visible output uses `BullX.MailBox.StreamingOutput` to create a Redis
 stream, then asks the adapter to consume the stream when the reply address
-supports streaming. Chunks are stored in Redis with retention TTLs. The final
-assistant message records delivery metadata.
+supports streaming. Chunks are UX preview state with retention TTLs, not
+conversation facts. The complete assistant `Message` persisted after generation
+is the durable fact for both streaming and non-streaming replies.
+
+Server-side aborts such as `stop`, addressed edit, recall, or delete may
+interrupt generation before a complete assistant message exists. Client stream
+disconnects are UX interruptions only and do not cancel the server-side
+generation by themselves.
 
 ## Commands
 

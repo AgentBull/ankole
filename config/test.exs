@@ -37,3 +37,7 @@ config :bullx, :mail_box,
   dispatcher_claim_limit: 20,
   stream_retention_seconds: 60,
   max_stream_chunk_bytes: 1_024
+
+config :bullx, :ai_agent_runtime,
+  ambient_batch_worker: false,
+  daily_reset_worker: false

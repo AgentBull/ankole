@@ -114,7 +114,7 @@ defmodule Feishu.OIDCProviderTest do
              OIDCProvider.callback(source, %{"code" => "auth_code"}, state)
 
     assert subject["provider"] == "main"
-    assert subject["external_id"] == "feishu:ou_user"
+    assert subject["external_id"] == "feishu:user_id:user_x"
     assert subject["profile"]["uid"] == "user_x"
     assert subject["profile"]["display_name"] == "Ada"
     assert subject["profile"]["email"] == "ada@corp.example.com"
@@ -172,7 +172,7 @@ defmodule Feishu.OIDCProviderTest do
     assert {:ok, subject} =
              OIDCProvider.callback(source, %{"code" => "auth_code"}, state)
 
-    assert subject["external_id"] == "feishu:ou_user_contact"
+    assert subject["external_id"] == "feishu:user_id:user_contact"
     assert subject["profile"]["uid"] == "user_contact"
     assert subject["profile"]["display_name"] == "Grace"
     assert subject["profile"]["email"] == "grace@corp.example.com"
@@ -224,7 +224,7 @@ defmodule Feishu.OIDCProviderTest do
     assert {:ok, subject} =
              OIDCProvider.callback(source, %{"code" => "auth_code"}, state)
 
-    assert subject["external_id"] == "feishu:ou_user_id"
+    assert subject["external_id"] == "feishu:user_id:user_x"
     assert subject["profile"]["display_name"] == "Lin"
   end
 
@@ -263,7 +263,11 @@ defmodule Feishu.OIDCProviderTest do
           Req.Test.json(conn, %{
             "code" => 0,
             "data" => %{
-              "user" => %{"open_id" => "ou_fallback", "name" => "Fallback User"}
+              "user" => %{
+                "open_id" => "ou_fallback",
+                "user_id" => "user_fallback",
+                "name" => "Fallback User"
+              }
             }
           })
 
@@ -279,7 +283,7 @@ defmodule Feishu.OIDCProviderTest do
     assert {:ok, subject} =
              OIDCProvider.callback(source, %{"code" => "auth_code"}, state)
 
-    assert subject["external_id"] == "feishu:ou_fallback"
+    assert subject["external_id"] == "feishu:user_id:user_fallback"
     assert subject["profile"]["display_name"] == "Fallback User"
   end
 

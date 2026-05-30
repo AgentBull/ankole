@@ -147,6 +147,7 @@ defmodule Discord.EventMapper do
           adapter: "discord",
           channel_id: source.id,
           scope_id: context.channel_id,
+          guild_id: context.guild_id,
           thread_id: nil,
           reply_to_external_id: context.message_id
         },

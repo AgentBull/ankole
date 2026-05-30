@@ -14,6 +14,11 @@ defmodule BullX.MixProject do
     ]
   end
 
+  # Run the IM gateway mock integration suite without an explicit MIX_ENV.
+  def cli do
+    [preferred_envs: [im_gateway_integration_test: :test]]
+  end
+
   # Configuration for the OTP application.
   #
   # Type `mix help compile.app` for more information.

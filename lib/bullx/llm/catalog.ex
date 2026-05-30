@@ -29,6 +29,20 @@ defmodule BullX.LLM.Catalog do
     end
   end
 
+  @spec validate_provider_row_options(String.t(), String.t(), map()) ::
+          {:ok, keyword()}
+          | {:error, {:unknown_req_llm_provider, String.t()}}
+          | {:error, {:invalid_provider_options, String.t(), term()}}
+  def validate_provider_row_options(req_llm_provider, provider_id, options)
+      when is_binary(req_llm_provider) and is_binary(provider_id) do
+    with {:ok, _req_llm_provider, provider_module} <- ProviderRegistry.fetch(req_llm_provider) do
+      provider_options(provider_module, %Provider{
+        provider_id: provider_id,
+        provider_options: options
+      })
+    end
+  end
+
   @spec resolve_provider(String.t()) ::
           {:ok, ResolvedProvider.t()}
           | {:error,

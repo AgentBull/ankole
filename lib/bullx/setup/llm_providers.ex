@@ -53,8 +53,9 @@ defmodule BullX.Setup.LLMProviders do
     attrs = normalize_provider_attrs(attrs)
 
     with :ok <- validate_req_llm_provider(attrs),
-         {:ok, _provider} <- validate_provider_shape(attrs),
-         {:ok, ping} <- maybe_ping(attrs) do
+         {:ok, provider} <- validate_provider_shape(attrs),
+         {:ok, provider_options} <- validate_runtime_provider_options(provider),
+         {:ok, ping} <- maybe_ping(attrs, provider_options) do
       {:ok, %{provider: safe_provider_attrs(attrs), ping: ping}}
     else
       {:error, reason} -> {:error, normalize_error(reason)}
@@ -85,6 +86,14 @@ defmodule BullX.Setup.LLMProviders do
     |> Ecto.Changeset.apply_action(:insert)
   end
 
+  defp validate_runtime_provider_options(%Provider{} = provider) do
+    Catalog.validate_provider_row_options(
+      provider.req_llm_provider,
+      provider.provider_id,
+      provider.provider_options
+    )
+  end
+
   defp validate_req_llm_provider(%{req_llm_provider: provider}) when is_binary(provider) do
     with true <- provider in PluginProviders.available_provider_ids(),
          true <- ProviderRegistry.known?(provider) do
@@ -96,7 +105,7 @@ defmodule BullX.Setup.LLMProviders do
 
   defp validate_req_llm_provider(_attrs), do: {:error, {:missing_field, :req_llm_provider}}
 
-  defp maybe_ping(%{test_model_id: model_id} = attrs)
+  defp maybe_ping(%{test_model_id: model_id} = attrs, provider_options)
        when is_binary(model_id) and model_id != "" do
     with {:ok, provider_atom, _module} <- ProviderRegistry.fetch(attrs.req_llm_provider) do
       model_input =
@@ -106,7 +115,7 @@ defmodule BullX.Setup.LLMProviders do
       opts =
         []
         |> maybe_put(:api_key, attrs[:api_key])
-        |> maybe_put(:provider_options, [])
+        |> maybe_put(:provider_options, provider_options)
 
       messages = [
         %ReqLLM.Message{
@@ -129,7 +138,7 @@ defmodule BullX.Setup.LLMProviders do
     end
   end
 
-  defp maybe_ping(_attrs), do: {:ok, %{status: "not_run"}}
+  defp maybe_ping(_attrs, _provider_options), do: {:ok, %{status: "not_run"}}
 
   defp public_provider(%Provider{} = provider) do
     %{
@@ -223,6 +232,15 @@ defmodule BullX.Setup.LLMProviders do
 
   defp normalize_error({:provider_check_failed, message}),
     do: %{field: "provider", message: "provider check failed", details: message}
+
+  defp normalize_error({:invalid_provider_options, provider_id, reason}) do
+    %{
+      field: "provider_options",
+      message: "invalid provider options",
+      provider_id: provider_id,
+      details: inspect(reason)
+    }
+  end
 
   defp normalize_error(reason), do: %{message: inspect(reason)}
 

@@ -1,8 +1,18 @@
 defmodule Feishu.EventMapperTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias Feishu.{EventMapper, Source}
-  alias FeishuOpenAPI.{CardAction, Event}
+  alias FeishuOpenAPI.{CardAction, Client, Event, TokenManager}
+
+  setup do
+    :ets.delete_all_objects(FeishuOpenAPI.TokenStore.table())
+
+    on_exit(fn ->
+      :ets.delete_all_objects(FeishuOpenAPI.TokenStore.table())
+    end)
+
+    :ok
+  end
 
   test "maps a Feishu message into IMGateway CloudEvent attrs" do
     source = %Source{
@@ -28,7 +38,7 @@ defmodule Feishu.EventMapperTest do
           "content" => Jason.encode!(%{text: "hello"})
         },
         "sender" => %{
-          "sender_id" => %{"open_id" => "ou_user"},
+          "sender_id" => %{"user_id" => "user_x", "open_id" => "ou_user"},
           "sender_type" => "user",
           "name" => "Ada",
           "avatar" => %{"avatar_240" => "https://example.com/avatar.png"}
@@ -44,7 +54,10 @@ defmodule Feishu.EventMapperTest do
     assert get_in(attrs.data, [:channel, :adapter]) == "feishu"
     assert get_in(attrs.data, [:channel, :id]) == "main"
     assert get_in(attrs.data, [:channel, :kind]) == "dm"
-    assert get_in(attrs.data, [:actor, :external_account_id]) == "feishu:ou_user"
+    assert get_in(attrs.data, [:actor, :external_account_id]) == "feishu:user_id:user_x"
+    assert get_in(attrs.data, [:actor, :uid]) == "user_x"
+    assert get_in(attrs.data, [:actor, :user_id]) == "user_x"
+    assert get_in(attrs.data, [:actor, :open_id]) == "ou_user"
     assert get_in(attrs.data, [:actor, :display_name]) == "Ada"
     assert get_in(attrs.data, [:actor, :avatar_url]) == "https://example.com/avatar.png"
     assert get_in(attrs.data, [:actor, :principal]) == nil
@@ -58,8 +71,104 @@ defmodule Feishu.EventMapperTest do
 
     assert account_input["adapter"] == "feishu"
     assert account_input["channel_id"] == "main"
-    assert account_input["external_id"] == "feishu:ou_user"
+    assert account_input["external_id"] == "feishu:user_id:user_x"
+    assert get_in(account_input, ["profile", "uid"]) == "user_x"
+    assert get_in(account_input, ["profile", "user_id"]) == "user_x"
+    assert get_in(account_input, ["profile", "open_id"]) == "ou_user"
     assert get_in(account_input, ["profile", "avatar_url"]) == "https://example.com/avatar.png"
+  end
+
+  test "missing sender user_id is resolved through Contact API but open_id stays metadata" do
+    source = source_with_client()
+
+    Req.Test.stub(__MODULE__, fn conn ->
+      case conn.request_path do
+        "/open-apis/auth/v3/tenant_access_token/internal" ->
+          Req.Test.json(conn, %{
+            "code" => 0,
+            "tenant_access_token" => "tenant_token",
+            "expire" => 7200
+          })
+
+        "/open-apis/contact/v3/users/ou_user" ->
+          assert conn.query_string == "user_id_type=open_id"
+
+          Req.Test.json(conn, %{
+            "code" => 0,
+            "data" => %{
+              "user" => %{
+                "open_id" => "ou_user",
+                "user_id" => "user_from_contact",
+                "name" => "Ada"
+              }
+            }
+          })
+
+        path ->
+          Req.Test.json(conn, %{"code" => 404, "msg" => "unexpected path #{path}"})
+      end
+    end)
+
+    allow_token_manager(source.client)
+
+    event = %Event{
+      id: "evt_missing_user_id",
+      type: "im.message.receive_v1",
+      tenant_key: "tenant_x",
+      app_id: source.app_id,
+      content: %{
+        "message" => %{
+          "chat_id" => "oc_chat",
+          "chat_type" => "p2p",
+          "message_id" => "om_msg",
+          "message_type" => "text",
+          "content" => Jason.encode!(%{text: "hello"})
+        },
+        "sender" => %{
+          "sender_id" => %{"open_id" => "ou_user"},
+          "sender_type" => "user",
+          "name" => "Ada"
+        }
+      },
+      raw: %{}
+    }
+
+    assert {:ok, %{attrs: attrs, account_input: account_input}} = EventMapper.map(event, source)
+
+    assert get_in(attrs.data, [:actor, :external_account_id]) ==
+             "feishu:user_id:user_from_contact"
+
+    assert get_in(attrs.data, [:actor, :open_id]) == "ou_user"
+    assert get_in(account_input, ["profile", "uid"]) == "user_from_contact"
+    assert get_in(account_input, ["profile", "open_id"]) == "ou_user"
+  end
+
+  test "message recalled events are lifecycle facts without human actor binding" do
+    source = %Source{id: "main", app_id: "cli_x", app_secret: "secret_x", tenant_key: "tenant_x"}
+
+    event = %Event{
+      id: "evt_recalled",
+      type: "im.message.recalled_v1",
+      tenant_key: "tenant_x",
+      app_id: "cli_x",
+      content: %{
+        "chat_id" => "oc_chat",
+        "message_id" => "om_recalled",
+        "recall_time" => "1720000000",
+        "recall_type" => "message"
+      },
+      raw: %{}
+    }
+
+    assert {:ok, %{attrs: attrs, account_input: nil}} = EventMapper.map(event, source)
+
+    assert attrs.type == "bullx.message.recalled"
+    assert get_in(attrs.data, [:actor, :kind]) == "provider_lifecycle"
+    refute get_in(attrs.data, [:actor, :external_account_id])
+
+    assert {:ok, message_event} = BullX.IMGateway.ChannelAdapter.build_message_event(attrs)
+    assert get_in(message_event, ["data", "actor", "kind"]) == "provider_lifecycle"
+    refute get_in(message_event, ["data", "actor", "external_account_id"])
   end
 
   test "status is handled as an adapter-local direct command" do
@@ -76,7 +185,7 @@ defmodule Feishu.EventMapperTest do
           "message_type" => "text",
           "content" => Jason.encode!(%{text: "/status"})
         },
-        "sender" => %{"sender_id" => %{"open_id" => "ou_user"}}
+        "sender" => %{"sender_id" => %{"user_id" => "user_x", "open_id" => "ou_user"}}
       },
       raw: %{}
     }
@@ -110,7 +219,7 @@ defmodule Feishu.EventMapperTest do
           "message_type" => "text",
           "content" => Jason.encode!(%{text: "/状态"})
         },
-        "sender" => %{"sender_id" => %{"open_id" => "ou_user"}}
+        "sender" => %{"sender_id" => %{"user_id" => "user_x", "open_id" => "ou_user"}}
       },
       raw: %{}
     }
@@ -133,7 +242,7 @@ defmodule Feishu.EventMapperTest do
           "message_type" => "text",
           "content" => Jason.encode!(%{text: "/新会话"})
         },
-        "sender" => %{"sender_id" => %{"open_id" => "ou_user"}}
+        "sender" => %{"sender_id" => %{"user_id" => "user_x", "open_id" => "ou_user"}}
       },
       raw: %{}
     }
@@ -161,7 +270,7 @@ defmodule Feishu.EventMapperTest do
           "message_type" => "text",
           "content" => Jason.encode!(%{text: "/does_not_exist arg"})
         },
-        "sender" => %{"sender_id" => %{"open_id" => "ou_user"}}
+        "sender" => %{"sender_id" => %{"user_id" => "user_x", "open_id" => "ou_user"}}
       },
       raw: %{}
     }
@@ -187,7 +296,7 @@ defmodule Feishu.EventMapperTest do
           "message_type" => "text",
           "content" => Jason.encode!(%{text: "/root_init CODE"})
         },
-        "sender" => %{"sender_id" => %{"open_id" => "ou_user"}}
+        "sender" => %{"sender_id" => %{"user_id" => "user_x", "open_id" => "ou_user"}}
       },
       raw: %{}
     }
@@ -210,7 +319,7 @@ defmodule Feishu.EventMapperTest do
           "message_type" => "text",
           "content" => Jason.encode!(%{text: "/webauth"})
         },
-        "sender" => %{"sender_id" => %{"open_id" => "ou_user"}}
+        "sender" => %{"sender_id" => %{"user_id" => "user_x", "open_id" => "ou_user"}}
       },
       raw: %{}
     }
@@ -237,9 +346,10 @@ defmodule Feishu.EventMapperTest do
 
     assert {:ok, %{attrs: attrs}} = EventMapper.map({:card_action, action}, source)
 
-    assert attrs.id == "card_action:om_card:approve:ou_user"
+    assert attrs.id == "card_action:om_card:approve:u_user"
     assert attrs.type == "bullx.message.received"
     assert get_in(attrs.data, [:routing_facts, "action_id"]) == "approve"
+    assert get_in(attrs.data, [:routing_facts, "action_actor_user_id"]) == "u_user"
     assert get_in(attrs.data, [:routing_facts, "action_actor_open_id"]) == "ou_user"
     assert get_in(attrs.data, [:routing_facts, "attention_reason"]) == "action"
 
@@ -258,6 +368,7 @@ defmodule Feishu.EventMapperTest do
 
     action = %CardAction{
       open_id: "ou_user",
+      user_id: "u_user",
       open_message_id: "om_card",
       open_chat_id: "oc_chat",
       tenant_key: "tenant_x",
@@ -276,7 +387,7 @@ defmodule Feishu.EventMapperTest do
 
     assert {:ok, %{attrs: attrs}} = EventMapper.map({:card_action, action}, source)
 
-    assert attrs.id == "card_action:om_card:clarify_answer:ou_user"
+    assert attrs.id == "card_action:om_card:clarify_answer:u_user"
     assert attrs.type == "bullx.message.received"
     assert get_in(attrs.data, [:routing_facts, "action_id"]) == "clarify_answer"
 
@@ -338,7 +449,7 @@ defmodule Feishu.EventMapperTest do
           "message_type" => "share_chat",
           "content" => Jason.encode!(%{})
         },
-        "sender" => %{"sender_id" => %{"open_id" => "ou_user"}}
+        "sender" => %{"sender_id" => %{"user_id" => "user_x", "open_id" => "ou_user"}}
       },
       raw: %{}
     }
@@ -360,7 +471,7 @@ defmodule Feishu.EventMapperTest do
           "message_type" => "text",
           "content" => Jason.encode!(%{text: "   "})
         },
-        "sender" => %{"sender_id" => %{"open_id" => "ou_user"}}
+        "sender" => %{"sender_id" => %{"user_id" => "user_x", "open_id" => "ou_user"}}
       },
       raw: %{}
     }
@@ -387,7 +498,7 @@ defmodule Feishu.EventMapperTest do
           "message_type" => "text",
           "content" => Jason.encode!(%{text: "casual chatter"})
         },
-        "sender" => %{"sender_id" => %{"open_id" => "ou_user"}}
+        "sender" => %{"sender_id" => %{"user_id" => "user_x", "open_id" => "ou_user"}}
       },
       raw: %{}
     }
@@ -414,7 +525,7 @@ defmodule Feishu.EventMapperTest do
           "message_type" => "text",
           "content" => Jason.encode!(%{text: "casual chatter"})
         },
-        "sender" => %{"sender_id" => %{"open_id" => "ou_user"}}
+        "sender" => %{"sender_id" => %{"user_id" => "user_x", "open_id" => "ou_user"}}
       },
       raw: %{}
     }
@@ -444,7 +555,7 @@ defmodule Feishu.EventMapperTest do
           "message_type" => "text",
           "content" => Jason.encode!(%{text: "/new"})
         },
-        "sender" => %{"sender_id" => %{"open_id" => "ou_user"}}
+        "sender" => %{"sender_id" => %{"user_id" => "user_x", "open_id" => "ou_user"}}
       },
       raw: %{}
     }
@@ -474,7 +585,7 @@ defmodule Feishu.EventMapperTest do
             %{"key" => "@_user_1", "name" => "AgentBull", "id" => %{"open_id" => "ou_bot"}}
           ]
         },
-        "sender" => %{"sender_id" => %{"open_id" => "ou_user"}}
+        "sender" => %{"sender_id" => %{"user_id" => "user_x", "open_id" => "ou_user"}}
       },
       raw: %{}
     }
@@ -507,7 +618,7 @@ defmodule Feishu.EventMapperTest do
             %{"key" => "_user_1", "name" => "AgentBull", "id" => %{"open_id" => "ou_bot"}}
           ]
         },
-        "sender" => %{"sender_id" => %{"open_id" => "ou_user"}}
+        "sender" => %{"sender_id" => %{"user_id" => "user_x", "open_id" => "ou_user"}}
       },
       raw: %{}
     }
@@ -537,7 +648,7 @@ defmodule Feishu.EventMapperTest do
             %{"key" => "_user_1", "name" => "AgentBull", "id" => %{"open_id" => "ou_bot"}}
           ]
         },
-        "sender" => %{"sender_id" => %{"open_id" => "ou_user"}}
+        "sender" => %{"sender_id" => %{"user_id" => "user_x", "open_id" => "ou_user"}}
       },
       raw: %{}
     }
@@ -573,7 +684,7 @@ defmodule Feishu.EventMapperTest do
             %{"key" => "_user_1", "name" => "AgentBull", "id" => %{"open_id" => "ou_bot"}}
           ]
         },
-        "sender" => %{"sender_id" => %{"open_id" => "ou_user"}}
+        "sender" => %{"sender_id" => %{"user_id" => "user_x", "open_id" => "ou_user"}}
       },
       raw: %{}
     }
@@ -594,11 +705,54 @@ defmodule Feishu.EventMapperTest do
         "message_id" => "om_msg",
         "chat_id" => "oc_chat",
         "reaction" => %{"emoji_type" => ""},
-        "sender" => %{"sender_id" => %{"open_id" => "ou_user"}}
+        "sender" => %{"sender_id" => %{"user_id" => "user_x", "open_id" => "ou_user"}}
       },
       raw: %{}
     }
 
     assert {:error, %{"kind" => "payload"}} = EventMapper.map(event, source)
+  end
+
+  test "reaction events use official user_id actor shape" do
+    source = %Source{id: "main", app_id: "cli_x", app_secret: "secret_x"}
+
+    event = %Event{
+      id: "evt_reaction_user",
+      type: "im.message.reaction.created_v1",
+      content: %{
+        "message_id" => "om_msg",
+        "chat_id" => "oc_chat",
+        "operator_type" => "user",
+        "user_id" => %{"user_id" => "user_x", "open_id" => "ou_user"},
+        "reaction" => %{"emoji_type" => "OK"}
+      },
+      raw: %{}
+    }
+
+    assert {:ok, %{attrs: attrs, account_input: account_input}} = EventMapper.map(event, source)
+
+    assert attrs.type == "bullx.reaction.changed"
+    assert get_in(attrs.data, [:actor, :external_account_id]) == "feishu:user_id:user_x"
+    assert account_input["external_id"] == "feishu:user_id:user_x"
+  end
+
+  defp source_with_client do
+    app_id = "cli_event_" <> Integer.to_string(:erlang.unique_integer([:positive]))
+    client = Client.new(app_id, "secret_x", req_options: [plug: {Req.Test, __MODULE__}])
+
+    %Source{
+      id: "main",
+      app_id: app_id,
+      app_secret: "secret_x",
+      tenant_key: "tenant_x",
+      client: client
+    }
+  end
+
+  defp allow_token_manager(client) do
+    {:ok, manager_pid} =
+      DynamicSupervisor.start_child(FeishuOpenAPI.TokenManager.Supervisor, {TokenManager, client})
+
+    Req.Test.allow(__MODULE__, self(), manager_pid)
   end
 end

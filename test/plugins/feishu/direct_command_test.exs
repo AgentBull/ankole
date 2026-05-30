@@ -83,7 +83,7 @@ defmodule Feishu.DirectCommandTest do
       chat_id: "oc_chat",
       chat_type: "p2p",
       message_id: "om_msg",
-      actor: %{id: "feishu:ou_user"},
+      actor: %{id: "feishu:user_id:user_x", user_id: "user_x"},
       account_input: %{}
     }
 
@@ -112,8 +112,8 @@ defmodule Feishu.DirectCommandTest do
             "expire" => 7200
           })
 
-        "/open-apis/contact/v3/users/ou_user" ->
-          assert conn.query_string == "user_id_type=open_id"
+        "/open-apis/contact/v3/users/user_x" ->
+          assert conn.query_string == "user_id_type=user_id"
           assert Plug.Conn.get_req_header(conn, "authorization") == ["Bearer tenant_token"]
 
           Req.Test.json(conn, %{
@@ -145,7 +145,7 @@ defmodule Feishu.DirectCommandTest do
       chat_id: "oc_chat",
       chat_type: "p2p",
       message_id: "om_msg",
-      actor: %{id: "feishu:ou_user", open_id: "ou_user"},
+      actor: %{id: "feishu:user_id:user_x", user_id: "user_x", open_id: "ou_user"},
       account_input: %{}
     }
 
@@ -160,7 +160,7 @@ defmodule Feishu.DirectCommandTest do
              DirectCommand.handle(source, command, delivery_fun: delivery_fun)
 
     assert {:ok, principal} =
-             BullX.Principals.resolve_channel_actor("feishu", "main", "feishu:ou_user")
+             BullX.Principals.resolve_channel_actor("feishu", "main", "feishu:user_id:user_x")
 
     assert principal.display_name == "Ada"
     assert principal.uid == "ada"
@@ -184,7 +184,8 @@ defmodule Feishu.DirectCommandTest do
             "expire" => 7200
           })
 
-        "/open-apis/contact/v3/users/ou_user" ->
+        "/open-apis/contact/v3/users/user_x" ->
+          assert conn.query_string == "user_id_type=user_id"
           Req.Test.json(conn, %{"code" => 41050, "msg" => "no user authority"})
 
         path ->
@@ -201,7 +202,7 @@ defmodule Feishu.DirectCommandTest do
       chat_id: "oc_chat",
       chat_type: "p2p",
       message_id: "om_msg",
-      actor: %{id: "feishu:ou_user", open_id: "ou_user"},
+      actor: %{id: "feishu:user_id:user_x", user_id: "user_x", open_id: "ou_user"},
       account_input: %{}
     }
 
@@ -216,6 +217,6 @@ defmodule Feishu.DirectCommandTest do
              DirectCommand.handle(source, command, delivery_fun: delivery_fun)
 
     assert {:error, :not_bound} =
-             BullX.Principals.resolve_channel_actor("feishu", "main", "feishu:ou_user")
+             BullX.Principals.resolve_channel_actor("feishu", "main", "feishu:user_id:user_x")
   end
 end

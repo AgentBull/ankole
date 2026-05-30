@@ -146,18 +146,28 @@ defmodule BullX.Setup.EventRouting do
   defp upsert_setup_rule(source, attrs) do
     name = rule_name(source)
 
-    case Repo.get_by(DeliveryRule, name: name) do
-      %DeliveryRule{} = rule ->
-        rule
-        |> DeliveryRule.changeset(attrs)
-        |> Repo.update()
+    result =
+      case Repo.get_by(DeliveryRule, name: name) do
+        %DeliveryRule{} = rule ->
+          rule
+          |> DeliveryRule.changeset(attrs)
+          |> Repo.update()
 
-      nil ->
-        attrs = Map.put(attrs, :name, name)
+        nil ->
+          attrs = Map.put(attrs, :name, name)
 
-        %DeliveryRule{}
-        |> DeliveryRule.changeset(attrs)
-        |> Repo.insert()
+          %DeliveryRule{}
+          |> DeliveryRule.changeset(attrs)
+          |> Repo.insert()
+      end
+
+    case result do
+      {:ok, rule} ->
+        BullX.MailBox.invalidate_delivery_rule_cache()
+        {:ok, rule}
+
+      {:error, _reason} = error ->
+        error
     end
   end
 

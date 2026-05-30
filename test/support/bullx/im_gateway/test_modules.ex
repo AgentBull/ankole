@@ -3,6 +3,7 @@ defmodule BullX.IMGateway.TestingChannel do
 
   def clear do
     Application.delete_env(:bullx, :im_gateway_test_delivery_gate)
+    Application.delete_env(:bullx, :im_gateway_test_stream_error)
     :ok
   end
 end
@@ -36,7 +37,11 @@ defmodule BullX.IMGateway.TestChannelAdapter do
     end
 
     _opts = opts
-    :ok
+
+    case Application.get_env(:bullx, :im_gateway_test_stream_error) do
+      nil -> :ok
+      reason -> {:error, reason}
+    end
   end
 
   @impl BullX.IMGateway.ChannelAdapter

@@ -72,11 +72,11 @@ defmodule BullX.Setup.Projection do
       current_path: step_path(current),
       earliest_incomplete_step: earliest,
       steps: steps,
-      plugins: Plugins.status(),
-      llm_providers: LLMProviders.status(),
-      channel_sources: ChannelSources.status(),
-      ai_agents: AIAgents.status(session),
-      event_routing: EventRouting.status(session)
+      plugins: steps.plugins,
+      llm_providers: steps.llm_providers,
+      channel_sources: steps.channel_sources,
+      ai_agents: steps.ai_agents,
+      event_routing: steps.event_routing
     }
   end
 

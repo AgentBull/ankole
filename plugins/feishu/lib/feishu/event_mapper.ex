@@ -35,8 +35,7 @@ defmodule Feishu.EventMapper do
          {:ok, blocks} <- ContentMapper.from_message(env.message, source),
          text <- ContentMapper.primary_text(blocks),
          {:ok, actor} <- actor_from_sender(env.sender, source),
-         profile <- profile_from_sender(env.sender),
-         account_input <- account_input(source, actor.id, profile, env),
+         account_input <- account_input(source, actor.id, actor.profile, env),
          attention <- attention_decision(env, source),
          {:listen, :emit} <- {:listen, listen_admission(attention, source)},
          context <- context(env, actor, blocks, account_input) do
@@ -52,7 +51,7 @@ defmodule Feishu.EventMapper do
          :ok <- reject_self_sent(env, source),
          {:ok, blocks} <- ContentMapper.from_message(env.message, source),
          {:ok, actor} <- actor_from_sender(env.sender, source),
-         account_input <- account_input(source, actor.id, profile_from_sender(env.sender), env),
+         account_input <- account_input(source, actor.id, actor.profile, env),
          attention <- attention_decision(env, source) do
       {:ok,
        %{
@@ -72,16 +71,15 @@ defmodule Feishu.EventMapper do
   end
 
   def map_event(@message_recalled, %Event{} = event, %Source{} = source) do
-    with {:ok, env} <- common_event_env(event, source),
-         {:ok, actor} <- actor_from_sender(env.sender, source),
-         account_input <- account_input(source, actor.id, profile_from_sender(env.sender), env) do
+    with {:ok, env} <- common_event_env(event, source) do
+      actor = provider_lifecycle_actor("Feishu lifecycle")
       blocks = [%{"type" => "text", "text" => "[message recalled]"}]
 
       {:ok,
        %{
          attrs: attrs(source, env, actor, blocks, "bullx.message.recalled", %{}),
-         account_input: account_input,
-         context: context(env, actor, blocks, account_input)
+         account_input: nil,
+         context: context(env, actor, blocks, nil)
        }}
     end
   end
@@ -89,10 +87,10 @@ defmodule Feishu.EventMapper do
   def map_event(type, %Event{} = event, %Source{} = source)
       when type in [@reaction_created, @reaction_deleted] do
     with {:ok, env} <- common_event_env(event, source),
-         {:ok, actor} <- actor_from_sender(env.sender, source),
-         account_input <- account_input(source, actor.id, profile_from_sender(env.sender), env),
+         {:ok, actor} <- actor_from_reaction(env.raw_event, source),
+         account_input <- account_input_from_actor(source, actor, env),
          emoji when is_binary(emoji) and emoji != "" <- reaction_emoji(env.raw_event) do
-      action = if type == @reaction_created, do: "added", else: "removed"
+      action = reaction_action(type)
       blocks = [%{"type" => "text", "text" => ":#{emoji}:"}]
 
       {:ok,
@@ -125,7 +123,7 @@ defmodule Feishu.EventMapper do
            ),
          action_id <- action_id(action),
          env <- card_env(action, source, actor, action_id),
-         account_input <- account_input(source, actor.id, profile_from_card(action), env) do
+         account_input <- account_input(source, actor.id, actor.profile, env) do
       blocks = action_blocks(action, action_id)
 
       {:ok,
@@ -133,6 +131,7 @@ defmodule Feishu.EventMapper do
          attrs:
            attrs(source, env, actor, blocks, "bullx.message.received", %{
              "action_id" => action_id,
+             "action_actor_user_id" => actor.user_id,
              "action_actor_open_id" => actor.open_id,
              "attention_reason" => "action"
            }),
@@ -356,11 +355,25 @@ defmodule Feishu.EventMapper do
     "feishu://#{source.id}/#{tenant}"
   end
 
+  defp event_actor(%{kind: "provider_lifecycle"} = actor) do
+    %{
+      kind: actor.kind,
+      display_name: actor.display,
+      principal: nil
+    }
+  end
+
   defp event_actor(actor) do
     %{
       external_account_id: actor.id,
+      kind: "human",
       display_name: actor.display,
       avatar_url: actor.avatar_url,
+      uid: actor.user_id,
+      user_id: actor.user_id,
+      open_id: actor.open_id,
+      union_id: actor.union_id,
+      profile: actor.profile,
       principal: nil
     }
   end
@@ -371,40 +384,56 @@ defmodule Feishu.EventMapper do
   defp actor_from_ids(ids, %Source{} = source, profile \\ %{}) do
     ids = sender_ids(ids)
 
-    case present_string(Map.get(ids, "open_id")) do
-      open_id when is_binary(open_id) and open_id != "" ->
-        {:ok, actor(open_id, ids, profile)}
+    case present_string(Map.get(ids, "user_id")) do
+      user_id when is_binary(user_id) and user_id != "" ->
+        {:ok, actor(user_id, ids, profile)}
 
       _value ->
-        with {:ok, open_id} <- resolve_open_id(ids, source) do
-          {:ok, actor(open_id, Map.put(ids, "open_id", open_id), profile)}
+        with {:ok, user_id} <- resolve_user_id(ids, source) do
+          {:ok, actor(user_id, Map.put(ids, "user_id", user_id), profile)}
         end
     end
   end
 
-  defp actor(open_id, ids, profile) do
+  defp actor(user_id, ids, profile) do
+    profile =
+      profile
+      |> maybe_put("uid", user_id)
+      |> maybe_put("user_id", user_id)
+      |> maybe_put("open_id", Map.get(ids, "open_id"))
+      |> maybe_put("union_id", Map.get(ids, "union_id"))
+
     %{
-      id: "feishu:" <> open_id,
-      open_id: open_id,
-      user_id: Map.get(ids, "user_id"),
+      id: "feishu:user_id:" <> user_id,
+      user_id: user_id,
+      open_id: Map.get(ids, "open_id"),
       union_id: Map.get(ids, "union_id"),
-      display: profile["display_name"] || profile["name"] || open_id,
+      display: profile["display_name"] || profile["name"] || user_id,
       avatar_url: profile["avatar_url"],
+      profile: profile,
       bot: false
     }
   end
 
-  defp resolve_open_id(ids, %Source{} = source) do
-    with :error <- resolve_open_id_by(ids, source, "user_id"),
-         :error <- resolve_open_id_by(ids, source, "union_id") do
+  defp provider_lifecycle_actor(display) do
+    %{
+      kind: "provider_lifecycle",
+      display: display,
+      bot: true
+    }
+  end
+
+  defp resolve_user_id(ids, %Source{} = source) do
+    with :error <- resolve_user_id_by(ids, source, "open_id"),
+         :error <- resolve_user_id_by(ids, source, "union_id") do
       {:error, Feishu.Error.payload(BullX.I18n.t("im_gateway.feishu.errors.profile_unavailable"))}
     else
-      {:ok, open_id} -> {:ok, open_id}
+      {:ok, user_id} -> {:ok, user_id}
       {:error, error} -> {:error, error}
     end
   end
 
-  defp resolve_open_id_by(ids, %Source{} = source, id_type) do
+  defp resolve_user_id_by(ids, %Source{} = source, id_type) do
     case present_string(Map.get(ids, id_type)) do
       nil ->
         :error
@@ -412,7 +441,7 @@ defmodule Feishu.EventMapper do
       id ->
         case UserInfo.fetch_contact(source, id, id_type) do
           {:ok, userinfo} ->
-            UserInfo.open_id(userinfo)
+            UserInfo.user_id(userinfo)
 
           {:error, error} ->
             {:error, Feishu.Error.map(error)}
@@ -428,6 +457,21 @@ defmodule Feishu.EventMapper do
   defp sender_ids(map) when is_map(map), do: stringify_keys(map)
   defp sender_ids(_value), do: %{}
 
+  defp actor_from_reaction(%{"operator_type" => "app"}, %Source{}),
+    do: {:ok, provider_lifecycle_actor("Feishu app")}
+
+  defp actor_from_reaction(raw_event, %Source{} = source) when is_map(raw_event) do
+    raw_event
+    |> reaction_actor_source()
+    |> actor_from_ids(source, profile_from_sender(reaction_actor_source(raw_event)))
+  end
+
+  defp reaction_actor_source(%{"user_id" => ids}) when is_map(ids), do: ids
+  defp reaction_actor_source(%{"operator_id" => ids}) when is_map(ids), do: ids
+  defp reaction_actor_source(%{"sender" => sender}) when is_map(sender), do: sender
+  defp reaction_actor_source(%{"operator" => operator}) when is_map(operator), do: operator
+  defp reaction_actor_source(raw_event), do: raw_event
+
   defp profile_from_sender(sender) when is_map(sender) do
     ids = sender_ids(sender)
 
@@ -436,16 +480,17 @@ defmodule Feishu.EventMapper do
     |> maybe_put("avatar_url", avatar_url(sender))
     |> maybe_put("email", normalized_email(first_string(sender, ["email"])))
     |> maybe_put_phone(first_string(sender, ["mobile", "phone"]))
+    |> maybe_put("uid", ids["user_id"])
     |> maybe_put("open_id", ids["open_id"])
     |> maybe_put("union_id", ids["union_id"])
     |> maybe_put("user_id", ids["user_id"])
   end
 
-  defp profile_from_card(%CardAction{} = action) do
-    %{}
-    |> maybe_put("open_id", action.open_id)
-    |> maybe_put("user_id", action.user_id)
-  end
+  defp account_input_from_actor(%Source{}, %{kind: "provider_lifecycle"}, _env),
+    do: nil
+
+  defp account_input_from_actor(%Source{} = source, actor, env),
+    do: account_input(source, actor.id, actor.profile, env)
 
   defp account_input(%Source{} = source, external_id, profile, env) do
     %{
@@ -495,6 +540,7 @@ defmodule Feishu.EventMapper do
       scope_id: env.chat_id,
       scope_kind: channel_kind(env.chat_type),
       chat_type: env.chat_type,
+      tenant_key: env.tenant_key,
       delivery_mode: "stream",
       thread_id: env.thread_id,
       reply_to_external_id: env.reply_to_external_id || env.message_id
@@ -556,6 +602,9 @@ defmodule Feishu.EventMapper do
       Map.get(reaction, "reaction_type")
   end
 
+  defp reaction_action(@reaction_created), do: "added"
+  defp reaction_action(@reaction_deleted), do: "removed"
+
   defp action_id(%CardAction{} = action) do
     action
     |> action_id_candidates()
@@ -575,7 +624,7 @@ defmodule Feishu.EventMapper do
       "card_action",
       action.open_message_id || "unknown_message",
       action_id,
-      actor.open_id || actor.user_id || "unknown_actor"
+      actor.user_id || actor.open_id || "unknown_actor"
     ]
     |> Enum.join(":")
   end

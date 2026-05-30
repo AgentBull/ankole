@@ -2,30 +2,16 @@ defmodule BullX.AIAgent.Conversations do
   @moduledoc """
   Conversation and Message mutation helpers for AIAgent runtime.
 
-  In an OpenClaw / Hermes-style harness, a session is the conversation you
-  are currently having — the source of truth is the live transcript, and a
-  "history" file or memory note is an artifact derived from it. In BullX a
-  Conversation is itself a durable **business record**: a per-scope chat
-  object that outlives any process, addressable as a Postgres row, with
-  product-level semantics (start, end, branch, summary, audit). Two
-  properties worth knowing before reading the code:
+  A Conversation is AIAgent-owned durable execution state for one conversation
+  key. It stores an append-only transcript used by prompt rendering, tool-loop
+  recovery, command handling, and compression. External IM facts live in
+  IMGateway tables; this transcript is the agent's interpretation and execution
+  record.
 
-  * Messages form a **tree** (each Message has `parent_id`), not a flat
-    list. The "active branch" is the path from the current leaf back to the
-    root, which lets the runtime rewind to a prior turn and explore an
-    alternate continuation without losing history.
-  * **Compression is durable.** A summary is itself a Message (with
-    `kind: :summary`) that covers a contiguous range of the branch; it lives
-    *alongside* the raw Messages it summarizes rather than replacing them, so
-    the un-compressed history is always retrievable.
-
-  ## Branch model
-
-  A Conversation stores Messages as a tree (each Message has `parent_id`). The
-  "active branch" is the path from `current_leaf_message_id` back to the root.
-  A leaf may be a `:summary` Message that overlays a range of raw Messages —
-  `raw_leaf_id/1` then unwraps the summary back to the underlying raw leaf so
-  appends continue from real conversation history rather than from the summary.
+  Summaries are durable overlay Messages (`kind: :summary`) that cover a
+  contiguous range of transcript rows. They never replace or delete raw Messages.
+  Runtime commands and lifecycle revisions hide obsolete transcript rows by
+  writing `metadata.transcript_effect`.
 
   ## Generation lease
 
@@ -36,7 +22,7 @@ defmodule BullX.AIAgent.Conversations do
   every persist checks `owned_active_lease?/3` so a preempted runner cannot
   write past its lease.
 
-  Mutations that can affect the active branch lock the Conversation row. This
+  Mutations that can affect the active transcript lock the Conversation row. This
   keeps MailboxSession redelivery, command handling, and generation recovery on
   one boring persistence path.
   """
@@ -81,18 +67,13 @@ defmodule BullX.AIAgent.Conversations do
   def get(conversation_id) when is_binary(conversation_id),
     do: Repo.get(Conversation, conversation_id)
 
-  @spec append_message(Conversation.t(), map(), keyword()) :: append_result()
-  def append_message(%Conversation{} = conversation, attrs, opts \\ []) when is_map(attrs) do
-    move_leaf? = Keyword.get(opts, :move_leaf?, true)
-
+  @spec append_message(Conversation.t(), map()) :: append_result()
+  def append_message(%Conversation{} = conversation, attrs) when is_map(attrs) do
     Repo.transaction(fn ->
       locked = lock_conversation!(conversation.id)
-      attrs = Map.put_new(attrs, :parent_id, raw_leaf_id(locked))
 
-      with {:ok, message} <- insert_message(attrs),
-           {:ok, updated} <- maybe_move_leaf(locked, message, move_leaf?) do
-        {updated, message}
-      else
+      case insert_message(locked, attrs) do
+        {:ok, message} -> {locked, message}
         {:error, reason} -> Repo.rollback(reason)
       end
     end)
@@ -104,21 +85,20 @@ defmodule BullX.AIAgent.Conversations do
   end
 
   @doc """
-  Compare-and-swap append: succeeds only if the active branch's raw leaf still
-  matches `expected_raw_leaf_id`. Used by compression and other writers that
-  computed something against a specific branch snapshot and must abort cleanly
-  if a concurrent writer has since moved the leaf (returns `:branch_changed`).
+  Compare-and-swap append: succeeds only if the visible transcript tail still
+  matches `expected_tail_message_id`. Used by compression and other writers that
+  computed something against a specific transcript snapshot and must abort
+  cleanly if a concurrent writer has since appended prompt-visible content.
   """
-  @spec append_message_if_raw_leaf(Conversation.t(), String.t() | nil, map(), keyword()) ::
+  @spec append_message_if_transcript_tail(Conversation.t(), String.t() | nil, map(), keyword()) ::
           append_result()
-  def append_message_if_raw_leaf(
+  def append_message_if_transcript_tail(
         %Conversation{} = conversation,
-        expected_raw_leaf_id,
+        expected_tail_message_id,
         attrs,
         opts \\ []
       )
       when is_map(attrs) do
-    move_leaf? = Keyword.get(opts, :move_leaf?, true)
     lease_id = Keyword.get(opts, :lease_id)
     require_inactive_generation? = Keyword.get(opts, :require_inactive_generation?, false)
 
@@ -136,19 +116,15 @@ defmodule BullX.AIAgent.Conversations do
         require_inactive_generation? and active_lease?(locked, DateTime.utc_now(:microsecond)) ->
           Repo.rollback(:generation_active)
 
-        raw_leaf_id(locked) != expected_raw_leaf_id ->
-          Repo.rollback(:branch_changed)
+        transcript_tail_id(locked) != expected_tail_message_id ->
+          Repo.rollback(:transcript_changed)
 
         summary_attrs?(attrs) and not summary_interval_valid?(attrs, locked) ->
           Repo.rollback(:invalid_summary_interval)
 
         true ->
-          attrs = Map.put_new(attrs, :parent_id, expected_raw_leaf_id)
-
-          with {:ok, message} <- insert_message(attrs),
-               {:ok, updated} <- maybe_move_leaf(locked, message, move_leaf?) do
-            {updated, message}
-          else
+          case insert_message(locked, attrs) do
+            {:ok, message} -> {locked, message}
             {:error, reason} -> Repo.rollback(reason)
           end
       end
@@ -160,39 +136,39 @@ defmodule BullX.AIAgent.Conversations do
     end
   end
 
-  @spec inbound_message_for_entry(String.t()) :: Message.t() | nil
-  def inbound_message_for_entry(mailbox_entry_id)
-      when is_binary(mailbox_entry_id) do
-    Message
-    |> where([m], m.mailbox_entry_id == ^mailbox_entry_id)
-    |> where([m], m.role in [:user, :im_ambient])
-    |> where([m], m.kind == :normal)
+  @spec inbound_message_for_event(Conversation.t() | String.t(), term(), term()) ::
+          Message.t() | nil
+  def inbound_message_for_event(conversation, event_source, event_id)
+      when is_binary(event_source) and event_source != "" and is_binary(event_id) and
+             event_id != "" do
+    conversation
+    |> conversation_id()
+    |> inbound_message_for_event_query(event_source, event_id)
     |> Repo.one()
   end
 
-  @spec append_inbound_once(Conversation.t(), String.t(), map(), keyword()) :: append_result()
-  def append_inbound_once(
-        %Conversation{} = conversation,
-        mailbox_entry_id,
-        attrs,
-        opts \\ []
-      )
-      when is_binary(mailbox_entry_id) and is_map(attrs) do
-    existing =
-      Message
-      |> where([m], m.mailbox_entry_id == ^mailbox_entry_id)
-      |> where([m], m.role in [:user, :im_ambient])
-      |> where([m], m.kind == :normal)
-      |> Repo.one()
+  def inbound_message_for_event(_conversation, _event_source, _event_id), do: nil
 
-    case existing do
-      %Message{} = message ->
-        {:ok, Repo.get!(Conversation, message.conversation_id), message}
+  @spec append_inbound_once(Conversation.t(), map()) :: append_result()
+  def append_inbound_once(%Conversation{} = conversation, attrs) when is_map(attrs) do
+    Repo.transaction(fn ->
+      locked = lock_conversation!(conversation.id)
 
-      nil ->
-        attrs
-        |> Map.put(:mailbox_entry_id, mailbox_entry_id)
-        |> then(&append_message(conversation, &1, opts))
+      case existing_inbound_message(locked, attrs) do
+        %Message{} = message ->
+          {locked, message}
+
+        nil ->
+          case insert_message(locked, attrs) do
+            {:ok, message} -> {locked, message}
+            {:error, reason} -> Repo.rollback(reason)
+          end
+      end
+    end)
+    |> case do
+      {:ok, {conversation, message}} -> {:ok, conversation, message}
+      {:error, %Ecto.Changeset{} = changeset} -> {:error, changeset}
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -203,41 +179,33 @@ defmodule BullX.AIAgent.Conversations do
     |> Repo.update()
   end
 
-  @spec set_current_leaf(Conversation.t(), String.t() | nil) ::
-          {:ok, Conversation.t()} | {:error, Ecto.Changeset.t()}
-  def set_current_leaf(%Conversation{} = conversation, message_id)
-      when is_binary(message_id) or is_nil(message_id) do
-    conversation
-    |> Conversation.changeset(%{current_leaf_message_id: message_id})
-    |> Repo.update()
-  end
+  @spec active_transcript(Conversation.t() | String.t()) :: [Message.t()]
+  def active_transcript(%Conversation{} = conversation), do: active_transcript(conversation.id)
 
-  @spec active_branch(Conversation.t() | String.t()) :: [Message.t()]
-  def active_branch(%Conversation{} = conversation), do: active_branch(conversation.id)
-
-  def active_branch(conversation_id) when is_binary(conversation_id) do
-    case Repo.get(Conversation, conversation_id) do
-      nil -> []
-      %Conversation{} = conversation -> branch_from_leaf(resolve_raw_leaf_id(conversation))
-    end
+  def active_transcript(conversation_id) when is_binary(conversation_id) do
+    Message
+    |> where([m], m.conversation_id == ^conversation_id)
+    |> where([m], m.kind != :summary)
+    |> where([m], is_nil(fragment("?->'transcript_effect'", m.metadata)))
+    |> order_by([m], asc: m.inserted_at, asc: m.id)
+    |> Repo.all()
   end
 
   @doc """
-  Returns the branch as it should be presented to the model: raw Messages with
-  the most recent compatible summary substituted in place of its
-  `covers_range`. If no compatible summary exists, summaries are stripped from
-  the branch entirely (they're persisted artifacts, not part of the live
-  context unless they cover a contiguous range of the current branch).
+  Returns the transcript as it should be presented to the model: raw Messages
+  with the most recent compatible summary substituted in place of its
+  `covers_range`. If no compatible summary exists, summaries remain persisted
+  artifacts and are not part of the live model context.
   """
-  @spec render_branch(Conversation.t() | String.t()) :: [Message.t()]
-  def render_branch(%Conversation{} = conversation), do: render_branch(conversation.id)
+  @spec render_transcript(Conversation.t() | String.t()) :: [Message.t()]
+  def render_transcript(%Conversation{} = conversation), do: render_transcript(conversation.id)
 
-  def render_branch(conversation_id) when is_binary(conversation_id) do
-    branch = active_branch(conversation_id)
+  def render_transcript(conversation_id) when is_binary(conversation_id) do
+    transcript = active_transcript(conversation_id)
 
-    case latest_compatible_summary(conversation_id, branch) do
-      nil -> Enum.reject(branch, &(&1.kind == :summary))
-      %Message{} = summary -> replace_range_with_summary(branch, summary)
+    case latest_compatible_summary(conversation_id, transcript) do
+      nil -> transcript
+      %Message{} = summary -> replace_range_with_summary(transcript, summary)
     end
   end
 
@@ -250,7 +218,7 @@ defmodule BullX.AIAgent.Conversations do
       [m],
       fragment("?->'generation'->>'trigger_message_id' = ?", m.metadata, ^trigger_message_id)
     )
-    |> where([m], is_nil(fragment("?->'branch_effect'", m.metadata)))
+    |> where([m], is_nil(fragment("?->'transcript_effect'", m.metadata)))
     |> Repo.exists?()
   end
 
@@ -264,7 +232,7 @@ defmodule BullX.AIAgent.Conversations do
       [m],
       fragment("?->'generation'->>'trigger_message_id' = ?", m.metadata, ^trigger_message_id)
     )
-    |> where([m], is_nil(fragment("?->'branch_effect'", m.metadata)))
+    |> where([m], is_nil(fragment("?->'transcript_effect'", m.metadata)))
     |> order_by([m], desc: m.inserted_at)
     |> limit(1)
     |> Repo.one()
@@ -284,15 +252,18 @@ defmodule BullX.AIAgent.Conversations do
         ^assistant_message_id
       )
     )
-    |> where([m], is_nil(fragment("?->'branch_effect'", m.metadata)))
+    |> where([m], is_nil(fragment("?->'transcript_effect'", m.metadata)))
     |> Repo.exists?()
   end
 
-  @spec summary_for_entry(String.t()) :: Message.t() | nil
-  def summary_for_entry(mailbox_entry_id) when is_binary(mailbox_entry_id) do
+  @spec summary_for_range(String.t(), String.t(), String.t()) :: Message.t() | nil
+  def summary_for_range(conversation_id, from_id, to_id)
+      when is_binary(conversation_id) and is_binary(from_id) and is_binary(to_id) do
     Message
-    |> where([m], m.mailbox_entry_id == ^mailbox_entry_id)
+    |> where([m], m.conversation_id == ^conversation_id)
     |> where([m], m.role == :assistant and m.kind == :summary and m.status == :complete)
+    |> where([m], fragment("?->>'from_id' = ?", m.covers_range, ^from_id))
+    |> where([m], fragment("?->>'to_id' = ?", m.covers_range, ^to_id))
     |> order_by([m], desc: m.inserted_at)
     |> limit(1)
     |> Repo.one()
@@ -480,10 +451,50 @@ defmodule BullX.AIAgent.Conversations do
     |> Repo.one!()
   end
 
-  defp insert_message(attrs) do
+  defp conversation_id(%Conversation{id: id}), do: id
+  defp conversation_id(id) when is_binary(id), do: id
+
+  defp inbound_message_for_event_query(conversation_id, event_source, event_id) do
+    Message
+    |> where([m], m.conversation_id == ^conversation_id)
+    |> where([m], m.event_source == ^event_source)
+    |> where([m], m.event_id == ^event_id)
+    |> where([m], m.role in [:user, :im_ambient])
+    |> where([m], m.kind == :normal)
+  end
+
+  defp existing_inbound_message(%Conversation{} = conversation, attrs) do
+    case inbound_event_identity(attrs) do
+      {event_source, event_id} ->
+        conversation.id
+        |> inbound_message_for_event_query(event_source, event_id)
+        |> Repo.one()
+
+      nil ->
+        nil
+    end
+  end
+
+  defp inbound_event_identity(attrs) do
+    with event_source when is_binary(event_source) and event_source != "" <-
+           map_value(attrs, :event_source),
+         event_id when is_binary(event_id) and event_id != "" <- map_value(attrs, :event_id) do
+      {event_source, event_id}
+    else
+      _missing -> nil
+    end
+  end
+
+  defp insert_message(%Conversation{} = conversation, attrs) do
     %Message{}
-    |> Message.changeset(attrs)
+    |> Message.changeset(owned_message_attrs(conversation, attrs))
     |> Repo.insert()
+  end
+
+  defp owned_message_attrs(%Conversation{} = conversation, attrs) do
+    attrs
+    |> Map.put(:conversation_id, conversation.id)
+    |> Map.put(:agent_uid, conversation.agent_uid)
   end
 
   defp summary_attrs?(attrs) do
@@ -494,124 +505,98 @@ defmodule BullX.AIAgent.Conversations do
 
   defp summary_interval_valid?(attrs, conversation) do
     covers_range = attrs[:covers_range] || attrs["covers_range"] || %{}
-    metadata = attrs[:metadata] || attrs["metadata"] || %{}
     from_id = covers_range["from_id"] || covers_range[:from_id]
     to_id = covers_range["to_id"] || covers_range[:to_id]
-    source_leaf_id = metadata["source_leaf_message_id"] || metadata[:source_leaf_message_id]
 
-    branch = active_branch(conversation)
+    transcript = active_transcript(conversation)
 
-    indexed =
-      branch
-      |> Enum.with_index()
-      |> Map.new(fn {message, index} -> {message.id, {message, index}} end)
+    indexed = transcript_index(transcript)
 
     with {%Message{}, from_index} <- Map.get(indexed, from_id),
          {%Message{}, to_index} <- Map.get(indexed, to_id),
-         {%Message{}, source_leaf_index} <- Map.get(indexed, source_leaf_id),
-         true <- from_index <= to_index,
-         true <- to_index <= source_leaf_index do
-      branch
+         true <- from_index <= to_index do
+      transcript
       |> Enum.slice(from_index..to_index)
-      |> Enum.all?(fn message ->
-        message.kind != :summary and message.status != :generating and
-          not (message.role == :im_ambient and message.kind == :normal)
-      end)
+      |> Enum.all?(&summary_eligible_message?/1)
     else
       _other -> false
     end
   end
 
-  defp maybe_move_leaf(conversation, _message, false), do: {:ok, conversation}
-
-  defp maybe_move_leaf(conversation, message, true) do
+  defp transcript_tail_id(%Conversation{} = conversation) do
     conversation
-    |> Conversation.changeset(%{current_leaf_message_id: message.id})
-    |> Repo.update()
-  end
-
-  defp raw_leaf_id(%Conversation{current_leaf_message_id: nil}), do: nil
-
-  # When the leaf is a summary, the "raw" leaf is the original message the
-  # summary was anchored at — appends continue from there, not from the summary.
-  # The summary is a render-time overlay (see `render_branch/1`), not a real
-  # parent for future Messages.
-  defp raw_leaf_id(%Conversation{current_leaf_message_id: leaf_id} = conversation) do
-    case Repo.get(Message, leaf_id) do
-      %Message{kind: :summary, metadata: %{"source_leaf_message_id" => source_leaf_id}} ->
-        source_leaf_id
-
-      %Message{} ->
-        leaf_id
-
-      nil ->
-        conversation.current_leaf_message_id
+    |> active_transcript()
+    |> List.last()
+    |> case do
+      %Message{id: id} -> id
+      nil -> nil
     end
   end
 
-  defp resolve_raw_leaf_id(%Conversation{current_leaf_message_id: nil}), do: nil
-  defp resolve_raw_leaf_id(%Conversation{} = conversation), do: raw_leaf_id(conversation)
+  defp latest_compatible_summary(_conversation_id, []), do: nil
 
-  defp branch_from_leaf(nil), do: []
+  defp latest_compatible_summary(conversation_id, transcript) do
+    indexed = transcript_index(transcript)
+    eligible_ids = summary_eligible_ids(transcript)
 
-  defp branch_from_leaf(leaf_id) do
-    unfold_branch(leaf_id, [])
-  end
+    case eligible_ids do
+      [] ->
+        nil
 
-  defp unfold_branch(nil, acc), do: acc
-
-  defp unfold_branch(message_id, acc) do
-    case Repo.get(Message, message_id) do
-      nil -> acc
-      %Message{} = message -> unfold_branch(message.parent_id, [message | acc])
+      [_ | _] ->
+        Message
+        |> where([m], m.conversation_id == ^conversation_id)
+        |> where([m], m.role == :assistant and m.kind == :summary and m.status == :complete)
+        |> where([m], is_nil(fragment("?->'transcript_effect'", m.metadata)))
+        |> where([m], fragment("?->>'from_id' = ANY(?)", m.covers_range, ^eligible_ids))
+        |> where([m], fragment("?->>'to_id' = ANY(?)", m.covers_range, ^eligible_ids))
+        |> order_by([m], desc: m.inserted_at, desc: m.id)
+        |> Repo.all()
+        |> Enum.find(&compatible_summary?(&1, transcript, indexed))
     end
   end
 
-  defp latest_compatible_summary(conversation_id, branch) do
-    Message
-    |> where([m], m.conversation_id == ^conversation_id)
-    |> where([m], m.role == :assistant and m.kind == :summary and m.status == :complete)
-    |> Repo.all()
-    |> Enum.filter(&compatible_summary?(&1, branch))
-    |> Enum.sort_by(&{DateTime.to_unix(&1.inserted_at, :microsecond), &1.id}, :desc)
-    |> List.first()
+  defp transcript_index(transcript) do
+    transcript
+    |> Enum.with_index()
+    |> Map.new(fn {message, index} -> {message.id, {message, index}} end)
+  end
+
+  defp summary_eligible_ids(transcript) do
+    transcript
+    |> Enum.filter(&summary_eligible_message?/1)
+    |> Enum.map(& &1.id)
   end
 
   defp compatible_summary?(
-         %Message{covers_range: %{"from_id" => from_id, "to_id" => to_id}, metadata: metadata},
-         branch
+         %Message{covers_range: %{"from_id" => from_id, "to_id" => to_id}},
+         transcript,
+         indexed
        ) do
-    indexed =
-      branch
-      |> Enum.with_index()
-      |> Map.new(fn {message, index} -> {message.id, {message, index}} end)
-
-    source_leaf_id = metadata["source_leaf_message_id"]
-
     with {%Message{}, from_index} <- Map.get(indexed, from_id),
          {%Message{}, to_index} <- Map.get(indexed, to_id),
-         {%Message{}, source_leaf_index} <- Map.get(indexed, source_leaf_id),
-         true <- from_index <= to_index,
-         true <- to_index <= source_leaf_index do
-      branch
+         true <- from_index <= to_index do
+      transcript
       |> Enum.slice(from_index..to_index)
-      |> Enum.all?(fn message ->
-        message.kind != :summary and message.status != :generating and
-          not (message.role == :im_ambient and message.kind == :normal)
-      end)
+      |> Enum.all?(&summary_eligible_message?/1)
     else
       _other -> false
     end
   end
 
-  defp compatible_summary?(_summary, _branch), do: false
+  defp compatible_summary?(_summary, _transcript, _indexed), do: false
+
+  defp summary_eligible_message?(%Message{} = message) do
+    message.status != :generating and
+      not (message.role == :im_ambient and message.kind == :normal)
+  end
 
   defp replace_range_with_summary(
-         branch,
+         transcript,
          %Message{covers_range: %{"from_id" => from_id, "to_id" => to_id}} = summary
        ) do
     {_state, rendered} =
-      Enum.reduce(branch, {:before, []}, fn message, {state, acc} ->
+      Enum.reduce(transcript, {:before, []}, fn message, {state, acc} ->
         case {state, message.id} do
           {:before, ^from_id} -> {:inside, [summary | acc]}
           {:inside, ^to_id} -> {:after, acc}
@@ -643,6 +628,10 @@ defmodule BullX.AIAgent.Conversations do
   end
 
   defp parse_datetime(_value), do: nil
+
+  defp map_value(%{} = map, key) when is_atom(key) do
+    Map.get(map, key) || Map.get(map, Atom.to_string(key))
+  end
 
   defp min_datetime(first, second) do
     case DateTime.compare(first, second) do

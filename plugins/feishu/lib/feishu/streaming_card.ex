@@ -11,8 +11,8 @@ defmodule Feishu.StreamingCard do
     with {:ok, source} <- Source.normalize(source_config),
          {:ok, card_id, message_id} <-
            create_and_send_card(source, reply_address, stream_id, opts),
-         :ok <- notify_delivery(opts, stream_id, card_id, message_id),
-         :ok <- consume_stream(source, card_id, stream_id, opts) do
+         :ok <- consume_stream(source, card_id, stream_id, opts),
+         :ok <- notify_delivery(opts, stream_id, card_id, message_id) do
       :telemetry.execute(
         [:bullx, :im_gateway, :adapter, :stream, :delivered],
         %{count: 1},
@@ -275,7 +275,7 @@ defmodule Feishu.StreamingCard do
 
   defp initial_state do
     %{
-      text: "",
+      text_parts_rev: [],
       sequence: 0,
       last_update_ms: 0,
       last_offset: -1,
@@ -306,10 +306,12 @@ defmodule Feishu.StreamingCard do
   defp final_text(%{terminal_status: :interrupted}),
     do: BullX.I18n.t("im_gateway.feishu.delivery.stream_cancelled")
 
-  defp final_text(%{text: ""}),
-    do: BullX.I18n.t("im_gateway.feishu.delivery.stream_completed_empty")
-
-  defp final_text(%{text: text}), do: stream_text(text)
+  defp final_text(state) do
+    case materialize_text(state) do
+      "" -> BullX.I18n.t("im_gateway.feishu.delivery.stream_completed_empty")
+      text -> stream_text(text)
+    end
+  end
 
   defp close_after_failure(source, card_id, state, reason, update_fun, replace_fun, finalize_fun) do
     text = failure_text(reason)
@@ -337,7 +339,7 @@ defmodule Feishu.StreamingCard do
   end
 
   defp update_state(source, card_id, state, update_fun, replace_fun) do
-    text = stream_text(state.text)
+    text = stream_text(materialize_text(state))
 
     case write_card_text(source, card_id, state, text, update_fun, replace_fun) do
       {:ok, state} ->
@@ -453,18 +455,33 @@ defmodule Feishu.StreamingCard do
   end
 
   defp apply_chunk(state, %{"replace_text" => text}) when is_binary(text),
-    do: %{state | text: text}
+    do: replace_text(state, text)
 
   defp apply_chunk(state, %{"text" => text}) when is_binary(text),
-    do: %{state | text: state.text <> text}
+    do: append_text(state, text)
 
-  defp apply_chunk(state, %{replace_text: text}) when is_binary(text), do: %{state | text: text}
+  defp apply_chunk(state, %{replace_text: text}) when is_binary(text),
+    do: replace_text(state, text)
 
   defp apply_chunk(state, %{text: text}) when is_binary(text),
-    do: %{state | text: state.text <> text}
+    do: append_text(state, text)
 
-  defp apply_chunk(state, text) when is_binary(text), do: %{state | text: state.text <> text}
+  defp apply_chunk(state, text) when is_binary(text), do: append_text(state, text)
   defp apply_chunk(state, _chunk), do: state
+
+  defp append_text(state, ""), do: state
+
+  defp append_text(%{text_parts_rev: parts} = state, text),
+    do: %{state | text_parts_rev: [text | parts]}
+
+  defp replace_text(state, ""), do: %{state | text_parts_rev: []}
+  defp replace_text(state, text), do: %{state | text_parts_rev: [text]}
+
+  defp materialize_text(%{text_parts_rev: parts}) do
+    parts
+    |> Enum.reverse()
+    |> IO.iodata_to_binary()
+  end
 
   defp due_update?(%{last_update_ms: 0}, _source), do: true
 

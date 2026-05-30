@@ -43,7 +43,9 @@ defmodule FeishuOpenAPI.WS.ClientTest do
         | conn: nil,
           websocket: nil,
           request_ref: nil,
-          dispatch_tasks: %{ref => {frame, System.monotonic_time(:millisecond)}}
+          dispatch_tasks: %{
+            ref => {frame, "im.message.receive_v1", System.monotonic_time(:millisecond)}
+          }
       }
     end)
 

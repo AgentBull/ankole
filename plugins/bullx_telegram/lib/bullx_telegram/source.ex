@@ -24,14 +24,11 @@ defmodule BullxTelegram.Source do
   @default_poll_limit 100
   @default_poll_retry_max 10
   @default_flood_wait_max_ms 5_000
-  @default_stream_update_interval_ms 1_000
-  @default_stream_chunk_soft_limit 3_900
   @default_message_context_ttl_seconds 2_592_000
   @default_direct_command_dedupe_ttl_seconds 90_000
   @default_group_message_mode :addressed_only
   @group_message_modes [:addressed_only, :observe_all, :engage_all]
   @default_trusted_realm_by_default false
-  @telegram_message_hard_limit 4_096
 
   @derive {Inspect, except: [:bot_token]}
   defstruct [
@@ -45,8 +42,6 @@ defmodule BullxTelegram.Source do
     poll_limit: @default_poll_limit,
     poll_retry_max: @default_poll_retry_max,
     flood_wait_max_ms: @default_flood_wait_max_ms,
-    stream_update_interval_ms: @default_stream_update_interval_ms,
-    stream_chunk_soft_limit: @default_stream_chunk_soft_limit,
     direct_command_dedupe_ttl_seconds: @default_direct_command_dedupe_ttl_seconds,
     message_context_ttl_seconds: @default_message_context_ttl_seconds,
     attention: %{
@@ -95,20 +90,6 @@ defmodule BullxTelegram.Source do
          poll_retry_max: non_negative_integer(config, "poll_retry_max", @default_poll_retry_max),
          flood_wait_max_ms:
            non_negative_integer(config, "flood_wait_max_ms", @default_flood_wait_max_ms),
-         stream_update_interval_ms:
-           positive_integer(
-             config,
-             "stream_update_interval_ms",
-             @default_stream_update_interval_ms
-           ),
-         stream_chunk_soft_limit:
-           bounded_integer(
-             config,
-             "stream_chunk_soft_limit",
-             @default_stream_chunk_soft_limit,
-             1,
-             @telegram_message_hard_limit
-           ),
          direct_command_dedupe_ttl_seconds:
            positive_integer(
              config,
@@ -180,8 +161,17 @@ defmodule BullxTelegram.Source do
     config
     |> stringify_keys()
     |> case do
-      {:ok, config} -> Map.drop(config, ["bot_token", "req_options", "api_module"])
-      {:error, _reason} -> %{}
+      {:ok, config} ->
+        Map.drop(config, [
+          "bot_token",
+          "req_options",
+          "api_module",
+          "stream_update_interval_ms",
+          "stream_chunk_soft_limit"
+        ])
+
+      {:error, _reason} ->
+        %{}
     end
   end
 
@@ -202,7 +192,7 @@ defmodule BullxTelegram.Source do
          status: :ok,
          adapter: "telegram",
          source_id: source.id,
-         capabilities: [:inbound, :send, :edit, :stream, :threads],
+         capabilities: [:inbound, :send, :edit, :threads],
          details:
            %{
              "transport" => "polling",

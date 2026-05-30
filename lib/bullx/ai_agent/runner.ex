@@ -9,9 +9,8 @@ defmodule BullX.AIAgent.Runner do
 
   * **Each step is committed before the next runs.** Assistant messages, tool
     results, and summaries are persisted as `Message` rows on the Conversation
-    branch *before* the loop advances. A crashed runner resumes from the last
-    committed step instead of replaying from the user input, and a transcript
-    is never a separate artifact — it *is* the branch.
+    transcript *before* the loop advances. A crashed runner resumes from the last
+    committed step instead of replaying from the user input.
   * **A database-backed generation lease guards the Conversation.** Two
     Events arriving concurrently for the same Conversation never both fire
     the model: one runner holds the lease, the other waits or is preempted.
@@ -73,6 +72,8 @@ defmodule BullX.AIAgent.Runner do
     "x-request-id",
     "log_id"
   ]
+  @generation_control_poll_interval_ms 250
+  @stream_delivery_timeout_ms 5_000
 
   @spec run(Conversation.t(), Message.t(), Profile.t(), map()) :: :ok | {:error, term()}
   def run(
@@ -411,8 +412,17 @@ defmodule BullX.AIAgent.Runner do
       rendered = Compression.apply_prompt_cache_hints(rendered, profile: profile)
       opts = call_opts(profile, tools, rendered)
 
-      case with_heartbeat(conversation, context, profile, fn ->
-             call_model(conversation, trigger_message, profile, context, rendered, opts)
+      case with_generation_control_monitor(conversation, context, fn monitored_context ->
+             with_heartbeat(conversation, monitored_context, profile, fn ->
+               call_model(
+                 conversation,
+                 trigger_message,
+                 profile,
+                 monitored_context,
+                 rendered,
+                 opts
+               )
+             end)
            end) do
         {:ok, result} ->
           {:ok, result}
@@ -495,7 +505,7 @@ defmodule BullX.AIAgent.Runner do
   end
 
   defp retry_provider_call_after_compression(
-         {:ok, %{status: :diagnostic, reason: "branch_changed"}},
+         {:ok, %{status: :diagnostic, reason: "transcript_changed"}},
          _conversation,
          _trigger_message,
          _profile,
@@ -505,7 +515,7 @@ defmodule BullX.AIAgent.Runner do
          _agent_tool_names,
          _attempt
        ),
-       do: {:error, :context_branch_changed}
+       do: {:error, :context_transcript_changed}
 
   defp retry_provider_call_after_compression(
          {:ok, _diagnostic},
@@ -558,11 +568,12 @@ defmodule BullX.AIAgent.Runner do
     case output.create_stream(context.mailbox_session_id, context.mailbox_entry_id) do
       {:ok, stream_id} ->
         case start_stream_consumer(context.reply_address, stream_id, context) do
-          :ok ->
+          {:ok, consumer} ->
             {:ok,
              Map.put(context, :visible_stream, %{
                stream_id: stream_id,
-               started_at: DateTime.to_iso8601(DateTime.utc_now(:microsecond))
+               started_at: DateTime.to_iso8601(DateTime.utc_now(:microsecond)),
+               consumer: consumer
              })}
 
           {:error, reason} ->
@@ -618,13 +629,18 @@ defmodule BullX.AIAgent.Runner do
       end
     ]
 
-    case Task.start(fn -> ChannelAdapter.consume_stream(reply_address, stream_id, opts) end) do
-      {:ok, _pid} -> :ok
+    ref = make_ref()
+
+    case Task.start(fn ->
+           result = ChannelAdapter.consume_stream(reply_address, stream_id, opts)
+           send(parent, {:ai_agent_stream_consumer_result, stream_id, ref, result})
+         end) do
+      {:ok, pid} -> {:ok, %{pid: pid, ref: ref}}
       {:error, reason} -> {:error, reason}
     end
   end
 
-  defp stream_chunk_callback(conversation_id, context, output, stream_id) do
+  defp stream_chunk_callback(_conversation_id, context, output, stream_id) do
     fn
       "" ->
         :ok
@@ -634,8 +650,7 @@ defmodule BullX.AIAgent.Runner do
         # stream-level error, which the loop catches as `{:error, reason}` and
         # converts into a failed-stream finalization. Returning `{:error, _}`
         # would silently drop subsequent chunks while the model kept generating.
-        with :ok <- maybe_cancel_for_pending_stop(conversation_id, context),
-             {:ok, _conversation} <- ensure_owned_active(conversation_id, context.lease_id),
+        with :ok <- maybe_generation_interrupted(context),
              {:ok, _offset} <- output.append_chunk(stream_id, chunk_text) do
           :ok
         else
@@ -643,6 +658,16 @@ defmodule BullX.AIAgent.Runner do
         end
     end
   end
+
+  defp maybe_generation_interrupted(%{generation_control_ref: ref}) when is_reference(ref) do
+    receive do
+      {:ai_agent_generation_interrupted, ^ref, reason} -> {:error, reason}
+    after
+      0 -> :ok
+    end
+  end
+
+  defp maybe_generation_interrupted(_context), do: :ok
 
   defp maybe_cancel_for_pending_stop(conversation_id, context) do
     case pending_authorized_stop_entry(context) do
@@ -658,8 +683,8 @@ defmodule BullX.AIAgent.Runner do
                  "cancelled_by_command_entry_id" => entry.id
                }
              ) do
-          {:ok, _conversation} -> :ok
-          {:error, :generation_inactive} -> :ok
+          {:ok, _conversation} -> {:interrupted, :stop}
+          {:error, :generation_inactive} -> {:interrupted, :generation_inactive}
           {:error, reason} -> {:error, reason}
         end
 
@@ -671,11 +696,10 @@ defmodule BullX.AIAgent.Runner do
   defp pending_authorized_stop_entry(context) do
     with mailbox_session_id when is_binary(mailbox_session_id) <-
            Map.get(context, :mailbox_session_id),
-         current_entry_id when is_binary(current_entry_id) <-
-           Map.get(context, :mailbox_entry_id),
-         %MailboxEntry{} = current_entry <- Repo.get(MailboxEntry, current_entry_id) do
+         current_entry_seq when is_integer(current_entry_seq) <-
+           Map.get(context, :mailbox_entry_seq) do
       mailbox_session_id
-      |> pending_entries_after(current_entry.entry_seq)
+      |> pending_entries_after(current_entry_seq)
       |> Enum.find(&authorized_stop_entry?(&1, context))
     else
       _missing -> nil
@@ -686,6 +710,7 @@ defmodule BullX.AIAgent.Runner do
     MailboxEntry
     |> where([e], e.mailbox_session_id == ^mailbox_session_id)
     |> where([e], e.entry_seq > ^current_entry_seq)
+    |> where([e], e.status == :pending)
     |> order_by([e], asc: e.entry_seq)
     |> limit(10)
     |> Repo.all()
@@ -799,14 +824,23 @@ defmodule BullX.AIAgent.Runner do
 
   defp final_stream_delivery(stream_id, context, assistant_message_id) do
     delivery = stream_delivery_metadata(stream_id, context, assistant_message_id)
+    consumer = get_in(context, [:visible_stream, :consumer])
 
-    case receive_stream_delivery_result(stream_id) do
+    case receive_stream_delivery_result(stream_id, consumer) do
       {:ok, result} ->
         Map.merge(delivery, %{
-          "status" => "sent",
+          "status" => stream_delivery_status(result),
           "adapter_result_ref" => safe_adapter_result_ref(result),
           "safe_error_code" => nil,
           "delivered_at" => DateTime.to_iso8601(DateTime.utc_now(:microsecond))
+        })
+
+      {:error, reason} ->
+        Map.merge(delivery, %{
+          "status" => "failed",
+          "adapter_result_ref" => nil,
+          "safe_error_code" => safe_delivery_error(reason),
+          "delivered_at" => nil
         })
 
       :missing ->
@@ -814,12 +848,35 @@ defmodule BullX.AIAgent.Runner do
     end
   end
 
-  defp receive_stream_delivery_result(stream_id) do
+  defp receive_stream_delivery_result(stream_id, consumer) do
     receive do
-      {:ai_agent_stream_delivery_result, ^stream_id, result} -> {:ok, result}
+      {:ai_agent_stream_delivery_result, ^stream_id, result} ->
+        {:ok, result}
+
+      {:ai_agent_stream_consumer_result, ^stream_id, ref, result} ->
+        case stream_consumer_ref?(consumer, ref) do
+          true -> stream_consumer_result(result)
+          false -> :missing
+        end
     after
-      250 -> :missing
+      stream_delivery_timeout_ms() -> :missing
     end
+  end
+
+  defp stream_consumer_ref?(%{ref: ref}, ref), do: true
+  defp stream_consumer_ref?(_consumer, _ref), do: false
+
+  defp stream_consumer_result(:ok), do: {:ok, %{"status" => "sent"}}
+  defp stream_consumer_result({:error, reason}), do: {:error, reason}
+  defp stream_consumer_result(reason), do: {:error, reason}
+
+  defp stream_delivery_status(%{"status" => status}) when status in ["sent", "degraded"],
+    do: status
+
+  defp stream_delivery_status(_result), do: "sent"
+
+  defp stream_delivery_timeout_ms do
+    Application.get_env(:bullx, :ai_agent_stream_delivery_timeout_ms, @stream_delivery_timeout_ms)
   end
 
   defp stream_delivery_metadata(stream_id, context, assistant_message_id \\ nil) do
@@ -913,8 +970,8 @@ defmodule BullX.AIAgent.Runner do
                 attempt + 1
               )
 
-            {:ok, %{status: :diagnostic, reason: "branch_changed"}} ->
-              {:error, :context_branch_changed}
+            {:ok, %{status: :diagnostic, reason: "transcript_changed"}} ->
+              {:error, :context_transcript_changed}
 
             {:ok, _diagnostic} ->
               {:error, :context_over_budget}
@@ -939,6 +996,85 @@ defmodule BullX.AIAgent.Runner do
       true ->
         {:error, :generation_inactive}
     end
+  end
+
+  defp with_generation_control_monitor(conversation, context, fun) when is_function(fun, 1) do
+    case Application.get_env(:bullx, :ai_agent_generation_control_monitor, true) do
+      true ->
+        parent = self()
+        ref = make_ref()
+        interval_ms = generation_control_poll_interval_ms()
+        monitored_context = Map.put(context, :generation_control_ref, ref)
+
+        pid =
+          spawn(fn ->
+            generation_control_loop(parent, ref, conversation.id, context, interval_ms)
+          end)
+
+        try do
+          fun.(monitored_context)
+        after
+          send(pid, {:stop, ref})
+          flush_generation_control_interrupt(ref)
+        end
+
+      _disabled ->
+        fun.(context)
+    end
+  end
+
+  defp generation_control_loop(parent, ref, conversation_id, context, interval_ms) do
+    receive do
+      {:stop, ^ref} ->
+        :ok
+    after
+      interval_ms ->
+        case generation_control_probe(conversation_id, context) do
+          :ok ->
+            generation_control_loop(parent, ref, conversation_id, context, interval_ms)
+
+          {:interrupted, reason} ->
+            send(parent, {:ai_agent_generation_interrupted, ref, reason})
+
+          {:error, reason} ->
+            Logger.warning(
+              "ai_agent generation control probe failed; generation continues " <>
+                "(conversation_id=#{conversation_id} reason=#{inspect(reason)})"
+            )
+
+            generation_control_loop(parent, ref, conversation_id, context, interval_ms)
+        end
+    end
+  end
+
+  defp generation_control_probe(conversation_id, %{lease_id: lease_id} = context)
+       when is_binary(lease_id) do
+    with {:ok, _conversation} <- ensure_owned_active(conversation_id, lease_id),
+         :ok <- maybe_cancel_for_pending_stop(conversation_id, context) do
+      :ok
+    else
+      {:interrupted, reason} -> {:interrupted, reason}
+      {:error, :generation_inactive} -> {:interrupted, :generation_inactive}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp generation_control_probe(_conversation_id, _context), do: :ok
+
+  defp flush_generation_control_interrupt(ref) do
+    receive do
+      {:ai_agent_generation_interrupted, ^ref, _reason} -> :ok
+    after
+      0 -> :ok
+    end
+  end
+
+  defp generation_control_poll_interval_ms do
+    Application.get_env(
+      :bullx,
+      :ai_agent_generation_control_poll_interval_ms,
+      @generation_control_poll_interval_ms
+    )
   end
 
   defp with_heartbeat(conversation, context, profile, fun) when is_function(fun, 0) do
@@ -1110,13 +1246,11 @@ defmodule BullX.AIAgent.Runner do
 
   defp persist_assistant(conversation, trigger_message, result, context) do
     attrs = %{
-      conversation_id: conversation.id,
       role: :assistant,
       kind: :normal,
       status: :complete,
       content: assistant_content(result),
       mailbox_session_id: Map.get(context, :mailbox_session_id),
-      mailbox_entry_id: Map.get(context, :mailbox_entry_id),
       metadata:
         trigger_message
         |> generation_metadata(context, result_metadata(result))
@@ -1201,13 +1335,11 @@ defmodule BullX.AIAgent.Runner do
       |> maybe_attach_steering(context)
 
     attrs = %{
-      conversation_id: conversation.id,
       role: :tool,
       kind: :normal,
       status: :complete,
       content: result_blocks,
       mailbox_session_id: Map.get(context, :mailbox_session_id),
-      mailbox_entry_id: Map.get(context, :mailbox_entry_id),
       metadata:
         generation_metadata(trigger_message, context, %{
           "root_assistant_message_id" => assistant_message.id
@@ -1224,13 +1356,11 @@ defmodule BullX.AIAgent.Runner do
     error_metadata = Map.put(extra, "safe_error_code", code)
 
     attrs = %{
-      conversation_id: conversation.id,
       role: :assistant,
       kind: :error,
       status: :complete,
       content: [Message.error_block(code, message, false)],
       mailbox_session_id: Map.get(context, :mailbox_session_id),
-      mailbox_entry_id: Map.get(context, :mailbox_entry_id),
       metadata: generation_metadata(trigger_message, context, error_metadata)
     }
 
@@ -1415,7 +1545,7 @@ defmodule BullX.AIAgent.Runner do
       text == "" ->
         :ok
 
-      streamed_delivery?(assistant_message) ->
+      final_stream_delivery_confirmed?(assistant_message) ->
         :ok
 
       not is_map(Map.get(context, :reply_address)) ->
@@ -1689,8 +1819,13 @@ defmodule BullX.AIAgent.Runner do
     })
   end
 
-  defp streamed_delivery?(%Message{metadata: %{"delivery" => %{"mode" => "stream"}}}), do: true
-  defp streamed_delivery?(_message), do: false
+  defp final_stream_delivery_confirmed?(%Message{
+         metadata: %{"delivery" => %{"mode" => "stream", "status" => status}}
+       })
+       when status in ["sent", "degraded"],
+       do: true
+
+  defp final_stream_delivery_confirmed?(_message), do: false
 
   defp maybe_attach_steering([], _context), do: []
 

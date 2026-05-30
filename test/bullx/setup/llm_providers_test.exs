@@ -57,4 +57,18 @@ defmodule BullX.Setup.LLMProvidersTest do
                "provider_options" => %{}
              })
   end
+
+  test "setup check rejects provider options that runtime resolution would reject" do
+    assert {:error,
+            %{
+              field: "provider_options",
+              message: "invalid provider options",
+              provider_id: "bad_options"
+            }} =
+             LLMProviders.check(%{
+               "provider_id" => "bad_options",
+               "req_llm_provider" => "openai",
+               "provider_options" => %{"not_real" => true}
+             })
+  end
 end

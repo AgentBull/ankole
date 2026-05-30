@@ -9,10 +9,10 @@ defmodule BullX.AIAgent.MessageContextBuilder do
   alias BullX.AIAgent.{ConversationKey, Message, Profile, Time}
 
   @spec metadata_for_user_message(Profile.t(), map(), [Message.t()], DateTime.t()) :: map()
-  def metadata_for_user_message(%Profile{} = profile, event_data, branch, accepted_at) do
+  def metadata_for_user_message(%Profile{} = profile, event_data, transcript, accepted_at) do
     send_at = send_at(event_data, accepted_at)
     granularity = profile.context.time_awareness_granularity
-    injected? = inject_time?(granularity, send_at, branch)
+    injected? = inject_time?(granularity, send_at, transcript)
 
     %{
       "time_awareness" => %{
@@ -49,7 +49,7 @@ defmodule BullX.AIAgent.MessageContextBuilder do
       |> ambient_query(scene_key)
       |> maybe_before(current_message)
       |> maybe_after(previous_assistant)
-      |> order_by([m], desc: m.inserted_at)
+      |> order_by([m], desc: m.inserted_at, desc: m.id)
       |> limit(10)
       |> BullX.Repo.all()
       |> Enum.reverse()
@@ -63,8 +63,7 @@ defmodule BullX.AIAgent.MessageContextBuilder do
     import Ecto.Query
 
     BullX.AIAgent.Message
-    |> join(:inner, [m], c in BullX.AIAgent.Conversation, on: c.id == m.conversation_id)
-    |> where([m, c], c.agent_uid == ^agent_uid)
+    |> where([m], m.agent_uid == ^agent_uid)
     |> where([m], m.role == :im_ambient and m.kind == :normal)
     |> where([m], fragment("?->'scene'->>'scene_key' = ?", m.metadata, ^scene_key))
   end
@@ -104,7 +103,7 @@ defmodule BullX.AIAgent.MessageContextBuilder do
       |> ambient_query(scene_key)
       |> maybe_before(current_message)
       |> where([m], m.inserted_at >= ^window_start)
-      |> order_by([m], asc: m.inserted_at)
+      |> order_by([m], asc: m.inserted_at, asc: m.id)
       |> BullX.Repo.all()
 
     expanded
@@ -180,17 +179,17 @@ defmodule BullX.AIAgent.MessageContextBuilder do
     ]
   end
 
-  defp inject_time?(:off, _send_at, _branch), do: false
+  defp inject_time?(:off, _send_at, _transcript), do: false
 
-  defp inject_time?(granularity, send_at, branch) do
-    case previous_injected_send_at(branch) do
+  defp inject_time?(granularity, send_at, transcript) do
+    case previous_injected_send_at(transcript) do
       nil -> true
       previous -> DateTime.diff(send_at, previous, boundary_unit(granularity)) >= 1
     end
   end
 
-  defp previous_injected_send_at(branch) do
-    branch
+  defp previous_injected_send_at(transcript) do
+    transcript
     |> Enum.reverse()
     |> Enum.find_value(fn
       %Message{

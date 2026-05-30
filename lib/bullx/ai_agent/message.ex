@@ -1,6 +1,6 @@
 defmodule BullX.AIAgent.Message do
   @moduledoc """
-  Durable AIAgent message tree node.
+  Durable AIAgent transcript row.
 
   Message content is BullX-normalized evidence. It must not contain raw
   CloudEvents, raw provider payloads, credentials, bearer-like reply handles, or
@@ -12,6 +12,7 @@ defmodule BullX.AIAgent.Message do
   import Ecto.Changeset
 
   alias BullX.AIAgent.Conversation
+  alias BullX.Principals.Agent
 
   @primary_key {:id, BullX.Ecto.UUIDv7, autogenerate: true}
   @foreign_key_type :binary_id
@@ -37,15 +38,14 @@ defmodule BullX.AIAgent.Message do
   @type t :: %__MODULE__{}
 
   schema "conversation_messages" do
+    belongs_to :agent, Agent, foreign_key: :agent_uid, references: :uid, type: :string
     belongs_to :conversation, Conversation
-    belongs_to :parent, __MODULE__
     field :role, Ecto.Enum, values: @roles
     field :kind, Ecto.Enum, values: @kinds
     field :status, Ecto.Enum, values: @statuses
     field :content, BullX.Ecto.JSONB, default: []
     field :covers_range, :map
     field :mailbox_session_id, :binary_id
-    field :mailbox_entry_id, :binary_id
     field :event_source, :string
     field :event_id, :string
     field :metadata, :map, default: %{}
@@ -67,30 +67,35 @@ defmodule BullX.AIAgent.Message do
     message
     |> cast(attrs, [
       :conversation_id,
-      :parent_id,
+      :agent_uid,
       :role,
       :kind,
       :status,
       :content,
       :covers_range,
       :mailbox_session_id,
-      :mailbox_entry_id,
       :event_source,
       :event_id,
       :metadata
     ])
-    |> validate_required([:conversation_id, :role, :kind, :status, :content, :metadata])
+    |> validate_required([
+      :conversation_id,
+      :agent_uid,
+      :role,
+      :kind,
+      :status,
+      :content,
+      :metadata
+    ])
     |> validate_valid_combination()
     |> validate_content_blocks()
     |> validate_summary_contract()
     |> validate_json_object(:metadata)
     |> validate_optional_json_object(:covers_range)
+    |> foreign_key_constraint(:agent_uid)
     |> foreign_key_constraint(:conversation_id)
-    |> foreign_key_constraint(:parent_id,
-      name: :conversation_messages_parent_same_conversation_fkey
-    )
-    |> unique_constraint(:mailbox_entry_id,
-      name: :conversation_messages_inbound_entry_unique_index
+    |> unique_constraint([:conversation_id, :event_source, :event_id],
+      name: :conversation_messages_inbound_event_unique_index
     )
     |> unique_constraint(:metadata, name: :conversation_messages_ambient_batch_unique_index)
     |> check_constraint(:content, name: :conversation_messages_content_array)
@@ -263,9 +268,6 @@ defmodule BullX.AIAgent.Message do
     metadata = get_field(changeset, :metadata) || %{}
 
     cond do
-      not is_binary(metadata["source_leaf_message_id"]) ->
-        add_error(changeset, :metadata, "must include source_leaf_message_id")
-
       not is_binary(metadata["original_dialogue_time_range"]) ->
         add_error(changeset, :metadata, "must include original_dialogue_time_range")
 

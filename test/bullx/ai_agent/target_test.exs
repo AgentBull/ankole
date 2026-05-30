@@ -20,6 +20,7 @@ defmodule BullX.AIAgent.TargetTest do
     previous_web_req_options = Application.get_env(:bullx, :ai_agent_web_req_options)
     previous_adapter_registry = Application.get_env(:bullx, :im_gateway_channel_adapter_registry)
     previous_delivery_gate = Application.get_env(:bullx, :im_gateway_test_delivery_gate)
+    previous_stream_error = Application.get_env(:bullx, :im_gateway_test_stream_error)
     previous_pid = Application.get_env(:bullx, :im_gateway_test_pid)
 
     {:ok, plugin} =
@@ -76,6 +77,7 @@ defmodule BullX.AIAgent.TargetTest do
       restore_env(:ai_agent_web_req_options, previous_web_req_options)
       restore_env(:im_gateway_channel_adapter_registry, previous_adapter_registry)
       restore_env(:im_gateway_test_delivery_gate, previous_delivery_gate)
+      restore_env(:im_gateway_test_stream_error, previous_stream_error)
       restore_env(:im_gateway_test_pid, previous_pid)
       BullX.AIAgent.FakeLLMClient.reset()
       BullX.LLM.Catalog.Cache.refresh_all()
@@ -125,17 +127,15 @@ defmodule BullX.AIAgent.TargetTest do
            ] = messages
 
     assert %BullX.IMGateway.Message{
-             direction: :outbound,
-             status: :sent,
-             actor_principal_uid: agent_uid,
+             lifecycle_state: :active,
+             actor_kind: "agent",
              text: "hello back",
              provider_message_id: provider_message_id
            } =
              Repo.one!(
-               from message in BullX.IMGateway.Message, where: message.direction == :outbound
+               from message in BullX.IMGateway.Message, where: message.actor_kind == "agent"
              )
 
-    assert agent_uid == agent.uid
     assert provider_message_id =~ "external:"
   end
 
@@ -163,6 +163,37 @@ defmodule BullX.AIAgent.TargetTest do
              status: :complete,
              content: [%{"text" => "streamed answer"}],
              metadata: %{"delivery" => %{"mode" => "stream"}}
+           } = Repo.one!(from m in Message, where: m.role == :assistant)
+  end
+
+  test "streaming reply falls back to final assistant output when stream finalization fails" do
+    {:ok, agent} = create_ai_agent("ai-agent-target-streaming-fallback")
+    {:ok, caller} = create_human("ai-agent-target-streaming-fallback-caller")
+    grant(caller.uid, agent.uid, "invoke")
+    BullX.AIAgent.FakeLLMClient.push_response("fallback answer")
+    Application.put_env(:bullx, :im_gateway_test_stream_error, %{"kind" => "stream_failed"})
+
+    invocation = invocation(agent.uid)
+
+    entry =
+      invocation.mailbox_session_id
+      |> addressed_entry("evt-streaming-fallback-1", "hello", caller.uid)
+      |> put_in([:cloud_event, "data", "reply_address", "delivery_mode"], "stream")
+
+    assert :ok = BullX.AIAgent.handle_event(invocation, entry)
+    assert_received :closed
+    assert_receive {:im_gateway_adapter_stream_consumed, _source, _reply_address, _stream_id}
+    assert_receive {:im_gateway_adapter_delivered, _source, _reply_address, fallback_outbound}
+    refute_received {:failed, _reason}
+
+    assert %{"op" => "send", "content" => [%{"body" => %{"text" => "fallback answer"}}]} =
+             fallback_outbound
+
+    assert %Message{
+             role: :assistant,
+             status: :complete,
+             content: [%{"text" => "fallback answer"}],
+             metadata: %{"delivery" => %{"mode" => "outbound", "status" => "sent"}}
            } = Repo.one!(from m in Message, where: m.role == :assistant)
   end
 
@@ -684,7 +715,7 @@ defmodule BullX.AIAgent.TargetTest do
                    50
   end
 
-  test "retry after undo retries the previous exchange on the active branch" do
+  test "retry after undo retries the previous visible exchange" do
     {:ok, agent} = create_ai_agent("ai-agent-target-undo-then-retry-previous")
     {:ok, caller} = create_human("ai-agent-target-undo-then-retry-previous-caller")
     grant(caller.uid, agent.uid, "invoke")
@@ -950,7 +981,7 @@ defmodule BullX.AIAgent.TargetTest do
     assert Repo.get!(Conversation, conversation.id).generation["cancellation_reason"] ==
              "source_message_edited"
 
-    assert get_in(Repo.get!(Message, user.id).metadata, ["branch_effect", "state"]) ==
+    assert get_in(Repo.get!(Message, user.id).metadata, ["transcript_effect", "state"]) ==
              "superseded"
 
     assert %Message{
@@ -965,7 +996,7 @@ defmodule BullX.AIAgent.TargetTest do
              ]
            } = interrupted = Repo.get!(Message, generating.id)
 
-    assert get_in(interrupted.metadata, ["branch_effect", "state"]) == "interrupted"
+    assert get_in(interrupted.metadata, ["transcript_effect", "state"]) == "interrupted"
     assert get_in(interrupted.metadata, ["stream", "status"]) == "interrupted"
     refute Repo.exists?(from entry in Entry, where: entry.status == :pending)
   end
@@ -1587,6 +1618,52 @@ defmodule BullX.AIAgent.TargetTest do
     assert get_in(List.first(introspection.content), ["text"]) =~ "被编辑为：first edited"
   end
 
+  test "lifecycle edit can revise a target after weak mailbox session id drift" do
+    {:ok, agent} = create_ai_agent("ai-agent-target-edit-session-drift")
+    {:ok, caller} = create_human("ai-agent-target-edit-session-drift-caller")
+    grant(caller.uid, agent.uid, "invoke")
+    BullX.AIAgent.FakeLLMClient.push_response("old answer")
+
+    original_invocation = invocation(agent.uid)
+
+    original_entry =
+      original_invocation.mailbox_session_id
+      |> addressed_entry("evt-edit-session-drift-1", "@agent original", caller.uid)
+      |> with_provider_message_id("provider-edit-session-drift-1")
+
+    assert :ok = BullX.AIAgent.handle_event(original_invocation, original_entry)
+    assert_received :closed
+    assert_receive {:im_gateway_adapter_delivered, _source, _reply_address, _outbound}
+
+    drifted_invocation = %{
+      original_invocation
+      | mailbox_session_id: BullX.Ext.gen_uuid_v7()
+    }
+
+    edit_entry =
+      drifted_invocation.mailbox_session_id
+      |> edit_entry("evt-edit-session-drift-2", "@agent revised", caller.uid)
+      |> with_provider_message_id("provider-edit-session-drift-1")
+      |> with_routing_facts(%{"attention_reason" => "mention"})
+
+    assert :ok = BullX.AIAgent.handle_event(drifted_invocation, edit_entry)
+    assert_received :closed
+
+    original_message = Repo.get_by!(Message, event_id: "evt-edit-session-drift-1")
+    assert get_in(original_message.metadata, ["transcript_effect", "state"]) == "superseded"
+
+    republished_entry =
+      Entry
+      |> where([entry], entry.status == :pending)
+      |> Repo.one!()
+
+    assert republished_entry.attention == :addressed
+
+    assert get_in(republished_entry.cloud_event, ["data", "content"]) == [
+             %{"type" => "text", "text" => "@agent revised"}
+           ]
+  end
+
   test "historical addressed delete records a ref introspection without deleting old content" do
     {:ok, agent} = create_ai_agent("ai-agent-target-delete-history")
     {:ok, caller} = create_human("ai-agent-target-delete-history-caller")
@@ -1669,7 +1746,7 @@ defmodule BullX.AIAgent.TargetTest do
     assert_received :closed
 
     old_user = Repo.get_by!(Message, event_id: "evt-batch-edit-1", role: :user)
-    assert get_in(old_user.metadata, ["branch_effect", "state"]) == "superseded"
+    assert get_in(old_user.metadata, ["transcript_effect", "state"]) == "superseded"
 
     republished_entry =
       Entry
@@ -1697,7 +1774,7 @@ defmodule BullX.AIAgent.TargetTest do
            } =
              Message
              |> where([message], message.role == :user)
-             |> where([message], is_nil(fragment("?->'branch_effect'", message.metadata)))
+             |> where([message], is_nil(fragment("?->'transcript_effect'", message.metadata)))
              |> order_by([message], desc: message.inserted_at)
              |> Repo.one!()
   end
@@ -1739,7 +1816,7 @@ defmodule BullX.AIAgent.TargetTest do
     drain_deliveries()
 
     old_user = Repo.get_by!(Message, event_id: "evt-batch-downgrade-1", role: :user)
-    assert get_in(old_user.metadata, ["branch_effect", "state"]) == "superseded"
+    assert get_in(old_user.metadata, ["transcript_effect", "state"]) == "superseded"
 
     republished_entry =
       Entry
@@ -1767,7 +1844,7 @@ defmodule BullX.AIAgent.TargetTest do
            } =
              Message
              |> where([message], message.role == :im_ambient)
-             |> where([message], is_nil(fragment("?->'branch_effect'", message.metadata)))
+             |> where([message], is_nil(fragment("?->'transcript_effect'", message.metadata)))
              |> Repo.one!()
   end
 
@@ -1807,14 +1884,14 @@ defmodule BullX.AIAgent.TargetTest do
     drain_deliveries()
 
     old_user = Repo.get_by!(Message, event_id: "evt-batch-ignored-1", role: :user)
-    assert get_in(old_user.metadata, ["branch_effect", "state"]) == "superseded"
+    assert get_in(old_user.metadata, ["transcript_effect", "state"]) == "superseded"
 
     refute Repo.exists?(from entry in Entry, where: entry.status == :pending)
 
     refute Repo.exists?(
              from message in Message,
                where: message.role in [:user, :im_ambient],
-               where: is_nil(fragment("?->'branch_effect'", message.metadata))
+               where: is_nil(fragment("?->'transcript_effect'", message.metadata))
            )
   end
 

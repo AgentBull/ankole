@@ -44,17 +44,14 @@ defmodule BullX.AIAgent.CommandsTest do
     assert assistant_message_id == assistant.id
     assert is_binary(lease_id)
 
-    assert %Conversation{
-             current_leaf_message_id: ^user_id,
-             generation: %{"lease_id" => ^lease_id}
-           } =
+    assert %Conversation{generation: %{"lease_id" => ^lease_id}} =
              Repo.get!(Conversation, conversation.id)
 
-    assert %Message{metadata: %{"branch_effect" => %{"state" => "superseded"}}} =
+    assert %Message{metadata: %{"transcript_effect" => %{"state" => "superseded"}}} =
              Repo.get!(Message, assistant.id)
   end
 
-  test "undo marks the latest exchange as undone and rewinds the leaf" do
+  test "undo marks the latest exchange as undone" do
     %{agent: agent, caller: caller, profile: profile} = setup_command_subjects("undo")
     {:ok, conversation} = Conversations.find_or_create_active(agent.uid, "v1:commands-undo", %{})
     {:ok, conversation, user} = append_user(conversation, "remove this")
@@ -76,12 +73,10 @@ defmodule BullX.AIAgent.CommandsTest do
 
     assert assistant_message_id == assistant.id
 
-    assert %Conversation{current_leaf_message_id: nil} = Repo.get!(Conversation, conversation.id)
-
-    assert %Message{metadata: %{"branch_effect" => %{"state" => "undone"}}} =
+    assert %Message{metadata: %{"transcript_effect" => %{"state" => "undone"}}} =
              Repo.get!(Message, user.id)
 
-    assert %Message{metadata: %{"branch_effect" => %{"state" => "undone"}}} =
+    assert %Message{metadata: %{"transcript_effect" => %{"state" => "undone"}}} =
              Repo.get!(Message, assistant.id)
   end
 
@@ -136,7 +131,7 @@ defmodule BullX.AIAgent.CommandsTest do
              kind: :error,
              status: :complete,
              metadata: %{
-               "branch_effect" => %{"state" => "interrupted"},
+               "transcript_effect" => %{"state" => "interrupted"},
                "stream" => %{"status" => "interrupted"}
              }
            } = Repo.get!(Message, assistant.id)

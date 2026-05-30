@@ -49,6 +49,13 @@ defmodule FeishuOpenAPI.WS.ProtocolTest do
     assert decoded == %{"code" => 200, "headers" => nil, "data" => nil}
   end
 
+  test "encode_ws_response/1 maps handler failures to retryable transport errors" do
+    assert {:ok, encoded} = Protocol.encode_ws_response({:error, {:handler_failed, :boom}})
+    assert {:ok, decoded} = Jason.decode(encoded)
+
+    assert decoded == %{"code" => 500, "headers" => nil, "data" => nil}
+  end
+
   test "encode_ws_response/1 base64-encodes callback data" do
     callback_response = %{"toast" => %{"type" => "success", "content" => "ok"}}
 

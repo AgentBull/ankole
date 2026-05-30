@@ -5,6 +5,7 @@ defmodule BullX.MailBoxTest do
   alias BullX.MailBox
   alias BullX.MailBox.{DeliveryRule, Entry}
   alias BullX.Principals
+  alias BullX.Principals.Agent
   alias BullX.Repo
 
   test "route fans out to every matching rule even when priorities are equal" do
@@ -24,6 +25,35 @@ defmodule BullX.MailBoxTest do
              agent_a,
              agent_b
            ]
+  end
+
+  test "route reports cached-rule delivery failures instead of outer success" do
+    original_config = Application.get_env(:bullx, MailBox, [])
+
+    :ok =
+      Application.put_env(
+        :bullx,
+        MailBox,
+        Keyword.put(original_config, :active_rules_cache_ttl_ms, 60_000)
+      )
+
+    MailBox.invalidate_delivery_rule_cache()
+
+    on_exit(fn ->
+      Application.put_env(:bullx, MailBox, original_config)
+      MailBox.invalidate_delivery_rule_cache()
+    end)
+
+    agent_uid = ai_agent!("stale-cached-rule")
+    insert_delivery_rule!("stale cached rule", agent_uid, 100)
+
+    assert {:ok, [_result]} = MailBox.route(cloud_event("stale-cache-warmup"))
+    assert {1, _rows} = Repo.delete_all(from agent in Agent, where: agent.uid == ^agent_uid)
+
+    assert {:error, {:delivery_failed, [{:error, :agent_not_found}]}} =
+             MailBox.route(cloud_event("stale-cache-after-delete"))
+
+    assert Repo.aggregate(Entry, :count) == 0
   end
 
   test "process_ready reclaims expired leased session entries" do
@@ -136,7 +166,6 @@ defmodule BullX.MailBoxTest do
                status: :complete,
                content: [%{"type" => "text", "text" => "before edit"}],
                mailbox_session_id: session.id,
-               mailbox_entry_id: receive_entry.id,
                event_source: "bullx://test/mail-box",
                event_id: "receive-materialized-1",
                metadata: %{"provider_refs" => %{"message_ids" => ["om_1"]}}

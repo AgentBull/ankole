@@ -55,6 +55,14 @@ if Code.ensure_loaded?(Plug) do
 
     defp reply({:ok, _}, conn), do: respond(conn, 200, %{"msg" => "success"})
 
+    defp reply({:error, {:handler_failed, _reason}}, conn) do
+      respond(conn, 500, %{"msg" => "handler failed"})
+    end
+
+    defp reply({:error, {:handler_crashed, _reason}}, conn) do
+      respond(conn, 500, %{"msg" => "handler failed"})
+    end
+
     defp reply({:error, reason}, conn) do
       respond(conn, 400, %{"msg" => "invalid webhook: #{inspect(reason)}"})
     end

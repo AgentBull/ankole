@@ -69,7 +69,7 @@ defmodule BullXWeb.SetupChannelSourcesController do
   end
 
   defp render_step(conn, projection, error) do
-    status = ChannelSources.status()
+    status = channel_sources_status(projection)
 
     conn
     |> assign(:page_title, "Setup Channel Sources")
@@ -88,4 +88,7 @@ defmodule BullXWeb.SetupChannelSourcesController do
     })
     |> render_inertia("setup/channel-sources/App")
   end
+
+  defp channel_sources_status(%{channel_sources: status}), do: status
+  defp channel_sources_status(_projection), do: ChannelSources.status()
 end

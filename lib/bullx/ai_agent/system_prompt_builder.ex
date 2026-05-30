@@ -15,7 +15,7 @@ defmodule BullX.AIAgent.SystemPromptBuilder do
   exposes that prefix's byte offset (`stable_prefix.byte_offset`) so
   downstream prompt-cache hints (`BullX.AIAgent.Compression.apply_prompt_cache_hints/2`)
   can tell the provider exactly where to anchor the cache. Volatile content
-  (the live branch, recent observations, time-aware data) is always
+  (the live transcript, recent observations, time-aware data) is always
   appended *after* the cache anchor, so it never invalidates the prefix on
   the next call.
 

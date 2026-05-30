@@ -184,11 +184,11 @@ defmodule FeishuOpenAPI.WS.Client do
       {nil, _} ->
         {:noreply, state}
 
-      {{frame, start_ms}, rest} ->
+      {{frame, event_type, start_ms}, rest} ->
         Process.demonitor(ref, [:flush])
         duration_ms = System.monotonic_time(:millisecond) - start_ms
         state = %{state | dispatch_tasks: rest}
-        log_dispatch_result(frame, result, duration_ms, state)
+        log_dispatch_result(frame, event_type, result, duration_ms, state)
         {:noreply, send_dispatch_response(frame, result, duration_ms, state)}
     end
   end
@@ -199,7 +199,7 @@ defmodule FeishuOpenAPI.WS.Client do
       {nil, _} ->
         {:noreply, state}
 
-      {{frame, start_ms}, rest} ->
+      {{frame, _event_type, start_ms}, rest} ->
         duration_ms = System.monotonic_time(:millisecond) - start_ms
         Logger.error("feishu_openapi ws dispatch task crashed: #{inspect(reason)}")
         state = %{state | dispatch_tasks: rest}
@@ -450,8 +450,9 @@ defmodule FeishuOpenAPI.WS.Client do
   defp dispatch_event(%Frame{payload: payload} = frame, state) do
     case Jason.decode(payload) do
       {:ok, decoded} ->
-        log_frame_received(frame, decoded, state)
-        start_task_for(frame, decoded, state)
+        event_type = event_type(decoded)
+        log_frame_received(frame, event_type, state)
+        start_task_for(frame, event_type, decoded, state)
 
       {:error, reason} ->
         Logger.warning("feishu_openapi ws payload decode error: #{inspect(reason)}")
@@ -459,19 +460,19 @@ defmodule FeishuOpenAPI.WS.Client do
     end
   end
 
-  defp log_frame_received(%Frame{} = frame, decoded, state) do
+  defp log_frame_received(%Frame{} = frame, event_type, state) do
     Logger.info(
-      "feishu_openapi ws frame received app_id=#{state.client.app_id} frame_type=#{frame_type(frame)} event_type=#{event_type(decoded)}"
+      "feishu_openapi ws frame received app_id=#{state.client.app_id} frame_type=#{frame_type(frame)} event_type=#{event_type}"
     )
   end
 
-  defp log_dispatch_result(%Frame{} = frame, result, duration_ms, state) do
+  defp log_dispatch_result(%Frame{} = frame, event_type, result, duration_ms, state) do
     Logger.info(
-      "feishu_openapi ws dispatch result app_id=#{state.client.app_id} frame_type=#{frame_type(frame)} event_type=#{event_type(frame)} result=#{dispatch_result(result)} duration_ms=#{duration_ms}"
+      "feishu_openapi ws dispatch result app_id=#{state.client.app_id} frame_type=#{frame_type(frame)} event_type=#{event_type} result=#{dispatch_result(result)} duration_ms=#{duration_ms}"
     )
   end
 
-  defp start_task_for(%Frame{} = frame, decoded, %{dispatcher: dispatcher} = state) do
+  defp start_task_for(%Frame{} = frame, event_type, decoded, %{dispatcher: dispatcher} = state) do
     start_ms = System.monotonic_time(:millisecond)
 
     task =
@@ -481,7 +482,7 @@ defmodule FeishuOpenAPI.WS.Client do
 
     %{
       state
-      | dispatch_tasks: Map.put(state.dispatch_tasks, task.ref, {frame, start_ms})
+      | dispatch_tasks: Map.put(state.dispatch_tasks, task.ref, {frame, event_type, start_ms})
     }
   end
 
@@ -520,13 +521,6 @@ defmodule FeishuOpenAPI.WS.Client do
   end
 
   defp frame_type(%Frame{} = frame), do: Frame.type(frame) || "unknown"
-
-  defp event_type(%Frame{payload: payload}) do
-    case Jason.decode(payload) do
-      {:ok, decoded} -> event_type(decoded)
-      {:error, _reason} -> "unknown"
-    end
-  end
 
   defp event_type(decoded) when is_map(decoded) do
     Envelope.event_type(decoded) ||

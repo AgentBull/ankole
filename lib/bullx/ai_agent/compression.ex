@@ -8,9 +8,9 @@ defmodule BullX.AIAgent.Compression do
 
   Compression is best-effort: `manual_compress/2` and `auto_compress/3` return
   `{:ok, %{status: :diagnostic, ...}}` (not `{:error, _}`) when a summary
-  cannot be produced — branch moved under us, model failed, no compressible
+  cannot be produced — transcript changed under us, model failed, no compressible
   interval, etc. Callers are expected to continue with the un-compressed
-  branch and surface the diagnostic to the user.
+  transcript and surface the diagnostic to the user.
   """
 
   require Logger
@@ -86,16 +86,16 @@ defmodule BullX.AIAgent.Compression do
 
   @spec manual_compress(Conversation.t(), map()) :: {:ok, map()} | {:error, term()}
   def manual_compress(%Conversation{} = conversation, context) when is_map(context) do
-    branch = Conversations.active_branch(conversation)
-    expected_raw_leaf_id = List.last(branch) && List.last(branch).id
+    transcript = Conversations.active_transcript(conversation)
+    expected_tail_message_id = List.last(transcript) && List.last(transcript).id
 
-    with nil <- existing_summary_for_context(context),
-         {:ok, profile} <- fetch_profile(context),
-         {_from_message, _to_message, seen_messages} <- compressible_interval(branch, profile),
+    with {:ok, profile} <- fetch_profile(context),
+         {_from_message, _to_message, seen_messages} <- compressible_interval(transcript, profile),
+         nil <- existing_summary_for_range(conversation, seen_messages),
          {:ok, summary, seen_messages} <- call_compression_model(profile, seen_messages) do
       write_summary(
         conversation,
-        expected_raw_leaf_id,
+        expected_tail_message_id,
         List.first(seen_messages),
         List.last(seen_messages),
         seen_messages,
@@ -112,8 +112,8 @@ defmodule BullX.AIAgent.Compression do
       {:error, :empty_summary} ->
         {:ok, %{status: :diagnostic, reason: "compression_failed"}}
 
-      {:error, :branch_changed} ->
-        {:ok, %{status: :diagnostic, reason: "branch_changed"}}
+      {:error, :transcript_changed} ->
+        {:ok, %{status: :diagnostic, reason: "transcript_changed"}}
 
       {:error, reason} ->
         Logger.warning(
@@ -206,15 +206,19 @@ defmodule BullX.AIAgent.Compression do
     end
   end
 
-  defp existing_summary_for_context(%{mailbox_entry_id: entry_id})
-       when is_binary(entry_id),
-       do: Conversations.summary_for_entry(entry_id)
+  defp existing_summary_for_range(_conversation, []), do: nil
 
-  defp existing_summary_for_context(_context), do: nil
+  defp existing_summary_for_range(%Conversation{} = conversation, seen_messages) do
+    Conversations.summary_for_range(
+      conversation.id,
+      List.first(seen_messages).id,
+      List.last(seen_messages).id
+    )
+  end
 
-  defp compressible_interval(branch, %Profile{} = profile) do
+  defp compressible_interval(transcript, %Profile{} = profile) do
     exchanges =
-      branch
+      transcript
       |> Enum.reject(&protected_message?/1)
       |> complete_exchanges()
 
@@ -234,7 +238,7 @@ defmodule BullX.AIAgent.Compression do
   # - :generating — not yet a stable Message, would corrupt the source-of-truth ordering
   # - :summary — already a compression artifact; re-compressing would lose granularity
   # - :im_ambient/:normal — ambient (unaddressed) chatter is recalled by scene at
-  #   render time, not via the branch, so it must not be folded into a summary
+  #   render time, not via the addressed transcript, so it must not be folded into a summary
   defp protected_message?(%Message{status: :generating}), do: true
   defp protected_message?(%Message{kind: :summary}), do: true
   defp protected_message?(%Message{role: :im_ambient, kind: :normal}), do: true
@@ -390,7 +394,7 @@ defmodule BullX.AIAgent.Compression do
 
   defp write_summary(
          conversation,
-         expected_raw_leaf_id,
+         expected_tail_message_id,
          from_message,
          to_message,
          seen_messages,
@@ -402,16 +406,13 @@ defmodule BullX.AIAgent.Compression do
     summary_text = summary_text(summary.text, time_range)
 
     attrs = %{
-      conversation_id: conversation.id,
       role: :assistant,
       kind: :summary,
       status: :complete,
       content: [%{"type" => "summary_text", "text" => summary_text}],
       covers_range: %{"from_id" => from_message.id, "to_id" => to_message.id},
       mailbox_session_id: Map.get(context, :mailbox_session_id),
-      mailbox_entry_id: Map.get(context, :mailbox_entry_id),
       metadata: %{
-        "source_leaf_message_id" => expected_raw_leaf_id,
         "original_dialogue_time_range" => time_range,
         "trigger" => Map.get(context, :compression_trigger, "manual_command"),
         "compression" => %{
@@ -428,13 +429,13 @@ defmodule BullX.AIAgent.Compression do
 
     append_opts =
       case Map.get(context, :lease_id) do
-        lease_id when is_binary(lease_id) -> [move_leaf?: true, lease_id: lease_id]
-        _other -> [move_leaf?: true, require_inactive_generation?: true]
+        lease_id when is_binary(lease_id) -> [lease_id: lease_id]
+        _other -> [require_inactive_generation?: true]
       end
 
-    case Conversations.append_message_if_raw_leaf(
+    case Conversations.append_message_if_transcript_tail(
            conversation,
-           expected_raw_leaf_id,
+           expected_tail_message_id,
            attrs,
            append_opts
          ) do

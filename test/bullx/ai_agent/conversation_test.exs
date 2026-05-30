@@ -26,7 +26,6 @@ defmodule BullX.AIAgent.ConversationTest do
 
     assert {:ok, updated, message} =
              Conversations.append_message(conversation, %{
-               conversation_id: conversation.id,
                role: :user,
                kind: :normal,
                status: :complete,
@@ -34,11 +33,16 @@ defmodule BullX.AIAgent.ConversationTest do
                metadata: %{}
              })
 
-    assert updated.current_leaf_message_id == message.id
+    assert updated.id == conversation.id
+    assert message.agent_uid == agent.uid
+    assert message.conversation_id == conversation.id
+    assert [%Message{id: message_id}] = Conversations.active_transcript(conversation)
+    assert message_id == message.id
 
     changeset =
       Message.changeset(%Message{}, %{
         conversation_id: conversation.id,
+        agent_uid: agent.uid,
         role: :tool,
         kind: :error,
         status: :complete,
@@ -50,7 +54,7 @@ defmodule BullX.AIAgent.ConversationTest do
     assert %{role: [_ | _]} = errors_on(changeset)
   end
 
-  test "inbound messages dedupe by mailbox_entry_id" do
+  test "inbound messages dedupe by conversation event identity" do
     {:ok, %{principal: agent}} =
       Principals.create_agent(%{
         uid: "ai-agent-dedupe-test",
@@ -64,22 +68,22 @@ defmodule BullX.AIAgent.ConversationTest do
       })
 
     {:ok, conversation} = Conversations.find_or_create_active(agent.uid, "v1:dedupe", %{})
-    entry_id = BullX.Ext.gen_uuid_v7()
 
     attrs = %{
-      conversation_id: conversation.id,
       role: :user,
       kind: :normal,
       status: :complete,
       content: [Message.text_block("hello")],
+      event_source: "bullx://test/conversation",
+      event_id: "evt-dedupe-1",
       metadata: %{}
     }
 
     assert {:ok, _conversation, first} =
-             Conversations.append_inbound_once(conversation, entry_id, attrs)
+             Conversations.append_inbound_once(conversation, attrs)
 
     assert {:ok, _conversation, second} =
-             Conversations.append_inbound_once(conversation, entry_id, attrs)
+             Conversations.append_inbound_once(conversation, attrs)
 
     assert first.id == second.id
   end

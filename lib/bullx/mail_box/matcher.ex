@@ -3,7 +3,8 @@ defmodule BullX.MailBox.Matcher do
   MailBox delivery-rule matcher wrapper.
 
   The Rust NIF owns CEL evaluation. `BullX.MailBox.route/2` evaluates delivery
-  rules independently so one mail can fan out to every matching receiver.
+  rules in one coarse NIF call so one mail can fan out to every matching
+  receiver without crossing the native boundary once per rule.
   """
 
   alias BullX.MailBox.DeliveryRule
@@ -13,10 +14,27 @@ defmodule BullX.MailBox.Matcher do
           {:ok, {:matched, String.t(), [diagnostic()]}}
           | {:ok, {:no_match, [diagnostic()]}}
           | {:error, String.t()}
+  @type match_all_result ::
+          {:ok, {:matched, [String.t()], [diagnostic()]}}
+          | {:ok, {:no_match, [diagnostic()]}}
+          | {:error, String.t()}
 
   @spec match([DeliveryRule.t() | map()], map()) :: match_result()
   def match(rules, routing_context) when is_list(rules) and is_map(routing_context) do
-    case BullX.Ext.mailbox_match_delivery_rule(encode_rules(rules), routing_context) do
+    safe_match(fn ->
+      BullX.Ext.mailbox_match_delivery_rule(encode_rules(rules), routing_context)
+    end)
+  end
+
+  @spec match_all([DeliveryRule.t() | map()], map()) :: match_all_result()
+  def match_all(rules, routing_context) when is_list(rules) and is_map(routing_context) do
+    safe_match(fn ->
+      BullX.Ext.mailbox_match_delivery_rules(encode_rules(rules), routing_context)
+    end)
+  end
+
+  defp safe_match(fun) when is_function(fun, 0) do
+    case fun.() do
       {:matched, rule_id, diagnostics} -> {:ok, {:matched, rule_id, diagnostics}}
       {:no_match, diagnostics} -> {:ok, {:no_match, diagnostics}}
       {:error, reason} -> {:error, to_string(reason)}

@@ -75,6 +75,13 @@ source `group_message_mode` and mention/DM policy. Unsupported or empty inbound
 Feishu message bodies are ignored; they are not converted into prompt-visible
 fallback text.
 
+Feishu `chat_id` is the stable external room id used by IMGateway. Feishu
+documents `chat_id` as globally unique and the same group returns the same
+`chat_id` to different apps, so multiple Feishu bot sources observing the same
+group map to one canonical `im_rooms` row. Future adapters must state whether
+their room ids are global, realm-scoped, or source-scoped fallback ids before
+they write IMGateway mirror rows.
+
 ## Principal Binding
 
 Feishu channel actors are represented as `principal_external_identities` with
@@ -100,8 +107,9 @@ AIAgent
 ```
 
 The adapter supports normal send/edit/recall-style delivery outcomes. IMGateway
-best-effort mirrors provider ids and delivery status to `im_messages` after the
-adapter call completes.
+best-effort mirrors provider-confirmed message ids and lifecycle state to
+`im_messages` after the adapter call completes. Failed delivery attempts and
+reply-address state are runtime facts and are not stored as IM message rows.
 
 Streaming output uses `Feishu.ChannelAdapter.consume_stream/4` and
 Feishu streaming card support. The initial outbound card message is still sent

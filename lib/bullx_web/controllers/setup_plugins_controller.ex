@@ -40,7 +40,7 @@ defmodule BullXWeb.SetupPluginsController do
   end
 
   defp render_step(conn, projection_or_error) do
-    status = Plugins.status()
+    status = plugins_status(projection_or_error)
 
     conn
     |> assign(:page_title, "Setup Plugins")
@@ -57,4 +57,7 @@ defmodule BullXWeb.SetupPluginsController do
     })
     |> render_inertia("setup/plugins/App")
   end
+
+  defp plugins_status(%{plugins: status}), do: status
+  defp plugins_status(_projection_or_error), do: Plugins.status()
 end

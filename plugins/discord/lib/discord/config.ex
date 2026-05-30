@@ -6,6 +6,8 @@ defmodule Discord.Config.IMGatewaySources do
   import BullX.Config.MapType,
     only: [required_string: 2, optional_boolean: 3, optional_map: 3]
 
+  @deprecated_stream_config_keys ["stream_update_interval_ms", "stream_chunk_soft_limit"]
+
   @impl Skogsra.Type
   def cast(value) when is_binary(value) do
     with {:ok, decoded} <- Jason.decode(value), do: cast(decoded), else: (_error -> :error)
@@ -31,6 +33,7 @@ defmodule Discord.Config.IMGatewaySources do
          {:ok, application_commands} <- optional_map(source, "application_commands", %{}) do
       {:ok,
        source
+       |> Map.drop(@deprecated_stream_config_keys)
        |> Map.put("id", id)
        |> Map.put("application_id", application_id)
        |> Map.put("bot_token", bot_token)

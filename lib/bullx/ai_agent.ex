@@ -10,10 +10,9 @@ defmodule BullX.AIAgent do
   the code:
 
   * **Conversation is a durable business record, not a session.** A
-    `BullX.AIAgent.Conversations` row is a Message tree in Postgres that can
-    branch and outlive any process. There is no "session you closed" — work
-    survives crashes, redeploys, and operator handoffs, and the branch is
-    addressable for replay.
+    `BullX.AIAgent.Conversations` row is an append-only transcript in Postgres.
+    There is no "session you closed" — work survives crashes, redeploys, and
+    operator handoffs.
   * **One generation per Conversation, enforced at the database.** A
     Conversation holds a generation lease while the model loop runs (see
     `Runner`). Concurrent events for the same Conversation block on the lease
@@ -37,6 +36,8 @@ defmodule BullX.AIAgent do
   AIAgent owns Conversation and Message business records, prompt rendering,
   ACL checks, tool-loop execution, and safe visible-output metadata.
   """
+
+  import Ecto.Query
 
   alias BullX.AIAgent.{
     AmbientBatch,
@@ -332,7 +333,14 @@ defmodule BullX.AIAgent do
   defp handle_ambient(event_data, principal, profile, invocation, entry, _caller_principal_uid) do
     with {:ok, conversation, key_metadata} <-
            conversation_for(profile, principal.uid, :ambient, event_data, entry),
-         existing? <- not is_nil(Conversations.inbound_message_for_entry(entry.id)),
+         existing? <-
+           not is_nil(
+             Conversations.inbound_message_for_event(
+               conversation,
+               entry.event_source,
+               entry.event_id
+             )
+           ),
          {:ok, _conversation, message} <-
            append_ambient(conversation, key_metadata, event_data, invocation, entry),
          {:ok, message} <- AmbientBrief.maybe_generate(message, profile) do
@@ -359,18 +367,17 @@ defmodule BullX.AIAgent do
          entry,
          caller_principal_uid
        ) do
-    branch = Conversations.active_branch(conversation)
+    transcript = Conversations.active_transcript(conversation)
     now = DateTime.utc_now(:microsecond)
 
     metadata =
       profile
-      |> MessageContextBuilder.metadata_for_user_message(event_data, branch, now)
+      |> MessageContextBuilder.metadata_for_user_message(event_data, transcript, now)
       |> put_scene_key()
       |> Map.merge(key_metadata)
       |> Map.merge(Event.provider_ref_metadata(event_data))
 
     attrs = %{
-      conversation_id: conversation.id,
       role: :user,
       kind: :normal,
       status: :complete,
@@ -382,7 +389,7 @@ defmodule BullX.AIAgent do
     }
 
     with {:ok, conversation, message} <-
-           Conversations.append_inbound_once(conversation, entry.id, attrs),
+           Conversations.append_inbound_once(conversation, attrs),
          :ok <-
            maybe_run_or_write_denial(
              conversation,
@@ -417,7 +424,6 @@ defmodule BullX.AIAgent do
       |> Map.merge(Event.provider_ref_metadata(event_data))
 
     attrs = %{
-      conversation_id: conversation.id,
       role: :im_ambient,
       kind: :normal,
       status: :complete,
@@ -428,7 +434,7 @@ defmodule BullX.AIAgent do
       metadata: metadata
     }
 
-    Conversations.append_inbound_once(conversation, entry.id, attrs)
+    Conversations.append_inbound_once(conversation, attrs)
   end
 
   defp maybe_enqueue_ambient(
@@ -491,14 +497,20 @@ defmodule BullX.AIAgent do
     end
   end
 
-  defp previous_assistant_answer?(%Message{parent_id: parent_id}) when is_binary(parent_id) do
-    case Repo.get(Message, parent_id) do
-      %Message{role: :assistant, kind: :normal, status: :complete} -> true
-      _other -> false
-    end
+  defp previous_assistant_answer?(%Message{} = message) do
+    Message
+    |> where([m], m.conversation_id == ^message.conversation_id)
+    |> where([m], m.role == :assistant and m.kind == :normal and m.status == :complete)
+    |> where(
+      [m],
+      m.inserted_at < ^message.inserted_at or
+        (m.inserted_at == ^message.inserted_at and m.id < ^message.id)
+    )
+    |> where([m], is_nil(fragment("?->'transcript_effect'", m.metadata)))
+    |> order_by([m], desc: m.inserted_at, desc: m.id)
+    |> limit(1)
+    |> Repo.exists?()
   end
-
-  defp previous_assistant_answer?(_message), do: false
 
   defp mentions_agent_identity?(%Message{} = message, %Principal{} = principal) do
     text = raw_message_text(message)
@@ -575,6 +587,7 @@ defmodule BullX.AIAgent do
                  agent_uid: principal.uid,
                  mailbox_session_id: invocation.mailbox_session_id,
                  mailbox_entry_id: entry.id,
+                 mailbox_entry_seq: map_entry_seq(entry),
                  output: Map.get(invocation, :output),
                  reply_address: Event.reply_address(entry.cloud_event["data"] || %{}),
                  acl_context: acl_context(entry, "command"),
@@ -650,6 +663,7 @@ defmodule BullX.AIAgent do
           agent_uid: principal.uid,
           mailbox_session_id: invocation.mailbox_session_id,
           mailbox_entry_id: entry.id,
+          mailbox_entry_seq: map_entry_seq(entry),
           output: Map.get(invocation, :output),
           reply_address: Event.reply_address(event_data),
           acl_context: acl_context(entry, "addressed")
@@ -667,13 +681,11 @@ defmodule BullX.AIAgent do
 
       false ->
         Conversations.append_message(conversation, %{
-          conversation_id: conversation.id,
           role: :assistant,
           kind: :error,
           status: :complete,
           content: [Message.error_block("acl_denied", "AIAgent access denied.", false)],
           mailbox_session_id: invocation.mailbox_session_id,
-          mailbox_entry_id: entry.id,
           metadata: %{
             "generation" => %{
               "trigger_message_id" => trigger_message.id,
@@ -689,6 +701,10 @@ defmodule BullX.AIAgent do
         end
     end
   end
+
+  defp map_entry_seq(%{entry_seq: seq}) when is_integer(seq), do: seq
+  defp map_entry_seq(%{"entry_seq" => seq}) when is_integer(seq), do: seq
+  defp map_entry_seq(_entry), do: nil
 
   defp write_command_error(_conversation, principal, _invocation, entry, code) do
     emit(:command_diagnostic, %{

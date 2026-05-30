@@ -13,7 +13,6 @@ defmodule Discord.Source do
     only: [
       reject_nil_values: 1,
       positive_integer: 3,
-      bounded_integer: 5,
       optional_boolean: 3,
       string_list: 3,
       stringify_id: 1,
@@ -23,13 +22,10 @@ defmodule Discord.Source do
   @default_oauth2_scopes ["identify", "email"]
   @default_message_context_ttl_seconds 2_592_000
   @default_thread_ownership_cache_ttl_seconds 86_400
-  @default_stream_update_interval_ms 1_000
-  @default_stream_chunk_soft_limit 1_850
   @default_auto_archive_duration_minutes 1_440
   @default_group_message_mode :addressed_only
   @group_message_modes [:addressed_only, :observe_all, :engage_all]
   @default_trusted_realm_by_default false
-  @discord_message_hard_limit 2_000
 
   @derive {Inspect, except: [:bot_token, :client_secret]}
   defstruct [
@@ -55,8 +51,6 @@ defmodule Discord.Source do
     application_commands: %{"sync_policy" => "safe"},
     message_context_ttl_seconds: @default_message_context_ttl_seconds,
     thread_ownership_cache_ttl_seconds: @default_thread_ownership_cache_ttl_seconds,
-    stream_update_interval_ms: @default_stream_update_interval_ms,
-    stream_chunk_soft_limit: @default_stream_chunk_soft_limit,
     group_message_mode: @default_group_message_mode,
     trusted_realm_by_default: @default_trusted_realm_by_default,
     req_options: [],
@@ -108,20 +102,6 @@ defmodule Discord.Source do
              config,
              "thread_ownership_cache_ttl_seconds",
              @default_thread_ownership_cache_ttl_seconds
-           ),
-         stream_update_interval_ms:
-           positive_integer(
-             config,
-             "stream_update_interval_ms",
-             @default_stream_update_interval_ms
-           ),
-         stream_chunk_soft_limit:
-           bounded_integer(
-             config,
-             "stream_chunk_soft_limit",
-             @default_stream_chunk_soft_limit,
-             1,
-             @discord_message_hard_limit
            ),
          group_message_mode: group_message_mode,
          trusted_realm_by_default:
@@ -188,7 +168,9 @@ defmodule Discord.Source do
           "client_secret",
           "req_options",
           "api_module",
-          "nostrum_bot_module"
+          "nostrum_bot_module",
+          "stream_update_interval_ms",
+          "stream_chunk_soft_limit"
         ])
 
       {:error, _reason} ->
@@ -245,7 +227,7 @@ defmodule Discord.Source do
          status: :ok,
          adapter: "discord",
          source_id: source.id,
-         capabilities: [:inbound, :send, :edit, :stream, :threads, :application_commands, :oauth2],
+         capabilities: [:inbound, :send, :edit, :threads, :application_commands, :oauth2],
          details:
            %{
              "transport" => "discord_gateway_ws",

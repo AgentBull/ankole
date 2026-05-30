@@ -38,6 +38,14 @@ defmodule Feishu.UserInfo do
     end
   end
 
+  @spec user_id(map()) :: {:ok, String.t()} | {:error, map()}
+  def user_id(userinfo) when is_map(userinfo) do
+    case first_string(userinfo, ["user_id"]) do
+      user_id when is_binary(user_id) -> {:ok, user_id}
+      _value -> {:error, Feishu.Error.payload("Feishu userinfo is missing user_id")}
+    end
+  end
+
   @spec profile(map()) :: map()
   def profile(userinfo) when is_map(userinfo) do
     %{}

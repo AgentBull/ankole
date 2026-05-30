@@ -16,11 +16,13 @@ Summaries are `conversation_messages` rows with:
 - `covers_range.from_id`;
 - `covers_range.to_id`;
 - content containing a `summary_text` block;
-- metadata including `source_leaf_message_id`,
-  `original_dialogue_time_range`, and `compression`.
+- metadata including `original_dialogue_time_range` and `compression`.
 
 Raw messages remain in PostgreSQL. Rendering chooses the latest compatible
-summary overlay for a branch instead of deleting covered messages.
+summary overlay for the visible transcript instead of deleting covered messages.
+Renderer lookup is bounded by the visible transcript ids: it reads visible rows
+in transcript order, then searches complete summaries whose
+`covers_range.from_id` and `covers_range.to_id` are present in that transcript.
 
 ## Triggering
 
@@ -45,7 +47,7 @@ Compression excludes:
 - summary messages;
 - ambient normal messages.
 
-It compresses complete dialogue ranges. If the branch changed or there is no
+It compresses complete dialogue ranges. If the transcript changed or there is no
 eligible interval, compression returns diagnostics rather than corrupting
 history.
 

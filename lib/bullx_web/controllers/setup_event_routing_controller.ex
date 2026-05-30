@@ -31,7 +31,7 @@ defmodule BullXWeb.SetupEventRoutingController do
   end
 
   defp render_step(conn, projection, error) do
-    status = EventRouting.status(BullXWeb.SetupAuth.session_input(conn))
+    status = event_routing_status(projection, conn)
 
     conn
     |> assign(:page_title, "Setup Event Routing")
@@ -45,5 +45,11 @@ defmodule BullXWeb.SetupEventRoutingController do
       error: error
     })
     |> render_inertia("setup/event-routing/App")
+  end
+
+  defp event_routing_status(%{event_routing: status}, _conn), do: status
+
+  defp event_routing_status(_projection, conn) do
+    EventRouting.status(BullXWeb.SetupAuth.session_input(conn))
   end
 end

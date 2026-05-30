@@ -427,6 +427,8 @@ Return behavior:
 
 - challenge -> `{"challenge": "..."}`
 - handler returns a map -> that map becomes the response body
+- handler returns `{:ok, _}` -> `{"msg": "success"}`
+- handler returns `{:error, _}` or raises -> HTTP 500 so the provider can retry
 - handler returns anything else -> `{"msg": "success"}`
 
 For real interactive-card HTTP callbacks, use `FeishuOpenAPI.CardAction.Handler`

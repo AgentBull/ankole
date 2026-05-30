@@ -17,6 +17,8 @@ defmodule Discord.ConfigSourceTest do
                  application_id: "app_1",
                  bot_token: "token",
                  client_secret: "secret",
+                 stream_update_interval_ms: 1_000,
+                 stream_chunk_soft_limit: 1_850,
                  oauth2: %{enabled: true, redirect_uri: "https://bullx.example/callback"}
                }
              ])
@@ -26,6 +28,8 @@ defmodule Discord.ConfigSourceTest do
     assert source["application_id"] == "app_1"
     assert source["bot_token"] == "token"
     assert source["client_secret"] == "secret"
+    refute Map.has_key?(source, "stream_update_interval_ms")
+    refute Map.has_key?(source, "stream_chunk_soft_limit")
 
     assert source["oauth2"] == %{
              "enabled" => true,
@@ -48,6 +52,17 @@ defmodule Discord.ConfigSourceTest do
     refute inspect(source) =~ "token"
     refute inspect(source) =~ "secret"
     refute Map.has_key?(Source.public_config(source), "bot_token")
+
+    public_config =
+      Source.public_config(%{
+        "id" => "main",
+        "stream_update_interval_ms" => 1_000,
+        "stream_chunk_soft_limit" => 1_850
+      })
+
+    assert public_config["id"] == "main"
+    refute Map.has_key?(public_config, "stream_update_interval_ms")
+    refute Map.has_key?(public_config, "stream_chunk_soft_limit")
 
     assert {:ok, %{details: %{"bot_user_id" => "bot_1"}}} = Source.connectivity_check(source)
   end

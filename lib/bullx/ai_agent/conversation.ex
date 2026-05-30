@@ -11,7 +11,6 @@ defmodule BullX.AIAgent.Conversation do
 
   import Ecto.Changeset
 
-  alias BullX.AIAgent.Message
   alias BullX.Principals.Agent
 
   @primary_key {:id, BullX.Ecto.UUIDv7, autogenerate: true}
@@ -23,7 +22,6 @@ defmodule BullX.AIAgent.Conversation do
   schema "conversations" do
     belongs_to :agent, Agent, foreign_key: :agent_uid, references: :uid, type: :string
     field :conversation_key, :string
-    belongs_to :current_leaf_message, Message
     field :ended_at, :utc_datetime_usec
     field :generation, :map, default: %{}
     field :metadata, :map, default: %{}
@@ -37,7 +35,6 @@ defmodule BullX.AIAgent.Conversation do
     |> cast(attrs, [
       :agent_uid,
       :conversation_key,
-      :current_leaf_message_id,
       :ended_at,
       :generation,
       :metadata
@@ -46,9 +43,6 @@ defmodule BullX.AIAgent.Conversation do
     |> validate_json_object(:generation)
     |> validate_json_object(:metadata)
     |> foreign_key_constraint(:agent_uid)
-    |> foreign_key_constraint(:current_leaf_message_id,
-      name: :conversations_current_leaf_same_conversation_fkey
-    )
     |> unique_constraint([:agent_uid, :conversation_key],
       name: :conversations_active_agent_key_index
     )

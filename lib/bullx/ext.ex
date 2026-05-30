@@ -241,6 +241,17 @@ defmodule BullX.Ext do
     do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """
+  Evaluate a routing context against MailBox delivery-rule candidates and return
+  every matching rule id.
+  """
+  @spec mailbox_match_delivery_rules([map()], map()) ::
+          {:matched, [String.t()], [{String.t(), atom(), String.t()}]}
+          | {:no_match, [{String.t(), atom(), String.t()}]}
+          | {:error, error_reason()}
+  def mailbox_match_delivery_rules(_rules, _routing_context),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
   Evaluate already-loaded AuthZ computed groups against a Principal-only CEL
   environment.
 

@@ -139,6 +139,18 @@ defmodule BullX.ExtTest do
              )
   end
 
+  test "mailbox_match_delivery_rules/2 returns every matching delivery rule id" do
+    assert {:matched, ["rule-a", "rule-c"], []} =
+             Ext.mailbox_match_delivery_rules(
+               [
+                 mailbox_rule("rule-b", 2, ~s(type == "other")),
+                 mailbox_rule("rule-c", 3, ~s(source == "bullx://test")),
+                 mailbox_rule("rule-a", 1, ~s(type == "bullx.test.mail"))
+               ],
+               %{"source" => "bullx://test", "type" => "bullx.test.mail"}
+             )
+  end
+
   test "jwt_sign/3 returns a compact JWS" do
     token = Ext.jwt_sign(%{"sub" => "example", "exp" => 4_102_444_800}, @jwt_secret)
 
@@ -173,6 +185,14 @@ defmodule BullX.ExtTest do
       "id" => id,
       "resource_pattern" => resource_pattern,
       "condition" => condition
+    }
+  end
+
+  defp mailbox_rule(id, priority, match_expr) do
+    %{
+      "id" => id,
+      "priority" => priority,
+      "match_expr" => match_expr
     }
   end
 end

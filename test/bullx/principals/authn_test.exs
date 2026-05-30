@@ -205,17 +205,17 @@ defmodule BullX.Principals.AuthNTest do
 
     assert {:ok, ^uid_principal, %ExternalIdentity{}} =
              Principals.match_or_create_human_from_login_subject(
-               login_subject_input("feishu:ou_uid", %{"uid" => "FEISHU-USER-ID"})
+               login_subject_input("feishu:user_id:uid", %{"uid" => "FEISHU-USER-ID"})
              )
 
     assert {:ok, ^email_principal, %ExternalIdentity{}} =
              Principals.match_or_create_human_from_login_subject(
-               login_subject_input("feishu:ou_email", %{"email" => "ADA@example.com"})
+               login_subject_input("feishu:user_id:email", %{"email" => "ADA@example.com"})
              )
 
     assert {:ok, ^phone_principal, %ExternalIdentity{}} =
              Principals.match_or_create_human_from_login_subject(
-               login_subject_input("feishu:ou_phone", %{"phone" => "+8618511112441"})
+               login_subject_input("feishu:user_id:phone", %{"phone" => "+8618511112441"})
              )
   end
 
@@ -223,11 +223,11 @@ defmodule BullX.Principals.AuthNTest do
     {:ok, %{principal: principal}} =
       Principals.create_human(%{uid: "feishu-user", display_name: "Feishu User"})
 
-    insert_channel_identity!(principal, "feishu", "main", "feishu:ou_user")
+    insert_channel_identity!(principal, "feishu", "main", "feishu:user_id:user_x")
 
     input = %{
       provider: "main",
-      external_id: "feishu:ou_user",
+      external_id: "feishu:user_id:user_x",
       profile: %{"uid" => "user_x", "email" => "ada@example.com"},
       metadata: %{"adapter" => "feishu", "source_id" => "main"}
     }
@@ -237,7 +237,7 @@ defmodule BullX.Principals.AuthNTest do
 
     assert identity.kind == :login_subject
     assert identity.provider == "main"
-    assert identity.external_id == "feishu:ou_user"
+    assert identity.external_id == "feishu:user_id:user_x"
   end
 
   defp channel_input(adapter, channel_id, external_id, profile) do

@@ -14,12 +14,14 @@ defmodule FeishuOpenAPI.Event.Dispatcher do
       FeishuOpenAPI.Event.Dispatcher.dispatch(dispatcher, {:raw, raw_body, headers})
 
   Returns:
-    * `{:ok, handler_result}` — handler ran, result passed through
+    * `{:ok, handler_result}` — handler ran successfully; `{:ok, _}` handler
+      returns are normalized to `:ok`
     * `{:ok, :no_handler}` — known event but nothing registered
     * `{:challenge, echo}` — URL-verification handshake; caller must respond
       `%{"challenge" => echo}` to Feishu
-    * `{:error, reason}` — signature / decryption / JSON failure, or
-      `{:handler_crashed, Exception.t()}` if a user handler raised
+    * `{:error, reason}` — signature / decryption / JSON failure,
+      `{:handler_failed, reason}` when a user handler returned `{:error, reason}`,
+      or `{:handler_crashed, Exception.t()}` if a user handler raised
 
   Two input shapes:
     * `{:raw, body, headers}` — HTTP webhook. Verifies signature (unless
@@ -157,7 +159,8 @@ defmodule FeishuOpenAPI.Event.Dispatcher do
 
   defp invoke_handler(handler, event_type, %Event{} = event) do
     try do
-      {:ok, handler.(event_type, event)}
+      handler.(event_type, event)
+      |> handler_result()
     rescue
       exception ->
         stacktrace = __STACKTRACE__
@@ -192,6 +195,10 @@ defmodule FeishuOpenAPI.Event.Dispatcher do
         {:error, {:handler_crashed, {kind, reason}}}
     end
   end
+
+  defp handler_result({:error, reason}), do: {:error, {:handler_failed, reason}}
+  defp handler_result({:ok, _result}), do: {:ok, :ok}
+  defp handler_result(result), do: {:ok, result}
 
   defp maybe_register_app_ticket_handler(%__MODULE__{client: nil} = d), do: d
 

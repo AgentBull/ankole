@@ -17,8 +17,7 @@ defmodule BullX.IMGateway.Room do
 
   schema "im_rooms" do
     field :provider, :string
-    field :source_id, :string
-    field :provider_realm_id, :string
+    field :provider_realm_id, :string, default: ""
     field :provider_room_id, :string
     field :kind, Ecto.Enum, values: @kinds, default: :unknown
     field :title, :string
@@ -35,7 +34,6 @@ defmodule BullX.IMGateway.Room do
     room
     |> cast(attrs, [
       :provider,
-      :source_id,
       :provider_realm_id,
       :provider_room_id,
       :kind,
@@ -43,15 +41,15 @@ defmodule BullX.IMGateway.Room do
       :parent_room_id,
       :metadata
     ])
-    |> validate_required([:provider, :source_id, :provider_room_id, :kind, :metadata])
+    |> validate_required([:provider, :provider_room_id, :kind, :metadata])
     |> validate_non_empty(:provider)
-    |> validate_non_empty(:source_id)
     |> validate_non_empty(:provider_room_id)
     |> validate_json_object(:metadata)
-    |> unique_constraint([:provider, :source_id, :provider_room_id])
+    |> unique_constraint([:provider, :provider_realm_id, :provider_room_id],
+      name: :im_rooms_provider_realm_room_unique_idx
+    )
     |> foreign_key_constraint(:parent_room_id)
     |> check_constraint(:provider, name: :im_rooms_provider_present)
-    |> check_constraint(:source_id, name: :im_rooms_source_id_present)
     |> check_constraint(:provider_room_id, name: :im_rooms_provider_room_id_present)
     |> check_constraint(:metadata, name: :im_rooms_metadata_object)
   end

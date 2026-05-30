@@ -60,6 +60,39 @@ defmodule FeishuOpenAPI.Event.DispatcherTest do
                       }}
     end
 
+    test "handler {:ok, result} is normalized to transport ack" do
+      d =
+        Dispatcher.new()
+        |> Dispatcher.on("im.message.receive_v1", fn _event_type, _event ->
+          {:ok, %{internal: :result}}
+        end)
+
+      decoded = %{
+        "schema" => "2.0",
+        "header" => %{"event_type" => "im.message.receive_v1"},
+        "event" => %{"message_id" => "m-1"}
+      }
+
+      assert {:ok, :ok} = Dispatcher.dispatch(d, {:decoded, decoded})
+    end
+
+    test "handler errors propagate instead of becoming webhook success" do
+      d =
+        Dispatcher.new()
+        |> Dispatcher.on("im.message.receive_v1", fn _event_type, _event ->
+          {:error, :route_failed}
+        end)
+
+      decoded = %{
+        "schema" => "2.0",
+        "header" => %{"event_type" => "im.message.receive_v1"},
+        "event" => %{"message_id" => "m-1"}
+      }
+
+      assert {:error, {:handler_failed, :route_failed}} =
+               Dispatcher.dispatch(d, {:decoded, decoded})
+    end
+
     test "verification_token is enforced for non-challenge events too" do
       d =
         Dispatcher.new(verification_token: "vt_x")

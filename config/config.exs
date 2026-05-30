@@ -63,6 +63,10 @@ config :bullx, :mail_box,
   stream_retention_seconds: 900,
   max_stream_chunk_bytes: 65_536
 
+config :bullx, :ai_agent_runtime,
+  ambient_batch_worker: true,
+  daily_reset_worker: true
+
 # Import environment specific config. This must remain at the bottom
 # of this file so it overrides the configuration defined above.
 import_config "#{config_env()}.exs"

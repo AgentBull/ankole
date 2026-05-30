@@ -34,7 +34,8 @@ defmodule BullXWeb.SetupAIAgentsController do
   end
 
   defp render_step(conn, projection, error) do
-    status = AIAgents.status(BullXWeb.SetupAuth.session_input(conn))
+    status = ai_agents_status(projection, conn)
+    llm_providers = llm_providers_status(projection)
 
     conn
     |> assign(:page_title, "Setup AIAgent")
@@ -47,7 +48,7 @@ defmodule BullXWeb.SetupAIAgentsController do
       default_soul: AIAgents.default_soul(),
       groups: status.groups,
       acl_preview: status.acl_preview,
-      llm_providers: BullX.Setup.LLMProviders.public_providers(),
+      llm_providers: llm_providers.providers,
       provider_models: BullX.LLM.ModelRegistry.public_provider_models(),
       models_path: ~p"/setup/llm/models",
       reasoning_efforts: BullX.AIAgent.Profile.reasoning_efforts() |> Enum.map(&Atom.to_string/1),
@@ -57,4 +58,13 @@ defmodule BullXWeb.SetupAIAgentsController do
     })
     |> render_inertia("setup/ai-agents/App")
   end
+
+  defp ai_agents_status(%{ai_agents: status}, _conn), do: status
+
+  defp ai_agents_status(_projection, conn) do
+    AIAgents.status(BullXWeb.SetupAuth.session_input(conn))
+  end
+
+  defp llm_providers_status(%{llm_providers: status}), do: status
+  defp llm_providers_status(_projection), do: BullX.Setup.LLMProviders.status()
 end

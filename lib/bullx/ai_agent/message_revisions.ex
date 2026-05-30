@@ -14,7 +14,6 @@ defmodule BullX.AIAgent.MessageRevisions do
   }
 
   alias BullX.MailBox
-  alias BullX.MailBox.Entry, as: MailboxEntry
   alias BullX.Principals.Principal
   alias BullX.Repo
 
@@ -59,8 +58,8 @@ defmodule BullX.AIAgent.MessageRevisions do
 
     agent_uid
     |> target_candidates(event_source)
-    |> Enum.find_value(fn {message, cloud_event} ->
-      case intersects?(target_set, message_source_ids(message, cloud_event)) do
+    |> Enum.find_value(fn message ->
+      case intersects?(target_set, message_source_ids(message)) do
         true -> message
         false -> nil
       end
@@ -70,15 +69,13 @@ defmodule BullX.AIAgent.MessageRevisions do
   defp target_candidates(agent_uid, event_source) do
     Message
     |> join(:inner, [m], c in Conversation, on: c.id == m.conversation_id)
-    |> join(:left, [m, _c], e in MailboxEntry, on: e.id == m.mailbox_entry_id)
     |> where([m, c], c.agent_uid == ^agent_uid)
     |> where([_m, c], is_nil(c.ended_at))
     |> where([m], m.role in [:user, :im_ambient])
     |> where([m], m.kind == :normal)
-    |> where([m], is_nil(fragment("?->'branch_effect'", m.metadata)))
+    |> where([m], is_nil(fragment("?->'transcript_effect'", m.metadata)))
     |> maybe_event_source(event_source)
     |> order_by([m], desc: m.inserted_at)
-    |> select([m, _c, e], {m, e.cloud_event})
     |> Repo.all()
   end
 
@@ -88,19 +85,10 @@ defmodule BullX.AIAgent.MessageRevisions do
 
   defp maybe_event_source(query, _event_source), do: query
 
-  defp message_source_ids(%Message{metadata: metadata}, cloud_event) do
-    metadata_ids =
-      metadata
-      |> get_in(["provider_refs", "message_ids"])
-      |> List.wrap()
-
-    event_ids =
-      case cloud_event do
-        %{"data" => data} -> Event.source_message_ids(data)
-        _cloud_event -> []
-      end
-
-    (metadata_ids ++ event_ids)
+  defp message_source_ids(%Message{metadata: metadata}) do
+    metadata
+    |> get_in(["provider_refs", "message_ids"])
+    |> List.wrap()
     |> Enum.map(&safe_string/1)
     |> Enum.reject(&(&1 == ""))
     |> Enum.uniq()
@@ -115,7 +103,7 @@ defmodule BullX.AIAgent.MessageRevisions do
       case lock_message(target.id) do
         %Message{conversation_id: conversation_id} = locked_target
         when conversation_id == conversation.id ->
-          case revision_allowed?(locked_target, conversation, invocation) do
+          case revision_allowed?(locked_target, conversation) do
             true ->
               revise_locked(action, locked_target, conversation, event_data, invocation, entry)
 
@@ -214,7 +202,8 @@ defmodule BullX.AIAgent.MessageRevisions do
       :not_batch ->
         case later_ambient_introspection?(target) do
           false ->
-            with :ok <- delete_message_and_rewire(conversation, target) do
+            with :ok <-
+                   hide_transcript_message(target, Atom.to_string(action), entry_event_id(entry)) do
               empty_effects()
               |> Map.put(:batch_remove, batch_ref(conversation, target))
             else
@@ -270,7 +259,8 @@ defmodule BullX.AIAgent.MessageRevisions do
           historical_ambient_revision(action, target, conversation, event_data, entry)
 
         lane == :empty ->
-          with :ok <- delete_message_and_rewire(conversation, target) do
+          with :ok <-
+                 hide_transcript_message(target, Atom.to_string(action), entry_event_id(entry)) do
             empty_effects()
             |> Map.put(:batch_remove, batch_ref(conversation, target))
           else
@@ -305,11 +295,11 @@ defmodule BullX.AIAgent.MessageRevisions do
     reason = "source_message_#{action}"
 
     with {:ok, conversation} <- maybe_cancel_generation(conversation, target.id, reason, now),
-         branch <- Conversations.active_branch(conversation),
-         suffix <- suffix_from(branch, target),
+         transcript <- Conversations.active_transcript(conversation),
+         suffix <- suffix_from(transcript, target),
          recall_targets <- DeliveryRecall.targets_for_messages(suffix),
-         :ok <- mark_suffix(suffix, batch_revision_state(action), reason, entry.id, now),
-         {:ok, _conversation} <- Conversations.set_current_leaf(conversation, target.parent_id) do
+         :ok <-
+           mark_suffix(suffix, batch_revision_state(action), reason, entry_event_id(entry), now) do
       empty_effects()
       |> Map.put(:recall_targets, recall_targets)
       |> maybe_republish_revised_batch(lane, revised_items, event_data)
@@ -319,7 +309,7 @@ defmodule BullX.AIAgent.MessageRevisions do
   end
 
   defp latest_ambient_batch_to_addressed(target, conversation, revised_items, event_data) do
-    with :ok <- delete_message_and_rewire(conversation, target) do
+    with :ok <- hide_transcript_message(target, "superseded", nil) do
       empty_effects()
       |> Map.put(:batch_remove, batch_ref(conversation, target))
       |> maybe_republish_revised_batch(:addressed, revised_items, event_data)
@@ -530,11 +520,11 @@ defmodule BullX.AIAgent.MessageRevisions do
 
     with {:ok, conversation} <-
            maybe_cancel_generation(conversation, target.id, "source_message_edited", now),
-         branch <- Conversations.active_branch(conversation),
-         suffix <- suffix_from(branch, target),
+         transcript <- Conversations.active_transcript(conversation),
+         suffix <- suffix_from(transcript, target),
          recall_targets <- DeliveryRecall.targets_for_messages(suffix),
-         :ok <- mark_suffix(suffix, "superseded", "source_message_edited", entry.id, now),
-         {:ok, _conversation} <- Conversations.set_current_leaf(conversation, target.parent_id) do
+         :ok <-
+           mark_suffix(suffix, "superseded", "source_message_edited", entry_event_id(entry), now) do
       empty_effects()
       |> Map.put(:recall_targets, recall_targets)
       |> Map.put(:republish_lane, lane_for_event_data(event_data))
@@ -549,11 +539,10 @@ defmodule BullX.AIAgent.MessageRevisions do
     reason = "source_message_#{state}"
 
     with {:ok, conversation} <- maybe_cancel_generation(conversation, target.id, reason, now),
-         branch <- Conversations.active_branch(conversation),
-         suffix <- suffix_from(branch, target),
+         transcript <- Conversations.active_transcript(conversation),
+         suffix <- suffix_from(transcript, target),
          recall_targets <- DeliveryRecall.targets_for_messages(suffix),
-         :ok <- mark_suffix(suffix, state, reason, entry.id, now),
-         {:ok, _conversation} <- Conversations.set_current_leaf(conversation, target.parent_id) do
+         :ok <- mark_suffix(suffix, state, reason, entry_event_id(entry), now) do
       empty_effects()
       |> Map.put(:recall_targets, recall_targets)
     else
@@ -562,7 +551,7 @@ defmodule BullX.AIAgent.MessageRevisions do
   end
 
   defp latest_ambient_to_addressed_edit(target, conversation, event_data, _entry) do
-    with :ok <- delete_message_and_rewire(conversation, target) do
+    with :ok <- hide_transcript_message(target, "superseded", nil) do
       empty_effects()
       |> Map.put(:batch_remove, batch_ref(conversation, target))
       |> Map.put(:republish_lane, lane_for_event_data(event_data))
@@ -677,8 +666,7 @@ defmodule BullX.AIAgent.MessageRevisions do
 
     _result =
       DeliveryRecall.deliver_targets(reply_address, targets, %{
-        "mailbox_entry_id" => entry.id,
-        "event_id" => entry.event_id,
+        "source_event_id" => entry_event_id(entry),
         "reason" => "message_revision"
       })
 
@@ -701,7 +689,6 @@ defmodule BullX.AIAgent.MessageRevisions do
       cloud_event: republished_event(event_data, entry, caller_principal_uid),
       agent_uid: invocation.target_ref,
       attention: lane,
-      session_key: Map.get(invocation, :mailbox_session_id),
       dedupe_key: "message_revision"
     })
     |> case do
@@ -743,19 +730,13 @@ defmodule BullX.AIAgent.MessageRevisions do
     "message_revision:#{entry.id}:bullx.message.received:#{provider_hash}:#{content_hash}"
   end
 
-  defp revision_allowed?(%Message{} = target, %Conversation{} = conversation, invocation) do
-    same_session?(target, invocation) and after_latest_compression?(target, conversation)
+  defp revision_allowed?(%Message{} = target, %Conversation{} = conversation) do
+    after_latest_compression?(target, conversation)
   end
-
-  defp same_session?(%Message{mailbox_session_id: session_id}, %{mailbox_session_id: session_id})
-       when is_binary(session_id),
-       do: true
-
-  defp same_session?(_target, _invocation), do: false
 
   defp after_latest_compression?(target, conversation) do
     conversation
-    |> Conversations.render_branch()
+    |> Conversations.render_transcript()
     |> Enum.any?(&(&1.id == target.id))
   end
 
@@ -788,13 +769,11 @@ defmodule BullX.AIAgent.MessageRevisions do
     metadata = revision_metadata(entry, opts)
 
     Conversations.append_message(conversation, %{
-      conversation_id: conversation.id,
       role: role,
       kind: kind,
       status: :complete,
       content: [Message.text_block(text)],
       mailbox_session_id: Map.get(entry, :mailbox_session_id),
-      mailbox_entry_id: Map.get(entry, :id),
       event_source: Map.get(entry, :event_source),
       event_id: Map.get(entry, :event_id),
       metadata: metadata
@@ -805,7 +784,7 @@ defmodule BullX.AIAgent.MessageRevisions do
     base = %{
       "message_revision" => %{
         "source_event_id" => Map.get(entry, :event_id),
-        "source_mailbox_entry_id" => Map.get(entry, :id)
+        "source_event_source" => Map.get(entry, :event_source)
       }
     }
 
@@ -838,7 +817,7 @@ defmodule BullX.AIAgent.MessageRevisions do
 
   defp latest_addressed_turn?(conversation, target) do
     conversation
-    |> Conversations.active_branch()
+    |> Conversations.active_transcript()
     |> Enum.reverse()
     |> Enum.find(fn
       %Message{role: :user, kind: :normal} -> true
@@ -852,7 +831,7 @@ defmodule BullX.AIAgent.MessageRevisions do
 
   defp latest_ambient_turn?(conversation, target) do
     conversation
-    |> Conversations.active_branch()
+    |> Conversations.active_transcript()
     |> List.last()
     |> case do
       %Message{id: id} -> id == target.id
@@ -869,7 +848,7 @@ defmodule BullX.AIAgent.MessageRevisions do
       [m],
       fragment("?->'generation'->>'trigger_message_id' = ?", m.metadata, ^target_message_id)
     )
-    |> where([m], is_nil(fragment("?->'branch_effect'", m.metadata)))
+    |> where([m], is_nil(fragment("?->'transcript_effect'", m.metadata)))
     |> Repo.exists?()
   end
 
@@ -891,12 +870,12 @@ defmodule BullX.AIAgent.MessageRevisions do
     end
   end
 
-  defp suffix_from(branch, target), do: Enum.drop_while(branch, &(&1.id != target.id))
+  defp suffix_from(transcript, target), do: Enum.drop_while(transcript, &(&1.id != target.id))
 
-  defp mark_suffix(messages, state, reason, entry_id, now) do
+  defp mark_suffix(messages, state, reason, event_id, now) do
     messages
     |> Enum.reduce_while(:ok, fn message, :ok ->
-      case mark_message(message, state, reason, entry_id, now) do
+      case mark_message(message, state, reason, event_id, now) do
         {:ok, _message} -> {:cont, :ok}
         {:error, reason} -> {:halt, {:error, reason}}
       end
@@ -907,12 +886,12 @@ defmodule BullX.AIAgent.MessageRevisions do
          %Message{role: :assistant, kind: :normal, status: :generating} = message,
          _state,
          reason,
-         entry_id,
+         event_id,
          now
        ) do
     metadata =
       message.metadata
-      |> put_branch_effect("interrupted", reason, entry_id, now)
+      |> put_transcript_effect("interrupted", reason, event_id, now)
       |> put_in(["stream", "status"], "interrupted")
 
     Conversations.update_message(message, %{
@@ -926,16 +905,16 @@ defmodule BullX.AIAgent.MessageRevisions do
     })
   end
 
-  defp mark_message(%Message{} = message, state, reason, entry_id, now) do
-    metadata = put_branch_effect(message.metadata, state, reason, entry_id, now)
+  defp mark_message(%Message{} = message, state, reason, event_id, now) do
+    metadata = put_transcript_effect(message.metadata, state, reason, event_id, now)
     Conversations.update_message(message, %{metadata: metadata})
   end
 
-  defp put_branch_effect(metadata, state, reason, entry_id, now) do
-    Map.put(metadata, "branch_effect", %{
+  defp put_transcript_effect(metadata, state, reason, event_id, now) do
+    Map.put(metadata, "transcript_effect", %{
       "state" => state,
       "reason" => reason,
-      "source_mailbox_entry_id" => entry_id,
+      "source_event_id" => event_id,
       "at" => DateTime.to_iso8601(now)
     })
   end
@@ -949,38 +928,17 @@ defmodule BullX.AIAgent.MessageRevisions do
     |> Repo.exists?()
   end
 
-  defp delete_message_and_rewire(conversation, target) do
-    children =
-      Message
-      |> where([m], m.conversation_id == ^conversation.id)
-      |> where([m], m.parent_id == ^target.id)
-      |> lock("FOR UPDATE")
-      |> Repo.all()
+  defp hide_transcript_message(%Message{} = target, state, event_id) do
+    now = DateTime.utc_now(:microsecond)
+    reason = "source_message_#{state}"
 
-    with :ok <- reparent_children(children, target.parent_id),
-         {:ok, _conversation} <- maybe_move_leaf_before_delete(conversation, target),
-         {:ok, _target} <- Repo.delete(target) do
-      :ok
+    case mark_message(target, state, reason, event_id, now) do
+      {:ok, _message} -> :ok
+      {:error, reason} -> {:error, reason}
     end
   end
 
-  defp reparent_children(children, parent_id) do
-    children
-    |> Enum.reduce_while(:ok, fn child, :ok ->
-      case Conversations.update_message(child, %{parent_id: parent_id}) do
-        {:ok, _message} -> {:cont, :ok}
-        {:error, reason} -> {:halt, {:error, reason}}
-      end
-    end)
-  end
-
-  defp maybe_move_leaf_before_delete(
-         %Conversation{current_leaf_message_id: target_id} = conversation,
-         %Message{id: target_id} = target
-       ),
-       do: Conversations.set_current_leaf(conversation, target.parent_id)
-
-  defp maybe_move_leaf_before_delete(conversation, _target), do: {:ok, conversation}
+  defp entry_event_id(entry), do: Map.get(entry, :event_id) || Map.get(entry, "event_id")
 
   defp revision_notice(:edited, ref_id, event_data) do
     "<btw>ref id #{ref_id} 的消息被编辑为：#{new_text_preview(event_data)}</btw>"

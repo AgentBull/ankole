@@ -298,10 +298,9 @@ defmodule BullX.AIAgent.Commands do
 
       with {:ok, trigger_message, retry_of_message_id} <- last_generation_trigger(conversation),
            {:ok, recall_targets} <- mark_suffix(conversation, trigger_message, "retry", context),
-           {:ok, rewound} <- set_current_leaf(conversation, trigger_message.id),
            {:ok, leased, lease_id} <-
              Conversations.acquire_generation_lease_locked(
-               rewound,
+               conversation,
                generation_owner("command_retry", context.trigger_id, trigger_message.id, context),
                now
              ) do
@@ -334,9 +333,8 @@ defmodule BullX.AIAgent.Commands do
            {:ok, recall_targets} <-
              mark_suffix(conversation, trigger_message, "undo", context,
                include_trigger_message?: true
-             ),
-           {:ok, updated} <- set_current_leaf(conversation, trigger_message.parent_id) do
-        %{conversation: updated, recall_targets: recall_targets}
+             ) do
+        %{conversation: conversation, recall_targets: recall_targets}
       else
         {:error, reason} -> Repo.rollback(reason)
       end
@@ -344,10 +342,10 @@ defmodule BullX.AIAgent.Commands do
   end
 
   defp last_generation_trigger(%Conversation{} = conversation) do
-    branch = Conversations.render_branch(conversation)
-    indexed = Map.new(branch, &{&1.id, &1})
+    transcript = Conversations.render_transcript(conversation)
+    indexed = Map.new(transcript, &{&1.id, &1})
 
-    case List.last(branch) do
+    case List.last(transcript) do
       %Message{} = tail when tail.role in [:user, :im_ambient] ->
         case user_like_trigger_message?(tail) do
           true -> {:ok, tail, tail.id}
@@ -355,17 +353,17 @@ defmodule BullX.AIAgent.Commands do
         end
 
       %Message{} = tail ->
-        last_generated_trigger(tail, branch, indexed)
+        last_generated_trigger(tail, transcript, indexed)
 
       _tail ->
         {:error, :no_retry_target}
     end
   end
 
-  defp last_generated_trigger(tail, branch, indexed) do
+  defp last_generated_trigger(tail, transcript, indexed) do
     case retry_tail?(tail) do
       true ->
-        branch
+        transcript
         |> Enum.reverse()
         |> Enum.find(fn
           %Message{role: :assistant, kind: :normal, status: :complete} -> true
@@ -411,7 +409,7 @@ defmodule BullX.AIAgent.Commands do
 
   defp last_exchange_trigger(%Conversation{} = conversation) do
     conversation
-    |> Conversations.render_branch()
+    |> Conversations.render_transcript()
     |> Enum.reverse()
     |> Enum.find(&user_like_trigger_message?/1)
     |> case do
@@ -420,18 +418,12 @@ defmodule BullX.AIAgent.Commands do
     end
   end
 
-  defp set_current_leaf(conversation, message_id) do
-    conversation
-    |> Conversation.changeset(%{current_leaf_message_id: message_id})
-    |> Repo.update()
-  end
-
   defp mark_suffix(conversation, trigger_message, command, context, opts \\ []) do
     include_trigger_message? = Keyword.get(opts, :include_trigger_message?, false)
 
     messages =
       conversation
-      |> Conversations.active_branch()
+      |> Conversations.active_transcript()
       |> Enum.drop_while(&(&1.id != trigger_message.id))
       |> maybe_drop_trigger_message(include_trigger_message?)
 
@@ -440,8 +432,8 @@ defmodule BullX.AIAgent.Commands do
     messages
     |> Enum.reduce_while(:ok, fn message, :ok ->
       metadata =
-        Map.put(message.metadata, "branch_effect", %{
-          "state" => branch_state(command),
+        Map.put(message.metadata, "transcript_effect", %{
+          "state" => transcript_state(command),
           "command" => command,
           "command_entry_id" => context.trigger_id,
           "at" => DateTime.to_iso8601(DateTime.utc_now(:microsecond))
@@ -472,7 +464,7 @@ defmodule BullX.AIAgent.Commands do
     |> Enum.reduce_while(:ok, fn message, :ok ->
       metadata =
         message.metadata
-        |> Map.put("branch_effect", %{
+        |> Map.put("transcript_effect", %{
           "state" => "interrupted",
           "command" => "stop",
           "command_entry_id" => context.trigger_id,
@@ -507,9 +499,9 @@ defmodule BullX.AIAgent.Commands do
   defp maybe_drop_trigger_message([_trigger_message | rest], false), do: rest
   defp maybe_drop_trigger_message([], _include_trigger_message?), do: []
 
-  defp branch_state("retry"), do: "superseded"
-  defp branch_state("undo"), do: "undone"
-  defp branch_state(_command), do: "interrupted"
+  defp transcript_state("retry"), do: "superseded"
+  defp transcript_state("undo"), do: "undone"
+  defp transcript_state(_command), do: "interrupted"
 
   defp generation_owner(owner_trigger_type, owner_trigger_id, trigger_message_id, context) do
     generation = context.profile.generation

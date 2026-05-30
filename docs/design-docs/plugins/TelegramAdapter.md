@@ -72,9 +72,11 @@ AIAgent
   -> BullxTelegram.Outbound
 ```
 
-The adapter supports send/edit-style output and stream accumulation. Delivery
-outcomes return provider ids to IMGateway, which best-effort mirrors outbound
-delivery status to `im_messages`.
+The adapter supports send/edit-style output. It does not expose a live stream
+surface; AIAgent falls back to final normal outbound delivery when stream
+delivery is unavailable. Delivery outcomes return provider ids to IMGateway,
+which best-effort mirrors
+provider-confirmed outbound message facts to `im_messages`.
 
 ## Setup
 

@@ -81,6 +81,8 @@ defmodule BullX.AIAgent.Event do
   def trigger_principal_uid(routing_context) when is_map(routing_context) do
     routing_context["triggering_principal_uid"] ||
       routing_context[:triggering_principal_uid] ||
+      get_in(routing_context, ["actor", "principal", "uid"]) ||
+      get_in(routing_context, [:actor, :principal, :uid]) ||
       get_in(routing_context, ["actor", "principal", "id"]) ||
       get_in(routing_context, [:actor, :principal, :id]) ||
       get_in(routing_context, ["subject", "principal_uid"]) ||

@@ -39,7 +39,7 @@ defmodule BullxTelegram.ChannelAdapter do
   def capabilities do
     %{
       inbound_modes: [:polling],
-      outbound_ops: [:send, :edit, :stream],
+      outbound_ops: [:send, :edit],
       content_kinds: [
         :text,
         :image,
@@ -51,7 +51,6 @@ defmodule BullxTelegram.ChannelAdapter do
         :progress_notice
       ],
       features: [:reply, :threads, :attention_policy],
-      stream_strategy: :edit_accumulate,
       group_message_modes: Source.group_message_modes()
     }
   end

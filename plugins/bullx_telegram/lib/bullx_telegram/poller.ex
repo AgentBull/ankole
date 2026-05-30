@@ -27,13 +27,16 @@ defmodule BullxTelegram.Poller do
 
   @spec start_link(Source.t()) :: GenServer.on_start()
   def start_link(%Source{} = source) do
-    GenServer.start_link(__MODULE__, source, name: {:via, Registry, {@registry, {:poller, source.id}}})
+    GenServer.start_link(__MODULE__, source,
+      name: {:via, Registry, {@registry, {:poller, source.id}}}
+    )
   end
 
   @impl true
   def init(%Source{start_transport?: false} = source), do: {:ok, %__MODULE__{source: source}}
 
-  def init(%Source{} = source), do: {:ok, %__MODULE__{source: source}, {:continue, :start_polling}}
+  def init(%Source{} = source),
+    do: {:ok, %__MODULE__{source: source}, {:continue, :start_polling}}
 
   @impl true
   def handle_continue(:start_polling, %__MODULE__{source: source} = state) do
@@ -78,17 +81,31 @@ defmodule BullxTelegram.Poller do
   defp dispatch_updates([], state), do: {:ok, %{state | retry_count: 0}}
 
   defp dispatch_updates([update | rest], state) do
-    {:ok, state} = dispatch_update(update, state)
-    dispatch_updates(rest, state)
+    case dispatch_update(update, state) do
+      {:ok, state} -> dispatch_updates(rest, state)
+      {:error, error, state} -> {:error, error, state}
+    end
   end
 
   defp dispatch_update(update, %__MODULE__{} = state) do
     next_offset = update |> Map.get("update_id") |> next_offset()
-    _result = Channel.handle_update(state.source, update)
-    {:ok, %{state | offset: next_offset, retry_count: 0}}
+
+    case Channel.handle_update(state.source, update) do
+      {:ok, _result} ->
+        {:ok, %{state | offset: next_offset, retry_count: 0}}
+
+      :ignore ->
+        {:ok, %{state | offset: next_offset, retry_count: 0}}
+
+      {:error, reason} ->
+        {:error, reason, state}
+
+      other ->
+        {:error, {:unexpected_channel_result, other}, state}
+    end
   catch
-    _kind, _reason ->
-      {:ok, %{state | offset: update |> Map.get("update_id") |> next_offset()}}
+    kind, reason ->
+      {:error, {kind, reason}, state}
   end
 
   defp retry_or_crash(error, %__MODULE__{} = state) do

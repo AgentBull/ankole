@@ -471,17 +471,15 @@ defmodule BullX.LLM.Providers.Anthropic.Response do
     signature = normalize_signature(Map.get(block, "signature"))
 
     update_thinking_block(state, index, fn thinking_block ->
-      %{
-        thinking_block
-        | text: thinking_block.text <> text,
-          signature: signature || thinking_block.signature
-      }
+      thinking_block
+      |> append_thinking_part(text)
+      |> put_thinking_signature(signature)
     end)
   end
 
   defp append_thinking_text(state, index, text) do
     update_thinking_block(state, index, fn thinking_block ->
-      %{thinking_block | text: thinking_block.text <> text}
+      append_thinking_part(thinking_block, text)
     end)
   end
 
@@ -505,7 +503,12 @@ defmodule BullX.LLM.Providers.Anthropic.Response do
         {thinking_block, state}
 
       :error ->
-        thinking_block = %{text: "", signature: nil, reasoning_index: state.next_reasoning_index}
+        thinking_block = %{
+          text_parts_rev: [],
+          signature: nil,
+          reasoning_index: state.next_reasoning_index
+        }
+
         {thinking_block, %{state | next_reasoning_index: state.next_reasoning_index + 1}}
     end
   end
@@ -541,7 +544,7 @@ defmodule BullX.LLM.Providers.Anthropic.Response do
     signature = normalize_signature(thinking_block.signature)
 
     %ReasoningDetails{
-      text: thinking_block.text,
+      text: materialize_thinking_text(thinking_block),
       signature: signature,
       encrypted?: signature != nil,
       provider: :anthropic,
@@ -549,6 +552,24 @@ defmodule BullX.LLM.Providers.Anthropic.Response do
       index: thinking_block.reasoning_index,
       provider_data: %{"type" => "thinking"}
     }
+  end
+
+  defp append_thinking_part(thinking_block, ""), do: thinking_block
+
+  defp append_thinking_part(%{text_parts_rev: parts} = thinking_block, text) do
+    %{thinking_block | text_parts_rev: [text | parts]}
+  end
+
+  defp put_thinking_signature(thinking_block, nil), do: thinking_block
+
+  defp put_thinking_signature(thinking_block, signature) do
+    %{thinking_block | signature: signature}
+  end
+
+  defp materialize_thinking_text(%{text_parts_rev: parts}) do
+    parts
+    |> Enum.reverse()
+    |> IO.iodata_to_binary()
   end
 
   defp extract_thinking_text(block) do

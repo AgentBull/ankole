@@ -577,7 +577,7 @@ defmodule BullX.LLM.Providers.OpenAI.ResponsesAPI do
           extract_previous_response_id_from_context(context)
       end
 
-    {input, _tool_messages, reasoning_items} =
+    {input_rev, _tool_messages, reasoning_rev} =
       Enum.reduce(context.messages, {[], [], []}, fn msg, {input_acc, tool_acc, reasoning_acc} ->
         case msg.role do
           :tool when is_binary(msg.tool_call_id) ->
@@ -589,7 +589,7 @@ defmodule BullX.LLM.Providers.OpenAI.ResponsesAPI do
             # tool calling with the Responses API.
             encoded = encode_tool_message_inline(msg)
 
-            {input_acc ++ [encoded], tool_acc, reasoning_acc}
+            {[encoded | input_acc], tool_acc, reasoning_acc}
 
           :tool ->
             {input_acc, [msg | tool_acc], reasoning_acc}
@@ -600,10 +600,13 @@ defmodule BullX.LLM.Providers.OpenAI.ResponsesAPI do
             function_calls = encode_tool_calls_as_function_calls(msg.tool_calls || [])
 
             if assistant_items == [] and function_calls == [] do
-              {input_acc, tool_acc, reasoning_acc ++ new_reasoning}
+              {input_acc, tool_acc, prepend_items(new_reasoning, reasoning_acc)}
             else
-              {input_acc ++ assistant_items ++ function_calls, tool_acc,
-               reasoning_acc ++ new_reasoning}
+              input_acc =
+                function_calls
+                |> prepend_items(prepend_items(assistant_items, input_acc))
+
+              {input_acc, tool_acc, prepend_items(new_reasoning, reasoning_acc)}
             end
 
           _ ->
@@ -615,11 +618,14 @@ defmodule BullX.LLM.Providers.OpenAI.ResponsesAPI do
             if content == [] do
               {input_acc, tool_acc, reasoning_acc}
             else
-              {input_acc ++ [%{"role" => Atom.to_string(msg.role), "content" => content}],
+              {[%{"role" => Atom.to_string(msg.role), "content" => content} | input_acc],
                tool_acc, reasoning_acc}
             end
         end
       end)
+
+    input = Enum.reverse(input_rev)
+    reasoning_items = Enum.reverse(reasoning_rev)
 
     # Only append explicit provider-supplied tool_outputs (e.g. for manual overrides).
     # Context-based tool outputs are now encoded inline above.
@@ -680,6 +686,10 @@ defmodule BullX.LLM.Providers.OpenAI.ResponsesAPI do
     else
       body
     end
+  end
+
+  defp prepend_items(items, acc) do
+    Enum.reduce(items, acc, fn item, acc -> [item | acc] end)
   end
 
   defp default_store(model_name) do

@@ -422,6 +422,8 @@ plug FeishuOpenAPI.Event.Server, dispatcher: dispatcher
 
 - challenge -> `{"challenge": "..."}`
 - handler 返回 map -> 该 map 会成为响应 body
+- handler 返回 `{:ok, _}` -> `{"msg": "success"}`
+- handler 返回 `{:error, _}` 或抛出异常 -> HTTP 500，让 provider 可以重试
 - handler 返回其他任意值 -> `{"msg": "success"}`
 
 对于真实的交互卡片 HTTP 回调，请使用 `FeishuOpenAPI.CardAction.Handler`，而不是 `Event.Dispatcher.on_callback/3`。卡片回调使用的签名算法与事件订阅 webhook 不同。

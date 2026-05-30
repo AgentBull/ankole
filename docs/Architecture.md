@@ -28,8 +28,8 @@ describes the current code path only.
 - `BullX.Redis`
 - `BullX.MailBox.Dispatcher`, unless disabled by `config :bullx, :mail_box`
 - `BullX.MailBox.SessionWorkerSupervisor`
-- `BullX.AIAgent.AmbientBatchWorker`
-- `BullX.AIAgent.DailyResetWorker`
+- `BullX.AIAgent.AmbientBatchWorker`, unless disabled by `config :bullx, :ai_agent_runtime`
+- `BullX.AIAgent.DailyResetWorker`, unless disabled by `config :bullx, :ai_agent_runtime`
 
 There is no current background-job worker tree and no legacy routing-bus
 runtime.
@@ -136,8 +136,8 @@ Group sources use one `group_message_mode`:
 
 - `addressed_only`: adapters admit only DMs, mentions, replies, commands, or
   other explicitly addressed input.
-- `observe_all`: unaddressed group messages are mirrored and then blackholed in
-  IMGateway.
+- `observe_all`: unaddressed group messages are delivered as ambient context
+  mail, but AIAgent treats them as context-only and does not proactively reply.
 - `engage_all`: unaddressed group messages are delivered as ambient mail that
   AIAgent may batch and selectively handle.
 
@@ -195,13 +195,18 @@ output. They call `BullX.IMGateway.send_message/2`. Command feedback is
 control-plane output and is not mirrored to `im_messages`.
 
 IMGateway sends through the matching channel adapter first, then best-effort
-mirrors the visible outbound result into `im_messages` with `status = sent`,
-`recalled`, or `failed`. Provider message ids and safe errors are stored on the
-mirror row when the mirror write succeeds.
+mirrors provider-confirmed visible outbound message facts into `im_messages`.
+Successful sends require a provider message id. Recall outcomes update
+`lifecycle_state` when the target provider message id is known. Failed delivery
+attempts and safe errors are runtime facts, not IM message rows.
 
-Streaming visible output uses `BullX.MailBox.StreamingOutput` backed by `BullX.Redis`.
-The stream buffer is weak runtime state with retention TTLs. The persisted IM
-outbound mirror remains in `im_messages` when mirror persistence succeeds.
+Streaming visible output uses `BullX.MailBox.StreamingOutput` backed by
+`BullX.Redis`. The stream buffer is weak runtime state with retention TTLs. A
+provider-confirmed visible message can still be mirrored in `im_messages` when
+the adapter returns a provider message id. Stream chunks are UX preview state;
+the complete assistant message remains the durable Agent fact. If stream
+finalization fails, AIAgent falls back to normal outbound delivery of the final
+assistant message when one exists.
 
 ## Persistence
 
@@ -233,9 +238,11 @@ defaults.
 are delivery-window state, not business truth.
 
 `im_rooms` and `im_messages` mirror the external IM conversation for memory and
-inspection. They are not on the routing critical path; deleting or losing those
-rows removes the mirror, but IMGateway can still route new inbound mail and send
-visible outbound messages.
+inspection. `im_rooms` are keyed by provider external room identity, not by
+BullX source id. `im_messages` are keyed by canonical room plus provider message
+id and store message content/actor/lifecycle facts. They are not on the routing
+critical path; deleting or losing those rows removes the mirror, but IMGateway
+can still route new inbound mail and send visible outbound messages.
 
 ## Web Surface
 

@@ -20,14 +20,21 @@ defmodule BullX.AIAgent.DailyReset do
 
   @spec close_eligible(Profile.t(), DateTime.t(), String.t() | nil) ::
           {:ok, non_neg_integer()} | {:error, term()}
+  def close_eligible(%Profile{daily_reset: %{enabled: false}}, _now, _agent_uid), do: {:ok, 0}
+
   def close_eligible(%Profile{} = profile, now, agent_uid) do
-    Conversation
-    |> where([c], is_nil(c.ended_at))
-    |> maybe_agent(agent_uid)
-    |> Repo.all()
-    |> Enum.reduce_while({:ok, 0}, fn conversation, {:ok, count} ->
+    conversations =
+      Conversation
+      |> where([c], is_nil(c.ended_at))
+      |> maybe_agent(agent_uid)
+      |> Repo.all()
+
+    last_activity_by_id = last_activity_by_conversation_id(conversations)
+    boundary = reset_boundary(profile, now)
+
+    Enum.reduce_while(conversations, {:ok, 0}, fn conversation, {:ok, count} ->
       cond do
-        not profile.daily_reset.enabled or not due_for_reset?(conversation, profile, now) ->
+        not due_for_reset?(conversation, last_activity_by_id, boundary) ->
           {:cont, {:ok, count}}
 
         active_generation?(conversation, now) ->
@@ -62,8 +69,8 @@ defmodule BullX.AIAgent.DailyReset do
     )
   end
 
-  defp due_for_reset?(conversation, profile, now) do
-    DateTime.compare(last_activity(conversation), reset_boundary(profile, now)) == :lt
+  defp due_for_reset?(conversation, last_activity_by_id, boundary) do
+    DateTime.compare(last_activity(conversation, last_activity_by_id), boundary) == :lt
   end
 
   defp retry_pending?(%Conversation{metadata: metadata}, now) do
@@ -92,17 +99,22 @@ defmodule BullX.AIAgent.DailyReset do
     |> Repo.update()
   end
 
-  defp last_activity(%Conversation{} = conversation) do
+  defp last_activity_by_conversation_id([]), do: %{}
+
+  defp last_activity_by_conversation_id(conversations) do
+    conversation_ids = Enum.map(conversations, & &1.id)
+
     BullX.AIAgent.Message
-    |> where([m], m.conversation_id == ^conversation.id)
+    |> where([m], m.conversation_id in ^conversation_ids)
     |> where([m], m.status == :complete)
-    |> select([m], max(m.updated_at))
-    |> Repo.one()
-    |> case do
-      nil -> conversation.updated_at
-      datetime -> datetime
-    end
+    |> group_by([m], m.conversation_id)
+    |> select([m], {m.conversation_id, max(m.updated_at)})
+    |> Repo.all()
+    |> Map.new()
   end
+
+  defp last_activity(%Conversation{} = conversation, last_activity_by_id),
+    do: Map.get(last_activity_by_id, conversation.id, conversation.updated_at)
 
   defp reset_boundary(%Profile{} = profile, now) do
     [hour, minute] =

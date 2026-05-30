@@ -56,6 +56,8 @@ defmodule BullX.LLM.Writer do
 
     with {:ok, attrs} <- apply_api_key(attrs, provider.id),
          changeset <- Provider.changeset(provider, attrs),
+         {:ok, validated_provider} <- Ecto.Changeset.apply_action(changeset, :insert),
+         {:ok, _provider_options} <- validate_provider_options(validated_provider),
          {:ok, provider} <- BullX.Repo.insert(changeset) do
       stale_status_after_write(provider)
     end
@@ -65,9 +67,19 @@ defmodule BullX.LLM.Writer do
     with {:ok, attrs} <- apply_api_key(attrs, provider.id),
          attrs <- Map.delete(attrs, :provider_id),
          changeset <- Provider.changeset(provider, attrs),
+         {:ok, validated_provider} <- Ecto.Changeset.apply_action(changeset, :update),
+         {:ok, _provider_options} <- validate_provider_options(validated_provider),
          {:ok, provider} <- BullX.Repo.update(changeset) do
       stale_status_after_write(provider)
     end
+  end
+
+  defp validate_provider_options(%Provider{} = provider) do
+    Catalog.validate_provider_row_options(
+      provider.req_llm_provider,
+      provider.provider_id,
+      provider.provider_options
+    )
   end
 
   defp stale_status_after_write(%Provider{} = provider) do

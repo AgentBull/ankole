@@ -26,14 +26,20 @@ defmodule BullX.AIAgent.PromptRenderer do
         %Message{} = trigger_message,
         opts \\ []
       ) do
-    branch = Conversations.render_branch(conversation)
+    transcript = Conversations.render_transcript(conversation)
     ambient_context = Keyword.get(opts, :ambient_context, [])
     sections = system_sections(profile)
     template = system_template(conversation, profile, Keyword.get(opts, :agent_tool_names, []))
 
     with {:ok, system} <- SystemPromptBuilder.render(sections, template: template),
          {:ok, messages} <-
-           render_branch(conversation, branch, profile, trigger_message, ambient_context),
+           render_transcript_messages(
+             conversation,
+             transcript,
+             profile,
+             trigger_message,
+             ambient_context
+           ),
          messages <- Compression.compact_large_results(messages, profile: profile),
          :ok <- validate_tool_pairs(messages) do
       {:ok,
@@ -41,7 +47,7 @@ defmodule BullX.AIAgent.PromptRenderer do
          messages: [%ReqLLM.Message{role: :system, content: system.system_content} | messages],
          system_prompt: system,
          diagnostics: %{
-           branch_message_count: length(branch),
+           transcript_message_count: length(transcript),
            provider_message_count: length(messages) + 1
          }
        }}
@@ -121,8 +127,14 @@ defmodule BullX.AIAgent.PromptRenderer do
     end
   end
 
-  defp render_branch(_conversation, branch, profile, trigger_message, ambient_context) do
-    branch
+  defp render_transcript_messages(
+         _conversation,
+         transcript,
+         profile,
+         trigger_message,
+         ambient_context
+       ) do
+    transcript
     |> Enum.reduce_while({:ok, [], []}, fn
       %Message{role: :user, kind: :introspection} = message, {:ok, acc, pending} ->
         {:cont, {:ok, acc, [message | pending]}}

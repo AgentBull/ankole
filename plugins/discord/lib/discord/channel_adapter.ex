@@ -40,7 +40,7 @@ defmodule Discord.ChannelAdapter do
   def capabilities do
     %{
       inbound_modes: [:discord_gateway_ws, :interaction],
-      outbound_ops: [:send, :edit, :stream],
+      outbound_ops: [:send, :edit],
       content_kinds: [
         :text,
         :image,
@@ -52,7 +52,6 @@ defmodule Discord.ChannelAdapter do
         :progress_notice
       ],
       features: [:threads, :application_commands, :ephemeral_provider_responses, :oauth2_login],
-      stream_strategy: :edit_accumulate,
       group_message_modes: Source.group_message_modes()
     }
   end

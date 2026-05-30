@@ -28,13 +28,19 @@ defmodule BullX.MailBox do
     "bullx.message.recalled",
     "bullx.message.deleted"
   ]
+  @active_rules_cache_key {__MODULE__, :active_rules}
+  @default_active_rules_cache_ttl_ms 1_000
 
   @type deliver_result ::
           {:ok, %{agent: Agent.t(), session: Session.t(), entry: Entry.t()}}
           | {:ok, %{status: :duplicate, agent: Agent.t(), session: Session.t(), entry: Entry.t()}}
           | {:error, term()}
 
-  @spec route(map(), keyword()) :: {:ok, [deliver_result()]} | {:error, term()}
+  @type route_result ::
+          {:ok, %{agent: Agent.t(), session: Session.t(), entry: Entry.t()}}
+          | {:ok, %{status: :duplicate, agent: Agent.t(), session: Session.t(), entry: Entry.t()}}
+
+  @spec route(map(), keyword()) :: {:ok, [route_result()]} | {:error, term()}
   def route(cloud_event, opts \\ []) when is_map(cloud_event) and is_list(opts) do
     context = routing_context(cloud_event)
     rules = active_rules()
@@ -42,8 +48,14 @@ defmodule BullX.MailBox do
     with {:ok, matched_rules} <- match_rules(rules, context) do
       matched_rules
       |> Enum.map(&deliver(rule_request(&1, cloud_event), opts))
-      |> then(&{:ok, &1})
+      |> route_delivery_results()
     end
+  end
+
+  @spec invalidate_delivery_rule_cache() :: :ok
+  def invalidate_delivery_rule_cache do
+    :persistent_term.erase(@active_rules_cache_key)
+    :ok
   end
 
   @spec deliver(map(), keyword()) :: deliver_result()
@@ -538,20 +550,12 @@ defmodule BullX.MailBox do
     |> where([message], message.mailbox_session_id == ^session_id)
     |> where([message], message.role in [:user, :im_ambient])
     |> where([message], message.kind == :normal)
-    |> where([message], is_nil(fragment("?->'branch_effect'", message.metadata)))
+    |> where([message], is_nil(fragment("?->'transcript_effect'", message.metadata)))
     |> order_by([message], desc: message.inserted_at)
     |> limit(100)
     |> Repo.all()
     |> Enum.any?(&materialized_target?(&1, target.id, target_set))
   end
-
-  defp materialized_target?(
-         %ConversationMessage{mailbox_entry_id: message_entry_id},
-         target_entry_id,
-         _target_set
-       )
-       when is_binary(message_entry_id) and message_entry_id == target_entry_id,
-       do: true
 
   defp materialized_target?(%ConversationMessage{metadata: metadata}, _entry_id, target_set) do
     metadata
@@ -717,8 +721,6 @@ defmodule BullX.MailBox do
       |> Map.put(
         "source_fact",
         Map.merge(source_fact, %{
-          "batch_mailbox_entry_ids" => Enum.map(all_entries, & &1.id),
-          "coalesced_mailbox_entry_ids" => Enum.map(entries, & &1.id),
           "coalesced_event_ids" => Enum.map(entries, &get_in(&1.cloud_event, ["id"]))
         })
       )
@@ -760,7 +762,6 @@ defmodule BullX.MailBox do
     data = get_in(entry.cloud_event, ["data"]) || %{}
 
     %{
-      "mailbox_entry_id" => entry.id,
       "event_id" => get_in(entry.cloud_event, ["id"]),
       "event_source" => get_in(entry.cloud_event, ["source"]),
       "provider_message_ids" => source_message_ids(data),
@@ -807,24 +808,79 @@ defmodule BullX.MailBox do
   end
 
   defp active_rules do
+    now_ms = System.monotonic_time(:millisecond)
+    ttl_ms = active_rules_cache_ttl_ms()
+
+    case cached_active_rules(now_ms, ttl_ms) do
+      {:ok, rules} -> rules
+      :miss -> load_active_rules(now_ms, ttl_ms)
+    end
+  end
+
+  defp cached_active_rules(_now_ms, ttl_ms) when ttl_ms <= 0, do: :miss
+
+  defp cached_active_rules(now_ms, _ttl_ms) do
+    case :persistent_term.get(@active_rules_cache_key, :miss) do
+      {expires_at_ms, rules} when expires_at_ms > now_ms -> {:ok, rules}
+      _other -> :miss
+    end
+  end
+
+  defp load_active_rules(now_ms, ttl_ms) do
+    rules = query_active_rules()
+    cache_active_rules(rules, now_ms, ttl_ms)
+    rules
+  end
+
+  defp query_active_rules do
     DeliveryRule
     |> where([rule], rule.active == true)
     |> order_by([rule], asc: rule.priority, asc: rule.id)
     |> Repo.all()
   end
 
+  defp cache_active_rules(_rules, _now_ms, ttl_ms) when ttl_ms <= 0, do: :ok
+
+  defp cache_active_rules(rules, now_ms, ttl_ms) do
+    :persistent_term.put(@active_rules_cache_key, {now_ms + ttl_ms, rules})
+  end
+
+  defp active_rules_cache_ttl_ms do
+    :bullx
+    |> Application.get_env(__MODULE__, [])
+    |> Keyword.get(:active_rules_cache_ttl_ms, default_active_rules_cache_ttl_ms())
+    |> normalize_cache_ttl_ms()
+  end
+
+  defp default_active_rules_cache_ttl_ms do
+    case Code.ensure_loaded?(Mix) and Mix.env() == :test do
+      true -> 0
+      false -> @default_active_rules_cache_ttl_ms
+    end
+  rescue
+    _reason -> @default_active_rules_cache_ttl_ms
+  end
+
+  defp normalize_cache_ttl_ms(value) when is_integer(value) and value >= 0, do: value
+  defp normalize_cache_ttl_ms(_value), do: @default_active_rules_cache_ttl_ms
+
   defp match_rules(rules, context) do
-    rules
-    |> Enum.reduce_while({:ok, []}, fn rule, {:ok, acc} ->
-      case Matcher.match([rule], context) do
-        {:ok, {:matched, _id, _diagnostics}} -> {:cont, {:ok, [rule | acc]}}
-        {:ok, {:no_match, _diagnostics}} -> {:cont, {:ok, acc}}
-        {:error, reason} -> {:halt, {:error, reason}}
-      end
-    end)
-    |> case do
-      {:ok, matched} -> {:ok, Enum.reverse(matched)}
+    case Matcher.match_all(rules, context) do
+      {:ok, {:matched, rule_ids, _diagnostics}} -> {:ok, matched_rules(rules, rule_ids)}
+      {:ok, {:no_match, _diagnostics}} -> {:ok, []}
       {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp matched_rules(rules, rule_ids) do
+    rules_by_id = Map.new(rules, &{&1.id, &1})
+    Enum.map(rule_ids, &Map.fetch!(rules_by_id, &1))
+  end
+
+  defp route_delivery_results(results) do
+    case Enum.filter(results, &match?({:error, _reason}, &1)) do
+      [] -> {:ok, results}
+      failures -> {:error, {:delivery_failed, failures}}
     end
   end
 

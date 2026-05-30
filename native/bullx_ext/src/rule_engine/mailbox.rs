@@ -1,10 +1,13 @@
 //! MailBox delivery-rule CEL evaluation. Rules have a condition over a routing
 //! context and a priority for deterministic evaluation order. MailBox fan-out is
-//! owned by Elixir, which can call this matcher for one or more candidate rules.
+//! owned by Elixir, which sends the current candidate set through one coarse NIF
+//! call and receives the matched rule ids.
 
 use ::cel::Context;
 use rustler::{Encoder, Env, NifResult, Term};
 use serde_json::Value as JsonValue;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex, OnceLock};
 
 use crate::encoding::error;
 use crate::rule_engine::cel::{
@@ -38,7 +41,7 @@ pub fn mailbox_match_delivery_rule<'a>(
   let mut diagnostics = Vec::new();
 
   for rule in rules {
-    let program = match cel::compile_condition(&rule.match_expr) {
+    let program = match cached_program(&rule) {
       Ok(program) => program,
       Err(reason) => {
         diagnostics.push(encode_diagnostic(
@@ -73,10 +76,115 @@ pub fn mailbox_match_delivery_rule<'a>(
   Ok((atoms::no_match(), diagnostics).encode(env))
 }
 
+/// Match `routing_context` against every priority-sorted candidate `rules`,
+/// returning all satisfied rule ids. Per-rule failures accumulate as
+/// diagnostics without halting evaluation.
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn mailbox_match_delivery_rules<'a>(
+  env: Env<'a>,
+  rules: Term<'a>,
+  routing_context: Term<'a>,
+) -> NifResult<Term<'a>> {
+  let rules = decode_rules(rules)?;
+  let routing_context = term_to_json(routing_context)?;
+  let context = build_mailbox_context(&routing_context)?;
+  let (matched_ids, diagnostics) = match_all_rules(&rules, &context);
+
+  match matched_ids.is_empty() {
+    true => Ok((atoms::no_match(), diagnostics).encode(env)),
+    false => Ok((atoms::matched(), matched_ids, diagnostics).encode(env)),
+  }
+}
+
 struct MailboxDeliveryRule {
   id: String,
   priority: i64,
   match_expr: String,
+}
+
+struct CachedProgram {
+  match_expr: String,
+  program: Arc<::cel::Program>,
+}
+
+static PROGRAM_CACHE: OnceLock<Mutex<HashMap<String, CachedProgram>>> = OnceLock::new();
+
+fn match_all_rules(
+  rules: &[MailboxDeliveryRule],
+  context: &Context<'_>,
+) -> (Vec<String>, Vec<(String, rustler::Atom, String)>) {
+  let mut matched_ids = Vec::new();
+  let mut diagnostics = Vec::new();
+
+  for rule in rules {
+    let program = match cached_program(rule) {
+      Ok(program) => program,
+      Err(reason) => {
+        diagnostics.push(encode_diagnostic(
+          &rule.id,
+          atoms::condition_compile(),
+          reason,
+        ));
+        continue;
+      }
+    };
+
+    match cel::execute_bool(&program, context) {
+      Ok(true) => matched_ids.push(rule.id.clone()),
+      Ok(false) => {}
+      Err(BoolEvalError::Execution(reason)) => {
+        diagnostics.push(encode_diagnostic(
+          &rule.id,
+          atoms::condition_execution(),
+          reason,
+        ));
+      }
+      Err(BoolEvalError::ResultType(reason)) => {
+        diagnostics.push(encode_diagnostic(
+          &rule.id,
+          atoms::condition_result_type(),
+          reason,
+        ));
+      }
+    }
+  }
+
+  (matched_ids, diagnostics)
+}
+
+fn cached_program(rule: &MailboxDeliveryRule) -> Result<Arc<::cel::Program>, String> {
+  if let Some(program) = lookup_cached_program(rule) {
+    return Ok(program);
+  }
+
+  let program = Arc::new(cel::compile_condition(&rule.match_expr)?);
+  store_cached_program(rule, &program);
+  Ok(program)
+}
+
+fn lookup_cached_program(rule: &MailboxDeliveryRule) -> Option<Arc<::cel::Program>> {
+  let cache = PROGRAM_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+  let guard = cache.try_lock().ok()?;
+  let cached = guard.get(&rule.id)?;
+
+  match cached.match_expr == rule.match_expr {
+    true => Some(Arc::clone(&cached.program)),
+    false => None,
+  }
+}
+
+fn store_cached_program(rule: &MailboxDeliveryRule, program: &Arc<::cel::Program>) {
+  let cache = PROGRAM_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+
+  if let Ok(mut guard) = cache.try_lock() {
+    guard.insert(
+      rule.id.clone(),
+      CachedProgram {
+        match_expr: rule.match_expr.clone(),
+        program: Arc::clone(program),
+      },
+    );
+  }
 }
 
 fn decode_rules(term: Term<'_>) -> NifResult<Vec<MailboxDeliveryRule>> {
@@ -170,5 +278,37 @@ mod tests {
 
     assert_eq!(rules[0].id, "a");
     assert_eq!(rules[1].id, "b");
+  }
+
+  #[test]
+  fn match_all_rules_returns_every_matching_rule() {
+    let rules = vec![
+      MailboxDeliveryRule {
+        id: "a".to_owned(),
+        priority: 1,
+        match_expr: r#"type == "bullx.test.mail""#.to_owned(),
+      },
+      MailboxDeliveryRule {
+        id: "b".to_owned(),
+        priority: 2,
+        match_expr: r#"type == "other""#.to_owned(),
+      },
+      MailboxDeliveryRule {
+        id: "c".to_owned(),
+        priority: 3,
+        match_expr: r#"source == "bullx://test""#.to_owned(),
+      },
+    ];
+
+    let context = build_mailbox_context(&serde_json::json!({
+      "source": "bullx://test",
+      "type": "bullx.test.mail"
+    }))
+    .unwrap();
+
+    let (matched_ids, diagnostics) = match_all_rules(&rules, &context);
+
+    assert_eq!(matched_ids, vec!["a", "c"]);
+    assert!(diagnostics.is_empty());
   }
 }

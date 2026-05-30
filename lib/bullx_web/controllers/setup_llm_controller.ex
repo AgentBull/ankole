@@ -73,7 +73,7 @@ defmodule BullXWeb.SetupLLMController do
   end
 
   defp render_step(conn, projection, error) do
-    status = LLMProviders.status()
+    status = llm_providers_status(projection)
 
     conn
     |> assign(:page_title, "Setup LLM Providers")
@@ -91,4 +91,7 @@ defmodule BullXWeb.SetupLLMController do
     })
     |> render_inertia("setup/llm/App")
   end
+
+  defp llm_providers_status(%{llm_providers: status}), do: status
+  defp llm_providers_status(_projection), do: LLMProviders.status()
 end

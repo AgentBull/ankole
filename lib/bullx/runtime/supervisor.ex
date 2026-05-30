@@ -16,8 +16,8 @@ defmodule BullX.Runtime.Supervisor do
         BullX.Redis,
         {Task.Supervisor, name: BullX.MailBox.SessionWorkerSupervisor},
         mail_box_dispatcher_child(),
-        BullX.AIAgent.AmbientBatchWorker,
-        BullX.AIAgent.DailyResetWorker
+        ai_agent_runtime_child(:ambient_batch_worker, BullX.AIAgent.AmbientBatchWorker),
+        ai_agent_runtime_child(:daily_reset_worker, BullX.AIAgent.DailyResetWorker)
       ]
       |> List.flatten()
 
@@ -37,6 +37,15 @@ defmodule BullX.Runtime.Supervisor do
 
       false ->
         []
+    end
+  end
+
+  defp ai_agent_runtime_child(config_key, child) do
+    config = Application.get_env(:bullx, :ai_agent_runtime, [])
+
+    case Keyword.get(config, config_key, true) do
+      true -> [child]
+      false -> []
     end
   end
 end

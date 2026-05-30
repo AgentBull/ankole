@@ -261,39 +261,39 @@ defmodule Feishu.DirectCommand do
   end
 
   defp root_init_account_input(%Source{} = source, command) do
-    with {:ok, open_id} <- command_actor_open_id(command),
-         {:ok, userinfo} <- UserInfo.fetch_contact(source, open_id),
-         :ok <- validate_contact_open_id(userinfo, open_id),
-         userinfo <- Map.put_new(userinfo, "open_id", open_id),
-         :ok <- validate_root_init_actor(command, open_id) do
-      {:ok, build_root_init_account_input(source, command, open_id, userinfo)}
+    with {:ok, user_id} <- command_actor_user_id(command),
+         {:ok, userinfo} <- UserInfo.fetch_contact(source, user_id, "user_id"),
+         :ok <- validate_contact_user_id(userinfo, user_id),
+         userinfo <- Map.put_new(userinfo, "user_id", user_id),
+         :ok <- validate_root_init_actor(command, user_id) do
+      {:ok, build_root_init_account_input(source, command, user_id, userinfo)}
     end
   end
 
-  defp validate_contact_open_id(userinfo, open_id) do
-    case userinfo |> stringify_map() |> Map.get("open_id") |> present_string() do
-      ^open_id -> :ok
+  defp validate_contact_user_id(userinfo, user_id) do
+    case userinfo |> stringify_map() |> Map.get("user_id") |> present_string() do
+      ^user_id -> :ok
       nil -> :ok
-      _other_open_id -> {:error, Feishu.Error.payload("Feishu contact user mismatch")}
+      _other_user_id -> {:error, Feishu.Error.payload("Feishu contact user mismatch")}
     end
   end
 
-  defp validate_root_init_actor(command, open_id) do
-    case command_actor_open_id(command) do
-      {:ok, ^open_id} -> :ok
-      {:ok, _other_open_id} -> {:error, Feishu.Error.payload("Feishu root_init actor mismatch")}
+  defp validate_root_init_actor(command, user_id) do
+    case command_actor_user_id(command) do
+      {:ok, ^user_id} -> :ok
+      {:ok, _other_user_id} -> {:error, Feishu.Error.payload("Feishu root_init actor mismatch")}
       {:error, error} -> {:error, error}
     end
   end
 
-  defp build_root_init_account_input(%Source{} = source, command, open_id, userinfo) do
+  defp build_root_init_account_input(%Source{} = source, command, user_id, userinfo) do
     account_input = command |> map_value(:account_input) |> stringify_map()
     metadata = account_input |> Map.get("metadata", %{}) |> stringify_map()
 
     %{
       "adapter" => "feishu",
       "channel_id" => source.id,
-      "external_id" => "feishu:" <> open_id,
+      "external_id" => "feishu:user_id:" <> user_id,
       "trusted_realm_by_default" => true,
       "profile" => UserInfo.profile(userinfo),
       "metadata" =>
@@ -304,23 +304,23 @@ defmodule Feishu.DirectCommand do
     }
   end
 
-  defp command_actor_open_id(command) do
+  defp command_actor_user_id(command) do
     command
     |> map_value(:actor)
     |> stringify_map()
-    |> actor_open_id()
+    |> actor_user_id()
   end
 
-  defp actor_open_id(actor) do
+  defp actor_user_id(actor) do
     cond do
-      present_string(actor["open_id"]) ->
-        {:ok, actor["open_id"]}
+      present_string(actor["user_id"]) ->
+        {:ok, actor["user_id"]}
 
-      match?("feishu:" <> _open_id, actor["id"]) ->
-        {:ok, String.trim_leading(actor["id"], "feishu:")}
+      match?("feishu:user_id:" <> _user_id, actor["id"]) ->
+        {:ok, String.trim_leading(actor["id"], "feishu:user_id:")}
 
       true ->
-        {:error, Feishu.Error.payload("Feishu root_init actor is missing open_id")}
+        {:error, Feishu.Error.payload("Feishu root_init actor is missing user_id")}
     end
   end
 

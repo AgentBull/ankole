@@ -223,41 +223,45 @@ defmodule Feishu.OIDCProvider do
 
   defp fetch_contact_userinfo(%Source{} = source, id_type, user_id, token_userinfo) do
     with {:ok, contact_userinfo} <- UserInfo.fetch_contact(source, user_id, id_type),
-         {:ok, open_id} <- contact_open_id(id_type, user_id, contact_userinfo),
-         :ok <- validate_contact_user(contact_userinfo, open_id) do
-      {:ok, merge_userinfo(token_userinfo, contact_userinfo, open_id)}
+         :ok <- validate_contact_ref(contact_userinfo, id_type, user_id),
+         {:ok, canonical_user_id} <- UserInfo.user_id(contact_userinfo) do
+      {:ok, merge_userinfo(token_userinfo, contact_userinfo, canonical_user_id)}
     end
   end
 
   defp fetch_contact_userinfo_by_authn_userinfo(%Source{} = source, tokens) do
     with {:ok, authn_userinfo} <- UserInfo.fetch_authn(source, tokens.access_token),
-         {:ok, open_id} <- UserInfo.open_id(authn_userinfo) do
-      fetch_contact_userinfo(source, "open_id", open_id, authn_userinfo)
+         {:ok, id_type, user_id, authn_userinfo} <- authn_user_ref(authn_userinfo) do
+      fetch_contact_userinfo(source, id_type, user_id, authn_userinfo)
     end
-  end
-
-  defp contact_open_id("open_id", open_id, _contact_userinfo), do: {:ok, open_id}
-
-  defp contact_open_id(_id_type, _user_id, contact_userinfo) do
-    UserInfo.open_id(contact_userinfo)
   end
 
   defp token_user_ref(tokens) do
     token_userinfo = token_userinfo(tokens)
 
-    case present_string(value(token_userinfo, "open_id") || value(token_userinfo, "sub")) do
-      open_id when is_binary(open_id) ->
-        {:ok, "open_id", open_id, token_userinfo}
+    case present_string(value(token_userinfo, "user_id")) do
+      user_id when is_binary(user_id) ->
+        {:ok, "user_id", user_id, token_userinfo}
 
       nil ->
-        token_user_id_ref(token_userinfo)
+        token_open_id_ref(token_userinfo)
     end
   end
 
-  defp token_user_id_ref(token_userinfo) do
-    case present_string(value(token_userinfo, "user_id")) do
-      user_id when is_binary(user_id) -> {:ok, "user_id", user_id, token_userinfo}
+  defp token_open_id_ref(token_userinfo) do
+    case present_string(value(token_userinfo, "open_id") || value(token_userinfo, "sub")) do
+      open_id when is_binary(open_id) -> {:ok, "open_id", open_id, token_userinfo}
       nil -> :error
+    end
+  end
+
+  defp authn_user_ref(userinfo) do
+    case token_user_ref(%{raw: userinfo}) do
+      {:ok, _id_type, _user_id, _userinfo} = ok ->
+        ok
+
+      :error ->
+        {:error, Feishu.Error.payload("Feishu userinfo is missing user_id")}
     end
   end
 
@@ -270,27 +274,43 @@ defmodule Feishu.OIDCProvider do
     end
   end
 
-  defp merge_userinfo(identity_userinfo, contact_userinfo, open_id) do
+  defp merge_userinfo(identity_userinfo, contact_userinfo, user_id) do
     contact_userinfo
-    |> Map.put_new("open_id", open_id)
+    |> Map.put_new("user_id", user_id)
     |> Map.put_new("tenant_key", value(identity_userinfo, "tenant_key"))
   end
 
-  defp validate_contact_user(userinfo, open_id) do
-    case value(userinfo, "open_id") do
+  defp validate_contact_ref(userinfo, "user_id", user_id) do
+    case value(userinfo, "user_id") do
+      ^user_id -> :ok
+      nil -> :ok
+      _other_user_id -> {:error, Feishu.Error.payload("Feishu contact user mismatch")}
+    end
+  end
+
+  defp validate_contact_ref(userinfo, "open_id", open_id) do
+    case value(userinfo, "open_id") || value(userinfo, "sub") do
       ^open_id -> :ok
       nil -> :ok
       _other_open_id -> {:error, Feishu.Error.payload("Feishu contact user mismatch")}
     end
   end
 
+  defp validate_contact_ref(userinfo, "union_id", union_id) do
+    case value(userinfo, "union_id") do
+      ^union_id -> :ok
+      nil -> :ok
+      _other_union_id -> {:error, Feishu.Error.payload("Feishu contact user mismatch")}
+    end
+  end
+
   defp login_subject(%Source{} = source, userinfo) when is_map(userinfo) do
-    case UserInfo.open_id(userinfo) do
-      {:ok, open_id} ->
+    case UserInfo.user_id(userinfo) do
+      {:ok, user_id} ->
         {:ok,
          %{
            "provider" => source.id,
-           "external_id" => "feishu:" <> open_id,
+           "external_id" => "feishu:user_id:" <> user_id,
            "profile" => UserInfo.profile(userinfo),
            "metadata" =>
              %{
@@ -309,16 +329,25 @@ defmodule Feishu.OIDCProvider do
   end
 
   defp cache_user_token(%Source{} = source, userinfo, tokens) do
-    case UserInfo.open_id(userinfo) do
-      {:ok, open_id} ->
-        client = Source.client!(source)
-        :ok = FeishuOpenAPI.UserTokenManager.put(client, open_id, tokens)
-        :ok = FeishuOpenAPI.UserTokenManager.put(client, "feishu:" <> open_id, tokens)
+    client = Source.client!(source)
 
-      {:error, _error} ->
-        :ok
-    end
+    :ok = cache_user_id_token(client, UserInfo.user_id(userinfo), tokens)
+    :ok = cache_open_id_token(client, UserInfo.open_id(userinfo), tokens)
   end
+
+  defp cache_user_id_token(client, {:ok, user_id}, tokens) do
+    :ok = FeishuOpenAPI.UserTokenManager.put(client, user_id, tokens)
+    :ok = FeishuOpenAPI.UserTokenManager.put(client, "feishu:user_id:" <> user_id, tokens)
+  end
+
+  defp cache_user_id_token(_client, {:error, _error}, _tokens), do: :ok
+
+  defp cache_open_id_token(client, {:ok, open_id}, tokens) do
+    :ok = FeishuOpenAPI.UserTokenManager.put(client, open_id, tokens)
+    :ok = FeishuOpenAPI.UserTokenManager.put(client, "feishu:" <> open_id, tokens)
+  end
+
+  defp cache_open_id_token(_client, {:error, _error}, _tokens), do: :ok
 
   defp required_param(params, key) do
     case string_value(params, key) do

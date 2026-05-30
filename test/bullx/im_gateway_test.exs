@@ -8,7 +8,7 @@ defmodule BullX.IMGatewayTest do
   alias BullX.IMGateway
   alias BullX.IMGateway.Message
   alias BullX.MailBox.{DeliveryRule, Entry}
-  alias BullX.Principals.Principal
+  alias BullX.Principals.{Agent, ExternalIdentity, Principal}
   alias BullX.Repo
 
   setup do
@@ -31,20 +31,25 @@ defmodule BullX.IMGatewayTest do
                )
              )
 
-    message = Repo.preload(message, [:actor_principal, :actor_external_identity, :room])
+    message = Repo.preload(message, :room)
 
-    assert message.direction == :inbound
-    assert message.status == :received
+    assert message.lifecycle_state == :active
     assert message.provider_message_id == "om_1"
     assert message.actor_kind == "human"
-    assert %Principal{type: :human} = message.actor_principal
-    assert message.actor_external_identity.kind == :channel_actor
-    assert message.actor_external_identity.adapter == "feishu"
-    assert message.actor_external_identity.channel_id == "main"
-    assert message.actor_external_identity.external_id == "feishu:ou_user"
+    assert message.actor_provider_id == "feishu:user_id:user_x"
+    refute Map.has_key?(message.actor, "principal")
+
+    assert %ExternalIdentity{kind: :channel_actor, principal: %Principal{type: :human}} =
+             Repo.one!(
+               from identity in ExternalIdentity,
+                 where: identity.adapter == "feishu",
+                 where: identity.channel_id == "main",
+                 where: identity.external_id == "feishu:user_id:user_x",
+                 preload: [:principal]
+             )
 
     assert message.room.provider == "feishu"
-    assert message.room.source_id == "main"
+    assert message.room.provider_realm_id == "tenant"
     assert message.room.provider_room_id == "chat_1"
 
     entry = Repo.one!(Entry) |> Repo.preload([:agent, :session])
@@ -94,9 +99,16 @@ defmodule BullX.IMGatewayTest do
                im_message_event("evt-unverified", "om_unverified", "hello", false)
              )
 
-    message = Repo.preload(message, :actor_external_identity)
+    identity =
+      Repo.one!(
+        from identity in ExternalIdentity,
+          where: identity.adapter == "feishu",
+          where: identity.channel_id == "main",
+          where: identity.external_id == "feishu:user_id:user_x"
+      )
 
-    refute BullX.Principals.channel_identity_verified?(message.actor_external_identity)
+    assert message.actor_provider_id == "feishu:user_id:user_x"
+    refute BullX.Principals.channel_identity_verified?(identity)
     assert Repo.aggregate(Entry, :count) == 0
   end
 
@@ -114,9 +126,16 @@ defmodule BullX.IMGatewayTest do
                )
              )
 
-    message = Repo.preload(message, :actor_external_identity)
+    identity =
+      Repo.one!(
+        from identity in ExternalIdentity,
+          where: identity.adapter == "feishu",
+          where: identity.channel_id == "main",
+          where: identity.external_id == "feishu:user_id:user_x"
+      )
 
-    refute BullX.Principals.channel_identity_verified?(message.actor_external_identity)
+    assert message.actor_provider_id == "feishu:user_id:user_x"
+    refute BullX.Principals.channel_identity_verified?(identity)
     assert Repo.aggregate(Entry, :count) == 1
   end
 
@@ -131,7 +150,7 @@ defmodule BullX.IMGatewayTest do
     assert {:ok, %{message: %Message{} = message, mailbox: [_result]}} =
              IMGateway.accept_message_event(event)
 
-    assert message.status == :edited
+    assert message.lifecycle_state == :edited
 
     entry = Repo.one!(Entry)
     assert entry.cloud_event["type"] == "bullx.message.edited"
@@ -155,7 +174,7 @@ defmodule BullX.IMGatewayTest do
     assert {:ok, %{message: %Message{} = message, mailbox: [_result]}} =
              IMGateway.accept_message_event(event)
 
-    assert message.status == :edited
+    assert message.lifecycle_state == :edited
 
     entry = Repo.one!(Entry)
     assert entry.cloud_event["type"] == "bullx.message.edited"
@@ -173,12 +192,68 @@ defmodule BullX.IMGatewayTest do
     assert {:ok, %{message: %Message{} = message, mailbox: [_result]}} =
              IMGateway.accept_message_event(event)
 
-    assert message.status == :deleted
+    assert message.lifecycle_state == :deleted
 
     entry = Repo.one!(Entry)
     assert entry.cloud_event["type"] == "bullx.message.deleted"
     assert get_in(entry.cloud_event, ["data", "source_fact", "revision", "action"]) == "deleted"
     assert_entry_status(entry.id, :processed)
+  end
+
+  test "terminal lifecycle tombstone suppresses late receive without mirror dependency" do
+    insert_delivery_rule!("message delete terminal", ~s(type == "bullx.message.deleted"))
+    insert_delivery_rule!("message received after terminal")
+
+    delete_event =
+      "evt-terminal-delete"
+      |> im_message_event("om_terminal", "deleted")
+      |> Map.put("type", "bullx.message.deleted")
+
+    assert {:ok, %{message: %Message{lifecycle_state: :deleted}}} =
+             IMGateway.accept_message_event(delete_event)
+
+    query = from message in Message, where: message.provider_message_id == "om_terminal"
+
+    assert {1, _rows} = Repo.delete_all(query)
+
+    late_received =
+      im_message_event("evt-terminal-received", "om_terminal", "late received after delete")
+
+    assert {:ok,
+            %{
+              message: nil,
+              mailbox: :skipped_terminal_lifecycle_message
+            }} = IMGateway.accept_message_event(late_received)
+
+    assert Repo.aggregate(Entry, :count) == 1
+    assert Repo.aggregate(query, :count) == 0
+  end
+
+  test "terminal mirror row alone does not suppress received delivery" do
+    insert_delivery_rule!("message received after terminal mirror")
+
+    delete_event =
+      "evt-terminal-mirror-only-delete"
+      |> im_message_event("om_terminal_mirror_only", "deleted")
+      |> Map.put("type", "bullx.message.deleted")
+
+    assert {:ok, %{message: %Message{lifecycle_state: :deleted}}} =
+             IMGateway.accept_message_event(delete_event)
+
+    BullX.Cache.clear()
+
+    late_received =
+      im_message_event(
+        "evt-terminal-mirror-only-received",
+        "om_terminal_mirror_only",
+        "late received with mirror only"
+      )
+
+    assert {:ok,
+            %{
+              message: %Message{lifecycle_state: :deleted},
+              mailbox: [ok: %{entry: %Entry{}}]
+            }} = IMGateway.accept_message_event(late_received)
   end
 
   test "IMGateway to MailBox to AIAgent writes conversation message end to end" do
@@ -223,13 +298,12 @@ defmodule BullX.IMGatewayTest do
              role: :im_ambient,
              kind: :normal,
              status: :complete,
-             mailbox_entry_id: ^entry_id,
              content: [%{"type" => "text", "text" => "background"}],
              event_id: event_id
            } = Repo.one!(AgentMessage)
 
     assert event_id == "feishu://main/tenant:evt-agent-1:bullx.message.received"
-    assert im_message.actor_principal_uid != nil
+    assert im_message.actor_provider_id == "feishu:user_id:user_x"
   end
 
   test "consecutive IM messages from one actor coalesce before AIAgent handling" do
@@ -285,12 +359,12 @@ defmodule BullX.IMGatewayTest do
              %AgentMessage{
                role: :im_ambient,
                kind: :normal,
-               mailbox_entry_id: first_entry_id,
-               content: [%{"type" => "text", "text" => "first\nsecond"}]
+               content: [%{"type" => "text", "text" => "first\nsecond"}],
+               event_id: event_id
              }
            ] = Repo.all(AgentMessage)
 
-    assert first_entry_id == first_entry.id
+    assert event_id == first_entry.cloud_event["id"]
   end
 
   test "coalesced group batch is addressed when any active item is addressed" do
@@ -345,8 +419,8 @@ defmodule BullX.IMGatewayTest do
     assert %AgentMessage{
              role: :user,
              kind: :normal,
-             mailbox_entry_id: first_entry_id,
              content: [%{"type" => "text", "text" => "@agent first\nsecond"}],
+             event_id: event_id,
              metadata: %{
                "im_batch" => %{
                  "effective_attention" => "addressed",
@@ -355,7 +429,7 @@ defmodule BullX.IMGatewayTest do
              }
            } = Repo.get_by!(AgentMessage, role: :user, kind: :normal)
 
-    assert first_entry_id == first_entry.id
+    assert event_id == first_entry.cloud_event["id"]
   end
 
   test "message edits inside the coalesce window rewrite the pending receive entry" do
@@ -466,7 +540,7 @@ defmodule BullX.IMGatewayTest do
           "content" => Jason.encode!(%{text: "group background"})
         },
         "sender" => %{
-          "sender_id" => %{"open_id" => "ou_feishu_e2e"},
+          "sender_id" => %{"user_id" => "user_feishu_e2e", "open_id" => "ou_feishu_e2e"},
           "sender_type" => "user",
           "name" => "Feishu User"
         }
@@ -481,7 +555,7 @@ defmodule BullX.IMGatewayTest do
              IMGateway.accept_message_event(message_event)
 
     assert im_message.provider_message_id == "om_feishu_e2e"
-    assert im_message.actor_principal_uid != nil
+    assert im_message.actor_provider_id == "feishu:user_id:user_feishu_e2e"
 
     force_mailbox_entries_ready()
     assert {:ok, 1} = BullX.MailBox.process_ready(1)
@@ -494,12 +568,12 @@ defmodule BullX.IMGatewayTest do
            } = Repo.one!(AgentMessage)
   end
 
-  test "human im_messages mirror rows can store unresolved actors" do
+  test "human im_messages mirror rows can store unresolved provider actors" do
     room =
       %BullX.IMGateway.Room{}
       |> BullX.IMGateway.Room.changeset(%{
         provider: "feishu",
-        source_id: "main",
+        provider_realm_id: "tenant",
         provider_room_id: "chat_2",
         kind: :group,
         metadata: %{}
@@ -510,27 +584,27 @@ defmodule BullX.IMGatewayTest do
              %Message{}
              |> Message.changeset(%{
                room_id: room.id,
-               direction: :inbound,
-               status: :received,
+               lifecycle_state: :active,
                provider_message_id: "om_missing_principal",
                actor_kind: "human",
-               actor: %{"external_account_id" => "feishu:ou_missing"},
+               actor_provider_id: "feishu:user_id:missing",
+               actor: %{"external_account_id" => "feishu:user_id:missing"},
                message_kind: "text",
                content: %{},
                attachments: [],
                mentions: [],
-               received_at: DateTime.utc_now(:microsecond)
+               observed_at: DateTime.utc_now(:microsecond)
              })
              |> Repo.insert()
 
     assert message.actor_kind == "human"
-    assert is_nil(message.actor_principal_uid)
+    assert message.actor_provider_id == "feishu:user_id:missing"
   end
 
-  test "observe_all unaddressed group messages mirror without MailBox delivery" do
+  test "observe_all unaddressed group messages route as ambient MailBox entries" do
     insert_delivery_rule!("observe only")
 
-    assert {:ok, %{message: %Message{} = message, mailbox: :blackholed_unaddressed_group_message}} =
+    assert {:ok, %{message: %Message{} = message, mailbox: [ok: %{entry: %Entry{} = entry}]}} =
              IMGateway.accept_message_event(
                im_message_event(
                  "evt-observe-only",
@@ -541,8 +615,52 @@ defmodule BullX.IMGatewayTest do
                )
              )
 
-    assert message.status == :received
+    assert message.lifecycle_state == :active
+    assert entry.attention == :ambient
+    assert Repo.aggregate(Entry, :count) == 1
+  end
+
+  test "failed route does not mark inbound event as processed" do
+    original_config = Application.get_env(:bullx, BullX.MailBox, [])
+
+    :ok =
+      Application.put_env(
+        :bullx,
+        BullX.MailBox,
+        Keyword.put(original_config, :active_rules_cache_ttl_ms, 60_000)
+      )
+
+    BullX.MailBox.invalidate_delivery_rule_cache()
+
+    on_exit(fn ->
+      Application.put_env(:bullx, BullX.MailBox, original_config)
+      BullX.MailBox.invalidate_delivery_rule_cache()
+    end)
+
+    agent_uid = ai_agent!("stale-route")
+    insert_agent_delivery_rule!(agent_uid)
+    assert {:ok, [_result]} = BullX.MailBox.route(warmup_mail("stale-route-warmup"))
+    assert {1, _rows} = Repo.delete_all(from agent in Agent, where: agent.uid == ^agent_uid)
+
+    event =
+      im_message_event(
+        "evt-route-error",
+        "om_route_error",
+        "retry me",
+        true,
+        %{"attention_reason" => "unaddressed", "group_message_mode" => "engage_all"}
+      )
+
+    assert {:error, {:delivery_failed, [{:error, :agent_not_found}]}} =
+             IMGateway.accept_message_event(event)
+
     assert Repo.aggregate(Entry, :count) == 0
+
+    BullX.MailBox.invalidate_delivery_rule_cache()
+    insert_delivery_rule!("valid route after error")
+
+    assert {:ok, %{message: %Message{}, mailbox: [ok: %{entry: %Entry{}}]}} =
+             IMGateway.accept_message_event(event)
   end
 
   defp insert_delivery_rule!(name, match_expr \\ ~s(type == "bullx.message.received")) do
@@ -637,7 +755,9 @@ defmodule BullX.IMGatewayTest do
         },
         "scope" => %{"id" => "chat_1", "thread_id" => nil},
         "actor" => %{
-          "external_account_id" => "feishu:ou_user",
+          "external_account_id" => "feishu:user_id:user_x",
+          "user_id" => "user_x",
+          "open_id" => "ou_user",
           "display_name" => "Alice",
           "principal" => nil
         },
@@ -649,7 +769,24 @@ defmodule BullX.IMGatewayTest do
           "reply_to_external_id" => message_id
         },
         "routing_facts" => Map.put(routing_facts, "chat_type", "group"),
-        "raw_ref" => %{"message_id" => message_id}
+        "raw_ref" => %{"message_id" => message_id, "tenant_key" => "tenant"}
+      }
+    }
+  end
+
+  defp warmup_mail(id) do
+    %{
+      "specversion" => "1.0",
+      "id" => id,
+      "source" => "bullx://test/im-gateway",
+      "type" => "bullx.message.received",
+      "time" => "2026-05-27T00:00:00Z",
+      "datacontenttype" => "application/json",
+      "data" => %{
+        "routing_facts" => %{
+          "attention_reason" => "unaddressed",
+          "group_message_mode" => "engage_all"
+        }
       }
     }
   end

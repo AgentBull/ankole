@@ -24,7 +24,6 @@ defmodule BullX.Repo.Migrations.CreateAiAgentTables do
         null: false
 
       add :conversation_key, :text, null: false
-      add :current_leaf_message_id, :uuid
       add :ended_at, :utc_datetime_usec
       add :generation, :map, null: false, default: %{}
       add :metadata, :map, null: false, default: %{}
@@ -45,20 +44,25 @@ defmodule BullX.Repo.Migrations.CreateAiAgentTables do
              name: :conversations_active_agent_key_index
            )
 
+    create unique_index(:conversations, [:id, :agent_uid],
+             name: :conversations_id_agent_uid_index
+           )
+
     create table(:conversation_messages, primary_key: false) do
       add :id, :uuid, primary_key: true
+
+      add :agent_uid, references(:agents, column: :uid, type: :text, on_delete: :restrict),
+        null: false
 
       add :conversation_id, references(:conversations, type: :uuid, on_delete: :restrict),
         null: false
 
-      add :parent_id, :uuid
       add :role, :ai_agent_message_role, null: false
       add :kind, :ai_agent_message_kind, null: false
       add :status, :ai_agent_message_status, null: false
       add :content, :map, null: false
       add :covers_range, :map
       add :mailbox_session_id, :uuid
-      add :mailbox_entry_id, :uuid
       add :event_source, :text
       add :event_id, :text
       add :metadata, :map, null: false, default: %{}
@@ -66,18 +70,39 @@ defmodule BullX.Repo.Migrations.CreateAiAgentTables do
       timestamps(type: :utc_datetime_usec)
     end
 
-    create unique_index(:conversation_messages, [:conversation_id, :id],
-             name: :conversation_messages_conversation_id_id_index
-           )
-
     create index(:conversation_messages, [:conversation_id, :inserted_at])
     create index(:conversation_messages, [:mailbox_session_id])
-    create index(:conversation_messages, [:mailbox_entry_id])
 
-    create unique_index(:conversation_messages, [:mailbox_entry_id],
+    create index(
+             :conversation_messages,
+             [:agent_uid, "((metadata->'scene'->>'scene_key'))", :inserted_at, :id],
+             where: "role = 'im_ambient' AND kind = 'normal'",
+             name: :conversation_messages_ambient_recall_idx
+           )
+
+    create index(:conversation_messages, [:conversation_id, :inserted_at, :id],
+             where: "kind <> 'summary' AND NOT (metadata ? 'transcript_effect')",
+             name: :conversation_messages_visible_transcript_idx
+           )
+
+    create index(
+             :conversation_messages,
+             [
+               :conversation_id,
+               "((covers_range->>'from_id'))",
+               "((covers_range->>'to_id'))",
+               :inserted_at,
+               :id
+             ],
              where:
-               "mailbox_entry_id IS NOT NULL AND role IN ('user', 'im_ambient') AND kind = 'normal'",
-             name: :conversation_messages_inbound_entry_unique_index
+               "role = 'assistant' AND kind = 'summary' AND status = 'complete' AND NOT (metadata ? 'transcript_effect')",
+             name: :conversation_messages_summary_lookup_idx
+           )
+
+    create unique_index(:conversation_messages, [:conversation_id, :event_source, :event_id],
+             where:
+               "event_source IS NOT NULL AND event_id IS NOT NULL AND role IN ('user', 'im_ambient') AND kind = 'normal'",
+             name: :conversation_messages_inbound_event_unique_index
            )
 
     create unique_index(
@@ -121,7 +146,6 @@ defmodule BullX.Repo.Migrations.CreateAiAgentTables do
              NOT (role = 'assistant' AND kind = 'summary') OR (
                covers_range ? 'from_id' AND
                covers_range ? 'to_id' AND
-               metadata ? 'source_leaf_message_id' AND
                metadata ? 'original_dialogue_time_range' AND
                metadata ? 'compression' AND
                jsonb_path_exists(content, '$[*] ? (@.type == "summary_text" && @.text.type() == "string")')
@@ -132,23 +156,12 @@ defmodule BullX.Repo.Migrations.CreateAiAgentTables do
     execute(
       """
       ALTER TABLE conversation_messages
-      ADD CONSTRAINT conversation_messages_parent_same_conversation_fkey
-      FOREIGN KEY (conversation_id, parent_id)
-      REFERENCES conversation_messages(conversation_id, id)
-      DEFERRABLE INITIALLY DEFERRED
+      ADD CONSTRAINT conversation_messages_conversation_agent_fkey
+      FOREIGN KEY (conversation_id, agent_uid)
+      REFERENCES conversations(id, agent_uid)
+      DEFERRABLE INITIALLY IMMEDIATE
       """,
-      "ALTER TABLE conversation_messages DROP CONSTRAINT conversation_messages_parent_same_conversation_fkey"
-    )
-
-    execute(
-      """
-      ALTER TABLE conversations
-      ADD CONSTRAINT conversations_current_leaf_same_conversation_fkey
-      FOREIGN KEY (id, current_leaf_message_id)
-      REFERENCES conversation_messages(conversation_id, id)
-      DEFERRABLE INITIALLY DEFERRED
-      """,
-      "ALTER TABLE conversations DROP CONSTRAINT conversations_current_leaf_same_conversation_fkey"
+      "ALTER TABLE conversation_messages DROP CONSTRAINT conversation_messages_conversation_agent_fkey"
     )
   end
 end

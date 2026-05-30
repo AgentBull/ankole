@@ -6,32 +6,21 @@ defmodule BullX.IMGateway.Message do
   import Ecto.Changeset
 
   alias BullX.IMGateway.Room
-  alias BullX.Principals.{ExternalIdentity, Principal}
 
   @primary_key {:id, BullX.Ecto.UUIDv7, autogenerate: true}
   @foreign_key_type :binary_id
   @timestamps_opts [type: :utc_datetime_usec]
 
-  @directions [:inbound, :outbound]
-  @statuses [:pending, :received, :sent, :edited, :recalled, :deleted, :failed]
+  @lifecycle_states [:active, :edited, :recalled, :deleted]
 
   @type t :: %__MODULE__{}
 
   schema "im_messages" do
     belongs_to :room, Room
 
-    field :direction, Ecto.Enum, values: @directions
-    field :status, Ecto.Enum, values: @statuses
+    field :lifecycle_state, Ecto.Enum, values: @lifecycle_states, default: :active
     field :provider_message_id, :string
-    field :provider_occurrence_id, :string
     field :actor_kind, :string, default: "unknown"
-
-    belongs_to :actor_principal, Principal,
-      foreign_key: :actor_principal_uid,
-      references: :uid,
-      type: :string
-
-    belongs_to :actor_external_identity, ExternalIdentity
     field :actor_provider_id, :string
     field :actor, :map, default: %{}
     field :message_kind, :string
@@ -39,12 +28,9 @@ defmodule BullX.IMGateway.Message do
     field :content, BullX.Ecto.JSONB, default: %{}
     field :attachments, BullX.Ecto.JSONB, default: []
     field :mentions, BullX.Ecto.JSONB, default: []
-    field :reply_address, :map
     field :provider_created_at, :utc_datetime_usec
     field :provider_updated_at, :utc_datetime_usec
-    field :received_at, :utc_datetime_usec
-    field :sent_at, :utc_datetime_usec
-    field :safe_error, :map
+    field :observed_at, :utc_datetime_usec
 
     timestamps()
   end
@@ -54,13 +40,9 @@ defmodule BullX.IMGateway.Message do
     message
     |> cast(attrs, [
       :room_id,
-      :direction,
-      :status,
+      :lifecycle_state,
       :provider_message_id,
-      :provider_occurrence_id,
       :actor_kind,
-      :actor_principal_uid,
-      :actor_external_identity_id,
       :actor_provider_id,
       :actor,
       :message_kind,
@@ -68,50 +50,40 @@ defmodule BullX.IMGateway.Message do
       :content,
       :attachments,
       :mentions,
-      :reply_address,
       :provider_created_at,
       :provider_updated_at,
-      :received_at,
-      :sent_at,
-      :safe_error
+      :observed_at
     ])
     |> validate_required([
       :room_id,
-      :direction,
-      :status,
+      :lifecycle_state,
+      :provider_message_id,
       :actor_kind,
       :actor,
       :message_kind,
       :content,
       :attachments,
       :mentions,
-      :received_at
+      :observed_at
     ])
     |> validate_non_empty(:actor_kind)
+    |> validate_non_empty(:provider_message_id)
     |> validate_non_empty(:message_kind)
     |> validate_json_object(:actor)
     |> validate_json_object(:content)
     |> validate_json_array(:attachments)
     |> validate_json_array(:mentions)
-    |> validate_optional_json_object(:reply_address)
-    |> validate_optional_json_object(:safe_error)
     |> foreign_key_constraint(:room_id)
-    |> foreign_key_constraint(:actor_principal_uid)
-    |> foreign_key_constraint(:actor_external_identity_id)
     |> unique_constraint([:room_id, :provider_message_id],
       name: :im_messages_provider_message_unique_idx
     )
-    |> unique_constraint([:room_id, :provider_occurrence_id],
-      name: :im_messages_provider_occurrence_unique_idx
-    )
     |> check_constraint(:message_kind, name: :im_messages_message_kind_present)
+    |> check_constraint(:provider_message_id, name: :im_messages_provider_message_id_present)
     |> check_constraint(:actor_kind, name: :im_messages_actor_kind_present)
     |> check_constraint(:actor, name: :im_messages_actor_object)
     |> check_constraint(:content, name: :im_messages_content_object)
     |> check_constraint(:attachments, name: :im_messages_attachments_array)
     |> check_constraint(:mentions, name: :im_messages_mentions_array)
-    |> check_constraint(:reply_address, name: :im_messages_reply_address_object)
-    |> check_constraint(:safe_error, name: :im_messages_safe_error_object)
   end
 
   defp validate_non_empty(changeset, field) do
@@ -126,15 +98,6 @@ defmodule BullX.IMGateway.Message do
   defp validate_json_object(changeset, field) do
     validate_change(changeset, field, fn ^field, value ->
       case BullX.JSON.json_object?(value) do
-        true -> []
-        false -> [{field, "must be a JSON object"}]
-      end
-    end)
-  end
-
-  defp validate_optional_json_object(changeset, field) do
-    validate_change(changeset, field, fn ^field, value ->
-      case is_nil(value) or BullX.JSON.json_object?(value) do
         true -> []
         false -> [{field, "must be a JSON object"}]
       end

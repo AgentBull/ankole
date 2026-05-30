@@ -18,13 +18,8 @@ defmodule BullX.Repo.Migrations.CreateImGatewayMailboxTables do
     )
 
     execute(
-      "CREATE TYPE im_message_direction AS ENUM ('inbound', 'outbound')",
-      "DROP TYPE im_message_direction"
-    )
-
-    execute(
-      "CREATE TYPE im_message_status AS ENUM ('pending', 'received', 'sent', 'edited', 'recalled', 'deleted', 'failed')",
-      "DROP TYPE im_message_status"
+      "CREATE TYPE im_message_lifecycle_state AS ENUM ('active', 'edited', 'recalled', 'deleted')",
+      "DROP TYPE im_message_lifecycle_state"
     )
   end
 
@@ -44,8 +39,7 @@ defmodule BullX.Repo.Migrations.CreateImGatewayMailboxTables do
     create table(:im_rooms, primary_key: false) do
       add :id, :uuid, primary_key: true
       add :provider, :text, null: false
-      add :source_id, :text, null: false
-      add :provider_realm_id, :text
+      add :provider_realm_id, :text, null: false, default: ""
       add :provider_room_id, :text, null: false
       add :kind, :im_room_kind, null: false, default: "unknown"
       add :title, :text
@@ -55,11 +49,13 @@ defmodule BullX.Repo.Migrations.CreateImGatewayMailboxTables do
       timestamps(type: :utc_datetime_usec)
     end
 
-    create unique_index(:im_rooms, [:provider, :source_id, :provider_room_id])
+    create unique_index(:im_rooms, [:provider, :provider_realm_id, :provider_room_id],
+             name: :im_rooms_provider_realm_room_unique_idx
+           )
+
     create index(:im_rooms, [:parent_room_id])
 
     create constraint(:im_rooms, :im_rooms_provider_present, check: "provider <> ''")
-    create constraint(:im_rooms, :im_rooms_source_id_present, check: "source_id <> ''")
 
     create constraint(:im_rooms, :im_rooms_provider_room_id_present,
              check: "provider_room_id <> ''"
@@ -74,18 +70,9 @@ defmodule BullX.Repo.Migrations.CreateImGatewayMailboxTables do
     create table(:im_messages, primary_key: false) do
       add :id, :uuid, primary_key: true
       add :room_id, references(:im_rooms, type: :uuid, on_delete: :delete_all), null: false
-      add :direction, :im_message_direction, null: false
-      add :status, :im_message_status, null: false
-      add :provider_message_id, :text
-      add :provider_occurrence_id, :text
+      add :lifecycle_state, :im_message_lifecycle_state, null: false, default: "active"
+      add :provider_message_id, :text, null: false
       add :actor_kind, :text, null: false, default: "unknown"
-
-      add :actor_principal_uid,
-          references(:principals, column: :uid, type: :text, on_delete: :nilify_all)
-
-      add :actor_external_identity_id,
-          references(:principal_external_identities, type: :uuid, on_delete: :nilify_all)
-
       add :actor_provider_id, :text
       add :actor, :map, null: false, default: %{}
       add :message_kind, :text, null: false
@@ -93,34 +80,29 @@ defmodule BullX.Repo.Migrations.CreateImGatewayMailboxTables do
       add :content, :map, null: false, default: %{}
       add :attachments, :map, null: false, default: fragment("'[]'::jsonb")
       add :mentions, :map, null: false, default: fragment("'[]'::jsonb")
-      add :reply_address, :map
       add :provider_created_at, :utc_datetime_usec
       add :provider_updated_at, :utc_datetime_usec
-      add :received_at, :utc_datetime_usec, null: false
-      add :sent_at, :utc_datetime_usec
-      add :safe_error, :map
+      add :observed_at, :utc_datetime_usec, null: false
 
       timestamps(type: :utc_datetime_usec)
     end
 
     create unique_index(:im_messages, [:room_id, :provider_message_id],
-             where: "provider_message_id IS NOT NULL",
              name: :im_messages_provider_message_unique_idx
-           )
-
-    create unique_index(:im_messages, [:room_id, :provider_occurrence_id],
-             where: "provider_occurrence_id IS NOT NULL",
-             name: :im_messages_provider_occurrence_unique_idx
            )
 
     create index(:im_messages, [:room_id, :provider_created_at, :id],
              name: :im_messages_room_time_idx
            )
 
-    create index(:im_messages, [:actor_principal_uid], where: "actor_principal_uid IS NOT NULL")
+    create index(:im_messages, [:actor_provider_id], where: "actor_provider_id IS NOT NULL")
 
     create constraint(:im_messages, :im_messages_message_kind_present,
              check: "message_kind <> ''"
+           )
+
+    create constraint(:im_messages, :im_messages_provider_message_id_present,
+             check: "provider_message_id <> ''"
            )
 
     create constraint(:im_messages, :im_messages_actor_kind_present, check: "actor_kind <> ''")
@@ -139,14 +121,6 @@ defmodule BullX.Repo.Migrations.CreateImGatewayMailboxTables do
 
     create constraint(:im_messages, :im_messages_mentions_array,
              check: "jsonb_typeof(mentions) = 'array'"
-           )
-
-    create constraint(:im_messages, :im_messages_reply_address_object,
-             check: "reply_address IS NULL OR jsonb_typeof(reply_address) = 'object'"
-           )
-
-    create constraint(:im_messages, :im_messages_safe_error_object,
-             check: "safe_error IS NULL OR jsonb_typeof(safe_error) = 'object'"
            )
   end
 
@@ -251,6 +225,13 @@ defmodule BullX.Repo.Migrations.CreateImGatewayMailboxTables do
     create index(:mailbox_entries, [:available_at, :lease_expires_at, :entry_seq],
              where: "status IN ('pending', 'leased')",
              name: :mailbox_entries_ready_idx
+           )
+
+    create index(
+             :mailbox_entries,
+             ["((cloud_event->>'type'))", :available_at, :lease_expires_at, :entry_seq],
+             where: "status IN ('pending', 'leased')",
+             name: :mailbox_entries_ready_event_type_idx
            )
 
     create index(:mailbox_entries, [:mailbox_session_id, :entry_seq])

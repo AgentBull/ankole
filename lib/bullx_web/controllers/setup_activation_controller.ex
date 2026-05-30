@@ -19,7 +19,7 @@ defmodule BullXWeb.SetupActivationController do
           setup: projection,
           activation_code: session.bootstrap_activation_code_plaintext,
           command: activation_command(session.bootstrap_activation_code_plaintext),
-          ready_sources: ChannelSources.status().ready_sources,
+          ready_sources: channel_sources_status(projection).ready_sources,
           status_path: ~p"/setup/activation/status",
           back_path: ~p"/setup/event-routing-rules"
         })
@@ -58,4 +58,7 @@ defmodule BullXWeb.SetupActivationController do
 
   defp activation_command(nil), do: nil
   defp activation_command(code), do: "/root_init #{code}"
+
+  defp channel_sources_status(%{channel_sources: status}), do: status
+  defp channel_sources_status(_projection), do: ChannelSources.status()
 end
