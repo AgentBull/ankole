@@ -225,13 +225,126 @@ defmodule BullX.LLM.ModelRegistryTest do
     assert model.source == "dynamic"
   end
 
-  defp put_model_discovery_plug do
+  test "caches dynamic discovery within the configured TTL" do
+    counter = :counters.new(1, [:atomics])
+
+    Req.Test.stub(__MODULE__, fn conn ->
+      assert conn.request_path == "/v1/models"
+      :counters.add(counter, 1, 1)
+
+      Req.Test.json(conn, %{
+        "data" => [
+          %{"id" => "cached-model-#{:counters.get(counter, 1)}", "object" => "model"}
+        ]
+      })
+    end)
+
+    put_model_discovery_plug(cache_ttl_seconds: 60)
+
+    assert {:ok, _provider} =
+             Writer.put_provider(%{
+               provider_id: "cached_openai",
+               req_llm_provider: "openai",
+               api_key: "sk-test",
+               provider_options: %{"auth_mode" => "api_key"}
+             })
+
+    assert {:ok, [first]} = ModelRegistry.public_models("cached_openai")
+    assert {:ok, [second]} = ModelRegistry.public_models("cached_openai")
+
+    assert first.model == "cached-model-1"
+    assert second.model == "cached-model-1"
+    assert :counters.get(counter, 1) == 1
+  end
+
+  test "refreshes dynamic discovery after TTL expiry" do
+    counter = :counters.new(1, [:atomics])
+
+    Req.Test.stub(__MODULE__, fn conn ->
+      assert conn.request_path == "/v1/models"
+      :counters.add(counter, 1, 1)
+
+      Req.Test.json(conn, %{
+        "data" => [
+          %{"id" => "expiring-model-#{:counters.get(counter, 1)}", "object" => "model"}
+        ]
+      })
+    end)
+
+    put_model_discovery_plug(cache_ttl_seconds: 1)
+
+    assert {:ok, _provider} =
+             Writer.put_provider(%{
+               provider_id: "expiring_openai",
+               req_llm_provider: "openai",
+               api_key: "sk-test",
+               provider_options: %{"auth_mode" => "api_key"}
+             })
+
+    assert {:ok, [first]} = ModelRegistry.public_models("expiring_openai")
+    Process.sleep(1_100)
+    assert {:ok, [second]} = ModelRegistry.public_models("expiring_openai")
+
+    assert first.model == "expiring-model-1"
+    assert second.model == "expiring-model-2"
+    assert :counters.get(counter, 1) == 2
+  end
+
+  test "provider row updates use a fresh model discovery cache key" do
+    counter = :counters.new(1, [:atomics])
+
+    Req.Test.stub(__MODULE__, fn conn ->
+      assert conn.request_path == "/v1/models"
+      :counters.add(counter, 1, 1)
+
+      Req.Test.json(conn, %{
+        "data" => [
+          %{"id" => "updated-model-#{:counters.get(counter, 1)}", "object" => "model"}
+        ]
+      })
+    end)
+
+    put_model_discovery_plug(cache_ttl_seconds: 60)
+
+    assert {:ok, _provider} =
+             Writer.put_provider(%{
+               provider_id: "updated_openai",
+               req_llm_provider: "openai",
+               api_key: "sk-test",
+               provider_options: %{"auth_mode" => "api_key"}
+             })
+
+    assert {:ok, [first]} = ModelRegistry.public_models("updated_openai")
+
+    assert {:ok, _provider} =
+             Writer.update_provider("updated_openai", %{
+               base_url: "https://models.example.test/v1"
+             })
+
+    assert {:ok, [second]} = ModelRegistry.public_models("updated_openai")
+
+    assert first.model == "updated-model-1"
+    assert second.model == "updated-model-2"
+    assert :counters.get(counter, 1) == 2
+  end
+
+  defp put_model_discovery_plug(opts \\ []) do
+    llm_env =
+      :bullx
+      |> Application.get_env(:llm, [])
+      |> Keyword.put(:model_discovery_req_options, plug: {Req.Test, __MODULE__})
+      |> maybe_put_cache_ttl(Keyword.get(opts, :cache_ttl_seconds))
+
     Application.put_env(
       :bullx,
       :llm,
-      Keyword.put(Application.get_env(:bullx, :llm, []), :model_discovery_req_options,
-        plug: {Req.Test, __MODULE__}
-      )
+      llm_env
     )
+  end
+
+  defp maybe_put_cache_ttl(llm_env, nil), do: llm_env
+
+  defp maybe_put_cache_ttl(llm_env, seconds) do
+    Keyword.put(llm_env, :model_discovery_cache_ttl_seconds, seconds)
   end
 end

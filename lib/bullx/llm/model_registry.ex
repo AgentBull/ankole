@@ -9,6 +9,8 @@ defmodule BullX.LLM.ModelRegistry do
 
   alias BullX.LLM.{Catalog, ModelConfig, ModelDescriptor, Provider}
 
+  @model_discovery_cache_ttl_seconds 300
+
   @spec list_provider_models(String.t()) :: {:ok, [ModelDescriptor.t()]} | {:error, term()}
   def list_provider_models(provider_id) when is_binary(provider_id) do
     with {:ok, provider} <- Catalog.find_provider(provider_id),
@@ -43,17 +45,75 @@ defmodule BullX.LLM.ModelRegistry do
   end
 
   defp dynamic_provider_models(provider, resolved_provider, req_llm_provider, provider_module) do
-    if function_exported?(provider_module, :list_models, 1) do
-      case provider_module.list_models(
-             provider_id: provider.provider_id,
-             base_url: resolved_provider.base_url,
-             opts: resolved_provider.opts
-           ) do
-        {:ok, [_ | _] = models} -> {:ok, models}
-        _error -> {:ok, static_provider_models(provider, req_llm_provider)}
-      end
-    else
-      {:ok, static_provider_models(provider, req_llm_provider)}
+    case function_exported?(provider_module, :list_models, 1) do
+      true ->
+        cached_dynamic_provider_models(
+          provider,
+          resolved_provider,
+          req_llm_provider,
+          provider_module
+        )
+
+      false ->
+        {:ok, static_provider_models(provider, req_llm_provider)}
+    end
+  end
+
+  defp cached_dynamic_provider_models(
+         provider,
+         resolved_provider,
+         req_llm_provider,
+         provider_module
+       ) do
+    cache_key = model_discovery_cache_key(provider)
+
+    case BullX.Cache.get(cache_key) do
+      {:ok, models} when is_list(models) ->
+        {:ok, models}
+
+      _miss_or_invalid ->
+        discover_and_cache_dynamic_provider_models(
+          cache_key,
+          provider,
+          resolved_provider,
+          req_llm_provider,
+          provider_module
+        )
+    end
+  end
+
+  defp discover_and_cache_dynamic_provider_models(
+         cache_key,
+         provider,
+         resolved_provider,
+         req_llm_provider,
+         provider_module
+       ) do
+    models =
+      discover_dynamic_provider_models(
+        provider,
+        resolved_provider,
+        req_llm_provider,
+        provider_module
+      )
+
+    _cache_result = BullX.Cache.put(cache_key, models, model_discovery_cache_ttl_seconds())
+    {:ok, models}
+  end
+
+  defp discover_dynamic_provider_models(
+         provider,
+         resolved_provider,
+         req_llm_provider,
+         provider_module
+       ) do
+    case provider_module.list_models(
+           provider_id: provider.provider_id,
+           base_url: resolved_provider.base_url,
+           opts: resolved_provider.opts
+         ) do
+      {:ok, [_ | _] = models} -> models
+      _error -> static_provider_models(provider, req_llm_provider)
     end
   end
 
@@ -87,4 +147,37 @@ defmodule BullX.LLM.ModelRegistry do
 
   defp retired?(%LLMDB.Model{retired: true}), do: true
   defp retired?(_model), do: false
+
+  defp model_discovery_cache_key(%Provider{} = provider) do
+    hash =
+      provider
+      |> model_discovery_cache_fingerprint()
+      |> :erlang.term_to_binary()
+      |> then(&:crypto.hash(:sha256, &1))
+      |> Base.url_encode64(padding: false)
+
+    "llm:model_discovery:#{provider.provider_id}:#{hash}"
+  end
+
+  defp model_discovery_cache_fingerprint(%Provider{} = provider) do
+    {
+      provider.id,
+      provider.provider_id,
+      provider.req_llm_provider,
+      provider.base_url,
+      provider.encrypted_api_key,
+      provider.provider_options || %{},
+      provider.updated_at
+    }
+  end
+
+  defp model_discovery_cache_ttl_seconds do
+    :bullx
+    |> Application.get_env(:llm, [])
+    |> Keyword.get(:model_discovery_cache_ttl_seconds, @model_discovery_cache_ttl_seconds)
+    |> normalize_cache_ttl_seconds()
+  end
+
+  defp normalize_cache_ttl_seconds(seconds) when is_integer(seconds) and seconds > 0, do: seconds
+  defp normalize_cache_ttl_seconds(_seconds), do: @model_discovery_cache_ttl_seconds
 end
