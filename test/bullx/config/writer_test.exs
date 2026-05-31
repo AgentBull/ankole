@@ -4,6 +4,7 @@ defmodule BullX.Config.WriterTest do
   setup do
     cache_pid = GenServer.whereis(BullX.Config.Cache)
     Ecto.Adapters.SQL.Sandbox.allow(BullX.Repo, self(), cache_pid)
+    BullX.Config.Cache.refresh_all()
     on_exit(fn -> BullX.Config.Cache.refresh_all() end)
     :ok
   end
@@ -104,5 +105,43 @@ defmodule BullX.Config.WriterTest do
              ])
 
     refute BullX.Repo.get(BullX.Config.AppConfig, "writer.batch_valid_before_invalid")
+  end
+
+  test "put/2 reports persisted-but-stale when post-commit cache refresh fails" do
+    with_unregistered_config_cache(fn ->
+      assert {:ok,
+              {:persisted_but_stale,
+               {:config_cache_refresh_failed, "writer.stale_projection", :cache_not_running}}} =
+               BullX.Config.Writer.put("writer.stale_projection", "value")
+
+      assert %BullX.Config.AppConfig{value: "value"} =
+               BullX.Repo.get!(BullX.Config.AppConfig, "writer.stale_projection")
+
+      assert :error = BullX.Config.Cache.get_raw("writer.stale_projection")
+    end)
+  end
+
+  defp with_unregistered_config_cache(fun) when is_function(fun, 0) do
+    cache_pid = Process.whereis(BullX.Config.Cache)
+    assert is_pid(cache_pid)
+
+    Process.unregister(BullX.Config.Cache)
+
+    try do
+      fun.()
+    after
+      restore_registered_cache(BullX.Config.Cache, cache_pid, &BullX.Config.Cache.refresh_all/0)
+    end
+  end
+
+  defp restore_registered_cache(name, pid, refresh_fun) do
+    case {Process.alive?(pid), Process.whereis(name)} do
+      {true, nil} ->
+        Process.register(pid, name)
+        refresh_fun.()
+
+      _other ->
+        :ok
+    end
   end
 end

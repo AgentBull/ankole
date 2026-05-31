@@ -1,6 +1,6 @@
 defmodule BullX.LLM.Providers.OpenAI.ResponsesAPI do
   @moduledoc """
-  OpenAI Responses API driver for reasoning models.
+  OpenAI Responses API driver for Responses endpoint models.
 
   Implements the `BullX.LLM.Providers.OpenAI.API` behaviour for OpenAI's Responses endpoint,
   which provides extended reasoning capabilities for advanced models.
@@ -18,7 +18,7 @@ defmodule BullX.LLM.Providers.OpenAI.ResponsesAPI do
 
   ## Capabilities
 
-  - **Reasoning**: Extended thinking with explicit reasoning token tracking
+  - **Reasoning**: Extended thinking with explicit reasoning token tracking when supported
   - **Streaming**: SSE-based streaming with reasoning deltas and usage events
   - **Tools**: Function calling with responses-specific format
   - **Reasoning effort**: Control computation intensity (minimal, low, medium, high)
@@ -74,7 +74,9 @@ defmodule BullX.LLM.Providers.OpenAI.ResponsesAPI do
     "mcp_call" => :mcp_call,
     "x_search_call" => :x_search_call
   }
+  @tool_call_item_reserved_keys ["id", "call_id", "type", "status", :id, :call_id, :type, :status]
   @assistant_phases ["commentary", "final_answer"]
+  @reasoning_encrypted_content_include ["reasoning.encrypted_content"]
 
   @impl true
   def path, do: "/responses"
@@ -119,7 +121,7 @@ defmodule BullX.LLM.Providers.OpenAI.ResponsesAPI do
 
   def decode_stream_event(%{data: data} = event, model) when is_map(data) do
     event_type =
-      Map.get(event, :event) || Map.get(event, "event") || data["event"] || data["type"]
+      Map.get(event, :event) || data["event"] || data["type"]
 
     Debug.dbug(
       fn ->
@@ -261,7 +263,53 @@ defmodule BullX.LLM.Providers.OpenAI.ResponsesAPI do
 
     meta = Map.merge(meta, extract_assistant_phase_metadata(response_output))
 
+    meta =
+      maybe_put_reasoning_details(meta, extract_reasoning_details_from_segments(response_output))
+
+    meta = merge_response_provider_meta(meta, data["response"] || %{})
+
     [ReqLLM.StreamChunk.meta(meta)]
+  end
+
+  defp maybe_put_reasoning_details(meta, []), do: meta
+
+  defp maybe_put_reasoning_details(meta, details), do: Map.put(meta, :reasoning_details, details)
+
+  # Mirrors the drop-list used by the non-streaming response builder (see
+  # `decode_response_body/4` ~line 1546) so streaming and non-streaming
+  # `provider_meta` capture the same set of OpenAI response fields
+  # (service_tier, system_fingerprint, plus anything else OpenAI surfaces).
+  @response_provider_meta_drop ["id", "model", "output_text", "output", "usage"]
+
+  defp merge_response_provider_meta(meta, response) when is_map(response) do
+    # `api_type` is stamped centrally by the OpenAI dispatcher
+    # (`BullX.LLM.Providers.OpenAI.decode_response/1`), so this path stays
+    # focused on the response fields we pull out of stream `response.*`
+    # events.
+    extras =
+      response
+      |> Map.drop(@response_provider_meta_drop)
+      |> drop_blanks()
+
+    if map_size(extras) > 0 do
+      case Map.get(meta, :provider_meta) do
+        existing when is_map(existing) ->
+          Map.put(meta, :provider_meta, Map.merge(existing, extras))
+
+        _ ->
+          Map.put(meta, :provider_meta, extras)
+      end
+    else
+      meta
+    end
+  end
+
+  defp merge_response_provider_meta(meta, _), do: meta
+
+  defp drop_blanks(map) do
+    map
+    |> Enum.reject(fn {_key, value} -> value in [nil, ""] end)
+    |> Map.new()
   end
 
   defp ensure_stream_state(nil), do: init_stream_state()
@@ -307,7 +355,7 @@ defmodule BullX.LLM.Providers.OpenAI.ResponsesAPI do
   defp track_text_delta_event(state, _event_type, _data), do: state
 
   defp stream_event_type(%{data: data} = event) when is_map(data) do
-    type = Map.get(event, :event) || Map.get(event, "event") || data["event"] || data["type"]
+    type = Map.get(event, :event) || data["event"] || data["type"]
     {type, data}
   end
 
@@ -345,7 +393,6 @@ defmodule BullX.LLM.Providers.OpenAI.ResponsesAPI do
 
   defp maybe_add_tool_call_from_item(state, item) do
     item_type = item["type"] || item[:type]
-    item_type = if is_atom(item_type), do: Atom.to_string(item_type), else: item_type
 
     if is_binary(item_type) do
       case tool_usage_key_from_call_type(item_type) do
@@ -384,8 +431,10 @@ defmodule BullX.LLM.Providers.OpenAI.ResponsesAPI do
   defp extract_tool_call_id(data, call_type) when is_map(data) do
     call_type = if is_atom(call_type), do: Atom.to_string(call_type), else: call_type
 
-    data["id"] || data[:id] || data["call_id"] || data[:call_id] || data["item_id"] ||
-      data[:item_id] || get_in(data, ["item", "id"]) || get_in(data, [:item, :id]) ||
+    data["id"] || data[:id] || data["call_id"] || data[:call_id] ||
+      data["item_id"] || data[:item_id] ||
+      get_in(data, ["item", "id"]) ||
+      get_in(data, [:item, :id]) ||
       extract_tool_call_id_from_payload(data, call_type)
   end
 
@@ -465,8 +514,8 @@ defmodule BullX.LLM.Providers.OpenAI.ResponsesAPI do
   defp maybe_merge_tool_usage(meta, counts, emitted?)
        when is_map(meta) and is_map(counts) and map_size(counts) > 0 do
     cond do
-      Map.has_key?(meta, :usage) or Map.has_key?(meta, "usage") ->
-        usage = Map.get(meta, :usage) || Map.get(meta, "usage") || %{}
+      Map.has_key?(meta, :usage) ->
+        usage = Map.get(meta, :usage) || %{}
         updated_usage = merge_tool_usage_counts(usage, counts)
         {Map.put(meta, :usage, updated_usage), true}
 
@@ -491,9 +540,9 @@ defmodule BullX.LLM.Providers.OpenAI.ResponsesAPI do
 
   defp merge_tool_usage_count(usage, tool, count)
        when is_map(usage) and is_number(count) and count > 0 do
-    tool_usage = Map.get(usage, :tool_usage) || Map.get(usage, "tool_usage") || %{}
+    tool_usage = Map.get(usage, :tool_usage) || %{}
     existing = tool_usage_entry(tool_usage, tool) || %{}
-    existing_count = Map.get(existing, :count) || Map.get(existing, "count") || 0
+    existing_count = Map.get(existing, :count) || 0
     final_count = max(existing_count, count)
     key = tool_usage_key_for_merge(tool_usage, tool)
     updated_tool_usage = Map.put(tool_usage, key, %{count: final_count, unit: :call})
@@ -649,6 +698,7 @@ defmodule BullX.LLM.Providers.OpenAI.ResponsesAPI do
     tool_choice = encode_tool_choice(opts_map[:tool_choice])
     reasoning = encode_reasoning_effort(opts_map[:reasoning_effort])
     service_tier = opts_map[:service_tier] || provider_opts[:service_tier]
+    include = response_include(provider_opts, model_name)
 
     text_format = encode_text_format(provider_opts[:response_format], provider_opts[:verbosity])
 
@@ -670,6 +720,7 @@ defmodule BullX.LLM.Providers.OpenAI.ResponsesAPI do
       |> maybe_put_string("tool_choice", tool_choice)
       |> maybe_put_string("parallel_tool_calls", opts_map[:parallel_tool_calls])
       |> maybe_put_string("service_tier", service_tier)
+      |> maybe_put_string("include", include)
       |> maybe_put_string("text", text_format)
 
     body =
@@ -694,6 +745,19 @@ defmodule BullX.LLM.Providers.OpenAI.ResponsesAPI do
 
   defp default_store(model_name) do
     !BullX.LLM.Providers.OpenAI.AdapterHelpers.codex_model?(model_name)
+  end
+
+  defp response_include(provider_opts, model_name) do
+    cond do
+      Keyword.has_key?(provider_opts, :include) ->
+        provider_opts[:include]
+
+      BullX.LLM.Providers.OpenAI.AdapterHelpers.reasoning_model?(model_name) ->
+        @reasoning_encrypted_content_include
+
+      true ->
+        nil
+    end
   end
 
   defp encode_tool_message_inline(%ReqLLM.Message{role: :tool} = msg) do
@@ -755,8 +819,8 @@ defmodule BullX.LLM.Providers.OpenAI.ResponsesAPI do
   defp encode_phase_items_from_metadata(%{phase_items: items}) when is_list(items) do
     items
     |> Enum.flat_map(fn item ->
-      phase = item[:phase] || item["phase"]
-      content = normalize_phase_item_content(item[:content] || item["content"])
+      phase = item["phase"]
+      content = normalize_phase_item_content(item["content"])
 
       if valid_assistant_phase?(phase) and content != [] do
         [%{"role" => "assistant", "phase" => phase, "content" => content}]
@@ -951,7 +1015,13 @@ defmodule BullX.LLM.Providers.OpenAI.ResponsesAPI do
     chunks =
       case delta["name"] do
         name when is_binary(name) and name != "" ->
-          [ReqLLM.StreamChunk.tool_call(name, %{}, %{id: call_id, index: index})]
+          [
+            ReqLLM.StreamChunk.tool_call(name, %{}, %{
+              id: call_id,
+              index: index,
+              expects_arg_fragments: true
+            })
+          ]
 
         _ ->
           chunks
@@ -1020,20 +1090,59 @@ defmodule BullX.LLM.Providers.OpenAI.ResponsesAPI do
     index = data["output_index"] || data["index"] || 0
     call_id = data["call_id"] || data["id"] || "call_#{:erlang.unique_integer([:positive])}"
 
-    [ReqLLM.StreamChunk.tool_call(name, %{}, %{id: call_id, index: index})]
+    [
+      ReqLLM.StreamChunk.tool_call(name, %{}, %{
+        id: call_id,
+        index: index,
+        expects_arg_fragments: true
+      })
+    ]
   end
 
   defp handle_function_call_name_delta(_), do: []
 
   defp handle_output_item_added(%{"item" => item} = data) when is_map(item) do
-    case item["type"] do
+    handle_output_item_added_item(item, data)
+  end
+
+  defp handle_output_item_added(%{item: item} = data) when is_map(item) do
+    handle_output_item_added_item(item, data)
+  end
+
+  defp handle_output_item_added(_), do: []
+
+  defp handle_output_item_added_item(item, data) do
+    case item["type"] || item[:type] do
       "function_call" ->
-        index = data["output_index"] || 0
-        call_id = item["call_id"] || item["id"] || "call_#{:erlang.unique_integer([:positive])}"
-        name = item["name"]
+        index = stream_output_index(data)
+        call_id = item["call_id"] || item[:call_id] || item["id"] || item[:id]
+        call_id = call_id || "call_#{:erlang.unique_integer([:positive])}"
+        name = item["name"] || item[:name]
 
         if name && name != "" do
-          [ReqLLM.StreamChunk.tool_call(name, %{}, %{id: call_id, index: index})]
+          [
+            ReqLLM.StreamChunk.tool_call(name, %{}, %{
+              id: call_id,
+              index: index,
+              expects_arg_fragments: true
+            })
+          ]
+        else
+          []
+        end
+
+      type when is_binary(type) ->
+        if Map.has_key?(@tool_call_atom_keys, type) do
+          [
+            ReqLLM.StreamChunk.meta(%{
+              builtin_tool_started: %{
+                id: item["id"] || item[:id] || item["call_id"] || item[:call_id],
+                name: type,
+                index: stream_output_index(data),
+                started_at_unix_nano: System.system_time(:nanosecond)
+              }
+            })
+          ]
         else
           []
         end
@@ -1042,8 +1151,6 @@ defmodule BullX.LLM.Providers.OpenAI.ResponsesAPI do
         []
     end
   end
-
-  defp handle_output_item_added(_), do: []
 
   defp handle_output_item_done(data, state \\ nil)
 
@@ -1059,9 +1166,55 @@ defmodule BullX.LLM.Providers.OpenAI.ResponsesAPI do
 
   defp handle_output_item_done_item(item, data, state) do
     case item["type"] || item[:type] do
-      "function_call" -> handle_function_call_item_done(item, data, state)
-      "message" -> handle_message_item_done(item, data, state)
-      _ -> []
+      "function_call" ->
+        handle_function_call_item_done(item, data, state)
+
+      "message" ->
+        handle_message_item_done(item, data, state)
+
+      type when is_binary(type) ->
+        if Map.has_key?(@tool_call_atom_keys, type),
+          do: handle_builtin_call_item_done(item, data, state, type),
+          else: []
+
+      _ ->
+        []
+    end
+  end
+
+  defp handle_builtin_call_item_done(item, data, state, type) do
+    index = stream_output_index(data)
+
+    if tool_call_emitted?(state, index) do
+      args =
+        item
+        |> Map.drop(@tool_call_item_reserved_keys)
+        |> Jason.encode!()
+
+      [
+        ReqLLM.StreamChunk.meta(%{
+          tool_call_args: %{index: index, fragment: args, builtin?: true}
+        })
+      ]
+    else
+      id = item["id"] || item[:id] || item["call_id"] || item[:call_id]
+
+      args_map =
+        item
+        |> Map.drop(@tool_call_item_reserved_keys)
+
+      [
+        ReqLLM.StreamChunk.tool_call(
+          type,
+          args_map,
+          %{
+            id: id,
+            index: index,
+            builtin?: true,
+            done_at_unix_nano: System.system_time(:nanosecond)
+          }
+        )
+      ]
     end
   end
 
@@ -1073,7 +1226,13 @@ defmodule BullX.LLM.Providers.OpenAI.ResponsesAPI do
 
     chunks =
       if is_binary(name) and name != "" and not tool_call_emitted?(state, index) do
-        [ReqLLM.StreamChunk.tool_call(name, %{}, %{id: call_id, index: index})]
+        [
+          ReqLLM.StreamChunk.tool_call(name, %{}, %{
+            id: call_id,
+            index: index,
+            expects_arg_fragments: true
+          })
+        ]
       else
         []
       end
@@ -1184,8 +1343,8 @@ defmodule BullX.LLM.Providers.OpenAI.ResponsesAPI do
 
   defp encode_tool_outputs(outputs) when is_list(outputs) do
     Enum.map(outputs, fn output ->
-      call_id = output[:call_id] || output["call_id"]
-      raw_output = output[:output] || output["output"]
+      call_id = output[:call_id]
+      raw_output = output[:output]
 
       output_string =
         cond do
@@ -1205,7 +1364,9 @@ defmodule BullX.LLM.Providers.OpenAI.ResponsesAPI do
   defp encode_tool_outputs(_), do: []
 
   defp encode_tool_calls_as_function_calls(tool_calls) do
-    Enum.map(tool_calls, fn tc ->
+    tool_calls
+    |> Enum.reject(&ReqLLM.ToolCall.builtin?/1)
+    |> Enum.map(fn tc ->
       %{
         "type" => "function_call",
         "call_id" => tc.id,
@@ -1224,26 +1385,47 @@ defmodule BullX.LLM.Providers.OpenAI.ResponsesAPI do
   end
 
   defp ensure_deep_research_tools(tools, request) do
+    case request_model(request) || lookup_request_model(request) do
+      %LLMDB.Model{} = model ->
+        maybe_ensure_deep_research_tools(tools, model)
+
+      _ ->
+        tools
+    end
+  end
+
+  defp request_model(%Req.Request{} = request) do
+    Req.Request.get_private(request, :req_llm_model) || request.options[:req_llm_model]
+  end
+
+  defp request_model(%{options: options}) do
+    options[:req_llm_model]
+  end
+
+  defp request_model(_), do: nil
+
+  defp lookup_request_model(request) do
     model_name = request.options[:model] || request.options[:id]
 
     if is_binary(model_name) and model_name != "" do
       case ReqLLM.model("openai:#{model_name}") do
-        {:ok, model} ->
-          category = get_in(model, [Access.key(:extra, %{}), :category])
-
-          case category do
-            "deep_research" ->
-              ensure_deep_research_tool_present(tools)
-
-            _ ->
-              tools
-          end
-
-        _ ->
-          tools
+        {:ok, model} -> model
+        _ -> nil
       end
     else
-      tools
+      nil
+    end
+  end
+
+  defp maybe_ensure_deep_research_tools(tools, model) do
+    category = get_in(model, [Access.key(:extra, %{}), :category])
+
+    case category do
+      "deep_research" ->
+        ensure_deep_research_tool_present(tools)
+
+      _ ->
+        tools
     end
   end
 
@@ -1293,20 +1475,20 @@ defmodule BullX.LLM.Providers.OpenAI.ResponsesAPI do
   end
 
   defp encode_tool_for_responses_api(tool_schema) when is_map(tool_schema) do
-    tool_type = tool_schema["type"] || tool_schema[:type]
+    tool_schema = stringify_keys(tool_schema)
+    tool_type = tool_schema["type"]
     tool_type = if is_atom(tool_type), do: Atom.to_string(tool_type), else: tool_type
 
     if tool_type in @builtin_tool_types do
-      tool_schema
-      |> stringify_keys()
-      |> Map.put("type", tool_type)
+      Map.put(tool_schema, "type", tool_type)
     else
-      function_def = tool_schema["function"] || tool_schema[:function]
+      function_def = tool_schema["function"]
 
       if function_def do
-        name = function_def["name"] || function_def[:name]
-        description = function_def["description"] || function_def[:description]
-        raw_params = function_def["parameters"] || function_def[:parameters]
+        function_def = stringify_keys(function_def)
+        name = function_def["name"]
+        description = function_def["description"]
+        raw_params = function_def["parameters"]
         params = normalize_parameters_for_strict(raw_params)
 
         %{
@@ -1317,9 +1499,9 @@ defmodule BullX.LLM.Providers.OpenAI.ResponsesAPI do
           "strict" => true
         }
       else
-        name = tool_schema["name"] || tool_schema[:name]
-        description = tool_schema["description"] || tool_schema[:description]
-        raw_params = tool_schema["parameters"] || tool_schema[:parameters]
+        name = tool_schema["name"]
+        description = tool_schema["description"]
+        raw_params = tool_schema["parameters"]
         params = normalize_parameters_for_strict(raw_params)
 
         %{
@@ -1356,8 +1538,9 @@ defmodule BullX.LLM.Providers.OpenAI.ResponsesAPI do
   end
 
   defp normalize_parameters(params) when is_map(params) do
-    properties = params[:properties] || params["properties"] || %{}
-    ordering = params[:propertyOrdering] || params["propertyOrdering"]
+    params = stringify_keys(params)
+    properties = params["properties"] || %{}
+    ordering = params["propertyOrdering"]
 
     result = %{
       "type" => "object",
@@ -1412,19 +1595,20 @@ defmodule BullX.LLM.Providers.OpenAI.ResponsesAPI do
   end
 
   def encode_text_format(response_format, verbosity) when is_map(response_format) do
-    type = response_format[:type] || response_format["type"]
+    response_format = stringify_keys(response_format)
+    type = response_format["type"]
 
     base =
       case type do
         "json_schema" ->
-          json_schema = response_format[:json_schema] || response_format["json_schema"]
-          schema = ReqLLM.Schema.to_json(json_schema[:schema] || json_schema["schema"])
+          json_schema = stringify_keys(response_format["json_schema"])
+          schema = ReqLLM.Schema.to_json(json_schema["schema"])
 
           %{
             "format" => %{
               "type" => "json_schema",
-              "name" => json_schema[:name] || json_schema["name"],
-              "strict" => json_schema[:strict] || json_schema["strict"],
+              "name" => json_schema["name"],
+              "strict" => json_schema["strict"],
               "schema" => schema
             }
           }
@@ -1464,7 +1648,8 @@ defmodule BullX.LLM.Providers.OpenAI.ResponsesAPI do
 
     usage = normalize_responses_usage(base_usage, body)
 
-    finish_reason = determine_finish_reason(body, tool_calls)
+    finish_reason =
+      determine_finish_reason(body, Enum.reject(tool_calls, &ReqLLM.ToolCall.builtin?/1))
 
     content_parts = build_content_parts(text, thinking)
     message_metadata = build_message_metadata(body["id"], output_segments)
@@ -1479,7 +1664,16 @@ defmodule BullX.LLM.Providers.OpenAI.ResponsesAPI do
 
     {object, object_meta} = maybe_extract_object(req, text, tool_calls) || {nil, %{}}
 
-    base_provider_meta = Map.drop(body, ["id", "model", "output_text", "output", "usage"])
+    # Stamp `api_type` so Azure Responses (which calls this decoder
+    # directly via `Azure.ResponsesAPI.parse_response/3`, bypassing the
+    # OpenAI dispatcher) also surfaces `openai.api.type` on OTel spans.
+    # The dispatcher's `has_api_type?/1` guard prevents double-stamping
+    # when the OpenAI path runs through it.
+    base_provider_meta =
+      body
+      |> Map.drop(["id", "model", "output_text", "output", "usage"])
+      |> Map.put("api_type", "responses")
+
     provider_meta = Map.merge(base_provider_meta, object_meta)
 
     response = %ReqLLM.Response{
@@ -1607,7 +1801,7 @@ defmodule BullX.LLM.Providers.OpenAI.ResponsesAPI do
 
     texts
     |> Enum.reject(&is_nil/1)
-    |> Enum.join("")
+    |> Enum.join()
   end
 
   defp extract_from_message_segments(segments) do
@@ -1619,7 +1813,7 @@ defmodule BullX.LLM.Providers.OpenAI.ResponsesAPI do
       |> Enum.filter(&(&1["type"] in ["output_text", "text"]))
       |> Enum.map(&extract_text_field/1)
     end)
-    |> Enum.join("")
+    |> Enum.join()
     |> case do
       "" -> nil
       text -> text
@@ -1724,7 +1918,7 @@ defmodule BullX.LLM.Providers.OpenAI.ResponsesAPI do
 
     reasoning_parts
     |> Enum.reject(&is_nil/1)
-    |> Enum.join("")
+    |> Enum.join()
   end
 
   defp extract_reasoning_summary(segments) do
@@ -1733,7 +1927,7 @@ defmodule BullX.LLM.Providers.OpenAI.ResponsesAPI do
     |> Enum.map(& &1["summary"])
     |> Enum.map(&extract_summary_text/1)
     |> Enum.reject(&is_nil/1)
-    |> Enum.join("")
+    |> Enum.join()
     |> case do
       "" -> nil
       text -> text
@@ -1748,7 +1942,7 @@ defmodule BullX.LLM.Providers.OpenAI.ResponsesAPI do
       |> Enum.map(& &1["text"])
       |> Enum.reject(&is_nil/1)
     end)
-    |> Enum.join("")
+    |> Enum.join()
     |> case do
       "" -> nil
       text -> text
@@ -1756,14 +1950,36 @@ defmodule BullX.LLM.Providers.OpenAI.ResponsesAPI do
   end
 
   defp extract_tool_calls_from_segments(segments) do
-    segments
-    |> Enum.filter(&(&1["type"] == "function_call"))
-    |> Enum.map(fn seg ->
-      args_json = normalize_arguments_json(seg["arguments"])
-      id = seg["call_id"] || seg["id"]
-      name = seg["name"] || "unknown"
-      ReqLLM.ToolCall.new(id, name, args_json)
+    Enum.flat_map(segments, fn
+      %{"type" => "function_call"} = seg ->
+        [function_call_segment_to_tool_call(seg)]
+
+      %{"type" => type} = seg when is_binary(type) ->
+        if Map.has_key?(@tool_call_atom_keys, type),
+          do: [builtin_call_segment_to_tool_call(seg, type)],
+          else: []
+
+      _ ->
+        []
     end)
+  end
+
+  defp function_call_segment_to_tool_call(seg) do
+    args_json = normalize_arguments_json(seg["arguments"])
+    id = seg["call_id"] || seg["id"]
+    name = seg["name"] || "unknown"
+    ReqLLM.ToolCall.new(id, name, args_json)
+  end
+
+  defp builtin_call_segment_to_tool_call(seg, type) do
+    id = seg["id"] || seg["call_id"]
+
+    args_json =
+      seg
+      |> Map.drop(["id", "call_id", "type", "status"])
+      |> Jason.encode!()
+
+    ReqLLM.ToolCall.new_builtin(id, type, args_json)
   end
 
   defp extract_reasoning_details_from_segments(segments) do
@@ -1793,7 +2009,7 @@ defmodule BullX.LLM.Providers.OpenAI.ResponsesAPI do
     |> Enum.filter(&(&1["type"] == "summary_text"))
     |> Enum.map(& &1["text"])
     |> Enum.reject(&is_nil/1)
-    |> Enum.join("")
+    |> Enum.join()
     |> case do
       "" -> nil
       text -> text
@@ -1888,11 +2104,10 @@ defmodule BullX.LLM.Providers.OpenAI.ResponsesAPI do
   end
 
   defp count_tool_calls_from_output(response_data) do
-    output = response_data["output"] || response_data[:output] || []
+    output = response_data["output"] || []
 
     Enum.reduce(output, %{}, fn item, acc ->
-      item_type = item["type"] || item[:type]
-      item_type = if is_atom(item_type), do: Atom.to_string(item_type), else: item_type
+      item_type = item["type"]
 
       if is_binary(item_type) do
         tool = tool_usage_key_from_call_type(item_type)
@@ -1909,16 +2124,14 @@ defmodule BullX.LLM.Providers.OpenAI.ResponsesAPI do
   end
 
   defp extract_tool_calls_from_usage(response_data) do
-    usage = response_data["usage"] || response_data[:usage] || %{}
+    usage = response_data["usage"] || %{}
 
     details =
       Map.get(usage, "server_side_tool_usage_details") ||
-        Map.get(usage, :server_side_tool_usage_details) ||
         Map.get(usage, "server_side_tool_usage") ||
-        Map.get(usage, :server_side_tool_usage) ||
         %{}
 
-    server_tool_use = Map.get(usage, "server_tool_use") || Map.get(usage, :server_tool_use) || %{}
+    server_tool_use = Map.get(usage, "server_tool_use") || %{}
 
     counts_from_details = extract_tool_counts_from_map(details, "_calls")
     counts_from_requests = extract_tool_counts_from_map(server_tool_use, "_requests")

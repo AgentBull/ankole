@@ -311,10 +311,15 @@ defmodule BullX.LLM.Providers.Google do
       with {:ok, model} <- ReqLLM.model(model_spec),
            {:ok, context} <- ReqLLM.Context.normalize(prompt, opts) do
         opts_with_tokens =
-          case Keyword.get(opts, :max_tokens) do
-            nil -> Keyword.put(opts, :max_tokens, 4096)
-            tokens when tokens < 200 -> Keyword.put(opts, :max_tokens, 200)
-            _tokens -> opts
+          ReqLLM.Provider.Options.put_model_max_tokens_default(opts, model, fallback: 4096)
+
+        opts_with_tokens =
+          case Keyword.get(opts_with_tokens, :max_tokens) do
+            tokens when is_integer(tokens) and tokens < 200 ->
+              Keyword.put(opts_with_tokens, :max_tokens, 200)
+
+            _tokens ->
+              opts_with_tokens
           end
 
         opts_with_context =
@@ -612,7 +617,7 @@ defmodule BullX.LLM.Providers.Google do
     |> Req.Request.merge_options([model: model.id, params: [key: api_key]] ++ req_opts)
     |> ReqLLM.Step.Error.attach()
     |> ReqLLM.Step.Retry.attach(user_opts)
-    |> Req.Request.append_request_steps(llm_encode_body: &__MODULE__.encode_body/1)
+    |> Req.Request.prepend_request_steps(llm_encode_body: &__MODULE__.encode_body/1)
     |> Req.Request.append_response_steps(llm_decode_response: &__MODULE__.decode_response/1)
     |> ReqLLM.Step.Usage.attach(model)
     |> ReqLLM.Step.Telemetry.attach(model, user_opts)
@@ -648,23 +653,77 @@ defmodule BullX.LLM.Providers.Google do
   def extract_usage(_, _), do: {:error, :invalid_body}
 
   defp normalize_google_usage(usage_metadata) do
-    input = Map.get(usage_metadata, "promptTokenCount", 0)
-    total = Map.get(usage_metadata, "totalTokenCount", 0)
-    cached = Map.get(usage_metadata, "cachedContentTokenCount", 0)
-    reasoning = Map.get(usage_metadata, "thoughtsTokenCount", 0)
+    google_usage_from_metadata(usage_metadata)
+  end
 
-    output =
-      case Map.get(usage_metadata, "candidatesTokenCount") do
-        nil -> max(0, total - input)
-        count -> count + reasoning
-      end
+  defp google_usage_from_metadata(usage_metadata) when is_map(usage_metadata) do
+    input =
+      google_metadata_count(usage_metadata, "promptTokenCount") ||
+        google_token_details_count(usage_metadata["promptTokensDetails"]) ||
+        0
+
+    total = google_metadata_count(usage_metadata, "totalTokenCount")
+    reasoning = google_metadata_count(usage_metadata, "thoughtsTokenCount") || 0
+    cached = google_metadata_count(usage_metadata, "cachedContentTokenCount") || 0
+    candidates = google_metadata_count(usage_metadata, "candidatesTokenCount")
+    output = google_output_tokens(candidates, reasoning, total, input)
 
     %{
       input_tokens: input,
       output_tokens: output,
-      total_tokens: total,
+      total_tokens: total || input + output,
       cached_tokens: cached,
       reasoning_tokens: reasoning
+    }
+  end
+
+  defp google_usage_from_metadata(_usage_metadata), do: google_zero_usage()
+
+  defp google_metadata_count(usage_metadata, key) do
+    case Map.get(usage_metadata, key) do
+      count when is_integer(count) and count >= 0 -> count
+      _ -> nil
+    end
+  end
+
+  defp google_token_details_count(details) when is_list(details) do
+    Enum.reduce(details, nil, fn detail, total ->
+      case detail do
+        %{"tokenCount" => count} when is_integer(count) and count >= 0 ->
+          add_google_token_count(total, count)
+
+        _ ->
+          total
+      end
+    end)
+  end
+
+  defp google_token_details_count(_details), do: nil
+
+  defp add_google_token_count(nil, count), do: count
+  defp add_google_token_count(total, count), do: total + count
+
+  defp google_output_tokens(candidates, reasoning, _total, _input) when is_integer(candidates) do
+    candidates + reasoning
+  end
+
+  defp google_output_tokens(_candidates, _reasoning, total, input) when is_integer(total) do
+    max(0, total - input)
+  end
+
+  defp google_output_tokens(_candidates, reasoning, _total, _input) when reasoning > 0 do
+    reasoning
+  end
+
+  defp google_output_tokens(_candidates, _reasoning, _total, _input), do: 0
+
+  defp google_zero_usage do
+    %{
+      input_tokens: 0,
+      output_tokens: 0,
+      total_tokens: 0,
+      cached_tokens: 0,
+      reasoning_tokens: 0
     }
   end
 
@@ -893,16 +952,8 @@ defmodule BullX.LLM.Providers.Google do
           encode_chat_body(request)
       end
 
-    try do
-      encoded_body = Jason.encode!(body)
-
-      request
-      |> Req.Request.put_header("content-type", "application/json")
-      |> Map.put(:body, encoded_body)
-    rescue
-      error ->
-        reraise error, __STACKTRACE__
-    end
+    request
+    |> put_in([Access.key!(:options), :json], body)
   end
 
   defp encode_image_body(request) do
@@ -914,21 +965,21 @@ defmodule BullX.LLM.Providers.Google do
   end
 
   defp encode_gemini_image_body(request) do
+    model_name = request.options[:model]
+
     {system_instruction, contents} =
       case request.options[:context] do
         %ReqLLM.Context{} = ctx ->
-          model_name = request.options[:model]
-
           encoded =
             ctx
             |> normalize_context_video_urls()
             |> ReqLLM.Provider.Defaults.encode_context_to_openai_format(model_name)
 
-          messages = encoded[:messages] || encoded["messages"] || []
-          split_messages_for_gemini(messages)
+          messages = encoded[:messages] || []
+          split_messages_for_gemini(messages, model_name)
 
         _ ->
-          split_messages_for_gemini(request.options[:messages] || [])
+          split_messages_for_gemini(request.options[:messages] || [], model_name)
       end
 
     # Note: We intentionally keep the role field in contents.
@@ -1091,21 +1142,22 @@ defmodule BullX.LLM.Providers.Google do
   end
 
   defp encode_chat_body(request) do
+    model_name = request.options[:model]
+
     {system_instruction, contents} =
       case request.options[:context] do
         %ReqLLM.Context{} = ctx ->
-          model_name = request.options[:model]
           # Convert OpenAI-style context to Gemini format
           encoded =
             ctx
             |> normalize_context_video_urls()
             |> ReqLLM.Provider.Defaults.encode_context_to_openai_format(model_name)
 
-          messages = encoded[:messages] || encoded["messages"] || []
-          split_messages_for_gemini(messages)
+          messages = encoded[:messages] || []
+          split_messages_for_gemini(messages, model_name)
 
         _ ->
-          split_messages_for_gemini(request.options[:messages] || [])
+          split_messages_for_gemini(request.options[:messages] || [], model_name)
       end
 
     tool_config = build_google_tool_config(request.options[:tool_choice])
@@ -1184,21 +1236,21 @@ defmodule BullX.LLM.Providers.Google do
   end
 
   defp encode_object_body(request) do
+    model_name = request.options[:model]
+
     {system_instruction, contents} =
       case request.options[:context] do
         %ReqLLM.Context{} = ctx ->
-          model_name = request.options[:model]
-
           encoded =
             ctx
             |> normalize_context_video_urls()
             |> ReqLLM.Provider.Defaults.encode_context_to_openai_format(model_name)
 
-          messages = encoded[:messages] || encoded["messages"] || []
-          split_messages_for_gemini(messages)
+          messages = encoded[:messages] || []
+          split_messages_for_gemini(messages, model_name)
 
         _ ->
-          split_messages_for_gemini(request.options[:messages] || [])
+          split_messages_for_gemini(request.options[:messages] || [], model_name)
       end
 
     compiled_schema =
@@ -1210,8 +1262,6 @@ defmodule BullX.LLM.Providers.Google do
     if !compiled_schema do
       raise ArgumentError, "Missing :compiled_schema in request options for :object operation"
     end
-
-    model_name = request.options[:model]
 
     generation_config =
       %{
@@ -1906,31 +1956,26 @@ defmodule BullX.LLM.Providers.Google do
   defp normalize_google_finish_reason("OTHER"), do: "error"
   defp normalize_google_finish_reason(_), do: "error"
 
-  defp convert_google_usage(%{"promptTokenCount" => prompt, "totalTokenCount" => total} = usage) do
-    thoughts = usage["thoughtsTokenCount"] || 0
-    cached = usage["cachedContentTokenCount"] || 0
-
-    completion =
-      case usage["candidatesTokenCount"] do
-        nil -> max(0, total - prompt)
-        count -> count + thoughts
-      end
+  defp convert_google_usage(usage) when is_map(usage) do
+    normalized = normalize_google_usage(usage)
 
     base = %{
-      "prompt_tokens" => prompt,
-      "completion_tokens" => completion,
-      "total_tokens" => total
+      "prompt_tokens" => normalized.input_tokens,
+      "completion_tokens" => normalized.output_tokens,
+      "total_tokens" => normalized.total_tokens
     }
 
     base =
-      if thoughts > 0 do
-        Map.put(base, "completion_tokens_details", %{"reasoning_tokens" => thoughts})
+      if normalized.reasoning_tokens > 0 do
+        Map.put(base, "completion_tokens_details", %{
+          "reasoning_tokens" => normalized.reasoning_tokens
+        })
       else
         base
       end
 
-    if cached > 0 do
-      Map.put(base, "prompt_tokens_details", %{"cached_tokens" => cached})
+    if normalized.cached_tokens > 0 do
+      Map.put(base, "prompt_tokens_details", %{"cached_tokens" => normalized.cached_tokens})
     else
       base
     end
@@ -1985,11 +2030,11 @@ defmodule BullX.LLM.Providers.Google do
 
     temp_request =
       Req.new(method: :post, url: URI.parse("https://example.com/temp"))
-      |> Map.put(:body, {:json, %{}})
       |> Map.put(:options, Map.new(all_options))
 
-    encoded_request = encode_body(temp_request)
-    encoded_request.body
+    request_with_json = encode_body(temp_request)
+    json_body = request_with_json.options[:json] || %{}
+    Jason.encode_to_iodata!(json_body)
   end
 
   @impl ReqLLM.Provider
@@ -2012,11 +2057,17 @@ defmodule BullX.LLM.Providers.Google do
     {req_opts, user_opts} = Keyword.split(opts, req_only_keys)
 
     operation = Keyword.get(user_opts, :operation, :chat)
-    opts_to_process = Keyword.merge(user_opts, context: context, stream: true)
 
-    with {:ok, processed_opts0} <-
-           ReqLLM.Provider.Options.process(__MODULE__, operation, model, opts_to_process),
-         :ok <- validate_version_feature_compat(processed_opts0) do
+    processed_opts0 =
+      ReqLLM.Provider.Options.process_stream!(
+        __MODULE__,
+        operation,
+        model,
+        context,
+        user_opts
+      )
+
+    with :ok <- validate_version_feature_compat(processed_opts0) do
       require Logger
 
       Logger.debug(
@@ -2057,8 +2108,12 @@ defmodule BullX.LLM.Providers.Google do
   end
 
   @impl ReqLLM.Provider
-  def parse_stream_protocol(chunk, {:json_array, buffer}) do
-    parse_json_array_protocol(buffer <> chunk)
+  def parse_stream_protocol(chunk, {:json_array, %{buffer: _buffer} = state}) do
+    parse_json_array_protocol(chunk, state)
+  end
+
+  def parse_stream_protocol(chunk, {:json_array, buffer}) when is_binary(buffer) do
+    parse_json_array_protocol(chunk, %{buffer: buffer, started?: true})
   end
 
   def parse_stream_protocol(chunk, state) do
@@ -2082,7 +2137,7 @@ defmodule BullX.LLM.Providers.Google do
   end
 
   # Split messages into system instruction and contents for Google Gemini
-  defp split_messages_for_gemini(messages) do
+  defp split_messages_for_gemini(messages, model) do
     {system_msgs, chat_msgs} =
       Enum.split_with(messages, fn message ->
         case message do
@@ -2107,18 +2162,18 @@ defmodule BullX.LLM.Providers.Google do
           %{parts: [%{text: combined_text}]}
       end
 
-    contents = convert_messages_to_gemini(chat_msgs)
+    contents = convert_messages_to_gemini(chat_msgs, model)
 
     {system_instruction, contents}
   end
 
-  defp convert_messages_to_gemini(messages) do
+  defp convert_messages_to_gemini(messages, model) do
     messages
-    |> Enum.map(&convert_single_message_to_gemini/1)
+    |> Enum.map(&convert_single_message_to_gemini(&1, model))
     |> merge_consecutive_roles()
   end
 
-  defp convert_single_message_to_gemini(message) do
+  defp convert_single_message_to_gemini(message, model) do
     raw_role =
       case message do
         %{role: role} -> role
@@ -2149,10 +2204,24 @@ defmodule BullX.LLM.Providers.Google do
 
     thought_parts = encode_reasoning_details_for_gemini(message)
 
+    tool_result? = tool_result_message?(message)
+
+    nest_multimodal? =
+      tool_result? and multimodal_tool_result?(raw_content) and gemini_3_or_later?(model)
+
     content_parts =
-      case raw_content do
-        content when is_binary(content) -> [%{text: content}]
-        parts when is_list(parts) -> Enum.map(parts, &convert_content_part/1)
+      cond do
+        nest_multimodal? ->
+          []
+
+        is_binary(raw_content) ->
+          [%{text: raw_content}]
+
+        is_list(raw_content) ->
+          Enum.map(raw_content, &convert_content_part/1)
+
+        true ->
+          []
       end
 
     tool_call_parts =
@@ -2168,24 +2237,36 @@ defmodule BullX.LLM.Providers.Google do
       end
 
     tool_result_parts =
-      case message do
-        %{tool_call_id: _call_id, role: "tool"} ->
-          [build_tool_result_part(message, raw_content)]
-
-        %{"tool_call_id" => _call_id, "role" => "tool"} ->
-          [build_tool_result_part(message, raw_content)]
-
-        %{tool_call_id: _call_id, role: :tool} ->
-          [build_tool_result_part(message, raw_content)]
-
-        _ ->
-          []
+      if tool_result? do
+        [build_tool_result_part(message, raw_content, nest_multimodal?)]
+      else
+        []
       end
 
     parts = thought_parts ++ content_parts ++ tool_call_parts ++ tool_result_parts
 
     %{role: role, parts: parts}
   end
+
+  defp tool_result_message?(%{tool_call_id: _, role: "tool"}), do: true
+  defp tool_result_message?(%{tool_call_id: _, role: :tool}), do: true
+  defp tool_result_message?(%{"tool_call_id" => _, "role" => "tool"}), do: true
+  defp tool_result_message?(_), do: false
+
+  defp multimodal_tool_result?(content) when is_list(content) do
+    Enum.any?(content, &multimodal_part?/1)
+  end
+
+  defp multimodal_tool_result?(_), do: false
+
+  defp multimodal_part?(%ReqLLM.Message.ContentPart{type: type})
+       when type in [:file, :image, :image_url],
+       do: true
+
+  defp multimodal_part?(%{type: type}) when type in [:file, :image, :image_url], do: true
+  defp multimodal_part?(%{type: type}) when type in ["file", "image", "image_url"], do: true
+  defp multimodal_part?(%{"type" => type}) when type in ["file", "image", "image_url"], do: true
+  defp multimodal_part?(_), do: false
 
   # Gemini requires that consecutive messages with the same role are merged
   # into a single entry. This is critical for parallel tool calls: N separate
@@ -2251,37 +2332,53 @@ defmodule BullX.LLM.Providers.Google do
   # See: https://ai.google.dev/gemini-api/docs/thought-signatures
   @thought_sig_dummy Base.encode64("skip_thought_signature_validator")
 
-  defp convert_tool_call_to_function_call(%ReqLLM.ToolCall{
-         type: "function",
-         function: %{name: name, arguments: args}
-       }) do
+  defp convert_tool_call_to_function_call(
+         %ReqLLM.ToolCall{
+           type: "function",
+           function: %{name: name, arguments: args}
+         } = tool_call
+       ) do
     %{
       functionCall: %{name: name, args: Jason.decode!(args)},
-      thoughtSignature: @thought_sig_dummy
+      thoughtSignature: tool_call_thought_signature(tool_call)
     }
   end
 
-  defp convert_tool_call_to_function_call(%{
-         "type" => "function",
-         "function" => %{"name" => name, "arguments" => args}
-       }) do
+  defp convert_tool_call_to_function_call(
+         %{
+           "type" => "function",
+           "function" => %{"name" => name, "arguments" => args}
+         } = tool_call
+       ) do
     %{
       functionCall: %{name: name, args: Jason.decode!(args)},
-      thoughtSignature: @thought_sig_dummy
+      thoughtSignature: tool_call_thought_signature(tool_call)
     }
   end
 
-  defp convert_tool_call_to_function_call(%{
-         type: "function",
-         function: %{name: name, arguments: args}
-       }) do
+  defp convert_tool_call_to_function_call(
+         %{
+           type: "function",
+           function: %{name: name, arguments: args}
+         } = tool_call
+       ) do
     %{
       functionCall: %{name: name, args: Jason.decode!(args)},
-      thoughtSignature: @thought_sig_dummy
+      thoughtSignature: tool_call_thought_signature(tool_call)
     }
   end
 
   defp convert_tool_call_to_function_call(_), do: nil
+
+  defp tool_call_thought_signature(tool_call) do
+    metadata = ReqLLM.ToolCall.metadata(tool_call)
+
+    Map.get(metadata, :thought_signature) ||
+      Map.get(metadata, "thought_signature") ||
+      Map.get(tool_call, :thought_signature) ||
+      Map.get(tool_call, "thought_signature") ||
+      @thought_sig_dummy
+  end
 
   defp extract_content_text(content) when is_binary(content), do: content
 
@@ -2290,6 +2387,7 @@ defmodule BullX.LLM.Providers.Google do
     |> Enum.map_join("", fn
       %{"type" => "text", "text" => text} -> text
       %{type: :text, text: text} -> text
+      %{type: "text", text: text} -> text
       text when is_binary(text) -> text
       _ -> ""
     end)
@@ -2297,11 +2395,26 @@ defmodule BullX.LLM.Providers.Google do
 
   defp extract_content_text(_), do: ""
 
-  defp build_tool_result_part(message, raw_content) do
+  defp build_tool_result_part(message, raw_content, false) do
     %{
       functionResponse: %{
         name: tool_result_name(message),
         response: tool_result_response(message, raw_content)
+      }
+    }
+  end
+
+  defp build_tool_result_part(message, raw_content, true) do
+    media_parts =
+      raw_content
+      |> Enum.filter(&multimodal_part?/1)
+      |> Enum.map(&convert_content_part/1)
+
+    %{
+      functionResponse: %{
+        name: tool_result_name(message),
+        response: tool_result_response(message, raw_content),
+        parts: media_parts
       }
     }
   end
@@ -2500,10 +2613,9 @@ defmodule BullX.LLM.Providers.Google do
   end
 
   defp content_part_url(part) do
-    Map.get(part, :url) ||
-      Map.get(part, "url") ||
-      nested_url(Map.get(part, :image_url) || Map.get(part, "image_url")) ||
-      nested_url(Map.get(part, :video_url) || Map.get(part, "video_url"))
+    part[:url] || part["url"] ||
+      nested_url(part[:image_url] || part["image_url"]) ||
+      nested_url(part[:video_url] || part["video_url"])
   end
 
   defp nested_url(%{url: url}) when is_binary(url), do: url
@@ -2649,17 +2761,78 @@ defmodule BullX.LLM.Providers.Google do
   defp json_array_buffer(_state), do: ""
 
   defp parse_json_array_protocol(data) do
-    if json_array_complete?(data) do
-      decode_json_array_protocol(data)
-    else
-      {:incomplete, {:json_array, data}}
+    parse_json_array_protocol("", json_array_state(data, false))
+  end
+
+  defp parse_json_array_protocol(chunk, %{buffer: buffer} = state) do
+    state = normalize_json_array_state(state)
+
+    case drain_json_array_protocol(%{state | buffer: buffer <> chunk}, []) do
+      {:ok, [], nil} -> {:ok, [], nil}
+      {:ok, [], next_state} -> {:incomplete, {:json_array, next_state}}
+      {:ok, events, nil} -> {:ok, events, nil}
+      {:ok, events, next_state} -> {:ok, events, {:json_array, next_state}}
+      {:error, reason} -> {:error, reason}
     end
   end
 
-  defp decode_json_array_protocol(data) do
-    case Jason.decode(data) do
-      {:ok, events} when is_list(events) ->
-        {:ok, Enum.map(events, &%{data: &1}), nil}
+  defp json_array_state(buffer, started?) do
+    %{buffer: buffer, started?: started?, pending_events: []}
+  end
+
+  defp normalize_json_array_state(state) do
+    Map.put_new(state, :pending_events, [])
+  end
+
+  defp drain_json_array_protocol(%{buffer: buffer, started?: false} = state, events) do
+    case String.trim_leading(buffer) do
+      "" ->
+        {:ok, Enum.reverse(events), %{state | buffer: ""}}
+
+      <<?[, rest::binary>> ->
+        drain_json_array_protocol(%{state | buffer: rest, started?: true}, events)
+
+      _other ->
+        {:error, :invalid_json_array_stream}
+    end
+  end
+
+  defp drain_json_array_protocol(%{buffer: buffer, started?: true} = state, events) do
+    buffer = trim_json_array_element_prefix(buffer)
+
+    case buffer do
+      "" ->
+        {:ok, Enum.reverse(events), %{state | buffer: ""}}
+
+      <<?], rest::binary>> ->
+        if String.trim_leading(rest) == "" do
+          {:ok, complete_json_array_events(state, events), nil}
+        else
+          {:error, :invalid_json_array_stream}
+        end
+
+      _other ->
+        parse_json_array_element(buffer, state, events)
+    end
+  end
+
+  defp parse_json_array_element(buffer, state, events) do
+    case take_complete_json_container(buffer) do
+      {:ok, json, rest} ->
+        decode_json_array_element(json, rest, state, events)
+
+      :incomplete ->
+        {:ok, Enum.reverse(events), %{state | buffer: buffer}}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp decode_json_array_element(json, rest, state, events) do
+    case Jason.decode(json) do
+      {:ok, event} when is_map(event) ->
+        queue_json_array_event(event, rest, state, events)
 
       {:ok, _other} ->
         {:error, :invalid_json_array_stream}
@@ -2669,51 +2842,104 @@ defmodule BullX.LLM.Providers.Google do
     end
   end
 
-  defp json_array_complete?(data) do
-    case String.trim_leading(data) do
-      <<"[", rest::binary>> -> json_array_complete?(rest, 1, false, false)
-      _ -> false
+  defp queue_json_array_event(event, rest, state, events) do
+    wrapped_event = %{data: event}
+
+    if json_array_terminal_event?(event) or state.pending_events != [] do
+      pending_events = [wrapped_event | state.pending_events]
+      drain_json_array_protocol(%{state | buffer: rest, pending_events: pending_events}, events)
+    else
+      drain_json_array_protocol(%{state | buffer: rest}, [wrapped_event | events])
     end
   end
 
-  defp json_array_complete?(<<>>, _depth, _in_string?, _escaped?), do: false
-
-  defp json_array_complete?(<<_byte, rest::binary>>, depth, true, true) do
-    json_array_complete?(rest, depth, true, false)
+  defp complete_json_array_events(state, events) do
+    Enum.reverse(events) ++ Enum.reverse(state.pending_events)
   end
 
-  defp json_array_complete?(<<?\\, rest::binary>>, depth, true, false) do
-    json_array_complete?(rest, depth, true, true)
+  defp json_array_terminal_event?(%{
+         "candidates" => [%{"finishReason" => finish_reason} | _]
+       })
+       when finish_reason != nil,
+       do: true
+
+  defp json_array_terminal_event?(%{
+         "candidates" => [%{"content" => %{"parts" => parts}} | _]
+       })
+       when is_list(parts) do
+    false
   end
 
-  defp json_array_complete?(<<?", rest::binary>>, depth, true, false) do
-    json_array_complete?(rest, depth, false, false)
+  defp json_array_terminal_event?(%{"usageMetadata" => _usage}), do: true
+
+  defp json_array_terminal_event?(_event), do: false
+
+  defp trim_json_array_element_prefix(buffer) do
+    buffer
+    |> String.trim_leading()
+    |> drop_json_array_comma()
+    |> String.trim_leading()
   end
 
-  defp json_array_complete?(<<_byte, rest::binary>>, depth, true, false) do
-    json_array_complete?(rest, depth, true, false)
+  defp drop_json_array_comma(<<?,, rest::binary>>), do: rest
+  defp drop_json_array_comma(buffer), do: buffer
+
+  defp take_complete_json_container(<<?{, _rest::binary>> = buffer) do
+    scan_json_container(buffer, buffer, 0, 0, false, false)
   end
 
-  defp json_array_complete?(<<?", rest::binary>>, depth, false, false) do
-    json_array_complete?(rest, depth, true, false)
+  defp take_complete_json_container(<<?[, _rest::binary>> = buffer) do
+    scan_json_container(buffer, buffer, 0, 0, false, false)
   end
 
-  defp json_array_complete?(<<byte, rest::binary>>, depth, false, false)
-       when byte in [?[, ?{] do
-    json_array_complete?(rest, depth + 1, false, false)
+  defp take_complete_json_container(_buffer), do: {:error, :invalid_json_array_stream}
+
+  defp scan_json_container(_original, <<>>, _offset, _depth, _in_string?, _escaped?),
+    do: :incomplete
+
+  defp scan_json_container(original, <<_byte, rest::binary>>, offset, depth, true, true) do
+    scan_json_container(original, rest, offset + 1, depth, true, false)
   end
 
-  defp json_array_complete?(<<byte, rest::binary>>, depth, false, false)
-       when byte in [?\], ?}] do
+  defp scan_json_container(original, <<?\\, rest::binary>>, offset, depth, true, false) do
+    scan_json_container(original, rest, offset + 1, depth, true, true)
+  end
+
+  defp scan_json_container(original, <<?", rest::binary>>, offset, depth, true, false) do
+    scan_json_container(original, rest, offset + 1, depth, false, false)
+  end
+
+  defp scan_json_container(original, <<_byte, rest::binary>>, offset, depth, true, false) do
+    scan_json_container(original, rest, offset + 1, depth, true, false)
+  end
+
+  defp scan_json_container(original, <<?", rest::binary>>, offset, depth, false, false) do
+    scan_json_container(original, rest, offset + 1, depth, true, false)
+  end
+
+  defp scan_json_container(original, <<byte, rest::binary>>, offset, depth, false, false)
+       when byte in [?{, ?[] do
+    scan_json_container(original, rest, offset + 1, depth + 1, false, false)
+  end
+
+  defp scan_json_container(original, <<byte, rest::binary>>, offset, depth, false, false)
+       when byte in [?}, ?]] do
     case depth - 1 do
-      0 -> String.trim_leading(rest) == ""
-      next_depth when next_depth > 0 -> json_array_complete?(rest, next_depth, false, false)
-      _ -> false
+      0 ->
+        length = offset + 1
+        <<json::binary-size(length), remaining::binary>> = original
+        {:ok, json, remaining}
+
+      next_depth when next_depth > 0 ->
+        scan_json_container(original, rest, offset + 1, next_depth, false, false)
+
+      _other ->
+        {:error, :invalid_json_array_stream}
     end
   end
 
-  defp json_array_complete?(<<_byte, rest::binary>>, depth, false, false) do
-    json_array_complete?(rest, depth, false, false)
+  defp scan_json_container(original, <<_byte, rest::binary>>, offset, depth, false, false) do
+    scan_json_container(original, rest, offset + 1, depth, false, false)
   end
 
   defp extract_chunks_from_parts(parts) do

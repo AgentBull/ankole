@@ -54,6 +54,11 @@ defmodule BullX.LLM.Providers.Anthropic do
       type: {:list, :any},
       doc: "Req options for OAuth refresh HTTP requests"
     ],
+    with_claude_subscription: [
+      type: :boolean,
+      default: false,
+      doc: "Enable Claude Pro/Max subscription compatibility for Anthropic OAuth requests"
+    ],
     anthropic_top_k: [
       type: :pos_integer,
       doc: "Sample from the top K options for each subsequent token (1-40)"
@@ -107,6 +112,10 @@ defmodule BullX.LLM.Providers.Anthropic do
       type: :map,
       doc: "Internal use: structured output format configuration"
     ],
+    output_config: [
+      type: :map,
+      doc: "Internal use: Anthropic output configuration"
+    ],
     anthropic_beta: [
       type: {:list, :string},
       doc: "Internal use: beta feature flags"
@@ -143,7 +152,7 @@ defmodule BullX.LLM.Providers.Anthropic do
   )a
 
   @body_options ~w(
-    temperature top_p stop_sequences thinking
+    temperature top_p stop_sequences thinking output_config
   )a
 
   @unsupported_parameters ~w(
@@ -153,6 +162,15 @@ defmodule BullX.LLM.Providers.Anthropic do
   @default_anthropic_version "2023-06-01"
   @anthropic_beta_tools "tools-2024-05-16"
   @anthropic_beta_prompt_caching "prompt-caching-2024-07-31"
+  @anthropic_beta_files_api "files-api-2025-04-14"
+  @claude_subscription_betas ["oauth-2025-04-20", "interleaved-thinking-2025-05-14"]
+  @claude_subscription_user_agent "claude-cli/2.1.112 (external, cli)"
+  @claude_subscription_x_app "claude-code"
+  @claude_subscription_identity "You are a Claude agent, built on Anthropic's Claude Agent SDK."
+  @claude_subscription_billing_salt "59cf53e54c78"
+  @claude_subscription_billing_positions [4, 7, 20]
+  @claude_subscription_code_version "2.1.112"
+  @claude_subscription_entrypoint "sdk-cli"
 
   # Canonical reasoning effort token budgets for Anthropic models
   # These values are used across all providers hosting Anthropic models
@@ -270,7 +288,7 @@ defmodule BullX.LLM.Providers.Anthropic do
           })
         end
       )
-      |> Keyword.put_new(:max_tokens, 4096)
+      |> ReqLLM.Provider.Options.put_model_max_tokens_default(model_spec, fallback: 4096)
       |> Keyword.put(:operation, :object)
 
     prepare_request(:chat, model_spec, prompt, opts_with_format)
@@ -319,7 +337,7 @@ defmodule BullX.LLM.Providers.Anthropic do
           opts
           |> Keyword.update(:tools, [structured_output_tool], &[structured_output_tool | &1])
           |> Keyword.put(:tool_choice, %{type: "tool", name: "structured_output"})
-          |> Keyword.put_new(:max_tokens, 4096)
+          |> ReqLLM.Provider.Options.put_model_max_tokens_default(model_spec, fallback: 4096)
           |> Keyword.put(:operation, :object)
 
         prepare_request(:chat, model_spec, prompt, opts_with_tool)
@@ -343,16 +361,22 @@ defmodule BullX.LLM.Providers.Anthropic do
     |> Req.Request.register_options(extra_option_keys ++ [:anthropic_version, :anthropic_beta])
     |> Req.Request.put_header("content-type", "application/json")
     |> put_auth_headers(credential)
+    |> put_subscription_headers(credential, user_opts)
+    |> put_subscription_beta_param(credential, user_opts)
     |> Req.Request.put_header("anthropic-version", get_anthropic_version(user_opts))
     |> Req.Request.put_private(:req_llm_model, model)
-    |> maybe_add_beta_header(user_opts)
+    |> Req.Request.put_private(
+      :req_llm_claude_subscription?,
+      claude_subscription?(credential, user_opts)
+    )
+    |> put_beta_header(user_opts, credential)
     |> Req.Request.merge_options(
       ReqLLM.Provider.Defaults.finch_option(request) ++
         [model: get_api_model_id(model)] ++ user_opts
     )
     |> ReqLLM.Step.Error.attach()
     |> ReqLLM.Step.Retry.attach(user_opts)
-    |> Req.Request.append_request_steps(llm_encode_body: &encode_body/1)
+    |> Req.Request.prepend_request_steps(llm_encode_body: &encode_body/1)
     |> Req.Request.append_response_steps(llm_decode_response: &decode_response/1)
     |> ReqLLM.Step.Usage.attach(model)
     |> ReqLLM.Step.Telemetry.attach(model, user_opts)
@@ -378,10 +402,13 @@ defmodule BullX.LLM.Providers.Anthropic do
 
     context = ReqLLM.ToolCallIdCompat.apply_context(__MODULE__, operation, model, context, opts)
 
-    body = build_request_body(context, model_name, opts)
-    json_body = body |> ReqLLM.Schema.apply_property_ordering() |> Jason.encode!()
+    body =
+      context
+      |> build_request_body(model_name, opts)
+      |> shape_subscription_body(request)
 
-    %{request | body: json_body}
+    request
+    |> put_in([Access.key!(:options), :json], ReqLLM.Schema.apply_property_ordering(body))
   end
 
   @impl ReqLLM.Provider
@@ -410,15 +437,11 @@ defmodule BullX.LLM.Providers.Anthropic do
   def extract_usage(_, _), do: {:error, :invalid_body}
 
   defp maybe_add_anthropic_tool_usage(usage) when is_map(usage) do
-    server_tool_use = Map.get(usage, "server_tool_use") || Map.get(usage, :server_tool_use) || %{}
+    server_tool_use = Map.get(usage, "server_tool_use", %{})
 
-    web_search =
-      Map.get(server_tool_use, "web_search_requests") ||
-        Map.get(server_tool_use, :web_search_requests)
+    web_search = Map.get(server_tool_use, "web_search_requests")
 
-    web_fetch =
-      Map.get(server_tool_use, "web_fetch_requests") ||
-        Map.get(server_tool_use, :web_fetch_requests)
+    web_fetch = Map.get(server_tool_use, "web_fetch_requests")
 
     usage
     |> maybe_put_tool_usage(:web_search, web_search)
@@ -431,13 +454,13 @@ defmodule BullX.LLM.Providers.Anthropic do
   # Shared Request Building Helpers (used by both Req and Finch paths)
   # ========================================================================
 
-  defp build_request_headers(model, opts) do
-    credential = ReqLLM.Auth.resolve!(model, opts)
-
+  defp build_request_headers(opts, credential) do
     [
       {"content-type", "application/json"}
       | auth_header_list(credential)
-    ] ++ [{"anthropic-version", get_anthropic_version(opts)}]
+    ] ++
+      subscription_header_list(credential, opts) ++
+      [{"anthropic-version", get_anthropic_version(opts)}]
   end
 
   defp put_auth_headers(request, credential) do
@@ -446,12 +469,49 @@ defmodule BullX.LLM.Providers.Anthropic do
     end)
   end
 
+  defp put_subscription_headers(request, credential, opts) do
+    if claude_subscription?(credential, opts) do
+      request
+      |> Req.Request.put_header("user-agent", @claude_subscription_user_agent)
+      |> Req.Request.put_header("x-app", @claude_subscription_x_app)
+    else
+      request
+    end
+  end
+
+  defp put_subscription_beta_param(request, credential, opts) do
+    if claude_subscription?(credential, opts) do
+      params = put_request_param(request.options[:params], :beta, "true")
+      Req.Request.merge_options(request, params: params)
+    else
+      request
+    end
+  end
+
+  defp put_request_param(nil, key, value), do: [{key, value}]
+
+  defp put_request_param(params, key, value) when is_list(params) do
+    Keyword.put(params, key, value)
+  end
+
+  defp put_request_param(params, key, value) when is_map(params) do
+    Map.put(params, key, value)
+  end
+
   defp auth_header_list(%{kind: :oauth_access_token, token: token}) do
     [{"authorization", "Bearer #{token}"}]
   end
 
   defp auth_header_list(%{kind: :api_key, token: token}) do
     [{"x-api-key", token}]
+  end
+
+  defp subscription_header_list(credential, opts) do
+    if claude_subscription?(credential, opts) do
+      [{"user-agent", @claude_subscription_user_agent}, {"x-app", @claude_subscription_x_app}]
+    else
+      []
+    end
   end
 
   defp build_request_body(context, model_name, opts) do
@@ -475,43 +535,169 @@ defmodule BullX.LLM.Providers.Anthropic do
     |> maybe_add_output_format(opts)
   end
 
-  defp build_request_url(opts) do
-    base_url = get_option(opts, :base_url, base_url())
-    "#{base_url}/v1/messages"
+  defp shape_subscription_body(body, %Req.Request{} = request) do
+    case Req.Request.get_private(request, :req_llm_claude_subscription?) do
+      true -> do_shape_subscription_body(body)
+      _ -> body
+    end
   end
 
-  defp build_beta_headers(opts) do
-    provider_opts = get_option(opts, :provider_options, [])
+  defp shape_subscription_body(body, {credential, opts}) do
+    if claude_subscription?(credential, opts) do
+      do_shape_subscription_body(body)
+    else
+      body
+    end
+  end
 
-    manual_betas =
-      (List.wrap(Keyword.get(opts, :anthropic_beta)) ++
-         List.wrap(Keyword.get(provider_opts, :anthropic_beta)))
-      |> Enum.reject(&is_nil/1)
+  defp do_shape_subscription_body(body) do
+    system = map_value(body, :system)
+    messages = map_value(body, :messages) || []
 
-    beta_features = manual_betas
+    Map.put(body, :system, subscription_system_blocks(system, messages))
+  end
 
-    beta_features =
-      if has_tools?(opts) do
-        [@anthropic_beta_tools | beta_features]
-      else
-        beta_features
-      end
+  defp subscription_system_blocks(system, messages) do
+    blocks = system_blocks(system)
+    blocks = prepend_subscription_identity(blocks)
 
-    beta_features =
-      if has_thinking?(opts) do
-        ["interleaved-thinking-2025-05-14" | beta_features]
-      else
-        beta_features
-      end
+    case subscription_billing_header(messages) do
+      nil ->
+        blocks
 
-    beta_features =
-      if has_prompt_caching?(opts) do
-        [@anthropic_beta_prompt_caching | beta_features]
-      else
-        beta_features
-      end
+      billing_header ->
+        prepend_subscription_billing_header(blocks, billing_header)
+    end
+  end
 
-    case beta_features do
+  defp system_blocks(nil), do: []
+  defp system_blocks(system) when is_list(system), do: Enum.map(system, &text_block/1)
+  defp system_blocks(system), do: [text_block(system)]
+
+  defp text_block(block) when is_binary(block), do: %{type: "text", text: block}
+
+  defp text_block(block) when is_map(block) do
+    block
+    |> Map.put(:type, "text")
+    |> Map.put(:text, block_text(block))
+  end
+
+  defp text_block(block), do: %{type: "text", text: to_string(block)}
+
+  defp prepend_subscription_identity(blocks) do
+    if Enum.any?(blocks, &(block_text(&1) == @claude_subscription_identity)) do
+      blocks
+    else
+      [%{type: "text", text: @claude_subscription_identity} | blocks]
+    end
+  end
+
+  defp prepend_subscription_billing_header(blocks, billing_header) do
+    if Enum.any?(
+         blocks,
+         &String.contains?(block_text(&1), "x-anthropic-billing-header:")
+       ) do
+      blocks
+    else
+      [%{type: "text", text: billing_header} | blocks]
+    end
+  end
+
+  defp subscription_billing_header(messages) when is_list(messages) do
+    case first_subscription_user_text(messages) do
+      "" ->
+        nil
+
+      text ->
+        cch = sha256_prefix(text, 5)
+
+        sampled =
+          Enum.map_join(
+            @claude_subscription_billing_positions,
+            "",
+            &(String.at(text, &1) || "0")
+          )
+
+        suffix =
+          sha256_prefix(
+            @claude_subscription_billing_salt <> sampled <> @claude_subscription_code_version,
+            3
+          )
+
+        "x-anthropic-billing-header: cc_version=#{@claude_subscription_code_version}.#{suffix}; cc_entrypoint=#{@claude_subscription_entrypoint}; cch=#{cch};"
+    end
+  end
+
+  defp subscription_billing_header(_messages), do: nil
+
+  defp first_subscription_user_text(messages) do
+    messages
+    |> Enum.find(&(subscription_message_role(&1) == "user"))
+    |> subscription_message_text()
+  end
+
+  defp subscription_message_role(message) when is_map(message) do
+    map_value(message, :role)
+  end
+
+  defp subscription_message_role(_message), do: nil
+
+  defp subscription_message_text(nil), do: ""
+
+  defp subscription_message_text(message) when is_map(message) do
+    message
+    |> map_value(:content)
+    |> subscription_content_text()
+  end
+
+  defp subscription_message_text(_message), do: ""
+
+  defp subscription_content_text(content) when is_binary(content), do: content
+
+  defp subscription_content_text(content) when is_list(content) do
+    content
+    |> Enum.find(&(block_type(&1) == "text"))
+    |> block_text()
+  end
+
+  defp subscription_content_text(_content), do: ""
+
+  defp block_type(block) when is_map(block), do: map_value(block, :type)
+  defp block_type(_block), do: nil
+
+  defp block_text(block) when is_map(block), do: map_value(block, :text) || ""
+  defp block_text(_block), do: ""
+
+  defp map_value(map, key) when is_map(map) do
+    Map.get(map, key) || Map.get(map, Atom.to_string(key))
+  end
+
+  defp map_value(_map, _key), do: nil
+
+  defp sha256_prefix(value, length) do
+    :crypto.hash(:sha256, value)
+    |> Base.encode16(case: :lower)
+    |> binary_part(0, length)
+  end
+
+  defp build_request_url(opts, credential) do
+    base_url = get_option(opts, :base_url, base_url())
+    add_subscription_beta_query("#{base_url}/v1/messages", credential)
+  end
+
+  defp add_subscription_beta_query(url, {credential, opts}) do
+    if claude_subscription?(credential, opts) do
+      uri = URI.parse(url)
+      query = uri.query || ""
+      params = URI.decode_query(query) |> Map.put("beta", "true")
+      %{uri | query: URI.encode_query(params)} |> URI.to_string()
+    else
+      url
+    end
+  end
+
+  defp build_beta_headers(opts, credential) do
+    case beta_features(opts, credential) do
       [] ->
         []
 
@@ -525,18 +711,29 @@ defmodule BullX.LLM.Providers.Anthropic do
     end
   end
 
+  defp subscription_beta_features(credential, opts) do
+    if claude_subscription?(credential, opts) do
+      @claude_subscription_betas
+    else
+      []
+    end
+  end
+
   # ========================================================================
 
   @impl ReqLLM.Provider
   def attach_stream(model, context, opts, _finch_name) do
-    # Extract and merge provider_options for translation
-    {provider_options, standard_opts} = Keyword.pop(opts, :provider_options, [])
-    flattened_opts = Keyword.merge(standard_opts, provider_options)
+    operation = opts[:operation] || :chat
 
-    # Translate provider options (including reasoning_effort) before building body
-    {translated_opts, _warnings} = translate_options(:chat, model, flattened_opts)
+    translated_opts =
+      ReqLLM.Provider.Options.process_stream!(
+        __MODULE__,
+        operation,
+        model,
+        context,
+        opts
+      )
 
-    # Set default timeout for reasoning models
     default_timeout =
       if Keyword.has_key?(translated_opts, :thinking) do
         Application.get_env(:req_llm, :thinking_timeout, 300_000)
@@ -549,14 +746,15 @@ defmodule BullX.LLM.Providers.Anthropic do
     base_url = ReqLLM.Provider.Options.effective_base_url(__MODULE__, model, translated_opts)
     translated_opts = Keyword.put(translated_opts, :base_url, base_url)
 
-    # Build request using shared helpers
-    headers = build_request_headers(model, translated_opts)
+    credential = ReqLLM.Auth.resolve!(model, translated_opts)
+    headers = build_request_headers(translated_opts, credential)
     streaming_headers = [{"Accept", "text/event-stream"} | headers]
-    beta_headers = build_beta_headers(translated_opts)
-    custom_headers = ReqLLM.Provider.Utils.extract_custom_headers(opts[:req_http_options])
-    all_headers = streaming_headers ++ beta_headers ++ custom_headers
+    beta_headers = build_beta_headers(Keyword.put(translated_opts, :context, context), credential)
 
-    operation = opts[:operation] || :chat
+    custom_headers =
+      ReqLLM.Provider.Utils.extract_custom_headers(translated_opts[:req_http_options])
+
+    all_headers = streaming_headers ++ beta_headers ++ custom_headers
 
     context =
       ReqLLM.ToolCallIdCompat.apply_context(
@@ -567,8 +765,12 @@ defmodule BullX.LLM.Providers.Anthropic do
         translated_opts
       )
 
-    body = build_request_body(context, get_api_model_id(model), translated_opts ++ [stream: true])
-    url = build_request_url(translated_opts)
+    body =
+      context
+      |> build_request_body(get_api_model_id(model), translated_opts ++ [stream: true])
+      |> shape_subscription_body({credential, translated_opts})
+
+    url = build_request_url(translated_opts, {credential, translated_opts})
 
     encoded = body |> ReqLLM.Schema.apply_property_ordering() |> Jason.encode!()
     finch_request = Finch.build(:post, url, all_headers, encoded)
@@ -602,13 +804,15 @@ defmodule BullX.LLM.Providers.Anthropic do
   end
 
   @impl ReqLLM.Provider
-  def translate_options(operation, _model, opts) do
+  def translate_options(operation, model, opts) do
     # Anthropic-specific parameter translation
     translated_opts =
       opts
       |> translate_stop_parameter()
-      |> translate_reasoning_effort()
+      |> translate_reasoning_effort(model)
+      |> normalize_thinking_for_model(model)
       |> disable_thinking_for_forced_tool_choice(operation)
+      |> remove_model_unsupported_parameters(model)
       |> remove_conflicting_sampling_params()
       |> translate_unsupported_parameters()
 
@@ -630,40 +834,17 @@ defmodule BullX.LLM.Providers.Anthropic do
     Keyword.get(user_opts, :anthropic_version, @default_anthropic_version)
   end
 
-  defp maybe_add_beta_header(request, user_opts) do
-    beta_features = []
+  defp claude_subscription?(%{kind: :oauth_access_token}, opts) do
+    provider_opts = get_option(opts, :provider_options, []) || []
 
-    # Add betas from provider_options (e.g. structured-outputs)
-    provider_betas =
-      user_opts
-      |> Keyword.get(:provider_options, [])
-      |> Keyword.get(:anthropic_beta, [])
-      |> List.wrap()
+    get_option(opts, :with_claude_subscription) == true or
+      get_option(provider_opts, :with_claude_subscription) == true
+  end
 
-    beta_features = beta_features ++ provider_betas
+  defp claude_subscription?(_credential, _opts), do: false
 
-    beta_features =
-      if has_tools?(user_opts) do
-        [@anthropic_beta_tools | beta_features]
-      else
-        beta_features
-      end
-
-    beta_features =
-      if has_thinking?(user_opts) do
-        ["interleaved-thinking-2025-05-14" | beta_features]
-      else
-        beta_features
-      end
-
-    beta_features =
-      if has_prompt_caching?(user_opts) do
-        [@anthropic_beta_prompt_caching | beta_features]
-      else
-        beta_features
-      end
-
-    case beta_features do
+  defp put_beta_header(request, user_opts, credential) do
+    case beta_features(user_opts, credential) do
       [] ->
         request
 
@@ -675,6 +856,48 @@ defmodule BullX.LLM.Providers.Anthropic do
 
         Req.Request.put_header(request, "anthropic-beta", beta_header)
     end
+  end
+
+  defp beta_features(opts, credential) do
+    beta_features = manual_beta_features(opts) ++ subscription_beta_features(credential, opts)
+
+    beta_features =
+      if has_tools?(opts) do
+        [@anthropic_beta_tools | beta_features]
+      else
+        beta_features
+      end
+
+    beta_features =
+      if has_legacy_thinking?(opts) do
+        ["interleaved-thinking-2025-05-14" | beta_features]
+      else
+        beta_features
+      end
+
+    beta_features =
+      if has_prompt_caching?(opts) do
+        [@anthropic_beta_prompt_caching | beta_features]
+      else
+        beta_features
+      end
+
+    beta_features =
+      if has_files_api_reference?(opts) do
+        [@anthropic_beta_files_api | beta_features]
+      else
+        beta_features
+      end
+
+    Enum.uniq(beta_features)
+  end
+
+  defp manual_beta_features(opts) do
+    provider_opts = get_option(opts, :provider_options, [])
+
+    [get_option(opts, :anthropic_beta), get_option(provider_opts, :anthropic_beta)]
+    |> Enum.flat_map(&List.wrap/1)
+    |> Enum.reject(&is_nil/1)
   end
 
   defp has_tools?(user_opts) do
@@ -698,10 +921,58 @@ defmodule BullX.LLM.Providers.Anthropic do
     not is_nil(thinking) or not is_nil(reasoning_effort) or not is_nil(provider_reasoning_effort)
   end
 
+  defp has_legacy_thinking?(user_opts) do
+    provider_options = Keyword.get(user_opts, :provider_options, [])
+
+    case Keyword.get(user_opts, :thinking) || get_option(provider_options, :thinking) do
+      %{type: "adaptive"} -> false
+      %{"type" => "adaptive"} -> false
+      nil -> has_thinking?(user_opts)
+      _ -> true
+    end
+  end
+
   @doc false
   def has_prompt_caching?(opts) do
     get_option(opts, :anthropic_prompt_cache, false) == true
   end
+
+  defp has_files_api_reference?(opts) do
+    opts
+    |> get_option(:context)
+    |> context_has_files_api_reference?()
+  end
+
+  defp context_has_files_api_reference?(%ReqLLM.Context{messages: messages}) do
+    Enum.any?(messages, &message_has_files_api_reference?/1)
+  end
+
+  defp context_has_files_api_reference?(_context), do: false
+
+  defp message_has_files_api_reference?(%ReqLLM.Message{content: content}) do
+    content
+    |> List.wrap()
+    |> Enum.any?(&content_part_has_file_id?/1)
+  end
+
+  defp message_has_files_api_reference?(_message), do: false
+
+  defp content_part_has_file_id?(%ReqLLM.Message.ContentPart{file_id: file_id}) do
+    is_binary(file_id) and file_id != ""
+  end
+
+  defp content_part_has_file_id?(part) when is_map(part) do
+    source = Map.get(part, :source) || Map.get(part, "source")
+
+    file_id =
+      Map.get(part, :file_id) ||
+        Map.get(part, "file_id") ||
+        if(is_map(source), do: Map.get(source, :file_id) || Map.get(source, "file_id"))
+
+    is_binary(file_id) and file_id != ""
+  end
+
+  defp content_part_has_file_id?(_part), do: false
 
   @doc false
   def cache_control_meta(opts) do
@@ -818,7 +1089,7 @@ defmodule BullX.LLM.Providers.Anthropic do
   end
 
   defp add_cache_to_message_content(msg, cache_meta) do
-    content = Map.get(msg, :content) || Map.get(msg, "content")
+    content = Map.get(msg, :content)
 
     updated_content =
       case content do
@@ -1041,7 +1312,7 @@ defmodule BullX.LLM.Providers.Anthropic do
   defp maybe_put_server_tool_opt(tool, key, value), do: Map.put(tool, key, value)
 
   defp maybe_put_tool_usage(usage, tool, count) when is_number(count) and count > 0 do
-    tool_usage = Map.get(usage, :tool_usage) || Map.get(usage, "tool_usage") || %{}
+    tool_usage = Map.get(usage, :tool_usage, %{})
     updated_tool_usage = Map.merge(tool_usage, ReqLLM.Usage.Tool.build(tool, count))
     Map.put(usage, :tool_usage, updated_tool_usage)
   end
@@ -1080,7 +1351,7 @@ defmodule BullX.LLM.Providers.Anthropic do
   def map_reasoning_effort_to_budget("xhigh"), do: map_reasoning_effort_to_budget(:xhigh)
   def map_reasoning_effort_to_budget(_), do: @reasoning_budget_medium
 
-  defp translate_reasoning_effort(opts) do
+  defp translate_reasoning_effort(opts, model) do
     {reasoning_effort, opts} = Keyword.pop(opts, :reasoning_effort)
     {reasoning_budget, opts} = Keyword.pop(opts, :reasoning_token_budget)
 
@@ -1089,54 +1360,148 @@ defmodule BullX.LLM.Providers.Anthropic do
         opts
 
       :minimal ->
-        budget = reasoning_budget || map_reasoning_effort_to_budget(:minimal)
-
-        opts
-        |> Keyword.put(:thinking, %{type: "enabled", budget_tokens: budget})
-        |> adjust_max_tokens_for_thinking(budget)
-        |> adjust_top_p_for_thinking()
+        put_reasoning_effort(opts, model, :minimal, reasoning_budget)
 
       :low ->
-        budget = reasoning_budget || map_reasoning_effort_to_budget(:low)
-
-        opts
-        |> Keyword.put(:thinking, %{type: "enabled", budget_tokens: budget})
-        |> adjust_max_tokens_for_thinking(budget)
-        |> adjust_top_p_for_thinking()
+        put_reasoning_effort(opts, model, :low, reasoning_budget)
 
       :medium ->
-        budget = reasoning_budget || map_reasoning_effort_to_budget(:medium)
-
-        opts
-        |> Keyword.put(:thinking, %{type: "enabled", budget_tokens: budget})
-        |> adjust_max_tokens_for_thinking(budget)
-        |> adjust_top_p_for_thinking()
+        put_reasoning_effort(opts, model, :medium, reasoning_budget)
 
       :high ->
-        budget = reasoning_budget || map_reasoning_effort_to_budget(:high)
-
-        opts
-        |> Keyword.put(:thinking, %{type: "enabled", budget_tokens: budget})
-        |> adjust_max_tokens_for_thinking(budget)
-        |> adjust_top_p_for_thinking()
+        put_reasoning_effort(opts, model, :high, reasoning_budget)
 
       :xhigh ->
-        budget = reasoning_budget || map_reasoning_effort_to_budget(:xhigh)
-
-        opts
-        |> Keyword.put(:thinking, %{type: "enabled", budget_tokens: budget})
-        |> adjust_max_tokens_for_thinking(budget)
-        |> adjust_top_p_for_thinking()
+        put_reasoning_effort(opts, model, :xhigh, reasoning_budget)
 
       :default ->
-        opts
-        |> Keyword.put(:thinking, %{type: "enabled"})
-        |> adjust_top_p_for_thinking()
+        put_default_reasoning_effort(opts, model)
 
       nil ->
         opts
     end
   end
+
+  defp put_reasoning_effort(opts, model, effort, reasoning_budget) do
+    if adaptive_thinking_required?(model) do
+      opts
+      |> Keyword.put(:thinking, %{type: "adaptive"})
+      |> put_output_effort(adaptive_effort(effort, model))
+      |> remove_adaptive_thinking_sampling_params()
+    else
+      budget = reasoning_budget || map_reasoning_effort_to_budget(effort)
+
+      opts
+      |> Keyword.put(:thinking, %{type: "enabled", budget_tokens: budget})
+      |> adjust_max_tokens_for_thinking(budget)
+      |> adjust_top_p_for_thinking()
+    end
+  end
+
+  defp put_default_reasoning_effort(opts, model) do
+    if adaptive_thinking_required?(model) do
+      opts
+      |> Keyword.put(:thinking, %{type: "adaptive"})
+      |> put_output_effort(adaptive_effort(:default, model))
+      |> remove_adaptive_thinking_sampling_params()
+    else
+      opts
+      |> Keyword.put(:thinking, %{type: "enabled"})
+      |> adjust_top_p_for_thinking()
+    end
+  end
+
+  defp normalize_thinking_for_model(opts, model) do
+    if adaptive_thinking_required?(model) do
+      case Keyword.get(opts, :thinking) do
+        %{type: "enabled"} = thinking ->
+          opts
+          |> Keyword.put(:thinking, %{type: "adaptive"})
+          |> put_output_effort(effort_from_thinking(thinking, model))
+          |> remove_adaptive_thinking_sampling_params()
+
+        %{"type" => "enabled"} = thinking ->
+          opts
+          |> Keyword.put(:thinking, %{type: "adaptive"})
+          |> put_output_effort(effort_from_thinking(thinking, model))
+          |> remove_adaptive_thinking_sampling_params()
+
+        %{type: "adaptive"} ->
+          remove_adaptive_thinking_sampling_params(opts)
+
+        %{"type" => "adaptive"} ->
+          remove_adaptive_thinking_sampling_params(opts)
+
+        _ ->
+          opts
+      end
+    else
+      opts
+    end
+  end
+
+  defp put_output_effort(opts, effort) do
+    Keyword.update(opts, :output_config, %{effort: effort}, fn
+      config when is_map(config) -> Map.put(config, :effort, effort)
+      config when is_list(config) -> Keyword.put(config, :effort, effort)
+      _ -> %{effort: effort}
+    end)
+  end
+
+  defp effort_from_thinking(thinking, model) do
+    thinking
+    |> get_option(:budget_tokens)
+    |> budget_to_effort(model)
+  end
+
+  defp budget_to_effort(nil, model), do: adaptive_effort(:default, model)
+  defp budget_to_effort(budget, _model) when budget >= @reasoning_budget_xhigh, do: "max"
+  defp budget_to_effort(budget, _model) when budget >= @reasoning_budget_high, do: "high"
+  defp budget_to_effort(budget, _model) when budget >= @reasoning_budget_medium, do: "medium"
+  defp budget_to_effort(_budget, _model), do: "low"
+
+  defp adaptive_effort(:minimal, _model), do: "low"
+  defp adaptive_effort(:low, _model), do: "low"
+  defp adaptive_effort(:medium, _model), do: "medium"
+  defp adaptive_effort(:high, _model), do: "high"
+  defp adaptive_effort(:xhigh, model), do: max_effort(model)
+  defp adaptive_effort(:default, _model), do: "medium"
+
+  defp max_effort(model) do
+    if model_extra(model, [:capabilities, :effort, :max, :supported]) == true do
+      "max"
+    else
+      "high"
+    end
+  end
+
+  defp adaptive_thinking_required?(model) do
+    model_extra(model, [:capabilities, :thinking, :types, :adaptive, :supported]) == true and
+      model_extra(model, [:capabilities, :thinking, :types, :enabled, :supported]) == false
+  end
+
+  defp remove_model_unsupported_parameters(opts, model) do
+    if model_extra(model, [:temperature]) == false do
+      Keyword.drop(opts, [:temperature, :top_p, :top_k, :anthropic_top_k])
+    else
+      opts
+    end
+  end
+
+  defp model_extra(%LLMDB.Model{extra: extra}, path), do: get_nested(extra, path)
+  defp model_extra(_, _path), do: nil
+
+  defp get_nested(value, []), do: value
+
+  defp get_nested(value, [key | rest]) when is_map(value) do
+    cond do
+      Map.has_key?(value, key) -> get_nested(Map.get(value, key), rest)
+      Map.has_key?(value, to_string(key)) -> get_nested(Map.get(value, to_string(key)), rest)
+      true -> nil
+    end
+  end
+
+  defp get_nested(_value, _path), do: nil
 
   defp adjust_max_tokens_for_thinking(opts, budget_tokens) do
     max_tokens = Keyword.get(opts, :max_tokens)
@@ -1162,10 +1527,14 @@ defmodule BullX.LLM.Providers.Anthropic do
         opts
 
       operation == :object and match?(%{type: "tool"}, tool_choice) ->
-        Keyword.delete(opts, :thinking)
+        opts
+        |> Keyword.delete(:thinking)
+        |> Keyword.delete(:output_config)
 
       match?(%{type: "tool"}, tool_choice) ->
-        Keyword.delete(opts, :thinking)
+        opts
+        |> Keyword.delete(:thinking)
+        |> Keyword.delete(:output_config)
 
       match?(%{type: "any"}, tool_choice) ->
         Keyword.put(opts, :tool_choice, %{type: "auto"})
@@ -1184,6 +1553,13 @@ defmodule BullX.LLM.Providers.Anthropic do
       top_p -> top_p
     end)
     |> Keyword.delete(:temperature)
+    |> Keyword.delete(:top_k)
+  end
+
+  defp remove_adaptive_thinking_sampling_params(opts) do
+    opts
+    |> Keyword.delete(:temperature)
+    |> Keyword.delete(:top_p)
     |> Keyword.delete(:top_k)
   end
 
@@ -1452,7 +1828,7 @@ defmodule BullX.LLM.Providers.Anthropic do
 
   defp strip_constraints_recursive(schema) when is_map(schema) do
     schema
-    |> Map.drop(["minimum", "maximum", "minLength", "maxLength"])
+    |> Map.drop(["minimum", "maximum", "minLength", "maxLength", "minItems", "maxItems"])
     |> Map.new(fn
       {"properties", props} when is_map(props) ->
         {"properties", Map.new(props, fn {k, v} -> {k, strip_constraints_recursive(v)} end)}

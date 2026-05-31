@@ -31,7 +31,7 @@ defmodule BullX.LLM.Providers.XAI.ImagesAPI do
       |> maybe_put_string("aspect_ratio", opts[:aspect_ratio])
 
     request
-    |> Map.put(:body, Jason.encode!(body))
+    |> put_in([Access.key!(:options), :json], body)
   end
 
   @impl true

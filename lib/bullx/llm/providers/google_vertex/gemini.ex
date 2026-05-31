@@ -43,10 +43,12 @@ defmodule BullX.LLM.Providers.GoogleVertex.Gemini do
 
     temp_request =
       Req.new(method: :post, url: URI.parse("https://example.com/temp"))
-      |> Map.put(:body, {:json, %{}})
       |> Map.put(:options, opts_map)
 
-    %Req.Request{body: encoded_body} = Google.encode_body(temp_request)
+    %Req.Request{body: encoded_body} =
+      temp_request
+      |> Google.encode_body()
+      |> Req.Steps.encode_body()
 
     body = Jason.decode!(encoded_body)
 

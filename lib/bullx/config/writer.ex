@@ -135,9 +135,26 @@ defmodule BullX.Config.Writer do
   end
 
   defp refresh_after_write(keys) do
-    Enum.each(keys, fn key ->
-      BullX.Config.Cache.refresh(key)
-      BullX.Config.ReqLLM.Bridge.sync_if_req_llm_key(key)
-    end)
+    keys
+    |> Enum.flat_map(&refresh_key_after_write/1)
+    |> projection_result()
   end
+
+  defp refresh_key_after_write(key) do
+    case BullX.Config.Cache.refresh(key) do
+      :ok -> sync_req_llm_after_write(key)
+      {:error, reason} -> [{:config_cache_refresh_failed, key, reason}]
+    end
+  end
+
+  defp sync_req_llm_after_write(key) do
+    case BullX.Config.ReqLLM.Bridge.sync_if_req_llm_key(key) do
+      :ok -> []
+      {:error, reason} -> [{:req_llm_projection_failed, key, reason}]
+    end
+  end
+
+  defp projection_result([]), do: :ok
+  defp projection_result([failure]), do: {:ok, {:persisted_but_stale, failure}}
+  defp projection_result(failures), do: {:ok, {:persisted_but_stale, failures}}
 end

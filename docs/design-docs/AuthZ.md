@@ -89,6 +89,11 @@ Agents cannot become the first admin.
 
 `allowed?/4` wraps `authorize/4` and returns a boolean.
 
+`authorize_all/4` authorizes multiple actions for the same Principal, resource,
+and request context. It loads the Principal, computes effective groups, and
+loads candidate grants once, then evaluates each action in the caller-supplied
+order with default-deny semantics.
+
 `authorize_permission/3` accepts a single permission key formatted as
 `<resource>:<action>` and delegates to `authorize/4`.
 
@@ -121,6 +126,8 @@ Current `BullX.AuthZ` functions include:
 
 - `authorize/3`
 - `authorize/4`
+- `authorize_all/3`
+- `authorize_all/4`
 - `authorize_permission/2`
 - `authorize_permission/3`
 - `allowed?/3`
@@ -144,7 +151,7 @@ Current `BullX.AuthZ` functions include:
 
 ## Failure Semantics
 
-Authorization returns `{:ok, :allow}` or `{:error, reason}`.
+Authorization returns `:ok` or `{:error, reason}`.
 
 Typical denial reasons include inactive or missing Principals, no matching
 grant, invalid request data, and invalid persisted grant/group data.

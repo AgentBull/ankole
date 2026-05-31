@@ -1,16 +1,21 @@
 defmodule BullX.Setup.LLMProvidersTest do
   use BullX.DataCase, async: false
 
-  alias BullX.LLM.PluginProviders
+  alias BullX.LLM.{Catalog, PluginProviders, Provider}
   alias BullX.Setup.LLMProviders
 
   setup do
     ReqLLM.Providers.initialize()
     PluginProviders.sync_builtin_extensions()
 
+    cache_pid = GenServer.whereis(BullX.LLM.Catalog.Cache)
+    Ecto.Adapters.SQL.Sandbox.allow(BullX.Repo, self(), cache_pid)
+    BullX.LLM.Catalog.Cache.refresh_all()
+
     on_exit(fn ->
       ReqLLM.Providers.initialize()
       PluginProviders.sync_builtin_extensions()
+      BullX.LLM.Catalog.Cache.refresh_all()
     end)
 
     :ok
@@ -70,5 +75,56 @@ defmodule BullX.Setup.LLMProvidersTest do
                "req_llm_provider" => "openai",
                "provider_options" => %{"not_real" => true}
              })
+  end
+
+  test "setup save surfaces stale provider catalog projection" do
+    with_unregistered_catalog_cache(fn ->
+      assert {:error,
+              %{
+                field: "provider",
+                message: "saved but runtime projection is stale",
+                details: details
+              }} =
+               LLMProviders.save_many([
+                 %{
+                   "provider_id" => "stale_setup_provider",
+                   "req_llm_provider" => "openai",
+                   "provider_options" => %{}
+                 }
+               ])
+
+      assert details =~ "cache_refresh_failed"
+      assert details =~ "stale_setup_provider"
+      assert %Provider{} = Repo.get_by!(Provider, provider_id: "stale_setup_provider")
+      assert {:error, :not_found} = Catalog.find_provider("stale_setup_provider")
+    end)
+  end
+
+  defp with_unregistered_catalog_cache(fun) when is_function(fun, 0) do
+    cache_pid = Process.whereis(BullX.LLM.Catalog.Cache)
+    assert is_pid(cache_pid)
+
+    Process.unregister(BullX.LLM.Catalog.Cache)
+
+    try do
+      fun.()
+    after
+      restore_registered_cache(
+        BullX.LLM.Catalog.Cache,
+        cache_pid,
+        &BullX.LLM.Catalog.Cache.refresh_all/0
+      )
+    end
+  end
+
+  defp restore_registered_cache(name, pid, refresh_fun) do
+    case {Process.alive?(pid), Process.whereis(name)} do
+      {true, nil} ->
+        Process.register(pid, name)
+        refresh_fun.()
+
+      _other ->
+        :ok
+    end
   end
 end

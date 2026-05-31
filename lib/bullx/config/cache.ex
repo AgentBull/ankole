@@ -27,12 +27,12 @@ defmodule BullX.Config.Cache do
 
   @doc "Reloads a single key from PostgreSQL and updates ETS."
   def refresh(key) when is_binary(key) do
-    GenServer.call(__MODULE__, {:refresh, key})
+    call({:refresh, key})
   end
 
   @doc "Reloads all keys from PostgreSQL."
   def refresh_all do
-    GenServer.call(__MODULE__, :refresh_all)
+    call(:refresh_all)
   end
 
   @impl true
@@ -50,14 +50,25 @@ defmodule BullX.Config.Cache do
 
   @impl true
   def handle_call({:refresh, key}, _from, state) do
-    do_refresh_key(key)
-    {:reply, :ok, state}
+    {:reply, do_refresh_key(key), state}
   end
 
   @impl true
   def handle_call(:refresh_all, _from, state) do
-    load_all()
-    {:reply, :ok, state}
+    {:reply, load_all(), state}
+  end
+
+  defp call(message) do
+    case GenServer.whereis(__MODULE__) do
+      nil -> {:error, :cache_not_running}
+      _pid -> safe_call(message)
+    end
+  end
+
+  defp safe_call(message) do
+    GenServer.call(__MODULE__, message)
+  catch
+    :exit, reason -> {:error, {:cache_call_failed, reason}}
   end
 
   defp load_all do
@@ -65,22 +76,18 @@ defmodule BullX.Config.Cache do
       rows = BullX.Repo.all(BullX.Config.AppConfig)
       :ets.delete_all_objects(@table)
 
-      Enum.each(rows, fn %BullX.Config.AppConfig{key: key, value: value, type: type} ->
-        case decrypt_if_secret(value, type, key) do
-          {:ok, plaintext} ->
-            :ets.insert(@table, {key, plaintext})
-
-          {:error, reason} ->
-            Logger.warning(
-              "BullX.Config.Cache: failed to decrypt key #{inspect(key)}: #{inspect(reason)}"
-            )
-        end
-      end)
+      rows
+      |> Enum.reduce([], &collect_load_error/2)
+      |> load_result()
     rescue
       e ->
+        reason = {:load_failed, Exception.message(e)}
+
         Logger.warning(
           "BullX.Config.Cache: failed to load from database, starting with empty cache: #{Exception.message(e)}"
         )
+
+        {:error, reason}
     end
   end
 
@@ -89,25 +96,47 @@ defmodule BullX.Config.Cache do
       case BullX.Repo.get(BullX.Config.AppConfig, key) do
         nil ->
           :ets.delete(@table, key)
+          :ok
 
         %BullX.Config.AppConfig{value: value, type: type} ->
-          case decrypt_if_secret(value, type, key) do
-            {:ok, plaintext} ->
-              :ets.insert(@table, {key, plaintext})
-
-            {:error, reason} ->
-              :ets.delete(@table, key)
-
-              Logger.warning(
-                "BullX.Config.Cache: failed to decrypt key #{inspect(key)}: #{inspect(reason)}"
-              )
-          end
+          refresh_value(key, value, type)
       end
     rescue
       e ->
+        reason = {:refresh_failed, key, Exception.message(e)}
+
         Logger.warning(
           "BullX.Config.Cache: failed to refresh key #{inspect(key)}: #{Exception.message(e)}"
         )
+
+        {:error, reason}
+    end
+  end
+
+  defp collect_load_error(%BullX.Config.AppConfig{key: key, value: value, type: type}, acc) do
+    case refresh_value(key, value, type) do
+      :ok -> acc
+      {:error, reason} -> [reason | acc]
+    end
+  end
+
+  defp load_result([]), do: :ok
+  defp load_result(errors), do: {:error, {:load_failed, Enum.reverse(errors)}}
+
+  defp refresh_value(key, value, type) do
+    case decrypt_if_secret(value, type, key) do
+      {:ok, plaintext} ->
+        :ets.insert(@table, {key, plaintext})
+        :ok
+
+      {:error, reason} ->
+        :ets.delete(@table, key)
+
+        Logger.warning(
+          "BullX.Config.Cache: failed to decrypt key #{inspect(key)}: #{inspect(reason)}"
+        )
+
+        {:error, {:decrypt_failed, key, reason}}
     end
   end
 

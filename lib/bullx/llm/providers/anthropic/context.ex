@@ -36,6 +36,8 @@ defmodule BullX.LLM.Providers.Anthropic.Context do
 
   require Logger
 
+  @document_file_metadata_keys [:title, :context, :citations]
+
   @doc """
   Encode context and model to Anthropic Messages API format.
   """
@@ -165,13 +167,12 @@ defmodule BullX.LLM.Providers.Anthropic.Context do
     messages
     |> Enum.map(&encode_system_message/1)
     |> Enum.reject(&(&1 == []))
-    |> Enum.intersperse([%{type: "text", text: "\n\n"}])
     |> List.flatten()
     |> normalize_system_content()
   end
 
   defp encode_system_message(%ReqLLM.Message{content: content}) when is_binary(content) do
-    if content == "" do
+    if String.trim(content) == "" do
       []
     else
       [%{type: "text", text: content}]
@@ -181,10 +182,18 @@ defmodule BullX.LLM.Providers.Anthropic.Context do
   defp encode_system_message(%ReqLLM.Message{content: content}) when is_list(content) do
     content
     |> Enum.map(&encode_content_part/1)
-    |> Enum.reject(&is_nil/1)
+    |> Enum.reject(&blank_system_content_block?/1)
   end
 
   defp encode_system_message(_message), do: []
+
+  defp blank_system_content_block?(nil), do: true
+
+  defp blank_system_content_block?(%{type: "text", text: text}) when is_binary(text) do
+    String.trim(text) == ""
+  end
+
+  defp blank_system_content_block?(_block), do: false
 
   defp normalize_system_content([]), do: nil
   defp normalize_system_content([%{type: "text", text: text}]), do: text
@@ -243,10 +252,28 @@ defmodule BullX.LLM.Providers.Anthropic.Context do
 
   defp encode_content_part(%ReqLLM.Message.ContentPart{
          type: :file,
+         file_id: file_id,
+         media_type: media_type,
+         metadata: metadata
+       })
+       when is_binary(file_id) and file_id != "" do
+    %{
+      type: file_block_type(media_type),
+      source: %{
+        type: "file",
+        file_id: file_id
+      }
+    }
+    |> maybe_add_document_file_metadata(metadata)
+  end
+
+  defp encode_content_part(%ReqLLM.Message.ContentPart{
+         type: :file,
          data: data,
          media_type: media_type,
          filename: _filename
-       }) do
+       })
+       when is_binary(data) do
     base64 = Base.encode64(data)
 
     %{
@@ -260,6 +287,27 @@ defmodule BullX.LLM.Providers.Anthropic.Context do
   end
 
   defp encode_content_part(_), do: nil
+
+  defp file_block_type(media_type) when is_binary(media_type) do
+    if String.starts_with?(media_type, "image/"), do: "image", else: "document"
+  end
+
+  defp file_block_type(_media_type), do: "document"
+
+  defp maybe_add_document_file_metadata(%{type: "document"} = block, metadata)
+       when is_map(metadata) do
+    Enum.reduce(@document_file_metadata_keys, block, fn key, acc ->
+      value = Map.get(metadata, key) || Map.get(metadata, Atom.to_string(key))
+
+      if is_nil(value) do
+        acc
+      else
+        Map.put(acc, key, value)
+      end
+    end)
+  end
+
+  defp maybe_add_document_file_metadata(block, _metadata), do: block
 
   defp encode_tool_call_to_tool_use(%ToolCall{id: id, function: %{name: name, arguments: args}}) do
     %{type: "tool_use", id: id, name: name, input: decode_tool_arguments(args)}

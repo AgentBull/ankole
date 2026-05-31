@@ -68,7 +68,7 @@ defmodule BullX.LLM.Providers.OpenRouter do
 
     opts =
       opts
-      |> put_object_max_tokens()
+      |> put_object_max_tokens(model_spec)
       |> Keyword.put(:operation, :object)
 
     ReqLLM.Provider.Defaults.prepare_request(__MODULE__, :chat, model_spec, prompt, opts)
@@ -185,12 +185,15 @@ defmodule BullX.LLM.Providers.OpenRouter do
     |> Keyword.delete(:response_format)
   end
 
-  defp put_object_max_tokens(opts) do
-    case Keyword.get(opts, :max_tokens) do
-      nil -> Keyword.put(opts, :max_tokens, 4096)
-      tokens when tokens < 200 -> Keyword.put(opts, :max_tokens, 200)
-      _tokens -> opts
-    end
+  defp put_object_max_tokens(opts, model_spec) do
+    opts
+    |> ReqLLM.Provider.Options.put_model_max_tokens_default(model_spec, fallback: 4096)
+    |> then(fn opts ->
+      case Keyword.get(opts, :max_tokens) do
+        tokens when is_integer(tokens) and tokens < 200 -> Keyword.put(opts, :max_tokens, 200)
+        _tokens -> opts
+      end
+    end)
   end
 
   defp put_reasoning_token_budget(opts, nil), do: opts

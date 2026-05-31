@@ -113,7 +113,8 @@ defmodule BullX.LLM.Providers.OpenAI.ChatAPI do
         |> add_response_format(opts_map)
         |> add_parallel_tool_calls(opts_map)
         |> add_logprobs(opts_map)
-        |> translate_tool_choice_format()
+        |> add_audio_output(opts_map)
+        |> BullX.LLM.Providers.OpenAI.AdapterHelpers.translate_tool_choice_format()
         |> add_strict_to_tools()
     end
   end
@@ -216,40 +217,6 @@ defmodule BullX.LLM.Providers.OpenAI.ChatAPI do
   defp normalize_verbosity(v) when is_atom(v), do: Atom.to_string(v)
   defp normalize_verbosity(v) when is_binary(v), do: v
 
-  defp translate_tool_choice_format(body) do
-    {tool_choice, body_key} =
-      cond do
-        Map.has_key?(body, :tool_choice) -> {Map.get(body, :tool_choice), :tool_choice}
-        Map.has_key?(body, "tool_choice") -> {Map.get(body, "tool_choice"), "tool_choice"}
-        true -> {nil, nil}
-      end
-
-    case tool_choice do
-      map when is_map(map) ->
-        type = Map.get(tool_choice, :type) || Map.get(tool_choice, "type")
-        name = Map.get(tool_choice, :name) || Map.get(tool_choice, "name")
-
-        if type == "tool" && name do
-          replacement =
-            if is_map_key(tool_choice, :type) do
-              %{type: "function", function: %{name: name}}
-            else
-              %{"type" => "function", "function" => %{"name" => name}}
-            end
-
-          Map.put(body, body_key, replacement)
-        else
-          body
-        end
-
-      atom when not is_nil(atom) and is_atom(atom) ->
-        Map.put(body, body_key, to_string(atom))
-
-      _ ->
-        body
-    end
-  end
-
   defp add_response_format(body, request_options) do
     provider_opts = request_options[:provider_options] || []
     rf = provider_opts[:response_format]
@@ -292,15 +259,23 @@ defmodule BullX.LLM.Providers.OpenAI.ChatAPI do
     maybe_put(body, :parallel_tool_calls, ptc)
   end
 
+  defp add_audio_output(body, request_options) do
+    provider_opts = request_options[:provider_options] || []
+
+    body
+    |> maybe_put(:modalities, request_options[:modalities] || provider_opts[:modalities])
+    |> maybe_put(:audio, request_options[:audio] || provider_opts[:audio])
+  end
+
   defp add_strict_to_tools(body) do
-    tools = body[:tools] || body["tools"]
+    tools = body[:tools]
 
     if tools && is_list(tools) do
       updated_tools =
         Enum.map(tools, fn tool ->
-          function = tool[:function] || tool["function"]
+          function = tool["function"]
 
-          if function && (function[:strict] || function["strict"]) do
+          if function && function["strict"] do
             function_with_strict =
               if is_map_key(tool, :function) do
                 function
@@ -333,7 +308,7 @@ defmodule BullX.LLM.Providers.OpenAI.ChatAPI do
   end
 
   defp ensure_all_properties_required(function) do
-    params = function[:parameters] || function["parameters"]
+    params = function["parameters"]
 
     if params do
       updated_params = BullX.LLM.Providers.OpenAI.AdapterHelpers.enforce_strict_recursive(params)

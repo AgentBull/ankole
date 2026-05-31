@@ -11,6 +11,8 @@
 use globset::{GlobBuilder, GlobMatcher};
 use rustler::{Encoder, Env, NifResult, Term};
 use serde_json::Value as JsonValue;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex, OnceLock};
 
 use crate::encoding::error;
 use crate::rule_engine::cel::{
@@ -104,6 +106,20 @@ struct LoadedGrant {
   condition: String,
 }
 
+struct CachedCondition {
+  condition: String,
+  program: Arc<::cel::Program>,
+}
+
+struct CachedResourcePattern {
+  pattern: String,
+  matcher: Arc<GlobMatcher>,
+}
+
+static CONDITION_CACHE: OnceLock<Mutex<HashMap<String, CachedCondition>>> = OnceLock::new();
+static RESOURCE_PATTERN_CACHE: OnceLock<Mutex<HashMap<String, CachedResourcePattern>>> =
+  OnceLock::new();
+
 #[derive(Debug, Eq, PartialEq)]
 enum InvalidGrantKind {
   ResourcePattern,
@@ -147,17 +163,18 @@ fn eval_computed_groups(
   let mut invalid_groups = Vec::new();
 
   for group in loaded_groups {
-    let program = match cel::compile_condition(&group.condition) {
-      Ok(program) => program,
-      Err(reason) => {
-        invalid_groups.push(invalid_computed_group(
-          group,
-          InvalidGrantKind::ConditionCompile,
-          reason,
-        ));
-        continue;
-      }
-    };
+    let program =
+      match cached_condition_program(computed_group_condition_key(group), &group.condition) {
+        Ok(program) => program,
+        Err(reason) => {
+          invalid_groups.push(invalid_computed_group(
+            group,
+            InvalidGrantKind::ConditionCompile,
+            reason,
+          ));
+          continue;
+        }
+      };
 
     match cel::execute_bool(&program, &context) {
       Ok(true) => matching_group_ids.push(group.id.clone()),
@@ -202,7 +219,7 @@ fn eval_loaded_grants(
   let mut invalid_grants = Vec::new();
 
   for grant in loaded_grants {
-    match resource_pattern_matches(&grant.resource_pattern, &authz_env.resource) {
+    match cached_grant_resource_pattern_matches(grant, &authz_env.resource) {
       Ok(false) => continue,
       Err(reason) => {
         invalid_grants.push(invalid_grant(
@@ -215,7 +232,7 @@ fn eval_loaded_grants(
       Ok(true) => {}
     }
 
-    let program = match cel::compile_condition(&grant.condition) {
+    let program = match cached_condition_program(grant_condition_key(grant), &grant.condition) {
       Ok(program) => program,
       Err(reason) => {
         invalid_grants.push(invalid_grant(
@@ -311,6 +328,117 @@ fn encode_invalid_kind(kind: InvalidGrantKind) -> rustler::Atom {
   }
 }
 
+fn computed_group_condition_key(group: &LoadedComputedGroup) -> String {
+  format!("computed_group:{}", group.id)
+}
+
+fn grant_condition_key(grant: &LoadedGrant) -> String {
+  format!("grant:{}", grant.id)
+}
+
+fn grant_resource_pattern_key(grant: &LoadedGrant) -> String {
+  format!("grant:{}", grant.id)
+}
+
+fn cached_condition_program(
+  cache_key: String,
+  condition: &str,
+) -> Result<Arc<::cel::Program>, String> {
+  if let Some(program) = lookup_cached_condition_program(&cache_key, condition) {
+    return Ok(program);
+  }
+
+  let program = Arc::new(cel::compile_condition(condition)?);
+  store_cached_condition_program(cache_key, condition, &program);
+  Ok(program)
+}
+
+fn lookup_cached_condition_program(
+  cache_key: &str,
+  condition: &str,
+) -> Option<Arc<::cel::Program>> {
+  let cache = CONDITION_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+  let guard = cache.try_lock().ok()?;
+  let cached = guard.get(cache_key)?;
+
+  match cached.condition == condition {
+    true => Some(Arc::clone(&cached.program)),
+    false => None,
+  }
+}
+
+fn store_cached_condition_program(
+  cache_key: String,
+  condition: &str,
+  program: &Arc<::cel::Program>,
+) {
+  let cache = CONDITION_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+
+  if let Ok(mut guard) = cache.try_lock() {
+    guard.insert(
+      cache_key,
+      CachedCondition {
+        condition: condition.to_owned(),
+        program: Arc::clone(program),
+      },
+    );
+  }
+}
+
+fn cached_grant_resource_pattern_matches(
+  grant: &LoadedGrant,
+  resource: &str,
+) -> Result<bool, String> {
+  let matcher = cached_grant_resource_pattern_matcher(grant)?;
+  Ok(matcher.is_match(normalize_resource_for_glob(resource)))
+}
+
+fn cached_grant_resource_pattern_matcher(grant: &LoadedGrant) -> Result<Arc<GlobMatcher>, String> {
+  let cache_key = grant_resource_pattern_key(grant);
+
+  if let Some(matcher) = lookup_cached_resource_pattern_matcher(&cache_key, &grant.resource_pattern)
+  {
+    return Ok(matcher);
+  }
+
+  let matcher = Arc::new(resource_pattern_matcher(&grant.resource_pattern)?);
+  store_cached_resource_pattern_matcher(cache_key, &grant.resource_pattern, &matcher);
+  Ok(matcher)
+}
+
+fn lookup_cached_resource_pattern_matcher(
+  cache_key: &str,
+  pattern: &str,
+) -> Option<Arc<GlobMatcher>> {
+  let cache = RESOURCE_PATTERN_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+  let guard = cache.try_lock().ok()?;
+  let cached = guard.get(cache_key)?;
+
+  match cached.pattern == pattern {
+    true => Some(Arc::clone(&cached.matcher)),
+    false => None,
+  }
+}
+
+fn store_cached_resource_pattern_matcher(
+  cache_key: String,
+  pattern: &str,
+  matcher: &Arc<GlobMatcher>,
+) {
+  let cache = RESOURCE_PATTERN_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+
+  if let Ok(mut guard) = cache.try_lock() {
+    guard.insert(
+      cache_key,
+      CachedResourcePattern {
+        pattern: pattern.to_owned(),
+        matcher: Arc::clone(matcher),
+      },
+    );
+  }
+}
+
+#[cfg(test)]
 fn resource_pattern_matches(pattern: &str, resource: &str) -> Result<bool, String> {
   let matcher = resource_pattern_matcher(pattern)?;
   Ok(matcher.is_match(normalize_resource_for_glob(resource)))
@@ -471,6 +599,67 @@ mod tests {
     assert!(!resource_pattern_matches("workspace:**:member", "workspace:a:b:viewer").unwrap());
     assert!(resource_pattern_matches("", "web_console").is_err());
     assert!(resource_pattern_matches("[", "web_console").is_err());
+  }
+
+  #[test]
+  fn cached_condition_program_reuses_until_condition_changes() {
+    let (first, second) = eventually_reused_condition_program("test:condition-cache", "true");
+    let changed = cached_condition_program("test:condition-cache".to_owned(), "false").unwrap();
+
+    assert!(Arc::ptr_eq(&first, &second));
+    assert!(!Arc::ptr_eq(&first, &changed));
+  }
+
+  #[test]
+  fn cached_resource_pattern_matcher_reuses_until_pattern_changes() {
+    let grant = LoadedGrant {
+      id: "resource-pattern-cache".to_owned(),
+      resource_pattern: "workspace:*".to_owned(),
+      condition: "true".to_owned(),
+    };
+
+    let (first, second) = eventually_reused_resource_pattern_matcher(&grant);
+
+    let changed = LoadedGrant {
+      resource_pattern: "workspace:**".to_owned(),
+      ..grant
+    };
+
+    let changed_matcher = cached_grant_resource_pattern_matcher(&changed).unwrap();
+
+    assert!(Arc::ptr_eq(&first, &second));
+    assert!(!Arc::ptr_eq(&first, &changed_matcher));
+  }
+
+  fn eventually_reused_condition_program(
+    cache_key: &str,
+    condition: &str,
+  ) -> (Arc<::cel::Program>, Arc<::cel::Program>) {
+    for _attempt in 0..100 {
+      let first = cached_condition_program(cache_key.to_owned(), condition).unwrap();
+      let second = cached_condition_program(cache_key.to_owned(), condition).unwrap();
+
+      if Arc::ptr_eq(&first, &second) {
+        return (first, second);
+      }
+    }
+
+    panic!("condition program cache did not reuse after repeated attempts");
+  }
+
+  fn eventually_reused_resource_pattern_matcher(
+    grant: &LoadedGrant,
+  ) -> (Arc<GlobMatcher>, Arc<GlobMatcher>) {
+    for _attempt in 0..100 {
+      let first = cached_grant_resource_pattern_matcher(grant).unwrap();
+      let second = cached_grant_resource_pattern_matcher(grant).unwrap();
+
+      if Arc::ptr_eq(&first, &second) {
+        return (first, second);
+      }
+    }
+
+    panic!("resource pattern cache did not reuse after repeated attempts");
   }
 
   #[test]

@@ -15,16 +15,29 @@ defmodule BullX.LLM.Providers.OpenAI.ParamProfiles do
       {:rename, :max_tokens, :max_completion_tokens,
        "Renamed :max_tokens to :max_completion_tokens for reasoning models"}
     ],
+    max_completion_tokens: [
+      {:rename, :max_tokens, :max_completion_tokens,
+       "Renamed :max_tokens to :max_completion_tokens for this model"}
+    ],
     no_temperature: [
       {:drop, :temperature, "This model does not support :temperature – dropped"}
     ],
     temperature_fixed_1: [
       {:drop, :temperature, "This model only supports temperature=1 (default) – dropped"}
     ],
+    audio_output_chat: [
+      {:set_default, :modalities, ["text", "audio"], nil},
+      {:set_default, :audio, %{voice: "alloy", format: "mp3"}, nil}
+    ],
     no_sampling_params: [
       {:drop, :temperature, "This model does not support sampling parameters – dropped"},
       {:drop, :top_p, "This model does not support sampling parameters – dropped"},
       {:drop, :top_k, "This model does not support sampling parameters – dropped"}
+    ],
+    gpt5_pro_reasoning: [
+      {:set_default, :reasoning_effort, "high", "Set :reasoning_effort to high for GPT-5 Pro"},
+      {:enforce_constant, :reasoning_effort, "high", :fix,
+       "GPT-5 Pro only supports :reasoning_effort high – using high"}
     ]
   }
 
@@ -63,9 +76,13 @@ defmodule BullX.LLM.Providers.OpenAI.ParamProfiles do
   defp profiles_for(:chat, %LLMDB.Model{} = model) do
     []
     |> add_if(reasoning_model?(model), :reasoning)
+    |> add_if(max_completion_tokens_required?(model), :max_completion_tokens)
     |> add_if(no_sampling_params?(model), :no_sampling_params)
     |> add_if(temperature_unsupported?(model), :no_temperature)
     |> add_if(temperature_fixed_one?(model), :temperature_fixed_1)
+    |> add_if(chat_latest_model?(model), :temperature_fixed_1)
+    |> add_if(audio_output_chat_model?(model), :audio_output_chat)
+    |> add_if(gpt5_pro_model?(model), :gpt5_pro_reasoning)
     |> Enum.uniq()
   end
 
@@ -79,17 +96,27 @@ defmodule BullX.LLM.Providers.OpenAI.ParamProfiles do
     AdapterHelpers.reasoning_model?(model_name)
   end
 
+  defp max_completion_tokens_required?(%LLMDB.Model{id: "chat-latest"}), do: true
+  defp max_completion_tokens_required?(%LLMDB.Model{}), do: false
+  defp chat_latest_model?(%LLMDB.Model{id: "chat-latest"}), do: true
+  defp chat_latest_model?(%LLMDB.Model{}), do: false
+  defp audio_output_chat_model?(%LLMDB.Model{id: "gpt-audio" <> _}), do: true
+  defp audio_output_chat_model?(%LLMDB.Model{}), do: false
+
   defp has_reasoning_capability?(caps) do
-    case caps[:reasoning] || caps["reasoning"] do
+    case caps[:reasoning] do
       true -> true
       %{enabled: true} -> true
-      %{"enabled" => true} -> true
       _ -> false
     end
   end
 
   defp no_sampling_params?(%LLMDB.Model{id: model_name}) do
     AdapterHelpers.gpt5_model?(model_name) || AdapterHelpers.o_series_model?(model_name)
+  end
+
+  defp gpt5_pro_model?(%LLMDB.Model{id: model_name}) do
+    AdapterHelpers.gpt5_pro_model?(model_name)
   end
 
   defp temperature_unsupported?(%LLMDB.Model{id: model_name}) do

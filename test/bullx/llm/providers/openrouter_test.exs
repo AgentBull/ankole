@@ -62,5 +62,11 @@ defmodule BullX.LLM.Providers.OpenRouterTest do
     |> Req.Request.merge_options(request_options)
   end
 
+  defp decoded_body(%Req.Request{options: %{json: body}}) when is_map(body) do
+    body
+    |> Jason.encode!()
+    |> Jason.decode!()
+  end
+
   defp decoded_body(%Req.Request{} = request), do: Jason.decode!(request.body)
 end

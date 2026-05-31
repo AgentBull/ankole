@@ -36,9 +36,8 @@ defmodule BullX.AIAgent.ACL do
     sanitized_context = sanitize_context(context)
     resource = resource(agent_uid)
 
-    with :ok <- authz(caller_principal_uid, resource, "invoke", sanitized_context),
-         :ok <-
-           authorize_operation(caller_principal_uid, resource, operation_tag, sanitized_context) do
+    with {:ok, actions} <- operation_actions(operation_tag),
+         :ok <- authz(caller_principal_uid, resource, actions, sanitized_context) do
       :allowed
     else
       {:denied, reason} -> {:denied, reason}
@@ -54,17 +53,12 @@ defmodule BullX.AIAgent.ACL do
     authorize(caller_principal_uid, agent_uid, operation_tag, context) == :allowed
   end
 
-  defp authorize_operation(_caller, _resource, :ordinary, _context), do: :ok
+  defp operation_actions(:ordinary), do: {:ok, ["invoke"]}
+  defp operation_actions(:privileged), do: {:ok, ["invoke", "invoke_privileged"]}
+  defp operation_actions(_operation_tag), do: {:denied, :invalid_operation_tag}
 
-  defp authorize_operation(caller, resource, :privileged, context) do
-    authz(caller, resource, "invoke_privileged", context)
-  end
-
-  defp authorize_operation(_caller, _resource, _operation_tag, _context),
-    do: {:denied, :invalid_operation_tag}
-
-  defp authz(caller, resource, action, context) do
-    case AuthZ.authorize(caller, resource, action, context) do
+  defp authz(caller, resource, actions, context) do
+    case AuthZ.authorize_all(caller, resource, actions, context) do
       :ok ->
         :ok
 

@@ -40,6 +40,24 @@ defmodule BullX.AuthZ do
     end
   end
 
+  @spec authorize_all(Principal.t() | String.t(), String.t(), [String.t()]) ::
+          :ok | {:error, authz_error()}
+  def authorize_all(principal, resource, actions),
+    do: authorize_all(principal, resource, actions, %{})
+
+  @spec authorize_all(Principal.t() | String.t(), String.t(), [String.t()], map()) ::
+          :ok | {:error, authz_error()}
+  def authorize_all(principal, resource, actions, context) when is_list(actions) do
+    with {:ok, requests} <- build_action_requests(principal, resource, actions, context),
+         {:ok, principal} <- load_active_principal(principal_uid(requests)) do
+      requests
+      |> Enum.map(&Request.with_principal(&1, principal))
+      |> authorize_requests()
+    end
+  end
+
+  def authorize_all(_principal, _resource, _actions, _context), do: {:error, :invalid_request}
+
   @spec authorize_permission(Principal.t() | String.t(), String.t()) ::
           :ok | {:error, authz_error()}
   def authorize_permission(principal, permission_key),
@@ -320,6 +338,33 @@ defmodule BullX.AuthZ do
     end
   end
 
+  defp authorize_requests([%Request{principal: %Principal{} = principal} | _rest] = requests) do
+    group_ids = effective_principal_group_ids(principal)
+    grants_by_action = candidate_grants_by_action(requests, group_ids)
+
+    case Enum.all?(requests, &request_allows?(&1, grants_by_action)) do
+      true -> :ok
+      false -> {:error, :forbidden}
+    end
+  end
+
+  defp request_allows?(%Request{} = request, grants_by_action) do
+    grants = Map.get(grants_by_action, request.action, [])
+
+    any_loaded_grant_allows?(grants, request)
+  end
+
+  defp candidate_grants_by_action([%Request{} = request | _rest] = requests, group_ids) do
+    actions =
+      requests
+      |> Enum.map(& &1.action)
+      |> Enum.uniq()
+
+    request.principal_uid
+    |> list_candidate_grants(group_ids, actions)
+    |> Enum.group_by(& &1.action)
+  end
+
   defp any_loaded_grant_allows?(grants, request) do
     loaded_grants = Enum.map(grants, &loaded_grant/1)
 
@@ -357,6 +402,24 @@ defmodule BullX.AuthZ do
       context: %{"request" => request.context}
     }
   end
+
+  defp build_action_requests(_principal, _resource, [], _context), do: {:error, :invalid_request}
+
+  defp build_action_requests(principal, resource, actions, context) do
+    actions
+    |> Enum.reduce_while({:ok, []}, fn action, {:ok, requests} ->
+      case Request.build(principal, resource, action, context) do
+        {:ok, request} -> {:cont, {:ok, [request | requests]}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+    |> normalize_action_requests()
+  end
+
+  defp normalize_action_requests({:ok, requests}), do: {:ok, Enum.reverse(requests)}
+  defp normalize_action_requests({:error, reason}), do: {:error, reason}
+
+  defp principal_uid([%Request{principal_uid: principal_uid} | _rest]), do: principal_uid
 
   defp principal_env(%Principal{} = principal) do
     %CEL.PrincipalEnv{
@@ -472,11 +535,20 @@ defmodule BullX.AuthZ do
     }
   end
 
-  defp list_candidate_grants(principal_uid, group_ids, action) do
+  defp list_candidate_grants(principal_uid, group_ids, action) when is_binary(action) do
     Repo.all(
       from grant in PermissionGrant,
         where:
           grant.action == ^action and
+            (grant.principal_uid == ^principal_uid or grant.group_id in ^group_ids)
+    )
+  end
+
+  defp list_candidate_grants(principal_uid, group_ids, actions) when is_list(actions) do
+    Repo.all(
+      from grant in PermissionGrant,
+        where:
+          grant.action in ^actions and
             (grant.principal_uid == ^principal_uid or grant.group_id in ^group_ids)
     )
   end

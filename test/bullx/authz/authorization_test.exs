@@ -33,6 +33,32 @@ defmodule BullX.AuthZ.AuthorizationTest do
       assert {:error, :forbidden} = AuthZ.authorize(human, "web_console", "write")
     end
 
+    test "authorize_all authorizes multiple actions for one principal and resource" do
+      human = human!("multi-action-human")
+      resource = "ai_agent:multi-action"
+
+      {:ok, _grant} =
+        AuthZ.create_permission_grant(%{
+          principal_uid: human.uid,
+          resource_pattern: resource,
+          action: "invoke"
+        })
+
+      assert :ok = AuthZ.authorize_all(human, resource, ["invoke"])
+      assert {:error, :forbidden} = AuthZ.authorize_all(human, resource, ["invoke", "write"])
+
+      {:ok, _grant} =
+        AuthZ.create_permission_grant(%{
+          principal_uid: human.uid,
+          resource_pattern: resource,
+          action: "write"
+        })
+
+      assert :ok = AuthZ.authorize_all(human.uid, resource, ["invoke", "write"])
+      assert {:error, :invalid_request} = AuthZ.authorize_all(human, resource, [])
+      assert {:error, :invalid_request} = AuthZ.authorize_all(human, resource, ["bad:action"])
+    end
+
     test "action mismatch never authorizes" do
       human = human!("action-mismatch-human")
 

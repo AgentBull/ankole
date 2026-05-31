@@ -15,6 +15,20 @@ defmodule BullX.LLM.Providers.Azure.ResponsesAPI do
   Models with `"api": "responses"` in their metadata:
   - codex-mini, gpt-5-codex, gpt-5.1-codex-mini
   - Future models that use the Responses API format
+
+  ## Reasoning Effort
+
+  Accepts the top-level `:reasoning_effort` option (`:minimal | :low | :medium |
+  :high | :xhigh | :none` or the equivalent string) and forwards it to the
+  Responses API as `"reasoning": {"effort": <level>}`.
+
+  ## Parallel Tool Calls
+
+  Accepts `parallel_tool_calls` via the top-level option, or via
+  `provider_options[:openai_parallel_tool_calls]` (Azure's preferred key) or
+  `provider_options[:parallel_tool_calls]`. Forwarded to the Responses API
+  as the top-level `"parallel_tool_calls"` boolean. An explicit `false` is
+  preserved.
   """
 
   alias BullX.LLM.Providers.OpenAI.ResponsesAPI
@@ -27,6 +41,13 @@ defmodule BullX.LLM.Providers.Azure.ResponsesAPI do
   def format_request(model_id, context, opts) when is_list(opts) do
     provider_opts = opts[:provider_options] || []
 
+    parallel_tool_calls =
+      fetch_first([
+        {opts, :parallel_tool_calls},
+        {provider_opts, :openai_parallel_tool_calls},
+        {provider_opts, :parallel_tool_calls}
+      ])
+
     fake_request = %{
       options: %{
         model: model_id,
@@ -36,6 +57,8 @@ defmodule BullX.LLM.Providers.Azure.ResponsesAPI do
         max_tokens: opts[:max_tokens],
         max_output_tokens: opts[:max_output_tokens],
         max_completion_tokens: opts[:max_completion_tokens],
+        reasoning_effort: opts[:reasoning_effort],
+        parallel_tool_calls: parallel_tool_calls,
         tools: opts[:tools],
         tool_choice: opts[:tool_choice],
         provider_options: provider_opts
@@ -43,6 +66,15 @@ defmodule BullX.LLM.Providers.Azure.ResponsesAPI do
     }
 
     ResponsesAPI.build_body(fake_request)
+  end
+
+  defp fetch_first([]), do: nil
+
+  defp fetch_first([{source, key} | rest]) do
+    case Keyword.fetch(source, key) do
+      {:ok, value} -> value
+      :error -> fetch_first(rest)
+    end
   end
 
   @doc """

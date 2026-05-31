@@ -22,20 +22,30 @@ defmodule Feishu.Channel do
 
   @spec child_spec(Source.t() | map()) :: Supervisor.child_spec()
   def child_spec(source) do
-    id =
-      case source do
-        %Source{id: id} -> id
-        %{"id" => id} -> id
-        %{id: id} -> id
-        _source -> BullX.Ext.gen_uuid_v7()
-      end
-
     %{
-      id: {__MODULE__, id},
+      id: child_id(source),
       start: {__MODULE__, :start_link, [source]},
       restart: :permanent,
       type: :worker
     }
+  end
+
+  @doc false
+  @spec child_id(Source.t() | map()) :: term()
+  def child_id(%Source{id: id} = source) when is_binary(id),
+    do: {__MODULE__, id, source_runtime_fingerprint(source)}
+
+  def child_id(source) do
+    case Source.normalize(source) do
+      {:ok, %Source{id: id} = source} when is_binary(id) ->
+        child_id(source)
+
+      {:ok, %Source{} = source} ->
+        {__MODULE__, source.id || BullX.Ext.gen_uuid_v7()}
+
+      {:error, _reason} ->
+        {__MODULE__, raw_source_id(source) || BullX.Ext.gen_uuid_v7()}
+    end
   end
 
   @spec start_link(Source.t() | map()) :: GenServer.on_start()
@@ -139,4 +149,18 @@ defmodule Feishu.Channel do
       provider_input
     )
   end
+
+  defp source_runtime_fingerprint(%Source{} = source) do
+    source
+    |> source_runtime_fingerprint_data()
+    |> :erlang.term_to_binary()
+    |> then(&:crypto.hash(:sha256, &1))
+    |> Base.url_encode64(padding: false)
+  end
+
+  defp source_runtime_fingerprint_data(%Source{} = source), do: %{source | client: nil}
+
+  defp raw_source_id(%{"id" => id}) when is_binary(id), do: id
+  defp raw_source_id(%{id: id}) when is_binary(id), do: id
+  defp raw_source_id(_source), do: nil
 end

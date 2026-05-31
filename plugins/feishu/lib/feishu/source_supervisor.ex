@@ -21,17 +21,18 @@ defmodule Feishu.SourceSupervisor do
   def runtime_status do
     with {:ok, sources} <- Feishu.Source.enabled_sources(),
          {:ok, children} <- children() do
-      ready_ids = child_source_ids(children)
+      ready_child_ids = source_child_ids(children)
 
       {:ok,
        %{
-         ready?: Enum.all?(sources, &MapSet.member?(ready_ids, &1.id)),
+         ready?:
+           Enum.all?(sources, &MapSet.member?(ready_child_ids, Feishu.Channel.child_id(&1))),
          sources:
            Enum.map(sources, fn source ->
              %{
                id: source.id,
                enabled: true,
-               ready: MapSet.member?(ready_ids, source.id),
+               ready: MapSet.member?(ready_child_ids, Feishu.Channel.child_id(source)),
                transport: if(source.start_transport?, do: "websocket", else: "disabled")
              }
            end)
@@ -60,45 +61,49 @@ defmodule Feishu.SourceSupervisor do
     end
   end
 
-  defp child_source_ids(children) do
+  defp source_child_ids(children) do
     children
     |> Enum.flat_map(fn
-      {{Feishu.Channel, id}, pid, _type, _modules} when is_pid(pid) -> [id]
-      _child -> []
+      {child_id, pid, _type, _modules} when is_pid(pid) ->
+        case source_id_from_child_id(child_id) do
+          nil -> []
+          _id -> [child_id]
+        end
+
+      _child ->
+        []
     end)
     |> MapSet.new()
   end
 
   defp stop_retired_children(pid, sources) do
     wanted_ids = MapSet.new(sources, & &1.id)
+    wanted_child_ids = MapSet.new(sources, &Feishu.Channel.child_id/1)
 
     pid
     |> Supervisor.which_children()
     |> Enum.reduce_while(:ok, fn
-      {{Feishu.Channel, id} = child_id, _child_pid, _type, _modules}, :ok ->
-        case MapSet.member?(wanted_ids, id) do
+      {child_id, _child_pid, _type, _modules}, :ok ->
+        case retired_child?(child_id, wanted_ids, wanted_child_ids) do
           true ->
-            {:cont, :ok}
-
-          false ->
             _ = Supervisor.terminate_child(pid, child_id)
             _ = Supervisor.delete_child(pid, child_id)
             {:cont, :ok}
-        end
 
-      _child, :ok ->
-        {:cont, :ok}
+          false ->
+            {:cont, :ok}
+        end
     end)
   end
 
   defp start_missing_children(pid, sources) do
-    existing_ids =
+    existing_child_ids =
       pid
       |> Supervisor.which_children()
-      |> child_source_ids()
+      |> source_child_ids()
 
     Enum.reduce_while(sources, :ok, fn source, :ok ->
-      case MapSet.member?(existing_ids, source.id) do
+      case MapSet.member?(existing_child_ids, Feishu.Channel.child_id(source)) do
         true ->
           {:cont, :ok}
 
@@ -112,4 +117,19 @@ defmodule Feishu.SourceSupervisor do
       end
     end)
   end
+
+  defp retired_child?(child_id, wanted_ids, wanted_child_ids) do
+    case source_id_from_child_id(child_id) do
+      nil ->
+        false
+
+      source_id ->
+        not MapSet.member?(wanted_ids, source_id) or
+          not MapSet.member?(wanted_child_ids, child_id)
+    end
+  end
+
+  defp source_id_from_child_id({Feishu.Channel, id, _fingerprint}), do: id
+  defp source_id_from_child_id({Feishu.Channel, id}), do: id
+  defp source_id_from_child_id(_child_id), do: nil
 end

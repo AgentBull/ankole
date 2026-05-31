@@ -37,8 +37,9 @@ defmodule BullX.LLM.Providers.XAI do
 
   Beyond standard OpenAI parameters, xAI supports:
   - `max_completion_tokens` - Preferred over max_tokens for Grok-4 models
-  - `reasoning_effort` - Reasoning level (low, medium, high) for Grok-3 mini models only
+  - `reasoning_effort` - Reasoning level (low, medium, high, none) for Grok-3 mini and Grok-4 family models
   - `xai_tools` - Agent tools configuration (e.g., web_search, x_search)
+  - `xai_api` - Force the API endpoint (:auto, :chat, :responses). Default :auto routes through the stateful Responses API only when built-in tools (web_search/x_search) are used. Set `:responses` to enable threaded reasoning across turns (`previous_response_id`) without built-in tools.
   - `parallel_tool_calls` - Allow parallel function calls (default: true)
   - `stream_options` - Streaming configuration (include_usage)
   - `xai_structured_output_mode` - Control structured output implementation (:auto, :json_schema, :tool_strict)
@@ -46,7 +47,7 @@ defmodule BullX.LLM.Providers.XAI do
   ## Model Compatibility Notes
 
   - Native structured outputs supported on models >= `grok-2-1212` and `grok-2-vision-1212`
-  - `reasoning_effort` is only supported for grok-3-mini and grok-3-mini-fast models
+  - `reasoning_effort` is supported for grok-3-mini, grok-3-mini-fast, and Grok-4 family models (see https://docs.x.ai/developers/model-capabilities/text/reasoning)
   - Grok-4 models do not support `stop`, `presence_penalty`, or `frequency_penalty`
   - Agent tools (e.g., web_search) incur additional costs per source
 
@@ -111,6 +112,10 @@ defmodule BullX.LLM.Providers.XAI do
       type: :integer,
       doc: "Maximum completion tokens (preferred over max_tokens for Grok-4)"
     ],
+    max_output_tokens: [
+      type: :integer,
+      doc: "Maximum output tokens for Responses API requests"
+    ],
     search_parameters: [
       type: :map,
       doc:
@@ -119,6 +124,20 @@ defmodule BullX.LLM.Providers.XAI do
     xai_tools: [
       type: {:list, :map},
       doc: "Agent tools configuration (e.g., [%{type: \"web_search\"}])"
+    ],
+    xai_api: [
+      type: {:in, [:auto, :chat, :responses]},
+      default: :auto,
+      doc: """
+      Which xAI API endpoint to route through:
+      - `:auto` (default) — uses `/responses` when xai_tools include built-in
+        tools (web_search/x_search), otherwise `/chat/completions`.
+      - `:chat` — always uses `/chat/completions`.
+      - `:responses` — always uses `/responses`. Required when you want the
+        stateful, threaded conversation behavior (e.g. continuing a reasoning
+        loop across turns via `previous_response_id`) without enabling any
+        built-in tools.
+      """
     ],
     parallel_tool_calls: [
       type: :boolean,
@@ -155,7 +174,7 @@ defmodule BullX.LLM.Providers.XAI do
     compiled_schema = Keyword.fetch!(opts, :compiled_schema)
     {:ok, model} = ReqLLM.model(model_spec)
 
-    opts_with_tokens = ensure_min_tokens(opts)
+    opts_with_tokens = ensure_min_tokens(model, opts)
     mode = determine_output_mode(model, opts_with_tokens)
 
     case mode do
@@ -263,7 +282,15 @@ defmodule BullX.LLM.Providers.XAI do
 
       req_keys =
         supported_provider_options() ++
-          [:context, :operation, :text, :stream, :model, :provider_options, :xai_api_type]
+          [
+            :context,
+            :operation,
+            :text,
+            :stream,
+            :model,
+            :provider_options,
+            :xai_api_type
+          ]
 
       path = if use_responses, do: "/responses", else: "/chat/completions"
 
@@ -285,6 +312,7 @@ defmodule BullX.LLM.Providers.XAI do
             ]
         )
         |> attach(model, processed_opts)
+        |> Req.Request.put_private(:req_llm_model, model)
 
       {:ok, request}
     end
@@ -337,22 +365,46 @@ defmodule BullX.LLM.Providers.XAI do
     end
   end
 
+  # `xai_api` (and `xai_tools`) can sit either at the top level (when the
+  # caller passes them directly) or nested under `:provider_options` (which
+  # is how `ReqLLM.Provider.Options.process!/4` re-shapes provider-schema
+  # keys before they reach `attach_stream`). Read from both locations so
+  # the explicit `xai_api: :responses` toggle works on both the
+  # `prepare_request` and `attach_stream` paths.
   defp use_responses_api?(opts) do
-    xai_tools = Keyword.get(opts, :xai_tools, [])
+    case resolve_xai_api(opts) do
+      :responses ->
+        true
 
-    Enum.any?(xai_tools, fn tool ->
-      tool_type = normalize_tool_type(Map.get(tool, "type") || Map.get(tool, :type))
-      tool_type in ["web_search", "x_search"]
-    end)
+      :chat ->
+        false
+
+      :auto ->
+        opts |> resolve_xai_tools() |> Enum.any?(&built_in_tool?/1)
+    end
   end
 
-  defp ensure_min_tokens(opts) do
+  defp resolve_xai_api(opts) do
+    Keyword.get(opts, :xai_api) ||
+      get_in(opts, [:provider_options, :xai_api]) ||
+      :auto
+  end
+
+  defp resolve_xai_tools(opts) do
+    Keyword.get(opts, :xai_tools) ||
+      get_in(opts, [:provider_options, :xai_tools]) ||
+      []
+  end
+
+  defp built_in_tool?(tool) do
+    normalize_tool_type(Map.get(tool, :type)) in ["web_search", "x_search"]
+  end
+
+  defp ensure_min_tokens(model, opts) do
+    opts = ReqLLM.Provider.Options.put_model_max_tokens_default(opts, model, fallback: 4096)
     max_tokens = Keyword.get(opts, :max_tokens) || Keyword.get(opts, :max_completion_tokens)
 
     case max_tokens do
-      nil ->
-        Keyword.put(opts, :max_tokens, 4096)
-
       tokens when tokens < 200 ->
         Keyword.put(opts, :max_tokens, 200)
 
@@ -457,7 +509,6 @@ defmodule BullX.LLM.Providers.XAI do
   defp maybe_add_xai_tool_usage(usage, body) when is_map(usage) do
     sources =
       Map.get(usage, "num_sources_used") ||
-        Map.get(usage, :num_sources_used) ||
         extract_server_tool_usage(body)
 
     web_search_calls = extract_web_search_calls(usage)
@@ -482,20 +533,14 @@ defmodule BullX.LLM.Providers.XAI do
   defp extract_server_tool_usage(body) when is_map(body) do
     tool_usage =
       Map.get(body, "server_side_tool_usage") ||
-        Map.get(body, :server_side_tool_usage) ||
-        Map.get(body, "server_side_tool_use") ||
-        Map.get(body, :server_side_tool_use)
+        Map.get(body, "server_side_tool_use")
 
     case tool_usage do
       %{} = usage ->
         Map.get(usage, "web_search") ||
-          Map.get(usage, :web_search) ||
           Map.get(usage, "SERVER_SIDE_TOOL_WEB_SEARCH") ||
-          Map.get(usage, :SERVER_SIDE_TOOL_WEB_SEARCH) ||
           Map.get(usage, "x_search") ||
-          Map.get(usage, :x_search) ||
-          Map.get(usage, "SERVER_SIDE_TOOL_X_SEARCH") ||
-          Map.get(usage, :SERVER_SIDE_TOOL_X_SEARCH)
+          Map.get(usage, "SERVER_SIDE_TOOL_X_SEARCH")
 
       _ ->
         nil
@@ -665,9 +710,22 @@ defmodule BullX.LLM.Providers.XAI do
   """
   @impl ReqLLM.Provider
   def attach_stream(model, context, opts, finch_name) do
-    {translated_opts, _warnings} = translate_options(:chat, model, opts)
-    base_url = ReqLLM.Provider.Options.effective_base_url(__MODULE__, model, translated_opts)
-    opts_with_base_url = Keyword.put(translated_opts, :base_url, base_url)
+    processed_opts =
+      ReqLLM.Provider.Options.process_stream!(
+        __MODULE__,
+        opts[:operation] || :chat,
+        model,
+        context,
+        opts
+      )
+
+    base_url = ReqLLM.Provider.Options.effective_base_url(__MODULE__, model, processed_opts)
+
+    opts_with_base_url =
+      processed_opts
+      |> Keyword.put(:base_url, base_url)
+      |> Keyword.put(:req_llm_model, model)
+
     use_responses = use_responses_api?(opts_with_base_url)
 
     opts_with_base_url =
@@ -700,6 +758,13 @@ defmodule BullX.LLM.Providers.XAI do
         opts_with_base_url,
         finch_name
       )
+    end
+  end
+
+  def pre_validate_options(_operation, _model, opts) do
+    case Keyword.fetch(opts, :reasoning_effort) do
+      {:ok, effort} -> Keyword.put(opts, :reasoning_effort, normalize_reasoning_effort(effort))
+      :error -> opts
     end
   end
 
@@ -773,21 +838,39 @@ defmodule BullX.LLM.Providers.XAI do
     {reasoning_effort, opts} = Keyword.pop(opts, :reasoning_effort)
 
     {opts, warnings} =
-      if reasoning_effort do
-        model_name = model.id
+      cond do
+        is_nil(reasoning_effort) ->
+          {opts, warnings}
 
-        if String.contains?(model_name, "grok-4") do
-          warning = "reasoning_effort is not supported for Grok-4 models and will be ignored"
-          {opts, [warning | warnings]}
-        else
+        reasoning_effort_supported?(model) ->
           {Keyword.put(opts, :reasoning_effort, reasoning_effort), warnings}
-        end
-      else
-        {opts, warnings}
+
+        true ->
+          warning =
+            "reasoning_effort is not supported by #{model.id} and will be ignored"
+
+          {opts, [warning | warnings]}
       end
 
     {opts, Enum.reverse(warnings)}
   end
+
+  defp reasoning_effort_supported?(%{id: "grok-build-" <> _}), do: false
+  defp reasoning_effort_supported?(%{id: "grok-4.20" <> _}), do: false
+  defp reasoning_effort_supported?(%{id: "grok-3-mini" <> _}), do: true
+  defp reasoning_effort_supported?(%{id: "grok-4.3" <> _}), do: true
+  defp reasoning_effort_supported?(%{id: "grok-4-1-fast" <> _}), do: true
+  defp reasoning_effort_supported?(%{id: "grok-4" <> _}), do: true
+  defp reasoning_effort_supported?(_), do: false
+
+  defp normalize_reasoning_effort("none"), do: :none
+  defp normalize_reasoning_effort("minimal"), do: :minimal
+  defp normalize_reasoning_effort("low"), do: :low
+  defp normalize_reasoning_effort("medium"), do: :medium
+  defp normalize_reasoning_effort("high"), do: :high
+  defp normalize_reasoning_effort("xhigh"), do: :xhigh
+  defp normalize_reasoning_effort("default"), do: :default
+  defp normalize_reasoning_effort(value), do: value
 
   defp drop_image_unsupported(opts, explicit_keys) do
     unsupported_params = [:size, :output_format, :quality, :style, :negative_prompt, :seed, :user]
@@ -813,7 +896,7 @@ defmodule BullX.LLM.Providers.XAI do
   defp split_xai_tools(tools) when is_list(tools) do
     tools =
       Enum.reject(tools, fn tool ->
-        tool_type = normalize_tool_type(Map.get(tool, "type") || Map.get(tool, :type))
+        tool_type = normalize_tool_type(Map.get(tool, :type))
         tool_type == "live_search"
       end)
 
@@ -824,7 +907,7 @@ defmodule BullX.LLM.Providers.XAI do
   defp split_xai_tools(tool), do: split_xai_tools([tool])
 
   defp xai_tool_entry?(%{} = tool) do
-    tool_type = normalize_tool_type(Map.get(tool, "type") || Map.get(tool, :type))
+    tool_type = normalize_tool_type(Map.get(tool, :type))
     tool_type in ["web_search", "x_search"]
   end
 
@@ -843,7 +926,7 @@ defmodule BullX.LLM.Providers.XAI do
   end
 
   defp live_search_tool?(%{} = tool) do
-    tool_type = normalize_tool_type(Map.get(tool, "type") || Map.get(tool, :type))
+    tool_type = normalize_tool_type(Map.get(tool, :type))
     tool_type == "live_search"
   end
 

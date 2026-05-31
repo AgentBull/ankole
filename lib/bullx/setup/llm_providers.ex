@@ -75,7 +75,7 @@ defmodule BullX.Setup.LLMProviders do
 
     case Writer.put_provider(attrs) do
       {:ok, provider} -> {:ok, provider}
-      {:ok, provider, _stale} -> {:ok, provider}
+      {:ok, _provider, stale} -> {:error, stale}
       {:error, reason} -> {:error, reason}
     end
   end
@@ -232,6 +232,14 @@ defmodule BullX.Setup.LLMProviders do
 
   defp normalize_error({:provider_check_failed, message}),
     do: %{field: "provider", message: "provider check failed", details: message}
+
+  defp normalize_error({:persisted_but_stale, reason}) do
+    %{
+      field: "provider",
+      message: "saved but runtime projection is stale",
+      details: inspect(reason)
+    }
+  end
 
   defp normalize_error({:invalid_provider_options, provider_id, reason}) do
     %{

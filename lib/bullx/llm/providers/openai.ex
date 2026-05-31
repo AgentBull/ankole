@@ -11,7 +11,7 @@ defmodule BullX.LLM.Providers.OpenAI do
     for models like GPT-4, GPT-3.5, and other chat-based models.
 
   - **ResponsesAPI** (`BullX.LLM.Providers.OpenAI.ResponsesAPI`) - Handles `/v1/responses` endpoint
-    for reasoning models (o1, o3, o4, GPT-4.1, GPT-5) with extended thinking capabilities.
+    for models such as GPT-4.1, GPT-4o, o-series, and GPT-5.
 
   - **ImagesAPI** (`BullX.LLM.Providers.OpenAI.ImagesAPI`) - Handles `/v1/images/generations` endpoint
     for image generation models (DALL-E 2, DALL-E 3, gpt-image-*).
@@ -32,14 +32,14 @@ defmodule BullX.LLM.Providers.OpenAI do
   - Full OpenAI Chat API compatibility
 
   ### Responses API (ResponsesAPI)
-  - Extended reasoning for o1/o3/o4/GPT-4.1/GPT-5 models
+  - Extended reasoning for o-series and GPT-5 models
   - Reasoning effort control (minimal, low, medium, high)
   - Streaming with reasoning token tracking
   - Tool calling with responses-specific format
   - Enhanced usage metrics including `:reasoning_tokens`
 
   ### Images API (ImagesAPI)
-  - Image generation with DALL-E and gpt-image-* models
+  - Image generation and edit with gpt-image-* models
   - Multiple output formats: PNG, JPEG, WebP (gpt-image-* only)
   - Size and aspect ratio control
   - Quality and style options (DALL-E 3)
@@ -146,6 +146,15 @@ defmodule BullX.LLM.Providers.OpenAI do
       type: :integer,
       doc: "Maximum completion tokens (required for reasoning models like o1, o3, gpt-5)"
     ],
+    max_output_tokens: [
+      type: :integer,
+      doc: "Maximum output tokens for Responses API models"
+    ],
+    include: [
+      type: {:list, :string},
+      doc:
+        "Responses API include values, such as reasoning.encrypted_content for reasoning signatures"
+    ],
     openai_structured_output_mode: [
       type: {:in, [:auto, :json_schema, :tool_strict]},
       default: :auto,
@@ -231,6 +240,14 @@ defmodule BullX.LLM.Providers.OpenAI do
       type: {:in, 0..20},
       doc:
         "Number of most likely tokens to return at each position (0–20, requires openai_logprobs: true)"
+    ],
+    modalities: [
+      type: {:list, :string},
+      doc: "Chat Completions output modalities, such as [\"text\", \"audio\"]"
+    ],
+    audio: [
+      type: {:or, [:map, :keyword_list]},
+      doc: "Chat Completions audio output options, such as voice and format"
     ]
   ]
 
@@ -308,11 +325,28 @@ defmodule BullX.LLM.Providers.OpenAI do
     end
   end
 
+  @doc false
+  def pre_validate_options(_operation, _model, opts) do
+    case Keyword.fetch(opts, :reasoning_effort) do
+      {:ok, value} -> Keyword.put(opts, :reasoning_effort, normalize_reasoning_effort(value))
+      :error -> opts
+    end
+  end
+
+  defp normalize_reasoning_effort("none"), do: :none
+  defp normalize_reasoning_effort("minimal"), do: :minimal
+  defp normalize_reasoning_effort("low"), do: :low
+  defp normalize_reasoning_effort("medium"), do: :medium
+  defp normalize_reasoning_effort("high"), do: :high
+  defp normalize_reasoning_effort("xhigh"), do: :xhigh
+  defp normalize_reasoning_effort("default"), do: :default
+  defp normalize_reasoning_effort(value), do: value
+
   @impl ReqLLM.Provider
   @doc """
   Custom prepare_request to route requests to appropriate API endpoints.
 
-  - :image operations route to `/v1/images/generations` via ImagesAPI
+  - :image operations route to `/v1/images/generations` or `/v1/images/edits` via ImagesAPI
   - :chat operations detect model type and route to ChatAPI or ResponsesAPI
   - :object operations maintain OpenAI-specific token handling
   """
@@ -324,7 +358,8 @@ defmodule BullX.LLM.Providers.OpenAI do
          {:ok, processed_opts} <-
            ReqLLM.Provider.Options.process(__MODULE__, :image, model, opts_with_context) do
       api_mod = BullX.LLM.Providers.OpenAI.ImagesAPI
-      path = api_mod.path()
+      image_edit? = Keyword.has_key?(processed_opts, :source_image)
+      path = if image_edit?, do: api_mod.path(:edit), else: api_mod.path()
 
       req_keys =
         supported_provider_options() ++
@@ -346,10 +381,33 @@ defmodule BullX.LLM.Providers.OpenAI do
             :provider_options,
             :req_http_options,
             :api_mod,
+            :source_image,
+            :source_image_media_type,
+            :mask,
+            :mask_media_type,
             :base_url
           ]
 
       timeout = get_timeout_for_operation(:image, processed_opts)
+      model_id = model.provider_model_id || model.id
+
+      image_options =
+        Keyword.take(processed_opts, req_keys) ++
+          [
+            operation: :image,
+            model: model_id,
+            prompt: prompt,
+            context: context,
+            base_url: Keyword.get(processed_opts, :base_url, base_url()),
+            api_mod: api_mod
+          ]
+
+      form_multipart_options =
+        if image_edit? do
+          [form_multipart: api_mod.edit_image_form_multipart(image_options)]
+        else
+          []
+        end
 
       request =
         Req.new(
@@ -358,20 +416,10 @@ defmodule BullX.LLM.Providers.OpenAI do
             method: :post,
             receive_timeout: timeout,
             pool_timeout: timeout
-          ] ++ http_opts
+          ] ++ form_multipart_options ++ http_opts
         )
         |> Req.Request.register_options(req_keys)
-        |> Req.Request.merge_options(
-          Keyword.take(processed_opts, req_keys) ++
-            [
-              operation: :image,
-              model: model.id,
-              prompt: prompt,
-              context: context,
-              base_url: Keyword.get(processed_opts, :base_url, base_url()),
-              api_mod: api_mod
-            ]
-        )
+        |> Req.Request.merge_options(image_options)
         |> attach(model, processed_opts)
 
       {:ok, request}
@@ -456,13 +504,7 @@ defmodule BullX.LLM.Providers.OpenAI do
       ext = ReqLLM.Provider.Defaults.media_type_to_extension(media_type)
       filename = "audio.#{ext}"
 
-      # Determine response_format based on model
-      response_format =
-        if model.id in ["gpt-4o-transcribe", "gpt-4o-mini-transcribe"] do
-          "json"
-        else
-          "verbose_json"
-        end
+      response_format = transcription_response_format(model)
 
       form_parts =
         [
@@ -594,7 +636,7 @@ defmodule BullX.LLM.Providers.OpenAI do
           |> Keyword.put(:openai_parallel_tool_calls, false)
         end
       )
-      |> put_default_max_tokens_for_model(model_spec)
+      |> ReqLLM.Provider.Options.put_model_max_tokens_default(model_spec, fallback: 4096)
       |> Keyword.put(:operation, :object)
 
     prepare_request(:chat, model_spec, prompt, opts_with_format)
@@ -623,7 +665,7 @@ defmodule BullX.LLM.Providers.OpenAI do
         [],
         &Keyword.put(&1, :openai_parallel_tool_calls, false)
       )
-      |> put_default_max_tokens_for_model(model_spec)
+      |> ReqLLM.Provider.Options.put_model_max_tokens_default(model_spec, fallback: 4096)
       |> Keyword.put(:operation, :object)
 
     prepare_request(:chat, model_spec, prompt, opts_with_tool)
@@ -686,7 +728,7 @@ defmodule BullX.LLM.Providers.OpenAI do
     extra_option_keys = ReqLLM.Provider.Defaults.extra_option_keys(__MODULE__)
 
     request
-    |> Req.Request.put_header("content-type", "application/json")
+    |> maybe_put_json_content_type()
     |> maybe_put_authorization_header(credential)
     |> Req.Request.register_options(extra_option_keys)
     |> Req.Request.merge_options(
@@ -697,7 +739,7 @@ defmodule BullX.LLM.Providers.OpenAI do
     )
     |> ReqLLM.Step.Retry.attach()
     |> ReqLLM.Step.Error.attach()
-    |> Req.Request.append_request_steps(llm_encode_body: &encode_body/1)
+    |> Req.Request.prepend_request_steps(llm_encode_body: &encode_body/1)
     |> Req.Request.append_response_steps(llm_decode_response: &decode_response/1)
     |> ReqLLM.Step.Usage.attach(model)
     |> ReqLLM.Step.Telemetry.attach(model, user_opts)
@@ -718,7 +760,18 @@ defmodule BullX.LLM.Providers.OpenAI do
   @impl ReqLLM.Provider
   def attach_stream(model, context, opts, finch_name) do
     api_mod = select_api_mod(model)
-    api_mod.attach_stream(model, context, opts, finch_name)
+    operation = opts[:operation] || :chat
+
+    processed_opts =
+      ReqLLM.Provider.Options.process_stream!(
+        __MODULE__,
+        operation,
+        model,
+        context,
+        opts
+      )
+
+    api_mod.attach_stream(model, context, processed_opts, finch_name)
   end
 
   def attach_websocket_stream(model, context, opts) do
@@ -790,7 +843,14 @@ defmodule BullX.LLM.Providers.OpenAI do
   @impl ReqLLM.Provider
   def decode_response({req, resp}) do
     api_mod = req.options[:api_mod] || detect_api_from_response(resp)
-    api_mod.decode_response({req, resp})
+
+    case api_mod.decode_response({req, resp}) do
+      {req2, %Req.Response{} = resp2} ->
+        {req2, stamp_api_type_on_response(resp2, api_type_for_mod(api_mod))}
+
+      other ->
+        other
+    end
   end
 
   defp detect_api_from_response(resp) do
@@ -805,6 +865,32 @@ defmodule BullX.LLM.Providers.OpenAI do
   rescue
     _ -> BullX.LLM.Providers.OpenAI.ChatAPI
   end
+
+  # Surfaces the OpenAI API surface to the OTel bridge as
+  # `openai.api.type` (chat_completions / responses / embeddings). Stamping
+  # at the dispatcher is cheap and avoids brittle URL-path inference.
+  defp api_type_for_mod(BullX.LLM.Providers.OpenAI.ResponsesAPI), do: "responses"
+  defp api_type_for_mod(BullX.LLM.Providers.OpenAI.ChatAPI), do: "chat_completions"
+  defp api_type_for_mod(_), do: nil
+
+  defp stamp_api_type_on_response(resp, nil), do: resp
+
+  defp stamp_api_type_on_response(%Req.Response{body: %ReqLLM.Response{} = body} = resp, type) do
+    meta = body.provider_meta || %{}
+
+    if has_api_type?(meta) do
+      resp
+    else
+      %{resp | body: %{body | provider_meta: Map.put(meta, "api_type", type)}}
+    end
+  end
+
+  defp stamp_api_type_on_response(resp, _type), do: resp
+
+  defp has_api_type?(meta) when is_map(meta),
+    do: Map.has_key?(meta, "api_type") or Map.has_key?(meta, :api_type)
+
+  defp has_api_type?(_), do: false
 
   @doc """
   Custom decode_stream_event to route based on model API type.
@@ -822,22 +908,6 @@ defmodule BullX.LLM.Providers.OpenAI do
     else
       chunks = BullX.LLM.Providers.OpenAI.ChatAPI.decode_stream_event(event, model)
       {chunks, state}
-    end
-  end
-
-  defp put_default_max_tokens_for_model(opts, model_spec) do
-    case ReqLLM.model(model_spec) do
-      {:ok, model} ->
-        case get_api_type(model) do
-          "responses" ->
-            Keyword.put_new(opts, :max_completion_tokens, 4096)
-
-          _ ->
-            Keyword.put_new(opts, :max_tokens, 4096)
-        end
-
-      _ ->
-        Keyword.put_new(opts, :max_tokens, 4096)
     end
   end
 
@@ -918,6 +988,14 @@ defmodule BullX.LLM.Providers.OpenAI do
     end
   end
 
+  defp transcription_response_format(%LLMDB.Model{id: model_id}) do
+    cond do
+      String.starts_with?(model_id, "gpt-4o-transcribe") -> "json"
+      String.starts_with?(model_id, "gpt-4o-mini-transcribe") -> "json"
+      true -> "verbose_json"
+    end
+  end
+
   defp maybe_add_transcription_part(parts, _key, nil), do: parts
   defp maybe_add_transcription_part(parts, key, value), do: parts ++ [{key, to_string(value)}]
 
@@ -925,6 +1003,14 @@ defmodule BullX.LLM.Providers.OpenAI do
 
   defp maybe_put_authorization_header(request, credential) do
     Req.Request.put_header(request, "authorization", "Bearer #{credential.token}")
+  end
+
+  defp maybe_put_json_content_type(request) do
+    if request.options[:form_multipart] do
+      request
+    else
+      Req.Request.put_header(request, "content-type", "application/json")
+    end
   end
 
   defp allow_missing_api_key?(%LLMDB.Model{} = model, opts) do

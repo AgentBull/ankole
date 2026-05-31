@@ -107,13 +107,6 @@ defmodule BullX.AIAgent.Tools.Dispatcher do
     result =
       with true <- is_binary(tool_name) and is_binary(tool_call_id),
            {:ok, _entry, access} <- Tools.effective_tool(profile, tool_name, seed),
-           :allowed <-
-             ACL.authorize(
-               seed.caller_principal_uid,
-               seed.agent_uid,
-               access,
-               Map.get(seed, :acl_context, %{})
-             ),
            {:ok, value} <- execute(tool_name, access, args, seed) do
         %{
           "type" => "tool_result",
@@ -124,9 +117,6 @@ defmodule BullX.AIAgent.Tools.Dispatcher do
       else
         false ->
           tool_error_block(tool_call_id, :tool_malformed_arguments)
-
-        {:denied, _reason} ->
-          tool_error_block(tool_call_id, :tool_denied)
 
         {:error, :tool_unknown} ->
           tool_error_block(tool_call_id, :tool_unknown)

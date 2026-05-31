@@ -57,6 +57,10 @@ defmodule BullX.LLM.Providers.Azure do
       export AZURE_ANTHROPIC_API_KEY=your-api-key
       export AZURE_ANTHROPIC_BASE_URL=https://your-anthropic-resource.openai.azure.com/openai
 
+      # For Mistral models (mistral-*)
+      export AZURE_MISTRAL_API_KEY=your-api-key
+      export AZURE_MISTRAL_BASE_URL=https://your-mistral-resource.services.ai.azure.com
+
       # Universal fallbacks (if all models share the same Azure resource)
       export AZURE_API_KEY=your-api-key
       export AZURE_BASE_URL=https://your-resource.openai.azure.com/openai
@@ -259,6 +263,10 @@ defmodule BullX.LLM.Providers.Azure do
       type: :any,
       doc: "Maximum completion tokens (OpenAI reasoning models)"
     ],
+    max_output_tokens: [
+      type: :any,
+      doc: "Maximum output tokens (OpenAI Responses API models)"
+    ],
     verbosity: [
       type: {:or, [:atom, :string]},
       doc:
@@ -279,7 +287,8 @@ defmodule BullX.LLM.Providers.Azure do
     "claude" => __MODULE__.Anthropic,
     "grok" => __MODULE__.OpenAI,
     "Kimi" => __MODULE__.OpenAI,
-    "kimi" => __MODULE__.OpenAI
+    "kimi" => __MODULE__.OpenAI,
+    "mistral" => __MODULE__.OpenAI
   }
 
   @model_family_prefixes @model_families |> Map.keys() |> Enum.sort_by(&String.length/1, :desc)
@@ -299,7 +308,8 @@ defmodule BullX.LLM.Providers.Azure do
     "deepseek" => "AZURE_DEEPSEEK_BASE_URL",
     "mai-ds" => "AZURE_MAI_BASE_URL",
     "Kimi" => "AZURE_KIMI_BASE_URL",
-    "kimi" => "AZURE_KIMI_BASE_URL"
+    "kimi" => "AZURE_KIMI_BASE_URL",
+    "mistral" => "AZURE_MISTRAL_BASE_URL"
   }
 
   @family_api_key_env_vars %{
@@ -313,7 +323,8 @@ defmodule BullX.LLM.Providers.Azure do
     "deepseek" => "AZURE_DEEPSEEK_API_KEY",
     "mai-ds" => "AZURE_MAI_API_KEY",
     "Kimi" => "AZURE_KIMI_API_KEY",
-    "kimi" => "AZURE_KIMI_API_KEY"
+    "kimi" => "AZURE_KIMI_API_KEY",
+    "mistral" => "AZURE_MISTRAL_API_KEY"
   }
 
   @doc """
@@ -339,7 +350,7 @@ defmodule BullX.LLM.Providers.Azure do
 
     opts_for_object =
       opts
-      |> Keyword.put_new(:max_tokens, 4096)
+      |> ReqLLM.Provider.Options.put_model_max_tokens_default(model, fallback: 4096)
       |> Keyword.put(:operation, :object)
 
     case model_family do
@@ -677,18 +688,16 @@ defmodule BullX.LLM.Providers.Azure do
     model_family = get_model_family(model_id)
     resolved_base_url = resolve_base_url(model_family, opts)
 
-    opts_with_context =
-      opts
-      |> Keyword.put(:context, context)
-      |> Keyword.put(:base_url, resolved_base_url)
-
-    {:ok, processed_opts} =
-      ReqLLM.Provider.Options.process(__MODULE__, :chat, model, opts_with_context)
-
     operation = opts[:operation] || :chat
 
     processed_opts =
-      processed_opts
+      ReqLLM.Provider.Options.process_stream!(
+        __MODULE__,
+        operation,
+        model,
+        context,
+        Keyword.put(opts, :base_url, resolved_base_url)
+      )
       |> maybe_clean_thinking_after_translation(model_family, operation)
       |> maybe_warn_service_tier(model_family, model_id)
 
@@ -825,7 +834,17 @@ defmodule BullX.LLM.Providers.Azure do
 
     case get_model_family(model_id) do
       family
-      when family in ["gpt", "text-embedding", "o1", "o3", "o4", "deepseek", "mai-ds", "grok"] ->
+      when family in [
+             "gpt",
+             "text-embedding",
+             "o1",
+             "o3",
+             "o4",
+             "deepseek",
+             "mai-ds",
+             "grok",
+             "mistral"
+           ] ->
         synthetic_model = %{model | provider: :openai}
         BullX.LLM.Providers.OpenAI.translate_options(operation, synthetic_model, opts)
 
