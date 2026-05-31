@@ -12,7 +12,7 @@ The plugin id is `discord`.
 - `:"bullx.im_gateway.channel_adapter"` with id `discord` and module
   `Discord.ChannelAdapter`
 - `:"bullx.principals.login_provider"` with id `discord` and module
-  `Discord.OIDCProvider`
+  `Discord.OAuth2Provider`
 - config module `Discord.Config`
 - supervised child `Discord.SourceSupervisor`
 

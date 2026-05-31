@@ -98,9 +98,8 @@ The rule shape is:
 - priority: existing rule priority, or the next priority at or above `1000`
 - match expression:
   `(type == "bullx.message.received" || type == "bullx.message.edited" || type == "bullx.message.recalled" || type == "bullx.message.deleted" || type == "bullx.command.invoked") && channel.adapter == <adapter> && channel.id == <source_id>`
-- receiver type: `ai_agent`
-- receiver ref: selected Agent uid
-- session key: derived by MailBox from `cloud_event.data.queue_key`
+- `agent_uid`: selected Agent uid
+- queue key: derived by MailBox from `cloud_event.data.queue_key`
 
 After saving, setup validates the live rule against the adapter setup module's
 routing sample through `BullX.MailBox.Matcher`.

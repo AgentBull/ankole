@@ -89,6 +89,9 @@ Send a POST request:
 
 `FeishuOpenAPI` does not ship generated endpoint modules. You call Feishu/Lark endpoints directly by path.
 
+HTTP verb helpers are `get/3`, `post/3`, `put/3`, `patch/3`, and `delete/3`.
+Bang variants such as `get!/3` return the response or raise `FeishuOpenAPI.Error`.
+
 Supported client options:
 
 - `:domain` - `:feishu` or `:lark`

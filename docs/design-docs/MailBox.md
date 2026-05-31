@@ -62,7 +62,6 @@ The setup flow creates source-scoped rules named
 - `source`
 - `type`
 - `time`
-- `data`
 - `event.id`
 - `event.identity.source`
 - `event.identity.id`

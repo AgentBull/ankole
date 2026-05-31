@@ -89,6 +89,9 @@ resp["data"]
 
 `FeishuOpenAPI` 不会生成端点模块。你直接按路径调用 Feishu/Lark API。
 
+HTTP 动词辅助方法包括 `get/3`、`post/3`、`put/3`、`patch/3` 和 `delete/3`。
+对应的 bang 版本（例如 `get!/3`）会在成功时返回响应，失败时抛出 `FeishuOpenAPI.Error`。
+
 支持的 client 选项：
 
 - `:domain` - `:feishu` 或 `:lark`

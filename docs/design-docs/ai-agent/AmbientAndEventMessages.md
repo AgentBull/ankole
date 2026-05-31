@@ -32,9 +32,13 @@ MailBox entries carry derived attention:
 - `addressed`
 - `ambient`
 - `command`
+- `action`
+- `lifecycle`
 - `system`
 
-AIAgent uses entry attention to classify `bullx.message.received` mail and uses
+AIAgent uses `addressed` and `ambient` attention to classify
+`bullx.message.received` mail, `command` attention for command mail, and
+`lifecycle` attention for edit/recall/delete control mail. It uses
 `data.conversation_context` as the preferred source for conversation identity.
 
 ## Addressed Messages
@@ -93,8 +97,9 @@ may update the `im_messages` mirror when the mirror row exists:
 
 AIAgent handles these events as revisions to existing conversation context. It
 resolves the target message from provider refs, ignores revisions outside the
-current mailbox session or outside the transcript rendered after the latest
-compatible compression, and never treats lifecycle mail as a fresh user message.
+current mailbox queue/conversation scope or outside the transcript rendered
+after the latest compatible compression, and never treats lifecycle mail as a
+fresh user message.
 The target is chosen from provider refs, not from the edited payload's current
 addressedness; if a user edits an `@agent` request into "never mind" while the
 agent is still generating, AIAgent cancels the active generation and recalls any

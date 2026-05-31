@@ -15,6 +15,7 @@ Current NIF-backed areas include:
 - key derivation and generated keys;
 - AEAD encryption and decryption;
 - Argon2 password/code hashing and verification;
+- JWT signing, verification, and header decoding;
 - E.164 phone normalization;
 - Base58, Base64, and Z85 helpers;
 - ASCII classification;
@@ -42,6 +43,14 @@ application secrets rely on `BullX.Ext` crypto helpers.
 
 Secret plaintext must not be logged. Persisted secrets are encrypted by the
 owning Elixir subsystem before storage.
+
+## JWT
+
+`BullX.Ext.jwt_sign/3`, `jwt_verify/3`, and `jwt_decode_header/1` wrap the
+native JWT implementation. They support HMAC, RSA, RSA-PSS, ECDSA, and EdDSA
+algorithms through Elixir-friendly option maps. Verification returns claims on
+success or a tagged error for malformed, expired, rejected, or unauthenticated
+tokens.
 
 ## Rule Engines
 

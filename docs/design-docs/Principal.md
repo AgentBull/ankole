@@ -122,8 +122,8 @@ Browser OIDC login providers call
 Current config values include:
 
 - `principals_authn_match_rules`
-- `principals_auto_create_humans`
-- `principals_require_activation_code`
+- `principals_authn_auto_create_humans`
+- `principals_authn_require_activation_code`
 - `principals_activation_code_ttl_seconds`
 - `principals_login_auth_code_ttl_seconds`
 

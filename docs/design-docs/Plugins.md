@@ -67,11 +67,11 @@ An adapter module must implement `normalize_inbound/2`. It may implement
 Adapters normalize provider input to CloudEvents mail and hand it to IMGateway.
 They do not create `mailbox_entries` directly.
 
-Current adapter plugin ids:
+Current setup-backed adapter ids:
 
 - `feishu`
 - `discord`
-- `telegram` from the `bullx_telegram` plugin
+- `telegram`, provided by the `bullx_telegram` plugin
 
 ## Principal Login Provider
 

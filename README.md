@@ -1,7 +1,7 @@
 # BullX — AgentOS for AI Colleagues
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-red.svg?logo=apache&label=License)](LICENSE)
-[![Elixir](https://img.shields.io/badge/Elixir-1.19-48205D?logo=elixir)](https://elixir-lang.org)
+[![Elixir](https://img.shields.io/badge/Elixir-1.18-48205D?logo=elixir)](https://elixir-lang.org)
 
 [English](./README.md) | [简体中文](./README.zh-Hans.md) | [日本語](./README.ja.md)
 
@@ -73,7 +73,7 @@ The result BullX is aiming for is not "a better bot" or "a smarter workflow app.
 
 ## Getting Started
 
-**Prerequisites:** Elixir 1.19+, PostgreSQL, Bun
+**Prerequisites:** Elixir 1.18+, PostgreSQL, Bun
 
 Make sure PostgreSQL is running and `DATABASE_URL` in `.env.dev` or `.env.local` points at it.
 
@@ -141,6 +141,6 @@ BullX loads dotenv files from the repository root. Later files override earlier 
 
 ## Project Status
 
-BullX runs IMGateway, MailBox, and the AIAgent receiver end-to-end today, with channel adapters for Discord, Feishu (Lark), and Telegram, on an Elixir/OTP, PostgreSQL, and Phoenix/Inertia foundation. Feishu IM messages can be normalized, routed through MailBox, mirrored to `im_messages` for memory, handled by AIAgent, and replied to through IMGateway with outbound mirror rows when persistence succeeds. Brain, Budget, durable Work/Task records, the Workflow receiver, and trajectory-driven self-evolution are still being built.
+BullX runs IMGateway, MailBox, and the AIAgent receiver end-to-end today, with channel adapters for Discord, Feishu (Lark), and Telegram, on an Elixir/OTP, PostgreSQL, and Phoenix/Inertia foundation. IM messages from configured adapters can be normalized, routed through MailBox, mirrored to `im_messages` for memory, handled by AIAgent, and replied to through IMGateway with outbound mirror rows when persistence succeeds. Brain, Budget, durable Work/Task records, the Workflow receiver, and trajectory-driven self-evolution are still being built.
 
 See [docs/Architecture.md](./docs/Architecture.md) for the architecture source of truth, and [docs/design-docs/](./docs/design-docs/) for detailed designs.

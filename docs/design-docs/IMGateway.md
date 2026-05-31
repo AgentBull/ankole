@@ -108,8 +108,7 @@ they are not canonical message identity.
 `im_messages` does not store `direction`, pending/failed delivery status,
 `reply_address`, adapter safe errors, or BullX receiver state. Those are
 source-relative or runtime concerns owned by MailBox, AIAgent delivery metadata,
-Redis, or a future UNLOGGED IMGateway runtime table when SQL visibility is
-needed.
+or Redis-backed runtime state.
 
 ## Inbound Flow
 

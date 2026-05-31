@@ -1,7 +1,7 @@
 # BullX — 与 AI 同事并肩工作的 AgentOS
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-red.svg?logo=apache&label=License)](LICENSE)
-[![Elixir](https://img.shields.io/badge/Elixir-1.19-48205D?logo=elixir)](https://elixir-lang.org)
+[![Elixir](https://img.shields.io/badge/Elixir-1.18-48205D?logo=elixir)](https://elixir-lang.org)
 
 [English](./README.md) | [简体中文](./README.zh-Hans.md) | [日本語](./README.ja.md)
 
@@ -73,7 +73,7 @@ BullX 想做的不是“更好的 bot”，也不是“更聪明的 workflow app
 
 ## 开始开发
 
-**前置条件：** Elixir 1.19+、PostgreSQL、Bun
+**前置条件：** Elixir 1.18+、PostgreSQL、Bun
 
 确保 PostgreSQL 正在运行，并且 `.env.dev` 或 `.env.local` 中的 `DATABASE_URL` 指向可用数据库。
 
@@ -141,6 +141,6 @@ BullX 会从仓库根目录加载 dotenv 文件。后加载的文件覆盖先加
 
 ## 项目状态
 
-BullX 目前已经在 Elixir/OTP、PostgreSQL 与 Phoenix/Inertia 底座上跑通 IMGateway、MailBox 和 AIAgent Receiver 端到端，并提供 Discord、Feishu (Lark)、Telegram 三个渠道适配。飞书 IM 消息可以被规范化、保存为 `im_messages`、通过 MailBox 路由、由 AIAgent 处理，并通过出站 `im_messages` 回复。Brain、Budget、Work/Task 持久化记录、Workflow Receiver，以及基于轨迹数据的自我进化仍在建设中。
+BullX 目前已经在 Elixir/OTP、PostgreSQL 与 Phoenix/Inertia 底座上跑通 IMGateway、MailBox 和 AIAgent Receiver 端到端，并提供 Discord、Feishu (Lark)、Telegram 三个渠道适配。已配置适配器的 IM 消息可以被规范化、通过 MailBox 路由、为了记忆镜像到 `im_messages`、由 AIAgent 处理，并在持久化成功时通过 IMGateway 回复并写入出站镜像行。Brain、Budget、Work/Task 持久化记录、Workflow Receiver，以及基于轨迹数据的自我进化仍在建设中。
 
 架构 SSOT 见 [docs/Architecture.md](./docs/Architecture.md)，详细设计见 [docs/design-docs/](./docs/design-docs/)。

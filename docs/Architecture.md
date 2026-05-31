@@ -1,9 +1,9 @@
 # BullX Architecture
 
-BullX is a single-installation AgentOS runtime. The current branch is an
-infrastructure shell: PostgreSQL owns durable facts, OTP processes own only
-reconstructible runtime work, and the implemented product path is IM input to
-MailBox delivery to AIAgent execution.
+BullX is a single-installation AgentOS runtime. The current branch implements
+the core infrastructure plus the IM input to MailBox delivery to AIAgent
+execution path. PostgreSQL owns durable facts, and OTP processes own only
+reconstructible runtime work.
 
 The implementation source of truth is the code under `lib/`. This document
 describes the current code path only.
@@ -28,6 +28,8 @@ describes the current code path only.
 - `BullX.Redis`
 - `BullX.MailBox.RuntimeTaskSupervisor`
 - `BullX.MailBox.Runtime`, unless disabled by `config :bullx, :mail_box`
+- `BullX.AIAgent.AmbientBatchTaskSupervisor`, unless disabled by
+  `config :bullx, :ai_agent_runtime`
 - `BullX.AIAgent.AmbientBatchWorker`, unless disabled by `config :bullx, :ai_agent_runtime`
 - `BullX.AIAgent.DailyResetWorker`, unless disabled by `config :bullx, :ai_agent_runtime`
 

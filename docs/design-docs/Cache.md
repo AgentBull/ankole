@@ -51,7 +51,8 @@ raises and the config supervisor restarts according to its normal OTP strategy.
 ## Current Consumers
 
 Current in-tree consumers include direct command dedupe, IMGateway inbound event
-dedupe, AIAgent steering handoff, and runtime helpers that need a small shared
+dedupe, terminal lifecycle tombstones, AIAgent steering handoff, LLM provider
+catalog/model discovery caching, and runtime helpers that need a small shared
 cache. MailBox streaming output uses its own Redis-backed stream module and is
 documented in [MailBox](MailBox.md); it is not implemented through
 `BullX.Cache`.

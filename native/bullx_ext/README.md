@@ -2,7 +2,7 @@
 
 This directory contains the Rust NIF crate loaded by `BullX.Ext`.
 
-The crate is part of BullX infrastructure, not a product subsystem. It should only contain small native helpers where Rust provides a clear boundary or performance benefit, such as hashing, encoding, UUID generation, encryption, and other low-level utilities.
+The crate is part of BullX infrastructure, not a product subsystem. It should only contain small native helpers where Rust provides a clear boundary or performance benefit, such as hashing, encoding, UUID generation, encryption, JWT handling, and other low-level utilities.
 
 ## Boundaries
 
