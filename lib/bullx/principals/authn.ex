@@ -1,5 +1,12 @@
 defmodule BullX.Principals.AuthN do
-  @moduledoc false
+  @moduledoc """
+  Identity creation, binding, and login flows for BullX Principals.
+
+  This module is the boundary between external identities and the internal
+  Principal model. Channel actors, OIDC login subjects, bootstrap activation
+  codes, and Agent creation all end by resolving or creating Principals so
+  AuthZ and audit code do not depend on provider-specific user ids.
+  """
 
   import Ecto.Query
 
@@ -136,6 +143,8 @@ defmodule BullX.Principals.AuthN do
           {:ok, Principal.t()}
           | {:error, :not_bound | :identity_unverified | :principal_disabled}
   def resolve_channel_actor(adapter, channel_id, external_id) do
+    # Runtime message ingress is stricter than setup matching: an unverified or
+    # disabled binding must not silently become an authorized actor.
     with {:ok, input} <- normalize_channel_ref(adapter, channel_id, external_id) do
       case fetch_channel_binding_state(input) do
         {:ok, principal, _identity} -> {:ok, principal}
@@ -167,6 +176,9 @@ defmodule BullX.Principals.AuthN do
           | {:error, :not_human}
           | {:error, term()}
   def ensure_human_from_channel_actor(input) when is_map(input) do
+    # IMGateway stores the external fact even when the actor is not authorized
+    # to invoke anything yet. This path can create a Principal for attribution
+    # while leaving authorization to later verified bindings/grants.
     with {:ok, normalized} <- normalize_channel_input(input) do
       transaction(fn ->
         case fetch_channel_binding_for_im_fact(normalized) do
@@ -207,6 +219,8 @@ defmodule BullX.Principals.AuthN do
           | {:error, term()}
   def root_init_with_bootstrap_code(plaintext_code, input)
       when is_binary(plaintext_code) and is_map(input) do
+    # Root initialization is intentionally a one-time bridge from an external
+    # channel identity to the first BullX admin Principal.
     with :ok <- AuthZ.ensure_root_init_open(),
          {:ok, _code_hash} <- verify_current_bootstrap_code(plaintext_code),
          {:ok, normalized} <- normalize_channel_input(input),

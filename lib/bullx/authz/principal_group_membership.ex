@@ -1,5 +1,11 @@
 defmodule BullX.AuthZ.PrincipalGroupMembership do
-  @moduledoc false
+  @moduledoc """
+  Join row that grants a Principal membership in an AuthZ group.
+
+  Groups are authorization subjects, not organizational tenants. Membership
+  lets a grant apply to many Principals while each Principal remains the durable
+  actor recorded on audit and runtime facts.
+  """
 
   use Ecto.Schema
 

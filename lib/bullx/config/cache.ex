@@ -1,4 +1,13 @@
 defmodule BullX.Config.Cache do
+  @moduledoc """
+  ETS projection of runtime configuration stored in PostgreSQL.
+
+  Reads are intentionally cheap and local after boot. PostgreSQL remains the
+  durable source of truth; this GenServer only owns the reconstructible cache
+  and the decryption step for secret rows before Skogsra bindings consume
+  plain string values.
+  """
+
   use GenServer
   require Logger
 

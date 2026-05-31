@@ -1,5 +1,10 @@
 defmodule BullX.AIAgent.Tools.Registry.ToolSet do
-  @moduledoc false
+  @moduledoc """
+  Normalized ToolSet metadata exposed to an AIAgent profile.
+
+  ToolSets group model-visible tools for configuration and availability checks;
+  they do not grant authority by themselves.
+  """
 
   @enforce_keys [:id, :default_enabled, :disableable, :tools]
   defstruct [
@@ -22,7 +27,12 @@ defmodule BullX.AIAgent.Tools.Registry.ToolSet do
 end
 
 defmodule BullX.AIAgent.Tools.Registry.Tool do
-  @moduledoc false
+  @moduledoc """
+  Normalized tool definition used to build model tool schemas and dispatch.
+
+  The struct separates provider-facing schema fields from BullX runtime hints
+  such as access level, retry policy, parallel safety, and timeout.
+  """
 
   @enforce_keys [:name, :toolset_id, :description, :parameter_schema, :access, :module]
   defstruct [

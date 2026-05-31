@@ -1,5 +1,10 @@
 defmodule BullX.LLM.Providers.Zai.Shared do
-  @moduledoc false
+  @moduledoc """
+  Shared request/response plumbing for Z.ai-compatible provider adapters.
+
+  The providers share OpenAI-like response shapes with Z.ai-specific thinking
+  options, timeout behavior, and usage normalization.
+  """
 
   alias ReqLLM.Provider.Utils
 

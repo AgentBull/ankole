@@ -1,5 +1,10 @@
 defmodule BullX.AIAgent.Tools.Web.SerpAPI do
-  @moduledoc false
+  @moduledoc """
+  SerpAPI adapter for BullX AIAgent web search.
+
+  It calls Google search through SerpAPI and maps organic results into the
+  normalized search result shape consumed by the Agent tool layer.
+  """
 
   alias BullX.AIAgent.Tools.Web
 

@@ -1,5 +1,12 @@
 defmodule BullX.AIAgent.AmbientBatchProcessor do
-  @moduledoc false
+  @moduledoc """
+  Turns coalesced ambient IM messages into optional Agent intervention.
+
+  Ambient messages are observations by default. This processor only escalates a
+  batch into an Agent run when the profile allows intervention and a lightweight
+  recognizer decides the recent scene is relevant enough to materialize an
+  introspection message.
+  """
 
   require Logger
 
@@ -177,6 +184,9 @@ defmodule BullX.AIAgent.AmbientBatchProcessor do
   end
 
   defp write_introspection(conversation, meta, items, recognizer, idempotency_key) do
+    # The runner is triggered by a normal conversation message, not by the batch
+    # directly. That keeps ambient intervention explainable in transcript
+    # history and gives lifecycle code a concrete message to revise later.
     reason =
       recognizer["reason_summary"] ||
         "Ambient batch matched the Agent mission."

@@ -1,4 +1,12 @@
 defmodule BullX.Config.Secrets do
+  @moduledoc """
+  Startup-only secret configuration that must not be sourced from the database.
+
+  These values protect the database-backed configuration layer itself. They
+  therefore come from the operating environment only, before any encrypted
+  runtime config can be read.
+  """
+
   use BullX.Config
 
   @envdoc """

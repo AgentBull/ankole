@@ -1,5 +1,10 @@
 defmodule BullXWeb.SetupEventRoutingController do
-  @moduledoc false
+  @moduledoc """
+  Browser controller for installing the default MailBox delivery rule.
+
+  The setup page is a thin shell over `BullX.Setup.EventRouting`, which writes
+  and verifies the actual routing rule used by runtime MailBox matching.
+  """
 
   use BullXWeb, :controller
 

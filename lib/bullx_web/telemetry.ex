@@ -1,4 +1,11 @@
 defmodule BullXWeb.Telemetry do
+  @moduledoc """
+  Telemetry metrics supervisor for Phoenix, Repo, and VM measurements.
+
+  This module declares what BullX exposes to telemetry reporters; it does not
+  own business health semantics, which live in `BullX.Health`.
+  """
+
   use Supervisor
   import Telemetry.Metrics
 

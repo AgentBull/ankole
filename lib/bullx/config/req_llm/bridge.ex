@@ -1,5 +1,11 @@
 defmodule BullX.Config.ReqLLM.Bridge do
-  @moduledoc false
+  @moduledoc """
+  Projects BullX-owned runtime config keys into ReqLLM application env.
+
+  ReqLLM reads ordinary application config, while BullX setup writes durable
+  rows into `app_configs`. This bridge is the narrow synchronization point
+  between those two configuration surfaces.
+  """
 
   @prefix "bullx.req_llm."
 

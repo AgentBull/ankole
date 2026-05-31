@@ -1,4 +1,12 @@
 defmodule BullX.Config.SystemBinding do
+  @moduledoc """
+  Skogsra binding for environment variables with BullX validation.
+
+  This binding keeps OS environment values as the highest-trust source for
+  startup secrets and deployment settings while still applying the same Zoi
+  validation used for database-backed runtime config.
+  """
+
   use Skogsra.Binding
 
   @impl Skogsra.Binding

@@ -1,5 +1,10 @@
 defmodule BullXWeb.SessionController do
-  @moduledoc false
+  @moduledoc """
+  Browser session endpoints for Principal login.
+
+  Supports one-time login auth codes and plugin-backed OIDC providers, then
+  stores the resolved Principal uid in the sealed BullX session cookie.
+  """
 
   use BullXWeb, :controller
 

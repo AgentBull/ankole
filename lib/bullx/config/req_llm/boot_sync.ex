@@ -1,5 +1,10 @@
 defmodule BullX.Config.ReqLLM.BootSync do
-  @moduledoc false
+  @moduledoc """
+  One-shot child that projects BullX ReqLLM config into the ReqLLM app env.
+
+  It runs during config supervision startup and returns `:ignore` because there
+  is no long-lived process to supervise after the projection completes.
+  """
 
   def child_spec(opts) do
     %{

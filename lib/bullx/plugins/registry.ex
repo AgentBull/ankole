@@ -1,5 +1,11 @@
 defmodule BullX.Plugins.Registry do
-  @moduledoc false
+  @moduledoc """
+  Runtime registry of discovered plugins, enabled ids, and extension records.
+
+  The registry is a read model over compile-time plugin specs plus operator
+  enablement config. It does not load code dynamically; it answers which already
+  compiled extensions are currently available to BullX subsystems.
+  """
 
   use GenServer
 

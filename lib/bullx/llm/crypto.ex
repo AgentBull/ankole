@@ -1,5 +1,11 @@
 defmodule BullX.LLM.Crypto do
-  @moduledoc false
+  @moduledoc """
+  Encrypts LLM provider API keys with per-row derived keys.
+
+  The root secret never becomes the stored encryption key. Each provider row id
+  derives a subkey so copied ciphertext cannot be moved between rows and still
+  decrypt successfully.
+  """
 
   @sub_key_prefix "llm_providers/"
 

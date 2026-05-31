@@ -1,5 +1,10 @@
 defmodule BullX.AIAgent.Tools.Web.Exa do
-  @moduledoc false
+  @moduledoc """
+  Exa adapter for BullX AIAgent web search and extraction tools.
+
+  The adapter translates Exa's response fields into BullX's normalized
+  `title`/`url`/`snippet` or extracted-text result shape.
+  """
 
   alias BullX.AIAgent.Tools.Web
 

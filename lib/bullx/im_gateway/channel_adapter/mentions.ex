@@ -1,5 +1,11 @@
 defmodule BullX.IMGateway.ChannelAdapter.Mentions do
-  @moduledoc false
+  @moduledoc """
+  Normalizes provider-specific mention payloads for IM routing decisions.
+
+  Channel adapters may supply structured ids, usernames, or only plain text.
+  BullX reduces those forms to one mention shape so addressed-vs-ambient
+  routing does not depend on a single provider's payload format.
+  """
 
   import BullX.Utils.Map, only: [maybe_put: 3]
 

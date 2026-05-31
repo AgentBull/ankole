@@ -1,7 +1,12 @@
 defmodule BullX.Application do
-  # See https://hexdocs.pm/elixir/Application.html
-  # for more information on OTP Applications
-  @moduledoc false
+  @moduledoc """
+  Top-level OTP application for the BullX installation.
+
+  Startup order keeps durable infrastructure first, then config projections,
+  plugin discovery, runtime workers, and finally the web endpoint. The children
+  under `BullX.Runtime.Supervisor` are reconstructible runtime activity, while
+  PostgreSQL remains the source of durable facts.
+  """
 
   use Application
 
@@ -18,8 +23,6 @@ defmodule BullX.Application do
       BullXWeb.Endpoint
     ]
 
-    # See https://hexdocs.pm/elixir/Supervisor.html
-    # for other strategies and supported options
     opts = [strategy: :one_for_one, name: BullX.Supervisor]
     Supervisor.start_link(children, opts)
   end

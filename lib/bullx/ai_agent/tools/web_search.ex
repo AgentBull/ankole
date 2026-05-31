@@ -1,5 +1,11 @@
 defmodule BullX.AIAgent.Tools.WebSearch do
-  @moduledoc false
+  @moduledoc """
+  Tool entry point for Agent web search.
+
+  This module only normalizes LLM tool arguments and delegates provider choice
+  to `BullX.AIAgent.Tools.Web`, so model-facing tool schemas stay independent
+  of Exa/Tavily/SerpAPI adapter details.
+  """
 
   alias BullX.AIAgent.Tools.Context
   alias BullX.AIAgent.Tools.Web

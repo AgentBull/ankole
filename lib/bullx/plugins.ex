@@ -14,10 +14,11 @@ defmodule BullX.Plugins do
   This is closer to a VS Code / IDE extension model than to a hot-reloaded
   `require`: plugins are first-class compile-time citizens with typed
   contracts (see `BullX.IMGateway.ChannelAdapter`), not arbitrary code loaded
-  from disk at runtime — a design choice that matters because BullX agents
-  act with real authority (Principals, Budgets, channel identities), and the
-  surface where third-party code reaches the runtime is auditable rather
-  than dynamic.
+  from disk at runtime — a design choice that matters because current plugins
+  touch authority-bearing surfaces such as Principals, AuthZ-mediated tools,
+  channel identities, and adapter credentials. Future Budget and Capability
+  surfaces should preserve this auditable entry point instead of loading
+  arbitrary runtime code.
 
   ## Internal contract
 

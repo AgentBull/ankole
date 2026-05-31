@@ -1,4 +1,12 @@
 defmodule BullXWeb.Router do
+  @moduledoc """
+  HTTP route map for the BullX web shell, setup flow, console, and APIs.
+
+  Setup routes use browser sessions before the installation is initialized;
+  console and internal APIs require a logged-in Principal; health and OpenAPI
+  description routes remain unauthenticated operational surfaces.
+  """
+
   use BullXWeb, :router
 
   import BullXWeb.WebConsoleAuth, only: [require_login: 2]

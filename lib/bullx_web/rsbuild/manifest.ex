@@ -1,8 +1,13 @@
 defmodule BullXWeb.Rsbuild.Manifest do
-  @moduledoc false
+  @moduledoc """
+  Parser for the Rsbuild asset manifest consumed by Phoenix rendering.
+
+  The manifest maps frontend entry names to emitted JS/CSS files so server-side
+  layout code can include the correct bundled assets.
+  """
 
   defmodule Entry do
-    @moduledoc false
+    @moduledoc "Parsed asset lists for one Rsbuild frontend entry."
 
     defstruct [
       :name,

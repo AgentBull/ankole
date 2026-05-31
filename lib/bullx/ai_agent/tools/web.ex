@@ -1,5 +1,12 @@
 defmodule BullX.AIAgent.Tools.Web do
-  @moduledoc false
+  @moduledoc """
+  Selects and invokes web-capability adapters for AIAgent tools.
+
+  BullX treats web search/extract as governed capabilities. Built-in adapters
+  and plugin adapters share one selection path, credentials come from config,
+  and provider failures are normalized into retryable/non-retryable tool errors
+  for the Agent loop.
+  """
 
   alias BullX.AIAgent.Tools.Error
   alias BullX.AIAgent.Tools.Web.Adapter
@@ -156,6 +163,8 @@ defmodule BullX.AIAgent.Tools.Web do
   defp plugin_adapters(runtime_seed) do
     server = Map.get(runtime_seed, :plugin_registry) || BullX.Plugins.Registry
 
+    # Tests can pass an in-memory registry struct; runtime uses the GenServer.
+    # Both paths produce the same extension records before adapter normalization.
     cond do
       match?(%BullX.Plugins.Registry{}, server) ->
         enabled_extensions(server)

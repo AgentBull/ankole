@@ -1,5 +1,11 @@
 defmodule BullX.MailBox.Config do
-  @moduledoc false
+  @moduledoc """
+  Runtime knobs for MailBox processing windows.
+
+  These values tune ephemeral dispatch and streaming behavior. They do not
+  define durable routing semantics; delivery rules and entries remain the
+  database-backed contract.
+  """
 
   @mail_box_key :mail_box
 

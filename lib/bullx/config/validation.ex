@@ -1,4 +1,12 @@
 defmodule BullX.Config.Validation do
+  @moduledoc """
+  Shared validation bridge between raw config sources, Skogsra, and Zoi.
+
+  Skogsra is still the authoritative caster for config values. This module only
+  performs enough temporary casting to let BullX-specific Zoi constraints reject
+  bad runtime input before it enters the cache or bootstrap path.
+  """
+
   @doc """
   Validates a raw runtime source before it is handed back to Skogsra.
 

@@ -1,5 +1,11 @@
 defmodule BullX.Plugins.Extension do
-  @moduledoc false
+  @moduledoc """
+  Normalized declaration of one plugin-provided extension point implementation.
+
+  Extension ids are only unique within their extension point, while `plugin_id`
+  records which compile-time plugin owns the implementation. Runtime callers use
+  this struct instead of reading raw plugin metadata.
+  """
 
   @enforce_keys [:plugin_id, :point, :id, :module]
   defstruct [:plugin_id, :point, :id, :module, opts: []]

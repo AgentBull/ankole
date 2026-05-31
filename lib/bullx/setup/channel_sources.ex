@@ -1,5 +1,12 @@
 defmodule BullX.Setup.ChannelSources do
-  @moduledoc false
+  @moduledoc """
+  Setup-step API for configuring IM channel sources from plugin adapters.
+
+  Channel adapters expose a small setup module contract. This module discovers
+  those contracts through enabled plugins, validates operator input, persists
+  source config through `BullX.Config`, and asks the adapter to reconcile its
+  runtime after the durable config changes.
+  """
 
   alias BullX.Config
   alias BullX.Plugins
@@ -178,6 +185,9 @@ defmodule BullX.Setup.ChannelSources do
   defp setup_module(_opts), do: nil
 
   defp validate_setup_module(module) when is_atom(module) do
+    # Setup modules are optional plugin-side companions to runtime adapters.
+    # Require the full contract here so the web setup flow can treat every
+    # adapter uniformly without adapter-specific controller branches.
     callbacks = [
       {:config_keys, 0},
       {:form_schema, 0},

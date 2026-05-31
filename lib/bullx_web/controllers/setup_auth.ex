@@ -1,5 +1,11 @@
 defmodule BullXWeb.SetupAuth do
-  @moduledoc false
+  @moduledoc """
+  Shared setup-session guards for browser and JSON setup routes.
+
+  Setup state is derived from durable prerequisites plus a short-lived
+  bootstrap session. These helpers clamp navigation to reachable steps and keep
+  setup responses non-cacheable.
+  """
 
   import Phoenix.Controller
   import Plug.Conn

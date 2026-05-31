@@ -1,5 +1,11 @@
 defmodule BullX.Config.ApplicationBinding do
-  @moduledoc false
+  @moduledoc """
+  Skogsra binding for values already present in application config.
+
+  This binding lets BullX use compile/runtime `Application` env as one source
+  in the same ordered config chain as OS env and database-backed config, while
+  still applying BullX validation before the value is accepted.
+  """
 
   use Skogsra.Binding
 

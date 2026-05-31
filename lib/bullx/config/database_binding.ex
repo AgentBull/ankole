@@ -1,4 +1,12 @@
 defmodule BullX.Config.DatabaseBinding do
+  @moduledoc """
+  Skogsra binding that reads operator-configured runtime values from BullX DB.
+
+  Values are fetched through `BullX.Config.Cache`, not directly from
+  PostgreSQL, so regular config reads do not become database calls. The binding
+  returns raw strings because Skogsra owns the final type cast.
+  """
+
   use Skogsra.Binding
 
   @impl Skogsra.Binding

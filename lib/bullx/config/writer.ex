@@ -1,4 +1,12 @@
 defmodule BullX.Config.Writer do
+  @moduledoc """
+  Writes runtime configuration to PostgreSQL and refreshes live projections.
+
+  Callers use this when setup or an operator action changes BullX runtime
+  config. A successful write commits the durable row first, then refreshes the
+  ETS cache and dependent projections such as ReqLLM provider configuration.
+  """
+
   import Ecto.Query
 
   @doc "Upserts a string value into `app_configs` and refreshes ETS. Values for keys

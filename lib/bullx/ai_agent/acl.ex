@@ -13,9 +13,9 @@ defmodule BullX.AIAgent.ACL do
   handles a concrete tool call.
 
   ACL does not own a separate policy store; the actual grants live in the
-  general authorization system (`BullX.AuthZ`), which the rest of BullX
-  (Budgets, ApprovalRequests, channel sends, etc.) also queries against the
-  same Principal/grant tables.
+  general authorization system (`BullX.AuthZ`). Future Budget, Approval,
+  channel-send, and Capability checks should reuse the same Principal/AuthZ
+  boundary when those surfaces are implemented.
   """
 
   alias BullX.AuthZ

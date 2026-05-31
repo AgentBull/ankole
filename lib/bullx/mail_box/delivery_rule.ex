@@ -1,5 +1,11 @@
 defmodule BullX.MailBox.DeliveryRule do
-  @moduledoc false
+  @moduledoc """
+  Durable routing rule that fans CloudEvents mail out to an Agent Receiver.
+
+  Priority orders rule evaluation; it is not a uniqueness boundary. The rule's
+  CEL expression matches against `BullX.MailBox.RoutingContext.project/1`, and
+  every matched rule creates its own `BullX.MailBox.Entry`.
+  """
 
   use Ecto.Schema
 

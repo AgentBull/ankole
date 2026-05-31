@@ -1,5 +1,11 @@
 defmodule BullXWeb.SetupChannelSourcesController do
-  @moduledoc false
+  @moduledoc """
+  Browser and JSON endpoints for configuring setup-capable channel adapters.
+
+  Adapter-specific validation and runtime reconciliation stay in
+  `BullX.Setup.ChannelSources`; this controller only enforces setup step access
+  and translates results into Inertia or JSON responses.
+  """
 
   use BullXWeb, :controller
 

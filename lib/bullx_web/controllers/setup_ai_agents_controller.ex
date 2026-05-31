@@ -1,5 +1,10 @@
 defmodule BullXWeb.SetupAIAgentsController do
-  @moduledoc false
+  @moduledoc """
+  Browser controller for the setup step that creates or selects the first Agent.
+
+  It renders setup projections and delegates all Principal, Agent profile, model
+  validation, and ACL writes to `BullX.Setup.AIAgents`.
+  """
 
   use BullXWeb, :controller
 

@@ -1,5 +1,11 @@
 defmodule BullX.LLM.ProviderModelDiscovery do
-  @moduledoc false
+  @moduledoc """
+  Best-effort dynamic model discovery for configured LLM providers.
+
+  Dynamic discovery enriches the local catalog with provider-reported model ids
+  and limits. It does not replace BullX's provider/model rows: the result is a
+  UI/readiness projection used when operators choose models during setup.
+  """
 
   alias BullX.LLM.{ModelConfig, ModelDescriptor}
 
@@ -67,6 +73,8 @@ defmodule BullX.LLM.ProviderModelDiscovery do
   defp map_models(models, opts, provider_atom, mapper) do
     provider_id = Keyword.fetch!(opts, :provider_id)
 
+    # Preserve the configured BullX provider_id on every descriptor even when
+    # the remote API only knows its adapter-native provider family.
     models
     |> Enum.map(&mapper.(provider_id, provider_atom, &1, local_model(provider_atom, &1)))
     |> Enum.reject(&is_nil/1)

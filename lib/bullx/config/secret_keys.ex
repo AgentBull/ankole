@@ -1,5 +1,11 @@
 defmodule BullX.Config.SecretKeys do
-  @moduledoc false
+  @moduledoc """
+  Discovers which database-backed config keys must be encrypted at rest.
+
+  Config modules declare secret keys through the `BullX.Config` macro. This
+  module builds a cached allowlist from in-tree config modules and plugin config
+  modules so writers can encrypt before persisting to `app_configs`.
+  """
 
   @bullx_prefix "Elixir.BullX.Config."
 

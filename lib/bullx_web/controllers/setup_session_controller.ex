@@ -1,5 +1,11 @@
 defmodule BullXWeb.SetupSessionController do
-  @moduledoc false
+  @moduledoc """
+  Opens the temporary setup session with a bootstrap activation code.
+
+  The plaintext code is never stored durably. This controller mints and logs a
+  fresh code for the operator, verifies the submitted value, and keeps only the
+  hash plus setup navigation state in the sealed browser session.
+  """
 
   use BullXWeb, :controller
 

@@ -1,5 +1,11 @@
 defmodule BullX.Redis do
-  @moduledoc false
+  @moduledoc """
+  Shared Redis client for reconstructible runtime caches.
+
+  Redis is optional in this branch. If no valid URL is configured the child is
+  ignored, and callers receive command errors instead of treating Redis as a
+  durable source of BullX truth.
+  """
 
   alias BullX.Config.CacheSettings
 

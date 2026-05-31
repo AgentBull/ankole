@@ -1,4 +1,13 @@
 defmodule BullX.LLM.Provider do
+  @moduledoc """
+  Durable BullX configuration for one logical LLM provider.
+
+  `provider_id` is the BullX-facing name used by Agent profiles, while
+  `req_llm_provider` selects the underlying ReqLLM adapter. This separation lets
+  operators configure multiple logical providers over the same adapter without
+  leaking credentials or base URLs into Agent profile documents.
+  """
+
   use Ecto.Schema
   import Ecto.Changeset
 

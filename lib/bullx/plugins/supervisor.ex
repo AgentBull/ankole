@@ -1,5 +1,11 @@
 defmodule BullX.Plugins.Supervisor do
-  @moduledoc false
+  @moduledoc """
+  Supervises the plugin registry and enabled plugin supervision trees.
+
+  This supervisor starts only compiled, validated plugins. Enabling a plugin
+  selects which declared children and extensions participate in runtime; it does
+  not load new BEAM code from disk.
+  """
 
   use Supervisor
 

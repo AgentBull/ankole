@@ -1,5 +1,10 @@
 defmodule BullX.LLM.Providers.OpenAI.WebSocket do
-  @moduledoc false
+  @moduledoc """
+  WebSocket session helpers for OpenAI Responses streaming.
+
+  The helper derives websocket URLs and auth headers from the same model/options
+  resolution path as regular OpenAI HTTP requests.
+  """
 
   alias ReqLLM.Streaming.Fixtures.HTTPContext
   alias ReqLLM.Streaming.WebSocketSession

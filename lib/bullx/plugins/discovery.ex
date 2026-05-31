@@ -1,5 +1,11 @@
 defmodule BullX.Plugins.Discovery do
-  @moduledoc false
+  @moduledoc """
+  Discovers compile-time BullX plugin declarations from configured OTP apps.
+
+  Plugins are not arbitrary runtime files. Discovery finds modules that expose
+  the `__bullx_plugin__/0` marker and turns them into validated specs before
+  the registry or plugin supervisors are started.
+  """
 
   alias BullX.Plugins.Spec
 
@@ -62,6 +68,9 @@ defmodule BullX.Plugins.Discovery do
   end
 
   defp plugin_modules_from_bullx_app(app) do
+    # Plugin modules are compiled into the BullX release in this branch. The app
+    # name still scopes the plugin id so operators can enable plugins by a
+    # stable external name rather than by module.
     with {:ok, modules} <- application_modules(:bullx) do
       modules
       |> Enum.filter(&plugin_module?/1)

@@ -1,5 +1,12 @@
 defmodule BullX.IMGateway.Message do
-  @moduledoc false
+  @moduledoc """
+  Canonical inbound IM message fact owned by `BullX.IMGateway`.
+
+  This schema records what the external provider said happened in a room,
+  including lifecycle state and provider timestamps. MailBox entries and Agent
+  transcript messages are downstream projections; they should reference this
+  provider fact rather than re-owning the external message.
+  """
 
   use Ecto.Schema
 

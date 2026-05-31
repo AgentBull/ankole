@@ -1,4 +1,12 @@
 defmodule BullX.Config.Supervisor do
+  @moduledoc """
+  Supervises reconstructible runtime configuration projections.
+
+  The children here rebuild process-local views from durable config tables and
+  synchronize dependent libraries after boot. No durable configuration truth is
+  owned by this supervisor.
+  """
+
   use Supervisor
 
   def start_link(init_arg) do

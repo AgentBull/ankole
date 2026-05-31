@@ -1,5 +1,10 @@
 defmodule BullXWeb.SetupLLMController do
-  @moduledoc false
+  @moduledoc """
+  Browser and JSON endpoints for setup-time LLM provider configuration.
+
+  The controller supports provider readiness checks and model list lookups, but
+  durable provider rows and API key handling belong to `BullX.Setup.LLMProviders`.
+  """
 
   use BullXWeb, :controller
 

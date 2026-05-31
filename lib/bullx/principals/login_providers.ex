@@ -1,5 +1,11 @@
 defmodule BullX.Principals.LoginProviders do
-  @moduledoc false
+  @moduledoc """
+  Dispatches web login requests to enabled Principal login-provider plugins.
+
+  Login providers can expose one or more configured sources. This module hides
+  the plugin/source lookup so controllers deal in provider ids while each
+  adapter keeps ownership of its authorization URL and callback semantics.
+  """
 
   alias BullX.Plugins.Extension
 

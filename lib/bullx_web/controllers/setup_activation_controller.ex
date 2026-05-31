@@ -1,5 +1,10 @@
 defmodule BullXWeb.SetupActivationController do
-  @moduledoc false
+  @moduledoc """
+  Final setup step that waits for `/root_init` to create the first admin.
+
+  The browser shows the current bootstrap command, but completion is proven by
+  backend Principal/AuthZ state rather than by trusting the page session.
+  """
 
   use BullXWeb, :controller
 

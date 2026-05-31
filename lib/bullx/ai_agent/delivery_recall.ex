@@ -1,5 +1,12 @@
 defmodule BullX.AIAgent.DeliveryRecall do
-  @moduledoc false
+  @moduledoc """
+  Builds and sends best-effort recalls for prior outbound IM deliveries.
+
+  When a source message recall/delete invalidates an Agent response, BullX can
+  ask the originating channel adapter to recall the external assistant message.
+  This is advisory: the local transcript records the correction even if the
+  external platform cannot recall the already-sent message.
+  """
 
   alias BullX.AIAgent.Message
   alias BullX.IMGateway.ChannelAdapter
@@ -50,6 +57,9 @@ defmodule BullX.AIAgent.DeliveryRecall do
   defp deliver_target(_reply_address, _target, _context, _on_error), do: :not_recalled
 
   defp recall_id(context, target) do
+    # Channel adapters may retry outbound operations. The recall id is derived
+    # from the lifecycle context plus the external target so repeated attempts
+    # are idempotent from the provider's point of view.
     payload =
       context
       |> stringify_keys()

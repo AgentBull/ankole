@@ -1,5 +1,12 @@
 defmodule BullX.Setup.LLMProviders do
-  @moduledoc false
+  @moduledoc """
+  Setup-step API for installing LLM provider rows.
+
+  The setup flow stores BullX provider configuration in PostgreSQL while
+  checking it against the currently loaded ReqLLM provider catalog. Optional
+  pings are readiness checks only; the provider row is the durable fact used by
+  later Agent profile resolution.
+  """
 
   alias BullX.LLM.{Catalog, PluginProviders, Provider, ProviderRegistry, Writer}
 
@@ -67,6 +74,8 @@ defmodule BullX.Setup.LLMProviders do
   defp save_one(attrs) when is_map(attrs) do
     attrs = normalize_provider_attrs(attrs)
 
+    # Blank API key means "keep the existing secret" for an already configured
+    # provider; new providers still pass through normal Writer validation.
     attrs =
       case blank?(Map.get(attrs, :api_key)) and existing_provider?(attrs[:provider_id]) do
         true -> Map.delete(attrs, :api_key)

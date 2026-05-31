@@ -1,5 +1,10 @@
 defmodule BullX.AIAgent.Tools.WebExtract do
-  @moduledoc false
+  @moduledoc """
+  Tool entry point for Agent web page extraction.
+
+  It keeps the LLM-facing `urls` argument small and bounded, then delegates
+  provider selection and HTTP behavior to `BullX.AIAgent.Tools.Web`.
+  """
 
   alias BullX.AIAgent.Tools.Context
   alias BullX.AIAgent.Tools.Web

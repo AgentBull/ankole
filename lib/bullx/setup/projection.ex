@@ -1,5 +1,12 @@
 defmodule BullX.Setup.Projection do
-  @moduledoc false
+  @moduledoc """
+  Builds the browser-facing setup state from durable setup prerequisites.
+
+  The setup UI is a projection, not the source of truth. Each step reports
+  completion from the current database/config/plugin state, and this module
+  clamps navigation to the earliest incomplete step so stale browser state
+  cannot skip required installation work.
+  """
 
   alias BullX.Principals
   alias BullX.Setup

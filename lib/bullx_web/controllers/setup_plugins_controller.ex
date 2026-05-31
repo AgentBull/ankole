@@ -1,5 +1,11 @@
 defmodule BullXWeb.SetupPluginsController do
-  @moduledoc false
+  @moduledoc """
+  Browser controller for choosing enabled BullX plugins during setup.
+
+  Saving plugin ids records operator intent in config. The running plugin
+  registry only reflects that intent after restart, so the page surfaces the
+  persisted-vs-runtime difference.
+  """
 
   use BullXWeb, :controller
 

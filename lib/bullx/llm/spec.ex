@@ -1,5 +1,11 @@
 defmodule BullX.LLM.Spec do
-  @moduledoc false
+  @moduledoc """
+  Parses compact `provider:model` references used in config and setup payloads.
+
+  The provider side must be a BullX logical provider id. The model side is left
+  provider-defined because vendors use different model naming schemes and
+  versions.
+  """
 
   @provider_id_format ~r/^[a-z][a-z0-9_-]{0,62}$/
 

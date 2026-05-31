@@ -1,5 +1,11 @@
 defmodule BullX.AIAgent.Tools.Retry do
-  @moduledoc false
+  @moduledoc """
+  Retries Agent tool calls that return retryable tool errors.
+
+  Tool adapters decide whether an error is retryable. This helper only applies
+  bounded exponential backoff, keeping provider-specific failure classification
+  out of the Agent loop.
+  """
 
   alias BullX.AIAgent.Tools.Error
 

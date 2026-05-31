@@ -1,5 +1,13 @@
 defmodule BullX.AIAgent.MessageRevisions do
-  @moduledoc false
+  @moduledoc """
+  Applies source-message edits, recalls, and deletes to Agent transcripts.
+
+  IM lifecycle events arrive as new MailBox entries after the original message
+  may already have been materialized into an AIAgent conversation. This module
+  finds the affected transcript message by provider refs, updates or hides it
+  when that is still safe, and writes transcript-effect messages when history
+  has already moved on and the Agent needs an explicit correction in context.
+  """
 
   import Ecto.Query
 
@@ -54,6 +62,9 @@ defmodule BullX.AIAgent.MessageRevisions do
   defp find_target_message([], _agent_uid, _event_source), do: nil
 
   defp find_target_message(target_ids, agent_uid, event_source) do
+    # Provider message ids are stored in metadata because each IM adapter has
+    # its own external id shape. The Agent-facing invariant is narrower: find
+    # the latest live user/ambient transcript item for this Agent and source.
     Message
     |> join(:inner, [m], c in Conversation, on: c.id == m.conversation_id)
     |> where([m, c], c.agent_uid == ^agent_uid)
@@ -99,6 +110,8 @@ defmodule BullX.AIAgent.MessageRevisions do
   end
 
   defp revise_target(target, action, event_data, invocation, entry, caller_principal_uid) do
+    # Lock the conversation and target together so a lifecycle event cannot race
+    # with a runner turn and leave the transcript half-updated.
     Repo.transaction(fn ->
       conversation = lock_conversation!(target.conversation_id)
 

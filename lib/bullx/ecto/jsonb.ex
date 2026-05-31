@@ -1,5 +1,11 @@
 defmodule BullX.Ecto.JSONB do
-  @moduledoc false
+  @moduledoc """
+  Ecto type for JSONB fields that must contain JSON-neutral values.
+
+  The type normalizes atom keys to strings on cast/load/dump so database facts
+  stay provider- and language-neutral instead of preserving Elixir-only map
+  shapes.
+  """
 
   use Ecto.Type
 

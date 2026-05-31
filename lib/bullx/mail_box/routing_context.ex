@@ -1,5 +1,11 @@
 defmodule BullX.MailBox.RoutingContext do
-  @moduledoc false
+  @moduledoc """
+  Projects CloudEvents mail into the CEL-visible MailBox routing shape.
+
+  Gateways own the raw event envelope. MailBox rules only see this normalized
+  context, which keeps match expressions stable even when individual gateway
+  payloads carry extra provider-specific fields.
+  """
 
   @spec project(map()) :: map()
   def project(%{"id" => id, "source" => source, "type" => type, "time" => time, "data" => data}) do

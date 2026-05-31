@@ -1,5 +1,12 @@
 defmodule BullX.MailBox.Entry do
-  @moduledoc false
+  @moduledoc """
+  Durable delivery record for one CloudEvents mail item and one Agent Receiver.
+
+  `BullX.IMGateway` stores the external-world message once; MailBox stores one
+  entry per matched Receiver. The entry owns delivery metadata such as
+  attention, queue key, and idempotency key, but not the business facts that the
+  Agent later derives from processing the mail.
+  """
 
   use Ecto.Schema
 

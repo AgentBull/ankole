@@ -1,5 +1,13 @@
 defmodule BullX.Runtime.Supervisor do
-  @moduledoc false
+  @moduledoc """
+  Supervises BullX runtime workers after static infrastructure is ready.
+
+  The children here own ephemeral process activity: plugin provider projection,
+  Redis client ownership, MailBox dispatch polling, and AIAgent background
+  workers. Durable business truth remains in PostgreSQL; these processes must
+  be safe to restart and reconstruct.
+  """
+
   use Supervisor
 
   def start_link(opts) do

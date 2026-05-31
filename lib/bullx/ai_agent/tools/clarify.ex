@@ -1,5 +1,12 @@
 defmodule BullX.AIAgent.Tools.Clarify do
-  @moduledoc false
+  @moduledoc """
+  Implements the Agent tool that asks a human for clarification.
+
+  The tool returns a structured event-like payload instead of blocking on a
+  human response. The current runtime can then surface a request, simulate no
+  response in tests, or report that clarification is unavailable for this
+  invocation context.
+  """
 
   alias BullX.AIAgent.Tools.Context
 

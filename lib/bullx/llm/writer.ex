@@ -1,5 +1,12 @@
 defmodule BullX.LLM.Writer do
-  @moduledoc false
+  @moduledoc """
+  Mutates durable LLM provider rows and refreshes the provider catalog cache.
+
+  Writes validate the ReqLLM adapter, encrypt API keys, and preserve the
+  BullX-facing `provider_id` as an immutable logical name. Cache refresh happens
+  after persistence, so callers can distinguish write failure from a persisted
+  but temporarily stale read model.
+  """
 
   alias BullX.LLM.{Catalog, Crypto, Provider, ProviderRegistry}
 

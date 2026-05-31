@@ -1,5 +1,11 @@
 defmodule BullX.LLM.ProviderRegistry do
-  @moduledoc false
+  @moduledoc """
+  Resolves BullX provider adapter ids to allowed ReqLLM provider modules.
+
+  ReqLLM may know more adapters than BullX wants to expose. This registry only
+  accepts modules declared through BullX plugin metadata or the in-tree BullX
+  provider namespace, keeping setup choices aligned with auditable plugins.
+  """
 
   @spec fetch(String.t()) ::
           {:ok, atom(), module()} | {:error, {:unknown_req_llm_provider, String.t()}}

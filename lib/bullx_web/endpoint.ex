@@ -1,4 +1,11 @@
 defmodule BullXWeb.Endpoint do
+  @moduledoc """
+  Phoenix endpoint for the BullX web shell.
+
+  The endpoint installs the custom sealed session store before routing so setup,
+  console, and login flows all share the same tamper-resistant cookie boundary.
+  """
+
   use Phoenix.Endpoint, otp_app: :bullx
 
   # The session is stored in a cookie sealed by BullX.Ext AEAD. The browser

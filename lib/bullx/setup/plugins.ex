@@ -1,5 +1,11 @@
 defmodule BullX.Setup.Plugins do
-  @moduledoc false
+  @moduledoc """
+  Setup-step API for choosing enabled compile-time plugins.
+
+  Enabling a plugin is persisted in BullX config, but the running registry only
+  changes after restart. This module reports that difference explicitly so the
+  setup UI can distinguish saved intent from currently active runtime plugins.
+  """
 
   alias BullX.Config
   alias BullX.Config.Plugins, as: PluginsConfig

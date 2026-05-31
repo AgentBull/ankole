@@ -1,5 +1,11 @@
 defmodule BullX.LLM.ModelDescriptor do
-  @moduledoc false
+  @moduledoc """
+  Public model option projected from static, dynamic, or manual LLM catalogs.
+
+  Descriptors are selection metadata, not provider credentials. They carry the
+  BullX provider id, provider-native model id, approximate limits, and available
+  reasoning efforts for setup and profile validation UI.
+  """
 
   alias BullX.LLM.ModelConfig
 

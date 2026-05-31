@@ -1,5 +1,11 @@
 defmodule BullX.AIAgent.AmbientBatchWorker do
-  @moduledoc false
+  @moduledoc """
+  Polls the ambient batch store and starts due batch processors.
+
+  The worker owns only timing. Batch contents live in the batch store and the
+  processor is safe to spawn independently, so restarting this GenServer should
+  only delay ambient intervention, not lose committed IM facts.
+  """
 
   use GenServer
 

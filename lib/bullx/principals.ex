@@ -12,19 +12,21 @@ defmodule BullX.Principals do
 
   BullX has one Installation-level operating domain. Inside that domain, a
   **Principal** is the stable, durable identity of any subject that can act,
-  be acted upon, or hold authority: humans, AI Agents, and (in future) other
-  automated subjects all share the same row shape. Every Conversation,
-  Message, tool invocation, Budget charge, ApprovalRequest, and routing
-  decision references one or more Principals — so the answer to "who did
-  this?" and "who is authorized to do that?" is a database fact, not a
+  be acted upon, or hold authority. Current subjects are humans and AI Agents;
+  future automated subjects should share this same identity surface instead of
+  introducing parallel "user" and "agent" identities. Current authorization
+  decisions, channel identity bindings, Agent rows, MailBox delivery rules, and
+  AIAgent conversation facts all reference Principals, so the answer to "who
+  did this?" and "who is authorized to do that?" is a database fact, not a
   runtime convention.
 
   Concretely, an `AIAgent` Receiver is itself a Principal (with an Agent
   extension row carrying its profile, soul, mission, toolsets, etc.), and so
   is every human reachable via a channel adapter or a login flow. This means
-  ACL checks, audit trails, and human-in-the-loop approvals operate on a
-  uniform identity surface — there is no "agent permissions" subsystem
-  separate from "user permissions".
+  current ACL checks operate on the same identity surface for humans and
+  Agents. Future Budget, Approval, Work, and Capability records should
+  reference Principals through the same surface instead of creating a separate
+  identity model.
 
   ## Internal contract
 

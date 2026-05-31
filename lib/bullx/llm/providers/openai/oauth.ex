@@ -1,5 +1,10 @@
 defmodule BullX.LLM.Providers.OpenAI.OAuth do
-  @moduledoc false
+  @moduledoc """
+  Refreshes OpenAI OAuth credentials used by the OpenAI provider adapter.
+
+  This is provider credential plumbing, not BullX Principal login. It converts
+  OpenAI's token response into the credential map expected by ReqLLM.
+  """
 
   @client_id "app_EMoamEEZ73f0CkXaXp7hrann"
   @token_url "https://auth.openai.com/oauth/token"

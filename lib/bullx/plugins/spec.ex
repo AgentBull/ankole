@@ -1,5 +1,11 @@
 defmodule BullX.Plugins.Spec do
-  @moduledoc false
+  @moduledoc """
+  Validated compile-time contract for one BullX plugin.
+
+  A spec captures the plugin marker metadata, extension declarations, and config
+  modules contributed by an OTP app. Validation happens before supervision so a
+  malformed plugin fails boot instead of surfacing as a late runtime surprise.
+  """
 
   alias BullX.Plugins.Extension
 

@@ -1,5 +1,10 @@
 defmodule BullX.LLM.Client do
-  @moduledoc false
+  @moduledoc """
+  Behaviour for the LLM client boundary used by AIAgent runtime code.
+
+  The default implementation delegates to ReqLLM, but tests and future runtime
+  policies can swap this boundary without changing Agent orchestration.
+  """
 
   alias BullX.LLM.ResolvedModel
 

@@ -4,19 +4,21 @@ defmodule BullX.Principals.Principal do
 
   This is the row that gives BullX one of its defining properties: humans and
   AI Agents are the *same kind of entity* in the authorization and audit
-  model. An Agent's permissions, Budget, outbound channel identity, and
-  ownership relations are stored on a Principal row exactly like a human's
-  are; type-specific facts (a human's external identities, an Agent's
-  profile and toolsets) live in one-to-one extension tables. ACL checks,
-  Budget charges, ApprovalRequest assignees, and Conversation participants
-  all reference Principals uniformly, which is what lets an Agent ask a
-  human for approval, hand off Work to another Agent, or be granted access
-  to a channel — without those flows needing separate "agent" and "user"
-  code paths.
+  model. Current common subject facts live here: uid, type, status, display
+  name, and avatar. Type-specific facts live in extension tables, such as a
+  human's profile fields, channel/login identities, and an Agent's profile.
+  AuthZ grants and AIAgent conversation rows reference Principals uniformly,
+  which keeps current ACL checks from splitting into separate "agent" and
+  "user" code paths.
 
-  The Principal row is the stable authorization, audit, ownership, and
-  responsibility identity. Type-specific facts live in one-to-one extension
-  tables.
+  Future Budget, Approval, Work, outbound identity, and ownership records
+  should also reference Principals when those surfaces are designed. They are
+  not Principal table fields in the current branch.
+
+  The Principal row is the stable current authorization and audit identity.
+  Future ownership and responsibility records should point at this identity
+  rather than introducing separate subject models. Type-specific facts live in
+  one-to-one extension tables.
   """
 
   use Ecto.Schema

@@ -1,5 +1,11 @@
 defmodule BullX.Principals.Code do
-  @moduledoc false
+  @moduledoc """
+  Generates and verifies short-lived human-entered Principal auth codes.
+
+  The plaintext codes are only displayed to the operator or user flow. BullX
+  stores Argon2 hashes and compares through the NIF boundary so bootstrap and
+  login-code verification share the same password-style treatment.
+  """
 
   require Logger
 

@@ -1,5 +1,11 @@
 defmodule BullX.Principals.Changeset do
-  @moduledoc false
+  @moduledoc """
+  Shared changeset helpers for Principal extension schemas.
+
+  Principal-facing forms frequently distinguish blank user input from absent
+  facts. These helpers normalize blank strings and validate JSON-map metadata
+  consistently across Human, Agent, and external identity rows.
+  """
 
   import Ecto.Changeset
 

@@ -1,5 +1,11 @@
 defmodule BullX.AIAgent.DailyResetWorker do
-  @moduledoc false
+  @moduledoc """
+  Periodically closes conversations that meet an Agent's daily reset policy.
+
+  The worker is a scheduler over durable Agent profiles and conversations. If
+  it restarts, the next poll can recompute eligible conversations from
+  PostgreSQL; no daily-reset truth lives in this process.
+  """
 
   use GenServer
 

@@ -1,5 +1,10 @@
 defmodule BullX.LLM.ReqClient do
-  @moduledoc false
+  @moduledoc """
+  `BullX.LLM.Client` implementation backed by ReqLLM.
+
+  Resolved BullX model configuration is converted once into ReqLLM model input
+  and options; per-call options are merged at the edge for chat and streaming.
+  """
 
   @behaviour BullX.LLM.Client
 

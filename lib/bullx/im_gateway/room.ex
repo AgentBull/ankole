@@ -1,5 +1,11 @@
 defmodule BullX.IMGateway.Room do
-  @moduledoc false
+  @moduledoc """
+  Canonical room mirror for an external IM provider space.
+
+  The uniqueness boundary is provider + connected realm + provider room id, not
+  a BullX channel-source id. Multiple bot sources may observe the same external
+  room, but BullX should still store one room fact for that external place.
+  """
 
   use Ecto.Schema
 

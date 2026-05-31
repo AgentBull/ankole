@@ -1,5 +1,11 @@
 defmodule BullX.LLM.Catalog.Cache do
-  @moduledoc false
+  @moduledoc """
+  Cache projection for configured LLM provider rows.
+
+  Provider rows are durable PostgreSQL facts. This GenServer keeps a fast
+  process-local read path through `BullX.Cache` and can rebuild from the
+  database whenever the cache is missing or stale.
+  """
 
   use GenServer
   require Logger

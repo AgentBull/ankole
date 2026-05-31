@@ -1,5 +1,11 @@
 defmodule BullX.IMGateway.CommandResponses do
-  @moduledoc false
+  @moduledoc """
+  Text renderers for Gateway-owned direct commands.
+
+  These commands are handled at the IMGateway boundary before MailBox delivery.
+  They are operational affordances such as setup activation and status, not
+  Agent conversation mail.
+  """
 
   alias BullX.AIAgent.CommandCatalog
 

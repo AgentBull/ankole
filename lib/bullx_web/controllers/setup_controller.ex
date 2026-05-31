@@ -1,4 +1,11 @@
 defmodule BullXWeb.SetupController do
+  @moduledoc """
+  Redirects the setup landing route to the current installation step.
+
+  The controller does not decide setup completion itself; it delegates to
+  `BullXWeb.SetupAuth`, which projects state from the backend setup contexts.
+  """
+
   use BullXWeb, :controller
 
   def show(conn, _params) do

@@ -1,5 +1,11 @@
 defmodule BullX.MailBox.AcceptanceKey do
-  @moduledoc false
+  @moduledoc """
+  Idempotency ledger for MailBox entries accepted by an Agent Receiver.
+
+  Delivery can be retried, but an Agent should not materialize the same mail
+  twice. This table records the accepted idempotency key for the Agent and the
+  entry that won that acceptance race.
+  """
 
   use Ecto.Schema
 

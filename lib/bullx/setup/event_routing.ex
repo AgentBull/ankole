@@ -1,5 +1,12 @@
 defmodule BullX.Setup.EventRouting do
-  @moduledoc false
+  @moduledoc """
+  Setup-step API for installing the default IM-to-Agent delivery rule.
+
+  Setup does not invent a separate routing path. It writes a normal
+  `BullX.MailBox.DeliveryRule` for the selected channel source and verifies the
+  rule against a live sample context, so the installed system starts with the
+  same matcher semantics used by runtime MailBox delivery.
+  """
 
   import Ecto.Query
 
@@ -146,6 +153,8 @@ defmodule BullX.Setup.EventRouting do
   defp upsert_setup_rule(source, attrs) do
     name = rule_name(source)
 
+    # Rule names are stable setup-owned identities. Re-running setup updates the
+    # same delivery rule instead of creating parallel routes to the same Agent.
     result =
       case Repo.get_by(DeliveryRule, name: name) do
         %DeliveryRule{} = rule ->

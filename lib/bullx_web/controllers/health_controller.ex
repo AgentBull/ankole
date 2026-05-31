@@ -1,4 +1,11 @@
 defmodule BullXWeb.HealthController do
+  @moduledoc """
+  Unauthenticated liveness and readiness endpoints for operators.
+
+  Liveness reports process availability; readiness returns service dependency
+  checks and maps failure to HTTP 503 for probes.
+  """
+
   use BullXWeb, :controller
 
   alias BullX.Health

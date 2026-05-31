@@ -1,5 +1,11 @@
 defmodule BullX.AIAgent.Event do
-  @moduledoc false
+  @moduledoc """
+  Small accessors for the CloudEvents data shape consumed by AIAgent.
+
+  Gateways may emit string-keyed or atom-keyed maps in tests, but Agent code
+  should read one stable vocabulary: event ids, text content, reply addresses,
+  provider refs, and the Principal uid that triggered the delivery.
+  """
 
   @spec type(map()) :: String.t() | nil
   def type(event), do: value(event, "type")

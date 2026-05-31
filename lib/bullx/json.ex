@@ -1,5 +1,11 @@
 defmodule BullX.JSON do
-  @moduledoc false
+  @moduledoc """
+  Helpers for values that must round-trip through PostgreSQL JSONB.
+
+  BullX accepts maps from Elixir code, provider payloads, and tests. Before a
+  value is stored in JSONB-backed fields, this module normalizes atom keys to
+  strings and rejects structs, non-finite floats, and other non-JSON terms.
+  """
 
   @spec json_object?(term()) :: boolean()
   def json_object?(%{} = value) do

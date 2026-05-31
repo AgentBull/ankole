@@ -1,5 +1,10 @@
 defmodule BullX.AIAgent.Tools.Web.JinaReader do
-  @moduledoc false
+  @moduledoc """
+  Jina Reader adapter for BullX AIAgent web extraction.
+
+  Jina can run without a configured API key, so this adapter is always available
+  for extraction and normalizes provider failures into per-URL result errors.
+  """
 
   alias BullX.AIAgent.Tools.Web
 

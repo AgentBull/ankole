@@ -1,5 +1,11 @@
 defmodule BullX.IMGateway.DeliveryCircuitBreaker do
-  @moduledoc false
+  @moduledoc """
+  In-memory delivery circuit breaker for IM adapter outbound calls.
+
+  The breaker protects a provider/source pair from repeated failing sends. Its
+  ETS state is deliberately ephemeral: losing it may cause retries sooner than
+  ideal, but does not change any durable outbound or transcript fact.
+  """
 
   import BullX.Utils.Map, only: [maybe_put: 3]
 

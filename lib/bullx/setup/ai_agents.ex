@@ -1,5 +1,12 @@
 defmodule BullX.Setup.AIAgents do
-  @moduledoc false
+  @moduledoc """
+  Setup-step API for choosing the initial AIAgent Receiver.
+
+  This module is not the long-term Agent runtime. It translates setup form
+  input into the durable Principal + Agent rows required for the first
+  installation, validates the selected LLM profile, and grants the minimal
+  default `invoke` permissions needed for humans and the Agent itself.
+  """
 
   import Ecto.Query
 
@@ -176,6 +183,9 @@ defmodule BullX.Setup.AIAgents do
   end
 
   defp ensure_agent_acl(agent_uid) do
+    # The setup-created Agent should be usable immediately, but the permission
+    # still goes through the normal AuthZ tables so later runtime checks do not
+    # need a setup-specific bypass.
     with {:ok, all_humans, _status} <- AuthZ.ensure_built_in_all_humans_group(),
          :ok <-
            upsert_agent_acl_grant(principal_grant(agent_uid, agent_uid, "invoke")),

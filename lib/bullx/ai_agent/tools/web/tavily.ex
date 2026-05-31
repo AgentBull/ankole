@@ -1,5 +1,10 @@
 defmodule BullX.AIAgent.Tools.Web.Tavily do
-  @moduledoc false
+  @moduledoc """
+  Tavily adapter for BullX AIAgent web search and extraction tools.
+
+  Tavily-specific request options stay here; callers receive the same normalized
+  result shape as other web adapters.
+  """
 
   alias BullX.AIAgent.Tools.Web
 

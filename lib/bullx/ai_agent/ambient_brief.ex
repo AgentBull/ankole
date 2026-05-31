@@ -1,5 +1,11 @@
 defmodule BullX.AIAgent.AmbientBrief do
-  @moduledoc false
+  @moduledoc """
+  Generates compact recall text for long ambient observations.
+
+  Ambient transcript items can be useful later without deserving immediate
+  Agent intervention. This helper stores a bounded factual brief in message
+  metadata so later context retrieval can carry the observation cheaply.
+  """
 
   alias BullX.AIAgent.{Conversations, Message, Profile}
   alias BullX.LLM

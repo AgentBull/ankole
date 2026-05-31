@@ -1,5 +1,11 @@
 defmodule BullX.Config.Principals.MatchRules do
-  @moduledoc false
+  @moduledoc """
+  Skogsra type for Principal AuthN match-rule configuration.
+
+  Match rules are JSON-compatible policy data used when an external login or
+  channel identity is not already bound. The type validates the small supported
+  rule language before AuthN code uses it to bind or create human Principals.
+  """
 
   use Skogsra.Type
 
