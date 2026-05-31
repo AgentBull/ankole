@@ -2,21 +2,19 @@ defmodule BullX.MailBox do
   @moduledoc """
   Internal CloudEvents mail delivery window.
 
-  MailBox owns receiver delivery entries and short processing sessions. It does
-  not own IM messages, conversations, workflow runs, or outbound provider facts.
+  MailBox stores accepted pending mail in PostgreSQL and keeps scheduling state
+  in `BullX.MailBox.Runtime`. The persisted rows are intentionally small: they
+  are enough to rebuild runtime queues after an Elixir process crash, but they
+  do not encode timers, leases, or coalesce pressure.
   """
 
   import Ecto.Query
 
   alias BullX.AIAgent.Message, as: ConversationMessage
-  alias BullX.MailBox.{Dispatcher, SessionWorker}
-  alias BullX.MailBox.Matcher
-  alias BullX.MailBox.{DeliveryRule, Entry, Session}
+  alias BullX.MailBox.{AcceptanceKey, DeliveryRule, Entry, Matcher, Runtime}
   alias BullX.Principals.Agent
   alias BullX.Repo
 
-  @lease_seconds 60
-  @session_lease_seconds 120
   @lifecycle_in_flight_retry_ms 250
   @default_claim_limit 10
   @attention [:addressed, :ambient, :command, :action, :lifecycle, :system]
@@ -32,13 +30,25 @@ defmodule BullX.MailBox do
   @default_active_rules_cache_ttl_ms 1_000
 
   @type deliver_result ::
-          {:ok, %{agent: Agent.t(), session: Session.t(), entry: Entry.t()}}
-          | {:ok, %{status: :duplicate, agent: Agent.t(), session: Session.t(), entry: Entry.t()}}
+          {:ok, %{agent: Agent.t(), queue_key: String.t(), entry: Entry.t() | nil}}
+          | {:ok,
+             %{
+               status: :duplicate,
+               agent: Agent.t(),
+               queue_key: String.t(),
+               entry: Entry.t() | nil
+             }}
           | {:error, term()}
 
   @type route_result ::
-          {:ok, %{agent: Agent.t(), session: Session.t(), entry: Entry.t()}}
-          | {:ok, %{status: :duplicate, agent: Agent.t(), session: Session.t(), entry: Entry.t()}}
+          {:ok, %{agent: Agent.t(), queue_key: String.t(), entry: Entry.t() | nil}}
+          | {:ok,
+             %{
+               status: :duplicate,
+               agent: Agent.t(),
+               queue_key: String.t(),
+               entry: Entry.t() | nil
+             }}
 
   @spec route(map(), keyword()) :: {:ok, [route_result()]} | {:error, term()}
   def route(cloud_event, opts \\ []) when is_map(cloud_event) and is_list(opts) do
@@ -63,16 +73,9 @@ defmodule BullX.MailBox do
     attrs = normalize_request(request)
 
     Repo.transaction(fn ->
-      with {:ok, agent} <- get_agent(attrs),
-           {:ok, session} <- get_or_create_session(agent, attrs),
-           {:ok, entry} <- insert_entry(agent, session, attrs) do
-        %{agent: agent, session: session, entry: entry}
-      else
-        {:duplicate, agent, session, entry} ->
-          %{status: :duplicate, agent: agent, session: session, entry: entry}
-
-        {:error, reason} ->
-          Repo.rollback(reason)
+      case get_agent(attrs) do
+        {:ok, agent} -> accept_entry(agent, attrs)
+        {:error, reason} -> Repo.rollback(reason)
       end
     end)
     |> case do
@@ -85,411 +88,200 @@ defmodule BullX.MailBox do
     end
   end
 
-  defp claim_ready_sessions(limit, opts)
-       when is_integer(limit) and limit > 0 and is_list(opts) do
-    now = utc_now()
-    holder = Keyword.get(opts, :holder, default_holder())
-
-    Repo.transaction(fn ->
-      sessions =
-        Session
-        |> where(
-          [session],
-          is_nil(session.lease_holder) or is_nil(session.lease_expires_at) or
-            session.lease_expires_at <= ^now
-        )
-        |> where(
-          [session],
-          fragment(
-            """
-            EXISTS (
-              SELECT 1
-              FROM mailbox_entries e
-              WHERE e.mailbox_session_id = ?
-                AND e.available_at <= ?
-                AND (
-                  e.status = 'pending' OR
-                  (e.status = 'leased' AND (e.lease_expires_at IS NULL OR e.lease_expires_at <= ?))
-                )
-                AND COALESCE(e.cloud_event->>'type', '') NOT IN (
-                  'bullx.command.invoked',
-                  'bullx.agent.abort',
-                  'bullx.message.edited',
-                  'bullx.message.recalled',
-                  'bullx.message.deleted'
-                )
-            )
-            """,
-            session.id,
-            ^now,
-            ^now
-          )
-        )
-        |> order_by([session], asc: session.last_entry_at)
-        |> limit(^limit)
-        |> lock("FOR UPDATE SKIP LOCKED")
-        |> Repo.all()
-
-      ids = Enum.map(sessions, & &1.id)
-
-      case ids do
-        [] ->
-          []
-
-        [_ | _] ->
-          lease_until = DateTime.add(now, @session_lease_seconds, :second)
-
-          Repo.update_all(
-            from(session in Session, where: session.id in ^ids),
-            set: [
-              lease_holder: holder,
-              lease_expires_at: lease_until,
-              updated_at: now
-            ]
-          )
-
-          Session
-          |> where([session], session.id in ^ids)
-          |> order_by([session], asc: session.last_entry_at)
-          |> Repo.all()
-      end
-    end)
-    |> case do
-      {:ok, sessions} -> {:ok, sessions}
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  defp claim_ready_control_entries(limit, opts)
-       when is_integer(limit) and limit > 0 and is_list(opts) do
-    now = utc_now()
-    holder = Keyword.get(opts, :holder, default_holder())
-
-    Repo.transaction(fn ->
-      entries =
-        Entry
-        |> where([entry], entry.available_at <= ^now)
-        |> where(
-          [entry],
-          entry.status == :pending or
-            (entry.status == :leased and
-               (is_nil(entry.lease_expires_at) or entry.lease_expires_at <= ^now))
-        )
-        |> where(
-          [entry],
-          fragment("?->>'type' = ANY(?)", entry.cloud_event, ^@control_event_types)
-        )
-        |> order_by([entry], asc: entry.entry_seq)
-        |> limit(^limit)
-        |> lock("FOR UPDATE SKIP LOCKED")
-        |> Repo.all()
-
-      lease_entries(entries, holder, now)
-    end)
-    |> case do
-      {:ok, entries} -> {:ok, entries}
-      {:error, reason} -> {:error, reason}
-    end
+  @spec process_ready(pos_integer(), keyword()) :: {:ok, non_neg_integer()} | {:error, term()}
+  def process_ready(limit \\ @default_claim_limit, opts \\ [])
+      when is_integer(limit) and limit > 0 and is_list(opts) do
+    Runtime.process_ready(limit, opts)
   end
 
   @spec next_ready_at() :: DateTime.t() | nil
-  def next_ready_at do
-    now = utc_now()
+  def next_ready_at, do: Runtime.next_ready_at()
 
-    pending_next =
-      Entry
-      |> where([entry], entry.status == :pending)
-      |> select([entry], min(entry.available_at))
-      |> Repo.one()
+  @spec rebuild_runtime() :: :ok | {:error, term()}
+  def rebuild_runtime, do: Runtime.reload()
 
-    leased_next =
-      Entry
-      |> where([entry], entry.status == :leased)
-      |> select([entry], min(coalesce(entry.lease_expires_at, ^now)))
-      |> Repo.one()
+  @spec force_ready() :: :ok
+  def force_ready, do: Runtime.force_ready()
 
-    earliest_datetime([pending_next, leased_next])
-  end
+  @spec control_event_type?(String.t()) :: boolean()
+  def control_event_type?(type) when is_binary(type), do: type in @control_event_types
+  def control_event_type?(_type), do: false
 
   @spec process_entry(Entry.t(), keyword()) :: :ok | {:error, term()}
   def process_entry(%Entry{} = entry, opts \\ []) when is_list(opts) do
-    entry = Repo.preload(entry, [:agent, :session])
-    holder = Keyword.get(opts, :holder, entry.lease_holder)
+    result = process_entry_result(entry, opts)
+    Runtime.complete(entry.id, result)
+    public_process_result(result)
+  end
+
+  @doc false
+  @spec process_entry_result(Entry.t(), keyword()) :: Runtime.process_result()
+  def process_entry_result(%Entry{} = entry, opts \\ []) when is_list(opts) do
+    entry = Repo.preload(entry, [:agent])
 
     case maybe_apply_lifecycle_to_pending_receive(entry) do
-      :applied ->
-        mark_entry(entry, :processed, nil, holder)
+      {:updated, %Entry{} = updated_target} ->
+        Runtime.replace_entry(updated_target)
+        delete_entries([entry.id])
+
+      {:deleted, target_id} ->
+        delete_entries([entry.id, target_id])
 
       :defer ->
-        defer_entry(entry, holder)
+        {:defer, @lifecycle_in_flight_retry_ms}
 
       :continue ->
-        process_dispatch_entry(entry, holder, opts)
-
-      {:error, reason} ->
-        mark_entry(entry, :failed, safe_error(reason), holder)
-    end
-  end
-
-  defp process_dispatch_entry(%Entry{} = entry, holder, opts) do
-    {entry, coalesced_entries} = coalesce_entry(entry, holder)
-
-    case dispatch(entry, opts) do
-      :ok ->
-        with :ok <- mark_entry(entry, :processed, nil, holder),
-             :ok <- mark_entries(coalesced_entries, :processed, nil, holder) do
-          :ok
-        end
-
-      {:error, reason} ->
-        release_entries(coalesced_entries, holder)
-        mark_entry(entry, :failed, safe_error(reason), holder)
-    end
-  end
-
-  @spec process_entry_by_id(String.t(), keyword()) :: :ok | {:error, term()}
-  def process_entry_by_id(entry_id, opts \\ []) when is_binary(entry_id) and is_list(opts) do
-    with {:ok, entry} <- claim_entry(entry_id, opts) do
-      process_entry(entry, Keyword.put(opts, :holder, entry.lease_holder))
-    end
-  end
-
-  @spec process_session(Session.t(), keyword()) :: :ok | {:error, term()}
-  def process_session(%Session{} = session, opts \\ []) when is_list(opts) do
-    holder = session.lease_holder || Keyword.get(opts, :holder, default_holder())
-    heartbeat = start_session_heartbeat(session.id, holder)
-
-    try do
-      process_session_loop(session.id, holder, opts)
-    after
-      stop_session_heartbeat(heartbeat)
-      release_session(session.id, holder)
-    end
-  end
-
-  @spec process_ready(pos_integer(), keyword()) :: {:ok, non_neg_integer()} | {:error, term()}
-  def process_ready(limit \\ @default_claim_limit, opts \\ []) do
-    async? = Keyword.get(opts, :async?, false)
-
-    with {:ok, controls} <- claim_ready_control_entries(limit, opts),
-         remaining <- max(limit - length(controls), 0),
-         {:ok, sessions} <- maybe_claim_ready_sessions(remaining, opts) do
-      Enum.each(controls, &process_or_start_entry(&1, opts, async?))
-      Enum.each(sessions, &process_or_start_session(&1, opts, async?))
-
-      {:ok, length(controls) + length(sessions)}
-    end
-  end
-
-  defp maybe_claim_ready_sessions(0, _opts), do: {:ok, []}
-  defp maybe_claim_ready_sessions(limit, opts), do: claim_ready_sessions(limit, opts)
-
-  defp process_or_start_entry(%Entry{} = entry, opts, true) do
-    opts = Keyword.put(opts, :holder, entry.lease_holder)
-    SessionWorker.start_entry(entry, opts)
-  end
-
-  defp process_or_start_entry(%Entry{} = entry, opts, false) do
-    process_entry(entry, Keyword.put(opts, :holder, entry.lease_holder))
-  end
-
-  defp process_or_start_session(%Session{} = session, opts, true) do
-    opts = Keyword.put(opts, :holder, session.lease_holder)
-    SessionWorker.start_session(session, opts)
-  end
-
-  defp process_or_start_session(%Session{} = session, opts, false) do
-    process_session(session, Keyword.put(opts, :holder, session.lease_holder))
-  end
-
-  defp process_session_loop(session_id, holder, opts) do
-    case claim_next_session_entry(session_id, holder) do
-      {:ok, nil} ->
-        :ok
-
-      {:ok, %Entry{} = entry} ->
-        _result = process_entry(entry, Keyword.put(opts, :holder, holder))
-        process_session_loop(session_id, holder, opts)
+        process_dispatch_entry(entry, opts)
 
       {:error, reason} ->
         {:error, reason}
     end
   end
 
-  defp claim_next_session_entry(session_id, holder) do
-    now = utc_now()
+  @spec process_entry_by_id(String.t(), keyword()) :: :ok | {:error, term()}
+  def process_entry_by_id(entry_id, opts \\ []) when is_binary(entry_id) and is_list(opts) do
+    case Repo.get(Entry, entry_id) do
+      %Entry{} = entry -> process_entry(entry, opts)
+      nil -> {:error, :entry_not_found}
+    end
+  end
 
-    Repo.transaction(fn ->
-      entry =
-        Entry
-        |> where([entry], entry.mailbox_session_id == ^session_id)
-        |> where([entry], entry.available_at <= ^now)
-        |> where(
-          [entry],
-          entry.status == :pending or
-            (entry.status == :leased and
-               (is_nil(entry.lease_expires_at) or entry.lease_expires_at <= ^now))
-        )
-        |> where(
-          [entry],
-          fragment(
-            "NOT (COALESCE(?->>'type', '') = ANY(?))",
-            entry.cloud_event,
-            ^@control_event_types
-          )
-        )
-        |> order_by([entry], asc: entry.entry_seq)
-        |> limit(1)
-        |> lock("FOR UPDATE SKIP LOCKED")
-        |> Repo.one()
+  defp public_process_result({:ok, _ids}), do: :ok
+  defp public_process_result({:defer, _delay_ms}), do: :ok
+  defp public_process_result({:error, reason}), do: {:error, reason}
 
-      case lease_entries(List.wrap(entry), holder, now) do
-        [] -> nil
-        [entry] -> entry
-      end
-    end)
+  defp process_dispatch_entry(%Entry{} = entry, opts) do
+    {entry, coalesced_entries} = coalesce_entry(entry)
+    Runtime.mark_in_flight(coalesced_entries, entry.queue_key)
+    ids = Enum.map([entry | coalesced_entries], & &1.id)
+
+    case dispatch(entry, opts) do
+      :ok ->
+        delete_entries(ids)
+
+      {:error, _reason} ->
+        delete_entries(ids)
+    end
+  end
+
+  defp accept_entry(%Agent{} = agent, attrs) do
+    entry_id = BullX.Ext.gen_uuid_v7()
+
+    case insert_acceptance_key(agent, attrs, entry_id) do
+      :inserted ->
+        insert_entry(agent, attrs, entry_id)
+
+      :duplicate ->
+        existing_accepted(agent, attrs)
+    end
+  end
+
+  defp insert_acceptance_key(%Agent{} = agent, attrs, entry_id) do
+    row = %{
+      id: BullX.Ext.gen_uuid_v7(),
+      agent_uid: agent.uid,
+      idempotency_key: attrs.idempotency_key,
+      entry_id: entry_id,
+      accepted_at: attrs.now,
+      inserted_at: attrs.now
+    }
+
+    case Repo.insert_all(AcceptanceKey, [row],
+           on_conflict: :nothing,
+           conflict_target: [:agent_uid, :idempotency_key]
+         ) do
+      {1, _rows} -> :inserted
+      {0, _rows} -> :duplicate
+    end
+  end
+
+  defp insert_entry(%Agent{} = agent, attrs, entry_id) do
+    %Entry{id: entry_id}
+    |> Entry.changeset(%{
+      agent_uid: agent.uid,
+      queue_key: attrs.queue_key,
+      attention: attrs.attention,
+      cloud_event: attrs.cloud_event,
+      idempotency_key: attrs.idempotency_key
+    })
+    |> Repo.insert()
     |> case do
-      {:ok, entry_or_nil} -> {:ok, entry_or_nil}
-      {:error, reason} -> {:error, reason}
+      {:ok, entry} ->
+        %{agent: agent, queue_key: attrs.queue_key, entry: Repo.preload(entry, [:agent])}
+
+      {:error, changeset} ->
+        case existing_entry_after_conflict(changeset, agent, attrs) do
+          {:duplicate, result} -> result
+          {:error, reason} -> Repo.rollback(reason)
+        end
     end
   end
 
-  defp claim_entry(entry_id, opts) do
-    now = utc_now()
-    holder = Keyword.get(opts, :holder, default_holder())
+  defp existing_accepted(agent, attrs) do
+    entry =
+      AcceptanceKey
+      |> Repo.get_by(agent_uid: agent.uid, idempotency_key: attrs.idempotency_key)
+      |> pending_entry_for_key(agent, attrs)
 
-    Repo.transaction(fn ->
-      entry =
-        Entry
-        |> where([entry], entry.id == ^entry_id)
-        |> where([entry], entry.available_at <= ^now)
-        |> where(
-          [entry],
-          entry.status == :pending or
-            (entry.status == :leased and
-               (is_nil(entry.lease_expires_at) or entry.lease_expires_at <= ^now))
-        )
-        |> lock("FOR UPDATE SKIP LOCKED")
-        |> Repo.one()
+    %{status: :duplicate, agent: agent, queue_key: attrs.queue_key, entry: entry}
+  end
 
-      case lease_entries(List.wrap(entry), holder, now) do
-        [] -> Repo.rollback(:entry_not_ready)
-        [entry] -> entry
-      end
-    end)
-    |> case do
-      {:ok, entry} -> {:ok, entry}
-      {:error, reason} -> {:error, reason}
+  defp existing_entry_after_conflict(changeset, agent, attrs) do
+    case unique_conflict?(changeset) do
+      true ->
+        entry = Repo.get_by(Entry, agent_uid: agent.uid, idempotency_key: attrs.idempotency_key)
+
+        {:duplicate,
+         %{status: :duplicate, agent: agent, queue_key: attrs.queue_key, entry: entry}}
+
+      false ->
+        {:error, changeset}
     end
   end
 
-  defp lease_entries([], _holder, _now), do: []
+  defp pending_entry_for_key(nil, _agent, _attrs), do: nil
 
-  defp lease_entries(entries, holder, now) do
-    ids = Enum.map(entries, & &1.id)
-
-    Repo.update_all(
-      from(entry in Entry, where: entry.id in ^ids),
-      set: [
-        status: :leased,
-        lease_holder: holder,
-        lease_expires_at: DateTime.add(now, @lease_seconds, :second),
-        updated_at: now
-      ],
-      inc: [attempts: 1]
-    )
-
-    Entry
-    |> where([entry], entry.id in ^ids)
-    |> order_by([entry], asc: entry.entry_seq)
-    |> preload([:agent, :session])
-    |> Repo.all()
+  defp pending_entry_for_key(%AcceptanceKey{entry_id: entry_id}, agent, attrs) do
+    Repo.get(Entry, entry_id) ||
+      Repo.get_by(Entry, agent_uid: agent.uid, idempotency_key: attrs.idempotency_key)
   end
 
-  defp start_session_heartbeat(session_id, holder) when is_binary(holder) do
-    ref = make_ref()
-    interval_ms = div(@session_lease_seconds * 1_000, 3)
-    pid = spawn(fn -> session_heartbeat_loop(ref, session_id, holder, interval_ms) end)
-    {pid, ref}
-  end
+  defp delete_entries(ids) do
+    ids =
+      ids
+      |> List.wrap()
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
 
-  defp start_session_heartbeat(_session_id, _holder), do: nil
+    case ids do
+      [] ->
+        {:ok, []}
 
-  defp stop_session_heartbeat({pid, ref}) when is_pid(pid), do: send(pid, {:stop, ref})
-  defp stop_session_heartbeat(_heartbeat), do: :ok
-
-  defp session_heartbeat_loop(ref, session_id, holder, interval_ms) do
-    receive do
-      {:stop, ^ref} ->
-        :ok
-    after
-      interval_ms ->
-        _ignored = heartbeat_session(session_id, holder)
-        session_heartbeat_loop(ref, session_id, holder, interval_ms)
+      [_ | _] ->
+        Repo.delete_all(from(entry in Entry, where: entry.id in ^ids))
+        {:ok, ids}
     end
   end
 
-  defp heartbeat_session(session_id, holder) do
-    now = utc_now()
+  defp dispatch(%Entry{agent: %Agent{type: :ai_agent} = agent} = entry, _opts) do
+    invocation = %{
+      target_ref: agent.uid,
+      mailbox_queue_key: entry.queue_key,
+      mailbox_entry_id: entry.id,
+      output: BullX.MailBox.StreamingOutput,
+      close: fn -> :ok end,
+      fail: fn _reason -> :ok end
+    }
 
-    Repo.update_all(
-      from(session in Session,
-        where: session.id == ^session_id and session.lease_holder == ^holder
-      ),
-      set: [
-        lease_expires_at: DateTime.add(now, @session_lease_seconds, :second),
-        updated_at: now
-      ]
-    )
+    BullX.AIAgent.handle_mailbox_entry(invocation, entry)
   end
 
-  defp release_session(session_id, holder) when is_binary(holder) do
-    now = utc_now()
-
-    Repo.update_all(
-      from(session in Session,
-        where: session.id == ^session_id and session.lease_holder == ^holder
-      ),
-      set: [lease_holder: nil, lease_expires_at: nil, updated_at: now]
-    )
-
-    :ok
-  end
-
-  defp release_session(_session_id, _holder), do: :ok
-
-  defp coalesce_entry(%Entry{} = entry, holder) when is_binary(holder) do
-    case coalesce_config(entry) do
-      {:ok, window_ms, max_chars} ->
-        entries = claim_coalesced_entries(entry, holder, window_ms, max_chars)
-        {merge_coalesced_entries(entry, entries), entries}
-
-      :skip ->
-        {entry, []}
-    end
-  end
-
-  defp coalesce_entry(%Entry{} = entry, _holder), do: {entry, []}
-
-  defp coalesce_config(%Entry{
-         cloud_event: %{
-           "type" => "bullx.message.received",
-           "data" => %{"coalesce" => %{} = config}
-         }
-       }) do
-    window_ms = integer_value(config["window_ms"], 0)
-    max_chars = integer_value(config["max_chars"], 0)
-
-    case window_ms > 0 and max_chars > 0 do
-      true -> {:ok, window_ms, max_chars}
-      false -> :skip
-    end
-  end
-
-  defp coalesce_config(_entry), do: :skip
+  defp dispatch(%Entry{agent: %Agent{type: agent_type}}, _opts),
+    do: {:error, {:unknown_agent_type, agent_type}}
 
   defp maybe_apply_lifecycle_to_pending_receive(%Entry{
-         mailbox_session_id: session_id,
+         agent_uid: agent_uid,
+         queue_key: queue_key,
          cloud_event: %{"type" => type, "data" => %{} = data}
        })
        when type in ["bullx.message.edited", "bullx.message.recalled", "bullx.message.deleted"] do
@@ -498,15 +290,9 @@ defmodule BullX.MailBox do
         :continue
 
       target_ids ->
-        case receive_for_lifecycle(session_id, target_ids) do
-          {:pending, %Entry{} = target} ->
-            apply_lifecycle_to_pending_receive(target, type, data)
-
-          {:leased, %Entry{} = target} ->
-            case lifecycle_target_materialized?(session_id, target_ids, target) do
-              true -> :continue
-              false -> :defer
-            end
+        case receive_for_lifecycle(agent_uid, queue_key, target_ids) do
+          %Entry{} = target ->
+            apply_or_defer_lifecycle(agent_uid, queue_key, target_ids, target, type, data)
 
           nil ->
             :continue
@@ -516,38 +302,43 @@ defmodule BullX.MailBox do
 
   defp maybe_apply_lifecycle_to_pending_receive(_entry), do: :continue
 
-  defp receive_for_lifecycle(session_id, target_ids) do
+  defp apply_or_defer_lifecycle(agent_uid, queue_key, target_ids, %Entry{} = target, type, data) do
+    case Runtime.in_flight?(target.id) do
+      true ->
+        case lifecycle_target_materialized?(agent_uid, queue_key, target_ids, target) do
+          true -> :continue
+          false -> :defer
+        end
+
+      false ->
+        apply_lifecycle_to_pending_receive(target, type, data)
+    end
+  end
+
+  defp receive_for_lifecycle(agent_uid, queue_key, target_ids) do
     target_set = MapSet.new(target_ids)
 
     Entry
-    |> where([entry], entry.mailbox_session_id == ^session_id)
-    |> where([entry], entry.status in [:pending, :leased])
-    |> where(
-      [entry],
-      fragment("?->>'type' = 'bullx.message.received'", entry.cloud_event)
-    )
+    |> where([entry], entry.agent_uid == ^agent_uid)
+    |> where([entry], entry.queue_key == ^queue_key)
+    |> where([entry], fragment("?->>'type' = 'bullx.message.received'", entry.cloud_event))
     |> order_by([entry], asc: entry.entry_seq)
     |> limit(100)
     |> Repo.all()
-    |> Enum.find_value(fn entry ->
-      matches? =
-        entry
-        |> get_in([Access.key(:cloud_event), "data"])
-        |> source_message_ids()
-        |> Enum.any?(&MapSet.member?(target_set, &1))
-
-      case matches? do
-        true -> {entry.status, entry}
-        false -> nil
-      end
+    |> Enum.find(fn entry ->
+      entry
+      |> get_in([Access.key(:cloud_event), "data"])
+      |> source_message_ids()
+      |> Enum.any?(&MapSet.member?(target_set, &1))
     end)
   end
 
-  defp lifecycle_target_materialized?(session_id, target_ids, %Entry{} = target) do
+  defp lifecycle_target_materialized?(agent_uid, queue_key, target_ids, %Entry{} = target) do
     target_set = MapSet.new(target_ids)
 
     ConversationMessage
-    |> where([message], message.mailbox_session_id == ^session_id)
+    |> where([message], message.agent_uid == ^agent_uid)
+    |> where([message], message.mailbox_queue_key == ^queue_key)
     |> where([message], message.role in [:user, :im_ambient])
     |> where([message], message.kind == :normal)
     |> where([message], is_nil(fragment("?->'transcript_effect'", message.metadata)))
@@ -594,26 +385,14 @@ defmodule BullX.MailBox do
     |> Entry.changeset(%{cloud_event: cloud_event, attention: attention})
     |> Repo.update()
     |> case do
-      {:ok, _entry} -> :applied
+      {:ok, entry} -> {:updated, entry}
       {:error, changeset} -> {:error, changeset}
     end
   end
 
   defp apply_lifecycle_to_pending_receive(%Entry{} = target, type, _data)
-       when type in ["bullx.message.recalled", "bullx.message.deleted"] do
-    now = utc_now()
-
-    {count, _rows} =
-      Repo.update_all(
-        from(entry in Entry, where: entry.id == ^target.id and entry.status == :pending),
-        set: [status: :discarded, updated_at: now]
-      )
-
-    case count do
-      1 -> :applied
-      0 -> :continue
-    end
-  end
+       when type in ["bullx.message.recalled", "bullx.message.deleted"],
+       do: {:deleted, target.id}
 
   defp edited_pending_receive_event(%{} = cloud_event, %{} = edit_data) do
     data = cloud_event["data"] || %{}
@@ -648,26 +427,52 @@ defmodule BullX.MailBox do
   defp merge_routing_facts(_left, %{} = right), do: right
   defp merge_routing_facts(_left, _right), do: %{}
 
-  defp claim_coalesced_entries(%Entry{} = entry, holder, window_ms, max_chars) do
+  defp coalesce_entry(%Entry{} = entry) do
+    case coalesce_config(entry) do
+      {:ok, window_ms, max_chars} ->
+        entries = coalesced_entries(entry, window_ms, max_chars)
+        {merge_coalesced_entries(entry, entries), entries}
+
+      :skip ->
+        {entry, []}
+    end
+  end
+
+  defp coalesce_config(%Entry{
+         cloud_event: %{
+           "type" => "bullx.message.received",
+           "data" => %{"coalesce" => %{} = config}
+         }
+       }) do
+    window_ms = integer_value(config["window_ms"], 0)
+    max_chars = integer_value(config["max_chars"], 0)
+
+    case window_ms > 0 and max_chars > 0 do
+      true -> {:ok, window_ms, max_chars}
+      false -> :skip
+    end
+  end
+
+  defp coalesce_config(_entry), do: :skip
+
+  defp coalesced_entries(%Entry{} = entry, window_ms, max_chars) do
     actor_key = coalesce_actor_key(entry)
     base_chars = text_chars(entry)
     window_until = DateTime.add(entry.inserted_at, window_ms, :millisecond)
 
-    candidates =
-      Entry
-      |> where([candidate], candidate.mailbox_session_id == ^entry.mailbox_session_id)
-      |> where([candidate], candidate.entry_seq > ^entry.entry_seq)
-      |> where([candidate], candidate.inserted_at <= ^window_until)
-      |> where([candidate], candidate.status == :pending)
-      |> where(
-        [candidate],
-        fragment("?->>'type' = 'bullx.message.received'", candidate.cloud_event)
-      )
-      |> order_by([candidate], asc: candidate.entry_seq)
-      |> limit(50)
-      |> Repo.all()
-
-    candidates
+    Entry
+    |> where([candidate], candidate.agent_uid == ^entry.agent_uid)
+    |> where([candidate], candidate.queue_key == ^entry.queue_key)
+    |> where([candidate], candidate.entry_seq > ^entry.entry_seq)
+    |> where([candidate], candidate.inserted_at <= ^window_until)
+    |> where(
+      [candidate],
+      fragment("?->>'type' = 'bullx.message.received'", candidate.cloud_event)
+    )
+    |> order_by([candidate], asc: candidate.entry_seq)
+    |> limit(50)
+    |> Repo.all()
+    |> Enum.reject(&Runtime.in_flight?(&1.id))
     |> Enum.reduce_while({[], base_chars}, fn candidate, {acc, chars} ->
       candidate_chars = text_chars(candidate)
 
@@ -684,10 +489,6 @@ defmodule BullX.MailBox do
     end)
     |> elem(0)
     |> Enum.reverse()
-    |> case do
-      [] -> []
-      entries -> lease_entries(entries, holder, utc_now())
-    end
   end
 
   defp merge_coalesced_entries(%Entry{} = entry, []), do: entry
@@ -725,10 +526,7 @@ defmodule BullX.MailBox do
         })
       )
 
-    cloud_event =
-      entry.cloud_event
-      |> put_in(["data"], data)
-
+    cloud_event = put_in(entry.cloud_event, ["data"], data)
     %{entry | attention: attention, cloud_event: cloud_event}
   end
 
@@ -902,12 +700,12 @@ defmodule BullX.MailBox do
       cloud_event: stringify!(cloud_event || %{}),
       agent_uid: string_value(map_value(request, :agent_uid)),
       attention: attention,
-      session_key: session_key_value(map_value(request, :session_key), cloud_event),
-      available_at:
-        map_value(request, :available_at) ||
-          DateTime.add(now, event_delay_ms(cloud_event), :millisecond),
+      queue_key:
+        queue_key_value(
+          map_value(request, :queue_key) || map_value(request, :session_key),
+          cloud_event
+        ),
       idempotency_key: idempotency_key(request, attention),
-      metadata: maybe_stringify_map(map_value(request, :metadata)) || %{},
       now: now
     }
   end
@@ -920,208 +718,6 @@ defmodule BullX.MailBox do
   end
 
   defp get_agent(_attrs), do: {:error, :agent_uid_required}
-
-  defp get_or_create_session(%Agent{} = agent, attrs) do
-    case Repo.get_by(Session, agent_uid: agent.uid, session_key: attrs.session_key) do
-      %Session{} = session ->
-        session
-        |> Session.changeset(%{last_entry_at: attrs.now})
-        |> Repo.update()
-
-      nil ->
-        %Session{}
-        |> Session.changeset(%{
-          agent_uid: agent.uid,
-          session_key: attrs.session_key,
-          last_entry_at: attrs.now
-        })
-        |> Repo.insert()
-        |> case do
-          {:ok, session} -> {:ok, session}
-          {:error, changeset} -> existing_session_after_conflict(changeset, agent, attrs)
-        end
-    end
-  end
-
-  defp existing_session_after_conflict(changeset, agent, attrs) do
-    case unique_conflict?(changeset) do
-      true ->
-        case Repo.get_by(Session, agent_uid: agent.uid, session_key: attrs.session_key) do
-          %Session{} = session -> {:ok, session}
-          nil -> {:error, changeset}
-        end
-
-      false ->
-        {:error, changeset}
-    end
-  end
-
-  defp insert_entry(%Agent{} = agent, %Session{} = session, attrs) do
-    %Entry{}
-    |> Entry.changeset(%{
-      agent_uid: agent.uid,
-      mailbox_session_id: session.id,
-      status: :pending,
-      attention: attrs.attention,
-      cloud_event: attrs.cloud_event,
-      available_at: attrs.available_at,
-      idempotency_key: attrs.idempotency_key,
-      attempts: 0
-    })
-    |> Repo.insert()
-    |> case do
-      {:ok, entry} ->
-        {:ok, Repo.preload(entry, [:agent, :session])}
-
-      {:error, changeset} ->
-        existing_entry_after_conflict(changeset, agent, session, attrs)
-    end
-  end
-
-  defp existing_entry_after_conflict(changeset, agent, session, attrs) do
-    case unique_conflict?(changeset) do
-      true ->
-        case Repo.get_by(Entry, agent_uid: agent.uid, idempotency_key: attrs.idempotency_key) do
-          %Entry{} = entry ->
-            {:duplicate, agent, session, Repo.preload(entry, [:agent, :session])}
-
-          nil ->
-            {:error, changeset}
-        end
-
-      false ->
-        {:error, changeset}
-    end
-  end
-
-  defp dispatch(%Entry{agent: %Agent{type: :ai_agent} = agent} = entry, opts) do
-    holder = Keyword.get(opts, :holder, entry.lease_holder)
-
-    invocation = %{
-      target_ref: agent.uid,
-      mailbox_session_id: entry.mailbox_session_id,
-      mailbox_entry_id: entry.id,
-      output: BullX.MailBox.StreamingOutput,
-      close: fn -> :ok end,
-      fail: fn reason -> mark_entry(entry, :failed, safe_error(reason), holder) end
-    }
-
-    BullX.AIAgent.handle_mailbox_entry(invocation, entry)
-  end
-
-  defp dispatch(%Entry{agent: %Agent{type: agent_type}}, _opts),
-    do: {:error, {:unknown_agent_type, agent_type}}
-
-  defp mark_entry(%Entry{} = entry, status, safe_error, holder) when is_binary(holder) do
-    now = utc_now()
-
-    {count, _rows} =
-      Repo.update_all(
-        from(mailbox_entry in Entry,
-          where: mailbox_entry.id == ^entry.id and mailbox_entry.lease_holder == ^holder
-        ),
-        set: [
-          status: status,
-          safe_error: safe_error,
-          lease_holder: nil,
-          lease_expires_at: nil,
-          updated_at: now
-        ]
-      )
-
-    case count do
-      1 -> :ok
-      0 -> {:error, :stale_mailbox_entry_lease}
-    end
-  end
-
-  defp mark_entry(%Entry{} = entry, status, safe_error, _holder) do
-    entry
-    |> Entry.changeset(%{status: status, safe_error: safe_error})
-    |> Repo.update()
-    |> case do
-      {:ok, _entry} -> :ok
-      {:error, changeset} -> {:error, changeset}
-    end
-  end
-
-  defp defer_entry(%Entry{} = entry, holder) when is_binary(holder) do
-    now = utc_now()
-    available_at = DateTime.add(now, @lifecycle_in_flight_retry_ms, :millisecond)
-
-    {count, _rows} =
-      Repo.update_all(
-        from(mailbox_entry in Entry,
-          where: mailbox_entry.id == ^entry.id and mailbox_entry.lease_holder == ^holder
-        ),
-        set: [
-          status: :pending,
-          available_at: available_at,
-          lease_holder: nil,
-          lease_expires_at: nil,
-          updated_at: now
-        ]
-      )
-
-    case count do
-      1 ->
-        Dispatcher.wake(@lifecycle_in_flight_retry_ms)
-        :ok
-
-      0 ->
-        {:error, :stale_mailbox_entry_lease}
-    end
-  end
-
-  defp mark_entries([], _status, _safe_error, _holder), do: :ok
-
-  defp mark_entries(entries, status, safe_error, holder) when is_binary(holder) do
-    ids = Enum.map(entries, & &1.id)
-    now = utc_now()
-
-    {count, _rows} =
-      Repo.update_all(
-        from(mailbox_entry in Entry,
-          where: mailbox_entry.id in ^ids and mailbox_entry.lease_holder == ^holder
-        ),
-        set: [
-          status: status,
-          safe_error: safe_error,
-          lease_holder: nil,
-          lease_expires_at: nil,
-          updated_at: now
-        ]
-      )
-
-    case count == length(ids) do
-      true -> :ok
-      false -> {:error, :stale_mailbox_entry_lease}
-    end
-  end
-
-  defp mark_entries(entries, status, safe_error, _holder) do
-    entries
-    |> Enum.map(&mark_entry(&1, status, safe_error, nil))
-    |> Enum.find(:ok, &match?({:error, _reason}, &1))
-  end
-
-  defp release_entries([], _holder), do: :ok
-
-  defp release_entries(entries, holder) when is_binary(holder) do
-    ids = Enum.map(entries, & &1.id)
-    now = utc_now()
-
-    Repo.update_all(
-      from(mailbox_entry in Entry,
-        where: mailbox_entry.id in ^ids and mailbox_entry.lease_holder == ^holder
-      ),
-      set: [status: :pending, lease_holder: nil, lease_expires_at: nil, updated_at: now]
-    )
-
-    :ok
-  end
-
-  defp release_entries(_entries, _holder), do: :ok
 
   defp routing_context(%{
          "id" => id,
@@ -1150,23 +746,23 @@ defmodule BullX.MailBox do
 
   defp routing_context(_event), do: %{}
 
-  defp default_session_key(%{"data" => %{"queue_key" => queue_key}})
+  defp default_queue_key(%{"data" => %{"queue_key" => queue_key}})
        when is_binary(queue_key) and queue_key != "",
        do: queue_key
 
-  defp default_session_key(%{"subject" => subject}) when is_binary(subject) and subject != "",
+  defp default_queue_key(%{"subject" => subject}) when is_binary(subject) and subject != "",
     do: subject
 
-  defp default_session_key(%{"source" => source, "id" => id}) do
+  defp default_queue_key(%{"source" => source, "id" => id}) do
     [source, id]
     |> Enum.map(&to_string/1)
     |> Enum.join("#")
   end
 
-  defp default_session_key(_cloud_event), do: "default"
+  defp default_queue_key(_cloud_event), do: "default"
 
-  defp session_key_value(value, _cloud_event) when is_binary(value) and value != "", do: value
-  defp session_key_value(_value, cloud_event), do: default_session_key(cloud_event || %{})
+  defp queue_key_value(value, _cloud_event) when is_binary(value) and value != "", do: value
+  defp queue_key_value(_value, cloud_event), do: default_queue_key(cloud_event || %{})
 
   defp attention_value(value, _cloud_event) when is_atom(value) and value in @attention, do: value
 
@@ -1211,10 +807,6 @@ defmodule BullX.MailBox do
     end
   end
 
-  defp maybe_stringify_map(nil), do: nil
-  defp maybe_stringify_map(%{} = value), do: stringify!(value)
-  defp maybe_stringify_map(_value), do: nil
-
   defp map_value(%{} = map, key) when is_atom(key) do
     Map.get(map, key) || Map.get(map, Atom.to_string(key))
   end
@@ -1229,18 +821,11 @@ defmodule BullX.MailBox do
 
   defp string_value(value) when is_binary(value), do: String.trim(value)
   defp string_value(value) when is_atom(value), do: Atom.to_string(value)
+  defp string_value(nil), do: ""
   defp string_value(value), do: to_string(value)
 
   defp integer_value(value, _default) when is_integer(value), do: value
   defp integer_value(_value, default), do: default
-
-  defp event_delay_ms(%{"type" => "bullx.message.received"} = cloud_event) do
-    cloud_event
-    |> get_in(["data", "coalesce", "window_ms"])
-    |> integer_value(0)
-  end
-
-  defp event_delay_ms(_cloud_event), do: 0
 
   defp event_attention(%{"type" => "bullx.command.invoked"}), do: :command
   defp event_attention(%{"type" => "bullx.agent.abort"}), do: :command
@@ -1319,102 +904,8 @@ defmodule BullX.MailBox do
   defp reject_nil_values(map),
     do: Map.reject(map, fn {_key, value} -> is_nil(value) or value == "" end)
 
-  defp earliest_datetime(datetimes) do
-    datetimes
-    |> Enum.reject(&is_nil/1)
-    |> case do
-      [] -> nil
-      [datetime | rest] -> Enum.reduce(rest, datetime, &earlier_datetime/2)
-    end
-  end
-
-  defp earlier_datetime(left, right) do
-    left = normalize_datetime(left)
-    right = normalize_datetime(right)
-
-    case DateTime.compare(left, right) do
-      :lt -> left
-      _gte -> right
-    end
-  end
-
-  defp normalize_datetime(%DateTime{} = datetime), do: datetime
-
-  defp normalize_datetime(%NaiveDateTime{} = datetime),
-    do: DateTime.from_naive!(datetime, "Etc/UTC")
-
-  defp safe_error(reason) do
-    %{"reason" => inspect(reason, limit: 6)}
-  end
-
-  defp default_holder do
-    "#{node()}:#{inspect(self())}"
-  end
-
-  defp wake_delivery(%{status: :duplicate}), do: :ok
-
-  defp wake_delivery(%{entry: %Entry{} = entry}) do
-    case control_entry?(entry) do
-      true -> SessionWorker.start_entry_id(entry.id)
-      false -> wake_dispatcher(%{entry: maybe_flush_full_coalesce_batch(entry)})
-    end
-  end
-
-  defp maybe_flush_full_coalesce_batch(%Entry{} = entry) do
-    case coalesce_config(entry) do
-      {:ok, _window_ms, max_chars} ->
-        flush_full_coalesce_batch(entry, max_chars)
-
-      :skip ->
-        entry
-    end
-  end
-
-  defp flush_full_coalesce_batch(%Entry{} = entry, max_chars) do
-    actor_key = coalesce_actor_key(entry)
-
-    pending_entries =
-      Entry
-      |> where([candidate], candidate.mailbox_session_id == ^entry.mailbox_session_id)
-      |> where([candidate], candidate.status == :pending)
-      |> where(
-        [candidate],
-        fragment("?->>'type' = 'bullx.message.received'", candidate.cloud_event)
-      )
-      |> order_by([candidate], asc: candidate.entry_seq)
-      |> Repo.all()
-      |> Enum.filter(&(coalesce_actor_key(&1) == actor_key))
-
-    total_chars = pending_entries |> Enum.map(&text_chars/1) |> Enum.sum()
-
-    case total_chars >= max_chars do
-      true ->
-        now = utc_now()
-        ids = Enum.map(pending_entries, & &1.id)
-
-        Repo.update_all(from(candidate in Entry, where: candidate.id in ^ids),
-          set: [available_at: now]
-        )
-
-        %{entry | available_at: now}
-
-      false ->
-        entry
-    end
-  end
-
-  defp wake_dispatcher(%{entry: %Entry{} = entry}) do
-    Dispatcher.wake(wake_delay_ms(entry))
-  end
-
-  defp control_entry?(%Entry{cloud_event: %{"type" => type}}), do: type in @control_event_types
-  defp control_entry?(_entry), do: false
-
-  defp wake_delay_ms(%Entry{available_at: %DateTime{} = available_at}) do
-    available_at
-    |> DateTime.diff(utc_now(), :millisecond)
-    |> max(0)
-  end
+  defp wake_delivery(%{entry: %Entry{} = entry}), do: Runtime.accepted(entry)
+  defp wake_delivery(_result), do: :ok
 
   defp utc_now, do: DateTime.utc_now(:microsecond)
 end

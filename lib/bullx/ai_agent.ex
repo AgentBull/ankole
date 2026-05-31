@@ -68,7 +68,7 @@ defmodule BullX.AIAgent do
       )
       when is_binary(agent_uid) do
     invocation
-    |> Map.put_new(:mailbox_session_id, entry.mailbox_session_id)
+    |> Map.put_new(:mailbox_queue_key, entry.queue_key)
     |> handle_event(mailbox_entry_event(entry))
   end
 
@@ -153,7 +153,7 @@ defmodule BullX.AIAgent do
       routing_context: BullX.MailBox.RoutingContext.project(cloud_event),
       event_source: cloud_event["source"],
       event_id: cloud_event["id"],
-      mailbox_session_id: entry.mailbox_session_id
+      mailbox_queue_key: entry.queue_key
     }
   end
 
@@ -382,7 +382,7 @@ defmodule BullX.AIAgent do
       kind: :normal,
       status: :complete,
       content: content_blocks(event_data),
-      mailbox_session_id: invocation.mailbox_session_id,
+      mailbox_queue_key: invocation.mailbox_queue_key,
       event_source: entry.event_source,
       event_id: entry.event_id,
       metadata: metadata
@@ -428,7 +428,7 @@ defmodule BullX.AIAgent do
       kind: :normal,
       status: :complete,
       content: content_blocks(event_data),
-      mailbox_session_id: invocation.mailbox_session_id,
+      mailbox_queue_key: invocation.mailbox_queue_key,
       event_source: entry.event_source,
       event_id: entry.event_id,
       metadata: metadata
@@ -560,7 +560,7 @@ defmodule BullX.AIAgent do
       profile: profile,
       trigger_type: "mailbox_entry",
       trigger_id: entry.id,
-      mailbox_session_id: invocation.mailbox_session_id,
+      mailbox_queue_key: invocation.mailbox_queue_key,
       mailbox_entry_id: entry.id,
       acl_context: acl_context(entry, "command"),
       feedback_fun: &send_command_feedback(entry, &1)
@@ -585,7 +585,7 @@ defmodule BullX.AIAgent do
                  lease_id: lease_id,
                  caller_principal_uid: caller_principal_uid,
                  agent_uid: principal.uid,
-                 mailbox_session_id: invocation.mailbox_session_id,
+                 mailbox_queue_key: invocation.mailbox_queue_key,
                  mailbox_entry_id: entry.id,
                  mailbox_entry_seq: map_entry_seq(entry),
                  output: Map.get(invocation, :output),
@@ -661,7 +661,7 @@ defmodule BullX.AIAgent do
           trigger_id: entry.id,
           caller_principal_uid: caller,
           agent_uid: principal.uid,
-          mailbox_session_id: invocation.mailbox_session_id,
+          mailbox_queue_key: invocation.mailbox_queue_key,
           mailbox_entry_id: entry.id,
           mailbox_entry_seq: map_entry_seq(entry),
           output: Map.get(invocation, :output),
@@ -685,7 +685,7 @@ defmodule BullX.AIAgent do
           kind: :error,
           status: :complete,
           content: [Message.error_block("acl_denied", "AIAgent access denied.", false)],
-          mailbox_session_id: invocation.mailbox_session_id,
+          mailbox_queue_key: invocation.mailbox_queue_key,
           metadata: %{
             "generation" => %{
               "trigger_message_id" => trigger_message.id,

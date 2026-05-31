@@ -411,7 +411,7 @@ defmodule BullX.AIAgent.Compression do
       status: :complete,
       content: [%{"type" => "summary_text", "text" => summary_text}],
       covers_range: %{"from_id" => from_message.id, "to_id" => to_message.id},
-      mailbox_session_id: Map.get(context, :mailbox_session_id),
+      mailbox_queue_key: Map.get(context, :mailbox_queue_key),
       metadata: %{
         "original_dialogue_time_range" => time_range,
         "trigger" => Map.get(context, :compression_trigger, "manual_command"),

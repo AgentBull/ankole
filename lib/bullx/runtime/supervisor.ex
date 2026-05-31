@@ -14,9 +14,9 @@ defmodule BullX.Runtime.Supervisor do
         BullX.LLM.PluginProviders,
         BullX.LLM.Catalog.Cache,
         BullX.Redis,
-        {Task.Supervisor, name: BullX.MailBox.SessionWorkerSupervisor},
-        mail_box_dispatcher_child(),
-        ai_agent_runtime_child(:ambient_batch_worker, BullX.AIAgent.AmbientBatchWorker),
+        {Task.Supervisor, name: BullX.MailBox.RuntimeTaskSupervisor},
+        mail_box_runtime_child(),
+        ambient_batch_children(),
         ai_agent_runtime_child(:daily_reset_worker, BullX.AIAgent.DailyResetWorker)
       ]
       |> List.flatten()
@@ -24,15 +24,35 @@ defmodule BullX.Runtime.Supervisor do
     Supervisor.init(children, strategy: :one_for_one)
   end
 
-  defp mail_box_dispatcher_child do
+  defp mail_box_runtime_child do
     config = Application.get_env(:bullx, :mail_box, [])
 
-    case Keyword.get(config, :dispatcher, true) do
+    case Keyword.get(config, :runtime, true) do
       true ->
         [
-          {BullX.MailBox.Dispatcher,
-           interval_ms: Keyword.get(config, :dispatcher_interval_ms, 500),
-           claim_limit: Keyword.get(config, :dispatcher_claim_limit, 20)}
+          {BullX.MailBox.Runtime,
+           dispatch?: Keyword.get(config, :runtime_dispatcher, true),
+           control_dispatch?: Keyword.get(config, :runtime_control_dispatcher, true),
+           interval_ms: Keyword.get(config, :runtime_interval_ms, 500),
+           claim_limit: Keyword.get(config, :runtime_claim_limit, 20)}
+        ]
+
+      false ->
+        []
+    end
+  end
+
+  defp ambient_batch_children do
+    config = Application.get_env(:bullx, :ai_agent_runtime, [])
+
+    case Keyword.get(config, :ambient_batch_worker, true) do
+      true ->
+        [
+          Supervisor.child_spec(
+            {Task.Supervisor, name: BullX.AIAgent.AmbientBatchTaskSupervisor},
+            id: BullX.AIAgent.AmbientBatchTaskSupervisor
+          ),
+          BullX.AIAgent.AmbientBatchWorker
         ]
 
       false ->

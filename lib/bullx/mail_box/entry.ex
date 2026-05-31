@@ -5,14 +5,12 @@ defmodule BullX.MailBox.Entry do
 
   import Ecto.Changeset
 
-  alias BullX.MailBox.Session
   alias BullX.Principals.Agent
 
   @primary_key {:id, BullX.Ecto.UUIDv7, autogenerate: true}
   @foreign_key_type :binary_id
   @timestamps_opts [type: :utc_datetime_usec]
 
-  @statuses [:pending, :leased, :processed, :discarded, :failed]
   @attention [:addressed, :ambient, :command, :action, :lifecycle, :system]
 
   @type t :: %__MODULE__{}
@@ -21,17 +19,11 @@ defmodule BullX.MailBox.Entry do
     field :entry_seq, :integer, read_after_writes: true
 
     belongs_to :agent, Agent, foreign_key: :agent_uid, references: :uid, type: :string
-    belongs_to :session, Session, foreign_key: :mailbox_session_id
 
-    field :status, Ecto.Enum, values: @statuses, default: :pending
+    field :queue_key, :string
     field :attention, Ecto.Enum, values: @attention
     field :cloud_event, BullX.Ecto.JSONB
-    field :available_at, :utc_datetime_usec
     field :idempotency_key, :string
-    field :lease_holder, :string
-    field :lease_expires_at, :utc_datetime_usec
-    field :attempts, :integer, default: 0
-    field :safe_error, :map
 
     timestamps()
   end
@@ -41,36 +33,24 @@ defmodule BullX.MailBox.Entry do
     entry
     |> cast(attrs, [
       :agent_uid,
-      :mailbox_session_id,
-      :status,
+      :queue_key,
       :attention,
       :cloud_event,
-      :available_at,
-      :idempotency_key,
-      :lease_holder,
-      :lease_expires_at,
-      :attempts,
-      :safe_error
+      :idempotency_key
     ])
     |> validate_required([
       :agent_uid,
-      :status,
+      :queue_key,
       :attention,
       :cloud_event,
-      :mailbox_session_id,
-      :available_at,
-      :idempotency_key,
-      :attempts
+      :idempotency_key
     ])
+    |> validate_non_empty(:queue_key)
     |> validate_json_object(:cloud_event)
-    |> validate_optional_json_object(:safe_error)
-    |> validate_number(:attempts, greater_than_or_equal_to: 0)
     |> foreign_key_constraint(:agent_uid)
-    |> foreign_key_constraint(:mailbox_session_id)
     |> unique_constraint([:agent_uid, :idempotency_key])
+    |> check_constraint(:queue_key, name: :mailbox_entries_queue_key_present)
     |> check_constraint(:cloud_event, name: :mailbox_entries_cloud_event_object)
-    |> check_constraint(:safe_error, name: :mailbox_entries_safe_error_object)
-    |> check_constraint(:attempts, name: :mailbox_entries_attempts_nonnegative)
   end
 
   defp validate_json_object(changeset, field) do
@@ -82,11 +62,11 @@ defmodule BullX.MailBox.Entry do
     end)
   end
 
-  defp validate_optional_json_object(changeset, field) do
+  defp validate_non_empty(changeset, field) do
     validate_change(changeset, field, fn ^field, value ->
-      case is_nil(value) or BullX.JSON.json_object?(value) do
+      case is_binary(value) and String.trim(value) != "" do
         true -> []
-        false -> [{field, "must be a JSON object"}]
+        false -> [{field, "must be a non-empty string"}]
       end
     end)
   end

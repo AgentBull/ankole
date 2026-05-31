@@ -21,11 +21,7 @@ defmodule BullX.Integration.IMGateway.IdentityRoutingTest do
              )
            )
 
-    assert Repo.exists?(
-             from(e in Entry,
-               where: fragment("?->>'type' = 'bullx.message.received'", e.cloud_event)
-             )
-           )
+    refute Repo.exists?(Entry)
 
     assert %Message{
              role: :assistant,
@@ -112,12 +108,7 @@ defmodule BullX.Integration.IMGateway.IdentityRoutingTest do
     assert Repo.aggregate(from(r in BullX.IMGateway.Room), :count) == 1
     assert Repo.aggregate(from(m in BullX.IMGateway.Message), :count) == 1
 
-    assert Repo.aggregate(
-             from(e in Entry,
-               where: fragment("?->>'type' = 'bullx.message.received'", e.cloud_event)
-             ),
-             :count
-           ) == 2
+    assert Repo.aggregate(Entry, :count) == 0
 
     assert Repo.aggregate(from(c in Conversation), :count) == 2
 

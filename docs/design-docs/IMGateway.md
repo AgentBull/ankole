@@ -169,9 +169,9 @@ addressed if any active item in the batch is addressed. If an edit, recall, or
 delete arrives before a pending coalesced receive entry has been materialized
 into conversation state, MailBox applies the lifecycle fact to that pending
 entry instead of delivering stale content. If the receive entry is already
-leased but has not materialized, MailBox defers the lifecycle entry briefly; if
-the target message has materialized, the lifecycle entry dispatches immediately
-so AIAgent can cancel an active generation.
+in flight but has not materialized, MailBox defers the lifecycle entry briefly;
+if the target message has materialized, the lifecycle entry dispatches
+immediately so AIAgent can cancel an active generation.
 
 ## Outbound Flow
 

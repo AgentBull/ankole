@@ -57,9 +57,11 @@ config :bullx, :i18n, locales_dir: "priv/locales"
 config :bullx, :installation_timezone, "Etc/UTC"
 
 config :bullx, :mail_box,
-  dispatcher: true,
-  dispatcher_interval_ms: 500,
-  dispatcher_claim_limit: 20,
+  runtime: true,
+  runtime_dispatcher: true,
+  runtime_control_dispatcher: true,
+  runtime_interval_ms: 500,
+  runtime_claim_limit: 20,
   stream_retention_seconds: 900,
   max_stream_chunk_bytes: 65_536
 

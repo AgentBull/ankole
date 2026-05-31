@@ -230,7 +230,7 @@ defmodule BullX.AIAgent.CommandsTest do
       profile: profile,
       trigger_type: "mailbox_entry",
       trigger_id: entry_id,
-      mailbox_session_id: BullX.Ext.gen_uuid_v7(),
+      mailbox_queue_key: BullX.Ext.gen_uuid_v7(),
       mailbox_entry_id: entry_id,
       acl_context: %{}
     }

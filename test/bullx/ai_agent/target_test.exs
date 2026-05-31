@@ -48,6 +48,7 @@ defmodule BullX.AIAgent.TargetTest do
     Application.put_env(:bullx, :im_gateway_channel_adapter_registry, registry)
     Application.put_env(:bullx, :im_gateway_test_pid, self())
     TestingChannel.clear()
+    BullX.MailBox.rebuild_runtime()
 
     Req.Test.stub(__MODULE__, fn conn ->
       Req.Test.json(conn, %{
@@ -93,7 +94,7 @@ defmodule BullX.AIAgent.TargetTest do
     BullX.AIAgent.FakeLLMClient.push_response("hello back")
 
     invocation = invocation(agent.uid)
-    entry = addressed_entry(invocation.mailbox_session_id, "evt-addressed-1", "hello", caller.uid)
+    entry = addressed_entry(invocation.mailbox_queue_key, "evt-addressed-1", "hello", caller.uid)
 
     assert :ok = BullX.AIAgent.handle_event(invocation, entry)
     assert_received :closed
@@ -148,7 +149,7 @@ defmodule BullX.AIAgent.TargetTest do
     invocation = invocation(agent.uid)
 
     entry =
-      invocation.mailbox_session_id
+      invocation.mailbox_queue_key
       |> addressed_entry("evt-streaming-1", "hello", caller.uid)
       |> put_in([:cloud_event, "data", "reply_address", "delivery_mode"], "stream")
 
@@ -176,7 +177,7 @@ defmodule BullX.AIAgent.TargetTest do
     invocation = invocation(agent.uid)
 
     entry =
-      invocation.mailbox_session_id
+      invocation.mailbox_queue_key
       |> addressed_entry("evt-streaming-fallback-1", "hello", caller.uid)
       |> put_in([:cloud_event, "data", "reply_address", "delivery_mode"], "stream")
 
@@ -206,7 +207,7 @@ defmodule BullX.AIAgent.TargetTest do
     invocation = invocation(agent.uid)
 
     entry =
-      addressed_entry(invocation.mailbox_session_id, "evt-rich-input-1", "plain", caller.uid)
+      addressed_entry(invocation.mailbox_queue_key, "evt-rich-input-1", "plain", caller.uid)
       |> put_in(
         [:cloud_event, "data", "content"],
         [
@@ -257,7 +258,7 @@ defmodule BullX.AIAgent.TargetTest do
 
     entry =
       entry(
-        invocation.mailbox_session_id,
+        invocation.mailbox_queue_key,
         "evt-action-1",
         "bullx.message.received",
         "submitted action: approve",
@@ -296,7 +297,7 @@ defmodule BullX.AIAgent.TargetTest do
     invocation = invocation(agent.uid)
 
     entry =
-      addressed_entry(invocation.mailbox_session_id, "evt-routing-context-1", "hello", caller.uid)
+      addressed_entry(invocation.mailbox_queue_key, "evt-routing-context-1", "hello", caller.uid)
 
     data = entry.cloud_event["data"]
 
@@ -325,7 +326,7 @@ defmodule BullX.AIAgent.TargetTest do
     invocation = invocation(agent.uid)
 
     entry =
-      addressed_entry(invocation.mailbox_session_id, "evt-estimated-usage-1", "hello", caller.uid)
+      addressed_entry(invocation.mailbox_queue_key, "evt-estimated-usage-1", "hello", caller.uid)
 
     assert :ok = BullX.AIAgent.handle_event(invocation, entry)
     assert_received :closed
@@ -353,7 +354,7 @@ defmodule BullX.AIAgent.TargetTest do
 
     entry =
       addressed_entry(
-        invocation.mailbox_session_id,
+        invocation.mailbox_queue_key,
         "evt-provider-diagnostics-1",
         "hello",
         caller.uid
@@ -388,7 +389,7 @@ defmodule BullX.AIAgent.TargetTest do
     invocation = invocation(agent.uid)
 
     entry =
-      addressed_entry(invocation.mailbox_session_id, "evt-tool-loop-1", "search", caller.uid)
+      addressed_entry(invocation.mailbox_queue_key, "evt-tool-loop-1", "search", caller.uid)
 
     assert :ok = BullX.AIAgent.handle_event(invocation, entry)
     assert_received :closed
@@ -420,7 +421,7 @@ defmodule BullX.AIAgent.TargetTest do
     invocation = invocation(agent.uid)
 
     entry =
-      invocation.mailbox_session_id
+      invocation.mailbox_queue_key
       |> addressed_entry("evt-streaming-tool-loop-1", "search", caller.uid)
       |> put_in([:cloud_event, "data", "reply_address", "delivery_mode"], "stream")
 
@@ -474,7 +475,7 @@ defmodule BullX.AIAgent.TargetTest do
     invocation = invocation(agent.uid)
 
     entry =
-      invocation.mailbox_session_id
+      invocation.mailbox_queue_key
       |> addressed_entry("evt-streaming-generation-failure-1", "search", caller.uid)
       |> put_in([:cloud_event, "data", "reply_address", "delivery_mode"], "stream")
 
@@ -529,7 +530,7 @@ defmodule BullX.AIAgent.TargetTest do
     ])
 
     invocation = invocation(agent.uid)
-    entry = addressed_entry(invocation.mailbox_session_id, "evt-clarify-1", "start", caller.uid)
+    entry = addressed_entry(invocation.mailbox_queue_key, "evt-clarify-1", "start", caller.uid)
 
     assert :ok = BullX.AIAgent.handle_event(invocation, entry)
     assert_received :closed
@@ -557,7 +558,7 @@ defmodule BullX.AIAgent.TargetTest do
 
     entry =
       entry(
-        invocation.mailbox_session_id,
+        invocation.mailbox_queue_key,
         "evt-clarify-answer-1",
         "bullx.message.received",
         "Clarification answer: Beta",
@@ -582,7 +583,7 @@ defmodule BullX.AIAgent.TargetTest do
 
     entry =
       command_entry(
-        invocation.mailbox_session_id,
+        invocation.mailbox_queue_key,
         "evt-command-denied-1",
         "/compress",
         caller.uid
@@ -616,7 +617,7 @@ defmodule BullX.AIAgent.TargetTest do
     invocation = invocation(agent.uid)
 
     entry =
-      addressed_entry(invocation.mailbox_session_id, "evt-retry-recall-1", "hello", caller.uid)
+      addressed_entry(invocation.mailbox_queue_key, "evt-retry-recall-1", "hello", caller.uid)
 
     assert :ok = BullX.AIAgent.handle_event(invocation, entry)
     assert_received :closed
@@ -627,7 +628,7 @@ defmodule BullX.AIAgent.TargetTest do
     BullX.AIAgent.FakeLLMClient.push_response("new answer")
 
     retry_entry =
-      command_entry(invocation.mailbox_session_id, "evt-retry-recall-2", "/retry", caller.uid)
+      command_entry(invocation.mailbox_queue_key, "evt-retry-recall-2", "/retry", caller.uid)
 
     assert :ok = BullX.AIAgent.handle_event(invocation, retry_entry)
     assert_received :closed
@@ -648,7 +649,7 @@ defmodule BullX.AIAgent.TargetTest do
     invocation = invocation(agent.uid)
 
     entry =
-      addressed_entry(invocation.mailbox_session_id, "evt-retry-no-recall-1", "hello", caller.uid)
+      addressed_entry(invocation.mailbox_queue_key, "evt-retry-no-recall-1", "hello", caller.uid)
 
     assert :ok = BullX.AIAgent.handle_event(invocation, entry)
     assert_received :closed
@@ -664,7 +665,7 @@ defmodule BullX.AIAgent.TargetTest do
     BullX.AIAgent.FakeLLMClient.push_response("new answer")
 
     retry_entry =
-      command_entry(invocation.mailbox_session_id, "evt-retry-no-recall-2", "/retry", caller.uid)
+      command_entry(invocation.mailbox_queue_key, "evt-retry-no-recall-2", "/retry", caller.uid)
 
     assert :ok = BullX.AIAgent.handle_event(invocation, retry_entry)
     assert_received :closed
@@ -694,7 +695,7 @@ defmodule BullX.AIAgent.TargetTest do
     invocation = invocation(agent.uid)
 
     entry =
-      addressed_entry(invocation.mailbox_session_id, "evt-undo-feedback-1", "hello", caller.uid)
+      addressed_entry(invocation.mailbox_queue_key, "evt-undo-feedback-1", "hello", caller.uid)
 
     assert :ok = BullX.AIAgent.handle_event(invocation, entry)
     assert_received :closed
@@ -703,7 +704,7 @@ defmodule BullX.AIAgent.TargetTest do
     old_external_id = "external:" <> old_outbound["id"]
 
     undo_entry =
-      command_entry(invocation.mailbox_session_id, "evt-undo-feedback-2", "/undo", caller.uid)
+      command_entry(invocation.mailbox_queue_key, "evt-undo-feedback-2", "/undo", caller.uid)
 
     assert :ok = BullX.AIAgent.handle_event(invocation, undo_entry)
     assert_received :closed
@@ -725,7 +726,7 @@ defmodule BullX.AIAgent.TargetTest do
 
     first_entry =
       addressed_entry(
-        invocation.mailbox_session_id,
+        invocation.mailbox_queue_key,
         "evt-undo-retry-previous-1",
         "first",
         caller.uid
@@ -740,7 +741,7 @@ defmodule BullX.AIAgent.TargetTest do
 
     second_entry =
       addressed_entry(
-        invocation.mailbox_session_id,
+        invocation.mailbox_queue_key,
         "evt-undo-retry-previous-2",
         "second",
         caller.uid
@@ -753,7 +754,7 @@ defmodule BullX.AIAgent.TargetTest do
 
     undo_entry =
       command_entry(
-        invocation.mailbox_session_id,
+        invocation.mailbox_queue_key,
         "evt-undo-retry-previous-3",
         "/undo",
         caller.uid
@@ -769,7 +770,7 @@ defmodule BullX.AIAgent.TargetTest do
 
     retry_entry =
       command_entry(
-        invocation.mailbox_session_id,
+        invocation.mailbox_queue_key,
         "evt-undo-retry-previous-4",
         "/retry",
         caller.uid
@@ -799,7 +800,7 @@ defmodule BullX.AIAgent.TargetTest do
 
     entry =
       addressed_entry(
-        invocation.mailbox_session_id,
+        invocation.mailbox_queue_key,
         "evt-undo-retry-empty-1",
         "hello",
         caller.uid
@@ -811,7 +812,7 @@ defmodule BullX.AIAgent.TargetTest do
     old_external_id = "external:" <> old_outbound["id"]
 
     undo_entry =
-      command_entry(invocation.mailbox_session_id, "evt-undo-retry-empty-2", "/undo", caller.uid)
+      command_entry(invocation.mailbox_queue_key, "evt-undo-retry-empty-2", "/undo", caller.uid)
 
     assert :ok = BullX.AIAgent.handle_event(invocation, undo_entry)
     assert_received :closed
@@ -821,7 +822,7 @@ defmodule BullX.AIAgent.TargetTest do
 
     retry_entry =
       command_entry(
-        invocation.mailbox_session_id,
+        invocation.mailbox_queue_key,
         "evt-undo-retry-empty-3",
         "/retry",
         caller.uid
@@ -854,7 +855,7 @@ defmodule BullX.AIAgent.TargetTest do
     invocation = invocation(agent.uid)
 
     entry =
-      addressed_entry(invocation.mailbox_session_id, "evt-undo-no-recall-1", "hello", caller.uid)
+      addressed_entry(invocation.mailbox_queue_key, "evt-undo-no-recall-1", "hello", caller.uid)
 
     assert :ok = BullX.AIAgent.handle_event(invocation, entry)
     assert_received :closed
@@ -864,7 +865,7 @@ defmodule BullX.AIAgent.TargetTest do
     {:ok, _message} = Conversations.update_message(assistant, %{metadata: %{}})
 
     undo_entry =
-      command_entry(invocation.mailbox_session_id, "evt-undo-no-recall-2", "/undo", caller.uid)
+      command_entry(invocation.mailbox_queue_key, "evt-undo-no-recall-2", "/undo", caller.uid)
 
     assert :ok = BullX.AIAgent.handle_event(invocation, undo_entry)
     assert_received :closed
@@ -891,7 +892,7 @@ defmodule BullX.AIAgent.TargetTest do
     invocation = invocation(agent.uid)
 
     entry =
-      addressed_entry(invocation.mailbox_session_id, "evt-stop-recall-1", "hello", caller.uid)
+      addressed_entry(invocation.mailbox_queue_key, "evt-stop-recall-1", "hello", caller.uid)
 
     assert :ok = BullX.AIAgent.handle_event(invocation, entry)
     assert_received :closed
@@ -916,7 +917,7 @@ defmodule BullX.AIAgent.TargetTest do
       })
 
     stop_entry =
-      command_entry(invocation.mailbox_session_id, "evt-stop-recall-2", "/stop", caller.uid)
+      command_entry(invocation.mailbox_queue_key, "evt-stop-recall-2", "/stop", caller.uid)
 
     assert :ok = BullX.AIAgent.handle_event(invocation, stop_entry)
     assert_received :closed
@@ -937,7 +938,7 @@ defmodule BullX.AIAgent.TargetTest do
     invocation = invocation(agent.uid)
 
     entry =
-      invocation.mailbox_session_id
+      invocation.mailbox_queue_key
       |> addressed_entry("evt-edit-abort-1", "@agent please handle this", caller.uid)
       |> with_provider_message_id("provider-edit-abort-1")
 
@@ -964,7 +965,7 @@ defmodule BullX.AIAgent.TargetTest do
       })
 
     edit_entry =
-      invocation.mailbox_session_id
+      invocation.mailbox_queue_key
       |> edit_entry("evt-edit-abort-2", "不用管了", caller.uid)
       |> with_provider_message_id("provider-edit-abort-1")
       |> with_routing_facts(%{
@@ -998,7 +999,7 @@ defmodule BullX.AIAgent.TargetTest do
 
     assert get_in(interrupted.metadata, ["transcript_effect", "state"]) == "interrupted"
     assert get_in(interrupted.metadata, ["stream", "status"]) == "interrupted"
-    refute Repo.exists?(from entry in Entry, where: entry.status == :pending)
+    refute Repo.exists?(Entry)
   end
 
   test "stop sends control notice when unfinished output is not recallable" do
@@ -1010,7 +1011,7 @@ defmodule BullX.AIAgent.TargetTest do
     invocation = invocation(agent.uid)
 
     entry =
-      addressed_entry(invocation.mailbox_session_id, "evt-stop-no-recall-1", "hello", caller.uid)
+      addressed_entry(invocation.mailbox_queue_key, "evt-stop-no-recall-1", "hello", caller.uid)
 
     assert :ok = BullX.AIAgent.handle_event(invocation, entry)
     assert_received :closed
@@ -1034,7 +1035,7 @@ defmodule BullX.AIAgent.TargetTest do
       })
 
     stop_entry =
-      command_entry(invocation.mailbox_session_id, "evt-stop-no-recall-2", "/stop", caller.uid)
+      command_entry(invocation.mailbox_queue_key, "evt-stop-no-recall-2", "/stop", caller.uid)
 
     assert :ok = BullX.AIAgent.handle_event(invocation, stop_entry)
     assert_received :closed
@@ -1061,7 +1062,7 @@ defmodule BullX.AIAgent.TargetTest do
     invocation = invocation(agent.uid)
 
     entry =
-      addressed_entry(invocation.mailbox_session_id, "evt-steer-feedback-1", "hello", caller.uid)
+      addressed_entry(invocation.mailbox_queue_key, "evt-steer-feedback-1", "hello", caller.uid)
 
     assert :ok = BullX.AIAgent.handle_event(invocation, entry)
     assert_received :closed
@@ -1085,7 +1086,7 @@ defmodule BullX.AIAgent.TargetTest do
 
     steer_entry =
       command_entry(
-        invocation.mailbox_session_id,
+        invocation.mailbox_queue_key,
         "evt-steer-feedback-2",
         "/steer focus on the latest constraint",
         caller.uid
@@ -1130,7 +1131,7 @@ defmodule BullX.AIAgent.TargetTest do
 
     first_entry =
       addressed_entry(
-        invocation.mailbox_session_id,
+        invocation.mailbox_queue_key,
         "evt-compress-feedback-1",
         long_text,
         caller.uid
@@ -1144,7 +1145,7 @@ defmodule BullX.AIAgent.TargetTest do
 
     second_entry =
       addressed_entry(
-        invocation.mailbox_session_id,
+        invocation.mailbox_queue_key,
         "evt-compress-feedback-2",
         long_text,
         caller.uid
@@ -1158,7 +1159,7 @@ defmodule BullX.AIAgent.TargetTest do
 
     compress_entry =
       command_entry(
-        invocation.mailbox_session_id,
+        invocation.mailbox_queue_key,
         "evt-compress-feedback-3",
         "/compress",
         caller.uid
@@ -1220,7 +1221,7 @@ defmodule BullX.AIAgent.TargetTest do
 
     first_entry =
       addressed_entry(
-        invocation.mailbox_session_id,
+        invocation.mailbox_queue_key,
         "evt-overflow-retry-1",
         long_text,
         caller.uid
@@ -1234,7 +1235,7 @@ defmodule BullX.AIAgent.TargetTest do
 
     second_entry =
       addressed_entry(
-        invocation.mailbox_session_id,
+        invocation.mailbox_queue_key,
         "evt-overflow-retry-2",
         long_text,
         caller.uid
@@ -1262,7 +1263,7 @@ defmodule BullX.AIAgent.TargetTest do
 
     third_entry =
       addressed_entry(
-        invocation.mailbox_session_id,
+        invocation.mailbox_queue_key,
         "evt-overflow-retry-3",
         "third context",
         caller.uid
@@ -1314,7 +1315,7 @@ defmodule BullX.AIAgent.TargetTest do
 
     first_entry =
       addressed_entry(
-        invocation.mailbox_session_id,
+        invocation.mailbox_queue_key,
         "evt-compress-noop-feedback-1",
         "short message",
         caller.uid
@@ -1326,7 +1327,7 @@ defmodule BullX.AIAgent.TargetTest do
 
     compress_entry =
       command_entry(
-        invocation.mailbox_session_id,
+        invocation.mailbox_queue_key,
         "evt-compress-noop-feedback-2",
         "/compress",
         caller.uid
@@ -1373,7 +1374,7 @@ defmodule BullX.AIAgent.TargetTest do
     BullX.AIAgent.FakeLLMClient.push_response("should not be consumed")
 
     invocation = invocation(agent.uid)
-    entry = ambient_entry(invocation.mailbox_session_id, "evt-ambient-1", "background note")
+    entry = ambient_entry(invocation.mailbox_queue_key, "evt-ambient-1", "background note")
 
     assert :ok = BullX.AIAgent.handle_event(invocation, entry)
     assert_received :closed
@@ -1394,7 +1395,7 @@ defmodule BullX.AIAgent.TargetTest do
     invocation = invocation(agent.uid)
 
     entry =
-      invocation.mailbox_session_id
+      invocation.mailbox_queue_key
       |> ambient_entry("evt-ambient-observe-all", "background note")
       |> put_in([:cloud_event, "data", "routing_facts", "group_message_mode"], "observe_all")
 
@@ -1415,7 +1416,7 @@ defmodule BullX.AIAgent.TargetTest do
     invocation = invocation(agent.uid)
 
     entry =
-      invocation.mailbox_session_id
+      invocation.mailbox_queue_key
       |> ambient_entry("evt-ambient-engage-all", "background note")
       |> put_in([:cloud_event, "data", "routing_facts", "group_message_mode"], "engage_all")
 
@@ -1437,7 +1438,7 @@ defmodule BullX.AIAgent.TargetTest do
 
     invocation = invocation(agent.uid)
     long_text = String.duplicate("background context ", 80)
-    entry = ambient_entry(invocation.mailbox_session_id, "evt-ambient-brief-1", long_text)
+    entry = ambient_entry(invocation.mailbox_queue_key, "evt-ambient-brief-1", long_text)
 
     assert :ok = BullX.AIAgent.handle_event(invocation, entry)
     assert_received :closed
@@ -1459,7 +1460,7 @@ defmodule BullX.AIAgent.TargetTest do
     invocation = invocation(agent.uid)
 
     entry =
-      invocation.mailbox_session_id
+      invocation.mailbox_queue_key
       |> ambient_entry("evt-ambient-no-reply-anchor", "background note")
       |> put_in([:cloud_event, "data", "reply_address"], %{
         "adapter" => "im_gateway_test",
@@ -1490,7 +1491,7 @@ defmodule BullX.AIAgent.TargetTest do
     invocation = invocation(agent.uid)
 
     entry =
-      invocation.mailbox_session_id
+      invocation.mailbox_queue_key
       |> ambient_entry("evt-ambient-agent-name", "#{agent.uid} 看一下")
       |> put_in([:cloud_event, "data", "routing_facts", "group_message_mode"], "engage_all")
 
@@ -1513,7 +1514,7 @@ defmodule BullX.AIAgent.TargetTest do
     invocation = invocation(agent.uid)
 
     first_entry =
-      invocation.mailbox_session_id
+      invocation.mailbox_queue_key
       |> ambient_entry("evt-ambient-after-answer-1", "first")
       |> put_in([:cloud_event, "data", "routing_facts", "group_message_mode"], "engage_all")
 
@@ -1534,7 +1535,7 @@ defmodule BullX.AIAgent.TargetTest do
              })
 
     second_entry =
-      invocation.mailbox_session_id
+      invocation.mailbox_queue_key
       |> ambient_entry("evt-ambient-after-answer-2", "follow up")
       |> put_in([:cloud_event, "data", "routing_facts", "group_message_mode"], "engage_all")
 
@@ -1583,12 +1584,12 @@ defmodule BullX.AIAgent.TargetTest do
     invocation = invocation(agent.uid)
 
     first_entry =
-      invocation.mailbox_session_id
+      invocation.mailbox_queue_key
       |> addressed_entry("evt-edit-history-1", "first", caller.uid)
       |> with_provider_message_id("provider-edit-history-1")
 
     second_entry =
-      invocation.mailbox_session_id
+      invocation.mailbox_queue_key
       |> addressed_entry("evt-edit-history-2", "second", caller.uid)
       |> with_provider_message_id("provider-edit-history-2")
 
@@ -1601,7 +1602,7 @@ defmodule BullX.AIAgent.TargetTest do
     assert_receive {:im_gateway_adapter_delivered, _source, _reply_address, _outbound}
 
     edit_entry =
-      invocation.mailbox_session_id
+      invocation.mailbox_queue_key
       |> edit_entry("evt-edit-history-3", "first edited", caller.uid)
       |> with_provider_message_id("provider-edit-history-1")
 
@@ -1618,7 +1619,7 @@ defmodule BullX.AIAgent.TargetTest do
     assert get_in(List.first(introspection.content), ["text"]) =~ "被编辑为：first edited"
   end
 
-  test "lifecycle edit can revise a target after weak mailbox session id drift" do
+  test "lifecycle edit can revise a target after weak mailbox queue drift" do
     {:ok, agent} = create_ai_agent("ai-agent-target-edit-session-drift")
     {:ok, caller} = create_human("ai-agent-target-edit-session-drift-caller")
     grant(caller.uid, agent.uid, "invoke")
@@ -1627,7 +1628,7 @@ defmodule BullX.AIAgent.TargetTest do
     original_invocation = invocation(agent.uid)
 
     original_entry =
-      original_invocation.mailbox_session_id
+      original_invocation.mailbox_queue_key
       |> addressed_entry("evt-edit-session-drift-1", "@agent original", caller.uid)
       |> with_provider_message_id("provider-edit-session-drift-1")
 
@@ -1637,11 +1638,11 @@ defmodule BullX.AIAgent.TargetTest do
 
     drifted_invocation = %{
       original_invocation
-      | mailbox_session_id: BullX.Ext.gen_uuid_v7()
+      | mailbox_queue_key: BullX.Ext.gen_uuid_v7()
     }
 
     edit_entry =
-      drifted_invocation.mailbox_session_id
+      drifted_invocation.mailbox_queue_key
       |> edit_entry("evt-edit-session-drift-2", "@agent revised", caller.uid)
       |> with_provider_message_id("provider-edit-session-drift-1")
       |> with_routing_facts(%{"attention_reason" => "mention"})
@@ -1653,9 +1654,7 @@ defmodule BullX.AIAgent.TargetTest do
     assert get_in(original_message.metadata, ["transcript_effect", "state"]) == "superseded"
 
     republished_entry =
-      Entry
-      |> where([entry], entry.status == :pending)
-      |> Repo.one!()
+      Repo.one!(Entry)
 
     assert republished_entry.attention == :addressed
 
@@ -1674,12 +1673,12 @@ defmodule BullX.AIAgent.TargetTest do
     invocation = invocation(agent.uid)
 
     first_entry =
-      invocation.mailbox_session_id
+      invocation.mailbox_queue_key
       |> addressed_entry("evt-delete-history-1", "first", caller.uid)
       |> with_provider_message_id("provider-delete-history-1")
 
     second_entry =
-      invocation.mailbox_session_id
+      invocation.mailbox_queue_key
       |> addressed_entry("evt-delete-history-2", "second", caller.uid)
       |> with_provider_message_id("provider-delete-history-2")
 
@@ -1692,7 +1691,7 @@ defmodule BullX.AIAgent.TargetTest do
     assert_receive {:im_gateway_adapter_delivered, _source, _reply_address, _outbound}
 
     delete_entry =
-      invocation.mailbox_session_id
+      invocation.mailbox_queue_key
       |> delete_entry("evt-delete-history-3", caller.uid)
       |> with_provider_message_id("provider-delete-history-1")
 
@@ -1719,7 +1718,7 @@ defmodule BullX.AIAgent.TargetTest do
     invocation = invocation(agent.uid)
 
     batch_entry =
-      invocation.mailbox_session_id
+      invocation.mailbox_queue_key
       |> addressed_entry("evt-batch-edit-1", "@agent first\nsecond", caller.uid)
       |> with_im_batch(
         [
@@ -1734,7 +1733,7 @@ defmodule BullX.AIAgent.TargetTest do
     assert_receive {:im_gateway_adapter_delivered, _source, _reply_address, _outbound}
 
     edit_entry =
-      invocation.mailbox_session_id
+      invocation.mailbox_queue_key
       |> edit_entry("evt-batch-edit-2", "second edited", caller.uid)
       |> with_provider_message_id("provider-batch-edit-2")
       |> with_routing_facts(%{
@@ -1749,9 +1748,7 @@ defmodule BullX.AIAgent.TargetTest do
     assert get_in(old_user.metadata, ["transcript_effect", "state"]) == "superseded"
 
     republished_entry =
-      Entry
-      |> where([entry], entry.status == :pending)
-      |> Repo.one!()
+      Repo.one!(Entry)
 
     assert republished_entry.attention == :addressed
 
@@ -1788,7 +1785,7 @@ defmodule BullX.AIAgent.TargetTest do
     invocation = invocation(agent.uid)
 
     batch_entry =
-      invocation.mailbox_session_id
+      invocation.mailbox_queue_key
       |> addressed_entry("evt-batch-downgrade-1", "@agent first\nsecond", caller.uid)
       |> with_im_batch(
         [
@@ -1803,7 +1800,7 @@ defmodule BullX.AIAgent.TargetTest do
     assert_receive {:im_gateway_adapter_delivered, _source, _reply_address, _outbound}
 
     edit_entry =
-      invocation.mailbox_session_id
+      invocation.mailbox_queue_key
       |> edit_entry("evt-batch-downgrade-2", "first", caller.uid)
       |> with_provider_message_id("provider-batch-downgrade-1")
       |> with_routing_facts(%{
@@ -1819,9 +1816,7 @@ defmodule BullX.AIAgent.TargetTest do
     assert get_in(old_user.metadata, ["transcript_effect", "state"]) == "superseded"
 
     republished_entry =
-      Entry
-      |> where([entry], entry.status == :pending)
-      |> Repo.one!()
+      Repo.one!(Entry)
 
     assert republished_entry.attention == :ambient
 
@@ -1857,7 +1852,7 @@ defmodule BullX.AIAgent.TargetTest do
     invocation = invocation(agent.uid)
 
     batch_entry =
-      invocation.mailbox_session_id
+      invocation.mailbox_queue_key
       |> addressed_entry("evt-batch-ignored-1", "@agent first", caller.uid)
       |> with_im_batch(
         [
@@ -1871,7 +1866,7 @@ defmodule BullX.AIAgent.TargetTest do
     assert_receive {:im_gateway_adapter_delivered, _source, _reply_address, _outbound}
 
     edit_entry =
-      invocation.mailbox_session_id
+      invocation.mailbox_queue_key
       |> edit_entry("evt-batch-ignored-2", "first", caller.uid)
       |> with_provider_message_id("provider-batch-ignored-1")
       |> with_routing_facts(%{
@@ -1886,7 +1881,7 @@ defmodule BullX.AIAgent.TargetTest do
     old_user = Repo.get_by!(Message, event_id: "evt-batch-ignored-1", role: :user)
     assert get_in(old_user.metadata, ["transcript_effect", "state"]) == "superseded"
 
-    refute Repo.exists?(from entry in Entry, where: entry.status == :pending)
+    refute Repo.exists?(Entry)
 
     refute Repo.exists?(
              from message in Message,
@@ -1901,7 +1896,7 @@ defmodule BullX.AIAgent.TargetTest do
     invocation = invocation(agent.uid)
 
     batch_entry =
-      invocation.mailbox_session_id
+      invocation.mailbox_queue_key
       |> ambient_entry("evt-ambient-batch-edit-1", "first\nsecond")
       |> put_in([:routing_context], routing_context(caller.uid))
       |> with_im_batch(
@@ -1916,7 +1911,7 @@ defmodule BullX.AIAgent.TargetTest do
     assert_received :closed
 
     edit_entry =
-      invocation.mailbox_session_id
+      invocation.mailbox_queue_key
       |> edit_entry("evt-ambient-batch-edit-2", "second edited", caller.uid)
       |> with_provider_message_id("provider-ambient-batch-edit-2")
       |> with_routing_facts(%{
@@ -1947,7 +1942,7 @@ defmodule BullX.AIAgent.TargetTest do
   test "unsupported events close the invocation without creating business records" do
     {:ok, agent} = create_ai_agent("ai-agent-target-unsupported")
     invocation = invocation(agent.uid)
-    entry = unsupported_entry(invocation.mailbox_session_id, "evt-unsupported-1")
+    entry = unsupported_entry(invocation.mailbox_queue_key, "evt-unsupported-1")
 
     assert :ok = BullX.AIAgent.handle_event(invocation, entry)
     assert_received :closed
@@ -2021,7 +2016,7 @@ defmodule BullX.AIAgent.TargetTest do
 
   defp invocation(agent_uid) do
     %{
-      mailbox_session_id: BullX.Ext.gen_uuid_v7(),
+      mailbox_queue_key: BullX.Ext.gen_uuid_v7(),
       event_routing_rule_id: BullX.Ext.gen_uuid_v7(),
       target_type: :ai_agent,
       target_ref: agent_uid,
@@ -2032,9 +2027,9 @@ defmodule BullX.AIAgent.TargetTest do
     }
   end
 
-  defp addressed_entry(mailbox_session_id, event_id, text, caller_principal_uid) do
+  defp addressed_entry(mailbox_queue_key, event_id, text, caller_principal_uid) do
     entry(
-      mailbox_session_id,
+      mailbox_queue_key,
       event_id,
       "bullx.message.received",
       text,
@@ -2043,11 +2038,11 @@ defmodule BullX.AIAgent.TargetTest do
     )
   end
 
-  defp command_entry(mailbox_session_id, event_id, text, caller_principal_uid) do
+  defp command_entry(mailbox_queue_key, event_id, text, caller_principal_uid) do
     {command_name, args} = command_parts(text)
     args_kind = command_args_kind(args)
 
-    mailbox_session_id
+    mailbox_queue_key
     |> entry(
       event_id,
       "bullx.command.invoked",
@@ -2085,13 +2080,13 @@ defmodule BullX.AIAgent.TargetTest do
   defp command_content(command_name, ""), do: "/" <> command_name
   defp command_content(_command_name, args), do: args
 
-  defp ambient_entry(mailbox_session_id, event_id, text) do
-    entry(mailbox_session_id, event_id, "bullx.message.received", text, nil, :ambient)
+  defp ambient_entry(mailbox_queue_key, event_id, text) do
+    entry(mailbox_queue_key, event_id, "bullx.message.received", text, nil, :ambient)
   end
 
-  defp edit_entry(mailbox_session_id, event_id, text, caller_principal_uid) do
+  defp edit_entry(mailbox_queue_key, event_id, text, caller_principal_uid) do
     entry(
-      mailbox_session_id,
+      mailbox_queue_key,
       event_id,
       "bullx.message.edited",
       text,
@@ -2100,9 +2095,9 @@ defmodule BullX.AIAgent.TargetTest do
     )
   end
 
-  defp delete_entry(mailbox_session_id, event_id, caller_principal_uid) do
+  defp delete_entry(mailbox_queue_key, event_id, caller_principal_uid) do
     entry(
-      mailbox_session_id,
+      mailbox_queue_key,
       event_id,
       "bullx.message.deleted",
       "[message deleted]",
@@ -2111,12 +2106,12 @@ defmodule BullX.AIAgent.TargetTest do
     )
   end
 
-  defp unsupported_entry(mailbox_session_id, event_id) do
-    entry(mailbox_session_id, event_id, "example.unsupported", "ignored", nil, :system)
+  defp unsupported_entry(mailbox_queue_key, event_id) do
+    entry(mailbox_queue_key, event_id, "example.unsupported", "ignored", nil, :system)
   end
 
   defp force_mailbox_entries_ready do
-    Repo.update_all(Entry, set: [available_at: DateTime.utc_now(:microsecond)])
+    BullX.MailBox.force_ready()
   end
 
   defp drain_deliveries do
@@ -2200,11 +2195,11 @@ defmodule BullX.AIAgent.TargetTest do
   defp batch_attention_reason("addressed"), do: "batch_addressed"
   defp batch_attention_reason(_attention), do: "unaddressed"
 
-  defp entry(mailbox_session_id, event_id, event_type, text, caller_principal_uid, attention) do
+  defp entry(mailbox_queue_key, event_id, event_type, text, caller_principal_uid, attention) do
     %{
       id: BullX.Ext.gen_uuid_v7(),
       entry_seq: 1,
-      mailbox_session_id: mailbox_session_id,
+      mailbox_queue_key: mailbox_queue_key,
       attention: attention,
       event_source: "/feishu",
       event_id: event_id,

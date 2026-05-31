@@ -32,9 +32,11 @@ config :phoenix,
   sort_verified_routes_query_params: true
 
 config :bullx, :mail_box,
-  dispatcher: false,
-  dispatcher_interval_ms: 500,
-  dispatcher_claim_limit: 20,
+  runtime: true,
+  runtime_dispatcher: false,
+  runtime_control_dispatcher: false,
+  runtime_interval_ms: 500,
+  runtime_claim_limit: 20,
   stream_retention_seconds: 60,
   max_stream_chunk_bytes: 1_024
 

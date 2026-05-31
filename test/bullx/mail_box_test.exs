@@ -8,6 +8,11 @@ defmodule BullX.MailBoxTest do
   alias BullX.Principals.Agent
   alias BullX.Repo
 
+  setup do
+    MailBox.rebuild_runtime()
+    :ok
+  end
+
   test "route fans out to every matching rule even when priorities are equal" do
     agent_a = ai_agent!("fanout-a")
     agent_b = ai_agent!("fanout-b")
@@ -56,104 +61,73 @@ defmodule BullX.MailBoxTest do
     assert Repo.aggregate(Entry, :count) == 0
   end
 
-  test "process_ready reclaims expired leased session entries" do
-    agent_uid = ai_agent!("lease-sink")
+  test "accepted pending entries are rebuilt from PG and deleted after processing" do
+    agent_uid = ai_agent!("runtime-rebuild")
 
     assert {:ok, %{entry: %Entry{} = entry}} =
              MailBox.deliver(%{
-               cloud_event: cloud_event("lease-1"),
+               cloud_event: cloud_event("runtime-rebuild-1"),
                agent_uid: agent_uid,
                attention: :system,
-               session_key: "lease-test"
+               queue_key: "runtime-rebuild"
              })
 
-    future = DateTime.add(DateTime.utc_now(:microsecond), 60, :second)
+    assert :ok = MailBox.rebuild_runtime()
+    assert {:ok, 1} = MailBox.process_ready(1, async?: false)
+    refute Repo.get(Entry, entry.id)
+  end
 
-    Repo.update_all(
-      from(mailbox_entry in Entry, where: mailbox_entry.id == ^entry.id),
-      set: [status: :leased, lease_holder: "first", lease_expires_at: future]
-    )
+  test "accepted-key ledger prevents duplicate delivery after the pending row is processed" do
+    agent_uid = ai_agent!("dedupe")
+    request = %{cloud_event: cloud_event("dedupe-1"), agent_uid: agent_uid, attention: :system}
 
-    assert {:ok, 0} = MailBox.process_ready(1, holder: "second", async?: false)
+    assert {:ok, %{entry: %Entry{} = entry}} = MailBox.deliver(request)
 
-    past = DateTime.add(DateTime.utc_now(:microsecond), -1, :second)
+    assert {:ok, %{status: :duplicate, entry: %Entry{id: duplicate_id}}} =
+             MailBox.deliver(request)
 
-    Repo.update_all(
-      from(mailbox_entry in Entry, where: mailbox_entry.id == ^entry.id),
-      set: [lease_expires_at: past]
-    )
+    assert duplicate_id == entry.id
 
-    assert {:ok, 1} = MailBox.process_ready(1, holder: "second", async?: false)
-    assert %Entry{status: :processed, attempts: 1} = Repo.get!(Entry, entry.id)
+    MailBox.force_ready()
+    assert {:ok, 1} = MailBox.process_ready(1, async?: false)
+    assert Repo.aggregate(Entry, :count) == 0
+
+    assert {:ok, %{status: :duplicate, entry: nil}} = MailBox.deliver(request)
+    assert Repo.aggregate(Entry, :count) == 0
   end
 
   test "lifecycle entries defer while their target receive entry is in flight" do
     agent_uid = ai_agent!("lifecycle-in-flight")
 
-    assert {:ok, %{session: session, entry: receive_entry}} =
+    assert {:ok, %{entry: receive_entry}} =
              MailBox.deliver(%{
                cloud_event:
                  message_event("receive-in-flight-1", "bullx.message.received", "om_1"),
                agent_uid: agent_uid,
                attention: :ambient,
-               session_key: "lifecycle-in-flight",
-               available_at: DateTime.add(DateTime.utc_now(:microsecond), 60, :second)
+               queue_key: "lifecycle-in-flight"
              })
 
-    future = DateTime.add(DateTime.utc_now(:microsecond), 60, :second)
+    BullX.MailBox.Runtime.mark_in_flight([receive_entry], receive_entry.queue_key)
+    lifecycle_entry = lifecycle_entry!(agent_uid, receive_entry.queue_key, "edit-in-flight-1")
 
-    Repo.update_all(
-      from(entry in Entry, where: entry.id == ^receive_entry.id),
-      set: [status: :leased, lease_holder: "receive-worker", lease_expires_at: future]
-    )
-
-    lifecycle_entry =
-      %Entry{}
-      |> Entry.changeset(%{
-        agent_uid: agent_uid,
-        mailbox_session_id: session.id,
-        status: :leased,
-        attention: :lifecycle,
-        cloud_event: message_event("edit-in-flight-1", "bullx.message.edited", "om_1"),
-        available_at: DateTime.utc_now(:microsecond),
-        idempotency_key: "lifecycle-in-flight-edit",
-        lease_holder: "lifecycle-worker",
-        lease_expires_at: future,
-        attempts: 1
-      })
-      |> Repo.insert!()
-
-    assert :ok = MailBox.process_entry(lifecycle_entry, holder: "lifecycle-worker")
-
-    assert %Entry{
-             status: :pending,
-             lease_holder: nil,
-             lease_expires_at: nil,
-             available_at: available_at
-           } = Repo.get!(Entry, lifecycle_entry.id)
-
-    assert DateTime.compare(available_at, DateTime.utc_now(:microsecond)) in [:gt, :eq]
+    assert :ok = MailBox.process_entry(lifecycle_entry)
+    assert %Entry{} = Repo.get!(Entry, lifecycle_entry.id)
   end
 
-  test "lifecycle entries dispatch while their leased target receive entry is already materialized" do
+  test "lifecycle entries dispatch while their in-flight target receive entry is already materialized" do
     agent_uid = ai_agent!("lifecycle-materialized")
 
-    assert {:ok, %{session: session, entry: receive_entry}} =
+    assert {:ok, %{entry: receive_entry}} =
              MailBox.deliver(%{
                cloud_event:
                  message_event("receive-materialized-1", "bullx.message.received", "om_1"),
                agent_uid: agent_uid,
                attention: :ambient,
-               session_key: "lifecycle-materialized",
-               available_at: DateTime.add(DateTime.utc_now(:microsecond), 60, :second)
+               queue_key: "lifecycle-materialized"
              })
 
-    future = DateTime.add(DateTime.utc_now(:microsecond), 60, :second)
-
-    Repo.update_all(
-      from(entry in Entry, where: entry.id == ^receive_entry.id),
-      set: [status: :leased, lease_holder: "receive-worker", lease_expires_at: future]
-    )
+    BullX.MailBox.Runtime.mark_in_flight([receive_entry], receive_entry.queue_key)
 
     assert {:ok, conversation} =
              Conversations.find_or_create_active(agent_uid, "lifecycle-materialized", %{})
@@ -165,88 +139,50 @@ defmodule BullX.MailBoxTest do
                kind: :normal,
                status: :complete,
                content: [%{"type" => "text", "text" => "before edit"}],
-               mailbox_session_id: session.id,
+               mailbox_queue_key: receive_entry.queue_key,
                event_source: "bullx://test/mail-box",
                event_id: "receive-materialized-1",
                metadata: %{"provider_refs" => %{"message_ids" => ["om_1"]}}
              })
 
     lifecycle_entry =
-      %Entry{}
-      |> Entry.changeset(%{
-        agent_uid: agent_uid,
-        mailbox_session_id: session.id,
-        status: :leased,
-        attention: :lifecycle,
-        cloud_event:
-          message_event("edit-materialized-1", "bullx.message.edited", "om_1", "after edit"),
-        available_at: DateTime.utc_now(:microsecond),
-        idempotency_key: "lifecycle-materialized-edit",
-        lease_holder: "lifecycle-worker",
-        lease_expires_at: future,
-        attempts: 1
-      })
-      |> Repo.insert!()
+      lifecycle_entry!(
+        agent_uid,
+        receive_entry.queue_key,
+        "edit-materialized-1",
+        "after edit"
+      )
 
-    assert :ok = MailBox.process_entry(lifecycle_entry, holder: "lifecycle-worker")
-
-    assert %Entry{status: :processed, lease_holder: nil, lease_expires_at: nil} =
-             Repo.get!(Entry, lifecycle_entry.id)
+    assert :ok = MailBox.process_entry(lifecycle_entry)
+    refute Repo.get(Entry, lifecycle_entry.id)
 
     assert %Message{content: [%{"type" => "text", "text" => "after edit"}]} =
              Repo.get!(Message, message.id)
   end
 
-  test "dispatcher wakes for delivered entries instead of waiting for idle poll" do
-    start_supervised!({BullX.MailBox.Dispatcher, interval_ms: 10, claim_limit: 20})
-    agent_uid = ai_agent!("wake-sink")
+  test "coalesce pressure wakes a same-actor batch without touching PG timing fields" do
+    agent_uid = ai_agent!("coalesce-pressure")
+    queue_key = "coalesce-pressure-#{System.unique_integer([:positive])}"
 
-    assert {:ok, %{entry: %Entry{} = entry}} =
+    assert {:ok, %{entry: first}} =
              MailBox.deliver(%{
-               cloud_event: cloud_event("wake-1"),
+               cloud_event: coalesced_message_event("coalesce-pressure-1", "abcde", 10),
                agent_uid: agent_uid,
-               attention: :system,
-               session_key: "wake-test",
-               available_at: DateTime.add(DateTime.utc_now(:microsecond), 50, :millisecond)
+               attention: :ambient,
+               queue_key: queue_key
              })
 
-    assert_processed(entry.id)
-  end
-
-  test "next_ready_at normalizes mixed aggregate timestamp types" do
-    agent_uid = ai_agent!("next-ready")
-    future = DateTime.add(DateTime.utc_now(:microsecond), 60, :second)
-
-    assert {:ok, _result} =
+    assert {:ok, %{entry: second}} =
              MailBox.deliver(%{
-               cloud_event: cloud_event("next-ready-pending"),
+               cloud_event: coalesced_message_event("coalesce-pressure-2", "fghij", 10),
                agent_uid: agent_uid,
-               attention: :system,
-               session_key: "next-ready",
-               available_at: future
+               attention: :ambient,
+               queue_key: queue_key
              })
 
-    assert {:ok, %{entry: %Entry{} = leased_entry}} =
-             MailBox.deliver(%{
-               cloud_event: cloud_event("next-ready-leased"),
-               agent_uid: agent_uid,
-               attention: :system,
-               session_key: "next-ready",
-               available_at: future
-             })
-
-    Repo.update_all(
-      from(entry in Entry, where: entry.id == ^leased_entry.id),
-      set: [status: :leased, lease_holder: "worker", lease_expires_at: nil]
-    )
-
-    assert %DateTime{} = MailBox.next_ready_at()
-  end
-
-  test "dispatcher stops scheduling itself when there is no pending work" do
-    pid = start_supervised!({BullX.MailBox.Dispatcher, interval_ms: 10, claim_limit: 20})
-
-    assert_idle_dispatcher(pid)
+    assert {:ok, 1} = MailBox.process_ready(1, async?: false)
+    refute Repo.get(Entry, first.id)
+    refute Repo.get(Entry, second.id)
   end
 
   defp insert_delivery_rule!(name, agent_uid, priority) do
@@ -315,61 +251,21 @@ defmodule BullX.MailBoxTest do
     }
   end
 
-  defp assert_processed(entry_id, attempts \\ 20)
-
-  defp assert_processed(entry_id, attempts) when attempts > 0 do
-    case Repo.get!(Entry, entry_id).status do
-      :processed ->
-        assert_sessions_released()
-
-      _status ->
-        Process.sleep(25)
-        assert_processed(entry_id, attempts - 1)
-    end
+  defp coalesced_message_event(id, text, max_chars) do
+    id
+    |> message_event("bullx.message.received", id, text)
+    |> put_in(["data", "coalesce"], %{"window_ms" => 60_000, "max_chars" => max_chars})
   end
 
-  defp assert_processed(entry_id, 0) do
-    status = Repo.get!(Entry, entry_id).status
-    flunk("expected mailbox entry #{entry_id} to be processed, got: #{inspect(status)}")
-  end
-
-  defp assert_sessions_released(attempts \\ 20)
-
-  defp assert_sessions_released(attempts) when attempts > 0 do
-    leased_count =
-      Repo.aggregate(
-        from(session in BullX.MailBox.Session, where: not is_nil(session.lease_holder)),
-        :count
-      )
-
-    case leased_count do
-      0 ->
-        :ok
-
-      _count ->
-        Process.sleep(25)
-        assert_sessions_released(attempts - 1)
-    end
-  end
-
-  defp assert_sessions_released(0), do: flunk("expected mailbox sessions to be released")
-
-  defp assert_idle_dispatcher(pid, attempts \\ 20)
-
-  defp assert_idle_dispatcher(pid, attempts) when attempts > 0 do
-    case :sys.get_state(pid).timer_ref do
-      nil ->
-        :ok
-
-      _timer_ref ->
-        Process.sleep(25)
-        assert_idle_dispatcher(pid, attempts - 1)
-    end
-  end
-
-  defp assert_idle_dispatcher(pid, 0) do
-    flunk(
-      "expected mailbox dispatcher to stop scheduling itself, got: #{inspect(:sys.get_state(pid))}"
-    )
+  defp lifecycle_entry!(agent_uid, queue_key, event_id, text \\ "after edit") do
+    %Entry{}
+    |> Entry.changeset(%{
+      agent_uid: agent_uid,
+      queue_key: queue_key,
+      attention: :lifecycle,
+      cloud_event: message_event(event_id, "bullx.message.edited", "om_1", text),
+      idempotency_key: event_id
+    })
+    |> Repo.insert!()
   end
 end

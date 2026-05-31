@@ -25,17 +25,13 @@ defmodule BullX.AIAgent.Runner do
   Conversation persistence and ACL checks.
   """
 
-  import Ecto.Query
-
   require Logger
 
   alias BullX.AIAgent.{
     ACL,
-    Commands,
     Compression,
     Conversation,
     Conversations,
-    Event,
     Message,
     MessageContextBuilder,
     Profile,
@@ -48,8 +44,6 @@ defmodule BullX.AIAgent.Runner do
   alias BullX.IMGateway.ChannelAdapter
   alias BullX.LLM
   alias BullX.LLM.Catalog
-  alias BullX.MailBox.Entry, as: MailboxEntry
-  alias BullX.Repo
 
   @max_auto_compression_attempts 3
   @finish_reason_aliases %{
@@ -565,7 +559,7 @@ defmodule BullX.AIAgent.Runner do
   defp create_visible_stream(context) do
     output = context.output
 
-    case output.create_stream(context.mailbox_session_id, context.mailbox_entry_id) do
+    case output.create_stream(context.mailbox_queue_key, context.mailbox_entry_id) do
       {:ok, stream_id} ->
         case start_stream_consumer(context.reply_address, stream_id, context) do
           {:ok, consumer} ->
@@ -599,7 +593,7 @@ defmodule BullX.AIAgent.Runner do
   end
 
   defp stream_requested?(%{reply_address: %{} = reply_address} = context) do
-    is_binary(Map.get(context, :mailbox_session_id)) and
+    is_binary(Map.get(context, :mailbox_queue_key)) and
       is_atom(Map.get(context, :output)) and
       stream_requested_by_reply_address?(reply_address)
   end
@@ -669,93 +663,8 @@ defmodule BullX.AIAgent.Runner do
 
   defp maybe_generation_interrupted(_context), do: :ok
 
-  defp maybe_cancel_for_pending_stop(conversation_id, context) do
-    case pending_authorized_stop_entry(context) do
-      %MailboxEntry{} = entry ->
-        now = DateTime.utc_now(:microsecond)
-
-        case Conversations.cancel_generation_lease(
-               conversation_id,
-               context.lease_id,
-               "stop",
-               now,
-               %{
-                 "cancelled_by_command_entry_id" => entry.id
-               }
-             ) do
-          {:ok, _conversation} -> {:interrupted, :stop}
-          {:error, :generation_inactive} -> {:interrupted, :generation_inactive}
-          {:error, reason} -> {:error, reason}
-        end
-
-      nil ->
-        :ok
-    end
-  end
-
-  defp pending_authorized_stop_entry(context) do
-    with mailbox_session_id when is_binary(mailbox_session_id) <-
-           Map.get(context, :mailbox_session_id),
-         current_entry_seq when is_integer(current_entry_seq) <-
-           Map.get(context, :mailbox_entry_seq) do
-      mailbox_session_id
-      |> pending_entries_after(current_entry_seq)
-      |> Enum.find(&authorized_stop_entry?(&1, context))
-    else
-      _missing -> nil
-    end
-  end
-
-  defp pending_entries_after(mailbox_session_id, current_entry_seq) do
-    MailboxEntry
-    |> where([e], e.mailbox_session_id == ^mailbox_session_id)
-    |> where([e], e.entry_seq > ^current_entry_seq)
-    |> where([e], e.status == :pending)
-    |> order_by([e], asc: e.entry_seq)
-    |> limit(10)
-    |> Repo.all()
-  end
-
-  defp authorized_stop_entry?(%MailboxEntry{} = entry, context) do
-    case {stop_command_entry?(entry), entry_trigger_principal_uid(entry)} do
-      {true, caller_principal_uid} when is_binary(caller_principal_uid) ->
-        ACL.authorize(
-          caller_principal_uid,
-          context.agent_uid,
-          :ordinary,
-          pending_command_acl_context(entry)
-        ) == :allowed
-
-      _other ->
-        false
-    end
-  end
-
-  defp stop_command_entry?(
-         %MailboxEntry{cloud_event: %{"type" => "bullx.command.invoked"}} =
-           entry
-       ) do
-    entry.cloud_event
-    |> Event.data()
-    |> Commands.command_event_name()
-    |> Kernel.==("stop")
-  end
-
-  defp stop_command_entry?(_entry), do: false
-
-  defp entry_trigger_principal_uid(%MailboxEntry{} = entry) do
-    entry.cloud_event
-    |> BullX.MailBox.RoutingContext.project()
-    |> Event.trigger_principal_uid()
-  end
-
-  defp pending_command_acl_context(entry) do
-    %{
-      input_mode: "command",
-      trigger_type: "mailbox_entry",
-      trigger_id: entry.id,
-      channel_kind: get_in(entry.cloud_event, ["data", "channel", "kind"])
-    }
+  defp maybe_cancel_for_pending_stop(_conversation_id, _context) do
+    :ok
   end
 
   defp finish_stream(output, stream_id, status, reason) do
@@ -1250,7 +1159,7 @@ defmodule BullX.AIAgent.Runner do
       kind: :normal,
       status: :complete,
       content: assistant_content(result),
-      mailbox_session_id: Map.get(context, :mailbox_session_id),
+      mailbox_queue_key: Map.get(context, :mailbox_queue_key),
       metadata:
         trigger_message
         |> generation_metadata(context, result_metadata(result))
@@ -1339,7 +1248,7 @@ defmodule BullX.AIAgent.Runner do
       kind: :normal,
       status: :complete,
       content: result_blocks,
-      mailbox_session_id: Map.get(context, :mailbox_session_id),
+      mailbox_queue_key: Map.get(context, :mailbox_queue_key),
       metadata:
         generation_metadata(trigger_message, context, %{
           "root_assistant_message_id" => assistant_message.id
@@ -1360,7 +1269,7 @@ defmodule BullX.AIAgent.Runner do
       kind: :error,
       status: :complete,
       content: [Message.error_block(code, message, false)],
-      mailbox_session_id: Map.get(context, :mailbox_session_id),
+      mailbox_queue_key: Map.get(context, :mailbox_queue_key),
       metadata: generation_metadata(trigger_message, context, error_metadata)
     }
 

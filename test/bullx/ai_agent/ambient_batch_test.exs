@@ -1,7 +1,7 @@
 defmodule BullX.AIAgent.AmbientBatchTest do
   use ExUnit.Case, async: false
 
-  alias BullX.AIAgent.{AmbientBatch, AmbientBatchWorker}
+  alias BullX.AIAgent.{AmbientBatch, AmbientBatchProcessor}
 
   test "enqueue refreshes the reply address to the latest item in the batch window" do
     agent_uid = "ambient-batch-agent-1"
@@ -80,13 +80,32 @@ defmodule BullX.AIAgent.AmbientBatchTest do
     assert {:error, :missing} = AmbientBatch.take(batch_key)
   end
 
-  test "durable idempotency key is per processed ambient batch, not per conversation" do
+  test "take pops a claimed batch without blocking a new batch with the same key" do
     agent_uid = "ambient-batch-agent-5"
+    ambient_conversation_id = BullX.Ext.gen_uuid_v7()
+    batch_key = "#{agent_uid}:#{ambient_conversation_id}"
+
+    on_exit(fn -> AmbientBatch.cleanup(batch_key) end)
+
+    assert :ok =
+             AmbientBatch.enqueue(batch(agent_uid, ambient_conversation_id, "first"))
+
+    assert {:ok, _meta, [%{"message_id" => "first"}]} = AmbientBatch.take(batch_key)
+    assert {:error, :missing} = AmbientBatch.take(batch_key)
+
+    assert :ok =
+             AmbientBatch.enqueue(batch(agent_uid, ambient_conversation_id, "second"))
+
+    assert {:ok, _meta, [%{"message_id" => "second"}]} = AmbientBatch.take(batch_key)
+  end
+
+  test "durable idempotency key is per processed ambient batch, not per conversation" do
+    agent_uid = "ambient-batch-agent-6"
     ambient_conversation_id = BullX.Ext.gen_uuid_v7()
     meta = %{"batch_key" => "#{agent_uid}:#{ambient_conversation_id}"}
 
     first =
-      AmbientBatchWorker.batch_idempotency_key(meta, [
+      AmbientBatchProcessor.batch_idempotency_key(meta, [
         %{
           "message_id" => "provider-message-1",
           "text" => "美联储有人看吗",
@@ -95,7 +114,7 @@ defmodule BullX.AIAgent.AmbientBatchTest do
       ])
 
     same_first =
-      AmbientBatchWorker.batch_idempotency_key(meta, [
+      AmbientBatchProcessor.batch_idempotency_key(meta, [
         %{
           "message_id" => "provider-message-1",
           "text" => "美联储有人看吗",
@@ -104,7 +123,7 @@ defmodule BullX.AIAgent.AmbientBatchTest do
       ])
 
     second =
-      AmbientBatchWorker.batch_idempotency_key(meta, [
+      AmbientBatchProcessor.batch_idempotency_key(meta, [
         %{
           "message_id" => "provider-message-2",
           "text" => "生猪期货有人看吗",

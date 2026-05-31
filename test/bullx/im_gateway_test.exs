@@ -13,6 +13,7 @@ defmodule BullX.IMGatewayTest do
 
   setup do
     BullX.Cache.clear()
+    BullX.MailBox.rebuild_runtime()
     on_exit(fn -> BullX.Cache.clear() end)
     :ok
   end
@@ -52,7 +53,7 @@ defmodule BullX.IMGatewayTest do
     assert message.room.provider_realm_id == "tenant"
     assert message.room.provider_room_id == "chat_1"
 
-    entry = Repo.one!(Entry) |> Repo.preload([:agent, :session])
+    entry = Repo.one!(Entry) |> Repo.preload([:agent])
     assert entry.attention == :ambient
     assert entry.cloud_event["type"] == "bullx.message.received"
 
@@ -82,13 +83,13 @@ defmodule BullX.IMGatewayTest do
     rows =
       Repo.all(
         from c in "pg_class",
-          where: field(c, :relname) in ["mailbox_entries", "mailbox_sessions"],
+          where: field(c, :relname) in ["mailbox_entries", "mailbox_acceptance_keys"],
           select: {field(c, :relname), field(c, :relpersistence)}
       )
       |> Map.new()
 
     assert rows["mailbox_entries"] == "u"
-    assert rows["mailbox_sessions"] == "u"
+    assert rows["mailbox_acceptance_keys"] == "u"
   end
 
   test "unverified addressed messages are stored without MailBox delivery" do
@@ -155,7 +156,9 @@ defmodule BullX.IMGatewayTest do
     entry = Repo.one!(Entry)
     assert entry.cloud_event["type"] == "bullx.message.edited"
     assert get_in(entry.cloud_event, ["data", "source_fact", "revision", "action"]) == "edited"
-    assert_entry_status(entry.id, :processed)
+    force_mailbox_entries_ready()
+    assert {:ok, 1} = BullX.MailBox.process_ready(1)
+    assert_entry_absent(entry.id)
   end
 
   test "message lifecycle routes even when edited content is no longer addressed" do
@@ -178,7 +181,9 @@ defmodule BullX.IMGatewayTest do
 
     entry = Repo.one!(Entry)
     assert entry.cloud_event["type"] == "bullx.message.edited"
-    assert_entry_status(entry.id, :processed)
+    force_mailbox_entries_ready()
+    assert {:ok, 1} = BullX.MailBox.process_ready(1)
+    assert_entry_absent(entry.id)
   end
 
   test "message delete facts route as source-neutral lifecycle mail" do
@@ -197,7 +202,9 @@ defmodule BullX.IMGatewayTest do
     entry = Repo.one!(Entry)
     assert entry.cloud_event["type"] == "bullx.message.deleted"
     assert get_in(entry.cloud_event, ["data", "source_fact", "revision", "action"]) == "deleted"
-    assert_entry_status(entry.id, :processed)
+    force_mailbox_entries_ready()
+    assert {:ok, 1} = BullX.MailBox.process_ready(1)
+    assert_entry_absent(entry.id)
   end
 
   test "terminal lifecycle tombstone suppresses late receive without mirror dependency" do
@@ -286,12 +293,11 @@ defmodule BullX.IMGatewayTest do
 
     entry = Repo.one!(Entry)
     entry_id = entry.id
-    assert entry.status == :pending
 
     force_mailbox_entries_ready()
     assert {:ok, 1} = BullX.MailBox.process_ready(1)
 
-    assert %Entry{status: :processed} = Repo.get!(Entry, entry_id)
+    refute Repo.get(Entry, entry_id)
     assert %Conversation{agent_uid: ^agent_uid} = Repo.one!(Conversation)
 
     assert %AgentMessage{
@@ -352,8 +358,8 @@ defmodule BullX.IMGatewayTest do
     force_mailbox_entries_ready()
     assert {:ok, 1} = BullX.MailBox.process_ready(1)
 
-    assert %Entry{status: :processed} = Repo.get!(Entry, first_entry.id)
-    assert %Entry{status: :processed} = Repo.get!(Entry, second_entry.id)
+    refute Repo.get(Entry, first_entry.id)
+    refute Repo.get(Entry, second_entry.id)
 
     assert [
              %AgentMessage{
@@ -413,8 +419,8 @@ defmodule BullX.IMGatewayTest do
     force_mailbox_entries_ready()
     assert {:ok, 1} = BullX.MailBox.process_ready(1)
 
-    assert %Entry{status: :processed} = Repo.get!(Entry, first_entry.id)
-    assert %Entry{status: :processed} = Repo.get!(Entry, second_entry.id)
+    refute Repo.get(Entry, first_entry.id)
+    refute Repo.get(Entry, second_entry.id)
 
     assert %AgentMessage{
              role: :user,
@@ -477,15 +483,16 @@ defmodule BullX.IMGatewayTest do
             }} =
              IMGateway.accept_message_event(edit_event)
 
-    assert_entry_status(edit_entry_id, :processed)
+    force_mailbox_entries_ready()
+    assert {:ok, 1} = BullX.MailBox.process_ready(1)
+    assert_entry_absent(edit_entry_id)
 
-    [receive_entry, edit_entry] =
+    [receive_entry] =
       Entry
       |> order_by([entry], asc: entry.entry_seq)
       |> Repo.all()
 
-    assert %Entry{status: :pending} = receive_entry
-    assert %Entry{status: :processed} = edit_entry
+    refute Repo.get(Entry, edit_entry_id)
 
     assert get_in(receive_entry.cloud_event, ["data", "content"]) == [
              %{"type" => "text", "text" => "after edit"}
@@ -679,25 +686,24 @@ defmodule BullX.IMGatewayTest do
   end
 
   defp force_mailbox_entries_ready do
-    Repo.update_all(Entry, set: [available_at: DateTime.utc_now(:microsecond)])
+    BullX.MailBox.force_ready()
   end
 
-  defp assert_entry_status(entry_id, expected_status, attempts \\ 20)
+  defp assert_entry_absent(entry_id, attempts \\ 20)
 
-  defp assert_entry_status(entry_id, expected_status, attempts) when attempts > 0 do
-    case Repo.get!(Entry, entry_id).status do
-      ^expected_status ->
+  defp assert_entry_absent(entry_id, attempts) when attempts > 0 do
+    case Repo.get(Entry, entry_id) do
+      nil ->
         :ok
 
-      _status ->
+      %Entry{} ->
         Process.sleep(25)
-        assert_entry_status(entry_id, expected_status, attempts - 1)
+        assert_entry_absent(entry_id, attempts - 1)
     end
   end
 
-  defp assert_entry_status(entry_id, expected_status, 0) do
-    status = Repo.get!(Entry, entry_id).status
-    flunk("expected mailbox entry #{entry_id} to be #{expected_status}, got: #{status}")
+  defp assert_entry_absent(entry_id, 0) do
+    flunk("expected mailbox entry #{entry_id} to be processed and deleted")
   end
 
   defp insert_agent_delivery_rule!(

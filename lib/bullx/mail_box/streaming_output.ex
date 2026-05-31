@@ -1,6 +1,6 @@
 defmodule BullX.MailBox.StreamingOutput do
   @moduledoc """
-  Redis-backed weak MailBox session output stream buffer.
+  Redis-backed weak MailBox visible-output stream buffer.
   """
 
   alias BullX.MailBox.Config
@@ -75,16 +75,16 @@ defmodule BullX.MailBox.StreamingOutput do
 
   @spec create_stream(String.t(), String.t() | nil, keyword()) ::
           {:ok, stream_id()} | {:error, :redis_unavailable | :invalid_opts}
-  def create_stream(mailbox_session_id, mailbox_session_entry_id, opts \\ [])
-      when is_binary(mailbox_session_id) and is_list(opts) do
+  def create_stream(mailbox_queue_key, mailbox_entry_id, opts \\ [])
+      when is_binary(mailbox_queue_key) and is_list(opts) do
     with :ok <- validate_opts(opts),
          stream_id <- BullX.Ext.gen_uuid_v7(),
          now <- now_ms(),
          ttl_ms <- ttl_ms(),
          meta <- meta_key(stream_id),
-         fields <- metadata_fields(mailbox_session_id, mailbox_session_entry_id, now, ttl_ms),
+         fields <- metadata_fields(mailbox_queue_key, mailbox_entry_id, now, ttl_ms),
          {:ok, _replies} <- Redis.pipeline([["HSET", meta | fields], ["PEXPIRE", meta, ttl_ms]]) do
-      emit(:created, %{}, %{stream_id: stream_id, mailbox_session_id: mailbox_session_id})
+      emit(:created, %{}, %{stream_id: stream_id, mailbox_queue_key: mailbox_queue_key})
       {:ok, stream_id}
     else
       {:error, :invalid_opts} -> {:error, :invalid_opts}
@@ -323,16 +323,16 @@ defmodule BullX.MailBox.StreamingOutput do
     |> Enum.map(fn {chunk, offset} -> %{offset: offset, chunk: chunk} end)
   end
 
-  defp metadata_fields(mailbox_session_id, mailbox_session_entry_id, now, ttl_ms) do
+  defp metadata_fields(mailbox_queue_key, mailbox_entry_id, now, ttl_ms) do
     [
       "status",
       @open_status,
       "next_offset",
       0,
-      "mailbox_session_id",
-      mailbox_session_id,
-      "mailbox_session_entry_id",
-      mailbox_session_entry_id || "",
+      "mailbox_queue_key",
+      mailbox_queue_key,
+      "mailbox_entry_id",
+      mailbox_entry_id || "",
       "created_at",
       now,
       "updated_at",

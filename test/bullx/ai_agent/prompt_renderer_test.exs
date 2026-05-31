@@ -96,7 +96,7 @@ defmodule BullX.AIAgent.PromptRendererTest do
     assert {:ok, rendered} =
              PromptRenderer.render(conversation, profile, source,
                runtime_context: %{
-                 mailbox_session_id: "must-not-render",
+                 mailbox_queue_key: "must-not-render",
                  mailbox_entry: %{"raw" => "must-not-render"}
                }
              )
@@ -114,7 +114,7 @@ defmodule BullX.AIAgent.PromptRendererTest do
              system_message.content
 
     refute system_text =~ "<context>"
-    refute system_text =~ "mailbox_session_id"
+    refute system_text =~ "mailbox_queue_key"
     refute system_text =~ "mailbox_entry"
 
     assert ["call_1", "call_2"] =

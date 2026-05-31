@@ -38,7 +38,7 @@ defmodule BullX.Integration.IMGateway.Case do
   # App-global supervisor for wake-spawned control-entry workers (commands,
   # edits, recalls). Already running in :test; we wait on its children so async
   # work finishes before assertions and before the sandbox owner stops.
-  @worker_sup BullX.MailBox.SessionWorkerSupervisor
+  @worker_sup BullX.MailBox.RuntimeTaskSupervisor
 
   using do
     quote do
@@ -62,6 +62,7 @@ defmodule BullX.Integration.IMGateway.Case do
     # async: false -> shared sandbox, so the agent loop and any wake-spawned
     # worker share the test transaction (start_owner! + on_exit stop_owner).
     BullX.DataCase.setup_sandbox(tags)
+    MailBox.rebuild_runtime()
 
     # Model resolution prerequisites (mirrors the agent unit tests).
     ReqLLM.Providers.initialize()
@@ -265,13 +266,9 @@ defmodule BullX.Integration.IMGateway.Case do
     end
   end
 
-  @doc "Force every pending entry's `available_at` to now (skip the coalesce window)."
+  @doc "Force every pending entry ready in the in-memory MailBox runtime."
   def flush_ready do
-    Repo.update_all(from(e in Entry, where: e.status == :pending),
-      set: [available_at: DateTime.utc_now(:microsecond)]
-    )
-
-    :ok
+    MailBox.force_ready()
   end
 
   @doc """
@@ -279,14 +276,15 @@ defmodule BullX.Integration.IMGateway.Case do
   message falls outside their coalesce window (deterministic cross-batch by time).
   """
   def backdate_pending(ms) when is_integer(ms) do
-    for entry <- Repo.all(from(e in Entry, where: e.status == :pending)) do
+    for entry <- Repo.all(Entry) do
       shifted = DateTime.add(entry.inserted_at, -ms, :millisecond)
 
       Repo.update_all(from(e in Entry, where: e.id == ^entry.id),
-        set: [inserted_at: shifted, available_at: shifted]
+        set: [inserted_at: shifted]
       )
     end
 
+    MailBox.rebuild_runtime()
     :ok
   end
 
@@ -297,8 +295,7 @@ defmodule BullX.Integration.IMGateway.Case do
 
   defp drained?, do: remaining() == 0
 
-  defp remaining,
-    do: Repo.aggregate(from(e in Entry, where: e.status in [:pending, :leased]), :count)
+  defp remaining, do: Repo.aggregate(Entry, :count)
 
   # ---------------------------------------------------------------------------
   # Env capture/restore

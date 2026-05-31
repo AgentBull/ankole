@@ -53,6 +53,7 @@ defmodule BullX.Integration.IMGateway.CommandsTest do
     # command runs immediately via the control path while the message waits.
     say(chat, :alice, "second, still pending")
     undo(chat, :alice)
+    assert {:ok, 1} = BullX.MailBox.process_ready(1, async?: true)
 
     wait_for(fn ->
       Enum.any?(recalls(chat), &(&1.target_external_id == delivered_id))

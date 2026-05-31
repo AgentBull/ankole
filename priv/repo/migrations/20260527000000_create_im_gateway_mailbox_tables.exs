@@ -7,7 +7,7 @@ defmodule BullX.Repo.Migrations.CreateImGatewayMailboxTables do
     create_im_rooms()
     create_im_messages()
     create_mailbox_delivery_rules()
-    create_mailbox_sessions()
+    create_mailbox_acceptance_keys()
     create_mailbox_entries()
   end
 
@@ -24,11 +24,6 @@ defmodule BullX.Repo.Migrations.CreateImGatewayMailboxTables do
   end
 
   defp create_mailbox_types do
-    execute(
-      "CREATE TYPE mailbox_entry_status AS ENUM ('pending', 'leased', 'processed', 'discarded', 'failed')",
-      "DROP TYPE mailbox_entry_status"
-    )
-
     execute(
       "CREATE TYPE mailbox_attention AS ENUM ('addressed', 'ambient', 'command', 'action', 'lifecycle', 'system')",
       "DROP TYPE mailbox_attention"
@@ -162,28 +157,31 @@ defmodule BullX.Repo.Migrations.CreateImGatewayMailboxTables do
            )
   end
 
-  defp create_mailbox_sessions do
-    create table(:mailbox_sessions, primary_key: false) do
+  defp create_mailbox_acceptance_keys do
+    create table(:mailbox_acceptance_keys, primary_key: false) do
       add :id, :uuid, primary_key: true
 
       add :agent_uid,
           references(:agents, column: :uid, type: :text, on_delete: :delete_all),
           null: false
 
-      add :session_key, :text, null: false
-      add :last_entry_at, :utc_datetime_usec, null: false
-      add :lease_holder, :text
-      add :lease_expires_at, :utc_datetime_usec
+      add :idempotency_key, :text, null: false
+      add :entry_id, :uuid, null: false
+      add :accepted_at, :utc_datetime_usec, null: false
 
-      timestamps(type: :utc_datetime_usec)
+      timestamps(type: :utc_datetime_usec, updated_at: false)
     end
 
-    create unique_index(:mailbox_sessions, [:agent_uid, :session_key])
-    create index(:mailbox_sessions, [:agent_uid, :last_entry_at])
-    create index(:mailbox_sessions, [:lease_expires_at], where: "lease_holder IS NOT NULL")
+    execute(
+      "ALTER TABLE mailbox_acceptance_keys SET UNLOGGED",
+      "ALTER TABLE mailbox_acceptance_keys SET LOGGED"
+    )
 
-    create constraint(:mailbox_sessions, :mailbox_sessions_session_key_present,
-             check: "session_key <> ''"
+    create unique_index(:mailbox_acceptance_keys, [:agent_uid, :idempotency_key])
+    create index(:mailbox_acceptance_keys, [:accepted_at])
+
+    create constraint(:mailbox_acceptance_keys, :mailbox_acceptance_keys_key_present,
+             check: "idempotency_key <> ''"
            )
   end
 
@@ -196,56 +194,32 @@ defmodule BullX.Repo.Migrations.CreateImGatewayMailboxTables do
           references(:agents, column: :uid, type: :text, on_delete: :delete_all),
           null: false
 
-      add :mailbox_session_id,
-          references(:mailbox_sessions, type: :uuid, on_delete: :delete_all),
-          null: false
-
-      add :status, :mailbox_entry_status, null: false, default: "pending"
+      add :queue_key, :text, null: false
       add :attention, :mailbox_attention, null: false
       add :cloud_event, :map, null: false
-      add :available_at, :utc_datetime_usec, null: false
       add :idempotency_key, :text, null: false
-      add :lease_holder, :text
-      add :lease_expires_at, :utc_datetime_usec
-      add :attempts, :integer, null: false, default: 0
-      add :safe_error, :map
 
       timestamps(type: :utc_datetime_usec)
     end
 
     execute("ALTER TABLE mailbox_entries SET UNLOGGED", "ALTER TABLE mailbox_entries SET LOGGED")
 
-    execute(
-      "ALTER TABLE mailbox_sessions SET UNLOGGED",
-      "ALTER TABLE mailbox_sessions SET LOGGED"
-    )
-
     create unique_index(:mailbox_entries, [:agent_uid, :idempotency_key])
-
-    create index(:mailbox_entries, [:available_at, :lease_expires_at, :entry_seq],
-             where: "status IN ('pending', 'leased')",
-             name: :mailbox_entries_ready_idx
-           )
 
     create index(
              :mailbox_entries,
-             ["((cloud_event->>'type'))", :available_at, :lease_expires_at, :entry_seq],
-             where: "status IN ('pending', 'leased')",
-             name: :mailbox_entries_ready_event_type_idx
+             ["((cloud_event->>'type'))", :entry_seq],
+             name: :mailbox_entries_event_type_seq_idx
            )
 
-    create index(:mailbox_entries, [:mailbox_session_id, :entry_seq])
+    create index(:mailbox_entries, [:queue_key, :entry_seq])
 
     create constraint(:mailbox_entries, :mailbox_entries_cloud_event_object,
              check: "jsonb_typeof(cloud_event) = 'object'"
            )
 
-    create constraint(:mailbox_entries, :mailbox_entries_safe_error_object,
-             check: "safe_error IS NULL OR jsonb_typeof(safe_error) = 'object'"
-           )
-
-    create constraint(:mailbox_entries, :mailbox_entries_attempts_nonnegative,
-             check: "attempts >= 0"
+    create constraint(:mailbox_entries, :mailbox_entries_queue_key_present,
+             check: "queue_key <> ''"
            )
   end
 end

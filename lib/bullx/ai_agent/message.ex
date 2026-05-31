@@ -45,7 +45,7 @@ defmodule BullX.AIAgent.Message do
     field :status, Ecto.Enum, values: @statuses
     field :content, BullX.Ecto.JSONB, default: []
     field :covers_range, :map
-    field :mailbox_session_id, :binary_id
+    field :mailbox_queue_key, :string
     field :event_source, :string
     field :event_id, :string
     field :metadata, :map, default: %{}
@@ -73,7 +73,7 @@ defmodule BullX.AIAgent.Message do
       :status,
       :content,
       :covers_range,
-      :mailbox_session_id,
+      :mailbox_queue_key,
       :event_source,
       :event_id,
       :metadata

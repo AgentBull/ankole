@@ -66,11 +66,10 @@ reply address for provider delivery and are not mirrored to `im_messages`.
 
 ## Stop Preemption
 
-During streaming generation, Runner checks later pending entries in the same
-MailBox session for an authorized `stop` command. MailBox also dispatches
-command entries as realtime control entries, so stop and steer do not wait
-behind normal message entries in the session queue. When an authorized stop is
-found, Runner cancels the generation lease and interrupts the visible stream.
+During streaming generation, Runner polls the conversation generation lease.
+`/stop` is a MailBox control entry and is claimed before normal entries in the
+same receiver queue; the command handler cancels the generation lease. The
+poller observes that cancellation and interrupts the visible stream.
 
 ## Invariants
 

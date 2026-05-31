@@ -26,8 +26,8 @@ describes the current code path only.
 - `BullX.LLM.PluginProviders`
 - `BullX.LLM.Catalog.Cache`
 - `BullX.Redis`
-- `BullX.MailBox.Dispatcher`, unless disabled by `config :bullx, :mail_box`
-- `BullX.MailBox.SessionWorkerSupervisor`
+- `BullX.MailBox.RuntimeTaskSupervisor`
+- `BullX.MailBox.Runtime`, unless disabled by `config :bullx, :mail_box`
 - `BullX.AIAgent.AmbientBatchWorker`, unless disabled by `config :bullx, :ai_agent_runtime`
 - `BullX.AIAgent.DailyResetWorker`, unless disabled by `config :bullx, :ai_agent_runtime`
 
@@ -45,9 +45,8 @@ provider event
   -> BullX.IMGateway.accept_message_event/2
      -> BullX.MailBox.route/2
         -> mailbox_delivery_rules
-        -> agents + mailbox_sessions + mailbox_entries
-        -> BullX.MailBox.Dispatcher
-        -> BullX.MailBox.SessionWorker
+        -> agents + mailbox_acceptance_keys + mailbox_entries
+        -> BullX.MailBox.Runtime
         -> BullX.AIAgent.handle_mailbox_entry/2
         -> conversations + conversation_messages
         -> BullX.LLM
@@ -75,9 +74,9 @@ IM mail, and best-effort mirrors message facts into `im_rooms` and
 those mirror rows.
 
 **MailBox** owns internal delivery windows. It matches CloudEvents mail against
-delivery rules, creates one `mailbox_entries` row per matched Agent, groups
-entries into weak `mailbox_sessions`, and dispatches sessions or realtime
-control entries through supervised workers. It does not own IM messages,
+delivery rules, creates one pending `mailbox_entries` row per matched Agent,
+and dispatches entries through an in-memory runtime that owns queue order,
+timers, coalesce pressure, and in-flight markers. It does not own IM messages,
 AIAgent conversations, workflow runs, or outbound provider facts.
 
 **AIAgent** owns AI conversation state and model/tool execution. It reads the IM
@@ -161,32 +160,43 @@ order. Every matching rule delivers an entry. Priority orders evaluation; it is
 not a uniqueness boundary and does not stop fan-out.
 
 `BullX.MailBox.deliver/2` accepts a direct delivery request for an `agent_uid`,
-creates or reuses a session, inserts an entry, and wakes the dispatcher or a
-control worker. Duplicate entries are detected per Agent by an
-`idempotency_key`.
+records an accepted-key row for idempotency, inserts one pending entry, and
+hands that entry to `BullX.MailBox.Runtime`. Duplicate entries are detected per
+Agent by an `idempotency_key`; processed mailbox rows are deleted, while the
+accepted-key ledger prevents immediate duplicate reacceptance.
 
-The default session key prefers `cloud_event.data.queue_key`, then the
+The default queue key prefers `cloud_event.data.queue_key`, then the
 CloudEvents subject, then `<source>#<id>`. IMGateway sets the queue key to the
-provider/source/room/thread identity, so normal message entries for one IM room
-are processed serially while different sessions can run concurrently.
+provider/source/room/thread identity. Runtime scheduling is scoped by
+`agent_uid + queue_key`, so one external mail can fan out to multiple Agents
+without their queues or coalescing windows merging.
 
-Normal received-message mail may carry a coalescing config. MailBox delays the
-first entry by the configured window, merges later received messages from the
-same actor in the same session by joining text with `\n`, and flushes early when
-the pending batch reaches the configured character limit. If any active item in
-the batch is addressed, the whole delivered batch is addressed. Lifecycle
-events that arrive before materialization are folded into the pending receive
-entry; after materialization, they run as control entries so AIAgent can cancel
-an active generation or revise completed context.
+PostgreSQL stores accepted pending mail only. `mailbox_entries` has the
+receiver, queue key, attention, CloudEvents payload, idempotency key, and insert
+order. It does not store timers, status, leases, pending ids, or coalesce
+pressure. `BullX.MailBox.Runtime` owns those short-lived scheduling facts and
+can rebuild them from pending rows after an Elixir process crash.
 
-`BullX.MailBox.process_ready/2` leases sessions with ready non-control entries
-by `FOR UPDATE SKIP LOCKED`. It leases command, abort, edit, recall, and delete
-entries separately so they can run without waiting behind normal session work.
-Leased rows become claimable again after their lease expires.
+Normal received-message mail may carry a coalescing config. Runtime computes
+the deadline from `inserted_at + data.coalesce.window_ms` and keeps an
+in-memory pressure hint keyed by `{agent_uid, queue_key, actor}`. If the hint
+reaches `max_chars`, the affected runtime entries wake early; no PostgreSQL row
+is rewritten for that scheduling event. When processing starts, MailBox merges
+later pending entries from the same actor in the same receiver queue only when
+they arrived inside the window and the combined text stays under the character
+limit. If any active item in the batch is addressed, the whole delivered batch
+is addressed.
 
-`BullX.MailBox.Dispatcher` is an OTP GenServer. It periodically claims realtime
-control entries and ready sessions, starts `BullX.MailBox.SessionWorker` tasks,
-and wakes early when new entries are delivered.
+Command, abort, edit, recall, and delete mail are control entries. A ready
+control entry is claimed before normal entries in the same receiver queue.
+Lifecycle events that arrive before materialization are folded into or delete
+the pending received entry; after materialization, they dispatch to AIAgent so
+it can cancel an active generation or revise completed context.
+
+`BullX.MailBox.process_ready/2` claims ready runtime entries and runs them
+synchronously or through `BullX.MailBox.RuntimeTaskSupervisor`. Completed rows
+are deleted from `mailbox_entries`; AIAgent conversations, IM mirror rows, and
+outbound provider facts remain the durable business records.
 
 ## Outbound IM
 
@@ -225,7 +235,7 @@ Current durable or semi-durable tables include:
 - `im_rooms`
 - `im_messages`
 - `mailbox_delivery_rules`
-- `mailbox_sessions`
+- `mailbox_acceptance_keys`
 - `mailbox_entries`
 - `conversations`
 - `conversation_messages`
@@ -234,8 +244,11 @@ UUID primary keys are generated in code with `BullX.Ecto.UUIDv7` or
 `BullX.Ext.gen_uuid_v7/0`; the migrations do not rely on PostgreSQL-side UUID
 defaults.
 
-`mailbox_sessions` and `mailbox_entries` are created as unlogged tables. They
-are delivery-window state, not business truth.
+`mailbox_acceptance_keys` and `mailbox_entries` are created as unlogged tables.
+They are delivery-window state, not business truth. Losing PostgreSQL or Redis
+runtime state may lose accepted-but-unprocessed mail; the required recovery
+boundary is Elixir process crash, where Runtime rebuilds from pending
+`mailbox_entries`.
 
 `im_rooms` and `im_messages` mirror the external IM conversation for memory and
 inspection. `im_rooms` are keyed by provider external room identity, not by

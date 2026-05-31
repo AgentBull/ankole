@@ -58,6 +58,57 @@ defmodule BullX.AIAgent.AmbientBatch do
   return {'ok'}
   """
 
+  @take_lua """
+  local meta = KEYS[1]
+  local items = KEYS[2]
+  local due = KEYS[3]
+  local batch_key = ARGV[1]
+  local now_ms = tonumber(ARGV[2])
+
+  local meta_json = redis.call('GET', meta)
+  if meta_json == false then
+    redis.call('DEL', items)
+    redis.call('ZREM', due, batch_key)
+    return {'error', 'missing'}
+  end
+
+  local ok, decoded = pcall(cjson.decode, meta_json)
+  if not ok then
+    redis.call('DEL', meta, items)
+    redis.call('ZREM', due, batch_key)
+    return {'error', 'invalid_meta'}
+  end
+
+  if type(decoded) ~= 'table' then
+    redis.call('DEL', meta, items)
+    redis.call('ZREM', due, batch_key)
+    return {'error', 'invalid_meta'}
+  end
+
+  local fresh_until = tonumber(decoded['fresh_until'] or '0')
+  if fresh_until < now_ms then
+    redis.call('DEL', meta, items)
+    redis.call('ZREM', due, batch_key)
+    return {'stale'}
+  end
+
+  local item_jsons = redis.call('LRANGE', items, 0, -1)
+  if #item_jsons == 0 then
+    redis.call('DEL', meta, items)
+    redis.call('ZREM', due, batch_key)
+    return {'error', 'missing'}
+  end
+
+  redis.call('DEL', meta, items)
+  redis.call('ZREM', due, batch_key)
+
+  local result = {'ok', meta_json}
+  for _, item_json in ipairs(item_jsons) do
+    table.insert(result, item_json)
+  end
+  return result
+  """
+
   @spec enqueue(map()) :: :ok | {:error, term()}
   def enqueue(%{} = batch) do
     now_ms = now_ms()
@@ -116,34 +167,44 @@ defmodule BullX.AIAgent.AmbientBatch do
     end
   end
 
-  @spec take(String.t()) :: {:ok, map(), [map()]} | :stale | :locked | {:error, term()}
+  @spec take(String.t()) :: {:ok, map(), [map()]} | :stale | {:error, term()}
   def take(batch_key) when is_binary(batch_key) do
-    with :ok <- acquire_lock(batch_key),
-         {:ok, meta_json} <- redis_get(meta_key(batch_key)),
-         {:ok, item_jsons} <- Redis.command(["LRANGE", items_key(batch_key), 0, -1]),
-         {:ok, meta} <- Jason.decode(meta_json),
-         true <- fresh?(meta),
-         {:ok, items} <- decode_items(item_jsons) do
-      {:ok, meta, items}
-    else
-      false -> :stale
-      :locked -> :locked
-      {:error, reason} -> {:error, reason}
-    end
-  end
+    command = [
+      "EVAL",
+      @take_lua,
+      3,
+      meta_key(batch_key),
+      items_key(batch_key),
+      due_key(),
+      batch_key,
+      now_ms()
+    ]
 
-  defp acquire_lock(batch_key) do
-    case Redis.command(["SET", lock_key(batch_key), "1", "PX", @freshness_ms, "NX"]) do
-      {:ok, "OK"} -> :ok
-      {:ok, nil} -> :locked
-      {:error, reason} -> {:error, reason}
+    case Redis.command(command) do
+      {:ok, ["ok", meta_json | item_jsons]} ->
+        with {:ok, meta} <- Jason.decode(meta_json),
+             {:ok, items} <- decode_items(item_jsons) do
+          {:ok, meta, items}
+        end
+
+      {:ok, ["stale" | _]} ->
+        :stale
+
+      {:ok, ["error", "missing"]} ->
+        {:error, :missing}
+
+      {:ok, ["error", reason]} ->
+        {:error, reason}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
   @spec cleanup(String.t()) :: :ok
   def cleanup(batch_key) when is_binary(batch_key) do
     Redis.pipeline([
-      ["DEL", meta_key(batch_key), items_key(batch_key), lock_key(batch_key)],
+      ["DEL", meta_key(batch_key), items_key(batch_key)],
       ["ZREM", due_key(), batch_key]
     ])
 
@@ -180,14 +241,6 @@ defmodule BullX.AIAgent.AmbientBatch do
     else
       :unchanged -> :ok
       {:error, :missing} -> :ok
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  defp redis_get(key) do
-    case Redis.command(["GET", key]) do
-      {:ok, nil} -> {:error, :missing}
-      {:ok, value} -> {:ok, value}
       {:error, reason} -> {:error, reason}
     end
   end
@@ -256,11 +309,6 @@ defmodule BullX.AIAgent.AmbientBatch do
     end
   end
 
-  defp fresh?(%{"fresh_until" => fresh_until}) when is_integer(fresh_until),
-    do: fresh_until >= now_ms()
-
-  defp fresh?(_meta), do: false
-
   defp stringify(map) do
     Map.new(map, fn {key, value} -> {to_string(key), value} end)
   end
@@ -275,7 +323,6 @@ defmodule BullX.AIAgent.AmbientBatch do
 
   defp meta_key(batch_key), do: "ai_agent:ambient_batch:#{batch_key}:meta"
   defp items_key(batch_key), do: "ai_agent:ambient_batch:#{batch_key}:items"
-  defp lock_key(batch_key), do: "ai_agent:ambient_batch:#{batch_key}:lock"
   defp due_key, do: "ai_agent:ambient_batches:due"
   defp now_ms, do: System.system_time(:millisecond)
 end

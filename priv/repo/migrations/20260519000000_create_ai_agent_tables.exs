@@ -62,7 +62,7 @@ defmodule BullX.Repo.Migrations.CreateAiAgentTables do
       add :status, :ai_agent_message_status, null: false
       add :content, :map, null: false
       add :covers_range, :map
-      add :mailbox_session_id, :uuid
+      add :mailbox_queue_key, :text
       add :event_source, :text
       add :event_id, :text
       add :metadata, :map, null: false, default: %{}
@@ -71,7 +71,7 @@ defmodule BullX.Repo.Migrations.CreateAiAgentTables do
     end
 
     create index(:conversation_messages, [:conversation_id, :inserted_at])
-    create index(:conversation_messages, [:mailbox_session_id])
+    create index(:conversation_messages, [:mailbox_queue_key])
 
     create index(
              :conversation_messages,
@@ -103,6 +103,15 @@ defmodule BullX.Repo.Migrations.CreateAiAgentTables do
              where:
                "event_source IS NOT NULL AND event_id IS NOT NULL AND role IN ('user', 'im_ambient') AND kind = 'normal'",
              name: :conversation_messages_inbound_event_unique_index
+           )
+
+    create index(
+             :conversation_messages,
+             ["((metadata->'provider_refs'->'message_ids'))"],
+             using: :gin,
+             where:
+               "role IN ('user', 'im_ambient') AND kind = 'normal' AND NOT (metadata ? 'transcript_effect') AND jsonb_typeof(metadata->'provider_refs'->'message_ids') = 'array'",
+             name: :conversation_messages_provider_ref_lookup_idx
            )
 
     create unique_index(

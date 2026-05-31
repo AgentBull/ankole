@@ -54,19 +54,6 @@ defmodule BullX.AIAgent.MessageRevisions do
   defp find_target_message([], _agent_uid, _event_source), do: nil
 
   defp find_target_message(target_ids, agent_uid, event_source) do
-    target_set = MapSet.new(target_ids)
-
-    agent_uid
-    |> target_candidates(event_source)
-    |> Enum.find_value(fn message ->
-      case intersects?(target_set, message_source_ids(message)) do
-        true -> message
-        false -> nil
-      end
-    end)
-  end
-
-  defp target_candidates(agent_uid, event_source) do
     Message
     |> join(:inner, [m], c in Conversation, on: c.id == m.conversation_id)
     |> where([m, c], c.agent_uid == ^agent_uid)
@@ -74,9 +61,15 @@ defmodule BullX.AIAgent.MessageRevisions do
     |> where([m], m.role in [:user, :im_ambient])
     |> where([m], m.kind == :normal)
     |> where([m], is_nil(fragment("?->'transcript_effect'", m.metadata)))
+    |> where(
+      [m],
+      fragment("jsonb_typeof(?->'provider_refs'->'message_ids') = 'array'", m.metadata)
+    )
     |> maybe_event_source(event_source)
-    |> order_by([m], desc: m.inserted_at)
-    |> Repo.all()
+    |> where_provider_ref(target_ids)
+    |> order_by([m], desc: m.inserted_at, desc: m.id)
+    |> limit(1)
+    |> Repo.one()
   end
 
   defp maybe_event_source(query, event_source)
@@ -85,16 +78,25 @@ defmodule BullX.AIAgent.MessageRevisions do
 
   defp maybe_event_source(query, _event_source), do: query
 
-  defp message_source_ids(%Message{metadata: metadata}) do
-    metadata
-    |> get_in(["provider_refs", "message_ids"])
-    |> List.wrap()
-    |> Enum.map(&safe_string/1)
-    |> Enum.reject(&(&1 == ""))
-    |> Enum.uniq()
+  defp where_provider_ref(query, [target_id | target_ids]) do
+    predicate =
+      Enum.reduce(target_ids, provider_ref_predicate(target_id), fn target_id, predicate ->
+        dynamic([m], ^predicate or ^provider_ref_predicate(target_id))
+      end)
+
+    where(query, ^predicate)
   end
 
-  defp intersects?(target_set, ids), do: Enum.any?(ids, &MapSet.member?(target_set, &1))
+  defp provider_ref_predicate(target_id) do
+    dynamic(
+      [m],
+      fragment(
+        "?->'provider_refs'->'message_ids' @> jsonb_build_array(?::text)",
+        m.metadata,
+        ^target_id
+      )
+    )
+  end
 
   defp revise_target(target, action, event_data, invocation, entry, caller_principal_uid) do
     Repo.transaction(fn ->
@@ -773,7 +775,7 @@ defmodule BullX.AIAgent.MessageRevisions do
       kind: kind,
       status: :complete,
       content: [Message.text_block(text)],
-      mailbox_session_id: Map.get(entry, :mailbox_session_id),
+      mailbox_queue_key: Map.get(entry, :mailbox_queue_key),
       event_source: Map.get(entry, :event_source),
       event_id: Map.get(entry, :event_id),
       metadata: metadata

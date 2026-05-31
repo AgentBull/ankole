@@ -17,7 +17,7 @@ BullX.AIAgent.handle_mailbox_entry(invocation, entry)
 
 `invocation.target_ref` is the Agent uid. The entry carries:
 
-- `mailbox_session_id`
+- `mailbox_queue_key`
 - `mailbox_entry_id`
 - `cloud_event`
 - `attention`
@@ -52,7 +52,7 @@ conversation state.
 
 Message revision handling is not prompt construction. AIAgent finds the existing
 conversation message from provider refs, then applies the change only when the
-target belongs to the current mailbox session and is still visible in the
+target belongs to the current mailbox queue and is still visible in the
 transcript rendered after the latest compatible compression. A latest addressed turn
 with visible output may cancel generation, recall output, and republish the new
 message content when the revised input is still deliverable. If the revised
@@ -130,7 +130,7 @@ There can be only one active conversation for one agent and key.
 - `status`: `generating` or `complete`
 - `content`
 - optional `covers_range`
-- optional MailBox session id for the current processing window
+- optional MailBox queue key for the current processing window
 - optional `metadata.transcript_effect` for superseded, undone, recalled,
   deleted, or interrupted rows
 - event source/id

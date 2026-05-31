@@ -10,10 +10,9 @@ The implementation lives in `BullX.MailBox` and `BullX.MailBox.*`.
 MailBox owns:
 
 - delivery rules
-- short processing sessions
-- delivery entries
+- accepted pending delivery entries
+- short-lived runtime queues, timers, coalesce pressure, and in-flight markers
 - weak Redis-backed visible-output streams
-- session and control-entry leasing and dispatch
 
 MailBox does not own:
 
@@ -79,40 +78,37 @@ used by setup modules.
 
 ## Tables
 
-`mailbox_sessions` stores a weak processing window for one Agent:
-
-- `agent_uid`
-- `session_key`
-- `last_entry_at`
-- lease fields
-
-`mailbox_entries` stores one delivered item for one Agent:
+`mailbox_entries` stores accepted pending mail for one Agent:
 
 - monotonic `entry_seq`
 - `agent_uid`
-- `mailbox_session_id`
-- `status`: `pending`, `leased`, `processed`, `discarded`, or `failed`
+- `queue_key`
 - `attention`: `addressed`, `ambient`, `command`, `action`, `lifecycle`, or
   `system`
 - `cloud_event`
-- `available_at`
 - `idempotency_key`
-- lease fields
-- `attempts`
-- `safe_error`
 
-`mailbox_sessions` and `mailbox_entries` are unlogged tables. They are delivery
-window state, not business truth.
+`mailbox_acceptance_keys` stores the weak idempotency horizon:
+
+- `agent_uid`
+- `idempotency_key`
+- `entry_id`
+- `accepted_at`
+
+Both tables are unlogged. They are delivery-window state, not business truth.
+Losing PostgreSQL or Redis state may lose accepted mail. The required recovery
+boundary is Elixir process crash: `BullX.MailBox.Runtime` rebuilds from pending
+`mailbox_entries`.
 
 ## Deliver
 
 `deliver/2` normalizes the request, then in one database transaction:
 
 1. loads the target Agent row;
-2. gets or creates the `mailbox_sessions` row;
-3. inserts a `mailbox_entries` row.
+2. inserts an accepted-key row for idempotency;
+3. inserts one `mailbox_entries` row.
 
-The default session key is:
+The default queue key is:
 
 - `cloud_event.data.queue_key`, when present;
 - otherwise `cloud_event.subject`, when present;
@@ -126,51 +122,75 @@ colliding.
 
 Entry attention is derived from a direct delivery request when provided, or
 from the CloudEvents type and IM routing facts. Delivery rules select receivers;
-they do not assign attention or delay.
+they do not assign attention.
 
-After a successful insert, MailBox starts a control-entry worker immediately for
-control mail, or wakes the dispatcher with a delay based on `available_at` for
-normal session mail.
+After commit, `deliver/2` hands the entry to `BullX.MailBox.Runtime`. Duplicate
+delivery with an existing accepted-key row returns `status: :duplicate`; if the
+pending row was already processed and deleted, the duplicate result has no
+entry to wake.
+
+## Runtime
+
+`BullX.MailBox.Runtime` is the only MailBox process that owns scheduling state.
+It keeps:
+
+- pending entries loaded from PostgreSQL;
+- ready ids;
+- deferred lifecycle ids and deadlines;
+- in-flight ids;
+- active receiver queues;
+- coalesce pressure keyed by `{agent_uid, queue_key, actor}`;
+- the next wake timer.
+
+Runtime queue scope is `{agent_uid, queue_key}`. This preserves fan-out: two
+Agents can receive the same CloudEvents mail and process their own queues
+without merging entries or blocking each other.
+
+Runtime state is reconstructible. `BullX.MailBox.rebuild_runtime/0` reloads
+pending entries from PostgreSQL. No timer, lease, status, pending-id list, or
+coalesce-pressure fact is durable.
 
 ## Processing
 
-`BullX.MailBox.process_ready/2` leases sessions that have due non-control
-entries. It uses `FOR UPDATE SKIP LOCKED` so multiple Elixir nodes can claim
-different sessions without sharing process-local state. A session worker
-heartbeats the session lease while it drains entries for that session serially.
+`BullX.MailBox.process_ready/2` claims ready runtime entries and runs them
+synchronously or through `BullX.MailBox.RuntimeTaskSupervisor`.
 
-The same processing pass separately leases due command, abort, edit, recall,
-and delete entries. These entries are started as standalone workers so they can
-affect an active generation without waiting behind normal message work in the
-same session. Leased entries or sessions become claimable again after their
-lease expires.
+Control mail types are:
 
-`process_entry/2` preloads the Agent and session, dispatches the entry, and
-marks it `processed` or `failed`.
+- `bullx.command.invoked`
+- `bullx.agent.abort`
+- `bullx.message.edited`
+- `bullx.message.recalled`
+- `bullx.message.deleted`
+
+Ready control entries are claimed before normal entries. A control entry also
+blocks normal entries in the same `{agent_uid, queue_key}` for that claim pass,
+so pending edit/recall/delete can rewrite or drop a received entry before the
+normal receive flushes.
 
 Lifecycle entries first check whether their target received-message entry is
-still pending in the same session. Pending targets are rewritten or discarded
-before AIAgent sees stale input. Leased targets are deferred only until the
-target has materialized into conversation state; once materialized, lifecycle
-entries dispatch immediately so an edit or recall can cancel an active
-generation.
+still pending in the same receiver queue. Pending targets are rewritten or
+deleted before AIAgent sees stale input. In-flight targets are deferred until
+the target has materialized into conversation state; once materialized,
+lifecycle entries dispatch so AIAgent can cancel an active generation or revise
+completed context.
 
-For `bullx.message.received` mail with `data.coalesce`, `process_entry/2` can
-merge later pending entries from the same actor in the same session when they
-arrived inside the window and the combined text stays under the character
-limit. Covered entries are marked processed after the merged entry succeeds. If
-any active item in the merged batch is addressed, the whole delivered batch is
-addressed.
+For `bullx.message.received` mail with `data.coalesce`, Runtime computes the
+normal due time from `inserted_at + window_ms`. Pressure can wake a batch early
+without updating PostgreSQL. `process_entry/2` can merge later pending entries
+from the same actor in the same receiver queue when they arrived inside the
+window and the combined text stays under the character limit. Covered rows are
+deleted after the merged entry succeeds. If any active item in the merged batch
+is addressed, the whole delivered batch is addressed.
 
 Current dispatch behavior:
 
 - `agents.type = "ai_agent"` calls `BullX.AIAgent.handle_mailbox_entry/2`.
-- any other Agent type fails with `unknown_agent_type`.
+- any other Agent type is ignored from MailBox's queue after a safe dispatch
+  failure.
 
-`BullX.MailBox.Dispatcher` is a GenServer. It claims realtime control entries
-and ready sessions on a timer, starts work through
-`BullX.MailBox.SessionWorker`, wakes when new work arrives, and schedules the
-next wake from `next_ready_at/0` when the queue is idle.
+Completed, discarded, and safely failed MailBox rows are deleted. Business
+truth belongs to Receivers such as AIAgent, not to MailBox status rows.
 
 ## Streaming Output
 
@@ -189,8 +209,8 @@ conversation facts, and IMGateway best-effort mirrors outbound IM facts.
 - MailBox stores delivery windows, not Agent business state.
 - Rule priority does not stop fan-out.
 - Duplicate delivery is scoped to one Agent.
-- Normal entries in one session are processed serially; different sessions may
-  be processed concurrently.
-- Control entries do not wait behind normal session entries.
-- Process-local dispatcher state is reconstructible from database rows.
+- Normal entries in one receiver queue are processed serially.
+- Different receiver queues may be processed concurrently.
+- Control entries do not wait behind normal entries in the same receiver queue.
+- Process-local Runtime state is reconstructible from pending rows.
 - Agents are responsible for idempotency inside their own business facts.

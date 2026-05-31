@@ -45,7 +45,7 @@ defmodule BullX.Integration.IMGateway.OutboundDeliveryTest do
              Repo.one!(from(m in Message, where: m.role == :assistant and m.kind == :normal))
   end
 
-  test "G4: retrying a processed entry recovers failed delivery without another LLM call" do
+  test "G4: failed outbound delivery is persisted on the assistant message, not a mailbox row" do
     MockLLM.push_text("recoverable reply")
     Server.fail_delivery()
 
@@ -56,26 +56,15 @@ defmodule BullX.Integration.IMGateway.OutboundDeliveryTest do
     assert MockLLM.call_count() == 1
     assert [%{op: "send", text: "recoverable reply"}] = delivery_failures(chat)
     assert transcript(chat) == []
+    assert Repo.aggregate(Entry, :count) == 0
 
     Server.fail_delivery(false)
-    entry = Repo.one!(from(e in Entry, where: e.status == :processed))
-
-    Repo.update_all(from(e in Entry, where: e.id == ^entry.id),
-      set: [
-        status: :pending,
-        available_at: DateTime.utc_now(:microsecond),
-        safe_error: nil,
-        lease_holder: nil,
-        lease_expires_at: nil
-      ]
-    )
-
     settle()
 
     assert MockLLM.call_count() == 1
-    assert [%{op: "send", text: "recoverable reply"}] = transcript(chat)
+    assert transcript(chat) == []
 
-    assert %Message{metadata: %{"delivery" => %{"status" => "sent"}}} =
+    assert %Message{metadata: %{"delivery" => %{"status" => "failed"}}} =
              Repo.one!(from(m in Message, where: m.role == :assistant and m.kind == :normal))
   end
 

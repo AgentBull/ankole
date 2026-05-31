@@ -3,7 +3,7 @@ defmodule BullX.Integration.IMGateway.BatchingTest do
   Family A — coalescing & splitting.
 
   Exercises the mailbox coalesce window (per-actor, per-session) and the char
-  limit that forces an early flush / cross-batch split, plus multi-sender
+  limit that creates cross-batch splits, plus multi-sender
   separation. The suite shrinks the window to #{BullX.Integration.IMGateway.Case.window_ms()}ms and
   the char limit to #{BullX.Integration.IMGateway.Case.max_chars()} chars so these are fast and
   deterministic (see `BullX.Integration.IMGateway.Case`).

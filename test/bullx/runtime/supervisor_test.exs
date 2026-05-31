@@ -5,6 +5,7 @@ defmodule BullX.Runtime.SupervisorTest do
     with_ai_agent_runtime_config([ambient_batch_worker: false, daily_reset_worker: false], fn ->
       child_ids = runtime_child_ids()
 
+      refute BullX.AIAgent.AmbientBatchTaskSupervisor in child_ids
       refute BullX.AIAgent.AmbientBatchWorker in child_ids
       refute BullX.AIAgent.DailyResetWorker in child_ids
     end)
@@ -14,6 +15,7 @@ defmodule BullX.Runtime.SupervisorTest do
     with_ai_agent_runtime_config(nil, fn ->
       child_ids = runtime_child_ids()
 
+      assert BullX.AIAgent.AmbientBatchTaskSupervisor in child_ids
       assert BullX.AIAgent.AmbientBatchWorker in child_ids
       assert BullX.AIAgent.DailyResetWorker in child_ids
     end)
