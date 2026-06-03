@@ -1,0 +1,31 @@
+{
+  "name": "@agentbull/bullx-native-addons",
+  "version": "0.1.3",
+  "license": "MIT",
+  "files": [
+    "README.md",
+    "index.js",
+    "main.js",
+    "index.d.ts",
+    "bullx-native-addons.darwin-arm64.node",
+    "bullx-native-addons.linux-x64-gnu.node"
+  ],
+  "main": "./main.js",
+  "types": "./index.d.ts",
+  "scripts": {
+    "lint": "cargo fmt && cargo clippy",
+    "build": "per-env",
+    "build:development": "napi build --dts index.d.ts",
+    "build:production": "napi build --release --dts index.d.ts",
+    "build-on-mac": "napi build -x --target x86_64-unknown-linux-gnu --platform --release && napi build --platform --release --dts index.d.ts"
+  },
+  "devDependencies": {
+    "@napi-rs/cli": "^3.7.0",
+    "@swc/core": "^1.15.40",
+    "per-env": "^1.0.2",
+    "unplugin-swc": "^1.5.9"
+  },
+  "napi": {
+    "binaryName": "bullx-native-addons"
+  }
+}

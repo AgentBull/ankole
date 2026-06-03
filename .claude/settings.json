@@ -1,0 +1,35 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(sed -n '195,205p' src/lib.rs)",
+      "Bash(sed -n '79,85p' src/lib.rs)",
+      "Bash(npm run *)",
+      "Bash(node -e ' *)",
+      "Bash(npx napi *)",
+      "Bash(./node_modules/.bin/napi build *)",
+      "Bash(bun -e \"import {match, P} from '@pleisto/active-support'; console.log\\('match:', typeof match, '| P:', typeof P\\)\")",
+      "Bash(npx @biomejs/biome --version)",
+      "Bash(./node_modules/.bin/biome --version)",
+      "WebFetch(domain:biomejs.dev)",
+      "Bash(/Users/ding/Projects/bullx-agent/node_modules/.bin/biome explain *)",
+      "WebFetch(domain:oxc.rs)",
+      "Bash(npx --yes oxfmt@latest --help)",
+      "Bash(npx --yes oxlint@latest --help)",
+      "Bash(bun add *)",
+      "Bash(bunx oxfmt *)",
+      "Bash(bunx oxlint *)",
+      "Bash(tar -czf /tmp/bullx-agent-preoxfmt-backup.tgz --exclude=node_modules --exclude=target --exclude=dist --exclude=.next --exclude=build app packages turbo.json package.json biome.json .oxlintrc.json .oxfmtrc.json .vscode .gitignore)",
+      "Bash(awk '{print $5, $9}')",
+      "Bash(tar -tzf /tmp/bullx-agent-preoxfmt-backup.tgz)",
+      "Bash(echo \"files in backup: $\\(tar -tzf /tmp/bullx-agent-preoxfmt-backup.tgz)",
+      "Bash(echo \"curly finding count: $\\(bunx oxlint 2>&1)",
+      "Bash(timeout 200 bun run type-check)",
+      "Bash(echo \"exit: $?\")",
+      "Bash(awk '{print $9}')",
+      "Bash(sed -n '286,296p' app/src/config/app-configure.ts)",
+      "Bash(/Users/ding/Projects/bullx-agent/node_modules/.bin/oxlint -c /tmp/curlytest/.oxlintrc.json /tmp/curlytest/t.ts)",
+      "Bash(npx oxlint *)",
+      "Bash(echo \"EXIT=$?\")"
+    ]
+  }
+}

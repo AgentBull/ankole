@@ -1,0 +1,4 @@
+interface:
+  display_name: "BullX Design Doc Writing"
+  short_description: "Write or revise BullX design docs"
+  default_prompt: "Use $bullx-design-doc-writing to turn this draft into a focused BullX design doc."

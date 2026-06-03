@@ -1,0 +1,82 @@
+{
+  "$schema": "https://turborepo.com/schema.json",
+  "globalDependencies": [
+    "bun.lock",
+    "tsconfig.base.json",
+    "turbo.json",
+    ".oxlintrc.json",
+    ".oxfmtrc.json",
+    "bunfig.toml"
+  ],
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "inputs": [
+        "src/**",
+        "app/**",
+        "pages/**",
+        "server/**",
+        "scripts/**",
+        "public/**",
+        "package.json",
+        "tsconfig*.json",
+        "vite.config.*",
+        "drizzle.config.*",
+        "*.config.*",
+        ".env*"
+      ],
+      "outputs": ["dist/**", "build/**", ".next/**", ".output/**"]
+    },
+    "type-check": {
+      "dependsOn": ["^type-check"],
+      "inputs": [
+        "src/**",
+        "app/**",
+        "tests/**",
+        "test/**",
+        "__tests__/**",
+        "migrations/**",
+        "prisma/**",
+        "drizzle/**",
+        "package.json",
+        "tsconfig*.json",
+        "bunfig.toml",
+        ".env*"
+      ],
+      "outputs": []
+    },
+    "test": {
+      "dependsOn": ["type-check", "^type-check"],
+      "inputs": [
+        "src/**",
+        "app/**",
+        "tests/**",
+        "test/**",
+        "__tests__/**",
+        "fixtures/**",
+        "package.json",
+        "tsconfig*.json",
+        "bunfig.toml",
+        ".env*"
+      ]
+    },
+    "lint": {
+      "dependsOn": ["^lint"],
+      "inputs": [
+        "src/**",
+        "app/**",
+        "tests/**",
+        "test/**",
+        "__tests__/**",
+        "scripts/**",
+        "package.json",
+        "tsconfig*.json",
+        ".env*"
+      ]
+    },
+    "dev": {
+      "persistent": true,
+      "cache": false
+    }
+  }
+}

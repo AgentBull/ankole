@@ -1,0 +1,12 @@
+{
+  "name": "@agentbull/bullx-sdk",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./plugins": "./src/plugins.ts"
+  },
+  "scripts": {
+    "test": "bun test",
+    "type-check": "tsc -p tsconfig.json --noEmit"
+  }
+}

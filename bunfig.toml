@@ -1,0 +1,10 @@
+telemetry = false
+
+[console]
+depth = 5
+
+[run]
+bun = true
+
+[install]
+linker = "isolated"
