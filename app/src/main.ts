@@ -5,6 +5,8 @@ import { AppEnv } from '@/config/env'
 import { webServer } from '@/core/web-server'
 import { chatGatewayRuntime } from '@/chat-gateway'
 import type { ChatGatewayRuntimeStats } from '@/chat-gateway/runtime'
+import { pluginRuntime } from '@/plugins'
+import type { PluginRuntimeStats } from '@/plugins/runtime'
 
 interface MainWebServer {
   listen(options: { idleTimeout: number; port: number }): unknown
@@ -12,6 +14,11 @@ interface MainWebServer {
 
 interface MainChatGatewayRuntime {
   start(): Promise<ChatGatewayRuntimeStats>
+  stop(): Promise<void>
+}
+
+interface MainPluginRuntime {
+  start(): Promise<PluginRuntimeStats>
   stop(): Promise<void>
 }
 
@@ -34,6 +41,7 @@ export interface StartBullXAgentOptions {
   httpPort?: number
   chatGatewayRuntime?: MainChatGatewayRuntime
   logger?: MainLogger
+  pluginRuntime?: MainPluginRuntime
   registerSignals?: boolean
   webServer?: MainWebServer
 }
@@ -43,6 +51,7 @@ export interface StartBullXAgentOptions {
  */
 export interface StartedBullXAgent {
   chatGateway: ChatGatewayRuntimeStats
+  plugins: PluginRuntimeStats
   shutdown(signal?: NodeJS.Signals): Promise<void>
 }
 
@@ -54,6 +63,7 @@ export interface StartedBullXAgent {
  * reach this process while their agent/channel instance is not ready yet.
  */
 export async function startBullXAgent(options: StartBullXAgentOptions = {}): Promise<StartedBullXAgent> {
+  const pluginsRuntime = options.pluginRuntime ?? pluginRuntime
   const runtime = options.chatGatewayRuntime ?? chatGatewayRuntime
   const server = options.webServer ?? webServer
   const log = options.logger ?? logger
@@ -68,10 +78,12 @@ export async function startBullXAgent(options: StartBullXAgentOptions = {}): Pro
     // Stop ingress-capable runtime state before closing the shared database
     // connection, because Chat SDK shutdown hooks may still need persistence.
     await runtime.stop()
+    await pluginsRuntime.stop()
     await closeDb({ timeout: 5 })
   }
 
   try {
+    const plugins = await pluginsRuntime.start()
     const chatGateway = await runtime.start()
 
     // From this point on the public webhook route can safely find initialized
@@ -101,6 +113,7 @@ export async function startBullXAgent(options: StartBullXAgentOptions = {}): Pro
         port: httpPort,
         env,
         idleTimeoutSeconds: 0,
+        plugins,
         chatGateway
       },
       'BullX Agent is running'
@@ -108,6 +121,7 @@ export async function startBullXAgent(options: StartBullXAgentOptions = {}): Pro
 
     return {
       chatGateway,
+      plugins,
       shutdown
     }
   } catch (error) {

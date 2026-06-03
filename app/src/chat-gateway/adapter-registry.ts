@@ -54,6 +54,17 @@ export class MissingChatGatewayAdapterFactoryError extends Error {
 }
 
 /**
+ * Raised when two built-in modules or enabled plugins try to own the same
+ * Chat Gateway adapter factory id.
+ */
+export class DuplicateChatGatewayAdapterFactoryError extends Error {
+  constructor(id: string) {
+    super(`Chat Gateway adapter factory is already registered: ${id}`)
+    this.name = 'DuplicateChatGatewayAdapterFactoryError'
+  }
+}
+
+/**
  * Registers a Chat SDK adapter factory in the root tsyringe container.
  *
  * Keeping this in DI rather than a module-local map is deliberate: future plugin
@@ -61,7 +72,10 @@ export class MissingChatGatewayAdapterFactoryError extends Error {
  * runtime only needs to resolve by factory id.
  */
 export function registerChatGatewayAdapterFactory(factory: ChatGatewayAdapterFactory): void {
-  rootContainer.registerInstance(chatGatewayAdapterFactoryToken(factory.id), factory)
+  const token = chatGatewayAdapterFactoryToken(factory.id)
+  if (rootContainer.isRegistered(token)) throw new DuplicateChatGatewayAdapterFactoryError(factory.id)
+
+  rootContainer.registerInstance(token, factory)
 }
 
 /**

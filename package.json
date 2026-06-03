@@ -4,7 +4,7 @@
   "workspaces": [
     "app",
     "packages/*",
-    "plugins/*"
+    "plugin/*"
   ],
   "type": "module",
   "scripts": {

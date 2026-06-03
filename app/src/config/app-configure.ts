@@ -293,7 +293,7 @@ export class AppConfigRegistry {
 export class AppConfigService {
   private readonly cache = new Map<string, AppConfigJsonValue>()
 
-  constructor(private readonly registry: AppConfigRegistry) {}
+  constructor(private readonly registry: AppConfigRegistry = rootContainer.resolve(AppConfigRegistry)) {}
 
   /**
    * Reads a typed config value by definition.

@@ -14,6 +14,8 @@ const { createAgent } = await import('@/principals/agents/service')
 const { ChatGatewayRuntime } = await import('./runtime')
 const { registerChatGatewayAdapterFactory, MissingChatGatewayAdapterFactoryError } = await import('./adapter-registry')
 const { chatGatewayRoutes } = await import('./routes')
+const { PluginRuntime } = await import('@/plugins/runtime')
+const { defineBullXPlugin } = await import('@agentbull/bullx-sdk/plugins')
 
 const testPrefix = `__test-chat-gateway-${Date.now()}-${Math.random().toString(36).slice(2)}`
 const factoryPrefix = `test_${Date.now()}_${Math.random().toString(36).slice(2)}`
@@ -103,6 +105,46 @@ describe('ChatGatewayRuntime', () => {
         ]
       })
     ).rejects.toThrow(MissingChatGatewayAdapterFactoryError)
+  })
+
+  it('uses adapter factories registered by enabled trusted plugins', async () => {
+    const adapter = new FakeChatAdapter('plugin_fake')
+    const pluginId = `${factoryPrefix}-plugin`.replaceAll('_', '-')
+    const factoryId = `${factoryPrefix}_plugin_factory`
+    const agentUid = `${testPrefix}-plugin-agent`.toLowerCase()
+    const statePrefix = `bullx-agent:${agentUid}`
+    runtimeStatePrefixes.add(statePrefix)
+
+    const pluginRuntime = new PluginRuntime()
+    await pluginRuntime.start({
+      plugins: [
+        defineBullXPlugin({
+          metadata: {
+            id: pluginId,
+            apiVersion: 1
+          },
+          chatGatewayAdapters: [
+            {
+              id: factoryId,
+              create: () => adapter
+            }
+          ]
+        })
+      ],
+      defaultEnabledPluginIds: [pluginId],
+      getEnabledOverrides: async () => ({})
+    })
+
+    const runtime = new ChatGatewayRuntime()
+    const stats = await runtime.start({
+      loadActiveAgents: async () => [agentResult(agentUid, [{ name: 'plugin_fake', adapter: factoryId }])]
+    })
+
+    expect(stats).toEqual({ readyAgents: 1, readyChannels: 1 })
+    expect(adapter.initialized).toBe(1)
+
+    await runtime.stop()
+    await cleanupStateRows(statePrefix)
   })
 
   it('uses Chat SDK routing so new mentions subscribe and follow-up messages echo', async () => {
@@ -212,13 +254,12 @@ class FakeChatAdapter implements Adapter<string, FakeWebhookPayload> {
 
   async disconnect(): Promise<void> {}
 
-  async handleWebhook(request: Request, options?: WebhookOptions): Promise<Response> {
+  async handleWebhook(request: Request, _options?: WebhookOptions): Promise<Response> {
     const payload = (await request.json()) as FakeWebhookPayload
-    this.chat?.processMessage(
+    await this.chat?.processMessage(
       this,
       payload.threadId ?? `${this.name}:channel:default-thread`,
-      this.parseMessage(payload),
-      options
+      this.parseMessage(payload)
     )
     return Response.json({ ok: true })
   }

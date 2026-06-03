@@ -8,5 +8,8 @@
   "scripts": {
     "test": "bun test",
     "type-check": "tsc -p tsconfig.json --noEmit"
+  },
+  "peerDependencies": {
+    "chat": "^4.30.0"
   }
 }

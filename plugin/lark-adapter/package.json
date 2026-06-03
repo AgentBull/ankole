@@ -1,0 +1,25 @@
+{
+  "name": "@agentbull/plugin-lark-adapter",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "bun test",
+    "type-check": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@larksuite/vercel-chat-adapter": "0.1.2",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@agentbull/bullx-sdk": "workspace:*"
+  },
+  "peerDependencies": {
+    "chat": "^4.30.0"
+  },
+  "bullx": {
+    "plugin": "./src/index.ts"
+  }
+}
