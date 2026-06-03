@@ -1,0 +1,29 @@
+{
+  "name": "@agentbull/bullx-agent",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "bun run --bun --watch src/main.ts | bun x pino-pretty",
+    "test": "bun test",
+    "type-check": "tsc -p tsconfig.json --noEmit",
+    "migrate:gen": "bun run drizzle-kit generate",
+    "migrate:local": "bun src/common/db-migrate.ts"
+  },
+  "dependencies": {
+    "@agentbull/bullx-native-addons": "workspace:*",
+    "@agentbull/bullx-sdk": "workspace:*",
+    "@elysiajs/openapi": "^1.4.15",
+    "@pleisto/active-support": "^1.5.8",
+    "chat": "^4.30.0",
+    "drizzle-orm": "^0.45.2",
+    "elysia": "^1.4.28",
+    "pino": "^10.3.1",
+    "reflect-metadata": "^0.2.2",
+    "tsyringe": "^4.10.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.14",
+    "drizzle-kit": "^0.31.10"
+  }
+}
