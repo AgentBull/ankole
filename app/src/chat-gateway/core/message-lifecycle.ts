@@ -53,6 +53,13 @@ export interface ChatGatewayMessageLifecycleDeleteInput {
 
 export interface ChatGatewayMessageLifecycleForgetReplyInput extends ChatGatewayMessageLifecycleDeleteInput {}
 
+export interface ChatGatewayProjectedInboundMessageState {
+  text: string | null
+  isMention: boolean
+  sentAt: Date | null
+  editedAt: Date | null
+}
+
 /**
  * Host-owned bridge for chat-platform edit/delete events.
  *
@@ -66,6 +73,29 @@ export interface ChatGatewayMessageLifecycleForgetReplyInput extends ChatGateway
 export interface ChatGatewayMessageLifecycleSink {
   isDeleted(input: ChatGatewayMessageLifecycleDeleteInput): Promise<boolean>
   /**
+   * Claims responsibility for creating the BullX-authored reply for one inbound
+   * message.
+   *
+   * Normal receives and edit lifecycle events can race for the same provider
+   * message id. The durable latest-state projection is idempotent, but the
+   * external `postMessage` side effect is not, so reply creation has its own
+   * short-lived cross-process claim.
+   */
+  claimReplyCreation(input: ChatGatewayMessageLifecycleDeleteInput): Promise<boolean>
+  /**
+   * Releases a reply-creation claim after the side effect either failed or no
+   * longer applies to the current inbound latest-state.
+   */
+  releaseReplyCreation(input: ChatGatewayMessageLifecycleDeleteInput): Promise<void>
+  /**
+   * Reads the projected inbound latest-state after a reply creation claim has
+   * been acquired. Callers use this to avoid replying to stale receive payloads
+   * when an edit won the projection race.
+   */
+  getProjectedInboundMessage(
+    input: ChatGatewayMessageLifecycleDeleteInput
+  ): Promise<ChatGatewayProjectedInboundMessageState | undefined>
+  /**
    * Records the BullX-authored reply for later edit/delete lifecycle handling.
    *
    * The write is tombstone-aware: if a recall/delete already won the race, this
@@ -74,12 +104,12 @@ export interface ChatGatewayMessageLifecycleSink {
    */
   recordReply(input: ChatGatewayMessageLifecycleRecordReplyInput): Promise<ChatGatewayMessageLifecycleRecordReplyResult>
   /**
-   * Projects the edited inbound message as IM latest-state and returns any
-   * BullX reply side effect still needed for that latest-state.
+   * Projects the inbound message as IM latest-state and returns any BullX reply
+   * side effect still needed for that latest-state.
    *
-   * The projection is intentionally independent from reply side effects:
-   * `chat_messages` is BullX's long-term mirror of what users see in IM, while
-   * reply-link state tracks whether BullX's own reply has caught up.
+   * This method is used for both ordinary receives and edit events. The mirror
+   * must update even when the later reply side effect fails; reply-link state
+   * only tracks whether BullX's own visible reply has caught up.
    */
   updateInboundMessage<TRawMessage = unknown>(
     input: ChatGatewayMessageLifecycleUpdateInput<TRawMessage>
@@ -113,12 +143,27 @@ interface ReplyLink {
 }
 
 const DELETED_TOMBSTONE_TTL_MS = ms('24h')
+const REPLY_CREATION_CLAIM_TTL_MS = ms('2m')
 
 export class DrizzleChatGatewayMessageLifecycleSink implements ChatGatewayMessageLifecycleSink {
   constructor(private readonly projection: ChatGatewayProjectionSink = chatGatewayProjectionSink) {}
 
   async isDeleted(input: ChatGatewayMessageLifecycleDeleteInput): Promise<boolean> {
     return isDeletedTombstonePresent(input.agentUid, input.channelId, input.messageId)
+  }
+
+  async claimReplyCreation(input: ChatGatewayMessageLifecycleDeleteInput): Promise<boolean> {
+    return claimReplyCreation(input)
+  }
+
+  async releaseReplyCreation(input: ChatGatewayMessageLifecycleDeleteInput): Promise<void> {
+    await releaseReplyCreation(input)
+  }
+
+  async getProjectedInboundMessage(
+    input: ChatGatewayMessageLifecycleDeleteInput
+  ): Promise<ChatGatewayProjectedInboundMessageState | undefined> {
+    return findProjectedMessage(input.channelId, input.messageId)
   }
 
   async recordReply(
@@ -129,6 +174,7 @@ export class DrizzleChatGatewayMessageLifecycleSink implements ChatGatewayMessag
 
   async forgetReply(input: ChatGatewayMessageLifecycleForgetReplyInput): Promise<void> {
     await consumeReplyLink(input.agentUid, input.channelId, input.messageId)
+    await releaseReplyCreation(input)
   }
 
   async updateInboundMessage<TRawMessage = unknown>(
@@ -137,14 +183,13 @@ export class DrizzleChatGatewayMessageLifecycleSink implements ChatGatewayMessag
     if (await this.isDeleted(input)) return { handled: true }
 
     const existing = await findProjectedMessage(input.channelId, input.messageId)
-    // If BullX never saw the original message, this edit is the first admissible
-    // version of that platform message. Let normal message routing decide
-    // whether it is addressed or ambient.
-    if (!existing) return { handled: false }
-
     const nextText = input.message.text ?? null
     const nextIsMention = input.message.isMention ?? false
-    const previous = { text: existing.text, isMention: existing.isMention }
+    const previous = existing ? { text: existing.text, isMention: existing.isMention } : undefined
+
+    if (existing && isStaleInboundProjection(existing, input.message)) {
+      return { handled: true, previous }
+    }
 
     await this.projection.projectMessage({
       thread: input.thread,
@@ -231,7 +276,7 @@ export const chatGatewayMessageLifecycleSink: ChatGatewayMessageLifecycleSink =
 async function findProjectedMessage(
   channelId: string,
   messageId: string
-): Promise<{ text: string | null; isMention: boolean } | undefined> {
+): Promise<ChatGatewayProjectedInboundMessageState | undefined> {
   return findProjectedMessageWithDb(DB, channelId, messageId)
 }
 
@@ -239,14 +284,33 @@ async function findProjectedMessageWithDb(
   db: QueryExecutor,
   channelId: string,
   messageId: string
-): Promise<{ text: string | null; isMention: boolean } | undefined> {
+): Promise<ChatGatewayProjectedInboundMessageState | undefined> {
   const rows = await db
-    .select({ text: ChatMessages.text, isMention: ChatMessages.isMention })
+    .select({
+      text: ChatMessages.text,
+      isMention: ChatMessages.isMention,
+      sentAt: ChatMessages.sentAt,
+      editedAt: ChatMessages.editedAt
+    })
     .from(ChatMessages)
     .where(and(eq(ChatMessages.channelId, channelId), eq(ChatMessages.messageId, messageId)))
     .limit(1)
 
   return rows[0]
+}
+
+function isStaleInboundProjection(
+  existing: ChatGatewayProjectedInboundMessageState,
+  message: Message<unknown>
+): boolean {
+  const incoming = inboundProjectionRevisionMs(message.metadata.editedAt, message.metadata.dateSent)
+  const current = inboundProjectionRevisionMs(existing.editedAt, existing.sentAt)
+
+  return incoming < current
+}
+
+function inboundProjectionRevisionMs(editedAt: Date | null | undefined, sentAt: Date | null | undefined): number {
+  return (editedAt ?? sentAt ?? new Date(0)).getTime()
 }
 
 async function upsertReplyLinkFromProjectedState(
@@ -331,6 +395,44 @@ async function consumeReplyLink(
     .returning({ value: ChatStateCache.value })
 
   return parseReplyLink(rows[0]?.value)
+}
+
+async function claimReplyCreation(input: ChatGatewayMessageLifecycleDeleteInput): Promise<boolean> {
+  const keyPrefix = stateKeyPrefix(input.agentUid)
+  const cacheKey = replyCreationClaimCacheKey(input.channelId, input.messageId)
+  const rows = await DB.transaction(async tx => {
+    await tx
+      .delete(ChatStateCache)
+      .where(
+        and(
+          eq(ChatStateCache.keyPrefix, keyPrefix),
+          eq(ChatStateCache.cacheKey, cacheKey),
+          sql`${ChatStateCache.expiresAt} < now()`
+        )
+      )
+
+    return tx
+      .insert(ChatStateCache)
+      .values({
+        keyPrefix,
+        cacheKey,
+        value: JSON.stringify({ claimedAt: new Date().toISOString() }),
+        expiresAt: new Date(Date.now() + REPLY_CREATION_CLAIM_TTL_MS)
+      })
+      .onConflictDoNothing()
+      .returning({ cacheKey: ChatStateCache.cacheKey })
+  })
+
+  return rows.length > 0
+}
+
+async function releaseReplyCreation(input: ChatGatewayMessageLifecycleDeleteInput): Promise<void> {
+  await DB.delete(ChatStateCache).where(
+    and(
+      eq(ChatStateCache.keyPrefix, stateKeyPrefix(input.agentUid)),
+      eq(ChatStateCache.cacheKey, replyCreationClaimCacheKey(input.channelId, input.messageId))
+    )
+  )
 }
 
 async function recordDeletedTombstoneWithDb(
@@ -420,6 +522,10 @@ function stateKeyPrefix(agentUid: string): string {
 
 function replyLinkCacheKey(channelId: string, messageId: string): string {
   return `message-lifecycle.reply-link:${encodeURIComponent(channelId)}:${encodeURIComponent(messageId)}`
+}
+
+function replyCreationClaimCacheKey(channelId: string, messageId: string): string {
+  return `message-lifecycle.reply-claim:${encodeURIComponent(channelId)}:${encodeURIComponent(messageId)}`
 }
 
 function deletedTombstoneCacheKey(channelId: string, messageId: string): string {

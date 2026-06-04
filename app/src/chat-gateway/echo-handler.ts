@@ -12,7 +12,11 @@ import {
 import type { AgentResult } from '@/principals/agents/service'
 import { logger } from '@/common/logger'
 import { echoPlaceholderText } from './core/echo-text'
-import { chatGatewayMessageLifecycleSink, type ChatGatewayMessageLifecycleSink } from './core/message-lifecycle'
+import {
+  chatGatewayMessageLifecycleSink,
+  type ChatGatewayMessageLifecycleReplyAction,
+  type ChatGatewayMessageLifecycleSink
+} from './core/message-lifecycle'
 import type { ChatGatewayProjectionSink } from './core/projection'
 
 type AgentChat = Chat<Record<string, Adapter>>
@@ -35,20 +39,20 @@ export function registerEchoPlaceholderHandlers(
 ): void {
   chat.onNewMention(async (thread, message) => {
     await thread.subscribe()
-    await handleAddressedMessage(thread, message, agent, projection, lifecycle)
+    await handleInboundMessage(thread, message, agent, projection, lifecycle)
   })
 
   chat.onDirectMessage(async (thread, message) => {
     await thread.subscribe()
-    await handleAddressedMessage(thread, message, agent, projection, lifecycle)
+    await handleInboundMessage(thread, message, agent, projection, lifecycle)
   })
 
   chat.onSubscribedMessage(async (thread, message) => {
-    await handleAddressedMessage(thread, message, agent, projection, lifecycle)
+    await handleInboundMessage(thread, message, agent, projection, lifecycle)
   })
 
   chat.onAmbientMessage(async (thread, message) => {
-    await handleAmbientMessage(thread, message, agent, projection, lifecycle)
+    await handleInboundMessage(thread, message, agent, projection, lifecycle)
   })
 
   chat.onMessageEdited(async event => {
@@ -67,54 +71,39 @@ export function registerEchoPlaceholderHandlers(
 /**
  * Mirrors accepted inbound Chat SDK messages at the host boundary.
  *
- * Adapters are responsible for parsing platform events into Chat SDK objects.
- * Once a handler runs, the host has the canonical `Thread` and `Message`, so
- * projection belongs here instead of inside each plugin. That keeps
- * `chat_channels`/`chat_messages` keyed by Chat SDK channel/message identity
- * rather than by local adapter factory ids or console channel names.
+ * Ordinary receives and edit lifecycle events intentionally converge here. The
+ * first invariant is durable inbound latest-state projection; only after that
+ * has succeeded do we attempt any external reply side effect. That keeps
+ * `chat_messages` usable as long-term memory even when a provider post/edit/
+ * delete call fails and must be retried by a later webhook.
  */
-async function handleAddressedMessage(
+async function handleInboundMessage(
   thread: AnyThread,
   message: AnyMessage,
   agent: AgentResult,
   projection: ChatGatewayProjectionSink,
   lifecycle: ChatGatewayMessageLifecycleSink
 ): Promise<void> {
-  if (await isDeletedInbound(thread, message, agent, lifecycle)) return
+  const channelId = channelIdFromThread(thread)
+  const result = await lifecycle.updateInboundMessage({
+    agentUid: agent.agent.uid,
+    channelId,
+    messageId: message.id,
+    thread,
+    message
+  })
 
-  await projection.projectMessage({ thread, message })
-  const reply = await postEcho(thread, message, agent)
-  try {
-    const record = await lifecycle.recordReply({
-      agentUid: agent.agent.uid,
-      inboundChannelId: channelIdFromThread(thread),
-      inboundThreadId: thread.id,
-      inboundMessageId: message.id,
-      replyThreadId: reply.threadId || thread.id,
-      replyMessageId: reply.id
+  if (result.reply) {
+    await applyReplyAction({
+      action: result.reply,
+      adapter: adapterFromThread(thread),
+      agent,
+      inboundThread: thread,
+      inboundMessage: message,
+      lifecycle,
+      projection
     })
-
-    if (!record.recorded) {
-      await projection.projectDelete({ thread, messageId: message.id })
-      await deleteProjectedReply(thread, reply, projection)
-      return
-    }
-  } catch (error) {
-    await deleteProjectedReply(thread, reply, projection)
-    throw error
   }
-}
-
-async function handleAmbientMessage(
-  thread: AnyThread,
-  message: AnyMessage,
-  agent: AgentResult,
-  projection: ChatGatewayProjectionSink,
-  lifecycle: ChatGatewayMessageLifecycleSink
-): Promise<void> {
-  if (await isDeletedInbound(thread, message, agent, lifecycle)) return
-
-  await projection.projectMessage({ thread, message })
 }
 
 async function handleMessageEdited(
@@ -123,7 +112,6 @@ async function handleMessageEdited(
   projection: ChatGatewayProjectionSink,
   lifecycle: ChatGatewayMessageLifecycleSink
 ): Promise<void> {
-  const addressed = isAddressed(event.thread, event.message)
   const result = await lifecycle.updateInboundMessage({
     agentUid: agent.agent.uid,
     channelId: channelIdFromThread(event.thread),
@@ -132,76 +120,198 @@ async function handleMessageEdited(
     message: event.message
   })
 
-  if (!result.handled) {
-    if (addressed) {
-      await handleAddressedMessage(event.thread, event.message, agent, projection, lifecycle)
-      return
-    }
-
-    await handleAmbientMessage(event.thread, event.message, agent, projection, lifecycle)
-    return
-  }
-
-  if (result.reply?.kind === 'create') {
-    await handleAddressedMessage(event.thread, event.message, agent, projection, lifecycle)
-    return
-  }
-
-  if (result.reply?.kind === 'delete') {
-    await deleteLinkedReply({
+  if (result.reply) {
+    await applyReplyAction({
+      action: result.reply,
       adapter: event.adapter,
-      agentUid: agent.agent.uid,
+      agent,
       inboundThread: event.thread,
+      inboundMessage: event.message,
       lifecycle,
-      projection,
-      replyThreadId: result.reply.threadId,
-      replyMessageId: result.reply.messageId,
-      channelId: channelIdFromThread(event.thread),
-      messageId: event.messageId
+      projection
+    })
+  }
+}
+
+async function applyReplyAction(input: {
+  action: ChatGatewayMessageLifecycleReplyAction
+  adapter?: Adapter
+  agent: AgentResult
+  inboundThread: AnyThread
+  inboundMessage: AnyMessage
+  lifecycle: ChatGatewayMessageLifecycleSink
+  projection: ChatGatewayProjectionSink
+}): Promise<void> {
+  if (input.action.kind === 'create') {
+    await createLinkedReply({
+      action: input.action,
+      agent: input.agent,
+      inboundThread: input.inboundThread,
+      inboundMessage: input.inboundMessage,
+      lifecycle: input.lifecycle,
+      projection: input.projection
     })
     return
   }
 
-  if (result.reply?.kind === 'edit') {
-    let rawMessage: { raw: unknown }
-    try {
-      const editMessage = requireOutboundCapability(
-        event.adapter,
-        'edit_message',
-        event.adapter.editMessage?.bind(event.adapter)
+  if (input.action.kind === 'delete') {
+    if (!input.adapter) {
+      logger.warn(
+        { messageId: input.action.messageId },
+        'Chat Gateway reply delete skipped because the thread adapter is unavailable'
       )
-      rawMessage = await editMessage(result.reply.threadId, result.reply.messageId, result.reply.text)
+      return
+    }
+
+    await deleteLinkedReply({
+      adapter: input.adapter,
+      agentUid: input.agent.agent.uid,
+      inboundThread: input.inboundThread,
+      lifecycle: input.lifecycle,
+      projection: input.projection,
+      replyThreadId: input.action.threadId,
+      replyMessageId: input.action.messageId,
+      channelId: channelIdFromThread(input.inboundThread),
+      messageId: input.inboundMessage.id
+    })
+    return
+  }
+
+  if (!input.adapter) {
+    logger.warn(
+      { messageId: input.action.messageId },
+      'Chat Gateway reply edit skipped because the thread adapter is unavailable'
+    )
+    return
+  }
+
+  await editLinkedReply({
+    adapter: input.adapter,
+    agent: input.agent,
+    inboundThread: input.inboundThread,
+    lifecycle: input.lifecycle,
+    projection: input.projection,
+    replyThreadId: input.action.threadId,
+    replyMessageId: input.action.messageId,
+    text: input.action.text,
+    channelId: channelIdFromThread(input.inboundThread),
+    messageId: input.inboundMessage.id
+  })
+}
+
+async function createLinkedReply(input: {
+  action: Extract<ChatGatewayMessageLifecycleReplyAction, { kind: 'create' }>
+  agent: AgentResult
+  inboundThread: AnyThread
+  inboundMessage: AnyMessage
+  lifecycle: ChatGatewayMessageLifecycleSink
+  projection: ChatGatewayProjectionSink
+}): Promise<void> {
+  const claim = {
+    agentUid: input.agent.agent.uid,
+    channelId: channelIdFromThread(input.inboundThread),
+    messageId: input.inboundMessage.id
+  }
+
+  if (!(await input.lifecycle.claimReplyCreation(claim))) return
+
+  let reply:
+    | {
+        delete?: () => Promise<void>
+        id: string
+        threadId?: string
+      }
+    | undefined
+
+  try {
+    if (await input.lifecycle.isDeleted(claim)) return
+
+    const latest = await input.lifecycle.getProjectedInboundMessage(claim)
+    if (!latest || !isProjectedStateAddressed(input.inboundThread, latest.isMention)) return
+
+    try {
+      reply = await postEchoText(input.inboundThread, echoPlaceholderText(input.agent.agent.uid, latest.text ?? ''))
     } catch (error) {
       if (error instanceof UnsupportedChannelCapabilityError) {
         logger.warn(
-          { adapter: event.adapter.name, capability: error.capability, messageId: result.reply.messageId },
-          'Chat Gateway reply edit skipped because adapter lacks capability'
+          { capability: error.capability, messageId: input.inboundMessage.id },
+          'Chat Gateway reply create skipped because adapter lacks capability'
         )
         return
       }
       throw error
     }
-    await projectReplyText({
-      agent,
-      adapter: event.adapter,
-      projection,
-      raw: rawMessage.raw,
-      text: result.reply.text,
-      thread: event.thread,
-      threadId: result.reply.threadId,
-      messageId: result.reply.messageId,
-      editedAt: new Date()
+
+    const record = await input.lifecycle.recordReply({
+      agentUid: input.agent.agent.uid,
+      inboundChannelId: claim.channelId,
+      inboundThreadId: input.inboundThread.id,
+      inboundMessageId: input.inboundMessage.id,
+      replyThreadId: reply.threadId || input.inboundThread.id,
+      replyMessageId: reply.id
     })
-    await lifecycle.markReplyReconciled({
-      agentUid: agent.agent.uid,
-      inboundChannelId: channelIdFromThread(event.thread),
-      inboundThreadId: event.thread.id,
-      inboundMessageId: event.messageId,
-      replyThreadId: result.reply.threadId,
-      replyMessageId: result.reply.messageId
-    })
-    return
+
+    if (!record.recorded) {
+      await deleteProjectedReply(input.inboundThread, reply, input.projection)
+    }
+  } catch (error) {
+    if (reply) await deleteProjectedReply(input.inboundThread, reply, input.projection)
+    throw error
+  } finally {
+    await input.lifecycle.releaseReplyCreation(claim)
   }
+}
+
+async function editLinkedReply(input: {
+  adapter: Adapter
+  agent: AgentResult
+  channelId: string
+  inboundThread: AnyThread
+  lifecycle: ChatGatewayMessageLifecycleSink
+  messageId: string
+  projection: ChatGatewayProjectionSink
+  replyMessageId: string
+  replyThreadId: string
+  text: string
+}): Promise<void> {
+  let rawMessage: { raw: unknown }
+  try {
+    const editMessage = requireOutboundCapability(
+      input.adapter,
+      'edit_message',
+      input.adapter.editMessage?.bind(input.adapter)
+    )
+    rawMessage = await editMessage(input.replyThreadId, input.replyMessageId, input.text)
+  } catch (error) {
+    if (error instanceof UnsupportedChannelCapabilityError) {
+      logger.warn(
+        { adapter: input.adapter.name, capability: error.capability, messageId: input.replyMessageId },
+        'Chat Gateway reply edit skipped because adapter lacks capability'
+      )
+      return
+    }
+    throw error
+  }
+
+  await projectReplyText({
+    agent: input.agent,
+    adapter: input.adapter,
+    projection: input.projection,
+    raw: rawMessage.raw,
+    text: input.text,
+    thread: input.inboundThread,
+    threadId: input.replyThreadId,
+    messageId: input.replyMessageId,
+    editedAt: new Date()
+  })
+  await input.lifecycle.markReplyReconciled({
+    agentUid: input.agent.agent.uid,
+    inboundChannelId: input.channelId,
+    inboundThreadId: input.inboundThread.id,
+    inboundMessageId: input.messageId,
+    replyThreadId: input.replyThreadId,
+    replyMessageId: input.replyMessageId
+  })
 }
 
 async function handleMessageDeleted(
@@ -236,8 +346,8 @@ async function handleMessageDeleted(
  * Sends a visibly temporary response so users do not mistake V1 for an LLM
  * backed agent runtime.
  */
-async function postEcho(thread: AnyThread, message: AnyMessage, agent: AgentResult) {
-  return thread.post(echoPlaceholderText(agent.agent.uid, message.text))
+async function postEchoText(thread: AnyThread, text: string) {
+  return thread.post(text)
 }
 
 async function deleteLinkedReply(input: {
@@ -362,21 +472,13 @@ function threadForMessage(thread: AnyThread, threadId: string): AnyThread {
   }
 }
 
-function isAddressed(thread: AnyThread, message: AnyMessage): boolean {
-  return thread.channel.isDM || message.isMention === true
+function adapterFromThread(thread: AnyThread): Adapter | undefined {
+  const maybeThread = thread as { adapter?: Adapter }
+  return maybeThread.adapter
 }
 
-async function isDeletedInbound(
-  thread: AnyThread,
-  message: AnyMessage,
-  agent: AgentResult,
-  lifecycle: ChatGatewayMessageLifecycleSink
-): Promise<boolean> {
-  return lifecycle.isDeleted({
-    agentUid: agent.agent.uid,
-    channelId: channelIdFromThread(thread),
-    messageId: message.id
-  })
+function isProjectedStateAddressed(thread: AnyThread, isMention: boolean): boolean {
+  return thread.channel.isDM || isMention
 }
 
 function channelIdFromThread(thread: AnyThread): string {

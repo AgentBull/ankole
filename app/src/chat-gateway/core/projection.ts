@@ -186,6 +186,54 @@ interface NormalizedReactionEvent {
 async function upsertProjectedMessage(input: NormalizedMessageInput): Promise<ChatGatewayMessage> {
   return DB.transaction(async tx => {
     const channel = await upsertChannelWithDb(tx, input.channel)
+
+    const existingRows = await tx
+      .select()
+      .from(ChatMessages)
+      .where(and(eq(ChatMessages.channelId, channel.id), eq(ChatMessages.messageId, input.messageId)))
+      .for('update')
+      .limit(1)
+    const existing = existingRows[0]
+
+    if (existing && isStaleProjection(existing, input)) {
+      return existing
+    }
+
+    if (existing) {
+      const [message] = await tx
+        .update(ChatMessages)
+        .set({
+          threadId: input.threadId,
+          authorId: input.authorId,
+          userKey: input.userKey,
+          author: jsonbParam(input.author),
+          isMention: input.isMention,
+          text: input.text,
+          formatted: jsonbParam(input.formatted),
+          attachments: jsonbParam(input.attachments),
+          links: jsonbParam(input.links),
+          metadata: jsonbParam(input.metadata),
+          // Message edits and reaction events arrive through independent platform
+          // lifecycles. A latest-state message projection must refresh message
+          // facts without erasing reactions already projected for the same id.
+          reactions: jsonbParam(existing.reactions),
+          raw: jsonbParam(input.raw),
+          // A provider message id denotes one visible message. Edits should not
+          // move that message in chronological memory, so preserve the original
+          // send time once BullX has observed it. If the first observation lacked a
+          // send time, a later richer projection may fill it.
+          sentAt: existing.sentAt ?? input.sentAt,
+          editedAt: input.editedAt,
+          updatedAt: sql`now()`
+        })
+        .where(eq(ChatMessages.id, existing.id))
+        .returning()
+
+      if (!message) throw new ChatGatewayProjectionError(`Failed to update projected message ${input.messageId}`)
+
+      return message
+    }
+
     const [message] = await tx
       .insert(ChatMessages)
       .values({
@@ -207,37 +255,23 @@ async function upsertProjectedMessage(input: NormalizedMessageInput): Promise<Ch
         sentAt: input.sentAt,
         editedAt: input.editedAt
       })
-      .onConflictDoUpdate({
-        target: [ChatMessages.channelId, ChatMessages.messageId],
-        set: {
-          threadId: input.threadId,
-          authorId: input.authorId,
-          userKey: input.userKey,
-          author: jsonbParam(input.author),
-          isMention: input.isMention,
-          text: input.text,
-          formatted: jsonbParam(input.formatted),
-          attachments: jsonbParam(input.attachments),
-          links: jsonbParam(input.links),
-          metadata: jsonbParam(input.metadata),
-          // Message edits and reaction events arrive through independent platform
-          // lifecycles. A latest-state message projection must refresh message
-          // facts without erasing reactions already projected for the same id.
-          reactions: sql`${ChatMessages.reactions}`,
-          raw: jsonbParam(input.raw),
-          // A provider message id denotes one visible message. Edits should not
-          // move that message in chronological memory, so preserve the original
-          // send time once BullX has observed it. If the first observation lacked a
-          // send time, a later richer projection may fill it.
-          sentAt: sql`coalesce(${ChatMessages.sentAt}, ${input.sentAt})`,
-          editedAt: input.editedAt,
-          updatedAt: sql`now()`
-        }
-      })
       .returning()
+
+    if (!message) throw new ChatGatewayProjectionError(`Failed to insert projected message ${input.messageId}`)
 
     return message
   })
+}
+
+function isStaleProjection(existing: ChatGatewayMessage, input: NormalizedMessageInput): boolean {
+  const incoming = projectionRevisionMs(input.editedAt, input.sentAt)
+  const current = projectionRevisionMs(existing.editedAt, existing.sentAt)
+
+  return incoming < current
+}
+
+function projectionRevisionMs(editedAt: Date | null, sentAt: Date | null): number {
+  return (editedAt ?? sentAt ?? new Date(0)).getTime()
 }
 
 async function deleteProjectedMessage(thread: ChatGatewayProjectionThread, messageId: string): Promise<boolean> {

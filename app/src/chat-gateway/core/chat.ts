@@ -1539,7 +1539,7 @@ export class Chat<
     const message = this.toMessage(event.message)
     setMessageAdapter(message, event.adapter)
     message.metadata.edited = true
-    message.metadata.editedAt = event.editedAt ?? message.metadata.editedAt
+    message.metadata.editedAt = event.editedAt ?? message.metadata.editedAt ?? new Date()
     message.isMention = message.isMention ?? this.detectMention(event.adapter, message)
 
     this.logger.debug('Incoming message edit', {

@@ -166,13 +166,13 @@ export interface BullXChatGatewayMessageLifecycleReplyLink {
 
 export interface BullXChatGatewayInboundMessageMutationResult {
   /**
-   * `true` means the host recognized this as lifecycle work for an already
-   * observed inbound message, so the adapter must not feed it into Chat SDK as a
-   * fresh message and create another reply.
+   * `true` means the host consumed this inbound mutation through the canonical
+   * latest-state path. BullX core uses the same path for ordinary receives and
+   * edit lifecycle events so stale receives, edits, and recalls cannot diverge
+   * from the IM mirror.
    *
-   * Edit events still update `chat_messages` immediately. Reply side-effect
-   * retry is driven by reply reconciliation state, not by delaying the
-   * long-term IM mirror.
+   * `chat_messages` is updated before reply side effects. Reply retry is driven
+   * by reconciliation state, not by delaying the long-term IM mirror.
    */
   handled: boolean
   /**
@@ -216,8 +216,8 @@ export interface BullXChatGatewayMessageLifecycleSink {
     replyMessageId: string
   }): Promise<BullXChatGatewayMessageLifecycleRecordReplyResult>
   /**
-   * Projects the edited inbound message into `chat_messages` and returns any
-   * BullX reply action still needed for the current IM latest-state.
+   * Projects an inbound receive/edit latest-state into `chat_messages` and
+   * returns any BullX reply action still needed for the current IM state.
    */
   updateInboundMessage(input: {
     agentUid: string
