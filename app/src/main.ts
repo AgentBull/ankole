@@ -2,13 +2,14 @@ import 'reflect-metadata'
 import { closeDatabase } from '@/common/database'
 import { logger } from '@/common/logger'
 import { AppEnv } from '@/config/env'
-import { webServer } from '@/core/web-server'
+import { createWebServer } from '@/core/web-server'
 import { chatGatewayRuntime } from '@/chat-gateway'
 import type { ChatGatewayRuntimeStats } from '@/chat-gateway/runtime'
 import { identityProviderRuntime } from '@/principals/identity-providers'
 import type { IdentityProviderRuntimeStats } from '@/principals/identity-providers/runtime'
 import { pluginRuntime } from '@/plugins'
 import type { PluginRuntimeStats } from '@/plugins/runtime'
+import { initializeSetupBootstrap } from '@/setup/bootstrap'
 
 interface MainWebServer {
   listen(options: { idleTimeout: number; port: number }): unknown
@@ -46,6 +47,7 @@ export interface StartBullXAgentOptions {
   env?: string
   exitOnSignal?: boolean
   httpPort?: number
+  initializeSetupBootstrap?: typeof initializeSetupBootstrap
   chatGatewayRuntime?: MainChatGatewayRuntime
   identityProviderRuntime?: MainIdentityProviderRuntime
   logger?: MainLogger
@@ -75,9 +77,10 @@ export async function startBullXAgent(options: StartBullXAgentOptions = {}): Pro
   const pluginsRuntime = options.pluginRuntime ?? pluginRuntime
   const identityRuntime = options.identityProviderRuntime ?? identityProviderRuntime
   const runtime = options.chatGatewayRuntime ?? chatGatewayRuntime
-  const server = options.webServer ?? webServer
+  const server = options.webServer ?? (await createWebServer())
   const log = options.logger ?? logger
   const closeDb = options.closeDatabase ?? closeDatabase
+  const initSetup = options.initializeSetupBootstrap ?? initializeSetupBootstrap
   const httpPort = options.httpPort ?? AppEnv.HTTP_PORT
   const env = options.env ?? AppEnv.NODE_ENV
   const registerSignals = options.registerSignals ?? true
@@ -94,6 +97,7 @@ export async function startBullXAgent(options: StartBullXAgentOptions = {}): Pro
   }
 
   try {
+    const setup = await initSetup()
     const plugins = await pluginsRuntime.start()
     const identityProviders = await identityRuntime.start()
     const chatGateway = await runtime.start()
@@ -127,7 +131,10 @@ export async function startBullXAgent(options: StartBullXAgentOptions = {}): Pro
         idleTimeoutSeconds: 0,
         plugins,
         identityProviders,
-        chatGateway
+        chatGateway,
+        setup: {
+          completed: setup.completed
+        }
       },
       'BullX Agent is running'
     )

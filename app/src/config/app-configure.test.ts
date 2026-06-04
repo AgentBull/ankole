@@ -1,6 +1,6 @@
 import 'reflect-metadata'
 import { afterAll, describe, expect, it } from 'bun:test'
-import { eq } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { loadTestEnvFiles } from '../common/tests/load-test-env'
 import { AppConfigure, ConfigureKeyType } from '../common/db-schema/app-configure'
@@ -21,7 +21,7 @@ const {
   registerAppConfigDefinitions,
   registerAppConfigPatterns
 } = await import('./app-configure')
-const { DB } = await import('../common/database')
+const { DB, jsonbParam } = await import('../common/database')
 
 const testKeyPrefix = `__test.app_configure.${Date.now()}.${Math.random().toString(36).slice(2)}`
 
@@ -137,17 +137,18 @@ describe('AppConfigService database persistence', () => {
     expect(await appConfigService.get(definition)).toEqual({ enabled: false, limit: 0 })
 
     await appConfigService.set(definition, { enabled: true, limit: 3 })
+    expect(await appConfigureValueType(definition.key)).toBe('object')
     expect(await appConfigService.get(definition)).toEqual({ enabled: true, limit: 3 })
 
     await DB.update(AppConfigure)
       .set({
-        value: {
+        value: jsonbParam({
           type: ConfigureKeyType.PLAINTEXT,
           value: {
             enabled: false,
             limit: 7
           }
-        }
+        })
       })
       .where(eq(AppConfigure.key, definition.key))
 
@@ -173,6 +174,7 @@ describe('AppConfigService database persistence', () => {
     await appConfigService.set(definition, { apiKey: 'secret-api-key' })
 
     const [row] = await DB.select().from(AppConfigure).where(eq(AppConfigure.key, definition.key)).limit(1)
+    expect(await appConfigureValueType(definition.key)).toBe('object')
     expect(row?.value.type).toBe(ConfigureKeyType.CIPHER)
     expect(row?.value.value).toBeString()
     expect(row?.value.value).not.toContain('secret-api-key')
@@ -195,10 +197,10 @@ describe('AppConfigService database persistence', () => {
 
     await DB.update(AppConfigure)
       .set({
-        value: {
+        value: jsonbParam({
           type: ConfigureKeyType.CIPHER,
           value: 'not-a-valid-cipher'
-        }
+        })
       })
       .where(eq(AppConfigure.key, definition.key))
 
@@ -246,6 +248,7 @@ describe('AppConfigService database persistence', () => {
     })
 
     const [row] = await DB.select().from(AppConfigure).where(eq(AppConfigure.key, dynamicKey)).limit(1)
+    expect(await appConfigureValueType(dynamicKey)).toBe('object')
     expect(row?.value.type).toBe(ConfigureKeyType.CIPHER)
     expect(row?.value.value).toBeString()
     expect(row?.value.value).not.toContain('runtime-token')
@@ -265,4 +268,15 @@ describe('AppConfigService database persistence', () => {
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+async function appConfigureValueType(key: string): Promise<string | undefined> {
+  const rows = (await DB.execute(sql`
+    SELECT jsonb_typeof(value) AS "valueType"
+    FROM app_configure
+    WHERE key = ${key}
+    LIMIT 1
+  `)) as unknown as Array<{ valueType: string }>
+
+  return rows[0]?.valueType
 }

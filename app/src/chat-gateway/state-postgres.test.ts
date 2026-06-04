@@ -1,6 +1,7 @@
 import 'reflect-metadata'
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test'
-import { Message, type QueueEntry } from 'chat'
+import { Message } from './core/message'
+import type { QueueEntry } from './core/types'
 import { and, eq } from 'drizzle-orm'
 import { loadTestEnvFiles } from '@/common/tests/load-test-env'
 
@@ -9,7 +10,7 @@ await loadTestEnvFiles()
 const { DB } = await import('@/common/database')
 const { ChatStateCache, ChatStateLists, ChatStateLocks, ChatStateQueues, ChatStateSubscriptions } =
   await import('@/common/db-schema')
-const { createDrizzlePostgresState } = await import('./state-postgres')
+const { createBullXChatStateStore } = await import('./core/state-postgres')
 
 const keyPrefix = `__test.chat_gateway.state.${Date.now()}.${Math.random().toString(36).slice(2)}`
 
@@ -24,9 +25,9 @@ async function cleanupStateRows() {
 beforeAll(cleanupStateRows)
 afterAll(cleanupStateRows)
 
-describe('DrizzlePostgresStateAdapter', () => {
+describe('BullXPostgresChatStateStore', () => {
   it('supports subscriptions, locks, cache TTLs, lists, and queues', async () => {
-    const state = createDrizzlePostgresState({ keyPrefix })
+    const state = createBullXChatStateStore({ keyPrefix })
     await state.connect()
 
     await state.subscribe('thread-subscription')

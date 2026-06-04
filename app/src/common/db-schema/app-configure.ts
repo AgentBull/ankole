@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm'
-import { jsonb, pgTable, text, timestamp, unique } from 'drizzle-orm/pg-core'
+import { check, jsonb, pgTable, text, timestamp, unique } from 'drizzle-orm/pg-core'
 
 export enum ConfigureKeyType {
   PLAINTEXT = 'plaintext',
@@ -17,6 +17,7 @@ export type ConfigureJsonValue =
 export interface ConfigureValue {
   type: ConfigureKeyType
   value: ConfigureJsonValue
+  [key: string]: ConfigureJsonValue
 }
 
 export const AppConfigure = pgTable(
@@ -31,5 +32,11 @@ export const AppConfigure = pgTable(
       .default(sql`CURRENT_TIMESTAMP`)
       .notNull()
   },
-  t => [unique('key_unique').on(t.key)]
+  t => [
+    unique('key_unique').on(t.key),
+    check(
+      'app_configure_value_envelope',
+      sql`jsonb_typeof(${t.value}) = 'object' AND ${t.value} ? 'type' AND ${t.value} ? 'value'`
+    )
+  ]
 )

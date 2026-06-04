@@ -41,7 +41,7 @@ describe('admin auth session cookies', () => {
       state: 'state',
       nonce: 'nonce',
       returnTo: '/admin',
-      redirectUri: 'https://admin.example.com/admin/auth/oidc/lark-main/callback'
+      redirectUri: 'https://admin.example.com/sessions/oidc/lark-main/callback'
     })
 
     expect(readOidcStateCookie(`${ADMIN_OIDC_STATE_COOKIE}=${encodeURIComponent(sealed)}`)).toMatchObject({
@@ -56,9 +56,9 @@ describe('admin auth session cookies', () => {
   })
 
   it('only allows same-site return targets', () => {
-    expect(safeReturnTo('/admin/settings')).toBe('/admin/settings')
-    expect(safeReturnTo('https://evil.example.com/admin')).toBe('/admin')
-    expect(safeReturnTo('//evil.example.com/admin')).toBe('/admin')
-    expect(safeReturnTo(undefined)).toBe('/admin')
+    expect(safeReturnTo('/console/settings')).toBe('/console/settings')
+    expect(safeReturnTo('https://evil.example.com/admin')).toBe('/console')
+    expect(safeReturnTo('//evil.example.com/admin')).toBe('/console')
+    expect(safeReturnTo(undefined)).toBe('/console')
   })
 })

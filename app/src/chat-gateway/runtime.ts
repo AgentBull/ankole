@@ -1,4 +1,4 @@
-import { type Adapter, Chat } from 'chat'
+import { type Adapter, Chat } from './core'
 import type { BullXChatGatewayExternalIdentitySink } from '@agentbull/bullx-sdk/plugins'
 import { singleton } from '@/common/di'
 import { logger } from '@/common/logger'
@@ -10,13 +10,12 @@ import { type ChatGatewayAdapterFactory, resolveChatGatewayAdapterFactory } from
 import { agentChannelConfigKey } from './config'
 import { registerEchoPlaceholderHandlers } from './echo-handler'
 import { type AgentChannelBinding, parseAgentChannelBindings } from './metadata'
-import { chatGatewayProjectionSink, type ChatGatewayProjectionSink } from './projection'
-import { createDrizzlePostgresState } from './state-postgres'
+import { chatGatewayProjectionSink, type ChatGatewayProjectionSink } from './core/projection'
 
 type AgentChat = Chat<Record<string, Adapter>>
 type WebhookHandler = (
   request: Request,
-  options?: { waitUntil?: (task: Promise<unknown>) => void }
+  options?: { runInBackground?: (task: Promise<unknown>) => void }
 ) => Promise<Response>
 
 /**
@@ -94,10 +93,10 @@ export class ChatGatewayRuntimeError extends Error {
  * Owns all Chat SDK instances for active local agents.
  *
  * The runtime is deliberately simpler than the Elixir gateway: there is no CEL
- * routing, MailBox handoff, or ambient special case in V1. The only ingress
- * routing rule is `agent uid + channel name -> that agent's Chat SDK webhook
- * handler`; latest-state channel projection is handled by adapter factories via
- * `ChatGatewayProjectionSink`.
+ * routing or MailBox handoff in V1. The ingress routing rule is
+ * `agent uid + channel name -> that agent's Chat SDK webhook handler`; inside
+ * the Chat instance, addressed messages get the temporary echo path while
+ * ambient group messages are only projected as latest-state context.
  */
 @singleton()
 export class ChatGatewayRuntime {
@@ -159,10 +158,9 @@ export class ChatGatewayRuntime {
     if (!handler) return new Response(`Unknown channel: ${channel}`, { status: 404 })
 
     return handler(request, {
-      waitUntil: task => {
-        // Bun's long-running server has no serverless `waitUntil` primitive.
-        // The closest useful behavior here is to let Chat SDK background work
-        // continue and log failures without delaying the webhook response.
+      runInBackground: task => {
+        // Keep webhook responses fast while still surfacing async failures in
+        // the service log. Durable projection runs inside those background tasks.
         task.catch(error => {
           logger.error({ error, agentUid: normalizedAgentUid, channel }, 'Chat Gateway webhook background task failed')
         })
@@ -215,9 +213,9 @@ export class ChatGatewayRuntime {
     options: ChatGatewayRuntimeStartOptions
   ): Promise<AgentChatRuntimeInstance | undefined> {
     const bindings = parseAgentChannelBindings(agent.agent.metadata)
-    if (bindings.length === 0) // Active agents without chat channel metadata are still valid agents; they
+    // Active agents without chat channel metadata are still valid agents; they
     // simply do not participate in Chat Gateway V1.
-    {
+    if (bindings.length === 0) {
       return undefined
     }
 
@@ -231,7 +229,6 @@ export class ChatGatewayRuntime {
         agent,
         channel: binding,
         config: await getChannelConfig(agentChannelConfigKey(agent.agent.uid, binding.name)),
-        projection,
         externalIdentities: chatGatewayExternalIdentitySink
       })
       adapters[binding.name] = adapter
@@ -240,12 +237,10 @@ export class ChatGatewayRuntime {
     const chat = new Chat({
       userName: agent.principal.displayName ?? agent.agent.uid,
       adapters,
-      state: createDrizzlePostgresState({
-        // Chat SDK state keys such as subscriptions, locks, and queues are
-        // process-agnostic. Prefixing by agent prevents two agents using the
-        // same Chat SDK thread id from sharing subscription or queue state.
-        keyPrefix: `bullx-agent:${agent.agent.uid}`
-      }),
+      // Chat Gateway state keys such as subscriptions, locks, and queues are
+      // process-agnostic. Prefixing by agent prevents two agents using the same
+      // channel thread id from sharing subscription or queue state.
+      stateKeyPrefix: `bullx-agent:${agent.agent.uid}`,
       // Queue preserves all inbound messages per thread while a previous
       // handler is still running. That is the least surprising default for an
       // agent boundary; dropping messages would make debugging webhook ingress
@@ -254,7 +249,7 @@ export class ChatGatewayRuntime {
       logger: 'info'
     })
 
-    registerEchoPlaceholderHandlers(chat, agent)
+    registerEchoPlaceholderHandlers(chat, agent, projection)
     await chat.initialize()
 
     logger.debug(

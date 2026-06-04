@@ -1,0 +1,84 @@
+[sessions]
+title = "Sign in"
+failed_title = "Sign in failed"
+sign_in_with = "Sign in with {$providerId}"
+no_identity_provider = "No identity provider is configured."
+
+[console]
+title = "BullX Console"
+setup_complete = "Phase 1 setup is complete."
+session_title = "Session"
+principal_label = "Principal"
+provider_label = "Provider"
+loading = "..."
+logout = "Log out"
+restart_recommended_title = "Restart recommended"
+restart_recommended_body = "The first identity provider has been saved, but this process started before setup finished. Restart BullX Agent to start directory sync and provider transports from the persisted config."
+restart_required_title = "Restart required"
+restart_required_body = "Changes have been saved. Restart BullX Agent before expecting runtime chat gateway behavior to change."
+actions = "Actions"
+enabled = "Enabled"
+disabled = "Disabled"
+save = "Save"
+cancel = "Cancel"
+
+[console.agents]
+title = "Agents"
+uid_label = "Agent UID"
+create_failed = "Could not create agent"
+create = "Create agent"
+load_failed = "Could not load agents"
+empty_title = "No agents yet"
+empty_body = "Create an agent UID first, then add one or more chat channels on the agent detail page."
+delete = "Delete agent"
+delete_confirm = "Delete agent {$uid}? Its chat channel secret config will be erased."
+
+[console.channels]
+title = "Chat channels"
+add = "Add channel"
+name = "Channel name"
+adapter = "Adapter"
+enabled = "Enabled"
+status = "Status"
+configured = "Configured"
+adapter_missing = "Adapter unavailable"
+edit = "Edit channel"
+delete = "Delete channel"
+delete_confirm = "Delete channel {$name}? Its encrypted config will be erased."
+empty_title = "No chat channels"
+save_failed = "Could not save channel"
+interactive_config = "Interactive setup"
+start_interactive_config = "Start setup"
+
+[console.interactive]
+running = "Running"
+succeeded = "Succeeded"
+failed = "Failed"
+cancelled = "Cancelled"
+
+[setup]
+continue = "Continue"
+
+[setup.steps]
+plugins = "Plugins"
+identity = "Identity"
+
+[setup.errors]
+generic_title = "Could not save"
+
+[setup.session]
+panel_title = "Bootstrap gate"
+bootstrap_code_label = "Bootstrap code"
+log_hint_title = "Check your server logs"
+log_hint_body = "The bootstrap activation code is printed to the BullX server logs. Open the terminal or console running BullX, then copy the most recent activation code and enter it below. A fresh code is generated each time the BullX Agent server starts while setup is incomplete."
+
+[setup.plugins]
+panel_title = "Plugins"
+save_button = "Save plugins"
+
+[setup.identity]
+panel_title = "Identity provider"
+adapter_label = "Identity provider adapter"
+provider_id_label = "Provider ID"
+provider_id_description = "Installation-local external identity namespace, for example lark-main."
+oidc_button = "Save and sign in with OIDC"

@@ -3,7 +3,7 @@ import type {
   BullXIdentityProviderGroupRecord,
   BullXIdentityProviderUserRecord
 } from '@agentbull/bullx-sdk/plugins'
-import { bullxExternalIdentityProviderIdPattern } from '@agentbull/bullx-sdk/plugins'
+import { bullxExternalIdentityNamespaceIdPattern } from '@agentbull/bullx-sdk/plugins'
 import { and, eq, inArray, sql } from 'drizzle-orm'
 import { DB, jsonbParam, type QueryExecutor } from '@/common/database'
 import {
@@ -15,7 +15,7 @@ import {
   Principals
 } from '@/common/db-schema'
 import { upsertPlatformSubjectHuman } from '../external-identities/service'
-import { newPrincipalId, normalizeUid, PrincipalDomainError, trimOptionalText } from '../principals/service'
+import { newPrincipalDomainRowId, normalizeUid, PrincipalDomainError, trimOptionalText } from '../principals/service'
 
 const PROVIDER_DISABLED_METADATA_KEY = 'bullxDisabledByProvider'
 
@@ -268,7 +268,7 @@ export async function upsertIdentityProviderGroup(
 
   const name = externalGroupName(provider, externalId)
   const [existingGroup] = await db.select().from(PrincipalGroups).where(eq(PrincipalGroups.name, name)).limit(1)
-  const groupId = existingGroup?.id ?? newPrincipalId()
+  const groupId = existingGroup?.id ?? newPrincipalDomainRowId()
 
   if (!existingGroup) {
     await db.insert(PrincipalGroups).values({
@@ -396,6 +396,8 @@ async function disableMissingIdentityProviderUsers(
 
   let disabled = 0
   for (const row of rows) {
+    if (!identityProviderHasManagedUser(row.metadata)) continue
+
     if (row.externalId && !seenExternalIds.has(row.externalId)) {
       await disableIdentityProviderUser(providerId, row.externalId, { missingFromFullSync: true }, db)
       disabled += 1
@@ -506,8 +508,8 @@ function requiredText(value: string | null | undefined, field: string): string {
 
 function requiredProviderId(value: string | null | undefined, field: string): string {
   const normalized = requiredText(value, field)
-  if (!bullxExternalIdentityProviderIdPattern.test(normalized)) {
-    throw new PrincipalDomainError('invalid_request', `${field} must match ${bullxExternalIdentityProviderIdPattern}`)
+  if (!bullxExternalIdentityNamespaceIdPattern.test(normalized)) {
+    throw new PrincipalDomainError('invalid_request', `${field} must match ${bullxExternalIdentityNamespaceIdPattern}`)
   }
 
   return normalized
@@ -517,6 +519,18 @@ function metadataObject(value: unknown): JsonObject {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return {}
 
   return value as JsonObject
+}
+
+/**
+ * Full sync can only disable subjects this provider has previously managed.
+ *
+ * Chat Gateway may create the same `platform_subject` row from a message before
+ * any login/directory sync sees that user. Absence from a directory full sync is
+ * therefore authoritative only for rows carrying provider-sync evidence.
+ */
+function identityProviderHasManagedUser(metadata: unknown): boolean {
+  const value = metadataObject(metadata)
+  return typeof value.syncedAt === 'string' || typeof value[PROVIDER_DISABLED_METADATA_KEY] === 'boolean'
 }
 
 function stringMetadataValue(metadata: unknown, key: string): string | null {

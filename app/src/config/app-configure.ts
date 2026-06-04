@@ -1,7 +1,7 @@
 import { aeadDecrypt, aeadEncrypt } from '@agentbull/bullx-native-addons'
 import { eq, sql } from 'drizzle-orm'
 import type { z } from 'zod'
-import { DB } from '../common/database'
+import { DB, jsonbParam } from '../common/database'
 import {
   AppConfigure,
   type ConfigureJsonValue,
@@ -372,12 +372,12 @@ export class AppConfigService {
     await DB.insert(AppConfigure)
       .values({
         key,
-        value: storedValue
+        value: jsonbParam(storedValue)
       })
       .onConflictDoUpdate({
         target: AppConfigure.key,
         set: {
-          value: storedValue,
+          value: jsonbParam(storedValue),
           updatedAt: sql`CURRENT_TIMESTAMP`
         }
       })
@@ -486,6 +486,8 @@ export class AppConfigService {
     definition: AppConfigRegisteredDefinition<TValue>,
     storedValue: ConfigureValue
   ): TValue {
+    storedValue = this.normalizeStoredValue(key, storedValue)
+
     if (definition.encrypted) {
       if (storedValue.type !== ConfigureKeyType.CIPHER || typeof storedValue.value !== 'string') {
         throw new AppConfigStorageError(key, 'expected encrypted string value')
@@ -504,6 +506,18 @@ export class AppConfigService {
     }
 
     return definition.schema.parse(storedValue.value)
+  }
+
+  private normalizeStoredValue(key: string, storedValue: ConfigureValue | string): ConfigureValue {
+    if (typeof storedValue !== 'string') return storedValue
+
+    try {
+      const parsed = JSON.parse(storedValue) as ConfigureValue
+      if (!parsed || typeof parsed !== 'object') throw new Error('stored value is not an object')
+      return parsed
+    } catch (error) {
+      throw new AppConfigStorageError(key, 'expected JSON object value', { cause: error })
+    }
   }
 
   private encryptionKey(key: string): string {

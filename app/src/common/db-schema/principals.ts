@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm'
-import { check, index, jsonb, pgEnum, pgTable, text, timestamp, unique, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
+import { check, index, jsonb, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
 
 export type JsonValue = string | number | boolean | null | { [key: string]: JsonValue } | JsonValue[]
 
@@ -37,15 +37,14 @@ export const PrincipalExternalIdentityKind = pgEnum('principal_external_identity
 /**
  * Top-level subject table.
  *
- * `uid` is the business-facing subject key used by the rest of Principal/AuthZ.
- * It is lowercase and unique so callers can use stable text identifiers without
- * leaking internal UUID primary keys into permission grants or memberships.
+ * `uid` is the subject key used by the rest of Principal/AuthZ and is therefore
+ * the primary key, not a shadow UUID. It is lowercase so callers can use stable
+ * text identifiers directly in grants, memberships, and subtype rows.
  */
 export const Principals = pgTable(
   'principals',
   {
-    id: uuid('id').primaryKey().notNull(),
-    uid: text('uid').notNull(),
+    uid: text('uid').primaryKey().notNull(),
     type: PrincipalType('type').notNull(),
     status: PrincipalStatus('status').default('active').notNull(),
     displayName: text('display_name'),
@@ -57,7 +56,7 @@ export const Principals = pgTable(
       .default(sql`CURRENT_TIMESTAMP`)
       .notNull()
   },
-  t => [unique('principals_uid_unique').on(t.uid), check('principals_uid_lowercase', sql`${t.uid} = lower(${t.uid})`)]
+  t => [check('principals_uid_lowercase', sql`${t.uid} = lower(${t.uid})`)]
 )
 
 /**

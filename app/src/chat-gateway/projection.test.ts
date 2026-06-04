@@ -1,6 +1,8 @@
 import 'reflect-metadata'
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test'
-import { Message, type Channel, type EmojiValue, type ReactionEvent, type Thread } from 'chat'
+import { emoji as coreEmoji } from './core/emoji'
+import { Message } from './core/message'
+import type { Channel, ReactionEvent, Thread } from './core/types'
 import { eq, like } from 'drizzle-orm'
 import { loadTestEnvFiles } from '@/common/tests/load-test-env'
 
@@ -8,7 +10,7 @@ await loadTestEnvFiles()
 
 const { DB } = await import('@/common/database')
 const { ChatChannels, ChatMessages } = await import('@/common/db-schema')
-const { DrizzleChatGatewayProjectionSink } = await import('./projection')
+const { DrizzleChatGatewayProjectionSink } = await import('./core/projection')
 
 const testPrefix = `__test_chat_gateway_projection_${Date.now()}_${Math.random().toString(36).slice(2)}`
 const sink = new DrizzleChatGatewayProjectionSink()
@@ -96,8 +98,19 @@ describe('DrizzleChatGatewayProjectionSink', () => {
 
     expect(edited.id).toBe(inserted.id)
     expect(edited.text).toBe('after')
+    expect(edited.sentAt?.toISOString()).toBe('2026-06-03T01:00:00.000Z')
     expect(edited.editedAt?.toISOString()).toBe(editAt.toISOString())
     expect(edited.updatedAt.getTime()).toBeGreaterThanOrEqual(inserted.updatedAt.getTime())
+  })
+
+  it('preserves empty string text as a visible latest-state value', async () => {
+    const row = await sink.projectMessage({
+      thread: chatThread({ channelId: `${testPrefix}:empty-text-channel`, threadId: 'chat:empty:thread' }),
+      message: message({ id: 'empty-text-message', threadId: 'chat:empty:thread', text: '' })
+    })
+
+    expect(row.text).toBe('')
+    expect(row.raw).toEqual({ id: 'empty-text-message', text: '' })
   })
 
   it('hard-deletes projected messages by Chat SDK thread channel and message id', async () => {
@@ -142,7 +155,7 @@ describe('DrizzleChatGatewayProjectionSink', () => {
 
     const [reacted] = await DB.select().from(ChatMessages).where(eq(ChatMessages.id, messageRow.id))
     expect(reacted!.reactions).toEqual({
-      thumbs_up: {
+      '+1': {
         emoji: 'thumbs_up',
         rawEmoji: '+1',
         count: 1,
@@ -158,6 +171,34 @@ describe('DrizzleChatGatewayProjectionSink', () => {
         raw: { messageId: 'reacted-message' }
       }
     })
+
+    await sink.projectMessage({
+      thread,
+      message: message({
+        id: 'reacted-message',
+        threadId: 'chat:reaction:thread',
+        text: 'edited but still reacted',
+        editedAt: new Date('2026-06-03T03:00:00.000Z')
+      })
+    })
+    const [editedWithReaction] = await DB.select().from(ChatMessages).where(eq(ChatMessages.id, messageRow.id))
+    expect(editedWithReaction!.text).toBe('edited but still reacted')
+    expect(editedWithReaction!.reactions).toEqual(reacted!.reactions)
+
+    expect(
+      await sink.projectReaction(
+        reactionEvent({
+          added: false,
+          thread,
+          messageId: 'reacted-message',
+          rawEmoji: '+1',
+          userId: 'user-1'
+        })
+      )
+    ).toBe(true)
+
+    const [withoutReaction] = await DB.select().from(ChatMessages).where(eq(ChatMessages.id, messageRow.id))
+    expect(withoutReaction!.reactions).toEqual({})
   })
 
   it('persists serializable Chat SDK message facts for files, links, formatting, and raw payloads', async () => {
@@ -264,7 +305,7 @@ function reactionEvent(input: {
   return {
     adapter: {} as never,
     added: input.added ?? true,
-    emoji: emoji('thumbs_up'),
+    emoji: coreEmoji.thumbs_up,
     message: input.message,
     messageId: input.messageId,
     raw: { messageId: input.messageId },
@@ -277,18 +318,6 @@ function reactionEvent(input: {
       fullName: 'User',
       isBot: false,
       isMe: false
-    }
-  }
-}
-
-function emoji(name: string): EmojiValue {
-  return {
-    name,
-    toJSON() {
-      return name
-    },
-    toString() {
-      return name
     }
   }
 }

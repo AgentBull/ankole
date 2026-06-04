@@ -2,7 +2,7 @@ import { authzValidateCondition, authzValidateResourcePattern } from '@agentbull
 import { eq, sql } from 'drizzle-orm'
 import { DB, jsonbParam, type QueryExecutor } from '@/common/database'
 import { type JsonObject, PermissionGrants } from '@/common/db-schema'
-import { newPrincipalId, normalizeUid, PrincipalDomainError, trimOptionalText } from '../principals/service'
+import { newPrincipalDomainRowId, normalizeUid, PrincipalDomainError, trimOptionalText } from '../principals/service'
 import { normalizeAction } from './request'
 
 export type PermissionGrant = typeof PermissionGrants.$inferSelect
@@ -33,7 +33,7 @@ export async function createPermissionGrant(
   const [grant] = await db
     .insert(PermissionGrants)
     .values({
-      id: newPrincipalId(),
+      id: newPrincipalDomainRowId(),
       ...attrs,
       metadata: jsonbParam(attrs.metadata ?? {})
     })
@@ -52,7 +52,7 @@ export async function upsertPermissionGrant(
 ): Promise<PermissionGrant> {
   const attrs = normalizePermissionGrantInput(input)
   const values = {
-    id: newPrincipalId(),
+    id: newPrincipalDomainRowId(),
     ...attrs,
     metadata: jsonbParam(attrs.metadata ?? {})
   }

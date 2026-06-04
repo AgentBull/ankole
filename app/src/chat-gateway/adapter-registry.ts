@@ -1,10 +1,9 @@
-import type { Adapter } from 'chat'
+import type { Adapter } from './core'
 import type { BullXChatGatewayExternalIdentitySink } from '@agentbull/bullx-sdk/plugins'
 import { rootContainer } from '@/common/di'
 import type { AppConfigJsonValue } from '@/config/app-configure'
 import type { AgentResult } from '@/principals/agents/service'
 import type { AgentChannelBinding } from './metadata'
-import type { ChatGatewayProjectionSink } from './projection'
 
 /**
  * Runtime inputs passed to a plugin-provided Chat SDK adapter factory.
@@ -18,14 +17,6 @@ export interface ChatGatewayAdapterFactoryContext {
   agent: AgentResult
   channel: AgentChannelBinding
   config: AppConfigJsonValue | undefined
-  /**
-   * Latest-state projection sink for external channel facts.
-   *
-   * Factories pass this to concrete adapters so inbound edit/delete/reaction
-   * events can update `chat_channels` and `chat_messages` without each plugin
-   * needing to know BullX database details.
-   */
-  projection: ChatGatewayProjectionSink
   /**
    * Principal bridge for chat adapters that can emit a platform-scoped human
    * subject, for example Lark `user_id`.

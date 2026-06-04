@@ -1,13 +1,7 @@
 import { eq, sql } from 'drizzle-orm'
 import { DB, type QueryExecutor } from '@/common/database'
 import { HumanUsers, Principals } from '@/common/db-schema'
-import {
-  newPrincipalId,
-  normalizeUid,
-  type Principal,
-  PrincipalDomainError,
-  trimOptionalText
-} from '../principals/service'
+import { normalizeUid, type Principal, PrincipalDomainError, trimOptionalText } from '../principals/service'
 
 export type HumanUser = typeof HumanUsers.$inferSelect
 
@@ -40,7 +34,6 @@ export async function createHuman(input: CreateHumanInput): Promise<CreateHumanR
     const [principal] = await tx
       .insert(Principals)
       .values({
-        id: newPrincipalId(),
         uid: principalUid,
         type: 'human',
         status: 'active',
@@ -118,7 +111,6 @@ export async function upsertHumanProfile(input: CreateHumanInput, db: QueryExecu
     const [principal] = await db
       .insert(Principals)
       .values({
-        id: newPrincipalId(),
         uid: principalUid,
         type: 'human',
         status: 'active',

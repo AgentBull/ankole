@@ -1,6 +1,7 @@
 import 'reflect-metadata'
 import { describe, expect, it } from 'bun:test'
-import { Message, type Adapter, type ChatInstance, type WebhookOptions } from 'chat'
+import { Message } from '@/chat-gateway/core/message'
+import type { Adapter, ChatInstance, WebhookOptions } from '@/chat-gateway/core/types'
 import {
   defineBullXPlugin,
   type BullXChatGatewayAdapterFactory,
@@ -223,13 +224,7 @@ describe('PluginRuntime', () => {
     expect(stats.registeredIdentityProviderAdapters).toEqual(['lark'])
     expect(registeredFactories.map(factory => factory.id)).toEqual(['lark'])
     expect(registeredIdentityFactories.map(factory => factory.id)).toEqual(['lark'])
-    expect(registeredPatterns).toEqual([
-      expect.objectContaining({
-        id: 'identity_providers.lark',
-        encrypted: true
-      })
-    ])
-    expect(registeredPatterns[0]!.keyPattern.test('identity_providers.lark.lark-main')).toBe(true)
+    expect(registeredPatterns).toEqual([])
     expect(() =>
       registeredFactories[0]!.create({
         agent: {},
@@ -238,8 +233,7 @@ describe('PluginRuntime', () => {
           enabled: true,
           name: 'lark'
         },
-        config: {},
-        projection: {}
+        config: {}
       })
     ).toThrow('Invalid Lark adapter config for channel lark')
 
@@ -253,10 +247,10 @@ describe('PluginRuntime', () => {
       config: {
         appId: 'cli_test',
         appSecret: 'secret',
-        platformProviderId: 'lark-main',
+        group_message_mode: 'observe_all',
+        platformSubjectNamespace: 'lark-main',
         userName: 'BullX'
-      },
-      projection: {}
+      }
     })
 
     expect(adapter.name).toBe('lark')

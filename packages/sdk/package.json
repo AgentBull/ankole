@@ -9,8 +9,5 @@
     "type-check": "tsc -p tsconfig.json --noEmit",
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check"
-  },
-  "peerDependencies": {
-    "chat": "^4.30.0"
   }
 }

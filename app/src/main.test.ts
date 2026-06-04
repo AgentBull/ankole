@@ -15,6 +15,10 @@ describe('startBullXAgent', () => {
       exitOnSignal: false,
       httpPort: 31_337,
       env: 'test',
+      async initializeSetupBootstrap() {
+        events.push('setup.init')
+        return { completed: false }
+      },
       pluginRuntime: {
         async start() {
           events.push('plugins.start')
@@ -75,6 +79,7 @@ describe('startBullXAgent', () => {
     })
 
     expect(events).toEqual([
+      'setup.init',
       'plugins.start',
       'identity.start',
       'runtime.start.begin',
@@ -108,12 +113,16 @@ describe('startBullXAgent', () => {
         chatGateway: {
           readyAgents: 2,
           readyChannels: 3
+        },
+        setup: {
+          completed: false
         }
       }
     })
 
     await started.shutdown('SIGTERM')
     expect(events).toEqual([
+      'setup.init',
       'plugins.start',
       'identity.start',
       'runtime.start.begin',
@@ -134,6 +143,10 @@ describe('startBullXAgent', () => {
       startBullXAgent({
         registerSignals: false,
         exitOnSignal: false,
+        async initializeSetupBootstrap() {
+          events.push('setup.init')
+          return { completed: false }
+        },
         pluginRuntime: {
           async start() {
             events.push('plugins.start')
@@ -186,6 +199,7 @@ describe('startBullXAgent', () => {
     ).rejects.toThrow(error)
 
     expect(events).toEqual([
+      'setup.init',
       'plugins.start',
       'identity.start',
       'runtime.start',
@@ -204,6 +218,10 @@ describe('startBullXAgent', () => {
       startBullXAgent({
         registerSignals: false,
         exitOnSignal: false,
+        async initializeSetupBootstrap() {
+          events.push('setup.init')
+          return { completed: false }
+        },
         pluginRuntime: {
           async start() {
             events.push('plugins.start')
@@ -253,6 +271,13 @@ describe('startBullXAgent', () => {
       })
     ).rejects.toThrow(error)
 
-    expect(events).toEqual(['plugins.start', 'runtime.stop', 'identity.stop', 'plugins.stop', 'database.close'])
+    expect(events).toEqual([
+      'setup.init',
+      'plugins.start',
+      'runtime.stop',
+      'identity.stop',
+      'plugins.stop',
+      'database.close'
+    ])
   })
 })

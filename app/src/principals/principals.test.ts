@@ -20,7 +20,7 @@ const { createAgent, listActiveAgents, updateAgent } = await import('./agents/se
 const { createExternalIdentity, resolveChannelActor, resolvePlatformSubject, upsertPlatformSubjectHuman } =
   await import('./external-identities/service')
 const { createHuman } = await import('./human-users/service')
-const { disablePrincipal, newPrincipalId, PrincipalDomainError, updatePrincipalStatus } =
+const { disablePrincipal, newPrincipalDomainRowId, PrincipalDomainError, updatePrincipalStatus } =
   await import('./principals/service')
 const { applyIdentityProviderFullSync, syncIdentityProviderUser } = await import('./identity-providers/service')
 const {
@@ -272,6 +272,26 @@ describe('principal data model', () => {
     const [human] = await DB.select().from(HumanUsers).where(eq(HumanUsers.principalUid, chatObservation.principal.uid))
     expect(human?.email).toBe(`directory.${testPrefix}@example.com`)
   })
+
+  it('does not let identity-provider full sync disable chat-only platform subjects', async () => {
+    const chatObservation = await upsertPlatformSubjectHuman({
+      provider: uid('lark-main'),
+      externalId: uid('chat_only_user'),
+      displayName: 'Chat-only user',
+      metadata: {
+        source: 'message'
+      }
+    })
+
+    const stats = await applyIdentityProviderFullSync(uid('lark-main'), { groups: [], users: [] })
+    const [principal] = await DB.select()
+      .from(Principals)
+      .where(eq(Principals.uid, chatObservation.principal.uid))
+      .limit(1)
+
+    expect(stats.usersDisabled).toBe(0)
+    expect(principal?.status).toBe('active')
+  })
 })
 
 describe('authorization', () => {
@@ -325,7 +345,7 @@ describe('authorization', () => {
     await expectDomainReason(authorizePermission(human.principal.uid, 'ai_agent:*:read'), 'invalid_request')
 
     await DB.insert(PermissionGrants).values({
-      id: newPrincipalId(),
+      id: newPrincipalDomainRowId(),
       principalUid: human.principal.uid,
       resourcePattern: 'ai_agent:[',
       action: 'invoke',
@@ -334,7 +354,7 @@ describe('authorization', () => {
     expect(await allowed(human.principal.uid, 'ai_agent:default', 'invoke')).toBe(false)
 
     await DB.insert(PermissionGrants).values({
-      id: newPrincipalId(),
+      id: newPrincipalDomainRowId(),
       principalUid: human.principal.uid,
       resourcePattern: 'ai_agent:**',
       action: 'inspect',

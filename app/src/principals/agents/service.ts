@@ -3,11 +3,11 @@ import type { PgUpdateSetSource } from 'drizzle-orm/pg-core'
 import { DB, jsonbParam } from '@/common/database'
 import { Agents, type JsonObject, Principals } from '@/common/db-schema'
 import {
-  newPrincipalId,
   normalizeUid,
   type Principal,
   PrincipalDomainError,
-  trimOptionalText
+  trimOptionalText,
+  updatePrincipalStatus
 } from '../principals/service'
 
 export type Agent = typeof Agents.$inferSelect
@@ -34,6 +34,23 @@ export interface AgentResult {
   agent: Agent
 }
 
+export async function getAgent(uid: string): Promise<AgentResult | undefined> {
+  const principalUid = normalizeUid(uid)
+  const [row] = await DB.select({ principal: Principals, agent: Agents })
+    .from(Agents)
+    .innerJoin(Principals, eq(Principals.uid, Agents.uid))
+    .where(eq(Agents.uid, principalUid))
+    .limit(1)
+
+  if (!row) return undefined
+  if (row.principal.type !== 'agent') throw new PrincipalDomainError('not_agent')
+
+  return {
+    principal: row.principal,
+    agent: row.agent
+  }
+}
+
 /**
  * Creates an agent Principal and its agent subtype row atomically.
  *
@@ -49,7 +66,6 @@ export async function createAgent(input: CreateAgentInput): Promise<AgentResult>
     const [principal] = await tx
       .insert(Principals)
       .values({
-        id: newPrincipalId(),
         uid,
         type: 'agent',
         status: 'active',
@@ -120,6 +136,17 @@ export async function updateAgent(uid: string, input: UpdateAgentInput): Promise
 
     return { principal: updatedPrincipal, agent }
   })
+}
+
+export async function disableAgent(uid: string): Promise<AgentResult> {
+  const existing = await getAgent(uid)
+  if (!existing) throw new PrincipalDomainError('not_found')
+
+  const principal = await updatePrincipalStatus(existing.principal.uid, 'disabled')
+  return {
+    principal,
+    agent: existing.agent
+  }
 }
 
 /**

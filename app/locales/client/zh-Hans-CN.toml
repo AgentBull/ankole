@@ -1,0 +1,84 @@
+[sessions]
+title = "登录"
+failed_title = "登录失败"
+sign_in_with = "使用 {$providerId} 登录"
+no_identity_provider = "尚未配置身份 Provider。"
+
+[console]
+title = "BullX 控制台"
+setup_complete = "第一期初始化已完成。"
+session_title = "会话"
+principal_label = "Principal"
+provider_label = "Provider"
+loading = "..."
+logout = "退出登录"
+restart_recommended_title = "建议重启"
+restart_recommended_body = "首个身份 Provider 已保存，但当前进程是在初始化完成前启动的。请重启 BullX Agent，让目录同步和 Provider 传输从已持久化的配置启动。"
+restart_required_title = "需要重启"
+restart_required_body = "配置已保存。请重启 BullX Agent 后再期待运行时 Chat Gateway 行为生效。"
+actions = "操作"
+enabled = "启用"
+disabled = "停用"
+save = "保存"
+cancel = "取消"
+
+[console.agents]
+title = "Agent"
+uid_label = "Agent UID"
+create_failed = "创建 Agent 失败"
+create = "创建 Agent"
+load_failed = "加载 Agent 失败"
+empty_title = "暂无 Agent"
+empty_body = "先创建一个 Agent UID，然后在详情页添加一个或多个 chat channel。"
+delete = "删除 Agent"
+delete_confirm = "删除 Agent {$uid}？它的 chat channel 密钥配置会被擦除。"
+
+[console.channels]
+title = "Chat channel"
+add = "添加 channel"
+name = "Channel 名称"
+adapter = "Adapter"
+enabled = "启用"
+status = "状态"
+configured = "已配置"
+adapter_missing = "Adapter 不可用"
+edit = "编辑 channel"
+delete = "删除 channel"
+delete_confirm = "删除 channel {$name}？它的加密配置会被擦除。"
+empty_title = "暂无 chat channel"
+save_failed = "保存 channel 失败"
+interactive_config = "交互式配置"
+start_interactive_config = "开始配置"
+
+[console.interactive]
+running = "进行中"
+succeeded = "已完成"
+failed = "失败"
+cancelled = "已取消"
+
+[setup]
+continue = "继续"
+
+[setup.steps]
+plugins = "插件"
+identity = "身份"
+
+[setup.errors]
+generic_title = "保存失败"
+
+[setup.session]
+panel_title = "引导验证"
+bootstrap_code_label = "引导激活码"
+log_hint_title = "请查看服务器日志"
+log_hint_body = "引导激活码会打印到 BullX 服务器日志中。请打开运行 BullX 的终端或控制台，复制最新的激活码并填入下方。每次 BullX Agent 服务器启动且初始化未完成时，都会生成新的激活码。"
+
+[setup.plugins]
+panel_title = "插件"
+save_button = "保存插件"
+
+[setup.identity]
+panel_title = "身份 Provider"
+adapter_label = "身份 Provider 适配器"
+provider_id_label = "Provider ID"
+provider_id_description = "安装内的外部身份命名空间，例如 lark-main。"
+oidc_button = "保存并使用 OIDC 登录"

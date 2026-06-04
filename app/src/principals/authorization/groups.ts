@@ -2,7 +2,7 @@ import { authzValidateCondition } from '@agentbull/bullx-native-addons'
 import { eq, sql } from 'drizzle-orm'
 import { DB, type QueryExecutor } from '@/common/database'
 import { PermissionGrants, PrincipalGroups } from '@/common/db-schema'
-import { newPrincipalId, PrincipalDomainError, trimOptionalText } from '../principals/service'
+import { newPrincipalDomainRowId, PrincipalDomainError, trimOptionalText } from '../principals/service'
 
 export const ADMIN_GROUP_NAME = 'admin'
 export const ALL_HUMANS_GROUP_NAME = 'all_humans'
@@ -53,7 +53,7 @@ export async function createPrincipalGroup(
   const [group] = await db
     .insert(PrincipalGroups)
     .values({
-      id: newPrincipalId(),
+      id: newPrincipalDomainRowId(),
       ...attrs
     })
     .returning()
@@ -165,7 +165,7 @@ async function ensureBuiltInGroup(
   const [created] = await db
     .insert(PrincipalGroups)
     .values({
-      id: newPrincipalId(),
+      id: newPrincipalDomainRowId(),
       ...attrs,
       builtIn: true
     })

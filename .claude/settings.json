@@ -29,7 +29,9 @@
       "Bash(sed -n '286,296p' app/src/config/app-configure.ts)",
       "Bash(/Users/ding/Projects/bullx-agent/node_modules/.bin/oxlint -c /tmp/curlytest/.oxlintrc.json /tmp/curlytest/t.ts)",
       "Bash(npx oxlint *)",
-      "Bash(echo \"EXIT=$?\")"
+      "Bash(echo \"EXIT=$?\")",
+      "WebFetch(domain:registry.npmjs.org)",
+      "WebFetch(domain:raw.githubusercontent.com)"
     ]
   }
 }

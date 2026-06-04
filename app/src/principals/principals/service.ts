@@ -67,12 +67,13 @@ export function trimOptionalText(value: string | null | undefined): string | nul
 }
 
 /**
- * Generates UUIDv7 primary keys for Principal/AuthZ rows.
+ * Generates UUIDv7 identifiers for Principal-domain rows that still need opaque
+ * storage ids, such as groups, grants, and external identity bindings.
  *
- * UUIDv7 keeps primary keys globally unique while preserving enough time order
+ * UUIDv7 keeps row ids globally unique while preserving enough time order
  * to make operational inspection and default index locality better than UUIDv4.
  */
-export function newPrincipalId(): string {
+export function newPrincipalDomainRowId(): string {
   return genUUIDv7()
 }
 

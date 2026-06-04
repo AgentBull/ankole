@@ -73,6 +73,7 @@ coverage/
 dist/
 storybook-static/
 target/
+app/public/assets/
 tmp/
 .turbo
 var/**

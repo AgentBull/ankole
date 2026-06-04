@@ -6,7 +6,8 @@ await loadTestEnvFiles()
 
 const { IdentityProviderRuntime } = await import('./runtime')
 const { IdentityProviderAdapterRegistry, UnknownIdentityProviderAdapterError } = await import('./registry')
-const { ActiveIdentityProvidersConfig } = await import('./config')
+const { ActiveIdentityProvidersConfig, IdentityProviderConfigPattern, identityProviderConfigKey } =
+  await import('./config')
 
 describe('identity provider config', () => {
   it('rejects duplicate active provider ids', () => {
@@ -20,6 +21,13 @@ describe('identity provider config', () => {
 
   it('rejects provider ids outside the shared external identity namespace contract', () => {
     expect(() => ActiveIdentityProvidersConfig.schema.parse([{ providerId: 'CorpMain', adapter: 'mock' }])).toThrow()
+  })
+
+  it('uses the globally unique provider id as the provider config key', () => {
+    expect(identityProviderConfigKey('lark-main')).toBe('identity_providers.lark-main')
+    expect(IdentityProviderConfigPattern.keyPattern.test('identity_providers.lark-main')).toBe(true)
+    expect(IdentityProviderConfigPattern.keyPattern.test('identity_providers.lark.lark-main')).toBe(false)
+    expect(() => identityProviderConfigKey('active')).toThrow('reserved identity providerId')
   })
 })
 

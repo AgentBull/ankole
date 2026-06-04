@@ -48,7 +48,7 @@ interface RuntimeProvider {
  */
 export interface IdentityProviderRuntimeStartOptions {
   getActiveProviders?: () => Promise<readonly IdentityProviderActivation[]>
-  getProviderConfig?: (adapterId: string, providerId: string) => Promise<AppConfigJsonValue | undefined>
+  getProviderConfig?: (providerId: string) => Promise<AppConfigJsonValue | undefined>
   getPublicBaseUrl?: () => Promise<string | undefined>
   isProduction?: boolean
   registry?: IdentityProviderAdapterRegistry
@@ -89,10 +89,7 @@ export class IdentityProviderRuntime {
 
     for (const activation of activeProviders) {
       const factory = registry.get(activation.adapter) as BullXIdentityProviderAdapterFactory
-      const config = await (options.getProviderConfig ?? defaultProviderConfig)(
-        activation.adapter,
-        activation.providerId
-      )
+      const config = await (options.getProviderConfig ?? defaultProviderConfig)(activation.providerId)
       const provider = await factory.create({
         providerId: activation.providerId,
         config,
@@ -266,8 +263,8 @@ export class IdentityProviderRuntime {
   }
 }
 
-async function defaultProviderConfig(adapterId: string, providerId: string): Promise<AppConfigJsonValue | undefined> {
-  return appConfigService.getByKey(identityProviderConfigKey(adapterId, providerId))
+async function defaultProviderConfig(providerId: string): Promise<AppConfigJsonValue | undefined> {
+  return appConfigService.getByKey(identityProviderConfigKey(providerId))
 }
 
 export const identityProviderRuntime = rootContainer.resolve(IdentityProviderRuntime)

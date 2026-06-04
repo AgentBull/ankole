@@ -5,8 +5,10 @@ import { getSecretKey, SecretKeyPurpose } from '@/common/kms'
 export const ADMIN_SESSION_COOKIE = '_bullx_agent_session'
 export const ADMIN_OIDC_STATE_COOKIE = '_bullx_agent_oidc_state'
 
-const ADMIN_SESSION_TTL_MS = ms('12h')
+const ADMIN_SESSION_TTL_MS = ms('7d')
 const OIDC_STATE_TTL_MS = ms('10m')
+
+export const ADMIN_SESSION_TTL_SECONDS = Math.floor(ADMIN_SESSION_TTL_MS / 1000)
 
 export interface AdminSessionPayload {
   principalUid: string
@@ -82,8 +84,8 @@ export function expiredCookieHeader(name: string, secure: boolean): string {
 }
 
 export function safeReturnTo(value: string | null | undefined): string {
-  if (!value) return '/admin'
-  if (!value.startsWith('/') || value.startsWith('//')) return '/admin'
+  if (!value) return '/console'
+  if (!value.startsWith('/') || value.startsWith('//')) return '/console'
 
   return value
 }
@@ -111,7 +113,7 @@ function sessionKey(): string {
   return getSecretKey(SecretKeyPurpose.ADMIN_AUTH_SESSION, 'admin-auth-cookie')
 }
 
-function parseCookieHeader(header: string | null): Record<string, string> | undefined {
+export function parseCookieHeader(header: string | null): Record<string, string> | undefined {
   const cookies: Record<string, string> = {}
   if (!header) return cookies
 

@@ -1,11 +1,11 @@
 import { match, P } from '@pleisto/active-support'
-import { bullxExternalIdentityProviderIdPattern } from '@agentbull/bullx-sdk/plugins'
+import { bullxExternalIdentityNamespaceIdPattern } from '@agentbull/bullx-sdk/plugins'
 import { and, eq } from 'drizzle-orm'
 import { DB, jsonbParam, type QueryExecutor } from '@/common/database'
 import { type JsonObject, PrincipalExternalIdentities, Principals } from '@/common/db-schema'
 import { upsertHumanProfile } from '../human-users/service'
 import {
-  newPrincipalId,
+  newPrincipalDomainRowId,
   normalizeUid,
   type Principal,
   PrincipalDomainError,
@@ -28,11 +28,11 @@ export interface CreateExternalIdentityInput {
 
 export interface UpsertPlatformSubjectHumanInput {
   /**
-   * External identity namespace stored in `principal_external_identities.provider`.
+   * External platform namespace stored in `principal_external_identities.provider`.
    *
    * This is a platform/tenant namespace, not a channel id and not a runtime
-   * pointer to an identity-provider adapter. For Lark it should be shared by all
-   * bot apps installed into the same enterprise tenant.
+   * pointer to another adapter. For Lark it should be shared by all chat apps
+   * that want Lark `user_id` to identify the same human.
    */
   provider: string
   /**
@@ -63,15 +63,16 @@ export interface UpsertPlatformSubjectHumanResult {
  * Persists an external provider identity binding for a Principal.
  *
  * `channel_actor` is still available for channel-only integrations, while
- * `platform_subject` is the shared identity-provider subject used by login,
- * directory sync, and future provider-level outbound addressing.
+ * `platform_subject` stores a provider-scoped platform subject such as Lark
+ * `user_id`. Login, directory sync, chat observation, and future outbound lookup
+ * can all add evidence to that same subject, but no producer owns the whole row.
  */
 export async function createExternalIdentity(input: CreateExternalIdentityInput): Promise<PrincipalExternalIdentity> {
   const attrs = normalizeExternalIdentityInput(input)
 
   const [identity] = await DB.insert(PrincipalExternalIdentities)
     .values({
-      id: newPrincipalId(),
+      id: newPrincipalDomainRowId(),
       ...attrs,
       metadata: jsonbParam(attrs.metadata ?? {})
     })
@@ -113,7 +114,7 @@ export async function upsertExternalIdentity(
   const [identity] = await db
     .insert(PrincipalExternalIdentities)
     .values({
-      id: newPrincipalId(),
+      id: newPrincipalDomainRowId(),
       ...attrs,
       metadata: jsonbParam(attrs.metadata ?? {})
     })
@@ -125,10 +126,10 @@ export async function upsertExternalIdentity(
 /**
  * Upserts the shared human binding for a platform-scoped external subject.
  *
- * This is the indirect bridge between chat adapters and identity-provider
- * adapters. A Lark chat event and a Lark directory sync do not call each other;
- * they both call this service with the same `provider + user_id`, and the unique
- * `platform_subject` binding makes them converge on one Principal.
+ * This is the database-level convergence point for platform subjects. A Lark
+ * chat event and a Lark directory sync do not call each other; when both observe
+ * the same `provider + user_id`, the unique `platform_subject` binding makes the
+ * observations converge on one Principal.
  */
 export async function upsertPlatformSubjectHuman(
   input: UpsertPlatformSubjectHumanInput,
@@ -342,8 +343,8 @@ function requiredText(value: string, field: string): string {
 function requiredProvider(value: string | null | undefined, field: string): string {
   const normalized = trimOptionalText(value)
   if (!normalized) throw new PrincipalDomainError('invalid_request', `${field} must not be empty`)
-  if (!bullxExternalIdentityProviderIdPattern.test(normalized)) {
-    throw new PrincipalDomainError('invalid_request', `${field} must match ${bullxExternalIdentityProviderIdPattern}`)
+  if (!bullxExternalIdentityNamespaceIdPattern.test(normalized)) {
+    throw new PrincipalDomainError('invalid_request', `${field} must match ${bullxExternalIdentityNamespaceIdPattern}`)
   }
 
   return normalized

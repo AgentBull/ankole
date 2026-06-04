@@ -1,17 +1,33 @@
-import { bullxExternalIdentityProviderIdPattern } from '@agentbull/bullx-sdk/plugins'
+import {
+  bullxExternalIdentityNamespaceIdPattern,
+  bullxExternalIdentityNamespaceIdPatternSource
+} from '@agentbull/bullx-sdk/plugins'
 import { z } from 'zod'
-import { defineAppConfig, registerAppConfigDefinitions } from '@/config/app-configure'
+import {
+  defineAppConfig,
+  defineAppConfigPattern,
+  registerAppConfigDefinitions,
+  registerAppConfigPatterns
+} from '@/config/app-configure'
+import { appConfigJsonRecordSchema } from '@/config/json-value-schema'
 
-export const identityProviderIdSchema = z.string().regex(bullxExternalIdentityProviderIdPattern)
+export const reservedIdentityProviderIds = new Set(['active'])
+export const identityProviderIdSchema = z
+  .string()
+  .regex(bullxExternalIdentityNamespaceIdPattern)
+  .refine(providerId => !reservedIdentityProviderIds.has(providerId), {
+    message: 'reserved identity providerId'
+  })
 
 export const identityProviderActivationSchema = z
   .object({
     /**
      * Installation-local external identity namespace, for example `lark-main`.
      *
-     * This is the `provider` stored on `principal_external_identities`. It is not
-     * the adapter id, not a bot/channel id, and not a direct relation from a chat
-     * adapter to this identity-provider runtime.
+     * This is also the `provider` namespace stored on login/directory-produced
+     * `principal_external_identities` rows. It is not the adapter id, not a
+     * bot/channel id, and not a direct relation from a chat adapter to this
+     * identity-provider runtime.
      */
     providerId: identityProviderIdSchema,
     adapter: z.string().min(1),
@@ -25,9 +41,9 @@ export const ActiveIdentityProvidersConfig = defineAppConfig({
   key: 'identity_providers.active',
   encrypted: false,
   /**
-   * The host chooses which identity provider instances are active. Plugins only
-   * advertise adapter factories and config patterns; they do not decide whether
-   * a provider participates in admin login or directory sync.
+   * The host chooses which identity provider instances are active. Plugins
+   * advertise adapter factories; the provider config key is owned by the host
+   * and keyed only by the globally unique provider id.
    */
   schema: z.array(identityProviderActivationSchema).superRefine((activations, context) => {
     const seen = new Set<string>()
@@ -48,9 +64,19 @@ export const ActiveIdentityProvidersConfig = defineAppConfig({
   description: 'Identity provider instances started by the BullX Agent host process'
 })
 
-registerAppConfigDefinitions([ActiveIdentityProvidersConfig])
+export const IdentityProviderConfigPattern = defineAppConfigPattern({
+  id: 'identity_providers.provider_config',
+  keyPattern: new RegExp(`^identity_providers\\.(?!active$)${bullxExternalIdentityNamespaceIdPatternSource}$`),
+  encrypted: true,
+  schema: appConfigJsonRecordSchema,
+  defaultValue: {},
+  description: 'Encrypted identity provider configuration keyed by globally unique providerId'
+})
 
-export function identityProviderConfigKey(adapter: string, providerId: string): string {
+registerAppConfigDefinitions([ActiveIdentityProvidersConfig])
+registerAppConfigPatterns([IdentityProviderConfigPattern])
+
+export function identityProviderConfigKey(providerId: string): string {
   const normalizedProviderId = identityProviderIdSchema.parse(providerId)
-  return `identity_providers.${adapter}.${normalizedProviderId}`
+  return `identity_providers.${normalizedProviderId}`
 }
