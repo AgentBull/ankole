@@ -1,4 +1,5 @@
 import type { Adapter } from 'chat'
+import type { BullXChatGatewayExternalIdentitySink } from '@agentbull/bullx-sdk/plugins'
 import { rootContainer } from '@/common/di'
 import type { AppConfigJsonValue } from '@/config/app-configure'
 import type { AgentResult } from '@/principals/agents/service'
@@ -25,6 +26,15 @@ export interface ChatGatewayAdapterFactoryContext {
    * needing to know BullX database details.
    */
   projection: ChatGatewayProjectionSink
+  /**
+   * Principal bridge for chat adapters that can emit a platform-scoped human
+   * subject, for example Lark `user_id`.
+   *
+   * This is not a dependency on the identity-provider runtime. It only writes the
+   * shared `principal_external_identities` fact so a separate OIDC/directory sync
+   * path can converge on the same Principal through the database.
+   */
+  externalIdentities: BullXChatGatewayExternalIdentitySink
 }
 
 /**

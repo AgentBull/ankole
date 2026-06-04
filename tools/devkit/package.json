@@ -1,0 +1,25 @@
+{
+  "name": "@agentbull/devkit",
+  "version": "0.1.0",
+  "private": true,
+  "description": "BullX Agent repository development toolkit",
+  "license": "Apache-2.0",
+  "type": "module",
+  "sideEffects": false,
+  "scripts": {
+    "bin": "bun run src/main.ts",
+    "type-check": "tsc -p tsconfig.json --noEmit",
+    "fmt": "oxfmt",
+    "fmt:check": "oxfmt --check"
+  },
+  "dependencies": {
+    "@angular-devkit/core": "^21.2.4",
+    "@angular-devkit/schematics": "^21.2.4",
+    "@angular-devkit/schematics-cli": "^21.2.4",
+    "@crustjs/core": "^0.0.18",
+    "@crustjs/plugins": "^0.1.0",
+    "chalk": "^5.5.0",
+    "jsonc": "^2.0.0"
+  },
+  "schematics": "./src/schematics/collection.json"
+}

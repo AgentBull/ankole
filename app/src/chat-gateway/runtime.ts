@@ -1,8 +1,10 @@
 import { type Adapter, Chat } from 'chat'
+import type { BullXChatGatewayExternalIdentitySink } from '@agentbull/bullx-sdk/plugins'
 import { singleton } from '@/common/di'
 import { logger } from '@/common/logger'
 import { type AppConfigJsonValue, appConfigService } from '@/config/app-configure'
 import { type AgentResult, listActiveAgents } from '@/principals/agents/service'
+import { upsertPlatformSubjectHuman } from '@/principals/external-identities/service'
 import { normalizeUid } from '@/principals/principals/service'
 import { type ChatGatewayAdapterFactory, resolveChatGatewayAdapterFactory } from './adapter-registry'
 import { agentChannelConfigKey } from './config'
@@ -16,6 +18,33 @@ type WebhookHandler = (
   request: Request,
   options?: { waitUntil?: (task: Promise<unknown>) => void }
 ) => Promise<Response>
+
+/**
+ * Host implementation of the Principal bridge exposed to chat adapters.
+ *
+ * Keeping this object in Chat Gateway runtime, rather than inside the Lark
+ * plugin, preserves the boundary: plugins emit platform subject facts and the
+ * app decides how those facts become Principals and external identity rows.
+ */
+const chatGatewayExternalIdentitySink = {
+  upsertPlatformSubject: async input => {
+    const { principal, identity } = await upsertPlatformSubjectHuman({
+      provider: input.provider,
+      externalId: input.externalId,
+      displayName: input.displayName,
+      avatarUrl: input.avatarUrl,
+      email: input.email,
+      phone: input.phone,
+      verifiedAt: input.verifiedAt,
+      metadata: input.metadata
+    })
+
+    return {
+      principalUid: principal.uid,
+      externalIdentityId: identity.id
+    }
+  }
+} satisfies BullXChatGatewayExternalIdentitySink
 
 /**
  * In-memory runtime handle for one active agent's Chat SDK instance.
@@ -202,7 +231,8 @@ export class ChatGatewayRuntime {
         agent,
         channel: binding,
         config: await getChannelConfig(agentChannelConfigKey(agent.agent.uid, binding.name)),
-        projection
+        projection,
+        externalIdentities: chatGatewayExternalIdentitySink
       })
       adapters[binding.name] = adapter
     }

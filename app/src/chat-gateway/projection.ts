@@ -56,7 +56,7 @@ export interface ChatGatewayProjectMessageInput<TRawMessage = unknown> {
   message: Message<TRawMessage>
 }
 
-export interface ChatGatewayProjectDeleteInput<TRawMessage = unknown> {
+export interface ChatGatewayProjectDeleteInput {
   /**
    * Chat SDK Thread where the delete event was observed.
    */
@@ -84,7 +84,7 @@ export interface ChatGatewayProjectionSink {
   /**
    * Projects a Chat SDK delete observation as a hard delete.
    */
-  projectDelete<TRawMessage = unknown>(input: ChatGatewayProjectDeleteInput<TRawMessage>): Promise<boolean>
+  projectDelete(input: ChatGatewayProjectDeleteInput): Promise<boolean>
   /**
    * Projects a Chat SDK ReactionEvent. When the event carries a message
    * snapshot, the message is projected before the reaction.
@@ -114,7 +114,7 @@ export class DrizzleChatGatewayProjectionSink implements ChatGatewayProjectionSi
     return upsertProjectedMessage(normalizeMessageFromChatSdk(input.thread, input.message))
   }
 
-  async projectDelete<TRawMessage = unknown>(input: ChatGatewayProjectDeleteInput<TRawMessage>): Promise<boolean> {
+  async projectDelete(input: ChatGatewayProjectDeleteInput): Promise<boolean> {
     return deleteProjectedMessage(input.thread, input.messageId)
   }
 
@@ -223,10 +223,7 @@ async function upsertProjectedMessage(input: NormalizedMessageInput): Promise<Ch
   })
 }
 
-async function deleteProjectedMessage<TRawMessage>(
-  thread: ChatGatewayProjectionThread,
-  messageId: string
-): Promise<boolean> {
+async function deleteProjectedMessage(thread: ChatGatewayProjectionThread, messageId: string): Promise<boolean> {
   const channel = await findChannelById(channelIdFromThread(thread))
   if (!channel) return false
 
@@ -246,7 +243,10 @@ async function applyProjectedReaction<TRawMessage>(event: ReactionEvent<TRawMess
   const rows = await DB.select({ id: ChatMessages.id, reactions: ChatMessages.reactions })
     .from(ChatMessages)
     .where(
-      and(eq(ChatMessages.channelId, channel.id), eq(ChatMessages.messageId, ensureNonEmpty(event.messageId, 'messageId')))
+      and(
+        eq(ChatMessages.channelId, channel.id),
+        eq(ChatMessages.messageId, ensureNonEmpty(event.messageId, 'messageId'))
+      )
     )
     .limit(1)
   const row = rows[0]

@@ -49,6 +49,34 @@ BullX 也不同于 Palantir 式 ontology 工程。Brain 受本体论和语义网
 
 BullX 想做的不是“更好的 bot”，也不是“更聪明的 workflow app”，而是一个让 AI 同事能够旁听、判断、委派、等待、请求、花钱、记忆和行动，并且在产品层可追责的操作系统。
 
+## 本地开发工具
+
+本仓库内置 `@agentbull/devkit`，入口是根目录脚本：
+
+```shell
+bun run kit --help
+```
+
+常用命令：
+
+```shell
+# 创建或更新 VS Code workspace 文件
+bun run workspace:update
+
+# 启停本地 Postgres/Redis，默认拉取官方 latest 镜像
+bun run services:start
+bun run services:stop
+bun run services:status
+
+# 创建 app 数据库；数据库名默认来自 app/.env.local 或 app/.env.development
+bun run db:create
+
+# 重建 app 数据库并执行 Drizzle migration；重建是破坏性操作，需要显式确认
+bun run db:rebuild --yes
+```
+
+本地 Compose 文件在 `tools/devkit/external-services.docker-compose.yml`，默认端口与 `app/.env.development` 对齐：Postgres `localhost:5433`，Redis `localhost:6379`。
+
 ## 它应该带来的体验
 
 **群聊可以被旁听，而不是被打扰。** 客户成功 Agent 可以在群聊中发现风险、创建 Work，并私下提醒负责人，而不是默认在群里插话。

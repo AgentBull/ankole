@@ -22,11 +22,13 @@ export const PrincipalStatus = pgEnum('principal_status', ['active', 'disabled']
 export const AgentType = pgEnum('agent_type', ['llm_agentic_loop'])
 
 /**
- * External identities are not all login identities. A channel actor identifies
- * inbound IM/message actors, login_subject is reserved for future web/OIDC
- * login matching, and outbound_actor is for provider-side send-as identity.
+ * External identities are not all login identities. `platform_subject` is the
+ * tenant/platform-level identity shared by login, directory sync, and outbound
+ * addressing. `channel_actor` remains available for channel-scoped providers
+ * that cannot produce a platform subject.
  */
 export const PrincipalExternalIdentityKind = pgEnum('principal_external_identity_kind', [
+  'platform_subject',
   'channel_actor',
   'login_subject',
   'outbound_actor'
@@ -123,9 +125,9 @@ export const Agents = pgTable(
 /**
  * Provider identity binding for a Principal.
  *
- * V1 uses `channel_actor` resolution for inbound actor lookup. `login_subject`
- * and `outbound_actor` are persisted now so the identity model does not need a
- * second migration when those flows are wired later.
+ * Lark uses `platform_subject` with provider-scoped `user_id`, so OIDC login,
+ * directory sync, inbound chat actor resolution, and future outbound DM lookup
+ * share one binding instead of one row per bot app/channel.
  */
 export const PrincipalExternalIdentities = pgTable(
   'principal_external_identities',
@@ -153,6 +155,16 @@ export const PrincipalExternalIdentities = pgTable(
     uniqueIndex('principal_external_identities_channel_actor_index')
       .on(t.adapter, t.channelId, t.externalId)
       .where(sql`${t.kind} = 'channel_actor'`),
+    // This covers `platform_subject`, `login_subject`, and `outbound_actor`
+    // without mentioning the newly added enum literal in a partial-index
+    // predicate. PostgreSQL rejects use of a freshly added enum value inside
+    // the same migration transaction; the structural predicate keeps cold-start
+    // migrations valid while preserving provider-scoped uniqueness.
+    uniqueIndex('principal_external_identities_provider_identity_index')
+      .on(t.kind, t.provider, t.externalId)
+      .where(
+        sql`${t.provider} IS NOT NULL AND ${t.externalId} IS NOT NULL AND ${t.adapter} IS NULL AND ${t.channelId} IS NULL`
+      ),
     uniqueIndex('principal_external_identities_login_subject_index')
       .on(t.provider, t.externalId)
       .where(sql`${t.kind} = 'login_subject'`),
@@ -165,7 +177,15 @@ export const PrincipalExternalIdentities = pgTable(
     ),
     check(
       'principal_external_identities_provider_subject_required',
-      sql`(${t.kind} NOT IN ('login_subject', 'outbound_actor')) OR (${t.provider} IS NOT NULL AND ${t.externalId} IS NOT NULL)`
+      // Avoid naming the newly added `platform_subject` enum literal here: fresh
+      // PostgreSQL enum values cannot be used inside the same migration
+      // transaction that adds them. The structural branch still enforces the
+      // provider-bound shape for platform/login/outbound subjects.
+      sql`(${t.kind} = 'channel_actor') OR (${t.provider} IS NOT NULL AND ${t.externalId} IS NOT NULL AND ${t.adapter} IS NULL AND ${t.channelId} IS NULL)`
+    ),
+    check(
+      'principal_external_identities_provider_format',
+      sql`${t.provider} IS NULL OR ${t.provider} ~ '^[a-z][a-z0-9_-]*$'`
     ),
     check('principal_external_identities_metadata_object', sql`jsonb_typeof(${t.metadata}) = 'object'`)
   ]

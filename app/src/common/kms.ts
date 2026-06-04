@@ -2,7 +2,8 @@ import { deriveKey } from '@agentbull/bullx-native-addons'
 import { AppEnv } from '@/config/env'
 
 export enum SecretKeyPurpose {
-  DATABASE_ENCRYPTION = 'database_encryption'
+  DATABASE_ENCRYPTION = 'database_encryption',
+  ADMIN_AUTH_SESSION = 'admin_auth_session'
 }
 
 export function getSecretKey(purpose: SecretKeyPurpose, context?: string): string {

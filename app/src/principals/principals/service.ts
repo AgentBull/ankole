@@ -2,7 +2,6 @@ import { genUUIDv7 } from '@agentbull/bullx-native-addons'
 import { eq, sql } from 'drizzle-orm'
 import { DB } from '@/common/database'
 import { Principals } from '@/common/db-schema'
-import { ensureCanDisablePrincipal } from '../authorization/memberships'
 
 export type Principal = typeof Principals.$inferSelect
 export type PrincipalStatus = Principal['status']
@@ -95,8 +94,9 @@ export async function getPrincipal(uid: string): Promise<Principal | undefined> 
 /**
  * Updates a Principal lifecycle status.
  *
- * Disabling is routed through AuthZ admin-safety checks because a human admin
- * Principal may be the last active admin capable of recovering the installation.
+ * The backend intentionally allows disabling the final active human admin. The
+ * admin console can prevent accidental lockout at the UX layer without making
+ * sync and recovery flows carry a stronger guarantee than the product needs.
  */
 export async function updatePrincipalStatus(uid: string, status: PrincipalStatus): Promise<Principal> {
   if (status !== 'active' && status !== 'disabled') {
@@ -114,8 +114,6 @@ export async function updatePrincipalStatus(uid: string, status: PrincipalStatus
       .limit(1)
 
     if (!principal) throw new PrincipalDomainError('not_found')
-
-    if (status === 'disabled') await ensureCanDisablePrincipal(principal.uid, tx)
 
     const [updated] = await tx
       .update(Principals)

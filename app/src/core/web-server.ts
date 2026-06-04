@@ -3,6 +3,7 @@ import { Elysia } from 'elysia'
 import { logger } from '@/common/logger'
 import { AppEnv } from '@/config/env'
 import { chatGatewayRoutes } from '@/chat-gateway'
+import { adminAuthRoutes } from '@/principals/admin-auth'
 
 export const webServer = new Elysia()
   .use(
@@ -10,6 +11,7 @@ export const webServer = new Elysia()
       provider: 'scalar'
     })
   )
+  .use(adminAuthRoutes())
   .use(chatGatewayRoutes())
   .onError(({ code, error, set }) => {
     const status =

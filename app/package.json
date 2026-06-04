@@ -6,6 +6,8 @@
     "dev": "bun run --bun --watch src/main.ts | bun x pino-pretty",
     "test": "bun test",
     "type-check": "tsc -p tsconfig.json --noEmit",
+    "fmt": "oxfmt",
+    "fmt:check": "oxfmt --check",
     "migrate:gen": "bun run drizzle-kit generate",
     "migrate:local": "bun src/common/db-migrate.ts"
   },

@@ -24,7 +24,7 @@
     "no-console": ["error", { "allow": ["warn", "error"] }],
     "no-cond-assign": ["error", "always"],
     "no-unused-expressions": ["error", { "allowTernary": true, "allowShortCircuit": true }],
-    "no-unused-vars": ["error", { "caughtErrors": "none" }],
+    "no-unused-vars": ["error", { "caughtErrors": "none", "argsIgnorePattern": "^_", "varsIgnorePattern": "^_" }],
     "typescript/no-explicit-any": "off",
     "typescript/no-non-null-assertion": "off",
     "typescript/no-unnecessary-type-constraint": "warn",

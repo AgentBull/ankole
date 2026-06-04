@@ -74,6 +74,13 @@
         ".env*"
       ]
     },
+    "fmt": {
+      "cache": false,
+      "outputs": []
+    },
+    "fmt:check": {
+      "outputs": []
+    },
     "dev": {
       "persistent": true,
       "cache": false

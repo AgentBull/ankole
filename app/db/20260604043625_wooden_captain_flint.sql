@@ -1,6 +1,6 @@
 CREATE TYPE "public"."principal_group_kind" AS ENUM('static', 'computed');--> statement-breakpoint
 CREATE TYPE "public"."agent_type" AS ENUM('llm_agentic_loop');--> statement-breakpoint
-CREATE TYPE "public"."principal_external_identity_kind" AS ENUM('channel_actor', 'login_subject', 'outbound_actor');--> statement-breakpoint
+CREATE TYPE "public"."principal_external_identity_kind" AS ENUM('platform_subject', 'channel_actor', 'login_subject', 'outbound_actor');--> statement-breakpoint
 CREATE TYPE "public"."principal_status" AS ENUM('active', 'disabled');--> statement-breakpoint
 CREATE TYPE "public"."principal_type" AS ENUM('human', 'agent');--> statement-breakpoint
 CREATE TABLE "app_configure" (
@@ -27,6 +27,20 @@ CREATE TABLE "permission_grants" (
 	CONSTRAINT "permission_grants_resource_pattern_present" CHECK (length("permission_grants"."resource_pattern") > 0),
 	CONSTRAINT "permission_grants_action_present" CHECK (length("permission_grants"."action") > 0),
 	CONSTRAINT "permission_grants_metadata_object" CHECK (jsonb_typeof("permission_grants"."metadata") = 'object')
+);
+--> statement-breakpoint
+CREATE TABLE "principal_group_external_bindings" (
+	"provider" text NOT NULL,
+	"external_id" text NOT NULL,
+	"group_id" uuid NOT NULL,
+	"metadata" jsonb DEFAULT '{}'::jsonb NOT NULL,
+	"created_at" timestamp DEFAULT CURRENT_TIMESTAMP NOT NULL,
+	"updated_at" timestamp DEFAULT CURRENT_TIMESTAMP NOT NULL,
+	CONSTRAINT "principal_group_external_bindings_provider_external_id_pk" PRIMARY KEY("provider","external_id"),
+	CONSTRAINT "principal_group_external_bindings_provider_present" CHECK (length(btrim("principal_group_external_bindings"."provider")) > 0),
+	CONSTRAINT "principal_group_external_bindings_provider_format" CHECK ("principal_group_external_bindings"."provider" ~ '^[a-z][a-z0-9_-]*$'),
+	CONSTRAINT "principal_group_external_bindings_external_id_present" CHECK (length(btrim("principal_group_external_bindings"."external_id")) > 0),
+	CONSTRAINT "principal_group_external_bindings_metadata_object" CHECK (jsonb_typeof("principal_group_external_bindings"."metadata") = 'object')
 );
 --> statement-breakpoint
 CREATE TABLE "principal_group_memberships" (
@@ -168,7 +182,8 @@ CREATE TABLE "principal_external_identities" (
 	"created_at" timestamp DEFAULT CURRENT_TIMESTAMP NOT NULL,
 	"updated_at" timestamp DEFAULT CURRENT_TIMESTAMP NOT NULL,
 	CONSTRAINT "principal_external_identities_channel_actor_required" CHECK (("principal_external_identities"."kind" <> 'channel_actor') OR ("principal_external_identities"."adapter" IS NOT NULL AND "principal_external_identities"."channel_id" IS NOT NULL AND "principal_external_identities"."external_id" IS NOT NULL)),
-	CONSTRAINT "principal_external_identities_provider_subject_required" CHECK (("principal_external_identities"."kind" NOT IN ('login_subject', 'outbound_actor')) OR ("principal_external_identities"."provider" IS NOT NULL AND "principal_external_identities"."external_id" IS NOT NULL)),
+	CONSTRAINT "principal_external_identities_provider_subject_required" CHECK (("principal_external_identities"."kind" = 'channel_actor') OR ("principal_external_identities"."provider" IS NOT NULL AND "principal_external_identities"."external_id" IS NOT NULL AND "principal_external_identities"."adapter" IS NULL AND "principal_external_identities"."channel_id" IS NULL)),
+	CONSTRAINT "principal_external_identities_provider_format" CHECK ("principal_external_identities"."provider" IS NULL OR "principal_external_identities"."provider" ~ '^[a-z][a-z0-9_-]*$'),
 	CONSTRAINT "principal_external_identities_metadata_object" CHECK (jsonb_typeof("principal_external_identities"."metadata") = 'object')
 );
 --> statement-breakpoint
@@ -187,6 +202,7 @@ CREATE TABLE "principals" (
 --> statement-breakpoint
 ALTER TABLE "permission_grants" ADD CONSTRAINT "permission_grants_principal_uid_principals_uid_fk" FOREIGN KEY ("principal_uid") REFERENCES "public"."principals"("uid") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "permission_grants" ADD CONSTRAINT "permission_grants_group_id_principal_groups_id_fk" FOREIGN KEY ("group_id") REFERENCES "public"."principal_groups"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "principal_group_external_bindings" ADD CONSTRAINT "principal_group_external_bindings_group_id_principal_groups_id_fk" FOREIGN KEY ("group_id") REFERENCES "public"."principal_groups"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "principal_group_memberships" ADD CONSTRAINT "principal_group_memberships_principal_uid_principals_uid_fk" FOREIGN KEY ("principal_uid") REFERENCES "public"."principals"("uid") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "principal_group_memberships" ADD CONSTRAINT "principal_group_memberships_group_id_principal_groups_id_fk" FOREIGN KEY ("group_id") REFERENCES "public"."principal_groups"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "chat_messages" ADD CONSTRAINT "chat_messages_channel_id_chat_channels_id_fk" FOREIGN KEY ("channel_id") REFERENCES "public"."chat_channels"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
@@ -199,6 +215,7 @@ CREATE INDEX "permission_grants_group_id_index" ON "permission_grants" USING btr
 CREATE INDEX "permission_grants_action_index" ON "permission_grants" USING btree ("action");--> statement-breakpoint
 CREATE UNIQUE INDEX "permission_grants_principal_upsert_index" ON "permission_grants" USING btree ("principal_uid","resource_pattern","action","condition") WHERE "permission_grants"."principal_uid" IS NOT NULL;--> statement-breakpoint
 CREATE UNIQUE INDEX "permission_grants_group_upsert_index" ON "permission_grants" USING btree ("group_id","resource_pattern","action","condition") WHERE "permission_grants"."group_id" IS NOT NULL;--> statement-breakpoint
+CREATE INDEX "principal_group_external_bindings_group_id_index" ON "principal_group_external_bindings" USING btree ("group_id");--> statement-breakpoint
 CREATE INDEX "principal_group_memberships_group_id_index" ON "principal_group_memberships" USING btree ("group_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "principal_groups_name_index" ON "principal_groups" USING btree ("name");--> statement-breakpoint
 CREATE UNIQUE INDEX "chat_messages_channel_id_message_id_index" ON "chat_messages" USING btree ("channel_id","message_id");--> statement-breakpoint
@@ -212,5 +229,6 @@ CREATE UNIQUE INDEX "human_users_email_index" ON "human_users" USING btree ("ema
 CREATE UNIQUE INDEX "human_users_phone_index" ON "human_users" USING btree ("phone") WHERE "human_users"."phone" IS NOT NULL;--> statement-breakpoint
 CREATE INDEX "principal_external_identities_principal_uid_index" ON "principal_external_identities" USING btree ("principal_uid");--> statement-breakpoint
 CREATE UNIQUE INDEX "principal_external_identities_channel_actor_index" ON "principal_external_identities" USING btree ("adapter","channel_id","external_id") WHERE "principal_external_identities"."kind" = 'channel_actor';--> statement-breakpoint
+CREATE UNIQUE INDEX "principal_external_identities_provider_identity_index" ON "principal_external_identities" USING btree ("kind","provider","external_id") WHERE "principal_external_identities"."provider" IS NOT NULL AND "principal_external_identities"."external_id" IS NOT NULL AND "principal_external_identities"."adapter" IS NULL AND "principal_external_identities"."channel_id" IS NULL;--> statement-breakpoint
 CREATE UNIQUE INDEX "principal_external_identities_login_subject_index" ON "principal_external_identities" USING btree ("provider","external_id") WHERE "principal_external_identities"."kind" = 'login_subject';--> statement-breakpoint
 CREATE UNIQUE INDEX "principal_external_identities_outbound_actor_index" ON "principal_external_identities" USING btree ("provider","external_id") WHERE "principal_external_identities"."kind" = 'outbound_actor';

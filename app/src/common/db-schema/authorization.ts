@@ -83,6 +83,38 @@ export const PrincipalGroupMemberships = pgTable(
 )
 
 /**
+ * External directory binding for static Principal groups.
+ *
+ * Identity-provider sync owns these rows so a provider department can be
+ * renamed without losing grants attached to the BullX group row.
+ */
+export const PrincipalGroupExternalBindings = pgTable(
+  'principal_group_external_bindings',
+  {
+    provider: text('provider').notNull(),
+    externalId: text('external_id').notNull(),
+    groupId: uuid('group_id')
+      .notNull()
+      .references(() => PrincipalGroups.id, { onDelete: 'cascade' }),
+    metadata: jsonb('metadata').$type<JsonObject>().default({}).notNull(),
+    createdAt: timestamp('created_at')
+      .default(sql`CURRENT_TIMESTAMP`)
+      .notNull(),
+    updatedAt: timestamp('updated_at')
+      .default(sql`CURRENT_TIMESTAMP`)
+      .notNull()
+  },
+  t => [
+    primaryKey({ columns: [t.provider, t.externalId] }),
+    index('principal_group_external_bindings_group_id_index').on(t.groupId),
+    check('principal_group_external_bindings_provider_present', sql`length(btrim(${t.provider})) > 0`),
+    check('principal_group_external_bindings_provider_format', sql`${t.provider} ~ '^[a-z][a-z0-9_-]*$'`),
+    check('principal_group_external_bindings_external_id_present', sql`length(btrim(${t.externalId})) > 0`),
+    check('principal_group_external_bindings_metadata_object', sql`jsonb_typeof(${t.metadata}) = 'object'`)
+  ]
+)
+
+/**
  * Permission grant owned by exactly one Principal or one group.
  *
  * `resource_pattern` uses the AuthZ resource glob syntax, `action` is an exact

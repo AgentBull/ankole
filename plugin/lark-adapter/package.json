@@ -7,10 +7,13 @@
   },
   "scripts": {
     "test": "bun test",
-    "type-check": "tsc -p tsconfig.json --noEmit"
+    "type-check": "tsc -p tsconfig.json --noEmit",
+    "fmt": "oxfmt",
+    "fmt:check": "oxfmt --check"
   },
   "dependencies": {
     "@larksuite/vercel-chat-adapter": "0.1.2",
+    "@larksuiteoapi/node-sdk": "1.63.1",
     "zod": "^4.4.3"
   },
   "devDependencies": {

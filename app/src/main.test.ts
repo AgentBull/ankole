@@ -21,11 +21,25 @@ describe('startBullXAgent', () => {
           return {
             knownPlugins: 1,
             enabledPlugins: ['lark-adapter'],
-            registeredChatGatewayAdapters: ['lark']
+            registeredChatGatewayAdapters: ['lark'],
+            registeredIdentityProviderAdapters: ['lark']
           }
         },
         async stop() {
           events.push('plugins.stop')
+        }
+      },
+      identityProviderRuntime: {
+        async start() {
+          events.push('identity.start')
+          return {
+            activeProviders: ['lark-main'],
+            startedProviders: ['lark-main'],
+            degradedProviders: []
+          }
+        },
+        async stop() {
+          events.push('identity.stop')
         }
       },
       chatGatewayRuntime: {
@@ -60,12 +74,19 @@ describe('startBullXAgent', () => {
       }
     })
 
-    expect(events).toEqual(['plugins.start', 'runtime.start.begin', 'runtime.start.end', 'listen:31337:0'])
+    expect(events).toEqual([
+      'plugins.start',
+      'identity.start',
+      'runtime.start.begin',
+      'runtime.start.end',
+      'listen:31337:0'
+    ])
     expect(started.chatGateway).toEqual({ readyAgents: 2, readyChannels: 3 })
     expect(started.plugins).toEqual({
       knownPlugins: 1,
       enabledPlugins: ['lark-adapter'],
-      registeredChatGatewayAdapters: ['lark']
+      registeredChatGatewayAdapters: ['lark'],
+      registeredIdentityProviderAdapters: ['lark']
     })
     expect(logs).toContainEqual({
       message: 'BullX Agent is running',
@@ -76,7 +97,13 @@ describe('startBullXAgent', () => {
         plugins: {
           knownPlugins: 1,
           enabledPlugins: ['lark-adapter'],
-          registeredChatGatewayAdapters: ['lark']
+          registeredChatGatewayAdapters: ['lark'],
+          registeredIdentityProviderAdapters: ['lark']
+        },
+        identityProviders: {
+          activeProviders: ['lark-main'],
+          startedProviders: ['lark-main'],
+          degradedProviders: []
         },
         chatGateway: {
           readyAgents: 2,
@@ -88,10 +115,12 @@ describe('startBullXAgent', () => {
     await started.shutdown('SIGTERM')
     expect(events).toEqual([
       'plugins.start',
+      'identity.start',
       'runtime.start.begin',
       'runtime.start.end',
       'listen:31337:0',
       'runtime.stop',
+      'identity.stop',
       'plugins.stop',
       'database.close'
     ])
@@ -111,11 +140,25 @@ describe('startBullXAgent', () => {
             return {
               knownPlugins: 0,
               enabledPlugins: [],
-              registeredChatGatewayAdapters: []
+              registeredChatGatewayAdapters: [],
+              registeredIdentityProviderAdapters: []
             }
           },
           async stop() {
             events.push('plugins.stop')
+          }
+        },
+        identityProviderRuntime: {
+          async start() {
+            events.push('identity.start')
+            return {
+              activeProviders: [],
+              startedProviders: [],
+              degradedProviders: []
+            }
+          },
+          async stop() {
+            events.push('identity.stop')
           }
         },
         chatGatewayRuntime: {
@@ -142,7 +185,15 @@ describe('startBullXAgent', () => {
       })
     ).rejects.toThrow(error)
 
-    expect(events).toEqual(['plugins.start', 'runtime.start', 'runtime.stop', 'plugins.stop', 'database.close'])
+    expect(events).toEqual([
+      'plugins.start',
+      'identity.start',
+      'runtime.start',
+      'runtime.stop',
+      'identity.stop',
+      'plugins.stop',
+      'database.close'
+    ])
   })
 
   it('does not start Chat Gateway or listen if plugin startup fails', async () => {
@@ -160,6 +211,19 @@ describe('startBullXAgent', () => {
           },
           async stop() {
             events.push('plugins.stop')
+          }
+        },
+        identityProviderRuntime: {
+          async start() {
+            events.push('identity.start')
+            return {
+              activeProviders: [],
+              startedProviders: [],
+              degradedProviders: []
+            }
+          },
+          async stop() {
+            events.push('identity.stop')
           }
         },
         chatGatewayRuntime: {
@@ -189,6 +253,6 @@ describe('startBullXAgent', () => {
       })
     ).rejects.toThrow(error)
 
-    expect(events).toEqual(['plugins.start', 'runtime.stop', 'plugins.stop', 'database.close'])
+    expect(events).toEqual(['plugins.start', 'runtime.stop', 'identity.stop', 'plugins.stop', 'database.close'])
   })
 })

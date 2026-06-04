@@ -1,7 +1,11 @@
 import 'reflect-metadata'
 import { describe, expect, it } from 'bun:test'
 import { Message, type Adapter, type ChatInstance, type WebhookOptions } from 'chat'
-import { defineBullXPlugin, type BullXChatGatewayAdapterFactory } from '@agentbull/bullx-sdk/plugins'
+import {
+  defineBullXPlugin,
+  type BullXChatGatewayAdapterFactory,
+  type BullXIdentityProviderAdapterFactory
+} from '@agentbull/bullx-sdk/plugins'
 import { z } from 'zod'
 import path from 'node:path'
 import { loadTestEnvFiles } from '@/common/tests/load-test-env'
@@ -14,6 +18,7 @@ const {
   buildPluginRegistry,
   DuplicatePluginChatGatewayAdapterError,
   DuplicatePluginIdError,
+  DuplicatePluginIdentityProviderAdapterError,
   PluginRuntime,
   resolveEnabledPluginIds,
   UnknownPluginOverrideError
@@ -84,6 +89,15 @@ describe('plugin registry validation', () => {
     expect(() =>
       buildPluginRegistry([plugin('first', [adapterFactory('shared')]), plugin('second', [adapterFactory('shared')])])
     ).toThrow(DuplicatePluginChatGatewayAdapterError)
+  })
+
+  it('rejects duplicate identity provider adapter factory ids', () => {
+    expect(() =>
+      buildPluginRegistry([
+        plugin('first', [], [identityProviderFactory('shared')]),
+        plugin('second', [], [identityProviderFactory('shared')])
+      ])
+    ).toThrow(DuplicatePluginIdentityProviderAdapterError)
   })
 })
 
@@ -158,7 +172,8 @@ describe('PluginRuntime', () => {
     expect(stats).toEqual({
       knownPlugins: 1,
       enabledPlugins: [],
-      registeredChatGatewayAdapters: []
+      registeredChatGatewayAdapters: [],
+      registeredIdentityProviderAdapters: []
     })
     expect(registeredDefinitions).toEqual(['test.plugin.config'])
     expect(registeredFactories).toEqual([])
@@ -172,6 +187,7 @@ describe('PluginRuntime', () => {
       pluginRoots: [pluginRoot],
       defaultEnabledPluginIds: ['lark-adapter'],
       getEnabledOverrides: async () => ({ 'lark-adapter': false }),
+      registerAppConfigPatterns: () => {},
       registerChatGatewayAdapterFactory: factory => {
         registeredFactories.push(factory.id)
       }
@@ -183,20 +199,37 @@ describe('PluginRuntime', () => {
 
   it('registers lark factory and validates required app config before opening transport', async () => {
     const registeredFactories: BullXChatGatewayAdapterFactory[] = []
+    const registeredIdentityFactories: BullXIdentityProviderAdapterFactory[] = []
+    const registeredPatterns: Array<{ id: string; encrypted: boolean; keyPattern: RegExp }> = []
     const runtime = new PluginRuntime()
 
     const stats = await runtime.start({
       pluginRoots: [pluginRoot],
       defaultEnabledPluginIds: ['lark-adapter'],
       getEnabledOverrides: async () => ({}),
+      registerAppConfigPatterns: patterns => {
+        registeredPatterns.push(...patterns)
+      },
       registerChatGatewayAdapterFactory: factory => {
         registeredFactories.push(factory)
+      },
+      registerIdentityProviderAdapterFactory: factory => {
+        registeredIdentityFactories.push(factory)
       }
     })
 
     expect(stats.enabledPlugins).toEqual(['lark-adapter'])
     expect(stats.registeredChatGatewayAdapters).toEqual(['lark'])
+    expect(stats.registeredIdentityProviderAdapters).toEqual(['lark'])
     expect(registeredFactories.map(factory => factory.id)).toEqual(['lark'])
+    expect(registeredIdentityFactories.map(factory => factory.id)).toEqual(['lark'])
+    expect(registeredPatterns).toEqual([
+      expect.objectContaining({
+        id: 'identity_providers.lark',
+        encrypted: true
+      })
+    ])
+    expect(registeredPatterns[0]!.keyPattern.test('identity_providers.lark.lark-main')).toBe(true)
     expect(() =>
       registeredFactories[0]!.create({
         agent: {},
@@ -220,22 +253,52 @@ describe('PluginRuntime', () => {
       config: {
         appId: 'cli_test',
         appSecret: 'secret',
+        platformProviderId: 'lark-main',
         userName: 'BullX'
       },
       projection: {}
     })
 
     expect(adapter.name).toBe('lark')
+
+    expect(() =>
+      registeredIdentityFactories[0]!.create({
+        providerId: 'lark-main',
+        config: {
+          appId: 'cli_test',
+          appSecret: 'secret'
+        },
+        isProduction: true,
+        syncSink: identityProviderSink()
+      })
+    ).toThrow('admin_auth.public_base_url is required for Lark OIDC provider lark-main')
+
+    expect(
+      registeredIdentityFactories[0]!.create({
+        providerId: 'lark-main',
+        config: {
+          appId: 'cli_test',
+          appSecret: 'secret'
+        },
+        isProduction: false,
+        syncSink: identityProviderSink()
+      })
+    ).toHaveProperty('fullSync')
   })
 })
 
-function plugin(id: string, chatGatewayAdapters: readonly BullXChatGatewayAdapterFactory[] = []) {
+function plugin(
+  id: string,
+  chatGatewayAdapters: readonly BullXChatGatewayAdapterFactory[] = [],
+  identityProviderAdapters: readonly BullXIdentityProviderAdapterFactory[] = []
+) {
   return defineBullXPlugin({
     metadata: {
       id,
       apiVersion: 1
     },
-    chatGatewayAdapters
+    chatGatewayAdapters,
+    identityProviderAdapters
   })
 }
 
@@ -243,6 +306,24 @@ function adapterFactory(id: string): BullXChatGatewayAdapterFactory {
   return {
     id,
     create: () => new TestAdapter(id)
+  }
+}
+
+function identityProviderFactory(id: string): BullXIdentityProviderAdapterFactory {
+  return {
+    id,
+    create: () => ({})
+  }
+}
+
+function identityProviderSink() {
+  return {
+    applyFullSync: async () => {},
+    upsertUser: async () => {},
+    disableUser: async () => {},
+    upsertGroup: async () => {},
+    deleteGroup: async () => {},
+    requestFullSync: async () => {}
   }
 }
 

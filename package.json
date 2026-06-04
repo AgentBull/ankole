@@ -4,15 +4,27 @@
   "workspaces": [
     "app",
     "packages/*",
-    "plugin/*"
+    "plugin/*",
+    "tools/*"
   ],
   "type": "module",
   "scripts": {
+    "kit": "bun tools/devkit/src/main.ts",
+    "dev": "bun run --filter @agentbull/bullx-agent dev",
+    "workspace:update": "bun run kit g code-workspace",
+    "services:start": "bun run kit external-services start",
+    "services:stop": "bun run kit external-services stop",
+    "services:status": "bun run kit external-services status",
+    "db:create": "bun run kit app-db create",
+    "db:rebuild": "bun run kit app-db rebuild",
+    "db:migrate:gen": "bun run --filter @agentbull/bullx-agent migrate:gen",
+    "db:migrate:up": "bun run --filter @agentbull/bullx-agent migrate:local",
     "lint": "oxlint && turbo run lint",
     "lint:fix": "oxlint --fix",
     "type-check": "turbo run type-check",
-    "fmt": "oxfmt",
-    "fmt:check": "oxfmt --check"
+    "fmt": "turbo run fmt",
+    "fmt:check": "turbo run fmt:check",
+    "test": "turbo run test"
   },
   "dependencies": {
     "turbo": "^2.9.16"

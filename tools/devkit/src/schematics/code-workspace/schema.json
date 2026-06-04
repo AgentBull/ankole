@@ -1,0 +1,13 @@
+{
+  "$schema": "http://json-schema.org/schema#",
+  "$id": "BullXAgentDevKitCodeWorkspace",
+  "title": "code-workspace options schema",
+  "type": "object",
+  "properties": {
+    "file": {
+      "type": "string",
+      "description": "The .code-workspace file to create or update.",
+      "default": "bullx-agent.code-workspace"
+    }
+  }
+}

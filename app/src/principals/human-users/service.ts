@@ -1,5 +1,5 @@
-import { eq } from 'drizzle-orm'
-import { DB } from '@/common/database'
+import { eq, sql } from 'drizzle-orm'
+import { DB, type QueryExecutor } from '@/common/database'
 import { HumanUsers, Principals } from '@/common/db-schema'
 import {
   newPrincipalId,
@@ -73,7 +73,7 @@ export async function getHumanUser(principalUid: string): Promise<HumanUser | un
   return humanUser
 }
 
-function normalizeEmail(value: string | null | undefined): string | null {
+export function normalizeEmail(value: string | null | undefined): string | null {
   const email = trimOptionalText(value)
   if (email === null) return null
 
@@ -85,11 +85,89 @@ function normalizeEmail(value: string | null | undefined): string | null {
   return normalized
 }
 
-function normalizePhone(value: string | null | undefined): string | null {
+export function normalizePhone(value: string | null | undefined): string | null {
   const phone = trimOptionalText(value)
   if (phone === null) return null
 
   if (!/^\+[1-9]\d{1,14}$/.test(phone)) throw new PrincipalDomainError('invalid_request', 'phone must be E.164')
 
   return phone
+}
+
+/**
+ * Upserts profile fields from an external identity observation.
+ *
+ * This function intentionally does not change Principal status. The sync layer
+ * decides whether a user should be disabled or restored because it has the
+ * provider metadata needed to distinguish provider-driven disables from manual
+ * operator disables.
+ *
+ * `undefined` means "this observation did not carry the field" and preserves an
+ * existing value on update. `null` means "the provider explicitly has no value"
+ * and clears the field. This matters because chat events usually contain a name
+ * and avatar but not email/phone, while directory sync is authoritative for
+ * contact details.
+ */
+export async function upsertHumanProfile(input: CreateHumanInput, db: QueryExecutor = DB): Promise<CreateHumanResult> {
+  const principalUid = normalizeUid(input.uid)
+  const email = normalizeEmail(input.email)
+  const phone = normalizePhone(input.phone)
+
+  const [existing] = await db.select().from(Principals).where(eq(Principals.uid, principalUid)).limit(1)
+  if (!existing) {
+    const [principal] = await db
+      .insert(Principals)
+      .values({
+        id: newPrincipalId(),
+        uid: principalUid,
+        type: 'human',
+        status: 'active',
+        displayName: trimOptionalText(input.displayName),
+        avatarUrl: trimOptionalText(input.avatarUrl)
+      })
+      .returning()
+
+    const [humanUser] = await db
+      .insert(HumanUsers)
+      .values({
+        principalUid: principal.uid,
+        email,
+        phone
+      })
+      .returning()
+
+    return { principal, humanUser }
+  }
+
+  if (existing.type !== 'human') throw new PrincipalDomainError('not_human')
+
+  const [principal] = await db
+    .update(Principals)
+    .set({
+      displayName:
+        input.displayName === undefined ? sql`${Principals.displayName}` : trimOptionalText(input.displayName),
+      avatarUrl: input.avatarUrl === undefined ? sql`${Principals.avatarUrl}` : trimOptionalText(input.avatarUrl),
+      updatedAt: new Date()
+    })
+    .where(eq(Principals.uid, existing.uid))
+    .returning()
+
+  const [humanUser] = await db
+    .insert(HumanUsers)
+    .values({
+      principalUid: principal.uid,
+      email,
+      phone
+    })
+    .onConflictDoUpdate({
+      target: HumanUsers.principalUid,
+      set: {
+        email: input.email === undefined ? sql`${HumanUsers.email}` : email,
+        phone: input.phone === undefined ? sql`${HumanUsers.phone}` : phone,
+        updatedAt: new Date()
+      }
+    })
+    .returning()
+
+  return { principal, humanUser }
 }

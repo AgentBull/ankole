@@ -1,5 +1,5 @@
 {
-  "id": "fd5ad789-0eaf-4b0e-8bd7-8a4ef9799c53",
+  "id": "20a7c837-acd7-4c82-a6ee-d0a2b0ab5f71",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -286,6 +286,113 @@
         "permission_grants_metadata_object": {
           "name": "permission_grants_metadata_object",
           "value": "jsonb_typeof(\"permission_grants\".\"metadata\") = 'object'"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.principal_group_external_bindings": {
+      "name": "principal_group_external_bindings",
+      "schema": "",
+      "columns": {
+        "provider": {
+          "name": "provider",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "external_id": {
+          "name": "external_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "group_id": {
+          "name": "group_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "metadata": {
+          "name": "metadata",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      },
+      "indexes": {
+        "principal_group_external_bindings_group_id_index": {
+          "name": "principal_group_external_bindings_group_id_index",
+          "columns": [
+            {
+              "expression": "group_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "principal_group_external_bindings_group_id_principal_groups_id_fk": {
+          "name": "principal_group_external_bindings_group_id_principal_groups_id_fk",
+          "tableFrom": "principal_group_external_bindings",
+          "tableTo": "principal_groups",
+          "columnsFrom": [
+            "group_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "principal_group_external_bindings_provider_external_id_pk": {
+          "name": "principal_group_external_bindings_provider_external_id_pk",
+          "columns": [
+            "provider",
+            "external_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "principal_group_external_bindings_provider_present": {
+          "name": "principal_group_external_bindings_provider_present",
+          "value": "length(btrim(\"principal_group_external_bindings\".\"provider\")) > 0"
+        },
+        "principal_group_external_bindings_provider_format": {
+          "name": "principal_group_external_bindings_provider_format",
+          "value": "\"principal_group_external_bindings\".\"provider\" ~ '^[a-z][a-z0-9_-]*$'"
+        },
+        "principal_group_external_bindings_external_id_present": {
+          "name": "principal_group_external_bindings_external_id_present",
+          "value": "length(btrim(\"principal_group_external_bindings\".\"external_id\")) > 0"
+        },
+        "principal_group_external_bindings_metadata_object": {
+          "name": "principal_group_external_bindings_metadata_object",
+          "value": "jsonb_typeof(\"principal_group_external_bindings\".\"metadata\") = 'object'"
         }
       },
       "isRLSEnabled": false
@@ -1407,6 +1514,34 @@
           "method": "btree",
           "with": {}
         },
+        "principal_external_identities_provider_identity_index": {
+          "name": "principal_external_identities_provider_identity_index",
+          "columns": [
+            {
+              "expression": "kind",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "provider",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "external_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"principal_external_identities\".\"provider\" IS NOT NULL AND \"principal_external_identities\".\"external_id\" IS NOT NULL AND \"principal_external_identities\".\"adapter\" IS NULL AND \"principal_external_identities\".\"channel_id\" IS NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
         "principal_external_identities_login_subject_index": {
           "name": "principal_external_identities_login_subject_index",
           "columns": [
@@ -1477,7 +1612,11 @@
         },
         "principal_external_identities_provider_subject_required": {
           "name": "principal_external_identities_provider_subject_required",
-          "value": "(\"principal_external_identities\".\"kind\" NOT IN ('login_subject', 'outbound_actor')) OR (\"principal_external_identities\".\"provider\" IS NOT NULL AND \"principal_external_identities\".\"external_id\" IS NOT NULL)"
+          "value": "(\"principal_external_identities\".\"kind\" = 'channel_actor') OR (\"principal_external_identities\".\"provider\" IS NOT NULL AND \"principal_external_identities\".\"external_id\" IS NOT NULL AND \"principal_external_identities\".\"adapter\" IS NULL AND \"principal_external_identities\".\"channel_id\" IS NULL)"
+        },
+        "principal_external_identities_provider_format": {
+          "name": "principal_external_identities_provider_format",
+          "value": "\"principal_external_identities\".\"provider\" IS NULL OR \"principal_external_identities\".\"provider\" ~ '^[a-z][a-z0-9_-]*$'"
         },
         "principal_external_identities_metadata_object": {
           "name": "principal_external_identities_metadata_object",
@@ -1586,6 +1725,7 @@
       "name": "principal_external_identity_kind",
       "schema": "public",
       "values": [
+        "platform_subject",
         "channel_actor",
         "login_subject",
         "outbound_actor"

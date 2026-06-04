@@ -48,6 +48,7 @@ describe('ChatGatewayRuntime', () => {
         expect(typeof context.projection.projectMessage).toBe('function')
         expect(typeof context.projection.projectDelete).toBe('function')
         expect(typeof context.projection.projectReaction).toBe('function')
+        expect(typeof context.externalIdentities.upsertPlatformSubject).toBe('function')
         return adapter
       }
     })

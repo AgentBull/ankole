@@ -2,6 +2,7 @@ import type {
   BullXAppConfigDefinition,
   BullXAppConfigPatternDefinition,
   BullXChatGatewayAdapterFactory,
+  BullXIdentityProviderAdapterFactory,
   BullXPlugin
 } from '@agentbull/bullx-sdk/plugins'
 import { rootContainer, singleton } from '@/common/di'
@@ -13,6 +14,10 @@ import {
   type AppConfigPatternDefinition
 } from '@/config/app-configure'
 import { registerChatGatewayAdapterFactory, type ChatGatewayAdapterFactory } from '@/chat-gateway/adapter-registry'
+import {
+  registerIdentityProviderAdapterFactory,
+  type IdentityProviderAdapterFactory
+} from '@/principals/identity-providers/registry'
 import { PluginEnabledOverridesConfig, type PluginEnabledOverrides } from './config'
 import { discoverLocalPlugins, type PluginDiscoveryOptions } from './discovery'
 
@@ -23,12 +28,14 @@ export interface PluginRegistry {
   plugins: readonly BullXPlugin[]
   pluginsById: ReadonlyMap<string, BullXPlugin>
   chatGatewayAdapterIds: readonly string[]
+  identityProviderAdapterIds: readonly string[]
 }
 
 export interface PluginRuntimeStats {
   knownPlugins: number
   enabledPlugins: string[]
   registeredChatGatewayAdapters: string[]
+  registeredIdentityProviderAdapters: string[]
 }
 
 export interface PluginRuntimeStartOptions extends PluginDiscoveryOptions {
@@ -39,6 +46,7 @@ export interface PluginRuntimeStartOptions extends PluginDiscoveryOptions {
   registerAppConfigDefinitions?: (definitions: readonly BullXAppConfigDefinition[]) => void
   registerAppConfigPatterns?: (definitions: readonly BullXAppConfigPatternDefinition[]) => void
   registerChatGatewayAdapterFactory?: (factory: BullXChatGatewayAdapterFactory) => void
+  registerIdentityProviderAdapterFactory?: (factory: BullXIdentityProviderAdapterFactory) => void
 }
 
 export class DuplicatePluginIdError extends Error {
@@ -59,6 +67,13 @@ export class DuplicatePluginChatGatewayAdapterError extends Error {
   constructor(id: string) {
     super(`Chat Gateway adapter id is already provided by a plugin: ${id}`)
     this.name = 'DuplicatePluginChatGatewayAdapterError'
+  }
+}
+
+export class DuplicatePluginIdentityProviderAdapterError extends Error {
+  constructor(id: string) {
+    super(`Identity provider adapter id is already provided by a plugin: ${id}`)
+    this.name = 'DuplicatePluginIdentityProviderAdapterError'
   }
 }
 
@@ -92,6 +107,8 @@ export class PluginRuntime {
     const registerDefinitions = options.registerAppConfigDefinitions ?? registerHostAppConfigDefinitions
     const registerPatterns = options.registerAppConfigPatterns ?? registerHostAppConfigPatterns
     const registerAdapterFactory = options.registerChatGatewayAdapterFactory ?? registerHostChatGatewayAdapterFactory
+    const registerIdentityProviderFactory =
+      options.registerIdentityProviderAdapterFactory ?? registerHostIdentityProviderAdapterFactory
 
     for (const plugin of registry.plugins) {
       if (plugin.appConfigDefinitions?.length) registerDefinitions(plugin.appConfigDefinitions)
@@ -109,6 +126,7 @@ export class PluginRuntime {
     })
 
     const registeredChatGatewayAdapters: string[] = []
+    const registeredIdentityProviderAdapters: string[] = []
     for (const pluginId of enabledPluginIds) {
       const plugin = registry.pluginsById.get(pluginId)
       if (!plugin) throw new UnknownPluginOverrideError(pluginId)
@@ -117,12 +135,18 @@ export class PluginRuntime {
         registerAdapterFactory(factory)
         registeredChatGatewayAdapters.push(factory.id)
       }
+
+      for (const factory of plugin.identityProviderAdapters ?? []) {
+        registerIdentityProviderFactory(factory)
+        registeredIdentityProviderAdapters.push(factory.id)
+      }
     }
 
     this.startedStats = {
       knownPlugins: registry.plugins.length,
       enabledPlugins: enabledPluginIds,
-      registeredChatGatewayAdapters
+      registeredChatGatewayAdapters,
+      registeredIdentityProviderAdapters
     }
     return this.startedStats
   }
@@ -136,6 +160,7 @@ export class PluginRuntime {
 export function buildPluginRegistry(plugins: readonly BullXPlugin[]): PluginRegistry {
   const pluginsById = new Map<string, BullXPlugin>()
   const chatGatewayAdapterIds = new Set<string>()
+  const identityProviderAdapterIds = new Set<string>()
 
   for (const plugin of plugins) {
     const id = plugin.metadata.id
@@ -147,12 +172,18 @@ export function buildPluginRegistry(plugins: readonly BullXPlugin[]): PluginRegi
       if (chatGatewayAdapterIds.has(factory.id)) throw new DuplicatePluginChatGatewayAdapterError(factory.id)
       chatGatewayAdapterIds.add(factory.id)
     }
+
+    for (const factory of plugin.identityProviderAdapters ?? []) {
+      if (identityProviderAdapterIds.has(factory.id)) throw new DuplicatePluginIdentityProviderAdapterError(factory.id)
+      identityProviderAdapterIds.add(factory.id)
+    }
   }
 
   return {
     plugins: [...plugins],
     pluginsById,
-    chatGatewayAdapterIds: [...chatGatewayAdapterIds]
+    chatGatewayAdapterIds: [...chatGatewayAdapterIds],
+    identityProviderAdapterIds: [...identityProviderAdapterIds]
   }
 }
 
@@ -186,6 +217,10 @@ function registerHostAppConfigPatterns(definitions: readonly BullXAppConfigPatte
 
 function registerHostChatGatewayAdapterFactory(factory: BullXChatGatewayAdapterFactory): void {
   registerChatGatewayAdapterFactory(factory as ChatGatewayAdapterFactory)
+}
+
+function registerHostIdentityProviderAdapterFactory(factory: BullXIdentityProviderAdapterFactory): void {
+  registerIdentityProviderAdapterFactory(factory as IdentityProviderAdapterFactory)
 }
 
 export const pluginRuntime = rootContainer.resolve(PluginRuntime)

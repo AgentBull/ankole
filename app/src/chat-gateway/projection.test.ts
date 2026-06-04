@@ -229,7 +229,11 @@ function chatThread(input: {
   } as unknown as Thread<Record<string, unknown>>
 }
 
-function chatChannel(input: { channelId: string; isDM?: boolean; title?: string | null }): Channel<Record<string, unknown>> {
+function chatChannel(input: {
+  channelId: string
+  isDM?: boolean
+  title?: string | null
+}): Channel<Record<string, unknown>> {
   return {
     id: input.channelId,
     channelVisibility: 'unknown',

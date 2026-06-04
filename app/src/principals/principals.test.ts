@@ -4,21 +4,25 @@ import { loadTestEnvFiles } from '../common/tests/load-test-env'
 
 await loadTestEnvFiles()
 
+const { eq } = await import('drizzle-orm')
 const { DB } = await import('../common/database')
 const {
   Agents,
   HumanUsers,
   PermissionGrants,
   PrincipalExternalIdentities,
+  PrincipalGroupExternalBindings,
   PrincipalGroupMemberships,
   PrincipalGroups,
   Principals
 } = await import('../common/db-schema')
 const { createAgent, listActiveAgents, updateAgent } = await import('./agents/service')
-const { createExternalIdentity, resolveChannelActor } = await import('./external-identities/service')
+const { createExternalIdentity, resolveChannelActor, resolvePlatformSubject, upsertPlatformSubjectHuman } =
+  await import('./external-identities/service')
 const { createHuman } = await import('./human-users/service')
 const { disablePrincipal, newPrincipalId, PrincipalDomainError, updatePrincipalStatus } =
   await import('./principals/service')
+const { applyIdentityProviderFullSync, syncIdentityProviderUser } = await import('./identity-providers/service')
 const {
   addPrincipalToGroup,
   allowed,
@@ -140,6 +144,134 @@ describe('principal data model', () => {
     })
     await expectDomainReason(resolveChannelActor('feishu', 'tenant-1', 'agent-open-id'), 'not_human')
   })
+
+  it('syncs identity provider users, platform subjects, department groups, and ancestor memberships', async () => {
+    const stats = await applyIdentityProviderFullSync('lark-main', {
+      groups: [
+        {
+          externalId: 'od_parent',
+          name: 'Engineering'
+        },
+        {
+          externalId: 'od_child',
+          name: 'Platform',
+          parentExternalId: 'od_parent'
+        }
+      ],
+      users: [
+        {
+          externalId: 'user_123',
+          status: 'active',
+          displayName: 'Alice',
+          email: `alice.${testPrefix}@example.com`,
+          departmentExternalIds: ['od_child'],
+          metadata: {
+            open_id: 'ou_app_scoped',
+            union_id: 'on_union'
+          }
+        }
+      ]
+    })
+
+    expect(stats.usersUpserted).toBe(1)
+    expect(stats.groupsUpserted).toBe(2)
+    expect(stats.membershipsUpserted).toBe(2)
+
+    const [identity] = await DB.select()
+      .from(PrincipalExternalIdentities)
+      .where(eq(PrincipalExternalIdentities.provider, 'lark-main'))
+      .limit(1)
+    expect(identity?.kind).toBe('platform_subject')
+    expect(identity?.externalId).toBe('user_123')
+    expect(identity?.principalUid).toBe('user_123')
+
+    const memberships = await DB.select({ groupName: PrincipalGroups.name })
+      .from(PrincipalGroupMemberships)
+      .innerJoin(PrincipalGroups, eq(PrincipalGroups.id, PrincipalGroupMemberships.groupId))
+      .where(eq(PrincipalGroupMemberships.principalUid, 'user_123'))
+    expect(memberships.map(row => row.groupName).sort()).toEqual([
+      'lark-main:department:od_child',
+      'lark-main:department:od_parent'
+    ])
+
+    await syncIdentityProviderUser('lark-main', {
+      externalId: 'user_123',
+      status: 'active',
+      displayName: 'Alice',
+      email: `alice.${testPrefix}@example.com`,
+      departmentExternalIds: ['od_parent']
+    })
+    const updatedMemberships = await DB.select({ groupName: PrincipalGroups.name })
+      .from(PrincipalGroupMemberships)
+      .innerJoin(PrincipalGroups, eq(PrincipalGroups.id, PrincipalGroupMemberships.groupId))
+      .where(eq(PrincipalGroupMemberships.principalUid, 'user_123'))
+    expect(updatedMemberships.map(row => row.groupName).sort()).toEqual(['lark-main:department:od_parent'])
+
+    await syncIdentityProviderUser('lark-main', {
+      externalId: 'user_123',
+      status: 'disabled',
+      displayName: 'Alice',
+      departmentExternalIds: ['od_parent']
+    })
+    const disabledMemberships = await DB.select({ groupName: PrincipalGroups.name })
+      .from(PrincipalGroupMemberships)
+      .innerJoin(PrincipalGroups, eq(PrincipalGroups.id, PrincipalGroupMemberships.groupId))
+      .where(eq(PrincipalGroupMemberships.principalUid, 'user_123'))
+    expect(disabledMemberships).toEqual([])
+
+    await applyIdentityProviderFullSync('lark-main', { groups: [], users: [] })
+    const [disabled] = await DB.select().from(Principals).where(eq(Principals.uid, 'user_123')).limit(1)
+    expect(disabled?.status).toBe('disabled')
+  })
+
+  it('lets chat and directory sync converge through one platform subject binding', async () => {
+    const chatObservation = await upsertPlatformSubjectHuman({
+      provider: 'lark-main',
+      externalId: 'user_456',
+      displayName: 'Chat Alice',
+      metadata: {
+        source: 'message',
+        open_id: 'ou_app_a'
+      }
+    })
+
+    await syncIdentityProviderUser('lark-main', {
+      externalId: 'user_456',
+      status: 'active',
+      displayName: 'Directory Alice',
+      email: `directory.${testPrefix}@example.com`,
+      metadata: {
+        union_id: 'on_union',
+        tenant_key: 'tenant_1'
+      }
+    })
+
+    const afterDirectory = await resolvePlatformSubject('lark-main', 'user_456')
+    expect(afterDirectory.uid).toBe(chatObservation.principal.uid)
+
+    await upsertPlatformSubjectHuman({
+      provider: 'lark-main',
+      externalId: 'user_456',
+      displayName: 'Chat Alice Again',
+      metadata: {
+        source: 'message',
+        open_id: 'ou_app_b'
+      }
+    })
+
+    const [identity] = await DB.select()
+      .from(PrincipalExternalIdentities)
+      .where(eq(PrincipalExternalIdentities.provider, 'lark-main'))
+    expect(identity?.principalUid).toBe(chatObservation.principal.uid)
+    expect(identity?.metadata).toMatchObject({
+      open_id: 'ou_app_b',
+      union_id: 'on_union',
+      tenant_key: 'tenant_1'
+    })
+
+    const [human] = await DB.select().from(HumanUsers).where(eq(HumanUsers.principalUid, chatObservation.principal.uid))
+    expect(human?.email).toBe(`directory.${testPrefix}@example.com`)
+  })
 })
 
 describe('authorization', () => {
@@ -241,7 +373,7 @@ describe('root and admin safety', () => {
     await expectDomainReason(rootInitAdmin(second.principal.uid), 'root_init_closed')
   })
 
-  it('keeps at least one active human admin when removing membership or disabling principals', async () => {
+  it('allows disabling the last active human admin but keeps at least one admin membership', async () => {
     const first = await createHuman({ uid: uid('admin_first') })
     const second = await createHuman({ uid: uid('admin_second') })
 
@@ -252,7 +384,8 @@ describe('root and admin safety', () => {
 
     await addPrincipalToGroup(second.principal.uid, admin.id)
     await disablePrincipal(first.principal.uid)
-    await expectDomainReason(disablePrincipal(second.principal.uid), 'last_active_human_admin')
+    const disabledSecond = await disablePrincipal(second.principal.uid)
+    expect(disabledSecond.status).toBe('disabled')
     await expectDomainReason(removePrincipalFromGroup(second.principal.uid, admin.id), 'last_active_human_admin')
   })
 })
@@ -260,6 +393,7 @@ describe('root and admin safety', () => {
 async function clearPrincipalTables() {
   await DB.delete(PermissionGrants)
   await DB.delete(PrincipalGroupMemberships)
+  await DB.delete(PrincipalGroupExternalBindings)
   await DB.delete(PrincipalExternalIdentities)
   await DB.delete(Agents)
   await DB.delete(HumanUsers)

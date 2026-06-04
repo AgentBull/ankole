@@ -5,6 +5,8 @@ import { AppEnv } from '@/config/env'
 import { webServer } from '@/core/web-server'
 import { chatGatewayRuntime } from '@/chat-gateway'
 import type { ChatGatewayRuntimeStats } from '@/chat-gateway/runtime'
+import { identityProviderRuntime } from '@/principals/identity-providers'
+import type { IdentityProviderRuntimeStats } from '@/principals/identity-providers/runtime'
 import { pluginRuntime } from '@/plugins'
 import type { PluginRuntimeStats } from '@/plugins/runtime'
 
@@ -19,6 +21,11 @@ interface MainChatGatewayRuntime {
 
 interface MainPluginRuntime {
   start(): Promise<PluginRuntimeStats>
+  stop(): Promise<void>
+}
+
+interface MainIdentityProviderRuntime {
+  start(): Promise<IdentityProviderRuntimeStats>
   stop(): Promise<void>
 }
 
@@ -40,6 +47,7 @@ export interface StartBullXAgentOptions {
   exitOnSignal?: boolean
   httpPort?: number
   chatGatewayRuntime?: MainChatGatewayRuntime
+  identityProviderRuntime?: MainIdentityProviderRuntime
   logger?: MainLogger
   pluginRuntime?: MainPluginRuntime
   registerSignals?: boolean
@@ -51,6 +59,7 @@ export interface StartBullXAgentOptions {
  */
 export interface StartedBullXAgent {
   chatGateway: ChatGatewayRuntimeStats
+  identityProviders: IdentityProviderRuntimeStats
   plugins: PluginRuntimeStats
   shutdown(signal?: NodeJS.Signals): Promise<void>
 }
@@ -64,6 +73,7 @@ export interface StartedBullXAgent {
  */
 export async function startBullXAgent(options: StartBullXAgentOptions = {}): Promise<StartedBullXAgent> {
   const pluginsRuntime = options.pluginRuntime ?? pluginRuntime
+  const identityRuntime = options.identityProviderRuntime ?? identityProviderRuntime
   const runtime = options.chatGatewayRuntime ?? chatGatewayRuntime
   const server = options.webServer ?? webServer
   const log = options.logger ?? logger
@@ -78,12 +88,14 @@ export async function startBullXAgent(options: StartBullXAgentOptions = {}): Pro
     // Stop ingress-capable runtime state before closing the shared database
     // connection, because Chat SDK shutdown hooks may still need persistence.
     await runtime.stop()
+    await identityRuntime.stop()
     await pluginsRuntime.stop()
     await closeDb({ timeout: 5 })
   }
 
   try {
     const plugins = await pluginsRuntime.start()
+    const identityProviders = await identityRuntime.start()
     const chatGateway = await runtime.start()
 
     // From this point on the public webhook route can safely find initialized
@@ -114,6 +126,7 @@ export async function startBullXAgent(options: StartBullXAgentOptions = {}): Pro
         env,
         idleTimeoutSeconds: 0,
         plugins,
+        identityProviders,
         chatGateway
       },
       'BullX Agent is running'
@@ -121,6 +134,7 @@ export async function startBullXAgent(options: StartBullXAgentOptions = {}): Pro
 
     return {
       chatGateway,
+      identityProviders,
       plugins,
       shutdown
     }
