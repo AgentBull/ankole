@@ -7,11 +7,20 @@ import {
   RiRobot2Line,
   RiSaveLine
 } from '@remixicon/react'
-import { resolveBullXPluginLocalizedText } from '@agentbull/bullx-sdk/plugins'
+import { resolveBullXPluginLocalizedText, type BullXPluginJsonValue } from '@agentbull/bullx-sdk/plugins'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { apiDelete, apiGet, apiPost, apiPut, type ApiError } from '@/lib/api'
+import { apiDelete, apiErrorMessage, apiGet, apiPost, apiPut } from '@/lib/api'
+import {
+  clonePluginJsonObject as cloneJsonObject,
+  defaultPluginConfigForSetup,
+  getPluginConfigPath as getPath,
+  isPluginConfigJsonObject as isJsonObject,
+  mergePluginConfigObjects as mergeJsonRecords,
+  setPluginConfigPath as setPath,
+  type PluginConfigJsonObject
+} from '@/plugins/config-json'
 import { Alert, AlertDescription, AlertTitle } from '@/uikit/components/alert'
 import { Badge } from '@/uikit/components/badge'
 import { Button } from '@/uikit/components/button'
@@ -27,8 +36,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { mountSpa } from '../mount-spa'
 
 type LocalizedText = string | Record<string, string>
-type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue }
-type JsonObject = { [key: string]: JsonValue }
+type JsonValue = BullXPluginJsonValue
+type JsonObject = PluginConfigJsonObject
 
 interface SessionResponse {
   authenticated: boolean
@@ -62,7 +71,7 @@ interface SetupField {
   secret?: boolean
 }
 
-interface ConsoleChatGatewayAdapter {
+interface ConsoleExternalGatewayAdapter {
   id: string
   pluginId: string
   interactiveConfig: boolean
@@ -291,7 +300,7 @@ function AgentDetailPanel({
   onChanged
 }: {
   agent: ConsoleAgent | null
-  adapters: ConsoleChatGatewayAdapter[]
+  adapters: ConsoleExternalGatewayAdapter[]
   loading: boolean
   error: unknown
   onChanged(): void
@@ -385,7 +394,9 @@ function ChannelsTable({
   const queryClient = useQueryClient()
   const remove = useMutation({
     mutationFn: (channelName: string) =>
-      apiDelete(`/api/console/agents/${encodeURIComponent(agent.uid)}/chat-channels/${encodeURIComponent(channelName)}`),
+      apiDelete(
+        `/api/console/agents/${encodeURIComponent(agent.uid)}/chat-channels/${encodeURIComponent(channelName)}`
+      ),
     onSuccess: () => {
       onChanged()
       queryClient.invalidateQueries({ queryKey: ['console-agents'] })
@@ -473,7 +484,7 @@ function ChannelForm({
   onChanged
 }: {
   agent: ConsoleAgent
-  adapters: ConsoleChatGatewayAdapter[]
+  adapters: ConsoleExternalGatewayAdapter[]
   channel?: ConsoleChatChannel
   onClose(): void
   onChanged(): void
@@ -554,7 +565,10 @@ function ChannelForm({
             </Field>
             <Field>
               <FieldLabel>{t('console.channels.adapter')}</FieldLabel>
-              <Select value={adapterId} disabled={Boolean(channel)} onValueChange={value => setAdapterId(value ?? adapterId)}>
+              <Select
+                value={adapterId}
+                disabled={Boolean(channel)}
+                onValueChange={value => setAdapterId(value ?? adapterId)}>
                 <SelectTrigger className="w-full">
                   <SelectValue />
                 </SelectTrigger>
@@ -632,9 +646,7 @@ function ChannelForm({
                       />
                     </AlertDescription>
                   ) : null}
-                  {interactive.session.error ? (
-                    <AlertDescription>{interactive.session.error}</AlertDescription>
-                  ) : null}
+                  {interactive.session.error ? <AlertDescription>{interactive.session.error}</AlertDescription> : null}
                 </Alert>
               ) : null}
             </div>
@@ -723,7 +735,7 @@ function ConfigField({
 }
 
 function useInteractiveConfig(
-  adapter: ConsoleChatGatewayAdapter | undefined,
+  adapter: ConsoleExternalGatewayAdapter | undefined,
   config: JsonObject,
   locale: string,
   onValues: (values: JsonObject) => void
@@ -800,29 +812,17 @@ function useAgentsQuery() {
 
 function useAdaptersQuery() {
   return useQuery({
-    queryKey: ['console-chat-gateway-adapters'],
-    queryFn: () => apiGet<{ adapters: ConsoleChatGatewayAdapter[] }>('/api/console/chat-gateway-adapters')
+    queryKey: ['console-external-gateway-adapters'],
+    queryFn: () => apiGet<{ adapters: ConsoleExternalGatewayAdapter[] }>('/api/console/external-gateway-adapters')
   })
 }
 
-function adapterLabel(adapter: ConsoleChatGatewayAdapter, locale: string): string {
+function adapterLabel(adapter: ConsoleExternalGatewayAdapter, locale: string): string {
   return resolveBullXPluginLocalizedText(adapter.setup?.displayName, locale, adapter.id) ?? adapter.id
 }
 
-function defaultConfigForAdapter(adapter: ConsoleChatGatewayAdapter | undefined): JsonObject {
-  let base = isJsonObject(adapter?.setup?.defaultConfig) ? cloneJsonObject(adapter.setup.defaultConfig) : {}
-  /*
-   * Match the server-side default merge: plugin authors may put defaults in the
-   * top-level setup object or next to each field, but the form edits one JSON
-   * object regardless of where those defaults came from.
-   */
-  for (const field of adapter?.setup?.fields ?? []) {
-    if (field.defaultValue !== undefined && getPath(base, field.path) === undefined) {
-      base = setPath(base, field.path, cloneJsonValue(field.defaultValue))
-    }
-  }
-
-  return base
+function defaultConfigForAdapter(adapter: ConsoleExternalGatewayAdapter | undefined): JsonObject {
+  return defaultPluginConfigForSetup(adapter?.setup)
 }
 
 function ErrorAlert({ error, title }: { error?: unknown; title: string }) {
@@ -849,62 +849,7 @@ function SkeletonRows({ rows }: { rows: number }) {
 }
 
 function errorMessage(error: unknown): string {
-  if (!error) return ''
-  if (error instanceof Error && 'body' in error) return JSON.stringify((error as ApiError).body, null, 2)
-  if (error instanceof Error) return error.message
-  return JSON.stringify(error, null, 2)
-}
-
-function getPath(value: JsonObject, path: string[]): JsonValue | undefined {
-  let current: JsonValue | undefined = value
-  for (const segment of path) {
-    if (!isJsonObject(current)) return undefined
-    current = current[segment]
-  }
-
-  return current
-}
-
-function setPath(source: JsonObject, path: string[], value: JsonValue): JsonObject {
-  const target = cloneJsonObject(source)
-  let current = target
-  for (const segment of path.slice(0, -1)) {
-    const existing = current[segment]
-    const next = isJsonObject(existing) ? cloneJsonObject(existing) : {}
-    current[segment] = next
-    current = next
-  }
-  current[path[path.length - 1]!] = value
-
-  return target
-}
-
-function mergeJsonRecords(base: JsonObject, override: JsonObject): JsonObject {
-  const next = cloneJsonObject(base)
-  for (const [key, value] of Object.entries(override)) {
-    const baseValue = next[key]
-    if (isJsonObject(baseValue) && isJsonObject(value)) {
-      next[key] = mergeJsonRecords(baseValue, value)
-      continue
-    }
-    next[key] = cloneJsonValue(value)
-  }
-
-  return next
-}
-
-function cloneJsonObject(value: JsonObject): JsonObject {
-  return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, cloneJsonValue(item)])) as JsonObject
-}
-
-function cloneJsonValue(value: JsonValue): JsonValue {
-  if (Array.isArray(value)) return value.map(cloneJsonValue)
-  if (isJsonObject(value)) return cloneJsonObject(value)
-  return value
-}
-
-function isJsonObject(value: unknown): value is JsonObject {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
+  return apiErrorMessage(error)
 }
 
 mountSpa(<ConsoleApp />)

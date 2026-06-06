@@ -13,7 +13,7 @@ BullX の中心は AI 同僚そのものであり、見た目だけを変えた 
 BullX は「チャット入口を増やすこと」を目的にしません。AI 同僚を持続的な仕事システムに編成します。
 
 - **Agent** は長期ミッション、責任境界、記憶、外向き ID、KPI/OKR 型成功指標を担います。
-- **ChatGateway とその他 Gateway** は外部世界の事実を保持し、CloudEvents mail を発行します。
+- **ExternalGateway とその他 Gateway** は外部世界の事実を保持し、agent 関連イベントを CloudEvents 形式のエンベロープとして、紐づく agent へ直接配送します。
 - **MailBox** は AIAgent、Workflow、SubAgent、gateway、blackhole など Receiver 向けの内部配送エントリを作成します。
 - **Receiver** は実作業を担当します。多くは柔軟な判断を行う AIAgent、または明示的なプロセス構造を表現する Workflow です。
 - **Principal** と人間協働メカニズムは、同僚に実在の ID を与え、人と並んで——上位・同位・下位として——働けるようにします。

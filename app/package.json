@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "bun run web:build && bun run --bun --watch src/main.ts | bun x pino-pretty",
+    "dev": "bun run --hot src/main.ts | bun run pino-pretty",
     "web:build": "bun scripts/build-web-assets.ts",
     "test": "bun test",
     "type-check": "tsc -p tsconfig.json --noEmit",
@@ -29,8 +29,8 @@
     "elysia": "^1.4.28",
     "i18next": "26.3.0",
     "input-otp": "1.4.2",
-    "messageformat": "4.0.0",
     "mdast-util-to-string": "^4.0.0",
+    "messageformat": "4.0.0",
     "next-themes": "0.4.6",
     "pino": "^10.3.1",
     "react": "19.2.7",

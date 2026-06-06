@@ -1,24 +1,31 @@
 import { genUUIDv7 } from '@agentbull/bullx-native-addons'
 import type {
-  BullXChatGatewayAdapterFactory,
-  BullXChatGatewayAdapterSetup,
-  BullXPlugin,
+  BullXExternalGatewayAdapterFactory,
+  BullXExternalGatewayAdapterSetup,
   BullXPluginInteractiveConfigUpdate,
-  BullXPluginJsonValue,
   BullXPluginSetupField
 } from '@agentbull/bullx-sdk/plugins'
-import { appConfigService, type AppConfigJsonValue } from '@/config/app-configure'
-import { agentChannelConfigKey } from '@/chat-gateway/config'
+import { appConfigService } from '@/config/app-configure'
+import { agentChannelConfigKey } from '@/external-gateway/config'
 import type { JsonObject, JsonValue } from '@/common/db-schema'
-import { type AgentResult, createAgent, disableAgent, getAgent, listActiveAgents, updateAgent } from '@/principals/agents/service'
-import { PluginEnabledOverridesConfig, type PluginEnabledOverrides } from '@/plugins/config'
-import { discoverLocalPlugins } from '@/plugins/discovery'
+import { loadPluginCatalog, type PluginCatalog } from '@/plugins/catalog'
 import {
-  buildPluginRegistry,
-  defaultEnabledPluginIds,
-  resolveEnabledPluginIds,
-  type PluginRegistry
-} from '@/plugins/runtime'
+  clonePluginJsonObject as cloneJsonObject,
+  clonePluginJsonValue as cloneJsonValue,
+  defaultPluginConfigForSetup,
+  getPluginConfigPath as getPath,
+  isPluginConfigJsonObject,
+  mergePluginConfigObjects as mergeJsonObjects,
+  setPluginConfigPath as setPath
+} from '@/plugins/config-json'
+import {
+  type AgentResult,
+  createAgent,
+  disableAgent,
+  getAgent,
+  listActiveAgents,
+  updateAgent
+} from '@/principals/agents/service'
 
 const channelNamePattern = /^[a-z][a-z0-9_]*$/
 
@@ -30,10 +37,10 @@ export interface ConsoleAgent {
   chatChannels: ConsoleChatChannel[]
 }
 
-export interface ConsoleChatGatewayAdapter {
+export interface ConsoleExternalGatewayAdapter {
   id: string
   pluginId: string
-  setup?: BullXChatGatewayAdapterSetup
+  setup?: BullXExternalGatewayAdapterSetup
   interactiveConfig: boolean
 }
 
@@ -53,16 +60,9 @@ export interface UpsertConsoleChatChannelInput {
   config?: JsonObject
 }
 
-export interface ConsolePluginCatalog {
-  plugins: readonly BullXPlugin[]
-  registry: PluginRegistry
-  enabledPluginIds: string[]
-  overrides: PluginEnabledOverrides
-}
-
 interface StoredChannelBinding {
   /**
-   * Stored in `agents.metadata.chat.adapters[]`.
+   * Stored in `agents.metadata.external.adapters[]`.
    *
    * Only routing metadata lives on the Agent row. Adapter config is stored
    * separately under `agents.<uid>.<channel>` so secret erasure can be scoped to
@@ -108,27 +108,13 @@ export class ConsoleDomainError extends Error {
  */
 const interactiveConfigSessions = new Map<string, ConsoleInteractiveConfigSession>()
 
-export async function loadConsolePluginCatalog(): Promise<ConsolePluginCatalog> {
-  const plugins = await discoverLocalPlugins()
-  const registry = buildPluginRegistry(plugins)
-  const overrides = (await appConfigService.get(PluginEnabledOverridesConfig)) ?? {}
-  const enabledPluginIds = resolveEnabledPluginIds({
-    defaultEnabledPluginIds,
-    overrides,
-    registry
-  })
-
-  return {
-    plugins,
-    registry,
-    enabledPluginIds,
-    overrides
-  }
+export async function loadConsolePluginCatalog(): Promise<PluginCatalog> {
+  return loadPluginCatalog()
 }
 
-export async function listConsoleChatGatewayAdapters(): Promise<ConsoleChatGatewayAdapter[]> {
+export async function listConsoleExternalGatewayAdapters(): Promise<ConsoleExternalGatewayAdapter[]> {
   const catalog = await loadConsolePluginCatalog()
-  return listEnabledChatGatewayAdapters(catalog)
+  return listEnabledExternalGatewayAdapters(catalog)
 }
 
 export async function listConsoleAgents(): Promise<ConsoleAgent[]> {
@@ -179,9 +165,9 @@ export async function deleteConsoleAgent(uid: string): Promise<void> {
   await disableAgent(agent.agent.uid)
 }
 
-export async function listConsoleChatChannels(agentUid: string): Promise<ConsoleChatChannel[]> {
+export async function listConsoleExternalRooms(agentUid: string): Promise<ConsoleChatChannel[]> {
   const agent = await requireActiveAgent(agentUid)
-  return projectConsoleChatChannels(agent)
+  return projectConsoleExternalRooms(agent)
 }
 
 export async function createConsoleChatChannel(
@@ -189,20 +175,25 @@ export async function createConsoleChatChannel(
   input: UpsertConsoleChatChannelInput
 ): Promise<ConsoleChatChannel> {
   const agent = await requireActiveAgent(agentUid)
-  const adapter = await requireEnabledChatGatewayAdapter(requiredText(input.adapter, 'adapter'))
+  const adapter = await requireEnabledExternalGatewayAdapter(requiredText(input.adapter, 'adapter'))
   const name = normalizeChannelName(input.name ?? adapter.setup?.defaultChannelName ?? adapter.id)
   const bindings = readStoredChannelBindings(agent.agent.metadata)
   if (bindings.some(binding => binding.name === name)) throw new ConsoleDomainError(409, 'chat channel already exists')
 
   const config = mergeConfigForSave(adapter.setup, defaultConfigForSetup(adapter.setup), input.config ?? {})
-  await persistChannelConfigWithMetadata(agent, [
-    ...bindings,
-    {
-      name,
-      adapter: adapter.id,
-      enabled: input.enabled ?? true
-    }
-  ], name, config)
+  await persistChannelConfigWithMetadata(
+    agent,
+    [
+      ...bindings,
+      {
+        name,
+        adapter: adapter.id,
+        enabled: input.enabled ?? true
+      }
+    ],
+    name,
+    config
+  )
 
   return getConsoleChatChannel(agent.agent.uid, name)
 }
@@ -222,7 +213,7 @@ export async function updateConsoleChatChannel(
   if (input.adapter && input.adapter !== current.adapter) {
     throw new ConsoleDomainError(422, 'chat channel adapter cannot be changed; delete and recreate the channel')
   }
-  const adapter = await requireEnabledChatGatewayAdapter(input.adapter ?? current.adapter)
+  const adapter = await requireEnabledExternalGatewayAdapter(input.adapter ?? current.adapter)
   const previousConfig = await loadChannelConfig(agent.agent.uid, name)
   const config = mergeConfigForSave(adapter.setup, previousConfig, input.config ?? {})
   const nextBindings = [...bindings]
@@ -252,7 +243,7 @@ export async function deleteConsoleChatChannel(agentUid: string, channelName: st
 export async function getConsoleChatChannel(agentUid: string, channelName: string): Promise<ConsoleChatChannel> {
   const agent = await requireActiveAgent(agentUid)
   const name = normalizeChannelName(channelName)
-  const channel = (await projectConsoleChatChannels(agent)).find(candidate => candidate.name === name)
+  const channel = (await projectConsoleExternalRooms(agent)).find(candidate => candidate.name === name)
   if (!channel) throw new ConsoleDomainError(404, 'chat channel not found')
 
   return channel
@@ -263,7 +254,7 @@ export async function startConsoleInteractiveConfigSession(input: {
   currentConfig?: JsonObject
   locale?: string
 }): Promise<ConsoleInteractiveConfigSessionProjection> {
-  const adapter = await requireEnabledChatGatewayAdapter(input.adapterId)
+  const adapter = await requireEnabledExternalGatewayAdapter(input.adapterId)
   const interactiveConfig = adapter.setup?.interactiveConfig
   if (!interactiveConfig) throw new ConsoleDomainError(404, 'chat adapter does not support interactive config')
 
@@ -322,14 +313,14 @@ export function deleteConsoleInteractiveConfigSession(sessionId: string): void {
   interactiveConfigSessions.delete(sessionId)
 }
 
-function listEnabledChatGatewayAdapters(catalog: ConsolePluginCatalog): ConsoleChatGatewayAdapter[] {
+function listEnabledExternalGatewayAdapters(catalog: PluginCatalog): ConsoleExternalGatewayAdapter[] {
   const enabled = new Set(catalog.enabledPluginIds)
-  const adapters: ConsoleChatGatewayAdapter[] = []
+  const adapters: ConsoleExternalGatewayAdapter[] = []
 
   for (const plugin of catalog.plugins) {
     if (!enabled.has(plugin.metadata.id)) continue
 
-    for (const adapter of plugin.chatGatewayAdapters ?? []) {
+    for (const adapter of plugin.externalGatewayAdapters ?? []) {
       adapters.push({
         id: adapter.id,
         pluginId: plugin.metadata.id,
@@ -342,14 +333,14 @@ function listEnabledChatGatewayAdapters(catalog: ConsolePluginCatalog): ConsoleC
   return adapters
 }
 
-async function requireEnabledChatGatewayAdapter(adapterId: string): Promise<BullXChatGatewayAdapterFactory> {
+async function requireEnabledExternalGatewayAdapter(adapterId: string): Promise<BullXExternalGatewayAdapterFactory> {
   const catalog = await loadConsolePluginCatalog()
   const enabled = new Set(catalog.enabledPluginIds)
 
   for (const plugin of catalog.plugins) {
     if (!enabled.has(plugin.metadata.id)) continue
 
-    const adapter = (plugin.chatGatewayAdapters ?? []).find(candidate => candidate.id === adapterId)
+    const adapter = (plugin.externalGatewayAdapters ?? []).find(candidate => candidate.id === adapterId)
     if (adapter) return adapter
   }
 
@@ -369,12 +360,12 @@ async function projectConsoleAgent(agent: AgentResult): Promise<ConsoleAgent> {
     status: agent.principal.status,
     createdAt: agent.agent.createdAt,
     updatedAt: agent.agent.updatedAt,
-    chatChannels: await projectConsoleChatChannels(agent)
+    chatChannels: await projectConsoleExternalRooms(agent)
   }
 }
 
-async function projectConsoleChatChannels(agent: AgentResult): Promise<ConsoleChatChannel[]> {
-  const adapters = new Map((await listConsoleChatGatewayAdapters()).map(adapter => [adapter.id, adapter]))
+async function projectConsoleExternalRooms(agent: AgentResult): Promise<ConsoleChatChannel[]> {
+  const adapters = new Map((await listConsoleExternalGatewayAdapters()).map(adapter => [adapter.id, adapter]))
   const channels: ConsoleChatChannel[] = []
 
   for (const binding of readStoredChannelBindings(agent.agent.metadata)) {
@@ -414,10 +405,10 @@ async function loadChannelConfig(agentUid: string, channelName: string): Promise
 }
 
 function readStoredChannelBindings(metadata: JsonObject): StoredChannelBinding[] {
-  const chat = jsonObject(metadata.chat)
-  const adapters = chat?.adapters
+  const external = jsonObject(metadata.external) ?? jsonObject(metadata.chat)
+  const adapters = external?.adapters
   if (adapters === undefined) return []
-  if (!Array.isArray(adapters)) throw new ConsoleDomainError(422, 'agents.metadata.chat.adapters must be an array')
+  if (!Array.isArray(adapters)) throw new ConsoleDomainError(422, 'agents.metadata.external.adapters must be an array')
 
   const bindings = adapters.map((value, index) => parseStoredBinding(value, index))
   const seen = new Set<string>()
@@ -431,45 +422,41 @@ function readStoredChannelBindings(metadata: JsonObject): StoredChannelBinding[]
 
 function parseStoredBinding(value: JsonValue, index: number): StoredChannelBinding {
   const input = jsonObject(value)
-  if (!input) throw new ConsoleDomainError(422, `agents.metadata.chat.adapters[${index}] must be an object`)
+  if (!input) throw new ConsoleDomainError(422, `agents.metadata.external.adapters[${index}] must be an object`)
 
   return {
     name: normalizeChannelName(input.name),
     adapter: normalizeChannelName(input.adapter),
-    enabled: input.enabled === undefined ? true : requiredBoolean(input.enabled, `agents.metadata.chat.adapters[${index}].enabled`)
+    enabled:
+      input.enabled === undefined
+        ? true
+        : requiredBoolean(input.enabled, `agents.metadata.external.adapters[${index}].enabled`)
   }
 }
 
 function writeStoredChannelBindings(metadata: JsonObject, bindings: readonly StoredChannelBinding[]): JsonObject {
   const next = cloneJsonObject(metadata)
-  const chat = jsonObject(next.chat) ? cloneJsonObject(next.chat as JsonObject) : {}
-  chat.adapters = bindings.map(binding => ({
+  const external = jsonObject(next.external)
+    ? cloneJsonObject(next.external as JsonObject)
+    : jsonObject(next.chat)
+      ? cloneJsonObject(next.chat as JsonObject)
+      : {}
+  external.adapters = bindings.map(binding => ({
     name: binding.name,
     adapter: binding.adapter,
     enabled: binding.enabled
   }))
-  next.chat = chat
+  next.external = external
+  delete next.chat
   return next
 }
 
-function defaultConfigForSetup(setup: BullXChatGatewayAdapterSetup | undefined): JsonObject {
-  let config = isJsonObject(setup?.defaultConfig) ? cloneJsonObject(setup.defaultConfig) : {}
-  /*
-   * Plugins can express defaults either as a nested `defaultConfig` object or as
-   * field-level defaults. Merging both keeps plugin metadata terse while
-   * preserving one plain JSON config object for persistence.
-   */
-  for (const field of setup?.fields ?? []) {
-    if (field.defaultValue !== undefined && getPath(config, field.path) === undefined) {
-      config = setPath(config, field.path, cloneJsonValue(field.defaultValue))
-    }
-  }
-
-  return config
+function defaultConfigForSetup(setup: BullXExternalGatewayAdapterSetup | undefined): JsonObject {
+  return defaultPluginConfigForSetup(setup) as JsonObject
 }
 
 function mergeConfigForSave(
-  setup: BullXChatGatewayAdapterSetup | undefined,
+  setup: BullXExternalGatewayAdapterSetup | undefined,
   base: JsonObject,
   input: JsonObject
 ): JsonObject {
@@ -493,7 +480,7 @@ function mergeConfigForSave(
   return next
 }
 
-function publicConfigForSetup(setup: BullXChatGatewayAdapterSetup | undefined, config: JsonObject): JsonObject {
+function publicConfigForSetup(setup: BullXExternalGatewayAdapterSetup | undefined, config: JsonObject): JsonObject {
   let next = cloneJsonObject(config)
   /*
    * Secret values are never returned to console. The UI only needs to know
@@ -571,59 +558,7 @@ function jsonObject(value: JsonValue | undefined): JsonObject | undefined {
 }
 
 function isJsonObject(value: unknown): value is JsonObject {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
-function getPath(value: JsonObject, path: readonly string[]): JsonValue | undefined {
-  let current: JsonValue | undefined = value
-  for (const segment of path) {
-    if (!isJsonObject(current)) return undefined
-    current = current[segment]
-  }
-
-  return current
-}
-
-function setPath(source: JsonObject, path: readonly string[], value: JsonValue): JsonObject {
-  if (path.length === 0) return source
-
-  const target = cloneJsonObject(source)
-  let current = target
-  for (const segment of path.slice(0, -1)) {
-    const existing = current[segment]
-    const next = isJsonObject(existing) ? cloneJsonObject(existing) : {}
-    current[segment] = next
-    current = next
-  }
-  current[path[path.length - 1]!] = value
-
-  return target
-}
-
-function mergeJsonObjects(base: JsonObject, override: JsonObject): JsonObject {
-  const next = cloneJsonObject(base)
-  for (const [key, value] of Object.entries(override)) {
-    const baseValue = next[key]
-    if (isJsonObject(baseValue) && isJsonObject(value)) {
-      next[key] = mergeJsonObjects(baseValue, value)
-      continue
-    }
-
-    next[key] = cloneJsonValue(value)
-  }
-
-  return next
-}
-
-function cloneJsonObject(value: JsonObject): JsonObject {
-  return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, cloneJsonValue(item)])) as JsonObject
-}
-
-function cloneJsonValue<TValue extends AppConfigJsonValue | BullXPluginJsonValue | undefined>(value: TValue): TValue {
-  if (Array.isArray(value)) return value.map(item => cloneJsonValue(item as AppConfigJsonValue)) as TValue
-  if (isJsonObject(value)) return cloneJsonObject(value) as TValue
-
-  return value
+  return isPluginConfigJsonObject(value)
 }
 
 function isDatabaseErrorCode(error: unknown, code: string): boolean {

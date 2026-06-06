@@ -81,6 +81,36 @@ describe('IdentityProviderRuntime', () => {
     ).rejects.toThrow(UnknownIdentityProviderAdapterError)
   })
 
+  it('attaches realtime transport before startup full sync', async () => {
+    const registry = new IdentityProviderAdapterRegistry()
+    const events: string[] = []
+    registry.register({
+      id: 'mock',
+      create: () => ({
+        start: async () => {
+          events.push('transport.start')
+        },
+        fullSync: async () => {
+          events.push('full_sync.start')
+          return undefined
+        }
+      })
+    })
+
+    const runtime = new IdentityProviderRuntime()
+    const stats = await runtime.start({
+      registry,
+      getActiveProviders: async () => [{ providerId: 'corp-main', adapter: 'mock', enabled: true }],
+      getProviderConfig: async () => ({}),
+      getPublicBaseUrl: async () => undefined
+    })
+
+    expect(stats.degradedProviders).toEqual([])
+    expect(events).toEqual(['transport.start', 'full_sync.start'])
+
+    await runtime.stop()
+  })
+
   it('logs degraded full sync failures and retries without failing startup', async () => {
     const registry = new IdentityProviderAdapterRegistry()
     const logs: Array<{ level: string; data: any; message: string }> = []

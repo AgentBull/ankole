@@ -14,7 +14,7 @@ At the core of BullX is the AI colleague itself—not a re-skinned RAG customer 
 BullX does not try to be “just another chat entry point.” It organizes AI colleagues into a persistent work system:
 
 - **Agent** carries long-term mission, responsibility boundaries, memory, outbound identity, and KPI/OKR-style success metrics.
-- **ChatGateway and other Gateways** preserve facts from the external world and emit CloudEvents mail.
+- **ExternalGateway and other Gateways** preserve facts from the external world and deliver agent-relevant events directly to the bound agent as CloudEvents-style envelopes.
 - **MailBox** creates internal delivery entries for receivers such as AIAgent, Workflow, SubAgent, gateway, and blackhole.
 - **Receiver** performs the work: most commonly an AIAgent for flexible judgment, or a Workflow for explicit process structure.
 - **Principal** and human collaboration mechanisms give a colleague a real identity and let it work alongside people—as a peer, a report, or a manager.

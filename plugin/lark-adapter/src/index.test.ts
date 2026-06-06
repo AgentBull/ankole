@@ -1,17 +1,30 @@
-import { describe, expect, it, spyOn } from 'bun:test'
+import { beforeEach, describe, expect, it, spyOn } from 'bun:test'
 import * as lark from '@larksuiteoapi/node-sdk'
 import {
   createBullXLarkAdapter,
   createBullXLarkIdentityProvider,
   decodeThreadId,
-  LarkAdapterConfigError
+  LarkAdapterConfigError,
+  resetLarkSharedConnectionsForTest
 } from './index'
 
+const noopLogger = {
+  debug() {},
+  error() {},
+  fatal() {},
+  info() {},
+  trace() {},
+  warn() {}
+}
+
 describe('BullX Lark chat adapter', () => {
+  beforeEach(() => {
+    resetLarkSharedConnectionsForTest()
+  })
+
   it('declares the Lark channel capabilities core can rely on', () => {
     const adapter = createAdapter()
 
-    expect(adapter.capabilities?.inbound).toContain('message_edit')
     expect(adapter.capabilities?.inbound).toContain('message_recall')
     expect(adapter.capabilities?.inbound).toContain('reaction_remove')
     expect(adapter.capabilities?.outbound).toContain('divider')
@@ -51,6 +64,69 @@ describe('BullX Lark chat adapter', () => {
     const dmThreadId = await adapter.openDM('user_123')
     expect(decodeThreadId(dmThreadId)).toEqual({ chatId: 'user_123', rootId: '' })
     expect(adapter.isDM(dmThreadId)).toBe(true)
+  })
+
+  it('maps LarkChannel normalized resources into message attachments', async () => {
+    const adapter = createAdapter()
+
+    const textOnly = await adapter.parseMessage(
+      normalizedMessage({
+        raw: {
+          sender: {
+            sender_id: {
+              user_id: 'user_123'
+            }
+          }
+        }
+      }) as never
+    )
+    expect(textOnly.text).toBe('hello')
+    expect(textOnly.attachments).toEqual([])
+
+    const withResources = await adapter.parseMessage(
+      normalizedMessage({
+        content: '<file key="file_key" name="report.pdf"/>',
+        resources: [
+          { type: 'image', fileKey: 'img_key' },
+          { type: 'file', fileKey: 'file_key', fileName: 'report.pdf' },
+          { type: 'audio', fileKey: 'audio_key', durationMs: 2000 },
+          { type: 'video', fileKey: 'video_key', fileName: 'demo.mp4', durationMs: 3000, coverImageKey: 'cover_key' },
+          { type: 'sticker', fileKey: 'sticker_key' }
+        ],
+        raw: {
+          sender: {
+            sender_id: {
+              user_id: 'user_123'
+            }
+          }
+        }
+      }) as never
+    )
+
+    expect(withResources.attachments.map((attachment: any) => attachment.type)).toEqual([
+      'image',
+      'file',
+      'audio',
+      'video'
+    ])
+    expect(withResources.attachments[1]).toMatchObject({
+      name: 'report.pdf',
+      fetchMetadata: {
+        provider: 'lark',
+        messageId: 'om_message',
+        fileKey: 'file_key',
+        downloadType: 'file',
+        resourceType: 'file'
+      }
+    })
+    expect(withResources.attachments[3]).toMatchObject({
+      name: 'demo.mp4',
+      fetchMetadata: {
+        coverImageKey: 'cover_key',
+        durationMs: '3000',
+        resourceType: 'video'
+      }
+    })
   })
 
   it('fails closed instead of falling back to open_id when a message lacks user_id', async () => {
@@ -133,15 +209,14 @@ describe('BullX Lark chat adapter', () => {
 
   it('wires LarkChannel lifecycle internals during initialize', async () => {
     const handlers: Record<string, (event: unknown) => unknown> = {}
-    const registered: Array<Record<string, (event: unknown) => unknown>> = []
+    const dispatcher = new lark.EventDispatcher({
+      logger: noopLogger,
+      loggerLevel: lark.LoggerLevel.fatal
+    })
     const originalPushes: unknown[] = []
     const fakeChannel = {
       botIdentity: { openId: 'ou_bot', userId: 'bot_user' },
-      dispatcher: {
-        register(mapping: Record<string, (event: unknown) => unknown>) {
-          registered.push(mapping)
-        }
-      },
+      dispatcher,
       handlers,
       safety: {
         async pushMessage(message: unknown) {
@@ -155,55 +230,51 @@ describe('BullX Lark chat adapter', () => {
       disconnect: async () => {}
     }
     const channelSpy = spyOn(lark, 'createLarkChannel').mockImplementation(() => fakeChannel as never)
+    let adapter: any
 
     try {
-      const adapter = createAdapter(undefined, undefined, { group_message_mode: 'addressed_only' }) as any
-      const edits: any[] = []
+      adapter = createAdapter(undefined, undefined, { group_message_mode: 'addressed_only' }) as any
       const deletes: any[] = []
+      const receives: any[] = []
       await adapter.initialize({
-        processMessage: () => {
-          throw new Error('edited messages must bypass ordinary message delivery')
+        emitMessage: async (message: any) => {
+          receives.push({ message, threadId: message.threadId })
         },
-        processMessageDeleted: (event: unknown) => deletes.push(event),
-        processMessageEdited: (event: unknown) => edits.push(event)
+        emitMessageDeleted: (event: unknown) => deletes.push(event),
+        emitReaction: () => {},
+        getLogger: () => noopLogger
       })
 
-      expect(typeof registered[0]?.['im.message.recalled_v1']).toBe('function')
-      await registered[0]!['im.message.recalled_v1']({
-        chat_id: 'oc_chat',
-        message_id: 'om_deleted',
-        recall_time: '1700000000000'
-      })
+      await dispatcher.invoke(
+        {
+          schema: '2.0',
+          header: {
+            event_id: 'evt_recall',
+            event_type: 'im.message.recalled_v1',
+            create_time: '1700000000000',
+            app_id: 'cli_1234567890abcdef',
+            tenant_key: 'tenant_key'
+          },
+          event: {
+            chat_id: 'oc_chat',
+            message_id: 'om_deleted',
+            recall_time: '1700000000000',
+            recall_type: 'message_owner'
+          }
+        },
+        {
+          needCheck: false
+        }
+      )
       expect(deletes[0]).toMatchObject({
         messageId: 'om_deleted',
+        room: {
+          id: 'lark:oc_chat',
+          metadata: { chatId: 'oc_chat' },
+          roomVisibility: 'private'
+        },
         threadId: 'lark:oc_chat:om_deleted'
       })
-
-      const edited = normalizedMessage({
-        messageId: 'om_edited',
-        content: '@BullX edited',
-        mentionedBot: false,
-        createTime: '1700000000000',
-        raw: {
-          message: {
-            create_time: '1700000000000',
-            update_time: '1700000001000'
-          },
-          sender: {
-            sender_id: {
-              open_id: 'ou_open_id',
-              user_id: 'user_123'
-            }
-          }
-        }
-      })
-      await fakeChannel.safety.pushMessage(edited)
-
-      expect(edits[0]).toMatchObject({
-        messageId: 'om_edited',
-        threadId: 'lark:oc_chat:om_edited'
-      })
-      expect(originalPushes).toEqual([])
 
       const fresh = normalizedMessage({
         messageId: 'om_fresh',
@@ -216,9 +287,46 @@ describe('BullX Lark chat adapter', () => {
           }
         }
       })
-      await fakeChannel.safety.pushMessage(fresh)
-      expect(originalPushes).toEqual([fresh])
+      await handlers.message?.(fresh)
+      expect(receives[0]).toMatchObject({
+        message: { id: 'om_fresh' },
+        threadId: 'lark:oc_chat:om_fresh'
+      })
+      expect(originalPushes).toEqual([])
     } finally {
+      await adapter?.disconnect?.()
+      channelSpy.mockRestore()
+    }
+  })
+
+  it('uses the chat channel domain when opening the shared Lark connection', async () => {
+    const fakeChannel = {
+      botIdentity: { openId: 'ou_bot', userId: 'bot_user' },
+      dispatcher: new lark.EventDispatcher({
+        logger: noopLogger,
+        loggerLevel: lark.LoggerLevel.fatal
+      }),
+      on() {},
+      connect: async () => {},
+      disconnect: async () => {}
+    }
+    const channelSpy = spyOn(lark, 'createLarkChannel').mockImplementation(() => fakeChannel as never)
+    const adapter = createAdapter(undefined, undefined, { domain: 'lark' }) as any
+
+    try {
+      await adapter.initialize({
+        emitMessage: () => {},
+        emitMessageDeleted: () => {},
+        emitReaction: () => {},
+        getLogger: () => noopLogger
+      })
+
+      expect(channelSpy.mock.calls[0]?.[0]).toMatchObject({
+        appId: 'cli_test',
+        domain: lark.Domain.Lark
+      })
+    } finally {
+      await adapter.disconnect()
       channelSpy.mockRestore()
     }
   })
@@ -242,11 +350,13 @@ describe('BullX Lark chat adapter', () => {
       const adapter = createAdapter() as any
       await expect(
         adapter.initialize({
-          processMessage: () => {},
-          processMessageDeleted: () => {},
-          processMessageEdited: () => {}
+          emitMessage: () => {},
+          emitMessageDeleted: () => {},
+          getLogger: () => noopLogger
         })
-      ).rejects.toThrow('LarkChannel dispatcher internals are unavailable')
+      ).rejects.toThrow(
+        'LarkChannel dispatcher internals are unavailable; shared lifecycle events cannot be registered'
+      )
     } finally {
       channelSpy.mockRestore()
     }
@@ -258,8 +368,8 @@ describe('BullX Lark chat adapter', () => {
     const actions: any[] = []
     const reactions: any[] = []
     adapter.chat = {
-      processAction: (action: unknown) => actions.push(action),
-      processReaction: (reaction: unknown) => reactions.push(reaction)
+      emitAction: (action: unknown) => actions.push(action),
+      emitReaction: (reaction: unknown) => reactions.push(reaction)
     }
     adapter.fetchRootIdFor = async () => 'om_root'
     adapter.fetchChatAndRootFor = async () => ({ chatId: 'oc_chat', rootId: 'om_root' })
@@ -315,9 +425,9 @@ describe('BullX Lark chat adapter', () => {
     const deletes: any[] = []
     const creates: any[] = []
     adapter.chat = {
-      processMessageDeleted: (event: unknown) => deletes.push(event)
+      emitMessageDeleted: (event: unknown) => deletes.push(event)
     }
-    adapter.channel = {
+    adapter.connection = {
       rawClient: {
         im: {
           v1: {
@@ -340,6 +450,11 @@ describe('BullX Lark chat adapter', () => {
     expect(deletes[0]).toMatchObject({
       messageId: 'om_message',
       kind: 'recalled',
+      room: {
+        id: 'lark:oc_chat',
+        metadata: { chatId: 'oc_chat' },
+        roomVisibility: 'private'
+      },
       threadId: 'lark:oc_chat:om_message'
     })
 
@@ -429,6 +544,91 @@ describe('BullX Lark chat adapter', () => {
       })
     )
   })
+
+  it('shares one LarkChannel when chat ingress starts before identity realtime sync', async () => {
+    const handlers: Record<string, (event: unknown) => unknown> = {}
+    const fakeChannel = {
+      botIdentity: { openId: 'ou_bot', userId: 'bot_user' },
+      dispatcher: new lark.EventDispatcher({
+        logger: noopLogger,
+        loggerLevel: lark.LoggerLevel.fatal
+      }),
+      on(name: string, handler: (event: unknown) => unknown) {
+        handlers[name] = handler
+      },
+      connect: async () => {},
+      disconnect: async () => {}
+    }
+    const channelSpy = spyOn(lark, 'createLarkChannel').mockImplementation(() => fakeChannel as never)
+    const identity = createIdentityProvider([], {
+      sync: {
+        users: true,
+        departments: true,
+        websocket: true,
+        pageSize: 50
+      }
+    }) as any
+    const adapter = createAdapter() as any
+    const receives: any[] = []
+
+    try {
+      await adapter.initialize({
+        emitMessage: async (message: any) => {
+          receives.push({ message, threadId: message.threadId })
+        },
+        emitMessageDeleted: () => {},
+        emitReaction: () => {},
+        getLogger: () => noopLogger
+      })
+      await identity.start()
+      await handlers.message?.(
+        normalizedMessage({
+          messageId: 'om_live',
+          raw: {
+            sender: {
+              sender_id: {
+                open_id: 'ou_open_id',
+                user_id: 'user_123'
+              }
+            }
+          }
+        })
+      )
+
+      expect(channelSpy).toHaveBeenCalledTimes(1)
+      expect(handlers.message).toBeFunction()
+      expect(receives[0]).toMatchObject({
+        message: { id: 'om_live' },
+        threadId: 'lark:oc_chat:om_live'
+      })
+    } finally {
+      await adapter.disconnect()
+      await identity.stop()
+      channelSpy.mockRestore()
+    }
+  })
+
+  it('does not open a shared LarkChannel when identity realtime sync is disabled', async () => {
+    const channelSpy = spyOn(lark, 'createLarkChannel').mockImplementation(() => {
+      throw new Error('should not create a channel')
+    })
+    const identity = createIdentityProvider([], {
+      sync: {
+        users: true,
+        departments: true,
+        websocket: false,
+        pageSize: 50
+      }
+    }) as any
+
+    try {
+      await identity.start()
+      expect(channelSpy).not.toHaveBeenCalled()
+    } finally {
+      await identity.stop()
+      channelSpy.mockRestore()
+    }
+  })
 })
 
 function createAdapter(
@@ -462,7 +662,10 @@ function createAdapter(
   })
 }
 
-function createIdentityProvider(logs: Array<{ data: unknown; message: string }> = []) {
+function createIdentityProvider(
+  logs: Array<{ data: unknown; message: string }> = [],
+  configOverrides: Record<string, unknown> = {}
+) {
   return createBullXLarkIdentityProvider({
     providerId: 'lark-main',
     config: {
@@ -476,10 +679,10 @@ function createIdentityProvider(logs: Array<{ data: unknown; message: string }> 
       sync: {
         users: true,
         departments: true,
-        websocket: true,
-        pageSize: 100
+        pageSize: 50
       },
-      event: {}
+      event: {},
+      ...configOverrides
     },
     publicBaseUrl: 'http://localhost:3000',
     isProduction: false,

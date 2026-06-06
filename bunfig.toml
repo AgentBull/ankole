@@ -1,10 +1,8 @@
 telemetry = false
 
-[console]
-depth = 5
-
 [run]
 bun = true
+elide-lines = 0
 
 [install]
 linker = "isolated"

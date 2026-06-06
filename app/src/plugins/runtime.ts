@@ -1,7 +1,7 @@
 import type {
   BullXAppConfigDefinition,
   BullXAppConfigPatternDefinition,
-  BullXChatGatewayAdapterFactory,
+  BullXExternalGatewayAdapterFactory,
   BullXIdentityProviderAdapterFactory,
   BullXPlugin
 } from '@agentbull/bullx-sdk/plugins'
@@ -13,7 +13,10 @@ import {
   type AppConfigDefinition,
   type AppConfigPatternDefinition
 } from '@/config/app-configure'
-import { registerChatGatewayAdapterFactory, type ChatGatewayAdapterFactory } from '@/chat-gateway/adapter-registry'
+import {
+  registerExternalGatewayAdapterFactory,
+  type ExternalGatewayAdapterFactory
+} from '@/external-gateway/adapter-registry'
 import {
   registerIdentityProviderAdapterFactory,
   type IdentityProviderAdapterFactory
@@ -27,14 +30,14 @@ export const defaultEnabledPluginIds = ['lark-adapter'] as const
 export interface PluginRegistry {
   plugins: readonly BullXPlugin[]
   pluginsById: ReadonlyMap<string, BullXPlugin>
-  chatGatewayAdapterIds: readonly string[]
+  externalGatewayAdapterIds: readonly string[]
   identityProviderAdapterIds: readonly string[]
 }
 
 export interface PluginRuntimeStats {
   knownPlugins: number
   enabledPlugins: string[]
-  registeredChatGatewayAdapters: string[]
+  registeredExternalGatewayAdapters: string[]
   registeredIdentityProviderAdapters: string[]
 }
 
@@ -45,7 +48,7 @@ export interface PluginRuntimeStartOptions extends PluginDiscoveryOptions {
   plugins?: readonly BullXPlugin[]
   registerAppConfigDefinitions?: (definitions: readonly BullXAppConfigDefinition[]) => void
   registerAppConfigPatterns?: (definitions: readonly BullXAppConfigPatternDefinition[]) => void
-  registerChatGatewayAdapterFactory?: (factory: BullXChatGatewayAdapterFactory) => void
+  registerExternalGatewayAdapterFactory?: (factory: BullXExternalGatewayAdapterFactory) => void
   registerIdentityProviderAdapterFactory?: (factory: BullXIdentityProviderAdapterFactory) => void
 }
 
@@ -63,10 +66,10 @@ export class InvalidPluginIdError extends Error {
   }
 }
 
-export class DuplicatePluginChatGatewayAdapterError extends Error {
+export class DuplicatePluginExternalGatewayAdapterError extends Error {
   constructor(id: string) {
-    super(`Chat Gateway adapter id is already provided by a plugin: ${id}`)
-    this.name = 'DuplicatePluginChatGatewayAdapterError'
+    super(`External Gateway adapter id is already provided by a plugin: ${id}`)
+    this.name = 'DuplicatePluginExternalGatewayAdapterError'
   }
 }
 
@@ -106,7 +109,8 @@ export class PluginRuntime {
     const registry = buildPluginRegistry(plugins)
     const registerDefinitions = options.registerAppConfigDefinitions ?? registerHostAppConfigDefinitions
     const registerPatterns = options.registerAppConfigPatterns ?? registerHostAppConfigPatterns
-    const registerAdapterFactory = options.registerChatGatewayAdapterFactory ?? registerHostChatGatewayAdapterFactory
+    const registerAdapterFactory =
+      options.registerExternalGatewayAdapterFactory ?? registerHostExternalGatewayAdapterFactory
     const registerIdentityProviderFactory =
       options.registerIdentityProviderAdapterFactory ?? registerHostIdentityProviderAdapterFactory
 
@@ -125,15 +129,15 @@ export class PluginRuntime {
       registry
     })
 
-    const registeredChatGatewayAdapters: string[] = []
+    const registeredExternalGatewayAdapters: string[] = []
     const registeredIdentityProviderAdapters: string[] = []
     for (const pluginId of enabledPluginIds) {
       const plugin = registry.pluginsById.get(pluginId)
       if (!plugin) throw new UnknownPluginOverrideError(pluginId)
 
-      for (const factory of plugin.chatGatewayAdapters ?? []) {
+      for (const factory of plugin.externalGatewayAdapters ?? []) {
         registerAdapterFactory(factory)
-        registeredChatGatewayAdapters.push(factory.id)
+        registeredExternalGatewayAdapters.push(factory.id)
       }
 
       for (const factory of plugin.identityProviderAdapters ?? []) {
@@ -145,7 +149,7 @@ export class PluginRuntime {
     this.startedStats = {
       knownPlugins: registry.plugins.length,
       enabledPlugins: enabledPluginIds,
-      registeredChatGatewayAdapters,
+      registeredExternalGatewayAdapters,
       registeredIdentityProviderAdapters
     }
     return this.startedStats
@@ -159,7 +163,7 @@ export class PluginRuntime {
 
 export function buildPluginRegistry(plugins: readonly BullXPlugin[]): PluginRegistry {
   const pluginsById = new Map<string, BullXPlugin>()
-  const chatGatewayAdapterIds = new Set<string>()
+  const externalGatewayAdapterIds = new Set<string>()
   const identityProviderAdapterIds = new Set<string>()
 
   for (const plugin of plugins) {
@@ -168,9 +172,9 @@ export function buildPluginRegistry(plugins: readonly BullXPlugin[]): PluginRegi
     if (pluginsById.has(id)) throw new DuplicatePluginIdError(id)
     pluginsById.set(id, plugin)
 
-    for (const factory of plugin.chatGatewayAdapters ?? []) {
-      if (chatGatewayAdapterIds.has(factory.id)) throw new DuplicatePluginChatGatewayAdapterError(factory.id)
-      chatGatewayAdapterIds.add(factory.id)
+    for (const factory of plugin.externalGatewayAdapters ?? []) {
+      if (externalGatewayAdapterIds.has(factory.id)) throw new DuplicatePluginExternalGatewayAdapterError(factory.id)
+      externalGatewayAdapterIds.add(factory.id)
     }
 
     for (const factory of plugin.identityProviderAdapters ?? []) {
@@ -182,7 +186,7 @@ export function buildPluginRegistry(plugins: readonly BullXPlugin[]): PluginRegi
   return {
     plugins: [...plugins],
     pluginsById,
-    chatGatewayAdapterIds: [...chatGatewayAdapterIds],
+    externalGatewayAdapterIds: [...externalGatewayAdapterIds],
     identityProviderAdapterIds: [...identityProviderAdapterIds]
   }
 }
@@ -215,8 +219,8 @@ function registerHostAppConfigPatterns(definitions: readonly BullXAppConfigPatte
   registerAppConfigPatterns(definitions as readonly AppConfigPatternDefinition[])
 }
 
-function registerHostChatGatewayAdapterFactory(factory: BullXChatGatewayAdapterFactory): void {
-  registerChatGatewayAdapterFactory(factory as ChatGatewayAdapterFactory)
+function registerHostExternalGatewayAdapterFactory(factory: BullXExternalGatewayAdapterFactory): void {
+  registerExternalGatewayAdapterFactory(factory as ExternalGatewayAdapterFactory)
 }
 
 function registerHostIdentityProviderAdapterFactory(factory: BullXIdentityProviderAdapterFactory): void {

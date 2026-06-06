@@ -1,5 +1,7 @@
 import { Elysia } from 'elysia'
 import { z } from 'zod'
+import { logger } from '@/common/logger'
+import { AppEnv } from '@/config/env'
 import { activeHumanAdmin } from '@/principals/admin-auth/access'
 import { readAdminSessionCookie } from '@/principals/admin-auth/session'
 import {
@@ -12,15 +14,17 @@ import {
   getConsoleAgent,
   getConsoleInteractiveConfigSession,
   listConsoleAgents,
-  listConsoleChatGatewayAdapters,
-  listConsoleChatChannels,
+  listConsoleExternalGatewayAdapters,
+  listConsoleExternalRooms,
   startConsoleInteractiveConfigSession,
   updateConsoleAgent,
   updateConsoleChatChannel
 } from './service'
 import type { JsonObject } from '@/common/db-schema'
 
-const jsonObjectSchema = z.custom<JsonObject>(value => typeof value === 'object' && value !== null && !Array.isArray(value))
+const jsonObjectSchema = z.custom<JsonObject>(
+  value => typeof value === 'object' && value !== null && !Array.isArray(value)
+)
 
 const createAgentBodySchema = z
   .object({
@@ -58,17 +62,36 @@ type MutableResponseSet = {
 
 export function consoleRoutes() {
   return new Elysia({ name: 'console-routes' })
-    .onError(({ error, set }) => {
-      if (!(error instanceof ConsoleDomainError)) return
+    .onError(({ code, error, set }) => {
+      if (error instanceof ConsoleDomainError) {
+        set.status = error.status
+        return { error: error.message }
+      }
 
-      set.status = error.status
-      return { error: error.message }
+      const status = statusFromError(error)
+      const isInternalServerError = status >= 500
+      isInternalServerError
+        ? logger.error({ error, code }, 'Console API Error')
+        : logger.warn({ error, code }, 'Console API Error')
+      set.status = status
+      return {
+        error: {
+          code: status,
+          status: String(code),
+          message:
+            AppEnv.IS_PRODUCTION && isInternalServerError
+              ? 'Internal Server Error'
+              : error instanceof Error
+                ? error.message
+                : String(error)
+        }
+      }
     })
-    .get('/api/console/chat-gateway-adapters', async ({ request, set }) => {
+    .get('/api/console/external-gateway-adapters', async ({ request, set }) => {
       const admin = await requireConsoleAdmin(request, set)
       if (!admin.ok) return { error: admin.error }
 
-      return { adapters: await listConsoleChatGatewayAdapters() }
+      return { adapters: await listConsoleExternalGatewayAdapters() }
     })
     .get('/api/console/agents', async ({ request, set }) => {
       const admin = await requireConsoleAdmin(request, set)
@@ -108,7 +131,7 @@ export function consoleRoutes() {
       const admin = await requireConsoleAdmin(request, set)
       if (!admin.ok) return { error: admin.error }
 
-      return { channels: await listConsoleChatChannels(params.uid) }
+      return { channels: await listConsoleExternalRooms(params.uid) }
     })
     .post('/api/console/agents/:uid/chat-channels', async ({ params, body, request, set }) => {
       const admin = await requireConsoleAdmin(request, set)
@@ -153,6 +176,13 @@ export function consoleRoutes() {
       deleteConsoleInteractiveConfigSession(params.sessionId)
       set.status = 204
     })
+}
+
+function statusFromError(error: unknown): number {
+  if (error instanceof z.ZodError) return 422
+  if (typeof error === 'object' && error && 'status' in error && typeof error.status === 'number') return error.status
+
+  return 500
 }
 
 async function requireConsoleAdmin(

@@ -9,7 +9,7 @@ const { eq, like } = await import('drizzle-orm')
 const { DB } = await import('@/common/database')
 const { AppConfigure, ConfigureKeyType, Principals } = await import('@/common/db-schema')
 const { appConfigService } = await import('@/config/app-configure')
-const { agentChannelConfigKey } = await import('@/chat-gateway/config')
+const { agentChannelConfigKey } = await import('@/external-gateway/config')
 const { updateAgent, getAgent } = await import('@/principals/agents/service')
 const {
   ConsoleDomainError,
@@ -21,7 +21,7 @@ const {
   getConsoleAgent,
   getConsoleChatChannel,
   getConsoleInteractiveConfigSession,
-  listConsoleChatChannels,
+  listConsoleExternalRooms,
   startConsoleInteractiveConfigSession,
   updateConsoleChatChannel
 } = await import('./service')
@@ -80,7 +80,7 @@ describe('console agents', () => {
     expect(storedAfterDelete).toBeUndefined()
     const disabledAgent = await getAgent(uid)
     expect(disabledAgent?.agent.metadata).toEqual({
-      chat: {
+      external: {
         adapters: []
       }
     })
@@ -88,6 +88,26 @@ describe('console agents', () => {
 })
 
 describe('console chat channels', () => {
+  it('stores channel config for non-ASCII agent UIDs accepted by the Principal domain', async () => {
+    const uid = testUid('agent_测试')
+    await createConsoleAgent(uid)
+
+    await createConsoleChatChannel(uid, {
+      name: 'lark',
+      adapter: 'lark',
+      config: {
+        appId: 'cli_unicode',
+        appSecret: 'unicode-secret',
+        platformSubjectNamespace: 'lark-main'
+      }
+    })
+
+    expect(await appConfigService.refreshByKey(agentChannelConfigKey(uid, 'lark'))).toMatchObject({
+      appId: 'cli_unicode',
+      appSecret: 'unicode-secret'
+    })
+  })
+
   it('supports multiple channels, preserves existing secret fields, erases deleted channel config, and merges metadata', async () => {
     const uid = testUid('agent_channels')
     await createConsoleAgent(uid)
@@ -119,7 +139,7 @@ describe('console chat channels', () => {
       }
     })
 
-    const channels = await listConsoleChatChannels(uid)
+    const channels = await listConsoleExternalRooms(uid)
     expect(channels.map(channel => [channel.name, channel.enabled])).toEqual([
       ['lark_main', true],
       ['lark_ops', false]
@@ -162,7 +182,7 @@ describe('console chat channels', () => {
 
     await deleteConsoleChatChannel(uid, 'lark_ops')
 
-    expect((await listConsoleChatChannels(uid)).map(channel => channel.name)).toEqual(['lark_main'])
+    expect((await listConsoleExternalRooms(uid)).map(channel => channel.name)).toEqual(['lark_main'])
     const [deletedConfig] = await DB.select()
       .from(AppConfigure)
       .where(eq(AppConfigure.key, agentChannelConfigKey(uid, 'lark_ops')))
@@ -172,7 +192,7 @@ describe('console chat channels', () => {
     const storedAgent = await getAgent(uid)
     expect(storedAgent?.agent.metadata).toEqual({
       owner: 'ops',
-      chat: {
+      external: {
         note: 'keep',
         adapters: [
           {
@@ -211,7 +231,8 @@ describe('console interactive config sessions', () => {
     expect(completed.html).toContain('https://example.test/scan?token=&lt;unsafe&gt;')
     expect(completed.values).toEqual({
       appId: 'cli_scanned',
-      appSecret: 'secret_scanned'
+      appSecret: 'secret_scanned',
+      domain: 'feishu'
     })
   })
 

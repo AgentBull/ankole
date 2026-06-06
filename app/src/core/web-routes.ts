@@ -1,15 +1,21 @@
 import { Elysia } from 'elysia'
 import { appConfigService } from '@/config/app-configure'
 import { AppEnv } from '@/config/env'
+import { AppI18nDefaultLocaleConfig } from '@/config/i18n'
+import { DEFAULT_LOCALE } from '@/config/i18n-locales'
 import { redirectWithSetCookies } from '@/core/http'
 import { activeHumanAdmin } from '@/principals/admin-auth/access'
 import { readAdminSessionCookie } from '@/principals/admin-auth/session'
 import { readSetupSessionCookie, setupSessionExpiredCookie } from '@/setup/session'
 import { SetupCompletedConfig } from '@/setup/config'
-import { renderSpaHtml } from './spa-html'
+import { type DevSpaHtmlRenderer, renderSpaHtml } from './spa-html'
 
 type RedirectStatus = 301 | 302 | 303 | 307 | 308
 type Redirect = (url: string, status?: RedirectStatus) => Response
+
+interface WebAppRoutesOptions {
+  devSpaHtmlRenderer?: DevSpaHtmlRenderer
+}
 
 /**
  * Server-owned HTML entry routes for the three React SPAs.
@@ -18,21 +24,24 @@ type Redirect = (url: string, status?: RedirectStatus) => Response
  * setup, anonymous sign-in, and admin console can each enforce a different
  * cookie-session boundary before the browser downloads the matching SPA bundle.
  */
-export function webAppRoutes() {
+export function webAppRoutes(options: WebAppRoutesOptions = {}) {
   return new Elysia({ name: 'web-app-routes' })
     .get('/', async ({ redirect }) => {
       const completed = (await appConfigService.get(SetupCompletedConfig)) === true
       return redirect(completed ? '/sessions/new' : '/setup', 302)
     })
-    .get('/setup', setupHtml)
-    .get('/setup/*', setupHtml)
-    .get('/sessions', sessionsHtml)
-    .get('/sessions/*', sessionsHtml)
-    .get('/console', consoleHtml)
-    .get('/console/*', consoleHtml)
+    .get('/setup', context => setupHtml(context, options))
+    .get('/setup/*', context => setupHtml(context, options))
+    .get('/sessions', context => sessionsHtml(context, options))
+    .get('/sessions/*', context => sessionsHtml(context, options))
+    .get('/console', context => consoleHtml(context, options))
+    .get('/console/*', context => consoleHtml(context, options))
 }
 
-async function setupHtml({ request, redirect }: { request: Request; redirect: Redirect }) {
+async function setupHtml(
+  { request, redirect }: { request: Request; redirect: Redirect },
+  options: WebAppRoutesOptions
+) {
   const completed = (await appConfigService.get(SetupCompletedConfig)) === true
   if (completed) {
     const setupSession = readSetupSessionCookie(request.headers.get('cookie'))
@@ -43,11 +52,17 @@ async function setupHtml({ request, redirect }: { request: Request; redirect: Re
 
   return renderSpaHtml({
     app: 'setup',
-    title: 'BullX Setup'
+    title: 'BullX Setup',
+    locale: await appLocale(),
+    request,
+    devRenderer: options.devSpaHtmlRenderer
   })
 }
 
-async function sessionsHtml({ request, redirect }: { request: Request; redirect: Redirect }) {
+async function sessionsHtml(
+  { request, redirect }: { request: Request; redirect: Redirect },
+  options: WebAppRoutesOptions
+) {
   const completed = (await appConfigService.get(SetupCompletedConfig)) === true
   if (!completed) return redirect('/setup', 302)
 
@@ -62,11 +77,17 @@ async function sessionsHtml({ request, redirect }: { request: Request; redirect:
 
   return renderSpaHtml({
     app: 'sessions',
-    title: 'BullX Sign In'
+    title: 'BullX Sign In',
+    locale: await appLocale(),
+    request,
+    devRenderer: options.devSpaHtmlRenderer
   })
 }
 
-async function consoleHtml({ request, redirect }: { request: Request; redirect: Redirect }) {
+async function consoleHtml(
+  { request, redirect }: { request: Request; redirect: Redirect },
+  options: WebAppRoutesOptions
+) {
   const completed = (await appConfigService.get(SetupCompletedConfig)) === true
   if (!completed) return redirect('/setup', 302)
 
@@ -79,6 +100,13 @@ async function consoleHtml({ request, redirect }: { request: Request; redirect: 
 
   return renderSpaHtml({
     app: 'console',
-    title: 'BullX Console'
+    title: 'BullX Console',
+    locale: await appLocale(),
+    request,
+    devRenderer: options.devSpaHtmlRenderer
   })
+}
+
+async function appLocale(): Promise<string> {
+  return (await appConfigService.get(AppI18nDefaultLocaleConfig)) ?? DEFAULT_LOCALE
 }

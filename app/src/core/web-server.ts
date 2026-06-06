@@ -5,10 +5,13 @@ import path from 'node:path'
 import { logger } from '@/common/logger'
 import { AppEnv } from '@/config/env'
 import { consoleRoutes } from '@/console/routes'
-import { chatGatewayRoutes } from '@/chat-gateway'
+import { externalGatewayRoutes } from '@/external-gateway'
 import { sessionApiRoutes } from '@/principals/admin-auth/api-routes'
 import { setupRoutes } from '@/setup/routes'
 import { webAppRoutes } from './web-routes'
+import type { SpaName } from './spa-html'
+
+const DEV_SPA_PREFIX = '/__bullx_spa'
 
 export interface CreateWebServerOptions {
   serveStaticAssets?: boolean
@@ -22,16 +25,34 @@ export interface CreateWebServerOptions {
  * static assets enabled so the server owns both HTML and bundled SPA assets.
  */
 export async function createWebServer(options: CreateWebServerOptions = {}) {
-  const app = new Elysia()
+  const app = new Elysia({
+    serve: AppEnv.IS_DEVELOPMENT
+      ? {
+          development: {
+            console: true,
+            hmr: true
+          }
+        }
+      : undefined
+  })
 
   if (options.serveStaticAssets ?? true) {
-    app.use(
-      await staticPlugin({
-        assets: path.resolve(import.meta.dir, '../../public/assets'),
-        maxAge: AppEnv.IS_PRODUCTION ? 86400 : 0,
-        prefix: '/assets'
-      })
-    )
+    if (AppEnv.IS_DEVELOPMENT) {
+      app.use(
+        await staticPlugin({
+          assets: path.resolve(import.meta.dir, '../../webui/src/entries'),
+          bunFullstack: true,
+          prefix: DEV_SPA_PREFIX
+        })
+      )
+    } else {
+      app.use(
+        await staticPlugin({
+          assets: path.resolve(import.meta.dir, '../../public/assets'),
+          prefix: '/assets'
+        })
+      )
+    }
   }
 
   return app
@@ -62,8 +83,13 @@ export async function createWebServer(options: CreateWebServerOptions = {}) {
     .use(setupRoutes())
     .use(sessionApiRoutes())
     .use(consoleRoutes())
-    .use(chatGatewayRoutes())
-    .use(webAppRoutes())
+    .use(externalGatewayRoutes())
+    .use(
+      webAppRoutes({
+        devSpaHtmlRenderer:
+          (options.serveStaticAssets ?? true) && AppEnv.IS_DEVELOPMENT ? renderDevSpaHtmlFromBunRoute : undefined
+      })
+    )
     .onError(({ code, error, set }) => {
       const status =
         typeof error === 'object' && error && 'status' in error && typeof error.status === 'number' ? error.status : 500
@@ -87,7 +113,21 @@ export async function createWebServer(options: CreateWebServerOptions = {}) {
     })
 }
 
+async function renderDevSpaHtmlFromBunRoute(app: SpaName, request: Request): Promise<Response> {
+  const url = new URL(`${DEV_SPA_PREFIX}/${app}.html`, request.url)
+  return fetch(url)
+}
+
 export type WebServer = Awaited<ReturnType<typeof createWebServer>>
+
+/**
+ * Minimal ingress contract the composition root listens on. The real value is
+ * the Elysia app from createWebServer(); tests inject a fake so startup wiring
+ * can be asserted without binding a port.
+ */
+export interface WebServerHandle {
+  listen(options: { idleTimeout: number; port: number }): unknown
+}
 
 function unsafeMethod(method: string): boolean {
   return !['GET', 'HEAD', 'OPTIONS'].includes(method.toUpperCase())

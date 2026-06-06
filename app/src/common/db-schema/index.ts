@@ -1,4 +1,4 @@
 export * from './app-configure'
 export * from './authorization'
-export * from './chat-gateway'
+export * from './external-gateway'
 export * from './principals'

@@ -2,6 +2,8 @@ import { Elysia } from 'elysia'
 import { z } from 'zod'
 import { appConfigService, type AppConfigJsonValue } from '@/config/app-configure'
 import { AppEnv } from '@/config/env'
+import { AppI18nDefaultLocaleConfig } from '@/config/i18n'
+import { DEFAULT_LOCALE, SUPPORTED_LOCALES, isSupportedLocale } from '@/config/i18n-locales'
 import { appendSetCookie } from '@/core/http'
 import { AdminAuthPublicBaseUrlConfig } from '@/principals/admin-auth/config'
 import { cookieHeader, newOpaqueToken, safeReturnTo } from '@/principals/admin-auth/session'
@@ -11,6 +13,12 @@ import {
   resolveIdentityProviderPublicBaseUrl
 } from '@/principals/admin-auth/oidc'
 import { ActiveIdentityProvidersConfig, identityProviderConfigKey } from '@/principals/identity-providers/config'
+import {
+  getEnabledIdentityProviderAdapter,
+  listEnabledIdentityProviderAdapters
+} from '@/principals/identity-providers/adapters'
+import { loadPluginCatalog } from '@/plugins/catalog'
+import { clonePluginJsonValue } from '@/plugins/config-json'
 import { createNoopIdentityProviderSyncSink } from '@/principals/identity-providers/noop-sync-sink'
 import { SetupBootstrapActivationCodeConfig, SetupCompletedConfig } from './config'
 import {
@@ -20,13 +28,7 @@ import {
   setupSessionExpiredCookie,
   setupSessionSetCookie
 } from './session'
-import {
-  clonePluginJsonValue,
-  getSetupIdentityProviderAdapter,
-  listSetupIdentityProviderAdapters,
-  loadSetupPluginCatalog,
-  persistExactEnabledPluginIds
-} from './plugins'
+import { persistExactEnabledPluginIds } from './plugins'
 
 const setupSessionBodySchema = z
   .object({
@@ -60,10 +62,13 @@ export function setupRoutes() {
     .get('/api/setup/state', async ({ request }) => {
       const completed = (await appConfigService.get(SetupCompletedConfig)) === true
       const setupSession = readSetupSessionCookie(request.headers.get('cookie'))
+      const currentLocale = (await appConfigService.get(AppI18nDefaultLocaleConfig)) ?? DEFAULT_LOCALE
 
       return {
         completed,
-        authenticated: !completed && setupSession !== undefined
+        authenticated: !completed && setupSession !== undefined,
+        currentLocale,
+        availableLocales: [...SUPPORTED_LOCALES]
       }
     })
     .post('/api/setup/sessions', async ({ body, set }) => {
@@ -74,12 +79,21 @@ export function setupRoutes() {
       }
 
       const parsed = setupSessionBodySchema.parse(body)
+      const locale = parsed.locale?.trim()
+      const selectedLocale = locale && isSupportedLocale(locale) ? locale : undefined
+      if (locale && !selectedLocale) {
+        set.status = 422
+        return { error: 'unsupported locale' }
+      }
+
       const expected = await appConfigService.get(SetupBootstrapActivationCodeConfig)
       const submitted = parsed.activationCode.trim().toUpperCase()
       if (!expected || submitted !== expected) {
         set.status = 401
         return { error: 'invalid bootstrap activation code' }
       }
+
+      if (selectedLocale) await appConfigService.set(AppI18nDefaultLocaleConfig, selectedLocale)
 
       appendSetCookie(set, setupSessionSetCookie(AppEnv.IS_PRODUCTION))
       return { ok: true }
@@ -92,7 +106,7 @@ export function setupRoutes() {
       const access = await requireActiveSetupSession(request, set)
       if (!access.ok) return { error: access.error }
 
-      const catalog = await loadSetupPluginCatalog()
+      const catalog = await loadPluginCatalog()
       return {
         plugins: catalog.plugins.map(plugin => ({
           id: plugin.metadata.id,
@@ -114,7 +128,7 @@ export function setupRoutes() {
       if (!access.ok) return { error: access.error }
 
       return {
-        adapters: await listSetupIdentityProviderAdapters()
+        adapters: await listEnabledIdentityProviderAdapters()
       }
     })
     .put('/api/setup/identity-providers/:providerId', async ({ params, body, request, set }) => {
@@ -123,7 +137,7 @@ export function setupRoutes() {
 
       const parsed = identityProviderConfigSchema.parse(body)
       const publicBaseUrl = requestPublicBaseUrl(request)
-      const factory = await getSetupIdentityProviderAdapter(parsed.adapter)
+      const factory = await getEnabledIdentityProviderAdapter(parsed.adapter)
       /*
        * Create once before persistence so adapter-owned schema/credential checks
        * fail while the user is still on the setup form. The no-op sync sink
@@ -231,7 +245,7 @@ async function createSetupOidcProvider(providerId: string, request: Request) {
   )
   if (!active) throw new Error(`Identity provider is not configured: ${providerId}`)
 
-  const factory = await getSetupIdentityProviderAdapter(active.adapter)
+  const factory = await getEnabledIdentityProviderAdapter(active.adapter)
   const config = await appConfigService.getByKey(identityProviderConfigKey(providerId))
   const publicBaseUrl = await resolveIdentityProviderPublicBaseUrl(request)
   const adapter = await factory.create({

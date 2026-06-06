@@ -524,7 +524,7 @@ function metadataObject(value: unknown): JsonObject {
 /**
  * Full sync can only disable subjects this provider has previously managed.
  *
- * Chat Gateway may create the same `platform_subject` row from a message before
+ * External Gateway may create the same `platform_subject` row from a message before
  * any login/directory sync sees that user. Absence from a directory full sync is
  * therefore authoritative only for rows carrying provider-sync evidence.
  */

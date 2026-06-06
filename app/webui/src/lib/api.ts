@@ -8,6 +8,8 @@ export class ApiError extends Error {
   }
 }
 
+type JsonObject = { [key: string]: unknown }
+
 export async function apiGet<T>(path: string): Promise<T> {
   return apiRequest<T>(path, { method: 'GET' })
 }
@@ -42,16 +44,44 @@ async function apiRequest<T>(path: string, init: RequestInit): Promise<T> {
     }
   })
 
-  const body = await safeJson(response)
+  const body = await readResponseBody(response)
   if (!response.ok) throw new ApiError(response.status, body)
 
   return body as T
 }
 
-async function safeJson(response: Response): Promise<unknown> {
+async function readResponseBody(response: Response): Promise<unknown> {
+  const text = await response.text()
+  if (!text) return null
+
   try {
-    return await response.json()
+    return JSON.parse(text) as unknown
   } catch {
-    return null
+    return text
   }
+}
+
+export function apiErrorMessage(error: unknown): string {
+  if (!error) return ''
+  if (error instanceof ApiError) return errorBodyMessage(error.body) ?? error.message
+  if (error instanceof Error) return error.message
+
+  return errorBodyMessage(error) ?? String(error)
+}
+
+function errorBodyMessage(body: unknown): string | undefined {
+  if (body == null) return undefined
+  if (typeof body === 'string') return body
+  if (isJsonObject(body)) {
+    const error = body.error
+    if (typeof error === 'string') return error
+    if (isJsonObject(error) && typeof error.message === 'string') return error.message
+    if (typeof body.message === 'string') return body.message
+  }
+
+  return JSON.stringify(body, null, 2)
+}
+
+function isJsonObject(value: unknown): value is JsonObject {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }

@@ -6,7 +6,8 @@ import { rootInitAdmin } from '../authorization/service'
 import { upsertIdentityProviderUser } from '../identity-providers/service'
 import { ActiveIdentityProvidersConfig, identityProviderConfigKey } from '../identity-providers/config'
 import { createNoopIdentityProviderSyncSink } from '../identity-providers/noop-sync-sink'
-import { getSetupIdentityProviderAdapter, clonePluginJsonValue } from '@/setup/plugins'
+import { getEnabledIdentityProviderAdapter } from '../identity-providers/adapters'
+import { clonePluginJsonValue } from '@/plugins/config-json'
 import { SetupBootstrapActivationCodeConfig, SetupCompletedConfig } from '@/setup/config'
 import { isSetupCompletionRestartRecommended, markSetupCompletionRestartRecommended } from '@/setup/runtime-state'
 import {
@@ -209,7 +210,7 @@ async function createOidcProvider(providerId: string, request: Request) {
   )
   if (!active) throw new Error(`Identity provider is not configured: ${providerId}`)
 
-  const factory = await getSetupIdentityProviderAdapter(active.adapter)
+  const factory = await getEnabledIdentityProviderAdapter(active.adapter)
   const config = await appConfigService.getByKey(identityProviderConfigKey(providerId))
   const publicBaseUrl = await resolveIdentityProviderPublicBaseUrl(request)
   const adapter = await factory.create({

@@ -1,13 +1,18 @@
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 import { AppEnv } from '@/config/env'
+import { DEFAULT_LOCALE } from '@/config/i18n-locales'
 
 export type SpaName = 'setup' | 'sessions' | 'console'
+
+export type DevSpaHtmlRenderer = (app: SpaName, request: Request) => Promise<Response>
 
 interface SpaHtmlOptions {
   app: SpaName
   title: string
   locale?: string
+  request?: Request
+  devRenderer?: DevSpaHtmlRenderer
 }
 
 interface AssetManifestEntry {
@@ -23,9 +28,12 @@ const defaultAssets: Record<SpaName, AssetManifestEntry> = {
 
 let cachedManifest: Partial<Record<SpaName, AssetManifestEntry>> | undefined
 
-export function renderSpaHtml(options: SpaHtmlOptions): Response {
+export async function renderSpaHtml(options: SpaHtmlOptions): Promise<Response> {
+  const devHtml = await renderDevSpaHtml(options)
+  if (devHtml) return devHtml
+
   const assets = assetManifest()[options.app] ?? defaultAssets[options.app]
-  const locale = escapeHtmlAttribute(options.locale ?? 'en-US')
+  const locale = escapeHtmlAttribute(options.locale ?? DEFAULT_LOCALE)
   const title = escapeHtml(options.title)
   const css = assets.css ? `<link rel="stylesheet" href="${escapeHtmlAttribute(assets.css)}">` : ''
   const html = `<!doctype html>
@@ -41,6 +49,25 @@ export function renderSpaHtml(options: SpaHtmlOptions): Response {
   <script type="module" src="${escapeHtmlAttribute(assets.js)}"></script>
 </body>
 </html>`
+
+  return new Response(html, {
+    headers: {
+      'content-type': 'text/html; charset=utf-8'
+    }
+  })
+}
+
+async function renderDevSpaHtml(options: SpaHtmlOptions): Promise<Response | undefined> {
+  if (!AppEnv.IS_DEVELOPMENT || !options.devRenderer || !options.request) return
+
+  const response = await options.devRenderer(options.app, options.request)
+  if (!response.ok) {
+    throw new Error(`Failed to render ${options.app} SPA through Bun dev server: ${response.status}`)
+  }
+
+  const html = (await response.text())
+    .replaceAll('__BULLX_LOCALE__', escapeHtmlAttribute(options.locale ?? DEFAULT_LOCALE))
+    .replaceAll('__BULLX_TITLE__', escapeHtml(options.title))
 
   return new Response(html, {
     headers: {

@@ -2,6 +2,7 @@ import enUS from '@locales/en-US.toml'
 import zhHansCN from '@locales/zh-Hans-CN.toml'
 import i18n from 'i18next'
 import { initReactI18next } from 'react-i18next'
+import { DEFAULT_LOCALE, SUPPORTED_LOCALES, isSupportedLocale, normalizeLocale } from '@/config/i18n-locales'
 import { Mf2PostProcessor, Mf2ReactPreset } from './mf2'
 
 const resources = {
@@ -15,8 +16,8 @@ i18n
   .use(initReactI18next)
   .init({
     lng: activeLocale(),
-    fallbackLng: 'en-US',
-    supportedLngs: Object.keys(resources),
+    fallbackLng: DEFAULT_LOCALE,
+    supportedLngs: [...SUPPORTED_LOCALES],
     resources,
     defaultNS: 'translation',
     ns: ['translation'],
@@ -27,10 +28,20 @@ i18n
     react: { useSuspense: false }
   })
 
+i18n.on('languageChanged', syncDocumentLocale)
+syncDocumentLocale(i18n.resolvedLanguage ?? i18n.language)
+
 export default i18n
 
 function activeLocale() {
-  if (typeof document === 'undefined') return 'en-US'
+  if (typeof document === 'undefined') return DEFAULT_LOCALE
 
-  return document.documentElement.lang || 'en-US'
+  return normalizeLocale(document.documentElement.lang)
+}
+
+function syncDocumentLocale(locale: string | undefined) {
+  if (typeof document === 'undefined' || !locale) return
+  if (!isSupportedLocale(locale)) return
+
+  document.documentElement.lang = locale
 }

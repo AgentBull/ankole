@@ -1,16 +1,24 @@
 import { RiArrowRightSLine, RiLoginCircleLine } from '@remixicon/react'
-import { resolveBullXPluginLocalizedText } from '@agentbull/bullx-sdk/plugins'
+import { resolveBullXPluginLocalizedText, type BullXPluginJsonValue } from '@agentbull/bullx-sdk/plugins'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Alert, AlertDescription, AlertTitle } from '@/uikit/components/alert'
+import { nativeLocaleLabel } from '@/config/i18n-locales'
+import {
+  defaultPluginConfigForSetup,
+  getPluginConfigPath as getPath,
+  mergePluginConfigObjects as mergeJsonRecords,
+  setPluginConfigPath as setPath,
+  type PluginConfigJsonObject
+} from '@/plugins/config-json'
 import { Button } from '@/uikit/components/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/uikit/components/card'
 import { Checkbox } from '@/uikit/components/checkbox'
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from '@/uikit/components/field'
 import { Input } from '@/uikit/components/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/uikit/components/select'
-import { apiGet, apiPost, apiPut, type ApiError } from '@/lib/api'
+import { apiErrorMessage, apiGet, apiPost, apiPut } from '@/lib/api'
 import { SetupLayout } from './layout'
 
 type LocalizedText = string | Record<string, string>
@@ -18,6 +26,8 @@ type LocalizedText = string | Record<string, string>
 interface SetupState {
   completed: boolean
   authenticated: boolean
+  currentLocale: string
+  availableLocales: string[]
 }
 
 interface Plugin {
@@ -43,7 +53,7 @@ interface SetupField {
   defaultValue?: JsonValue
 }
 
-type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue }
+type JsonValue = BullXPluginJsonValue
 
 interface AdapterDescriptor {
   id: string
@@ -99,7 +109,10 @@ export function SetupApp() {
         </nav>
         <div className="min-w-0">
           {!state.data?.authenticated ? (
-            <BootstrapGate onAuthenticated={() => queryClient.invalidateQueries({ queryKey: ['setup-state'] })} />
+            <BootstrapGate
+              setupState={state.data}
+              onAuthenticated={() => queryClient.invalidateQueries({ queryKey: ['setup-state'] })}
+            />
           ) : step === 'plugins' ? (
             <PluginsStep onContinue={() => setStep('identity')} />
           ) : (
@@ -111,13 +124,35 @@ export function SetupApp() {
   )
 }
 
-function BootstrapGate({ onAuthenticated }: { onAuthenticated: () => void }) {
-  const { t } = useTranslation()
+function BootstrapGate({ setupState, onAuthenticated }: { setupState?: SetupState; onAuthenticated: () => void }) {
+  const { i18n, t } = useTranslation()
+  const currentLocale = setupState?.currentLocale ?? i18n.resolvedLanguage ?? i18n.language
+  const [locale, setLocale] = useState(currentLocale)
   const [activationCode, setActivationCode] = useState('')
+  const availableLocales = useMemo(
+    () => uniqueStrings([...(setupState?.availableLocales ?? []), locale]),
+    [locale, setupState?.availableLocales]
+  )
+
+  useEffect(() => {
+    setLocale(currentLocale)
+  }, [currentLocale])
+
   const mutation = useMutation({
-    mutationFn: () => apiPost('/api/setup/sessions', { activationCode }),
+    mutationFn: () => apiPost('/api/setup/sessions', { activationCode, locale }),
     onSuccess: onAuthenticated
   })
+
+  function changeLocale(nextLocale: string | null) {
+    if (!nextLocale) return
+
+    setLocale(nextLocale)
+    void i18n.changeLanguage(nextLocale)
+  }
+
+  function localeLabel(value: string | null) {
+    return value ? nativeLocaleLabel(value) : ''
+  }
 
   return (
     <Panel
@@ -131,6 +166,21 @@ function BootstrapGate({ onAuthenticated }: { onAuthenticated: () => void }) {
       <InfoAlert title={t('setup.session.log_hint_title')}>{t('setup.session.log_hint_body')}</InfoAlert>
       <ErrorAlert error={mutation.error} />
       <FieldGroup className="grid gap-5 md:grid-cols-2">
+        <Field>
+          <FieldLabel>{t('setup.session.locale_label')}</FieldLabel>
+          <Select value={locale} onValueChange={changeLocale}>
+            <SelectTrigger className="w-full">
+              <SelectValue>{localeLabel}</SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              {availableLocales.map(availableLocale => (
+                <SelectItem key={availableLocale} value={availableLocale}>
+                  {localeLabel(availableLocale)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Field>
         <Field>
           <FieldLabel>{t('setup.session.bootstrap_code_label')}</FieldLabel>
           <Input
@@ -210,7 +260,7 @@ function IdentityStep() {
   const [adapterId, setAdapterId] = useState<string>('')
   const activeAdapter = adapters.find(adapter => adapter.id === (adapterId || adapters[0]?.id))
   const [providerId, setProviderId] = useState('')
-  const [config, setConfig] = useState<Record<string, JsonValue>>({})
+  const [config, setConfig] = useState<PluginConfigJsonObject>({})
   const initialConfig = useMemo(() => defaultConfigForAdapter(activeAdapter), [activeAdapter])
   /*
    * providerId is the globally unique external identity namespace stored under
@@ -393,58 +443,12 @@ function ErrorAlert({ error }: { error?: unknown }) {
   )
 }
 
-function defaultConfigForAdapter(adapter: AdapterDescriptor | undefined): Record<string, JsonValue> {
-  let base = isJsonRecord(adapter?.setup?.defaultConfig) ? cloneJsonRecord(adapter.setup.defaultConfig) : {}
-
-  /*
-   * Adapter setup metadata may provide defaults either as one nested object or
-   * per field. Merge both forms into the initial config presented by this
-   * singular setup form; concrete validation still belongs to the adapter.
-   */
-  for (const field of adapter?.setup?.fields ?? []) {
-    if (getPath(base, field.path) === undefined && field.defaultValue !== undefined) {
-      base = setPath(base, field.path, field.defaultValue)
-    }
-  }
-
-  return base
-}
-
-function mergeJsonRecords(
-  base: Record<string, JsonValue>,
-  override: Record<string, JsonValue>
-): Record<string, JsonValue> {
-  const next = cloneJsonRecord(base)
-
-  for (const [key, value] of Object.entries(override)) {
-    const baseValue = next[key]
-    if (isJsonRecord(baseValue) && isJsonRecord(value)) {
-      next[key] = mergeJsonRecords(baseValue, value)
-      continue
-    }
-
-    next[key] = cloneJsonValue(value)
-  }
-
-  return next
-}
-
-function cloneJsonRecord(value: Record<string, JsonValue>): Record<string, JsonValue> {
-  return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, cloneJsonValue(item)]))
-}
-
-function cloneJsonValue(value: JsonValue): JsonValue {
-  if (Array.isArray(value)) return value.map(cloneJsonValue)
-  if (isJsonRecord(value)) return cloneJsonRecord(value)
-
-  return value
+function defaultConfigForAdapter(adapter: AdapterDescriptor | undefined): PluginConfigJsonObject {
+  return defaultPluginConfigForSetup(adapter?.setup)
 }
 
 function errorMessage(error: unknown): string {
-  if (!error) return ''
-  if (error instanceof Error && 'body' in error) return JSON.stringify((error as ApiError).body, null, 2)
-  if (error instanceof Error) return error.message
-  return JSON.stringify(error, null, 2)
+  return apiErrorMessage(error)
 }
 
 function localizedText(value: LocalizedText | undefined, locale: string): string | undefined {
@@ -456,30 +460,6 @@ function localizedText(value: LocalizedText | undefined, locale: string): string
   return resolveBullXPluginLocalizedText(value, locale)
 }
 
-function getPath(value: Record<string, JsonValue>, path: string[]): JsonValue | undefined {
-  let current: JsonValue | undefined = value
-  for (const segment of path) {
-    if (typeof current !== 'object' || current === null || Array.isArray(current)) return undefined
-    current = current[segment]
-  }
-
-  return current
-}
-
-function setPath(source: Record<string, JsonValue>, path: string[], value: JsonValue): Record<string, JsonValue> {
-  const target = cloneJsonRecord(source)
-  let current = target
-  for (const segment of path.slice(0, -1)) {
-    const existing = current[segment]
-    const next = isJsonRecord(existing) ? cloneJsonRecord(existing) : {}
-    current[segment] = next
-    current = next
-  }
-  current[path[path.length - 1]!] = value
-
-  return target
-}
-
-function isJsonRecord(value: unknown): value is Record<string, JsonValue> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values.filter(Boolean))]
 }

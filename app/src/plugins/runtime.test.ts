@@ -1,10 +1,11 @@
 import 'reflect-metadata'
 import { describe, expect, it } from 'bun:test'
-import { Message } from '@/chat-gateway/core/message'
-import type { Adapter, ChatInstance, WebhookOptions } from '@/chat-gateway/core/types'
 import {
   defineBullXPlugin,
-  type BullXChatGatewayAdapterFactory,
+  type BullXExternalGatewayAdapter,
+  type BullXExternalGatewayAdapterContext,
+  type BullXExternalGatewayAdapterFactory,
+  type BullXExternalGatewayWebhookOptions,
   type BullXIdentityProviderAdapterFactory
 } from '@agentbull/bullx-sdk/plugins'
 import { z } from 'zod'
@@ -14,10 +15,10 @@ import { loadTestEnvFiles } from '@/common/tests/load-test-env'
 await loadTestEnvFiles()
 
 const pluginRoot = path.resolve(import.meta.dir, '../../../plugin')
-const { defaultPluginRoots, discoverLocalPlugins, discoverPluginEntryPaths } = await import('./discovery')
+const { defaultPluginRoots, discoverLocalPlugins } = await import('./discovery')
 const {
   buildPluginRegistry,
-  DuplicatePluginChatGatewayAdapterError,
+  DuplicatePluginExternalGatewayAdapterError,
   DuplicatePluginIdError,
   DuplicatePluginIdentityProviderAdapterError,
   PluginRuntime,
@@ -86,10 +87,10 @@ describe('plugin registry validation', () => {
     expect(() => buildPluginRegistry([plugin('duplicate'), plugin('duplicate')])).toThrow(DuplicatePluginIdError)
   })
 
-  it('rejects duplicate Chat Gateway adapter factory ids', () => {
+  it('rejects duplicate External Gateway adapter factory ids', () => {
     expect(() =>
       buildPluginRegistry([plugin('first', [adapterFactory('shared')]), plugin('second', [adapterFactory('shared')])])
-    ).toThrow(DuplicatePluginChatGatewayAdapterError)
+    ).toThrow(DuplicatePluginExternalGatewayAdapterError)
   })
 
   it('rejects duplicate identity provider adapter factory ids', () => {
@@ -116,14 +117,6 @@ describe('PluginRuntime', () => {
         Bun.env.PLUGIN_DIR = previousPluginDir
       }
     }
-  })
-
-  it('discovers local plugin entries by scanning the configured plugin directory', async () => {
-    const entryPaths = await discoverPluginEntryPaths([pluginRoot])
-    expect(entryPaths.some(entryPath => entryPath.endsWith('plugin/lark-adapter/src/index.ts'))).toBe(true)
-
-    const plugins = await discoverLocalPlugins({ pluginRoots: [pluginRoot] })
-    expect(plugins.map(plugin => plugin.metadata.id)).toContain('lark-adapter')
   })
 
   it('discovers local plugins from PLUGIN_DIR by default', async () => {
@@ -157,7 +150,7 @@ describe('PluginRuntime', () => {
         defineBullXPlugin({
           metadata: { id: 'config-plugin', apiVersion: 1 },
           appConfigDefinitions: [configDefinition],
-          chatGatewayAdapters: [adapterFactory('config_plugin')]
+          externalGatewayAdapters: [adapterFactory('config_plugin')]
         })
       ],
       defaultEnabledPluginIds: [],
@@ -165,7 +158,7 @@ describe('PluginRuntime', () => {
       registerAppConfigDefinitions: definitions => {
         registeredDefinitions.push(...definitions.map(definition => definition.key))
       },
-      registerChatGatewayAdapterFactory: factory => {
+      registerExternalGatewayAdapterFactory: factory => {
         registeredFactories.push(factory.id)
       }
     })
@@ -173,7 +166,7 @@ describe('PluginRuntime', () => {
     expect(stats).toEqual({
       knownPlugins: 1,
       enabledPlugins: [],
-      registeredChatGatewayAdapters: [],
+      registeredExternalGatewayAdapters: [],
       registeredIdentityProviderAdapters: []
     })
     expect(registeredDefinitions).toEqual(['test.plugin.config'])
@@ -189,7 +182,7 @@ describe('PluginRuntime', () => {
       defaultEnabledPluginIds: ['lark-adapter'],
       getEnabledOverrides: async () => ({ 'lark-adapter': false }),
       registerAppConfigPatterns: () => {},
-      registerChatGatewayAdapterFactory: factory => {
+      registerExternalGatewayAdapterFactory: factory => {
         registeredFactories.push(factory.id)
       }
     })
@@ -199,7 +192,7 @@ describe('PluginRuntime', () => {
   })
 
   it('registers lark factory and validates required app config before opening transport', async () => {
-    const registeredFactories: BullXChatGatewayAdapterFactory[] = []
+    const registeredFactories: BullXExternalGatewayAdapterFactory[] = []
     const registeredIdentityFactories: BullXIdentityProviderAdapterFactory[] = []
     const registeredPatterns: Array<{ id: string; encrypted: boolean; keyPattern: RegExp }> = []
     const runtime = new PluginRuntime()
@@ -211,7 +204,7 @@ describe('PluginRuntime', () => {
       registerAppConfigPatterns: patterns => {
         registeredPatterns.push(...patterns)
       },
-      registerChatGatewayAdapterFactory: factory => {
+      registerExternalGatewayAdapterFactory: factory => {
         registeredFactories.push(factory)
       },
       registerIdentityProviderAdapterFactory: factory => {
@@ -220,7 +213,7 @@ describe('PluginRuntime', () => {
     })
 
     expect(stats.enabledPlugins).toEqual(['lark-adapter'])
-    expect(stats.registeredChatGatewayAdapters).toEqual(['lark'])
+    expect(stats.registeredExternalGatewayAdapters).toEqual(['lark'])
     expect(stats.registeredIdentityProviderAdapters).toEqual(['lark'])
     expect(registeredFactories.map(factory => factory.id)).toEqual(['lark'])
     expect(registeredIdentityFactories.map(factory => factory.id)).toEqual(['lark'])
@@ -283,7 +276,7 @@ describe('PluginRuntime', () => {
 
 function plugin(
   id: string,
-  chatGatewayAdapters: readonly BullXChatGatewayAdapterFactory[] = [],
+  externalGatewayAdapters: readonly BullXExternalGatewayAdapterFactory[] = [],
   identityProviderAdapters: readonly BullXIdentityProviderAdapterFactory[] = []
 ) {
   return defineBullXPlugin({
@@ -291,12 +284,12 @@ function plugin(
       id,
       apiVersion: 1
     },
-    chatGatewayAdapters,
+    externalGatewayAdapters,
     identityProviderAdapters
   })
 }
 
-function adapterFactory(id: string): BullXChatGatewayAdapterFactory {
+function adapterFactory(id: string): BullXExternalGatewayAdapterFactory {
   return {
     id,
     create: () => new TestAdapter(id)
@@ -321,19 +314,19 @@ function identityProviderSink() {
   }
 }
 
-class TestAdapter implements Adapter {
+class TestAdapter implements BullXExternalGatewayAdapter {
   readonly userName = 'Test'
 
   constructor(readonly name: string) {}
 
-  async initialize(_chat: ChatInstance): Promise<void> {}
+  async initialize(_context: BullXExternalGatewayAdapterContext): Promise<void> {}
 
-  async handleWebhook(_request: Request, _options?: WebhookOptions): Promise<Response> {
+  async handleWebhook(_request: Request, _options?: BullXExternalGatewayWebhookOptions): Promise<Response> {
     return new Response('ok')
   }
 
-  parseMessage(): Message {
-    return new Message({
+  parseMessage() {
+    return {
       id: 'test',
       threadId: `${this.name}:channel:thread`,
       text: 'test',
@@ -347,11 +340,10 @@ class TestAdapter implements Adapter {
         isMe: false
       },
       metadata: {
-        dateSent: new Date(),
-        edited: false
+        dateSent: new Date()
       },
       attachments: []
-    })
+    }
   }
 
   channelIdFromThreadId(threadId: string): string {
@@ -382,14 +374,6 @@ class TestAdapter implements Adapter {
   async postMessage(threadId: string, message: unknown) {
     return {
       id: `${this.name}-message`,
-      threadId,
-      raw: message
-    }
-  }
-
-  async editMessage(threadId: string, messageId: string, message: unknown) {
-    return {
-      id: messageId,
       threadId,
       raw: message
     }

@@ -5,13 +5,14 @@ import { AppEnv } from '@/config/env'
 import * as schema from './db-schema'
 import type { JsonValue } from './db-schema'
 import { logger } from './logger'
+import { seconds } from '@pleisto/active-support'
 
 let closingDatabase = false
 
 const sqlClient = new BunSQL(AppEnv.DATABASE_URL, {
   max: 10,
-  idleTimeout: 30,
-  connectionTimeout: 10,
+  idleTimeout: seconds('1h'),
+  connectionTimeout: seconds('20s'),
   maxLifetime: 0,
   onconnect: () => {
     logger.trace('PostgreSQL connection opened')

@@ -2,6 +2,7 @@ import { deriveKey } from '@agentbull/bullx-native-addons'
 import { z } from 'zod'
 
 const envSchema = z.object({
+  BULLX_LOG_LEVEL: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal', 'silent']).optional(),
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   HTTP_PORT: z.coerce.number().int().positive().default(3000),
   BULLX_SECRET_BASE: z.string().min(16),

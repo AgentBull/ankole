@@ -13,7 +13,7 @@ export const bullxExternalIdentityNamespaceIdPattern = new RegExp(`^${bullxExter
 /**
  * @deprecated Use {@link bullxExternalIdentityNamespaceIdPatternSource}. This
  * legacy name predates the explicit split between login identity providers and
- * Chat Gateway platform-subject attribution.
+ * External Gateway platform-subject attribution.
  */
 export const bullxExternalIdentityProviderIdPatternSource = bullxExternalIdentityNamespaceIdPatternSource
 
@@ -52,11 +52,19 @@ export interface BullXAppConfigPatternDefinition<TValue extends BullXPluginJsonV
   description?: string
 }
 
-export interface BullXAgentChannelBinding {
+export type BullXExternalGatewayGroupMessageMode = 'addressed_only' | 'observe_all' | 'may_intervene'
+
+export interface BullXAgentExternalBinding {
   adapter: string
   enabled: boolean
+  groupMessageMode?: BullXExternalGatewayGroupMessageMode
   name: string
 }
+
+/**
+ * @deprecated Use {@link BullXAgentExternalBinding}.
+ */
+export type BullXAgentChannelBinding = BullXAgentExternalBinding
 
 export interface BullXPlatformSubjectProfile {
   displayName?: string | null
@@ -94,173 +102,125 @@ export interface BullXPlatformSubjectResult {
  * land on the same `principal_external_identities` row without the integrations
  * depending on each other.
  */
-export interface BullXChatGatewayExternalIdentitySink {
+export interface BullXExternalGatewayExternalIdentitySink {
   upsertPlatformSubject(input: BullXPlatformSubjectInput): Promise<BullXPlatformSubjectResult>
 }
 
-export type BullXChatGatewayMessageLifecycleReplyAction =
-  | {
-      /**
-       * Create the BullX-authored reply that should exist for the current inbound
-       * latest-state. This is returned when the inbound message is already
-       * projected as addressed but no reply link exists yet, typically because an
-       * earlier outbound post failed before the link could be recorded.
-       */
-      kind: 'create'
-      /**
-       * Chat SDK thread id where the BullX-authored reply should be posted.
-       */
-      threadId: string
-      /**
-       * Text the adapter should render for the new reply.
-       */
-      text: string
-    }
-  | {
-      /**
-       * Edit an existing BullX-authored reply to match the current inbound
-       * latest-state.
-       */
-      kind: 'edit'
-      /**
-       * Chat SDK thread id that contains the BullX-authored reply.
-       */
-      threadId: string
-      /**
-       * Platform message id of the BullX-authored reply.
-       */
-      messageId: string
-      /**
-       * Replacement text the adapter should render when mirroring an inbound edit.
-       */
-      text: string
-    }
-  | {
-      /**
-       * Delete an existing BullX-authored reply because the inbound latest-state is
-       * no longer addressed or the inbound message was recalled/deleted.
-       */
-      kind: 'delete'
-      /**
-       * Chat SDK thread id that contains the BullX-authored reply.
-       */
-      threadId: string
-      /**
-       * Platform message id of the BullX-authored reply.
-       */
-      messageId: string
-    }
-
-export type BullXChatGatewayMessageLifecycleReplyTarget = BullXChatGatewayMessageLifecycleReplyAction
-
-export interface BullXChatGatewayMessageLifecycleReplyLink {
-  /**
-   * Chat SDK thread id that contains the BullX-authored reply.
-   */
-  threadId: string
-  /**
-   * Platform message id of the BullX-authored reply.
-   */
-  messageId: string
-}
-
-export interface BullXChatGatewayInboundMessageMutationResult {
-  /**
-   * `true` means the host consumed this inbound mutation through the canonical
-   * latest-state path. BullX core uses the same path for ordinary receives and
-   * edit lifecycle events so stale receives, edits, and recalls cannot diverge
-   * from the IM mirror.
-   *
-   * `chat_messages` is updated before reply side effects. Reply retry is driven
-   * by reconciliation state, not by delaying the long-term IM mirror.
-   */
-  handled: boolean
-  /**
-   * Reply side effect still needed for the latest projected inbound state.
-   */
-  reply?: BullXChatGatewayMessageLifecycleReplyAction
-  /**
-   * Previous latest-state facts, when the host recognized the inbound message.
-   *
-   * Adapters normally do not need this. The host echo/runtime layer uses it to
-   * distinguish an ambient message edited into an addressed message from an edit
-   * that only changes text.
-   */
-  previous?: {
-    isMention?: boolean | null
-    text?: string | null
-  }
-}
-
-export interface BullXChatGatewayMessageLifecycleRecordReplyResult {
-  recorded: boolean
-}
+export type BullXExternalGatewayJsonObject = { [key: string]: BullXPluginJsonValue }
 
 /**
- * Host-owned lifecycle bridge for chat adapters that can observe platform
- * message edits/deletes.
+ * Normalized External Gateway facts emitted by chat adapters.
  *
- * The sink is intentionally keyed by Chat SDK channel/message ids, not by
- * identity-provider config or login provider ids. Chat adapters use it only to
- * keep BullX's own reply and latest-state projection aligned with the external
- * chat platform.
+ * Provider raw payloads stay generic because every adapter has a different API
+ * shape. The normalized room/message/lifecycle fields are typed so plugins and
+ * the host cannot silently drift on required Gateway semantics.
  */
-export interface BullXChatGatewayMessageLifecycleSink {
-  isDeleted(input: { agentUid: string; channelId: string; messageId: string }): Promise<boolean>
-  recordReply(input: {
-    agentUid: string
-    inboundChannelId: string
-    inboundThreadId: string
-    inboundMessageId: string
-    replyThreadId: string
-    replyMessageId: string
-  }): Promise<BullXChatGatewayMessageLifecycleRecordReplyResult>
-  /**
-   * Projects an inbound receive/edit latest-state into `chat_messages` and
-   * returns any BullX reply action still needed for the current IM state.
-   */
-  updateInboundMessage(input: {
-    agentUid: string
-    channelId: string
-    messageId: string
-    thread: unknown
-    message: unknown
-  }): Promise<BullXChatGatewayInboundMessageMutationResult>
-  /**
-   * Records that the BullX-authored reply is now consistent with the currently
-   * projected inbound visible state.
-   */
-  markReplyReconciled(input: {
-    agentUid: string
-    inboundChannelId: string
-    inboundThreadId: string
-    inboundMessageId: string
-    replyThreadId: string
-    replyMessageId: string
-  }): Promise<BullXChatGatewayMessageLifecycleRecordReplyResult>
-  deleteInboundMessage(input: {
-    agentUid: string
-    channelId: string
-    messageId: string
-  }): Promise<BullXChatGatewayInboundMessageMutationResult>
-  forgetReply(input: { agentUid: string; channelId: string; messageId: string }): Promise<void>
+export interface BullXExternalGatewayAuthor {
+  fullName: string
+  isBot: boolean | 'unknown'
+  isMe: boolean
+  userId: string
+  userName: string
 }
 
-export interface BullXChatGatewayRawMessage<TRawMessage = unknown> {
+export interface BullXExternalGatewayAttachment {
+  data?: unknown
+  fetchData?: () => Promise<unknown>
+  fetchMetadata?: Record<string, string>
+  height?: number
+  mimeType?: string
+  name?: string
+  size?: number
+  type: 'image' | 'file' | 'video' | 'audio'
+  url?: string
+  width?: number
+}
+
+export interface BullXExternalGatewayLinkPreview {
+  description?: string
+  fetchMessage?: () => Promise<unknown>
+  imageUrl?: string
+  siteName?: string
+  title?: string
+  url: string
+}
+
+export interface BullXExternalGatewayRawMessage<TRawMessage = unknown> {
   id: string
   raw: TRawMessage
   threadId: string
 }
 
-export interface BullXChatGatewayFetchMessagesResult {
-  messages: readonly unknown[]
+export interface BullXExternalGatewayRoomInput {
+  id?: string
+  isDM?: boolean
+  metadata?: unknown
+  name?: string | null
+  raw?: unknown
+  roomVisibility?: string
+}
+
+export interface BullXExternalGatewayMessageMetadata {
+  dateSent?: Date
+  [key: string]: unknown
+}
+
+export interface BullXExternalGatewayMessageInput<TRawMessage = unknown> {
+  attachments?: BullXExternalGatewayAttachment[]
+  author: BullXExternalGatewayAuthor
+  formatted?: unknown
+  id: string
+  isMention?: boolean
+  links?: BullXExternalGatewayLinkPreview[]
+  mentions?: unknown[]
+  metadata?: BullXExternalGatewayMessageMetadata
+  raw?: TRawMessage
+  room?: BullXExternalGatewayRoomInput
+  text?: string
+  threadId: string
+  userKey?: string
+}
+
+export interface BullXExternalGatewayMessageDeletedEvent<TRawEvent = unknown> {
+  deletedAt?: Date
+  kind: 'deleted' | 'recalled'
+  message?: BullXExternalGatewayMessageInput
+  messageId: string
+  raw?: TRawEvent
+  room?: BullXExternalGatewayRoomInput
+  threadId: string
+}
+
+export interface BullXExternalGatewayReactionEvent<TRawEvent = unknown> {
+  added: boolean
+  emoji: unknown
+  message?: BullXExternalGatewayMessageInput
+  messageId: string
+  raw?: TRawEvent
+  rawEmoji?: string
+  room?: BullXExternalGatewayRoomInput
+  threadId: string
+  user: BullXExternalGatewayAuthor
+}
+
+export interface BullXExternalGatewayActionEvent<TRawEvent = unknown> {
+  actionId: string
+  messageId?: string
+  raw?: TRawEvent
+  room?: BullXExternalGatewayRoomInput
+  threadId: string
+  user: BullXExternalGatewayAuthor
+  value?: string
+}
+
+export interface BullXExternalGatewayFetchMessagesResult<TRawMessage = unknown> {
+  messages: readonly BullXExternalGatewayMessageInput<TRawMessage>[]
   nextCursor?: string
   hasMore?: boolean
 }
 
-export type BullXChatGatewayInboundCapability =
+export type BullXExternalGatewayInboundCapability =
   | 'message_receive'
-  | 'message_edit'
   | 'message_delete'
   | 'message_recall'
   | 'reaction_add'
@@ -268,9 +228,8 @@ export type BullXChatGatewayInboundCapability =
   | 'action_event'
   | 'modal_event'
 
-export type BullXChatGatewayOutboundCapability =
+export type BullXExternalGatewayOutboundCapability =
   | 'post_message'
-  | 'edit_message'
   | 'delete_message'
   | 'add_reaction'
   | 'remove_reaction'
@@ -280,7 +239,7 @@ export type BullXChatGatewayOutboundCapability =
   | 'streaming'
   | 'ephemeral'
 
-export type BullXChatGatewayHistoryCapability =
+export type BullXExternalGatewayHistoryCapability =
   | 'fetch_message'
   | 'fetch_thread_messages'
   | 'fetch_channel_messages'
@@ -291,62 +250,89 @@ export type BullXChatGatewayHistoryCapability =
  *
  * This is a positive contract, not a feature wishlist. The host uses it before
  * attempting side effects so a GitHub-style webhook adapter can truthfully
- * expose receive/edit/delete while a Lark adapter can expose richer lifecycle
- * and outbound primitives.
+ * expose receive/delete while a Lark adapter can expose richer lifecycle and
+ * outbound primitives.
  */
-export interface BullXChatGatewayAdapterCapabilities {
-  history?: readonly BullXChatGatewayHistoryCapability[]
-  inbound?: readonly BullXChatGatewayInboundCapability[]
-  outbound?: readonly BullXChatGatewayOutboundCapability[]
+export interface BullXExternalGatewayAdapterCapabilities {
+  history?: readonly BullXExternalGatewayHistoryCapability[]
+  inbound?: readonly BullXExternalGatewayInboundCapability[]
+  outbound?: readonly BullXExternalGatewayOutboundCapability[]
+}
+
+export interface BullXExternalGatewayWebhookOptions {
+  onOpenModal?: (modal: unknown, contextId: string) => Promise<{ viewId: string } | undefined>
+  runInBackground?: (task: Promise<unknown>) => void
+}
+
+export interface BullXExternalGatewayLogger {
+  debug?(...args: unknown[]): void
+  error?(...args: unknown[]): void
+  info?(...args: unknown[]): void
+  warn?(...args: unknown[]): void
+}
+
+export interface BullXExternalGatewayAdapterContext {
+  emitAction(event: BullXExternalGatewayActionEvent, options?: BullXExternalGatewayWebhookOptions): Promise<void>
+  emitMessage(message: BullXExternalGatewayMessageInput, options?: BullXExternalGatewayWebhookOptions): Promise<void>
+  emitMessageDeleted(
+    event: BullXExternalGatewayMessageDeletedEvent,
+    options?: BullXExternalGatewayWebhookOptions
+  ): Promise<void>
+  emitReaction(event: BullXExternalGatewayReactionEvent, options?: BullXExternalGatewayWebhookOptions): Promise<void>
+  getLogger?(prefix?: string): BullXExternalGatewayLogger
+  getUserName(): string
 }
 
 /**
- * Structural Chat SDK adapter contract exposed to plugins.
+ * Structural External Gateway adapter contract exposed to plugins.
  *
- * Plugins cannot import app-local vendored core types, but Chat Gateway still
- * calls returned objects as Chat SDK adapters. Keep this surface aligned with
- * the methods the host runtime invokes so incomplete adapters fail during
- * plugin development instead of at first webhook delivery.
+ * Plugins cannot import app-local core types. Keep this surface aligned with
+ * the methods the host runtime invokes so incomplete adapters fail during plugin
+ * development instead of at first webhook delivery.
  */
-export interface BullXChatGatewayAdapter {
-  readonly capabilities?: BullXChatGatewayAdapterCapabilities
+export interface BullXExternalGatewayAdapter<TRawMessage = unknown> {
+  readonly capabilities?: BullXExternalGatewayAdapterCapabilities
   addReaction?(threadId: string, messageId: string, emoji: unknown): Promise<void>
   channelIdFromThreadId(threadId: string): string
   decodeThreadId(threadId: string): unknown
   deleteMessage?(threadId: string, messageId: string): Promise<void>
   disconnect?(): Promise<void>
-  editMessage?(threadId: string, messageId: string, message: unknown): Promise<BullXChatGatewayRawMessage>
   encodeThreadId(platformData: unknown): string
-  fetchChannelInfo?(channelId: string): Promise<unknown>
-  fetchChannelMessages?(channelId: string, options?: unknown): Promise<BullXChatGatewayFetchMessagesResult>
-  fetchMessages?(threadId: string, options?: unknown): Promise<BullXChatGatewayFetchMessagesResult>
-  fetchThread?(threadId: string): Promise<unknown>
+  fetchChannelInfo?(channelId: string): Promise<BullXExternalGatewayRoomInput>
+  fetchChannelMessages?(
+    channelId: string,
+    options?: unknown
+  ): Promise<BullXExternalGatewayFetchMessagesResult<TRawMessage>>
+  fetchMessages?(threadId: string, options?: unknown): Promise<BullXExternalGatewayFetchMessagesResult<TRawMessage>>
+  fetchThread?(threadId: string): Promise<BullXExternalGatewayRoomInput>
   getChannelVisibility?(threadId: string): string
-  handleWebhook(request: Request, options?: unknown): Promise<Response>
-  initialize(chat: unknown): void | Promise<void>
+  handleWebhook(request: Request, options?: BullXExternalGatewayWebhookOptions): Promise<Response>
+  initialize(context: BullXExternalGatewayAdapterContext): void | Promise<void>
   isDM?(threadId: string): boolean
   name: string
   openDM?(userId: string): Promise<string>
-  parseMessage(raw: unknown): unknown | Promise<unknown>
-  postChannelMessage?(channelId: string, message: unknown): Promise<BullXChatGatewayRawMessage>
-  postMessage?(threadId: string, message: unknown): Promise<BullXChatGatewayRawMessage>
+  parseMessage(raw: TRawMessage): BullXExternalGatewayMessageInput<TRawMessage> | Promise<BullXExternalGatewayMessageInput<TRawMessage>>
+  postChannelMessage?(channelId: string, message: unknown): Promise<BullXExternalGatewayRawMessage<TRawMessage>>
+  postMessage?(threadId: string, message: unknown): Promise<BullXExternalGatewayRawMessage<TRawMessage>>
   removeReaction?(threadId: string, messageId: string, emoji: unknown): Promise<void>
   renderFormatted(content: unknown): string
   startTyping?(threadId: string, status?: string): Promise<void>
   userName: string
 }
 
-export interface BullXChatGatewayAdapterFactoryContext {
+export interface BullXExternalGatewayAdapterFactoryContext {
   agent: unknown
-  channel: BullXAgentChannelBinding
+  channel: BullXAgentExternalBinding
   config: BullXPluginJsonValue | undefined
-  externalIdentities?: BullXChatGatewayExternalIdentitySink
+  externalIdentities?: BullXExternalGatewayExternalIdentitySink
 }
 
-export interface BullXChatGatewayAdapterFactory {
+export interface BullXExternalGatewayAdapterFactory {
   id: string
-  setup?: BullXChatGatewayAdapterSetup
-  create(context: BullXChatGatewayAdapterFactoryContext): BullXChatGatewayAdapter | Promise<BullXChatGatewayAdapter>
+  setup?: BullXExternalGatewayAdapterSetup
+  create(
+    context: BullXExternalGatewayAdapterFactoryContext
+  ): BullXExternalGatewayAdapter | Promise<BullXExternalGatewayAdapter>
 }
 
 /**
@@ -558,7 +544,7 @@ export interface BullXPluginInteractiveConfig {
   ): BullXPluginInteractiveConfigUpdate | Promise<BullXPluginInteractiveConfigUpdate>
 }
 
-export interface BullXChatGatewayAdapterSetup {
+export interface BullXExternalGatewayAdapterSetup {
   displayName?: BullXPluginLocalizedText
   description?: BullXPluginLocalizedText
   /**
@@ -606,7 +592,7 @@ export interface BullXPlugin {
   metadata: BullXPluginMetadata
   appConfigDefinitions?: readonly BullXAppConfigDefinition[]
   appConfigPatterns?: readonly BullXAppConfigPatternDefinition[]
-  chatGatewayAdapters?: readonly BullXChatGatewayAdapterFactory[]
+  externalGatewayAdapters?: readonly BullXExternalGatewayAdapterFactory[]
   identityProviderAdapters?: readonly BullXIdentityProviderAdapterFactory[]
 }
 

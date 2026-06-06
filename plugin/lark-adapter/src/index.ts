@@ -1,8 +1,9 @@
 import * as lark from '@larksuiteoapi/node-sdk'
 import QRCode from 'qrcode'
 import type {
-  BullXChatGatewayAdapterCapabilities,
-  BullXChatGatewayAdapterFactoryContext,
+  BullXExternalGatewayAdapterContext,
+  BullXExternalGatewayAdapterCapabilities,
+  BullXExternalGatewayAdapterFactoryContext,
   BullXPlatformSubjectProfile,
   BullXIdentityProviderAdapter,
   BullXIdentityProviderAdapterFactoryContext,
@@ -16,10 +17,37 @@ import type {
 import { bullxExternalIdentityNamespaceIdPattern } from '@agentbull/bullx-sdk/plugins'
 import { z } from 'zod'
 
+type BullXAttachment = {
+  data?: Buffer | Blob
+  fetchData?: () => Promise<Buffer>
+  fetchMetadata?: Record<string, string>
+  height?: number
+  mimeType?: string
+  name?: string
+  size?: number
+  type: 'image' | 'file' | 'video' | 'audio'
+  url?: string
+  width?: number
+}
+
+type LarkSdkLogger = {
+  debug?: (...args: unknown[]) => void
+  error?: (...args: unknown[]) => void
+  fatal?: (...args: unknown[]) => void
+  info?: (...args: unknown[]) => void
+  trace?: (...args: unknown[]) => void
+  warn?: (...args: unknown[]) => void
+}
+
 const larkChannelConfigSchema = z
   .object({
     appId: z.string().min(1),
     appSecret: z.string().min(1),
+    /**
+     * Connection realm for both API base URLs and the shared long connection.
+     * Chat and identity realtime sync can share one app only when this matches.
+     */
+    domain: z.enum(['feishu', 'lark']).default('feishu'),
     group_message_mode: z.enum(['addressed_only', 'observe_all', 'may_intervene']).default('observe_all'),
     /**
      * Namespace used when this chat channel records Lark `user_id` subjects.
@@ -62,6 +90,7 @@ const larkChannelConfigSchema = z
   .transform(config => ({
     appId: config.appId,
     appSecret: config.appSecret,
+    domain: config.domain,
     group_message_mode: config.group_message_mode,
     platformSubjectNamespace: config.platformSubjectNamespace ?? config.platformProviderId!,
     userName: config.userName
@@ -83,9 +112,13 @@ const larkIdentityProviderConfigSchema = z
         users: z.boolean().default(true),
         departments: z.boolean().default(true),
         websocket: z.boolean().default(true),
-        pageSize: z.number().int().min(1).max(100).default(100)
+        pageSize: z.number().int().min(1).max(50).default(50)
       })
-      .default({ users: true, departments: true, websocket: true, pageSize: 100 }),
+      .default({ users: true, departments: true, websocket: true, pageSize: 50 }),
+    /*
+     * Kept only so older saved configs can still parse. The current Lark/Feishu
+     * long-connection API does not need event verification token or encrypt key.
+     */
     event: z
       .object({
         verificationToken: z.string().min(1).optional(),
@@ -134,7 +167,7 @@ export function setLarkAppRegistrationForTest(registration: LarkAppRegistration 
   larkAppRegistrationOverride = registration
 }
 
-export function createBullXLarkAdapter(context: BullXChatGatewayAdapterFactoryContext) {
+export function createBullXLarkAdapter(context: BullXExternalGatewayAdapterFactoryContext) {
   const parsed = larkChannelConfigSchema.safeParse(context.config)
   if (!parsed.success) {
     throw new LarkAdapterConfigError(`Invalid Lark adapter config for channel ${context.channel.name}`, {
@@ -230,7 +263,8 @@ const larkInteractiveConfig: BullXPluginInteractiveConfig = {
       },
       values: {
         appId: result.client_id,
-        appSecret: result.client_secret
+        appSecret: result.client_secret,
+        domain: result.user_info?.tenant_brand ?? 'feishu'
       },
       html: result.user_info?.tenant_brand
         ? `<p>Tenant brand: ${escapeHtml(result.user_info.tenant_brand)}</p>`
@@ -246,7 +280,7 @@ export const larkAdapterPlugin = {
     displayName: 'Lark / Feishu Chat Adapter',
     description: 'First-party Lark and Feishu adapters for chat ingress, login, and directory sync.'
   },
-  chatGatewayAdapters: [
+  externalGatewayAdapters: [
     {
       id: 'lark',
       setup: {
@@ -262,6 +296,7 @@ export const larkAdapterPlugin = {
         defaultConfig: {
           appId: '',
           appSecret: '',
+          domain: 'feishu',
           group_message_mode: 'observe_all',
           platformSubjectNamespace: 'lark-main',
           userName: 'BullX'
@@ -283,6 +318,25 @@ export const larkAdapterPlugin = {
               'en-US': 'App Secret',
               'zh-Hans-CN': 'App Secret'
             }
+          },
+          {
+            path: ['domain'],
+            type: 'select',
+            label: {
+              'en-US': 'Domain',
+              'zh-Hans-CN': '域'
+            },
+            defaultValue: 'feishu',
+            options: [
+              {
+                value: 'feishu',
+                label: 'Feishu'
+              },
+              {
+                value: 'lark',
+                label: 'Lark'
+              }
+            ]
           },
           {
             path: ['platformSubjectNamespace'],
@@ -308,9 +362,9 @@ export const larkAdapterPlugin = {
             },
             description: {
               'en-US':
-                'addressed_only only accepts @ mentions. observe_all and may_intervene both persist non-@ group messages until the LLM intervention policy exists.',
+                'addressed_only only accepts @ mentions. observe_all mirrors non-@ group messages only. may_intervene mirrors them and delivers ambient events to the agent.',
               'zh-Hans-CN':
-                'addressed_only 只接收 @ 消息。observe_all 和 may_intervene 在 LLM 介入策略完成前都会只持久化群内非 @ 消息。'
+                'addressed_only 只接收 @ 消息。observe_all 只镜像群内非 @ 消息；may_intervene 会镜像并把它们作为 ambient 事件投递给 agent。'
             },
             defaultValue: 'observe_all',
             options: [
@@ -377,7 +431,7 @@ export const larkAdapterPlugin = {
             users: true,
             departments: true,
             websocket: true,
-            pageSize: 100
+            pageSize: 50
           },
           event: {}
         },
@@ -449,8 +503,8 @@ export const larkAdapterPlugin = {
             path: ['sync', 'websocket'],
             type: 'checkbox',
             label: {
-              'en-US': 'Start contact event WebSocket',
-              'zh-Hans-CN': '启动通讯录事件 WebSocket'
+              'en-US': 'Sync contact changes in realtime',
+              'zh-Hans-CN': '实时同步通讯录变更'
             },
             defaultValue: true
           },
@@ -461,25 +515,7 @@ export const larkAdapterPlugin = {
               'en-US': 'Page size',
               'zh-Hans-CN': '分页大小'
             },
-            defaultValue: 100
-          },
-          {
-            path: ['event', 'verificationToken'],
-            type: 'password',
-            secret: true,
-            label: {
-              'en-US': 'Event verification token',
-              'zh-Hans-CN': '事件 Verification Token'
-            }
-          },
-          {
-            path: ['event', 'encryptKey'],
-            type: 'password',
-            secret: true,
-            label: {
-              'en-US': 'Event encrypt key',
-              'zh-Hans-CN': '事件 Encrypt Key'
-            }
+            defaultValue: 50
           }
         ]
       },
@@ -499,9 +535,325 @@ async function resolveLarkAppRegistration(): Promise<LarkAppRegistration> {
   throw new LarkAdapterConfigError('Lark one-click app registration is not available in installed SDK packages')
 }
 
+type LarkConnectionConfig = {
+  appId: string
+  appSecret: string
+  domain: 'feishu' | 'lark'
+}
+
+type LarkConnectionLease = {
+  connection: SharedLarkConnection
+  release(): void
+}
+
+class SharedLarkConnectionRegistry {
+  private readonly connections = new Map<string, SharedLarkConnection>()
+
+  async acquireChat(
+    config: LarkChannelConfig,
+    adapter: BullXLarkChatAdapter,
+    logger: LarkSdkLogger | undefined
+  ): Promise<LarkConnectionLease> {
+    const connection = this.connectionFor(channelConnectionConfig(config), logger)
+    connection.addChatAdapter(adapter)
+    await connection.start()
+
+    return {
+      connection,
+      release: () => this.releaseChat(connection, adapter)
+    }
+  }
+
+  async acquireIdentity(
+    config: LarkIdentityProviderConfig,
+    adapter: BullXLarkIdentityProviderAdapter,
+    logger: LarkSdkLogger | undefined
+  ): Promise<LarkConnectionLease | undefined> {
+    if (!config.sync.websocket) return undefined
+
+    const connection = this.connectionFor(identityConnectionConfig(config), logger)
+    connection.addIdentityProvider(adapter)
+    await connection.start()
+
+    return {
+      connection,
+      release: () => this.releaseIdentity(connection, adapter)
+    }
+  }
+
+  resetForTest(): void {
+    for (const connection of this.connections.values()) connection.close()
+    this.connections.clear()
+  }
+
+  private connectionFor(config: LarkConnectionConfig, logger: LarkSdkLogger | undefined): SharedLarkConnection {
+    const key = larkConnectionKey(config)
+    const existing = this.connections.get(key)
+    if (existing) {
+      existing.assertSameSecret(config)
+      existing.setLogger(logger)
+      return existing
+    }
+
+    const connection = new SharedLarkConnection(config, logger, () => {
+      if (connection.isUnused()) this.connections.delete(key)
+    })
+    this.connections.set(key, connection)
+    return connection
+  }
+
+  private releaseChat(connection: SharedLarkConnection, adapter: BullXLarkChatAdapter): void {
+    connection.removeChatAdapter(adapter)
+    if (connection.isUnused()) connection.close()
+  }
+
+  private releaseIdentity(connection: SharedLarkConnection, adapter: BullXLarkIdentityProviderAdapter): void {
+    connection.removeIdentityProvider(adapter)
+    if (connection.isUnused()) connection.close()
+  }
+}
+
+class SharedLarkConnection {
+  private channel: lark.LarkChannel | undefined
+  private readonly chatAdapters = new Set<BullXLarkChatAdapter>()
+  private readonly identityProviders = new Set<BullXLarkIdentityProviderAdapter>()
+  private startPromise: Promise<void> | undefined
+
+  constructor(
+    private readonly config: LarkConnectionConfig,
+    private logger: LarkSdkLogger | undefined,
+    private readonly onClose: () => void
+  ) {}
+
+  get rawClient(): lark.Client {
+    return this.requireChannel().rawClient
+  }
+
+  get botIdentity(): lark.BotIdentity | undefined {
+    return this.channel?.botIdentity
+  }
+
+  addChatAdapter(adapter: BullXLarkChatAdapter): void {
+    this.chatAdapters.add(adapter)
+  }
+
+  removeChatAdapter(adapter: BullXLarkChatAdapter): void {
+    this.chatAdapters.delete(adapter)
+  }
+
+  addIdentityProvider(adapter: BullXLarkIdentityProviderAdapter): void {
+    this.identityProviders.add(adapter)
+  }
+
+  removeIdentityProvider(adapter: BullXLarkIdentityProviderAdapter): void {
+    this.identityProviders.delete(adapter)
+  }
+
+  setLogger(logger: LarkSdkLogger | undefined): void {
+    if (logger) this.logger = logger
+  }
+
+  assertSameSecret(config: LarkConnectionConfig): void {
+    if (this.config.appSecret !== config.appSecret) {
+      throw new LarkAdapterConfigError(`Lark app ${config.appId} is configured with multiple app secrets`)
+    }
+  }
+
+  async start(): Promise<void> {
+    if (this.channel) return
+    if (!this.startPromise) this.startPromise = this.doStart()
+
+    return this.startPromise
+  }
+
+  close(): void {
+    const channel = this.channel
+    this.channel = undefined
+    this.startPromise = undefined
+    void channel?.disconnect()
+    this.onClose()
+  }
+
+  isUnused(): boolean {
+    return this.chatAdapters.size === 0 && this.identityProviders.size === 0
+  }
+
+  requireChannel(): lark.LarkChannel {
+    if (!this.channel) throw new LarkAdapterConfigError(`Lark app ${this.config.appId} connection is not initialized`)
+    return this.channel
+  }
+
+  async downloadResource(fileKey: string, type: lark.ResourceType): Promise<Buffer> {
+    return this.requireChannel().downloadResource(fileKey, type)
+  }
+
+  async recallMessage(messageId: string): Promise<void> {
+    await this.requireChannel().recallMessage(messageId)
+  }
+
+  async addReaction(messageId: string, emojiType: string): Promise<void> {
+    await this.requireChannel().addReaction(messageId, emojiType)
+  }
+
+  async removeReactionByEmoji(messageId: string, emojiType: string): Promise<void> {
+    await this.requireChannel().removeReactionByEmoji(messageId, emojiType)
+  }
+
+  async getChatInfo(chatId: string): Promise<lark.ChatInfo> {
+    return this.requireChannel().getChatInfo(chatId)
+  }
+
+  async send(chatId: string, input: lark.SendInput, options?: lark.SendOptions): Promise<lark.SendResult> {
+    return this.requireChannel().send(chatId, input, options)
+  }
+
+  private async doStart(): Promise<void> {
+    const channel = lark.createLarkChannel({
+      appId: this.config.appId,
+      appSecret: this.config.appSecret,
+      domain: sdkDomain(this.config.domain),
+      transport: 'websocket',
+      source: 'bullx-agent',
+      includeRawEvent: true,
+      logger: this.logger as any,
+      policy: {
+        requireMention: false
+      },
+      safety: {
+        staleMessageWindowMs: Number.MAX_SAFE_INTEGER,
+        chatQueue: { enabled: false },
+        dedup: {
+          ttl: 1,
+          maxEntries: 1,
+          sweepIntervalMs: 60_000
+        },
+        batch: {
+          text: { delayMs: 0 },
+          media: { delayMs: 0 }
+        }
+      }
+    })
+
+    try {
+      this.channel = channel
+      channel.on('message', message => this.dispatchMessage(message))
+      channel.on('cardAction', event => this.dispatchCardAction(event))
+      channel.on('reaction', event => this.dispatchReaction(event))
+      this.registerAdditionalDispatcherHandlers(channel)
+      await channel.connect()
+    } catch (error) {
+      this.channel = undefined
+      this.startPromise = undefined
+      throw error
+    }
+  }
+
+  private registerAdditionalDispatcherHandlers(channel: lark.LarkChannel): void {
+    const dispatcher = (channel as any).dispatcher
+    if (typeof dispatcher?.register !== 'function') {
+      throw new LarkAdapterConfigError(
+        'LarkChannel dispatcher internals are unavailable; shared lifecycle events cannot be registered'
+      )
+    }
+
+    dispatcher.register({
+      'im.message.recalled_v1': async (raw: unknown) => this.dispatchRecall(raw),
+      'contact.user.created_v3': async (event: any) => this.dispatchUserUpsert(event.object),
+      'contact.user.updated_v3': async (event: any) => this.dispatchUserUpsert(event.object),
+      'contact.user.deleted_v3': async (event: any) => this.dispatchUserDeleted(event.object),
+      'contact.department.created_v3': async (event: any) => this.dispatchDepartmentUpsert(event.object),
+      'contact.department.updated_v3': async (event: any) => this.dispatchDepartmentUpsert(event.object),
+      'contact.department.deleted_v3': async (event: any) => this.dispatchDepartmentDeleted(event.object),
+      'contact.scope.updated_v3': async () => this.dispatchContactScopeUpdated()
+    })
+    this.logger?.debug?.('Lark shared dispatcher handlers registered', {
+      appId: this.config.appId,
+      domain: this.config.domain,
+      handlers: [
+        'im.message.recalled_v1',
+        'contact.user.created_v3',
+        'contact.user.updated_v3',
+        'contact.user.deleted_v3',
+        'contact.department.created_v3',
+        'contact.department.updated_v3',
+        'contact.department.deleted_v3',
+        'contact.scope.updated_v3'
+      ]
+    })
+  }
+
+  private async dispatchMessage(message: lark.NormalizedMessage): Promise<void> {
+    await Promise.all([...this.chatAdapters].map(adapter => adapter.handleSharedMessage(message)))
+  }
+
+  private async dispatchCardAction(event: lark.CardActionEvent): Promise<void> {
+    await Promise.all([...this.chatAdapters].map(adapter => adapter.handleCardAction(event)))
+  }
+
+  private async dispatchReaction(event: lark.ReactionEvent): Promise<void> {
+    await Promise.all([...this.chatAdapters].map(adapter => adapter.handleReaction(event)))
+  }
+
+  private async dispatchRecall(raw: unknown): Promise<void> {
+    this.logger?.debug?.('Lark recall raw event received by shared dispatcher', {
+      appId: this.config.appId,
+      domain: this.config.domain,
+      chatAdapterCount: this.chatAdapters.size,
+      raw
+    })
+    await Promise.all([...this.chatAdapters].map(adapter => adapter.handleRecall(raw)))
+  }
+
+  private async dispatchUserUpsert(input: unknown): Promise<void> {
+    await Promise.all([...this.identityProviders].map(provider => provider.handleUserUpsertEvent(input)))
+  }
+
+  private async dispatchUserDeleted(input: unknown): Promise<void> {
+    await Promise.all([...this.identityProviders].map(provider => provider.handleUserDeletedEvent(input)))
+  }
+
+  private async dispatchDepartmentUpsert(input: unknown): Promise<void> {
+    await Promise.all([...this.identityProviders].map(provider => provider.handleDepartmentUpsertEvent(input)))
+  }
+
+  private async dispatchDepartmentDeleted(input: unknown): Promise<void> {
+    await Promise.all([...this.identityProviders].map(provider => provider.handleDepartmentDeletedEvent(input)))
+  }
+
+  private async dispatchContactScopeUpdated(): Promise<void> {
+    await Promise.all([...this.identityProviders].map(provider => provider.handleContactScopeUpdated()))
+  }
+}
+
+function channelConnectionConfig(config: LarkChannelConfig): LarkConnectionConfig {
+  return {
+    appId: config.appId,
+    appSecret: config.appSecret,
+    domain: config.domain
+  }
+}
+
+function identityConnectionConfig(config: LarkIdentityProviderConfig): LarkConnectionConfig {
+  return {
+    appId: config.appId,
+    appSecret: config.appSecret,
+    domain: config.domain
+  }
+}
+
+function larkConnectionKey(config: LarkConnectionConfig): string {
+  return `${config.domain}:${config.appId}`
+}
+
+const sharedLarkConnections = new SharedLarkConnectionRegistry()
+
+export function resetLarkSharedConnectionsForTest(): void {
+  sharedLarkConnections.resetForTest()
+}
+
 class BullXLarkIdentityProviderAdapter implements BullXIdentityProviderAdapter {
   private readonly client: lark.Client
-  private wsClient: lark.WSClient | undefined
+  private connectionLease: LarkConnectionLease | undefined
 
   constructor(
     private readonly context: BullXIdentityProviderAdapterFactoryContext,
@@ -567,59 +919,17 @@ class BullXLarkIdentityProviderAdapter implements BullXIdentityProviderAdapter {
     }
   }
 
-  /**
-   * Opens Lark's long-connection event stream for contact changes.
-   *
-   * Event payloads are treated as hints: if an event lacks enough identity data
-   * to produce a provider-scoped `user_id` or department id, the adapter asks
-   * the host to run a full reconciliation instead of inventing an open_id-based
-   * binding.
-   */
   async start(): Promise<void> {
-    if (!this.config.sync.websocket) return
-
-    const dispatcher = new lark.EventDispatcher({
-      verificationToken: this.config.event.verificationToken,
-      encryptKey: this.config.event.encryptKey
-    }).register({
-      'contact.user.created_v3': event => this.handleUserUpsertEvent(event.object),
-      'contact.user.updated_v3': event => this.handleUserUpsertEvent(event.object),
-      'contact.user.deleted_v3': event => this.handleUserDeletedEvent(event.object),
-      'contact.department.created_v3': event => this.handleDepartmentUpsertEvent(event.object),
-      'contact.department.updated_v3': event => this.handleDepartmentUpsertEvent(event.object),
-      'contact.department.deleted_v3': event => this.handleDepartmentDeletedEvent(event.object),
-      'contact.scope.updated_v3': () => this.context.syncSink.requestFullSync('contact.scope.updated_v3')
-    })
-
-    this.wsClient = new lark.WSClient({
-      appId: this.config.appId,
-      appSecret: this.config.appSecret,
-      domain: sdkDomain(this.config.domain),
-      autoReconnect: true,
-      onError: error =>
-        this.context.logger?.warn?.({ error, providerId: this.context.providerId }, 'Lark identity WS error'),
-      onReconnecting: () =>
-        this.context.logger?.warn?.({ providerId: this.context.providerId }, 'Lark identity WS reconnecting'),
-      onReconnected: () =>
-        this.context.logger?.info?.({ providerId: this.context.providerId }, 'Lark identity WS reconnected')
-    })
-
-    try {
-      await this.wsClient.start({ eventDispatcher: dispatcher })
-    } catch (error) {
-      if (!isIgnorableContactSyncError(error)) throw error
-
-      this.context.logger?.warn?.(
-        { providerId: this.context.providerId, error: larkErrorSummary(error) },
-        'Lark identity WebSocket skipped'
-      )
-      this.wsClient = undefined
-    }
+    this.connectionLease = await sharedLarkConnections.acquireIdentity(
+      this.config,
+      this,
+      larkLoggerFromRuntimeLogger(this.context.logger)
+    )
   }
 
   async stop(): Promise<void> {
-    this.wsClient?.close({ force: true })
-    this.wsClient = undefined
+    this.connectionLease?.release()
+    this.connectionLease = undefined
   }
 
   private async listDepartments(): Promise<BullXIdentityProviderGroupRecord[]> {
@@ -730,7 +1040,7 @@ class BullXLarkIdentityProviderAdapter implements BullXIdentityProviderAdapter {
     return mapUserRecord(response.data?.user)
   }
 
-  private async handleUserUpsertEvent(input: unknown): Promise<void> {
+  async handleUserUpsertEvent(input: unknown): Promise<void> {
     const user = await this.hydrateUser(input)
     if (!user) {
       this.context.logger?.warn?.({ providerId: this.context.providerId, input }, 'Lark user event missing user_id')
@@ -741,7 +1051,7 @@ class BullXLarkIdentityProviderAdapter implements BullXIdentityProviderAdapter {
     await this.context.syncSink.upsertUser(user)
   }
 
-  private async handleUserDeletedEvent(input: unknown): Promise<void> {
+  async handleUserDeletedEvent(input: unknown): Promise<void> {
     const user = await this.hydrateUser(input)
     if (!user) {
       this.context.logger?.warn?.(
@@ -755,7 +1065,7 @@ class BullXLarkIdentityProviderAdapter implements BullXIdentityProviderAdapter {
     await this.context.syncSink.disableUser(user.externalId, user.metadata)
   }
 
-  private async handleDepartmentUpsertEvent(input: unknown): Promise<void> {
+  async handleDepartmentUpsertEvent(input: unknown): Promise<void> {
     const group = mapDepartmentRecord(input)
     if (!group) {
       await this.context.syncSink.requestFullSync('lark.department_event_missing_department_id')
@@ -765,7 +1075,7 @@ class BullXLarkIdentityProviderAdapter implements BullXIdentityProviderAdapter {
     await this.context.syncSink.upsertGroup(group)
   }
 
-  private async handleDepartmentDeletedEvent(input: unknown): Promise<void> {
+  async handleDepartmentDeletedEvent(input: unknown): Promise<void> {
     const group = mapDepartmentRecord(input)
     if (!group) {
       await this.context.syncSink.requestFullSync('lark.department_deleted_event_missing_department_id')
@@ -774,98 +1084,45 @@ class BullXLarkIdentityProviderAdapter implements BullXIdentityProviderAdapter {
 
     await this.context.syncSink.deleteGroup(group.externalId)
   }
+
+  async handleContactScopeUpdated(): Promise<void> {
+    await this.context.syncSink.requestFullSync('contact.scope.updated_v3')
+  }
 }
 
 class BullXLarkChatAdapter {
   readonly name = 'lark'
   readonly lockScope = 'thread'
-  readonly persistThreadHistory = true
   readonly capabilities = {
-    inbound: [
-      'message_receive',
-      'message_edit',
-      'message_recall',
-      'reaction_add',
-      'reaction_remove',
-      'action_event'
-    ],
-    outbound: ['post_message', 'edit_message', 'delete_message', 'add_reaction', 'remove_reaction', 'divider', 'card'],
+    inbound: ['message_receive', 'message_recall', 'reaction_add', 'reaction_remove', 'action_event'],
+    outbound: ['post_message', 'delete_message', 'add_reaction', 'remove_reaction', 'divider', 'card'],
     history: ['fetch_thread_messages', 'fetch_channel_messages']
-  } satisfies BullXChatGatewayAdapterCapabilities
+  } satisfies BullXExternalGatewayAdapterCapabilities
   readonly userName: string
 
-  private chat: any
-  private channel: lark.LarkChannel | undefined
+  private chat!: BullXExternalGatewayAdapterContext
+  private connection: SharedLarkConnection | undefined
+  private connectionLease: LarkConnectionLease | undefined
   private readonly p2pChats = new Set<string>()
 
   constructor(
-    private readonly context: BullXChatGatewayAdapterFactoryContext,
+    private readonly context: BullXExternalGatewayAdapterFactoryContext,
     private readonly config: LarkChannelConfig
   ) {
     this.userName = config.userName ?? 'BullX'
   }
 
-  async initialize(chat: any): Promise<void> {
+  async initialize(chat: BullXExternalGatewayAdapterContext): Promise<void> {
     this.chat = chat
-    const channel = lark.createLarkChannel({
-      appId: this.config.appId,
-      appSecret: this.config.appSecret,
-      transport: 'websocket',
-      source: 'bullx-agent',
-      includeRawEvent: true,
-      logger: larkChannelLoggerFromChat(chat),
-      policy: {
-        requireMention: this.config.group_message_mode === 'addressed_only'
-      },
-      safety: {
-        staleMessageWindowMs: Number.MAX_SAFE_INTEGER,
-        chatQueue: { enabled: false },
-        dedup: {
-          ttl: 1,
-          maxEntries: 1,
-          sweepIntervalMs: 60_000
-        },
-        batch: {
-          text: { delayMs: 0 },
-          media: { delayMs: 0 }
-        }
-      }
-    })
-
-    this.channel = channel
-    channel.on('message', async normalizedMessage => {
-      if (normalizedMessage.chatType === 'p2p') this.p2pChats.add(normalizedMessage.chatId)
-
-      const threadId = this.threadIdOf(normalizedMessage)
-      if (normalizedMessageWasEdited(normalizedMessage)) {
-        const message = await this.parseMessage(normalizedMessage)
-        await chat.processMessageEdited(
-          {
-            adapter: this,
-            threadId,
-            messageId: normalizedMessage.messageId,
-            message,
-            editedAt: normalizedMessageEditedAt(normalizedMessage),
-            raw: normalizedMessage.raw ?? normalizedMessage
-          },
-          undefined
-        )
-        return
-      }
-
-      await chat.processMessage(this, threadId, () => this.parseMessage(normalizedMessage))
-    })
-    patchLarkChannelSafetyForEdits(channel)
-    this.registerRecallHandler(channel)
-    channel.on('cardAction', event => this.handleCardAction(event))
-    channel.on('reaction', event => this.handleReaction(event))
-
-    await channel.connect()
+    const lease = await sharedLarkConnections.acquireChat(this.config, this, larkChannelLoggerFromChat(chat))
+    this.connection = lease.connection
+    this.connectionLease = lease
   }
 
   async disconnect(): Promise<void> {
-    await this.channel?.disconnect()
-    this.channel = undefined
+    this.connectionLease?.release()
+    this.connectionLease = undefined
+    this.connection = undefined
   }
 
   async handleWebhook(): Promise<Response> {
@@ -898,9 +1155,15 @@ class BullXLarkChatAdapter {
     return encodeThreadId({ chatId: userId, rootId: '' })
   }
 
-  async parseMessage(normalizedMessage: unknown): Promise<any> {
-    const normalized = asRecord(normalizedMessage)
-    const messageId = requiredString(normalized?.messageId, 'Lark message event missing messageId')
+  async handleSharedMessage(normalizedMessage: lark.NormalizedMessage): Promise<void> {
+    if (!this.chat) return
+    if (normalizedMessage.chatType === 'p2p') this.p2pChats.add(normalizedMessage.chatId)
+
+    await this.chat.emitMessage(await this.parseMessage(normalizedMessage))
+  }
+
+  async parseMessage(normalizedMessage: lark.NormalizedMessage): Promise<any> {
+    const messageId = requiredString(normalizedMessage.messageId, 'Lark message event missing messageId')
     const threadId = this.threadIdOf(normalizedMessage)
     const platformUserId = platformUserIdFromNormalizedMessage(normalizedMessage)
     if (!platformUserId) {
@@ -908,11 +1171,10 @@ class BullXLarkChatAdapter {
       throw new LarkAdapterConfigError('Lark message event is missing sender user_id')
     }
 
-    const content = optionalString(normalized?.content) ?? ''
-    const senderName = optionalString(normalized?.senderName) ?? platformUserId
-    const botIdentity = this.channel?.botIdentity
+    const content = normalizedMessage.content
+    const senderName = optionalString(normalizedMessage.senderName) ?? platformUserId
+    const botIdentity = this.connection?.botIdentity
     const isMe = platformUserId === botIdentity?.userId || platformUserId === botIdentity?.openId
-    const editedAt = normalizedMessageEditedAt(normalizedMessage)
     const message = {
       id: messageId,
       threadId,
@@ -926,12 +1188,11 @@ class BullXLarkChatAdapter {
         isMe
       },
       metadata: {
-        dateSent: dateFromLarkMillis(normalized?.createTime),
-        edited: Boolean(editedAt),
-        editedAt
+        dateSent: dateFromLarkMillis(normalizedMessage.createTime) ?? new Date()
       },
       raw: normalizedMessage,
-      isMention: normalized?.mentionedBot === true
+      attachments: this.attachmentsFromResources(messageId, normalizedMessage.resources),
+      isMention: normalizedMessage.mentionedBot === true
     }
 
     await recordLarkPlatformSubject(this.context, this.config, platformUserId, {
@@ -951,12 +1212,12 @@ class BullXLarkChatAdapter {
   }
 
   async postMessage(threadId: string, message: unknown): Promise<{ id: string; raw: unknown; threadId: string }> {
-    const channel = this.requireChannel()
+    const connection = this.requireConnection()
     const { chatId, rootId } = decodeThreadId(threadId)
     const divider = larkDividerPayloadFromMessage(message)
     if (divider) return this.postSystemDivider(threadId, chatId, divider)
 
-    const result = await channel.send(
+    const result = await connection.send(
       chatId,
       { markdown: this.messageToMarkdown(message) },
       rootId ? { replyTo: rootId } : undefined
@@ -972,26 +1233,27 @@ class BullXLarkChatAdapter {
     return this.postMessage(encodeThreadId({ chatId, rootId: '' }), message)
   }
 
-  async editMessage(
-    threadId: string,
-    messageId: string,
-    message: unknown
-  ): Promise<{ id: string; raw: unknown; threadId: string }> {
-    const channel = this.requireChannel()
-    await channel.editMessage(messageId, this.messageToMarkdown(message))
-    return { id: messageId, threadId, raw: { messageId } }
-  }
-
   async deleteMessage(_threadId: string, messageId: string): Promise<void> {
-    await this.requireChannel().recallMessage(messageId)
+    await this.requireConnection().recallMessage(messageId)
   }
 
   async addReaction(_threadId: string, messageId: string, emoji: unknown): Promise<void> {
-    await this.requireChannel().addReaction(messageId, toLarkEmojiType(emoji))
+    await this.requireConnection().addReaction(messageId, toLarkEmojiType(emoji))
   }
 
   async removeReaction(_threadId: string, messageId: string, emoji: unknown): Promise<void> {
-    await this.requireChannel().removeReactionByEmoji(messageId, toLarkEmojiType(emoji))
+    await this.requireConnection().removeReactionByEmoji(messageId, toLarkEmojiType(emoji))
+  }
+
+  rehydrateAttachment(attachment: BullXAttachment): BullXAttachment {
+    const metadata = attachment.fetchMetadata
+    if (metadata?.provider !== 'lark' || !metadata.fileKey || !metadata.downloadType) return attachment
+
+    return {
+      ...attachment,
+      fetchData: () =>
+        this.requireConnection().downloadResource(metadata.fileKey, metadata.downloadType as lark.ResourceType)
+    }
   }
 
   renderFormatted(content: unknown): string {
@@ -1003,7 +1265,7 @@ class BullXLarkChatAdapter {
       id: threadId,
       channelId: this.channelIdFromThreadId(threadId),
       isDM: this.isDM(threadId),
-      channelVisibility: 'private',
+      roomVisibility: 'private',
       metadata: decodeThreadId(threadId)
     }
   }
@@ -1015,7 +1277,7 @@ class BullXLarkChatAdapter {
   async fetchChannelInfo(channelId: string) {
     const chatId = decodeLarkChannelId(channelId)
     try {
-      const info = await this.requireChannel().getChatInfo(chatId)
+      const info = await this.requireConnection().getChatInfo(chatId)
       return {
         id: channelId,
         name: info.name,
@@ -1050,9 +1312,8 @@ class BullXLarkChatAdapter {
       profile: { displayName: optionalString(event.operator.name) }
     })
 
-    await this.chat.processAction(
+    await this.chat.emitAction(
       {
-        adapter: this,
         actionId,
         messageId: event.messageId,
         threadId,
@@ -1088,8 +1349,7 @@ class BullXLarkChatAdapter {
       metadata: larkActorMetadata(this.config, event.operator, 'reaction')
     })
 
-    this.chat.processReaction({
-      adapter: this,
+    await this.chat.emitReaction({
       added: event.action === 'added',
       emoji: fromLarkEmojiType(event.emojiType),
       messageId: event.messageId,
@@ -1113,7 +1373,7 @@ class BullXLarkChatAdapter {
 
   async fetchChatAndRootFor(messageId: string): Promise<LarkThreadId> {
     try {
-      const response = await this.requireChannel().rawClient.im.v1.message.get({
+      const response = await this.requireConnection().rawClient.im.v1.message.get({
         path: { message_id: messageId }
       })
       const item = asRecord(asRecord(response.data)?.items?.[0]) ?? asRecord(asRecord(response.data)?.message)
@@ -1131,36 +1391,46 @@ class BullXLarkChatAdapter {
     return this.chat?.getLogger?.('lark')
   }
 
-  private registerRecallHandler(channel: lark.LarkChannel): void {
-    const dispatcher = (channel as any).dispatcher
-    if (typeof dispatcher?.register !== 'function') {
-      throw new LarkAdapterConfigError(
-        'LarkChannel dispatcher internals are unavailable; recall events cannot be registered'
-      )
-    }
-
-    dispatcher.register({
-      'im.message.recalled_v1': (raw: unknown) => this.handleRecall(raw)
-    })
-  }
-
-  private async handleRecall(raw: unknown): Promise<void> {
+  async handleRecall(raw: unknown): Promise<void> {
     if (!this.chat) return
 
+    const logger = this._getLogger()
+    logger?.debug?.('Lark recall event entered chat adapter', { raw })
     const message = recalledMessagePayload(raw)
     const messageId = requiredString(message?.message_id, 'Lark recall event missing message_id')
     const chatId = requiredString(message?.chat_id, 'Lark recall event missing chat_id')
-    await this.chat.processMessageDeleted(
+    const threadId = encodeThreadId({ chatId, rootId: optionalString(message?.root_id) ?? messageId })
+    const room = {
+      id: encodeLarkChannelId(chatId),
+      metadata: { chatId },
+      roomVisibility: 'private' as const
+    }
+    logger?.debug?.('Lark recall event parsed', {
+      chatId,
+      messageId,
+      roomId: room.id,
+      threadId,
+      recallTime: message?.recall_time,
+      recallType: message?.recall_type,
+      raw
+    })
+    await this.chat.emitMessageDeleted(
       {
-        adapter: this,
-        threadId: encodeThreadId({ chatId, rootId: optionalString(message?.root_id) ?? messageId }),
+        threadId,
         messageId,
         deletedAt: dateFromLarkMillis(message?.recall_time ?? message?.update_time ?? message?.create_time),
         kind: 'recalled',
+        room,
         raw
       },
       undefined
     )
+    logger?.debug?.('Lark recall event emitted to External Gateway', {
+      chatId,
+      messageId,
+      roomId: room.id,
+      threadId
+    })
   }
 
   private async postSystemDivider(
@@ -1168,7 +1438,7 @@ class BullXLarkChatAdapter {
     chatId: string,
     divider: Record<string, unknown>
   ): Promise<{ id: string; raw: unknown; threadId: string }> {
-    const response = await this.requireChannel().rawClient.im.v1.message.create({
+    const response = await this.requireConnection().rawClient.im.v1.message.create({
       params: { receive_id_type: 'chat_id' },
       data: {
         receive_id: chatId,
@@ -1200,9 +1470,49 @@ class BullXLarkChatAdapter {
     return JSON.stringify(record)
   }
 
-  private requireChannel(): lark.LarkChannel {
-    if (!this.channel) throw new LarkAdapterConfigError('Lark channel is not initialized')
-    return this.channel
+  private attachmentsFromResources(
+    messageId: string,
+    resources: readonly lark.ResourceDescriptor[] | undefined
+  ): BullXAttachment[] {
+    const attachments: BullXAttachment[] = []
+
+    for (const resource of resources ?? []) {
+      const attachment = this.attachmentFromResource(messageId, resource)
+      if (attachment) attachments.push(attachment)
+    }
+
+    return attachments
+  }
+
+  private attachmentFromResource(messageId: string, resource: lark.ResourceDescriptor): BullXAttachment | undefined {
+    const fileKey = optionalString(resource.fileKey)
+    if (!fileKey) return undefined
+
+    const type = larkResourceAttachmentType(resource.type)
+    if (!type) return undefined
+
+    const downloadType: lark.ResourceType = resource.type === 'image' ? 'image' : 'file'
+    const fetchMetadata = compactStringRecord({
+      provider: 'lark',
+      messageId,
+      fileKey,
+      downloadType,
+      resourceType: resource.type,
+      coverImageKey: optionalString(resource.coverImageKey),
+      durationMs: resource.durationMs === undefined ? undefined : String(resource.durationMs)
+    })
+
+    return {
+      type,
+      name: optionalString(resource.fileName),
+      fetchMetadata,
+      fetchData: () => this.requireConnection().downloadResource(fileKey, downloadType)
+    }
+  }
+
+  private requireConnection(): SharedLarkConnection {
+    if (!this.connection) throw new LarkAdapterConfigError('Lark shared connection is not initialized')
+    return this.connection
   }
 }
 
@@ -1215,6 +1525,25 @@ function larkChannelLoggerFromChat(chat: any) {
     error: (...args: unknown[]) => logger?.error?.(String(args[0] ?? ''), ...args.slice(1)),
     trace: (...args: unknown[]) => logger?.debug?.(String(args[0] ?? ''), ...args.slice(1))
   }
+}
+
+function larkLoggerFromRuntimeLogger(logger: BullXIdentityProviderAdapterFactoryContext['logger']): LarkSdkLogger {
+  return {
+    debug: (...args: unknown[]) => logger?.info?.(larkSdkLogData(args), larkSdkLogMessage(args)),
+    info: (...args: unknown[]) => logger?.info?.(larkSdkLogData(args), larkSdkLogMessage(args)),
+    warn: (...args: unknown[]) => logger?.warn?.(larkSdkLogData(args), larkSdkLogMessage(args)),
+    error: (...args: unknown[]) => logger?.error?.(larkSdkLogData(args), larkSdkLogMessage(args)),
+    fatal: (...args: unknown[]) => logger?.error?.(larkSdkLogData(args), larkSdkLogMessage(args)),
+    trace: (...args: unknown[]) => logger?.info?.(larkSdkLogData(args), larkSdkLogMessage(args))
+  }
+}
+
+function larkSdkLogMessage(args: readonly unknown[]): string {
+  return String(args[0] ?? 'Lark SDK')
+}
+
+function larkSdkLogData(args: readonly unknown[]): Record<string, unknown> {
+  return args.length > 1 ? { args: args.slice(1) } : {}
 }
 
 interface LarkThreadId {
@@ -1255,51 +1584,11 @@ function deriveRootIdFromApiMessage(input: unknown): string | undefined {
   return optionalString(message?.root_id) ?? optionalString(message?.message_id)
 }
 
-function normalizedMessageWasEdited(input: unknown): boolean {
-  const normalized = asRecord(input)
-  const editedAt = normalizedMessageEditedAt(input)
-  const rawMessage = asRecord(asRecord(asRecord(input)?.raw)?.message)
-  const createdAt = dateFromLarkMillis(normalized?.createTime ?? rawMessage?.create_time)
-  if (!editedAt) return false
-  if (!createdAt) return false
-
-  return editedAt.getTime() > createdAt.getTime()
-}
-
-function normalizedMessageEditedAt(input: unknown): Date | undefined {
-  const rawMessage = asRecord(asRecord(asRecord(input)?.raw)?.message)
-  return dateFromLarkMillis(rawMessage?.update_time)
-}
-
 function dateFromLarkMillis(value: unknown): Date | undefined {
   const numeric = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : Number.NaN
   if (!Number.isFinite(numeric) || numeric <= 0) return undefined
 
   return new Date(numeric)
-}
-
-function patchLarkChannelSafetyForEdits(channel: lark.LarkChannel): void {
-  const mutable = channel as any
-  const safety = mutable.safety
-  const originalPushMessage = safety?.pushMessage?.bind(safety)
-  const messageHandler = mutable.handlers?.message
-  if (!originalPushMessage || typeof messageHandler !== 'function') {
-    throw new LarkAdapterConfigError(
-      'LarkChannel safety internals are unavailable; edited messages cannot be delivered'
-    )
-  }
-
-  safety.pushMessage = async (message: unknown) => {
-    if (normalizedMessageWasEdited(message)) {
-      // Edits are lifecycle events for the original provider message id. They
-      // must bypass the receive-time mention policy so an addressed message
-      // edited to remove @bot can still recall BullX's earlier reply.
-      await messageHandler(message)
-      return
-    }
-
-    return originalPushMessage(message)
-  }
 }
 
 function larkDividerPayloadFromMessage(message: unknown): Record<string, unknown> | undefined {
@@ -1312,7 +1601,7 @@ function larkDividerPayloadFromMessage(message: unknown): Record<string, unknown
 
 function recalledMessagePayload(raw: unknown): Record<string, any> | undefined {
   const event = asRecord(raw)
-  return asRecord(asRecord(event?.event)?.message) ?? asRecord(event?.message) ?? event
+  return asRecord(asRecord(event?.event)?.message) ?? asRecord(event?.message) ?? asRecord(event?.event) ?? event
 }
 
 function requiredString(value: unknown, message: string): string {
@@ -1334,12 +1623,17 @@ function markdownAstFromText(text: string): Record<string, unknown> {
   }
 }
 
+function larkResourceAttachmentType(type: lark.ResourceDescriptor['type']): BullXAttachment['type'] | undefined {
+  if (type === 'image' || type === 'file' || type === 'audio' || type === 'video') return type
+  return undefined
+}
+
 function stringifySimpleMarkdownContent(content: unknown): string {
   if (typeof content === 'string') return content
 
   /*
    * Plugin adapters should not depend on the app-local mdast serializer from
-   * Chat Gateway core. This small renderer intentionally covers the normalized
+   * External Gateway core. This small renderer intentionally covers the normalized
    * facts this adapter emits itself; richer BullX outbound objects are handled
    * before formatted content reaches this fallback.
    */
@@ -1353,7 +1647,7 @@ function stringifySimpleMarkdownContent(content: unknown): string {
 }
 
 export function fromLarkEmojiType(
-  contextOrEmojiType: BullXChatGatewayAdapterFactoryContext | string,
+  contextOrEmojiType: BullXExternalGatewayAdapterFactoryContext | string,
   maybeEmojiType?: string
 ): unknown {
   const emojiType = maybeEmojiType ?? String(contextOrEmojiType)
@@ -1391,15 +1685,16 @@ const reverseLarkEmojiMap: Record<string, string> = Object.fromEntries(
 )
 
 async function recordLarkPlatformSubject(
-  context: BullXChatGatewayAdapterFactoryContext,
+  context: BullXExternalGatewayAdapterFactoryContext,
   config: LarkChannelConfig,
   externalId: string,
   input: { metadata: { [key: string]: BullXPluginJsonValue }; profile?: BullXPlatformSubjectProfile }
 ): Promise<void> {
   /*
    * This records a Lark `user_id` fact observed through a chat channel. It does
-   * not call, require, or configure any identity-provider adapter; chat gateway
-   * channels and login identity providers are independent plugin capabilities.
+   * not call, require, or configure any identity-provider adapter; External
+   * Gateway channels and login identity providers are independent plugin
+   * capabilities.
    */
   await context.externalIdentities?.upsertPlatformSubject({
     provider: config.platformSubjectNamespace,
@@ -1638,6 +1933,10 @@ function compactJsonObject(input: Record<string, BullXPluginJsonValue | undefine
   return Object.fromEntries(
     Object.entries(input).filter((entry): entry is [string, BullXPluginJsonValue] => entry[1] !== undefined)
   )
+}
+
+function compactStringRecord(input: Record<string, string | undefined>): Record<string, string> {
+  return Object.fromEntries(Object.entries(input).filter((entry): entry is [string, string] => entry[1] !== undefined))
 }
 
 function escapeHtml(value: string): string {

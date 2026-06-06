@@ -107,12 +107,15 @@ export class IdentityProviderRuntime {
       this.providers.set(activation.providerId, runtimeProvider)
       startedProviders.push(activation.providerId)
 
-      if (provider.fullSync) {
-        firstAttempts.push(this.runFullSync(runtimeProvider, log, retryMs).catch(() => {}))
-      }
-
+      // Attach realtime transport first, then run the startup full sync. The
+      // transport catches new incremental events while the full sync reconciles
+      // facts that changed before this process was ready.
       if (provider.start) {
         firstAttempts.push(this.startTransport(runtimeProvider, log, retryMs).catch(() => {}))
+      }
+
+      if (provider.fullSync) {
+        firstAttempts.push(this.runFullSync(runtimeProvider, log, retryMs).catch(() => {}))
       }
     }
 
