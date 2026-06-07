@@ -23,6 +23,9 @@ export interface ClarifyEntry {
   /** When true, the next inbound message is taken as the answer (text-intercept). */
   awaitingText: boolean
   askedOutboundKey: string
+  providerRoomId: string
+  providerThreadId: string
+  cardCapable: boolean
   resolve: (resolution: ClarifyResolution) => void
   timeoutTimer: ReturnType<typeof setTimeout>
   heartbeatTimer: ReturnType<typeof setInterval>
@@ -33,6 +36,10 @@ export interface ClarifyEntry {
 export class AiAgentClarifyRegistry {
   private readonly entries = new Map<string, ClarifyEntry>()
   private readonly reserved = new Set<string>()
+  // Reverse index by provider room so the external-gateway handler can route a
+  // group reply (even non-@mention) to the pending clarify. A room has at most
+  // one active conversation, hence one pending clarify.
+  private readonly roomGate = new Map<string, string>()
 
   /**
    * Synchronously claim the conversation slot before the async send, so a second
@@ -57,6 +64,7 @@ export class AiAgentClarifyRegistry {
       throw new Error(`clarify already pending for conversation ${entry.conversationId}`)
     }
     this.entries.set(entry.conversationId, entry)
+    if (entry.providerRoomId) this.roomGate.set(entry.providerRoomId, entry.conversationId)
   }
 
   has(conversationId: string): boolean {
@@ -65,6 +73,11 @@ export class AiAgentClarifyRegistry {
 
   get(conversationId: string): ClarifyEntry | undefined {
     return this.entries.get(conversationId)
+  }
+
+  /** Conversation with a pending clarify in this provider room, if any (group reply gate). */
+  pendingConversationForRoom(providerRoomId: string): string | undefined {
+    return this.roomGate.get(providerRoomId)
   }
 
   /**
@@ -79,6 +92,9 @@ export class AiAgentClarifyRegistry {
     clearInterval(entry.heartbeatTimer)
     if (entry.signal && entry.onAbort) entry.signal.removeEventListener('abort', entry.onAbort)
     this.entries.delete(conversationId)
+    if (entry.providerRoomId && this.roomGate.get(entry.providerRoomId) === conversationId) {
+      this.roomGate.delete(entry.providerRoomId)
+    }
     entry.resolve(resolution)
     return true
   }

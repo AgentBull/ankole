@@ -16,6 +16,7 @@ import type {
   ExternalGatewaySlashCommandStub
 } from '@/external-gateway/agent-events'
 import type { ExternalGatewayAgentExecutionContext } from '@/external-gateway/agent'
+import type { ExternalGatewayStreamingCardHandle } from '@/external-gateway/core/events'
 import { commandEditIntent, commandFeedbackIntent } from './commands'
 import { loadAiAgentRuntimeProfile, type AiAgentRuntimeProfile } from './config'
 import {
@@ -36,8 +37,9 @@ import { aiAgentAmbientBatcher, type AiAgentAmbientBatcher } from './ambient'
 import { aiAgentCompressionService, type AiAgentCompressionService } from './compression'
 import { aiAgentLifecycleRevisionService, type AiAgentLifecycleRevisionService } from './lifecycle-revisions'
 import { aiAgentRunRegistry, type AiAgentRunRegistry } from './run-registry'
-import { aiAgentClarifyRegistry, type AiAgentClarifyRegistry } from './clarify-registry'
+import { aiAgentClarifyRegistry, type AiAgentClarifyRegistry, type ClarifyEntry } from './clarify-registry'
 import { createClarifyTool, type ClarifyRunBinding } from './tools/clarify-tool'
+import { type ClarifyAnswerValue, parseClarifyAnswerValue, renderClarifyCard } from './tools/clarify-card'
 import { mapAnswer } from './tools/clarify-format'
 import {
   Agent,
@@ -196,11 +198,78 @@ export class AiAgentRuntime {
       await this.acceptAmbient(delivery, context, route, profile)
     } else if (first.deliveryMode === 'command') {
       await this.acceptCommand(delivery, context, route, profile)
+    } else if (first.deliveryMode === 'action') {
+      await this.acceptAction(delivery, context)
     } else if (first.deliveryMode === 'lifecycle') {
       await this.acceptLifecycle(delivery, context, route)
     }
 
     return { status: 'accepted' }
+  }
+
+  /** True when this provider room has a pending clarify (group free-text reply gate). */
+  roomHasPendingClarify(providerRoomId: string): boolean {
+    return this.clarify.pendingConversationForRoom(providerRoomId) !== undefined
+  }
+
+  /**
+   * Resolve a clarify from an interactive card button. First interaction wins and
+   * locks: resolveByConversation is a single-shot funnel, so a second click (any
+   * member) finds no entry and is silently ignored. On success we edit the card to
+   * its locked state (buttons disabled, choice marked).
+   */
+  private async acceptAction(
+    delivery: ExternalGatewayAgentDelivery,
+    context: ExternalGatewayAgentExecutionContext
+  ): Promise<void> {
+    const event = delivery.events[0]
+    if (!event) return
+    const action = (payloadEnvelope(event).data as { action?: { value?: unknown } } | undefined)?.action
+    const answer = parseClarifyAnswerValue(action?.value)
+    if (!answer) return
+
+    const entry = this.clarify.get(answer.correlation_id)
+    const resolved = this.clarify.resolveByConversation(answer.correlation_id, {
+      kind: 'answer',
+      text: answer.choice_value,
+      choiceIndex: answer.choice_index >= 0 ? answer.choice_index : undefined
+    })
+    if (resolved && entry) {
+      await this.enqueueClarifyCardLock(context, event, entry, answer)
+      context.scheduleOutboxDrain()
+    }
+  }
+
+  private async enqueueClarifyCardLock(
+    context: ExternalGatewayAgentExecutionContext,
+    event: ExternalGatewayAgentDelivery['events'][number],
+    entry: ClarifyEntry,
+    answer: ClarifyAnswerValue
+  ): Promise<void> {
+    if (!entry.cardCapable) return
+    const lockedCard = renderClarifyCard({
+      question: entry.question,
+      choices: entry.choices,
+      correlationId: entry.conversationId,
+      locked: true,
+      answeredChoiceIndex: answer.choice_index >= 0 ? answer.choice_index : undefined,
+      answeredText: answer.choice_value
+    })
+    await context.outbox.enqueuePending({
+      agentUid: context.agentUid,
+      bindingName: context.bindingName,
+      intent: {
+        operation: 'edit',
+        outboundKey: `ai-agent-clarify-lock:${entry.conversationId}:${entry.toolCallId}`,
+        providerRoomId: event.providerRoomId,
+        providerThreadId: event.providerThreadId,
+        finalPayload: {
+          targetOutboundKey: entry.askedOutboundKey,
+          card: toJsonObject(lockedCard),
+          fallbackText: `Answered: ${answer.choice_value}`
+        }
+      }
+    })
   }
 
   async recoverExternalGatewayBinding(context: ExternalGatewayAgentExecutionContext): Promise<void> {
@@ -657,10 +726,39 @@ export class AiAgentRuntime {
       bindingName: input.context.bindingName,
       providerRoomId: clarifyRoomId,
       providerThreadId: input.providerThreadId ?? clarifyRoomId,
+      cardCapable: adapterSupportsCapability(input.context.adapter, 'outbound', 'card'),
       outbox: input.context.outbox,
       scheduleOutboxDrain: input.context.scheduleOutboxDrain
     }
     const activeTools = this.buildActiveToolsForRun(binding)
+
+    // Live streaming-card sink (CardKit). Created lazily on the first non-empty
+    // answer text so a thinking-only or instantly-failing turn leaves no empty card.
+    const streamingCapable =
+      Boolean(input.providerThreadId) &&
+      adapterSupportsCapability(input.context.adapter, 'outbound', 'streaming') &&
+      typeof input.context.adapter.beginStreamingCard === 'function'
+    const streamOutboundKey = `ai-agent-stream:${input.conversationId}:${lease.leaseId}`
+    let streamCard: ExternalGatewayStreamingCardHandle | undefined
+    let streamCardStart: Promise<void> | undefined
+    let streamCardFailed = false
+    let latestStreamText = ''
+    const ensureStreamCard = (): void => {
+      if (streamCardFailed || streamCard || streamCardStart) return
+      streamCardStart = input.context.adapter
+        .beginStreamingCard!({
+          threadId: input.providerThreadId!,
+          idempotencyKey: idempotencyKeyFromOutboundKey(streamOutboundKey)
+        })
+        .then(handle => {
+          streamCard = handle
+          void handle.update(latestStreamText)
+        })
+        .catch(() => {
+          streamCardFailed = true
+        })
+    }
+
     const agent = new Agent({
       initialState: {
         systemPrompt: 'You are a BullX AI coworker. Reply in plain text.',
@@ -674,6 +772,19 @@ export class AiAgentRuntime {
       // (the Agent's default convertToLlm would drop them).
       convertToLlm,
       toolExecution: 'parallel',
+      // Feed each streaming answer-text update to the lazy CardKit sink (throttled
+      // adapter-side). Only wired when the channel advertises streaming.
+      onStreamingText: streamingCapable
+        ? (fullText: string) => {
+            if (!fullText) return
+            latestStreamText = fullText
+            if (streamCard) {
+              void streamCard.update(fullText)
+              return
+            }
+            ensureStreamCard()
+          }
+        : undefined,
       // Context transform hook (AgentHarness 'context' event) — extension point for in-run context shaping.
       transformContext: (messages, signal) => this.transformGenerationContext(messages, signal),
       // Tool call policy hooks (AgentHarness tool_call / tool_result) — only wired when tools are active.
@@ -786,6 +897,10 @@ export class AiAgentRuntime {
       }
 
       const text = textFromAgentMessage(assistant).trim()
+      if (streamCardStart) await streamCardStart.catch(() => {})
+      const streamedCard = streamCard
+        ? await this.finalizeStreamingCard(streamCard, assistant, text, streamOutboundKey)
+        : undefined
       const commit = await this.commitAssistantResult({
         assistant,
         bindingName: input.context.bindingName,
@@ -796,7 +911,8 @@ export class AiAgentRuntime {
         providerThreadId: input.providerThreadId,
         routeMetadata: routeMetadata(input.context),
         text,
-        triggerMessageId
+        triggerMessageId,
+        streamedCard
       })
       if (!commit) {
         this.registry.delete(input.conversationId, lease.leaseId)
@@ -944,6 +1060,24 @@ export class AiAgentRuntime {
     return row?.id
   }
 
+  private async finalizeStreamingCard(
+    card: ExternalGatewayStreamingCardHandle,
+    assistant: AssistantMessage,
+    text: string,
+    outboundKey: string
+  ): Promise<{ messageId: string; cardId: string; outboundKey: string } | undefined> {
+    const status =
+      assistant.stopReason === 'aborted' ? 'cancelled' : assistant.stopReason === 'error' ? 'failed' : 'completed'
+    try {
+      await card.finish(text || assistant.errorMessage || '', status)
+    } catch {
+      // Best-effort close: a failed PATCH still leaves a delivered card message, so
+      // the caller records it as sent rather than double-posting the answer.
+    }
+    if (status !== 'completed' || text.length === 0 || !card.messageId || !card.cardId) return undefined
+    return { messageId: card.messageId, cardId: card.cardId, outboundKey }
+  }
+
   private async commitAssistantResult(input: {
     assistant: AssistantMessage
     bindingName: string
@@ -955,6 +1089,7 @@ export class AiAgentRuntime {
     routeMetadata: JsonObject
     text: string
     triggerMessageId: string
+    streamedCard?: { messageId: string; cardId: string; outboundKey: string }
   }): Promise<
     | {
         enqueuedOutput: boolean
@@ -983,7 +1118,7 @@ export class AiAgentRuntime {
       const assistantMessageId = genUUIDv7()
       const isVisibleOutput =
         input.text.length > 0 && input.assistant.stopReason !== 'error' && input.assistant.stopReason !== 'aborted'
-      const outboundKey = `ai-agent-final:${assistantMessageId}`
+      const outboundKey = input.streamedCard?.outboundKey ?? `ai-agent-final:${assistantMessageId}`
       let nextTriggerMessageId: string | undefined
       let nextProviderRoomId = input.providerRoomId
       let nextProviderThreadId = input.providerThreadId
@@ -1011,20 +1146,39 @@ export class AiAgentRuntime {
         const providerRoomId =
           input.providerRoomId ?? stringFromMetadata(conversation.metadata, ['route', 'provider_room_id']) ?? ''
         const providerThreadId = input.providerThreadId ?? input.providerRoomId ?? providerRoomId
+        // A successful streaming card already delivered the answer as a live card
+        // message: record it as sent (drain skips sent rows) so we never double-post.
+        // Otherwise enqueue the usual pending post for the outbox to dispatch.
         await tx
           .insert(ExternalGatewayOutbox)
-          .values({
-            agentUid: conversation.agentUid,
-            bindingName: input.bindingName,
-            providerRoomId,
-            providerThreadId,
-            outboundKey,
-            operation: 'post',
-            finalPayload: jsonbParam({ text: input.text }),
-            status: 'pending',
-            idempotencyKey: idempotencyKeyFromOutboundKey(outboundKey),
-            recoveryState: 'not_started'
-          })
+          .values(
+            input.streamedCard
+              ? {
+                  agentUid: conversation.agentUid,
+                  bindingName: input.bindingName,
+                  providerRoomId,
+                  providerThreadId,
+                  outboundKey,
+                  operation: 'card',
+                  finalPayload: jsonbParam({ text: input.text, fallbackText: input.text }),
+                  providerMessageId: input.streamedCard.messageId,
+                  status: 'sent',
+                  idempotencyKey: idempotencyKeyFromOutboundKey(outboundKey),
+                  recoveryState: 'not_started'
+                }
+              : {
+                  agentUid: conversation.agentUid,
+                  bindingName: input.bindingName,
+                  providerRoomId,
+                  providerThreadId,
+                  outboundKey,
+                  operation: 'post',
+                  finalPayload: jsonbParam({ text: input.text }),
+                  status: 'pending',
+                  idempotencyKey: idempotencyKeyFromOutboundKey(outboundKey),
+                  recoveryState: 'not_started'
+                }
+          )
           .onConflictDoNothing()
       }
 
@@ -1109,6 +1263,10 @@ export class AiAgentRuntime {
     event: ExternalGatewayAgentDelivery['events'][number],
     text: string
   ): Promise<void> {
+    // DM -> divider system notice, group -> compact notice card, neither -> plain
+    // post (Elixir render_control_notice parity). Surface/caps drive only the
+    // operation; the outboundKey stays stable so idempotency is unaffected.
+    const surface = context.adapter.isDM?.(event.providerThreadId) ? 'dm' : 'group'
     await context.outbox.enqueuePending({
       agentUid: context.agentUid,
       bindingName: context.bindingName,
@@ -1116,7 +1274,12 @@ export class AiAgentRuntime {
         commandEventId: event.providerEventId,
         providerRoomId: event.providerRoomId,
         providerThreadId: event.providerThreadId,
-        text
+        text,
+        surface,
+        caps: {
+          dividerCapable: adapterSupportsCapability(context.adapter, 'outbound', 'divider'),
+          cardCapable: adapterSupportsCapability(context.adapter, 'outbound', 'card')
+        }
       })
     })
     context.scheduleOutboxDrain()

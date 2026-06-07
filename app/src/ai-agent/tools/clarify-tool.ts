@@ -1,7 +1,9 @@
 import { Type } from 'typebox'
+import { toJsonObject } from '@/common/json'
 import type { DrizzleExternalGatewayOutbox } from '@/external-gateway/outbox'
 import { type AiAgentClarifyRegistry, aiAgentClarifyRegistry, type ClarifyResolution } from '../clarify-registry'
 import type { AgentTool, AgentToolResult } from '../core'
+import { renderClarifyCard } from './clarify-card'
 import { renderClarifyPrompt } from './clarify-format'
 
 const DEFAULT_TIMEOUT_MS = 600_000 // hermes parity: 10 minutes
@@ -42,6 +44,8 @@ export interface ClarifyRunBinding {
   bindingName: string
   providerRoomId: string
   providerThreadId: string
+  /** Whether the channel can render the interactive clarify card (else plain text). */
+  cardCapable: boolean
   outbox: DrizzleExternalGatewayOutbox
   scheduleOutboxDrain: (availableAt?: Date) => void
 }
@@ -104,15 +108,28 @@ export function createClarifyTool(
       let registered = false
       try {
         const outboundKey = `ai-agent-clarify:${binding.conversationId}:${toolCallId}`
+        const promptText = renderClarifyPrompt(params.question, choices)
         await binding.outbox.enqueuePending({
           agentUid: binding.agentUid,
           bindingName: binding.bindingName,
           intent: {
-            operation: 'post',
+            operation: binding.cardCapable ? 'card' : 'post',
             outboundKey,
             providerRoomId: binding.providerRoomId,
             providerThreadId: binding.providerThreadId,
-            finalPayload: { text: renderClarifyPrompt(params.question, choices) }
+            finalPayload: binding.cardCapable
+              ? {
+                  card: toJsonObject(
+                    renderClarifyCard({
+                      question: params.question,
+                      choices,
+                      correlationId: binding.conversationId
+                    })
+                  ),
+                  fallbackText: promptText,
+                  text: promptText
+                }
+              : { text: promptText }
           }
         })
         binding.scheduleOutboxDrain()
@@ -139,6 +156,9 @@ export function createClarifyTool(
             choices,
             awaitingText: true,
             askedOutboundKey: outboundKey,
+            providerRoomId: binding.providerRoomId,
+            providerThreadId: binding.providerThreadId,
+            cardCapable: binding.cardCapable,
             resolve,
             timeoutTimer,
             heartbeatTimer,

@@ -231,6 +231,30 @@ export interface BullXExternalGatewayMessageReconciliation<TRawMessage = unknown
   raw?: unknown
 }
 
+export type BullXStreamingCardStatus = 'completed' | 'cancelled' | 'failed'
+
+export interface BullXBeginStreamingCardInput {
+  threadId: string
+  rootId?: string
+  idempotencyKey?: string
+  initialText?: string
+}
+
+/**
+ * Live streaming-card session handle (Lark CardKit parity).
+ *
+ * `update` is fed the full answer text so far (the adapter throttles and
+ * diff-applies provider-side); `finish` closes the stream. Implementations must
+ * never throw from `update`/`finish` — streaming is decorative and must not fail
+ * the agent generation that drives it.
+ */
+export interface BullXStreamingCardHandle {
+  cardId: string
+  messageId: string
+  update(fullText: string): Promise<void>
+  finish(finalText: string, status: BullXStreamingCardStatus): Promise<void>
+}
+
 export type BullXExternalGatewayInboundCapability =
   | 'message_receive'
   | 'message_delete'
@@ -302,6 +326,12 @@ export interface BullXExternalGatewayAdapterContext {
 export interface BullXExternalGatewayAdapter<TRawMessage = unknown> {
   readonly capabilities?: BullXExternalGatewayAdapterCapabilities
   addReaction?(threadId: string, messageId: string, emoji: unknown): Promise<void>
+  /**
+   * Begin a live streaming-card session for the agent's incremental answer.
+   * Declared only by adapters that advertise the `streaming` outbound capability;
+   * the host falls back to a single post when absent.
+   */
+  beginStreamingCard?(input: BullXBeginStreamingCardInput): Promise<BullXStreamingCardHandle>
   channelIdFromThreadId(threadId: string): string
   decodeThreadId(threadId: string): unknown
   deleteMessage?(threadId: string, messageId: string, options?: BullXExternalGatewayOutboundOptions): Promise<void>

@@ -5,10 +5,12 @@ import {
   type ExternalGatewayAdapter,
   type ExternalGatewayAdapterCapabilities,
   type ExternalGatewayAdapterContext,
+  type ExternalGatewayBeginStreamingCardInput,
   type ExternalGatewayMessageInput,
   type ExternalGatewayMessageReconciliation,
   type ExternalGatewayOutboundOptions,
   type ExternalGatewayRawMessage,
+  type ExternalGatewayStreamingCardHandle,
   type ExternalGatewayWebhookOptions
 } from '../core'
 import { emoji as coreEmoji } from '../core/emoji'
@@ -60,6 +62,17 @@ export interface MockImAdapterOptions {
   capabilities?: ExternalGatewayAdapterCapabilities
   groupMessageMode?: MockImGroupMessageMode
   userName?: string
+  /** Opt in to the streaming-card path; otherwise the adapter omits beginStreamingCard. */
+  enableStreaming?: boolean
+}
+
+export interface MockImStreamingCardRecord {
+  cardId: string
+  messageId: string
+  threadId: string
+  updates: string[]
+  finalText?: string
+  finalStatus?: 'completed' | 'cancelled' | 'failed'
 }
 
 export interface MockImRawMessage {
@@ -84,6 +97,11 @@ export interface MockImWebhookPayload {
   message?: MockImRawMessage
   messageId?: string
   rawEmoji?: string
+  threadId?: string
+  action?: {
+    actionId: string
+    value: string
+  }
   user?: {
     userId: string
     userName: string
@@ -172,6 +190,7 @@ export class MockImPlatform {
     text?: string
     threadId: string
   }> = []
+  readonly streamingCards: MockImStreamingCardRecord[] = []
 
   private readonly messages = new Map<string, StoredMessage>()
   private readonly observedInboundKeys = new Set<string>()
@@ -356,6 +375,50 @@ export class MockImPlatform {
       id,
       threadId,
       raw: this.toRawMessage(stored)
+    }
+  }
+
+  createStreamingCard(threadId: string): ExternalGatewayStreamingCardHandle {
+    const n = ++this.postSeq
+    const adapterName = threadId.split(':')[0] ?? 'mock'
+    const channelId = threadId.split(':').slice(0, 2).join(':')
+    const cardId = `${adapterName}-card-${n}`
+    const messageId = `${adapterName}-card-msg-${n}`
+    const record: MockImStreamingCardRecord = { cardId, messageId, threadId, updates: [] }
+    this.streamingCards.push(record)
+    const now = new Date()
+    this.messages.set(messageKey(channelId, messageId), {
+      authorId: 'self',
+      channelId,
+      deletedAt: null,
+      id: messageId,
+      isBot: true,
+      isMention: false,
+      raw: { streamingCard: true },
+      reactions: {},
+      revisionAt: now,
+      sentAt: now,
+      surface: threadId.includes(':dm:') ? 'dm' : 'group',
+      text: '',
+      threadId
+    })
+    const setText = (text: string) => {
+      const stored = this.messages.get(messageKey(channelId, messageId))
+      if (stored) stored.text = text
+    }
+    return {
+      cardId,
+      messageId,
+      update: async (fullText: string) => {
+        record.updates.push(fullText)
+        setText(fullText)
+      },
+      finish: async (finalText, status) => {
+        record.finalText = finalText
+        record.finalStatus = status
+        setText(finalText)
+        this.outbound.push({ op: 'stream-card', messageId, text: finalText, threadId })
+      }
     }
   }
 
@@ -544,6 +607,24 @@ export class MockImConversation {
     return this.deleteOrRecall('delete', { ...options, id })
   }
 
+  async clickButton(options: {
+    messageId: string
+    value: string
+    actionId?: string
+    actorId?: string
+    actorName?: string
+  }): Promise<Response> {
+    const actorId = options.actorId ?? 'user-1'
+    const actorName = options.actorName ?? actorId
+    return this.deliverPayload({
+      event: 'action',
+      messageId: options.messageId,
+      threadId: this.threadId,
+      action: { actionId: options.actionId ?? 'clarify_answer', value: options.value },
+      user: { userId: actorId, userName: actorName, fullName: actorName }
+    })
+  }
+
   async react(options: MockImReactionOptions): Promise<Response> {
     return this.reactOrUnreact(true, options)
   }
@@ -638,6 +719,9 @@ export class MockImAdapter implements ExternalGatewayAdapter<MockImRawMessage> {
   readonly capabilities: ExternalGatewayAdapterCapabilities
   readonly userName: string
   context: ExternalGatewayAdapterContext | undefined
+  // Present only when enableStreaming is set, so the runtime's streaming guard
+  // (capability + method) stays false for the default post path.
+  beginStreamingCard?: (input: ExternalGatewayBeginStreamingCardInput) => Promise<ExternalGatewayStreamingCardHandle>
 
   constructor(
     private readonly platform: MockImPlatform,
@@ -647,6 +731,9 @@ export class MockImAdapter implements ExternalGatewayAdapter<MockImRawMessage> {
     this.capabilities = options.capabilities ?? fullMockImCapabilities
     this.userName = options.userName ?? 'Agent'
     this.groupMessageMode = options.groupMessageMode ?? 'observe_all'
+    if (options.enableStreaming) {
+      this.beginStreamingCard = async input => this.platform.createStreamingCard(input.threadId)
+    }
   }
 
   private readonly groupMessageMode: MockImGroupMessageMode
@@ -679,6 +766,27 @@ export class MockImAdapter implements ExternalGatewayAdapter<MockImRawMessage> {
           messageId: payload.messageId,
           raw: payload,
           threadId
+        },
+        options
+      )
+      return Response.json({ ok: true })
+    }
+
+    if (payload.event === 'action' && payload.action && payload.messageId) {
+      await this.context?.emitAction(
+        {
+          actionId: payload.action.actionId,
+          messageId: payload.messageId,
+          threadId: payload.threadId ?? this.threadIdFromChannelAndMessage(payload.messageId),
+          user: {
+            fullName: payload.user?.fullName ?? 'clicker',
+            isBot: false,
+            isMe: false,
+            userId: payload.user?.userId ?? 'user-1',
+            userName: payload.user?.userName ?? 'clicker'
+          },
+          value: payload.action.value,
+          raw: payload
         },
         options
       )
@@ -879,6 +987,13 @@ function postableText(value: unknown): string {
     return value.markdown
   }
   if (typeof value === 'object' && value !== null && 'raw' in value && typeof value.raw === 'string') return value.raw
+  // Card / control-notice / divider payloads carry a fallback text for non-card
+  // surfaces; a real adapter renders the card/divider and projects this text. This
+  // precedes the bare-divider sentinel so a text-bearing divider keeps its text.
+  if (typeof value === 'object' && value !== null && 'fallbackText' in value && typeof value.fallbackText === 'string') {
+    return value.fallbackText
+  }
+  if (typeof value === 'object' && value !== null && 'text' in value && typeof value.text === 'string') return value.text
   if (typeof value === 'object' && value !== null && 'type' in value && value.type === 'divider') return '[divider]'
 
   return JSON.stringify(value)

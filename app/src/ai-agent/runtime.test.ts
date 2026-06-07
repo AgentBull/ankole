@@ -996,6 +996,113 @@ describe('AIAgent pi-ai runtime', () => {
       )
     )
   })
+
+  it('clarify card button resolves the run, and a second click is a no-op (first interaction wins)', async () => {
+    const clarifyRegistry = new AiAgentClarifyRegistry()
+    const setup = await startAiAgent(
+      'clarify_card',
+      [
+        fauxAssistantMessage([fauxToolCall('clarify', { question: 'A or B?', choices: ['A', 'B'] })]),
+        fauxAssistantMessage('you picked A')
+      ],
+      { enableClarify: true, clarifyTimeoutMs: 5_000, clarifyHeartbeatMs: 50, clarifyRegistry }
+    )
+    const dm = setup.platform.dm(setup.conversationOptions())
+
+    await dm.say({ id: 'm1', text: '@Agent help' })
+    await eventually(() => expect(setup.platform.outbound.some(event => event.text?.includes('A or B?'))).toBe(true))
+    const [conversation] = await conversationsFor(setup.agentUid)
+    await eventually(() => expect(clarifyRegistry.has(conversation!.id)).toBe(true))
+
+    const cardPost = setup.platform.outbound.find(event => event.messageId && event.text?.includes('A or B?'))
+    const messageId = cardPost!.messageId!
+    const value = JSON.stringify({
+      bullx_action: 'clarify_answer',
+      correlation_id: conversation!.id,
+      choice_index: 0,
+      choice_value: 'A'
+    })
+
+    await dm.clickButton({ messageId, value })
+    await eventually(() => expect(setup.platform.outbound.some(event => event.text === 'you picked A')).toBe(true))
+    expect(clarifyRegistry.has(conversation!.id)).toBe(false)
+    // the original card is edited to its locked state
+    await eventually(() => expect(setup.platform.outbound.some(event => event.op === 'edit')).toBe(true))
+
+    const before = setup.platform.outbound.length
+    await dm.clickButton({ messageId, value })
+    await Bun.sleep(60)
+    expect(setup.platform.outbound.length).toBe(before)
+  })
+
+  it('group non-@mention reply answers a pending clarify via the room gate', async () => {
+    const clarifyRegistry = new AiAgentClarifyRegistry()
+    const setup = await startAiAgent(
+      'clarify_group_gate',
+      [
+        fauxAssistantMessage([fauxToolCall('clarify', { question: 'pick X or Y?', choices: ['X', 'Y'] })]),
+        fauxAssistantMessage('got it')
+      ],
+      { enableClarify: true, clarifyTimeoutMs: 5_000, clarifyHeartbeatMs: 50, clarifyRegistry, groupMessageMode: 'observe_all' }
+    )
+    const group = setup.platform.group(setup.conversationOptions())
+
+    await group.say({ id: 'g1', text: '@Agent help', isMention: true })
+    await eventually(() => expect(setup.platform.outbound.some(event => event.text?.includes('pick X or Y?'))).toBe(true))
+    const [conversation] = await conversationsFor(setup.agentUid)
+    await eventually(() => expect(clarifyRegistry.has(conversation!.id)).toBe(true))
+
+    // A non-@mention group reply is normally observed-and-dropped; the pending-clarify
+    // gate upgrades it to addressed so it reaches the text-intercept.
+    await group.say({ id: 'g2', text: 'Y', isMention: false })
+    await eventually(() => expect(setup.platform.outbound.some(event => event.text === 'got it')).toBe(true))
+    expect(clarifyRegistry.has(conversation!.id)).toBe(false)
+    // gate closed: a further non-@mention message no longer wakes a generation
+    const before = setup.platform.outbound.length
+    await group.say({ id: 'g3', text: 'unrelated chatter', isMention: false })
+    await Bun.sleep(60)
+    expect(setup.platform.outbound.length).toBe(before)
+  })
+
+  it('streams the answer into a CardKit card and records it as sent without a duplicate post', async () => {
+    const setup = await startAiAgent('streaming_card', [fauxAssistantMessage('hello world')], { enableStreaming: true })
+    const dm = setup.platform.dm(setup.conversationOptions())
+
+    await dm.say({ id: 'm1', text: '@Agent hi' })
+    await eventually(() => expect(setup.platform.streamingCards).toHaveLength(1))
+    const card = setup.platform.streamingCards[0]!
+    await eventually(() => expect(card.finalStatus).toBe('completed'))
+    expect(card.finalText).toBe('hello world')
+    expect(card.updates.length).toBeGreaterThan(0)
+
+    // The card/sent outbox row is written during commit, which runs after finish();
+    // wait for it rather than racing the commit.
+    await eventually(async () => {
+      const cardRows = await DB.select()
+        .from(ExternalGatewayOutbox)
+        .where(
+          and(
+            eq(ExternalGatewayOutbox.agentUid, setup.agentUid),
+            eq(ExternalGatewayOutbox.operation, 'card'),
+            eq(ExternalGatewayOutbox.status, 'sent')
+          )
+        )
+      expect(cardRows.some(row => row.providerMessageId === card.messageId)).toBe(true)
+    })
+    // no duplicate plain post of the same answer
+    expect(setup.platform.outbound.some(event => event.op === 'post' && event.text === 'hello world')).toBe(false)
+  })
+
+  it('falls back to a single post when the adapter does not support streaming', async () => {
+    const setup = await startAiAgent('streaming_disabled', [fauxAssistantMessage('plain answer')], {
+      enableStreaming: false
+    })
+    const dm = setup.platform.dm(setup.conversationOptions())
+
+    await dm.say({ id: 'm1', text: '@Agent hi' })
+    await eventually(() => expect(setup.platform.outbound.some(event => event.op === 'post' && event.text === 'plain answer')).toBe(true))
+    expect(setup.platform.streamingCards).toHaveLength(0)
+  })
 })
 
 async function startAiAgent(
@@ -1009,6 +1116,7 @@ async function startAiAgent(
     clarifyTimeoutMs?: number
     clarifyHeartbeatMs?: number
     enableClarify?: boolean
+    enableStreaming?: boolean
     clarifyRegistry?: AiAgentClarifyRegistry
   } = {}
 ) {
@@ -1034,7 +1142,8 @@ async function startAiAgent(
     create: context =>
       platform.createAdapter(context.channel.name, {
         capabilities: options.adapterCapabilities ?? fullMockImCapabilities,
-        groupMessageMode: options.groupMessageMode ?? 'observe_all'
+        groupMessageMode: options.groupMessageMode ?? 'observe_all',
+        enableStreaming: options.enableStreaming
       })
   })
 

@@ -1,4 +1,5 @@
 import type {
+  BullXBeginStreamingCardInput,
   BullXExternalGatewayActionEvent,
   BullXExternalGatewayAdapter,
   BullXExternalGatewayAdapterCapabilities,
@@ -13,6 +14,8 @@ import type {
   BullXExternalGatewayRawMessage,
   BullXExternalGatewayReactionEvent,
   BullXExternalGatewayRoomInput,
+  BullXStreamingCardHandle,
+  BullXStreamingCardStatus,
   BullXExternalGatewayWebhookOptions
 } from '@agentbull/bullx-sdk/plugins'
 
@@ -39,3 +42,6 @@ export type ExternalGatewayRawMessage<TRawMessage = unknown> = BullXExternalGate
 export type ExternalGatewayReactionEvent<TRawEvent = unknown> = BullXExternalGatewayReactionEvent<TRawEvent>
 export type ExternalGatewayRoomInput = BullXExternalGatewayRoomInput
 export type ExternalGatewayWebhookOptions = BullXExternalGatewayWebhookOptions
+export type ExternalGatewayBeginStreamingCardInput = BullXBeginStreamingCardInput
+export type ExternalGatewayStreamingCardHandle = BullXStreamingCardHandle
+export type ExternalGatewayStreamingCardStatus = BullXStreamingCardStatus

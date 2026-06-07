@@ -6,6 +6,7 @@ export type {
   ExternalGatewayAdapter,
   ExternalGatewayAdapterCapabilities,
   ExternalGatewayAdapterContext,
+  ExternalGatewayBeginStreamingCardInput,
   ExternalGatewayInboundCapability,
   ExternalGatewayMessageDeletedEvent,
   ExternalGatewayMessageInput,
@@ -15,6 +16,8 @@ export type {
   ExternalGatewayRawMessage,
   ExternalGatewayReactionEvent,
   ExternalGatewayRoomInput,
+  ExternalGatewayStreamingCardHandle,
+  ExternalGatewayStreamingCardStatus,
   ExternalGatewayWebhookOptions
 } from './events'
 export { normalizeBullXStream } from './stream'

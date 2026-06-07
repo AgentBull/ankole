@@ -561,6 +561,7 @@ function postableFromFinalPayload(
    */
   if (operation === 'divider') return { ...payload, type: 'divider' }
   if (operation === 'card') {
+    if (payload.kind === 'control_notice') return payload
     if ('card' in payload) return payload
     if (isCardElement(payload)) return payload
     return undefined

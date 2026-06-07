@@ -26,6 +26,13 @@ export interface ExternalGatewayAgentExecutor {
     context: ExternalGatewayAgentExecutionContext
   ): Promise<ExternalGatewayAgentAcceptance>
   recoverExternalGatewayBinding?(context: ExternalGatewayAgentExecutionContext): Promise<void>
+  /**
+   * True when this provider room has a pending clarify. The inbound handler uses
+   * it to route a group reply (even non-@mention) to the parked clarify instead of
+   * dropping it as observed/ambient. The executor (clarify registry) is the single
+   * source of truth; the handler only reads.
+   */
+  roomHasPendingClarify?(providerRoomId: string): boolean
   stop?(): Promise<void> | void
 }
 

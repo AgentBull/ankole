@@ -1,14 +1,18 @@
 import * as lark from '@larksuiteoapi/node-sdk'
 import type {
+  BullXBeginStreamingCardInput,
   BullXExternalGatewayAdapterCapabilities,
   BullXExternalGatewayAdapterContext,
   BullXExternalGatewayAdapterFactoryContext,
   BullXExternalGatewayMessageReconciliation,
+  BullXExternalGatewayOutboundCapability,
   BullXExternalGatewayOutboundOptions,
-  BullXExternalGatewayRawMessage
+  BullXExternalGatewayRawMessage,
+  BullXStreamingCardHandle
 } from '@agentbull/bullx-sdk/plugins'
 import { LarkAdapterConfigError, type LarkChannelConfig } from './config'
 import { sharedLarkConnections, type LarkConnectionLease, type SharedLarkConnection } from './connection'
+import { createLarkStreamingCardSession } from './streaming-card'
 import {
   actorIdFromNormalizedMessage,
   asRecord,
@@ -26,6 +30,7 @@ import {
   fromLarkEmojiType,
   larkActorMetadata,
   larkChannelLoggerFromChat,
+  larkCompactNoticeCard,
   larkDividerPayloadFromMessage,
   larkResourceAttachmentType,
   larkTextContent,
@@ -48,21 +53,7 @@ import {
 export class BullXLarkChatAdapter {
   readonly name = 'lark'
   readonly lockScope = 'thread'
-  readonly capabilities = {
-    inbound: ['message_receive', 'message_recall', 'reaction_add', 'reaction_remove', 'action_event'],
-    outbound: [
-      'post_message',
-      'reply_message',
-      'edit_message',
-      'delete_message',
-      'outbound_idempotency',
-      'outbound_reconciliation',
-      'add_reaction',
-      'remove_reaction',
-      'divider',
-      'card'
-    ]
-  } satisfies BullXExternalGatewayAdapterCapabilities
+  readonly capabilities: BullXExternalGatewayAdapterCapabilities
   readonly userName: string
 
   private chat!: BullXExternalGatewayAdapterContext
@@ -75,6 +66,25 @@ export class BullXLarkChatAdapter {
     private readonly config: LarkChannelConfig
   ) {
     this.userName = config.userName ?? 'BullX'
+    const outbound: BullXExternalGatewayOutboundCapability[] = [
+      'post_message',
+      'reply_message',
+      'edit_message',
+      'delete_message',
+      'outbound_idempotency',
+      'outbound_reconciliation',
+      'add_reaction',
+      'remove_reaction',
+      'divider',
+      'card'
+    ]
+    // 'streaming' is config-gated: the host only attempts CardKit streaming when
+    // declared here, otherwise it falls back to a single final post.
+    if (config.streamingEnabled) outbound.push('streaming')
+    this.capabilities = {
+      inbound: ['message_receive', 'message_recall', 'reaction_add', 'reaction_remove', 'action_event'],
+      outbound
+    }
   }
 
   async initialize(chat: BullXExternalGatewayAdapterContext): Promise<void> {
@@ -185,6 +195,9 @@ export class BullXLarkChatAdapter {
     const divider = larkDividerPayloadFromMessage(message)
     if (divider) return this.postSystemDivider(threadId, chatId, divider, options)
 
+    const card = this.renderOutboundCard(message)
+    if (card) return this.postCard(threadId, chatId, rootId, card, options)
+
     const targetMessageId = options?.targetMessageId ?? (rootId || undefined)
     const uuid = larkUuidFromOptions(options)
     if (targetMessageId) {
@@ -239,6 +252,17 @@ export class BullXLarkChatAdapter {
     message: unknown,
     _options?: BullXExternalGatewayOutboundOptions
   ): Promise<BullXExternalGatewayRawMessage> {
+    const card = this.renderOutboundCard(message)
+    if (card) {
+      // Update an already-sent interactive card via the typed message.patch resource.
+      const response = await this.requireConnection().rawClient.im.v1.message.patch({
+        path: { message_id: messageId },
+        data: { content: JSON.stringify(card) }
+      })
+      assertLarkSuccess(response, 'message card patch')
+      return { id: messageId, threadId, raw: response }
+    }
+
     const response = await this.requireConnection().rawClient.im.v1.message.update({
       path: { message_id: messageId },
       data: {
@@ -484,6 +508,56 @@ export class BullXLarkChatAdapter {
     assertLarkSuccess(response, 'system divider message create')
     const messageId = messageIdFromLarkResponse(response)
     return { id: messageId, threadId, raw: response }
+  }
+
+  private renderOutboundCard(message: unknown): Record<string, unknown> | undefined {
+    const record = asRecord(message)
+    if (!record) return undefined
+    if (record.kind === 'control_notice') {
+      const text = optionalString(record.text) ?? optionalString(record.fallbackText) ?? ''
+      return larkCompactNoticeCard(text)
+    }
+    return asRecord(record.card)
+  }
+
+  async beginStreamingCard(input: BullXBeginStreamingCardInput): Promise<BullXStreamingCardHandle> {
+    const { chatId, rootId } = decodeThreadId(input.threadId)
+    return createLarkStreamingCardSession(this.requireConnection(), {
+      chatId,
+      rootId: input.rootId ?? (rootId || undefined),
+      idempotencyKey: input.idempotencyKey,
+      initialText: input.initialText,
+      intervalMs: this.config.streamUpdateIntervalMs,
+      bufferThreshold: this.config.streamBufferThreshold,
+      logger: { warn: (...args) => this._getLogger()?.warn?.(String(args[0] ?? ''), ...args.slice(1)) }
+    })
+  }
+
+  private async postCard(
+    threadId: string,
+    chatId: string,
+    rootId: string,
+    card: Record<string, unknown>,
+    options?: BullXExternalGatewayOutboundOptions
+  ): Promise<BullXExternalGatewayRawMessage> {
+    const targetMessageId = options?.targetMessageId ?? (rootId || undefined)
+    const uuid = larkUuidFromOptions(options)
+    const content = JSON.stringify(card)
+    if (targetMessageId) {
+      const response = await this.requireConnection().rawClient.im.v1.message.reply({
+        path: { message_id: targetMessageId },
+        data: { msg_type: 'interactive', content, reply_in_thread: Boolean(rootId), uuid }
+      })
+      assertLarkSuccess(response, 'card reply')
+      return { id: messageIdFromLarkResponse(response), threadId, raw: response }
+    }
+
+    const response = await this.requireConnection().rawClient.im.v1.message.create({
+      params: { receive_id_type: 'chat_id' },
+      data: { receive_id: chatId, msg_type: 'interactive', content, uuid }
+    })
+    assertLarkSuccess(response, 'card create')
+    return { id: messageIdFromLarkResponse(response), threadId, raw: response }
   }
 
   private messageToMarkdown(message: unknown): string {

@@ -9,6 +9,7 @@ import {
   type Transport
 } from '@earendil-works/pi-ai'
 import { runAgentLoop, runAgentLoopContinue } from './agent-loop'
+import { textFromAgentMessage } from './bullx'
 import type {
   AfterToolCallContext,
   AfterToolCallResult,
@@ -101,6 +102,12 @@ export interface AgentOptions {
   getApiKey?: (provider: string) => Promise<string | undefined> | string | undefined
   onPayload?: SimpleStreamOptions['onPayload']
   onResponse?: SimpleStreamOptions['onResponse']
+  /**
+   * Fired on every streaming message update with the assistant answer text so
+   * far (thinking excluded). Used to drive live streaming-card rendering. Must
+   * not throw — exceptions are swallowed so they never break the run.
+   */
+  onStreamingText?: (fullText: string) => void
   beforeToolCall?: (context: BeforeToolCallContext, signal?: AbortSignal) => Promise<BeforeToolCallResult | undefined>
   afterToolCall?: (context: AfterToolCallContext, signal?: AbortSignal) => Promise<AfterToolCallResult | undefined>
   prepareNextTurn?: (signal?: AbortSignal) => Promise<AgentLoopTurnUpdate | undefined> | AgentLoopTurnUpdate | undefined
@@ -173,6 +180,7 @@ export class Agent {
   public getApiKey?: (provider: string) => Promise<string | undefined> | string | undefined
   public onPayload?: SimpleStreamOptions['onPayload']
   public onResponse?: SimpleStreamOptions['onResponse']
+  public onStreamingText?: (fullText: string) => void
   public beforeToolCall?: (
     context: BeforeToolCallContext,
     signal?: AbortSignal
@@ -204,6 +212,7 @@ export class Agent {
     this.getApiKey = options.getApiKey
     this.onPayload = options.onPayload
     this.onResponse = options.onResponse
+    this.onStreamingText = options.onStreamingText
     this.beforeToolCall = options.beforeToolCall
     this.afterToolCall = options.afterToolCall
     this.prepareNextTurn = options.prepareNextTurn
@@ -509,6 +518,13 @@ export class Agent {
 
       case 'message_update':
         this._state.streamingMessage = event.message
+        if (this.onStreamingText) {
+          try {
+            this.onStreamingText(textFromAgentMessage(event.message))
+          } catch {
+            // Streaming-card rendering is decorative; never let it break the run.
+          }
+        }
         break
 
       case 'message_end':

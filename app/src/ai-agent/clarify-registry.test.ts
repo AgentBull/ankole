@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'bun:test'
 import { AiAgentClarifyRegistry, type ClarifyResolution } from './clarify-registry'
 
-function register(registry: AiAgentClarifyRegistry, conversationId: string, onResolve: (r: ClarifyResolution) => void) {
+function register(
+  registry: AiAgentClarifyRegistry,
+  conversationId: string,
+  onResolve: (r: ClarifyResolution) => void,
+  providerRoomId = `room-${conversationId}`
+) {
   registry.register({
     conversationId,
     toolCallId: 'tc',
@@ -10,6 +15,9 @@ function register(registry: AiAgentClarifyRegistry, conversationId: string, onRe
     choices: [],
     awaitingText: true,
     askedOutboundKey: 'k',
+    providerRoomId,
+    providerThreadId: providerRoomId,
+    cardCapable: false,
     resolve: onResolve,
     timeoutTimer: setTimeout(() => undefined, 1_000_000),
     heartbeatTimer: setInterval(() => undefined, 1_000_000)
@@ -55,5 +63,14 @@ describe('AiAgentClarifyRegistry', () => {
     })
     expect(registry.abort('c1', 'superseded')).toBe(true)
     expect(resolved).toEqual({ kind: 'superseded' })
+  })
+
+  it('opens a room gate on register and closes it on resolve', () => {
+    const registry = new AiAgentClarifyRegistry()
+    register(registry, 'c1', () => undefined, 'room-a')
+    expect(registry.pendingConversationForRoom('room-a')).toBe('c1')
+    expect(registry.pendingConversationForRoom('room-b')).toBeUndefined()
+    registry.resolveByConversation('c1', { kind: 'answer', text: 'x' })
+    expect(registry.pendingConversationForRoom('room-a')).toBeUndefined()
   })
 })

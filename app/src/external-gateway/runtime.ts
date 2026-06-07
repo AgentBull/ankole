@@ -272,7 +272,8 @@ export class ExternalGatewayRuntime {
           binding: runtimeBinding,
           eventQueue: this.eventQueue,
           projection,
-          scheduleDrain: availableAt => this.scheduleAgentEventDrain(availableAt)
+          scheduleDrain: availableAt => this.scheduleAgentEventDrain(availableAt),
+          roomHasPendingClarify: roomId => this.agentExecutor.roomHasPendingClarify?.(roomId) ?? false
         })
       )
     }

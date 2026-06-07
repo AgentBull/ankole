@@ -148,9 +148,50 @@ export function dateFromLarkMillis(value: unknown): Date | undefined {
 export function larkDividerPayloadFromMessage(message: unknown): Record<string, unknown> | undefined {
   const record = asRecord(message)
   const candidate = asRecord(record?.raw) ?? record
+  // Only the 'divider' outbound operation marks its postable with type:'divider'
+  // (postableFromFinalPayload). control_notice card payloads keep kind only and
+  // fall through to the interactive-card path in postMessage.
   if (candidate?.type !== 'divider') return undefined
 
-  return candidate
+  const text =
+    optionalString(candidate.text) ??
+    optionalString(candidate.fallbackText) ??
+    optionalString(asRecord(asRecord(candidate.params)?.divider_text)?.text) ??
+    ''
+  return larkDividerPayload(text)
+}
+
+/** Feishu system-divider message content (content_mapper.ex render_control_notice_system parity). */
+export function larkDividerPayload(text: string): Record<string, unknown> {
+  return {
+    type: 'divider',
+    params: { divider_text: { text } },
+    options: { need_rollup: true }
+  }
+}
+
+/** Feishu compact notice card (content_mapper.ex compact_notice_card parity): grey notation text, optional hr. */
+export function larkCompactNoticeCard(text: string, options?: { divider?: boolean }): Record<string, unknown> {
+  const elements: Record<string, unknown>[] = []
+  if (options?.divider) elements.push({ tag: 'hr', margin: '0px 0px 0px 0px' })
+  elements.push({
+    tag: 'div',
+    text: { tag: 'plain_text', content: text, text_size: 'notation', text_align: 'left', text_color: 'grey' },
+    margin: '0px 0px 0px 0px'
+  })
+  return {
+    schema: '2.0',
+    config: { update_multi: true },
+    body: {
+      direction: 'vertical',
+      horizontal_spacing: '8px',
+      vertical_spacing: '8px',
+      horizontal_align: 'left',
+      vertical_align: 'top',
+      padding: '12px 12px 12px 12px',
+      elements
+    }
+  }
 }
 
 export function recalledMessagePayload(raw: unknown): Record<string, any> | undefined {

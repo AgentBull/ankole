@@ -23,7 +23,13 @@ export const larkChannelConfigSchema = z
      * encrypted configs do not have to be migrated immediately.
      */
     platformProviderId: z.string().regex(bullxExternalIdentityNamespaceIdPattern).optional(),
-    userName: z.string().min(1).optional()
+    userName: z.string().min(1).optional(),
+    /** Stream the agent's answer into a live CardKit card (vs a single post). */
+    streamingEnabled: z.boolean().default(true),
+    /** Min interval between streaming-card updates, ms (throttle). */
+    streamUpdateIntervalMs: z.number().int().min(0).default(800),
+    /** Flush a streaming-card update once this many new chars accumulate. */
+    streamBufferThreshold: z.number().int().min(1).default(24)
   })
   .strict()
   .superRefine((config, context) => {
@@ -55,7 +61,10 @@ export const larkChannelConfigSchema = z
     domain: config.domain,
     group_message_mode: config.group_message_mode,
     platformSubjectNamespace: config.platformSubjectNamespace ?? config.platformProviderId!,
-    userName: config.userName
+    userName: config.userName,
+    streamingEnabled: config.streamingEnabled,
+    streamUpdateIntervalMs: config.streamUpdateIntervalMs,
+    streamBufferThreshold: config.streamBufferThreshold
   }))
 
 export const larkIdentityProviderConfigSchema = z

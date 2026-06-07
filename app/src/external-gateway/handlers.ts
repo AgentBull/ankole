@@ -37,6 +37,8 @@ export interface CreateExternalGatewayAdapterContextInput {
   logger?: Logger
   projection: ExternalGatewayProjectionSink
   scheduleDrain(availableAt?: Date): void
+  /** Reads the executor's pending-clarify gate so group replies can be routed in. */
+  roomHasPendingClarify?(providerRoomId: string): boolean
 }
 
 export function createExternalGatewayAdapterContext(
@@ -115,7 +117,18 @@ async function handleInboundReceive(
   message: ExternalGatewayMessageInput
 ): Promise<void> {
   const room = roomForMessage(runtime.adapter, message)
-  const delivery = deliveryForMessage(runtime.binding.groupMessageMode, room, message)
+  let delivery = deliveryForMessage(runtime.binding.groupMessageMode, room, message)
+  // pending-clarify gate: a group reply (even non-@mention) must reach the parked
+  // clarify's text-intercept in acceptAddressed, so upgrade it to addressed when this
+  // room is awaiting an answer. The registry is single-shot — the first answer wins
+  // and closes the gate; slash commands are still detected below and take precedence.
+  if (
+    delivery !== 'addressed' &&
+    Boolean(message.text?.trim()) &&
+    runtime.roomHasPendingClarify?.(room.id) === true
+  ) {
+    delivery = 'addressed'
+  }
   if (delivery === 'ignored') return
 
   const tombstoned = await runtime.eventQueue.hasInputTombstone({
