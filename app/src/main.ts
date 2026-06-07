@@ -1,12 +1,5 @@
 import 'reflect-metadata'
-import { logger } from '@/common/logger'
-import { startBullXAgent } from '@/core/application'
+import { startBullXAgent, startWebServer } from '@/core'
 
-if (import.meta.main) {
-  try {
-    await startBullXAgent()
-  } catch (error) {
-    logger.error({ error }, 'Failed to start BullX Agent')
-    process.exit(1)
-  }
-}
+await startBullXAgent()
+await startWebServer()

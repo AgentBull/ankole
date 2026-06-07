@@ -1,60 +1,75 @@
+import { get, isString } from '@pleisto/active-support'
 import type { ExternalGatewayAgentDelivery } from './agent-events'
-import type { ExternalGatewayOutboundIntent } from './outbox'
+import type { ExternalGatewayAdapter } from './core/events'
+import type { ExternalGatewayProjectionSink } from './core/projection'
+import type { DrizzleExternalGatewayOutbox, ExternalGatewayOutboundIntent } from './outbox'
+import type { AgentResult } from '@/principals/agents/service'
 
-export interface ExternalGatewayAgentContext {
+export interface ExternalGatewayAgentExecutionContext {
+  adapter: ExternalGatewayAdapter
+  agent: AgentResult
   agentUid: string
   bindingName: string
+  outbox: DrizzleExternalGatewayOutbox
+  projection: ExternalGatewayProjectionSink
+  providerRealmId?: string | null
+  scheduleOutboxDrain(availableAt?: Date): void
 }
 
-export interface ExternalGatewayAgentHandler {
-  handleExternalGatewayEvents(
+export interface ExternalGatewayAgentAcceptance {
+  status: 'accepted'
+}
+
+export interface ExternalGatewayAgentExecutor {
+  acceptExternalGatewayDelivery(
     delivery: ExternalGatewayAgentDelivery,
-    context: ExternalGatewayAgentContext
-  ): Promise<readonly ExternalGatewayOutboundIntent[]>
+    context: ExternalGatewayAgentExecutionContext
+  ): Promise<ExternalGatewayAgentAcceptance>
+  recoverExternalGatewayBinding?(context: ExternalGatewayAgentExecutionContext): Promise<void>
+  stop?(): Promise<void> | void
 }
 
 /**
- * Temporary agent boundary used until the real LLM loop exists.
+ * Test executor for External Gateway adapter/runtime coverage.
  *
- * It proves that External Gateway can deliver addressed batches to an agent and
- * consume an optional final outbound intent. Ambient and lifecycle events are
- * delivered but do not produce a visible reply in this mock.
+ * Production startup defaults to `AiAgentRuntime`; this mock keeps gateway tests
+ * focused on ingress batching, command parsing, lifecycle delivery, and outbox
+ * dispatch without loading an LLM profile.
  */
-export class MockExternalGatewayAgentHandler implements ExternalGatewayAgentHandler {
-  async handleExternalGatewayEvents(
+export class MockExternalGatewayAgentExecutor implements ExternalGatewayAgentExecutor {
+  async acceptExternalGatewayDelivery(
     delivery: ExternalGatewayAgentDelivery,
-    context: ExternalGatewayAgentContext
-  ): Promise<readonly ExternalGatewayOutboundIntent[]> {
+    context: ExternalGatewayAgentExecutionContext
+  ): Promise<ExternalGatewayAgentAcceptance> {
     const first = delivery.events[0]
-    if (!first || first.deliveryMode !== 'addressed' || first.type !== 'message.received') return []
+    if (!first || first.deliveryMode !== 'addressed' || first.type !== 'message.received') return { status: 'accepted' }
 
     const text = delivery.events
       .map(event => messageTextFromPayload(event.payload))
       .filter((value): value is string => value !== undefined && value.length > 0)
       .join('\n')
 
-    return [
-      {
-        operation: 'post',
-        outboundKey: `mock-agent-final:${delivery.events.map(event => event.providerEventId).join('|')}`,
-        providerRoomId: first.providerRoomId,
-        providerThreadId: first.providerThreadId,
-        finalPayload: {
-          text: `[BullX Agent External Gateway mock:${context.agentUid}]\n\n${text}`
-        }
+    const intent: ExternalGatewayOutboundIntent = {
+      operation: 'post',
+      outboundKey: `mock-agent-final:${delivery.events.map(event => event.providerEventId).join('|')}`,
+      providerRoomId: first.providerRoomId,
+      providerThreadId: first.providerThreadId,
+      finalPayload: {
+        text: `[BullX Agent External Gateway mock:${context.agentUid}]\n\n${text}`
       }
-    ]
+    }
+    await context.outbox.enqueuePending({
+      agentUid: context.agentUid,
+      bindingName: context.bindingName,
+      intent
+    })
+    return { status: 'accepted' }
   }
 }
 
-export const mockExternalGatewayAgentHandler = new MockExternalGatewayAgentHandler()
+export const mockExternalGatewayAgentExecutor = new MockExternalGatewayAgentExecutor()
 
 function messageTextFromPayload(payload: unknown): string | undefined {
-  if (typeof payload !== 'object' || payload === null) return undefined
-  const data = (payload as { data?: unknown }).data
-  if (typeof data !== 'object' || data === null) return undefined
-  const message = (data as { message?: unknown }).message
-  if (typeof message !== 'object' || message === null) return undefined
-  const text = (message as { text?: unknown }).text
-  return typeof text === 'string' ? text : undefined
+  const text = get(payload, 'data.message.text')
+  return isString(text) ? text : undefined
 }

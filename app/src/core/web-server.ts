@@ -139,3 +139,12 @@ function requestHasBody(request: Request): boolean {
 
   return request.headers.has('content-type')
 }
+
+export async function startWebServer() {
+  const app = await createWebServer()
+  app.listen({
+    port: AppEnv.HTTP_PORT,
+    idleTimeout: 0
+  })
+  logger.info({ port: AppEnv.HTTP_PORT }, 'BullX Web Server is listening')
+}

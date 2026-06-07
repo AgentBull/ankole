@@ -5,6 +5,15 @@ import { AppEnv } from '@/config/env'
 import { AppI18nDefaultLocaleConfig } from '@/config/i18n'
 import { DEFAULT_LOCALE, SUPPORTED_LOCALES, isSupportedLocale } from '@/config/i18n-locales'
 import { appendSetCookie } from '@/core/http'
+import {
+  LlmProviderCheckInputSchema,
+  LlmProviderCreateInputSchema,
+  checkLlmProvider,
+  listLlmProviderModels,
+  listLlmProviders,
+  listPiLlmProviders,
+  saveLlmProviders
+} from '@/llm-providers/service'
 import { AdminAuthPublicBaseUrlConfig } from '@/principals/admin-auth/config'
 import { cookieHeader, newOpaqueToken, safeReturnTo } from '@/principals/admin-auth/session'
 import {
@@ -51,6 +60,12 @@ const identityProviderConfigSchema = z
   })
   .strict()
 
+const llmProvidersBodySchema = z
+  .object({
+    providers: z.array(LlmProviderCreateInputSchema)
+  })
+  .strict()
+
 type MutableResponseSet = {
   status?: number | string
 }
@@ -59,6 +74,20 @@ type SetupAccessResult = { ok: true } | { ok: false; error: string }
 
 export function setupRoutes() {
   return new Elysia({ name: 'setup-routes' })
+    .onError(({ error, set }) => {
+      const status = statusFromError(error)
+      set.status = status
+      return {
+        error:
+          error instanceof Error
+            ? error.message
+            : typeof error === 'string'
+              ? error
+              : status === 500
+                ? 'Internal Server Error'
+                : 'request failed'
+      }
+    })
     .get('/api/setup/state', async ({ request }) => {
       const completed = (await appConfigService.get(SetupCompletedConfig)) === true
       const setupSession = readSetupSessionCookie(request.headers.get('cookie'))
@@ -122,6 +151,35 @@ export function setupRoutes() {
       const parsed = pluginSelectionSchema.parse(body)
       const enabledPluginIds = await persistExactEnabledPluginIds(parsed.pluginIds)
       return { enabledPluginIds }
+    })
+    .get('/api/setup/llm-providers', async ({ request, set }) => {
+      const access = await requireActiveSetupSession(request, set)
+      if (!access.ok) return { error: access.error }
+
+      return {
+        providers: await listLlmProviders(),
+        piProviders: listPiLlmProviders()
+      }
+    })
+    .put('/api/setup/llm-providers', async ({ body, request, set }) => {
+      const access = await requireActiveSetupSession(request, set)
+      if (!access.ok) return { error: access.error }
+
+      const parsed = llmProvidersBodySchema.parse(body)
+      return { providers: await saveLlmProviders(parsed.providers) }
+    })
+    .post('/api/setup/llm-providers/check', async ({ body, request, set }) => {
+      const access = await requireActiveSetupSession(request, set)
+      if (!access.ok) return { error: access.error }
+
+      const parsed = LlmProviderCheckInputSchema.parse(body)
+      return await checkLlmProvider(parsed)
+    })
+    .get('/api/setup/llm-providers/:providerId/models', async ({ params, request, set }) => {
+      const access = await requireActiveSetupSession(request, set)
+      if (!access.ok) return { error: access.error }
+
+      return { models: await listLlmProviderModels(params.providerId) }
     })
     .get('/api/setup/identity-provider-adapters', async ({ request, set }) => {
       const access = await requireActiveSetupSession(request, set)
@@ -203,6 +261,12 @@ export function setupRoutes() {
       })
       return { authorizationUrl }
     })
+}
+
+function statusFromError(error: unknown): number {
+  if (error instanceof z.ZodError) return 422
+  if (typeof error === 'object' && error && 'status' in error && typeof error.status === 'number') return error.status
+  return 500
 }
 
 async function requireActiveSetupSession(request: Request, set: MutableResponseSet): Promise<SetupAccessResult> {

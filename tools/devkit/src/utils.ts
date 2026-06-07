@@ -42,6 +42,29 @@ export async function runCompose(args: string[]): Promise<void> {
   })
 }
 
+export type StartComposeServicesArgs = {
+  pull?: boolean
+  wait?: boolean
+  waitTimeout?: number
+}
+
+/**
+ * Bring up every service defined in the Compose file (Postgres, Redis, ...).
+ * Shared by `external-services start` and the `app-db` commands so the two
+ * start paths cannot drift and silently omit a service.
+ */
+export async function startComposeServices({
+  pull = true,
+  wait = true,
+  waitTimeout = 60
+}: StartComposeServicesArgs = {}): Promise<void> {
+  const args = ['up', '--detach', '--remove-orphans']
+  if (pull) args.push('--pull', 'always')
+  if (wait) args.push('--wait', '--wait-timeout', String(waitTimeout))
+
+  await runCompose(args)
+}
+
 export function resolveAppDatabaseName(explicitName?: string): string {
   if (explicitName) return validateDatabaseName(explicitName)
 

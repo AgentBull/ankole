@@ -213,10 +213,22 @@ export interface BullXExternalGatewayActionEvent<TRawEvent = unknown> {
   value?: string
 }
 
-export interface BullXExternalGatewayFetchMessagesResult<TRawMessage = unknown> {
-  messages: readonly BullXExternalGatewayMessageInput<TRawMessage>[]
-  nextCursor?: string
-  hasMore?: boolean
+export interface BullXExternalGatewayOutboundOptions {
+  idempotencyKey?: string
+  operationKey?: string
+  reconciliationHint?: {
+    providerMessageId?: string
+    sentAt?: Date
+  }
+  targetMessageId?: string
+}
+
+export interface BullXExternalGatewayMessageReconciliation<TRawMessage = unknown> {
+  deleted?: boolean
+  exists: boolean
+  message?: BullXExternalGatewayRawMessage<TRawMessage> | BullXExternalGatewayMessageInput<TRawMessage>
+  providerMessageId: string
+  raw?: unknown
 }
 
 export type BullXExternalGatewayInboundCapability =
@@ -230,6 +242,8 @@ export type BullXExternalGatewayInboundCapability =
 
 export type BullXExternalGatewayOutboundCapability =
   | 'post_message'
+  | 'reply_message'
+  | 'edit_message'
   | 'delete_message'
   | 'add_reaction'
   | 'remove_reaction'
@@ -238,12 +252,8 @@ export type BullXExternalGatewayOutboundCapability =
   | 'modal'
   | 'streaming'
   | 'ephemeral'
-
-export type BullXExternalGatewayHistoryCapability =
-  | 'fetch_message'
-  | 'fetch_thread_messages'
-  | 'fetch_channel_messages'
-  | 'backfill_history'
+  | 'outbound_idempotency'
+  | 'outbound_reconciliation'
 
 /**
  * Capability declaration for a concrete chat adapter instance.
@@ -254,7 +264,6 @@ export type BullXExternalGatewayHistoryCapability =
  * outbound primitives.
  */
 export interface BullXExternalGatewayAdapterCapabilities {
-  history?: readonly BullXExternalGatewayHistoryCapability[]
   inbound?: readonly BullXExternalGatewayInboundCapability[]
   outbound?: readonly BullXExternalGatewayOutboundCapability[]
 }
@@ -295,15 +304,10 @@ export interface BullXExternalGatewayAdapter<TRawMessage = unknown> {
   addReaction?(threadId: string, messageId: string, emoji: unknown): Promise<void>
   channelIdFromThreadId(threadId: string): string
   decodeThreadId(threadId: string): unknown
-  deleteMessage?(threadId: string, messageId: string): Promise<void>
+  deleteMessage?(threadId: string, messageId: string, options?: BullXExternalGatewayOutboundOptions): Promise<void>
   disconnect?(): Promise<void>
   encodeThreadId(platformData: unknown): string
   fetchChannelInfo?(channelId: string): Promise<BullXExternalGatewayRoomInput>
-  fetchChannelMessages?(
-    channelId: string,
-    options?: unknown
-  ): Promise<BullXExternalGatewayFetchMessagesResult<TRawMessage>>
-  fetchMessages?(threadId: string, options?: unknown): Promise<BullXExternalGatewayFetchMessagesResult<TRawMessage>>
   fetchThread?(threadId: string): Promise<BullXExternalGatewayRoomInput>
   getChannelVisibility?(threadId: string): string
   handleWebhook(request: Request, options?: BullXExternalGatewayWebhookOptions): Promise<Response>
@@ -311,12 +315,32 @@ export interface BullXExternalGatewayAdapter<TRawMessage = unknown> {
   isDM?(threadId: string): boolean
   name: string
   openDM?(userId: string): Promise<string>
-  parseMessage(raw: TRawMessage): BullXExternalGatewayMessageInput<TRawMessage> | Promise<BullXExternalGatewayMessageInput<TRawMessage>>
-  postChannelMessage?(channelId: string, message: unknown): Promise<BullXExternalGatewayRawMessage<TRawMessage>>
-  postMessage?(threadId: string, message: unknown): Promise<BullXExternalGatewayRawMessage<TRawMessage>>
+  parseMessage(
+    raw: TRawMessage
+  ): BullXExternalGatewayMessageInput<TRawMessage> | Promise<BullXExternalGatewayMessageInput<TRawMessage>>
+  editMessage?(
+    threadId: string,
+    messageId: string,
+    message: unknown,
+    options?: BullXExternalGatewayOutboundOptions
+  ): Promise<BullXExternalGatewayRawMessage<TRawMessage>>
+  postChannelMessage?(
+    channelId: string,
+    message: unknown,
+    options?: BullXExternalGatewayOutboundOptions
+  ): Promise<BullXExternalGatewayRawMessage<TRawMessage>>
+  postMessage?(
+    threadId: string,
+    message: unknown,
+    options?: BullXExternalGatewayOutboundOptions
+  ): Promise<BullXExternalGatewayRawMessage<TRawMessage>>
+  reconcileMessage?(
+    threadId: string,
+    messageId: string,
+    options?: BullXExternalGatewayOutboundOptions
+  ): Promise<BullXExternalGatewayMessageReconciliation<TRawMessage>>
   removeReaction?(threadId: string, messageId: string, emoji: unknown): Promise<void>
   renderFormatted(content: unknown): string
-  startTyping?(threadId: string, status?: string): Promise<void>
   userName: string
 }
 
@@ -588,12 +612,58 @@ export interface BullXPluginMetadata {
   description?: string
 }
 
+export type BullXWebProviderKind = 'search' | 'extract'
+
+export interface BullXWebSearchResult {
+  title: string
+  url: string
+  snippet: string
+}
+
+export interface BullXWebExtractResult {
+  url: string
+  title: string
+  text: string
+  error?: string
+}
+
+export interface BullXWebProviderFactoryContext {
+  /** Resolve a registered (plugin-declared) app-config secret by key. */
+  getSecret(key: string): Promise<string | undefined>
+  isProduction: boolean
+  logger?: {
+    debug?(data: unknown, message: string): void
+    info?(data: unknown, message: string): void
+    warn?(data: unknown, message: string): void
+    error?(data: unknown, message: string): void
+  }
+}
+
+/**
+ * A web search/extract provider contributed by a plugin. Mirrors the host's
+ * built-in provider contract; the host adapts it into the web provider registry
+ * consumed by the web_search / web_extract tools.
+ */
+export interface BullXWebProvider {
+  id: string
+  supports: readonly BullXWebProviderKind[]
+  available(kind: BullXWebProviderKind): boolean | Promise<boolean>
+  search?(args: { query: string; limit?: number }, signal?: AbortSignal): Promise<BullXWebSearchResult[]>
+  extract?(args: { urls: string[] }, signal?: AbortSignal): Promise<BullXWebExtractResult[]>
+}
+
+export interface BullXWebProviderFactory {
+  id: string
+  create(context: BullXWebProviderFactoryContext): BullXWebProvider | Promise<BullXWebProvider>
+}
+
 export interface BullXPlugin {
   metadata: BullXPluginMetadata
   appConfigDefinitions?: readonly BullXAppConfigDefinition[]
   appConfigPatterns?: readonly BullXAppConfigPatternDefinition[]
   externalGatewayAdapters?: readonly BullXExternalGatewayAdapterFactory[]
   identityProviderAdapters?: readonly BullXIdentityProviderAdapterFactory[]
+  webProviders?: readonly BullXWebProviderFactory[]
 }
 
 export function defineBullXPlugin<const TPlugin extends BullXPlugin>(plugin: TPlugin): TPlugin {

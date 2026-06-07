@@ -18,12 +18,7 @@ const sqlClient = new BunSQL(AppEnv.DATABASE_URL, {
     logger.trace('PostgreSQL connection opened')
   },
   onclose: error => {
-    if (error && !closingDatabase) {
-      logger.error({ error }, 'PostgreSQL connection closed with error')
-      return
-    }
-
-    logger.debug('PostgreSQL connection closed')
+    if (error && !closingDatabase) logger.error({ error }, 'PostgreSQL connection closed with error')
   }
 })
 

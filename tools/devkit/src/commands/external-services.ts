@@ -1,20 +1,6 @@
 import { Crust } from '@crustjs/core'
 
-import { runCompose } from '../utils'
-
-type StartArgs = {
-  pull?: boolean
-  wait?: boolean
-  waitTimeout?: number
-}
-
-const startServices = async ({ pull = true, wait = true, waitTimeout = 60 }: StartArgs): Promise<void> => {
-  const args = ['up', '--detach', '--remove-orphans']
-  if (pull) args.push('--pull', 'always')
-  if (wait) args.push('--wait', '--wait-timeout', String(waitTimeout))
-
-  await runCompose(args)
-}
+import { runCompose, startComposeServices } from '../utils'
 
 export function externalServicesCommand(): Crust {
   return new Crust('external-services')
@@ -46,7 +32,7 @@ export function externalServicesCommand(): Crust {
           }
         })
         .run(({ flags }) =>
-          startServices({
+          startComposeServices({
             pull: flags.pull,
             wait: flags.wait,
             waitTimeout: flags['wait-timeout']

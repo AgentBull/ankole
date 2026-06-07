@@ -3,6 +3,7 @@ import {
   boolean,
   check,
   index,
+  integer,
   jsonb,
   pgTable,
   primaryKey,
@@ -194,6 +195,12 @@ export const ExternalGatewayOutbox = pgTable(
     finalPayload: jsonb('final_payload').$type<JsonObject>().default({}).notNull(),
     status: text('status').default('pending').notNull(),
     providerMessageId: text('provider_message_id'),
+    idempotencyKey: text('idempotency_key'),
+    retryCount: integer('retry_count').default(0).notNull(),
+    lastAttemptAt: timestamp('last_attempt_at', { withTimezone: true }),
+    lastError: text('last_error'),
+    platformSendStartedAt: timestamp('platform_send_started_at', { withTimezone: true }),
+    recoveryState: text('recovery_state').default('not_started').notNull(),
     safeError: text('safe_error'),
     createdAt: timestamp('created_at', { withTimezone: true })
       .default(sql`now()`)
@@ -208,14 +215,19 @@ export const ExternalGatewayOutbox = pgTable(
       columns: [t.agentUid, t.bindingName, t.outboundKey]
     }),
     index('external_gateway_outbox_status_index').on(t.status, t.createdAt),
+    index('external_gateway_outbox_binding_pending_index').on(t.agentUid, t.bindingName, t.status, t.createdAt),
     check('external_gateway_outbox_final_payload_object', sql`jsonb_typeof(${t.finalPayload}) = 'object'`),
     check(
       'external_gateway_outbox_status_check',
       sql`${t.status} in ('pending', 'sent', 'failed', 'unsupported')`
     ),
     check(
+      'external_gateway_outbox_recovery_state_check',
+      sql`${t.recoveryState} in ('not_started', 'send_attempt_started', 'unknown_after_send')`
+    ),
+    check(
       'external_gateway_outbox_operation_check',
-      sql`${t.operation} in ('post', 'delete', 'reaction_add', 'reaction_remove', 'modal', 'card', 'divider')`
+      sql`${t.operation} in ('post', 'reply', 'edit', 'delete', 'reaction_add', 'reaction_remove', 'modal', 'card', 'divider')`
     )
   ]
 )

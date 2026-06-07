@@ -1,4 +1,6 @@
 import type { BullXExternalGatewayExternalIdentitySink } from '@agentbull/bullx-sdk/plugins'
+import { get, isNonEmptyString, isString } from '@pleisto/active-support'
+import { aiAgentRuntime } from '@/ai-agent/runtime'
 import { singleton } from '@/common/di'
 import { logger } from '@/common/logger'
 import { type AppConfigJsonValue, appConfigService } from '@/config/app-configure'
@@ -6,7 +8,7 @@ import { type AgentResult, listActiveAgents } from '@/principals/agents/service'
 import { upsertPlatformSubjectHuman } from '@/principals/external-identities/service'
 import { normalizeUid } from '@/principals/principals/service'
 import { type ExternalGatewayAdapterFactory, resolveExternalGatewayAdapterFactory } from './adapter-registry'
-import { mockExternalGatewayAgentHandler, type ExternalGatewayAgentHandler } from './agent'
+import type { ExternalGatewayAgentExecutor } from './agent'
 import {
   externalGatewayAgentEventQueue,
   type DrizzleExternalGatewayAgentEventQueue,
@@ -74,7 +76,7 @@ export interface ExternalGatewayRuntimeStats {
  * app-config service, and DI adapter factory registry by default.
  */
 export interface ExternalGatewayRuntimeStartOptions {
-  agentHandler?: ExternalGatewayAgentHandler
+  agentExecutor?: ExternalGatewayAgentExecutor
   eventQueue?: DrizzleExternalGatewayAgentEventQueue
   getChannelConfig?: (key: string) => Promise<AppConfigJsonValue | undefined>
   loadActiveAgents?: () => Promise<AgentResult[]>
@@ -103,7 +105,7 @@ export class ExternalGatewayRuntimeError extends Error {
 @singleton()
 export class ExternalGatewayRuntime {
   private readonly instances = new Map<string, AgentChatRuntimeInstance>()
-  private agentHandler: ExternalGatewayAgentHandler = mockExternalGatewayAgentHandler
+  private agentExecutor: ExternalGatewayAgentExecutor = aiAgentRuntime
   private drainingAgentEvents = false
   private eventQueue: DrizzleExternalGatewayAgentEventQueue = externalGatewayAgentEventQueue
   private outbox: DrizzleExternalGatewayOutbox = externalGatewayOutbox
@@ -140,6 +142,8 @@ export class ExternalGatewayRuntime {
         logger.error({ error }, 'Failed to finish External Gateway agent event drain before shutdown')
       })
     }
+
+    await this.agentExecutor.stop?.()
 
     const instances = [...this.instances.values()]
     this.instances.clear()
@@ -196,7 +200,7 @@ export class ExternalGatewayRuntime {
     const loadActiveAgents = options.loadActiveAgents ?? listActiveAgents
     const agents = await loadActiveAgents()
     const instances = new Map<string, AgentChatRuntimeInstance>()
-    this.agentHandler = options.agentHandler ?? mockExternalGatewayAgentHandler
+    this.agentExecutor = options.agentExecutor ?? aiAgentRuntime
     this.eventQueue = options.eventQueue ?? externalGatewayAgentEventQueue
     this.outbox = options.outbox ?? externalGatewayOutbox
     this.projection = options.projection ?? externalGatewayProjectionSink
@@ -215,6 +219,12 @@ export class ExternalGatewayRuntime {
       this.started = true
       const stats = this.stats()
       this.scheduleAgentEventDrain()
+      for (const [agentUid, instance] of this.instances) {
+        for (const binding of instance.bindings) {
+          this.scheduleOutboxDrain(agentUid, binding.name)
+          await this.recoverAgentBinding(instance, binding.name)
+        }
+      }
       logger.info(stats, 'External Gateway runtime started')
       return stats
     } catch (error) {
@@ -311,11 +321,19 @@ export class ExternalGatewayRuntime {
         const delivery = await this.eventQueue.claimReady({
           agentUids: [...this.instances.keys()]
         })
-        if (!delivery) return
+        if (!delivery) {
+          const nextAvailableAt = await this.eventQueue.nextPendingAvailableAt({
+            agentUids: [...this.instances.keys()]
+          })
+          if (nextAvailableAt) this.scheduleAgentEventDrain(nextAvailableAt)
+          return
+        }
 
         try {
           await this.deliverAgentEvents(delivery)
           await this.eventQueue.markDone(delivery.events)
+          const first = delivery.events[0]
+          if (first) this.scheduleOutboxDrain(first.agentUid, first.bindingName)
         } catch (error) {
           await this.eventQueue.markFailed(delivery.events, error)
           logger.error(
@@ -334,37 +352,65 @@ export class ExternalGatewayRuntime {
     if (!first) return
 
     const instance = this.instances.get(first.agentUid)
-    if (!instance)
+    if (!instance) {
       throw new ExternalGatewayRuntimeError(`Agent is not ready for External Gateway event: ${first.agentUid}`)
+    }
 
     const adapter = instance.adapters[first.bindingName]
     if (!adapter) {
       throw new ExternalGatewayRuntimeError(`Binding is not ready for External Gateway event: ${first.bindingName}`)
     }
 
-    const intents = await this.agentHandler.handleExternalGatewayEvents(delivery, {
+    await this.agentExecutor.acceptExternalGatewayDelivery(delivery, {
+      adapter,
+      agent: instance.agent,
       agentUid: first.agentUid,
-      bindingName: first.bindingName
+      bindingName: first.bindingName,
+      outbox: this.outbox,
+      projection: this.projection,
+      providerRealmId: providerRealmIdFromPayload(first.payload),
+      scheduleOutboxDrain: availableAt => this.scheduleOutboxDrain(first.agentUid, first.bindingName, availableAt)
     })
+  }
 
-    if (intents.length === 0) return
+  private async recoverAgentBinding(instance: AgentChatRuntimeInstance, bindingName: string): Promise<void> {
+    const adapter = instance.adapters[bindingName]
+    if (!adapter || !this.agentExecutor.recoverExternalGatewayBinding) return
 
-    for (const intent of intents) {
-      /*
-       * `outbox.dispatch` records provider failure on the outbox row and returns
-       * a terminal row instead of throwing for ordinary send failures. Exceptions
-       * that still reach this point are gateway/DB/agent-boundary failures and
-       * should keep the input event from being marked done.
-       */
-      await this.outbox.dispatch({
-        adapter,
-        agent: instance.agent,
-        bindingName: first.bindingName,
-        intent,
-        projection: this.projection,
-        room: roomFromPayload(first.payload)
+    await this.agentExecutor.recoverExternalGatewayBinding({
+      adapter,
+      agent: instance.agent,
+      agentUid: instance.agent.agent.uid,
+      bindingName,
+      outbox: this.outbox,
+      projection: this.projection,
+      scheduleOutboxDrain: availableAt => this.scheduleOutboxDrain(instance.agent.agent.uid, bindingName, availableAt)
+    })
+  }
+
+  private scheduleOutboxDrain(agentUid: string, bindingName: string, availableAt?: Date): void {
+    const delayMs = Math.max(0, (availableAt?.getTime() ?? Date.now()) - Date.now())
+    const timer = setTimeout(() => {
+      this.drainTimers.delete(timer)
+      this.runOutboxDrain(agentUid, bindingName).catch(error => {
+        logger.error({ error, agentUid, bindingName }, 'External Gateway outbox drain failed')
       })
-    }
+    }, delayMs)
+    this.drainTimers.add(timer)
+  }
+
+  private async runOutboxDrain(agentUid: string, bindingName: string): Promise<void> {
+    const instance = this.instances.get(agentUid)
+    if (!instance) return
+    const adapter = instance.adapters[bindingName]
+    if (!adapter) return
+    await this.outbox.dispatchPendingForBinding({
+      adapter,
+      agent: instance.agent,
+      bindingName,
+      projection: this.projection,
+      room: {}
+    })
   }
 
   private async shutdownInstances(instances: AgentChatRuntimeInstance[]): Promise<void> {
@@ -394,20 +440,11 @@ function resolveGroupMessageMode(
 }
 
 function groupMessageModeFromConfig(config: AppConfigJsonValue | undefined): GroupMessageMode | undefined {
-  if (typeof config !== 'object' || config === null || Array.isArray(config)) return undefined
-
-  const mode = config.group_message_mode ?? config.groupMessageMode
-  if (typeof mode === 'string' && groupMessageModes.has(mode as GroupMessageMode)) return mode as GroupMessageMode
-
-  return undefined
+  const mode = get(config, 'group_message_mode') ?? get(config, 'groupMessageMode')
+  return isString(mode) && groupMessageModes.has(mode as GroupMessageMode) ? (mode as GroupMessageMode) : undefined
 }
 
-function roomFromPayload(payload: unknown): Record<string, unknown> {
-  if (typeof payload !== 'object' || payload === null) return {}
-  const data = (payload as { data?: unknown }).data
-  if (typeof data !== 'object' || data === null) return {}
-  const room = (data as { room?: unknown }).room
-  if (typeof room !== 'object' || room === null || Array.isArray(room)) return {}
-
-  return room as Record<string, unknown>
+function providerRealmIdFromPayload(payload: unknown): string | undefined {
+  const realm = get(payload, 'data.room.metadata.providerRealmId') ?? get(payload, 'data.room.metadata.tenantKey')
+  return isNonEmptyString(realm) ? realm : undefined
 }

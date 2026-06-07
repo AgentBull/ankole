@@ -5,8 +5,9 @@ import {
   type ExternalGatewayAdapter,
   type ExternalGatewayAdapterCapabilities,
   type ExternalGatewayAdapterContext,
-  type ExternalGatewayFetchResult,
   type ExternalGatewayMessageInput,
+  type ExternalGatewayMessageReconciliation,
+  type ExternalGatewayOutboundOptions,
   type ExternalGatewayRawMessage,
   type ExternalGatewayWebhookOptions
 } from '../core'
@@ -121,7 +122,11 @@ const fullInboundCapabilities = [
 
 const fullOutboundCapabilities = [
   'post_message',
+  'reply_message',
+  'edit_message',
   'delete_message',
+  'outbound_idempotency',
+  'outbound_reconciliation',
   'add_reaction',
   'remove_reaction',
   'divider',
@@ -131,17 +136,9 @@ const fullOutboundCapabilities = [
   'ephemeral'
 ] as const
 
-const fullHistoryCapabilities = [
-  'fetch_message',
-  'fetch_thread_messages',
-  'fetch_channel_messages',
-  'backfill_history'
-] as const
-
 export const fullMockImCapabilities = {
   inbound: fullInboundCapabilities,
-  outbound: fullOutboundCapabilities,
-  history: fullHistoryCapabilities
+  outbound: fullOutboundCapabilities
 } as const satisfies ExternalGatewayAdapterCapabilities
 
 export function mockImCapabilitiesWithout(
@@ -152,7 +149,6 @@ export function mockImCapabilitiesWithout(
   return {
     inbound: [...source.inbound],
     outbound: [...source.outbound],
-    history: [...source.history],
     [section]: [...(source[section] ?? [])].filter(capability => !capabilities.includes(capability))
   } as ExternalGatewayAdapterCapabilities
 }
@@ -168,7 +164,14 @@ export function mockImCapabilitiesWithout(
 export class MockImPlatform {
   readonly adapters = new Map<string, MockImAdapter>()
   readonly transcript: MockImWebhookPayload[] = []
-  readonly outbound: Array<{ op: string; messageId?: string; text?: string; threadId: string }> = []
+  readonly outbound: Array<{
+    messageId?: string
+    op: string
+    options?: ExternalGatewayOutboundOptions
+    targetMessageId?: string
+    text?: string
+    threadId: string
+  }> = []
 
   private readonly messages = new Map<string, StoredMessage>()
   private readonly observedInboundKeys = new Set<string>()
@@ -320,7 +323,12 @@ export class MockImPlatform {
     this.observedInboundKeys.add(messageKey(channelId, messageId))
   }
 
-  createBotMessage(threadId: string, text: string, raw: unknown): ExternalGatewayRawMessage<MockImRawMessage> {
+  createBotMessage(
+    threadId: string,
+    text: string,
+    raw: unknown,
+    options?: ExternalGatewayOutboundOptions
+  ): ExternalGatewayRawMessage<MockImRawMessage> {
     this.consumeFailure('post')
     const adapterName = threadId.split(':')[0] ?? 'mock'
     const channelId = threadId.split(':').slice(0, 2).join(':')
@@ -342,7 +350,7 @@ export class MockImPlatform {
       threadId
     }
     this.messages.set(messageKey(channelId, id), stored)
-    this.outbound.push({ op: 'post', messageId: id, text, threadId })
+    this.outbound.push({ op: rawHasReply(raw) ? 'reply' : 'post', messageId: id, options, text, threadId })
 
     return {
       id,
@@ -351,7 +359,7 @@ export class MockImPlatform {
     }
   }
 
-  deleteBotMessage(threadId: string, messageId: string): void {
+  deleteBotMessage(threadId: string, messageId: string, options?: ExternalGatewayOutboundOptions): void {
     this.consumeFailure('delete')
     const channelId = threadId.split(':').slice(0, 2).join(':')
     const existing = this.messages.get(messageKey(channelId, messageId))
@@ -360,7 +368,41 @@ export class MockImPlatform {
       existing.deletedAt = now
       existing.revisionAt = now
     }
-    this.outbound.push({ op: 'delete', messageId, threadId })
+    this.outbound.push({ op: 'delete', messageId, options, threadId })
+  }
+
+  editBotMessage(
+    threadId: string,
+    messageId: string,
+    text: string,
+    options?: ExternalGatewayOutboundOptions
+  ): ExternalGatewayRawMessage<MockImRawMessage> {
+    const channelId = threadId.split(':').slice(0, 2).join(':')
+    const existing = this.messages.get(messageKey(channelId, messageId))
+    if (existing && !existing.deletedAt) {
+      const now = new Date()
+      existing.text = text
+      existing.revisionAt = now
+      existing.raw = { edit: { text } }
+    }
+    this.outbound.push({ op: 'edit', options, targetMessageId: messageId, text, threadId })
+    const raw = existing
+      ? this.toRawMessage(existing)
+      : {
+          authorId: 'self',
+          authorName: 'self',
+          channelId,
+          dateSent: new Date().toISOString(),
+          id: messageId,
+          surface: threadId.includes(':dm:') ? ('dm' as const) : ('group' as const),
+          text,
+          threadId
+        }
+    return {
+      id: messageId,
+      raw,
+      threadId
+    }
   }
 
   applyReaction(input: {
@@ -433,6 +475,23 @@ export class MockImPlatform {
       surface: message.surface,
       text: message.text,
       threadId: message.threadId
+    }
+  }
+
+  reconcileBotMessage(
+    threadId: string,
+    messageId: string,
+    options?: ExternalGatewayOutboundOptions
+  ): ExternalGatewayMessageReconciliation<MockImRawMessage> {
+    const channelId = threadId.split(':').slice(0, 2).join(':')
+    const existing = this.messages.get(messageKey(channelId, messageId))
+    const exists = Boolean(existing && !existing.deletedAt)
+    this.outbound.push({ op: 'reconcile', messageId, options, threadId })
+    if (!exists || !existing) return { exists, providerMessageId: messageId }
+    return {
+      exists: true,
+      message: { id: existing.id, raw: this.toRawMessage(existing), threadId: existing.threadId },
+      providerMessageId: existing.id
     }
   }
 
@@ -694,30 +753,12 @@ export class MockImAdapter implements ExternalGatewayAdapter<MockImRawMessage> {
     return threadId.includes(':dm:')
   }
 
-  async fetchMessage(threadId: string, messageId: string): Promise<ExternalGatewayMessageInput<MockImRawMessage> | null> {
+  async fetchMessage(
+    threadId: string,
+    messageId: string
+  ): Promise<ExternalGatewayMessageInput<MockImRawMessage> | null> {
     const raw = this.platform.rawMessage(this.channelIdFromThreadId(threadId), messageId)
     return raw ? this.parseMessage(raw) : null
-  }
-
-  async fetchMessages(threadId: string, _options?: unknown): Promise<ExternalGatewayFetchResult<MockImRawMessage>> {
-    const channelId = this.channelIdFromThreadId(threadId)
-    return {
-      messages: this.platform
-        .visibleMessages(channelId)
-        .filter(message => message.threadId === threadId)
-        .map(message => this.parseMessage(this.visibleToRaw(message))),
-      nextCursor: undefined
-    }
-  }
-
-  async fetchChannelMessages(
-    channelId: string,
-    _options?: unknown
-  ): Promise<ExternalGatewayFetchResult<MockImRawMessage>> {
-    return {
-      messages: this.platform.visibleMessages(channelId).map(message => this.parseMessage(this.visibleToRaw(message))),
-      nextCursor: undefined
-    }
   }
 
   async fetchThread(threadId: string) {
@@ -731,13 +772,36 @@ export class MockImAdapter implements ExternalGatewayAdapter<MockImRawMessage> {
 
   async postMessage(
     threadId: string,
-    message: AdapterPostableMessage | ChatElement
+    message: AdapterPostableMessage | ChatElement,
+    options?: ExternalGatewayOutboundOptions
   ): Promise<ExternalGatewayRawMessage<MockImRawMessage>> {
-    return this.platform.createBotMessage(threadId, postableText(message), { postable: message })
+    return this.platform.createBotMessage(
+      threadId,
+      postableText(message),
+      { postable: message, reply: Boolean(options?.targetMessageId) },
+      options
+    )
   }
 
-  async deleteMessage(threadId: string, messageId: string): Promise<void> {
-    this.platform.deleteBotMessage(threadId, messageId)
+  async deleteMessage(threadId: string, messageId: string, options?: ExternalGatewayOutboundOptions): Promise<void> {
+    this.platform.deleteBotMessage(threadId, messageId, options)
+  }
+
+  async editMessage(
+    threadId: string,
+    messageId: string,
+    message: AdapterPostableMessage | ChatElement,
+    options?: ExternalGatewayOutboundOptions
+  ): Promise<ExternalGatewayRawMessage<MockImRawMessage>> {
+    return this.platform.editBotMessage(threadId, messageId, postableText(message), options)
+  }
+
+  async reconcileMessage(
+    threadId: string,
+    messageId: string,
+    options?: ExternalGatewayOutboundOptions
+  ): Promise<ExternalGatewayMessageReconciliation<MockImRawMessage>> {
+    return this.platform.reconcileBotMessage(threadId, messageId, options)
   }
 
   async addReaction(threadId: string, messageId: string, emoji: string): Promise<void> {
@@ -761,8 +825,6 @@ export class MockImAdapter implements ExternalGatewayAdapter<MockImRawMessage> {
       rawEmoji: emoji
     })
   }
-
-  async startTyping(): Promise<void> {}
 
   renderFormatted(): string {
     return ''
@@ -820,6 +882,11 @@ function postableText(value: unknown): string {
   if (typeof value === 'object' && value !== null && 'type' in value && value.type === 'divider') return '[divider]'
 
   return JSON.stringify(value)
+}
+
+function rawHasReply(raw: unknown): boolean {
+  if (typeof raw !== 'object' || raw === null || !('reply' in raw)) return false
+  return Boolean((raw as { reply?: unknown }).reply)
 }
 
 function normalizedEmoji(rawEmoji: string) {

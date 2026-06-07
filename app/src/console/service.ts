@@ -8,6 +8,12 @@ import type {
 import { appConfigService } from '@/config/app-configure'
 import { agentChannelConfigKey } from '@/external-gateway/config'
 import type { JsonObject, JsonValue } from '@/common/db-schema'
+import {
+  readAiAgentModelsConfig,
+  validateAiAgentModelsConfig,
+  writeAiAgentModelsConfig,
+  type AiAgentModelsConfig
+} from '@/ai-agent/config'
 import { loadPluginCatalog, type PluginCatalog } from '@/plugins/catalog'
 import {
   clonePluginJsonObject as cloneJsonObject,
@@ -26,6 +32,12 @@ import {
   listActiveAgents,
   updateAgent
 } from '@/principals/agents/service'
+import {
+  AgentChatMetadataError,
+  parseAgentExternalBindingsAll,
+  writeAgentExternalBindings,
+  type AgentExternalBinding
+} from '@/external-gateway/metadata'
 
 const channelNamePattern = /^[a-z][a-z0-9_]*$/
 
@@ -35,6 +47,11 @@ export interface ConsoleAgent {
   createdAt: Date
   updatedAt: Date
   chatChannels: ConsoleChatChannel[]
+  llmProfile?: ConsoleAgentLlmProfile
+}
+
+export interface ConsoleAgentLlmProfile {
+  models: AiAgentModelsConfig
 }
 
 export interface ConsoleExternalGatewayAdapter {
@@ -60,17 +77,10 @@ export interface UpsertConsoleChatChannelInput {
   config?: JsonObject
 }
 
-interface StoredChannelBinding {
-  /**
-   * Stored in `agents.metadata.external.adapters[]`.
-   *
-   * Only routing metadata lives on the Agent row. Adapter config is stored
-   * separately under `agents.<uid>.<channel>` so secret erasure can be scoped to
-   * the channel without rewriting unrelated Agent metadata.
-   */
-  adapter: string
-  enabled: boolean
-  name: string
+export interface UpsertConsoleAgentInput {
+  avatarUrl?: string | null
+  displayName?: string | null
+  llmProfile?: ConsoleAgentLlmProfile
 }
 
 type InteractiveConfigState = 'running' | 'succeeded' | 'failed' | 'cancelled'
@@ -122,11 +132,19 @@ export async function listConsoleAgents(): Promise<ConsoleAgent[]> {
   return Promise.all(agents.map(projectConsoleAgent))
 }
 
-export async function createConsoleAgent(uid: string, createdByPrincipalUid?: string): Promise<ConsoleAgent> {
+export async function createConsoleAgent(
+  uid: string,
+  createdByPrincipalUid?: string,
+  input: UpsertConsoleAgentInput = {}
+): Promise<ConsoleAgent> {
+  const metadata = input.llmProfile ? await agentMetadataWithLlmProfile({}, input.llmProfile) : undefined
   let result: AgentResult
   try {
     result = await createAgent({
       uid,
+      avatarUrl: input.avatarUrl,
+      displayName: input.displayName,
+      metadata,
       createdByPrincipalUid
     })
   } catch (error) {
@@ -141,11 +159,15 @@ export async function getConsoleAgent(uid: string): Promise<ConsoleAgent> {
   return projectConsoleAgent(await requireActiveAgent(uid))
 }
 
-export async function updateConsoleAgent(
-  uid: string,
-  input: { displayName?: string | null; avatarUrl?: string | null }
-): Promise<ConsoleAgent> {
-  const result = await updateAgent(uid, input)
+export async function updateConsoleAgent(uid: string, input: UpsertConsoleAgentInput): Promise<ConsoleAgent> {
+  const metadata = input.llmProfile
+    ? await agentMetadataWithLlmProfile((await requireActiveAgent(uid)).agent.metadata, input.llmProfile)
+    : undefined
+  const result = await updateAgent(uid, {
+    avatarUrl: input.avatarUrl,
+    displayName: input.displayName,
+    metadata
+  })
   if (result.principal.status !== 'active') throw new ConsoleDomainError(404, 'agent not found')
 
   return projectConsoleAgent(result)
@@ -160,7 +182,7 @@ export async function deleteConsoleAgent(uid: string): Promise<void> {
   }
 
   await updateAgent(agent.agent.uid, {
-    metadata: writeStoredChannelBindings(agent.agent.metadata, [])
+    metadata: writeAgentExternalBindings(agent.agent.metadata, [])
   })
   await disableAgent(agent.agent.uid)
 }
@@ -235,7 +257,7 @@ export async function deleteConsoleChatChannel(agentUid: string, channelName: st
   if (nextBindings.length === bindings.length) throw new ConsoleDomainError(404, 'chat channel not found')
 
   await updateAgent(agent.agent.uid, {
-    metadata: writeStoredChannelBindings(agent.agent.metadata, nextBindings)
+    metadata: writeAgentExternalBindings(agent.agent.metadata, nextBindings)
   })
   await appConfigService.deleteByKey(agentChannelConfigKey(agent.agent.uid, name))
 }
@@ -355,13 +377,20 @@ async function requireActiveAgent(uid: string): Promise<AgentResult> {
 }
 
 async function projectConsoleAgent(agent: AgentResult): Promise<ConsoleAgent> {
+  const models = readAiAgentModelsConfig(agent.agent.metadata)
   return {
     uid: agent.agent.uid,
     status: agent.principal.status,
     createdAt: agent.agent.createdAt,
     updatedAt: agent.agent.updatedAt,
-    chatChannels: await projectConsoleExternalRooms(agent)
+    chatChannels: await projectConsoleExternalRooms(agent),
+    llmProfile: models ? { models } : undefined
   }
+}
+
+async function agentMetadataWithLlmProfile(metadata: JsonObject, profile: ConsoleAgentLlmProfile): Promise<JsonObject> {
+  await validateAiAgentModelsConfig(profile.models)
+  return writeAiAgentModelsConfig(metadata, profile.models)
 }
 
 async function projectConsoleExternalRooms(agent: AgentResult): Promise<ConsoleChatChannel[]> {
@@ -389,13 +418,13 @@ async function projectConsoleExternalRooms(agent: AgentResult): Promise<ConsoleC
 
 async function persistChannelConfigWithMetadata(
   agent: AgentResult,
-  bindings: StoredChannelBinding[],
+  bindings: AgentExternalBinding[],
   channelName: string,
   config: JsonObject
 ): Promise<void> {
   await appConfigService.setByKey(agentChannelConfigKey(agent.agent.uid, channelName), config)
   await updateAgent(agent.agent.uid, {
-    metadata: writeStoredChannelBindings(agent.agent.metadata, bindings)
+    metadata: writeAgentExternalBindings(agent.agent.metadata, bindings)
   })
 }
 
@@ -404,51 +433,16 @@ async function loadChannelConfig(agentUid: string, channelName: string): Promise
   return isJsonObject(value) ? cloneJsonObject(value) : {}
 }
 
-function readStoredChannelBindings(metadata: JsonObject): StoredChannelBinding[] {
-  const external = jsonObject(metadata.external) ?? jsonObject(metadata.chat)
-  const adapters = external?.adapters
-  if (adapters === undefined) return []
-  if (!Array.isArray(adapters)) throw new ConsoleDomainError(422, 'agents.metadata.external.adapters must be an array')
-
-  const bindings = adapters.map((value, index) => parseStoredBinding(value, index))
-  const seen = new Set<string>()
-  for (const binding of bindings) {
-    if (seen.has(binding.name)) throw new ConsoleDomainError(422, `duplicate chat channel name: ${binding.name}`)
-    seen.add(binding.name)
+function readStoredChannelBindings(metadata: JsonObject): AgentExternalBinding[] {
+  // Console manages disabled channels too, so it reads the full binding list and
+  // reuses External Gateway's validation. Malformed metadata is a 422 here, not a
+  // startup-style hard failure.
+  try {
+    return parseAgentExternalBindingsAll(metadata)
+  } catch (error) {
+    if (error instanceof AgentChatMetadataError) throw new ConsoleDomainError(422, error.message)
+    throw error
   }
-
-  return bindings
-}
-
-function parseStoredBinding(value: JsonValue, index: number): StoredChannelBinding {
-  const input = jsonObject(value)
-  if (!input) throw new ConsoleDomainError(422, `agents.metadata.external.adapters[${index}] must be an object`)
-
-  return {
-    name: normalizeChannelName(input.name),
-    adapter: normalizeChannelName(input.adapter),
-    enabled:
-      input.enabled === undefined
-        ? true
-        : requiredBoolean(input.enabled, `agents.metadata.external.adapters[${index}].enabled`)
-  }
-}
-
-function writeStoredChannelBindings(metadata: JsonObject, bindings: readonly StoredChannelBinding[]): JsonObject {
-  const next = cloneJsonObject(metadata)
-  const external = jsonObject(next.external)
-    ? cloneJsonObject(next.external as JsonObject)
-    : jsonObject(next.chat)
-      ? cloneJsonObject(next.chat as JsonObject)
-      : {}
-  external.adapters = bindings.map(binding => ({
-    name: binding.name,
-    adapter: binding.adapter,
-    enabled: binding.enabled
-  }))
-  next.external = external
-  delete next.chat
-  return next
 }
 
 function defaultConfigForSetup(setup: BullXExternalGatewayAdapterSetup | undefined): JsonObject {
@@ -546,15 +540,6 @@ function requiredText(value: unknown, label: string): string {
   const trimmed = value.trim()
   if (!trimmed) throw new ConsoleDomainError(422, `${label} must not be empty`)
   return trimmed
-}
-
-function requiredBoolean(value: JsonValue, label: string): boolean {
-  if (typeof value !== 'boolean') throw new ConsoleDomainError(422, `${label} must be a boolean`)
-  return value
-}
-
-function jsonObject(value: JsonValue | undefined): JsonObject | undefined {
-  return isJsonObject(value) ? value : undefined
 }
 
 function isJsonObject(value: unknown): value is JsonObject {

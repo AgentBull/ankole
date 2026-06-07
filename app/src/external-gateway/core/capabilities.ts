@@ -1,11 +1,10 @@
 import { UnsupportedChannelCapabilityError } from './errors'
 
-type CapabilityKind = 'history' | 'inbound' | 'outbound'
+type CapabilityKind = 'inbound' | 'outbound'
 type Capability = string
 
 interface CapabilityCarrier {
   capabilities?: {
-    history?: readonly string[]
     inbound?: readonly string[]
     outbound?: readonly string[]
   }

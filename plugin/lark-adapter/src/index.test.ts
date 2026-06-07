@@ -29,6 +29,10 @@ describe('BullX Lark chat adapter', () => {
     expect(adapter.capabilities?.inbound).toContain('reaction_remove')
     expect(adapter.capabilities?.outbound).toContain('divider')
     expect(adapter.capabilities?.outbound).toContain('delete_message')
+    expect(adapter.capabilities?.outbound).toContain('reply_message')
+    expect(adapter.capabilities?.outbound).toContain('edit_message')
+    expect(adapter.capabilities?.outbound).toContain('outbound_idempotency')
+    expect(adapter.capabilities?.outbound).toContain('outbound_reconciliation')
   })
 
   it('uses Lark user_id for inbound message authors and DM placeholders', async () => {
@@ -479,6 +483,88 @@ describe('BullX Lark chat adapter', () => {
       }
     })
     expect(JSON.parse(creates[0].data.content).type).toBe('divider')
+  })
+
+  it('passes outbound idempotency, edit, and reconciliation options through Lark message APIs', async () => {
+    const adapter = createAdapter() as any
+    const creates: any[] = []
+    const replies: any[] = []
+    const updates: any[] = []
+    const gets: any[] = []
+    adapter.connection = {
+      rawClient: {
+        im: {
+          v1: {
+            message: {
+              create: async (payload: unknown) => {
+                creates.push(payload)
+                return { code: 0, data: { message_id: 'om_created' } }
+              },
+              reply: async (payload: unknown) => {
+                replies.push(payload)
+                return { code: 0, data: { message_id: 'om_reply' } }
+              },
+              update: async (payload: unknown) => {
+                updates.push(payload)
+                return { code: 0, data: { message_id: 'om_edited' } }
+              },
+              get: async (payload: unknown) => {
+                gets.push(payload)
+                return {
+                  code: 0,
+                  data: {
+                    items: [
+                      {
+                        chat_id: 'oc_chat',
+                        deleted: false,
+                        message_id: 'om_created',
+                        root_id: 'om_root'
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
+    await adapter.postMessage('lark:oc_chat:', 'hello', { idempotencyKey: 'uuid-post' })
+    await adapter.postMessage('lark:oc_chat:om_root', 'reply', {
+      idempotencyKey: 'uuid-reply',
+      targetMessageId: 'om_target'
+    })
+    await adapter.editMessage('lark:oc_chat:om_root', 'om_created', 'edited')
+    const reconciled = await adapter.reconcileMessage('lark:oc_chat:om_root', 'om_created')
+
+    expect(creates[0]).toMatchObject({
+      data: {
+        receive_id: 'oc_chat',
+        uuid: 'uuid-post'
+      }
+    })
+    expect(replies[0]).toMatchObject({
+      path: { message_id: 'om_target' },
+      data: {
+        reply_in_thread: true,
+        uuid: 'uuid-reply'
+      }
+    })
+    expect(updates[0]).toMatchObject({
+      path: { message_id: 'om_created' },
+      data: { msg_type: 'text' }
+    })
+    expect(gets[0]).toMatchObject({ path: { message_id: 'om_created' } })
+    expect(reconciled).toMatchObject({
+      deleted: false,
+      exists: true,
+      providerMessageId: 'om_created',
+      message: {
+        id: 'om_created',
+        threadId: 'lark:oc_chat:om_root'
+      }
+    })
   })
 
   it('full-syncs contact pages when Lark returns non-empty directory data', async () => {

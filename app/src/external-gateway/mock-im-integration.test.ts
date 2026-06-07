@@ -22,6 +22,7 @@ const {
 const { ExternalGatewayRuntime } = await import('./runtime')
 const { registerExternalGatewayAdapterFactory } = await import('./adapter-registry')
 const { fullMockImCapabilities, MockImPlatform: MockImPlatformCtor } = await import('./testing/mock-im-adapter')
+const { mockExternalGatewayAgentExecutor } = await import('./agent')
 
 const testPrefix = `mockim_${Date.now()}_${Math.random().toString(36).slice(2)}`.toLowerCase()
 const factoryPrefix = `${testPrefix}_factory`
@@ -249,18 +250,34 @@ describe('External Gateway Mock IM adapter integration', () => {
     await assertMirrorEqualsPlatform(setup.platform, second.channelId)
   })
 
-  it('delivers /undo and /steer as typed command stubs without gateway-owned side effects', async () => {
+  it('delivers supported slash commands and leaves /undo as normal addressed input', async () => {
     const setup = await startMockRuntime('command_stubs')
     const dm = setup.platform.dm(setup.conversationOptions({ channelId: `${setup.adapterName}:dm-user` }))
 
-    await dm.say({ id: 'undo-command', text: '/undo' })
+    await dm.say({ id: 'new-command', text: '/new' })
+    await dm.say({ id: 'compress-command', text: '/compress' })
+    await dm.say({ id: 'retry-command', text: '/retry' })
     await dm.say({ id: 'steer-command', text: '/steer be concise' })
+    await dm.say({ id: 'stop-command', text: '/stop' })
+    await dm.say({ id: 'undo-normal-input', text: '/undo' })
 
-    await assertAgentEventCount(setup.agentUid, 'slash_command', 'command', 2)
-    await assertCommandPayload(setup.agentUid, 'undo-command', {
+    await assertAgentEventCount(setup.agentUid, 'slash_command', 'command', 5)
+    await assertCommandPayload(setup.agentUid, 'new-command', {
       argsText: '',
-      name: 'undo',
-      raw: '/undo',
+      name: 'new',
+      raw: '/new',
+      status: 'stub'
+    })
+    await assertCommandPayload(setup.agentUid, 'compress-command', {
+      argsText: '',
+      name: 'compress',
+      raw: '/compress',
+      status: 'stub'
+    })
+    await assertCommandPayload(setup.agentUid, 'retry-command', {
+      argsText: '',
+      name: 'retry',
+      raw: '/retry',
       status: 'stub'
     })
     await assertCommandPayload(setup.agentUid, 'steer-command', {
@@ -269,7 +286,15 @@ describe('External Gateway Mock IM adapter integration', () => {
       raw: '/steer be concise',
       status: 'stub'
     })
-    expect(setup.platform.outbound).toEqual([])
+    await assertCommandPayload(setup.agentUid, 'stop-command', {
+      argsText: '',
+      name: 'stop',
+      raw: '/stop',
+      status: 'stub'
+    })
+    await assertAgentEventDone(setup.agentUid, 'message.received', 'addressed')
+    await eventually(() => expect(setup.platform.outbound.filter(event => event.op === 'post')).toHaveLength(1))
+    expect(setup.platform.outbound[0]!.text).toContain('/undo')
   })
 
   it('does not wake the agent when an observe_all group message is recalled', async () => {
@@ -350,6 +375,7 @@ describe('External Gateway Mock IM adapter integration', () => {
     const runtime = new ExternalGatewayRuntime()
     startedRuntimes.add(runtime)
     await runtime.start({
+      agentExecutor: mockExternalGatewayAgentExecutor,
       getChannelConfig: async () => ({ group_message_mode: 'observe_all' }),
       loadActiveAgents: async () => [
         agentResult(firstAgent, [{ adapter: factoryId, name: adapterName }]),
@@ -462,6 +488,7 @@ async function startMockRuntime(
   const runtime = new ExternalGatewayRuntime()
   startedRuntimes.add(runtime)
   await runtime.start({
+    agentExecutor: mockExternalGatewayAgentExecutor,
     getChannelConfig: async () => ({ group_message_mode: options.groupMessageMode ?? 'observe_all' }),
     loadActiveAgents: async () => [
       agentResult(

@@ -167,7 +167,8 @@ describe('PluginRuntime', () => {
       knownPlugins: 1,
       enabledPlugins: [],
       registeredExternalGatewayAdapters: [],
-      registeredIdentityProviderAdapters: []
+      registeredIdentityProviderAdapters: [],
+      registeredWebProviders: []
     })
     expect(registeredDefinitions).toEqual(['test.plugin.config'])
     expect(registeredFactories).toEqual([])
@@ -358,10 +359,6 @@ class TestAdapter implements BullXExternalGatewayAdapter {
     return threadId
   }
 
-  async fetchMessages() {
-    return { messages: [] }
-  }
-
   async fetchThread(threadId: string) {
     return {
       id: threadId,
@@ -384,8 +381,6 @@ class TestAdapter implements BullXExternalGatewayAdapter {
   async addReaction(): Promise<void> {}
 
   async removeReaction(): Promise<void> {}
-
-  async startTyping(): Promise<void> {}
 
   renderFormatted(): string {
     return ''

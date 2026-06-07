@@ -1,5 +1,6 @@
 import { and, eq, sql } from 'drizzle-orm'
 import { DB, jsonbParam, type QueryExecutor } from '@/common/database'
+import { toJsonArray, toJsonObject, toJsonValue } from '@/common/json'
 import { ExternalRooms, ExternalMessages, type JsonObject, type JsonValue } from '@/common/db-schema'
 import type { ExternalGatewayMessageInput, ExternalGatewayReactionEvent, ExternalGatewayRoomInput } from './events'
 
@@ -28,7 +29,9 @@ export interface ExternalGatewayProjectionSink {
   /**
    * Projects a normalized provider message into the latest-state room/message tables.
    */
-  projectMessage<TRawMessage = unknown>(input: ExternalGatewayProjectMessageInput<TRawMessage>): Promise<ExternalGatewayMessage>
+  projectMessage<TRawMessage = unknown>(
+    input: ExternalGatewayProjectMessageInput<TRawMessage>
+  ): Promise<ExternalGatewayMessage>
   /**
    * Projects a provider delete/recall observation as a hard delete.
    */
@@ -52,7 +55,9 @@ export class DrizzleExternalGatewayProjectionSink implements ExternalGatewayProj
   /**
    * Projects a normalized provider message into PostgreSQL.
    */
-  async projectMessage<TRawMessage = unknown>(input: ExternalGatewayProjectMessageInput<TRawMessage>): Promise<ExternalGatewayMessage> {
+  async projectMessage<TRawMessage = unknown>(
+    input: ExternalGatewayProjectMessageInput<TRawMessage>
+  ): Promise<ExternalGatewayMessage> {
     return upsertProjectedMessage(normalizeMessageFromInput(input))
   }
 
@@ -284,7 +289,9 @@ async function upsertRoomWithDb(db: QueryExecutor, input: NormalizedRoomInput): 
   return room
 }
 
-function normalizeRoomInput(room: Required<Pick<ExternalGatewayRoomInput, 'id'>> & ExternalGatewayRoomInput): NormalizedRoomInput {
+function normalizeRoomInput(
+  room: Required<Pick<ExternalGatewayRoomInput, 'id'>> & ExternalGatewayRoomInput
+): NormalizedRoomInput {
   return {
     id: ensureNonEmpty(room.id, 'room.id'),
     isDM: room.isDM ?? false,
@@ -295,8 +302,11 @@ function normalizeRoomInput(room: Required<Pick<ExternalGatewayRoomInput, 'id'>>
   }
 }
 
-function normalizeRoomFromEvent(event: ExternalGatewayReactionEvent): Required<Pick<ExternalGatewayRoomInput, 'id'>> & ExternalGatewayRoomInput {
-  if (event.room?.id) return normalizeRoomInput(event.room as Required<Pick<ExternalGatewayRoomInput, 'id'>> & ExternalGatewayRoomInput)
+function normalizeRoomFromEvent(
+  event: ExternalGatewayReactionEvent
+): Required<Pick<ExternalGatewayRoomInput, 'id'>> & ExternalGatewayRoomInput {
+  if (event.room?.id)
+    return normalizeRoomInput(event.room as Required<Pick<ExternalGatewayRoomInput, 'id'>> & ExternalGatewayRoomInput)
 
   return {
     id: ensureNonEmpty(event.threadId.split(':').slice(0, 2).join(':'), 'room.id'),
@@ -383,7 +393,8 @@ function applyReactionEvent(reactions: JsonObject, reaction: NormalizedReactionE
 
 function normalizedEmojiName(emoji: unknown): string {
   if (typeof emoji === 'string') return emoji
-  if (typeof emoji === 'object' && emoji !== null && 'name' in emoji && typeof emoji.name === 'string') return emoji.name
+  if (typeof emoji === 'object' && emoji !== null && 'name' in emoji && typeof emoji.name === 'string')
+    return emoji.name
   return String(emoji)
 }
 
@@ -407,53 +418,6 @@ function ensureNonEmpty(value: string, label: string): string {
   if (value.length === 0) throw new ExternalGatewayProjectionError(`${label} must not be empty`)
 
   return value
-}
-
-function toJsonValue(value: unknown): JsonValue | null {
-  if (value === undefined) return null
-
-  try {
-    // Projection tables should contain durable JSON facts, not executable
-    // closures, binary payloads, or values PostgreSQL jsonb cannot represent.
-    // This helper is the final guard for adapter-provided raw payloads and
-    // extension fields.
-    const serialized = JSON.stringify(value, (_key, nestedValue) => {
-      if (
-        typeof nestedValue === 'function' ||
-        typeof nestedValue === 'undefined' ||
-        typeof nestedValue === 'bigint' ||
-        typeof nestedValue === 'symbol'
-      ) {
-        return undefined
-      }
-
-      if (nestedValue instanceof Date) return nestedValue.toISOString()
-
-      if (isBinaryLike(nestedValue)) return undefined
-
-      return nestedValue
-    })
-
-    return serialized === undefined ? null : (JSON.parse(serialized) as JsonValue)
-  } catch {
-    return null
-  }
-}
-
-function toJsonObject(value: unknown): JsonObject {
-  const json = toJsonValue(value)
-  if (typeof json === 'object' && json !== null && !Array.isArray(json)) return json
-
-  return {}
-}
-
-function toJsonArray(value: unknown): JsonValue[] {
-  const json = toJsonValue(value)
-  return Array.isArray(json) ? json : []
-}
-
-function isBinaryLike(value: unknown): boolean {
-  return value instanceof ArrayBuffer || value instanceof Blob || ArrayBuffer.isView(value)
 }
 
 export class ExternalGatewayProjectionError extends Error {

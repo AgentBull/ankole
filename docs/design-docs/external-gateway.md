@@ -1,6 +1,6 @@
 # External Gateway
 
-External Gateway bridges external channels and BullX agents. It accepts normalized provider facts from channel adapters, updates the latest observed external projection, delivers only agent-relevant events to the directly bound agent, and executes explicit outbound side-effect intents returned by that agent.
+External Gateway bridges external channels and BullX agents. It accepts normalized provider facts from channel adapters, updates the latest observed external projection, delivers only agent-relevant events to the directly bound agent, and executes explicit outbound side-effect intents written by that agent into the gateway outbox.
 
 It is not an audit subsystem. Auditability is a low-priority byproduct here, not a design driver. The gateway should stay small enough that its runtime behavior can be explained from three owned surfaces:
 
@@ -12,11 +12,11 @@ It is not an audit subsystem. Auditability is a low-priority byproduct here, not
 
 The implementation lives under `app/src/external-gateway/`.
 
-- `runtime.ts` loads active agents, creates one adapter instance for each enabled agent external binding, passes the adapter a normalized `ExternalGatewayAdapterContext`, routes webhooks, drains ready agent events, and dispatches returned outbound intents.
+- `runtime.ts` loads active agents, creates one adapter instance for each enabled agent external binding, passes the adapter a normalized `ExternalGatewayAdapterContext`, routes webhooks, drains ready agent events, calls the agent executor, and drains pending outbox rows.
 - `core/events.ts` defines the plugin-facing normalized adapter contract: `emitMessage`, `emitMessageDeleted`, `emitReaction`, and `emitAction`.
-- `handlers.ts` applies `group_message_mode`, writes projection, records tombstones, enqueues agent events, and computes the agent session id.
+- `handlers.ts` applies `group_message_mode`, writes projection, records tombstones, enqueues agent events, and computes the gateway-facing agent session id.
 - `agent-events.ts` owns the unlogged input window, addressed-message batch window, process-local in-flight handoff, tombstones, and session/batch key helpers.
-- `outbox.ts` executes final provider-visible outbound operations. Provider failures are stored on the outbox row and must not turn an already accepted agent input into a failed input.
+- `outbox.ts` executes provider-visible outbound operations. Provider failures are stored on the outbox row and must not turn an already accepted agent input into a failed input.
 - `core/projection.ts` owns the latest-state projection sink for rooms, messages, deletes, and reactions.
 - `core/visible-output-stream.ts` owns the Redis weak visible stream for in-progress output chunks.
 - `testing/mock-im-adapter.ts` and `mock-im-integration.test.ts` are the user-story integration fixture.
@@ -52,14 +52,17 @@ provider webhook or long-connection event
   -> handler applies binding policy and tombstone checks
   -> observed provider-visible facts update external_rooms/external_messages
   -> agent-relevant facts enter external_gateway_agent_events
-  -> runtime drains ready events and calls the agent handler
-  -> agent may return explicit outbound intents
-  -> external_gateway_outbox executes supported provider side effects
+  -> runtime drains ready events and calls the agent executor
+  -> agent persists its durable effect and may enqueue pending outbox rows
+  -> gateway marks the input done after agent acceptance
+  -> external_gateway_outbox drains supported provider side effects
   -> successful visible outbound is projected into external_messages
   -> failed/unsupported outbound remains only in external_gateway_outbox
 ```
 
-The current agent handler is a mock. It replies only to addressed `message.received` events and returns no outbound for ambient, command, action, or lifecycle events. This keeps the External Gateway surface testable before the real agent LLM loop exists.
+Production startup defaults to the AIAgent executor. It returns only durable acceptance: External Gateway marks the input `done` after the agent has persisted the relevant conversation effect and any required pending outbox rows. Provider send failure after that point stays on `external_gateway_outbox` and does not roll the input window back to `failed`.
+
+`MockExternalGatewayAgentExecutor` remains a test fixture for External Gateway adapter/runtime coverage. It is not the production default and should not shape agent conversation semantics.
 
 ## Projection Contract
 
@@ -82,15 +85,15 @@ Projection behavior:
 
 ## Agent Sessions
 
-External Gateway computes the agent-facing session id from agent uid and external room id:
+External Gateway still computes a gateway-facing operational session id from agent uid and external room id:
 
 ```text
 <agent_uid>:external-room:<provider_room_id>
 ```
 
-The same room always routes to the same agent session. Different rooms route to different sessions. `provider_thread_id` participates in batching, message context, and provider delivery, but it does not define the session boundary and is not duplicated in `external_messages`. Two Feishu thread messages in the same chat or two GitHub issue comments in the same room scope stay in one agent session; a different chat, issue room, or repository room gets a different session. When multiple agents observe the same external room, the `agent_uid` prefix gives each agent its own session.
+The same room always routes to the same gateway session. Different rooms route to different gateway sessions. `provider_thread_id` participates in batching, message context, and provider delivery, but it does not define the session boundary and is not duplicated in `external_messages`. Two Feishu thread messages in the same chat or two GitHub issue comments in the same room scope stay in one gateway session; a different chat, issue room, or repository room gets a different session. When multiple agents observe the same external room, the `agent_uid` prefix gives each agent its own gateway session.
 
-Future agent storage will own conversation turns, assistant messages, summaries, and summary-boundary recovery decisions. External Gateway does not own that table shape.
+AIAgent owns product conversation state in `ai_agent_conversations`, `ai_agent_messages`, and `ai_agent_llm_turns`. Its `conversation_key` uses `agent_uid + binding_name + provider_realm_id + provider_room_id`; it does not include provider thread or addressed/ambient lane. Daily Reset and `/new` create a new active `ai_agent_conversations.id` under the same key without changing the External Gateway session/projection identity.
 
 ## Binding Policy
 
@@ -120,9 +123,11 @@ External Gateway sends a small CloudEvents-style envelope to the agent. The enve
 | `message.recalled` | Hard-delete projected message | Lifecycle only if prior receive reached agent | Direct |
 | `reaction.added` / `reaction.removed` | Update reaction map | None | None |
 | `action` | Project only if adapter provides visible state | `delivery_mode = action` | Direct |
-| `/undo` / `/steer` text command | Project visible command message | `delivery_mode = command` typed stub | Direct |
+| `/new` / `/compress` / `/retry` / `/steer` / `/stop` text command | Project visible command message | `delivery_mode = command` typed stub | Direct |
 | Image/file/attachment message | Upsert with attachment refs | Same as receive policy | Same as receive policy |
 | Agent outbound `post` | Project after provider success | None | Outbox |
+| Agent outbound `reply` | Project after provider success | None | Outbox |
+| Agent outbound `edit` | Re-project edited bot message after provider success | None | Outbox |
 | Agent outbound `delete` | Delete projection after provider success | None | Outbox |
 | Agent outbound `reaction_add` / `reaction_remove` | Update reaction map after provider success | None | Outbox |
 | Agent outbound `divider` / `card` | Project fallback visible text after provider success | None | Outbox |
@@ -132,7 +137,7 @@ GitHub issues, PRs, comments, and review comments map into these generic message
 
 ## Command Stubs
 
-`/undo` and `/steer` are currently typed stubs. `handlers.ts` recognizes visible text commands and emits a `slash_command` event with:
+`handlers.ts` recognizes `/new`, `/compress`, `/retry`, `/steer`, and `/stop` as visible text commands and emits a `slash_command` event with:
 
 ```json
 {
@@ -144,6 +149,8 @@ GitHub issues, PRs, comments, and review comments map into these generic message
 ```
 
 External Gateway does not implement undo, steering, retry, stop, or assistant-output recall semantics. A command stub must not create, delete, recall, or edit provider-visible bot output on its own.
+
+`/undo` is not a command. If a user wants to retract input, the provider recall/delete lifecycle event is the supported path.
 
 ## Input Window
 
@@ -170,9 +177,9 @@ Only addressed `message.received` events are batchable. Ambient, lifecycle, comm
 
 The status values are deliberately small:
 
-- `pending`: accepted by the gateway and not yet delivered to the agent handler.
-- `done`: accepted by the agent handler. Outbound provider failures after this point belong to `external_gateway_outbox`.
-- `failed`: the gateway could not hand the input to the agent handler. This is a terminal runtime fact, not an automatic retry state.
+- `pending`: accepted by the gateway and not yet delivered to the agent executor.
+- `done`: accepted by the agent executor after durable agent effect/outbox rows are written. Outbound provider failures after this point belong to `external_gateway_outbox`.
+- `failed`: the gateway could not hand the input to the agent executor. This is a terminal runtime fact, not an automatic retry state.
 
 `external_gateway_input_tombstones` is a short-lived unlogged window for delete/recall events that arrive before the receive. Its primary key is `(agent_uid, binding_name, provider_room_id, provider_message_id)`, so a recall in one room cannot suppress a same-id message in another room. A tombstone prevents a late stale receive from re-projecting or waking the agent. Tombstones are operational state, not audit history.
 
@@ -185,15 +192,19 @@ External Gateway executes only explicit agent outbound intents. It does not infe
 Supported outbox behavior:
 
 - `post`: requires adapter `post_message`; projects the bot message only after provider success.
+- `reply`: requires adapter `reply_message`; projects the bot message only after provider success.
+- `edit`: requires adapter `edit_message`; re-projects the bot message only after provider success.
 - `delete`: requires adapter `delete_message`; deletes the projected target only after provider success.
 - `reaction_add`: requires adapter `add_reaction`; updates the projected reaction map only after provider success.
 - `reaction_remove`: requires adapter `remove_reaction`; updates the projected reaction map only after provider success.
 - `divider`: requires adapter `divider` and posts through the adapter's message surface; projection stores fallback visible text.
 - `card`: requires adapter `card` and posts through the adapter's message surface; projection stores fallback visible text until provider-native card projection is richer.
 - unsupported operations are marked `unsupported` and do not change projection.
-- provider failures are marked `failed`, do not fake visible state, and do not make the already accepted input event failed.
+- provider failures do not fake visible state and do not make the already accepted input event failed.
 
-Final assistant-message truth belongs to the agent. The future agent conversation table should own turns, assistant messages, delivery metadata, summaries, and the rule for whether a user recall/delete should also delete bot output. For example, the agent can choose to delete only assistant outputs after the last compression summary. External Gateway cannot make that decision because it does not own turns or summaries.
+Outbox rows also store `idempotency_key`, retry counters, last attempt/error fields, provider send started time, recovery state, and provider message id. If a process restarts after `platform_send_started_at`, the dispatcher first attempts adapter reconciliation when a `provider_message_id` exists. If the adapter cannot prove idempotency/reconciliation, the row becomes `failed + unknown_after_send` instead of blindly replaying a possibly delivered message. Adapters that support idempotent sends must reuse the same `idempotency_key` across retries.
+
+Final assistant-message truth belongs to AIAgent. AIAgent owns turns, assistant messages, delivery metadata, summaries, and the rule for whether a user recall/delete should also delete bot output. For example, AIAgent can choose to delete only assistant outputs after the last compression summary. External Gateway cannot make that decision because it does not own turns or summaries.
 
 Redis visible-output streams are weak progress only. They use `agentUid + sessionId + streamId` keys and are safe to lose. Final output recovery is through the agent/outbox boundary, not Redis.
 
@@ -233,19 +244,22 @@ The integration test fixture covers these contract cases:
 - Final outbound posts are projected only after provider success.
 - Provider outbound failure marks the outbox row failed while the accepted input stays done.
 - Agent returned reaction, divider, and card intents execute only through declared adapter capabilities.
+- `/undo` is treated as normal text, not a typed command.
+- `/new`, `/compress`, `/retry`, `/steer`, and `/stop` are typed command events.
+- Outbox edit/reply/idempotency/reconciliation options are passed through the SDK adapter contract.
 
 ## Verification
 
 Run the user-story integration surface:
 
 ```sh
-bun test app/src/external-gateway/mock-im-integration.test.ts
+cd app && bun test src/external-gateway/mock-im-integration.test.ts
 ```
 
 When changing schema, runtime dispatch, plugin adapter types, projection, or outbox behavior, also run:
 
 ```sh
 cd app && bun run type-check
-bun test app/src/external-gateway
-bun test plugin/lark-adapter/src/index.test.ts
+bun test src/external-gateway
+cd ../plugin/lark-adapter && bun test
 ```

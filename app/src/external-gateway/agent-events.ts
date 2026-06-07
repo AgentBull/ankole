@@ -16,7 +16,7 @@ export type ExternalGatewayDeliveryMode = 'addressed' | 'ambient' | 'command' | 
 
 export type ExternalGatewayAgentEventStatus = 'pending' | 'done' | 'failed'
 
-export type ExternalGatewaySlashCommandName = 'undo' | 'steer'
+export type ExternalGatewaySlashCommandName = 'new' | 'compress' | 'retry' | 'steer' | 'stop'
 
 export interface ExternalGatewaySlashCommandStub {
   argsText: string
@@ -294,6 +294,29 @@ export class DrizzleExternalGatewayAgentEventQueue {
     })
   }
 
+  async nextPendingAvailableAt(
+    input: {
+      agentUids?: readonly string[]
+    } = {}
+  ): Promise<Date | undefined> {
+    if (input.agentUids && input.agentUids.length === 0) return undefined
+
+    const pendingPredicate = input.agentUids
+      ? and(
+          eq(ExternalGatewayAgentEvents.status, 'pending'),
+          inArray(ExternalGatewayAgentEvents.agentUid, [...input.agentUids])
+        )
+      : eq(ExternalGatewayAgentEvents.status, 'pending')
+
+    const [row] = await DB.select({ availableAt: ExternalGatewayAgentEvents.availableAt })
+      .from(ExternalGatewayAgentEvents)
+      .where(pendingPredicate)
+      .orderBy(asc(ExternalGatewayAgentEvents.availableAt), asc(ExternalGatewayAgentEvents.createdAt))
+      .limit(1)
+
+    return row?.availableAt
+  }
+
   /**
    * Marks agent-accepted input as terminal.
    *
@@ -309,7 +332,7 @@ export class DrizzleExternalGatewayAgentEventQueue {
   }
 
   /**
-   * Marks input that could not be handed to the agent handler.
+   * Marks input that could not be handed to the agent executor.
    *
    * This is terminal runtime state, not a retry request. Retrying failed agent
    * delivery would require an explicit agent/runtime recovery design.

@@ -1,7 +1,21 @@
 import { Elysia } from 'elysia'
 import { z } from 'zod'
 import { logger } from '@/common/logger'
+import { AiAgentModelsConfigSchema } from '@/ai-agent/config'
 import { AppEnv } from '@/config/env'
+import {
+  LlmProviderCheckInputSchema,
+  LlmProviderCreateInputSchema,
+  LlmProviderUpdateInputSchema,
+  checkLlmProvider,
+  createLlmProvider,
+  deleteLlmProvider,
+  getLlmProvider,
+  listLlmProviderModels,
+  listLlmProviders,
+  listPiLlmProviders,
+  updateLlmProvider
+} from '@/llm-providers/service'
 import { activeHumanAdmin } from '@/principals/admin-auth/access'
 import { readAdminSessionCookie } from '@/principals/admin-auth/session'
 import {
@@ -28,16 +42,32 @@ const jsonObjectSchema = z.custom<JsonObject>(
 
 const createAgentBodySchema = z
   .object({
-    uid: z.string().min(1)
+    uid: z.string().min(1),
+    displayName: z.string().nullable().optional(),
+    avatarUrl: z.string().nullable().optional(),
+    llmProfile: z
+      .object({
+        models: AiAgentModelsConfigSchema
+      })
+      .strict()
+      .optional()
   })
   .strict()
 
 const updateAgentBodySchema = z
   .object({
     displayName: z.string().nullable().optional(),
-    avatarUrl: z.string().nullable().optional()
+    avatarUrl: z.string().nullable().optional(),
+    llmProfile: z
+      .object({
+        models: AiAgentModelsConfigSchema
+      })
+      .strict()
+      .optional()
   })
   .strict()
+
+const updateLlmProviderBodySchema = LlmProviderUpdateInputSchema.omit({ providerId: true })
 
 const upsertChatChannelBodySchema = z
   .object({
@@ -93,6 +123,56 @@ export function consoleRoutes() {
 
       return { adapters: await listConsoleExternalGatewayAdapters() }
     })
+    .get('/api/console/llm-providers', async ({ request, set }) => {
+      const admin = await requireConsoleAdmin(request, set)
+      if (!admin.ok) return { error: admin.error }
+
+      return {
+        providers: await listLlmProviders(),
+        piProviders: listPiLlmProviders()
+      }
+    })
+    .post('/api/console/llm-providers', async ({ body, request, set }) => {
+      const admin = await requireConsoleAdmin(request, set)
+      if (!admin.ok) return { error: admin.error }
+
+      const parsed = LlmProviderCreateInputSchema.parse(body)
+      set.status = 201
+      return { provider: await createLlmProvider(parsed) }
+    })
+    .post('/api/console/llm-providers/check', async ({ body, request, set }) => {
+      const admin = await requireConsoleAdmin(request, set)
+      if (!admin.ok) return { error: admin.error }
+
+      const parsed = LlmProviderCheckInputSchema.parse(body)
+      return await checkLlmProvider(parsed)
+    })
+    .get('/api/console/llm-providers/:providerId', async ({ params, request, set }) => {
+      const admin = await requireConsoleAdmin(request, set)
+      if (!admin.ok) return { error: admin.error }
+
+      return { provider: await getLlmProvider(params.providerId) }
+    })
+    .put('/api/console/llm-providers/:providerId', async ({ params, body, request, set }) => {
+      const admin = await requireConsoleAdmin(request, set)
+      if (!admin.ok) return { error: admin.error }
+
+      const parsed = updateLlmProviderBodySchema.parse(body)
+      return { provider: await updateLlmProvider({ providerId: params.providerId, ...parsed }) }
+    })
+    .delete('/api/console/llm-providers/:providerId', async ({ params, request, set }) => {
+      const admin = await requireConsoleAdmin(request, set)
+      if (!admin.ok) return { error: admin.error }
+
+      await deleteLlmProvider(params.providerId)
+      set.status = 204
+    })
+    .get('/api/console/llm-providers/:providerId/models', async ({ params, request, set }) => {
+      const admin = await requireConsoleAdmin(request, set)
+      if (!admin.ok) return { error: admin.error }
+
+      return { models: await listLlmProviderModels(params.providerId) }
+    })
     .get('/api/console/agents', async ({ request, set }) => {
       const admin = await requireConsoleAdmin(request, set)
       if (!admin.ok) return { error: admin.error }
@@ -105,7 +185,7 @@ export function consoleRoutes() {
 
       const parsed = createAgentBodySchema.parse(body)
       set.status = 201
-      return { agent: await createConsoleAgent(parsed.uid, admin.principalUid) }
+      return { agent: await createConsoleAgent(parsed.uid, admin.principalUid, parsed) }
     })
     .get('/api/console/agents/:uid', async ({ params, request, set }) => {
       const admin = await requireConsoleAdmin(request, set)

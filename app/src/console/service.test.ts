@@ -1,5 +1,6 @@
 import 'reflect-metadata'
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
+import { getModels, getProviders } from '@earendil-works/pi-ai'
 import path from 'node:path'
 import { loadTestEnvFiles } from '@/common/tests/load-test-env'
 
@@ -7,10 +8,11 @@ await loadTestEnvFiles()
 
 const { eq, like } = await import('drizzle-orm')
 const { DB } = await import('@/common/database')
-const { AppConfigure, ConfigureKeyType, Principals } = await import('@/common/db-schema')
+const { AppConfigure, ConfigureKeyType, LlmProviders, Principals } = await import('@/common/db-schema')
 const { appConfigService } = await import('@/config/app-configure')
 const { agentChannelConfigKey } = await import('@/external-gateway/config')
 const { updateAgent, getAgent } = await import('@/principals/agents/service')
+const { createLlmProvider } = await import('@/llm-providers/service')
 const {
   ConsoleDomainError,
   createConsoleAgent,
@@ -23,11 +25,14 @@ const {
   getConsoleInteractiveConfigSession,
   listConsoleExternalRooms,
   startConsoleInteractiveConfigSession,
+  updateConsoleAgent,
   updateConsoleChatChannel
 } = await import('./service')
 const { setLarkAppRegistrationForTest } = await import('../../../plugin/lark-adapter/src/index')
 
 const testPrefix = `test_console_${Date.now()}_${Math.random().toString(36).slice(2)}`.toLowerCase()
+const providerPrefix = `clp_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`.toLowerCase()
+const catalog = firstCatalogModel()
 const pluginRoot = path.resolve(import.meta.dir, '../../../plugin')
 const originalPluginDir = Bun.env.PLUGIN_DIR
 
@@ -82,6 +87,65 @@ describe('console agents', () => {
     expect(disabledAgent?.agent.metadata).toEqual({
       external: {
         adapters: []
+      }
+    })
+  })
+
+  it('updates llmProfile models without replacing external chat-channel bindings', async () => {
+    const uid = testUid('agent_llm_profile')
+    const providerId = llmProviderId('agent')
+    await createLlmProvider({
+      providerId,
+      piProvider: catalog.provider,
+      apiKey: 'sk-test'
+    })
+    await createConsoleAgent(uid)
+    await createConsoleChatChannel(uid, {
+      name: 'lark_main',
+      adapter: 'lark',
+      config: {
+        appId: 'cli_main',
+        appSecret: 'main-secret'
+      }
+    })
+
+    const updated = await updateConsoleAgent(uid, {
+      llmProfile: {
+        models: {
+          primary: {
+            providerId,
+            model: catalog.model.id
+          }
+        }
+      }
+    })
+
+    expect(updated.llmProfile).toEqual({
+      models: {
+        primary: {
+          providerId,
+          model: catalog.model.id
+        }
+      }
+    })
+    const storedAgent = await getAgent(uid)
+    expect(storedAgent?.agent.metadata).toMatchObject({
+      external: {
+        adapters: [
+          {
+            name: 'lark_main',
+            adapter: 'lark',
+            enabled: true
+          }
+        ]
+      },
+      ai_agent: {
+        models: {
+          primary: {
+            providerId,
+            model: catalog.model.id
+          }
+        }
       }
     })
   })
@@ -270,6 +334,7 @@ describe('console interactive config sessions', () => {
 async function clearTestRows(): Promise<void> {
   await DB.delete(AppConfigure).where(like(AppConfigure.key, `agents.${testPrefix}%`))
   await DB.delete(Principals).where(like(Principals.uid, `${testPrefix}%`))
+  await DB.delete(LlmProviders).where(like(LlmProviders.providerId, `${providerPrefix}%`))
   await appConfigService.refreshAll()
 }
 
@@ -306,4 +371,16 @@ async function waitForSessionHtml(sessionId: string): Promise<void> {
 
 function testUid(name: string): string {
   return `${testPrefix}_${name}`
+}
+
+function llmProviderId(name: string): string {
+  return `${providerPrefix}_${name}`
+}
+
+function firstCatalogModel() {
+  for (const provider of getProviders()) {
+    const [model] = getModels(provider as never)
+    if (model) return { provider, model }
+  }
+  throw new Error('Pi catalog did not expose any models')
 }

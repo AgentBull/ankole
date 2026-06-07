@@ -1,5 +1,6 @@
 import { and, eq, ne } from 'drizzle-orm'
 import { DB } from '@/common/database'
+import { toJsonArray, toJsonObject, toJsonValue } from '@/common/json'
 import { ExternalGatewayAgentEvents, type JsonObject, type JsonValue } from '@/common/db-schema'
 import { logger as defaultLogger, type Logger } from '@/common/logger'
 import type { AgentResult } from '@/principals/agents/service'
@@ -57,7 +58,7 @@ export function createExternalGatewayAdapterContext(
 }
 
 function adapterLogger(logger: Logger, prefix?: string): ExternalGatewayAdapterLogger {
-  const scoped = prefix ? logger.child?.({ pluginLogger: prefix }) ?? logger : logger
+  const scoped = prefix ? (logger.child?.({ pluginLogger: prefix }) ?? logger) : logger
   return {
     debug: (...args) => {
       const entry = pluginLogEntry(args)
@@ -205,14 +206,17 @@ async function handleMessageDeleted(
     type
   })
 
-  runtime.logger?.debug?.({
-    agentUid: runtime.agent.agent.uid,
-    type,
-    messageId: event.messageId,
-    threadId: event.threadId,
-    roomId: room.id,
-    raw: event.raw
-  }, 'External Gateway message lifecycle event accepted')
+  runtime.logger?.debug?.(
+    {
+      agentUid: runtime.agent.agent.uid,
+      type,
+      messageId: event.messageId,
+      threadId: event.threadId,
+      roomId: room.id,
+      raw: event.raw
+    },
+    'External Gateway message lifecycle event accepted'
+  )
 
   await runtime.eventQueue.recordInputTombstone({
     agentUid: runtime.agent.agent.uid,
@@ -221,21 +225,27 @@ async function handleMessageDeleted(
     providerRoomId: room.id
   })
 
-  runtime.logger?.debug?.({
-    agentUid: runtime.agent.agent.uid,
-    type,
-    messageId: event.messageId,
-    roomId: room.id
-  }, 'External Gateway message lifecycle tombstone recorded')
+  runtime.logger?.debug?.(
+    {
+      agentUid: runtime.agent.agent.uid,
+      type,
+      messageId: event.messageId,
+      roomId: room.id
+    },
+    'External Gateway message lifecycle tombstone recorded'
+  )
 
   const projectedDeleted = await runtime.projection.projectDelete({ room, messageId: event.messageId })
-  runtime.logger?.debug?.({
-    agentUid: runtime.agent.agent.uid,
-    type,
-    messageId: event.messageId,
-    roomId: room.id,
-    projectedDeleted
-  }, 'External Gateway message lifecycle projection delete completed')
+  runtime.logger?.debug?.(
+    {
+      agentUid: runtime.agent.agent.uid,
+      type,
+      messageId: event.messageId,
+      roomId: room.id,
+      projectedDeleted
+    },
+    'External Gateway message lifecycle projection delete completed'
+  )
 
   const pending = await runtime.eventQueue.mutatePendingReceive({
     agentUid: runtime.agent.agent.uid,
@@ -244,23 +254,29 @@ async function handleMessageDeleted(
     providerRoomId: room.id,
     remove: true
   })
-  runtime.logger?.debug?.({
-    agentUid: runtime.agent.agent.uid,
-    type,
-    messageId: event.messageId,
-    roomId: room.id,
-    pending
-  }, 'External Gateway message lifecycle pending input mutation completed')
+  runtime.logger?.debug?.(
+    {
+      agentUid: runtime.agent.agent.uid,
+      type,
+      messageId: event.messageId,
+      roomId: room.id,
+      pending
+    },
+    'External Gateway message lifecycle pending input mutation completed'
+  )
   if (pending === 'removed') return
 
   const delivered = await hasDeliveredReceive(runtime.agent.agent.uid, runtime.binding.name, room.id, event.messageId)
-  runtime.logger?.debug?.({
-    agentUid: runtime.agent.agent.uid,
-    type,
-    messageId: event.messageId,
-    roomId: room.id,
-    delivered
-  }, 'External Gateway message lifecycle delivered receive lookup completed')
+  runtime.logger?.debug?.(
+    {
+      agentUid: runtime.agent.agent.uid,
+      type,
+      messageId: event.messageId,
+      roomId: room.id,
+      delivered
+    },
+    'External Gateway message lifecycle delivered receive lookup completed'
+  )
   if (!delivered) return
 
   const queued = await runtime.eventQueue.enqueue({
@@ -274,13 +290,16 @@ async function handleMessageDeleted(
     providerThreadId: event.threadId,
     type
   })
-  runtime.logger?.debug?.({
-    agentUid: runtime.agent.agent.uid,
-    type,
-    messageId: event.messageId,
-    roomId: room.id,
-    queuedEventId: queued.providerEventId
-  }, 'External Gateway message lifecycle event enqueued for delivered receive')
+  runtime.logger?.debug?.(
+    {
+      agentUid: runtime.agent.agent.uid,
+      type,
+      messageId: event.messageId,
+      roomId: room.id,
+      queuedEventId: queued.providerEventId
+    },
+    'External Gateway message lifecycle event enqueued for delivered receive'
+  )
   runtime.scheduleDrain(queued.availableAt)
 }
 
@@ -403,14 +422,21 @@ function envelopeForAction(input: {
   event: ExternalGatewayActionEvent
   room: Required<Pick<ExternalGatewayRoomInput, 'id'>> & ExternalGatewayRoomInput
 }): ExternalGatewayAgentEnvelope {
-  const id = providerEventId('action', input.room.id, input.event.messageId ?? input.event.actionId, input.event.actionId)
+  const id = providerEventId(
+    'action',
+    input.room.id,
+    input.event.messageId ?? input.event.actionId,
+    input.event.actionId
+  )
 
   return {
     specversion: '1.0',
     id,
     source: `external://${input.binding.adapter}/${encodeURIComponent(input.room.id)}`,
     type: 'action',
-    subject: input.event.messageId ? `external_messages:${input.event.messageId}` : `external_actions:${input.event.actionId}`,
+    subject: input.event.messageId
+      ? `external_messages:${input.event.messageId}`
+      : `external_actions:${input.event.actionId}`,
     time: new Date().toISOString(),
     data: {
       room: roomJson(input.room),
@@ -529,11 +555,13 @@ function mentionsFromMessage(message: Pick<ExternalGatewayMessageInput, 'isMenti
   ]
 }
 
-function commandFromMessage(message: Pick<ExternalGatewayMessageInput, 'text'>): ExternalGatewaySlashCommandStub | undefined {
+function commandFromMessage(
+  message: Pick<ExternalGatewayMessageInput, 'text'>
+): ExternalGatewaySlashCommandStub | undefined {
   const text = message.text?.trim()
   if (!text) return undefined
 
-  const match = /^\/(undo|steer)(?:\s+(.*))?$/i.exec(text)
+  const match = /^\/(new|compress|retry|steer|stop)(?:\s+(.*))?$/i.exec(text)
   if (!match) return undefined
 
   return {
@@ -572,42 +600,4 @@ function runWithWebhookOptions(task: Promise<void>, options?: ExternalGatewayWeb
 
   options.runInBackground(task)
   return Promise.resolve()
-}
-
-function toJsonValue(value: unknown): JsonValue | null {
-  if (value === undefined) return null
-
-  try {
-    const serialized = JSON.stringify(value, (_key, nestedValue) => {
-      if (
-        typeof nestedValue === 'function' ||
-        typeof nestedValue === 'undefined' ||
-        typeof nestedValue === 'bigint' ||
-        typeof nestedValue === 'symbol'
-      ) {
-        return undefined
-      }
-
-      if (nestedValue instanceof Date) return nestedValue.toISOString()
-      if (nestedValue instanceof ArrayBuffer || nestedValue instanceof Blob || ArrayBuffer.isView(nestedValue)) return undefined
-
-      return nestedValue
-    })
-
-    return serialized === undefined ? null : (JSON.parse(serialized) as JsonValue)
-  } catch {
-    return null
-  }
-}
-
-function toJsonObject(value: unknown): JsonObject {
-  const json = toJsonValue(value)
-  if (typeof json === 'object' && json !== null && !Array.isArray(json)) return json
-
-  return {}
-}
-
-function toJsonArray(value: unknown): JsonValue[] {
-  const json = toJsonValue(value)
-  return Array.isArray(json) ? json : []
 }

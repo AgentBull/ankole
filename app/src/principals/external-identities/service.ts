@@ -355,7 +355,5 @@ function isJsonObject(value: unknown): value is JsonObject {
 }
 
 function metadataObject(value: unknown): JsonObject {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return {}
-
-  return value as JsonObject
+  return isJsonObject(value) ? value : {}
 }

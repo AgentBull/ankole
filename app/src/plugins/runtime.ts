@@ -3,8 +3,12 @@ import type {
   BullXAppConfigPatternDefinition,
   BullXExternalGatewayAdapterFactory,
   BullXIdentityProviderAdapterFactory,
-  BullXPlugin
+  BullXPlugin,
+  BullXWebProvider,
+  BullXWebProviderFactoryContext
 } from '@agentbull/bullx-sdk/plugins'
+import { webProviderRegistry } from '@/ai-agent/web/registry'
+import { AppEnv } from '@/config/env'
 import { rootContainer, singleton } from '@/common/di'
 import {
   appConfigService,
@@ -39,6 +43,7 @@ export interface PluginRuntimeStats {
   enabledPlugins: string[]
   registeredExternalGatewayAdapters: string[]
   registeredIdentityProviderAdapters: string[]
+  registeredWebProviders: string[]
 }
 
 export interface PluginRuntimeStartOptions extends PluginDiscoveryOptions {
@@ -50,6 +55,7 @@ export interface PluginRuntimeStartOptions extends PluginDiscoveryOptions {
   registerAppConfigPatterns?: (definitions: readonly BullXAppConfigPatternDefinition[]) => void
   registerExternalGatewayAdapterFactory?: (factory: BullXExternalGatewayAdapterFactory) => void
   registerIdentityProviderAdapterFactory?: (factory: BullXIdentityProviderAdapterFactory) => void
+  registerWebProvider?: (provider: BullXWebProvider) => void
 }
 
 export class DuplicatePluginIdError extends Error {
@@ -113,6 +119,17 @@ export class PluginRuntime {
       options.registerExternalGatewayAdapterFactory ?? registerHostExternalGatewayAdapterFactory
     const registerIdentityProviderFactory =
       options.registerIdentityProviderAdapterFactory ?? registerHostIdentityProviderAdapterFactory
+    const registerWebProvider = options.registerWebProvider ?? registerHostWebProvider
+    const webProviderContext: BullXWebProviderFactoryContext = {
+      getSecret: async key => {
+        try {
+          return await appConfigService.getByKey<string>(key)
+        } catch {
+          return undefined
+        }
+      },
+      isProduction: AppEnv.NODE_ENV === 'production'
+    }
 
     for (const plugin of registry.plugins) {
       if (plugin.appConfigDefinitions?.length) registerDefinitions(plugin.appConfigDefinitions)
@@ -131,6 +148,7 @@ export class PluginRuntime {
 
     const registeredExternalGatewayAdapters: string[] = []
     const registeredIdentityProviderAdapters: string[] = []
+    const registeredWebProviders: string[] = []
     for (const pluginId of enabledPluginIds) {
       const plugin = registry.pluginsById.get(pluginId)
       if (!plugin) throw new UnknownPluginOverrideError(pluginId)
@@ -144,13 +162,19 @@ export class PluginRuntime {
         registerIdentityProviderFactory(factory)
         registeredIdentityProviderAdapters.push(factory.id)
       }
+
+      for (const factory of plugin.webProviders ?? []) {
+        registerWebProvider(await factory.create(webProviderContext))
+        registeredWebProviders.push(factory.id)
+      }
     }
 
     this.startedStats = {
       knownPlugins: registry.plugins.length,
       enabledPlugins: enabledPluginIds,
       registeredExternalGatewayAdapters,
-      registeredIdentityProviderAdapters
+      registeredIdentityProviderAdapters,
+      registeredWebProviders
     }
     return this.startedStats
   }
@@ -225,6 +249,18 @@ function registerHostExternalGatewayAdapterFactory(factory: BullXExternalGateway
 
 function registerHostIdentityProviderAdapterFactory(factory: BullXIdentityProviderAdapterFactory): void {
   registerIdentityProviderAdapterFactory(factory as IdentityProviderAdapterFactory)
+}
+
+function registerHostWebProvider(provider: BullXWebProvider): void {
+  const search = provider.search
+  const extract = provider.extract
+  webProviderRegistry.register({
+    id: provider.id,
+    supports: provider.supports,
+    available: kind => provider.available(kind),
+    search: search ? (args, signal) => search(args, signal) : undefined,
+    extract: extract ? (args, signal) => extract(args, signal) : undefined
+  })
 }
 
 export const pluginRuntime = rootContainer.resolve(PluginRuntime)

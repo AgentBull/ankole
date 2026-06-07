@@ -3,12 +3,12 @@ import type {
   BullXExternalGatewayAdapter,
   BullXExternalGatewayAdapterCapabilities,
   BullXExternalGatewayAdapterContext,
-  BullXExternalGatewayFetchMessagesResult,
-  BullXExternalGatewayHistoryCapability,
   BullXExternalGatewayInboundCapability,
   BullXExternalGatewayLogger,
+  BullXExternalGatewayMessageReconciliation,
   BullXExternalGatewayMessageDeletedEvent,
   BullXExternalGatewayMessageInput,
+  BullXExternalGatewayOutboundOptions,
   BullXExternalGatewayOutboundCapability,
   BullXExternalGatewayRawMessage,
   BullXExternalGatewayReactionEvent,
@@ -28,14 +28,13 @@ export type ExternalGatewayAdapter<TRawMessage = unknown> = BullXExternalGateway
 export type ExternalGatewayAdapterCapabilities = BullXExternalGatewayAdapterCapabilities
 export type ExternalGatewayAdapterContext = BullXExternalGatewayAdapterContext
 export type ExternalGatewayAdapterLogger = BullXExternalGatewayLogger
-export type ExternalGatewayFetchResult<TRawMessage = unknown> =
-  BullXExternalGatewayFetchMessagesResult<TRawMessage>
-export type ExternalGatewayHistoryCapability = BullXExternalGatewayHistoryCapability
+export type ExternalGatewayMessageReconciliation<TRawMessage = unknown> =
+  BullXExternalGatewayMessageReconciliation<TRawMessage>
 export type ExternalGatewayInboundCapability = BullXExternalGatewayInboundCapability
-export type ExternalGatewayMessageDeletedEvent<TRawEvent = unknown> =
-  BullXExternalGatewayMessageDeletedEvent<TRawEvent>
+export type ExternalGatewayMessageDeletedEvent<TRawEvent = unknown> = BullXExternalGatewayMessageDeletedEvent<TRawEvent>
 export type ExternalGatewayMessageInput<TRawMessage = unknown> = BullXExternalGatewayMessageInput<TRawMessage>
 export type ExternalGatewayOutboundCapability = BullXExternalGatewayOutboundCapability
+export type ExternalGatewayOutboundOptions = BullXExternalGatewayOutboundOptions
 export type ExternalGatewayRawMessage<TRawMessage = unknown> = BullXExternalGatewayRawMessage<TRawMessage>
 export type ExternalGatewayReactionEvent<TRawEvent = unknown> = BullXExternalGatewayReactionEvent<TRawEvent>
 export type ExternalGatewayRoomInput = BullXExternalGatewayRoomInput

@@ -12,7 +12,7 @@ import { loadTestEnvFiles } from '@/common/tests/load-test-env'
 
 await loadTestEnvFiles()
 
-const { DB } = await import('@/common/database')
+const { DB, jsonbParam } = await import('@/common/database')
 const {
   AppConfigure,
   ExternalGatewayAgentEvents,
@@ -26,9 +26,12 @@ const { createAgent } = await import('@/principals/agents/service')
 const { ExternalGatewayRuntime } = await import('./runtime')
 const { MissingExternalGatewayAdapterFactoryError, registerExternalGatewayAdapterFactory } =
   await import('./adapter-registry')
+const { externalGatewayOutbox } = await import('./outbox')
+const { externalGatewayProjectionSink } = await import('./core/projection')
 const { externalGatewayRoutes } = await import('./routes')
 const { PluginRuntime } = await import('@/plugins/runtime')
 const { defineBullXPlugin } = await import('@agentbull/bullx-sdk/plugins')
+const { mockExternalGatewayAgentExecutor } = await import('./agent')
 
 const testPrefix = `__test-external-gateway-${Date.now()}-${Math.random().toString(36).slice(2)}`
 const factoryPrefix = `test_${Date.now()}_${Math.random().toString(36).slice(2)}`
@@ -73,6 +76,7 @@ describe('ExternalGatewayRuntime', () => {
 
     const runtime = new ExternalGatewayRuntime()
     const stats = await runtime.start({
+      agentExecutor: mockExternalGatewayAgentExecutor,
       loadActiveAgents: async () => [
         agentResult(agentUid, [
           { name: 'fake', adapter: factoryId },
@@ -146,36 +150,46 @@ describe('ExternalGatewayRuntime', () => {
 
     const runtime = new ExternalGatewayRuntime()
     await runtime.start({
-      agentHandler: {
-        async handleExternalGatewayEvents(delivery) {
+      agentExecutor: {
+        async acceptExternalGatewayDelivery(delivery, context) {
           const first = delivery.events[0]
-          if (!first) return []
+          if (!first) return { status: 'accepted' as const }
 
           if (first.type === 'message.received') {
-            return [
-              {
-                operation: 'post',
-                outboundKey: `test-post:${first.providerEventId}`,
-                providerRoomId: first.providerRoomId,
-                providerThreadId: first.providerThreadId,
-                finalPayload: { text: 'agent reply' }
-              }
-            ]
+            await context.outbox.enqueuePendingMany({
+              agentUid: context.agentUid,
+              bindingName: context.bindingName,
+              intents: [
+                {
+                  operation: 'post',
+                  outboundKey: `test-post:${first.providerEventId}`,
+                  providerRoomId: first.providerRoomId,
+                  providerThreadId: first.providerThreadId,
+                  finalPayload: { text: 'agent reply' }
+                }
+              ]
+            })
+            return { status: 'accepted' as const }
           }
 
           if (first.type === 'message.deleted') {
-            return [
-              {
-                operation: 'delete',
-                outboundKey: `test-delete:${first.providerEventId}`,
-                providerRoomId: first.providerRoomId,
-                providerThreadId: first.providerThreadId,
-                finalPayload: { targetMessageId: 'fake_delete-post-1' }
-              }
-            ]
+            await context.outbox.enqueuePendingMany({
+              agentUid: context.agentUid,
+              bindingName: context.bindingName,
+              intents: [
+                {
+                  operation: 'delete',
+                  outboundKey: `test-delete:${first.providerEventId}`,
+                  providerRoomId: first.providerRoomId,
+                  providerThreadId: first.providerThreadId,
+                  finalPayload: { targetMessageId: 'fake_delete-post-1' }
+                }
+              ]
+            })
+            return { status: 'accepted' as const }
           }
 
-          return []
+          return { status: 'accepted' as const }
         }
       },
       loadActiveAgents: async () => [agentResult(agentUid, [{ name: 'fake_delete', adapter: factoryId }])]
@@ -236,20 +250,25 @@ describe('ExternalGatewayRuntime', () => {
 
     const runtime = new ExternalGatewayRuntime()
     await runtime.start({
-      agentHandler: {
-        async handleExternalGatewayEvents(delivery) {
+      agentExecutor: {
+        async acceptExternalGatewayDelivery(delivery, context) {
           const first = delivery.events[0]
-          if (!first) return []
+          if (!first) return { status: 'accepted' as const }
 
-          return [
-            {
-              operation: 'post',
-              outboundKey: `test-failed-post:${first.providerEventId}`,
-              providerRoomId: first.providerRoomId,
-              providerThreadId: first.providerThreadId,
-              finalPayload: { text: 'provider will reject this' }
-            }
-          ]
+          await context.outbox.enqueuePendingMany({
+            agentUid: context.agentUid,
+            bindingName: context.bindingName,
+            intents: [
+              {
+                operation: 'post',
+                outboundKey: `test-failed-post:${first.providerEventId}`,
+                providerRoomId: first.providerRoomId,
+                providerThreadId: first.providerThreadId,
+                finalPayload: { text: 'provider will reject this' }
+              }
+            ]
+          })
+          return { status: 'accepted' as const }
         }
       },
       loadActiveAgents: async () => [agentResult(agentUid, [{ name: 'fake_fail', adapter: factoryId }])]
@@ -280,6 +299,89 @@ describe('ExternalGatewayRuntime', () => {
     await runtime.stop()
   })
 
+  it('does not replay unknown-after-send outbox rows when adapter cannot prove idempotency', async () => {
+    const adapter = new FakeExternalAdapter('fake_unknown')
+    const agentUid = `${testPrefix}-unknown-after-send-agent`.toLowerCase()
+    createdAgentUids.add(agentUid)
+
+    await DB.insert(ExternalGatewayOutbox).values({
+      agentUid,
+      bindingName: 'fake_unknown',
+      providerRoomId: 'fake_unknown:channel',
+      providerThreadId: 'fake_unknown:channel:thread-1',
+      outboundKey: 'test-unknown-after-send',
+      operation: 'post',
+      finalPayload: jsonbParam({ text: 'maybe already sent' }),
+      status: 'pending',
+      platformSendStartedAt: new Date(),
+      recoveryState: 'send_attempt_started'
+    })
+
+    await externalGatewayOutbox.dispatchPendingForBinding({
+      adapter,
+      agent: agentResult(agentUid, [{ adapter: 'fake', name: 'fake_unknown' }]),
+      bindingName: 'fake_unknown',
+      projection: externalGatewayProjectionSink,
+      room: {}
+    })
+
+    const [row] = await DB.select()
+      .from(ExternalGatewayOutbox)
+      .where(
+        and(
+          eq(ExternalGatewayOutbox.agentUid, agentUid),
+          eq(ExternalGatewayOutbox.outboundKey, 'test-unknown-after-send')
+        )
+      )
+      .limit(1)
+    expect(row?.status).toBe('failed')
+    expect(row?.recoveryState).toBe('unknown_after_send')
+    expect(adapter.posts).toEqual([])
+  })
+
+  it('does not replay idempotent send attempts outside the replay window without a provider message id', async () => {
+    const adapter = new FakeExternalAdapter('fake_expired_idempotency', {
+      ...defaultFakeCapabilities,
+      outbound: [...defaultFakeCapabilities.outbound, 'outbound_idempotency']
+    })
+    const agentUid = `${testPrefix}-expired-idempotency-agent`.toLowerCase()
+    createdAgentUids.add(agentUid)
+
+    await DB.insert(ExternalGatewayOutbox).values({
+      agentUid,
+      bindingName: 'fake_expired_idempotency',
+      providerRoomId: 'fake_expired_idempotency:channel',
+      providerThreadId: 'fake_expired_idempotency:channel:thread-1',
+      outboundKey: 'test-expired-idempotency',
+      operation: 'post',
+      finalPayload: jsonbParam({ text: 'maybe already sent outside idempotency window' }),
+      status: 'pending',
+      platformSendStartedAt: new Date(Date.now() - 61 * 60 * 1000),
+      recoveryState: 'send_attempt_started'
+    })
+
+    await externalGatewayOutbox.dispatchPendingForBinding({
+      adapter,
+      agent: agentResult(agentUid, [{ adapter: 'fake', name: 'fake_expired_idempotency' }]),
+      bindingName: 'fake_expired_idempotency',
+      projection: externalGatewayProjectionSink,
+      room: {}
+    })
+
+    const [row] = await DB.select()
+      .from(ExternalGatewayOutbox)
+      .where(
+        and(
+          eq(ExternalGatewayOutbox.agentUid, agentUid),
+          eq(ExternalGatewayOutbox.outboundKey, 'test-expired-idempotency')
+        )
+      )
+      .limit(1)
+    expect(row?.status).toBe('failed')
+    expect(row?.recoveryState).toBe('unknown_after_send')
+    expect(adapter.posts).toEqual([])
+  })
+
   it('dispatches minimal reaction, divider, and card outbound intents', async () => {
     const adapter = new FakeExternalAdapter('fake_ops')
     const factoryId = `${factoryPrefix}_operations_factory`
@@ -296,10 +398,10 @@ describe('ExternalGatewayRuntime', () => {
 
     const runtime = new ExternalGatewayRuntime()
     await runtime.start({
-      agentHandler: {
-        async handleExternalGatewayEvents(delivery) {
+      agentExecutor: {
+        async acceptExternalGatewayDelivery(delivery, context) {
           const first = delivery.events[0]
-          if (!first) return []
+          if (!first) return { status: 'accepted' as const }
 
           const intents: ExternalGatewayOutboundIntent[] = [
             {
@@ -327,7 +429,12 @@ describe('ExternalGatewayRuntime', () => {
               }
             }
           ]
-          return intents
+          await context.outbox.enqueuePendingMany({
+            agentUid: context.agentUid,
+            bindingName: context.bindingName,
+            intents
+          })
+          return { status: 'accepted' as const }
         }
       },
       loadActiveAgents: async () => [agentResult(agentUid, [{ name: 'fake_ops', adapter: factoryId }])]
@@ -406,6 +513,7 @@ describe('ExternalGatewayRuntime', () => {
 
     const runtime = new ExternalGatewayRuntime()
     const stats = await runtime.start({
+      agentExecutor: mockExternalGatewayAgentExecutor,
       loadActiveAgents: async () => [agentResult(agentUid, [{ name: 'plugin_fake', adapter: factoryId }])]
     })
 
@@ -465,13 +573,12 @@ interface FakeWebhookPayload {
 
 const defaultFakeCapabilities = {
   inbound: ['message_receive', 'message_recall', 'reaction_add', 'reaction_remove'],
-  outbound: ['post_message', 'delete_message', 'add_reaction', 'remove_reaction', 'divider', 'card'],
-  history: ['fetch_thread_messages']
+  outbound: ['post_message', 'delete_message', 'add_reaction', 'remove_reaction', 'divider', 'card']
 } as const satisfies ExternalGatewayAdapter['capabilities']
 
 class FakeExternalAdapter implements ExternalGatewayAdapter<FakeWebhookPayload> {
   readonly userName = 'Agent'
-  readonly capabilities: ExternalGatewayAdapter['capabilities'] = defaultFakeCapabilities
+  readonly capabilities: ExternalGatewayAdapter['capabilities']
   context: ExternalGatewayAdapterContext | undefined
   initialized = 0
   posts: Array<{ text: string; threadId: string }> = []
@@ -479,7 +586,12 @@ class FakeExternalAdapter implements ExternalGatewayAdapter<FakeWebhookPayload> 
   reactions: Array<{ added: boolean; emoji: unknown; messageId: string; threadId: string }> = []
   private postFailures = 0
 
-  constructor(readonly name: string) {}
+  constructor(
+    readonly name: string,
+    capabilities: ExternalGatewayAdapter['capabilities'] = defaultFakeCapabilities
+  ) {
+    this.capabilities = capabilities
+  }
 
   failNextPost(count = 1): void {
     this.postFailures += count
@@ -529,10 +641,6 @@ class FakeExternalAdapter implements ExternalGatewayAdapter<FakeWebhookPayload> 
 
   isDM(threadId: string): boolean {
     return threadId.startsWith(`${this.name}:dm:`)
-  }
-
-  async fetchMessages() {
-    return { messages: [] }
   }
 
   async fetchThread(threadId: string) {

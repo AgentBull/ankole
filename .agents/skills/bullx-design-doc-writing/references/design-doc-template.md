@@ -24,7 +24,7 @@ The target system, in implementation-facing terms. Cover only surfaces the desig
 
 - domain concepts and responsibilities;
 - module boundaries, public APIs, and function signatures when they constrain callers;
-- persistence: tables, columns, indexes, constraints, migrations, transaction boundaries; generate UUIDv7 keys through `BullX.Ext.gen_uuid_v7/0` or `BullX.Ecto.UUIDv7`;
+- persistence: tables, columns, indexes, constraints, migrations, transaction boundaries;
 - runtime: OTP processes, supervision, queues, background jobs, NIF boundaries;
 - web, API, or UI surfaces;
 - external integrations and capability boundaries;

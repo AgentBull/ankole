@@ -1,5 +1,4 @@
 import { closeDatabase } from '@/common/database'
-import type { Runtime } from '@/common/lifecycle'
 import { logger, type Logger } from '@/common/logger'
 import { AppEnv } from '@/config/env'
 import { externalGatewayRuntime } from '@/external-gateway'
@@ -9,28 +8,8 @@ import type { IdentityProviderRuntimeStats } from '@/principals/identity-provide
 import { pluginRuntime } from '@/plugins'
 import type { PluginRuntimeStats } from '@/plugins/runtime'
 import { initializeSetupBootstrap } from '@/setup/bootstrap'
-import { createWebServer, type WebServerHandle } from './web-server'
-
-/**
- * Injectable startup dependencies for tests and future host runtimes.
- *
- * The real process path uses the module singletons. Tests pass fakes so they
- * can assert startup ordering without binding a network port or touching the
- * real External Gateway singleton.
- */
-export interface StartBullXAgentOptions {
-  closeDatabase?: typeof closeDatabase
-  env?: string
-  exitOnSignal?: boolean
-  httpPort?: number
-  initializeSetupBootstrap?: typeof initializeSetupBootstrap
-  externalGatewayRuntime?: Runtime<ExternalGatewayRuntimeStats>
-  identityProviderRuntime?: Runtime<IdentityProviderRuntimeStats>
-  logger?: Logger
-  pluginRuntime?: Runtime<PluginRuntimeStats>
-  registerSignals?: boolean
-  webServer?: WebServerHandle
-}
+import { aiAgentRuntime } from '@/ai-agent/runtime'
+import { buildAiAgentTools, registerBuiltinWebProviders } from '@/ai-agent/tools'
 
 /**
  * Handle returned by `startBullXAgent()` for tests or embedders.
@@ -50,18 +29,7 @@ export interface StartedBullXAgent {
  * HTTP server listens. This keeps shared channel connections attached to their
  * chat consumers before any long-connection IM event can arrive.
  */
-export async function startBullXAgent(options: StartBullXAgentOptions = {}): Promise<StartedBullXAgent> {
-  const pluginsRuntime = options.pluginRuntime ?? pluginRuntime
-  const identityRuntime = options.identityProviderRuntime ?? identityProviderRuntime
-  const runtime = options.externalGatewayRuntime ?? externalGatewayRuntime
-  const server = options.webServer ?? (await createWebServer())
-  const log = options.logger ?? logger
-  const closeDb = options.closeDatabase ?? closeDatabase
-  const initSetup = options.initializeSetupBootstrap ?? initializeSetupBootstrap
-  const httpPort = options.httpPort ?? AppEnv.HTTP_PORT
-  const env = options.env ?? AppEnv.NODE_ENV
-  const registerSignals = options.registerSignals ?? true
-  const exitOnSignal = options.exitOnSignal ?? true
+export async function startBullXAgent(): Promise<StartedBullXAgent> {
   let shuttingDown = false
   let pluginStartAttempted = false
   let externalGatewayStartAttempted = false
@@ -70,47 +38,44 @@ export async function startBullXAgent(options: StartBullXAgentOptions = {}): Pro
   const shutdownRuntime = async () => {
     // Stop ingress-capable runtime state before closing the shared database
     // connection, because shutdown hooks may still need persistence.
-    if (identityProviderStartAttempted) await identityRuntime.stop()
-    if (externalGatewayStartAttempted) await runtime.stop()
-    if (pluginStartAttempted) await pluginsRuntime.stop()
-    await closeDb({ timeout: 5 })
+    if (identityProviderStartAttempted) await identityProviderRuntime.stop()
+    if (externalGatewayStartAttempted) await externalGatewayRuntime.stop()
+    if (pluginStartAttempted) await pluginRuntime.stop()
+    await closeDatabase({ timeout: 5 })
   }
 
   try {
-    const setup = await initSetup()
+    const setup = await initializeSetupBootstrap()
+    // Register built-in web providers before plugins so plugin-contributed providers append after them.
+    registerBuiltinWebProviders()
     pluginStartAttempted = true
-    const plugins = await pluginsRuntime.start()
+    const plugins = await pluginRuntime.start()
+    // Wire AI agent tools once providers (built-in + plugin) and config are known, before the
+    // gateway starts accepting messages. clarify is run-bound and enabled separately.
+    const agentTools = await buildAiAgentTools()
+    aiAgentRuntime.setTools(agentTools.staticTools, agentTools.activeNames)
+    aiAgentRuntime.setClarifyEnabled(true)
     externalGatewayStartAttempted = true
-    const externalGateway = await runtime.start()
+    const externalGateway = await externalGatewayRuntime.start()
     identityProviderStartAttempted = true
-    const identityProviders = await identityRuntime.start()
-
-    // From this point on the public webhook route can safely find initialized
-    // agent/channel handlers.
-    server.listen({
-      port: httpPort,
-      idleTimeout: 0
-    })
+    const identityProviders = await identityProviderRuntime.start()
 
     const shutdown = async (signal?: NodeJS.Signals) => {
       if (shuttingDown) return
 
       shuttingDown = true
-      log.info({ signal }, 'Shutting down BullX Agent')
+      logger.info({ signal }, 'Shutting down BullX Agent')
       await shutdownRuntime()
 
-      if (exitOnSignal) process.exit(0)
+      process.exit(0)
     }
 
-    if (registerSignals) {
-      registerShutdownHandler('SIGINT', shutdown, log)
-      registerShutdownHandler('SIGTERM', shutdown, log)
-    }
+    registerShutdownHandler('SIGINT', shutdown, logger)
+    registerShutdownHandler('SIGTERM', shutdown, logger)
 
-    log.info(
+    logger.info(
       {
-        port: httpPort,
-        env,
+        env: AppEnv.NODE_ENV,
         idleTimeoutSeconds: 0,
         plugins,
         identityProviders,

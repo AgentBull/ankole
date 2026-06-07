@@ -1,15 +1,13 @@
 import { Crust } from '@crustjs/core'
 
-import { appRootPath, loadAppDevelopmentEnv, resolveAppDatabaseName, runChild, runCompose } from '../utils'
-
-type DbArgs = {
-  name?: string
-  yes?: boolean
-  migrate?: boolean
-  startServices?: boolean
-  pull?: boolean
-  waitTimeout?: number
-}
+import {
+  appRootPath,
+  loadAppDevelopmentEnv,
+  resolveAppDatabaseName,
+  runChild,
+  runCompose,
+  startComposeServices
+} from '../utils'
 
 const commonDbFlags = {
   name: {
@@ -18,31 +16,20 @@ const commonDbFlags = {
   },
   'start-services': {
     type: 'boolean',
-    description: 'Start the Postgres Compose service before the database operation.',
+    description: 'Start the Compose services (Postgres, Redis) before the database operation.',
     default: true
   },
   pull: {
     type: 'boolean',
-    description: 'Pull the latest Postgres image before starting services.',
+    description: 'Pull the latest service images before starting services.',
     default: true
   },
   'wait-timeout': {
     type: 'number',
-    description: 'Seconds to wait for Postgres health checks.',
+    description: 'Seconds to wait for service health checks.',
     default: 60
   }
 } as const
-
-const startPostgres = async ({
-  pull = true,
-  waitTimeout = 60
-}: Pick<DbArgs, 'pull' | 'waitTimeout'>): Promise<void> => {
-  const args = ['up', '--detach', '--remove-orphans']
-  if (pull) args.push('--pull', 'always')
-  args.push('--wait', '--wait-timeout', String(waitTimeout), 'postgres')
-
-  await runCompose(args)
-}
 
 const createDatabase = async (databaseName: string): Promise<void> => {
   await runCompose([
@@ -104,7 +91,7 @@ export function appDbCommand(): Crust {
         .run(async ({ flags }) => {
           const databaseName = resolveAppDatabaseName(flags.name)
           if (flags['start-services']) {
-            await startPostgres({
+            await startComposeServices({
               pull: flags.pull,
               waitTimeout: flags['wait-timeout']
             })
@@ -128,7 +115,7 @@ export function appDbCommand(): Crust {
 
           const databaseName = resolveAppDatabaseName(flags.name)
           if (flags['start-services']) {
-            await startPostgres({
+            await startComposeServices({
               pull: flags.pull,
               waitTimeout: flags['wait-timeout']
             })
@@ -157,7 +144,7 @@ export function appDbCommand(): Crust {
 
           const databaseName = resolveAppDatabaseName(flags.name)
           if (flags['start-services']) {
-            await startPostgres({
+            await startComposeServices({
               pull: flags.pull,
               waitTimeout: flags['wait-timeout']
             })
