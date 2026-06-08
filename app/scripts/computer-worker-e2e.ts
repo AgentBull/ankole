@@ -6,7 +6,7 @@ import {
   registerFauxProvider,
   type FauxProviderRegistration
 } from '@earendil-works/pi-ai'
-import { and, eq } from 'drizzle-orm'
+import { eq } from 'drizzle-orm'
 import type { AiAgentRuntimeProfile } from '../src/ai-agent/config'
 import type {
   MockImConversationOptions,
@@ -35,8 +35,6 @@ const { registerExternalGatewayAdapterFactory } = await import('@/external-gatew
 const { fullMockImCapabilities, MockImPlatform: MockImPlatformCtor } =
   await import('@/external-gateway/testing/mock-im-adapter')
 const { AiAgentRuntime } = await import('@/ai-agent/runtime')
-const { externalGatewayOutbox } = await import('@/external-gateway/outbox')
-const { externalGatewayProjectionSink } = await import('@/external-gateway/core/projection')
 const { registerWorker, resolveComputerWorker } = await import('@/computer/service')
 
 const workerId = Bun.env.BULLX_COMPUTER_E2E_WORKER_ID ?? 'dev'
@@ -140,6 +138,7 @@ try {
   assert.match(serializedToolResults, /exit_code=0/)
   assert.equal(serializedToolResults.includes(`computer-e2e:${agentUid}`), true)
 
+  // oxlint-disable-next-line no-console
   console.log(`OK computer worker e2e passed: agent=${agentUid} worker=${workerId} url=${workerBaseUrl}`)
 } finally {
   await runtime?.stop()

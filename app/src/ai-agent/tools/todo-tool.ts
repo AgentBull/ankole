@@ -36,7 +36,11 @@ const TodoItemParams = z.object({
 })
 
 const TodoParams = z.object({
-  todos: z.array(TodoItemParams).max(MAX_TODO_ITEMS).describe('Task items to write. Omit to read current list.').optional(),
+  todos: z
+    .array(TodoItemParams)
+    .max(MAX_TODO_ITEMS)
+    .describe('Task items to write. Omit to read current list.')
+    .optional(),
   merge: z
     .boolean()
     .describe('true: update existing items by id and add new ones. false: replace the entire list.')

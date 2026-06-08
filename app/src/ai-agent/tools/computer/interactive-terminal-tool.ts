@@ -22,8 +22,11 @@ const InteractiveTerminalParams = z.object({
   keys: z
     .array(z.string())
     .optional()
-    .describe("Additional tmux key names for action=send, such as Enter, Down, C-c, or Space."),
-  enter: z.boolean().optional().describe('For action=send, append Enter after input. Default true when input is present.'),
+    .describe('Additional tmux key names for action=send, such as Enter, Down, C-c, or Space.'),
+  enter: z
+    .boolean()
+    .optional()
+    .describe('For action=send, append Enter after input. Default true when input is present.'),
   workdir: z.string().optional().describe('Start directory for action=start. Default /workspace.'),
   lines: z.number().int().min(1).max(2000).optional().describe('Lines to capture for action=capture. Default 80.'),
   cols: z.number().int().min(40).max(300).optional().describe('Terminal columns for action=start. Default 140.'),
@@ -63,7 +66,13 @@ export function createInteractiveTerminalTool(
         case 'list': {
           const terminals = await computer.terminals.list({ signal })
           return jsonResult(
-            { sessions: terminals.map(terminal => ({ session: terminal.name, windows: terminal.windows, attached: terminal.attached })) },
+            {
+              sessions: terminals.map(terminal => ({
+                session: terminal.name,
+                windows: terminal.windows,
+                attached: terminal.attached
+              }))
+            },
             { action: 'list' }
           )
         }
@@ -83,7 +92,11 @@ export function createInteractiveTerminalTool(
           const session = requireSession(params.session)
           const keys = [...(params.keys ?? [])]
           if (params.input === undefined && keys.length === 0) throw new Error('input or keys is required for send')
-          const terminal = await computer.terminals.send(session, { input: params.input, keys, enter: params.enter }, { signal })
+          const terminal = await computer.terminals.send(
+            session,
+            { input: params.input, keys, enter: params.enter },
+            { signal }
+          )
           return jsonResult(
             { session: terminal.name, status: terminal.status },
             { action: 'send', session: terminal.name, status: terminal.status }
