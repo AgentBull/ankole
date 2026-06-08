@@ -16,6 +16,7 @@ export {
   serializeConversation,
   shouldCompact
 } from './harness/compaction/compaction'
+export type { CompactionLlmCallContext, CompactionLlmCallRunner } from './harness/compaction/compaction'
 export * from './harness/messages'
 export * from './harness/session/session'
 export * from './harness/skills'

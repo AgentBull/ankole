@@ -1,6 +1,7 @@
 import type {
   AssistantMessage,
   AssistantMessageEvent,
+  Context,
   ImageContent,
   Message,
   Model,
@@ -132,6 +133,26 @@ export interface AgentLoopTurnUpdate {
 
 export interface PrepareNextTurnContext extends ShouldStopAfterTurnContext {}
 
+/** Context passed after AgentMessage[] has been converted to the exact provider-bound LLM context. */
+export interface BeforeLlmCallContext {
+  /** Agent-level context before provider conversion. */
+  context: AgentContext
+  /** Agent messages after `transformContext` and before `convertToLlm`. */
+  messages: AgentMessage[]
+  /** Provider-bound LLM context that will be sent to `streamFn`. */
+  llmContext: Context
+  /** Provider-bound messages; same object as `llmContext.messages`, exposed for convenience. */
+  llmMessages: Message[]
+  /** Model selected for this provider request. */
+  model: Model<any>
+}
+
+/** Optional request option updates returned from `beforeLlmCall`. */
+export interface BeforeLlmCallResult {
+  /** Metadata merged into the immediately following `streamFn` call. */
+  metadata?: Record<string, unknown>
+}
+
 export interface AgentLoopConfig extends SimpleStreamOptions {
   model: Model<any>
 
@@ -215,6 +236,17 @@ export interface AgentLoopConfig extends SimpleStreamOptions {
   prepareNextTurn?: (
     context: PrepareNextTurnContext
   ) => AgentLoopTurnUpdate | undefined | Promise<AgentLoopTurnUpdate | undefined>
+
+  /**
+   * Called after `transformContext` and `convertToLlm`, immediately before the provider request.
+   *
+   * This is the only point where the exact model-visible request shape is available.
+   * Return metadata to attach to the immediately following `streamFn` request.
+   */
+  beforeLlmCall?: (
+    context: BeforeLlmCallContext,
+    signal?: AbortSignal
+  ) => BeforeLlmCallResult | undefined | Promise<BeforeLlmCallResult | undefined>
 
   /**
    * Returns steering messages to inject into the conversation mid-run.
@@ -381,6 +413,17 @@ export interface AgentTool<TParameters extends TSchema = TSchema, TDetails = any
    * If omitted, the default execution mode applies.
    */
   executionMode?: ToolExecutionMode
+  /**
+   * Declared (fail-closed) read-only hint — true means the tool only reads state.
+   * Bullx tool-layer metadata set via `buildTool`; not consumed by the pi loop,
+   * reserved for the permission gate. Defaults to false (treated as a write).
+   */
+  isReadOnly?: boolean
+  /**
+   * Declared (fail-closed) destructive hint. Defaults to true (treated as
+   * potentially destructive) so a new tool must explicitly opt out.
+   */
+  isDestructive?: boolean
 }
 
 /** Context snapshot passed into the low-level agent loop. */
@@ -415,4 +458,4 @@ export type AgentEvent =
   // Tool execution lifecycle
   | { type: 'tool_execution_start'; toolCallId: string; toolName: string; args: any }
   | { type: 'tool_execution_update'; toolCallId: string; toolName: string; args: any; partialResult: any }
-  | { type: 'tool_execution_end'; toolCallId: string; toolName: string; result: any; isError: boolean }
+  | { type: 'tool_execution_end'; toolCallId: string; toolName: string; args: any; result: any; isError: boolean }

@@ -1,8 +1,15 @@
 import { RiArrowRightSLine, RiLoginCircleLine } from '@remixicon/react'
-import { resolveBullXPluginLocalizedText, type BullXPluginJsonValue } from '@agentbull/bullx-sdk/plugins'
+import {
+  resolveBullXPluginLocalizedText,
+  type BullXPluginJsonValue,
+  type BullXPluginLocalizedText,
+  type BullXPluginSetupField
+} from '@agentbull/bullx-sdk/plugins'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { api, apiErrorMessage, unwrap } from '@/lib/api'
+import type { IdentityProviderAdapterDescriptor } from '@/principals/identity-providers/adapters'
 import { Alert, AlertDescription, AlertTitle } from '@/uikit/components/alert'
 import { nativeLocaleLabel } from '@/config/i18n-locales'
 import {
@@ -15,61 +22,22 @@ import {
 import { Button } from '@/uikit/components/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/uikit/components/card'
 import { Checkbox } from '@/uikit/components/checkbox'
-import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from '@/uikit/components/field'
+import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/uikit/components/field'
 import { Input } from '@/uikit/components/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/uikit/components/select'
-import { apiErrorMessage, apiGet, apiPost, apiPut } from '@/lib/api'
 import { SetupLayout } from './layout'
 
-type LocalizedText = string | Record<string, string>
-
-interface SetupState {
-  completed: boolean
-  authenticated: boolean
-  currentLocale: string
-  availableLocales: string[]
-}
-
-interface Plugin {
-  id: string
-  metadata?: {
-    displayName?: LocalizedText
-    display_name?: LocalizedText
-    description?: LocalizedText
-  }
-}
-
-interface PluginsResponse {
-  plugins: Plugin[]
-  enabledPluginIds: string[]
-}
-
-interface SetupField {
-  path: string[]
-  type: 'text' | 'password' | 'select' | 'checkbox' | 'number'
-  label: LocalizedText
-  description?: LocalizedText
-  options?: Array<{ value: string; label: LocalizedText }>
-  defaultValue?: JsonValue
-}
-
+// Backend response shapes flow from the server (no hand-copied contracts):
+// setup state derives from the `/api/setup/state` Treaty return, identity
+// adapters reuse the service descriptor, and setup fields/localized text come
+// from the SDK.
+type LocalizedText = BullXPluginLocalizedText
 type JsonValue = BullXPluginJsonValue
-
-interface AdapterDescriptor {
-  id: string
-  pluginId: string
-  setup?: {
-    displayName?: LocalizedText
-    description?: LocalizedText
-    defaultProviderId?: string
-    defaultConfig?: JsonValue
-    fields: SetupField[]
-  }
-}
-
-interface AdaptersResponse {
-  adapters: AdapterDescriptor[]
-}
+type SetupField = BullXPluginSetupField
+type AdapterDescriptor = IdentityProviderAdapterDescriptor
+// `unwrap` drops the `onError` `{ error }` envelope from the inferred union, so
+// the state shape is taken from its unwrapped return rather than raw `['data']`.
+type SetupState = Awaited<ReturnType<typeof unwrap<Awaited<ReturnType<typeof api.setup.state.get>>>>>
 
 export function SetupApp() {
   const queryClient = useQueryClient()
@@ -77,7 +45,7 @@ export function SetupApp() {
   const [step, setStep] = useState<'plugins' | 'identity'>('plugins')
   const state = useQuery({
     queryKey: ['setup-state'],
-    queryFn: () => apiGet<SetupState>('/api/setup/state')
+    queryFn: () => unwrap(api.setup.state.get())
   })
 
   if (state.data?.completed) {
@@ -139,7 +107,7 @@ function BootstrapGate({ setupState, onAuthenticated }: { setupState?: SetupStat
   }, [currentLocale])
 
   const mutation = useMutation({
-    mutationFn: () => apiPost('/api/setup/sessions', { activationCode, locale }),
+    mutationFn: () => unwrap(api.setup.sessions.post({ activationCode, locale })),
     onSuccess: onAuthenticated
   })
 
@@ -198,12 +166,12 @@ function PluginsStep({ onContinue }: { onContinue: () => void }) {
   const { i18n, t } = useTranslation()
   const query = useQuery({
     queryKey: ['setup-plugins'],
-    queryFn: () => apiGet<PluginsResponse>('/api/setup/plugins')
+    queryFn: () => unwrap(api.setup.plugins.get())
   })
   const [selected, setSelected] = useState<Set<string> | null>(null)
   const selectedIds = selected ?? new Set(query.data?.enabledPluginIds ?? [])
   const mutation = useMutation({
-    mutationFn: () => apiPut('/api/setup/plugins/enabled', { pluginIds: [...selectedIds] }),
+    mutationFn: () => unwrap(api.setup.plugins.enabled.put({ pluginIds: [...selectedIds] })),
     onSuccess: onContinue
   })
 
@@ -220,8 +188,7 @@ function PluginsStep({ onContinue }: { onContinue: () => void }) {
       <div className="grid gap-3 xl:grid-cols-2">
         {(query.data?.plugins ?? []).map(plugin => {
           const checked = selectedIds.has(plugin.id)
-          const displayName =
-            localizedText(plugin.metadata?.displayName ?? plugin.metadata?.display_name, i18n.language) ?? plugin.id
+          const displayName = localizedText(plugin.metadata?.displayName, i18n.language) ?? plugin.id
           const description = localizedText(plugin.metadata?.description, i18n.language)
 
           return (
@@ -254,7 +221,7 @@ function IdentityStep() {
   const { i18n, t } = useTranslation()
   const query = useQuery({
     queryKey: ['setup-identity-provider-adapters'],
-    queryFn: () => apiGet<AdaptersResponse>('/api/setup/identity-provider-adapters')
+    queryFn: () => unwrap(api.setup['identity-provider-adapters'].get())
   })
   const adapters = query.data?.adapters ?? []
   const [adapterId, setAdapterId] = useState<string>('')
@@ -273,11 +240,13 @@ function IdentityStep() {
   const effectiveConfig = useMemo(() => mergeJsonRecords(initialConfig, config), [initialConfig, config])
   const saveMutation = useMutation({
     mutationFn: () =>
-      apiPut(`/api/setup/identity-providers/${encodeURIComponent(effectiveProviderId)}`, {
-        adapter: activeAdapter?.id,
-        config: effectiveConfig,
-        enabled: true
-      })
+      unwrap(
+        api.setup['identity-providers']({ providerId: effectiveProviderId }).put({
+          adapter: activeAdapter?.id ?? '',
+          config: effectiveConfig,
+          enabled: true
+        })
+      )
   })
   const oidcMutation = useMutation({
     mutationFn: async () => {
@@ -287,10 +256,7 @@ function IdentityStep() {
        * provider from durable app-config instead of trusting browser state.
        */
       await saveMutation.mutateAsync()
-      return apiPost<{ authorizationUrl: string }>(
-        `/api/setup/identity-providers/${encodeURIComponent(effectiveProviderId)}/oidc/authorizations`,
-        {}
-      )
+      return unwrap(api.setup['identity-providers']({ providerId: effectiveProviderId }).oidc.authorizations.post())
     },
     onSuccess: result => {
       window.location.assign(result.authorizationUrl)

@@ -5,6 +5,18 @@ import { pathToFileURL } from 'node:url'
 
 export interface PluginDiscoveryOptions {
   pluginRoots?: readonly string[]
+  /**
+   * Roots whose plugins are enabled by default — first-party "internal" plugins
+   * (e.g. `internals/plugins`). Distinct from `pluginRoots`, whose plugins stay
+   * disabled unless listed in `defaultEnabledPluginIds` or enabled by override.
+   */
+  autoEnabledPluginRoots?: readonly string[]
+}
+
+/** Discovery result that also reports which plugins came from auto-enabled roots. */
+export interface DiscoveredPlugins {
+  plugins: BullXPlugin[]
+  autoEnabledPluginIds: string[]
 }
 
 interface PluginPackageJson {
@@ -24,15 +36,30 @@ export class PluginDiscoveryError extends Error {
 }
 
 export async function discoverLocalPlugins(options: PluginDiscoveryOptions = {}): Promise<BullXPlugin[]> {
-  const plugins: BullXPlugin[] = []
-  const entryPaths = await discoverPluginEntryPaths(options.pluginRoots ?? defaultPluginRoots())
+  return (await discoverLocalPluginsDetailed(options)).plugins
+}
 
-  for (const entryPath of entryPaths) {
-    const module = (await import(pathToFileURL(entryPath).href)) as Record<string, unknown>
-    plugins.push(readPluginExport(module, entryPath))
+export async function discoverLocalPluginsDetailed(options: PluginDiscoveryOptions = {}): Promise<DiscoveredPlugins> {
+  const plugins: BullXPlugin[] = []
+  const autoEnabledPluginIds: string[] = []
+  const seen = new Set<string>()
+
+  const collect = async (roots: readonly string[], autoEnabled: boolean): Promise<void> => {
+    for (const entryPath of await discoverPluginEntryPaths(roots)) {
+      const canonical = await canonicalPath(entryPath)
+      if (seen.has(canonical)) continue
+      seen.add(canonical)
+      const module = (await import(pathToFileURL(entryPath).href)) as Record<string, unknown>
+      const plugin = readPluginExport(module, entryPath)
+      plugins.push(plugin)
+      if (autoEnabled) autoEnabledPluginIds.push(plugin.metadata.id)
+    }
   }
 
-  return plugins
+  await collect(options.pluginRoots ?? defaultPluginRoots(), false)
+  await collect(options.autoEnabledPluginRoots ?? defaultAutoEnabledPluginRoots(), true)
+
+  return { plugins, autoEnabledPluginIds }
 }
 
 export async function discoverPluginEntryPaths(pluginRoots: readonly string[]): Promise<string[]> {
@@ -49,6 +76,28 @@ export async function discoverPluginEntryPaths(pluginRoots: readonly string[]): 
 
 export function defaultPluginRoots(): string[] {
   return uniquePaths(envPluginRoots())
+}
+
+const DEFAULT_INTERNAL_PLUGIN_ROOT = '../internals/plugins'
+
+/**
+ * Auto-enabled (first-party) plugin roots. Defaults to `../internals/plugins`
+ * relative to the app working dir — absent in open-source checkouts, which is a
+ * safe no-op. Inert under `bun test` (NODE_ENV==='test') unless `INTERNAL_PLUGIN_DIR`
+ * is set explicitly, so suites stay hermetic.
+ */
+export function defaultAutoEnabledPluginRoots(): string[] {
+  const configured = Bun.env.INTERNAL_PLUGIN_DIR?.trim()
+  if (configured) {
+    return uniquePaths(
+      configured
+        .split(',')
+        .map(root => root.trim())
+        .filter(root => root.length > 0)
+    )
+  }
+  if (Bun.env.NODE_ENV === 'test') return []
+  return uniquePaths([DEFAULT_INTERNAL_PLUGIN_ROOT])
 }
 
 async function discoverRootPluginEntries(root: string): Promise<string[]> {

@@ -3,6 +3,7 @@ import { bullxExternalIdentityNamespaceIdPattern } from '@agentbull/bullx-sdk/pl
 import { and, eq } from 'drizzle-orm'
 import { DB, jsonbParam, type QueryExecutor } from '@/common/database'
 import { type JsonObject, PrincipalExternalIdentities, Principals } from '@/common/db-schema'
+import { isJsonObject, jsonObject } from '@/common/json'
 import { upsertHumanProfile } from '../human-users/service'
 import {
   newPrincipalDomainRowId,
@@ -350,10 +351,6 @@ function requiredProvider(value: string | null | undefined, field: string): stri
   return normalized
 }
 
-function isJsonObject(value: unknown): value is JsonObject {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
 function metadataObject(value: unknown): JsonObject {
-  return isJsonObject(value) ? value : {}
+  return jsonObject(value) ?? {}
 }

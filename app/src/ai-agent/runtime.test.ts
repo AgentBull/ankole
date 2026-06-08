@@ -2,6 +2,7 @@ import 'reflect-metadata'
 import { redis } from 'bun'
 import { afterAll, afterEach, describe, expect, it } from 'bun:test'
 import { and, eq, sql } from 'drizzle-orm'
+import { Type } from 'typebox'
 import {
   fauxAssistantMessage,
   fauxToolCall,
@@ -18,6 +19,7 @@ import type {
   MockImConversationOptions,
   MockImPlatform as MockImPlatformInstance
 } from '@/external-gateway/testing/mock-im-adapter'
+import type { AgentTool } from './core'
 
 await loadTestEnvFiles()
 
@@ -41,9 +43,11 @@ const {
   MockImPlatform: MockImPlatformCtor
 } = await import('@/external-gateway/testing/mock-im-adapter')
 const { AiAgentRuntime } = await import('./runtime')
+const { reconstructLlmTurnTrajectory, selectExportableGenerationLeases } = await import('./trajectory')
 const { aiAgentConversationService, providerRefs, textContent, textFromContent } =
   await import('./conversation-service')
 const { createUserMessage } = await import('./core')
+const { buildTool } = await import('./tools/build-tool')
 const { AiAgentAmbientBatcher } = await import('./ambient')
 const { externalGatewayOutbox } = await import('@/external-gateway/outbox')
 const { externalGatewayProjectionSink } = await import('@/external-gateway/core/projection')
@@ -117,7 +121,9 @@ describe('AIAgent pi-ai runtime', () => {
       setup.profile.primaryModel.config.providerId
     ])
     expect(
-      turns.every(row => (row.providerMetadata as JsonObject).pi_provider === setup.profile.primaryModel.config.piProvider)
+      turns.every(
+        row => (row.providerMetadata as JsonObject).pi_provider === setup.profile.primaryModel.config.piProvider
+      )
     ).toBe(true)
     expect(turns.every(row => row.status === 'succeeded')).toBe(true)
     expect(turns.every(row => typeof (row.usage as { totalTokens?: unknown }).totalTokens === 'number')).toBe(true)
@@ -143,7 +149,7 @@ describe('AIAgent pi-ai runtime', () => {
     expect(turns.filter(row => row.kind === 'generation')).toHaveLength(1)
   })
 
-  it('compresses with light_model and edits one progress message', async () => {
+  it('compresses with the light model profile and edits one progress message', async () => {
     const setup = await startAiAgent(
       'compress',
       [
@@ -178,10 +184,23 @@ describe('AIAgent pi-ai runtime', () => {
     expect(textOf(summaries[0]!.content)).toContain('summary text')
     expect(textOf(summaries[0]!.content)).toContain('**Turn Context (split turn):**')
     const turns = await llmTurnsFor(conversation!.id)
-    const compressionTurn = turns.find(row => row.kind === 'compression' && row.profile === 'light' && row.model === 'light')
-    expect(compressionTurn).toBeTruthy()
-    expect(compressionTurn?.provider).toBe(setup.profile.lightModel.config.providerId)
-    expect((compressionTurn?.providerMetadata as JsonObject | undefined)?.pi_provider).toBe(
+    const compressionTurns = turns
+      .filter(row => row.kind === 'compression' && row.profile === 'light' && row.model === 'light')
+      .slice()
+      .sort((a, b) => (a.callIndex ?? 0) - (b.callIndex ?? 0))
+    expect(compressionTurns.length).toBeGreaterThanOrEqual(1)
+    const compressionTurn = compressionTurns[0]!
+    expect(compressionTurns.map(row => row.callIndex)).toEqual(compressionTurns.map((_, index) => index))
+    expect(new Set(compressionTurns.map(row => row.leaseId))).toEqual(new Set([compressionTurn?.leaseId]))
+    expect(compressionTurns.every(row => jsonObjects(row.requestRefs).length > 0)).toBe(true)
+    expect(
+      compressionTurns.every(row =>
+        jsonObjects(row.requestPatches).some(patch => patch.type === 'llm_request' && patch.reason === 'compaction')
+      )
+    ).toBe(true)
+    expect(jsonRecord(summaries[0]!.metadata.compression)?.llm_turn_ids).toEqual(compressionTurns.map(row => row.id))
+    expect(compressionTurn.provider).toBe(setup.profile.lightModel.config.providerId)
+    expect((compressionTurn.providerMetadata as JsonObject | undefined)?.pi_provider).toBe(
       setup.profile.lightModel.config.piProvider
     )
   })
@@ -209,6 +228,16 @@ describe('AIAgent pi-ai runtime', () => {
       expect(transcriptEffect(user)).toBeUndefined()
       expect(assistants.map(row => transcriptEffect(row))).toEqual(['superseded', undefined])
     })
+    const [conversation] = await conversationsFor(setup.agentUid)
+    const turns = await llmTurnsFor(conversation!.id)
+    const messages = await messagesFor(conversation!.id)
+    const leases = selectExportableGenerationLeases(turns, messages)
+    expect(leases).toHaveLength(1)
+    const selectedTurnIds = new Set(leases[0]!.turnIds)
+    const selectedTurns = turns.filter(row => selectedTurnIds.has(row.id))
+    expect(selectedTurns.map(row => row.kind)).toEqual(['retry_generation'])
+    expect(selectedTurns.some(row => JSON.stringify(row.response).includes('old answer'))).toBe(false)
+    expect(selectedTurns.some(row => JSON.stringify(row.response).includes('retry answer'))).toBe(true)
   })
 
   it('handles latest and historical IM recall without hallucinating away old turns', async () => {
@@ -308,7 +337,7 @@ describe('AIAgent pi-ai runtime', () => {
     expect(ended.platform.outbound.some(event => event.op === 'delete')).toBe(false)
   })
 
-  it('batches ambient may_intervene inside AIAgent and routes recognizer through light_model', async () => {
+  it('batches ambient may_intervene inside AIAgent and routes recognizer through the light model profile', async () => {
     const setup = await startAiAgent(
       'ambient',
       [
@@ -334,6 +363,14 @@ describe('AIAgent pi-ai runtime', () => {
     expect(turns.map(row => `${row.kind}:${row.profile}:${row.model}`)).toContain('generation:primary:primary')
     const ambientTurn = turns.find(row => row.kind === 'ambient_recognizer')
     expect(ambientTurn?.provider).toBe(setup.profile.lightModel.config.providerId)
+    expect(ambientTurn?.callIndex).toBe(0)
+    expect(ambientTurn?.leaseId).toBeTruthy()
+    expect(jsonObjects(ambientTurn?.requestRefs)).not.toHaveLength(0)
+    expect(
+      jsonObjects(ambientTurn?.requestPatches).some(
+        patch => patch.type === 'llm_request' && patch.reason === 'ambient_recognizer'
+      )
+    ).toBe(true)
     expect((ambientTurn?.providerMetadata as JsonObject | undefined)?.pi_provider).toBe(
       setup.profile.lightModel.config.piProvider
     )
@@ -849,6 +886,15 @@ describe('AIAgent pi-ai runtime', () => {
     const turns = await llmTurnsFor(conversation!.id)
     expect(turns.map(row => `${row.kind}:${row.profile}:${row.status}`)).toContain('overflow_retry:light:succeeded')
     expect(turns.map(row => `${row.kind}:${row.profile}:${row.status}`)).toContain('overflow_retry:primary:succeeded')
+    const leases = selectExportableGenerationLeases(turns, rows)
+    const selectedTurnIds = new Set(leases.flatMap(lease => lease.turnIds))
+    const failedOverflowTurn = turns.find(
+      row =>
+        row.kind === 'generation' && row.status === 'failed' && JSON.stringify(row.response).includes('context window')
+    )
+    expect(failedOverflowTurn).toBeTruthy()
+    expect(selectedTurnIds.has(failedOverflowTurn!.id)).toBe(false)
+    expect(leases.some(lease => lease.kind === 'overflow_retry' && lease.status === 'succeeded')).toBe(true)
   })
 
   it('recovers a durable generation lease after process restart', async () => {
@@ -957,13 +1003,18 @@ describe('AIAgent pi-ai runtime', () => {
 
     await dm.say({ id: 'm1', text: '@Agent help' })
     await eventually(() =>
-      expect(setup.platform.outbound.filter(event => event.op === 'post').map(event => event.text).join('\n')).toContain(
-        'A or B?'
-      )
+      expect(
+        setup.platform.outbound
+          .filter(event => event.op === 'post')
+          .map(event => event.text)
+          .join('\n')
+      ).toContain('A or B?')
     )
     const [conversation] = await conversationsFor(setup.agentUid)
     await eventually(() => expect(clarifyRegistry.has(conversation!.id)).toBe(true))
-    expect(setup.platform.outbound.filter(event => event.op === 'post' && event.text === 'you picked A')).toHaveLength(0)
+    expect(setup.platform.outbound.filter(event => event.op === 'post' && event.text === 'you picked A')).toHaveLength(
+      0
+    )
 
     await dm.say({ id: 'm2', text: '1' })
     await eventually(() =>
@@ -975,6 +1026,59 @@ describe('AIAgent pi-ai runtime', () => {
     const [refreshed] = await conversationsFor(setup.agentUid)
     const generation = refreshed!.generation as { pending_followups?: unknown[] }
     expect(generation.pending_followups ?? []).toHaveLength(0)
+
+    const turns = (await llmTurnsFor(conversation!.id)).filter(row => row.kind === 'generation')
+    expect(turns).toHaveLength(2)
+    const toolCallTurn = turns[0]!
+    const finalTurn = turns[1]!
+    expect(turns.map(row => row.callIndex)).toEqual([0, 1])
+    expect(new Set(turns.map(row => row.leaseId))).toEqual(new Set([toolCallTurn.leaseId]))
+    expect(turns.every(row => row.status === 'succeeded')).toBe(true)
+
+    const toolCallBlocks = jsonObjects((toolCallTurn.response as JsonObject).content)
+    expect(toolCallBlocks.some(block => block.type === 'toolCall' && toolNameFromJson(block) === 'clarify')).toBe(true)
+    const toolResults = jsonObjects(toolCallTurn.toolResults)
+    expect(toolResults.some(result => result.role === 'toolResult' && toolNameFromJson(result) === 'clarify')).toBe(
+      true
+    )
+
+    const finalRefs = jsonObjects(finalTurn.requestRefs)
+    expect(finalRefs.some(ref => ref.type === 'llm_turn_response' && ref.llm_turn_id === toolCallTurn.id)).toBe(true)
+    expect(finalRefs.some(ref => ref.type === 'llm_turn_tool_result' && ref.llm_turn_id === toolCallTurn.id)).toBe(true)
+    expect(finalRefs.some(ref => ref.type === 'inline_agent_message')).toBe(false)
+    expect((finalTurn.requestContext as Record<string, unknown>).messages).toBeUndefined()
+
+    const toolDefinitionPatches = jsonObjects(toolCallTurn.requestPatches).filter(
+      patch => patch.type === 'llm_tool_definitions'
+    )
+    expect(toolDefinitionPatches).toHaveLength(1)
+    expect(jsonObjects(finalTurn.requestPatches).some(patch => patch.type === 'llm_tool_definitions')).toBe(false)
+    const tools = jsonObjects(toolDefinitionPatches[0]?.tools)
+    const clarifyTool = tools.find(tool => tool.name === 'clarify')
+    expect(clarifyTool).toBeTruthy()
+    expect(JSON.stringify(clarifyTool?.parameters)).toContain('question')
+
+    const trajectory = reconstructLlmTurnTrajectory({
+      turns,
+      messages: await messagesFor(conversation!.id)
+    })
+    const firstCall = trajectory[0]!
+    const secondCall = trajectory[1]!
+    expect(firstCall.request.systemPrompt).toBe('You are a BullX AI coworker. Reply in plain text.')
+    expect(firstCall.request.messages.map(message => message.role)).toEqual(['user'])
+    expect(firstCall.request.tools.some(tool => jsonRecord(tool)?.name === 'clarify')).toBe(true)
+    expect(
+      jsonObjects(firstCall.response.content).some(
+        block => block.type === 'toolCall' && toolNameFromJson(block) === 'clarify'
+      )
+    ).toBe(true)
+    expect(
+      jsonObjects(firstCall.toolResults).some(result => result.role === 'toolResult' && result.toolName === 'clarify')
+    ).toBe(true)
+    expect(secondCall.request.exactLlmRequest).toBe(false)
+    expect(secondCall.request.messages.map(message => message.role)).toEqual(['user', 'assistant', 'toolResult'])
+    expect(secondCall.request.tools.some(tool => jsonRecord(tool)?.name === 'clarify')).toBe(true)
+    expect(jsonObjects(secondCall.request.patches).some(patch => patch.type === 'llm_tool_definitions')).toBe(false)
   })
 
   it('clarify times out and the run continues', async () => {
@@ -997,6 +1101,48 @@ describe('AIAgent pi-ai runtime', () => {
     )
   })
 
+  it('records prepared tool execution arguments in the LLM turn tool result', async () => {
+    const preparedTool = buildTool({
+      name: 'prepared_echo',
+      label: 'Prepared echo',
+      description: 'Echoes a normalized value.',
+      parameters: Type.Object({ value: Type.String() }),
+      prepareArguments(args) {
+        const input = typeof args === 'object' && args !== null && 'raw' in args ? (args as { raw?: unknown }).raw : ''
+        return { value: String(input).trim().toUpperCase() }
+      },
+      async execute(_toolCallId, params) {
+        return {
+          content: [{ type: 'text', text: params.value }],
+          details: { seen: params.value }
+        }
+      }
+    })
+    const setup = await startAiAgent(
+      'prepared_tool_args',
+      [
+        fauxAssistantMessage([fauxToolCall('prepared_echo', { raw: '  abc  ' })]),
+        fauxAssistantMessage('prepared done')
+      ],
+      { tools: [preparedTool] }
+    )
+    const dm = setup.platform.dm(setup.conversationOptions())
+
+    await dm.say({ id: 'm1', text: '@Agent use tool' })
+    await eventually(() => expect(setup.platform.outbound.some(event => event.text === 'prepared done')).toBe(true))
+
+    const [conversation] = await conversationsFor(setup.agentUid)
+    const [toolCallTurn] = (await llmTurnsFor(conversation!.id)).filter(row => row.kind === 'generation')
+    const [toolResult] = jsonObjects(toolCallTurn!.toolResults)
+    const details = jsonRecord(toolResult?.details)
+    const execution = jsonRecord(details?.bullx_execution)
+    expect(details?.seen).toBe('ABC')
+    expect(execution?.arguments).toEqual({ value: 'ABC' })
+    expect(execution?.raw_arguments).toEqual({ raw: '  abc  ' })
+    expect(execution?.llm_turn_id).toBe(toolCallTurn!.id)
+    expect(execution?.idempotency_key).toBe(`llm-turn:${toolCallTurn!.id}:tool-call:${toolResult?.toolCallId}`)
+  })
+
   it('clarify card button resolves the run, and a second click is a no-op (first interaction wins)', async () => {
     const clarifyRegistry = new AiAgentClarifyRegistry()
     const setup = await startAiAgent(
@@ -1017,10 +1163,11 @@ describe('AIAgent pi-ai runtime', () => {
     const cardPost = setup.platform.outbound.find(event => event.messageId && event.text?.includes('A or B?'))
     const messageId = cardPost!.messageId!
     const value = JSON.stringify({
-      bullx_action: 'clarify_answer',
-      correlation_id: conversation!.id,
-      choice_index: 0,
-      choice_value: 'A'
+      version: 'bullx.interactive_output.action.v1',
+      interactionId: conversation!.id,
+      controlId: 'clarify_answer',
+      optionId: 'choice_0',
+      value: 'A'
     })
 
     await dm.clickButton({ messageId, value })
@@ -1043,12 +1190,20 @@ describe('AIAgent pi-ai runtime', () => {
         fauxAssistantMessage([fauxToolCall('clarify', { question: 'pick X or Y?', choices: ['X', 'Y'] })]),
         fauxAssistantMessage('got it')
       ],
-      { enableClarify: true, clarifyTimeoutMs: 5_000, clarifyHeartbeatMs: 50, clarifyRegistry, groupMessageMode: 'observe_all' }
+      {
+        enableClarify: true,
+        clarifyTimeoutMs: 5_000,
+        clarifyHeartbeatMs: 50,
+        clarifyRegistry,
+        groupMessageMode: 'observe_all'
+      }
     )
     const group = setup.platform.group(setup.conversationOptions())
 
     await group.say({ id: 'g1', text: '@Agent help', isMention: true })
-    await eventually(() => expect(setup.platform.outbound.some(event => event.text?.includes('pick X or Y?'))).toBe(true))
+    await eventually(() =>
+      expect(setup.platform.outbound.some(event => event.text?.includes('pick X or Y?'))).toBe(true)
+    )
     const [conversation] = await conversationsFor(setup.agentUid)
     await eventually(() => expect(clarifyRegistry.has(conversation!.id)).toBe(true))
 
@@ -1100,7 +1255,9 @@ describe('AIAgent pi-ai runtime', () => {
     const dm = setup.platform.dm(setup.conversationOptions())
 
     await dm.say({ id: 'm1', text: '@Agent hi' })
-    await eventually(() => expect(setup.platform.outbound.some(event => event.op === 'post' && event.text === 'plain answer')).toBe(true))
+    await eventually(() =>
+      expect(setup.platform.outbound.some(event => event.op === 'post' && event.text === 'plain answer')).toBe(true)
+    )
     expect(setup.platform.streamingCards).toHaveLength(0)
   })
 })
@@ -1118,6 +1275,8 @@ async function startAiAgent(
     enableClarify?: boolean
     enableStreaming?: boolean
     clarifyRegistry?: AiAgentClarifyRegistry
+    tools?: AgentTool<any>[]
+    activeToolNames?: string[]
   } = {}
 ) {
   const platform: MockImPlatformInstance = new MockImPlatformCtor()
@@ -1162,6 +1321,7 @@ async function startAiAgent(
     clarifyHeartbeatMs: options.clarifyHeartbeatMs,
     clarify: options.clarifyRegistry
   })
+  if (options.tools) aiRuntime.setTools(options.tools, options.activeToolNames ?? options.tools.map(tool => tool.name))
   if (options.enableClarify) aiRuntime.setClarifyEnabled(true)
   const runtime = new ExternalGatewayRuntime()
   runtimes.add(runtime)
@@ -1236,7 +1396,9 @@ function runtimeProfile(
       enabled: true,
       keepRecentTokens: options.compressionKeepRecentTokens ?? 20_000,
       maxOverflowRetries: 1,
-      reserveTokens: 0
+      reserveTokens: 0,
+      microcompactEnabled: false,
+      microcompactKeepRecent: 6
     },
     dailyReset: {
       enabled: true,
@@ -1245,7 +1407,12 @@ function runtimeProfile(
       timezone: 'Etc/UTC'
     },
     primaryModel: {
-      config: { model: 'primary', providerId: `${primary.provider}_local`, piProvider: primary.provider, reasoning: 'medium' },
+      config: {
+        model: 'primary',
+        providerId: `${primary.provider}_local`,
+        piProvider: primary.provider,
+        reasoning: 'medium'
+      },
       model: primary,
       options: { reasoning: 'medium' },
       profile: 'primary'
@@ -1309,6 +1476,23 @@ function providerMessageIds(row: typeof AiAgentMessages.$inferSelect): string[] 
   if (typeof refs !== 'object' || refs === null || Array.isArray(refs)) return []
   const ids = (refs as Record<string, unknown>).message_ids
   return Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string') : []
+}
+
+function jsonObjects(value: unknown): Array<Record<string, unknown>> {
+  if (!Array.isArray(value)) return []
+  return value.filter(
+    (item): item is Record<string, unknown> => typeof item === 'object' && item !== null && !Array.isArray(item)
+  )
+}
+
+function jsonRecord(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined
+}
+
+function toolNameFromJson(value: Record<string, unknown>): unknown {
+  return value.toolName ?? value.name
 }
 
 async function ambientRedisMembersForAgent(agentUid: string): Promise<string[]> {

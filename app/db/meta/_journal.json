@@ -22,6 +22,13 @@
       "when": 1780774862418,
       "tag": "20260606194102_chemical_captain_britain",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1780914300000,
+      "tag": "20260608182500_ai_agent_llm_trajectory",
+      "breakpoints": true
     }
   ]
 }

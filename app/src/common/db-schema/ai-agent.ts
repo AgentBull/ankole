@@ -17,6 +17,34 @@ export type AiAgentConversationGeneration = JsonObject & {
   pending_steering?: JsonValue[]
 }
 
+/**
+ * Well-known sub-objects carried by `ai_agent_messages.metadata`.
+ *
+ * The column stays `jsonb`; this just names the envelope so producers and readers
+ * share one shape instead of each re-deriving string paths ad hoc. Unknown keys
+ * stay allowed via the {@link JsonObject} part. Mirrors {@link AiAgentConversationGeneration}.
+ */
+export type AiAgentMessageMetadata = JsonObject & {
+  /** Delivery route (see `buildRouteMetadata`): agent/binding/realm + room/thread. */
+  route?: JsonObject
+  /** Inbound provider references: event_id, message_ids, room_id, thread_id. */
+  provider_refs?: JsonObject
+  /** Outbound binding for an assistant row: outbound_key, provider_message_id. */
+  outbound?: JsonObject
+  /** Control-message provenance (steering, followup, recall/delete, ambient). */
+  control?: JsonObject
+  /** Compaction-summary bookkeeping: first_kept_message_id, tokens_before, ... */
+  compression?: JsonObject
+  /** Marks a row as superseded/recalled so it is excluded from the rendered path. */
+  transcript_effect?: JsonObject
+  /** Generation binding for an assistant row: trigger_message_id, lease_id. */
+  generation?: JsonObject
+  /** Inbound actor snapshot (author). */
+  actor?: JsonObject
+  /** Originating LLM turn id. */
+  llm_turn_id?: string
+}
+
 export const AiAgentConversations = pgTable(
   'ai_agent_conversations',
   {
@@ -62,7 +90,7 @@ export const AiAgentMessages = pgTable(
     coversRange: jsonb('covers_range').$type<JsonObject | null>(),
     eventSource: text('event_source'),
     eventId: text('event_id'),
-    metadata: jsonb('metadata').$type<JsonObject>().default({}).notNull(),
+    metadata: jsonb('metadata').$type<AiAgentMessageMetadata>().default({}).notNull(),
     createdAt: timestamp('created_at', { withTimezone: true })
       .default(sql`now()`)
       .notNull(),
@@ -74,7 +102,9 @@ export const AiAgentMessages = pgTable(
     index('ai_agent_messages_conversation_order_index').on(t.conversationId, t.createdAt, t.id),
     uniqueIndex('ai_agent_messages_inbound_event_index')
       .on(t.conversationId, t.eventSource, t.eventId)
-      .where(sql`${t.role} in ('user', 'im_ambient') and ${t.kind} = 'normal' and ${t.eventSource} is not null and ${t.eventId} is not null`),
+      .where(
+        sql`${t.role} in ('user', 'im_ambient') and ${t.kind} = 'normal' and ${t.eventSource} is not null and ${t.eventId} is not null`
+      ),
     index('ai_agent_messages_summary_index')
       .on(t.conversationId, t.createdAt, t.id)
       .where(sql`${t.kind} = 'summary' and ${t.status} = 'complete'`),
@@ -109,12 +139,19 @@ export const AiAgentLlmTurns = pgTable(
     temperature: numeric('temperature'),
     maxTokens: integer('max_tokens'),
     cacheRetention: text('cache_retention'),
+    leaseId: text('lease_id'),
+    callIndex: integer('call_index'),
+    branchId: text('branch_id'),
+    parentBranchId: text('parent_branch_id'),
     triggerMessageId: uuid('trigger_message_id'),
     triggerEventId: text('trigger_event_id'),
     inputMessageIds: jsonb('input_message_ids').$type<JsonValue[]>().default([]).notNull(),
     inputSummaryMessageId: uuid('input_summary_message_id'),
     requestContext: jsonb('request_context').$type<JsonObject>().default({}).notNull(),
+    requestRefs: jsonb('request_refs').$type<JsonValue[]>().default([]).notNull(),
+    requestPatches: jsonb('request_patches').$type<JsonValue[]>().default([]).notNull(),
     response: jsonb('response').$type<JsonObject>().default({}).notNull(),
+    toolResults: jsonb('tool_results').$type<JsonValue[]>().default([]).notNull(),
     usage: jsonb('usage').$type<JsonObject>().default({}).notNull(),
     providerMetadata: jsonb('provider_metadata').$type<JsonObject>().default({}).notNull(),
     startedAt: timestamp('started_at', { withTimezone: true })
@@ -131,15 +168,23 @@ export const AiAgentLlmTurns = pgTable(
   t => [
     index('ai_agent_llm_turns_conversation_index').on(t.conversationId, t.startedAt, t.id),
     index('ai_agent_llm_turns_trigger_index').on(t.triggerMessageId),
+    uniqueIndex('ai_agent_llm_turns_lease_call_index')
+      .on(t.conversationId, t.leaseId, t.callIndex)
+      .where(sql`${t.leaseId} IS NOT NULL AND ${t.callIndex} IS NOT NULL`),
+    index('ai_agent_llm_turns_branch_index').on(t.conversationId, t.branchId),
     check(
       'ai_agent_llm_turns_kind_check',
       sql`${t.kind} in ('generation', 'retry_generation', 'compression', 'ambient_recognizer', 'overflow_retry')`
     ),
     check('ai_agent_llm_turns_status_check', sql`${t.status} in ('started', 'succeeded', 'failed', 'cancelled')`),
     check('ai_agent_llm_turns_profile_check', sql`${t.profile} in ('primary', 'light', 'heavy')`),
+    check('ai_agent_llm_turns_call_index_nonnegative', sql`${t.callIndex} IS NULL OR ${t.callIndex} >= 0`),
     check('ai_agent_llm_turns_input_message_ids_array', sql`jsonb_typeof(${t.inputMessageIds}) = 'array'`),
     check('ai_agent_llm_turns_request_context_object', sql`jsonb_typeof(${t.requestContext}) = 'object'`),
+    check('ai_agent_llm_turns_request_refs_array', sql`jsonb_typeof(${t.requestRefs}) = 'array'`),
+    check('ai_agent_llm_turns_request_patches_array', sql`jsonb_typeof(${t.requestPatches}) = 'array'`),
     check('ai_agent_llm_turns_response_object', sql`jsonb_typeof(${t.response}) = 'object'`),
+    check('ai_agent_llm_turns_tool_results_array', sql`jsonb_typeof(${t.toolResults}) = 'array'`),
     check('ai_agent_llm_turns_usage_object', sql`jsonb_typeof(${t.usage}) = 'object'`),
     check('ai_agent_llm_turns_provider_metadata_object', sql`jsonb_typeof(${t.providerMetadata}) = 'object'`)
   ]

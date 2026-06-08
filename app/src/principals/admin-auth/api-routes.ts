@@ -1,4 +1,4 @@
-import { Elysia } from 'elysia'
+import { Elysia, t } from 'elysia'
 import { AppEnv } from '@/config/env'
 import { appConfigService } from '@/config/app-configure'
 import { appendSetCookie, redirectWithSetCookies } from '@/core/http'
@@ -64,35 +64,39 @@ export function sessionApiRoutes() {
         }))
       }
     })
-    .post('/api/identity-providers/:providerId/oidc/authorizations', async ({ params, query, request, set }) => {
-      const provider = await createOidcProvider(params.providerId, request)
-      if (!provider.adapter.buildOidcAuthorizationUrl) {
-        set.status = 404
-        return { error: 'identity provider does not support OIDC' }
-      }
+    .post(
+      '/api/identity-providers/:providerId/oidc/authorizations',
+      async ({ params, query, request, set }) => {
+        const provider = await createOidcProvider(params.providerId, request)
+        if (!provider.adapter.buildOidcAuthorizationUrl) {
+          set.status = 404
+          return { error: 'identity provider does not support OIDC' }
+        }
 
-      const publicBaseUrl = await resolveIdentityProviderPublicBaseUrl(request)
-      const redirectUri = identityProviderOidcRedirectUri(publicBaseUrl, params.providerId)
-      const state = newOpaqueToken()
-      const nonce = newOpaqueToken()
-      const returnTo = safeReturnTo(typeof query.return_to === 'string' ? query.return_to : '/console')
-      const stateCookie = createOidcStateCookie({
-        providerId: params.providerId,
-        state,
-        nonce,
-        returnTo,
-        redirectUri
-      })
-      appendSetCookie(set, cookieHeader(ADMIN_OIDC_STATE_COOKIE, stateCookie, { secure: AppEnv.IS_PRODUCTION }))
+        const publicBaseUrl = await resolveIdentityProviderPublicBaseUrl(request)
+        const redirectUri = identityProviderOidcRedirectUri(publicBaseUrl, params.providerId)
+        const state = newOpaqueToken()
+        const nonce = newOpaqueToken()
+        const returnTo = safeReturnTo(typeof query.return_to === 'string' ? query.return_to : '/console')
+        const stateCookie = createOidcStateCookie({
+          providerId: params.providerId,
+          state,
+          nonce,
+          returnTo,
+          redirectUri
+        })
+        appendSetCookie(set, cookieHeader(ADMIN_OIDC_STATE_COOKIE, stateCookie, { secure: AppEnv.IS_PRODUCTION }))
 
-      const authorizationUrl = await provider.adapter.buildOidcAuthorizationUrl({
-        redirectUri,
-        state,
-        nonce,
-        returnTo
-      })
-      return { authorizationUrl }
-    })
+        const authorizationUrl = await provider.adapter.buildOidcAuthorizationUrl({
+          redirectUri,
+          state,
+          nonce,
+          returnTo
+        })
+        return { authorizationUrl }
+      },
+      { query: t.Object({ return_to: t.Optional(t.String()) }) }
+    )
     .get('/sessions/oidc/:providerId/callback', async ({ params, query, request, set }) => {
       const code = typeof query.code === 'string' ? query.code : undefined
       const state = typeof query.state === 'string' ? query.state : undefined

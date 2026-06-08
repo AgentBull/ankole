@@ -8,6 +8,7 @@ import type {
 import { appConfigService } from '@/config/app-configure'
 import { agentChannelConfigKey } from '@/external-gateway/config'
 import type { JsonObject, JsonValue } from '@/common/db-schema'
+import { isJsonObject } from '@/common/json'
 import {
   readAiAgentModelsConfig,
   validateAiAgentModelsConfig,
@@ -20,7 +21,6 @@ import {
   clonePluginJsonValue as cloneJsonValue,
   defaultPluginConfigForSetup,
   getPluginConfigPath as getPath,
-  isPluginConfigJsonObject,
   mergePluginConfigObjects as mergeJsonObjects,
   setPluginConfigPath as setPath
 } from '@/plugins/config-json'
@@ -540,10 +540,6 @@ function requiredText(value: unknown, label: string): string {
   const trimmed = value.trim()
   if (!trimmed) throw new ConsoleDomainError(422, `${label} must not be empty`)
   return trimmed
-}
-
-function isJsonObject(value: unknown): value is JsonObject {
-  return isPluginConfigJsonObject(value)
 }
 
 function isDatabaseErrorCode(error: unknown, code: string): boolean {

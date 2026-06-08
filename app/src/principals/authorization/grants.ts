@@ -2,6 +2,7 @@ import { authzValidateCondition, authzValidateResourcePattern } from '@agentbull
 import { eq, sql } from 'drizzle-orm'
 import { DB, jsonbParam, type QueryExecutor } from '@/common/database'
 import { type JsonObject, PermissionGrants } from '@/common/db-schema'
+import { isJsonObject } from '@/common/json'
 import { newPrincipalDomainRowId, normalizeUid, PrincipalDomainError, trimOptionalText } from '../principals/service'
 import { normalizeAction } from './request'
 
@@ -191,8 +192,4 @@ function normalizeCondition(condition: string | null | undefined): string {
   const normalized = trimOptionalText(condition) ?? 'true'
   authzValidateCondition(normalized)
   return normalized
-}
-
-function isJsonObject(value: unknown): value is JsonObject {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }

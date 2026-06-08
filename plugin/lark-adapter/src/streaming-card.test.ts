@@ -3,7 +3,13 @@ import type { SharedLarkConnection } from './connection'
 import { createLarkStreamingCardSession } from './streaming-card'
 
 interface RecordedCall {
-  kind: 'card.create' | 'card.settings' | 'cardElement.update' | 'cardElement.content' | 'message.create' | 'message.reply'
+  kind:
+    | 'card.create'
+    | 'card.settings'
+    | 'cardElement.update'
+    | 'cardElement.content'
+    | 'message.create'
+    | 'message.reply'
   data?: any
   path?: any
 }

@@ -285,7 +285,7 @@ export class AppConfigRegistry {
  *
  * The service owns a process-local in-memory cache. Cache entries are bounded by
  * registered keys, updated immediately after writes, evicted after deletes, and
- * reloaded only through `refresh` or `refreshAll`. There is no TTL by default:
+ * reloaded only through `refresh`, `refreshByKey`, or `refreshRegisteredExactKeys`. There is no TTL by default:
  * database config is a small declared surface, not an unbounded request cache,
  * and explicit invalidation keeps the runtime model easier to reason about.
  */
@@ -439,9 +439,15 @@ export class AppConfigService {
   }
 
   /**
-   * Clears the process-local cache and reloads every registered database value.
+   * Clears the process-local cache and reloads every *registered exact* database
+   * value.
+   *
+   * Pattern-backed keys (e.g. `agents.<uid>.<channel>`) are loaded lazily through
+   * `getByKey`/`refreshByKey` and are intentionally NOT refreshed here, because the
+   * service does not enumerate concrete keys for a pattern. The name reflects that
+   * narrower contract; use `refreshByKey` to invalidate a specific pattern key.
    */
-  async refreshAll(): Promise<void> {
+  async refreshRegisteredExactKeys(): Promise<void> {
     this.cache.clear()
 
     for (const definition of this.registry.list()) await this.loadFromDatabase(definition.key, definition)

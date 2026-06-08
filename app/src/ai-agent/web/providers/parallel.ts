@@ -21,7 +21,8 @@ export const parallelProvider: WebProvider = {
   },
   async search(args: WebSearchArgs, signal?: AbortSignal): Promise<WebSearchResult[]> {
     const key = await apiKey()
-    if (!key) throw new WebProviderError('parallel api key not configured', { retryable: false, providerId: 'parallel' })
+    if (!key)
+      {throw new WebProviderError('parallel api key not configured', { retryable: false, providerId: 'parallel' })}
     const limit = args.limit ?? 5
     const data = await requestJson<ParallelResponse>('parallel', SEARCH_URL, {
       method: 'POST',

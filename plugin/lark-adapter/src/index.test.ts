@@ -185,32 +185,6 @@ describe('BullX Lark chat adapter', () => {
     ).rejects.toThrow('principal store unavailable')
   })
 
-  it('accepts the legacy platformProviderId key for stored channel configs', async () => {
-    const subjects: any[] = []
-    const adapter = createAdapter(subjects, undefined, {
-      platformSubjectNamespace: undefined,
-      platformProviderId: 'legacy-lark'
-    })
-
-    await adapter.parseMessage(
-      normalizedMessage({
-        raw: {
-          sender: {
-            sender_id: {
-              user_id: 'user_legacy'
-            }
-          }
-        }
-      }) as never
-    )
-    await Bun.sleep(0)
-
-    expect(subjects[0]).toMatchObject({
-      provider: 'legacy-lark',
-      externalId: 'user_legacy'
-    })
-  })
-
   it('wires LarkChannel lifecycle internals during initialize', async () => {
     const handlers: Record<string, (event: unknown) => unknown> = {}
     const dispatcher = new lark.EventDispatcher({

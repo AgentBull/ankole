@@ -2,7 +2,8 @@ import type {
   BullXExternalGatewayAdapterFactoryContext,
   BullXIdentityProviderAdapter,
   BullXIdentityProviderAdapterFactoryContext,
-  BullXPlugin
+  BullXPlugin,
+  BullXPluginSetupField
 } from '@agentbull/bullx-sdk/plugins'
 import { LarkAdapterConfigError, larkChannelConfigSchema, larkIdentityProviderConfigSchema } from './config'
 import { larkInteractiveConfig } from './interactive-config'
@@ -14,6 +15,38 @@ export { LarkAdapterConfigError } from './config'
 export type { LarkChannelConfig, LarkIdentityProviderConfig } from './config'
 export { resetLarkSharedConnectionsForTest } from './connection'
 export { decodeThreadId, encodeThreadId, fromLarkEmojiType } from './lark-helpers'
+
+// Lark chat-channel setup and identity-provider setup are intentionally separate
+// config/save boundaries. These helpers only share the verbatim app-credential
+// fields between the two setup forms; they do NOT merge the two config shapes.
+const larkDomainOptions = [
+  { value: 'feishu', label: 'Feishu' },
+  { value: 'lark', label: 'Lark' }
+]
+
+const larkAppCredentialFields: BullXPluginSetupField[] = [
+  {
+    path: ['appId'],
+    type: 'text',
+    label: { 'en-US': 'App ID', 'zh-Hans-CN': 'App ID' }
+  },
+  {
+    path: ['appSecret'],
+    type: 'password',
+    secret: true,
+    label: { 'en-US': 'App Secret', 'zh-Hans-CN': 'App Secret' }
+  }
+]
+
+function larkDomainField(zhLabel: string): BullXPluginSetupField {
+  return {
+    path: ['domain'],
+    type: 'select',
+    label: { 'en-US': 'Domain', 'zh-Hans-CN': zhLabel },
+    defaultValue: 'feishu',
+    options: larkDomainOptions
+  }
+}
 
 export function createBullXLarkAdapter(context: BullXExternalGatewayAdapterFactoryContext) {
   const parsed = larkChannelConfigSchema.safeParse(context.config)
@@ -74,42 +107,8 @@ export const larkAdapterPlugin = {
           userName: 'BullX'
         },
         fields: [
-          {
-            path: ['appId'],
-            type: 'text',
-            label: {
-              'en-US': 'App ID',
-              'zh-Hans-CN': 'App ID'
-            }
-          },
-          {
-            path: ['appSecret'],
-            type: 'password',
-            secret: true,
-            label: {
-              'en-US': 'App Secret',
-              'zh-Hans-CN': 'App Secret'
-            }
-          },
-          {
-            path: ['domain'],
-            type: 'select',
-            label: {
-              'en-US': 'Domain',
-              'zh-Hans-CN': '运营主体'
-            },
-            defaultValue: 'feishu',
-            options: [
-              {
-                value: 'feishu',
-                label: 'Feishu'
-              },
-              {
-                value: 'lark',
-                label: 'Lark'
-              }
-            ]
-          },
+          ...larkAppCredentialFields,
+          larkDomainField('运营主体'),
           {
             path: ['platformSubjectNamespace'],
             type: 'text',
@@ -208,42 +207,8 @@ export const larkAdapterPlugin = {
           event: {}
         },
         fields: [
-          {
-            path: ['appId'],
-            type: 'text',
-            label: {
-              'en-US': 'App ID',
-              'zh-Hans-CN': 'App ID'
-            }
-          },
-          {
-            path: ['appSecret'],
-            type: 'password',
-            secret: true,
-            label: {
-              'en-US': 'App Secret',
-              'zh-Hans-CN': 'App Secret'
-            }
-          },
-          {
-            path: ['domain'],
-            type: 'select',
-            label: {
-              'en-US': 'Domain',
-              'zh-Hans-CN': '域'
-            },
-            defaultValue: 'feishu',
-            options: [
-              {
-                value: 'feishu',
-                label: 'Feishu'
-              },
-              {
-                value: 'lark',
-                label: 'Lark'
-              }
-            ]
-          },
+          ...larkAppCredentialFields,
+          larkDomainField('域'),
           {
             path: ['oidc', 'enabled'],
             type: 'checkbox',

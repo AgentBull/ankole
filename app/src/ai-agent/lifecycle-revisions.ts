@@ -70,7 +70,7 @@ export class AiAgentLifecycleRevisionService {
           control: {
             type: input.kind,
             target_message_id: target.id,
-            provider_refs: providerRefs(input) as unknown as JsonObject
+            provider_refs: providerRefs(input)
           }
         }
       })
@@ -101,7 +101,7 @@ export class AiAgentLifecycleRevisionService {
           control: {
             type: input.kind,
             target_message_id: target.id,
-            provider_refs: providerRefs(input) as unknown as JsonObject
+            provider_refs: providerRefs(input)
           }
         }
       })

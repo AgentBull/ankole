@@ -178,7 +178,7 @@ describe('console chat channels', () => {
     await updateAgent(uid, {
       metadata: {
         owner: 'ops',
-        chat: {
+        external: {
           note: 'keep'
         }
       }
@@ -335,7 +335,7 @@ async function clearTestRows(): Promise<void> {
   await DB.delete(AppConfigure).where(like(AppConfigure.key, `agents.${testPrefix}%`))
   await DB.delete(Principals).where(like(Principals.uid, `${testPrefix}%`))
   await DB.delete(LlmProviders).where(like(LlmProviders.providerId, `${providerPrefix}%`))
-  await appConfigService.refreshAll()
+  await appConfigService.refreshRegisteredExactKeys()
 }
 
 async function expectConsoleError(promise: Promise<unknown>, status: number): Promise<void> {

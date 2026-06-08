@@ -1,3 +1,6 @@
+import { bullxInteractiveOutputVersion, type BullXInteractiveOutput } from '@agentbull/bullx-sdk/plugins'
+import { toJsonObject } from '@/common/json'
+import { interactiveOutputCardPayload } from '@/external-gateway/interactive-output'
 import type { ExternalGatewayOutboundIntent } from '@/external-gateway/outbox'
 
 export type AiAgentCommandName = 'new' | 'compress' | 'retry' | 'steer' | 'stop'
@@ -33,8 +36,7 @@ export function commandFeedbackIntent(input: {
   surface?: ControlNoticeSurface
   caps?: ControlNoticeCaps
 }): ExternalGatewayOutboundIntent {
-  const operation =
-    input.surface && input.caps ? controlNoticeOperation(input.surface, input.caps) : 'post'
+  const operation = input.surface && input.caps ? controlNoticeOperation(input.surface, input.caps) : 'post'
   // The outboundKey is operation-independent so idempotency/recovery keys stay
   // stable even when the chosen surface flips divider/card/post.
   return {
@@ -45,7 +47,9 @@ export function commandFeedbackIntent(input: {
     finalPayload:
       operation === 'post'
         ? { text: input.text }
-        : { kind: 'control_notice', text: input.text, fallbackText: input.text }
+        : operation === 'divider'
+          ? { kind: 'control_notice', text: input.text, fallbackText: input.text }
+          : toJsonObject(interactiveOutputCardPayload(noticeOutput(input.text)))
   }
 }
 
@@ -65,5 +69,18 @@ export function commandEditIntent(input: {
       targetOutboundKey: input.targetOutboundKey,
       text: input.text
     }
+  }
+}
+
+function noticeOutput(text: string): BullXInteractiveOutput {
+  return {
+    version: bullxInteractiveOutputVersion,
+    content: {
+      body: text,
+      format: 'plain',
+      severity: 'neutral'
+    },
+    state: { status: 'open' },
+    fallbackText: text
   }
 }

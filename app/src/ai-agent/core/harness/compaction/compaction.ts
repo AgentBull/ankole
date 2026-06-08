@@ -1,4 +1,12 @@
-import type { AssistantMessage, ImageContent, Model, SimpleStreamOptions, TextContent, Usage } from '@earendil-works/pi-ai'
+import type {
+  AssistantMessage,
+  ImageContent,
+  Message,
+  Model,
+  SimpleStreamOptions,
+  TextContent,
+  Usage
+} from '@earendil-works/pi-ai'
 import { completeSimple } from '@earendil-works/pi-ai'
 import type { AgentMessage, ThinkingLevel } from '../../types'
 import { convertToLlm, createCompactionSummaryMessage, createCustomMessage } from '../messages'
@@ -276,7 +284,7 @@ function findValidCutPoints(entries: SessionTreeEntry[], startIndex: number, end
       case 'custom':
       case 'custom_message':
       case 'label':
-      case 'session_info':
+      case 'session':
       case 'leaf':
         break
     }
@@ -369,6 +377,20 @@ export const SUMMARIZATION_SYSTEM_PROMPT = `You are a context summarization assi
 
 Do NOT continue the conversation. Do NOT respond to any questions in the conversation. ONLY output the structured summary.`
 
+export interface CompactionLlmCallContext {
+  kind: 'history' | 'turn_prefix'
+  maxTokens: number
+  messages: Message[]
+  previousSummary?: string
+  sourceMessages: AgentMessage[]
+  systemPrompt: string
+}
+
+export type CompactionLlmCallRunner = (
+  context: CompactionLlmCallContext,
+  complete: () => Promise<AssistantMessage>
+) => Promise<AssistantMessage>
+
 const SUMMARIZATION_PROMPT = `The messages above are a conversation to summarize. Create a structured context checkpoint summary that another LLM will use to continue the work.
 
 Use this EXACT format:
@@ -450,7 +472,8 @@ export async function generateSummary(
   signal?: AbortSignal,
   customInstructions?: string,
   previousSummary?: string,
-  thinkingLevel?: ThinkingLevel
+  thinkingLevel?: ThinkingLevel,
+  callRunner?: CompactionLlmCallRunner
 ): Promise<Result<string, CompactionError>> {
   const maxTokens = Math.min(
     Math.floor(0.8 * reserveTokens),
@@ -468,7 +491,7 @@ export async function generateSummary(
   }
   promptText += basePrompt
 
-  const summarizationMessages = [
+  const summarizationMessages: Message[] = [
     {
       role: 'user' as const,
       content: [{ type: 'text' as const, text: promptText }],
@@ -476,11 +499,21 @@ export async function generateSummary(
     }
   ]
 
-  const response = await completeSimple(
-    model,
-    { systemPrompt: SUMMARIZATION_SYSTEM_PROMPT, messages: summarizationMessages },
-    summarizationOptions(model, maxTokens, options, signal, thinkingLevel)
-  )
+  const context: CompactionLlmCallContext = {
+    kind: 'history',
+    maxTokens,
+    messages: summarizationMessages,
+    previousSummary,
+    sourceMessages: currentMessages,
+    systemPrompt: SUMMARIZATION_SYSTEM_PROMPT
+  }
+  const complete = () =>
+    completeSimple(
+      model,
+      { systemPrompt: SUMMARIZATION_SYSTEM_PROMPT, messages: summarizationMessages },
+      summarizationOptions(model, maxTokens, options, signal, thinkingLevel)
+    )
+  const response = callRunner ? await callRunner(context, complete) : await complete()
   if (response.stopReason === 'aborted') {
     return err(new CompactionError('aborted', response.errorMessage || 'Summarization aborted'))
   }
@@ -610,7 +643,8 @@ export async function compact(
   options: SimpleStreamOptions = {},
   customInstructions?: string,
   signal?: AbortSignal,
-  thinkingLevel?: ThinkingLevel
+  thinkingLevel?: ThinkingLevel,
+  callRunner?: CompactionLlmCallRunner
 ): Promise<Result<CompactionResult, CompactionError>> {
   const {
     firstKeptEntryId,
@@ -640,7 +674,8 @@ export async function compact(
             signal,
             customInstructions,
             previousSummary,
-            thinkingLevel
+            thinkingLevel,
+            callRunner
           )
         : Promise.resolve(ok<string, CompactionError>('No prior history.')),
       generateTurnPrefixSummary(
@@ -649,7 +684,8 @@ export async function compact(
         settings.reserveTokens,
         options,
         signal,
-        thinkingLevel
+        thinkingLevel,
+        callRunner
       )
     ])
     if (!historyResult.ok) return err(historyResult.error)
@@ -664,7 +700,8 @@ export async function compact(
       signal,
       customInstructions,
       previousSummary,
-      thinkingLevel
+      thinkingLevel,
+      callRunner
     )
     if (!summaryResult.ok) return err(summaryResult.error)
     summary = summaryResult.value
@@ -708,7 +745,8 @@ async function generateTurnPrefixSummary(
   reserveTokens: number,
   options: SimpleStreamOptions = {},
   signal?: AbortSignal,
-  thinkingLevel?: ThinkingLevel
+  thinkingLevel?: ThinkingLevel,
+  callRunner?: CompactionLlmCallRunner
 ): Promise<Result<string, CompactionError>> {
   const maxTokens = Math.min(
     Math.floor(0.5 * reserveTokens),
@@ -717,7 +755,7 @@ async function generateTurnPrefixSummary(
   const llmMessages = convertToLlm(messages)
   const conversationText = serializeConversation(llmMessages)
   const promptText = `<conversation>\n${conversationText}\n</conversation>\n\n${TURN_PREFIX_SUMMARIZATION_PROMPT}`
-  const summarizationMessages = [
+  const summarizationMessages: Message[] = [
     {
       role: 'user' as const,
       content: [{ type: 'text' as const, text: promptText }],
@@ -725,11 +763,20 @@ async function generateTurnPrefixSummary(
     }
   ]
 
-  const response = await completeSimple(
-    model,
-    { systemPrompt: SUMMARIZATION_SYSTEM_PROMPT, messages: summarizationMessages },
-    summarizationOptions(model, maxTokens, options, signal, thinkingLevel)
-  )
+  const context: CompactionLlmCallContext = {
+    kind: 'turn_prefix',
+    maxTokens,
+    messages: summarizationMessages,
+    sourceMessages: messages,
+    systemPrompt: SUMMARIZATION_SYSTEM_PROMPT
+  }
+  const complete = () =>
+    completeSimple(
+      model,
+      { systemPrompt: SUMMARIZATION_SYSTEM_PROMPT, messages: summarizationMessages },
+      summarizationOptions(model, maxTokens, options, signal, thinkingLevel)
+    )
+  const response = callRunner ? await callRunner(context, complete) : await complete()
   if (response.stopReason === 'aborted') {
     return err(new CompactionError('aborted', response.errorMessage || 'Turn prefix summarization aborted'))
   }

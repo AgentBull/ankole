@@ -2,6 +2,7 @@ import { eq, sql } from 'drizzle-orm'
 import type { PgUpdateSetSource } from 'drizzle-orm/pg-core'
 import { DB, jsonbParam } from '@/common/database'
 import { Agents, type JsonObject, Principals } from '@/common/db-schema'
+import { isJsonObject } from '@/common/json'
 import {
   normalizeUid,
   type Principal,
@@ -174,8 +175,4 @@ function normalizeMetadata(value: JsonObject | undefined): JsonObject {
   if (!isJsonObject(value)) throw new PrincipalDomainError('invalid_request', 'metadata must be a JSON object')
 
   return value
-}
-
-function isJsonObject(value: unknown): value is JsonObject {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }

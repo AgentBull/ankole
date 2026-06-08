@@ -7,11 +7,16 @@ import {
   RiRobot2Line,
   RiSaveLine
 } from '@remixicon/react'
-import { resolveBullXPluginLocalizedText, type BullXPluginJsonValue } from '@agentbull/bullx-sdk/plugins'
+import {
+  resolveBullXPluginLocalizedText,
+  type BullXPluginJsonValue,
+  type BullXPluginSetupField
+} from '@agentbull/bullx-sdk/plugins'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { apiDelete, apiErrorMessage, apiGet, apiPost, apiPut } from '@/lib/api'
+import { api, apiErrorMessage, unwrap } from '@/lib/api'
+import type { ConsoleAgent, ConsoleChatChannel, ConsoleExternalGatewayAdapter } from '@/console/service'
 import {
   clonePluginJsonObject as cloneJsonObject,
   defaultPluginConfigForSetup,
@@ -25,7 +30,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/uikit/components/alert'
 import { Badge } from '@/uikit/components/badge'
 import { Button } from '@/uikit/components/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/uikit/components/card'
-import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/uikit/components/empty'
+import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/uikit/components/empty'
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/uikit/components/field'
 import { Input } from '@/uikit/components/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/uikit/components/select'
@@ -35,68 +40,14 @@ import { Switch } from '@/uikit/components/switch'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/uikit/components/table'
 import { mountSpa } from '../mount-spa'
 
-type LocalizedText = string | Record<string, string>
 type JsonValue = BullXPluginJsonValue
 type JsonObject = PluginConfigJsonObject
 
-interface SessionResponse {
-  authenticated: boolean
-  principalUid?: string
-  providerId?: string
-  setupRestartRecommended?: boolean
-}
-
-interface ConsoleAgent {
-  uid: string
-  status: 'active' | 'disabled'
-  chatChannels: ConsoleChatChannel[]
-}
-
-interface ConsoleChatChannel {
-  name: string
-  adapter: string
-  enabled: boolean
-  config: JsonObject
-  adapterInstalled: boolean
-  restartRequired: true
-}
-
-interface SetupField {
-  path: string[]
-  type: 'text' | 'password' | 'select' | 'checkbox' | 'number'
-  label: LocalizedText
-  description?: LocalizedText
-  options?: Array<{ value: string; label: LocalizedText }>
-  defaultValue?: JsonValue
-  secret?: boolean
-}
-
-interface ConsoleExternalGatewayAdapter {
-  id: string
-  pluginId: string
-  interactiveConfig: boolean
-  setup?: {
-    displayName?: LocalizedText
-    description?: LocalizedText
-    defaultChannelName?: string
-    defaultConfig?: JsonValue
-    fields: SetupField[]
-    interactiveConfig?: {
-      displayName?: LocalizedText
-      description?: LocalizedText
-    }
-  }
-}
-
-interface InteractiveConfigSession {
-  sessionId: string
-  adapterId: string
-  state: 'running' | 'succeeded' | 'failed' | 'cancelled'
-  status?: LocalizedText
-  html?: string
-  values?: JsonObject
-  error?: string
-}
+// Backend response shapes flow from the server via Eden Treaty (no hand-copied
+// contracts): agent/channel/adapter shapes come from the console service import
+// above; live API responses are typed by `unwrap(api.console.*)`. Setup fields use
+// the SDK plugin field type.
+type SetupField = BullXPluginSetupField
 
 function ConsoleApp() {
   const { t } = useTranslation()
@@ -104,7 +55,7 @@ function ConsoleApp() {
   const [restartRequired, setRestartRequired] = useState(false)
   const session = useQuery({
     queryKey: ['session'],
-    queryFn: () => apiGet<SessionResponse>('/api/session')
+    queryFn: () => unwrap(api.session.get())
   })
   const agents = useAgentsQuery()
   const adapters = useAdaptersQuery()
@@ -116,7 +67,7 @@ function ConsoleApp() {
   }, [agents.data?.agents, selectedAgentUid])
 
   const logout = useMutation({
-    mutationFn: () => apiDelete('/api/session'),
+    mutationFn: () => unwrap(api.session.delete()),
     onSuccess: () => window.location.assign('/sessions/new')
   })
 
@@ -189,7 +140,7 @@ function AgentListPanel({
   const queryClient = useQueryClient()
   const [uid, setUid] = useState('')
   const create = useMutation({
-    mutationFn: () => apiPost<{ agent: ConsoleAgent }>('/api/console/agents', { uid }),
+    mutationFn: () => unwrap(api.console.agents.post({ uid })),
     onSuccess: result => {
       setUid('')
       onSelect(result.agent.uid)
@@ -198,7 +149,7 @@ function AgentListPanel({
     }
   })
   const remove = useMutation({
-    mutationFn: (agentUid: string) => apiDelete(`/api/console/agents/${encodeURIComponent(agentUid)}`),
+    mutationFn: (agentUid: string) => unwrap(api.console.agents({ uid: agentUid }).delete()),
     onSuccess: () => {
       onChanged()
       queryClient.invalidateQueries({ queryKey: ['console-agents'] })
@@ -394,9 +345,7 @@ function ChannelsTable({
   const queryClient = useQueryClient()
   const remove = useMutation({
     mutationFn: (channelName: string) =>
-      apiDelete(
-        `/api/console/agents/${encodeURIComponent(agent.uid)}/chat-channels/${encodeURIComponent(channelName)}`
-      ),
+      unwrap(api.console.agents({ uid: agent.uid })['chat-channels']({ channelName }).delete()),
     onSuccess: () => {
       onChanged()
       queryClient.invalidateQueries({ queryKey: ['console-agents'] })
@@ -515,15 +464,9 @@ function ChannelForm({
         config
       }
       if (channel) {
-        return apiPut<{ channel: ConsoleChatChannel }>(
-          `/api/console/agents/${encodeURIComponent(agent.uid)}/chat-channels/${encodeURIComponent(channel.name)}`,
-          body
-        )
+        return unwrap(api.console.agents({ uid: agent.uid })['chat-channels']({ channelName: channel.name }).put(body))
       }
-      return apiPost<{ channel: ConsoleChatChannel }>(
-        `/api/console/agents/${encodeURIComponent(agent.uid)}/chat-channels`,
-        body
-      )
+      return unwrap(api.console.agents({ uid: agent.uid })['chat-channels'].post(body))
     },
     onSuccess: () => {
       onChanged()
@@ -749,11 +692,13 @@ function useInteractiveConfig(
   const [appliedSessionId, setAppliedSessionId] = useState<string | null>(null)
   const startMutation = useMutation({
     mutationFn: () =>
-      apiPost<{ session: InteractiveConfigSession }>('/api/console/interactive-config-sessions', {
-        adapterId: adapter?.id,
-        currentConfig: config,
-        locale
-      }),
+      unwrap(
+        api.console['interactive-config-sessions'].post({
+          adapterId: adapter?.id ?? '',
+          currentConfig: config,
+          locale
+        })
+      ),
     onSuccess: result => {
       setAppliedSessionId(null)
       setSessionId(result.session.sessionId)
@@ -762,10 +707,7 @@ function useInteractiveConfig(
   const session = useQuery({
     queryKey: ['console-interactive-config-session', sessionId],
     enabled: Boolean(sessionId),
-    queryFn: () =>
-      apiGet<{ session: InteractiveConfigSession }>(
-        `/api/console/interactive-config-sessions/${encodeURIComponent(sessionId ?? '')}`
-      ),
+    queryFn: () => unwrap(api.console['interactive-config-sessions']({ sessionId: sessionId ?? '' }).get()),
     refetchInterval: query => (query.state.data?.session.state === 'running' ? 1000 : false)
   })
 
@@ -775,7 +717,7 @@ function useInteractiveConfig(
     return () => {
       // The API treats DELETE as idempotent, so this cleanup covers explicit
       // cancel, switching adapter/forms, and unmounting the channel editor.
-      void apiDelete(`/api/console/interactive-config-sessions/${encodeURIComponent(sessionId)}`).catch(() => {})
+      void unwrap(api.console['interactive-config-sessions']({ sessionId }).delete()).catch(() => {})
     }
   }, [sessionId])
 
@@ -806,14 +748,14 @@ function useInteractiveConfig(
 function useAgentsQuery() {
   return useQuery({
     queryKey: ['console-agents'],
-    queryFn: () => apiGet<{ agents: ConsoleAgent[] }>('/api/console/agents')
+    queryFn: () => unwrap(api.console.agents.get())
   })
 }
 
 function useAdaptersQuery() {
   return useQuery({
     queryKey: ['console-external-gateway-adapters'],
-    queryFn: () => apiGet<{ adapters: ConsoleExternalGatewayAdapter[] }>('/api/console/external-gateway-adapters')
+    queryFn: () => unwrap(api.console['external-gateway-adapters'].get())
   })
 }
 

@@ -2,11 +2,7 @@ import 'reflect-metadata'
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test'
 import { and, eq, like } from 'drizzle-orm'
 import { loadTestEnvFiles } from '@/common/tests/load-test-env'
-import type {
-  ExternalGatewayMessageInput,
-  ExternalGatewayReactionEvent,
-  ExternalGatewayRoomInput
-} from './core/events'
+import type { ExternalGatewayMessageInput, ExternalGatewayReactionEvent, ExternalGatewayRoomInput } from './core/events'
 
 await loadTestEnvFiles()
 
@@ -256,7 +252,11 @@ describe('DrizzleExternalGatewayProjectionSink', () => {
   })
 })
 
-function room(input: { id: string; isDM?: boolean; title?: string | null }): Required<Pick<ExternalGatewayRoomInput, 'id'>> & ExternalGatewayRoomInput {
+function room(input: {
+  id: string
+  isDM?: boolean
+  title?: string | null
+}): Required<Pick<ExternalGatewayRoomInput, 'id'>> & ExternalGatewayRoomInput {
   return {
     id: input.id,
     isDM: input.isDM ?? false,

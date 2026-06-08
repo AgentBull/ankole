@@ -1,16 +1,10 @@
 import 'reflect-metadata'
 import { describe, expect, it } from 'bun:test'
-import { getModels, getProviders } from '@earendil-works/pi-ai'
 import { loadTestEnvFiles } from '@/common/tests/load-test-env'
 
 await loadTestEnvFiles()
 
-const {
-  readAiAgentModelsConfig,
-  resolveAiAgentModelsConfig,
-  resolveLegacyAiAgentRuntimeProfile,
-  writeAiAgentModelsConfig
-} = await import('./config')
+const { readAiAgentModelsConfig, resolveAiAgentModelsConfig, writeAiAgentModelsConfig } = await import('./config')
 
 describe('AIAgent runtime model profile config', () => {
   it('materializes primary, light, and heavy model roles with reasoning defaults', () => {
@@ -89,30 +83,5 @@ describe('AIAgent runtime model profile config', () => {
         model: 'gpt-test'
       }
     })
-  })
-
-  it('keeps legacy ai_agent.runtime model fields as a read-only adapter without env fallback', () => {
-    const provider = getProviders().find(candidate => getModels(candidate as never).length > 0)!
-    const model = getModels(provider as never)[0]!
-
-    const resolved = resolveLegacyAiAgentRuntimeProfile({
-      primary_model: {
-        provider,
-        model: model.id,
-        apiKey: 'sk-test'
-      }
-    })
-
-    expect(resolved.primaryModel.config.providerId).toBe(provider)
-    expect(resolved.primaryModel.config.piProvider).toBe(provider)
-    expect(resolved.primaryModel.options.apiKey).toBe('sk-test')
-    expect(() =>
-      resolveLegacyAiAgentRuntimeProfile({
-        primary_model: {
-          provider,
-          model: model.id
-        }
-      })
-    ).toThrow('legacy ai_agent.runtime apiKey is required for primary')
   })
 })

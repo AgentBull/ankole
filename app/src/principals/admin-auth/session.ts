@@ -1,6 +1,6 @@
-import { aeadDecrypt, aeadEncrypt } from '@agentbull/bullx-native-addons'
 import { ms } from '@pleisto/active-support'
-import { getSecretKey, SecretKeyPurpose } from '@/common/kms'
+import { SecretKeyPurpose } from '@/common/kms'
+import { createSealedCookieCodec, type OidcStateCookiePayload } from '@/common/sealed-cookie'
 
 export const ADMIN_SESSION_COOKIE = '_bullx_agent_session'
 export const ADMIN_OIDC_STATE_COOKIE = '_bullx_agent_oidc_state'
@@ -10,6 +10,8 @@ const OIDC_STATE_TTL_MS = ms('10m')
 
 export const ADMIN_SESSION_TTL_SECONDS = Math.floor(ADMIN_SESSION_TTL_MS / 1000)
 
+const adminCookieCodec = createSealedCookieCodec(SecretKeyPurpose.ADMIN_AUTH_SESSION, 'admin-auth-cookie')
+
 export interface AdminSessionPayload {
   principalUid: string
   providerId: string
@@ -18,15 +20,7 @@ export interface AdminSessionPayload {
   expiresAt: number
 }
 
-export interface AdminOidcStatePayload {
-  providerId: string
-  state: string
-  nonce: string
-  returnTo: string
-  redirectUri: string
-  issuedAt: number
-  expiresAt: number
-}
+export type AdminOidcStatePayload = OidcStateCookiePayload
 
 /**
  * Creates the admin-console login session cookie.
@@ -38,7 +32,7 @@ export interface AdminOidcStatePayload {
  */
 export function createAdminSessionCookie(input: Omit<AdminSessionPayload, 'issuedAt' | 'expiresAt'>): string {
   const now = Date.now()
-  return sealCookie({
+  return adminCookieCodec.seal({
     ...input,
     issuedAt: now,
     expiresAt: now + ADMIN_SESSION_TTL_MS
@@ -47,7 +41,7 @@ export function createAdminSessionCookie(input: Omit<AdminSessionPayload, 'issue
 
 export function createOidcStateCookie(input: Omit<AdminOidcStatePayload, 'issuedAt' | 'expiresAt'>): string {
   const now = Date.now()
-  return sealCookie({
+  return adminCookieCodec.seal({
     ...input,
     issuedAt: now,
     expiresAt: now + OIDC_STATE_TTL_MS
@@ -58,14 +52,14 @@ export function readAdminSessionCookie(header: string | null): AdminSessionPaylo
   const value = parseCookieHeader(header)?.[ADMIN_SESSION_COOKIE]
   if (!value) return undefined
 
-  return readSealedCookie<AdminSessionPayload>(value)
+  return adminCookieCodec.read<AdminSessionPayload>(value)
 }
 
 export function readOidcStateCookie(header: string | null): AdminOidcStatePayload | undefined {
   const value = parseCookieHeader(header)?.[ADMIN_OIDC_STATE_COOKIE]
   if (!value) return undefined
 
-  return readSealedCookie<AdminOidcStatePayload>(value)
+  return adminCookieCodec.read<AdminOidcStatePayload>(value)
 }
 
 export function cookieHeader(
@@ -92,25 +86,6 @@ export function safeReturnTo(value: string | null | undefined): string {
 
 export function newOpaqueToken(): string {
   return crypto.randomUUID().replaceAll('-', '')
-}
-
-function readSealedCookie<TPayload extends { expiresAt: number }>(value: string): TPayload | undefined {
-  try {
-    const payload = JSON.parse(aeadDecrypt(value, sessionKey()).toString('utf-8')) as TPayload
-    if (payload.expiresAt < Date.now()) return undefined
-
-    return payload
-  } catch {
-    return undefined
-  }
-}
-
-function sealCookie(payload: unknown): string {
-  return aeadEncrypt(JSON.stringify(payload), sessionKey())
-}
-
-function sessionKey(): string {
-  return getSecretKey(SecretKeyPurpose.ADMIN_AUTH_SESSION, 'admin-auth-cookie')
 }
 
 export function parseCookieHeader(header: string | null): Record<string, string> | undefined {

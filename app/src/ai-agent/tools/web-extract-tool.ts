@@ -1,6 +1,7 @@
 import { Type } from 'typebox'
 import { appConfigService } from '@/config/app-configure'
 import type { AgentTool, AgentToolResult } from '../core'
+import { buildTool } from './build-tool'
 import { WebExtractProviderConfig } from '../web/config'
 import { type WebExtractResult, type WebProvider, WebProviderError } from '../web/provider'
 import { webProviderRegistry } from '../web/registry'
@@ -32,17 +33,22 @@ function formatResults(results: WebExtractResult[]): string {
 }
 
 export function createWebExtractTool(): AgentTool<typeof WebExtractParams, WebExtractDetails> {
-  return {
+  return buildTool({
     name: 'web_extract',
     label: 'Web Extract',
     description: DESCRIPTION,
     parameters: WebExtractParams,
     executionMode: 'parallel',
+    isReadOnly: true,
+    isDestructive: false,
     async execute(_toolCallId, params, signal): Promise<AgentToolResult<WebExtractDetails>> {
       const preferred = await appConfigService.get(WebExtractProviderConfig)
       const provider: WebProvider = await webProviderRegistry.select('extract', preferred)
       if (!provider.extract) {
-        throw new WebProviderError(`provider ${provider.id} cannot extract`, { retryable: false, providerId: provider.id })
+        throw new WebProviderError(`provider ${provider.id} cannot extract`, {
+          retryable: false,
+          providerId: provider.id
+        })
       }
       const results = await provider.extract({ urls: params.urls }, signal)
       return {
@@ -50,5 +56,5 @@ export function createWebExtractTool(): AgentTool<typeof WebExtractParams, WebEx
         details: { provider: provider.id, results }
       }
     }
-  }
+  })
 }

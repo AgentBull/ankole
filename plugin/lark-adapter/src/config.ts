@@ -16,13 +16,7 @@ export const larkChannelConfigSchema = z
      * Channels installed in the same Lark tenant can use the same namespace so
      * BullX recognizes the same human across those chat channels.
      */
-    platformSubjectNamespace: z.string().regex(bullxExternalIdentityNamespaceIdPattern).optional(),
-    /**
-     * @deprecated Old channel configs used this key before the Lark setup UI made
-     * the platform-subject namespace explicit. Keep read compatibility so stored
-     * encrypted configs do not have to be migrated immediately.
-     */
-    platformProviderId: z.string().regex(bullxExternalIdentityNamespaceIdPattern).optional(),
+    platformSubjectNamespace: z.string().regex(bullxExternalIdentityNamespaceIdPattern),
     userName: z.string().min(1).optional(),
     /** Stream the agent's answer into a live CardKit card (vs a single post). */
     streamingEnabled: z.boolean().default(true),
@@ -32,35 +26,12 @@ export const larkChannelConfigSchema = z
     streamBufferThreshold: z.number().int().min(1).default(24)
   })
   .strict()
-  .superRefine((config, context) => {
-    const namespace = config.platformSubjectNamespace ?? config.platformProviderId
-    if (!namespace) {
-      context.addIssue({
-        code: 'custom',
-        path: ['platformSubjectNamespace'],
-        message: 'platformSubjectNamespace is required'
-      })
-      return
-    }
-
-    if (
-      config.platformSubjectNamespace &&
-      config.platformProviderId &&
-      config.platformSubjectNamespace !== config.platformProviderId
-    ) {
-      context.addIssue({
-        code: 'custom',
-        path: ['platformProviderId'],
-        message: 'legacy platformProviderId must match platformSubjectNamespace when both are provided'
-      })
-    }
-  })
   .transform(config => ({
     appId: config.appId,
     appSecret: config.appSecret,
     domain: config.domain,
     group_message_mode: config.group_message_mode,
-    platformSubjectNamespace: config.platformSubjectNamespace ?? config.platformProviderId!,
+    platformSubjectNamespace: config.platformSubjectNamespace,
     userName: config.userName,
     streamingEnabled: config.streamingEnabled,
     streamUpdateIntervalMs: config.streamUpdateIntervalMs,

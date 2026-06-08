@@ -5,6 +5,7 @@
     "app",
     "packages/*",
     "plugin/*",
+    "internals/plugins/*",
     "tools/*"
   ],
   "type": "module",
@@ -24,9 +25,16 @@
     "type-check": "turbo run type-check",
     "fmt": "turbo run fmt",
     "fmt:check": "turbo run fmt:check",
-    "test": "turbo run test"
+    "test": "turbo run test",
+    "analyze": "bun run kit analyze all",
+    "analyze:smells": "bun run kit analyze smells",
+    "analyze:unused": "bun run kit analyze unused",
+    "analyze:duplicates": "bun run kit analyze duplicates",
+    "analyze:cycles": "bun run kit analyze cycles",
+    "analyze:topology": "bun run kit analyze topology"
   },
   "dependencies": {
+    "knip": "^6.16.1",
     "turbo": "^2.9.16"
   },
   "devDependencies": {

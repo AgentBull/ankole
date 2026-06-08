@@ -295,6 +295,17 @@ async function streamAssistantResponse(
     tools: context.tools
   }
 
+  const beforeCall = await config.beforeLlmCall?.(
+    {
+      context,
+      messages,
+      llmContext,
+      llmMessages,
+      model: config.model
+    },
+    signal
+  )
+
   const streamFunction = streamFn || streamSimple
 
   // Resolve API key (important for expiring tokens)
@@ -303,6 +314,10 @@ async function streamAssistantResponse(
   const response = await streamFunction(config.model, llmContext, {
     ...config,
     apiKey: resolvedApiKey,
+    metadata: {
+      ...config.metadata,
+      ...beforeCall?.metadata
+    },
     signal
   })
 
@@ -414,6 +429,7 @@ async function executeToolCallsSequential(
     let finalized: FinalizedToolCallOutcome
     if (preparation.kind === 'immediate') {
       finalized = {
+        args: toolCall.arguments,
         toolCall,
         result: preparation.result,
         isError: preparation.isError
@@ -468,6 +484,7 @@ async function executeToolCallsParallel(
     const preparation = await prepareToolCall(currentContext, assistantMessage, toolCall, config, signal)
     if (preparation.kind === 'immediate') {
       const finalized = {
+        args: toolCall.arguments,
         toolCall,
         result: preparation.result,
         isError: preparation.isError
@@ -533,6 +550,7 @@ type ExecutedToolCallOutcome = {
 }
 
 type FinalizedToolCallOutcome = {
+  args: unknown
   toolCall: AgentToolCall
   result: AgentToolResult<any>
   isError: boolean
@@ -639,7 +657,7 @@ async function executePreparedToolCall(
             type: 'tool_execution_update',
             toolCallId: prepared.toolCall.id,
             toolName: prepared.toolCall.name,
-            args: prepared.toolCall.arguments,
+            args: prepared.args,
             partialResult
           })
         )
@@ -695,6 +713,7 @@ async function finalizeExecutedToolCall(
   }
 
   return {
+    args: prepared.args,
     toolCall: prepared.toolCall,
     result,
     isError
@@ -713,6 +732,7 @@ async function emitToolExecutionEnd(finalized: FinalizedToolCallOutcome, emit: A
     type: 'tool_execution_end',
     toolCallId: finalized.toolCall.id,
     toolName: finalized.toolCall.name,
+    args: finalized.args,
     result: finalized.result,
     isError: finalized.isError
   })
@@ -724,10 +744,26 @@ function createToolResultMessage(finalized: FinalizedToolCallOutcome): ToolResul
     toolCallId: finalized.toolCall.id,
     toolName: finalized.toolCall.name,
     content: finalized.result.content,
-    details: finalized.result.details,
+    details: withToolExecutionDetails(finalized.result.details, finalized),
     isError: finalized.isError,
     timestamp: Date.now()
   }
+}
+
+function withToolExecutionDetails(details: unknown, finalized: FinalizedToolCallOutcome): unknown {
+  const execution = {
+    tool_call_id: finalized.toolCall.id,
+    tool_name: finalized.toolCall.name,
+    arguments: finalized.args,
+    raw_arguments: finalized.toolCall.arguments
+  }
+  if (isPlainObject(details)) return { ...details, bullx_execution: execution }
+  if (details === undefined || details === null) return { bullx_execution: execution }
+  return { value: details, bullx_execution: execution }
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 async function emitToolResultMessage(toolResultMessage: ToolResultMessage, emit: AgentEventSink): Promise<void> {

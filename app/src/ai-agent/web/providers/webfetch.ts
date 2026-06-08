@@ -1,6 +1,7 @@
 import { htmlToMarkdown } from '@mdream/js'
 import desktop from 'top-user-agents/desktop'
-import type { WebExtractArgs, WebExtractResult, WebProvider } from '../provider'
+import { all, createCombinedAbortSignal, withRetry } from '@/common/async'
+import { WebProviderError, type WebExtractArgs, type WebExtractResult, type WebProvider } from '../provider'
 
 const UA_CACHE_TTL_MS = 6 * 60 * 60 * 1000
 const FETCH_TIMEOUT_MS = 30_000
@@ -51,25 +52,31 @@ function truncate(text: string, max: number): string {
   return text.length > max ? `${text.slice(0, max)}\n…[truncated]` : text
 }
 
-function combineSignals(signal: AbortSignal | undefined, timeoutMs: number): AbortSignal {
-  const timeout = AbortSignal.timeout(timeoutMs)
-  return signal ? AbortSignal.any([signal, timeout]) : timeout
-}
-
-async function fetchOne(url: string, signal?: AbortSignal): Promise<WebExtractResult> {
-  let domain: string
+/**
+ * One fetch attempt. Throws `WebProviderError{retryable:true}` on a connection-level
+ * failure (fetch reject) so `withRetry` retries transient network blips; returns a
+ * terminal `WebExtractResult` for everything else, including HTTP error statuses (a
+ * site returning 5xx is its own state, not a transient blip worth re-hammering).
+ */
+async function fetchOnce(url: string, domain: string, signal?: AbortSignal): Promise<WebExtractResult> {
+  const combined = createCombinedAbortSignal(signal, FETCH_TIMEOUT_MS)
   try {
-    domain = new URL(url).hostname
-  } catch {
-    return { url, title: '', text: '', error: 'invalid URL' }
-  }
-  try {
-    const response = await fetch(url, {
-      headers: { 'user-agent': sampleUserAgent(domain), accept: ACCEPT_HEADER },
-      redirect: 'follow',
-      signal: combineSignals(signal, FETCH_TIMEOUT_MS)
-    })
-    if (!response.ok) return { url, title: '', text: '', error: `HTTP ${response.status}` }
+    let response: Response
+    try {
+      response = await fetch(url, {
+        headers: { 'user-agent': sampleUserAgent(domain), accept: ACCEPT_HEADER },
+        redirect: 'follow',
+        signal: combined.signal
+      })
+    } catch (error) {
+      throw new WebProviderError(error instanceof Error ? error.message : String(error), {
+        retryable: true,
+        providerId: 'webfetch'
+      })
+    }
+    if (!response.ok) {
+      return { url, title: '', text: '', error: `HTTP ${response.status}` }
+    }
     const contentType = response.headers.get('content-type') ?? ''
     const declaredBytes = Number(response.headers.get('content-length') ?? '0')
     if (Number.isFinite(declaredBytes) && declaredBytes > MAX_RESPONSE_BYTES) {
@@ -96,6 +103,24 @@ async function fetchOne(url: string, signal?: AbortSignal): Promise<WebExtractRe
       return { url, title: extractTitle(body), text: truncate(markdown.trim(), MAX_CONTENT_CHARS) }
     }
     return { url, title: '', text: truncate(body, MAX_CONTENT_CHARS) }
+  } finally {
+    combined.cleanup()
+  }
+}
+
+async function fetchOne(url: string, signal?: AbortSignal): Promise<WebExtractResult> {
+  let domain: string
+  try {
+    domain = new URL(url).hostname
+  } catch {
+    return { url, title: '', text: '', error: 'invalid URL' }
+  }
+  try {
+    return await withRetry(() => fetchOnce(url, domain, signal), {
+      maxAttempts: 3,
+      signal,
+      isRetryable: error => error instanceof WebProviderError && error.retryable
+    })
   } catch (error) {
     return { url, title: '', text: '', error: error instanceof Error ? error.message : String(error) }
   }
@@ -113,7 +138,12 @@ export const webfetchProvider: WebProvider = {
     return true
   },
   async extract(args: WebExtractArgs, signal?: AbortSignal): Promise<WebExtractResult[]> {
-    return Promise.all(args.urls.map(url => fetchOne(url, signal)))
+    // Bounded fan-out (≤3 concurrent) instead of an unbounded Promise.all, so a
+    // 5-URL extract doesn't hit one host with 5 simultaneous fetches.
+    return all(
+      args.urls.map(url => () => fetchOne(url, signal)),
+      3
+    )
   }
 }
 

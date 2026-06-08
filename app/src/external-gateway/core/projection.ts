@@ -305,8 +305,9 @@ function normalizeRoomInput(
 function normalizeRoomFromEvent(
   event: ExternalGatewayReactionEvent
 ): Required<Pick<ExternalGatewayRoomInput, 'id'>> & ExternalGatewayRoomInput {
-  if (event.room?.id)
+  if (event.room?.id) {
     return normalizeRoomInput(event.room as Required<Pick<ExternalGatewayRoomInput, 'id'>> & ExternalGatewayRoomInput)
+  }
 
   return {
     id: ensureNonEmpty(event.threadId.split(':').slice(0, 2).join(':'), 'room.id'),
@@ -393,8 +394,9 @@ function applyReactionEvent(reactions: JsonObject, reaction: NormalizedReactionE
 
 function normalizedEmojiName(emoji: unknown): string {
   if (typeof emoji === 'string') return emoji
-  if (typeof emoji === 'object' && emoji !== null && 'name' in emoji && typeof emoji.name === 'string')
+  if (typeof emoji === 'object' && emoji !== null && 'name' in emoji && typeof emoji.name === 'string') {
     return emoji.name
+  }
   return String(emoji)
 }
 

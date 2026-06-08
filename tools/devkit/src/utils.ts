@@ -32,6 +32,56 @@ export async function runChild(command: string, args: string[], options: SpawnOp
   })
 }
 
+export type CapturedChild = {
+  status: number | null
+  stdout: string
+  stderr: string
+  error?: Error
+}
+
+/**
+ * Like {@link runChild} but captures stdout/stderr and never rejects on a
+ * nonzero exit. Used by the `analyze` subcommands that shell out to knip/jscpd
+ * and must parse their output and decide the exit code themselves (vs. the
+ * inherit-and-throw contract of `runChild`, which `app-db` relies on).
+ */
+export async function runChildCaptured(
+  command: string,
+  args: string[],
+  options: SpawnOptions = {}
+): Promise<CapturedChild> {
+  return await new Promise<CapturedChild>(resolve => {
+    const child = spawn(command, args, {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      ...options
+    })
+
+    let stdout = ''
+    let stderr = ''
+    child.stdout?.on('data', (chunk: Buffer) => {
+      stdout += chunk.toString()
+    })
+    child.stderr?.on('data', (chunk: Buffer) => {
+      stderr += chunk.toString()
+    })
+    child.on('error', error => resolve({ status: null, stdout, stderr, error }))
+    child.on('close', code => resolve({ status: code, stdout, stderr }))
+  })
+}
+
+/**
+ * Resolve a locally-installed binary (knip, jscpd, ...). Prefers the devkit
+ * package's own node_modules/.bin, then the repo root. Returns null if absent
+ * so callers can emit an infra error (exit 2) instead of a violation (exit 1).
+ */
+export function resolveLocalBin(name: string): string | null {
+  const candidates = [
+    join(packageRootPath, 'node_modules', '.bin', name),
+    join(repoRootPath, 'node_modules', '.bin', name)
+  ]
+  return candidates.find(candidate => existsSync(candidate)) ?? null
+}
+
 export function composeArgs(args: string[]): string[] {
   return ['compose', '-f', composeFilePath, ...args]
 }

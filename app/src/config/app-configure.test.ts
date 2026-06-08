@@ -153,7 +153,7 @@ describe('AppConfigService database persistence', () => {
       .where(eq(AppConfigure.key, definition.key))
 
     expect(await appConfigService.get(definition)).toEqual({ enabled: true, limit: 3 })
-    await appConfigService.refreshAll()
+    await appConfigService.refreshRegisteredExactKeys()
     expect(await appConfigService.get(definition)).toEqual({ enabled: false, limit: 7 })
 
     await appConfigService.delete(definition)

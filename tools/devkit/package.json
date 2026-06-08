@@ -9,6 +9,7 @@
   "scripts": {
     "bin": "bun run src/main.ts",
     "type-check": "tsc -p tsconfig.json --noEmit",
+    "test": "bun test",
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check"
   },
@@ -20,6 +21,11 @@
     "@crustjs/plugins": "^0.1.0",
     "chalk": "^5.5.0",
     "jsonc": "^2.0.0"
+  },
+  "devDependencies": {
+    "jscpd": "^5.0.4",
+    "knip": "^6.16.1",
+    "typescript": "^6.0.3"
   },
   "schematics": "./src/schematics/collection.json"
 }

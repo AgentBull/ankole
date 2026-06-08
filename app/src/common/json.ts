@@ -64,6 +64,27 @@ export function numberFromPath(object: Record<string, unknown>, path: string[]):
   return isNumber(value) ? value : undefined
 }
 
+/**
+ * True when the value is a plain JSON object (not null, not an array).
+ *
+ * Single home for the `isJsonObject` guard that domain services previously each
+ * re-declared. Returns a {@link JsonObject} type guard so callers can narrow
+ * straight into the durable JSON value space.
+ */
+export function isJsonObject(value: unknown): value is JsonObject {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+/** Narrow a value to a {@link JsonObject}, or `undefined` when it is not object-shaped. */
+export function jsonObject(value: unknown): JsonObject | undefined {
+  return isJsonObject(value) ? value : undefined
+}
+
+/** Deep-clone a {@link JsonObject}. JSON facts are structured-clone safe by construction. */
+export function cloneJsonObject<T extends JsonObject>(value: T): T {
+  return structuredClone(value)
+}
+
 function isBinaryLike(value: unknown): boolean {
   return value instanceof ArrayBuffer || value instanceof Blob || ArrayBuffer.isView(value)
 }

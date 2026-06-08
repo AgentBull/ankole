@@ -424,8 +424,12 @@ describe('ExternalGatewayRuntime', () => {
               providerRoomId: first.providerRoomId,
               providerThreadId: first.providerThreadId,
               finalPayload: {
-                card: { type: 'card', title: 'Status', children: [] },
-                fallbackText: 'Status'
+                kind: 'interactive_output',
+                output: {
+                  version: 'bullx.interactive_output.v1',
+                  content: { title: 'Status', body: 'Status', format: 'plain' },
+                  fallbackText: 'Status'
+                }
               }
             }
           ]

@@ -108,6 +108,102 @@ export interface BullXExternalGatewayExternalIdentitySink {
 
 export type BullXExternalGatewayJsonObject = { [key: string]: BullXPluginJsonValue }
 
+export const bullxInteractiveOutputVersion = 'bullx.interactive_output.v1' as const
+export const bullxInteractiveOutputActionValueVersion = 'bullx.interactive_output.action.v1' as const
+
+export type BullXInteractiveOutputFormat = 'plain' | 'markdown'
+export type BullXInteractiveOutputSeverity = 'neutral' | 'info' | 'success' | 'warning' | 'danger'
+export type BullXInteractiveOutputStateStatus = 'open' | 'answered' | 'expired' | 'cancelled' | 'superseded'
+export type BullXInteractiveOutputChoiceSelection = 'single' | 'multi'
+export type BullXInteractiveOutputChoiceStyle = 'primary' | 'danger' | 'default'
+export type BullXInteractiveOutputResponderScope = 'any_room_member' | 'originator' | 'specified_users'
+
+export interface BullXInteractiveOutputFact {
+  label: string
+  value: string
+}
+
+export interface BullXInteractiveOutputContent {
+  title?: string
+  body: string
+  format?: BullXInteractiveOutputFormat
+  facts?: readonly BullXInteractiveOutputFact[]
+  severity?: BullXInteractiveOutputSeverity
+}
+
+export interface BullXInteractiveOutputChoiceOption {
+  id: string
+  label: string
+  value: string
+  description?: string
+  style?: BullXInteractiveOutputChoiceStyle
+}
+
+export interface BullXInteractiveOutputCustomText {
+  enabled: boolean
+  hint?: string
+}
+
+export interface BullXInteractiveOutputResponsePolicy {
+  firstResponseWins?: boolean
+  responderScope?: BullXInteractiveOutputResponderScope
+}
+
+export interface BullXInteractiveOutputChoiceResponse {
+  type: 'choice'
+  interactionId: string
+  controlId: string
+  selection: BullXInteractiveOutputChoiceSelection
+  options: readonly BullXInteractiveOutputChoiceOption[]
+  customText?: BullXInteractiveOutputCustomText
+  policy?: BullXInteractiveOutputResponsePolicy
+}
+
+export type BullXInteractiveOutputResponse = BullXInteractiveOutputChoiceResponse
+
+export interface BullXInteractiveOutputState {
+  status: BullXInteractiveOutputStateStatus
+  selectedOptionId?: string
+  responseText?: string
+}
+
+/**
+ * Platform-neutral interaction protocol between the BullX host and chat adapters.
+ *
+ * This is intentionally not a UI tree. It describes the interaction the host
+ * needs the platform to offer: visible content, optional response controls,
+ * response policy, current state, and fallback text for projection/degraded
+ * adapters. Business concepts such as "clarify" stay in the agent runtime.
+ */
+export interface BullXInteractiveOutput {
+  version: typeof bullxInteractiveOutputVersion
+  content: BullXInteractiveOutputContent
+  response?: BullXInteractiveOutputResponse
+  state?: BullXInteractiveOutputState
+  fallbackText: string
+}
+
+export interface BullXInteractiveOutputActionValue {
+  version: typeof bullxInteractiveOutputActionValueVersion
+  interactionId: string
+  controlId: string
+  optionId?: string
+  value?: string
+}
+
+export interface BullXInteractiveOutputCardPayload {
+  kind: 'interactive_output'
+  output: BullXInteractiveOutput
+}
+
+export interface BullXLarkNativeCardPayload {
+  kind: 'lark_native_card'
+  card: BullXExternalGatewayJsonObject
+  fallbackText: string
+}
+
+export type BullXExternalGatewayCardPayload = BullXInteractiveOutputCardPayload | BullXLarkNativeCardPayload
+
 /**
  * Normalized External Gateway facts emitted by chat adapters.
  *

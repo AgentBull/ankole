@@ -1,5 +1,6 @@
 import { Crust } from '@crustjs/core'
 import { didYouMeanPlugin, helpPlugin } from '@crustjs/plugins'
+import { analyzeCommand } from './commands/analyze'
 import { appDbCommand } from './commands/app-db'
 import { externalServicesCommand } from './commands/external-services'
 import { generateCommand, runGenerate } from './commands/generate'
@@ -23,6 +24,7 @@ let app = new Crust('bun run kit')
 
 app = app.command(externalServicesCommand())
 app = app.command(appDbCommand())
+app = app.command(analyzeCommand())
 
 try {
   await app.execute()

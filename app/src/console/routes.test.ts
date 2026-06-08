@@ -94,8 +94,11 @@ describe('console llm provider routes', () => {
 
     const listed = await authedFetch('/api/console/llm-providers')
     expect(listed.status).toBe(200)
-    expect(((await listed.json()) as { providers: Array<{ providerId: string }> }).providers.some(provider => provider.providerId === providerId))
-      .toBe(true)
+    expect(
+      ((await listed.json()) as { providers: Array<{ providerId: string }> }).providers.some(
+        provider => provider.providerId === providerId
+      )
+    ).toBe(true)
 
     const checked = await authedFetch('/api/console/llm-providers/check', {
       method: 'POST',
@@ -114,8 +117,9 @@ describe('console llm provider routes', () => {
 
     const models = await authedFetch(`/api/console/llm-providers/${providerId}/models`)
     expect(models.status).toBe(200)
-    expect(((await models.json()) as { models: Array<{ id: string }> }).models.some(model => model.id === catalog.model.id))
-      .toBe(true)
+    expect(
+      ((await models.json()) as { models: Array<{ id: string }> }).models.some(model => model.id === catalog.model.id)
+    ).toBe(true)
 
     const cleared = await authedFetch(`/api/console/llm-providers/${providerId}`, {
       method: 'PUT',

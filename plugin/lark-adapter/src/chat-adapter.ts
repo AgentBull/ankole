@@ -12,6 +12,11 @@ import type {
 } from '@agentbull/bullx-sdk/plugins'
 import { LarkAdapterConfigError, type LarkChannelConfig } from './config'
 import { sharedLarkConnections, type LarkConnectionLease, type SharedLarkConnection } from './connection'
+import {
+  isBullXInteractiveOutputPayload,
+  isLarkNativeCardPayload,
+  renderInteractiveOutputToLarkCard
+} from './interactive-output'
 import { createLarkStreamingCardSession } from './streaming-card'
 import {
   actorIdFromNormalizedMessage,
@@ -30,7 +35,6 @@ import {
   fromLarkEmojiType,
   larkActorMetadata,
   larkChannelLoggerFromChat,
-  larkCompactNoticeCard,
   larkDividerPayloadFromMessage,
   larkResourceAttachmentType,
   larkTextContent,
@@ -511,13 +515,9 @@ export class BullXLarkChatAdapter {
   }
 
   private renderOutboundCard(message: unknown): Record<string, unknown> | undefined {
-    const record = asRecord(message)
-    if (!record) return undefined
-    if (record.kind === 'control_notice') {
-      const text = optionalString(record.text) ?? optionalString(record.fallbackText) ?? ''
-      return larkCompactNoticeCard(text)
-    }
-    return asRecord(record.card)
+    if (isBullXInteractiveOutputPayload(message)) return renderInteractiveOutputToLarkCard(message.output)
+    if (isLarkNativeCardPayload(message)) return message.card
+    return undefined
   }
 
   async beginStreamingCard(input: BullXBeginStreamingCardInput): Promise<BullXStreamingCardHandle> {

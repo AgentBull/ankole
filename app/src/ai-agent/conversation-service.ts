@@ -67,8 +67,12 @@ export interface AppendAiAgentMessageInput {
 
 export interface StartLlmTurnInput {
   agentUid: string
+  branchId?: string | null
+  callIndex?: number | null
+  parentBranchId?: string | null
   conversationId: string
   kind: AiAgentLlmTurnKind
+  leaseId?: string | null
   model: string
   profile: AiAgentModelProfileName
   provider: string
@@ -78,7 +82,10 @@ export interface StartLlmTurnInput {
   maxTokens?: number
   reasoning?: string
   requestContext?: JsonObject
+  requestPatches?: JsonValue[]
+  requestRefs?: JsonValue[]
   temperature?: number
+  toolResults?: JsonValue[]
   triggerEventId?: string | null
   triggerMessageId?: string | null
 }
@@ -136,6 +143,28 @@ export class AiAgentConversationService {
       .limit(1)
 
     return existing
+  }
+
+  /**
+   * Active, uncancelled-lease conversations for one binding — the crash-recovery
+   * candidate set. Keeps the `generation->>'lease_id'` / `cancelled_at` JSON-path
+   * predicate inside the generation-state home instead of the runtime.
+   */
+  async findRecoverableGenerations(
+    agentUid: string,
+    bindingName: string
+  ): Promise<Array<typeof AiAgentConversations.$inferSelect>> {
+    return DB.select()
+      .from(AiAgentConversations)
+      .where(
+        and(
+          eq(AiAgentConversations.agentUid, agentUid),
+          isNull(AiAgentConversations.endedAt),
+          sql`${AiAgentConversations.metadata}->'route'->>'binding_name' = ${bindingName}`,
+          sql`coalesce(${AiAgentConversations.generation}->>'lease_id', '') <> ''`,
+          sql`coalesce(${AiAgentConversations.generation}->>'cancelled_at', '') = ''`
+        )
+      )
   }
 
   async rolloverConversation(
@@ -457,12 +486,19 @@ export class AiAgentConversationService {
         temperature: input.temperature === undefined ? null : String(input.temperature),
         maxTokens: input.maxTokens ?? null,
         cacheRetention: input.cacheRetention ?? null,
+        leaseId: input.leaseId ?? null,
+        callIndex: input.callIndex ?? null,
+        branchId: input.branchId ?? null,
+        parentBranchId: input.parentBranchId ?? null,
         triggerMessageId: input.triggerMessageId ?? null,
         triggerEventId: input.triggerEventId ?? null,
         inputMessageIds: jsonbParam(input.inputMessageIds ?? []),
         inputSummaryMessageId: input.inputSummaryMessageId ?? null,
         requestContext: jsonbParam(input.requestContext ?? {}),
+        requestRefs: jsonbParam(input.requestRefs ?? []),
+        requestPatches: jsonbParam(input.requestPatches ?? []),
         response: jsonbParam({}),
+        toolResults: jsonbParam(input.toolResults ?? []),
         usage: jsonbParam({}),
         providerMetadata: jsonbParam({})
       })
@@ -476,12 +512,14 @@ export class AiAgentConversationService {
     providerMetadata?: JsonObject
     response?: JsonObject
     status: AiAgentLlmTurnStatus
+    toolResults?: JsonValue[]
     usage?: JsonObject
   }): Promise<void> {
     await DB.update(AiAgentLlmTurns)
       .set({
         status: input.status,
         response: jsonbParam(input.response ?? {}),
+        toolResults: jsonbParam(input.toolResults ?? []),
         usage: jsonbParam(input.usage ?? {}),
         providerMetadata: jsonbParam(input.providerMetadata ?? {}),
         completedAt: new Date(),
@@ -522,14 +560,15 @@ export class AiAgentConversationService {
 
 export const aiAgentConversationService = new AiAgentConversationService()
 
+/** Build the `provider_refs` metadata sub-object as a durable {@link JsonObject} (see {@link ProviderRefs} for the shape). */
 export function providerRefs(input: {
   eventId?: string | null
   providerMessageId?: string | null
   providerRoomId: string
   providerThreadId: string
-}): ProviderRefs {
+}): JsonObject {
   return {
-    event_id: input.eventId ?? undefined,
+    event_id: input.eventId ?? null,
     message_ids: input.providerMessageId ? [input.providerMessageId] : [],
     room_id: input.providerRoomId,
     thread_id: input.providerThreadId
@@ -550,13 +589,35 @@ export function textFromContent(content: JsonValue[]): string {
     .join('')
 }
 
-function routeJson(route: AiAgentConversationRoute): JsonObject {
+/**
+ * Single builder for the `metadata.route` envelope shared by conversation rows
+ * (room-scoped) and message rows (thread-scoped). Both `provider_room_id` and
+ * `provider_thread_id` are always present (null when not applicable) so the shape
+ * cannot diverge between its two producers (conversation service + runtime).
+ */
+export function buildRouteMetadata(input: {
+  agentUid: string
+  bindingName: string
+  providerRealmId?: string | null
+  providerRoomId?: string | null
+  providerThreadId?: string | null
+}): JsonObject {
   return {
-    agent_uid: route.agentUid,
-    binding_name: route.bindingName,
-    provider_realm_id: route.providerRealmId ?? null,
-    provider_room_id: route.providerRoomId
+    agent_uid: input.agentUid,
+    binding_name: input.bindingName,
+    provider_realm_id: input.providerRealmId ?? null,
+    provider_room_id: input.providerRoomId ?? null,
+    provider_thread_id: input.providerThreadId ?? null
   }
+}
+
+function routeJson(route: AiAgentConversationRoute): JsonObject {
+  return buildRouteMetadata({
+    agentUid: route.agentUid,
+    bindingName: route.bindingName,
+    providerRealmId: route.providerRealmId,
+    providerRoomId: route.providerRoomId
+  })
 }
 
 function cancelGeneration(
@@ -571,6 +632,11 @@ function cancelGeneration(
     cancellation_reason: reason,
     cancelled_by_event_id: eventId ?? null
   }
+}
+
+/** True when the generation holds an active (uncancelled) lease. */
+export function isActiveGeneration(generation: { lease_id?: unknown; cancelled_at?: unknown }): boolean {
+  return typeof generation.lease_id === 'string' && generation.lease_id.length > 0 && !generation.cancelled_at
 }
 
 /**

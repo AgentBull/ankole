@@ -10,6 +10,7 @@ import type {
 import { webProviderRegistry } from '@/ai-agent/web/registry'
 import { AppEnv } from '@/config/env'
 import { rootContainer, singleton } from '@/common/di'
+import type { Runtime } from '@/common/lifecycle'
 import {
   appConfigService,
   registerAppConfigDefinitions,
@@ -26,10 +27,22 @@ import {
   type IdentityProviderAdapterFactory
 } from '@/principals/identity-providers/registry'
 import { PluginEnabledOverridesConfig, type PluginEnabledOverrides } from './config'
-import { discoverLocalPlugins, type PluginDiscoveryOptions } from './discovery'
+import { discoverLocalPluginsDetailed, type DiscoveredPlugins, type PluginDiscoveryOptions } from './discovery'
 
 const pluginIdPattern = /^[a-z][a-z0-9_-]*$/
 export const defaultEnabledPluginIds = ['lark-adapter'] as const
+
+/**
+ * Default-enabled set = the static defaults plus every plugin discovered from an
+ * auto-enabled (internal) root. Overrides can still disable any of them. Shared
+ * by the runtime and the plugin catalog so both agree on what is on by default.
+ */
+export function effectiveDefaultEnabledPluginIds(
+  autoEnabledPluginIds: readonly string[],
+  base: readonly string[] = defaultEnabledPluginIds
+): string[] {
+  return [...new Set([...base, ...autoEnabledPluginIds])]
+}
 
 export interface PluginRegistry {
   plugins: readonly BullXPlugin[]
@@ -48,6 +61,8 @@ export interface PluginRuntimeStats {
 
 export interface PluginRuntimeStartOptions extends PluginDiscoveryOptions {
   defaultEnabledPluginIds?: readonly string[]
+  /** Plugin ids to treat as auto-enabled when `plugins`/`discoverPlugins` are injected (bypassing real discovery). */
+  autoEnabledPluginIds?: readonly string[]
   discoverPlugins?: (options?: PluginDiscoveryOptions) => Promise<readonly BullXPlugin[]>
   getEnabledOverrides?: () => Promise<PluginEnabledOverrides>
   plugins?: readonly BullXPlugin[]
@@ -101,17 +116,29 @@ export class UnknownDefaultPluginError extends Error {
 }
 
 @singleton()
-export class PluginRuntime {
+export class PluginRuntime implements Runtime<PluginRuntimeStats> {
   private startedStats: PluginRuntimeStats | null = null
 
   async start(options: PluginRuntimeStartOptions = {}): Promise<PluginRuntimeStats> {
     if (this.startedStats) return this.startedStats
 
-    const plugins =
-      options.plugins ??
-      (await (options.discoverPlugins ?? discoverLocalPlugins)({
-        pluginRoots: options.pluginRoots
-      }))
+    const discovered: DiscoveredPlugins = options.plugins
+      ? { plugins: [...options.plugins], autoEnabledPluginIds: [...(options.autoEnabledPluginIds ?? [])] }
+      : options.discoverPlugins
+        ? {
+            plugins: [
+              ...(await options.discoverPlugins({
+                pluginRoots: options.pluginRoots,
+                autoEnabledPluginRoots: options.autoEnabledPluginRoots
+              }))
+            ],
+            autoEnabledPluginIds: [...(options.autoEnabledPluginIds ?? [])]
+          }
+        : await discoverLocalPluginsDetailed({
+            pluginRoots: options.pluginRoots,
+            autoEnabledPluginRoots: options.autoEnabledPluginRoots
+          })
+    const plugins = discovered.plugins
     const registry = buildPluginRegistry(plugins)
     const registerDefinitions = options.registerAppConfigDefinitions ?? registerHostAppConfigDefinitions
     const registerPatterns = options.registerAppConfigPatterns ?? registerHostAppConfigPatterns
@@ -141,7 +168,10 @@ export class PluginRuntime {
         ? await options.getEnabledOverrides()
         : await appConfigService.get(PluginEnabledOverridesConfig)
     const enabledPluginIds = resolveEnabledPluginIds({
-      defaultEnabledPluginIds: options.defaultEnabledPluginIds ?? defaultEnabledPluginIds,
+      defaultEnabledPluginIds: effectiveDefaultEnabledPluginIds(
+        discovered.autoEnabledPluginIds,
+        options.defaultEnabledPluginIds ?? defaultEnabledPluginIds
+      ),
       overrides: overrides ?? {},
       registry
     })

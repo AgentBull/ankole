@@ -1,3 +1,6 @@
+import { treaty } from '@elysia/eden'
+import type { WebServer } from '@/core/web-server'
+
 export class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -8,57 +11,38 @@ export class ApiError extends Error {
   }
 }
 
-type JsonObject = { [key: string]: unknown }
+/**
+ * Eden Treaty client for the server's `/api/*` surface.
+ *
+ * Request and response types flow end-to-end from the Elysia app type, so the
+ * frontend no longer hand-copies backend response shapes. `import type` keeps the
+ * server type-only (no server code is bundled into the SPA).
+ */
+const client = treaty<WebServer>(typeof window === 'undefined' ? 'http://localhost' : window.location.origin, {
+  fetch: { credentials: 'same-origin' }
+})
 
-export async function apiGet<T>(path: string): Promise<T> {
-  return apiRequest<T>(path, { method: 'GET' })
-}
+/** Typed `/api/*` accessor: `api.console.agents.get()`, `api.session.get()`, etc. */
+export const api = client.api
 
-export async function apiPost<T>(path: string, body: unknown = {}): Promise<T> {
-  return apiRequest<T>(path, {
-    method: 'POST',
-    body: JSON.stringify(body),
-    headers: { 'content-type': 'application/json' }
-  })
-}
-
-export async function apiPut<T>(path: string, body: unknown): Promise<T> {
-  return apiRequest<T>(path, {
-    method: 'PUT',
-    body: JSON.stringify(body),
-    headers: { 'content-type': 'application/json' }
-  })
-}
-
-export async function apiDelete<T>(path: string): Promise<T> {
-  return apiRequest<T>(path, { method: 'DELETE' })
-}
-
-async function apiRequest<T>(path: string, init: RequestInit): Promise<T> {
-  const response = await fetch(path, {
-    credentials: 'same-origin',
-    ...init,
-    headers: {
-      accept: 'application/json',
-      ...(init.headers ?? {})
-    }
-  })
-
-  const body = await readResponseBody(response)
-  if (!response.ok) throw new ApiError(response.status, body)
-
-  return body as T
-}
-
-async function readResponseBody(response: Response): Promise<unknown> {
-  const text = await response.text()
-  if (!text) return null
-
-  try {
-    return JSON.parse(text) as unknown
-  } catch {
-    return text
+/**
+ * Unwrap a Treaty response for React Query: return `data`, or throw {@link ApiError}
+ * carrying the server error body so {@link apiErrorMessage} can render it.
+ *
+ * Elysia merges `onError` return shapes into the inferred success type, so the
+ * returned data union is narrowed with `Exclude<…, { error: unknown }>` to drop
+ * those error envelopes and leave only the real success payload.
+ */
+export async function unwrap<R extends { data: unknown; error: unknown }>(
+  promise: Promise<R>
+): Promise<Exclude<NonNullable<R['data']>, { error: unknown }>> {
+  const { data, error } = await promise
+  if (error) {
+    const treatyError = error as { status?: number; value?: unknown }
+    throw new ApiError(typeof treatyError.status === 'number' ? treatyError.status : 500, treatyError.value ?? error)
   }
+
+  return data as Exclude<NonNullable<R['data']>, { error: unknown }>
 }
 
 export function apiErrorMessage(error: unknown): string {
@@ -82,6 +66,6 @@ function errorBodyMessage(body: unknown): string | undefined {
   return JSON.stringify(body, null, 2)
 }
 
-function isJsonObject(value: unknown): value is JsonObject {
+function isJsonObject(value: unknown): value is { [key: string]: unknown } {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }

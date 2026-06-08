@@ -2,33 +2,25 @@ import { describe, expect, it } from 'bun:test'
 import { __webfetchInternals, webfetchProvider } from './webfetch'
 
 describe('webfetch UA sampling', () => {
-  it('returns a stable UA per domain (6h cache)', () => {
+  it('returns a stable UA per domain until the cache expires', () => {
     const { sampleUserAgent, uaCache } = __webfetchInternals
     uaCache.clear()
     const first = sampleUserAgent('example.com')
     const second = sampleUserAgent('example.com')
     expect(first).toBe(second)
     expect(first).toContain('Mozilla')
-  })
 
-  it('expired cache entries are resampled', () => {
-    const { sampleUserAgent, uaCache } = __webfetchInternals
-    uaCache.clear()
-    sampleUserAgent('example.com')
     uaCache.set('example.com', { ua: 'STALE-UA', expiresAt: Date.now() - 1 })
     expect(sampleUserAgent('example.com')).not.toBe('STALE-UA')
   })
 })
 
 describe('webfetch html helpers', () => {
-  it('extracts and decodes the title', () => {
+  it('extracts decoded HTML titles and only treats real HTML-looking bodies as HTML', () => {
     expect(__webfetchInternals.extractTitle('<html><head><title>Hello &amp; Bye</title></head></html>')).toBe(
       'Hello & Bye'
     )
     expect(__webfetchInternals.extractTitle('<html><body>no title</body></html>')).toBe('')
-  })
-
-  it('detects html bodies', () => {
     expect(__webfetchInternals.looksLikeHtml('<!DOCTYPE html><html><body>x</body></html>')).toBe(true)
     expect(__webfetchInternals.looksLikeHtml('{"json":true}')).toBe(false)
   })
@@ -71,7 +63,10 @@ describe('webfetchProvider.extract', () => {
   })
 
   it('rejects non-textual content types instead of returning garbage', async () => {
-    const server = Bun.serve({ port: 0, fetch: () => new Response('％PDF-1.7 binary', { headers: { 'content-type': 'application/pdf' } }) })
+    const server = Bun.serve({
+      port: 0,
+      fetch: () => new Response('％PDF-1.7 binary', { headers: { 'content-type': 'application/pdf' } })
+    })
     try {
       const results = (await webfetchProvider.extract?.({ urls: [`http://localhost:${server.port}/`] })) ?? []
       expect(results[0]?.error).toContain('unsupported content type')

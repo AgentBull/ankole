@@ -1,7 +1,12 @@
 import { ms } from '@pleisto/active-support'
 import { and, asc, eq, gte, inArray, lte, or, sql } from 'drizzle-orm'
 import { DB, jsonbParam, type QueryExecutor } from '@/common/database'
-import { ExternalGatewayAgentEvents, ExternalGatewayInputTombstones, type JsonObject, type JsonValue } from '@/common/db-schema'
+import {
+  ExternalGatewayAgentEvents,
+  ExternalGatewayInputTombstones,
+  type JsonObject,
+  type JsonValue
+} from '@/common/db-schema'
 
 export type ExternalGatewayCanonicalType =
   | 'message.received'
@@ -173,9 +178,7 @@ export class DrizzleExternalGatewayAgentEventQueue {
       if (!event) return 'not_pending'
 
       if (input.remove) {
-        await tx
-          .delete(ExternalGatewayAgentEvents)
-          .where(agentEventKeyWhere(event))
+        await tx.delete(ExternalGatewayAgentEvents).where(agentEventKeyWhere(event))
         return 'removed'
       }
 
@@ -284,10 +287,10 @@ export class DrizzleExternalGatewayAgentEventQueue {
       if (!first) return undefined
 
       /*
-       * This intentionally does not write a DB lease. It mirrors the old Elixir
-       * MailBox shape: PostgreSQL stores pending accepted input, and this
-       * process owns the short-lived in-flight work until markDone/markFailed.
-       * If the process dies before completion, the row is still pending.
+       * This intentionally does not write a DB lease. PostgreSQL stores pending
+       * accepted input, and this process owns short-lived in-flight work until
+       * markDone/markFailed. If the process dies before completion, the row is
+       * still pending.
        */
       const events = isReadyBatchableReceive(first) ? await claimReadyBatch(tx, first) : [first]
       return { events }

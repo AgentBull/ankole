@@ -1,9 +1,11 @@
 import { Type } from 'typebox'
 import { toJsonObject } from '@/common/json'
 import type { DrizzleExternalGatewayOutbox } from '@/external-gateway/outbox'
+import { interactiveOutputCardPayload } from '@/external-gateway/interactive-output'
 import { type AiAgentClarifyRegistry, aiAgentClarifyRegistry, type ClarifyResolution } from '../clarify-registry'
 import type { AgentTool, AgentToolResult } from '../core'
-import { renderClarifyCard } from './clarify-card'
+import { buildTool } from './build-tool'
+import { renderClarifyChoicePrompt } from './choice-prompt'
 import { renderClarifyPrompt } from './clarify-format'
 
 const DEFAULT_TIMEOUT_MS = 600_000 // hermes parity: 10 minutes
@@ -88,18 +90,25 @@ export function createClarifyTool(
   const timeoutMs = deps.timeoutMs ?? DEFAULT_TIMEOUT_MS
   const heartbeatMs = deps.heartbeatMs ?? DEFAULT_HEARTBEAT_MS
 
-  return {
+  return buildTool({
     name: 'clarify',
     label: 'Ask for clarification',
     description:
       'Ask the human a question and wait for their reply before continuing. Provide up to 4 choices, or ask open-ended.',
     parameters: ClarifyParams,
     executionMode: 'sequential',
+    isDestructive: false,
     async execute(toolCallId, params, signal): Promise<AgentToolResult<ClarifyDetails>> {
-      const choices = (params.choices ?? []).map(choice => choice.trim()).filter(choice => choice.length > 0).slice(0, 4)
+      const choices = (params.choices ?? [])
+        .map(choice => choice.trim())
+        .filter(choice => choice.length > 0)
+        .slice(0, 4)
 
       if (signal?.aborted) {
-        return { content: [{ type: 'text', text: 'Clarification cancelled.' }], details: details(params.question, choices, '', null, { cancelled: true }) }
+        return {
+          content: [{ type: 'text', text: 'Clarification cancelled.' }],
+          details: details(params.question, choices, '', null, { cancelled: true })
+        }
       }
       if (!registry.tryReserve(binding.conversationId)) {
         throw new Error('a clarification is already pending for this conversation')
@@ -118,26 +127,30 @@ export function createClarifyTool(
             providerRoomId: binding.providerRoomId,
             providerThreadId: binding.providerThreadId,
             finalPayload: binding.cardCapable
-              ? {
-                  card: toJsonObject(
-                    renderClarifyCard({
+              ? toJsonObject(
+                  interactiveOutputCardPayload(
+                    renderClarifyChoicePrompt({
                       question: params.question,
                       choices,
-                      correlationId: binding.conversationId
+                      correlationId: binding.conversationId,
+                      fallbackText: promptText
                     })
-                  ),
-                  fallbackText: promptText,
-                  text: promptText
-                }
+                  )
+                )
               : { text: promptText }
           }
         })
         binding.scheduleOutboxDrain()
         // Guarantee the full wait window survives the 30-min run ceiling (best-effort).
-        await conversations.extendGenerationCeiling(binding.conversationId, binding.leaseId, timeoutMs + CEILING_MARGIN_MS).catch(() => {})
+        await conversations
+          .extendGenerationCeiling(binding.conversationId, binding.leaseId, timeoutMs + CEILING_MARGIN_MS)
+          .catch(() => {})
 
         const resolution = await new Promise<ClarifyResolution>(resolve => {
-          const timeoutTimer = setTimeout(() => registry.resolveByConversation(binding.conversationId, { kind: 'timeout' }), timeoutMs)
+          const timeoutTimer = setTimeout(
+            () => registry.resolveByConversation(binding.conversationId, { kind: 'timeout' }),
+            timeoutMs
+          )
           const heartbeatTimer = setInterval(() => {
             void conversations
               .touchGenerationHeartbeat(binding.conversationId, binding.leaseId)
@@ -175,7 +188,10 @@ export function createClarifyTool(
             user_response: resolution.text,
             selected_index: resolution.choiceIndex ?? null
           })
-          return { content: [{ type: 'text', text }], details: details(params.question, choices, resolution.text, resolution.choiceIndex ?? null) }
+          return {
+            content: [{ type: 'text', text }],
+            details: details(params.question, choices, resolution.text, resolution.choiceIndex ?? null)
+          }
         }
         if (resolution.kind === 'timeout') {
           const minutes = Math.max(1, Math.round(timeoutMs / 60_000))
@@ -184,11 +200,14 @@ export function createClarifyTool(
             details: details(params.question, choices, '', null, { timedOut: true })
           }
         }
-        return { content: [{ type: 'text', text: 'Clarification cancelled.' }], details: details(params.question, choices, '', null, { cancelled: true }) }
+        return {
+          content: [{ type: 'text', text: 'Clarification cancelled.' }],
+          details: details(params.question, choices, '', null, { cancelled: true })
+        }
       } catch (error) {
         if (!registered) registry.releaseReservation(binding.conversationId)
         throw error
       }
     }
-  }
+  })
 }

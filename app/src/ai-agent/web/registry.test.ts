@@ -2,11 +2,7 @@ import { describe, expect, it } from 'bun:test'
 import type { WebProvider, WebProviderKind } from './provider'
 import { WebProviderRegistry } from './registry'
 
-function fakeProvider(
-  id: string,
-  supports: WebProviderKind[],
-  options: { available?: boolean } = {}
-): WebProvider {
+function fakeProvider(id: string, supports: WebProviderKind[], options: { available?: boolean } = {}): WebProvider {
   return {
     id,
     supports,
@@ -17,29 +13,20 @@ function fakeProvider(
 }
 
 describe('WebProviderRegistry.select', () => {
-  it('prefers the configured provider when available', async () => {
+  it('uses preferred provider first, built-in priority next, and plugin providers as last resort', async () => {
     const registry = new WebProviderRegistry()
     registry.register(fakeProvider('exa', ['search']))
     registry.register(fakeProvider('grok', ['search']))
     expect((await registry.select('search', 'grok')).id).toBe('grok')
-  })
 
-  it('falls back to built-in priority order', async () => {
-    const registry = new WebProviderRegistry()
-    registry.register(fakeProvider('grok', ['search']))
-    registry.register(fakeProvider('exa', ['search']))
     expect((await registry.select('search')).id).toBe('exa')
-  })
 
-  it('skips unavailable providers', async () => {
-    const registry = new WebProviderRegistry()
+    registry.clear()
     registry.register(fakeProvider('exa', ['search'], { available: false }))
     registry.register(fakeProvider('parallel', ['search']))
     expect((await registry.select('search')).id).toBe('parallel')
-  })
 
-  it('selects a non-built-in (plugin) provider as a last resort', async () => {
-    const registry = new WebProviderRegistry()
+    registry.clear()
     registry.register(fakeProvider('custom', ['search']))
     expect((await registry.select('search')).id).toBe('custom')
   })

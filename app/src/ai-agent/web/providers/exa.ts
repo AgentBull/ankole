@@ -49,7 +49,11 @@ export const exaProvider: WebProvider = {
     return (data.results ?? []).slice(0, limit).map(result => ({
       title: result.title ?? '',
       url: result.url ?? '',
-      snippet: (Array.isArray(result.highlights) ? result.highlights.join(' ') : undefined) ?? result.summary ?? result.text ?? ''
+      snippet:
+        (Array.isArray(result.highlights) ? result.highlights.join(' ') : undefined) ??
+        result.summary ??
+        result.text ??
+        ''
     }))
   },
   async extract(args: WebExtractArgs, signal?: AbortSignal): Promise<WebExtractResult[]> {

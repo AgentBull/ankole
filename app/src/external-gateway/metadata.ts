@@ -1,5 +1,5 @@
-import { isPlainObject } from '@pleisto/active-support'
 import type { JsonObject, JsonValue } from '@/common/db-schema'
+import { jsonObject } from '@/common/json'
 
 const channelNamePattern = /^[a-z][a-z0-9_]*$/
 const groupMessageModes = new Set(['addressed_only', 'observe_all', 'may_intervene'])
@@ -10,8 +10,8 @@ export type GroupMessageMode = 'addressed_only' | 'observe_all' | 'may_intervene
  * One enabled `agents.metadata.external.adapters[]` entry after validation.
  *
  * `name` is intentionally separate from `adapter`: `name` is the public binding
- * key used in `/api/agents/:agentUid/webhooks/:channel` and in
- * `chat.webhooks[name]`, while `adapter` is the DI-registered factory id.
+ * key used in `/api/agents/:agentUid/webhooks/:channel`, while `adapter` is the
+ * DI-registered factory id.
  */
 export interface AgentExternalBinding {
   adapter: string
@@ -53,11 +53,9 @@ export class AgentChatMetadataError extends Error {
  * }
  * ```
  *
- * The legacy `chat.adapters` shape is still accepted while the repo migrates to
- * External Gateway naming. Missing adapter metadata means "this active agent has
- * no External Gateway bindings yet" and is not an error. Malformed configured
- * bindings are errors because they represent an explicit but impossible runtime
- * request.
+ * Missing adapter metadata means "this active agent has no External Gateway
+ * bindings yet" and is not an error. Malformed configured bindings are errors
+ * because they represent an explicit but impossible runtime request.
  */
 export function parseAgentExternalBindings(metadata: JsonObject): AgentExternalBinding[] {
   // Runtime only routes enabled bindings. Two same-named enabled bindings are an
@@ -81,19 +79,15 @@ export function parseAgentExternalBindingsAll(metadata: JsonObject): AgentExtern
 }
 
 /**
- * Writes the binding list back into `agents.metadata.external.adapters`, dropping
- * the legacy `chat` key. Shared by the console create/update/delete channel paths.
+ * Writes the binding list back into `agents.metadata.external.adapters`.
+ * Shared by the console create/update/delete channel paths.
  */
 export function writeAgentExternalBindings(
   metadata: JsonObject,
   bindings: readonly AgentExternalBinding[]
 ): JsonObject {
   const next = structuredClone(metadata)
-  const external = jsonObject(next.external)
-    ? structuredClone(next.external as JsonObject)
-    : jsonObject(next.chat)
-      ? structuredClone(next.chat as JsonObject)
-      : {}
+  const external = jsonObject(next.external) ? structuredClone(next.external as JsonObject) : {}
   external.adapters = bindings.map(binding => ({
     name: binding.name,
     adapter: binding.adapter,
@@ -101,12 +95,11 @@ export function writeAgentExternalBindings(
     ...(binding.groupMessageMode ? { group_message_mode: binding.groupMessageMode } : {})
   }))
   next.external = external
-  delete next.chat
   return next
 }
 
 function parseAgentExternalBindingList(metadata: JsonObject): AgentExternalBinding[] {
-  const external = jsonObject(metadata.external) ?? jsonObject(metadata.chat)
+  const external = jsonObject(metadata.external)
   if (!external) return []
 
   const adapters = external.adapters
@@ -165,12 +158,4 @@ function optionalGroupMessageMode(value: JsonValue | undefined, field: string): 
   if (typeof value === 'string' && groupMessageModes.has(value)) return value as GroupMessageMode
 
   throw new AgentChatMetadataError(`${field} must be addressed_only, observe_all, or may_intervene`)
-}
-
-/**
- * Treats non-object JSON values as absent rather than invalid. Callers decide
- * whether absence is allowed for their specific field.
- */
-function jsonObject(value: JsonValue | undefined): JsonObject | undefined {
-  return isPlainObject(value) ? (value as JsonObject) : undefined
 }

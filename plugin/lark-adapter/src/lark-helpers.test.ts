@@ -3,7 +3,11 @@ import { larkCompactNoticeCard, larkDividerPayload, larkDividerPayloadFromMessag
 
 describe('larkDividerPayloadFromMessage', () => {
   it('builds a Feishu system divider from a divider-operation postable', () => {
-    const payload = larkDividerPayloadFromMessage({ kind: 'control_notice', text: 'New conversation started.', type: 'divider' })
+    const payload = larkDividerPayloadFromMessage({
+      kind: 'control_notice',
+      text: 'New conversation started.',
+      type: 'divider'
+    })
     expect(payload).toEqual({
       type: 'divider',
       params: { divider_text: { text: 'New conversation started.' } },

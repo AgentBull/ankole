@@ -1,14 +1,9 @@
-import {
-  getModel,
-  type CacheRetention,
-  type Model,
-  type SimpleStreamOptions,
-  type Transport
-} from '@earendil-works/pi-ai'
+import { type CacheRetention, type Model, type SimpleStreamOptions, type Transport } from '@earendil-works/pi-ai'
 import { z } from 'zod'
 import { defineAppConfig, registerAppConfigDefinitions, appConfigService } from '@/config/app-configure'
 import type { ConfigureJsonValue } from '@/common/db-schema/app-configure'
-import type { JsonObject, JsonValue } from '@/common/db-schema'
+import type { JsonObject } from '@/common/db-schema'
+import { cloneJsonObject, jsonObject } from '@/common/json'
 import { getAgent } from '@/principals/agents/service'
 import {
   assertLlmProviderModelReference,
@@ -51,6 +46,10 @@ export interface AiAgentRuntimePolicyConfig {
     keepRecentTokens?: number
     maxOverflowRetries?: number
     reserveTokens?: number
+    /** Render-time microcompact: clear old re-derivable tool results before full compaction. */
+    microcompactEnabled?: boolean
+    /** Number of most-recent compactable tool results to keep in full. */
+    microcompactKeepRecent?: number
   }
   dailyReset?: {
     enabled?: boolean
@@ -58,29 +57,6 @@ export interface AiAgentRuntimePolicyConfig {
     retryMinutes?: number
     timezone?: string
   }
-}
-
-export interface AiAgentLegacyModelProfileConfig {
-  apiKey?: string
-  cacheRetention?: CacheRetention
-  maxTokens?: number
-  model: string
-  provider: string
-  reasoning?: AiAgentReasoning
-  temperature?: number
-  transport?: Transport
-}
-
-export interface AiAgentConfig extends AiAgentRuntimePolicyConfig {
-  heavy_model?: AiAgentLegacyModelProfileConfig
-  light_model?: AiAgentLegacyModelProfileConfig
-  primary_model?: AiAgentLegacyModelProfileConfig
-}
-
-export interface AiAgentLegacyRuntimeConfig extends AiAgentRuntimePolicyConfig {
-  heavy_model?: AiAgentLegacyModelProfileConfig
-  light_model?: AiAgentLegacyModelProfileConfig
-  primary_model: AiAgentLegacyModelProfileConfig
 }
 
 export interface ResolvedAiAgentModelProfile {
@@ -125,19 +101,6 @@ export const AiAgentModelsConfigSchema = z
   })
   .strict()
 
-const AiAgentLegacyModelProfileConfigSchema = z
-  .object({
-    provider: z.string().min(1),
-    model: z.string().min(1),
-    apiKey: z.string().min(1).optional(),
-    temperature: z.number().finite().optional(),
-    maxTokens: z.number().int().positive().optional(),
-    reasoning: ReasoningSchema.optional(),
-    cacheRetention: CacheRetentionSchema.optional(),
-    transport: TransportSchema.optional()
-  })
-  .strict()
-
 const AiAgentRuntimePolicyConfigSchema = z
   .object({
     compression: z
@@ -145,7 +108,9 @@ const AiAgentRuntimePolicyConfigSchema = z
         enabled: z.boolean().optional(),
         reserveTokens: z.number().int().positive().optional(),
         keepRecentTokens: z.number().int().positive().optional(),
-        maxOverflowRetries: z.number().int().nonnegative().optional()
+        maxOverflowRetries: z.number().int().nonnegative().optional(),
+        microcompactEnabled: z.boolean().optional(),
+        microcompactKeepRecent: z.number().int().nonnegative().optional()
       })
       .optional(),
     ambient: z
@@ -168,15 +133,11 @@ const AiAgentRuntimePolicyConfigSchema = z
   })
   .strict()
 
-const AiAgentRuntimeConfigSchema = AiAgentRuntimePolicyConfigSchema.extend({
-  primary_model: AiAgentLegacyModelProfileConfigSchema.optional(),
-  light_model: AiAgentLegacyModelProfileConfigSchema.optional(),
-  heavy_model: AiAgentLegacyModelProfileConfigSchema.optional()
-})
+const AiAgentRuntimeConfigSchema = AiAgentRuntimePolicyConfigSchema
 
 export const AiAgentRuntimeConfigDefinition = defineAppConfig<ConfigureJsonValue>({
   key: 'ai_agent.runtime',
-  description: 'AIAgent runtime session policy; legacy model fields are read-only compatibility input',
+  description: 'AIAgent runtime session policy',
   encrypted: true,
   schema: AiAgentRuntimeConfigSchema as unknown as z.ZodType<ConfigureJsonValue>
 })
@@ -196,13 +157,6 @@ export async function loadAiAgentRuntimeProfile(agentUid: string): Promise<AiAge
   const policy = resolveAiAgentRuntimePolicy(runtimeConfig)
   const models = readAiAgentModelsConfig(agentResult.agent.metadata)
   if (models) return resolveAiAgentRuntimeProfile({ models, policy })
-
-  if (runtimeConfig.primary_model) {
-    return resolveLegacyAiAgentRuntimeProfile({
-      ...runtimeConfig,
-      primary_model: runtimeConfig.primary_model
-    })
-  }
 
   throw new AiAgentConfigError(`agents.metadata.ai_agent.models.primary is not configured for ${agentUid}`)
 }
@@ -230,7 +184,9 @@ export async function resolveAiAgentRuntimeProfile(input: {
 export function resolveAiAgentModelsConfig(config: AiAgentModelsConfig): ResolvedAiAgentModelsConfig {
   const parsed = AiAgentModelsConfigSchema.parse(config)
   const primary = withDefaultReasoning(parsed.primary, 'medium')
-  const light = parsed.light ? withDefaultReasoning(parsed.light, 'low') : { ...parsed.primary, reasoning: 'low' as const }
+  const light = parsed.light
+    ? withDefaultReasoning(parsed.light, 'low')
+    : { ...parsed.primary, reasoning: 'low' as const }
   const heavy = parsed.heavy
     ? withDefaultReasoning(parsed.heavy, 'high')
     : { ...parsed.primary, reasoning: 'high' as const }
@@ -271,35 +227,17 @@ export function writeAiAgentModelsConfig(metadata: JsonObject, models: AiAgentMo
   return next
 }
 
-export function resolveLegacyAiAgentRuntimeProfile(config: AiAgentLegacyRuntimeConfig): AiAgentRuntimeProfile {
-  const parsed = AiAgentRuntimeConfigSchema.parse(config)
-  if (!parsed.primary_model) throw new AiAgentConfigError('ai_agent.runtime primary_model is not configured')
-  const primary = withDefaultLegacyReasoning(parsed.primary_model, 'medium')
-  const light = parsed.light_model
-    ? withDefaultLegacyReasoning(parsed.light_model, 'low')
-    : { ...parsed.primary_model, reasoning: 'low' as const }
-  const heavy = parsed.heavy_model
-    ? withDefaultLegacyReasoning(parsed.heavy_model, 'high')
-    : { ...parsed.primary_model, reasoning: 'high' as const }
-
-  return {
-    primaryModel: resolveLegacyModelProfile('primary', primary),
-    lightModel: resolveLegacyModelProfile('light', light),
-    heavyModel: resolveLegacyModelProfile('heavy', heavy),
-    ...resolveAiAgentRuntimePolicy(parsed)
-  }
-}
-
-function resolveAiAgentRuntimePolicy(config: AiAgentRuntimePolicyConfig): Pick<
-  AiAgentRuntimeProfile,
-  'ambient' | 'compression' | 'dailyReset'
-> {
+function resolveAiAgentRuntimePolicy(
+  config: AiAgentRuntimePolicyConfig
+): Pick<AiAgentRuntimeProfile, 'ambient' | 'compression' | 'dailyReset'> {
   return {
     compression: {
       enabled: config.compression?.enabled ?? true,
       reserveTokens: config.compression?.reserveTokens ?? 16384,
       keepRecentTokens: config.compression?.keepRecentTokens ?? 20000,
-      maxOverflowRetries: config.compression?.maxOverflowRetries ?? 1
+      maxOverflowRetries: config.compression?.maxOverflowRetries ?? 1,
+      microcompactEnabled: config.compression?.microcompactEnabled ?? true,
+      microcompactKeepRecent: config.compression?.microcompactKeepRecent ?? 6
     },
     ambient: {
       batchWindowMs: config.ambient?.batchWindowMs ?? 1500,
@@ -324,16 +262,6 @@ function withDefaultReasoning(
   }
 }
 
-function withDefaultLegacyReasoning(
-  config: AiAgentLegacyModelProfileConfig,
-  reasoning: AiAgentReasoning
-): AiAgentLegacyModelProfileConfig & { reasoning: AiAgentReasoning } {
-  return {
-    ...config,
-    reasoning: config.reasoning ?? reasoning
-  }
-}
-
 async function resolveModelProfile(
   profile: AiAgentModelProfileName,
   config: AiAgentModelProfileConfig & { reasoning: AiAgentReasoning }
@@ -343,50 +271,6 @@ async function resolveModelProfile(
     ...resolved,
     profile
   }
-}
-
-function resolveLegacyModelProfile(
-  profile: AiAgentModelProfileName,
-  config: AiAgentLegacyModelProfileConfig & { reasoning: AiAgentReasoning }
-): ResolvedAiAgentModelProfile {
-  const model = getModel(config.provider as never, config.model as never) as Model<any> | undefined
-  if (!model) throw new AiAgentConfigError(`unknown Pi model: ${config.provider}/${config.model}`)
-  if (!config.apiKey) throw new AiAgentConfigError(`legacy ai_agent.runtime apiKey is required for ${profile}`)
-
-  return {
-    profile,
-    config: {
-      providerId: config.provider,
-      piProvider: config.provider,
-      model: config.model,
-      reasoning: config.reasoning,
-      temperature: config.temperature,
-      maxTokens: config.maxTokens,
-      cacheRetention: config.cacheRetention,
-      transport: config.transport
-    },
-    model,
-    options: {
-      apiKey: config.apiKey,
-      cacheRetention: config.cacheRetention,
-      maxTokens: config.maxTokens,
-      reasoning: config.reasoning === 'off' ? undefined : config.reasoning,
-      temperature: config.temperature,
-      transport: config.transport
-    }
-  }
-}
-
-function cloneJsonObject(value: JsonObject): JsonObject {
-  return structuredClone(value)
-}
-
-function jsonObject(value: JsonValue | undefined): JsonObject | undefined {
-  return isJsonObject(value) ? value : undefined
-}
-
-function isJsonObject(value: unknown): value is JsonObject {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 export class AiAgentConfigError extends Error {

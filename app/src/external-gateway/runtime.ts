@@ -2,6 +2,7 @@ import type { BullXExternalGatewayExternalIdentitySink } from '@agentbull/bullx-
 import { get, isNonEmptyString, isString } from '@pleisto/active-support'
 import { aiAgentRuntime } from '@/ai-agent/runtime'
 import { singleton } from '@/common/di'
+import type { Runtime } from '@/common/lifecycle'
 import { logger } from '@/common/logger'
 import { type AppConfigJsonValue, appConfigService } from '@/config/app-configure'
 import { type AgentResult, listActiveAgents } from '@/principals/agents/service'
@@ -98,12 +99,12 @@ export class ExternalGatewayRuntimeError extends Error {
 /**
  * Owns all External Gateway adapter instances for active local agents.
  *
- * There is no CEL routing or MailBox clone here. The ingress routing rule is
- * `agent uid + channel name -> that agent's adapter context`; the context emits
- * normalized events into projection and the agent input window.
+ * Ingress routing is direct: `agent uid + channel name -> that agent's adapter
+ * context`. The context emits normalized events into projection and the agent
+ * input window.
  */
 @singleton()
-export class ExternalGatewayRuntime {
+export class ExternalGatewayRuntime implements Runtime<ExternalGatewayRuntimeStats> {
   private readonly instances = new Map<string, AgentChatRuntimeInstance>()
   private agentExecutor: ExternalGatewayAgentExecutor = aiAgentRuntime
   private drainingAgentEvents = false

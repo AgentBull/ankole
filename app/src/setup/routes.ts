@@ -1,13 +1,11 @@
-import { Elysia } from 'elysia'
-import { z } from 'zod'
+import { Elysia, t } from 'elysia'
+import { statusFromError } from '@/common/errors'
 import { appConfigService, type AppConfigJsonValue } from '@/config/app-configure'
 import { AppEnv } from '@/config/env'
 import { AppI18nDefaultLocaleConfig } from '@/config/i18n'
 import { DEFAULT_LOCALE, SUPPORTED_LOCALES, isSupportedLocale } from '@/config/i18n-locales'
 import { appendSetCookie } from '@/core/http'
 import {
-  LlmProviderCheckInputSchema,
-  LlmProviderCreateInputSchema,
   checkLlmProvider,
   listLlmProviderModels,
   listLlmProviders,
@@ -39,38 +37,67 @@ import {
 } from './session'
 import { persistExactEnabledPluginIds } from './plugins'
 
-const setupSessionBodySchema = z
-  .object({
-    activationCode: z.string().min(1),
-    locale: z.string().optional()
-  })
-  .strict()
+// Loose JSON object body fragment. Deep domain validation stays in the service
+// layer (zod), so route typebox only describes request shape for Eden Treaty.
+const jsonObjectBody = t.Record(t.String(), t.Unknown())
 
-const pluginSelectionSchema = z
-  .object({
-    pluginIds: z.array(z.string().min(1))
-  })
-  .strict()
+const setupSessionBody = t.Object({
+  activationCode: t.String({ minLength: 1 }),
+  locale: t.Optional(t.String())
+})
 
-const identityProviderConfigSchema = z
-  .object({
-    adapter: z.string().min(1),
-    config: z.custom<AppConfigJsonValue>(),
-    enabled: z.boolean().default(true)
-  })
-  .strict()
+const pluginSelectionBody = t.Object({
+  pluginIds: t.Array(t.String({ minLength: 1 }))
+})
 
-const llmProvidersBodySchema = z
-  .object({
-    providers: z.array(LlmProviderCreateInputSchema)
-  })
-  .strict()
+const identityProviderConfigBody = t.Object({
+  adapter: t.String({ minLength: 1 }),
+  config: t.Unknown(),
+  enabled: t.Optional(t.Boolean())
+})
 
-type MutableResponseSet = {
-  status?: number | string
+// Provider entries are re-validated by the service (saveLlmProviders parses each
+// with LlmProviderCreateInputSchema); the route schema describes the request
+// shape for Treaty and leaves deep option validation to the service.
+const llmProviderCreateBody = t.Object({
+  providerId: t.String({ minLength: 1 }),
+  piProvider: t.String({ minLength: 1 }),
+  baseUrl: t.Optional(t.Union([t.String(), t.Null()])),
+  apiKey: t.Optional(t.Union([t.String(), t.Null()])),
+  providerOptions: t.Optional(jsonObjectBody)
+})
+
+const llmProvidersBody = t.Object({
+  providers: t.Array(llmProviderCreateBody)
+})
+
+const llmProviderCheckBody = t.Object({
+  providerId: t.Optional(t.String({ minLength: 1 })),
+  piProvider: t.Optional(t.String({ minLength: 1 })),
+  model: t.Optional(t.String({ minLength: 1 })),
+  baseUrl: t.Optional(t.Union([t.String(), t.Null()])),
+  apiKey: t.Optional(t.Union([t.String(), t.Null()])),
+  providerOptions: t.Optional(jsonObjectBody)
+})
+
+const oidcAuthorizationQuery = t.Object({
+  return_to: t.Optional(t.String())
+})
+
+/**
+ * Setup-scoped domain error. Thrown by {@link requireActiveSetupSession} so the
+ * `onError` handler maps it to a status and the handler success paths return a
+ * clean (Eden-Treaty-friendly) shape instead of a `{ data } | { error }` union.
+ */
+export class SetupDomainError extends Error {
+  constructor(
+    readonly status: number,
+    message: string
+  ) {
+    super(message)
+    this.name = 'SetupDomainError'
+  }
 }
-
-type SetupAccessResult = { ok: true } | { ok: false; error: string }
 
 export function setupRoutes() {
   return new Elysia({ name: 'setup-routes' })
@@ -100,40 +127,42 @@ export function setupRoutes() {
         availableLocales: [...SUPPORTED_LOCALES]
       }
     })
-    .post('/api/setup/sessions', async ({ body, set }) => {
-      const completed = (await appConfigService.get(SetupCompletedConfig)) === true
-      if (completed) {
-        set.status = 409
-        return { error: 'setup already completed' }
-      }
+    .post(
+      '/api/setup/sessions',
+      async ({ body, set }) => {
+        const completed = (await appConfigService.get(SetupCompletedConfig)) === true
+        if (completed) {
+          set.status = 409
+          return { error: 'setup already completed' }
+        }
 
-      const parsed = setupSessionBodySchema.parse(body)
-      const locale = parsed.locale?.trim()
-      const selectedLocale = locale && isSupportedLocale(locale) ? locale : undefined
-      if (locale && !selectedLocale) {
-        set.status = 422
-        return { error: 'unsupported locale' }
-      }
+        const locale = body.locale?.trim()
+        const selectedLocale = locale && isSupportedLocale(locale) ? locale : undefined
+        if (locale && !selectedLocale) {
+          set.status = 422
+          return { error: 'unsupported locale' }
+        }
 
-      const expected = await appConfigService.get(SetupBootstrapActivationCodeConfig)
-      const submitted = parsed.activationCode.trim().toUpperCase()
-      if (!expected || submitted !== expected) {
-        set.status = 401
-        return { error: 'invalid bootstrap activation code' }
-      }
+        const expected = await appConfigService.get(SetupBootstrapActivationCodeConfig)
+        const submitted = body.activationCode.trim().toUpperCase()
+        if (!expected || submitted !== expected) {
+          set.status = 401
+          return { error: 'invalid bootstrap activation code' }
+        }
 
-      if (selectedLocale) await appConfigService.set(AppI18nDefaultLocaleConfig, selectedLocale)
+        if (selectedLocale) await appConfigService.set(AppI18nDefaultLocaleConfig, selectedLocale)
 
-      appendSetCookie(set, setupSessionSetCookie(AppEnv.IS_PRODUCTION))
-      return { ok: true }
-    })
+        appendSetCookie(set, setupSessionSetCookie(AppEnv.IS_PRODUCTION))
+        return { ok: true }
+      },
+      { body: setupSessionBody }
+    )
     .delete('/api/setup/sessions/current', ({ set }) => {
       appendSetCookie(set, setupSessionExpiredCookie(AppEnv.IS_PRODUCTION))
       return { ok: true }
     })
-    .get('/api/setup/plugins', async ({ request, set }) => {
-      const access = await requireActiveSetupSession(request, set)
-      if (!access.ok) return { error: access.error }
+    .get('/api/setup/plugins', async ({ request }) => {
+      await requireActiveSetupSession(request)
 
       const catalog = await loadPluginCatalog()
       return {
@@ -144,137 +173,143 @@ export function setupRoutes() {
         enabledPluginIds: catalog.enabledPluginIds
       }
     })
-    .put('/api/setup/plugins/enabled', async ({ body, request, set }) => {
-      const access = await requireActiveSetupSession(request, set)
-      if (!access.ok) return { error: access.error }
+    .put(
+      '/api/setup/plugins/enabled',
+      async ({ body, request }) => {
+        await requireActiveSetupSession(request)
 
-      const parsed = pluginSelectionSchema.parse(body)
-      const enabledPluginIds = await persistExactEnabledPluginIds(parsed.pluginIds)
-      return { enabledPluginIds }
-    })
-    .get('/api/setup/llm-providers', async ({ request, set }) => {
-      const access = await requireActiveSetupSession(request, set)
-      if (!access.ok) return { error: access.error }
+        const enabledPluginIds = await persistExactEnabledPluginIds(body.pluginIds)
+        return { enabledPluginIds }
+      },
+      { body: pluginSelectionBody }
+    )
+    .get('/api/setup/llm-providers', async ({ request }) => {
+      await requireActiveSetupSession(request)
 
       return {
         providers: await listLlmProviders(),
         piProviders: listPiLlmProviders()
       }
     })
-    .put('/api/setup/llm-providers', async ({ body, request, set }) => {
-      const access = await requireActiveSetupSession(request, set)
-      if (!access.ok) return { error: access.error }
+    .put(
+      '/api/setup/llm-providers',
+      async ({ body, request }) => {
+        await requireActiveSetupSession(request)
 
-      const parsed = llmProvidersBodySchema.parse(body)
-      return { providers: await saveLlmProviders(parsed.providers) }
-    })
-    .post('/api/setup/llm-providers/check', async ({ body, request, set }) => {
-      const access = await requireActiveSetupSession(request, set)
-      if (!access.ok) return { error: access.error }
+        return { providers: await saveLlmProviders(body.providers) }
+      },
+      { body: llmProvidersBody }
+    )
+    .post(
+      '/api/setup/llm-providers/check',
+      async ({ body, request }) => {
+        await requireActiveSetupSession(request)
 
-      const parsed = LlmProviderCheckInputSchema.parse(body)
-      return await checkLlmProvider(parsed)
-    })
-    .get('/api/setup/llm-providers/:providerId/models', async ({ params, request, set }) => {
-      const access = await requireActiveSetupSession(request, set)
-      if (!access.ok) return { error: access.error }
+        return await checkLlmProvider(body)
+      },
+      { body: llmProviderCheckBody }
+    )
+    .get('/api/setup/llm-providers/:providerId/models', async ({ params, request }) => {
+      await requireActiveSetupSession(request)
 
       return { models: await listLlmProviderModels(params.providerId) }
     })
-    .get('/api/setup/identity-provider-adapters', async ({ request, set }) => {
-      const access = await requireActiveSetupSession(request, set)
-      if (!access.ok) return { error: access.error }
+    .get('/api/setup/identity-provider-adapters', async ({ request }) => {
+      await requireActiveSetupSession(request)
 
       return {
         adapters: await listEnabledIdentityProviderAdapters()
       }
     })
-    .put('/api/setup/identity-providers/:providerId', async ({ params, body, request, set }) => {
-      const access = await requireActiveSetupSession(request, set)
-      if (!access.ok) return { error: access.error }
+    .put(
+      '/api/setup/identity-providers/:providerId',
+      async ({ params, body, request }) => {
+        await requireActiveSetupSession(request)
 
-      const parsed = identityProviderConfigSchema.parse(body)
-      const publicBaseUrl = requestPublicBaseUrl(request)
-      const factory = await getEnabledIdentityProviderAdapter(parsed.adapter)
-      /*
-       * Create once before persistence so adapter-owned schema/credential checks
-       * fail while the user is still on the setup form. The no-op sync sink
-       * prevents this validation instance from applying directory changes.
-       */
-      await factory.create({
-        providerId: params.providerId,
-        config: clonePluginJsonValue(parsed.config),
-        publicBaseUrl,
-        isProduction: AppEnv.IS_PRODUCTION,
-        syncSink: createNoopIdentityProviderSyncSink()
-      })
-
-      await appConfigService.setByKey(identityProviderConfigKey(params.providerId), parsed.config)
-      await upsertActiveIdentityProvider({
-        providerId: params.providerId,
-        adapter: parsed.adapter,
-        enabled: parsed.enabled
-      })
-      // First setup captures the browser-visible origin as the later OIDC base URL.
-      await appConfigService.set(AdminAuthPublicBaseUrlConfig, publicBaseUrl)
-
-      return {
-        providerId: params.providerId,
-        adapter: parsed.adapter,
-        enabled: parsed.enabled
-      }
-    })
-    .post('/api/setup/identity-providers/:providerId/oidc/authorizations', async ({ params, query, request, set }) => {
-      const access = await requireActiveSetupSession(request, set)
-      if (!access.ok) return { error: access.error }
-
-      const provider = await createSetupOidcProvider(params.providerId, request)
-      if (!provider.adapter.buildOidcAuthorizationUrl) {
-        set.status = 404
-        return { error: 'identity provider does not support OIDC' }
-      }
-
-      const state = newOpaqueToken()
-      const nonce = newOpaqueToken()
-      const publicBaseUrl = await resolveIdentityProviderPublicBaseUrl(request)
-      const redirectUri = identityProviderOidcRedirectUri(publicBaseUrl, params.providerId)
-      const returnTo = safeReturnTo(typeof query.return_to === 'string' ? query.return_to : '/console')
-      const stateCookie = createSetupOidcStateCookie({
-        providerId: params.providerId,
-        state,
-        nonce,
-        returnTo,
-        redirectUri
-      })
-      appendSetCookie(
-        set,
-        cookieHeader(SETUP_OIDC_STATE_COOKIE, stateCookie, {
-          secure: AppEnv.IS_PRODUCTION
+        const enabled = body.enabled ?? true
+        const config = body.config as AppConfigJsonValue
+        const publicBaseUrl = requestPublicBaseUrl(request)
+        const factory = await getEnabledIdentityProviderAdapter(body.adapter)
+        /*
+         * Create once before persistence so adapter-owned schema/credential checks
+         * fail while the user is still on the setup form. The no-op sync sink
+         * prevents this validation instance from applying directory changes.
+         */
+        await factory.create({
+          providerId: params.providerId,
+          config: clonePluginJsonValue(config),
+          publicBaseUrl,
+          isProduction: AppEnv.IS_PRODUCTION,
+          syncSink: createNoopIdentityProviderSyncSink()
         })
-      )
 
-      const authorizationUrl = await provider.adapter.buildOidcAuthorizationUrl({
-        redirectUri,
-        state,
-        nonce,
-        returnTo
-      })
-      return { authorizationUrl }
-    })
+        await appConfigService.setByKey(identityProviderConfigKey(params.providerId), config)
+        await upsertActiveIdentityProvider({
+          providerId: params.providerId,
+          adapter: body.adapter,
+          enabled
+        })
+        // First setup captures the browser-visible origin as the later OIDC base URL.
+        await appConfigService.set(AdminAuthPublicBaseUrlConfig, publicBaseUrl)
+
+        return {
+          providerId: params.providerId,
+          adapter: body.adapter,
+          enabled
+        }
+      },
+      { body: identityProviderConfigBody }
+    )
+    .post(
+      '/api/setup/identity-providers/:providerId/oidc/authorizations',
+      async ({ params, query, request, set }) => {
+        await requireActiveSetupSession(request)
+
+        const provider = await createSetupOidcProvider(params.providerId, request)
+        if (!provider.adapter.buildOidcAuthorizationUrl) {
+          set.status = 404
+          return { error: 'identity provider does not support OIDC' }
+        }
+
+        const state = newOpaqueToken()
+        const nonce = newOpaqueToken()
+        const publicBaseUrl = await resolveIdentityProviderPublicBaseUrl(request)
+        const redirectUri = identityProviderOidcRedirectUri(publicBaseUrl, params.providerId)
+        const returnTo = safeReturnTo(typeof query.return_to === 'string' ? query.return_to : '/console')
+        const stateCookie = createSetupOidcStateCookie({
+          providerId: params.providerId,
+          state,
+          nonce,
+          returnTo,
+          redirectUri
+        })
+        appendSetCookie(
+          set,
+          cookieHeader(SETUP_OIDC_STATE_COOKIE, stateCookie, {
+            secure: AppEnv.IS_PRODUCTION
+          })
+        )
+
+        const authorizationUrl = await provider.adapter.buildOidcAuthorizationUrl({
+          redirectUri,
+          state,
+          nonce,
+          returnTo
+        })
+        return { authorizationUrl }
+      },
+      { query: oidcAuthorizationQuery }
+    )
 }
 
-function statusFromError(error: unknown): number {
-  if (error instanceof z.ZodError) return 422
-  if (typeof error === 'object' && error && 'status' in error && typeof error.status === 'number') return error.status
-  return 500
-}
-
-async function requireActiveSetupSession(request: Request, set: MutableResponseSet): Promise<SetupAccessResult> {
+/**
+ * Requires an active setup session. Throws {@link SetupDomainError} (409 once
+ * setup has completed, 401 otherwise) so handler success paths return a clean
+ * (Eden-Treaty-friendly) shape instead of a `{ data } | { error }` union.
+ */
+async function requireActiveSetupSession(request: Request): Promise<void> {
   const completed = (await appConfigService.get(SetupCompletedConfig)) === true
-  if (completed) {
-    set.status = 409
-    return { ok: false, error: 'setup already completed' }
-  }
+  if (completed) throw new SetupDomainError(409, 'setup already completed')
 
   /*
    * A setup session only proves possession of the current bootstrap activation
@@ -282,10 +317,9 @@ async function requireActiveSetupSession(request: Request, set: MutableResponseS
    * authorizing `/api/setup/*` even if their 24h TTL has not expired yet.
    */
   const setupSession = readSetupSessionCookie(request.headers.get('cookie'))
-  if (setupSession) return { ok: true }
+  if (setupSession) return
 
-  set.status = 401
-  return { ok: false, error: 'setup session required' }
+  throw new SetupDomainError(401, 'setup session required')
 }
 
 async function upsertActiveIdentityProvider(input: { providerId: string; adapter: string; enabled: boolean }) {

@@ -3,8 +3,10 @@ import { and, asc, eq, sql } from 'drizzle-orm'
 import { DB, jsonbParam } from '@/common/database'
 import { ExternalGatewayOutbox, type JsonObject } from '@/common/db-schema'
 import type { AgentResult } from '@/principals/agents/service'
-import { UnsupportedChannelCapabilityError, adapterSupportsCapability, parseMarkdown, requireOutboundCapability } from './core'
-import { cardToFallbackText, isCardElement } from './core/cards'
+import { adapterSupportsCapability, requireOutboundCapability } from './core/capabilities'
+import { UnsupportedChannelCapabilityError } from './core/errors'
+import { parseMarkdown } from './core/markdown'
+import { cardPayloadFallbackText, isExternalGatewayCardPayload } from './interactive-output'
 import type { ExternalGatewayProjectionSink } from './core/projection'
 import type { ExternalGatewayAdapter, ExternalGatewayOutboundOptions, ExternalGatewayRoomInput } from './core/events'
 
@@ -20,6 +22,16 @@ export type ExternalGatewayOutboxOperation =
   | 'divider'
 
 export interface ExternalGatewayOutboundIntent {
+  /**
+   * Operation-specific payload. The column stays `jsonb`; producers set the
+   * canonical keys per operation so the dispatcher does not probe ad-hoc aliases:
+   * - post / reply : `{ text }` or `{ markdown }`
+   * - card         : `{ kind: 'interactive_output', output }` or `{ kind: 'lark_native_card', card, fallbackText }`
+   * - divider      : `{ kind: 'control_notice', text, fallbackText? }`
+   * - edit         : `{ targetOutboundKey, text|interactive_output|lark_native_card, ... }` (or `intent.providerMessageId`)
+   * - delete       : `{ targetMessageId }` or `{ targetOutboundKey }`
+   * - reaction_*   : `{ targetMessageId, emoji }`
+   */
   finalPayload: JsonObject
   idempotencyKey?: string
   operation: ExternalGatewayOutboxOperation
@@ -120,7 +132,10 @@ export class DrizzleExternalGatewayOutbox {
       return this.markUnknownAfterSend(key, 'Previous send attempt is outside the idempotency replay window')
     }
 
-    if (row.recoveryState === 'send_attempt_started' && !adapterSupportsCapability(input.adapter, 'outbound', 'outbound_idempotency')) {
+    if (
+      row.recoveryState === 'send_attempt_started' &&
+      !adapterSupportsCapability(input.adapter, 'outbound', 'outbound_idempotency')
+    ) {
       return this.markUnknownAfterSend(key, 'Previous send attempt started and adapter cannot prove idempotency')
     }
 
@@ -128,7 +143,8 @@ export class DrizzleExternalGatewayOutbox {
 
     if (input.intent.operation === 'delete') return this.dispatchDelete(key, input)
     if (input.intent.operation === 'edit') return this.dispatchEdit(key, input)
-    if (input.intent.operation === 'reaction_add' || input.intent.operation === 'reaction_remove') return this.dispatchReaction(key, input)
+    if (input.intent.operation === 'reaction_add' || input.intent.operation === 'reaction_remove')
+      {return this.dispatchReaction(key, input)}
     if (input.intent.operation === 'divider') return this.dispatchPostLike(key, input, 'divider')
     if (input.intent.operation === 'card') return this.dispatchPostLike(key, input, 'card')
     if (input.intent.operation !== 'post' && input.intent.operation !== 'reply') {
@@ -322,7 +338,11 @@ export class DrizzleExternalGatewayOutbox {
         'delete_message',
         input.adapter.deleteMessage?.bind(input.adapter)
       )
-      await deleteMessage(input.intent.providerThreadId, targetMessageId, outboundOptions(input.intent, targetMessageId))
+      await deleteMessage(
+        input.intent.providerThreadId,
+        targetMessageId,
+        outboundOptions(input.intent, targetMessageId)
+      )
       const sent = await this.markSent(key, targetMessageId)
       await input.projection.projectDelete({
         room: roomFromIntent(input.intent, input.room, input.adapter),
@@ -347,7 +367,7 @@ export class DrizzleExternalGatewayOutbox {
       input.intent.providerMessageId ??
       (await this.providerMessageIdFromTargetOutboundKey(key, input.intent.finalPayload))
     if (!targetMessageId) return this.markUnsupported(key, 'Edit payload must contain targetMessageId')
-    const postable = postableFromFinalPayload(input.intent.finalPayload, 'post')
+    const postable = postableFromEditPayload(input.intent.finalPayload)
     if (postable === undefined) return this.markUnsupported(key, 'Edit payload is not postable')
 
     try {
@@ -356,7 +376,12 @@ export class DrizzleExternalGatewayOutbox {
         'edit_message',
         input.adapter.editMessage?.bind(input.adapter)
       )
-      const rawMessage = await editMessage(input.intent.providerThreadId, targetMessageId, postable, outboundOptions(input.intent, targetMessageId))
+      const rawMessage = await editMessage(
+        input.intent.providerThreadId,
+        targetMessageId,
+        postable,
+        outboundOptions(input.intent, targetMessageId)
+      )
       const sent = await this.markSent(key, rawMessage.id || targetMessageId)
       await projectVisibleOutbound({
         agent: input.agent,
@@ -502,7 +527,10 @@ function intentFromRow(row: typeof ExternalGatewayOutbox.$inferSelect): External
   }
 }
 
-function outboundOptions(intent: ExternalGatewayOutboundIntent, targetMessageId?: string): ExternalGatewayOutboundOptions {
+function outboundOptions(
+  intent: ExternalGatewayOutboundIntent,
+  targetMessageId?: string
+): ExternalGatewayOutboundOptions {
   return {
     idempotencyKey: intent.idempotencyKey ?? idempotencyKeyFromOutboundKey(intent.outboundKey),
     operationKey: intent.outboundKey,
@@ -560,17 +588,20 @@ function postableFromFinalPayload(
    * postable object the adapter already declares it can handle.
    */
   if (operation === 'divider') return { ...payload, type: 'divider' }
-  if (operation === 'card') {
-    if (payload.kind === 'control_notice') return payload
-    if ('card' in payload) return payload
-    if (isCardElement(payload)) return payload
-    return undefined
-  }
+  if (operation === 'card') return isExternalGatewayCardPayload(payload) ? payload : undefined
 
   if (typeof payload.text === 'string') return payload.text
-  if (typeof payload.markdown === 'string' || typeof payload.raw === 'string' || 'ast' in payload || 'card' in payload) {
+  if (typeof payload.markdown === 'string' || typeof payload.raw === 'string' || 'ast' in payload) {
     return payload
   }
+
+  return undefined
+}
+
+function postableFromEditPayload(payload: JsonObject): unknown {
+  if (isExternalGatewayCardPayload(payload)) return payload
+  if (typeof payload.text === 'string') return payload.text
+  if (typeof payload.markdown === 'string' || typeof payload.raw === 'string' || 'ast' in payload) return payload
 
   return undefined
 }
@@ -584,28 +615,21 @@ function fallbackTextFromFinalPayload(
   if (typeof payload.fallbackText === 'string') return payload.fallbackText
   if (typeof payload.raw === 'string') return payload.raw
   if (operation === 'divider') return '[divider]'
-  const card = 'card' in payload ? payload.card : payload
-  if (isCardElement(card)) return cardToFallbackText(card)
+  if (isExternalGatewayCardPayload(payload)) return cardPayloadFallbackText(payload)
 
   return JSON.stringify(payload)
 }
 
 function emojiFromFinalPayload(payload: JsonObject): unknown {
-  for (const key of ['emoji', 'rawEmoji', 'emojiType', 'reaction']) {
-    const value = payload[key]
-    if (value !== undefined && value !== null) return value
-  }
-
-  return undefined
+  // Canonical reaction key is `emoji`; `rawEmoji` is the platform-native fallback.
+  return payload.emoji ?? payload.rawEmoji ?? undefined
 }
 
 function targetMessageIdFromFinalPayload(payload: JsonObject): string | undefined {
-  for (const key of ['targetMessageId', 'targetProviderMessageId', 'providerMessageId', 'messageId']) {
-    const value = payload[key]
-    if (typeof value === 'string' && value.length > 0) return value
-  }
-
-  return undefined
+  // Producers set `targetMessageId` for delete-by-id; `targetOutboundKey` is
+  // resolved separately. No producer sets the other historical aliases.
+  const value = payload.targetMessageId
+  return typeof value === 'string' && value.length > 0 ? value : undefined
 }
 
 function roomFromIntent(
@@ -616,7 +640,10 @@ function roomFromIntent(
   return {
     id: intent.providerRoomId,
     isDM: typeof room.isDM === 'boolean' ? room.isDM : (adapter.isDM?.(intent.providerThreadId) ?? false),
-    metadata: typeof room.metadata === 'object' && room.metadata !== null && !Array.isArray(room.metadata) ? room.metadata as JsonObject : {},
+    metadata:
+      typeof room.metadata === 'object' && room.metadata !== null && !Array.isArray(room.metadata)
+        ? (room.metadata as JsonObject)
+        : {},
     name: typeof room.name === 'string' ? room.name : null,
     raw: null,
     roomVisibility:

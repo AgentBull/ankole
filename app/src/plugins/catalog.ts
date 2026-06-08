@@ -1,10 +1,10 @@
 import type { BullXPlugin } from '@agentbull/bullx-sdk/plugins'
 import { appConfigService } from '@/config/app-configure'
 import { PluginEnabledOverridesConfig, type PluginEnabledOverrides } from './config'
-import { discoverLocalPlugins } from './discovery'
+import { discoverLocalPluginsDetailed } from './discovery'
 import {
   buildPluginRegistry,
-  defaultEnabledPluginIds,
+  effectiveDefaultEnabledPluginIds,
   resolveEnabledPluginIds,
   type PluginRegistry
 } from './runtime'
@@ -17,11 +17,11 @@ export interface PluginCatalog {
 }
 
 export async function loadPluginCatalog(): Promise<PluginCatalog> {
-  const plugins = await discoverLocalPlugins()
+  const { plugins, autoEnabledPluginIds } = await discoverLocalPluginsDetailed()
   const registry = buildPluginRegistry(plugins)
   const overrides = (await appConfigService.get(PluginEnabledOverridesConfig)) ?? {}
   const enabledPluginIds = resolveEnabledPluginIds({
-    defaultEnabledPluginIds,
+    defaultEnabledPluginIds: effectiveDefaultEnabledPluginIds(autoEnabledPluginIds),
     overrides,
     registry
   })

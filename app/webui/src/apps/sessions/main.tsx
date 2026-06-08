@@ -1,31 +1,23 @@
 import { RiLoginCircleLine } from '@remixicon/react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import { apiGet, apiPost } from '@/lib/api'
+import { api, unwrap } from '@/lib/api'
 import { Alert, AlertDescription, AlertTitle } from '@/uikit/components/alert'
 import { Button } from '@/uikit/components/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/uikit/components/card'
 import { mountSpa } from '../mount-spa'
 
-interface ProvidersResponse {
-  providers: Array<{
-    providerId: string
-    adapter: string
-  }>
-}
-
 function SessionsApp() {
   const { t } = useTranslation()
   const providers = useQuery({
     queryKey: ['identity-providers'],
-    queryFn: () => apiGet<ProvidersResponse>('/api/identity-providers')
+    queryFn: () => unwrap(api['identity-providers'].get())
   })
   const mutation = useMutation({
     mutationFn: async (providerId: string) => {
       const returnTo = new URLSearchParams(window.location.search).get('return_to') ?? '/console'
-      return apiPost<{ authorizationUrl: string }>(
-        `/api/identity-providers/${encodeURIComponent(providerId)}/oidc/authorizations?return_to=${encodeURIComponent(returnTo)}`,
-        {}
+      return unwrap(
+        api['identity-providers']({ providerId }).oidc.authorizations.post({}, { query: { return_to: returnTo } })
       )
     },
     onSuccess: result => window.location.assign(result.authorizationUrl)

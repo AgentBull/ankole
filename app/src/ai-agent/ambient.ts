@@ -1,8 +1,9 @@
 import { redis } from 'bun'
-import { completeSimple, parseJsonWithRepair } from '@earendil-works/pi-ai'
+import { genUUIDv7 } from '@agentbull/bullx-native-addons'
+import { completeSimple, parseJsonWithRepair, type Message } from '@earendil-works/pi-ai'
 import { and, desc, eq, sql } from 'drizzle-orm'
 import { DB } from '@/common/database'
-import { AiAgentMessages, type JsonObject } from '@/common/db-schema'
+import { AiAgentMessages, type JsonObject, type JsonValue } from '@/common/db-schema'
 import { createUserMessage } from './core'
 import type { AiAgentRuntimeProfile } from './config'
 import {
@@ -11,6 +12,7 @@ import {
   textFromContent,
   type AiAgentConversationService
 } from './conversation-service'
+import { toJsonValue } from '@/common/json'
 
 interface AmbientBatch {
   agentUid: string
@@ -130,31 +132,53 @@ export class AiAgentAmbientBatcher {
       .map(row => `- ${textFromContent(row.content)}`)
       .join('\n')
 
+    const systemPrompt = 'Decide whether the AI coworker should proactively intervene in this room. Return strict JSON.'
+    const llmMessages: Message[] = [
+      {
+        role: 'user',
+        timestamp: Date.now(),
+        content: `Recent ambient room messages:\n${prompt}\n\nReturn {"intervene": boolean, "reason_summary": string}.`
+      }
+    ]
     const llmTurn = await this.conversations.startLlmTurn({
       agentUid: rows[0]!.agentUid,
+      branchId: `conversation:${conversationId}:root`,
+      callIndex: 0,
       conversationId,
       kind: 'ambient_recognizer',
+      leaseId: genUUIDv7(),
       profile: 'light',
       provider: profile.lightModel.config.providerId,
       model: profile.lightModel.config.model,
       reasoning: profile.lightModel.config.reasoning,
       inputMessageIds: rows.map(row => row.id),
-      requestContext: { ambient_rows: rows.length }
+      requestContext: {
+        ambient_rows: rows.length,
+        llm_message_count: llmMessages.length,
+        llm_message_roles: llmMessages.map(message => message.role),
+        system_prompt: systemPrompt,
+        tool_count: 0,
+        tool_names: []
+      },
+      requestRefs: rows.map(row => ambientRowRef(row)),
+      requestPatches: [
+        {
+          type: 'llm_tool_definitions',
+          tools: []
+        },
+        {
+          type: 'llm_request',
+          reason: 'ambient_recognizer',
+          system_prompt: systemPrompt,
+          messages: toJsonValue(llmMessages)
+        }
+      ]
     })
 
     try {
       const response = await completeSimple(
         profile.lightModel.model,
-        {
-          systemPrompt: 'Decide whether the AI coworker should proactively intervene in this room. Return strict JSON.',
-          messages: [
-            {
-              role: 'user',
-              timestamp: Date.now(),
-              content: `Recent ambient room messages:\n${prompt}\n\nReturn {"intervene": boolean, "reason_summary": string}.`
-            }
-          ]
-        },
+        { systemPrompt, messages: llmMessages },
         profile.lightModel.options
       )
       const text = response.content
@@ -257,6 +281,15 @@ export class AiAgentAmbientBatcher {
 }
 
 export const aiAgentAmbientBatcher = new AiAgentAmbientBatcher()
+
+function ambientRowRef(row: typeof AiAgentMessages.$inferSelect): JsonValue {
+  return {
+    type: 'ai_agent_message',
+    id: row.id,
+    role: row.role,
+    kind: row.kind
+  }
+}
 
 function scoreEntries(value: unknown[]): Array<[string, number]> {
   const entries: Array<[string, number]> = []

@@ -136,13 +136,17 @@ describe('setup llm provider routes', () => {
 
     const listed = await setupFetch('/api/setup/llm-providers', cookie)
     expect(listed.status).toBe(200)
-    expect(((await listed.json()) as { providers: Array<{ providerId: string }> }).providers.some(provider => provider.providerId === providerId))
-      .toBe(true)
+    expect(
+      ((await listed.json()) as { providers: Array<{ providerId: string }> }).providers.some(
+        provider => provider.providerId === providerId
+      )
+    ).toBe(true)
 
     const models = await setupFetch(`/api/setup/llm-providers/${providerId}/models`, cookie)
     expect(models.status).toBe(200)
-    expect(((await models.json()) as { models: Array<{ id: string }> }).models.some(model => model.id === catalog.model.id))
-      .toBe(true)
+    expect(
+      ((await models.json()) as { models: Array<{ id: string }> }).models.some(model => model.id === catalog.model.id)
+    ).toBe(true)
 
     const checked = await setupFetch('/api/setup/llm-providers/check', cookie, {
       method: 'POST',

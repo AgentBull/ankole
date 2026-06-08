@@ -2,13 +2,11 @@
  * Shared value types for External Gateway adapter I/O and future rich output.
  *
  * Runtime delivery uses `core/events.ts`; this module only keeps the small
- * structures needed by normalized events, markdown/card output, postable
- * objects, emoji, and streaming chunks.
+ * structures needed by normalized events, markdown output, postable objects,
+ * and streaming chunks.
  */
 
 import type { Root } from 'mdast'
-import type { CardElement } from './cards'
-import type { PostableObject } from './postable-object'
 
 export interface Adapter<TRawMessage = unknown> {
   readonly name?: string
@@ -60,9 +58,9 @@ export interface Author {
   userName: string
 }
 
-export type AdapterPostableMessage = string | PostableRaw | PostableMarkdown | PostableAst | PostableCard | CardElement
+export type AdapterPostableMessage = string | PostableRaw | PostableMarkdown | PostableAst
 
-export type PostableMessage = AdapterPostableMessage | AsyncIterable<string | StreamChunk> | PostableObject
+export type PostableMessage = AdapterPostableMessage | AsyncIterable<string | StreamChunk>
 
 export interface PostableRaw {
   attachments?: Attachment[]
@@ -79,12 +77,6 @@ export interface PostableMarkdown {
 export interface PostableAst {
   ast: Root
   attachments?: Attachment[]
-  files?: FileUpload[]
-}
-
-export interface PostableCard {
-  card: CardElement
-  fallbackText?: string
   files?: FileUpload[]
 }
 

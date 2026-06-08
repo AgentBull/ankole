@@ -3,6 +3,7 @@ import { DB } from '@/common/database'
 import { toJsonArray, toJsonObject, toJsonValue } from '@/common/json'
 import { ExternalGatewayAgentEvents, type JsonObject, type JsonValue } from '@/common/db-schema'
 import { logger as defaultLogger, type Logger } from '@/common/logger'
+import { normalizeInboundText } from '@/common/normalize'
 import type { AgentResult } from '@/principals/agents/service'
 import type {
   ExternalGatewayAgentEnvelope,
@@ -116,17 +117,17 @@ async function handleInboundReceive(
   runtime: CreateExternalGatewayAdapterContextInput,
   message: ExternalGatewayMessageInput
 ): Promise<void> {
+  // Normalize once at the inbound chokepoint so the projection mirror, the agent
+  // envelope (→ conversation → model), slash-command parsing, and the clarify gate
+  // all observe the same canonical text (full-width space/digits → ASCII).
+  if (message.text) message = { ...message, text: normalizeInboundText(message.text) }
   const room = roomForMessage(runtime.adapter, message)
   let delivery = deliveryForMessage(runtime.binding.groupMessageMode, room, message)
   // pending-clarify gate: a group reply (even non-@mention) must reach the parked
   // clarify's text-intercept in acceptAddressed, so upgrade it to addressed when this
   // room is awaiting an answer. The registry is single-shot — the first answer wins
   // and closes the gate; slash commands are still detected below and take precedence.
-  if (
-    delivery !== 'addressed' &&
-    Boolean(message.text?.trim()) &&
-    runtime.roomHasPendingClarify?.(room.id) === true
-  ) {
+  if (delivery !== 'addressed' && Boolean(message.text?.trim()) && runtime.roomHasPendingClarify?.(room.id) === true) {
     delivery = 'addressed'
   }
   if (delivery === 'ignored') return

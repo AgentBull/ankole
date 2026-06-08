@@ -1,4 +1,5 @@
 import { normalizeUid, type Principal, PrincipalDomainError } from '../principals/service'
+import { isJsonObject } from '@/common/json'
 
 const resourceGlobCharacters = /[*?[\]{}]/
 
@@ -97,8 +98,4 @@ function normalizeNonEmptyString(value: string, field: string): string {
   if (!normalized) throw new PrincipalDomainError('invalid_request', `${field} must not be empty`)
 
   return normalized
-}
-
-function isJsonObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }

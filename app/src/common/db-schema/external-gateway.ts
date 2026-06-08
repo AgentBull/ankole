@@ -1,15 +1,5 @@
 import { sql } from 'drizzle-orm'
-import {
-  boolean,
-  check,
-  index,
-  integer,
-  jsonb,
-  pgTable,
-  primaryKey,
-  text,
-  timestamp
-} from 'drizzle-orm/pg-core'
+import { boolean, check, index, integer, jsonb, pgTable, primaryKey, text, timestamp } from 'drizzle-orm/pg-core'
 import type { JsonObject, JsonValue } from './principals'
 
 /**
@@ -100,9 +90,9 @@ export const ExternalMessages = pgTable(
  *
  * This is not an audit log and not a durable lease queue. PostgreSQL owns the
  * accepted pending facts; the running gateway process owns short-lived in-flight
- * work. That mirrors the old Elixir MailBox behavior: a crash before completion
- * leaves the pending row available on restart, while handler failures are
- * terminal runtime facts rather than automatic retries.
+ * work. A crash before completion leaves the pending row available on restart,
+ * while handler failures are terminal runtime facts rather than automatic
+ * retries.
  */
 export const ExternalGatewayAgentEvents = pgTable(
   'external_gateway_agent_events',
@@ -217,10 +207,7 @@ export const ExternalGatewayOutbox = pgTable(
     index('external_gateway_outbox_status_index').on(t.status, t.createdAt),
     index('external_gateway_outbox_binding_pending_index').on(t.agentUid, t.bindingName, t.status, t.createdAt),
     check('external_gateway_outbox_final_payload_object', sql`jsonb_typeof(${t.finalPayload}) = 'object'`),
-    check(
-      'external_gateway_outbox_status_check',
-      sql`${t.status} in ('pending', 'sent', 'failed', 'unsupported')`
-    ),
+    check('external_gateway_outbox_status_check', sql`${t.status} in ('pending', 'sent', 'failed', 'unsupported')`),
     check(
       'external_gateway_outbox_recovery_state_check',
       sql`${t.recoveryState} in ('not_started', 'send_attempt_started', 'unknown_after_send')`

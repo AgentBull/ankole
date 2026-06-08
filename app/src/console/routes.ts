@@ -1,12 +1,10 @@
-import { Elysia } from 'elysia'
-import { z } from 'zod'
+import { Elysia, t } from 'elysia'
+import { statusFromError } from '@/common/errors'
 import { logger } from '@/common/logger'
 import { AiAgentModelsConfigSchema } from '@/ai-agent/config'
 import { AppEnv } from '@/config/env'
+import type { UpsertConsoleAgentInput } from './service'
 import {
-  LlmProviderCheckInputSchema,
-  LlmProviderCreateInputSchema,
-  LlmProviderUpdateInputSchema,
   checkLlmProvider,
   createLlmProvider,
   deleteLlmProvider,
@@ -34,61 +32,62 @@ import {
   updateConsoleAgent,
   updateConsoleChatChannel
 } from './service'
-import type { JsonObject } from '@/common/db-schema'
 
-const jsonObjectSchema = z.custom<JsonObject>(
-  value => typeof value === 'object' && value !== null && !Array.isArray(value)
-)
+// Loose JSON object body fragment. Deep domain validation stays in the service
+// layer (zod), so route typebox only describes request shape for Eden Treaty.
+const jsonObjectBody = t.Record(t.String(), t.Unknown())
 
-const createAgentBodySchema = z
-  .object({
-    uid: z.string().min(1),
-    displayName: z.string().nullable().optional(),
-    avatarUrl: z.string().nullable().optional(),
-    llmProfile: z
-      .object({
-        models: AiAgentModelsConfigSchema
-      })
-      .strict()
-      .optional()
-  })
-  .strict()
+const llmProviderCreateBody = t.Object({
+  providerId: t.String({ minLength: 1 }),
+  piProvider: t.String({ minLength: 1 }),
+  baseUrl: t.Optional(t.Union([t.String(), t.Null()])),
+  apiKey: t.Optional(t.Union([t.String(), t.Null()])),
+  providerOptions: t.Optional(jsonObjectBody)
+})
 
-const updateAgentBodySchema = z
-  .object({
-    displayName: z.string().nullable().optional(),
-    avatarUrl: z.string().nullable().optional(),
-    llmProfile: z
-      .object({
-        models: AiAgentModelsConfigSchema
-      })
-      .strict()
-      .optional()
-  })
-  .strict()
+const llmProviderUpdateBody = t.Object({
+  piProvider: t.Optional(t.String({ minLength: 1 })),
+  baseUrl: t.Optional(t.Union([t.String(), t.Null()])),
+  apiKey: t.Optional(t.Union([t.String(), t.Null()])),
+  providerOptions: t.Optional(jsonObjectBody)
+})
 
-const updateLlmProviderBodySchema = LlmProviderUpdateInputSchema.omit({ providerId: true })
+const llmProviderCheckBody = t.Object({
+  providerId: t.Optional(t.String({ minLength: 1 })),
+  piProvider: t.Optional(t.String({ minLength: 1 })),
+  model: t.Optional(t.String({ minLength: 1 })),
+  baseUrl: t.Optional(t.Union([t.String(), t.Null()])),
+  apiKey: t.Optional(t.Union([t.String(), t.Null()])),
+  providerOptions: t.Optional(jsonObjectBody)
+})
 
-const upsertChatChannelBodySchema = z
-  .object({
-    name: z.string().min(1).optional(),
-    adapter: z.string().min(1).optional(),
-    enabled: z.boolean().optional(),
-    config: jsonObjectSchema.optional()
-  })
-  .strict()
+const llmProfileBody = t.Optional(t.Object({ models: t.Unknown() }))
 
-const interactiveConfigBodySchema = z
-  .object({
-    adapterId: z.string().min(1),
-    currentConfig: jsonObjectSchema.optional(),
-    locale: z.string().optional()
-  })
-  .strict()
+const createAgentBody = t.Object({
+  uid: t.String({ minLength: 1 }),
+  displayName: t.Optional(t.Union([t.String(), t.Null()])),
+  avatarUrl: t.Optional(t.Union([t.String(), t.Null()])),
+  llmProfile: llmProfileBody
+})
 
-type MutableResponseSet = {
-  status?: number | string
-}
+const updateAgentBody = t.Object({
+  displayName: t.Optional(t.Union([t.String(), t.Null()])),
+  avatarUrl: t.Optional(t.Union([t.String(), t.Null()])),
+  llmProfile: llmProfileBody
+})
+
+const upsertChatChannelBody = t.Object({
+  name: t.Optional(t.String({ minLength: 1 })),
+  adapter: t.Optional(t.String({ minLength: 1 })),
+  enabled: t.Optional(t.Boolean()),
+  config: t.Optional(jsonObjectBody)
+})
+
+const interactiveConfigBody = t.Object({
+  adapterId: t.String({ minLength: 1 }),
+  currentConfig: t.Optional(jsonObjectBody),
+  locale: t.Optional(t.String())
+})
 
 export function consoleRoutes() {
   return new Elysia({ name: 'console-routes' })
@@ -117,163 +116,157 @@ export function consoleRoutes() {
         }
       }
     })
-    .get('/api/console/external-gateway-adapters', async ({ request, set }) => {
-      const admin = await requireConsoleAdmin(request, set)
-      if (!admin.ok) return { error: admin.error }
-
+    .get('/api/console/external-gateway-adapters', async ({ request }) => {
+      await requireConsoleAdmin(request)
       return { adapters: await listConsoleExternalGatewayAdapters() }
     })
-    .get('/api/console/llm-providers', async ({ request, set }) => {
-      const admin = await requireConsoleAdmin(request, set)
-      if (!admin.ok) return { error: admin.error }
-
+    .get('/api/console/llm-providers', async ({ request }) => {
+      await requireConsoleAdmin(request)
       return {
         providers: await listLlmProviders(),
         piProviders: listPiLlmProviders()
       }
     })
-    .post('/api/console/llm-providers', async ({ body, request, set }) => {
-      const admin = await requireConsoleAdmin(request, set)
-      if (!admin.ok) return { error: admin.error }
-
-      const parsed = LlmProviderCreateInputSchema.parse(body)
-      set.status = 201
-      return { provider: await createLlmProvider(parsed) }
-    })
-    .post('/api/console/llm-providers/check', async ({ body, request, set }) => {
-      const admin = await requireConsoleAdmin(request, set)
-      if (!admin.ok) return { error: admin.error }
-
-      const parsed = LlmProviderCheckInputSchema.parse(body)
-      return await checkLlmProvider(parsed)
-    })
-    .get('/api/console/llm-providers/:providerId', async ({ params, request, set }) => {
-      const admin = await requireConsoleAdmin(request, set)
-      if (!admin.ok) return { error: admin.error }
-
+    .post(
+      '/api/console/llm-providers',
+      async ({ body, request, set }) => {
+        await requireConsoleAdmin(request)
+        set.status = 201
+        return { provider: await createLlmProvider(body) }
+      },
+      { body: llmProviderCreateBody }
+    )
+    .post(
+      '/api/console/llm-providers/check',
+      async ({ body, request }) => {
+        await requireConsoleAdmin(request)
+        return await checkLlmProvider(body)
+      },
+      { body: llmProviderCheckBody }
+    )
+    .get('/api/console/llm-providers/:providerId', async ({ params, request }) => {
+      await requireConsoleAdmin(request)
       return { provider: await getLlmProvider(params.providerId) }
     })
-    .put('/api/console/llm-providers/:providerId', async ({ params, body, request, set }) => {
-      const admin = await requireConsoleAdmin(request, set)
-      if (!admin.ok) return { error: admin.error }
-
-      const parsed = updateLlmProviderBodySchema.parse(body)
-      return { provider: await updateLlmProvider({ providerId: params.providerId, ...parsed }) }
-    })
+    .put(
+      '/api/console/llm-providers/:providerId',
+      async ({ params, body, request }) => {
+        await requireConsoleAdmin(request)
+        return { provider: await updateLlmProvider({ providerId: params.providerId, ...body }) }
+      },
+      { body: llmProviderUpdateBody }
+    )
     .delete('/api/console/llm-providers/:providerId', async ({ params, request, set }) => {
-      const admin = await requireConsoleAdmin(request, set)
-      if (!admin.ok) return { error: admin.error }
-
+      await requireConsoleAdmin(request)
       await deleteLlmProvider(params.providerId)
       set.status = 204
     })
-    .get('/api/console/llm-providers/:providerId/models', async ({ params, request, set }) => {
-      const admin = await requireConsoleAdmin(request, set)
-      if (!admin.ok) return { error: admin.error }
-
+    .get('/api/console/llm-providers/:providerId/models', async ({ params, request }) => {
+      await requireConsoleAdmin(request)
       return { models: await listLlmProviderModels(params.providerId) }
     })
-    .get('/api/console/agents', async ({ request, set }) => {
-      const admin = await requireConsoleAdmin(request, set)
-      if (!admin.ok) return { error: admin.error }
-
+    .get('/api/console/agents', async ({ request }) => {
+      await requireConsoleAdmin(request)
       return { agents: await listConsoleAgents() }
     })
-    .post('/api/console/agents', async ({ body, request, set }) => {
-      const admin = await requireConsoleAdmin(request, set)
-      if (!admin.ok) return { error: admin.error }
-
-      const parsed = createAgentBodySchema.parse(body)
-      set.status = 201
-      return { agent: await createConsoleAgent(parsed.uid, admin.principalUid, parsed) }
-    })
-    .get('/api/console/agents/:uid', async ({ params, request, set }) => {
-      const admin = await requireConsoleAdmin(request, set)
-      if (!admin.ok) return { error: admin.error }
-
+    .post(
+      '/api/console/agents',
+      async ({ body, request, set }) => {
+        const { principalUid } = await requireConsoleAdmin(request)
+        set.status = 201
+        return { agent: await createConsoleAgent(body.uid, principalUid, agentInput(body)) }
+      },
+      { body: createAgentBody }
+    )
+    .get('/api/console/agents/:uid', async ({ params, request }) => {
+      await requireConsoleAdmin(request)
       return { agent: await getConsoleAgent(params.uid) }
     })
-    .put('/api/console/agents/:uid', async ({ params, body, request, set }) => {
-      const admin = await requireConsoleAdmin(request, set)
-      if (!admin.ok) return { error: admin.error }
-
-      const parsed = updateAgentBodySchema.parse(body)
-      return { agent: await updateConsoleAgent(params.uid, parsed) }
-    })
+    .put(
+      '/api/console/agents/:uid',
+      async ({ params, body, request }) => {
+        await requireConsoleAdmin(request)
+        return { agent: await updateConsoleAgent(params.uid, agentInput(body)) }
+      },
+      { body: updateAgentBody }
+    )
     .delete('/api/console/agents/:uid', async ({ params, request, set }) => {
-      const admin = await requireConsoleAdmin(request, set)
-      if (!admin.ok) return { error: admin.error }
-
+      await requireConsoleAdmin(request)
       await deleteConsoleAgent(params.uid)
       set.status = 204
     })
-    .get('/api/console/agents/:uid/chat-channels', async ({ params, request, set }) => {
-      const admin = await requireConsoleAdmin(request, set)
-      if (!admin.ok) return { error: admin.error }
-
+    .get('/api/console/agents/:uid/chat-channels', async ({ params, request }) => {
+      await requireConsoleAdmin(request)
       return { channels: await listConsoleExternalRooms(params.uid) }
     })
-    .post('/api/console/agents/:uid/chat-channels', async ({ params, body, request, set }) => {
-      const admin = await requireConsoleAdmin(request, set)
-      if (!admin.ok) return { error: admin.error }
-
-      const parsed = upsertChatChannelBodySchema.parse(body)
-      set.status = 201
-      return { channel: await createConsoleChatChannel(params.uid, parsed) }
-    })
-    .put('/api/console/agents/:uid/chat-channels/:channelName', async ({ params, body, request, set }) => {
-      const admin = await requireConsoleAdmin(request, set)
-      if (!admin.ok) return { error: admin.error }
-
-      const parsed = upsertChatChannelBodySchema.parse(body)
-      return { channel: await updateConsoleChatChannel(params.uid, params.channelName, parsed) }
-    })
+    .post(
+      '/api/console/agents/:uid/chat-channels',
+      async ({ params, body, request, set }) => {
+        await requireConsoleAdmin(request)
+        set.status = 201
+        return { channel: await createConsoleChatChannel(params.uid, body) }
+      },
+      { body: upsertChatChannelBody }
+    )
+    .put(
+      '/api/console/agents/:uid/chat-channels/:channelName',
+      async ({ params, body, request }) => {
+        await requireConsoleAdmin(request)
+        return { channel: await updateConsoleChatChannel(params.uid, params.channelName, body) }
+      },
+      { body: upsertChatChannelBody }
+    )
     .delete('/api/console/agents/:uid/chat-channels/:channelName', async ({ params, request, set }) => {
-      const admin = await requireConsoleAdmin(request, set)
-      if (!admin.ok) return { error: admin.error }
-
+      await requireConsoleAdmin(request)
       await deleteConsoleChatChannel(params.uid, params.channelName)
       set.status = 204
     })
-    .post('/api/console/interactive-config-sessions', async ({ body, request, set }) => {
-      const admin = await requireConsoleAdmin(request, set)
-      if (!admin.ok) return { error: admin.error }
-
-      const parsed = interactiveConfigBodySchema.parse(body)
-      set.status = 201
-      return { session: await startConsoleInteractiveConfigSession(parsed) }
-    })
-    .get('/api/console/interactive-config-sessions/:sessionId', async ({ params, request, set }) => {
-      const admin = await requireConsoleAdmin(request, set)
-      if (!admin.ok) return { error: admin.error }
-
+    .post(
+      '/api/console/interactive-config-sessions',
+      async ({ body, request, set }) => {
+        await requireConsoleAdmin(request)
+        set.status = 201
+        return { session: await startConsoleInteractiveConfigSession(body) }
+      },
+      { body: interactiveConfigBody }
+    )
+    .get('/api/console/interactive-config-sessions/:sessionId', async ({ params, request }) => {
+      await requireConsoleAdmin(request)
       return { session: getConsoleInteractiveConfigSession(params.sessionId) }
     })
     .delete('/api/console/interactive-config-sessions/:sessionId', async ({ params, request, set }) => {
-      const admin = await requireConsoleAdmin(request, set)
-      if (!admin.ok) return { error: admin.error }
-
+      await requireConsoleAdmin(request)
       deleteConsoleInteractiveConfigSession(params.sessionId)
       set.status = 204
     })
 }
 
-function statusFromError(error: unknown): number {
-  if (error instanceof z.ZodError) return 422
-  if (typeof error === 'object' && error && 'status' in error && typeof error.status === 'number') return error.status
-
-  return 500
+/**
+ * Coerces a typebox-validated agent body into the service input, validating the
+ * nested model profile with its zod schema (the service re-validates too).
+ */
+function agentInput(body: {
+  displayName?: string | null
+  avatarUrl?: string | null
+  llmProfile?: { models: unknown }
+}): UpsertConsoleAgentInput {
+  return {
+    displayName: body.displayName,
+    avatarUrl: body.avatarUrl,
+    llmProfile: body.llmProfile ? { models: AiAgentModelsConfigSchema.parse(body.llmProfile.models) } : undefined
+  }
 }
 
-async function requireConsoleAdmin(
-  request: Request,
-  set: MutableResponseSet
-): Promise<{ ok: true; principalUid: string } | { ok: false; error: string }> {
+/**
+ * Requires an active human-admin session. Throws `ConsoleDomainError(401)` when
+ * absent so handler success paths return a clean (Eden-Treaty-friendly) shape
+ * instead of a `{ data } | { error }` union.
+ */
+async function requireConsoleAdmin(request: Request): Promise<{ principalUid: string }> {
   const session = readAdminSessionCookie(request.headers.get('cookie'))
   if (session && (await activeHumanAdmin(session.principalUid))) {
-    return { ok: true, principalUid: session.principalUid }
+    return { principalUid: session.principalUid }
   }
 
-  set.status = 401
-  return { ok: false, error: 'admin session required' }
+  throw new ConsoleDomainError(401, 'admin session required')
 }

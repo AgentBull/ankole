@@ -154,7 +154,7 @@ External Gateway does not implement undo, steering, retry, stop, or assistant-ou
 
 ## Input Window
 
-`external_gateway_agent_events` is the operational input window from Gateway to Agent. It follows the old Elixir MailBox boundary: PostgreSQL stores accepted pending facts, while the running gateway process owns short-lived in-flight work. There is no database lease state and no automatic failed retry loop.
+`external_gateway_agent_events` is the operational input window from Gateway to Agent. PostgreSQL stores accepted pending facts, while the running gateway process owns short-lived in-flight work. There is no database lease state and no automatic failed retry loop.
 
 Important columns:
 
@@ -208,7 +208,7 @@ Final assistant-message truth belongs to AIAgent. AIAgent owns turns, assistant 
 
 Redis visible-output streams are weak progress only. They use `agentUid + sessionId + streamId` keys and are safe to lose. Final output recovery is through the agent/outbox boundary, not Redis.
 
-The recovery boundary follows the Elixir BullX precedent without cloning its MailBox runtime into External Gateway. `~/Projects/bullx/lib/bullx/ai_agent/message_revisions.ex` applies source-message recall/delete to the agent conversation and derives recall targets from the affected transcript suffix. `~/Projects/bullx/lib/bullx/ai_agent/delivery_recall.ex` sends best-effort provider recalls only after the agent layer has chosen those targets. The TypeScript External Gateway should preserve the same ownership split: deliver lifecycle facts to the agent, then execute only the explicit outbound operation the agent returns.
+The recovery boundary preserves the current ownership split: External Gateway delivers lifecycle facts to the agent, and then executes only the explicit outbound operation the agent returns. Source-message recall/delete semantics, transcript updates, and any decision to recall prior assistant output belong to AIAgent because it owns turns, summaries, and assistant-message truth.
 
 ## Feishu/Lark Adapter Boundary
 

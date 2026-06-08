@@ -12,6 +12,7 @@ import { eq, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { DB, jsonbParam } from '@/common/database'
 import { Agents, LlmProviders, type JsonObject, type JsonValue } from '@/common/db-schema'
+import { cloneJsonObject, isJsonObject, jsonObject } from '@/common/json'
 import { getSecretKey, SecretKeyPurpose } from '@/common/kms'
 
 const providerIdPattern = /^[a-z][a-z0-9_-]{0,62}$/
@@ -238,7 +239,9 @@ export async function checkLlmProvider(input: LlmProviderCheckInput): Promise<{
   const apiKey = checkInputApiKey(parsed, existing)
   if (!apiKey) throw new LlmProviderError(422, `llm provider api key is not configured: ${providerId}`)
 
-  const model = parsed.model ? projectModel(providerId, piProvider, requirePiModel(piProvider, parsed.model)) : undefined
+  const model = parsed.model
+    ? projectModel(providerId, piProvider, requirePiModel(piProvider, parsed.model))
+    : undefined
   return {
     ok: true,
     provider: {
@@ -440,9 +443,9 @@ function clonePiModelWithProviderOverrides(
   row: LlmProviderRecord,
   providerOptions: NormalizedLlmProviderOptions
 ): Model<any> {
-  const headers = providerOptions.headers ? { ...(model.headers ?? {}), ...providerOptions.headers } : model.headers
+  const headers = providerOptions.headers ? { ...model.headers, ...providerOptions.headers } : model.headers
   const compat = providerOptions.compat
-    ? ({ ...((model.compat as JsonObject | undefined) ?? {}), ...providerOptions.compat } as Model<any>['compat'])
+    ? ({ ...(model.compat as JsonObject | undefined), ...providerOptions.compat } as Model<any>['compat'])
     : model.compat
 
   return {
@@ -487,16 +490,4 @@ function stripUndefined(value: unknown): JsonValue {
     return value
   }
   return null
-}
-
-function cloneJsonObject(value: JsonObject): JsonObject {
-  return structuredClone(value)
-}
-
-function jsonObject(value: JsonValue | undefined): JsonObject | undefined {
-  return isJsonObject(value) ? value : undefined
-}
-
-function isJsonObject(value: unknown): value is JsonObject {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }

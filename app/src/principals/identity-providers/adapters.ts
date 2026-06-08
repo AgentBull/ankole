@@ -1,4 +1,7 @@
-import type { BullXIdentityProviderAdapterFactory, BullXIdentityProviderAdapterSetup } from '@agentbull/bullx-sdk/plugins'
+import type {
+  BullXIdentityProviderAdapterFactory,
+  BullXIdentityProviderAdapterSetup
+} from '@agentbull/bullx-sdk/plugins'
 import { loadPluginCatalog } from '@/plugins/catalog'
 
 export interface IdentityProviderAdapterDescriptor {
@@ -27,7 +30,9 @@ export async function listEnabledIdentityProviderAdapters(): Promise<IdentityPro
   return adapters
 }
 
-export async function getEnabledIdentityProviderAdapter(adapterId: string): Promise<BullXIdentityProviderAdapterFactory> {
+export async function getEnabledIdentityProviderAdapter(
+  adapterId: string
+): Promise<BullXIdentityProviderAdapterFactory> {
   const catalog = await loadPluginCatalog()
   const enabled = new Set(catalog.enabledPluginIds)
 

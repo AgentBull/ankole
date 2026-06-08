@@ -1,7 +1,5 @@
 import {
   parseMarkdown,
-  type AdapterPostableMessage,
-  type ChatElement,
   type ExternalGatewayAdapter,
   type ExternalGatewayAdapterCapabilities,
   type ExternalGatewayAdapterContext,
@@ -13,7 +11,6 @@ import {
   type ExternalGatewayStreamingCardHandle,
   type ExternalGatewayWebhookOptions
 } from '../core'
-import { emoji as coreEmoji } from '../core/emoji'
 
 export type MockImGroupMessageMode = 'addressed_only' | 'observe_all' | 'may_intervene'
 
@@ -880,7 +877,7 @@ export class MockImAdapter implements ExternalGatewayAdapter<MockImRawMessage> {
 
   async postMessage(
     threadId: string,
-    message: AdapterPostableMessage | ChatElement,
+    message: unknown,
     options?: ExternalGatewayOutboundOptions
   ): Promise<ExternalGatewayRawMessage<MockImRawMessage>> {
     return this.platform.createBotMessage(
@@ -898,7 +895,7 @@ export class MockImAdapter implements ExternalGatewayAdapter<MockImRawMessage> {
   async editMessage(
     threadId: string,
     messageId: string,
-    message: AdapterPostableMessage | ChatElement,
+    message: unknown,
     options?: ExternalGatewayOutboundOptions
   ): Promise<ExternalGatewayRawMessage<MockImRawMessage>> {
     return this.platform.editBotMessage(threadId, messageId, postableText(message), options)
@@ -990,10 +987,24 @@ function postableText(value: unknown): string {
   // Card / control-notice / divider payloads carry a fallback text for non-card
   // surfaces; a real adapter renders the card/divider and projects this text. This
   // precedes the bare-divider sentinel so a text-bearing divider keeps its text.
-  if (typeof value === 'object' && value !== null && 'fallbackText' in value && typeof value.fallbackText === 'string') {
+  if (
+    typeof value === 'object' &&
+    value !== null &&
+    'fallbackText' in value &&
+    typeof value.fallbackText === 'string'
+  ) {
     return value.fallbackText
   }
-  if (typeof value === 'object' && value !== null && 'text' in value && typeof value.text === 'string') return value.text
+  if (typeof value === 'object' && value !== null && 'kind' in value && value.kind === 'interactive_output') {
+    const output =
+      'output' in value && typeof value.output === 'object' && value.output !== null ? value.output : undefined
+    if (output && 'fallbackText' in output && typeof output.fallbackText === 'string') return output.fallbackText
+  }
+  if (typeof value === 'object' && value !== null && 'kind' in value && value.kind === 'lark_native_card') {
+    if ('fallbackText' in value && typeof value.fallbackText === 'string') return value.fallbackText
+  }
+  if (typeof value === 'object' && value !== null && 'text' in value && typeof value.text === 'string')
+    {return value.text}
   if (typeof value === 'object' && value !== null && 'type' in value && value.type === 'divider') return '[divider]'
 
   return JSON.stringify(value)
@@ -1005,7 +1016,13 @@ function rawHasReply(raw: unknown): boolean {
 }
 
 function normalizedEmoji(rawEmoji: string) {
-  if (rawEmoji === '+1' || rawEmoji === 'thumbsup' || rawEmoji === '👍') return coreEmoji.thumbs_up
+  if (rawEmoji === '+1' || rawEmoji === 'thumbsup' || rawEmoji === '👍') return thumbsUpEmoji
 
   return rawEmoji as never
 }
+
+const thumbsUpEmoji = Object.freeze({
+  name: 'thumbs_up',
+  toJSON: () => ':thumbs_up:',
+  toString: () => ':thumbs_up:'
+})

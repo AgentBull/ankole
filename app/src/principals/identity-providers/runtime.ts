@@ -4,6 +4,7 @@ import type {
   BullXIdentityProviderSyncSink
 } from '@agentbull/bullx-sdk/plugins'
 import { rootContainer, singleton } from '@/common/di'
+import type { Runtime } from '@/common/lifecycle'
 import { logger } from '@/common/logger'
 import { AppEnv } from '@/config/env'
 import { appConfigService, type AppConfigJsonValue } from '@/config/app-configure'
@@ -57,7 +58,7 @@ export interface IdentityProviderRuntimeStartOptions {
 }
 
 @singleton()
-export class IdentityProviderRuntime {
+export class IdentityProviderRuntime implements Runtime<IdentityProviderRuntimeStats> {
   private readonly providers = new Map<string, RuntimeProvider>()
   private readonly degradedStagesByProvider = new Map<string, Set<string>>()
   private startedStats: IdentityProviderRuntimeStats | null = null

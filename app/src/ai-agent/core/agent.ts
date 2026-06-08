@@ -20,6 +20,8 @@ import type {
   AgentMessage,
   AgentState,
   AgentTool,
+  BeforeLlmCallContext,
+  BeforeLlmCallResult,
   BeforeToolCallContext,
   BeforeToolCallResult,
   QueueMode,
@@ -110,6 +112,10 @@ export interface AgentOptions {
   onStreamingText?: (fullText: string) => void
   beforeToolCall?: (context: BeforeToolCallContext, signal?: AbortSignal) => Promise<BeforeToolCallResult | undefined>
   afterToolCall?: (context: AfterToolCallContext, signal?: AbortSignal) => Promise<AfterToolCallResult | undefined>
+  beforeLlmCall?: (
+    context: BeforeLlmCallContext,
+    signal?: AbortSignal
+  ) => Promise<BeforeLlmCallResult | undefined> | BeforeLlmCallResult | undefined
   prepareNextTurn?: (signal?: AbortSignal) => Promise<AgentLoopTurnUpdate | undefined> | AgentLoopTurnUpdate | undefined
   steeringMode?: QueueMode
   followUpMode?: QueueMode
@@ -189,6 +195,10 @@ export class Agent {
     context: AfterToolCallContext,
     signal?: AbortSignal
   ) => Promise<AfterToolCallResult | undefined>
+  public beforeLlmCall?: (
+    context: BeforeLlmCallContext,
+    signal?: AbortSignal
+  ) => Promise<BeforeLlmCallResult | undefined> | BeforeLlmCallResult | undefined
   public prepareNextTurn?: (
     signal?: AbortSignal
   ) => Promise<AgentLoopTurnUpdate | undefined> | AgentLoopTurnUpdate | undefined
@@ -215,6 +225,7 @@ export class Agent {
     this.onStreamingText = options.onStreamingText
     this.beforeToolCall = options.beforeToolCall
     this.afterToolCall = options.afterToolCall
+    this.beforeLlmCall = options.beforeLlmCall
     this.prepareNextTurn = options.prepareNextTurn
     this.steeringQueue = new PendingMessageQueue(options.steeringMode ?? 'one-at-a-time')
     this.followUpQueue = new PendingMessageQueue(options.followUpMode ?? 'one-at-a-time')
@@ -437,6 +448,9 @@ export class Agent {
       toolExecution: this.toolExecution,
       beforeToolCall: this.beforeToolCall,
       afterToolCall: this.afterToolCall,
+      beforeLlmCall: this.beforeLlmCall
+        ? async (context, signal) => await this.beforeLlmCall?.(context, signal)
+        : undefined,
       prepareNextTurn: this.prepareNextTurn ? async () => await this.prepareNextTurn?.(this.signal) : undefined,
       convertToLlm: this.convertToLlm,
       transformContext: this.transformContext,

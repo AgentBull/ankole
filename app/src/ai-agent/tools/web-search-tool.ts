@@ -1,6 +1,7 @@
 import { Type } from 'typebox'
 import { appConfigService } from '@/config/app-configure'
 import type { AgentTool, AgentToolResult } from '../core'
+import { buildTool } from './build-tool'
 import { WebSearchProviderConfig } from '../web/config'
 import { type WebProvider, WebProviderError, type WebSearchResult } from '../web/provider'
 import { webProviderRegistry } from '../web/registry'
@@ -23,17 +24,22 @@ function formatResults(results: WebSearchResult[]): string {
 }
 
 export function createWebSearchTool(): AgentTool<typeof WebSearchParams, WebSearchDetails> {
-  return {
+  return buildTool({
     name: 'web_search',
     label: 'Web Search',
     description: DESCRIPTION,
     parameters: WebSearchParams,
     executionMode: 'parallel',
+    isReadOnly: true,
+    isDestructive: false,
     async execute(_toolCallId, params, signal): Promise<AgentToolResult<WebSearchDetails>> {
       const preferred = await appConfigService.get(WebSearchProviderConfig)
       const provider: WebProvider = await webProviderRegistry.select('search', preferred)
       if (!provider.search) {
-        throw new WebProviderError(`provider ${provider.id} cannot search`, { retryable: false, providerId: provider.id })
+        throw new WebProviderError(`provider ${provider.id} cannot search`, {
+          retryable: false,
+          providerId: provider.id
+        })
       }
       const results = await provider.search({ query: params.query, limit: params.limit }, signal)
       return {
@@ -41,5 +47,5 @@ export function createWebSearchTool(): AgentTool<typeof WebSearchParams, WebSear
         details: { provider: provider.id, results }
       }
     }
-  }
+  })
 }

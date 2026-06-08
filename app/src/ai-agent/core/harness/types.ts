@@ -283,7 +283,7 @@ export interface LabelEntry extends SessionTreeEntryBase {
 }
 
 export interface SessionInfoEntry extends SessionTreeEntryBase {
-  type: 'session_info' // legacy name, kept for backwards compatibility
+  type: 'session'
   name?: string
 }
 

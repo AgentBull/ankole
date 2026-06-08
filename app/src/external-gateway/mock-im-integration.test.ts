@@ -297,6 +297,26 @@ describe('External Gateway Mock IM adapter integration', () => {
     expect(setup.platform.outbound[0]!.text).toContain('/undo')
   })
 
+  it('normalizes full-width space/digits so an IME-typed slash command still parses', async () => {
+    const setup = await startMockRuntime('command_stubs_fullwidth')
+    const dm = setup.platform.dm(setup.conversationOptions({ channelId: `${setup.adapterName}:dm-fullwidth` }))
+
+    // Full-width space (U+3000) before the args + a full-width digit '３'.
+    await dm.say({ id: 'fullwidth-steer', text: '/steer　３' })
+    // Full-width slash is user text, not a command prefix.
+    await dm.say({ id: 'fullwidth-slash', text: '／compress' })
+
+    await assertAgentEventCount(setup.agentUid, 'slash_command', 'command', 1)
+    await assertCommandPayload(setup.agentUid, 'fullwidth-steer', {
+      argsText: '3',
+      name: 'steer',
+      raw: '/steer 3',
+      status: 'stub'
+    })
+    await assertAgentEventDone(setup.agentUid, 'message.received', 'addressed')
+    await eventually(() => expect(setup.platform.outbound.some(event => event.text?.includes('／compress'))).toBe(true))
+  })
+
   it('does not wake the agent when an observe_all group message is recalled', async () => {
     const setup = await startMockRuntime('observe_recall', {
       groupMessageMode: 'observe_all'
@@ -611,13 +631,6 @@ async function assertProjectedMessageText(roomId: string, messageId: string, tex
   })
 }
 
-async function assertProjectedMentions(roomId: string, messageId: string, mentioned: boolean): Promise<void> {
-  await eventually(async () => {
-    const row = await projectedMessage(roomId, messageId)
-    expect((row?.mentions.length ?? 0) > 0).toBe(mentioned)
-  })
-}
-
 async function assertNoProjectedMessage(roomId: string, messageId: string): Promise<void> {
   await eventually(async () => {
     const rows = await DB.select()
@@ -677,7 +690,10 @@ async function agentEvents(agentUid: string, type: string, deliveryMode: string)
     )
 }
 
-async function agentEventSessionsByMessageId(agentUid: string, providerMessageIds: string[]): Promise<Map<string, string>> {
+async function agentEventSessionsByMessageId(
+  agentUid: string,
+  providerMessageIds: string[]
+): Promise<Map<string, string>> {
   const expected = new Set(providerMessageIds)
 
   return eventually(async () => {

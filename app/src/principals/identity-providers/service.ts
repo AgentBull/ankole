@@ -4,9 +4,9 @@ import type {
   BullXIdentityProviderUserRecord
 } from '@agentbull/bullx-sdk/plugins'
 import { bullxExternalIdentityNamespaceIdPattern } from '@agentbull/bullx-sdk/plugins'
-import { isPlainObject } from '@pleisto/active-support'
 import { and, eq, inArray, sql } from 'drizzle-orm'
 import { DB, jsonbParam, type QueryExecutor } from '@/common/database'
+import { jsonObject } from '@/common/json'
 import {
   type JsonObject,
   PrincipalExternalIdentities,
@@ -517,7 +517,7 @@ function requiredProviderId(value: string | null | undefined, field: string): st
 }
 
 function metadataObject(value: unknown): JsonObject {
-  return isPlainObject(value) ? (value as JsonObject) : {}
+  return jsonObject(value) ?? {}
 }
 
 /**

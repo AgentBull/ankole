@@ -157,12 +157,7 @@ pub fn authz_authorize_all(snapshot: JsonValue) -> Result<JsonValue> {
   })?;
 
   if snapshot.actions.is_empty() {
-    return Ok(json_decision(
-      "invalid_request",
-      Vec::new(),
-      Vec::new(),
-      None,
-    )?);
+    return json_decision("invalid_request", Vec::new(), Vec::new(), None);
   }
 
   let (effective_group_ids, mut diagnostics) = effective_group_ids(

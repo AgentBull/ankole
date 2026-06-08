@@ -26,7 +26,6 @@ import remarkGfm from 'remark-gfm'
 import remarkParse from 'remark-parse'
 import remarkStringify from 'remark-stringify'
 import { unified } from 'unified'
-import type { CardChild, CardElement } from './cards'
 import type { AdapterPostableMessage } from './types'
 
 // Alias for use within this file
@@ -202,7 +201,7 @@ export function tableToAscii(node: Table): string {
 
 /**
  * Render a table from headers and string rows as a padded ASCII table.
- * Used for card TableElement fallback rendering.
+ * Used when a structured table must degrade to plain text.
  */
 export function tableElementToAscii(headers: string[], rows: string[][]): string {
   const allRows = [headers, ...rows]
@@ -423,16 +422,6 @@ export interface FormatConverter {
 }
 
 /**
- * @deprecated Use FormatConverter instead
- */
-export interface MarkdownConverter extends FormatConverter {
-  // Convenience methods for markdown string I/O
-  fromMarkdown(markdown: string): string
-  toMarkdown(platformText: string): string
-  toPlainText(platformText: string): string
-}
-
-/**
  * Base class for format converters with default implementations.
  */
 export abstract class BaseFormatConverter implements FormatConverter {
@@ -514,22 +503,12 @@ export abstract class BaseFormatConverter implements FormatConverter {
     return stringifyMarkdown(this.toAst(platformText))
   }
 
-  /** @deprecated Use extractPlainText instead */
-  toPlainText(platformText: string): string {
-    return this.extractPlainText(platformText)
-  }
-
   /**
    * Convert a PostableMessage to platform format (text only).
    * - string: passed through as raw text (no conversion)
    * - { raw: string | object }: passed through as raw text or stringified fallback
    * - { markdown: string }: converted from markdown to platform format
    * - { ast: Root }: converted from AST to platform format
-   * - { card: CardElement }: returns fallback text (cards should be handled by adapter)
-   * - CardElement: returns fallback text (cards should be handled by adapter)
-   *
-   * Note: For cards, adapters should check for card content first and render
-   * them using platform-specific card APIs, using this method only for fallback.
    */
   renderPostable(message: PostableMessageInput): string {
     if (typeof message === 'string') {
@@ -544,65 +523,7 @@ export abstract class BaseFormatConverter implements FormatConverter {
     if ('ast' in message) {
       return this.fromAst(message.ast)
     }
-    if ('card' in message) {
-      // Card with fallback text or generate from card content
-      return message.fallbackText || this.cardToFallbackText(message.card)
-    }
-    if ('type' in message && message.type === 'card') {
-      // Direct CardElement
-      return this.cardToFallbackText(message)
-    }
     // Should never reach here with proper typing
     throw new Error('Invalid PostableMessage format')
-  }
-
-  /**
-   * Generate fallback text from a card element.
-   * Override in subclasses for platform-specific formatting.
-   */
-  protected cardToFallbackText(card: CardElement): string {
-    const parts: string[] = []
-
-    if (card.title) {
-      parts.push(`**${card.title}**`)
-    }
-
-    if (card.subtitle) {
-      parts.push(card.subtitle)
-    }
-
-    for (const child of card.children) {
-      const text = this.cardChildToFallbackText(child)
-      if (text) {
-        parts.push(text)
-      }
-    }
-
-    return parts.join('\n')
-  }
-
-  /**
-   * Convert card child element to fallback text.
-   */
-  protected cardChildToFallbackText(child: CardChild): string | null {
-    switch (child.type) {
-      case 'text':
-        return child.content
-      case 'fields':
-        return child.children.map(f => `**${f.label}**: ${f.value}`).join('\n')
-      case 'actions':
-        // Actions are interactive-only — exclude from fallback text.
-        // See: https://docs.slack.dev/reference/methods/chat.postMessage
-        return null
-      case 'table':
-        return tableElementToAscii(child.headers, child.rows)
-      case 'section':
-        return child.children
-          .map(c => this.cardChildToFallbackText(c))
-          .filter(Boolean)
-          .join('\n')
-      default:
-        return null
-    }
   }
 }
