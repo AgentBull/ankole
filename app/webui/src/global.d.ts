@@ -33,6 +33,8 @@ declare module '*.toml' {
   export default data
 }
 
+declare module '*.css'
+
 declare module 'react-dom/client' {
   import type { ReactNode } from 'react'
 

@@ -1003,8 +1003,9 @@ function postableText(value: unknown): string {
   if (typeof value === 'object' && value !== null && 'kind' in value && value.kind === 'lark_native_card') {
     if ('fallbackText' in value && typeof value.fallbackText === 'string') return value.fallbackText
   }
-  if (typeof value === 'object' && value !== null && 'text' in value && typeof value.text === 'string')
-    {return value.text}
+  if (typeof value === 'object' && value !== null && 'text' in value && typeof value.text === 'string') {
+    return value.text
+  }
   if (typeof value === 'object' && value !== null && 'type' in value && value.type === 'divider') return '[divider]'
 
   return JSON.stringify(value)

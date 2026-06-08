@@ -34,7 +34,12 @@ jobs:
             turbo-${{ runner.os }}-
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        # The `internals` git submodule (private, self-hosted) is intentionally
+        # not checked out in CI, so its workspace package (present in the
+        # committed lockfile) is absent here. A non-frozen install lets bun drop
+        # that one workspace; all public dependency versions stay pinned by the
+        # lockfile.
+        run: bun install
 
       - name: Lint (oxlint)
         if: ${{ !cancelled() }}

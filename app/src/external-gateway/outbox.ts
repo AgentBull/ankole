@@ -143,8 +143,9 @@ export class DrizzleExternalGatewayOutbox {
 
     if (input.intent.operation === 'delete') return this.dispatchDelete(key, input)
     if (input.intent.operation === 'edit') return this.dispatchEdit(key, input)
-    if (input.intent.operation === 'reaction_add' || input.intent.operation === 'reaction_remove')
-      {return this.dispatchReaction(key, input)}
+    if (input.intent.operation === 'reaction_add' || input.intent.operation === 'reaction_remove') {
+      return this.dispatchReaction(key, input)
+    }
     if (input.intent.operation === 'divider') return this.dispatchPostLike(key, input, 'divider')
     if (input.intent.operation === 'card') return this.dispatchPostLike(key, input, 'card')
     if (input.intent.operation !== 'post' && input.intent.operation !== 'reply') {
