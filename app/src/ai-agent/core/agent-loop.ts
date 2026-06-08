@@ -8,6 +8,7 @@ import {
   type Context,
   EventStream,
   streamSimple,
+  type Tool,
   type ToolResultMessage,
   validateToolArguments
 } from '@earendil-works/pi-ai'
@@ -292,7 +293,7 @@ async function streamAssistantResponse(
   const llmContext: Context = {
     systemPrompt: context.systemPrompt,
     messages: llmMessages,
-    tools: context.tools
+    tools: context.tools as unknown as Tool[] | undefined
   }
 
   const beforeCall = await config.beforeLlmCall?.(
@@ -594,7 +595,7 @@ async function prepareToolCall(
 
   try {
     const preparedToolCall = prepareToolCallArguments(tool, toolCall)
-    const validatedArgs = validateToolArguments(tool, preparedToolCall)
+    const validatedArgs = validateToolArguments(tool as unknown as Tool, preparedToolCall)
     if (config.beforeToolCall) {
       const beforeResult = await config.beforeToolCall(
         {

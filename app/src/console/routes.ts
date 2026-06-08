@@ -1,8 +1,11 @@
-import { Elysia, t } from 'elysia'
+import { Elysia } from 'elysia'
+import { z } from 'zod'
 import { statusFromError } from '@/common/errors'
 import { logger } from '@/common/logger'
 import { AiAgentModelsConfigSchema } from '@/ai-agent/config'
 import { AppEnv } from '@/config/env'
+import { appConfigJsonRecordSchema } from '@/config/json-value-schema'
+import type { JsonObject } from '@/common/db-schema'
 import type { UpsertConsoleAgentInput } from './service'
 import {
   checkLlmProvider,
@@ -34,59 +37,59 @@ import {
 } from './service'
 
 // Loose JSON object body fragment. Deep domain validation stays in the service
-// layer (zod), so route typebox only describes request shape for Eden Treaty.
-const jsonObjectBody = t.Record(t.String(), t.Unknown())
+// layer, so route schemas only describe request shape for Eden Treaty.
+const jsonObjectBody = appConfigJsonRecordSchema as z.ZodType<JsonObject>
 
-const llmProviderCreateBody = t.Object({
-  providerId: t.String({ minLength: 1 }),
-  piProvider: t.String({ minLength: 1 }),
-  baseUrl: t.Optional(t.Union([t.String(), t.Null()])),
-  apiKey: t.Optional(t.Union([t.String(), t.Null()])),
-  providerOptions: t.Optional(jsonObjectBody)
+const llmProviderCreateBody = z.object({
+  providerId: z.string().min(1),
+  piProvider: z.string().min(1),
+  baseUrl: z.string().nullable().optional(),
+  apiKey: z.string().nullable().optional(),
+  providerOptions: jsonObjectBody.optional()
 })
 
-const llmProviderUpdateBody = t.Object({
-  piProvider: t.Optional(t.String({ minLength: 1 })),
-  baseUrl: t.Optional(t.Union([t.String(), t.Null()])),
-  apiKey: t.Optional(t.Union([t.String(), t.Null()])),
-  providerOptions: t.Optional(jsonObjectBody)
+const llmProviderUpdateBody = z.object({
+  piProvider: z.string().min(1).optional(),
+  baseUrl: z.string().nullable().optional(),
+  apiKey: z.string().nullable().optional(),
+  providerOptions: jsonObjectBody.optional()
 })
 
-const llmProviderCheckBody = t.Object({
-  providerId: t.Optional(t.String({ minLength: 1 })),
-  piProvider: t.Optional(t.String({ minLength: 1 })),
-  model: t.Optional(t.String({ minLength: 1 })),
-  baseUrl: t.Optional(t.Union([t.String(), t.Null()])),
-  apiKey: t.Optional(t.Union([t.String(), t.Null()])),
-  providerOptions: t.Optional(jsonObjectBody)
+const llmProviderCheckBody = z.object({
+  providerId: z.string().min(1).optional(),
+  piProvider: z.string().min(1).optional(),
+  model: z.string().min(1).optional(),
+  baseUrl: z.string().nullable().optional(),
+  apiKey: z.string().nullable().optional(),
+  providerOptions: jsonObjectBody.optional()
 })
 
-const llmProfileBody = t.Optional(t.Object({ models: t.Unknown() }))
+const llmProfileBody = z.object({ models: z.unknown() }).optional()
 
-const createAgentBody = t.Object({
-  uid: t.String({ minLength: 1 }),
-  displayName: t.Optional(t.Union([t.String(), t.Null()])),
-  avatarUrl: t.Optional(t.Union([t.String(), t.Null()])),
+const createAgentBody = z.object({
+  uid: z.string().min(1),
+  displayName: z.string().nullable().optional(),
+  avatarUrl: z.string().nullable().optional(),
   llmProfile: llmProfileBody
 })
 
-const updateAgentBody = t.Object({
-  displayName: t.Optional(t.Union([t.String(), t.Null()])),
-  avatarUrl: t.Optional(t.Union([t.String(), t.Null()])),
+const updateAgentBody = z.object({
+  displayName: z.string().nullable().optional(),
+  avatarUrl: z.string().nullable().optional(),
   llmProfile: llmProfileBody
 })
 
-const upsertChatChannelBody = t.Object({
-  name: t.Optional(t.String({ minLength: 1 })),
-  adapter: t.Optional(t.String({ minLength: 1 })),
-  enabled: t.Optional(t.Boolean()),
-  config: t.Optional(jsonObjectBody)
+const upsertChatChannelBody = z.object({
+  name: z.string().min(1).optional(),
+  adapter: z.string().min(1).optional(),
+  enabled: z.boolean().optional(),
+  config: jsonObjectBody.optional()
 })
 
-const interactiveConfigBody = t.Object({
-  adapterId: t.String({ minLength: 1 }),
-  currentConfig: t.Optional(jsonObjectBody),
-  locale: t.Optional(t.String())
+const interactiveConfigBody = z.object({
+  adapterId: z.string().min(1),
+  currentConfig: jsonObjectBody.optional(),
+  locale: z.string().optional()
 })
 
 export function consoleRoutes() {
@@ -242,7 +245,7 @@ export function consoleRoutes() {
 }
 
 /**
- * Coerces a typebox-validated agent body into the service input, validating the
+ * Coerces a route-validated agent body into the service input, validating the
  * nested model profile with its zod schema (the service re-validates too).
  */
 function agentInput(body: {

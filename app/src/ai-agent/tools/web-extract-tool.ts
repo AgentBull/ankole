@@ -1,4 +1,4 @@
-import { Type } from 'typebox'
+import { z } from 'zod'
 import { appConfigService } from '@/config/app-configure'
 import type { AgentTool, AgentToolResult } from '../core'
 import { buildTool } from './build-tool'
@@ -6,12 +6,12 @@ import { WebExtractProviderConfig } from '../web/config'
 import { type WebExtractResult, type WebProvider, WebProviderError } from '../web/provider'
 import { webProviderRegistry } from '../web/registry'
 
-const WebExtractParams = Type.Object({
-  urls: Type.Array(Type.String({ description: 'An http(s) URL to extract.' }), {
-    minItems: 1,
-    maxItems: 5,
-    description: 'URLs to extract readable content from (max 5).'
-  })
+const WebExtractParams = z.object({
+  urls: z
+    .array(z.string().describe('An http(s) URL to extract.'))
+    .min(1)
+    .max(5)
+    .describe('URLs to extract readable content from (max 5).')
 })
 
 interface WebExtractDetails {
@@ -37,7 +37,7 @@ export function createWebExtractTool(): AgentTool<typeof WebExtractParams, WebEx
     name: 'web_extract',
     label: 'Web Extract',
     description: DESCRIPTION,
-    parameters: WebExtractParams,
+    schema: WebExtractParams,
     executionMode: 'parallel',
     isReadOnly: true,
     isDestructive: false,

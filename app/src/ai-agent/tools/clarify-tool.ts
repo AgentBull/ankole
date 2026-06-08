@@ -1,4 +1,4 @@
-import { Type } from 'typebox'
+import { z } from 'zod'
 import { toJsonObject } from '@/common/json'
 import type { DrizzleExternalGatewayOutbox } from '@/external-gateway/outbox'
 import { interactiveOutputCardPayload } from '@/external-gateway/interactive-output'
@@ -12,15 +12,14 @@ const DEFAULT_TIMEOUT_MS = 600_000 // hermes parity: 10 minutes
 const DEFAULT_HEARTBEAT_MS = 1_000 // hermes parity: touch activity every second
 const CEILING_MARGIN_MS = 60_000
 
-const ClarifyParams = Type.Object({
-  question: Type.String({ minLength: 1, description: 'The question to ask the user.' }),
-  choices: Type.Optional(
-    Type.Array(Type.String(), {
-      maxItems: 4,
-      description: 'Up to 4 predefined options. The user may also reply with free text.'
-    })
-  ),
-  multiSelect: Type.Optional(Type.Boolean({ description: 'Reserved; treated as single-select for now.' }))
+const ClarifyParams = z.object({
+  question: z.string().min(1).describe('The question to ask the user.'),
+  choices: z
+    .array(z.string())
+    .max(4)
+    .describe('Up to 4 predefined options. The user may also reply with free text.')
+    .optional(),
+  multiSelect: z.boolean().describe('Reserved; treated as single-select for now.').optional()
 })
 
 export interface ClarifyDetails {
@@ -95,7 +94,7 @@ export function createClarifyTool(
     label: 'Ask for clarification',
     description:
       'Ask the human a question and wait for their reply before continuing. Provide up to 4 choices, or ask open-ended.',
-    parameters: ClarifyParams,
+    schema: ClarifyParams,
     executionMode: 'sequential',
     isDestructive: false,
     async execute(toolCallId, params, signal): Promise<AgentToolResult<ClarifyDetails>> {

@@ -1,0 +1,86 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: bullx-computer
+spec:
+  serviceName: bullx-computer
+  replicas: 3
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      app: bullx-computer
+  template:
+    metadata:
+      labels:
+        app: bullx-computer
+    spec:
+      containers:
+        - name: computerd
+          image: ghcr.io/agentbull/bullx-computer-worker:latest
+          ports:
+            - containerPort: 8787
+          env:
+            # Stable worker identity = the StatefulSet pod name (bullx-computer-0, -1, ...).
+            - name: BULLX_COMPUTER_WORKER_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: BULLX_COMPUTER_INSTANCE_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.uid
+            - name: BULLX_COMPUTER_POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: BULLX_COMPUTER_POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: BULLX_COMPUTER_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: BULLX_AGENT_URL
+              value: 'http://bullx-agent:3000'
+            - name: BULLX_COMPUTER_WORKSPACE_ROOT
+              value: '/workspaces'
+            - name: BULLX_COMPUTER_BASE_URL
+              value: 'http://$(BULLX_COMPUTER_WORKER_ID).bullx-computer.$(BULLX_COMPUTER_POD_NAMESPACE).svc.cluster.local:8787'
+            - name: BULLX_COMPUTER_MAX_AGENTS
+              value: '128'
+            - name: BULLX_COMPUTER_MAX_COMMANDS
+              value: '32'
+            # Shared secret with the BullX app (register/heartbeat auth + session-token signing).
+            - name: BULLX_COMPUTER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: bullx-computer
+                  key: token
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8787
+            initialDelaySeconds: 2
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8787
+            periodSeconds: 15
+          volumeMounts:
+            - name: workspaces
+              mountPath: /workspaces
+            - name: dev-fuse
+              mountPath: /dev/fuse
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              add: ['SYS_ADMIN']
+      volumes:
+        - name: dev-fuse
+          hostPath:
+            path: /dev/fuse
+        - name: workspaces
+          persistentVolumeClaim:
+            claimName: bullx-workspaces-rwx

@@ -1,5 +1,7 @@
-import type { TSchema } from 'typebox'
+import { z } from 'zod'
 import type { AgentTool } from '../core'
+
+type AgentToolDefinition<TParameters extends z.ZodType, TDetails> = Omit<AgentTool<TParameters, TDetails>, 'parameters'>
 
 /**
  * Fail-closed defaults for declarative tool behavior. A tool only declares what
@@ -20,8 +22,12 @@ const TOOL_DEFAULTS = {
  * runtime/permission layer reads declared behavior off a field instead of
  * scattered per-tool conditionals as the tool set grows.
  */
-export function buildTool<TParameters extends TSchema, TDetails = unknown>(
-  def: AgentTool<TParameters, TDetails>
+export function buildTool<TParameters extends z.ZodType, TDetails = unknown>(
+  def: AgentToolDefinition<TParameters, TDetails>
 ): AgentTool<TParameters, TDetails> {
-  return { ...TOOL_DEFAULTS, ...def }
+  return {
+    ...TOOL_DEFAULTS,
+    ...def,
+    parameters: z.toJSONSchema(def.schema)
+  }
 }

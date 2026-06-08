@@ -25,6 +25,7 @@ import type {
   BeforeToolCallContext,
   BeforeToolCallResult,
   QueueMode,
+  ShouldStopAfterTurnContext,
   StreamFn,
   ToolExecutionMode
 } from './types'
@@ -116,6 +117,7 @@ export interface AgentOptions {
     context: BeforeLlmCallContext,
     signal?: AbortSignal
   ) => Promise<BeforeLlmCallResult | undefined> | BeforeLlmCallResult | undefined
+  shouldStopAfterTurn?: (context: ShouldStopAfterTurnContext) => boolean | Promise<boolean>
   prepareNextTurn?: (signal?: AbortSignal) => Promise<AgentLoopTurnUpdate | undefined> | AgentLoopTurnUpdate | undefined
   steeringMode?: QueueMode
   followUpMode?: QueueMode
@@ -199,6 +201,7 @@ export class Agent {
     context: BeforeLlmCallContext,
     signal?: AbortSignal
   ) => Promise<BeforeLlmCallResult | undefined> | BeforeLlmCallResult | undefined
+  public shouldStopAfterTurn?: (context: ShouldStopAfterTurnContext) => boolean | Promise<boolean>
   public prepareNextTurn?: (
     signal?: AbortSignal
   ) => Promise<AgentLoopTurnUpdate | undefined> | AgentLoopTurnUpdate | undefined
@@ -226,6 +229,7 @@ export class Agent {
     this.beforeToolCall = options.beforeToolCall
     this.afterToolCall = options.afterToolCall
     this.beforeLlmCall = options.beforeLlmCall
+    this.shouldStopAfterTurn = options.shouldStopAfterTurn
     this.prepareNextTurn = options.prepareNextTurn
     this.steeringQueue = new PendingMessageQueue(options.steeringMode ?? 'one-at-a-time')
     this.followUpQueue = new PendingMessageQueue(options.followUpMode ?? 'one-at-a-time')
@@ -451,6 +455,7 @@ export class Agent {
       beforeLlmCall: this.beforeLlmCall
         ? async (context, signal) => await this.beforeLlmCall?.(context, signal)
         : undefined,
+      shouldStopAfterTurn: this.shouldStopAfterTurn,
       prepareNextTurn: this.prepareNextTurn ? async () => await this.prepareNextTurn?.(this.signal) : undefined,
       convertToLlm: this.convertToLlm,
       transformContext: this.transformContext,

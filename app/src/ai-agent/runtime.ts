@@ -5,6 +5,7 @@ import { DB, jsonbParam } from '@/common/database'
 import { logger } from '@/common/logger'
 import {
   AiAgentConversations,
+  AiAgentLlmTurns,
   AiAgentMessages,
   ExternalGatewayOutbox,
   type JsonObject,
@@ -43,6 +44,7 @@ import { aiAgentLifecycleRevisionService, type AiAgentLifecycleRevisionService }
 import { aiAgentRunRegistry, type AiAgentRunRegistry } from './run-registry'
 import { aiAgentClarifyRegistry, type AiAgentClarifyRegistry, type ClarifyEntry } from './clarify-registry'
 import { createClarifyTool, type ClarifyRunBinding } from './tools/clarify-tool'
+import { createComputerTools, type ComputerToolsDeps } from './tools/computer'
 import { type ClarifyAnswerValue, parseClarifyAnswerValue, renderClarifyChoicePrompt } from './tools/choice-prompt'
 import { mapAnswer } from './tools/clarify-format'
 import {
@@ -50,6 +52,7 @@ import {
   type BeforeLlmCallContext,
   type BeforeLlmCallResult,
   convertToLlm,
+  createCustomMessage,
   createUserMessage,
   estimateContextTokens,
   shouldCompact,
@@ -57,13 +60,16 @@ import {
   type AfterToolCallContext,
   type AfterToolCallResult,
   type AgentMessage,
+  type AgentEvent,
   type AgentTool,
   type BeforeToolCallContext,
-  type BeforeToolCallResult
+  type BeforeToolCallResult,
+  type ShouldStopAfterTurnContext
 } from './core'
 import { isJsonObject, stringFromPath as stringFromMetadata, toJsonObject, toJsonValue } from '@/common/json'
 import { idempotencyKeyFromOutboundKey } from '@/external-gateway/outbox'
 import { interactiveOutputCardPayload, larkNativeCardPayload } from '@/external-gateway/interactive-output'
+import { createTodoTool, TodoStore, todoItemsFromToolDetails, type TodoToolDetails } from './tools/todo-tool'
 
 export interface AiAgentRuntimeOptions {
   ambient?: AiAgentAmbientBatcher
@@ -108,6 +114,13 @@ interface StreamedAssistantCard {
 interface GenerationStreamingSink {
   onStreamingText?: (fullText: string) => void
   finalize(assistant: AssistantMessage, text: string): Promise<StreamedAssistantCard | undefined>
+}
+
+interface TodoProgressState {
+  args: unknown
+  outboundKey: string
+  posted: boolean
+  toolCallId: string
 }
 
 interface NextGeneration {
@@ -330,6 +343,95 @@ function trajectoryToolResult(result: ToolResultMessage, llmTurnId: string): Jso
   }
 }
 
+function latestTodoItemsFromToolResults(toolResults: JsonValue[]): unknown[] | undefined {
+  for (let index = toolResults.length - 1; index >= 0; index--) {
+    const result = toolResults[index]
+    if (!isJsonObject(result)) continue
+    if (toolNameFromToolResult(result) !== 'todo') continue
+
+    const fromDetails = todoItemsFromToolDetails(result.details)
+    if (fromDetails) return fromDetails
+
+    const fromContent = todoItemsFromToolContent(result.content)
+    if (fromContent) return fromContent
+  }
+  return undefined
+}
+
+function toolNameFromToolResult(result: JsonObject): string | undefined {
+  if (typeof result.toolName === 'string') return result.toolName
+  if (typeof result.tool_name === 'string') return result.tool_name
+  const details = isJsonObject(result.details) ? result.details : undefined
+  const execution = details && isJsonObject(details.bullx_execution) ? details.bullx_execution : undefined
+  return typeof execution?.tool_name === 'string' ? execution.tool_name : undefined
+}
+
+function todoItemsFromToolContent(content: unknown): unknown[] | undefined {
+  if (!Array.isArray(content)) return undefined
+  for (const block of content) {
+    if (!isJsonObject(block) || typeof block.text !== 'string') continue
+    try {
+      const parsed = JSON.parse(block.text)
+      const todos = todoItemsFromToolDetails(parsed)
+      if (todos) return todos
+    } catch {
+      // Ignore non-JSON tool text.
+    }
+  }
+  return undefined
+}
+
+function formatTodoProgressStart(args: unknown): string {
+  const todos = todoArgs(args)
+  if (!todos) return '📋 todo: "reading task list"'
+  const verb = todoMerge(args) ? 'updating' : 'planning'
+  return `📋 todo: "${verb} ${todos.length} task(s)"`
+}
+
+function formatTodoProgressEnd(args: unknown, result: unknown, isError: boolean): string {
+  if (isError) return '📋 plan failed'
+  const summary = todoSummaryFromResult(result)
+  const todos = todoArgs(args)
+  const merge = todoMerge(args)
+  if (!summary) return formatTodoProgressStart(args)
+  if (!todos) {
+    if (summary.total > 0) return `📋 plan ${summary.completed}/${summary.total} task(s)`
+    return '📋 plan reading tasks'
+  }
+  if (merge) {
+    if (summary.total > 0 && summary.completed > 0) return `📋 plan update ${summary.completed}/${summary.total} ✓`
+    return `📋 plan update ${todos.length} task(s)`
+  }
+  if (summary.total > 0 && summary.completed > 0) return `📋 plan ${summary.completed}/${summary.total} task(s)`
+  return `📋 plan ${todos.length} task(s)`
+}
+
+function todoSummaryFromResult(result: unknown): TodoToolDetails['summary'] | undefined {
+  if (!isJsonObject(result)) return undefined
+  const details = isJsonObject(result.details) ? result.details : undefined
+  const summary = details && isJsonObject(details.summary) ? details.summary : undefined
+  if (!summary) return undefined
+  return {
+    total: numberValue(summary.total),
+    pending: numberValue(summary.pending),
+    in_progress: numberValue(summary.in_progress),
+    completed: numberValue(summary.completed),
+    cancelled: numberValue(summary.cancelled)
+  }
+}
+
+function todoArgs(args: unknown): unknown[] | undefined {
+  return isJsonObject(args) && Array.isArray(args.todos) ? args.todos : undefined
+}
+
+function todoMerge(args: unknown): boolean {
+  return isJsonObject(args) && args.merge === true
+}
+
+function numberValue(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0
+}
+
 function snapshotTools(tools: AgentTool<any>[] | undefined): JsonValue[] {
   return (tools ?? []).flatMap(tool => {
     const snapshot = toJsonValue({
@@ -360,6 +462,7 @@ export class AiAgentRuntime {
   private readonly clarifyTimeoutMs?: number
   private readonly clarifyHeartbeatMs?: number
   private clarifyFactory?: (binding: ClarifyRunBinding) => AgentTool<any>
+  private computerFactory?: (binding: ClarifyRunBinding) => AgentTool<any>[]
 
   constructor(options: AiAgentRuntimeOptions = {}) {
     this.ambient = options.ambient ?? aiAgentAmbientBatcher
@@ -426,17 +529,142 @@ export class AiAgentRuntime {
       : undefined
   }
 
-  /** Active run-static tools plus the per-run clarify tool (when enabled and a reply target exists). */
-  private buildActiveToolsForRun(binding: ClarifyRunBinding): AgentTool<any>[] {
-    const tools = this.getActiveTools()
-    if (this.clarifyFactory && binding.providerRoomId) return [...tools, this.clarifyFactory(binding)]
+  /** Enable/disable the run-bound computer tools (terminal/process/read_file/patch). */
+  setComputerEnabled(enabled: boolean, deps: ComputerToolsDeps): void {
+    this.computerFactory = enabled ? binding => createComputerTools(binding, deps) : undefined
+  }
+
+  /** Active run-static tools plus run-bound foundational tools (computer, clarify). */
+  private buildActiveToolsForRun(binding: ClarifyRunBinding, todoStore: TodoStore): AgentTool<any>[] {
+    const tools = [...this.getActiveTools(), createTodoTool(todoStore)]
+    if (this.computerFactory) tools.push(...this.computerFactory(binding))
+    if (this.clarifyFactory && binding.providerRoomId) tools.push(this.clarifyFactory(binding))
     return tools
   }
 
-  private async transformGenerationContext(messages: AgentMessage[], _signal?: AbortSignal): Promise<AgentMessage[]> {
-    // Context transform hook (AgentHarness 'context' event). Extension point for in-run context shaping;
-    // v1 passes messages through unchanged because threshold compaction runs as a preflight before the run.
-    return messages
+  private async transformGenerationContext(
+    messages: AgentMessage[],
+    todoStore: TodoStore,
+    _signal?: AbortSignal
+  ): Promise<AgentMessage[]> {
+    const activeSnapshot = todoStore.formatActiveSnapshot()
+    if (!activeSnapshot) return messages
+    return [
+      ...messages,
+      createCustomMessage('todo_active_snapshot', activeSnapshot, false, { source: 'todo' }, new Date().toISOString())
+    ]
+  }
+
+  private async loadTodoStore(conversationId: string): Promise<TodoStore> {
+    const store = new TodoStore()
+    const turns = await DB.select({ toolResults: AiAgentLlmTurns.toolResults })
+      .from(AiAgentLlmTurns)
+      .where(
+        and(
+          eq(AiAgentLlmTurns.conversationId, conversationId),
+          eq(AiAgentLlmTurns.status, 'succeeded'),
+          sql`${AiAgentLlmTurns.kind} in ('generation', 'retry_generation', 'overflow_retry')`
+        )
+      )
+      .orderBy(desc(AiAgentLlmTurns.completedAt), desc(AiAgentLlmTurns.startedAt), desc(AiAgentLlmTurns.id))
+
+    for (const turn of turns) {
+      const todos = latestTodoItemsFromToolResults(turn.toolResults)
+      if (todos) {
+        store.hydrate(todos)
+        return store
+      }
+    }
+
+    return store
+  }
+
+  private shouldStopAfterGenerationTurn(context: ShouldStopAfterTurnContext): boolean {
+    const text = textFromAgentMessage(context.message).trim()
+    if (!text) return false
+    if (context.toolResults.length === 0) return false
+    return context.toolResults.every(result => !result.isError && result.toolName === 'todo')
+  }
+
+  private async handleTodoProgressEvent(
+    input: RunGenerationInput,
+    event: AgentEvent,
+    states: Map<string, TodoProgressState>
+  ): Promise<void> {
+    try {
+      if (event.type === 'tool_execution_start' && event.toolName === 'todo') {
+        await this.startTodoProgress(input, event.toolCallId, event.args, states)
+      } else if (event.type === 'tool_execution_end' && event.toolName === 'todo') {
+        await this.finishTodoProgress(input, event.toolCallId, event.result, event.isError, states)
+      }
+    } catch (error) {
+      logger.debug({ error, conversationId: input.conversationId }, 'Todo tool progress update failed')
+    }
+  }
+
+  private async startTodoProgress(
+    input: RunGenerationInput,
+    toolCallId: string,
+    args: unknown,
+    states: Map<string, TodoProgressState>
+  ): Promise<void> {
+    if (!this.canShowTodoProgress(input)) return
+    const providerRoomId = input.providerRoomId ?? input.providerThreadId
+    const providerThreadId = input.providerThreadId ?? providerRoomId
+    if (!providerRoomId || !providerThreadId) return
+
+    const outboundKey = `ai-agent-tool-progress:${input.conversationId}:${toolCallId}`
+    states.set(toolCallId, { args, outboundKey, posted: true, toolCallId })
+    await input.context.outbox.enqueuePending({
+      agentUid: input.context.agentUid,
+      bindingName: input.context.bindingName,
+      intent: {
+        operation: 'post',
+        outboundKey,
+        providerRoomId,
+        providerThreadId,
+        finalPayload: { text: formatTodoProgressStart(args) }
+      }
+    })
+    input.context.scheduleOutboxDrain()
+  }
+
+  private async finishTodoProgress(
+    input: RunGenerationInput,
+    toolCallId: string,
+    result: unknown,
+    isError: boolean,
+    states: Map<string, TodoProgressState>
+  ): Promise<void> {
+    const state = states.get(toolCallId)
+    if (!state?.posted) return
+    const providerRoomId = input.providerRoomId ?? input.providerThreadId
+    const providerThreadId = input.providerThreadId ?? providerRoomId
+    if (!providerRoomId || !providerThreadId) return
+
+    await input.context.outbox.enqueuePending({
+      agentUid: input.context.agentUid,
+      bindingName: input.context.bindingName,
+      intent: {
+        operation: 'edit',
+        outboundKey: `${state.outboundKey}:done`,
+        providerRoomId,
+        providerThreadId,
+        finalPayload: {
+          targetOutboundKey: state.outboundKey,
+          text: formatTodoProgressEnd(state.args, result, isError)
+        }
+      }
+    })
+    input.context.scheduleOutboxDrain()
+  }
+
+  private canShowTodoProgress(input: RunGenerationInput): boolean {
+    return (
+      Boolean(input.providerThreadId) &&
+      adapterSupportsCapability(input.context.adapter, 'outbound', 'post_message') &&
+      adapterSupportsCapability(input.context.adapter, 'outbound', 'edit_message')
+    )
   }
 
   private async beforeToolCall(
@@ -957,6 +1185,7 @@ export class AiAgentRuntime {
       }
     }
     const abortController = new AbortController()
+    const todoStore = await this.loadTodoStore(input.conversationId)
     const clarifyRoomId = input.providerRoomId ?? input.providerThreadId ?? ''
     const binding: ClarifyRunBinding = {
       conversationId: input.conversationId,
@@ -969,7 +1198,7 @@ export class AiAgentRuntime {
       outbox: input.context.outbox,
       scheduleOutboxDrain: input.context.scheduleOutboxDrain
     }
-    const activeTools = this.buildActiveToolsForRun(binding)
+    const activeTools = this.buildActiveToolsForRun(binding, todoStore)
     const stream = this.buildGenerationStreamingSink(input, lease.leaseId)
     const recorder = new GenerationTrajectoryRecorder(
       input,
@@ -992,7 +1221,8 @@ export class AiAgentRuntime {
         input,
         recorder,
         rendered,
-        stream
+        stream,
+        todoStore
       })
       this.registry.set({
         conversationId: input.conversationId,
@@ -1071,6 +1301,7 @@ export class AiAgentRuntime {
     recorder: GenerationTrajectoryRecorder
     rendered: RenderedAiAgentContext
     stream: GenerationStreamingSink
+    todoStore: TodoStore
   }): Agent {
     const profileOptions = input.input.profile.primaryModel.options
     const agent = new Agent({
@@ -1088,7 +1319,8 @@ export class AiAgentRuntime {
       toolExecution: 'parallel',
       onStreamingText: input.stream.onStreamingText,
       // Context transform hook (AgentHarness 'context' event) — extension point for in-run context shaping.
-      transformContext: (messages, signal) => this.transformGenerationContext(messages, signal),
+      transformContext: (messages, signal) => this.transformGenerationContext(messages, input.todoStore, signal),
+      shouldStopAfterTurn: context => this.shouldStopAfterGenerationTurn(context),
       // Tool call policy hooks (AgentHarness tool_call / tool_result) — only wired when tools are active.
       beforeToolCall:
         input.activeTools.length > 0 ? (toolContext, signal) => this.beforeToolCall(toolContext, signal) : undefined,
@@ -1120,6 +1352,10 @@ export class AiAgentRuntime {
     })
     agent.subscribe(async event => {
       if (event.type === 'turn_end') await input.recorder.finishTurn(event.message, event.toolResults)
+    })
+    const todoProgress = new Map<string, TodoProgressState>()
+    agent.subscribe(async event => {
+      await this.handleTodoProgressEvent(input.input, event, todoProgress)
     })
     return agent
   }

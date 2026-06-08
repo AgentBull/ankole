@@ -99,7 +99,7 @@ export type StartComposeServicesArgs = {
 }
 
 /**
- * Bring up every service defined in the Compose file (Postgres, Redis, ...).
+ * Bring up every service defined in the Compose file (Postgres, Redis, computer, ...).
  * Shared by `external-services start` and the `app-db` commands so the two
  * start paths cannot drift and silently omit a service.
  */

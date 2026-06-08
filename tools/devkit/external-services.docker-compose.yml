@@ -30,6 +30,27 @@ services:
       timeout: 5s
       retries: 30
 
+  computer:
+    build:
+      context: ../../packages/computer
+      dockerfile: docker/Dockerfile
+    privileged: true
+    ports:
+      - "${BULLX_COMPUTER_PORT:-8787}:8787"
+    volumes:
+      - ../../var/computer-dev:/workspaces
+    environment:
+      BULLX_COMPUTER_WORKER_ID: dev
+      BULLX_COMPUTER_INSTANCE_ID: dev-local
+      BULLX_COMPUTER_BASE_URL: "http://localhost:${BULLX_COMPUTER_PORT:-8787}"
+      BULLX_AGENT_URL: "http://host.docker.internal:${HTTP_PORT:-3000}"
+      BULLX_COMPUTER_WORKSPACE_ROOT: /workspaces
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 2 bash -c '</dev/tcp/127.0.0.1/8787'"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
 volumes:
   postgres_data:
   redis_data:

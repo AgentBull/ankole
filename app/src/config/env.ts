@@ -7,7 +7,11 @@ const envSchema = z.object({
   HTTP_PORT: z.coerce.number().int().positive().default(3000),
   BULLX_SECRET_BASE: z.string().min(16),
   REDIS_URL: z.string().min(1),
-  DATABASE_URL: z.string().min(1)
+  DATABASE_URL: z.string().min(1),
+  // Shared secret with the computer worker fleet: authenticates worker
+  // register/heartbeat calls and signs the per-session worker tokens. When unset,
+  // computer auth is disabled (local dev only).
+  BULLX_COMPUTER_TOKEN: z.string().min(1).optional()
 })
 
 const parsedEnv = envSchema.parse(Bun.env)

@@ -7,6 +7,7 @@ import { identityProviderRuntime } from '@/principals/identity-providers'
 import type { IdentityProviderRuntimeStats } from '@/principals/identity-providers/runtime'
 import { pluginRuntime } from '@/plugins'
 import type { PluginRuntimeStats } from '@/plugins/runtime'
+import { resolveComputerWorker } from '@/computer/service'
 import { initializeSetupBootstrap } from '@/setup/bootstrap'
 import { aiAgentRuntime } from '@/ai-agent/runtime'
 import { buildAiAgentTools, registerBuiltinWebProviders } from '@/ai-agent/tools'
@@ -55,6 +56,8 @@ export async function startBullXAgent(): Promise<StartedBullXAgent> {
     const agentTools = await buildAiAgentTools()
     aiAgentRuntime.setTools(agentTools.staticTools, agentTools.activeNames)
     aiAgentRuntime.setClarifyEnabled(true)
+    // Computer tools resolve the agent's sticky worker in-process via the control plane.
+    aiAgentRuntime.setComputerEnabled(true, { resolveWorker: agentUid => resolveComputerWorker(agentUid) })
     externalGatewayStartAttempted = true
     const externalGateway = await externalGatewayRuntime.start()
     identityProviderStartAttempted = true

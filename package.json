@@ -26,6 +26,7 @@
     "fmt": "turbo run fmt",
     "fmt:check": "turbo run fmt:check",
     "test": "turbo run test",
+    "test:computer:e2e": "cd app && bun scripts/computer-worker-e2e.ts",
     "analyze": "bun run kit analyze all",
     "analyze:smells": "bun run kit analyze smells",
     "analyze:unused": "bun run kit analyze unused",

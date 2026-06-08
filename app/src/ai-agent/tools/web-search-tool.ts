@@ -1,4 +1,4 @@
-import { Type } from 'typebox'
+import { z } from 'zod'
 import { appConfigService } from '@/config/app-configure'
 import type { AgentTool, AgentToolResult } from '../core'
 import { buildTool } from './build-tool'
@@ -6,9 +6,9 @@ import { WebSearchProviderConfig } from '../web/config'
 import { type WebProvider, WebProviderError, type WebSearchResult } from '../web/provider'
 import { webProviderRegistry } from '../web/registry'
 
-const WebSearchParams = Type.Object({
-  query: Type.String({ minLength: 1, description: 'The search query.' }),
-  limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 20, description: 'Maximum number of results (default 5).' }))
+const WebSearchParams = z.object({
+  query: z.string().min(1).describe('The search query.'),
+  limit: z.number().int().min(1).max(20).describe('Maximum number of results (default 5).').optional()
 })
 
 interface WebSearchDetails {
@@ -28,7 +28,7 @@ export function createWebSearchTool(): AgentTool<typeof WebSearchParams, WebSear
     name: 'web_search',
     label: 'Web Search',
     description: DESCRIPTION,
-    parameters: WebSearchParams,
+    schema: WebSearchParams,
     executionMode: 'parallel',
     isReadOnly: true,
     isDestructive: false,

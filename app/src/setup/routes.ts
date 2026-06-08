@@ -1,9 +1,11 @@
-import { Elysia, t } from 'elysia'
+import { Elysia } from 'elysia'
+import { z } from 'zod'
 import { statusFromError } from '@/common/errors'
 import { appConfigService, type AppConfigJsonValue } from '@/config/app-configure'
 import { AppEnv } from '@/config/env'
 import { AppI18nDefaultLocaleConfig } from '@/config/i18n'
 import { DEFAULT_LOCALE, SUPPORTED_LOCALES, isSupportedLocale } from '@/config/i18n-locales'
+import { appConfigJsonRecordSchema } from '@/config/json-value-schema'
 import { appendSetCookie } from '@/core/http'
 import {
   checkLlmProvider,
@@ -28,6 +30,7 @@ import { loadPluginCatalog } from '@/plugins/catalog'
 import { clonePluginJsonValue } from '@/plugins/config-json'
 import { createNoopIdentityProviderSyncSink } from '@/principals/identity-providers/noop-sync-sink'
 import { SetupBootstrapActivationCodeConfig, SetupCompletedConfig } from './config'
+import type { JsonObject } from '@/common/db-schema'
 import {
   SETUP_OIDC_STATE_COOKIE,
   createSetupOidcStateCookie,
@@ -38,50 +41,50 @@ import {
 import { persistExactEnabledPluginIds } from './plugins'
 
 // Loose JSON object body fragment. Deep domain validation stays in the service
-// layer (zod), so route typebox only describes request shape for Eden Treaty.
-const jsonObjectBody = t.Record(t.String(), t.Unknown())
+// layer, so route schemas only describe request shape for Eden Treaty.
+const jsonObjectBody = appConfigJsonRecordSchema as z.ZodType<JsonObject>
 
-const setupSessionBody = t.Object({
-  activationCode: t.String({ minLength: 1 }),
-  locale: t.Optional(t.String())
+const setupSessionBody = z.object({
+  activationCode: z.string().min(1),
+  locale: z.string().optional()
 })
 
-const pluginSelectionBody = t.Object({
-  pluginIds: t.Array(t.String({ minLength: 1 }))
+const pluginSelectionBody = z.object({
+  pluginIds: z.array(z.string().min(1))
 })
 
-const identityProviderConfigBody = t.Object({
-  adapter: t.String({ minLength: 1 }),
-  config: t.Unknown(),
-  enabled: t.Optional(t.Boolean())
+const identityProviderConfigBody = z.object({
+  adapter: z.string().min(1),
+  config: z.unknown(),
+  enabled: z.boolean().optional()
 })
 
 // Provider entries are re-validated by the service (saveLlmProviders parses each
 // with LlmProviderCreateInputSchema); the route schema describes the request
 // shape for Treaty and leaves deep option validation to the service.
-const llmProviderCreateBody = t.Object({
-  providerId: t.String({ minLength: 1 }),
-  piProvider: t.String({ minLength: 1 }),
-  baseUrl: t.Optional(t.Union([t.String(), t.Null()])),
-  apiKey: t.Optional(t.Union([t.String(), t.Null()])),
-  providerOptions: t.Optional(jsonObjectBody)
+const llmProviderCreateBody = z.object({
+  providerId: z.string().min(1),
+  piProvider: z.string().min(1),
+  baseUrl: z.string().nullable().optional(),
+  apiKey: z.string().nullable().optional(),
+  providerOptions: jsonObjectBody.optional()
 })
 
-const llmProvidersBody = t.Object({
-  providers: t.Array(llmProviderCreateBody)
+const llmProvidersBody = z.object({
+  providers: z.array(llmProviderCreateBody)
 })
 
-const llmProviderCheckBody = t.Object({
-  providerId: t.Optional(t.String({ minLength: 1 })),
-  piProvider: t.Optional(t.String({ minLength: 1 })),
-  model: t.Optional(t.String({ minLength: 1 })),
-  baseUrl: t.Optional(t.Union([t.String(), t.Null()])),
-  apiKey: t.Optional(t.Union([t.String(), t.Null()])),
-  providerOptions: t.Optional(jsonObjectBody)
+const llmProviderCheckBody = z.object({
+  providerId: z.string().min(1).optional(),
+  piProvider: z.string().min(1).optional(),
+  model: z.string().min(1).optional(),
+  baseUrl: z.string().nullable().optional(),
+  apiKey: z.string().nullable().optional(),
+  providerOptions: jsonObjectBody.optional()
 })
 
-const oidcAuthorizationQuery = t.Object({
-  return_to: t.Optional(t.String())
+const oidcAuthorizationQuery = z.object({
+  return_to: z.string().optional()
 })
 
 /**

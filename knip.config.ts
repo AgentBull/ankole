@@ -28,6 +28,10 @@ const config: KnipConfig = {
       entry: ['src/index.ts', 'src/plugins.ts'], // package "." and "./plugins" exports
       project: ['src/**/*.ts']
     },
+    'packages/computer': {
+      entry: ['client-sdk/index.ts'], // package "." export; src/ is Rust
+      project: ['client-sdk/**/*.ts']
+    },
     'plugin/lark-adapter': {
       entry: ['src/index.ts'],
       project: ['src/**/*.ts']

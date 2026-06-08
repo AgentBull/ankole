@@ -2,7 +2,7 @@ import 'reflect-metadata'
 import { redis } from 'bun'
 import { afterAll, afterEach, describe, expect, it } from 'bun:test'
 import { and, eq, sql } from 'drizzle-orm'
-import { Type } from 'typebox'
+import { z } from 'zod'
 import {
   fauxAssistantMessage,
   fauxToolCall,
@@ -1106,7 +1106,7 @@ describe('AIAgent pi-ai runtime', () => {
       name: 'prepared_echo',
       label: 'Prepared echo',
       description: 'Echoes a normalized value.',
-      parameters: Type.Object({ value: Type.String() }),
+      schema: z.object({ value: z.string() }),
       prepareArguments(args) {
         const input = typeof args === 'object' && args !== null && 'raw' in args ? (args as { raw?: unknown }).raw : ''
         return { value: String(input).trim().toUpperCase() }
@@ -1141,6 +1141,104 @@ describe('AIAgent pi-ai runtime', () => {
     expect(execution?.raw_arguments).toEqual({ raw: '  abc  ' })
     expect(execution?.llm_turn_id).toBe(toolCallTurn!.id)
     expect(execution?.idempotency_key).toBe(`llm-turn:${toolCallTurn!.id}:tool-call:${toolResult?.toolCallId}`)
+  })
+
+  it('exposes todo by default, shows compact editable progress, and hydrates active todos later', async () => {
+    const setup = await startAiAgent('todo_default_hydrate', [
+      fauxAssistantMessage([
+        fauxToolCall('todo', {
+          todos: [
+            { id: '1', content: 'Inspect repo', status: 'pending' },
+            { id: '2', content: 'Already done', status: 'completed' }
+          ]
+        })
+      ]),
+      fauxAssistantMessage('plan ready'),
+      fauxAssistantMessage('continuing from active plan')
+    ])
+    const dm = setup.platform.dm(setup.conversationOptions())
+
+    await dm.say({ id: 'm1', text: '@Agent plan this' })
+    await eventually(() => expect(setup.platform.outbound.some(event => event.text === 'plan ready')).toBe(true))
+
+    expect(
+      setup.platform.outbound.some(event => event.op === 'post' && event.text === '📋 todo: "planning 2 task(s)"')
+    ).toBe(true)
+    expect(setup.platform.outbound.some(event => event.op === 'edit' && event.text === '📋 plan 1/2 task(s)')).toBe(
+      true
+    )
+    expect(setup.platform.outbound.some(event => event.text?.includes('"todos"'))).toBe(false)
+
+    const [conversation] = await conversationsFor(setup.agentUid)
+    const firstTurns = await llmTurnsFor(conversation!.id)
+    const firstToolDefinitions = jsonObjects(firstTurns[0]?.requestPatches).flatMap(patch =>
+      patch.type === 'llm_tool_definitions' ? jsonObjects(patch.tools) : []
+    )
+    expect(firstToolDefinitions.some(tool => tool.name === 'todo')).toBe(true)
+
+    await dm.say({ id: 'm2', text: '@Agent what is still active?' })
+    await eventually(() =>
+      expect(setup.platform.outbound.some(event => event.text === 'continuing from active plan')).toBe(true)
+    )
+
+    const turns = await llmTurnsFor(conversation!.id)
+    const trajectory = reconstructLlmTurnTrajectory({
+      turns,
+      messages: await messagesFor(conversation!.id)
+    })
+    const lastRequestText = trajectory
+      .at(-1)!
+      .request.messages.flatMap(message =>
+        jsonObjects(message.content).flatMap(block => (typeof block.text === 'string' ? [block.text] : []))
+      )
+      .join('\n')
+    expect(lastRequestText).toContain('[Your active task list was preserved for this conversation]')
+    expect(lastRequestText).toContain('Inspect repo')
+    expect(lastRequestText).not.toContain('Already done')
+  })
+
+  it('drops todo progress on non-editable IM surfaces', async () => {
+    const setup = await startAiAgent(
+      'todo_no_progress',
+      [
+        fauxAssistantMessage([
+          fauxToolCall('todo', {
+            todos: [{ id: '1', content: 'Plan quietly', status: 'pending' }]
+          })
+        ]),
+        fauxAssistantMessage('quiet done')
+      ],
+      { adapterCapabilities: mockImCapabilitiesWithout('outbound', 'edit_message') }
+    )
+    const dm = setup.platform.dm(setup.conversationOptions())
+
+    await dm.say({ id: 'm1', text: '@Agent plan quietly' })
+    await eventually(() => expect(setup.platform.outbound.some(event => event.text === 'quiet done')).toBe(true))
+
+    expect(setup.platform.outbound.some(event => event.text?.includes('📋'))).toBe(false)
+    expect(setup.platform.outbound.some(event => event.text?.includes('"todos"'))).toBe(false)
+  })
+
+  it('uses assistant text as the final answer when todo is only housekeeping', async () => {
+    const setup = await startAiAgent('todo_housekeeping_text', [
+      fauxAssistantMessage([
+        { type: 'text', text: 'I will track this and start now.' },
+        fauxToolCall('todo', {
+          todos: [{ id: '1', content: 'Start now', status: 'in_progress' }]
+        })
+      ])
+    ])
+    const dm = setup.platform.dm(setup.conversationOptions())
+
+    await dm.say({ id: 'm1', text: '@Agent do it' })
+    await eventually(() =>
+      expect(setup.platform.outbound.some(event => event.text === 'I will track this and start now.')).toBe(true)
+    )
+
+    const [conversation] = await conversationsFor(setup.agentUid)
+    const turns = (await llmTurnsFor(conversation!.id)).filter(row => row.kind === 'generation')
+    expect(turns).toHaveLength(1)
+    expect(setup.platform.outbound.filter(event => event.text === 'I will track this and start now.')).toHaveLength(1)
   })
 
   it('clarify card button resolves the run, and a second click is a no-op (first interaction wins)', async () => {

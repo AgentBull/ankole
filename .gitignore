@@ -78,6 +78,8 @@ tmp/
 .turbo
 var/**
 !var/.gitkeep
+!var/computer-dev/
+!var/computer-dev/.gitkeep
 .i18n-temp.json
 .gradle/
 build/

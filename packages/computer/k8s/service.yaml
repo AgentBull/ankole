@@ -1,0 +1,14 @@
+# Headless service so each pod is addressable at
+# <worker_id>.bullx-computer.<namespace>.svc.cluster.local:8787.
+apiVersion: v1
+kind: Service
+metadata:
+  name: bullx-computer
+spec:
+  clusterIP: None
+  selector:
+    app: bullx-computer
+  ports:
+    - name: http
+      port: 8787
+      targetPort: 8787

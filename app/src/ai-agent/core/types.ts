@@ -8,10 +8,9 @@ import type {
   SimpleStreamOptions,
   streamSimple,
   TextContent,
-  Tool,
   ToolResultMessage
 } from '@earendil-works/pi-ai'
-import type { Static, TSchema } from 'typebox'
+import type { z } from 'zod'
 
 /**
  * Stream function used by the agent loop.
@@ -389,19 +388,27 @@ export interface AgentToolResult<T> {
 /** Callback used by tools to stream partial execution updates. */
 export type AgentToolUpdateCallback<T = any> = (partialResult: AgentToolResult<T>) => void
 
+export type AgentToolParametersJsonSchema = Record<string, unknown>
+
 /** Tool definition used by the agent runtime. */
-export interface AgentTool<TParameters extends TSchema = TSchema, TDetails = any> extends Tool<TParameters> {
+export interface AgentTool<TParameters extends z.ZodType = z.ZodType, TDetails = any> {
+  name: string
+  description: string
+  /** Zod schema owned by BullX business code. */
+  schema: TParameters
+  /** Plain JSON Schema generated from `schema` for pi-ai/provider payloads. */
+  parameters: AgentToolParametersJsonSchema
   /** Human-readable label for UI display. */
   label: string
   /**
    * Optional compatibility shim for raw tool-call arguments before schema validation.
    * Must return an object that matches `TParameters`.
    */
-  prepareArguments?: (args: unknown) => Static<TParameters>
+  prepareArguments?: (args: unknown) => z.output<TParameters>
   /** Execute the tool call. Throw on failure instead of encoding errors in `content`. */
   execute: (
     toolCallId: string,
-    params: Static<TParameters>,
+    params: z.output<TParameters>,
     signal?: AbortSignal,
     onUpdate?: AgentToolUpdateCallback<TDetails>
   ) => Promise<AgentToolResult<TDetails>>
