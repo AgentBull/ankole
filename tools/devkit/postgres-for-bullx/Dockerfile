@@ -7,6 +7,7 @@ LABEL org.opencontainers.image.description="PostgreSQL 18 image for BullX Agent 
 COPY ./pgsql.repo /etc/yum.repos.d/
 
 RUN dnf install -y \
+    glibc-langpack-en \
     postgresql18 \
     postgresql18-server \
     postgresql18-libs \
