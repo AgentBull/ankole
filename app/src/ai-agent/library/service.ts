@@ -14,12 +14,17 @@ import {
 } from '@/common/db-schema'
 import type { Skill } from '../core'
 import { formatSkillsForSystemPrompt } from '../core/harness/system-prompt'
-import { APP_SKILLS_ROOT, loadDefaultSoulTemplate } from './default-soul'
+import { APP_SKILLS_ROOT, INTERNALS_SKILLS_ROOT, loadDefaultSoulTemplate } from './default-soul'
 
-const SYNC_KEY = 'app/library/skills'
+const SYNC_KEY = 'app+internals/library/skills'
 const SKILL_FILE = 'SKILL.md'
 const AGENT_APPEND_FILE = 'AGENT_APPEND.md'
 const SOUL_FILE = 'SOUL.md'
+
+const BUILTIN_SKILL_ROOTS = [
+  { label: 'app', root: APP_SKILLS_ROOT },
+  { label: 'internals', root: INTERNALS_SKILLS_ROOT }
+] as const
 
 export interface LibrarySyncResult {
   changed: boolean
@@ -71,6 +76,7 @@ interface BuiltinSkillSource {
   rootPath: string
   metadata: JsonObject
   sourceHash: string
+  sourceRoot: string
   files: Array<{ virtualPath: string; content: string; sha: string }>
 }
 
@@ -444,9 +450,19 @@ async function getCanonicalSkillByName(name: string, executor: QueryExecutor) {
 }
 
 async function readBuiltinSkillSources(): Promise<BuiltinSkillSource[]> {
+  const byName = new Map<string, BuiltinSkillSource>()
+  for (const sourceRoot of BUILTIN_SKILL_ROOTS) {
+    for (const source of await readBuiltinSkillSourcesFromRoot(sourceRoot)) {
+      byName.set(source.name, source)
+    }
+  }
+  return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name))
+}
+
+async function readBuiltinSkillSourcesFromRoot(sourceRoot: { label: string; root: string }): Promise<BuiltinSkillSource[]> {
   let entries: Array<{ name: string; isDirectory(): boolean }>
   try {
-    entries = (await readdir(APP_SKILLS_ROOT, { withFileTypes: true })) as Array<{
+    entries = (await readdir(sourceRoot.root, { withFileTypes: true })) as Array<{
       name: string
       isDirectory(): boolean
     }>
@@ -457,7 +473,7 @@ async function readBuiltinSkillSources(): Promise<BuiltinSkillSource[]> {
   const sources: BuiltinSkillSource[] = []
   for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
     if (!entry.isDirectory() || entry.name.startsWith('.')) continue
-    const skillDir = path.join(APP_SKILLS_ROOT, entry.name)
+    const skillDir = path.join(sourceRoot.root, entry.name)
     const skillFile = Bun.file(path.join(skillDir, SKILL_FILE))
     if (!(await skillFile.exists())) continue
     const files = await readTextFilesRecursive(skillDir)
@@ -481,7 +497,8 @@ async function readBuiltinSkillSources(): Promise<BuiltinSkillSource[]> {
       defaultEnabled,
       rootPath: `skills/${name}`,
       metadata,
-      sourceHash: stableHash(files.map(file => `${file.virtualPath}:${file.sha}`)),
+      sourceHash: stableHash([sourceRoot.label, ...files.map(file => `${file.virtualPath}:${file.sha}`)]),
+      sourceRoot: sourceRoot.label,
       files
     })
   }

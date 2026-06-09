@@ -576,16 +576,26 @@ async function scenarioComputerCommand(setup: RuntimeSetup): Promise<void> {
     id: 'computer-1',
     isMention: true,
     text: [
-      '@Agent 你需要像数字员工一样更新自己的工作区文件和个人 SOP overlay。You must call the command tool with this exact command:',
+      '@Agent 你需要像数字员工一样更新自己的工作区文件和个人 SOP overlay。这个任务不能只靠文字确认完成。',
+      'You must call the command tool with this exact command:',
       '`mkdir -p user-files library-containers/skills/bullx-workflow && printf LLM_E2E_COMMAND_DONE > user-files/llm-e2e-command.txt && printf LLM_E2E_SOUL_FROM_COMPUTER > library-containers/SOUL.md && printf LLM_E2E_APPEND_FROM_COMPUTER > library-containers/skills/bullx-workflow/AGENT_APPEND.md && cat user-files/llm-e2e-command.txt && cat library-containers/SOUL.md && cat library-containers/skills/bullx-workflow/AGENT_APPEND.md`.',
-      'After the tool result, confirm the workspace and SOP overlay were updated and reply exactly: LLM_E2E_COMPUTER_DONE'
+      'Only after the command tool result shows LLM_E2E_COMMAND_DONE, LLM_E2E_SOUL_FROM_COMPUTER, and LLM_E2E_APPEND_FROM_COMPUTER, confirm the workspace and SOP overlay were updated and reply exactly: LLM_E2E_COMPUTER_DONE.',
+      'If you have not called the command tool, do not reply with LLM_E2E_COMPUTER_DONE.'
     ].join(' ')
   })
+
+  let conversation: Awaited<ReturnType<typeof conversationForRoom>> | undefined
+  await eventually(async () => {
+    conversation = await conversationForRoom(roomId)
+  }, 20_000)
+  assert.ok(conversation, `expected conversation for room ${roomId}`)
+  await eventually(async () => {
+    const names = await toolNamesForConversation(conversation!.id)
+    assert.ok(names.includes('command'), `missing command tool result: ${names.join(', ')}`)
+  }, 120_000)
   await waitForOutboundText(setup, 'LLM_E2E_COMPUTER_DONE', 120_000)
 
-  const conversation = await conversationForRoom(roomId)
-  const names = await toolNamesForConversation(conversation.id)
-  assert.ok(names.includes('command'), `missing command tool result: ${names.join(', ')}`)
+  conversation = await conversationForRoom(roomId)
   const serializedToolResults = JSON.stringify((await llmTurnsFor(conversation.id)).flatMap(row => row.toolResults))
   assert.match(serializedToolResults, /LLM_E2E_COMMAND_DONE/)
   assert.match(serializedToolResults, /LLM_E2E_SOUL_FROM_COMPUTER/)
