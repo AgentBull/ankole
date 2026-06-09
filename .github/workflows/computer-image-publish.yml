@@ -41,7 +41,7 @@ jobs:
           base_sha="$(git rev-parse "${head_sha}^")"
           changed_files="$(git diff --name-only "$base_sha" "$head_sha")"
 
-          if echo "$changed_files" | grep -Eq '^(packages/computer/src/|packages/computer/browser/|packages/computer/Cargo\.toml$|packages/computer/Cargo\.lock$|packages/computer/docker/Dockerfile$)'; then
+          if echo "$changed_files" | grep -Eq '^(packages/computer/src/|packages/computer/browser/|packages/computer/Cargo\.toml$|packages/computer/Cargo\.lock$|packages/computer/docker/)'; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
           else
             echo "changed=false" >> "$GITHUB_OUTPUT"
