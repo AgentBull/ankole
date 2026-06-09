@@ -13,6 +13,11 @@ import {
   type AiAgentConversationService
 } from './conversation-service'
 import { toJsonValue } from '@/common/json'
+import {
+  ambientReferenceSnippetsFromRows,
+  buildMessageContextMetadata,
+  mergeMessageContextMetadata
+} from './message-context'
 
 interface AmbientBatch {
   agentUid: string
@@ -210,16 +215,27 @@ export class AiAgentAmbientBatcher {
       })
       if (parsed.intervene) {
         const introspection = parsed.reason_summary || 'Ambient context suggests the agent should intervene.'
+        const ambientReferences = ambientReferenceSnippetsFromRows(rows.slice().reverse())
+        const messageContext = buildMessageContextMetadata(
+          {
+            ambientReferences,
+            sentAt: new Date()
+          },
+          []
+        )
         await this.conversations.appendMessage({
           conversationId,
           role: 'im_ambient',
           kind: 'introspection',
           content: textContent(introspection),
           agentMessage: createUserMessage(introspection),
-          metadata: {
-            control: { type: 'ambient_intervention' },
-            llm_turn_id: llmTurn.id
-          }
+          metadata: mergeMessageContextMetadata(
+            {
+              control: { type: 'ambient_intervention' },
+              llm_turn_id: llmTurn.id
+            },
+            messageContext
+          )
         })
       }
       return parsed

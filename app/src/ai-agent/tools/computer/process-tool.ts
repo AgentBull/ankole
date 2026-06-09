@@ -17,6 +17,9 @@ const ProcessParams = z.object({
   timeout: z.number().int().min(1).optional().describe('Max seconds to block for wait (default 60).')
 })
 
+const KILL_GRACE_MS = 3000
+const TERMINAL_STATUSES = new Set(['finished', 'killed', 'error'])
+
 interface ProcessDetails {
   action: string
   sessionId?: string
@@ -100,7 +103,7 @@ export function createProcessTool(context: ComputerToolContext): AgentTool<typeo
           }
         }
         case 'kill': {
-          await command.kill('SIGTERM', { abortSignal: signal })
+          await killGracefully(command, signal)
           context.backgroundIds.delete(sessionId)
           return jsonResult(
             { session_id: sessionId, status: 'killed' },
@@ -112,4 +115,28 @@ export function createProcessTool(context: ComputerToolContext): AgentTool<typeo
       }
     }
   })
+}
+
+async function killGracefully(
+  command: {
+    kill(signal?: string | number, opts?: { abortSignal?: AbortSignal }): Promise<void>
+    status(opts?: { signal?: AbortSignal }): Promise<{ status: string }>
+    wait(opts?: { signal?: AbortSignal }): Promise<unknown>
+  },
+  signal?: AbortSignal
+): Promise<void> {
+  await command.kill('SIGTERM', { abortSignal: signal })
+  try {
+    await command.wait({
+      signal: signal
+        ? AbortSignal.any([signal, AbortSignal.timeout(KILL_GRACE_MS)])
+        : AbortSignal.timeout(KILL_GRACE_MS)
+    })
+  } catch {
+    // Grace period expired or caller aborted; status check below decides whether force is needed.
+  }
+  const status = await command.status({ signal })
+  if (!TERMINAL_STATUSES.has(status.status)) {
+    await command.kill('SIGKILL', { abortSignal: signal })
+  }
 }

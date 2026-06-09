@@ -8,8 +8,12 @@ export interface LlmErrorClassification {
 }
 
 export function classifyLlmError(error: unknown): LlmErrorClassification {
-  const status = statusFromError(error)
-  const code = codeFromError(error)
+  const status = findErrorProperty(error, ['status', 'statusCode', 'code'], value => {
+    const parsed = typeof value === 'number' ? value : typeof value === 'string' ? Number.parseInt(value, 10) : NaN
+    return Number.isInteger(parsed) && parsed >= 100 && parsed <= 599 ? parsed : undefined
+  })
+  const code =
+    findErrorProperty(error, ['code'], value => (typeof value === 'string' ? value.toLowerCase() : undefined)) ?? ''
   const message = messageFromError(error)
 
   if (status === 401 || status === 403 || includesAny(code, ['401', '403', 'auth', 'unauthorized', 'forbidden'])) {
@@ -18,29 +22,82 @@ export function classifyLlmError(error: unknown): LlmErrorClassification {
 
   if (
     status === 429 ||
-    includesAny(code, ['429', 'rate_limit', 'rate-limit', 'ratelimit']) ||
-    includesAny(message, ['rate limit', 'rate_limit', 'too many requests', 'retry after'])
+    includesAny(code, ['429', 'rate_limit', 'rate-limit', 'ratelimit', 'resource_exhausted', 'throttlingexception']) ||
+    includesAny(message, [
+      'rate limit',
+      'rate_limit',
+      'too many requests',
+      'retry after',
+      'resource exhausted',
+      'throttlingexception',
+      'tokens per minute',
+      'requests per minute',
+      'model_cooldown',
+      '请求过于频繁',
+      '频率限制',
+      '配额已用尽'
+    ]) ||
+    (status === 413 && includesAny(message, ['tpm', 'tokens per minute']))
   ) {
     return classified('rate_limit', true, false, true)
   }
 
   if (
     status === 408 ||
-    includesAny(code, ['timeout', 'timedout', 'etimedout', 'aborterror']) ||
-    includesAny(message, ['timeout', 'timed out', 'deadline exceeded', 'socket hang up', 'econnreset'])
+    includesAny(code, ['timeout', 'timedout', 'etimedout', 'aborterror', 'und_err_socket']) ||
+    includesAny(message, [
+      'timeout',
+      'timed out',
+      'deadline exceeded',
+      'socket hang up',
+      'econnreset',
+      'und_err_socket',
+      'und_err_connect',
+      'und_err_headers',
+      'und_err_body',
+      'operation was aborted',
+      'stream_read_error',
+      'terminated'
+    ])
   ) {
     return classified('timeout', true, false, true)
   }
 
   if (
     (typeof status === 'number' && status >= 500) ||
-    includesAny(code, ['500', '502', '503', '504', 'server_error', 'internal']) ||
-    includesAny(message, ['internal server error', 'bad gateway', 'service unavailable', 'gateway timeout'])
+    status === 529 ||
+    includesAny(code, ['500', '502', '503', '504', '529', 'server_error', 'internal', 'overloaded_error']) ||
+    includesAny(message, [
+      'internal server error',
+      'bad gateway',
+      'service unavailable',
+      'gateway timeout',
+      'overloaded',
+      'capacity',
+      'temporarily unavailable'
+    ])
   ) {
     return classified('server', true, false, true)
   }
 
-  if (includesAny(message, ['context window', 'context length', 'maximum context', 'too many tokens'])) {
+  if (
+    includesAny(message, [
+      'context window',
+      'context length',
+      'maximum context',
+      'too many tokens',
+      'prompt is too long',
+      'context_window_exceeded',
+      'model_context_window_exceeded',
+      'context overflow',
+      'exceed context limit',
+      'exceeds model context window',
+      '上下文过长',
+      '上下文长度',
+      '请压缩上下文',
+      '超过最大上下文'
+    ])
+  ) {
     return classified('overflow', false, true, false)
   }
 
@@ -60,26 +117,50 @@ function classified(
   return { kind, retryable, shouldCompress, shouldFallbackProvider }
 }
 
-function statusFromError(error: unknown): number | undefined {
-  if (!error || typeof error !== 'object') return undefined
-  for (const key of ['status', 'statusCode', 'code']) {
-    const value = (error as Record<string, unknown>)[key]
-    const parsed = typeof value === 'number' ? value : typeof value === 'string' ? Number.parseInt(value, 10) : NaN
-    if (Number.isInteger(parsed) && parsed >= 100 && parsed <= 599) return parsed
-  }
-  return undefined
-}
-
-function codeFromError(error: unknown): string {
-  if (!error || typeof error !== 'object') return ''
-  const code = (error as Record<string, unknown>).code
-  return typeof code === 'string' ? code.toLowerCase() : ''
-}
-
 function messageFromError(error: unknown): string {
-  return error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase()
+  const messages: string[] = []
+  collectMessages(error, messages, new WeakSet<object>())
+  return messages.join('\n').toLowerCase()
 }
 
 function includesAny(text: string, needles: string[]): boolean {
   return needles.some(needle => text.includes(needle))
+}
+
+function findErrorProperty<T>(
+  error: unknown,
+  keys: string[],
+  parse: (value: unknown) => T | undefined,
+  seen = new WeakSet<object>(),
+  depth = 0
+): T | undefined {
+  if (!error || typeof error !== 'object' || seen.has(error) || depth > 25) return undefined
+  seen.add(error)
+  const record = error as Record<string, unknown>
+  for (const key of keys) {
+    const parsed = parse(record[key])
+    if (parsed !== undefined) return parsed
+  }
+  for (const key of ['cause', 'error', 'response']) {
+    const parsed = findErrorProperty(record[key], keys, parse, seen, depth + 1)
+    if (parsed !== undefined) return parsed
+  }
+}
+
+function collectMessages(error: unknown, messages: string[], seen: WeakSet<object>, depth = 0): void {
+  if (error === undefined || error === null || depth > 25) return
+  if (typeof error === 'string') {
+    messages.push(error)
+    return
+  }
+  if (typeof error !== 'object') {
+    messages.push(String(error))
+    return
+  }
+  if (seen.has(error)) return
+  seen.add(error)
+  const record = error as Record<string, unknown>
+  if (error instanceof Error) messages.push(error.message)
+  else if (typeof record.message === 'string') messages.push(record.message)
+  for (const key of ['cause', 'error', 'response']) collectMessages(record[key], messages, seen, depth + 1)
 }

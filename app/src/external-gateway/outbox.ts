@@ -4,6 +4,7 @@ import { and, asc, eq, sql } from 'drizzle-orm'
 import { DB, jsonbParam } from '@/common/database'
 import { ExternalGatewayOutbox, type JsonObject } from '@/common/db-schema'
 import { logger } from '@/common/logger'
+import { redactSensitiveText } from '@/security/redact'
 import type { AgentResult } from '@/principals/agents/service'
 import { adapterSupportsCapability, requireOutboundCapability } from './core/capabilities'
 import { UnsupportedChannelCapabilityError } from './core/errors'
@@ -59,6 +60,20 @@ type ExternalGatewayOutboxKey = Pick<
 
 const IDEMPOTENT_SEND_REPLAY_WINDOW_MS = 55 * 60 * 1000
 const MAX_OUTBOX_RETRY_COUNT = 5
+const OUTBOX_BACKOFF_MS = [5_000, 25_000, 120_000, 600_000] as const
+const PERMANENT_DELIVERY_ERROR_PATTERNS = [
+  /no conversation reference found/i,
+  /chat not found/i,
+  /user not found/i,
+  /bot.*not.*member/i,
+  /bot was blocked by the user/i,
+  /forbidden: bot was kicked/i,
+  /chat_id is empty/i,
+  /recipient is not a valid/i,
+  /outbound not configured for channel/i,
+  /ambiguous .* recipient/i,
+  /User .* not in room/i
+] as const
 
 /**
  * Executes provider-visible side effects requested by the agent.
@@ -102,7 +117,9 @@ export class DrizzleExternalGatewayOutbox {
           eq(ExternalGatewayOutbox.bindingName, input.bindingName),
           eq(ExternalGatewayOutbox.status, 'pending'),
           sql`${ExternalGatewayOutbox.retryCount} < ${MAX_OUTBOX_RETRY_COUNT}`,
-          sql`(${ExternalGatewayOutbox.lastAttemptAt} is null or ${ExternalGatewayOutbox.lastAttemptAt} < now() - (interval '2 seconds' * greatest(1, ${ExternalGatewayOutbox.retryCount})))`
+          sql`(${ExternalGatewayOutbox.lastAttemptAt} is null or ${ExternalGatewayOutbox.lastAttemptAt} < now() - (${outboxBackoffSecondsSql(
+            ExternalGatewayOutbox.retryCount
+          )} * interval '1 second'))`
         )
       )
       .orderBy(asc(ExternalGatewayOutbox.createdAt))
@@ -312,7 +329,22 @@ export class DrizzleExternalGatewayOutbox {
     adapter: ExternalGatewayAdapter,
     error: unknown
   ): Promise<typeof ExternalGatewayOutbox.$inferSelect> {
-    const reason = error instanceof Error ? error.message : String(error)
+    const reason = redactSensitiveText(error instanceof Error ? error.message : String(error))
+    if (isPermanentDeliveryError(reason)) {
+      const [row] = await DB.update(ExternalGatewayOutbox)
+        .set({
+          status: 'failed',
+          recoveryState: 'not_started',
+          lastAttemptAt: new Date(),
+          lastError: reason,
+          safeError: reason,
+          updatedAt: sql`now()`
+        })
+        .where(outboxKeyWhere(key))
+        .returning()
+      if (!row) throw new ExternalGatewayOutboxError(`Failed to mark outbox ${key.outboundKey} failed`)
+      return row
+    }
     if (adapterSupportsCapability(adapter, 'outbound', 'outbound_idempotency')) {
       const [row] = await DB.update(ExternalGatewayOutbox)
         .set({
@@ -690,6 +722,19 @@ function roomFromIntent(
         ? room.roomVisibility
         : (adapter.getChannelVisibility?.(intent.providerThreadId) ?? 'unknown')
   }
+}
+
+function isPermanentDeliveryError(error: string): boolean {
+  return PERMANENT_DELIVERY_ERROR_PATTERNS.some(pattern => pattern.test(error))
+}
+
+function outboxBackoffSecondsSql(retryCount: typeof ExternalGatewayOutbox.retryCount) {
+  return sql`case
+    when ${retryCount} <= 1 then ${Math.ceil(OUTBOX_BACKOFF_MS[0] / 1000)}
+    when ${retryCount} = 2 then ${Math.ceil(OUTBOX_BACKOFF_MS[1] / 1000)}
+    when ${retryCount} = 3 then ${Math.ceil(OUTBOX_BACKOFF_MS[2] / 1000)}
+    else ${Math.ceil(OUTBOX_BACKOFF_MS[3] / 1000)}
+  end`
 }
 
 export class ExternalGatewayOutboxError extends Error {

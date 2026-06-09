@@ -17,6 +17,7 @@ use crate::ndjson::ndjson_stream;
 use crate::state::AppState;
 
 const DEFAULT_TIMEOUT_MS: u64 = 60_000;
+const KILL_GRACE_MS: u64 = 3_000;
 
 #[derive(Deserialize)]
 pub struct CommandBody {
@@ -113,6 +114,8 @@ pub async fn run_command(
         yield json!({ "command": { "id": id, "status": status.as_str(), "exitCode": exit_code } });
       }
       Err(_) => {
+        let _ = commands_session.commands.kill(&id, Some("SIGTERM"));
+        tokio::time::sleep(Duration::from_millis(KILL_GRACE_MS)).await;
         let _ = commands_session.commands.kill(&id, Some("SIGKILL"));
         yield json!({ "command": { "id": id, "status": "killed", "exitCode": 124 } });
       }

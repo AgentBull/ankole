@@ -1,6 +1,8 @@
 // oxlint-disable no-control-regex
 /** Shared formatting helpers for the computer tools (output limits, line numbering). */
 
+import { sanitizeBinaryOutput, truncateUtf16Safe } from '@/common/text-sanitize'
+
 export const MAX_OUTPUT_CHARS = 50_000
 export const MAX_READ_CHARS = 100_000
 const MAX_LINE_LENGTH = 2000
@@ -21,12 +23,18 @@ export function stripAnsi(text: string): string {
 
 /** Truncate large output keeping head (40%) + tail (60%), matching hermes parity. */
 export function truncateOutput(text: string, max = MAX_OUTPUT_CHARS): string {
-  const cleaned = stripAnsi(text)
+  const cleaned = sanitizeBinaryOutput(stripAnsi(text))
   if (cleaned.length <= max) return cleaned
   const head = Math.floor(max * 0.4)
   const tail = max - head
   const omitted = cleaned.length - max
-  return `${cleaned.slice(0, head)}\n... [output truncated — ${omitted} chars omitted of ${cleaned.length} total] ...\n${cleaned.slice(cleaned.length - tail)}`
+  const prefix = truncateUtf16Safe(cleaned, head)
+  const suffixStart = cleaned.length - tail
+  const suffix =
+    suffixStart > 0 && isLowSurrogate(cleaned.charCodeAt(suffixStart))
+      ? cleaned.slice(suffixStart + 1)
+      : cleaned.slice(suffixStart)
+  return `${prefix}\n... [output truncated — ${omitted} chars omitted of ${cleaned.length} total] ...\n${suffix}`
 }
 
 export interface NumberedLines {
@@ -45,7 +53,11 @@ export function numberLines(content: string, offset: number, limit: number): Num
   const text = slice
     .map((line, index) => {
       const lineNumber = start + index
-      const rendered = line.length > MAX_LINE_LENGTH ? `${line.slice(0, MAX_LINE_LENGTH)}... [line truncated]` : line
+      const safeLine = sanitizeBinaryOutput(line)
+      const rendered =
+        safeLine.length > MAX_LINE_LENGTH
+          ? `${truncateUtf16Safe(safeLine, MAX_LINE_LENGTH)}... [line truncated]`
+          : safeLine
       return `${lineNumber}|${rendered}`
     })
     .join('\n')
@@ -55,6 +67,10 @@ export function numberLines(content: string, offset: number, limit: number): Num
 /** Heuristic binary check: a NUL byte in the first 8 KB. */
 export function looksBinary(buffer: Buffer): boolean {
   return buffer.subarray(0, 8192).includes(0)
+}
+
+function isLowSurrogate(value: number): boolean {
+  return value >= 0xdc00 && value <= 0xdfff
 }
 
 /**

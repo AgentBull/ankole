@@ -5,6 +5,7 @@
  * `utils/generators.ts`, and `services/api/withRetry.ts`. Kept dependency-free
  * and Bun-native.
  */
+import { retryAfterMsFromError } from './retry-after'
 
 /**
  * Run `thunks` with at most `cap` in flight at once, returning results in input
@@ -129,7 +130,9 @@ export async function withRetry<T>(
       return await fn()
     } catch (error) {
       if (attempt >= maxAttempts || opts.signal?.aborted || !isRetryable(error)) throw error
-      await abortableSleep(jitteredBackoff(attempt, opts), opts.signal)
+      const retryAfterMs = retryAfterMsFromError(error)
+      const backoffMs = jitteredBackoff(attempt, opts)
+      await abortableSleep(retryAfterMs === undefined ? backoffMs : Math.max(backoffMs, retryAfterMs), opts.signal)
       if (opts.signal?.aborted) throw error
     }
   }

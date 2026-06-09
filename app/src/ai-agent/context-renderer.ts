@@ -8,6 +8,7 @@ import {
 import { numberFromPath, toJsonValue } from '@/common/json'
 import type { JsonValue } from '@/common/db-schema'
 import { stripHistoricalMedia } from './media'
+import { renderMessageWithContext } from './message-context'
 import { microcompact } from './microcompact'
 import { estimateContextTokensJsonAware } from './token-estimate'
 
@@ -27,6 +28,7 @@ export class AiAgentContextRenderer {
     options?: { microcompact?: { keepRecent: number; triggerTokens: number } }
   ): Promise<RenderedAiAgentContext> {
     const rows = await this.conversations.renderedMessages(conversationId)
+    const sourceMessages: AgentMessage[] = []
     const messages: AgentMessage[] = []
     const inputMessageIds: string[] = []
     const inputMessageRefs: JsonValue[] = []
@@ -37,19 +39,21 @@ export class AiAgentContextRenderer {
       if (projection === 'skip') continue
       if (projection === 'summary') {
         summaryMessageId = row.id
-        messages.push(
-          createCompactionSummaryMessage(
-            textFromContent(row.content),
-            numberFromPath(row.metadata, ['compression', 'tokens_before']) ?? 0,
-            row.createdAt.toISOString()
-          )
+        const summaryMessage = createCompactionSummaryMessage(
+          textFromContent(row.content),
+          numberFromPath(row.metadata, ['compression', 'tokens_before']) ?? 0,
+          row.createdAt.toISOString()
         )
+        sourceMessages.push(summaryMessage)
+        messages.push(summaryMessage)
         inputMessageIds.push(row.id)
         inputMessageRefs.push(messageRef(row))
         continue
       }
 
-      messages.push(row.agentMessage as unknown as AgentMessage)
+      const sourceMessage = row.agentMessage as unknown as AgentMessage
+      sourceMessages.push(sourceMessage)
+      messages.push(renderMessageWithContext(sourceMessage, row.metadata))
       inputMessageIds.push(row.id)
       inputMessageRefs.push(messageRef(row))
     }
@@ -64,9 +68,10 @@ export class AiAgentContextRenderer {
         : messages
     const messagesForModel = stripHistoricalMedia(messagesAfterMicrocompact)
     const modelViewPatches = buildModelViewPatches(
-      messages,
+      sourceMessages,
       messagesForModel,
       inputMessageRefs,
+      messages,
       messagesAfterMicrocompact
     )
 
@@ -95,13 +100,19 @@ function buildModelViewPatches(
   sourceMessages: AgentMessage[],
   modelMessages: AgentMessage[],
   inputMessageRefs: JsonValue[],
+  messagesWithContext: AgentMessage[],
   messagesAfterMicrocompact: AgentMessage[]
 ): JsonValue[] {
   return modelMessages.flatMap((message, index) => {
     const source = sourceMessages[index]
     if (!source || sameJson(source, message)) return []
+    const withContext = messagesWithContext[index]
     const microcompacted = messagesAfterMicrocompact[index]
-    const reason = microcompacted && !sameJson(source, microcompacted) ? 'microcompact' : 'historical_media_strip'
+    const reasons: string[] = []
+    if (withContext && !sameJson(source, withContext)) reasons.push('message_context')
+    if (microcompacted && withContext && !sameJson(withContext, microcompacted)) reasons.push('microcompact')
+    if (microcompacted && !sameJson(microcompacted, message)) reasons.push('historical_media_strip')
+    const reason = reasons.length > 0 ? reasons.join('+') : 'model_view_transform'
     return [
       {
         type: 'message_override',

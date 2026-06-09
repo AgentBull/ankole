@@ -15,6 +15,7 @@ import {
 } from '@earendil-works/pi-ai'
 import { isPlainObject } from '@pleisto/active-support'
 import { withRetry } from '@/common/async'
+import { redactJsonValue, redactSensitiveText } from '@/security/redact'
 import { isRetryableLlmError } from './llm-error-classifier'
 import type {
   AgentContext,
@@ -80,6 +81,7 @@ function sanitizeToolPairs(messages: Message[]): Message[] {
     }
     if (message.role === 'assistant') {
       sanitized.push(ensureNonEmptyAssistant(message))
+      if (message.stopReason === 'error' || message.stopReason === 'aborted') continue
       for (const block of message.content) {
         if (block.type === 'toolCall' && !resultIds.has(block.id) && !stubbed.has(block.id)) {
           stubbed.add(block.id)
@@ -886,11 +888,22 @@ async function finalizeExecutedToolCall(
     }
   }
 
+  result = redactToolResult(result)
   return {
     args: prepared.args,
     toolCall: prepared.toolCall,
     result,
     isError
+  }
+}
+
+function redactToolResult(result: AgentToolResult<any>): AgentToolResult<any> {
+  return {
+    ...result,
+    content: result.content.map(block =>
+      block.type === 'text' ? { ...block, text: redactSensitiveText(block.text) } : block
+    ),
+    details: redactJsonValue(result.details)
   }
 }
 

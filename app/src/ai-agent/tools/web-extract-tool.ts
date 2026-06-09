@@ -5,6 +5,7 @@ import { buildTool } from './build-tool'
 import { WebExtractProviderConfig } from '../web/config'
 import { type WebExtractResult, type WebProvider, WebProviderError } from '../web/provider'
 import { webProviderRegistry } from '../web/registry'
+import { wrapWebContent } from '@/security/external-content'
 
 const WebExtractParams = z.object({
   urls: z
@@ -27,7 +28,7 @@ function formatResults(results: WebExtractResult[]): string {
     .map(result => {
       if (result.error) return `# ${result.url}\n[error] ${result.error}`
       const heading = result.title ? `# ${result.title}\n${result.url}` : `# ${result.url}`
-      return `${heading}\n\n${result.text}`
+      return `${heading}\n\n${wrapWebContent(result.text, 'web_fetch')}`
     })
     .join('\n\n---\n\n')
 }

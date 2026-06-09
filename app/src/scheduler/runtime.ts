@@ -10,6 +10,7 @@ import { externalGatewayProjectionSink } from '@/external-gateway/core/projectio
 import { aiAgentRuntime, type AiAgentProgrammaticTurnResult } from '@/ai-agent/runtime'
 import { textFromContent } from '@/ai-agent/conversation-service'
 import { getAgent, type AgentResult } from '@/principals/agents/service'
+import { redactSensitiveText } from '@/security/redact'
 import type { AiAgentCheckbacks, ScheduledTasks, SchedulerRunStatus } from '@/common/db-schema'
 import { loadSystemTimezone } from '@/config/system'
 import { computeNextRun } from './schedule'
@@ -24,6 +25,7 @@ const DEFAULT_FAILURE_ALERT_COOLDOWN_MS = ms('1h')
 const DEFAULT_TASK_RUN_TIMEOUT_MS = ms('30m')
 const CRON_CATCHUP_MIN_GRACE_MS = ms('2m')
 const CRON_CATCHUP_MAX_GRACE_MS = ms('2h')
+const MAX_SCHEDULE_ERRORS = 3
 
 export interface SchedulerRuntimeStats {
   instanceId: string
@@ -79,6 +81,16 @@ export class SchedulerRuntime implements Runtime<SchedulerRuntimeStats> {
     }) as unknown as { stop(): unknown; unref(): unknown }
     this.heartbeat.unref()
     logger.info(this.stats(), 'Scheduler runtime started')
+    try {
+      const recoveredRuns = await this.store.recoverOrphanedTaskRuns({
+        error: 'scheduler runtime restarted before run completed',
+        now: new Date(),
+        retryAt: new Date(Date.now() + backoffMs(0))
+      })
+      if (recoveredRuns > 0) logger.warn({ recoveredRuns }, 'Recovered orphaned scheduler task runs')
+    } catch (error) {
+      logger.error({ error }, 'Scheduler orphaned task run recovery failed')
+    }
     this.runTick('catchup').catch(error => {
       logger.error({ error }, 'Scheduler startup tick failed')
     })
@@ -195,7 +207,28 @@ export class SchedulerRuntime implements Runtime<SchedulerRuntimeStats> {
       trigger
     })
     const timezone = await loadSystemTimezone()
-    const staleCatchup = staleCronCatchup({ now: new Date(), scheduledFor, task, timezone, trigger })
+    let staleCatchup: ReturnType<typeof staleCronCatchup>
+    try {
+      staleCatchup = staleCronCatchup({ now: new Date(), scheduledFor, task, timezone, trigger })
+    } catch (caught) {
+      const finishedAt = new Date()
+      const error = `schedule error: ${errorMessage(caught)}`
+      const disableTask = task.consecutiveFailures + 1 >= MAX_SCHEDULE_ERRORS
+      await this.store.completeTaskRun({
+        delivered: false,
+        disableTask,
+        error,
+        instanceId: this.instanceId,
+        metadata: { schedule_error: true },
+        nextRunAt: disableTask ? null : new Date(finishedAt.getTime() + backoffMs(task.consecutiveFailures)),
+        runId: run.id,
+        status: 'failed',
+        taskId: task.id
+      })
+      await this.maybeRecordFailureAlert(task, error)
+      logger.error({ error: caught, taskId: task.id, runId: run.id }, 'Scheduled task schedule calculation failed')
+      return
+    }
     if (staleCatchup) {
       await this.store.completeTaskRun({
         delivered: false,
@@ -279,14 +312,27 @@ export class SchedulerRuntime implements Runtime<SchedulerRuntimeStats> {
     }
 
     const finishedAt = new Date()
-    const nextRunAt = !task.enabled
-      ? null
-      : status === 'succeeded'
-        ? computeNextRun({ schedule: task.schedule, after: finishedAt, taskId: task.id, timezone })
-        : new Date(finishedAt.getTime() + backoffMs(task.consecutiveFailures))
+    let disableTask = false
+    let nextRunAt: Date | null = null
+    if (task.enabled) {
+      if (status === 'succeeded') {
+        try {
+          nextRunAt = computeNextRun({ schedule: task.schedule, after: finishedAt, taskId: task.id, timezone })
+        } catch (caught) {
+          status = 'failed'
+          error = `schedule error: ${errorMessage(caught)}`
+          disableTask = task.consecutiveFailures + 1 >= MAX_SCHEDULE_ERRORS
+          nextRunAt = disableTask ? null : new Date(finishedAt.getTime() + backoffMs(task.consecutiveFailures))
+          logger.error({ error: caught, taskId: task.id, runId: run.id }, 'Scheduled task next-run calculation failed')
+        }
+      } else {
+        nextRunAt = new Date(finishedAt.getTime() + backoffMs(task.consecutiveFailures))
+      }
+    }
     await this.store.completeTaskRun({
       conversationId: result?.conversationId,
       delivered: result?.enqueuedOutput ?? false,
+      disableTask,
       error,
       instanceId: this.instanceId,
       metadata: result ? checkbackCompletionMetadata(result, timedOut) : {},
@@ -324,6 +370,9 @@ export class SchedulerRuntime implements Runtime<SchedulerRuntimeStats> {
     if (task.lastAlertAt && now.getTime() - task.lastAlertAt.getTime() < this.failureAlertCooldownMs) return
 
     await this.store.recordTaskFailureAlert(task.id, now)
+    await this.enqueueFailureAlert(task, nextFailureCount, error, now).catch(caught => {
+      logger.error({ error: caught, taskId: task.id }, 'Failed to enqueue scheduled task failure alert')
+    })
     logger.warn(
       {
         agentUid: task.agentUid,
@@ -334,6 +383,37 @@ export class SchedulerRuntime implements Runtime<SchedulerRuntimeStats> {
       },
       'Scheduled task reached consecutive failure alert threshold'
     )
+  }
+
+  private async enqueueFailureAlert(
+    task: ScheduledTaskRow,
+    consecutiveFailures: number,
+    error: string | undefined,
+    now: Date
+  ): Promise<void> {
+    const delivery = task.delivery
+    if (!delivery) return
+    const bindingName = delivery.binding_name
+    const providerRoomId = delivery.room_id
+    const providerThreadId = delivery.thread_id ?? providerRoomId
+    if (!bindingName || !providerRoomId) return
+    const lastError = redactSensitiveText((error?.trim() || 'unknown reason').slice(0, 200))
+    const text = [
+      `Scheduled task "${task.name}" failed ${consecutiveFailures} times.`,
+      `Last error: ${lastError}`
+    ].join('\n')
+    await externalGatewayOutbox.enqueuePending({
+      agentUid: task.agentUid,
+      bindingName,
+      intent: {
+        finalPayload: { text },
+        operation: 'post',
+        outboundKey: `scheduler-failure-alert:${task.id}:${now.toISOString()}`,
+        providerRoomId,
+        providerThreadId
+      }
+    })
+    externalGatewayRuntime.triggerOutboxDrain(task.agentUid, bindingName)
   }
 }
 

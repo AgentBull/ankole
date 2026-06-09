@@ -289,6 +289,7 @@ export class SchedulerStore {
   async completeTaskRun(input: {
     conversationId?: string
     delivered: boolean
+    disableTask?: boolean
     error?: string | null
     metadata?: JsonObject
     nextRunAt: Date | null
@@ -317,6 +318,7 @@ export class SchedulerStore {
         .update(ScheduledTasks)
         .set({
           nextRunAt: input.nextRunAt,
+          enabled: input.disableTask ? false : sql`${ScheduledTasks.enabled}`,
           lastRunAt: new Date(),
           previousRunAt: sql`${ScheduledTasks.nextRunAt}`,
           lastStatus: input.status === 'running' ? null : input.status,
@@ -328,6 +330,51 @@ export class SchedulerStore {
           updatedAt: sql`now()`
         })
         .where(and(eq(ScheduledTasks.id, input.taskId), eq(ScheduledTasks.claimedBy, input.instanceId)))
+    })
+  }
+
+  async recoverOrphanedTaskRuns(input: { error: string; now: Date; retryAt: Date }): Promise<number> {
+    return DB.transaction(async tx => {
+      const runs = await tx
+        .select({
+          id: ScheduledTaskRuns.id,
+          taskId: ScheduledTaskRuns.taskId
+        })
+        .from(ScheduledTaskRuns)
+        .where(eq(ScheduledTaskRuns.status, 'running'))
+        .for('update', { skipLocked: true })
+        .limit(1000)
+
+      for (const run of runs) {
+        await tx
+          .update(ScheduledTaskRuns)
+          .set({
+            status: 'failed',
+            finishedAt: input.now,
+            error: input.error,
+            metadata: jsonbParam({ recovered_orphan: true }),
+            updatedAt: sql`now()`
+          })
+          .where(and(eq(ScheduledTaskRuns.id, run.id), eq(ScheduledTaskRuns.status, 'running')))
+
+        await tx
+          .update(ScheduledTasks)
+          .set({
+            nextRunAt: sql`case when ${ScheduledTasks.nextRunAt} is null or ${ScheduledTasks.nextRunAt} <= ${input.now} then ${input.retryAt} else ${ScheduledTasks.nextRunAt} end`,
+            lastRunAt: input.now,
+            previousRunAt: sql`${ScheduledTasks.nextRunAt}`,
+            lastStatus: 'failed',
+            lastRunId: run.id,
+            consecutiveFailures: sql`${ScheduledTasks.consecutiveFailures} + 1`,
+            claimedBy: null,
+            claimedAt: null,
+            leaseExpiresAt: null,
+            updatedAt: sql`now()`
+          })
+          .where(eq(ScheduledTasks.id, run.taskId))
+      }
+
+      return runs.length
     })
   }
 

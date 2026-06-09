@@ -4,6 +4,8 @@ import type { ScheduledTaskSchedule } from '@/common/db-schema'
 
 const EXPLICIT_OFFSET = /(z|[+-]\d{2}:?\d{2})$/i
 const LOCAL_DATE_TIME = /^(\d{4})-(\d{2})-(\d{2})(?:[T\s](\d{2}):(\d{2})(?::(\d{2}))?)?$/
+const DEFAULT_TOP_OF_HOUR_STAGGER_MS = 5 * 60 * 1000
+const TEN_YEARS_MS = 10 * 365.25 * 24 * 60 * 60 * 1000
 
 export const ScheduledTaskScheduleSchema = z.discriminatedUnion('kind', [
   z
@@ -39,13 +41,26 @@ export function computeNextRun(input: {
 }): Date {
   if (input.schedule.kind === 'every') return nextEveryRun(input.schedule, input.after)
 
-  const offset = timezoneOffsetMs(input.timezone, input.after)
-  const localAfter = new Date(input.after.getTime() + offset)
-  const parsed = Bun.cron.parse(input.schedule.expression, localAfter)
-  if (!parsed) throw new SchedulerScheduleError(`Invalid cron expression: ${input.schedule.expression}`)
+  const staggerMs = resolveCronStaggerMs(input.schedule)
+  const offsetMs = stableOffset(input.taskId, staggerMs)
+  if (offsetMs <= 0) return computeCronBaseNextRun(input.schedule.expression, input.after, input.timezone)
 
-  const stagger = input.schedule.stagger_ms ? stableOffset(input.taskId, input.schedule.stagger_ms) : 0
-  return new Date(parsed.getTime() - offset + stagger)
+  let cursor = new Date(Math.max(0, input.after.getTime() - offsetMs))
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const baseNext = computeCronBaseNextRun(input.schedule.expression, cursor, input.timezone)
+    const shifted = new Date(baseNext.getTime() + offsetMs)
+    if (shifted > input.after) return shifted
+    cursor = new Date(Math.max(cursor.getTime() + 1, baseNext.getTime() + 1_000))
+  }
+  throw new SchedulerScheduleError(`Unable to compute staggered cron expression: ${input.schedule.expression}`)
+}
+
+function computeCronBaseNextRun(expression: string, after: Date, timezone: string): Date {
+  const offset = timezoneOffsetMs(timezone, after)
+  const localAfter = new Date(after.getTime() + offset)
+  const parsed = Bun.cron.parse(expression, localAfter)
+  if (!parsed) throw new SchedulerScheduleError(`Invalid cron expression: ${expression}`)
+  return new Date(parsed.getTime() - offset)
 }
 
 export function validateCronExpression(expression: string): void {
@@ -64,9 +79,9 @@ export function resolveCheckbackDueAt(input: {
   if (!input.after && !input.at) throw new SchedulerScheduleError('Provide exactly one of after or at')
 
   const now = input.now ?? new Date()
-  if (input.after) return new Date(now.getTime() + afterToMs(input.after))
+  if (input.after) return assertDueAtWithinBounds(new Date(now.getTime() + afterToMs(input.after)), now)
 
-  return parseScheduledAt(input.at!, input.timezone)
+  return assertDueAtWithinBounds(parseScheduledAt(input.at!, input.timezone), now)
 }
 
 export function parseScheduledAt(value: string, timezone: string): Date {
@@ -110,12 +125,40 @@ function afterToMs(after: CheckBackLaterAfter): number {
 }
 
 function stableOffset(input: string, modulo: number): number {
+  if (modulo <= 1) return 0
   let hash = 2166136261
   for (let index = 0; index < input.length; index++) {
     hash ^= input.charCodeAt(index)
     hash = Math.imul(hash, 16777619)
   }
   return Math.abs(hash) % modulo
+}
+
+function resolveCronStaggerMs(schedule: Extract<ScheduledTaskSchedule, { kind: 'cron' }>): number {
+  if (schedule.stagger_ms !== undefined) return Math.max(0, Math.floor(schedule.stagger_ms))
+  return isRecurringTopOfHourCronExpr(schedule.expression) ? DEFAULT_TOP_OF_HOUR_STAGGER_MS : 0
+}
+
+function isRecurringTopOfHourCronExpr(expression: string): boolean {
+  const fields = expression.trim().split(/\s+/).filter(Boolean)
+  if (fields.length === 5) {
+    const [minuteField, hourField] = fields
+    return minuteField === '0' && hourField.includes('*')
+  }
+  if (fields.length === 6) {
+    const [secondField, minuteField, hourField] = fields
+    return secondField === '0' && minuteField === '0' && hourField.includes('*')
+  }
+  return false
+}
+
+function assertDueAtWithinBounds(dueAt: Date, now: Date): Date {
+  if (dueAt.getTime() - now.getTime() > TEN_YEARS_MS) {
+    throw new SchedulerScheduleError(
+      `Scheduled time is too far in the future: ${dueAt.toISOString()}. Maximum allowed: 10 years`
+    )
+  }
+  return dueAt
 }
 
 export class SchedulerScheduleError extends Error {

@@ -130,6 +130,38 @@ describe('AiAgentContextRenderer + microcompact', () => {
     expect(first.content[0]!.text).toBe('kept')
   })
 
+  it('adds dynamic message context to the model view while preserving the stored agent message', async () => {
+    const sourceMessage = userMessage('hello')
+    const rows = [
+      {
+        ...messageRow('u1', sourceMessage),
+        role: 'user',
+        metadata: {
+          message_context: {
+            time: { sent_at: '2026-06-09T01:00:00.000Z', injected: true },
+            room: { label: 'group chat "Ops"', injected: true },
+            actor: { display_name: 'Alice', injected: true }
+          }
+        }
+      }
+    ]
+    const conversations = { renderedMessages: async () => rows } as unknown as AiAgentConversationService
+    const renderer = new AiAgentContextRenderer(conversations)
+
+    const rendered = await renderer.render('conv-1')
+    const first = rendered.messages[0] as { content: Array<{ text: string }> }
+    expect(first.content[0]!.text).toContain('<message_context>')
+    expect(first.content[0]!.text).toContain('speaker: Alice')
+    expect(first.content[0]!.text).toContain('hello')
+    expect(sourceMessage.content[0]!.text).toBe('hello')
+    expect(rendered.modelViewPatches).toHaveLength(1)
+    expect(rendered.modelViewPatches[0]).toMatchObject({
+      type: 'message_override',
+      reason: 'message_context',
+      ref: { type: 'ai_agent_message', id: 'u1', role: 'user', kind: 'normal' }
+    })
+  })
+
   it('strips older image attachments from the model view while preserving source rows', async () => {
     const firstImage = userMessageWithImage('old screenshot')
     const latestImage = userMessageWithImage('latest screenshot')

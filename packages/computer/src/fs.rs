@@ -11,6 +11,10 @@ use serde::Serialize;
 use crate::error::{AppError, AppResult};
 use crate::paths::WorkspacePaths;
 
+const MAX_TAR_ENTRIES: usize = 50_000;
+const MAX_TAR_EXTRACTED_BYTES: u64 = 512 * 1024 * 1024;
+const MAX_TAR_ENTRY_BYTES: u64 = 256 * 1024 * 1024;
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FileStat {
@@ -117,11 +121,21 @@ fn unpack(ws: &WorkspacePaths, cwd: Option<&str>, body: &[u8]) -> AppResult<Writ
   let decoder = flate2::read::GzDecoder::new(body);
   let mut archive = tar::Archive::new(decoder);
   let mut files = 0;
+  let mut entry_count = 0usize;
+  let mut extracted_bytes = 0u64;
 
   let entries = archive
     .entries()
     .map_err(|error| AppError::bad_request("bad_archive", format!("invalid tar.gz: {error}")))?;
   for entry in entries {
+    entry_count += 1;
+    if entry_count > MAX_TAR_ENTRIES {
+      return Err(AppError::bad_request(
+        "archive_too_large",
+        format!("archive has more than {MAX_TAR_ENTRIES} entries"),
+      ));
+    }
+
     let mut entry =
       entry.map_err(|error| AppError::bad_request("bad_archive", error.to_string()))?;
     let entry_path = entry
@@ -129,12 +143,25 @@ fn unpack(ws: &WorkspacePaths, cwd: Option<&str>, body: &[u8]) -> AppResult<Writ
       .map_err(|error| AppError::bad_request("bad_archive", error.to_string()))?;
     let relative = entry_path.to_string_lossy().to_string();
     let mode = entry.header().mode().unwrap_or(0o644);
-    let is_dir = entry.header().entry_type().is_dir();
+    let entry_type = entry.header().entry_type();
+    let is_dir = entry_type.is_dir();
     let target = ws.resolve(cwd, &relative)?;
 
     if is_dir {
       std::fs::create_dir_all(&target)?;
       continue;
+    }
+    if !entry_type.is_file() {
+      return Err(AppError::bad_request(
+        "unsafe_archive_entry",
+        format!("archive entry is not a regular file: {relative}"),
+      ));
+    }
+    if entry.size() > MAX_TAR_ENTRY_BYTES {
+      return Err(AppError::bad_request(
+        "archive_entry_too_large",
+        format!("archive entry exceeds {MAX_TAR_ENTRY_BYTES} bytes: {relative}"),
+      ));
     }
     if let Some(parent) = target.parent() {
       std::fs::create_dir_all(parent)?;
@@ -143,6 +170,17 @@ fn unpack(ws: &WorkspacePaths, cwd: Option<&str>, body: &[u8]) -> AppResult<Writ
     entry
       .read_to_end(&mut data)
       .map_err(|error| AppError::bad_request("bad_archive", error.to_string()))?;
+    extracted_bytes = extracted_bytes
+      .checked_add(data.len() as u64)
+      .ok_or_else(|| {
+        AppError::bad_request("archive_too_large", "archive extracted size overflow")
+      })?;
+    if extracted_bytes > MAX_TAR_EXTRACTED_BYTES {
+      return Err(AppError::bad_request(
+        "archive_too_large",
+        format!("archive extracted bytes exceed {MAX_TAR_EXTRACTED_BYTES}"),
+      ));
+    }
     std::fs::write(&target, &data)?;
     set_mode(&target, mode)?;
     files += 1;

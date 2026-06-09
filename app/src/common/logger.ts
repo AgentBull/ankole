@@ -1,5 +1,6 @@
 import pino from 'pino'
 import { AppEnv } from '@/config/env'
+import { redactLogArg } from '@/security/redact'
 
 export const logger = pino({
   timestamp: pino.stdTimeFunctions.isoTime,
@@ -43,7 +44,12 @@ export const logger = pino({
           return { severity: label }
         }
       }
-    : undefined
+    : undefined,
+  hooks: {
+    logMethod(inputArgs, method) {
+      method.apply(this, inputArgs.map(redactLogArg) as Parameters<typeof method>)
+    }
+  }
 })
 
 /**

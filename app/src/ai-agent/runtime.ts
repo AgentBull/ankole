@@ -1,7 +1,7 @@
 import { genUUIDv7 } from '@agentbull/bullx-native-addons'
 import { isContextOverflow, streamSimple, type AssistantMessage, type ToolResultMessage } from '@earendil-works/pi-ai'
 import { match } from '@pleisto/active-support'
-import { and, desc, eq, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, sql } from 'drizzle-orm'
 import { DB, jsonbParam } from '@/common/database'
 import { logger } from '@/common/logger'
 import {
@@ -74,6 +74,14 @@ import { createTodoTool, TodoStore, todoItemsFromToolDetails, type TodoToolDetai
 import { buildAgentSystemPrompt } from './library/service'
 import { createSkillTools } from './library/tools'
 import { estimateContextTokensJsonAware } from './token-estimate'
+import { classifyLlmError } from './core/llm-error-classifier'
+import {
+  appendMessageContextHistory,
+  buildMessageContextMetadata,
+  loadMessageContextHistory,
+  mergeMessageContextMetadata,
+  type MessageContextHistoryItem
+} from './message-context'
 
 /**
  * Hard cap on LLM turns per generation. On reaching it the loop runs one tool-free
@@ -811,6 +819,8 @@ export class AiAgentRuntime {
       providerRoomId: input.conversationProviderRoomId
     })
     const userMessage = createUserMessage(input.message)
+    const history = await loadMessageContextHistory(conversation.id)
+    const messageContext = buildMessageContextMetadata({ sentAt: new Date() }, history)
     const row = await this.conversations.appendMessage({
       conversationId: conversation.id,
       role: 'user',
@@ -819,17 +829,20 @@ export class AiAgentRuntime {
       agentMessage: userMessage,
       eventSource: input.eventSource,
       eventId: input.eventId,
-      metadata: {
-        ...input.metadata,
-        route: routeMetadata(context, {
-          providerRoomId: input.outputProviderRoomId,
-          providerThreadId: input.outputProviderThreadId
-        }),
-        control: {
-          ...toJsonObject(input.metadata?.control ?? {}),
-          origin: input.kind
-        }
-      }
+      metadata: mergeMessageContextMetadata(
+        {
+          ...input.metadata,
+          route: routeMetadata(context, {
+            providerRoomId: input.outputProviderRoomId,
+            providerThreadId: input.outputProviderThreadId
+          }),
+          control: {
+            ...toJsonObject(input.metadata?.control ?? {}),
+            origin: input.kind
+          }
+        },
+        messageContext
+      )
     })
     const existingAssistant = await this.existingAssistantForTrigger(conversation.id, row.id)
     if (existingAssistant) {
@@ -1052,28 +1065,36 @@ export class AiAgentRuntime {
 
     if (isActiveGeneration(conversation.generation)) {
       for (const event of delivery.events) {
+        const envelope = payloadEnvelope(event)
         await this.conversations.appendPendingFollowup(conversation.id, {
-          actor: actorFromEnvelope(payloadEnvelope(event)),
+          actor: actorFromEnvelope(envelope),
           created_at: new Date().toISOString(),
           event_id: event.providerEventId,
-          event_source: payloadEnvelope(event).source,
+          event_source: envelope.source,
           provider_refs: providerRefs({
             eventId: event.providerEventId,
             providerMessageId: event.providerMessageId,
             providerRoomId: event.providerRoomId,
             providerThreadId: event.providerThreadId
           }),
-          text: messageText(payloadEnvelope(event))
+          room: roomFromEnvelope(envelope),
+          sent_at: sentAtFromEnvelope(envelope, event).toISOString(),
+          text: messageText(envelope)
         })
       }
       return
     }
 
     let triggerMessageId: string | undefined
+    const history = await loadMessageContextHistory(conversation.id)
     for (const event of delivery.events) {
       const envelope = payloadEnvelope(event)
       const text = messageText(envelope)
-      const userMessage = createUserMessage(text, event.createdAt.getTime())
+      const actor = actorFromEnvelope(envelope)
+      const room = roomFromEnvelope(envelope)
+      const sentAt = sentAtFromEnvelope(envelope, event)
+      const userMessage = createUserMessage(text, sentAt.getTime())
+      const messageContext = buildMessageContextMetadata({ actor, room, sentAt }, history)
       const row = await this.conversations.appendMessage({
         conversationId: conversation.id,
         role: 'user',
@@ -1082,20 +1103,24 @@ export class AiAgentRuntime {
         agentMessage: userMessage,
         eventSource: envelope.source,
         eventId: event.providerEventId,
-        metadata: {
-          actor: actorFromEnvelope(envelope),
-          provider_refs: providerRefs({
-            eventId: event.providerEventId,
-            providerMessageId: event.providerMessageId,
-            providerRoomId: event.providerRoomId,
-            providerThreadId: event.providerThreadId
-          }),
-          route: routeMetadata(context, {
-            providerRoomId: event.providerRoomId,
-            providerThreadId: event.providerThreadId
-          })
-        }
+        metadata: mergeMessageContextMetadata(
+          {
+            actor,
+            provider_refs: providerRefs({
+              eventId: event.providerEventId,
+              providerMessageId: event.providerMessageId,
+              providerRoomId: event.providerRoomId,
+              providerThreadId: event.providerThreadId
+            }),
+            route: routeMetadata(context, {
+              providerRoomId: event.providerRoomId,
+              providerThreadId: event.providerThreadId
+            })
+          },
+          messageContext
+        )
       })
+      appendMessageContextHistory(history, row.metadata)
       triggerMessageId = row.id
     }
 
@@ -1119,25 +1144,38 @@ export class AiAgentRuntime {
     profile: AiAgentRuntimeProfile
   ): Promise<void> {
     const conversation = await this.dailyReset.ensureFreshConversation(route, profile)
+    const history = await loadMessageContextHistory(conversation.id)
     for (const event of delivery.events) {
       const envelope = payloadEnvelope(event)
-      await this.conversations.appendMessage({
+      const actor = actorFromEnvelope(envelope)
+      const room = roomFromEnvelope(envelope)
+      const sentAt = sentAtFromEnvelope(envelope, event)
+      const messageContext = buildMessageContextMetadata({ actor, room, sentAt }, history)
+      const row = await this.conversations.appendMessage({
         conversationId: conversation.id,
         role: 'im_ambient',
         kind: 'normal',
         content: textContent(messageText(envelope)),
         eventSource: envelope.source,
         eventId: event.providerEventId,
-        metadata: {
-          actor: actorFromEnvelope(envelope),
-          provider_refs: providerRefs({
-            eventId: event.providerEventId,
-            providerMessageId: event.providerMessageId,
-            providerRoomId: event.providerRoomId,
-            providerThreadId: event.providerThreadId
-          })
-        }
+        metadata: mergeMessageContextMetadata(
+          {
+            actor,
+            provider_refs: providerRefs({
+              eventId: event.providerEventId,
+              providerMessageId: event.providerMessageId,
+              providerRoomId: event.providerRoomId,
+              providerThreadId: event.providerThreadId
+            }),
+            route: routeMetadata(context, {
+              providerRoomId: event.providerRoomId,
+              providerThreadId: event.providerThreadId
+            })
+          },
+          messageContext
+        )
       })
+      appendMessageContextHistory(history, row.metadata)
       await this.ambient.schedule({
         agentUid: context.agentUid,
         bindingName: context.bindingName,
@@ -1833,7 +1871,7 @@ export class AiAgentRuntime {
       .with('error', () => 'failed' as const)
       .otherwise(() => 'completed' as const)
     try {
-      await card.finish(text || assistant.errorMessage || '', status)
+      await card.finish(text || userFacingAssistantErrorText(assistant) || '', status)
     } catch {
       // Best-effort close: a failed PATCH still leaves a delivered card message, so
       // the caller records it as sent rather than double-posting the answer.
@@ -1879,6 +1917,20 @@ export class AiAgentRuntime {
       let nextTriggerMessageId: string | undefined
       let nextProviderRoomId = input.providerRoomId
       let nextProviderThreadId = input.providerThreadId
+      const messageContextHistory: MessageContextHistoryItem[] = (
+        await tx
+          .select({ metadata: AiAgentMessages.metadata })
+          .from(AiAgentMessages)
+          .where(
+            and(
+              eq(AiAgentMessages.conversationId, input.conversationId),
+              sql`${AiAgentMessages.role} in ('user', 'im_ambient')`,
+              sql`${AiAgentMessages.kind} in ('normal', 'introspection')`,
+              sql`${AiAgentMessages.metadata}->'transcript_effect' is null`
+            )
+          )
+          .orderBy(asc(AiAgentMessages.createdAt), asc(AiAgentMessages.id))
+      ).map(row => ({ metadata: row.metadata }))
 
       await tx.insert(AiAgentMessages).values({
         id: assistantMessageId,
@@ -1888,7 +1940,9 @@ export class AiAgentRuntime {
         kind: input.assistant.stopReason === 'error' || input.assistant.stopReason === 'aborted' ? 'error' : 'normal',
         status: 'complete',
         content: jsonbParam(
-          textContent(input.text || input.assistant.errorMessage || 'The model did not return a text response.')
+          textContent(
+            input.text || userFacingAssistantErrorText(input.assistant) || 'The model did not return a text response.'
+          )
         ),
         agentMessage: jsonbParam(toJsonObject(input.assistant)),
         metadata: jsonbParam({
@@ -1949,6 +2003,19 @@ export class AiAgentRuntime {
       for (const steering of pendingSteering) {
         const messageId = genUUIDv7()
         const marker = steeringMarker(steering)
+        const sentAt = dateFromString(steering.created_at) ?? new Date()
+        const messageContext = buildMessageContextMetadata({ sentAt }, messageContextHistory)
+        const metadata = mergeMessageContextMetadata(
+          {
+            control: {
+              origin: 'steering',
+              type: 'steering',
+              source_command_event_id: steering.command_event_id,
+              command_event_id: steering.command_event_id
+            }
+          },
+          messageContext
+        )
         await tx.insert(AiAgentMessages).values({
           id: messageId,
           agentUid: conversation.agentUid,
@@ -1957,23 +2024,34 @@ export class AiAgentRuntime {
           kind: 'introspection',
           status: 'complete',
           content: jsonbParam(textContent(marker)),
-          agentMessage: jsonbParam(toJsonObject(createUserMessage(marker, new Date(steering.created_at).getTime()))),
+          agentMessage: jsonbParam(toJsonObject(createUserMessage(marker, sentAt.getTime()))),
           eventSource: 'ai-agent.command.steer',
           eventId: steering.command_event_id,
-          metadata: jsonbParam({
-            control: {
-              origin: 'steering',
-              type: 'steering',
-              source_command_event_id: steering.command_event_id,
-              command_event_id: steering.command_event_id
-            }
-          })
+          metadata: jsonbParam(metadata)
         })
+        appendMessageContextHistory(messageContextHistory, metadata)
         nextTriggerMessageId = messageId
       }
 
       for (const followup of pendingFollowups) {
         const messageId = genUUIDv7()
+        const sentAt = dateFromString(followup.sent_at) ?? new Date(followup.created_at)
+        const messageContext = buildMessageContextMetadata(
+          {
+            actor: followup.actor ?? {},
+            room: followup.room,
+            sentAt
+          },
+          messageContextHistory
+        )
+        const metadata = mergeMessageContextMetadata(
+          {
+            actor: followup.actor ?? {},
+            provider_refs: followup.provider_refs,
+            control: { origin: 'followup_or_steer_fallback' }
+          },
+          messageContext
+        )
         await tx.insert(AiAgentMessages).values({
           id: messageId,
           agentUid: conversation.agentUid,
@@ -1982,17 +2060,12 @@ export class AiAgentRuntime {
           kind: 'normal',
           status: 'complete',
           content: jsonbParam(textContent(followup.text)),
-          agentMessage: jsonbParam(
-            toJsonObject(createUserMessage(followup.text, new Date(followup.created_at).getTime()))
-          ),
+          agentMessage: jsonbParam(toJsonObject(createUserMessage(followup.text, sentAt.getTime()))),
           eventSource: followup.event_source,
           eventId: followup.event_id,
-          metadata: jsonbParam({
-            actor: followup.actor ?? {},
-            provider_refs: followup.provider_refs,
-            control: { origin: 'followup_or_steer_fallback' }
-          })
+          metadata: jsonbParam(metadata)
         })
+        appendMessageContextHistory(messageContextHistory, metadata)
         nextTriggerMessageId = messageId
         nextProviderRoomId = stringFromMetadata(followup.provider_refs, ['room_id']) ?? nextProviderRoomId
         nextProviderThreadId = stringFromMetadata(followup.provider_refs, ['thread_id']) ?? nextProviderThreadId
@@ -2050,23 +2123,29 @@ export class AiAgentRuntime {
     context.scheduleOutboxDrain()
   }
 
-  private materializeSteering(conversationId: string, steering: PendingSteering) {
+  private async materializeSteering(conversationId: string, steering: PendingSteering) {
+    const sentAt = dateFromString(steering.created_at) ?? new Date()
+    const history = await loadMessageContextHistory(conversationId)
+    const messageContext = buildMessageContextMetadata({ sentAt }, history)
     return this.conversations.appendMessage({
       conversationId,
       role: 'user',
       kind: 'normal',
       content: textContent(steering.text),
-      agentMessage: createUserMessage(steering.text, new Date(steering.created_at).getTime()),
+      agentMessage: createUserMessage(steering.text, sentAt.getTime()),
       eventSource: 'ai-agent.command.steer',
       eventId: steering.command_event_id,
-      metadata: {
-        control: {
-          origin: 'steer_fallback',
-          type: 'steer_fallback',
-          source_command_event_id: steering.command_event_id,
-          command_event_id: steering.command_event_id
-        }
-      }
+      metadata: mergeMessageContextMetadata(
+        {
+          control: {
+            origin: 'steer_fallback',
+            type: 'steer_fallback',
+            source_command_event_id: steering.command_event_id,
+            command_event_id: steering.command_event_id
+          }
+        },
+        messageContext
+      )
     })
   }
 }
@@ -2094,10 +2173,32 @@ function messageText(envelope: ExternalGatewayAgentEnvelope): string {
   return typeof text === 'string' ? text : ''
 }
 
+function roomFromEnvelope(envelope: ExternalGatewayAgentEnvelope): JsonObject {
+  return toJsonObject(envelope.data.room)
+}
+
 function actorFromEnvelope(envelope: ExternalGatewayAgentEnvelope): JsonObject {
   const message = envelope.data.message
   const author = message?.author
   return typeof author === 'object' && author !== null && !Array.isArray(author) ? (author as JsonObject) : {}
+}
+
+function sentAtFromEnvelope(
+  envelope: ExternalGatewayAgentEnvelope,
+  event?: ExternalGatewayAgentDelivery['events'][number]
+): Date {
+  return (
+    dateFromString(stringFromMetadata(toJsonObject(envelope.data.message?.metadata ?? {}), ['dateSent'])) ??
+    dateFromString(envelope.time) ??
+    event?.createdAt ??
+    new Date()
+  )
+}
+
+function dateFromString(value: unknown): Date | undefined {
+  if (typeof value !== 'string' || value.length === 0) return undefined
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? undefined : date
 }
 
 function routeMetadata(
@@ -2149,6 +2250,34 @@ function assistantProviderMetadata(
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
+}
+
+function userFacingAssistantErrorText(message: AssistantMessage): string | undefined {
+  if (message.stopReason !== 'error' && message.stopReason !== 'aborted' && !message.errorMessage) return undefined
+  if (message.stopReason === 'aborted') return '已停止'
+  const raw = message.errorMessage?.trim()
+  if (!raw) return '模型服务返回错误，请稍后重试。'
+  const classification = classifyLlmError({ message: raw })
+  if (classification.kind === 'overflow') {
+    return '上下文太长，当前模型装不下这轮请求。请新开会话、压缩历史或减少输入后再试。'
+  }
+  if (classification.kind === 'rate_limit') return '模型服务暂时限流，请稍后重试。'
+  if (classification.kind === 'timeout') return '模型请求超时，请稍后重试。'
+  if (classification.kind === 'server') return '模型服务暂时不可用，请稍后重试。'
+  if (classification.kind === 'auth') return '模型服务认证失败，请检查模型提供方配置后重试。'
+  if (looksLikeRawProviderPayload(raw)) return '模型服务返回错误，请稍后重试。'
+  return raw.length <= 240 ? raw : `${raw.slice(0, 237)}...`
+}
+
+function looksLikeRawProviderPayload(raw: string): boolean {
+  const trimmed = raw.trim()
+  return (
+    trimmed.startsWith('{') ||
+    trimmed.startsWith('[') ||
+    trimmed.startsWith('<!DOCTYPE') ||
+    trimmed.startsWith('<html') ||
+    /request[_ -]?id/i.test(trimmed)
+  )
 }
 
 function normalizedAssistantResponse(message: AssistantMessage): JsonObject {

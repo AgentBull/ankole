@@ -26,6 +26,8 @@ export type AiAgentLlmTurnKind =
 export type AiAgentLlmTurnStatus = 'started' | 'succeeded' | 'failed' | 'cancelled'
 export type AiAgentModelProfileName = 'primary' | 'light' | 'heavy'
 
+const MAX_PENDING_FOLLOWUPS = 10_000
+
 export interface AiAgentConversationRoute {
   agentUid: string
   bindingName: string
@@ -46,6 +48,8 @@ export interface PendingFollowup {
   event_id: string
   event_source: string
   provider_refs: JsonObject
+  room?: JsonObject
+  sent_at?: string
   text: string
 }
 
@@ -446,6 +450,7 @@ export class AiAgentConversationService {
       .where(
         and(
           eq(AiAgentConversations.id, conversationId),
+          sql`jsonb_array_length(coalesce(${AiAgentConversations.generation}->'pending_followups', '[]'::jsonb)) < ${MAX_PENDING_FOLLOWUPS}`,
           sql`not exists (select 1 from jsonb_array_elements(coalesce(${AiAgentConversations.generation}->'pending_followups', '[]'::jsonb)) item where item->>'event_id' = ${followup.event_id})`
         )
       )

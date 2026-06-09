@@ -5,6 +5,7 @@ import { buildTool } from './build-tool'
 import { WebSearchProviderConfig } from '../web/config'
 import { type WebProvider, WebProviderError, type WebSearchResult } from '../web/provider'
 import { webProviderRegistry } from '../web/registry'
+import { wrapWebContent } from '@/security/external-content'
 
 const WebSearchParams = z.object({
   query: z.string().min(1).describe('The search query.'),
@@ -20,7 +21,11 @@ const DESCRIPTION = 'Search the web and return a ranked list of results (title, 
 
 function formatResults(results: WebSearchResult[]): string {
   if (results.length === 0) return 'No results found.'
-  return results.map((result, index) => `${index + 1}. ${result.title}\n${result.url}\n${result.snippet}`).join('\n\n')
+  return results
+    .map(
+      (result, index) => `${index + 1}. ${result.title}\n${result.url}\n${wrapWebContent(result.snippet, 'web_search')}`
+    )
+    .join('\n\n')
 }
 
 export function createWebSearchTool(): AgentTool<typeof WebSearchParams, WebSearchDetails> {

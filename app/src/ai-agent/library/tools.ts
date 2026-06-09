@@ -2,6 +2,7 @@ import { z } from 'zod'
 import type { AgentTool, AgentToolResult } from '../core'
 import { buildTool } from '../tools/build-tool'
 import { getEffectiveSkillContent, searchEffectiveSkills, setAgentSkillAppend, setAgentSkillEnabled } from './service'
+import { wrapExternalContent } from '@/security/external-content'
 
 export interface SkillToolsBinding {
   agentUid: string
@@ -106,7 +107,10 @@ function createSkillUseTool(binding: SkillToolsBinding): AgentTool<typeof SkillU
         content: [
           {
             type: 'text',
-            text: `<skill name="${skill.name}" location="${skill.filePath}">\n${skill.content}\n</skill>`
+            text: `<skill name="${skill.name}" location="${skill.filePath}">\n${wrapExternalContent(skill.content, {
+              source: 'skill',
+              includeWarning: false
+            })}\n</skill>`
           }
         ],
         details: { found: true, name: skill.name, filePath: skill.filePath, hasAgentAppend: skill.hasAgentAppend }

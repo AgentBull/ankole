@@ -83,7 +83,14 @@ export class SchedulerService {
     if (!existing) throw new SchedulerDomainError(404, `Unknown scheduled task: ${taskId}`)
     const schedule = (input.schedule ?? existing.schedule) as ScheduledTaskSchedule
     validateSchedule(schedule)
-    const enabled = input.enabled ?? existing.enabled
+    const scheduleChanged = input.schedule !== undefined
+    const enabledChanged = input.enabled !== undefined && input.enabled !== existing.enabled
+    const nextRunAt =
+      input.enabled === false
+        ? null
+        : scheduleChanged || (enabledChanged && input.enabled === true)
+          ? await this.nextRun(schedule, taskId)
+          : undefined
     return this.store.updateTask({
       taskId,
       name: input.name,
@@ -91,7 +98,7 @@ export class SchedulerService {
       schedule: input.schedule as ScheduledTaskSchedule | undefined,
       payload: input.payload as ScheduledTaskPayload | undefined,
       delivery: 'delivery' in input ? (input.delivery ? normalizeDelivery(input.delivery) : null) : undefined,
-      nextRunAt: enabled ? await this.nextRun(schedule, taskId) : null
+      nextRunAt
     })
   }
 

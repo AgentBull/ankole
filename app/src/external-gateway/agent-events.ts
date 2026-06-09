@@ -7,6 +7,7 @@ import {
   type JsonObject,
   type JsonValue
 } from '@/common/db-schema'
+import { redactSensitiveText } from '@/security/redact'
 
 export type ExternalGatewayCanonicalType =
   | 'message.received'
@@ -78,6 +79,7 @@ type ExternalGatewayAgentEventKey = Pick<
 
 const NORMAL_RECEIVE_BATCH_WINDOW_MS = 75
 const INPUT_TOMBSTONE_TTL_MS = ms('24h')
+const MAX_ADDRESSED_RECEIVE_BATCH_SIZE = 10_000
 
 export class DrizzleExternalGatewayAgentEventQueue {
   /**
@@ -343,7 +345,7 @@ export class DrizzleExternalGatewayAgentEventQueue {
   async markFailed(events: readonly ExternalGatewayAgentEventKey[], error: unknown): Promise<void> {
     if (events.length === 0) return
 
-    const reason = error instanceof Error ? error.message : String(error)
+    const reason = redactSensitiveText(error instanceof Error ? error.message : String(error))
     await DB.update(ExternalGatewayAgentEvents)
       .set({
         status: 'failed',
@@ -416,9 +418,11 @@ async function claimReadyBatch(
     )
     .orderBy(asc(ExternalGatewayAgentEvents.createdAt), asc(ExternalGatewayAgentEvents.providerEventId))
     .for('update')
+    .limit(MAX_ADDRESSED_RECEIVE_BATCH_SIZE)
 
   const batch: Array<typeof ExternalGatewayAgentEvents.$inferSelect> = []
   for (const row of rows) {
+    if (batch.length >= MAX_ADDRESSED_RECEIVE_BATCH_SIZE) break
     if (row.providerEventId !== first.providerEventId && row.actorKey !== first.actorKey) break
     batch.push(row)
   }

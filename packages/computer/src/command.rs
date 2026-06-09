@@ -376,6 +376,9 @@ fn kill_pid(pid: u32, signal: Option<&str>) -> AppResult<()> {
   use nix::unistd::Pid;
 
   let sig = parse_signal(signal)?;
+  if kill(Pid::from_raw(-(pid as i32)), sig).is_ok() {
+    return Ok(());
+  }
   kill(Pid::from_raw(pid as i32), sig)
     .map_err(|error| AppError::internal("kill_failed", format!("kill failed: {error}")))
 }

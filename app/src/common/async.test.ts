@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import { all, createCombinedAbortSignal, jitteredBackoff, withRetry } from './async'
+import { parseRetryAfterHeaders } from './retry-after'
 
 describe('all (bounded concurrency)', () => {
   it('returns results in input order while respecting the concurrency cap', async () => {
@@ -114,5 +115,24 @@ describe('withRetry', () => {
       )
     ).rejects.toThrow('x')
     expect(abortedCalls).toBe(1)
+  })
+
+  it('honors Retry-After headers from retryable errors', async () => {
+    expect(parseRetryAfterHeaders({ 'Retry-After': '0.02' })).toBe(20)
+
+    let calls = 0
+    const startedAt = Date.now()
+    const result = await withRetry(
+      async () => {
+        calls++
+        if (calls === 1) throw { headers: { 'Retry-After-Ms': '30' } }
+        return 'ok'
+      },
+      { maxAttempts: 2, baseMs: 1, isRetryable: () => true }
+    )
+
+    expect(result).toBe('ok')
+    expect(calls).toBe(2)
+    expect(Date.now() - startedAt).toBeGreaterThanOrEqual(20)
   })
 })

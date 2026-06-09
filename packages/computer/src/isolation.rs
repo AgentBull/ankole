@@ -48,6 +48,7 @@ impl Launcher {
       .stdin(Stdio::piped())
       .stdout(Stdio::piped())
       .stderr(Stdio::null());
+    set_process_group(&mut command);
     command
   }
 
@@ -77,6 +78,7 @@ impl Launcher {
       .stdin(Stdio::null())
       .stdout(Stdio::piped())
       .stderr(Stdio::piped());
+    set_process_group(&mut command);
     command
   }
 
@@ -143,3 +145,11 @@ impl Launcher {
     command
   }
 }
+
+#[cfg(unix)]
+fn set_process_group(command: &mut Command) {
+  command.process_group(0);
+}
+
+#[cfg(not(unix))]
+fn set_process_group(_command: &mut Command) {}

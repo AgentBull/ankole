@@ -8,6 +8,7 @@ import type {
   BullXExternalGatewayOutboundCapability,
   BullXExternalGatewayOutboundOptions,
   BullXExternalGatewayRawMessage,
+  BullXExternalGatewayRoomInput,
   BullXStreamingCardHandle
 } from '@agentbull/bullx-sdk/plugins'
 import { LarkAdapterConfigError, type LarkChannelConfig } from './config'
@@ -63,6 +64,7 @@ export class BullXLarkChatAdapter {
   private chat!: BullXExternalGatewayAdapterContext
   private connection: SharedLarkConnection | undefined
   private connectionLease: LarkConnectionLease | undefined
+  private readonly channelInfoCache = new Map<string, Promise<BullXExternalGatewayRoomInput>>()
   private readonly p2pChats = new Set<string>()
 
   constructor(
@@ -338,6 +340,20 @@ export class BullXLarkChatAdapter {
   }
 
   async fetchChannelInfo(channelId: string) {
+    const cached = this.channelInfoCache.get(channelId)
+    if (cached) return cached
+
+    const promise = this.fetchChannelInfoUncached(channelId)
+    this.channelInfoCache.set(channelId, promise)
+    try {
+      return await promise
+    } catch (error) {
+      this.channelInfoCache.delete(channelId)
+      throw error
+    }
+  }
+
+  private async fetchChannelInfoUncached(channelId: string) {
     const chatId = decodeLarkChannelId(channelId)
     try {
       const info = await this.requireConnection().getChatInfo(chatId)

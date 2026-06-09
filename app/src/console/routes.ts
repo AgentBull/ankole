@@ -19,6 +19,7 @@ import {
 } from '@/llm-providers/service'
 import { activeHumanAdmin } from '@/principals/admin-auth/access'
 import { readAdminSessionCookie } from '@/principals/admin-auth/session'
+import { clientIpFromRequest, createAuthRateLimiter } from '@/security/auth-rate-limit'
 import { PrincipalDomainError } from '@/principals/principals/service'
 import {
   ConsoleDomainError,
@@ -130,6 +131,9 @@ const skillAssignmentBody = z.object({
 const soulBody = z.object({
   content: z.string()
 })
+
+const consoleAdminRateLimiter = createAuthRateLimiter()
+const CONSOLE_ADMIN_SCOPE = 'console-admin'
 
 const upsertChatChannelBody = z.object({
   name: z.string().min(1).optional(),
@@ -427,10 +431,16 @@ function agentInput(body: {
  * instead of a `{ data } | { error }` union.
  */
 export async function requireConsoleAdmin(request: Request): Promise<{ principalUid: string }> {
+  const clientIp = clientIpFromRequest(request)
+  const limit = consoleAdminRateLimiter.check(clientIp, CONSOLE_ADMIN_SCOPE)
+  if (!limit.allowed) throw new ConsoleDomainError(429, 'too many failed admin authentication attempts')
+
   const session = readAdminSessionCookie(request.headers.get('cookie'))
   if (session && (await activeHumanAdmin(session.principalUid))) {
+    consoleAdminRateLimiter.reset(clientIp, CONSOLE_ADMIN_SCOPE)
     return { principalUid: session.principalUid }
   }
 
+  consoleAdminRateLimiter.recordFailure(clientIp, CONSOLE_ADMIN_SCOPE)
   throw new ConsoleDomainError(401, 'admin session required')
 }

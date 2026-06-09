@@ -47,6 +47,7 @@ class LarkStreamingCardSession implements BullXStreamingCardHandle {
   private contentReady = false
   private degraded = false
   private latestText = ''
+  private flushTimer: ReturnType<typeof setTimeout> | null = null
   private tail: Promise<void> = Promise.resolve()
 
   constructor(
@@ -92,7 +93,7 @@ class LarkStreamingCardSession implements BullXStreamingCardHandle {
   }
 
   async update(fullText: string): Promise<void> {
-    this.latestText = fullText
+    this.latestText = mergeStreamingText(this.latestText, fullText)
     this.tail = this.tail.then(() => this.flush(false))
     return this.tail
   }
@@ -100,6 +101,7 @@ class LarkStreamingCardSession implements BullXStreamingCardHandle {
   async finish(finalText: string, status: BullXStreamingCardStatus): Promise<void> {
     const display = finalText.trim() ? finalText : fallbackForStatus(status)
     this.latestText = display || STREAM_EMPTY
+    this.clearFlushTimer()
     this.tail = this.tail.then(() => this.flush(true))
     await this.tail
     if (this.degraded || !this.cardId) return
@@ -126,8 +128,12 @@ class LarkStreamingCardSession implements BullXStreamingCardHandle {
     if (this.degraded || !this.cardId) return
     const text = this.latestText
     if (text.length === 0) return
-    if (!force && !this.isDue(text)) return
+    if (!force && !this.isDue(text)) {
+      this.schedulePendingFlush()
+      return
+    }
     if (text === this.lastWrittenText) return
+    this.clearFlushTimer()
     try {
       this.sequence += 1
       if (!this.contentReady) {
@@ -158,8 +164,27 @@ class LarkStreamingCardSession implements BullXStreamingCardHandle {
 
   private isDue(text: string): boolean {
     if (this.lastUpdateMs === 0) return true
+    if (hasNaturalStreamingBoundary(text) && text !== this.lastWrittenText) return true
     if (Date.now() - this.lastUpdateMs >= this.options.intervalMs) return true
     return text.length - this.lastWrittenLen >= this.options.bufferThreshold
+  }
+
+  private clearFlushTimer(): void {
+    if (!this.flushTimer) return
+    clearTimeout(this.flushTimer)
+    this.flushTimer = null
+  }
+
+  private schedulePendingFlush(): void {
+    if (this.flushTimer || this.degraded || !this.cardId || !this.latestText) return
+    const delayMs = Math.max(0, this.options.intervalMs - (Date.now() - this.lastUpdateMs))
+    this.flushTimer = setTimeout(() => {
+      this.flushTimer = null
+      this.tail = this.tail.then(() => this.flush(false))
+      this.tail.catch(error => {
+        this.options.logger?.warn?.('lark streaming card pending flush failed', error)
+      })
+    }, delayMs)
   }
 }
 
@@ -172,6 +197,27 @@ function fallbackForStatus(status: BullXStreamingCardStatus): string {
 function truncateSummary(text: string): string {
   const normalized = text.replace(/\s+/g, ' ').trim()
   return normalized.length <= 80 ? normalized : `${normalized.slice(0, 77)}...`
+}
+
+function hasNaturalStreamingBoundary(text: string): boolean {
+  return /[\n。！？!?；;：:]$/.test(text)
+}
+
+export function mergeStreamingText(previousText: string | undefined, nextText: string | undefined): string {
+  const previous = typeof previousText === 'string' ? previousText : ''
+  const next = typeof nextText === 'string' ? nextText : ''
+  if (!next) return previous
+  if (!previous || next === previous) return next
+  if (next.startsWith(previous)) return next
+  if (previous.startsWith(next)) return previous
+  if (next.includes(previous)) return next
+  if (previous.includes(next)) return previous
+
+  const maxOverlap = Math.min(previous.length, next.length)
+  for (let overlap = maxOverlap; overlap > 0; overlap--) {
+    if (previous.slice(-overlap) === next.slice(0, overlap)) return `${previous}${next.slice(overlap)}`
+  }
+  return `${previous}${next}`
 }
 
 function streamingCardDefinition(initialText: string): Record<string, unknown> {

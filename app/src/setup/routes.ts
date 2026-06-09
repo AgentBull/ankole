@@ -39,6 +39,8 @@ import {
   setupSessionSetCookie
 } from './session'
 import { persistExactEnabledPluginIds } from './plugins'
+import { clientIpFromRequest, createAuthRateLimiter } from '@/security/auth-rate-limit'
+import { safeEqualSecret } from '@/security/secret-equal'
 
 // Loose JSON object body fragment. Deep domain validation stays in the service
 // layer, so route schemas only describe request shape for Eden Treaty.
@@ -48,6 +50,9 @@ const setupSessionBody = z.object({
   activationCode: z.string().min(1),
   locale: z.string().optional()
 })
+
+const setupActivationRateLimiter = createAuthRateLimiter()
+const SETUP_ACTIVATION_SCOPE = 'setup-activation'
 
 const pluginSelectionBody = z.object({
   pluginIds: z.array(z.string().min(1))
@@ -132,7 +137,15 @@ export function setupRoutes() {
     })
     .post(
       '/api/setup/sessions',
-      async ({ body, set }) => {
+      async ({ body, request, set }) => {
+        const clientIp = clientIpFromRequest(request)
+        const limit = setupActivationRateLimiter.check(clientIp, SETUP_ACTIVATION_SCOPE)
+        if (!limit.allowed) {
+          set.status = 429
+          set.headers['Retry-After'] = String(Math.ceil(limit.retryAfterMs / 1000))
+          return { error: 'too many invalid bootstrap activation attempts' }
+        }
+
         const completed = (await appConfigService.get(SetupCompletedConfig)) === true
         if (completed) {
           set.status = 409
@@ -148,10 +161,12 @@ export function setupRoutes() {
 
         const expected = await appConfigService.get(SetupBootstrapActivationCodeConfig)
         const submitted = body.activationCode.trim().toUpperCase()
-        if (!expected || submitted !== expected) {
+        if (!expected || !safeEqualSecret(submitted, expected)) {
+          setupActivationRateLimiter.recordFailure(clientIp, SETUP_ACTIVATION_SCOPE)
           set.status = 401
           return { error: 'invalid bootstrap activation code' }
         }
+        setupActivationRateLimiter.reset(clientIp, SETUP_ACTIVATION_SCOPE)
 
         if (selectedLocale) await appConfigService.set(AppI18nDefaultLocaleConfig, selectedLocale)
 

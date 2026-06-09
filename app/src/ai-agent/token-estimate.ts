@@ -1,5 +1,6 @@
 import { estimateContextTokens, type AgentMessage } from './core'
 import { INLINE_IMAGE_DATA_TOKEN_COST, stripInlineImageDataForEstimate } from './media'
+import { estimateStringChars, estimateTokensFromChars } from '@/common/cjk-chars'
 
 /**
  * The base estimator counts every character at ~4 chars/token. Dense JSON is
@@ -26,6 +27,21 @@ function jsonDensityCorrection(messages: AgentMessage[]): number {
   return correction
 }
 
+function cjkDensityCorrection(messages: AgentMessage[]): number {
+  let correction = 0
+  for (const message of messages) {
+    if (!hasTextContentBlocks(message)) continue
+    for (const block of message.content) {
+      if (block.type !== 'text' || typeof block.text !== 'string') continue
+      const adjusted = estimateStringChars(block.text)
+      if (adjusted > block.text.length) {
+        correction += estimateTokensFromChars(adjusted - block.text.length)
+      }
+    }
+  }
+  return correction
+}
+
 /**
  * Context token estimate used for compaction TRIGGER decisions (preflight +
  * microcompact). Wraps pi's `estimateContextTokens` and bumps JSON-dense tool
@@ -38,6 +54,13 @@ export function estimateContextTokensJsonAware(messages: AgentMessage[]): number
   return (
     estimateContextTokens(media.messages).tokens +
     jsonDensityCorrection(media.messages) +
+    cjkDensityCorrection(media.messages) +
     media.imageCount * INLINE_IMAGE_DATA_TOKEN_COST
   )
+}
+
+function hasTextContentBlocks(
+  message: AgentMessage
+): message is AgentMessage & { content: Array<{ type: string; text?: string }> } {
+  return 'content' in message && Array.isArray(message.content)
 }

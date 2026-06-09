@@ -118,7 +118,7 @@ async function handleInboundReceive(
   // envelope (→ conversation → model), slash-command parsing, and the clarify gate
   // all observe the same canonical text (full-width space/digits → ASCII).
   if (message.text) message = { ...message, text: normalizeInboundText(message.text) }
-  const room = roomForMessage(runtime.adapter, message)
+  const room = await roomForMessage(runtime.adapter, message)
   let delivery = deliveryForMessage(runtime.binding.groupMessageMode, room, message)
   // pending-clarify gate: a group reply (even non-@mention) must reach the parked
   // clarify's text-intercept in acceptAddressed, so upgrade it to addressed when this
@@ -207,7 +207,7 @@ async function handleMessageDeleted(
   runtime: CreateExternalGatewayAdapterContextInput,
   event: ExternalGatewayMessageDeletedEvent
 ): Promise<void> {
-  const room = roomForLifecycle(runtime.adapter, event)
+  const room = await roomForLifecycle(runtime.adapter, event)
   const type = event.kind === 'recalled' ? 'message.recalled' : 'message.deleted'
   const envelope = envelopeForDelete({
     agentUid: runtime.agent.agent.uid,
@@ -320,7 +320,7 @@ async function handleReaction(
 ): Promise<void> {
   await runtime.projection.projectReaction({
     ...event,
-    room: event.room?.id ? event.room : roomForThread(runtime.adapter, event.threadId, event.room)
+    room: event.room?.id ? event.room : await roomForThread(runtime.adapter, event.threadId, event.room)
   })
 }
 
@@ -328,7 +328,7 @@ async function handleAction(
   runtime: CreateExternalGatewayAdapterContextInput,
   event: ExternalGatewayActionEvent
 ): Promise<void> {
-  const room = roomForThread(runtime.adapter, event.threadId, event.room)
+  const room = await roomForThread(runtime.adapter, event.threadId, event.room)
   const envelope = envelopeForAction({
     agentUid: runtime.agent.agent.uid,
     binding: runtime.binding,
@@ -472,34 +472,48 @@ function envelopeForAction(input: {
   }
 }
 
-function roomForMessage(
+async function roomForMessage(
   adapter: ExternalGatewayAdapter,
   message: ExternalGatewayMessageInput
-): Required<Pick<ExternalGatewayRoomInput, 'id'>> & ExternalGatewayRoomInput {
+): Promise<Required<Pick<ExternalGatewayRoomInput, 'id'>> & ExternalGatewayRoomInput> {
   return roomForThread(adapter, message.threadId, message.room)
 }
 
-function roomForLifecycle(
+async function roomForLifecycle(
   adapter: ExternalGatewayAdapter,
   event: ExternalGatewayMessageDeletedEvent
-): Required<Pick<ExternalGatewayRoomInput, 'id'>> & ExternalGatewayRoomInput {
+): Promise<Required<Pick<ExternalGatewayRoomInput, 'id'>> & ExternalGatewayRoomInput> {
   return roomForThread(adapter, event.threadId, event.room ?? event.message?.room)
 }
 
-function roomForThread(
+async function roomForThread(
   adapter: ExternalGatewayAdapter,
   threadId: string,
   room?: ExternalGatewayRoomInput
-): Required<Pick<ExternalGatewayRoomInput, 'id'>> & ExternalGatewayRoomInput {
+): Promise<Required<Pick<ExternalGatewayRoomInput, 'id'>> & ExternalGatewayRoomInput> {
   const id = room?.id ?? adapter.channelIdFromThreadId(threadId)
-
-  return {
+  const fallback = {
     id,
     isDM: room?.isDM ?? adapter.isDM?.(threadId) ?? false,
     metadata: room?.metadata ?? {},
     name: room?.name ?? null,
     raw: room?.raw ?? null,
     roomVisibility: room?.roomVisibility ?? adapter.getChannelVisibility?.(threadId) ?? 'unknown'
+  }
+  if (fallback.name || fallback.isDM || !adapter.fetchChannelInfo) return fallback
+
+  try {
+    const fetched = await adapter.fetchChannelInfo(id)
+    return {
+      ...fallback,
+      isDM: room?.isDM ?? fetched.isDM ?? fallback.isDM,
+      metadata: room?.metadata ?? fetched.metadata ?? fallback.metadata,
+      name: room?.name ?? fetched.name ?? fallback.name,
+      raw: room?.raw ?? fetched.raw ?? fallback.raw,
+      roomVisibility: room?.roomVisibility ?? fetched.roomVisibility ?? fallback.roomVisibility
+    }
+  } catch {
+    return fallback
   }
 }
 
