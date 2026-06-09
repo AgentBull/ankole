@@ -7,6 +7,7 @@ import {
 } from './conversation-service'
 import { numberFromPath, toJsonValue } from '@/common/json'
 import type { JsonValue } from '@/common/db-schema'
+import { stripHistoricalMedia } from './media'
 import { microcompact } from './microcompact'
 import { estimateContextTokensJsonAware } from './token-estimate'
 
@@ -57,11 +58,17 @@ export class AiAgentContextRenderer {
     // old re-derivable tool results (web_search/web_extract) before any LLM summary.
     // The PG rows are untouched — only this returned, model-bound view shrinks.
     const mc = options?.microcompact
-    const messagesForModel =
+    const messagesAfterMicrocompact =
       mc && estimateContextTokensJsonAware(messages) > mc.triggerTokens
         ? microcompact(messages, { keepRecent: mc.keepRecent })
         : messages
-    const modelViewPatches = buildModelViewPatches(messages, messagesForModel, inputMessageRefs)
+    const messagesForModel = stripHistoricalMedia(messagesAfterMicrocompact)
+    const modelViewPatches = buildModelViewPatches(
+      messages,
+      messagesForModel,
+      inputMessageRefs,
+      messagesAfterMicrocompact
+    )
 
     return {
       messages: messagesForModel,
@@ -87,15 +94,18 @@ function messageRef(row: Awaited<ReturnType<AiAgentConversationService['rendered
 function buildModelViewPatches(
   sourceMessages: AgentMessage[],
   modelMessages: AgentMessage[],
-  inputMessageRefs: JsonValue[]
+  inputMessageRefs: JsonValue[],
+  messagesAfterMicrocompact: AgentMessage[]
 ): JsonValue[] {
   return modelMessages.flatMap((message, index) => {
     const source = sourceMessages[index]
     if (!source || sameJson(source, message)) return []
+    const microcompacted = messagesAfterMicrocompact[index]
+    const reason = microcompacted && !sameJson(source, microcompacted) ? 'microcompact' : 'historical_media_strip'
     return [
       {
         type: 'message_override',
-        reason: 'microcompact',
+        reason,
         index,
         ref: inputMessageRefs[index] ?? null,
         message: toJsonValue(message)

@@ -1,5 +1,16 @@
 import { sql } from 'drizzle-orm'
-import { boolean, check, index, jsonb, pgTable, primaryKey, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
+import {
+  boolean,
+  check,
+  index,
+  jsonb,
+  pgTable,
+  primaryKey,
+  text,
+  timestamp,
+  uniqueIndex,
+  uuid
+} from 'drizzle-orm/pg-core'
 import { Agents, type JsonObject, type JsonValue } from './principals'
 
 /** Canonical skill registry. `default_enabled` is the only distinction for built-in always-on skills. */
@@ -122,8 +133,14 @@ export const AgentLibraryContainerEntries = pgTable(
     index('agent_library_entries_agent_index').on(t.agentUid, t.enabled, t.virtualPath),
     check('agent_library_entries_virtual_path_relative', sql`${t.virtualPath} !~ '(^/|(^|/)\.\.(/|$)|//)'`),
     check('agent_library_entries_kind_check', sql`${t.entryKind} in ('file', 'directory')`),
-    check('agent_library_entries_source_check', sql`${t.sourceKind} in ('soul', 'skill_append', 'setting', 'memory', 'system', 'user', 'computer')`),
-    check('agent_library_entries_one_content', sql`not (${t.contentText} is not null and ${t.contentBytes} is not null)`),
+    check(
+      'agent_library_entries_source_check',
+      sql`${t.sourceKind} in ('soul', 'skill_append', 'setting', 'memory', 'system', 'user', 'computer')`
+    ),
+    check(
+      'agent_library_entries_one_content',
+      sql`not (${t.contentText} is not null and ${t.contentBytes} is not null)`
+    ),
     check('agent_library_entries_metadata_object', sql`jsonb_typeof(${t.metadata}) = 'object'`),
     check('agent_library_entries_source_ref_object', sql`jsonb_typeof(${t.sourceRef}) = 'object'`)
   ]

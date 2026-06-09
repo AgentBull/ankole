@@ -37,6 +37,9 @@ export const exaProvider: WebProvider = {
   async available() {
     return Boolean(await apiKey())
   },
+  async unavailableReason() {
+    return (await apiKey()) ? undefined : 'exa api key not configured'
+  },
   async search(args: WebSearchArgs, signal?: AbortSignal): Promise<WebSearchResult[]> {
     const key = requireKey(await apiKey())
     const limit = args.limit ?? 5

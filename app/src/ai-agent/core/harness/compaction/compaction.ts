@@ -233,7 +233,7 @@ export function estimateTokens(message: AgentMessage): number {
         if (block.type === 'text') {
           chars += block.text.length
         } else if (block.type === 'thinking') {
-          chars += block.thinking.length
+          continue
         } else if (block.type === 'toolCall') {
           chars += block.name.length + safeJsonStringify(block.arguments).length
         }

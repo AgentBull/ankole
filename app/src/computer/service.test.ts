@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test'
-import { eq, inArray, sql } from 'drizzle-orm'
+import { and, eq, inArray, like, not, sql } from 'drizzle-orm'
 import { loadTestEnvFiles } from '../common/tests/load-test-env'
 
 await loadTestEnvFiles()
@@ -7,13 +7,14 @@ await loadTestEnvFiles()
 const { DB } = await import('../common/database')
 const { ComputerAgentWorkerBindings, ComputerAgentWorkerPins, ComputerWorkers } =
   await import('../common/db-schema/computer')
-const { registerWorker, resolveComputerWorker, setAgentPin } = await import('./service')
+const { registerWorker, releaseComputerWorkerBinding, resolveComputerWorker, setAgentPin } = await import('./service')
 
 const suffix = `${Date.now()}_${Math.random().toString(36).slice(2)}`
 const workerIds = [0, 1, 2].map(index => `test-w${index}-${suffix}`)
 const agentOf = (name: string) => `test-agent-${name}-${suffix}`
 
 async function cleanup(): Promise<void> {
+  await DB.delete(ComputerAgentWorkerBindings).where(like(ComputerAgentWorkerBindings.agentUid, `%${suffix}`))
   await DB.delete(ComputerAgentWorkerBindings).where(inArray(ComputerAgentWorkerBindings.workerId, workerIds))
   await DB.delete(ComputerAgentWorkerPins).where(inArray(ComputerAgentWorkerPins.workerId, workerIds))
   await DB.delete(ComputerWorkers).where(inArray(ComputerWorkers.workerId, workerIds))
@@ -52,20 +53,47 @@ describe('resolveComputerWorker', () => {
   })
 
   it('spreads new agents across the least-bound workers', async () => {
+    await DB.delete(ComputerAgentWorkerBindings).where(inArray(ComputerAgentWorkerBindings.workerId, workerIds))
+    const otherHealthyWorkers = await DB.select({ workerId: ComputerWorkers.workerId })
+      .from(ComputerWorkers)
+      .where(
+        and(
+          not(inArray(ComputerWorkers.workerId, workerIds)),
+          eq(ComputerWorkers.status, 'ready'),
+          sql`${ComputerWorkers.lastHeartbeatAt} > now() - interval '30 seconds'`
+        )
+      )
+
+    for (const row of otherHealthyWorkers) {
+      for (let i = 0; i < 16; i++) {
+        await DB.insert(ComputerAgentWorkerBindings)
+          .values({
+            agentUid: agentOf(`spread-baseline-${row.workerId}-${i}`),
+            workerId: row.workerId,
+            instanceId: `test-baseline-${i}`,
+            bindingKind: 'implicit',
+            bindingReason: 'test_baseline'
+          })
+          .onConflictDoNothing()
+      }
+    }
+
+    const spreadAgents = Array.from({ length: 9 }, (_, index) => agentOf(`spread-${index}`))
     const used = new Set<string>()
-    for (let i = 0; i < 9; i++) {
-      const resolved = await resolveComputerWorker(agentOf(`spread-${i}`))
+    for (const agent of spreadAgents) {
+      const resolved = await resolveComputerWorker(agent)
       used.add(resolved.worker.workerId)
     }
-    expect(used.size).toBe(3) // every worker received traffic
+    expect(used).toEqual(new Set(workerIds))
 
     // The real invariant: strict least-bound selection keeps the fleet balanced.
     const rows = await DB.select({ workerId: ComputerAgentWorkerBindings.workerId, n: sql<number>`count(*)::int` })
       .from(ComputerAgentWorkerBindings)
-      .where(inArray(ComputerAgentWorkerBindings.workerId, workerIds))
+      .where(inArray(ComputerAgentWorkerBindings.agentUid, spreadAgents))
       .groupBy(ComputerAgentWorkerBindings.workerId)
     const totals = rows.map(row => Number(row.n))
-    expect(totals.length).toBe(3)
+    expect(totals.reduce((sum, total) => sum + total, 0)).toBe(9)
+    expect(totals.length).toBe(used.size)
     expect(Math.max(...totals) - Math.min(...totals)).toBeLessThanOrEqual(1)
   })
 
@@ -93,5 +121,21 @@ describe('resolveComputerWorker', () => {
     const recovered = await resolveComputerWorker(agent)
     expect(recovered.worker.workerId).toBe(pinned)
     expect(recovered.binding.kind).toBe('explicit_pin')
+  })
+
+  it('releases only the stale resolved worker binding for an agent', async () => {
+    const agent = agentOf('release-stale')
+    const first = await resolveComputerWorker(agent)
+    await releaseComputerWorkerBinding(agent, {
+      ...first.worker,
+      instanceId: `${first.worker.instanceId}-stale`
+    })
+    expect((await resolveComputerWorker(agent)).worker.workerId).toBe(first.worker.workerId)
+
+    await releaseComputerWorkerBinding(agent, first.worker)
+    const rows = await DB.select()
+      .from(ComputerAgentWorkerBindings)
+      .where(eq(ComputerAgentWorkerBindings.agentUid, agent))
+    expect(rows).toHaveLength(0)
   })
 })

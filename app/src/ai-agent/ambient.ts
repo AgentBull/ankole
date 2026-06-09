@@ -19,6 +19,7 @@ interface AmbientBatch {
   bindingName?: string
   conversationId: string
   dueAt: Date
+  firstSeenAt: Date
   providerRoomId: string
   providerThreadId: string
 }
@@ -42,7 +43,7 @@ export class AiAgentAmbientBatcher {
     providerRoomId: string
     providerThreadId: string
   }): Promise<void> {
-    const dueAt = new Date(Date.now() + input.profile.ambient.batchWindowMs)
+    const now = Date.now()
     const key = this.batchKey(
       input.agentUid,
       input.bindingName,
@@ -50,11 +51,17 @@ export class AiAgentAmbientBatcher {
       input.providerRoomId,
       input.providerThreadId
     )
+    const existing = this.batches.get(key)
+    const firstSeenAt = existing?.firstSeenAt ?? new Date(now)
+    const dueAt = new Date(
+      Math.min(now + input.profile.ambient.batchWindowMs, firstSeenAt.getTime() + input.profile.ambient.hardCapMs)
+    )
     this.batches.set(key, {
       agentUid: input.agentUid,
       bindingName: input.bindingName,
       conversationId: input.conversationId,
       dueAt,
+      firstSeenAt,
       providerRoomId: input.providerRoomId,
       providerThreadId: input.providerThreadId
     })
@@ -259,6 +266,7 @@ export class AiAgentAmbientBatcher {
         bindingName: typeof batch.bindingName === 'string' ? batch.bindingName : undefined,
         conversationId: batch.conversationId,
         dueAt: new Date(0),
+        firstSeenAt: typeof batch.firstSeenAt === 'string' ? new Date(batch.firstSeenAt) : new Date(0),
         providerRoomId: batch.providerRoomId,
         providerThreadId: batch.providerThreadId
       }

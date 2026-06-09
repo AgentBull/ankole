@@ -55,6 +55,38 @@ agent→worker sticky binding. The worker only executes local session / command 
 | `/workspace/user-files`        | uploads/downloads, PDFs, images, large binaries       | PVC, rw          |
 | `/workspace/temp`              | scratch scripts, intermediate results, drafts         | non-persistent   |
 
+## Runtime baseline
+
+The Docker image includes a system-level Python 3.12 baseline for common agent work: data frames,
+scientific computing, document parsing, JupyterLab, the vendored hamelnb live-kernel helper, the
+Bun runtime, and common shell utilities such as `git`, `jq`, `aria2c`, `unzip`, `xz`, and `zstd`.
+The baseline is part of the worker image, not agent identity state. Inside bubblewrap it is mounted
+read-only through the system directories.
+
+Browser automation is part of the worker image through the BullX-owned `bullx-browser` CLI,
+Camoufox Python package, system libraries, and a fixed Camoufox browser binary under
+`/opt/camoufox`. On first use, `bullx-browser` copies that binary into the agent's writable
+`HOME/.cache/camoufox` before launching the browser. Workers should advertise the `browser`
+feature only when this preinstalled binary is present and rendered-page/LLM E2E smoke tests are
+green.
+
+Browser tools separate rendered-page viewing from stateful browser work. `browser_open` and
+`browser_extract` default to an ephemeral profile for one-off page rendering. `browser_run` defaults
+to a persistent profile keyed by the agent/session so login state, cookies, and local storage can
+survive a sequence of interactions.
+
+Agents can create an optional per-agent Python environment at `/workspace/user-files/.bullx/python` when a
+task needs extra packages or version isolation:
+
+```sh
+uv venv --system-site-packages --python 3.12 /workspace/user-files/.bullx/python
+uv pip install --python /workspace/user-files/.bullx/python/bin/python <package>
+```
+
+The per-agent environment sees the system baseline and stores only package deltas. If package conflicts
+become common for an important agent, prefer pinning that agent to a dedicated computer worker instead of
+building complex Python environment layering.
+
 ## Interactive terminals
 
 The app exposes an `interactive_terminal` tool backed by tmux for TTY/TUI programs such as Codex,

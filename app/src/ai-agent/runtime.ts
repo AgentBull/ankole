@@ -56,7 +56,6 @@ import {
   convertToLlm,
   createCustomMessage,
   createUserMessage,
-  estimateContextTokens,
   shouldCompact,
   textFromAgentMessage,
   type AfterToolCallContext,
@@ -74,6 +73,14 @@ import { interactiveOutputCardPayload, larkNativeCardPayload } from '@/external-
 import { createTodoTool, TodoStore, todoItemsFromToolDetails, type TodoToolDetails } from './tools/todo-tool'
 import { buildAgentSystemPrompt } from './library/service'
 import { createSkillTools } from './library/tools'
+import { estimateContextTokensJsonAware } from './token-estimate'
+
+/**
+ * Hard cap on LLM turns per generation. On reaching it the loop runs one tool-free
+ * grace summary turn (so a runaway tool-calling model still produces a usable answer)
+ * and stops. Generous by default; can be lifted to the runtime profile later.
+ */
+const MAX_GENERATION_TURNS = 100
 
 export interface AiAgentRuntimeOptions {
   ambient?: AiAgentAmbientBatcher
@@ -90,6 +97,7 @@ export interface AiAgentRuntimeOptions {
 }
 
 type RunGenerationInput = {
+  abortSignal?: AbortSignal
   context: ExternalGatewayAgentExecutionContext
   conversationId: string
   disableInteractiveTools?: boolean
@@ -105,6 +113,7 @@ type RunGenerationInput = {
 
 interface GenerationRunContext {
   abortController: AbortController
+  abortFromParent?: () => void
   input: RunGenerationInput
   leaseId: string
   recorder: GenerationTrajectoryRecorder
@@ -161,6 +170,7 @@ export interface AiAgentProgrammaticTurnInput {
   metadata?: JsonObject
   outputProviderRoomId?: string
   outputProviderThreadId?: string
+  signal?: AbortSignal
   suppressVisibleOutput?: boolean
 }
 
@@ -476,6 +486,43 @@ function snapshotTools(tools: AgentTool<any>[] | undefined): JsonValue[] {
     })
     return snapshot === null ? [] : [snapshot]
   })
+}
+
+function estimateGenerationContextTokens(
+  messages: AgentMessage[],
+  systemPrompt: string,
+  tools: AgentTool<any>[]
+): number {
+  const messageTokens = estimateContextTokensJsonAware(messages)
+  const systemTokens = Math.ceil(systemPrompt.length / 4)
+  const toolChars = tools.reduce((sum, tool) => {
+    return sum + tool.name.length + tool.description.length + safeJsonStringify(tool.parameters).length
+  }, 0)
+  return messageTokens + systemTokens + Math.ceil(toolChars / 4)
+}
+
+function hasUsefulThresholdCompaction(input: {
+  contextWindow: number
+  keepRecentTokens: number
+  messages: AgentMessage[]
+  requestTokens: number
+  reserveTokens: number
+}): boolean {
+  if (input.messages.length <= 2) return false
+  const limit = input.contextWindow - input.reserveTokens
+  const overage = input.requestTokens - limit
+  if (overage <= 0) return false
+  const messageTokens = estimateContextTokensJsonAware(input.messages)
+  const estimatedReducibleTokens = Math.max(0, messageTokens - input.keepRecentTokens)
+  return estimatedReducibleTokens >= overage
+}
+
+function safeJsonStringify(value: unknown): string {
+  try {
+    return JSON.stringify(value) ?? ''
+  } catch {
+    return ''
+  }
 }
 
 export class AiAgentRuntime {
@@ -798,6 +845,7 @@ export class AiAgentRuntime {
       conversationId: conversation.id,
       disableInteractiveTools: input.disableInteractiveTools,
       llmTurnKind: input.kind,
+      abortSignal: input.signal,
       profile,
       providerRoomId: input.outputProviderRoomId,
       providerThreadId: input.outputProviderThreadId,
@@ -1283,31 +1331,6 @@ export class AiAgentRuntime {
           }
         : undefined
 
-    let rendered = await this.renderer.render(input.conversationId, microcompactOptions)
-    // shouldCompact preflight (ported from AgentHarness threshold check): if the rebuilt context already
-    // exceeds the model window minus the reserve, compress first so we don't burn a doomed provider call.
-    // Best-effort; the provider context-overflow retry below remains the safety net.
-    if (
-      input.llmTurnKind !== 'overflow_retry' &&
-      input.profile.primaryModel.model.contextWindow > 0 &&
-      shouldCompact(estimateContextTokens(rendered.messages).tokens, input.profile.primaryModel.model.contextWindow, {
-        enabled: input.profile.compression.enabled,
-        reserveTokens: input.profile.compression.reserveTokens,
-        keepRecentTokens: input.profile.compression.keepRecentTokens
-      })
-    ) {
-      try {
-        await this.compression.compress({
-          conversationId: input.conversationId,
-          profile: input.profile,
-          trigger: 'threshold'
-        })
-        rendered = await this.renderer.render(input.conversationId, microcompactOptions)
-      } catch (error) {
-        logger.error({ error, conversationId: input.conversationId }, 'AI agent threshold compaction failed')
-      }
-    }
-    const abortController = new AbortController()
     const todoStore = await this.loadTodoStore(input.conversationId)
     const clarifyRoomId = input.providerRoomId ?? input.providerThreadId ?? ''
     const binding: ClarifyRunBinding = {
@@ -1326,6 +1349,44 @@ export class AiAgentRuntime {
     const activeTools = this.buildActiveToolsForRun(binding, todoStore, {
       disableInteractiveTools: input.disableInteractiveTools
     })
+    const systemPrompt = await buildAgentSystemPrompt(input.context.agentUid)
+
+    let rendered = await this.renderer.render(input.conversationId, microcompactOptions)
+    // shouldCompact preflight (ported from AgentHarness threshold check): if the rebuilt context already
+    // exceeds the model window minus the reserve, compress first so we don't burn a doomed provider call.
+    // Best-effort; the provider context-overflow retry below remains the safety net.
+    const estimatedRequestTokens = estimateGenerationContextTokens(rendered.messages, systemPrompt, activeTools)
+    if (
+      input.llmTurnKind !== 'overflow_retry' &&
+      input.profile.primaryModel.model.contextWindow > 0 &&
+      hasUsefulThresholdCompaction({
+        contextWindow: input.profile.primaryModel.model.contextWindow,
+        keepRecentTokens: input.profile.compression.keepRecentTokens,
+        messages: rendered.messages,
+        requestTokens: estimatedRequestTokens,
+        reserveTokens: input.profile.compression.reserveTokens
+      }) &&
+      shouldCompact(estimatedRequestTokens, input.profile.primaryModel.model.contextWindow, {
+        enabled: input.profile.compression.enabled,
+        reserveTokens: input.profile.compression.reserveTokens,
+        keepRecentTokens: input.profile.compression.keepRecentTokens
+      })
+    ) {
+      try {
+        await this.compression.compress({
+          conversationId: input.conversationId,
+          profile: input.profile,
+          trigger: 'threshold'
+        })
+        rendered = await this.renderer.render(input.conversationId, microcompactOptions)
+      } catch (error) {
+        logger.error({ error, conversationId: input.conversationId }, 'AI agent threshold compaction failed')
+      }
+    }
+    const abortController = new AbortController()
+    const abortFromParent = () => abortController.abort(input.abortSignal?.reason)
+    if (input.abortSignal?.aborted) abortFromParent()
+    else input.abortSignal?.addEventListener('abort', abortFromParent, { once: true })
     const stream = this.buildGenerationStreamingSink(input, lease.leaseId)
     const recorder = new GenerationTrajectoryRecorder(
       input,
@@ -1336,6 +1397,7 @@ export class AiAgentRuntime {
     )
     const runContext: GenerationRunContext = {
       abortController,
+      abortFromParent,
       input,
       leaseId: lease.leaseId,
       recorder,
@@ -1349,6 +1411,7 @@ export class AiAgentRuntime {
         recorder,
         rendered,
         stream,
+        systemPrompt,
         todoStore
       })
       this.registry.set({
@@ -1373,7 +1436,11 @@ export class AiAgentRuntime {
         error
       }
     }
-    return this.finishGenerationRun(runContext, outcome)
+    try {
+      return await this.finishGenerationRun(runContext, outcome)
+    } finally {
+      input.abortSignal?.removeEventListener('abort', abortFromParent)
+    }
   }
 
   private buildGenerationStreamingSink(input: RunGenerationInput, leaseId: string): GenerationStreamingSink {
@@ -1428,13 +1495,13 @@ export class AiAgentRuntime {
     recorder: GenerationTrajectoryRecorder
     rendered: RenderedAiAgentContext
     stream: GenerationStreamingSink
+    systemPrompt: string
     todoStore: TodoStore
   }): Promise<Agent> {
     const profileOptions = input.input.profile.primaryModel.options
-    const systemPrompt = await buildAgentSystemPrompt(input.input.context.agentUid)
     const agent = new Agent({
       initialState: {
-        systemPrompt,
+        systemPrompt: input.systemPrompt,
         messages: input.rendered.messages,
         model: input.input.profile.primaryModel.model,
         thinkingLevel: input.input.profile.primaryModel.config.reasoning ?? 'medium',
@@ -1445,6 +1512,10 @@ export class AiAgentRuntime {
       // (the Agent's default convertToLlm would drop them).
       convertToLlm,
       toolExecution: 'parallel',
+      // Iteration budget + graceful summary, and a one-shot nudge when the model
+      // returns an empty reply right after tools (instead of ending the run silently).
+      maxTurns: MAX_GENERATION_TURNS,
+      nudgeOnEmptyAfterTools: true,
       onStreamingText: input.stream.onStreamingText,
       // Context transform hook (AgentHarness 'context' event) — extension point for in-run context shaping.
       transformContext: (messages, signal) => this.transformGenerationContext(messages, input.todoStore, signal),
@@ -1623,6 +1694,7 @@ export class AiAgentRuntime {
       clearLease = true
       result = { status: run.abortController.signal.aborted ? 'cancelled' : 'failed', enqueuedOutput: false }
     } finally {
+      if (run.abortFromParent) run.input.abortSignal?.removeEventListener('abort', run.abortFromParent)
       try {
         if (clearLease) await this.conversations.clearGenerationLease(run.input.conversationId, run.leaseId)
       } finally {

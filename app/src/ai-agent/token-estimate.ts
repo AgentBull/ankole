@@ -1,4 +1,5 @@
 import { estimateContextTokens, type AgentMessage } from './core'
+import { INLINE_IMAGE_DATA_TOKEN_COST, stripInlineImageDataForEstimate } from './media'
 
 /**
  * The base estimator counts every character at ~4 chars/token. Dense JSON is
@@ -33,5 +34,10 @@ function jsonDensityCorrection(messages: AgentMessage[]): number {
  * affects "when", which is safe to make more conservative.
  */
 export function estimateContextTokensJsonAware(messages: AgentMessage[]): number {
-  return estimateContextTokens(messages).tokens + jsonDensityCorrection(messages)
+  const media = stripInlineImageDataForEstimate(messages)
+  return (
+    estimateContextTokens(media.messages).tokens +
+    jsonDensityCorrection(media.messages) +
+    media.imageCount * INLINE_IMAGE_DATA_TOKEN_COST
+  )
 }

@@ -1,0 +1,22 @@
+#!/usr/bin/env sh
+# Auto-format staged files with oxfmt before each commit, so commits are always
+# formatted without having to remember `bun fmt`.
+#
+# Scoped to the staged files only (fast) rather than the whole repo. For a full
+# pass over every workspace (incl. `cargo fmt`), run `bun fmt` manually.
+set -eu
+
+files=$(git diff --cached --name-only --diff-filter=ACMR \
+  -- '*.ts' '*.tsx' '*.mts' '*.cts' '*.js' '*.jsx' '*.mjs' '*.cjs' '*.json' '*.jsonc')
+
+if [ -z "$files" ]; then
+  exit 0
+fi
+
+# Format in place, then re-stage so the formatted result is what gets committed.
+# shellcheck disable=SC2086
+echo "$files" | xargs bun x oxfmt --write
+# shellcheck disable=SC2086
+echo "$files" | xargs git add
+
+echo "oxfmt: formatted $(printf '%s\n' "$files" | wc -l | tr -d ' ') staged file(s)"

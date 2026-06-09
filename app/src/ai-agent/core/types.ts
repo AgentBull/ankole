@@ -285,6 +285,21 @@ export interface AgentLoopConfig extends SimpleStreamOptions {
   toolExecution?: ToolExecutionMode
 
   /**
+   * Hard cap on the number of LLM turns in a single loop run. When the cap is
+   * reached the loop runs one final tool-free "grace" turn (asking the model to
+   * summarize) so a runaway tool-calling model yields a usable answer instead of
+   * looping forever. Undefined means no cap (the historical behavior).
+   */
+  maxTurns?: number
+
+  /**
+   * When true, an empty assistant reply that arrives immediately after tool results
+   * triggers a single nudge (an injected user message) to continue, instead of
+   * silently ending the run on a model hiccup. Re-armed per loop run.
+   */
+  nudgeOnEmptyAfterTools?: boolean
+
+  /**
    * Called before a tool is executed, after arguments have been validated.
    *
    * Return `{ block: true }` to prevent execution. The loop emits an error tool result instead.

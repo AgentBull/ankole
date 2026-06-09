@@ -126,6 +126,10 @@ export interface AgentOptions {
   transport?: Transport
   maxRetryDelayMs?: number
   toolExecution?: ToolExecutionMode
+  /** Hard cap on LLM turns per run; on reaching it a tool-free grace summary turn runs, then the loop stops. */
+  maxTurns?: number
+  /** Nudge the model to continue once when it returns an empty reply right after tool results. */
+  nudgeOnEmptyAfterTools?: boolean
 }
 
 class PendingMessageQueue {
@@ -216,6 +220,10 @@ export class Agent {
   public maxRetryDelayMs?: number
   /** Tool execution strategy for assistant messages that contain multiple tool calls. */
   public toolExecution: ToolExecutionMode
+  /** Hard cap on LLM turns per run; on reaching it a tool-free grace summary turn runs, then the loop stops. */
+  public maxTurns?: number
+  /** Nudge the model to continue once when it returns an empty reply right after tool results. */
+  public nudgeOnEmptyAfterTools: boolean
 
   constructor(options: AgentOptions = {}) {
     this._state = createMutableAgentState(options.initialState)
@@ -238,6 +246,8 @@ export class Agent {
     this.transport = options.transport ?? 'auto'
     this.maxRetryDelayMs = options.maxRetryDelayMs
     this.toolExecution = options.toolExecution ?? 'parallel'
+    this.maxTurns = options.maxTurns
+    this.nudgeOnEmptyAfterTools = options.nudgeOnEmptyAfterTools ?? false
   }
 
   /**
@@ -450,6 +460,8 @@ export class Agent {
       thinkingBudgets: this.thinkingBudgets,
       maxRetryDelayMs: this.maxRetryDelayMs,
       toolExecution: this.toolExecution,
+      maxTurns: this.maxTurns,
+      nudgeOnEmptyAfterTools: this.nudgeOnEmptyAfterTools,
       beforeToolCall: this.beforeToolCall,
       afterToolCall: this.afterToolCall,
       beforeLlmCall: this.beforeLlmCall

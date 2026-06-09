@@ -23,6 +23,7 @@ describe('createCommandTool', () => {
       }
     } as unknown as Computer
     const context: ComputerToolContext = {
+      agentUid: 'agent_123',
       getComputer: async () => computer,
       backgroundIds: new Set()
     }
@@ -63,6 +64,10 @@ describe('createCommandTool', () => {
     )
 
     expect(tools.map(tool => tool.name)).toEqual([
+      'browser_doctor',
+      'browser_open',
+      'browser_extract',
+      'browser_run',
       'command',
       'terminal',
       'interactive_terminal',

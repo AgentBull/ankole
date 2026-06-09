@@ -27,7 +27,7 @@ export const DB = drizzle({
   schema,
   logger: {
     logQuery(query, params) {
-      logger.trace({ query, params }, 'SQL Query')
+      logger.trace({ query, paramCount: params.length }, 'SQL Query')
     }
   }
 })

@@ -20,6 +20,7 @@ interface ProgrammaticTurnStub {
   eventId: string
   eventSource: string
   message: string
+  signal?: AbortSignal
 }
 
 interface AgentExecutionContextStub {
@@ -109,6 +110,47 @@ describe('SchedulerRuntime', () => {
     const runs = await runsForTask(task.id)
     expect(runs.map(run => run.status)).toEqual(['failed', 'failed'])
     expect(runs.every(run => run.error?.includes('planned scheduler failure'))).toBe(true)
+  })
+
+  it('aborts scheduled task runs that exceed the runtime timeout', async () => {
+    const agentUid = uid('timeout_agent')
+    await createAgent({ uid: agentUid })
+    const task = await createDueTask(agentUid, 'timeout_task')
+    const runtime = new SchedulerRuntime()
+    runtime.setRuntimeTuningForTest({ taskRunTimeoutMs: 20 })
+    runtime.setAgentExecutor({
+      async runProgrammaticTurn(context: AgentExecutionContextStub, turn: ProgrammaticTurnStub) {
+        await new Promise<void>(resolve => turn.signal?.addEventListener('abort', () => resolve(), { once: true }))
+        const conversation = await aiAgentConversationService.getOrCreateActiveConversation({
+          agentUid: context.agentUid,
+          bindingName: context.bindingName,
+          providerRoomId: turn.conversationProviderRoomId
+        })
+        const message = await aiAgentConversationService.appendMessage({
+          conversationId: conversation.id,
+          role: 'user',
+          content: textContent(turn.message),
+          eventSource: turn.eventSource,
+          eventId: turn.eventId
+        })
+        return {
+          conversationId: conversation.id,
+          enqueuedOutput: false,
+          status: 'cancelled' as const,
+          triggerMessageId: message.id
+        }
+      }
+    })
+
+    await runtime.runNow(task.id)
+
+    const [run] = await runsForTask(task.id)
+    expect(run?.status).toBe('failed')
+    expect(run?.error).toContain('scheduled task timed out')
+    expect((run?.metadata as { timed_out?: unknown } | undefined)?.timed_out).toBe(true)
+    const refreshed = await taskById(task.id)
+    expect(refreshed?.claimedBy).toBeNull()
+    expect(refreshed?.leaseExpiresAt).toBeNull()
   })
 })
 

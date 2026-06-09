@@ -321,7 +321,7 @@ export class SchedulerStore {
           previousRunAt: sql`${ScheduledTasks.nextRunAt}`,
           lastStatus: input.status === 'running' ? null : input.status,
           lastRunId: input.runId,
-          consecutiveFailures: input.status === 'succeeded' ? 0 : sql`${ScheduledTasks.consecutiveFailures} + 1`,
+          consecutiveFailures: input.status === 'failed' ? sql`${ScheduledTasks.consecutiveFailures} + 1` : 0,
           claimedBy: null,
           claimedAt: null,
           leaseExpiresAt: null,

@@ -7,8 +7,9 @@ import { loadTestEnvFiles } from '@/common/tests/load-test-env'
 await loadTestEnvFiles()
 
 const { DB } = await import('@/common/database')
-const { LlmProviders, Principals } = await import('@/common/db-schema')
+const { LlmProviders, PrincipalGroups, Principals } = await import('@/common/db-schema')
 const { createWebServer } = await import('@/core/web-server')
+const { createAgent } = await import('@/principals/agents/service')
 const { ensureBuiltInAdminGroup } = await import('@/principals/authorization/groups')
 const { insertMembership } = await import('@/principals/authorization/memberships')
 const { createHuman } = await import('@/principals/human-users/service')
@@ -150,8 +151,105 @@ describe('console llm provider routes', () => {
   })
 })
 
+describe('console expanded resource routes', () => {
+  it('exposes overview, human users, principal groups, and agent library resources', async () => {
+    const agentUid = `${testPrefix}_agent`
+    const humanUid = `${testPrefix}_operator`
+    const groupName = `${testPrefix}_team`
+
+    await createAgent({ uid: agentUid })
+
+    const human = await authedFetch('/api/console/human-users', {
+      method: 'POST',
+      body: { uid: humanUid, email: `${humanUid}@example.com` }
+    })
+    expect(human.status).toBe(201)
+    await expect(human.json()).resolves.toMatchObject({
+      human: {
+        principal: {
+          uid: humanUid,
+          type: 'human',
+          status: 'active'
+        },
+        humanUser: {
+          email: `${humanUid}@example.com`
+        }
+      }
+    })
+
+    const disabledHuman = await authedFetch(`/api/console/human-users/${humanUid}`, {
+      method: 'PUT',
+      body: { status: 'disabled' }
+    })
+    expect(disabledHuman.status).toBe(200)
+    await expect(disabledHuman.json()).resolves.toMatchObject({
+      human: {
+        principal: {
+          status: 'disabled'
+        }
+      }
+    })
+
+    const group = await authedFetch('/api/console/principal-groups', {
+      method: 'POST',
+      body: { name: groupName, kind: 'static' }
+    })
+    expect(group.status).toBe(201)
+    const groupBody = (await group.json()) as { group: { id: string; name: string } }
+    expect(groupBody.group.name).toBe(groupName)
+
+    const groups = await authedFetch('/api/console/principal-groups')
+    expect(groups.status).toBe(200)
+    expect(
+      ((await groups.json()) as { groups: Array<{ name: string; membershipCount: number }> }).groups.some(
+        item => item.name === groupName && item.membershipCount === 0
+      )
+    ).toBe(true)
+
+    const soul = await authedFetch(`/api/console/agents/${agentUid}/soul`)
+    expect(soul.status).toBe(200)
+    expect(((await soul.json()) as { content: string | null }).content).toBeString()
+
+    const updatedSoul = await authedFetch(`/api/console/agents/${agentUid}/soul`, {
+      method: 'PUT',
+      body: { content: 'You are a route-test agent.' }
+    })
+    expect(updatedSoul.status).toBe(200)
+    await expect(updatedSoul.json()).resolves.toEqual({ content: 'You are a route-test agent.' })
+
+    const entries = await authedFetch(`/api/console/agents/${agentUid}/library-entries`)
+    expect(entries.status).toBe(200)
+    expect(
+      ((await entries.json()) as { entries: Array<{ virtualPath: string }> }).entries.some(
+        entry => entry.virtualPath === 'SOUL.md'
+      )
+    ).toBe(true)
+
+    const overview = await authedFetch('/api/console/overview')
+    expect(overview.status).toBe(200)
+    await expect(overview.json()).resolves.toMatchObject({
+      overview: {
+        counts: {
+          agents: expect.any(Number),
+          humanUsers: expect.any(Number),
+          principalGroups: expect.any(Number)
+        },
+        resources: expect.arrayContaining([
+          expect.objectContaining({ id: 'agents' }),
+          expect.objectContaining({ id: 'skills' }),
+          expect.objectContaining({ id: 'workers' })
+        ])
+      }
+    })
+
+    const deletedGroup = await authedFetch(`/api/console/principal-groups/${groupBody.group.id}`, { method: 'DELETE' })
+    expect(deletedGroup.status).toBe(204)
+  })
+})
+
 async function clearTestRows(): Promise<void> {
   await DB.delete(LlmProviders).where(like(LlmProviders.providerId, `${providerPrefix}%`))
+  await DB.delete(PrincipalGroups).where(like(PrincipalGroups.name, `${testPrefix}%`))
   await DB.delete(Principals).where(like(Principals.uid, `${testPrefix}%`))
 }
 

@@ -4,11 +4,14 @@ import { eq } from 'drizzle-orm'
 import { DB } from '@/common/database'
 import { AiAgentConversations, type JsonObject, type JsonValue } from '@/common/db-schema'
 import type { AiAgentRuntimeProfile } from './config'
+import type { ResolvedAiAgentModelProfile } from './config'
 import { aiAgentConversationService, textContent, type AiAgentConversationService } from './conversation-service'
 import {
   compact,
+  convertToLlm,
   DEFAULT_COMPACTION_SETTINGS,
   prepareCompaction,
+  serializeConversation,
   type AgentMessage,
   type CompactionLlmCallContext,
   type CompactionLlmCallRunner,
@@ -58,29 +61,54 @@ export class AiAgentCompressionService {
       return undefined
     }
 
-    const llmTurnIds: string[] = []
-    const callRunner = this.compactionCallRunner({
+    const llmTurnRefs: Array<{ callIndex: number; id: string }> = []
+    const commonRunnerInput = {
       agentUid: conversation.agentUid,
       conversationId: input.conversationId,
       entries,
-      leaseId: genUUIDv7(),
-      llmTurnIds,
+      llmTurnRefs,
       previousSummaryMessageId: previousSummaryEntry?.id,
       profile: input.profile,
       trigger: input.trigger
-    })
-    const compacted = await compact(
+    }
+    const lightResult = await compact(
       preparation.value,
       input.profile.lightModel.model,
       input.profile.lightModel.options,
       COMPACTION_FOCUS_INSTRUCTIONS,
       undefined,
       input.profile.lightModel.config.reasoning,
-      callRunner
+      this.compactionCallRunner({ ...commonRunnerInput, leaseId: genUUIDv7(), modelProfile: input.profile.lightModel })
     )
-    if (!compacted.ok) throw compacted.error
-    const result = compacted.value
+    const primaryResult = lightResult.ok
+      ? undefined
+      : await compact(
+          preparation.value,
+          input.profile.primaryModel.model,
+          input.profile.primaryModel.options,
+          COMPACTION_FOCUS_INSTRUCTIONS,
+          undefined,
+          input.profile.primaryModel.config.reasoning,
+          this.compactionCallRunner({
+            ...commonRunnerInput,
+            leaseId: genUUIDv7(),
+            modelProfile: input.profile.primaryModel
+          })
+        )
+    const fallbackReason =
+      !lightResult.ok && primaryResult && !primaryResult.ok
+        ? `${lightResult.error.message}; ${primaryResult.error.message}`
+        : undefined
+    const result = lightResult.ok
+      ? lightResult.value
+      : primaryResult?.ok
+        ? primaryResult.value
+        : deterministicCompactionFallback(preparation.value, fallbackReason ?? lightResult.error.message)
     const summaryText = stripCompactionScratch(result.summary)
+    const llmTurnIds = llmTurnRefs
+      .slice()
+      .sort((left, right) => left.callIndex - right.callIndex)
+      .map(ref => ref.id)
 
     const summary = await this.conversations.appendMessage({
       conversationId: input.conversationId,
@@ -90,7 +118,8 @@ export class AiAgentCompressionService {
       metadata: {
         llm_turn_id: llmTurnIds.at(-1) ?? null,
         compression: {
-          source: 'pi_core_fork',
+          source: fallbackReason ? 'deterministic_fallback' : 'pi_core_fork',
+          fallback_reason: fallbackReason ?? null,
           trigger: input.trigger,
           first_kept_message_id: result.firstKeptEntryId,
           llm_turn_ids: llmTurnIds,
@@ -109,8 +138,9 @@ export class AiAgentCompressionService {
     conversationId: string
     entries: SessionTreeEntry[]
     leaseId: string
-    llmTurnIds: string[]
+    llmTurnRefs: Array<{ callIndex: number; id: string }>
     previousSummaryMessageId?: string
+    modelProfile: ResolvedAiAgentModelProfile
     profile: AiAgentRuntimeProfile
     trigger: 'manual_command' | 'provider_context_overflow' | 'threshold'
   }): CompactionLlmCallRunner {
@@ -126,11 +156,11 @@ export class AiAgentCompressionService {
         conversationId: input.conversationId,
         kind: input.trigger === 'provider_context_overflow' ? 'overflow_retry' : 'compression',
         leaseId: input.leaseId,
-        model: input.profile.lightModel.config.model,
+        model: input.modelProfile.config.model,
         parentBranchId: parentBranchIdForSummary(input.conversationId, input.previousSummaryMessageId),
-        profile: 'light',
-        provider: input.profile.lightModel.config.providerId,
-        reasoning: input.profile.lightModel.config.reasoning,
+        profile: input.modelProfile.profile,
+        provider: input.modelProfile.config.providerId,
+        reasoning: input.modelProfile.config.reasoning,
         inputMessageIds: inputMessageIdsFromRefs(requestRefs),
         inputSummaryMessageId: input.previousSummaryMessageId ?? null,
         requestContext: {
@@ -147,7 +177,7 @@ export class AiAgentCompressionService {
         requestPatches: [llmToolDefinitionsPatch([]), llmRequestPatch('compaction', context)],
         requestRefs
       })
-      input.llmTurnIds.push(llmTurn.id)
+      input.llmTurnRefs.push({ callIndex: currentCallIndex, id: llmTurn.id })
       try {
         const response = await complete()
         await this.conversations.finishLlmTurn({
@@ -156,7 +186,7 @@ export class AiAgentCompressionService {
           response: normalizedAssistantResponse(response),
           usage: response.usage as unknown as JsonObject,
           providerMetadata: {
-            pi_provider: input.profile.lightModel.config.piProvider,
+            pi_provider: input.modelProfile.config.piProvider,
             response_id: response.responseId ?? null,
             response_model: response.responseModel ?? null
           }
@@ -167,7 +197,7 @@ export class AiAgentCompressionService {
           llmTurnId: llmTurn.id,
           status: 'failed',
           response: { error: error instanceof Error ? error.message : String(error) },
-          providerMetadata: { pi_provider: input.profile.lightModel.config.piProvider }
+          providerMetadata: { pi_provider: input.modelProfile.config.piProvider }
         })
         throw error
       }
@@ -221,6 +251,40 @@ function inputMessageIdsFromRefs(refs: JsonValue[]): string[] {
     if (ref.type !== 'ai_agent_message' || typeof ref.id !== 'string') return []
     return [ref.id]
   })
+}
+
+function deterministicCompactionFallback(
+  preparation: {
+    firstKeptEntryId: string
+    messagesToSummarize: AgentMessage[]
+    tokensBefore: number
+    turnPrefixMessages: AgentMessage[]
+  },
+  reason: string
+): {
+  details: { modifiedFiles: string[]; readFiles: string[] }
+  firstKeptEntryId: string
+  summary: string
+  tokensBefore: number
+} {
+  const messages = [...preparation.messagesToSummarize, ...preparation.turnPrefixMessages]
+  const excerpt = serializeConversation(convertToLlm(messages)).slice(-12000)
+  return {
+    firstKeptEntryId: preparation.firstKeptEntryId,
+    tokensBefore: preparation.tokensBefore,
+    details: { readFiles: [], modifiedFiles: [] },
+    summary: [
+      '## Deterministic Compaction Fallback',
+      '',
+      'The LLM summarizer failed twice. This checkpoint preserves a raw excerpt of the compacted conversation so the next turn can continue with explicit evidence instead of dropping history.',
+      '',
+      `Failure: ${reason}`,
+      '',
+      '## Raw Conversation Excerpt',
+      '',
+      excerpt || 'No serializable messages were available.'
+    ].join('\n')
+  }
 }
 
 function branchIdForSummary(conversationId: string, summaryMessageId: string | undefined): string {

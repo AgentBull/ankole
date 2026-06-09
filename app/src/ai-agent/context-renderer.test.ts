@@ -2,6 +2,7 @@ import 'reflect-metadata'
 import { describe, expect, it } from 'bun:test'
 import { loadTestEnvFiles } from '@/common/tests/load-test-env'
 import type { AiAgentConversationService } from './conversation-service'
+import { HISTORICAL_MEDIA_STRIPPED_TEXT } from './media'
 import { MICROCOMPACT_CLEARED_TEXT } from './microcompact'
 
 await loadTestEnvFiles()
@@ -15,6 +16,25 @@ function webSearchMessage(id: string, text: string) {
     toolName: 'web_search',
     content: [{ type: 'text', text }],
     isError: false,
+    timestamp: 0
+  }
+}
+
+function userMessage(text: string) {
+  return {
+    role: 'user',
+    content: [{ type: 'text', text }],
+    timestamp: 0
+  }
+}
+
+function userMessageWithImage(text: string) {
+  return {
+    role: 'user',
+    content: [
+      { type: 'text', text },
+      { type: 'image', data: `data:image/png;base64,${'A'.repeat(100)}` }
+    ],
     timestamp: 0
   }
 }
@@ -108,5 +128,28 @@ describe('AiAgentContextRenderer + microcompact', () => {
     const rendered = await renderer.render('conv-1')
     const first = rendered.messages[0] as { content: Array<{ text: string }> }
     expect(first.content[0]!.text).toBe('kept')
+  })
+
+  it('strips older image attachments from the model view while preserving source rows', async () => {
+    const firstImage = userMessageWithImage('old screenshot')
+    const latestImage = userMessageWithImage('latest screenshot')
+    const rows = [
+      messageRow('u1', firstImage),
+      messageRow('u2', userMessage('plain follow-up')),
+      messageRow('u3', latestImage)
+    ]
+    const conversations = { renderedMessages: async () => rows } as unknown as AiAgentConversationService
+    const renderer = new AiAgentContextRenderer(conversations)
+
+    const rendered = await renderer.render('conv-1')
+    const first = rendered.messages[0] as { content: Array<{ type: string; text?: string }> }
+    const latest = rendered.messages[2] as { content: Array<{ type: string; text?: string }> }
+
+    expect(first.content[0]).toEqual({ type: 'text', text: 'old screenshot' })
+    expect(first.content[1]).toEqual({ type: 'text', text: HISTORICAL_MEDIA_STRIPPED_TEXT })
+    expect(latest.content[1]!.type).toBe('image')
+    expect((firstImage.content as Array<{ type: string }>)[1]!.type).toBe('image')
+    expect(rendered.modelViewPatches).toHaveLength(1)
+    expect((rendered.modelViewPatches[0] as { reason: string }).reason).toBe('historical_media_strip')
   })
 })

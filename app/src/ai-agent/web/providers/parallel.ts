@@ -19,6 +19,9 @@ export const parallelProvider: WebProvider = {
   async available() {
     return Boolean(await apiKey())
   },
+  async unavailableReason() {
+    return (await apiKey()) ? undefined : 'parallel api key not configured'
+  },
   async search(args: WebSearchArgs, signal?: AbortSignal): Promise<WebSearchResult[]> {
     const key = await apiKey()
     if (!key) {

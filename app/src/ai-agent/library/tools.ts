@@ -32,7 +32,12 @@ const SkillEnableParams = z.object({
 })
 
 export function createSkillTools(binding: SkillToolsBinding): AgentTool<any>[] {
-  return [createSkillSearchTool(binding), createSkillUseTool(binding), createSkillAppendTool(binding), createSkillEnableTool(binding)]
+  return [
+    createSkillSearchTool(binding),
+    createSkillUseTool(binding),
+    createSkillAppendTool(binding),
+    createSkillEnableTool(binding)
+  ]
 }
 
 function createSkillSearchTool(binding: SkillToolsBinding): AgentTool<typeof SkillSearchParams> {
@@ -46,7 +51,11 @@ function createSkillSearchTool(binding: SkillToolsBinding): AgentTool<typeof Ski
     isReadOnly: true,
     isDestructive: false,
     async execute(_toolCallId, params): Promise<AgentToolResult<unknown>> {
-      const skills = await searchEffectiveSkills({ agentUid: binding.agentUid, query: params.query, limit: params.limit })
+      const skills = await searchEffectiveSkills({
+        agentUid: binding.agentUid,
+        query: params.query,
+        limit: params.limit
+      })
       return {
         content: [
           {
@@ -76,13 +85,17 @@ function createSkillUseTool(binding: SkillToolsBinding): AgentTool<typeof SkillU
     name: 'skill_use',
     label: 'Skill Use',
     description:
-      'Load a skill for the current task. Without filePath, returns the effective SKILL.md instructions merged with this agent\'s AGENT_APPEND.md. With filePath, returns a supporting file.',
+      "Load a skill for the current task. Without filePath, returns the effective SKILL.md instructions merged with this agent's AGENT_APPEND.md. With filePath, returns a supporting file.",
     schema: SkillUseParams,
     executionMode: 'parallel',
     isReadOnly: true,
     isDestructive: false,
     async execute(_toolCallId, params): Promise<AgentToolResult<unknown>> {
-      const skill = await getEffectiveSkillContent({ agentUid: binding.agentUid, skillName: params.name, filePath: params.filePath })
+      const skill = await getEffectiveSkillContent({
+        agentUid: binding.agentUid,
+        skillName: params.name,
+        filePath: params.filePath
+      })
       if (!skill) {
         return {
           content: [{ type: 'text', text: `Skill or file not found or not enabled for this agent: ${params.name}` }],
@@ -90,7 +103,12 @@ function createSkillUseTool(binding: SkillToolsBinding): AgentTool<typeof SkillU
         }
       }
       return {
-        content: [{ type: 'text', text: `<skill name="${skill.name}" location="${skill.filePath}">\n${skill.content}\n</skill>` }],
+        content: [
+          {
+            type: 'text',
+            text: `<skill name="${skill.name}" location="${skill.filePath}">\n${skill.content}\n</skill>`
+          }
+        ],
         details: { found: true, name: skill.name, filePath: skill.filePath, hasAgentAppend: skill.hasAgentAppend }
       }
     }
@@ -102,7 +120,7 @@ function createSkillAppendTool(binding: SkillToolsBinding): AgentTool<typeof Ski
     name: 'skill_append',
     label: 'Skill Append',
     description:
-      'Replace this agent\'s AGENT_APPEND.md for an existing canonical skill. This customizes the skill for this agent without modifying the shared base SKILL.md.',
+      "Replace this agent's AGENT_APPEND.md for an existing canonical skill. This customizes the skill for this agent without modifying the shared base SKILL.md.",
     schema: SkillAppendParams,
     executionMode: 'sequential',
     isDestructive: true,
@@ -125,9 +143,16 @@ function createSkillEnableTool(binding: SkillToolsBinding): AgentTool<typeof Ski
     executionMode: 'sequential',
     isDestructive: true,
     async execute(_toolCallId, params): Promise<AgentToolResult<unknown>> {
-      await setAgentSkillEnabled({ agentUid: binding.agentUid, skillName: params.name, enabled: params.enabled, reason: params.reason })
+      await setAgentSkillEnabled({
+        agentUid: binding.agentUid,
+        skillName: params.name,
+        enabled: params.enabled,
+        reason: params.reason
+      })
       return {
-        content: [{ type: 'text', text: `${params.enabled ? 'Enabled' : 'Disabled'} skill ${params.name} for this agent.` }],
+        content: [
+          { type: 'text', text: `${params.enabled ? 'Enabled' : 'Disabled'} skill ${params.name} for this agent.` }
+        ],
         details: { name: params.name, enabled: params.enabled }
       }
     }

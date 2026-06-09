@@ -1503,9 +1503,9 @@ async function startAiAgent(
   const registration = registerFauxProvider({
     provider: `${testPrefix}_${name}_provider`,
     models: [
-      { id: 'primary', contextWindow: 4096 },
-      { id: 'light', contextWindow: 4096 },
-      { id: 'heavy', contextWindow: 4096 }
+      { id: 'primary', contextWindow: 65_536 },
+      { id: 'light', contextWindow: 65_536 },
+      { id: 'heavy', contextWindow: 65_536 }
     ]
   })
   registration.setResponses(responses)
@@ -1605,7 +1605,7 @@ function runtimeProfile(
   return {
     ambient: {
       batchWindowMs: options.ambientBatchWindowMs ?? 20,
-      freshnessMs: 5_000
+      hardCapMs: 5_000
     },
     compression: {
       enabled: true,
@@ -1618,7 +1618,6 @@ function runtimeProfile(
     dailyReset: {
       enabled: true,
       hour: '00:00',
-      retryMinutes: 30,
       timezone: 'Etc/UTC'
     },
     primaryModel: {

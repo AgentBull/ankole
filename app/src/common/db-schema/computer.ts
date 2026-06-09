@@ -26,20 +26,24 @@ export const ComputerWorkers = pgTable('computer_workers', {
 })
 
 /** Explicit agent→worker pins, configured from the admin console. */
-export const ComputerAgentWorkerPins = pgTable('computer_agent_worker_pins', {
-  agentUid: text('agent_uid').primaryKey().notNull(),
-  workerId: text('worker_id')
-    .notNull()
-    .references(() => ComputerWorkers.workerId),
-  reason: text('reason'),
-  createdByPrincipalUid: text('created_by_principal_uid'),
-  createdAt: timestamp('created_at', { withTimezone: true })
-    .notNull()
-    .default(sql`now()`),
-  updatedAt: timestamp('updated_at', { withTimezone: true })
-    .notNull()
-    .default(sql`now()`)
-})
+export const ComputerAgentWorkerPins = pgTable(
+  'computer_agent_worker_pins',
+  {
+    agentUid: text('agent_uid').primaryKey().notNull(),
+    workerId: text('worker_id')
+      .notNull()
+      .references(() => ComputerWorkers.workerId),
+    reason: text('reason'),
+    createdByPrincipalUid: text('created_by_principal_uid'),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .notNull()
+      .default(sql`now()`),
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .notNull()
+      .default(sql`now()`)
+  },
+  table => [index('computer_agent_worker_pins_worker_index').on(table.workerId)]
+)
 
 /** Actual sticky agent→worker bindings produced by the resolver. */
 export const ComputerAgentWorkerBindings = pgTable(

@@ -12,7 +12,7 @@ use crate::config::IsolationMode;
 use crate::paths::{WORKSPACE_MOUNT, WorkspacePaths};
 
 /// Host directories bind-mounted read-only into the computer (when they exist).
-const RO_SYSTEM_DIRS: &[&str] = &["/usr", "/bin", "/sbin", "/lib", "/lib64", "/etc"];
+const RO_SYSTEM_DIRS: &[&str] = &["/usr", "/bin", "/sbin", "/lib", "/lib64", "/etc", "/opt"];
 
 #[derive(Clone, Copy, Debug)]
 pub struct Launcher {

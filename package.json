@@ -10,6 +10,7 @@
   ],
   "type": "module",
   "scripts": {
+    "prepare": "git config core.hooksPath .githooks || true",
     "kit": "bun tools/devkit/src/main.ts",
     "dev": "cd app && bun run dev",
     "workspace:update": "bun run kit g code-workspace",

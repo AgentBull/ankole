@@ -136,6 +136,16 @@ export async function resolveComputerWorker(agentUid: string): Promise<ComputerR
   }
 }
 
+export async function releaseComputerWorkerBinding(agentUid: string, worker: ResolvedComputerWorker): Promise<void> {
+  await DB.delete(ComputerAgentWorkerBindings).where(
+    and(
+      eq(ComputerAgentWorkerBindings.agentUid, agentUid),
+      eq(ComputerAgentWorkerBindings.workerId, worker.workerId),
+      eq(ComputerAgentWorkerBindings.instanceId, worker.instanceId)
+    )
+  )
+}
+
 function mintSessionToken(agentUid: string, worker: ResolvedComputerWorker): string {
   const secret = AppEnv.BULLX_COMPUTER_TOKEN
   if (!secret) return '' // dev: worker auth disabled

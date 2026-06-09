@@ -34,12 +34,8 @@ const {
   ScheduledTasks
 } = await import('@/common/db-schema')
 const { createAgent } = await import('@/principals/agents/service')
-const {
-  getEffectiveSkillContent,
-  getSoul,
-  searchEffectiveSkills,
-  syncBuiltinLibraryFromAppDirectory
-} = await import('@/ai-agent/library/service')
+const { getEffectiveSkillContent, getSoul, searchEffectiveSkills, syncBuiltinLibraryFromAppDirectory } =
+  await import('@/ai-agent/library/service')
 const { resolveAiAgentRuntimeProfile } = await import('@/ai-agent/config')
 const { createLlmProvider } = await import('@/llm-providers/service')
 const { AiAgentRuntime } = await import('@/ai-agent/runtime')
@@ -94,16 +90,42 @@ try {
   await requireDevWorker(workerBaseUrl)
   const setup = await startRuntime()
 
-  await step('core', 'user edits a live group-thread handoff and recalled context is ignored', () => scenarioMultiTurnRecall(setup))
-  await step('compression', 'operator asks the coworker to preserve a long handoff with the light model', () => scenarioCompression(setup))
-  await step('reset', 'operator starts a fresh customer task without previous-context leakage', () => scenarioResetSession(setup))
-  await step('ambient', 'room explicitly asks the coworker to step in without a direct mention', () => scenarioAmbient(setup))
-  await step('library', 'operator discovers, reads, customizes, disables, and restores a working SOP skill', () => scenarioSoulAndSkills(setup))
-  await step('tools', 'coworker researches an external customer question and tracks follow-up work', () => scenarioWebAndTodoTools(setup))
-  await step('clarify', 'coworker blocks on a missing business decision and resumes after the user answers', () => scenarioClarify(setup))
-  await step('checkback', 'coworker schedules a one-shot customer follow-up and wakes itself later', () => scenarioCheckBackLater(setup))
-  await step('computer', 'coworker updates its workspace and personal SOP through the computer', () => scenarioComputerCommand(setup))
-  await step('cron', 'scheduled headless work triggers a programmatic coworker turn', () => scenarioCronScheduledTask(setup))
+  await step('core', 'user edits a live group-thread handoff and recalled context is ignored', () =>
+    scenarioMultiTurnRecall(setup)
+  )
+  await step('compression', 'operator asks the coworker to preserve a long handoff with the light model', () =>
+    scenarioCompression(setup)
+  )
+  await step('reset', 'operator starts a fresh customer task without previous-context leakage', () =>
+    scenarioResetSession(setup)
+  )
+  await step('ambient', 'room explicitly asks the coworker to step in without a direct mention', () =>
+    scenarioAmbient(setup)
+  )
+  await step('library', 'operator discovers, reads, customizes, disables, and restores a working SOP skill', () =>
+    scenarioSoulAndSkills(setup)
+  )
+  await step('tools', 'coworker researches an external customer question and tracks follow-up work', () =>
+    scenarioWebAndTodoTools(setup)
+  )
+  await step('clarify', 'coworker blocks on a missing business decision and resumes after the user answers', () =>
+    scenarioClarify(setup)
+  )
+  await step('checkback', 'coworker schedules a one-shot customer follow-up and wakes itself later', () =>
+    scenarioCheckBackLater(setup)
+  )
+  await step('computer', 'coworker updates its workspace and personal SOP through the computer', () =>
+    scenarioComputerCommand(setup)
+  )
+  await step('runtime-skills', 'coworker verifies bundled hamelnb runtime skill through the computer', () =>
+    scenarioRuntimeSkillSmokes(setup)
+  )
+  await step('browser', 'coworker opens a rendered public web page through the computer browser', () =>
+    scenarioBrowserTool(setup)
+  )
+  await step('cron', 'scheduled headless work triggers a programmatic coworker turn', () =>
+    scenarioCronScheduledTask(setup)
+  )
 
   // oxlint-disable-next-line no-console
   console.log(`OK llm e2e passed: agent=${agentUid} provider=${llmProviderId} model=openrouter/${MODEL_ID}`)
@@ -137,7 +159,7 @@ async function startRuntime() {
         'X-OpenRouter-Title': 'BullX Agent LLM E2E'
       },
       maxRetries: 1,
-      timeoutMs: 120_000
+      timeoutMs: 180_000
     }
   })
 
@@ -145,7 +167,7 @@ async function startRuntime() {
     workerId,
     instanceId: workerInstanceId,
     baseUrl: workerBaseUrl,
-    features: ['bwrap', 'persistent-shell', 'tmux'],
+    features: ['bwrap', 'persistent-shell', 'tmux', 'tigerfs', 'python', 'jupyter', 'bun', 'browser'],
     capacity: { maxAgents: 128, maxCommands: 32 },
     metadata: { source: 'llm-e2e' }
   })
@@ -389,7 +411,7 @@ async function scenarioAmbient(setup: RuntimeSetup): Promise<void> {
         setup.platform.outbound.length > previousOutbound,
         `expected ambient outbound; recent outbound:\n${recent}`
       )
-    }, 120_000)
+    }, 180_000)
   }
 }
 
@@ -397,20 +419,31 @@ async function scenarioSoulAndSkills(setup: RuntimeSetup): Promise<void> {
   const soul = await getSoul(agentUid)
   assert.ok(soul?.includes('Bayesian'), 'new agent should have SOUL.md seeded from the app template')
 
-  const initialSkills = await searchEffectiveSkills({ agentUid, query: 'BullX workflow' })
-  assert.ok(initialSkills.some(skill => skill.name === 'bullx-workflow'), 'default-enabled skill should be searchable')
+  const initialSkills = await searchEffectiveSkills({ agentUid, query: 'jupyter data science python' })
+  assert.ok(
+    initialSkills.some(skill => skill.name === 'jupyter-live-kernel'),
+    'jupyter-live-kernel skill should be default-enabled and searchable'
+  )
 
   const roomId = `${adapterName}:library`
   const threadId = `${roomId}:thread`
   const group = setup.platform.group(setup.conversationOptions({ channelId: roomId, threadId }))
 
-  await sayAndWaitForLibraryStep(setup, group, roomId, threadId, 'library-search-use-append', [
-    '@Agent 我正在给你配置日常工作 SOP。不要凭印象回答，先从技能库发现和读取可用技能。',
-    'Call skill_search with query "BullX workflow" and limit 5.',
-    'Then call skill_use with name "bullx-workflow".',
-    'Then add one agent-specific operating note by calling skill_append with name "bullx-workflow" and content "LLM_E2E_AGENT_APPEND_SENTINEL".',
-    'After those tool results, tell me the SOP overlay is installed and reply exactly: LLM_E2E_SKILLS_APPEND_DONE'
-  ].join('\n'), 'LLM_E2E_SKILLS_APPEND_DONE')
+  await sayAndWaitForLibraryStep(
+    setup,
+    group,
+    roomId,
+    threadId,
+    'library-search-use-append',
+    [
+      '@Agent 我正在给你配置 Jupyter live-kernel SOP。不要凭印象回答，先从技能库发现和读取可用技能。',
+      'Call skill_search with query "jupyter data science python" and limit 5.',
+      'Then call skill_use with name "jupyter-live-kernel".',
+      'Then add one agent-specific operating note by calling skill_append with name "jupyter-live-kernel" and content "LLM_E2E_AGENT_APPEND_SENTINEL".',
+      'After those tool results, tell me the Jupyter SOP overlay is installed and reply exactly: LLM_E2E_SKILLS_APPEND_DONE'
+    ].join('\n'),
+    'LLM_E2E_SKILLS_APPEND_DONE'
+  )
 
   let conversation = await conversationForRoom(roomId)
   let names = await toolNamesForConversation(conversation.id)
@@ -418,36 +451,61 @@ async function scenarioSoulAndSkills(setup: RuntimeSetup): Promise<void> {
   assert.ok(names.includes('skill_use'), `missing skill_use tool result: ${names.join(', ')}`)
   assert.ok(names.includes('skill_append'), `missing skill_append tool result: ${names.join(', ')}`)
 
-  let effectiveSkill = await getEffectiveSkillContent({ agentUid, skillName: 'bullx-workflow' })
-  assert.ok(effectiveSkill?.content.includes('BullX Workflow'), 'effective skill should include canonical SKILL.md')
+  let effectiveSkill = await getEffectiveSkillContent({ agentUid, skillName: 'jupyter-live-kernel' })
+  assert.ok(effectiveSkill?.content.includes('hamelnb'), 'effective skill should include canonical Jupyter SKILL.md')
   assert.ok(
     effectiveSkill?.content.includes('LLM_E2E_AGENT_APPEND_SENTINEL'),
     'effective skill should include agent AGENT_APPEND.md'
   )
 
-  await sayAndWaitForLibraryStep(setup, group, roomId, threadId, 'library-disable', [
-    '@Agent 这个 agent 临时不该使用 BullX workflow SOP。Call skill_enable with name "bullx-workflow", enabled false, and reason "llm e2e disable check".',
-    'After that tool result, confirm the SOP is disabled and reply exactly: LLM_E2E_SKILLS_DISABLED'
-  ].join('\n'), 'LLM_E2E_SKILLS_DISABLED')
+  await sayAndWaitForLibraryStep(
+    setup,
+    group,
+    roomId,
+    threadId,
+    'library-disable',
+    [
+      '@Agent 这个 agent 临时不该使用 Jupyter SOP。Call skill_enable with name "jupyter-live-kernel", enabled false, and reason "llm e2e disable check".',
+      'After that tool result, confirm the Jupyter SOP is disabled and reply exactly: LLM_E2E_SKILLS_DISABLED'
+    ].join('\n'),
+    'LLM_E2E_SKILLS_DISABLED'
+  )
 
   conversation = await conversationForRoom(roomId)
   names = await toolNamesForConversation(conversation.id)
-  assert.ok(names.filter(name => name === 'skill_enable').length >= 1, `missing skill_enable disable call: ${names.join(', ')}`)
-  const disabledSkills = await searchEffectiveSkills({ agentUid, query: 'BullX workflow' })
+  assert.ok(
+    names.filter(name => name === 'skill_enable').length >= 1,
+    `missing skill_enable disable call: ${names.join(', ')}`
+  )
+  const disabledSkills = await searchEffectiveSkills({ agentUid, query: 'jupyter data science python' })
   assert.equal(disabledSkills.length, 0, 'skill_enable(false) should disable the skill for this agent only')
 
-  await sayAndWaitForLibraryStep(setup, group, roomId, threadId, 'library-restore', [
-    '@Agent 现在恢复这个 agent 的 BullX workflow SOP。Call skill_enable with name "bullx-workflow", enabled true, and reason "llm e2e restore check".',
-    'After that tool result, confirm the SOP is restored and reply exactly: LLM_E2E_SKILLS_RESTORED'
-  ].join('\n'), 'LLM_E2E_SKILLS_RESTORED')
+  await sayAndWaitForLibraryStep(
+    setup,
+    group,
+    roomId,
+    threadId,
+    'library-restore',
+    [
+      '@Agent 现在恢复这个 agent 的 Jupyter SOP。Call skill_enable with name "jupyter-live-kernel", enabled true, and reason "llm e2e restore check".',
+      'After that tool result, confirm the Jupyter SOP is restored and reply exactly: LLM_E2E_SKILLS_RESTORED'
+    ].join('\n'),
+    'LLM_E2E_SKILLS_RESTORED'
+  )
 
   conversation = await conversationForRoom(roomId)
   names = await toolNamesForConversation(conversation.id)
-  assert.ok(names.filter(name => name === 'skill_enable').length >= 2, `missing skill_enable restore call: ${names.join(', ')}`)
-  const restoredSkills = await searchEffectiveSkills({ agentUid, query: 'BullX workflow' })
-  assert.ok(restoredSkills.some(skill => skill.name === 'bullx-workflow'), 'skill should be searchable after restore')
+  assert.ok(
+    names.filter(name => name === 'skill_enable').length >= 2,
+    `missing skill_enable restore call: ${names.join(', ')}`
+  )
+  const restoredSkills = await searchEffectiveSkills({ agentUid, query: 'jupyter data science python' })
+  assert.ok(
+    restoredSkills.some(skill => skill.name === 'jupyter-live-kernel'),
+    'skill should be searchable after restore'
+  )
 
-  effectiveSkill = await getEffectiveSkillContent({ agentUid, skillName: 'bullx-workflow' })
+  effectiveSkill = await getEffectiveSkillContent({ agentUid, skillName: 'jupyter-live-kernel' })
   assert.ok(
     effectiveSkill?.content.includes('LLM_E2E_AGENT_APPEND_SENTINEL'),
     'agent append should survive disable/restore'
@@ -578,7 +636,7 @@ async function scenarioComputerCommand(setup: RuntimeSetup): Promise<void> {
     text: [
       '@Agent 你需要像数字员工一样更新自己的工作区文件和个人 SOP overlay。这个任务不能只靠文字确认完成。',
       'You must call the command tool with this exact command:',
-      '`mkdir -p user-files library-containers/skills/bullx-workflow && printf LLM_E2E_COMMAND_DONE > user-files/llm-e2e-command.txt && printf LLM_E2E_SOUL_FROM_COMPUTER > library-containers/SOUL.md && printf LLM_E2E_APPEND_FROM_COMPUTER > library-containers/skills/bullx-workflow/AGENT_APPEND.md && cat user-files/llm-e2e-command.txt && cat library-containers/SOUL.md && cat library-containers/skills/bullx-workflow/AGENT_APPEND.md`.',
+      '`mkdir -p user-files library-containers/skills/jupyter-live-kernel && printf LLM_E2E_COMMAND_DONE > user-files/llm-e2e-command.txt && printf LLM_E2E_SOUL_FROM_COMPUTER > library-containers/SOUL.md && printf LLM_E2E_APPEND_FROM_COMPUTER > library-containers/skills/jupyter-live-kernel/AGENT_APPEND.md && cat user-files/llm-e2e-command.txt && cat library-containers/SOUL.md && cat library-containers/skills/jupyter-live-kernel/AGENT_APPEND.md`.',
       'Only after the command tool result shows LLM_E2E_COMMAND_DONE, LLM_E2E_SOUL_FROM_COMPUTER, and LLM_E2E_APPEND_FROM_COMPUTER, confirm the workspace and SOP overlay were updated and reply exactly: LLM_E2E_COMPUTER_DONE.',
       'If you have not called the command tool, do not reply with LLM_E2E_COMPUTER_DONE.'
     ].join(' ')
@@ -602,11 +660,65 @@ async function scenarioComputerCommand(setup: RuntimeSetup): Promise<void> {
   assert.match(serializedToolResults, /LLM_E2E_APPEND_FROM_COMPUTER/)
 
   assert.equal(await getSoul(agentUid), 'LLM_E2E_SOUL_FROM_COMPUTER')
-  const effectiveSkill = await getEffectiveSkillContent({ agentUid, skillName: 'bullx-workflow' })
+  const effectiveSkill = await getEffectiveSkillContent({ agentUid, skillName: 'jupyter-live-kernel' })
   assert.ok(
     effectiveSkill?.content.includes('LLM_E2E_APPEND_FROM_COMPUTER'),
     'computer-written AGENT_APPEND.md should be visible through the DB effective skill path'
   )
+}
+
+async function scenarioRuntimeSkillSmokes(setup: RuntimeSetup): Promise<void> {
+  const roomId = `${adapterName}:runtime-skills`
+  const group = setup.platform.group(setup.conversationOptions({ channelId: roomId }))
+
+  await group.say({
+    id: 'runtime-skills-1',
+    isMention: true,
+    text: [
+      '@Agent 请通过 computer 的 command tool 端到端验证内置 Jupyter runtime skill。',
+      'First call command with command `bash /workspace/library-containers/skills/jupyter-live-kernel/scripts/smoke_live_kernel.sh` and timeout 120.',
+      'Only after the command tool result shows JUPYTER_LIVE_KERNEL_SMOKE_OK, reply exactly: LLM_E2E_RUNTIME_SKILLS_DONE.',
+      'If the command fails, do not reply with LLM_E2E_RUNTIME_SKILLS_DONE; explain the failing command output.'
+    ].join('\n')
+  })
+
+  await waitForOutboundText(setup, 'LLM_E2E_RUNTIME_SKILLS_DONE', 180_000)
+  const conversation = await conversationForRoom(roomId)
+  const names = await toolNamesForConversation(conversation.id)
+  assert.ok(names.filter(name => name === 'command').length >= 1, `missing command tool results: ${names.join(', ')}`)
+
+  const serializedToolResults = JSON.stringify((await llmTurnsFor(conversation.id)).flatMap(row => row.toolResults))
+  assert.ok(serializedToolResults.includes('JUPYTER_LIVE_KERNEL_SMOKE_OK'), 'missing Jupyter smoke sentinel')
+}
+
+async function scenarioBrowserTool(setup: RuntimeSetup): Promise<void> {
+  const roomId = `${adapterName}:browser`
+  const group = setup.platform.group(setup.conversationOptions({ channelId: roomId }))
+
+  await group.say({
+    id: 'browser-1',
+    isMention: true,
+    text: [
+      '@Agent 请通过 computer 的 browser_open tool 端到端验证真实网页访问。',
+      'Do not use web_search, web_extract, command, terminal, or browser_run for this scenario.',
+      'Call browser_open with url "https://www.wikipedia.org/", waitUntil "load", waitAfterMs 1000, and timeout 120.',
+      'Only after the browser_open tool result has title "Wikipedia" and rendered text containing "The Free Encyclopedia", reply exactly: LLM_E2E_BROWSER_DONE.',
+      'If browser_open fails or does not show those values, do not reply with LLM_E2E_BROWSER_DONE; explain the failing browser tool result.'
+    ].join('\n')
+  })
+
+  await waitForOutboundText(setup, 'LLM_E2E_BROWSER_DONE', 180_000)
+  const conversation = await conversationForRoom(roomId)
+  const names = await toolNamesForConversation(conversation.id)
+  assert.ok(names.includes('browser_open'), `missing browser_open tool result: ${names.join(', ')}`)
+
+  const serializedToolResults = JSON.stringify((await llmTurnsFor(conversation.id)).flatMap(row => row.toolResults))
+  assert.ok(serializedToolResults.includes('Wikipedia'), 'missing Wikipedia title in browser tool result')
+  assert.ok(
+    serializedToolResults.includes('The Free Encyclopedia'),
+    'missing Wikipedia rendered text in browser tool result'
+  )
+  assert.ok(serializedToolResults.includes('screenshot.png'), 'missing browser screenshot artifact')
 }
 
 async function scenarioCronScheduledTask(setup: RuntimeSetup): Promise<void> {
@@ -619,7 +731,9 @@ async function scenarioCronScheduledTask(setup: RuntimeSetup): Promise<void> {
     enabled: true,
     name: `llm-e2e-cron-${suffix}`,
     nextRunAt: new Date(Date.now() - 1_000),
-    payload: { message: '定时巡检场景：这是系统计划任务触发的无头工作。不要调用工具，reply exactly: LLM_E2E_CRON_DONE' },
+    payload: {
+      message: '定时巡检场景：这是系统计划任务触发的无头工作。不要调用工具，reply exactly: LLM_E2E_CRON_DONE'
+    },
     schedule: { kind: 'cron', expression: '* * * * *' }
   })
 
@@ -722,7 +836,9 @@ async function printScenarioDebug(
   error: unknown
 ): Promise<void> {
   const outbound = setup.platform.outbound.slice(outboundStart)
-  const roomConversations = (await conversationsFor(agentUid)).filter(row => row.conversationKey.includes(`room:${roomId}`))
+  const roomConversations = (await conversationsFor(agentUid)).filter(row =>
+    row.conversationKey.includes(`room:${roomId}`)
+  )
   const debug: Record<string, unknown> = {
     error: error instanceof Error ? error.message : String(error),
     roomId,

@@ -382,6 +382,47 @@ describe('ExternalGatewayRuntime', () => {
     expect(adapter.posts).toEqual([])
   })
 
+  it('dead-letters pending outbox rows after the retry budget is exhausted', async () => {
+    const adapter = new FakeExternalAdapter('fake_retry_exhausted', {
+      ...defaultFakeCapabilities,
+      outbound: [...defaultFakeCapabilities.outbound, 'outbound_idempotency']
+    })
+    const agentUid = `${testPrefix}-retry-exhausted-agent`.toLowerCase()
+    createdAgentUids.add(agentUid)
+
+    await DB.insert(ExternalGatewayOutbox).values({
+      agentUid,
+      bindingName: 'fake_retry_exhausted',
+      providerRoomId: 'fake_retry_exhausted:channel',
+      providerThreadId: 'fake_retry_exhausted:channel:thread-1',
+      outboundKey: 'test-retry-exhausted',
+      operation: 'post',
+      finalPayload: jsonbParam({ text: 'never sent' }),
+      status: 'pending',
+      retryCount: 5,
+      lastError: 'rate limited',
+      recoveryState: 'not_started'
+    })
+
+    await externalGatewayOutbox.dispatchPendingForBinding({
+      adapter,
+      agent: agentResult(agentUid, [{ adapter: 'fake', name: 'fake_retry_exhausted' }]),
+      bindingName: 'fake_retry_exhausted',
+      projection: externalGatewayProjectionSink,
+      room: {}
+    })
+
+    const [row] = await DB.select()
+      .from(ExternalGatewayOutbox)
+      .where(
+        and(eq(ExternalGatewayOutbox.agentUid, agentUid), eq(ExternalGatewayOutbox.outboundKey, 'test-retry-exhausted'))
+      )
+      .limit(1)
+    expect(row?.status).toBe('failed')
+    expect(row?.safeError).toBe('retry_exhausted')
+    expect(adapter.posts).toEqual([])
+  })
+
   it('dispatches minimal reaction, divider, and card outbound intents', async () => {
     const adapter = new FakeExternalAdapter('fake_ops')
     const factoryId = `${factoryPrefix}_operations_factory`

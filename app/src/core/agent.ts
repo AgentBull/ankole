@@ -1,5 +1,6 @@
 import { closeDatabase } from '@/common/database'
 import { logger, type Logger } from '@/common/logger'
+import { loadavg } from 'node:os'
 import { AppEnv } from '@/config/env'
 import { externalGatewayRuntime } from '@/external-gateway'
 import type { ExternalGatewayRuntimeStats } from '@/external-gateway/runtime'
@@ -7,7 +8,7 @@ import { identityProviderRuntime } from '@/principals/identity-providers'
 import type { IdentityProviderRuntimeStats } from '@/principals/identity-providers/runtime'
 import { pluginRuntime } from '@/plugins'
 import type { PluginRuntimeStats } from '@/plugins/runtime'
-import { resolveComputerWorker } from '@/computer/service'
+import { releaseComputerWorkerBinding, resolveComputerWorker } from '@/computer/service'
 import { initializeSetupBootstrap } from '@/setup/bootstrap'
 import { aiAgentRuntime } from '@/ai-agent/runtime'
 import { buildAiAgentTools, registerBuiltinWebProviders } from '@/ai-agent/tools'
@@ -62,7 +63,10 @@ export async function startBullXAgent(): Promise<StartedBullXAgent> {
     aiAgentRuntime.setTools(agentTools.staticTools, agentTools.activeNames)
     aiAgentRuntime.setClarifyEnabled(true)
     // Computer tools resolve the agent's sticky worker in-process via the control plane.
-    aiAgentRuntime.setComputerEnabled(true, { resolveWorker: agentUid => resolveComputerWorker(agentUid) })
+    aiAgentRuntime.setComputerEnabled(true, {
+      resolveWorker: agentUid => resolveComputerWorker(agentUid),
+      releaseWorkerBinding: (agentUid, worker) => releaseComputerWorkerBinding(agentUid, worker)
+    })
     externalGatewayStartAttempted = true
     const externalGateway = await externalGatewayRuntime.start()
     schedulerStartAttempted = true
@@ -74,10 +78,10 @@ export async function startBullXAgent(): Promise<StartedBullXAgent> {
       if (shuttingDown) return
 
       shuttingDown = true
-      logger.info({ signal }, 'Shutting down BullX Agent')
+      logger.info({ signal, snapshot: shutdownSnapshot() }, 'Shutting down BullX Agent')
       await shutdownRuntime()
 
-      process.exit(0)
+      process.exit(exitCodeForShutdown(signal))
     }
 
     registerShutdownHandler('SIGINT', shutdown, logger)
@@ -123,4 +127,22 @@ function registerShutdownHandler(
       process.exit(1)
     })
   })
+}
+
+function exitCodeForShutdown(signal: NodeJS.Signals | undefined): number {
+  if (!signal) return 0
+  const signalNumbers: Partial<Record<NodeJS.Signals, number>> = {
+    SIGINT: 2,
+    SIGTERM: 15
+  }
+  return 128 + (signalNumbers[signal] ?? 0)
+}
+
+function shutdownSnapshot() {
+  return {
+    pid: process.pid,
+    ppid: process.ppid,
+    uptimeSeconds: Math.round(process.uptime()),
+    loadavg: loadavg()
+  }
 }

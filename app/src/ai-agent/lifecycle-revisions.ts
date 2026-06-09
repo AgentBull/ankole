@@ -42,7 +42,26 @@ export class AiAgentLifecycleRevisionService {
     if (removedPending) return { handled: true, deleteIntents: [] }
 
     const target = await this.findTarget(conversation.id, input.providerMessageId, input.eventSource)
-    if (!target) return { handled: false, deleteIntents: [] }
+    if (!target) {
+      const note = `A provider message (${input.providerMessageId}) was ${input.kind}, but no active transcript row matched it.`
+      await this.conversations.appendMessage({
+        conversationId: conversation.id,
+        role: 'user',
+        kind: 'introspection',
+        content: textContent(note),
+        agentMessage: createUserMessage(note),
+        eventSource: input.eventSource,
+        eventId: input.eventId,
+        metadata: {
+          control: {
+            type: input.kind,
+            target_provider_message_id: input.providerMessageId,
+            provider_refs: providerRefs(input)
+          }
+        }
+      })
+      return { handled: true, deleteIntents: [] }
+    }
 
     const rendered = await this.conversations.renderedMessages(conversation.id)
     const targetIndex = rendered.findIndex(row => row.id === target.id)

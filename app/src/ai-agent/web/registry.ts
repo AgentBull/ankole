@@ -37,17 +37,38 @@ export class WebProviderRegistry {
     return (await provider.available(kind)) ? provider : undefined
   }
 
+  private async requirePreferred(kind: WebProviderKind, preferredId: string): Promise<WebProvider> {
+    const provider = this.providers.get(preferredId)
+    if (!provider) {
+      throw new WebProviderError(`configured ${kind} provider is not registered: ${preferredId}`, {
+        retryable: false,
+        providerId: preferredId
+      })
+    }
+    if (!this.supportsKind(provider, kind)) {
+      throw new WebProviderError(`configured ${kind} provider does not support ${kind}: ${preferredId}`, {
+        retryable: false,
+        providerId: preferredId
+      })
+    }
+    if (await provider.available(kind)) return provider
+    const reason = (await provider.unavailableReason?.(kind)) ?? 'provider is unavailable'
+    throw new WebProviderError(`configured ${kind} provider is unavailable: ${preferredId} (${reason})`, {
+      retryable: false,
+      providerId: preferredId
+    })
+  }
+
   /**
    * Resolve a provider for `kind`:
-   *   1. configured `preferredId` if registered + available
+   *   1. configured `preferredId`, failing fast if registered capability/config is invalid
    *   2. first built-in (priority order) that is registered + available
    *   3. any remaining registered (e.g. plugin) provider that is available
    * Throws `WebProviderError` when none is available.
    */
   async select(kind: WebProviderKind, preferredId?: string): Promise<WebProvider> {
     if (preferredId) {
-      const preferred = await this.usable(this.providers.get(preferredId), kind)
-      if (preferred) return preferred
+      return this.requirePreferred(kind, preferredId)
     }
     for (const id of BUILTIN_PRIORITY[kind]) {
       const builtin = await this.usable(this.providers.get(id), kind)

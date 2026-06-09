@@ -40,6 +40,7 @@ export interface WebProvider {
    * needed). May read config, hence async-capable.
    */
   available(kind: WebProviderKind): boolean | Promise<boolean>
+  unavailableReason?(kind: WebProviderKind): string | undefined | Promise<string | undefined>
   search?(args: WebSearchArgs, signal?: AbortSignal): Promise<WebSearchResult[]>
   extract?(args: WebExtractArgs, signal?: AbortSignal): Promise<WebExtractResult[]>
 }

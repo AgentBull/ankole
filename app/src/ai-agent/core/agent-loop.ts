@@ -7,12 +7,15 @@ import {
   type AssistantMessage,
   type Context,
   EventStream,
+  type Message,
   streamSimple,
   type Tool,
   type ToolResultMessage,
   validateToolArguments
 } from '@earendil-works/pi-ai'
 import { isPlainObject } from '@pleisto/active-support'
+import { withRetry } from '@/common/async'
+import { isRetryableLlmError } from './llm-error-classifier'
 import type {
   AgentContext,
   AgentEvent,
@@ -25,6 +28,88 @@ import type {
 } from './types'
 
 export type AgentEventSink = (event: AgentEvent) => Promise<void> | void
+
+const MAX_TURNS_GRACE_PROMPT =
+  'You have reached the maximum number of steps for this task. Do not call any more tools. ' +
+  'Summarize what you accomplished, note anything still unfinished, and give your best final answer now.'
+
+const EMPTY_AFTER_TOOL_NUDGE_TEXT =
+  'You returned an empty response after the tool results above. ' +
+  'Process those results and either continue with the task or give your final answer.'
+
+const ORPHAN_TOOL_RESULT_STUB =
+  '[Tool result unavailable — the matching tool call was removed during context compaction.]'
+const EMPTY_ASSISTANT_PLACEHOLDER = '(no content)'
+
+/**
+ * Repairs the provider-bound message list at the send boundary.
+ *
+ * Compaction (rendering from a kept-prefix anchor) and session truncation can sever
+ * a tool call from its result — or leave a result whose call was dropped — and the
+ * empty-after-tools nudge keeps an empty assistant in history. Anthropic / Responses
+ * reject all three with a 400. This pass:
+ *  - drops tool results whose originating tool call no longer survives,
+ *  - injects a stub result for any surviving tool call that lost its result (placed
+ *    immediately after its assistant turn so every `tool_use` is answered), and
+ *  - backfills empty assistant content with a placeholder.
+ *
+ * Pure and idempotent: a well-formed transcript passes through unchanged. Applied
+ * only here (the live wire), so trajectory reconstruction and compaction token
+ * counting keep seeing the faithful, unmodified conversion.
+ */
+function sanitizeToolPairs(messages: Message[]): Message[] {
+  const toolCallIds = new Set<string>()
+  const resultIds = new Set<string>()
+  for (const message of messages) {
+    if (message.role === 'assistant') {
+      for (const block of message.content) {
+        if (block.type === 'toolCall') toolCallIds.add(block.id)
+      }
+    } else if (message.role === 'toolResult') {
+      resultIds.add(message.toolCallId)
+    }
+  }
+
+  const sanitized: Message[] = []
+  const stubbed = new Set<string>()
+  for (const message of messages) {
+    if (message.role === 'toolResult') {
+      // Drop orphan results whose tool call was compacted away.
+      if (toolCallIds.has(message.toolCallId)) sanitized.push(message)
+      continue
+    }
+    if (message.role === 'assistant') {
+      sanitized.push(ensureNonEmptyAssistant(message))
+      for (const block of message.content) {
+        if (block.type === 'toolCall' && !resultIds.has(block.id) && !stubbed.has(block.id)) {
+          stubbed.add(block.id)
+          sanitized.push(stubToolResult(block.id, block.name, message.timestamp))
+        }
+      }
+      continue
+    }
+    sanitized.push(message)
+  }
+  return sanitized
+}
+
+function ensureNonEmptyAssistant(message: AssistantMessage): AssistantMessage {
+  const hasToolCall = message.content.some(block => block.type === 'toolCall')
+  const hasText = message.content.some(block => block.type === 'text' && block.text.trim().length > 0)
+  if (hasToolCall || hasText) return message
+  return { ...message, content: [...message.content, { type: 'text' as const, text: EMPTY_ASSISTANT_PLACEHOLDER }] }
+}
+
+function stubToolResult(toolCallId: string, toolName: string, timestamp: number): ToolResultMessage {
+  return {
+    role: 'toolResult',
+    toolCallId,
+    toolName,
+    content: [{ type: 'text' as const, text: ORPHAN_TOOL_RESULT_STUB }],
+    isError: false,
+    timestamp
+  }
+}
 
 /**
  * Start an agent loop with a new prompt message.
@@ -167,6 +252,12 @@ async function runLoop(
   let firstTurn = true
   // Check for steering messages at start (user may have typed while waiting)
   let pendingMessages: AgentMessage[] = (await config.getSteeringMessages?.()) || []
+  // Per-run guards: LLM turn budget, whether the previous turn produced tool
+  // results (so an empty reply right after tools can be nudged), and a one-shot
+  // latch so that nudge fires at most once per run.
+  let turnCount = 0
+  let prevTurnHadToolResults = false
+  let nudgedAfterEmpty = false
 
   // Outer loop: continues when queued follow-up messages arrive after agent would stop
   while (true) {
@@ -174,6 +265,14 @@ async function runLoop(
 
     // Inner loop: process tool calls and steering messages
     while (hasMoreToolCalls || pendingMessages.length > 0) {
+      // Iteration budget: on reaching the cap, run one tool-free grace turn so a
+      // runaway tool-calling model still yields a usable summary, then stop.
+      if (config.maxTurns !== undefined && turnCount >= config.maxTurns) {
+        await runGraceSummaryTurn(currentContext, config, signal, emit, newMessages, streamFn)
+        await emit({ type: 'agent_end', messages: newMessages })
+        return
+      }
+
       if (!firstTurn) {
         await emit({ type: 'turn_start' })
       } else {
@@ -194,6 +293,7 @@ async function runLoop(
       // Stream assistant response
       const message = await streamAssistantResponse(currentContext, config, signal, emit, streamFn)
       newMessages.push(message)
+      turnCount++
 
       if (message.stopReason === 'error' || message.stopReason === 'aborted') {
         await emit({ type: 'turn_end', message, toolResults: [] })
@@ -203,6 +303,24 @@ async function runLoop(
 
       // Check for tool calls
       const toolCalls = message.content.filter(c => c.type === 'toolCall')
+
+      // An empty assistant reply right after tool results is almost always a model
+      // hiccup, not task completion. Nudge it to continue exactly once instead of
+      // ending the run silently. The empty assistant stays in history; `convertToLlm`
+      // backfills a placeholder so it remains a valid wire message.
+      if (
+        config.nudgeOnEmptyAfterTools &&
+        !nudgedAfterEmpty &&
+        prevTurnHadToolResults &&
+        toolCalls.length === 0 &&
+        !assistantHasAnswerText(message)
+      ) {
+        nudgedAfterEmpty = true
+        prevTurnHadToolResults = false
+        await emit({ type: 'turn_end', message, toolResults: [] })
+        pendingMessages = [emptyAfterToolNudgeMessage()]
+        continue
+      }
 
       const toolResults: ToolResultMessage[] = []
       hasMoreToolCalls = false
@@ -216,6 +334,7 @@ async function runLoop(
           newMessages.push(result)
         }
       }
+      prevTurnHadToolResults = toolResults.length > 0
 
       await emit({ type: 'turn_end', message, toolResults })
 
@@ -270,6 +389,47 @@ async function runLoop(
   await emit({ type: 'agent_end', messages: newMessages })
 }
 
+/** True when the assistant produced at least one non-empty visible text block. */
+function assistantHasAnswerText(message: AssistantMessage): boolean {
+  return message.content.some(block => block.type === 'text' && block.text.trim().length > 0)
+}
+
+function emptyAfterToolNudgeMessage(): AgentMessage {
+  return { role: 'user', content: [{ type: 'text', text: EMPTY_AFTER_TOOL_NUDGE_TEXT }], timestamp: Date.now() }
+}
+
+/**
+ * Runs a single tool-free "grace" turn after the iteration budget is exhausted.
+ * Tools are stripped so the model must answer instead of calling more tools,
+ * turning a hard cutoff into a usable summary. Emits a balanced turn_start/turn_end
+ * pair so downstream trajectory recording stays consistent.
+ */
+async function runGraceSummaryTurn(
+  context: AgentContext,
+  config: AgentLoopConfig,
+  signal: AbortSignal | undefined,
+  emit: AgentEventSink,
+  newMessages: AgentMessage[],
+  streamFn?: StreamFn
+): Promise<void> {
+  const graceUser: AgentMessage = {
+    role: 'user',
+    content: [{ type: 'text', text: MAX_TURNS_GRACE_PROMPT }],
+    timestamp: Date.now()
+  }
+  await emit({ type: 'turn_start' })
+  await emit({ type: 'message_start', message: graceUser })
+  await emit({ type: 'message_end', message: graceUser })
+  context.messages.push(graceUser)
+  newMessages.push(graceUser)
+
+  // Strip tools for the grace turn so the model summarizes instead of calling more.
+  const toollessContext: AgentContext = { ...context, tools: undefined }
+  const message = await streamAssistantResponse(toollessContext, config, signal, emit, streamFn)
+  newMessages.push(message)
+  await emit({ type: 'turn_end', message, toolResults: [] })
+}
+
 /**
  * Stream an assistant response from the LLM.
  * This is where AgentMessage[] gets transformed to Message[] for the LLM.
@@ -287,8 +447,10 @@ async function streamAssistantResponse(
     messages = await config.transformContext(messages, signal)
   }
 
-  // Convert to LLM-compatible messages (AgentMessage[] → Message[])
-  const llmMessages = await config.convertToLlm(messages)
+  // Convert to LLM-compatible messages (AgentMessage[] → Message[]), then repair
+  // tool-call/result pairing and empty assistant content at the wire boundary so the
+  // provider never sees an orphaned tool_use/result or an empty assistant turn.
+  const llmMessages = sanitizeToolPairs(await config.convertToLlm(messages))
 
   // Build LLM context
   const llmContext: Context = {
@@ -310,18 +472,28 @@ async function streamAssistantResponse(
 
   const streamFunction = streamFn || streamSimple
 
-  // Resolve API key (important for expiring tokens)
-  const resolvedApiKey = (config.getApiKey ? await config.getApiKey(config.model.provider) : undefined) || config.apiKey
-
-  const response = await streamFunction(config.model, llmContext, {
-    ...config,
-    apiKey: resolvedApiKey,
-    metadata: {
-      ...config.metadata,
-      ...beforeCall?.metadata
+  const response = await withRetry(
+    async () => {
+      // Resolve API key inside the retry attempt so expiring-token providers can recover.
+      const resolvedApiKey =
+        (config.getApiKey ? await config.getApiKey(config.model.provider) : undefined) || config.apiKey
+      return await streamFunction(config.model, llmContext, {
+        ...config,
+        apiKey: resolvedApiKey,
+        metadata: {
+          ...config.metadata,
+          ...beforeCall?.metadata
+        },
+        signal
+      })
     },
-    signal
-  })
+    {
+      maxAttempts: 3,
+      maxMs: config.maxRetryDelayMs,
+      signal,
+      isRetryable: isRetryableLlmError
+    }
+  )
 
   let partialMessage: AssistantMessage | null = null
   let addedPartial = false

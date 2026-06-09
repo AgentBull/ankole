@@ -27,4 +27,13 @@ describe('estimateContextTokensJsonAware', () => {
     expect(jsonTokens).toBeGreaterThan(plainTokens)
     expect(jsonTokens).toBeGreaterThanOrEqual(Math.floor(plainTokens * 1.7))
   })
+
+  it('counts inline data image base64 with a flat image cost instead of raw base64 length', () => {
+    const dataUrl = `data:image/png;base64,${'A'.repeat(80_000)}`
+    const dataUrlTokens = estimateContextTokensJsonAware([toolResult(dataUrl)])
+    const plainTokens = estimateContextTokensJsonAware([toolResult('A'.repeat(dataUrl.length))])
+
+    expect(dataUrlTokens).toBeLessThan(5000)
+    expect(plainTokens).toBeGreaterThan(15_000)
+  })
 })

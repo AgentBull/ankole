@@ -40,7 +40,7 @@ export interface ResolvedAiAgentModelsConfig {
 export interface AiAgentRuntimePolicyConfig {
   ambient?: {
     batchWindowMs?: number
-    freshnessMs?: number
+    hardCapMs?: number
   }
   compression?: {
     enabled?: boolean
@@ -55,7 +55,6 @@ export interface AiAgentRuntimePolicyConfig {
   dailyReset?: {
     enabled?: boolean
     hour?: string
-    retryMinutes?: number
     timezone?: string
   }
 }
@@ -117,7 +116,7 @@ const AiAgentRuntimePolicyConfigSchema = z
     ambient: z
       .object({
         batchWindowMs: z.number().int().positive().optional(),
-        freshnessMs: z.number().int().positive().optional()
+        hardCapMs: z.number().int().positive().optional()
       })
       .optional(),
     dailyReset: z
@@ -127,8 +126,7 @@ const AiAgentRuntimePolicyConfigSchema = z
         hour: z
           .string()
           .regex(/^\d{2}:\d{2}$/)
-          .optional(),
-        retryMinutes: z.number().int().positive().optional()
+          .optional()
       })
       .optional()
   })
@@ -249,13 +247,12 @@ function resolveAiAgentRuntimePolicy(
     },
     ambient: {
       batchWindowMs: config.ambient?.batchWindowMs ?? 1500,
-      freshnessMs: config.ambient?.freshnessMs ?? 60000
+      hardCapMs: config.ambient?.hardCapMs ?? 60000
     },
     dailyReset: {
       enabled: config.dailyReset?.enabled ?? true,
       timezone: systemTimezone,
-      hour: config.dailyReset?.hour ?? '04:00',
-      retryMinutes: config.dailyReset?.retryMinutes ?? 30
+      hour: config.dailyReset?.hour ?? '04:00'
     }
   }
 }

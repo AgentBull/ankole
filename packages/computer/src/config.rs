@@ -80,6 +80,10 @@ impl Config {
           "persistent-shell".to_string(),
           "tmux".to_string(),
           "tigerfs".to_string(),
+          "python".to_string(),
+          "jupyter".to_string(),
+          "bun".to_string(),
+          "browser".to_string(),
         ]
       });
 

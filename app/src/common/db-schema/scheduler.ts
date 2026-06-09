@@ -104,6 +104,8 @@ export const ScheduledTaskRuns = pgTable(
   },
   t => [
     index('scheduled_task_runs_task_index').on(t.taskId, t.startedAt),
+    index('scheduled_task_runs_conversation_index').on(t.conversationId),
+    index('scheduled_task_runs_trigger_message_index').on(t.triggerMessageId),
     check('scheduled_task_runs_status_check', sql`${t.status} in ('running', 'succeeded', 'failed', 'cancelled')`),
     check('scheduled_task_runs_trigger_check', sql`${t.trigger} in ('schedule', 'manual', 'catchup')`),
     check('scheduled_task_runs_metadata_object', sql`jsonb_typeof(${t.metadata}) = 'object'`)
@@ -156,6 +158,8 @@ export const AiAgentCheckbacks = pgTable(
   t => [
     index('ai_agent_checkbacks_due_index').on(t.status, t.dueAt),
     index('ai_agent_checkbacks_agent_index').on(t.agentUid, t.createdAt),
+    index('ai_agent_checkbacks_conversation_index').on(t.conversationId),
+    index('ai_agent_checkbacks_trigger_message_index').on(t.triggerMessageId),
     index('ai_agent_checkbacks_lease_index').on(t.leaseExpiresAt),
     check(
       'ai_agent_checkbacks_status_check',

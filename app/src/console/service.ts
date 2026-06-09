@@ -1,14 +1,32 @@
 import { genUUIDv7 } from '@agentbull/bullx-native-addons'
+import { asc, desc, eq, isNull, sql } from 'drizzle-orm'
 import type {
   BullXExternalGatewayAdapterFactory,
   BullXExternalGatewayAdapterSetup,
   BullXPluginInteractiveConfigUpdate,
   BullXPluginSetupField
 } from '@agentbull/bullx-sdk/plugins'
+import { DB } from '@/common/database'
 import { appConfigService } from '@/config/app-configure'
 import { agentChannelConfigKey } from '@/external-gateway/config'
-import type { JsonObject, JsonValue } from '@/common/db-schema'
+import {
+  AgentLibraryContainerEntries,
+  Agents,
+  HumanUsers,
+  LibrarySkills,
+  PrincipalGroupMemberships,
+  Principals,
+  type JsonObject,
+  type JsonValue
+} from '@/common/db-schema'
 import { isJsonObject } from '@/common/json'
+import {
+  getSoul,
+  listEffectiveSkills,
+  setAgentSkillEnabled,
+  setSoul,
+  type EffectiveSkillSummary
+} from '@/ai-agent/library/service'
 import {
   readAiAgentModelsConfig,
   validateAiAgentModelsConfig,
@@ -32,6 +50,16 @@ import {
   listActiveAgents,
   updateAgent
 } from '@/principals/agents/service'
+import { ensureCanDisablePrincipal } from '@/principals/authorization/memberships'
+import {
+  createPrincipalGroup,
+  deletePrincipalGroup,
+  listPrincipalGroups,
+  updatePrincipalGroup,
+  type PrincipalGroup
+} from '@/principals/authorization/groups'
+import { createHuman, upsertHumanProfile } from '@/principals/human-users/service'
+import { normalizeUid, updatePrincipalStatus, type Principal } from '@/principals/principals/service'
 import {
   AgentChatMetadataError,
   parseAgentExternalBindingsAll,
@@ -41,9 +69,78 @@ import {
 
 const channelNamePattern = /^[a-z][a-z0-9_]*$/
 
+const consoleResourceSummaries: ConsoleResourceSummary[] = [
+  {
+    id: 'agents',
+    title: 'AI Agents',
+    description: 'Create AI principals, tune model profiles, and attach chat channels, skills, schedules, and workers.',
+    operations: ['create', 'inspect', 'edit profile/models', 'disable'],
+    owner: 'operator'
+  },
+  {
+    id: 'channels',
+    title: 'Chat Channels',
+    description: 'Bind an agent to external gateway adapters such as Lark, including interactive setup.',
+    operations: ['create', 'inspect', 'edit config', 'enable/disable', 'delete'],
+    owner: 'operator'
+  },
+  {
+    id: 'llm-providers',
+    title: 'LLM Providers',
+    description: 'Manage provider credentials and runtime options consumed by agent model profiles.',
+    operations: ['create', 'inspect', 'edit', 'check', 'delete'],
+    owner: 'operator'
+  },
+  {
+    id: 'schedules',
+    title: 'Scheduled Tasks',
+    description: 'Define recurring agent work and inspect immutable run history.',
+    operations: ['create task', 'edit task', 'run now', 'delete task', 'inspect runs'],
+    owner: 'operator'
+  },
+  {
+    id: 'workers',
+    title: 'Computer Workers',
+    description:
+      'Observe registered bullx-computerd instances and pin important agents to dedicated workers when Python package isolation matters.',
+    operations: ['inspect workers', 'pin agent', 'remove pin'],
+    owner: 'runtime'
+  },
+  {
+    id: 'skills',
+    title: 'Skills',
+    description: 'Review canonical skills and toggle effective agent assignments.',
+    operations: ['inspect library', 'enable/disable per agent'],
+    owner: 'builtin'
+  },
+  {
+    id: 'library',
+    title: 'Agent Library Container',
+    description: 'Edit agent-owned SOUL.md and inspect generated skill append/library entries.',
+    operations: ['inspect entries', 'edit SOUL.md'],
+    owner: 'operator'
+  },
+  {
+    id: 'people',
+    title: 'Human Users',
+    description: 'Operate human principals while keeping login and directory bindings in their own flows.',
+    operations: ['create local human', 'inspect', 'edit profile', 'activate/disable'],
+    owner: 'directory'
+  },
+  {
+    id: 'groups',
+    title: 'Principal Groups',
+    description: 'Manage authorization groups and computed membership definitions.',
+    operations: ['create', 'inspect', 'edit', 'delete non-built-ins'],
+    owner: 'operator'
+  }
+]
+
 export interface ConsoleAgent {
   uid: string
   status: AgentResult['principal']['status']
+  displayName: string | null
+  avatarUrl: string | null
   createdAt: Date
   updatedAt: Date
   chatChannels: ConsoleChatChannel[]
@@ -52,6 +149,79 @@ export interface ConsoleAgent {
 
 export interface ConsoleAgentLlmProfile {
   models: AiAgentModelsConfig
+}
+
+export interface ConsoleOverview {
+  counts: {
+    agents: number
+    chatChannels: number
+    humanUsers: number
+    principalGroups: number
+    librarySkills: number
+    agentLibraryEntries: number
+  }
+  resources: ConsoleResourceSummary[]
+}
+
+export interface ConsoleResourceSummary {
+  id: string
+  title: string
+  description: string
+  operations: string[]
+  owner: 'operator' | 'runtime' | 'directory' | 'builtin'
+}
+
+export interface ConsoleHumanUser {
+  principal: Principal
+  humanUser: typeof HumanUsers.$inferSelect
+}
+
+export interface UpsertConsoleHumanInput {
+  uid: string
+  displayName?: string | null
+  avatarUrl?: string | null
+  email?: string | null
+  phone?: string | null
+}
+
+export interface UpdateConsoleHumanInput {
+  displayName?: string | null
+  avatarUrl?: string | null
+  email?: string | null
+  phone?: string | null
+  status?: Principal['status']
+}
+
+export interface ConsolePrincipalGroup extends PrincipalGroup {
+  membershipCount: number
+}
+
+export interface ConsoleLibrarySkill {
+  id: string
+  name: string
+  description: string
+  defaultEnabled: boolean
+  enabled: boolean
+  sourceKind: string
+  rootPath: string
+  tags: string[]
+  category?: string
+  createdAt: Date
+  updatedAt: Date
+}
+
+export interface ConsoleAgentLibraryEntry {
+  id: string
+  agentUid: string
+  virtualPath: string
+  entryKind: string
+  sourceKind: string
+  enabled: boolean
+  version: string
+  contentMediaType: string
+  contentText: string | null
+  createdAt: Date
+  updatedAt: Date
 }
 
 export interface ConsoleExternalGatewayAdapter {
@@ -132,6 +302,39 @@ export async function listConsoleAgents(): Promise<ConsoleAgent[]> {
   return Promise.all(agents.map(projectConsoleAgent))
 }
 
+export async function getConsoleOverview(): Promise<ConsoleOverview> {
+  const [agentsCount, channelBindingsCount, humanUsers, groups, skills, entries] = await Promise.all([
+    DB.select({ count: sql<number>`count(*)::int` })
+      .from(Principals)
+      .where(sql`${Principals.type} = 'agent' AND ${Principals.status} = 'active'`),
+    DB.select({ metadata: Agents.metadata })
+      .from(Agents)
+      .innerJoin(Principals, eq(Principals.uid, Agents.uid))
+      .where(sql`${Principals.status} = 'active'`),
+    listConsoleHumanUsers(),
+    listConsolePrincipalGroups(),
+    listConsoleLibrarySkills(),
+    DB.select({ id: AgentLibraryContainerEntries.id })
+      .from(AgentLibraryContainerEntries)
+      .where(isNull(AgentLibraryContainerEntries.deletedAt))
+  ])
+
+  return {
+    counts: {
+      agents: agentsCount[0]?.count ?? 0,
+      chatChannels: channelBindingsCount.reduce(
+        (sum, row) => sum + readStoredChannelBindingsSafe(row.metadata).length,
+        0
+      ),
+      humanUsers: humanUsers.length,
+      principalGroups: groups.length,
+      librarySkills: skills.length,
+      agentLibraryEntries: entries.length
+    },
+    resources: consoleResourceSummaries
+  }
+}
+
 export async function createConsoleAgent(
   uid: string,
   createdByPrincipalUid?: string,
@@ -185,6 +388,124 @@ export async function deleteConsoleAgent(uid: string): Promise<void> {
     metadata: writeAgentExternalBindings(agent.agent.metadata, [])
   })
   await disableAgent(agent.agent.uid)
+}
+
+export async function listConsoleHumanUsers(): Promise<ConsoleHumanUser[]> {
+  const rows = await DB.select({ principal: Principals, humanUser: HumanUsers })
+    .from(HumanUsers)
+    .innerJoin(Principals, eq(Principals.uid, HumanUsers.principalUid))
+    .orderBy(asc(HumanUsers.createdAt))
+  return rows
+}
+
+export async function createConsoleHumanUser(input: UpsertConsoleHumanInput): Promise<ConsoleHumanUser> {
+  const result = await createHuman(input)
+  return {
+    principal: result.principal,
+    humanUser: result.humanUser
+  }
+}
+
+export async function updateConsoleHumanUser(
+  principalUid: string,
+  input: UpdateConsoleHumanInput
+): Promise<ConsoleHumanUser> {
+  const uid = normalizeUid(principalUid)
+  const result = await upsertHumanProfile({ uid, ...input })
+  if (input.status && input.status !== result.principal.status) {
+    if (input.status === 'disabled') await ensureCanDisablePrincipal(uid)
+    const principal = await updatePrincipalStatus(uid, input.status)
+    return {
+      principal,
+      humanUser: result.humanUser
+    }
+  }
+
+  return {
+    principal: result.principal,
+    humanUser: result.humanUser
+  }
+}
+
+export async function listConsolePrincipalGroups(): Promise<ConsolePrincipalGroup[]> {
+  const groups = await listPrincipalGroups()
+  return Promise.all(
+    groups.map(async group => {
+      const [membership] = await DB.select({ count: sql<number>`count(*)::int` })
+        .from(PrincipalGroupMemberships)
+        .where(eq(PrincipalGroupMemberships.groupId, group.id))
+      return {
+        ...group,
+        membershipCount: membership?.count ?? 0
+      }
+    })
+  )
+}
+
+export async function createConsolePrincipalGroup(input: Parameters<typeof createPrincipalGroup>[0]) {
+  return createPrincipalGroup(input)
+}
+
+export async function updateConsolePrincipalGroup(id: string, input: Parameters<typeof updatePrincipalGroup>[1]) {
+  return updatePrincipalGroup(id, input)
+}
+
+export async function deleteConsolePrincipalGroup(id: string): Promise<void> {
+  await deletePrincipalGroup(id)
+}
+
+export async function listConsoleLibrarySkills(): Promise<ConsoleLibrarySkill[]> {
+  const skills = await DB.select()
+    .from(LibrarySkills)
+    .where(isNull(LibrarySkills.archivedAt))
+    .orderBy(asc(LibrarySkills.name))
+  return skills.map(projectLibrarySkill)
+}
+
+export async function listConsoleAgentSkills(agentUid: string): Promise<EffectiveSkillSummary[]> {
+  await requireActiveAgent(agentUid)
+  return listEffectiveSkills(agentUid)
+}
+
+export async function setConsoleAgentSkillAssignment(input: {
+  agentUid: string
+  skillName: string
+  enabled: boolean
+  reason?: string | null
+}): Promise<void> {
+  await requireActiveAgent(input.agentUid)
+  await setAgentSkillEnabled(input)
+}
+
+export async function listConsoleAgentLibraryEntries(agentUid: string): Promise<ConsoleAgentLibraryEntry[]> {
+  await requireActiveAgent(agentUid)
+  return DB.select({
+    id: AgentLibraryContainerEntries.id,
+    agentUid: AgentLibraryContainerEntries.agentUid,
+    virtualPath: AgentLibraryContainerEntries.virtualPath,
+    entryKind: AgentLibraryContainerEntries.entryKind,
+    sourceKind: AgentLibraryContainerEntries.sourceKind,
+    enabled: AgentLibraryContainerEntries.enabled,
+    version: AgentLibraryContainerEntries.version,
+    contentMediaType: AgentLibraryContainerEntries.contentMediaType,
+    contentText: AgentLibraryContainerEntries.contentText,
+    createdAt: AgentLibraryContainerEntries.createdAt,
+    updatedAt: AgentLibraryContainerEntries.updatedAt
+  })
+    .from(AgentLibraryContainerEntries)
+    .where(eq(AgentLibraryContainerEntries.agentUid, agentUid))
+    .orderBy(asc(AgentLibraryContainerEntries.virtualPath), desc(AgentLibraryContainerEntries.updatedAt))
+}
+
+export async function getConsoleAgentSoul(agentUid: string): Promise<{ content: string | null }> {
+  await requireActiveAgent(agentUid)
+  return { content: await getSoul(agentUid) }
+}
+
+export async function setConsoleAgentSoul(agentUid: string, content: string): Promise<{ content: string }> {
+  await requireActiveAgent(agentUid)
+  await setSoul(agentUid, content)
+  return { content }
 }
 
 export async function listConsoleExternalRooms(agentUid: string): Promise<ConsoleChatChannel[]> {
@@ -355,6 +676,24 @@ function listEnabledExternalGatewayAdapters(catalog: PluginCatalog): ConsoleExte
   return adapters
 }
 
+function projectLibrarySkill(skill: typeof LibrarySkills.$inferSelect): ConsoleLibrarySkill {
+  const metadata = isJsonObject(skill.metadata) ? skill.metadata : {}
+  const tags = Array.isArray(metadata.tags) ? metadata.tags.filter((tag): tag is string => typeof tag === 'string') : []
+  return {
+    id: skill.id,
+    name: skill.name,
+    description: skill.description,
+    defaultEnabled: skill.defaultEnabled,
+    enabled: skill.enabled,
+    sourceKind: skill.sourceKind,
+    rootPath: skill.rootPath,
+    tags,
+    category: typeof metadata.category === 'string' ? metadata.category : undefined,
+    createdAt: skill.createdAt,
+    updatedAt: skill.updatedAt
+  }
+}
+
 async function requireEnabledExternalGatewayAdapter(adapterId: string): Promise<BullXExternalGatewayAdapterFactory> {
   const catalog = await loadConsolePluginCatalog()
   const enabled = new Set(catalog.enabledPluginIds)
@@ -381,6 +720,8 @@ async function projectConsoleAgent(agent: AgentResult): Promise<ConsoleAgent> {
   return {
     uid: agent.agent.uid,
     status: agent.principal.status,
+    displayName: agent.principal.displayName,
+    avatarUrl: agent.principal.avatarUrl,
     createdAt: agent.agent.createdAt,
     updatedAt: agent.agent.updatedAt,
     chatChannels: await projectConsoleExternalRooms(agent),
@@ -442,6 +783,14 @@ function readStoredChannelBindings(metadata: JsonObject): AgentExternalBinding[]
   } catch (error) {
     if (error instanceof AgentChatMetadataError) throw new ConsoleDomainError(422, error.message)
     throw error
+  }
+}
+
+function readStoredChannelBindingsSafe(metadata: JsonObject): AgentExternalBinding[] {
+  try {
+    return readStoredChannelBindings(metadata)
+  } catch {
+    return []
   }
 }
 

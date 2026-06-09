@@ -23,6 +23,10 @@ export class AiAgentRunRegistry {
     this.runs.delete(conversationId)
   }
 
+  forceDelete(conversationId: string): void {
+    this.runs.delete(conversationId)
+  }
+
   abort(conversationId: string, reason: string): void {
     const run = this.runs.get(conversationId)
     if (!run) return
@@ -48,6 +52,7 @@ export class AiAgentRunRegistry {
       await Promise.race([run.agent.waitForIdle(), timeout])
     } finally {
       if (timer) clearTimeout(timer)
+      if (this.runs.get(conversationId)?.leaseId === run.leaseId) this.forceDelete(conversationId)
     }
   }
 }

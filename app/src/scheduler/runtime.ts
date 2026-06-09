@@ -21,6 +21,9 @@ const DEFAULT_LEASE_HEARTBEAT_MS = ms('1m')
 const FAILURE_BACKOFF_MS = [ms('30s'), ms('1m'), ms('5m'), ms('15m'), ms('1h')] as const
 const DEFAULT_FAILURE_ALERT_THRESHOLD = 3
 const DEFAULT_FAILURE_ALERT_COOLDOWN_MS = ms('1h')
+const DEFAULT_TASK_RUN_TIMEOUT_MS = ms('30m')
+const CRON_CATCHUP_MIN_GRACE_MS = ms('2m')
+const CRON_CATCHUP_MAX_GRACE_MS = ms('2h')
 
 export interface SchedulerRuntimeStats {
   instanceId: string
@@ -44,6 +47,7 @@ export class SchedulerRuntime implements Runtime<SchedulerRuntimeStats> {
   private leaseHeartbeatMs = DEFAULT_LEASE_HEARTBEAT_MS
   private failureAlertThreshold = DEFAULT_FAILURE_ALERT_THRESHOLD
   private failureAlertCooldownMs = DEFAULT_FAILURE_ALERT_COOLDOWN_MS
+  private taskRunTimeoutMs = DEFAULT_TASK_RUN_TIMEOUT_MS
 
   constructor(private readonly store: SchedulerStore = schedulerStore) {}
 
@@ -56,11 +60,13 @@ export class SchedulerRuntime implements Runtime<SchedulerRuntimeStats> {
     failureAlertThreshold?: number
     leaseHeartbeatMs?: number
     leaseMs?: number
+    taskRunTimeoutMs?: number
   }): void {
     this.failureAlertCooldownMs = input.failureAlertCooldownMs ?? this.failureAlertCooldownMs
     this.failureAlertThreshold = input.failureAlertThreshold ?? this.failureAlertThreshold
     this.leaseHeartbeatMs = input.leaseHeartbeatMs ?? this.leaseHeartbeatMs
     this.leaseMs = input.leaseMs ?? this.leaseMs
+    this.taskRunTimeoutMs = input.taskRunTimeoutMs ?? this.taskRunTimeoutMs
   }
 
   async start(): Promise<SchedulerRuntimeStats> {
@@ -188,13 +194,37 @@ export class SchedulerRuntime implements Runtime<SchedulerRuntimeStats> {
       task,
       trigger
     })
+    const timezone = await loadSystemTimezone()
+    const staleCatchup = staleCronCatchup({ now: new Date(), scheduledFor, task, timezone, trigger })
+    if (staleCatchup) {
+      await this.store.completeTaskRun({
+        delivered: false,
+        error: staleCatchup.reason,
+        instanceId: this.instanceId,
+        metadata: {
+          catchup: {
+            action: 'fast_forward',
+            grace_ms: staleCatchup.graceMs,
+            lateness_ms: staleCatchup.latenessMs,
+            reason: staleCatchup.reason
+          }
+        },
+        nextRunAt: staleCatchup.nextRunAt,
+        runId: run.id,
+        status: 'cancelled',
+        taskId: task.id
+      })
+      return
+    }
     let status: SchedulerRunStatus = 'failed'
     let result: AiAgentProgrammaticTurnResult | undefined
     let error: string | undefined
+    let timedOut = false
     try {
       status = await this.withLeaseHeartbeat(
         () => this.store.extendTaskLease(task.id, this.instanceId, this.leaseMs),
         async () => {
+          const timeout = scheduledTaskTimeoutSignal(this.taskRunTimeoutMs)
           const agent = await requireActiveAgent(task.agentUid)
           const delivery = task.delivery
           const bindingName = delivery?.binding_name ?? 'scheduler'
@@ -208,25 +238,35 @@ export class SchedulerRuntime implements Runtime<SchedulerRuntimeStats> {
             }
           })
           const eventId = scheduledTaskEventId(task.id, scheduledFor, trigger, run.id)
-          result = await this.agentExecutor.runProgrammaticTurn(context, {
-            conversationProviderRoomId: `scheduled-task:${task.id}`,
-            disableInteractiveTools: true,
-            eventId,
-            eventSource: 'scheduler.task',
-            kind: 'scheduled_task',
-            message: task.payload.message,
-            metadata: {
-              control: {
-                type: 'scheduled_task',
-                task_id: task.id,
-                run_id: run.id,
-                trigger
-              }
-            },
-            outputProviderRoomId: providerRoomId,
-            outputProviderThreadId: providerThreadId,
-            suppressVisibleOutput: !delivery
-          })
+          try {
+            result = await this.agentExecutor.runProgrammaticTurn(context, {
+              conversationProviderRoomId: `scheduled-task:${task.id}`,
+              disableInteractiveTools: true,
+              eventId,
+              eventSource: 'scheduler.task',
+              kind: 'scheduled_task',
+              message: task.payload.message,
+              metadata: {
+                control: {
+                  type: 'scheduled_task',
+                  task_id: task.id,
+                  run_id: run.id,
+                  trigger
+                }
+              },
+              outputProviderRoomId: providerRoomId,
+              outputProviderThreadId: providerThreadId,
+              signal: timeout.signal,
+              suppressVisibleOutput: !delivery
+            })
+          } finally {
+            timedOut = timeout.signal.aborted
+            timeout.cancel()
+          }
+          if (timedOut) {
+            error = `scheduled task timed out after ${this.taskRunTimeoutMs}ms`
+            return 'failed'
+          }
           if (result.enqueuedOutput && delivery) {
             externalGatewayRuntime.triggerOutboxDrain(agent.agent.uid, bindingName)
           }
@@ -238,7 +278,6 @@ export class SchedulerRuntime implements Runtime<SchedulerRuntimeStats> {
       logger.error({ error: caught, taskId: task.id, runId: run.id }, 'Scheduled task execution failed')
     }
 
-    const timezone = await loadSystemTimezone()
     const finishedAt = new Date()
     const nextRunAt = !task.enabled
       ? null
@@ -250,7 +289,7 @@ export class SchedulerRuntime implements Runtime<SchedulerRuntimeStats> {
       delivered: result?.enqueuedOutput ?? false,
       error,
       instanceId: this.instanceId,
-      metadata: result ? checkbackCompletionMetadata(result) : {},
+      metadata: result ? checkbackCompletionMetadata(result, timedOut) : {},
       nextRunAt,
       runId: run.id,
       status,
@@ -335,10 +374,24 @@ function checkbackMessage(checkback: CheckbackRow): string {
   ]).join('\n')
 }
 
-function checkbackCompletionMetadata(result: AiAgentProgrammaticTurnResult): JsonObject {
+function checkbackCompletionMetadata(result: AiAgentProgrammaticTurnResult, timedOut = false): JsonObject {
   return {
     generation_status: result.status,
-    enqueued_output: result.enqueuedOutput
+    enqueued_output: result.enqueuedOutput,
+    timed_out: timedOut
+  }
+}
+
+function scheduledTaskTimeoutSignal(timeoutMs: number): { signal: AbortSignal; cancel(): void } {
+  const controller = new AbortController()
+  const timer = setTimeout(
+    () => controller.abort(new Error(`scheduled task timed out after ${timeoutMs}ms`)),
+    timeoutMs
+  )
+  timer.unref?.()
+  return {
+    signal: controller.signal,
+    cancel: () => clearTimeout(timer)
   }
 }
 
@@ -360,6 +413,37 @@ function resultStatus(status: AiAgentProgrammaticTurnResult['status']): Exclude<
 
 function backoffMs(consecutiveFailures: number): number {
   return FAILURE_BACKOFF_MS[Math.min(consecutiveFailures, FAILURE_BACKOFF_MS.length - 1)]!
+}
+
+function staleCronCatchup(input: {
+  now: Date
+  scheduledFor: Date
+  task: ScheduledTaskRow
+  timezone: string
+  trigger: ScheduledTaskTrigger
+}): { graceMs: number; latenessMs: number; nextRunAt: Date; reason: string } | undefined {
+  if (input.trigger !== 'catchup' || input.task.schedule.kind !== 'cron') return undefined
+  const followingRun = computeNextRun({
+    schedule: input.task.schedule,
+    after: input.scheduledFor,
+    taskId: input.task.id,
+    timezone: input.timezone
+  })
+  const periodMs = Math.max(0, followingRun.getTime() - input.scheduledFor.getTime())
+  const graceMs = Math.max(CRON_CATCHUP_MIN_GRACE_MS, Math.min(CRON_CATCHUP_MAX_GRACE_MS, Math.floor(periodMs / 2)))
+  const latenessMs = input.now.getTime() - input.scheduledFor.getTime()
+  if (latenessMs <= graceMs) return undefined
+  return {
+    graceMs,
+    latenessMs,
+    nextRunAt: computeNextRun({
+      schedule: input.task.schedule,
+      after: input.now,
+      taskId: input.task.id,
+      timezone: input.timezone
+    }),
+    reason: 'cron_catchup_stale_fast_forward'
+  }
 }
 
 function stringOrUndefined(value: unknown): string | undefined {

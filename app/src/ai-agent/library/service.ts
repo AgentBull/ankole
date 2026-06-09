@@ -4,6 +4,7 @@ import { parse } from 'yaml'
 import { readdir } from 'node:fs/promises'
 import path from 'node:path'
 import { DB, jsonbParam, type QueryExecutor } from '@/common/database'
+import { logger } from '@/common/logger'
 import {
   AgentLibraryContainerEntries,
   AgentSkillAssignments,
@@ -15,6 +16,7 @@ import {
 import type { Skill } from '../core'
 import { formatSkillsForSystemPrompt } from '../core/harness/system-prompt'
 import { APP_SKILLS_ROOT, INTERNALS_SKILLS_ROOT, loadDefaultSoulTemplate } from './default-soul'
+import { auditSkillAppendContent, type SkillContentDiagnostic } from './skill-guard'
 
 const SYNC_KEY = 'app+internals/library/skills'
 const SKILL_FILE = 'SKILL.md'
@@ -29,8 +31,16 @@ const BUILTIN_SKILL_ROOTS = [
 export interface LibrarySyncResult {
   changed: boolean
   contentHash: string
+  diagnostics: LibrarySkillDiagnostic[]
   skills: number
   files: number
+}
+
+export interface LibrarySkillDiagnostic {
+  code: string
+  message: string
+  path: string
+  severity: 'error' | 'warning'
 }
 
 export interface EffectiveSkillSummary {
@@ -80,15 +90,30 @@ interface BuiltinSkillSource {
   files: Array<{ virtualPath: string; content: string; sha: string }>
 }
 
-export async function syncBuiltinLibraryFromAppDirectory(options: { force?: boolean } = {}): Promise<LibrarySyncResult> {
-  const sources = await readBuiltinSkillSources()
+export async function syncBuiltinLibraryFromAppDirectory(
+  options: { force?: boolean } = {}
+): Promise<LibrarySyncResult> {
+  const { sources, diagnostics } = await readBuiltinSkillSources()
   const contentHash = stableHash(
-    sources.flatMap(skill => [skill.name, skill.sourceHash, ...skill.files.map(file => `${file.virtualPath}:${file.sha}`)])
+    sources.flatMap(skill => [
+      skill.name,
+      skill.sourceHash,
+      ...skill.files.map(file => `${file.virtualPath}:${file.sha}`)
+    ])
   )
 
-  const [state] = await DB.select().from(LibraryBuiltinSyncState).where(eq(LibraryBuiltinSyncState.syncKey, SYNC_KEY)).limit(1)
+  const [state] = await DB.select()
+    .from(LibraryBuiltinSyncState)
+    .where(eq(LibraryBuiltinSyncState.syncKey, SYNC_KEY))
+    .limit(1)
   if (!options.force && state?.contentHash === contentHash) {
-    return { changed: false, contentHash, skills: sources.length, files: sources.reduce((sum, skill) => sum + skill.files.length, 0) }
+    return {
+      changed: false,
+      contentHash,
+      diagnostics,
+      skills: sources.length,
+      files: sources.reduce((sum, skill) => sum + skill.files.length, 0)
+    }
   }
 
   await DB.transaction(async tx => {
@@ -159,20 +184,32 @@ export async function syncBuiltinLibraryFromAppDirectory(options: { force?: bool
       .values({
         syncKey: SYNC_KEY,
         contentHash,
-        metadata: jsonbParam({ skills: sources.length, files: sources.reduce((sum, skill) => sum + skill.files.length, 0) }),
+        metadata: jsonbParam({
+          skills: sources.length,
+          files: sources.reduce((sum, skill) => sum + skill.files.length, 0)
+        }),
         syncedAt: sql`now()`
       })
       .onConflictDoUpdate({
         target: LibraryBuiltinSyncState.syncKey,
         set: {
           contentHash,
-          metadata: jsonbParam({ skills: sources.length, files: sources.reduce((sum, skill) => sum + skill.files.length, 0) }),
+          metadata: jsonbParam({
+            skills: sources.length,
+            files: sources.reduce((sum, skill) => sum + skill.files.length, 0)
+          }),
           syncedAt: sql`now()`
         }
       })
   })
 
-  return { changed: true, contentHash, skills: sources.length, files: sources.reduce((sum, skill) => sum + skill.files.length, 0) }
+  return {
+    changed: true,
+    contentHash,
+    diagnostics,
+    skills: sources.length,
+    files: sources.reduce((sum, skill) => sum + skill.files.length, 0)
+  }
 }
 
 export async function seedDefaultSoulForAgent(agentUid: string, executor: QueryExecutor = DB): Promise<void> {
@@ -205,7 +242,10 @@ export async function setSoul(agentUid: string, content: string, executor: Query
   })
 }
 
-export async function listEffectiveSkills(agentUid: string, executor: QueryExecutor = DB): Promise<EffectiveSkillSummary[]> {
+export async function listEffectiveSkills(
+  agentUid: string,
+  executor: QueryExecutor = DB
+): Promise<EffectiveSkillSummary[]> {
   const skills = await executor
     .select()
     .from(LibrarySkills)
@@ -216,12 +256,27 @@ export async function listEffectiveSkills(agentUid: string, executor: QueryExecu
   const assignments = await executor
     .select()
     .from(AgentSkillAssignments)
-    .where(and(eq(AgentSkillAssignments.agentUid, agentUid), inArray(AgentSkillAssignments.skillId, skills.map(skill => skill.id))))
+    .where(
+      and(
+        eq(AgentSkillAssignments.agentUid, agentUid),
+        inArray(
+          AgentSkillAssignments.skillId,
+          skills.map(skill => skill.id)
+        )
+      )
+    )
   const assignmentBySkill = new Map(assignments.map(row => [row.skillId, row]))
   const appendRows = await executor
     .select({ virtualPath: AgentLibraryContainerEntries.virtualPath })
     .from(AgentLibraryContainerEntries)
-    .where(and(eq(AgentLibraryContainerEntries.agentUid, agentUid), eq(AgentLibraryContainerEntries.sourceKind, 'skill_append'), isNull(AgentLibraryContainerEntries.deletedAt), eq(AgentLibraryContainerEntries.enabled, true)))
+    .where(
+      and(
+        eq(AgentLibraryContainerEntries.agentUid, agentUid),
+        eq(AgentLibraryContainerEntries.sourceKind, 'skill_append'),
+        isNull(AgentLibraryContainerEntries.deletedAt),
+        eq(AgentLibraryContainerEntries.enabled, true)
+      )
+    )
   const appendPaths = new Set(appendRows.map(row => row.virtualPath))
 
   return skills.flatMap(skill => {
@@ -258,7 +313,13 @@ export async function searchEffectiveSkills(input: {
   const skills = await listEffectiveSkills(input.agentUid, input.executor ?? DB)
   const matched = query
     ? skills.filter(skill => {
-        const haystack = [skill.name, skill.description, skill.category ?? '', ...skill.tags, JSON.stringify(skill.metadata)]
+        const haystack = [
+          skill.name,
+          skill.description,
+          skill.category ?? '',
+          ...skill.tags,
+          JSON.stringify(skill.metadata)
+        ]
           .join('\n')
           .toLowerCase()
         const tokens = query.split(/[^a-z0-9_-]+/).filter(Boolean)
@@ -302,6 +363,9 @@ export async function setAgentSkillAppend(input: {
   const executor = input.executor ?? DB
   const skill = await getCanonicalSkillByName(input.skillName, executor)
   if (!skill) throw new Error(`unknown skill: ${input.skillName}`)
+  const diagnostics = auditSkillAppendContent(input.content)
+  const errors = diagnostics.filter(diagnostic => diagnostic.severity === 'error')
+  if (errors.length > 0) throw new SkillAppendRejectedError(errors)
   await upsertAgentTextEntry(executor, {
     agentUid: input.agentUid,
     virtualPath: agentAppendPath(skill.name),
@@ -325,7 +389,9 @@ export async function getEffectiveSkillContent(input: {
   const filePath = normalizeSkillRelativePath(input.filePath ?? SKILL_FILE)
   if (filePath === AGENT_APPEND_FILE) {
     const append = await readAgentEntryText(input.agentUid, agentAppendPath(summary.name), executor)
-    return append === null ? null : { ...summary, filePath: `/workspace/library-containers/${agentAppendPath(summary.name)}`, content: append }
+    return append === null
+      ? null
+      : { ...summary, filePath: `/workspace/library-containers/${agentAppendPath(summary.name)}`, content: append }
   }
 
   const [file] = await executor
@@ -336,7 +402,11 @@ export async function getEffectiveSkillContent(input: {
   if (!file) return null
 
   if (filePath !== SKILL_FILE) {
-    return { ...summary, filePath: `/workspace/library-containers/skills/${summary.name}/${filePath}`, content: file.contentText }
+    return {
+      ...summary,
+      filePath: `/workspace/library-containers/skills/${summary.name}/${filePath}`,
+      content: file.contentText
+    }
   }
 
   const parsed = parseSkillFile(file.contentText)
@@ -358,7 +428,13 @@ export async function buildAgentSystemPrompt(agentUid: string, executor: QueryEx
   const soul = (await getSoul(agentUid, executor)) ?? (await loadDefaultSoulTemplate())
   const skills = await skillsForSystemPrompt(agentUid, executor)
   const skillPrompt = formatSkillsForSystemPrompt(skills)
-  return [soul.trim(), skillPrompt.trim()].filter(Boolean).join('\n\n')
+  const runtimeIdentity = [
+    '<runtime_identity>',
+    `Agent UID: ${agentUid}`,
+    'Use this exact Agent UID when a tool or skill asks for the current agent identity.',
+    '</runtime_identity>'
+  ].join('\n')
+  return [soul.trim(), runtimeIdentity, skillPrompt.trim()].filter(Boolean).join('\n\n')
 }
 
 export async function skillsForSystemPrompt(agentUid: string, executor: QueryExecutor = DB): Promise<Skill[]> {
@@ -421,7 +497,11 @@ async function upsertAgentTextEntry(
     })
 }
 
-async function readAgentEntryText(agentUid: string, virtualPath: string, executor: QueryExecutor): Promise<string | null> {
+async function readAgentEntryText(
+  agentUid: string,
+  virtualPath: string,
+  executor: QueryExecutor
+): Promise<string | null> {
   const [row] = await executor
     .select({ contentText: AgentLibraryContainerEntries.contentText })
     .from(AgentLibraryContainerEntries)
@@ -449,17 +529,27 @@ async function getCanonicalSkillByName(name: string, executor: QueryExecutor) {
   return skill
 }
 
-async function readBuiltinSkillSources(): Promise<BuiltinSkillSource[]> {
+async function readBuiltinSkillSources(): Promise<{
+  diagnostics: LibrarySkillDiagnostic[]
+  sources: BuiltinSkillSource[]
+}> {
   const byName = new Map<string, BuiltinSkillSource>()
+  const diagnostics: LibrarySkillDiagnostic[] = []
   for (const sourceRoot of BUILTIN_SKILL_ROOTS) {
-    for (const source of await readBuiltinSkillSourcesFromRoot(sourceRoot)) {
+    const result = await readBuiltinSkillSourcesFromRoot(sourceRoot)
+    diagnostics.push(...result.diagnostics)
+    for (const source of result.sources) {
       byName.set(source.name, source)
     }
   }
-  return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name))
+  for (const diagnostic of diagnostics) logger.warn({ diagnostic }, 'Library skill sync diagnostic')
+  return { diagnostics, sources: [...byName.values()].sort((a, b) => a.name.localeCompare(b.name)) }
 }
 
-async function readBuiltinSkillSourcesFromRoot(sourceRoot: { label: string; root: string }): Promise<BuiltinSkillSource[]> {
+async function readBuiltinSkillSourcesFromRoot(sourceRoot: {
+  label: string
+  root: string
+}): Promise<{ diagnostics: LibrarySkillDiagnostic[]; sources: BuiltinSkillSource[] }> {
   let entries: Array<{ name: string; isDirectory(): boolean }>
   try {
     entries = (await readdir(sourceRoot.root, { withFileTypes: true })) as Array<{
@@ -467,20 +557,33 @@ async function readBuiltinSkillSourcesFromRoot(sourceRoot: { label: string; root
       isDirectory(): boolean
     }>
   } catch (error) {
-    if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') return []
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
+      return { diagnostics: [], sources: [] }
+    }
     throw error
   }
   const sources: BuiltinSkillSource[] = []
+  const diagnostics: LibrarySkillDiagnostic[] = []
   for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
     if (!entry.isDirectory() || entry.name.startsWith('.')) continue
     const skillDir = path.join(sourceRoot.root, entry.name)
-    const skillFile = Bun.file(path.join(skillDir, SKILL_FILE))
+    const skillPath = path.join(skillDir, SKILL_FILE)
+    const skillFile = Bun.file(skillPath)
     if (!(await skillFile.exists())) continue
     const files = await readTextFilesRecursive(skillDir)
     const skillMd = files.find(file => file.virtualPath === SKILL_FILE)
     if (!skillMd) continue
     const parsed = parseSkillFile(skillMd.content)
-    const name = normalizeSkillName(typeof parsed.frontmatter.name === 'string' ? parsed.frontmatter.name : entry.name)
+    const frontmatterName = typeof parsed.frontmatter.name === 'string' ? parsed.frontmatter.name.trim() : entry.name
+    const skillDiagnostics = validateBuiltinSkillMetadata({
+      description: parsed.frontmatter.description,
+      directoryName: entry.name,
+      name: frontmatterName,
+      path: skillPath
+    })
+    diagnostics.push(...skillDiagnostics)
+    if (skillDiagnostics.some(diagnostic => diagnostic.severity === 'error')) continue
+    const name = normalizeSkillName(frontmatterName)
     const description = normalizeDescription(parsed.frontmatter.description)
     const defaultEnabled = parsed.frontmatter.default_enabled ?? parsed.frontmatter.defaultEnabled ?? true
     const metadata: JsonObject = {
@@ -502,10 +605,53 @@ async function readBuiltinSkillSourcesFromRoot(sourceRoot: { label: string; root
       files
     })
   }
-  return sources
+  return { diagnostics, sources }
 }
 
-async function readTextFilesRecursive(root: string, relative = ''): Promise<Array<{ virtualPath: string; content: string; sha: string }>> {
+function validateBuiltinSkillMetadata(input: {
+  description: unknown
+  directoryName: string
+  name: string
+  path: string
+}): LibrarySkillDiagnostic[] {
+  const diagnostics: LibrarySkillDiagnostic[] = []
+  try {
+    const normalizedName = normalizeSkillName(input.name)
+    if (input.name !== input.directoryName || normalizedName !== input.directoryName) {
+      diagnostics.push({
+        severity: 'error',
+        code: 'name_directory_mismatch',
+        message: `SKILL.md frontmatter name "${input.name}" must match directory "${input.directoryName}"`,
+        path: input.path
+      })
+    }
+  } catch (error) {
+    diagnostics.push({
+      severity: 'error',
+      code: 'invalid_name',
+      message: error instanceof Error ? error.message : String(error),
+      path: input.path
+    })
+  }
+
+  try {
+    normalizeDescription(input.description)
+  } catch (error) {
+    diagnostics.push({
+      severity: 'error',
+      code: 'invalid_description',
+      message: error instanceof Error ? error.message : String(error),
+      path: input.path
+    })
+  }
+
+  return diagnostics
+}
+
+async function readTextFilesRecursive(
+  root: string,
+  relative = ''
+): Promise<Array<{ virtualPath: string; content: string; sha: string }>> {
   const dir = path.join(root, relative)
   const entries = await readdir(dir, { withFileTypes: true })
   const files: Array<{ virtualPath: string; content: string; sha: string }> = []
@@ -546,7 +692,10 @@ function normalizeSkillRelativePath(value: string): string {
 }
 
 function normalizeSkillName(value: string): string {
-  const name = value.trim().toLowerCase().replace(/[^a-z0-9_-]+/g, '-')
+  const name = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, '-')
   if (!/^[a-z][a-z0-9_-]{0,63}$/.test(name)) throw new Error(`invalid skill name: ${value}`)
   return name
 }
@@ -573,4 +722,11 @@ function mediaTypeForPath(filePath: string): string {
   if (filePath.endsWith('.json')) return 'application/json'
   if (filePath.endsWith('.yaml') || filePath.endsWith('.yml')) return 'application/yaml'
   return 'text/plain'
+}
+
+export class SkillAppendRejectedError extends Error {
+  constructor(readonly diagnostics: SkillContentDiagnostic[]) {
+    super(`AGENT_APPEND.md rejected: ${diagnostics.map(diagnostic => diagnostic.message).join('; ')}`)
+    this.name = 'SkillAppendRejectedError'
+  }
 }

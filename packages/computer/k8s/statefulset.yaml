@@ -56,6 +56,8 @@ spec:
               value: '128'
             - name: BULLX_COMPUTER_MAX_COMMANDS
               value: '32'
+            - name: BULLX_COMPUTER_FEATURES
+              value: 'bwrap,persistent-shell,tmux,tigerfs,python,jupyter,bun,browser'
             # Shared secret with the BullX app (register/heartbeat auth + session-token signing).
             - name: BULLX_COMPUTER_TOKEN
               valueFrom:

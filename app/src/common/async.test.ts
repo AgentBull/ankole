@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { all, createCombinedAbortSignal, getRetryDelay, withRetry } from './async'
+import { all, createCombinedAbortSignal, jitteredBackoff, withRetry } from './async'
 
 describe('all (bounded concurrency)', () => {
   it('returns results in input order while respecting the concurrency cap', async () => {
@@ -45,19 +45,19 @@ describe('createCombinedAbortSignal', () => {
   })
 })
 
-describe('getRetryDelay', () => {
+describe('jitteredBackoff', () => {
   it('grows exponentially within jitter bounds and caps at maxMs', () => {
-    const d1 = getRetryDelay(1, { baseMs: 100, maxMs: 1000 })
+    const d1 = jitteredBackoff(1, { baseMs: 100, maxMs: 1000 })
     expect(d1).toBeGreaterThanOrEqual(100)
-    expect(d1).toBeLessThanOrEqual(125)
+    expect(d1).toBeLessThanOrEqual(150)
 
-    const d3 = getRetryDelay(3, { baseMs: 100, maxMs: 1000 })
+    const d3 = jitteredBackoff(3, { baseMs: 100, maxMs: 1000 })
     expect(d3).toBeGreaterThanOrEqual(400)
-    expect(d3).toBeLessThanOrEqual(500)
+    expect(d3).toBeLessThanOrEqual(600)
 
-    const capped = getRetryDelay(20, { baseMs: 100, maxMs: 1000 })
+    const capped = jitteredBackoff(20, { baseMs: 100, maxMs: 1000 })
     expect(capped).toBeGreaterThanOrEqual(1000)
-    expect(capped).toBeLessThanOrEqual(1250)
+    expect(capped).toBeLessThanOrEqual(1500)
   })
 })
 

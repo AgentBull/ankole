@@ -84,15 +84,23 @@ function abortableSleep(ms: number, signal?: AbortSignal | null): Promise<void> 
   })
 }
 
+let jitterCounter = Math.floor(Math.random() * 1000)
+
 /**
- * Exponential backoff with 25% jitter, capped at `maxMs`. `attempt` is 1-based.
- * (Ported from Claude Code `services/api/withRetry.ts:getRetryDelay`.)
+ * Exponential backoff with per-call de-correlation jitter, capped at `maxMs`.
+ * `attempt` is 1-based.
  */
-export function getRetryDelay(attempt: number, opts?: { baseMs?: number; maxMs?: number }): number {
+export function jitteredBackoff(
+  attempt: number,
+  opts?: { baseMs?: number; jitterRatio?: number; maxMs?: number }
+): number {
   const baseMs = opts?.baseMs ?? 250
   const maxMs = opts?.maxMs ?? 8000
+  const jitterRatio = opts?.jitterRatio ?? 0.5
   const exponential = Math.min(baseMs * 2 ** Math.max(0, attempt - 1), maxMs)
-  return exponential + Math.random() * 0.25 * exponential
+  jitterCounter = (jitterCounter + 1) % 100000
+  const decorrelated = (Math.random() + (jitterCounter % 997) / 997) % 1
+  return exponential + decorrelated * jitterRatio * exponential
 }
 
 /**
@@ -121,7 +129,7 @@ export async function withRetry<T>(
       return await fn()
     } catch (error) {
       if (attempt >= maxAttempts || opts.signal?.aborted || !isRetryable(error)) throw error
-      await abortableSleep(getRetryDelay(attempt, opts), opts.signal)
+      await abortableSleep(jitteredBackoff(attempt, opts), opts.signal)
       if (opts.signal?.aborted) throw error
     }
   }

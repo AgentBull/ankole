@@ -6,6 +6,37 @@ export const logger = pino({
   level: AppEnv.BULLX_LOG_LEVEL ?? (AppEnv.IS_KUBERNETES ? 'info' : 'debug'),
   errorKey: 'error',
   messageKey: 'message',
+  redact: {
+    paths: [
+      'authorization',
+      'Authorization',
+      '*.authorization',
+      '*.Authorization',
+      '*.headers.authorization',
+      '*.headers.Authorization',
+      'cookie',
+      'Cookie',
+      '*.cookie',
+      '*.Cookie',
+      '*.headers.cookie',
+      '*.headers.Cookie',
+      '*.password',
+      '*.secret',
+      '*.token',
+      '*.access_token',
+      '*.refresh_token',
+      '*.id_token',
+      '*.api_key',
+      '*.apiKey',
+      '*.encrypted_api_key',
+      '*.encryptedApiKey',
+      '*.params',
+      'params',
+      'queryParams',
+      '*.queryParams'
+    ],
+    censor: '[Redacted]'
+  },
   formatters: AppEnv.IS_KUBERNETES
     ? {
         level(label) {

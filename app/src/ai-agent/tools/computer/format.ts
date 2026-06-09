@@ -1,16 +1,32 @@
+// oxlint-disable no-control-regex
 /** Shared formatting helpers for the computer tools (output limits, line numbering). */
 
 export const MAX_OUTPUT_CHARS = 50_000
 export const MAX_READ_CHARS = 100_000
 const MAX_LINE_LENGTH = 2000
 
+const ANSI_STRING_PATTERN = /(?:\u001B[P^_][\s\S]*?(?:\u001B\\|\u009C)|[\u0090\u009E\u009F][\s\S]*?\u009C)/g
+const ANSI_OSC_PATTERN = /(?:\u001B\][^\u0007\u001B]*(?:\u0007|\u001B\\)|\u009D[^\u0007\u009C]*(?:\u0007|\u009C))/g
+const ANSI_CSI_PATTERN = /(?:\u001B\[|\u009B)[0-?]*[ -/]*[@-~]/g
+const ANSI_ESC_PATTERN = /\u001B[()#%*+\-./ ][0-~]/g
+
+/** Remove terminal control sequences from text before it is shown to the model. */
+export function stripAnsi(text: string): string {
+  return text
+    .replace(ANSI_STRING_PATTERN, '')
+    .replace(ANSI_OSC_PATTERN, '')
+    .replace(ANSI_CSI_PATTERN, '')
+    .replace(ANSI_ESC_PATTERN, '')
+}
+
 /** Truncate large output keeping head (40%) + tail (60%), matching hermes parity. */
 export function truncateOutput(text: string, max = MAX_OUTPUT_CHARS): string {
-  if (text.length <= max) return text
+  const cleaned = stripAnsi(text)
+  if (cleaned.length <= max) return cleaned
   const head = Math.floor(max * 0.4)
   const tail = max - head
-  const omitted = text.length - max
-  return `${text.slice(0, head)}\n... [output truncated — ${omitted} chars omitted of ${text.length} total] ...\n${text.slice(text.length - tail)}`
+  const omitted = cleaned.length - max
+  return `${cleaned.slice(0, head)}\n... [output truncated — ${omitted} chars omitted of ${cleaned.length} total] ...\n${cleaned.slice(cleaned.length - tail)}`
 }
 
 export interface NumberedLines {

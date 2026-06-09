@@ -5,6 +5,7 @@ import { buildTool } from '../build-tool'
 import type { ComputerToolContext } from './context'
 import { unifiedDiff } from './diff'
 import { splitWritePath } from './format'
+import { findUniqueFuzzyMatch } from './fuzzy-match'
 import { parseV4APatch } from './v4a'
 
 const PatchParams = z.object({
@@ -28,6 +29,12 @@ type PatchInput = z.infer<typeof PatchParams>
 interface PatchDetails {
   mode: string
   filesModified: string[]
+}
+
+interface TextFileSnapshot {
+  hasBom: boolean
+  lineEnding: '\n' | '\r\n'
+  normalized: string
 }
 
 export function createPatchTool(context: ComputerToolContext): AgentTool<typeof PatchParams, PatchDetails> {
@@ -59,6 +66,28 @@ function countOccurrences(haystack: string, needle: string): number {
   return count
 }
 
+function snapshotTextFile(buffer: Buffer): TextFileSnapshot {
+  const raw = buffer.toString('utf-8')
+  const hasBom = raw.charCodeAt(0) === 0xfeff
+  const content = hasBom ? raw.slice(1) : raw
+  const crlf = (content.match(/\r\n/g) ?? []).length
+  const lf = (content.match(/(?<!\r)\n/g) ?? []).length
+  return {
+    hasBom,
+    lineEnding: crlf > lf ? '\r\n' : '\n',
+    normalized: content.replace(/\r\n/g, '\n')
+  }
+}
+
+function restoreTextFile(snapshot: Pick<TextFileSnapshot, 'hasBom' | 'lineEnding'>, normalized: string): string {
+  const content = snapshot.lineEnding === '\r\n' ? normalized.replace(/\n/g, '\r\n') : normalized
+  return snapshot.hasBom ? `\ufeff${content}` : content
+}
+
+function replaceRange(source: string, start: number, end: number, replacement: string): string {
+  return source.slice(0, start) + replacement + source.slice(end)
+}
+
 async function applyReplace(
   computer: Computer,
   params: PatchInput,
@@ -70,12 +99,16 @@ async function applyReplace(
   const buffer = await computer.readFileToBuffer({ path: params.path, cwd: params.cwd }, { signal })
   if (!buffer) throw new Error(`File not found: ${params.path}`)
 
-  const original = buffer.toString('utf-8').replace(/\r\n/g, '\n')
+  const snapshot = snapshotTextFile(buffer)
+  const original = snapshot.normalized
   const needle = params.old_string.replace(/\r\n/g, '\n')
   const replacement = params.new_string.replace(/\r\n/g, '\n')
 
   const occurrences = countOccurrences(original, needle)
-  if (occurrences === 0) throw new Error(`Could not find old_string in ${params.path}.`)
+  const fuzzyMatch = occurrences === 0 && !params.replace_all ? findUniqueFuzzyMatch(original, needle) : undefined
+  if (occurrences === 0 && !fuzzyMatch) {
+    throw new Error(`Could not find old_string in ${params.path}.`)
+  }
   if (occurrences > 1 && !params.replace_all) {
     throw new Error(
       `old_string is not unique in ${params.path} (${occurrences} matches); add context or set replace_all.`
@@ -86,12 +119,13 @@ async function applyReplace(
   if (params.replace_all) {
     updated = original.split(needle).join(replacement)
   } else {
-    const index = original.indexOf(needle)
-    updated = original.slice(0, index) + replacement + original.slice(index + needle.length)
+    const match = fuzzyMatch ?? findUniqueFuzzyMatch(original, needle)
+    if (!match) throw new Error(`old_string is not unique enough for fuzzy matching in ${params.path}.`)
+    updated = replaceRange(original, match.start, match.end, replacement)
   }
 
   const { relative, cwd } = splitWritePath(params.path, params.cwd)
-  await computer.fs.writeFiles([{ path: relative, content: updated }], { cwd, signal })
+  await computer.fs.writeFiles([{ path: relative, content: restoreTextFile(snapshot, updated) }], { cwd, signal })
 
   const count = params.replace_all ? occurrences : 1
   const diff = unifiedDiff(original, updated, params.path)
@@ -107,6 +141,7 @@ interface PlannedWrite {
   path: string
   relative: string
   cwd: string
+  snapshot: Pick<TextFileSnapshot, 'hasBom' | 'lineEnding'>
   before: string
   after: string
 }
@@ -128,25 +163,38 @@ async function applyV4A(
     }
     const { relative, cwd } = splitWritePath(operation.path, params.cwd)
     if (operation.kind === 'add') {
-      writes.push({ path: operation.path, relative, cwd, before: '', after: operation.content })
+      writes.push({
+        path: operation.path,
+        relative,
+        cwd,
+        snapshot: { hasBom: false, lineEnding: '\n' },
+        before: '',
+        after: operation.content.replace(/\r\n/g, '\n')
+      })
       continue
     }
     const buffer = await computer.readFileToBuffer({ path: operation.path, cwd: params.cwd }, { signal })
     if (!buffer) throw new Error(`File not found: ${operation.path}`)
-    let after = buffer.toString('utf-8').replace(/\r\n/g, '\n')
+    const snapshot = snapshotTextFile(buffer)
+    let after = snapshot.normalized
     const before = after
     for (const hunk of operation.hunks) {
-      const index = after.indexOf(hunk.search)
-      if (index === -1) throw new Error(`patch hunk did not match in ${operation.path}`)
-      after = after.slice(0, index) + hunk.replace + after.slice(index + hunk.search.length)
+      const search = hunk.search.replace(/\r\n/g, '\n')
+      const replacement = hunk.replace.replace(/\r\n/g, '\n')
+      const match = findUniqueFuzzyMatch(after, search)
+      if (!match) throw new Error(`patch hunk did not match uniquely in ${operation.path}`)
+      after = replaceRange(after, match.start, match.end, replacement)
     }
-    writes.push({ path: operation.path, relative, cwd, before, after })
+    writes.push({ path: operation.path, relative, cwd, snapshot, before, after })
   }
 
   // Phase 2: apply (validation already passed, so partial failure is unlikely).
   const diffs: string[] = []
   for (const write of writes) {
-    await computer.fs.writeFiles([{ path: write.relative, content: write.after }], { cwd: write.cwd, signal })
+    await computer.fs.writeFiles([{ path: write.relative, content: restoreTextFile(write.snapshot, write.after) }], {
+      cwd: write.cwd,
+      signal
+    })
     diffs.push(unifiedDiff(write.before, write.after, write.path))
   }
   return {

@@ -3,6 +3,7 @@ import { match } from '@pleisto/active-support'
 import { and, asc, eq, sql } from 'drizzle-orm'
 import { DB, jsonbParam } from '@/common/database'
 import { ExternalGatewayOutbox, type JsonObject } from '@/common/db-schema'
+import { logger } from '@/common/logger'
 import type { AgentResult } from '@/principals/agents/service'
 import { adapterSupportsCapability, requireOutboundCapability } from './core/capabilities'
 import { UnsupportedChannelCapabilityError } from './core/errors'
@@ -57,6 +58,7 @@ type ExternalGatewayOutboxKey = Pick<
 >
 
 const IDEMPOTENT_SEND_REPLAY_WINDOW_MS = 55 * 60 * 1000
+const MAX_OUTBOX_RETRY_COUNT = 5
 
 /**
  * Executes provider-visible side effects requested by the agent.
@@ -90,6 +92,8 @@ export class DrizzleExternalGatewayOutbox {
   }
 
   async dispatchPendingForBinding(input: Omit<DispatchExternalGatewayOutboundInput, 'intent'>): Promise<void> {
+    await this.deadLetterRetryExhausted(input.agent.agent.uid, input.bindingName)
+
     const rows = await DB.select()
       .from(ExternalGatewayOutbox)
       .where(
@@ -97,7 +101,7 @@ export class DrizzleExternalGatewayOutbox {
           eq(ExternalGatewayOutbox.agentUid, input.agent.agent.uid),
           eq(ExternalGatewayOutbox.bindingName, input.bindingName),
           eq(ExternalGatewayOutbox.status, 'pending'),
-          sql`${ExternalGatewayOutbox.retryCount} < 5`,
+          sql`${ExternalGatewayOutbox.retryCount} < ${MAX_OUTBOX_RETRY_COUNT}`,
           sql`(${ExternalGatewayOutbox.lastAttemptAt} is null or ${ExternalGatewayOutbox.lastAttemptAt} < now() - (interval '2 seconds' * greatest(1, ${ExternalGatewayOutbox.retryCount})))`
         )
       )
@@ -109,6 +113,36 @@ export class DrizzleExternalGatewayOutbox {
         ...input,
         intent: intentFromRow(row)
       })
+    }
+  }
+
+  private async deadLetterRetryExhausted(agentUid: string, bindingName: string): Promise<void> {
+    const rows = await DB.update(ExternalGatewayOutbox)
+      .set({
+        status: 'failed',
+        recoveryState: 'not_started',
+        safeError: 'retry_exhausted',
+        lastError: sql`coalesce(${ExternalGatewayOutbox.lastError}, 'retry_exhausted')`,
+        updatedAt: sql`now()`
+      })
+      .where(
+        and(
+          eq(ExternalGatewayOutbox.agentUid, agentUid),
+          eq(ExternalGatewayOutbox.bindingName, bindingName),
+          eq(ExternalGatewayOutbox.status, 'pending'),
+          sql`${ExternalGatewayOutbox.retryCount} >= ${MAX_OUTBOX_RETRY_COUNT}`
+        )
+      )
+      .returning({
+        outboundKey: ExternalGatewayOutbox.outboundKey,
+        retryCount: ExternalGatewayOutbox.retryCount
+      })
+
+    for (const row of rows) {
+      logger.error(
+        { agentUid, bindingName, outboundKey: row.outboundKey, retryCount: row.retryCount },
+        'External Gateway outbox dead-lettered after retry budget'
+      )
     }
   }
 

@@ -19,21 +19,36 @@ import {
 } from '@/llm-providers/service'
 import { activeHumanAdmin } from '@/principals/admin-auth/access'
 import { readAdminSessionCookie } from '@/principals/admin-auth/session'
+import { PrincipalDomainError } from '@/principals/principals/service'
 import {
   ConsoleDomainError,
   createConsoleAgent,
   createConsoleChatChannel,
+  createConsoleHumanUser,
+  createConsolePrincipalGroup,
   deleteConsoleAgent,
   deleteConsoleChatChannel,
   deleteConsoleInteractiveConfigSession,
+  deleteConsolePrincipalGroup,
+  getConsoleAgentSoul,
+  getConsoleOverview,
   getConsoleAgent,
   getConsoleInteractiveConfigSession,
+  listConsoleAgentLibraryEntries,
+  listConsoleAgentSkills,
   listConsoleAgents,
   listConsoleExternalGatewayAdapters,
   listConsoleExternalRooms,
+  listConsoleHumanUsers,
+  listConsoleLibrarySkills,
+  listConsolePrincipalGroups,
+  setConsoleAgentSkillAssignment,
+  setConsoleAgentSoul,
   startConsoleInteractiveConfigSession,
   updateConsoleAgent,
-  updateConsoleChatChannel
+  updateConsoleChatChannel,
+  updateConsoleHumanUser,
+  updateConsolePrincipalGroup
 } from './service'
 
 // Loose JSON object body fragment. Deep domain validation stays in the service
@@ -79,6 +94,43 @@ const updateAgentBody = z.object({
   llmProfile: llmProfileBody
 })
 
+const createHumanBody = z.object({
+  uid: z.string().min(1),
+  displayName: z.string().nullable().optional(),
+  avatarUrl: z.string().nullable().optional(),
+  email: z.string().nullable().optional(),
+  phone: z.string().nullable().optional()
+})
+
+const updateHumanBody = z.object({
+  displayName: z.string().nullable().optional(),
+  avatarUrl: z.string().nullable().optional(),
+  email: z.string().nullable().optional(),
+  phone: z.string().nullable().optional(),
+  status: z.enum(['active', 'disabled']).optional()
+})
+
+const createPrincipalGroupBody = z.object({
+  name: z.string().min(1),
+  kind: z.enum(['static', 'computed']).optional(),
+  description: z.string().nullable().optional(),
+  computedCondition: z.string().nullable().optional()
+})
+
+const updatePrincipalGroupBody = z.object({
+  description: z.string().nullable().optional(),
+  computedCondition: z.string().nullable().optional()
+})
+
+const skillAssignmentBody = z.object({
+  enabled: z.boolean(),
+  reason: z.string().nullable().optional()
+})
+
+const soulBody = z.object({
+  content: z.string()
+})
+
 const upsertChatChannelBody = z.object({
   name: z.string().min(1).optional(),
   adapter: z.string().min(1).optional(),
@@ -97,6 +149,10 @@ export function consoleRoutes() {
     .onError(({ code, error, set }) => {
       if (error instanceof ConsoleDomainError) {
         set.status = error.status
+        return { error: error.message }
+      }
+      if (error instanceof PrincipalDomainError) {
+        set.status = statusForPrincipalError(error)
         return { error: error.message }
       }
 
@@ -122,6 +178,61 @@ export function consoleRoutes() {
     .get('/api/console/external-gateway-adapters', async ({ request }) => {
       await requireConsoleAdmin(request)
       return { adapters: await listConsoleExternalGatewayAdapters() }
+    })
+    .get('/api/console/overview', async ({ request }) => {
+      await requireConsoleAdmin(request)
+      return { overview: await getConsoleOverview() }
+    })
+    .get('/api/console/human-users', async ({ request }) => {
+      await requireConsoleAdmin(request)
+      return { humans: await listConsoleHumanUsers() }
+    })
+    .post(
+      '/api/console/human-users',
+      async ({ body, request, set }) => {
+        await requireConsoleAdmin(request)
+        set.status = 201
+        return { human: await createConsoleHumanUser(body) }
+      },
+      { body: createHumanBody }
+    )
+    .put(
+      '/api/console/human-users/:principalUid',
+      async ({ params, body, request }) => {
+        await requireConsoleAdmin(request)
+        return { human: await updateConsoleHumanUser(params.principalUid, body) }
+      },
+      { body: updateHumanBody }
+    )
+    .get('/api/console/principal-groups', async ({ request }) => {
+      await requireConsoleAdmin(request)
+      return { groups: await listConsolePrincipalGroups() }
+    })
+    .post(
+      '/api/console/principal-groups',
+      async ({ body, request, set }) => {
+        await requireConsoleAdmin(request)
+        set.status = 201
+        return { group: await createConsolePrincipalGroup(body) }
+      },
+      { body: createPrincipalGroupBody }
+    )
+    .put(
+      '/api/console/principal-groups/:id',
+      async ({ params, body, request }) => {
+        await requireConsoleAdmin(request)
+        return { group: await updateConsolePrincipalGroup(params.id, body) }
+      },
+      { body: updatePrincipalGroupBody }
+    )
+    .delete('/api/console/principal-groups/:id', async ({ params, request, set }) => {
+      await requireConsoleAdmin(request)
+      await deleteConsolePrincipalGroup(params.id)
+      set.status = 204
+    })
+    .get('/api/console/library-skills', async ({ request }) => {
+      await requireConsoleAdmin(request)
+      return { skills: await listConsoleLibrarySkills() }
     })
     .get('/api/console/llm-providers', async ({ request }) => {
       await requireConsoleAdmin(request)
@@ -198,6 +309,40 @@ export function consoleRoutes() {
       await deleteConsoleAgent(params.uid)
       set.status = 204
     })
+    .get('/api/console/agents/:uid/skills', async ({ params, request }) => {
+      await requireConsoleAdmin(request)
+      return { skills: await listConsoleAgentSkills(params.uid) }
+    })
+    .put(
+      '/api/console/agents/:uid/skills/:skillName',
+      async ({ params, body, request }) => {
+        await requireConsoleAdmin(request)
+        await setConsoleAgentSkillAssignment({
+          agentUid: params.uid,
+          skillName: params.skillName,
+          enabled: body.enabled,
+          reason: body.reason
+        })
+        return { ok: true }
+      },
+      { body: skillAssignmentBody }
+    )
+    .get('/api/console/agents/:uid/library-entries', async ({ params, request }) => {
+      await requireConsoleAdmin(request)
+      return { entries: await listConsoleAgentLibraryEntries(params.uid) }
+    })
+    .get('/api/console/agents/:uid/soul', async ({ params, request }) => {
+      await requireConsoleAdmin(request)
+      return await getConsoleAgentSoul(params.uid)
+    })
+    .put(
+      '/api/console/agents/:uid/soul',
+      async ({ params, body, request }) => {
+        await requireConsoleAdmin(request)
+        return await setConsoleAgentSoul(params.uid, body.content)
+      },
+      { body: soulBody }
+    )
     .get('/api/console/agents/:uid/chat-channels', async ({ params, request }) => {
       await requireConsoleAdmin(request)
       return { channels: await listConsoleExternalRooms(params.uid) }
@@ -242,6 +387,22 @@ export function consoleRoutes() {
       deleteConsoleInteractiveConfigSession(params.sessionId)
       set.status = 204
     })
+}
+
+function statusForPrincipalError(error: PrincipalDomainError): number {
+  if (error.reason === 'not_found' || error.reason === 'not_human' || error.reason === 'not_agent') return 404
+  if (
+    error.reason === 'invalid_request' ||
+    error.reason === 'built_in_group' ||
+    error.reason === 'computed_group' ||
+    error.reason === 'group_has_grants' ||
+    error.reason === 'last_active_human_admin' ||
+    error.reason === 'last_admin_member'
+  ) {
+    return 422
+  }
+  if (error.reason === 'forbidden') return 403
+  return 400
 }
 
 /**
