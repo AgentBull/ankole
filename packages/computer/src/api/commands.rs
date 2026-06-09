@@ -107,6 +107,9 @@ pub async fn run_command(
     yield first;
     match tokio::time::timeout(timeout, output.wait_done()).await {
       Ok((status, exit_code)) => {
+        if let Err(error) = state.sessions.sync_library_containers(&agent_uid).await {
+          tracing::warn!(%agent_uid, %error, "failed to sync library-containers after command");
+        }
         yield json!({ "command": { "id": id, "status": status.as_str(), "exitCode": exit_code } });
       }
       Err(_) => {
@@ -134,6 +137,9 @@ pub async fn run_shell(
   let result = session
     .shell_run(&body.command, body.cwd.as_deref(), &body.env, timeout)
     .await?;
+  if let Err(error) = state.sessions.sync_library_containers(&agent_uid).await {
+    tracing::warn!(%agent_uid, %error, "failed to sync library-containers after shell command");
+  }
   if result.timed_out {
     tracing::warn!(%agent_uid, "persistent shell command timed out");
   }

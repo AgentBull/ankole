@@ -125,7 +125,7 @@ impl Launcher {
       .arg("/workspace/user-files");
     command.arg("--bind").arg(&ws.temp).arg("/workspace/temp");
     command
-      .arg("--ro-bind")
+      .arg("--bind")
       .arg(&ws.library_containers)
       .arg("/workspace/library-containers");
     command.args(["--setenv", "HOME", "/workspace/temp"]);

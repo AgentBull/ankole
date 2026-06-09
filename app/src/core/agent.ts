@@ -12,6 +12,7 @@ import { initializeSetupBootstrap } from '@/setup/bootstrap'
 import { aiAgentRuntime } from '@/ai-agent/runtime'
 import { buildAiAgentTools, registerBuiltinWebProviders } from '@/ai-agent/tools'
 import { schedulerRuntime } from '@/scheduler'
+import { syncBuiltinLibraryFromAppDirectory } from '@/ai-agent/library/service'
 
 /**
  * Handle returned by `startBullXAgent()` for tests or embedders.
@@ -50,6 +51,7 @@ export async function startBullXAgent(): Promise<StartedBullXAgent> {
 
   try {
     const setup = await initializeSetupBootstrap()
+    await syncBuiltinLibraryFromAppDirectory()
     // Register built-in web providers before plugins so plugin-contributed providers append after them.
     registerBuiltinWebProviders()
     pluginStartAttempted = true

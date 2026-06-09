@@ -45,6 +45,11 @@ spec:
               value: 'http://bullx-agent:3000'
             - name: BULLX_COMPUTER_WORKSPACE_ROOT
               value: '/workspaces'
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: bullx-agent
+                  key: database-url
             - name: BULLX_COMPUTER_BASE_URL
               value: 'http://$(BULLX_COMPUTER_WORKER_ID).bullx-computer.$(BULLX_COMPUTER_POD_NAMESPACE).svc.cluster.local:8787'
             - name: BULLX_COMPUTER_MAX_AGENTS

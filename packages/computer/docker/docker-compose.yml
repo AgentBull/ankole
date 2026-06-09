@@ -21,3 +21,4 @@ services:
       BULLX_COMPUTER_BASE_URL: http://localhost:8787
       BULLX_AGENT_URL: http://host.docker.internal:3000
       BULLX_COMPUTER_WORKSPACE_ROOT: /workspaces
+      DATABASE_URL: postgres://postgres:just4local-dev@host.docker.internal:5433/bullx_development

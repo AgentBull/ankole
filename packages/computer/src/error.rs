@@ -61,6 +61,12 @@ impl From<std::io::Error> for AppError {
   }
 }
 
+impl From<tokio_postgres::Error> for AppError {
+  fn from(error: tokio_postgres::Error) -> Self {
+    AppError::internal("postgres_error", error.to_string())
+  }
+}
+
 impl IntoResponse for AppError {
   fn into_response(self) -> Response {
     let (status, code, message) = match self {

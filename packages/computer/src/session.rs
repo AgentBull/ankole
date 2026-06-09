@@ -225,6 +225,16 @@ impl SessionManager {
     removed
   }
 
+  pub async fn sync_library_containers(&self, agent_uid: &str) -> AppResult<()> {
+    let Some(handle) = self.get(agent_uid) else {
+      return Ok(());
+    };
+    self
+      .tigerfs
+      .sync_from_mount(&handle.paths.library_containers, agent_uid)
+      .await
+  }
+
   pub async fn shutdown_all(&self) {
     let agents: Vec<String> = self
       .sessions

@@ -1068,7 +1068,7 @@ describe('AIAgent pi-ai runtime', () => {
     })
     const firstCall = trajectory[0]!
     const secondCall = trajectory[1]!
-    expect(firstCall.request.systemPrompt).toBe('You are a BullX AI coworker. Reply in plain text.')
+    expect(firstCall.request.systemPrompt).toContain('Bayesian')
     expect(firstCall.request.messages.map(message => message.role)).toEqual(['user'])
     expect(firstCall.request.tools.some(tool => jsonRecord(tool)?.name === 'clarify')).toBe(true)
     expect(

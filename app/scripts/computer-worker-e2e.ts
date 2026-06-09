@@ -75,7 +75,7 @@ try {
     fauxAssistantMessage([
       fauxToolCall('command', {
         command:
-          'python -c \'import os, pathlib; uid=os.environ["BULLX_AGENT_UID"]; p=pathlib.Path("user-files/e2e-command.txt"); p.parent.mkdir(parents=True, exist_ok=True); p.write_text("computer-e2e:" + uid); print(p.read_text())\'',
+          'python3 -c \'import os, pathlib; uid=os.environ["BULLX_AGENT_UID"]; p=pathlib.Path("user-files/e2e-command.txt"); p.parent.mkdir(parents=True, exist_ok=True); p.write_text("computer-e2e:" + uid); print(p.read_text())\'',
         timeout: 10
       })
     ]),

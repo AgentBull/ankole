@@ -45,6 +45,7 @@ services:
       BULLX_COMPUTER_BASE_URL: "http://localhost:${BULLX_COMPUTER_PORT:-8787}"
       BULLX_AGENT_URL: "http://host.docker.internal:${HTTP_PORT:-3000}"
       BULLX_COMPUTER_WORKSPACE_ROOT: /workspaces
+      DATABASE_URL: "postgres://postgres:just4local-dev@postgres:5432/bullx_development"
     healthcheck:
       test: ["CMD-SHELL", "timeout 2 bash -c '</dev/tcp/127.0.0.1/8787'"]
       interval: 2s

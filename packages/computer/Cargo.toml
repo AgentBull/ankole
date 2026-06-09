@@ -31,6 +31,8 @@ jsonwebtoken = { version = "10.3.0", features = ["aws_lc_rs"] }
 thiserror = "2"
 anyhow = "1"
 clap = { version = "4", features = ["derive", "env"] }
+tokio-postgres = { version = "0.7", features = ["with-uuid-1"] }
+sha2 = "0.10"
 
 [target.'cfg(unix)'.dependencies]
 nix = { version = "0.31", features = ["signal", "process", "fs", "user"] }

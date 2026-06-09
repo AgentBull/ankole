@@ -72,6 +72,8 @@ import { isJsonObject, stringFromPath as stringFromMetadata, toJsonObject, toJso
 import { idempotencyKeyFromOutboundKey } from '@/external-gateway/outbox'
 import { interactiveOutputCardPayload, larkNativeCardPayload } from '@/external-gateway/interactive-output'
 import { createTodoTool, TodoStore, todoItemsFromToolDetails, type TodoToolDetails } from './tools/todo-tool'
+import { buildAgentSystemPrompt } from './library/service'
+import { createSkillTools } from './library/tools'
 
 export interface AiAgentRuntimeOptions {
   ambient?: AiAgentAmbientBatcher
@@ -570,7 +572,12 @@ export class AiAgentRuntime {
     todoStore: TodoStore,
     options: { disableInteractiveTools?: boolean } = {}
   ): AgentTool<any>[] {
-    const tools = [...this.getActiveTools(), createTodoTool(todoStore), createCheckBackLaterTool(binding)]
+    const tools = [
+      ...this.getActiveTools(),
+      ...createSkillTools({ agentUid: binding.agentUid }),
+      createTodoTool(todoStore),
+      createCheckBackLaterTool(binding)
+    ]
     if (this.computerFactory) tools.push(...this.computerFactory(binding))
     if (!options.disableInteractiveTools && this.clarifyFactory && binding.providerRoomId) {
       tools.push(this.clarifyFactory(binding))
@@ -1336,7 +1343,7 @@ export class AiAgentRuntime {
     }
     let outcome: RunOutcome
     try {
-      const agent = this.buildGenerationAgent({
+      const agent = await this.buildGenerationAgent({
         activeTools,
         input,
         recorder,
@@ -1415,18 +1422,19 @@ export class AiAgentRuntime {
     }
   }
 
-  private buildGenerationAgent(input: {
+  private async buildGenerationAgent(input: {
     activeTools: AgentTool<any>[]
     input: RunGenerationInput
     recorder: GenerationTrajectoryRecorder
     rendered: RenderedAiAgentContext
     stream: GenerationStreamingSink
     todoStore: TodoStore
-  }): Agent {
+  }): Promise<Agent> {
     const profileOptions = input.input.profile.primaryModel.options
+    const systemPrompt = await buildAgentSystemPrompt(input.input.context.agentUid)
     const agent = new Agent({
       initialState: {
-        systemPrompt: 'You are a BullX AI coworker. Reply in plain text.',
+        systemPrompt,
         messages: input.rendered.messages,
         model: input.input.profile.primaryModel.model,
         thinkingLevel: input.input.profile.primaryModel.config.reasoning ?? 'medium',

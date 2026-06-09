@@ -2,7 +2,7 @@
 //! The daemon never invents its own stable identity — `BULLX_COMPUTER_WORKER_ID`
 //! is required and comes from the deployment (StatefulSet pod name in K8s).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
@@ -23,6 +23,8 @@ pub struct Config {
   pub agent_url: Option<String>,
   /// Shared secret: control-plane bearer + HMAC key for session-token verification.
   pub token: Option<String>,
+  /// Shared PostgreSQL database used by the Bun app and DB-backed library-containers.
+  pub database_url: String,
   pub workspace_root: PathBuf,
   pub port: u16,
   pub version: String,
@@ -48,8 +50,11 @@ fn env_or(key: &str, default: &str) -> String {
 
 impl Config {
   pub fn from_env(port: u16) -> Result<Self> {
+    load_dev_env_files();
     let worker_id = env_opt("BULLX_COMPUTER_WORKER_ID")
       .context("BULLX_COMPUTER_WORKER_ID is required (K8s: fieldRef metadata.name)")?;
+    let database_url = env_opt("DATABASE_URL")
+      .context("DATABASE_URL is required for DB-backed library-containers")?;
     let instance_id = env_opt("BULLX_COMPUTER_INSTANCE_ID").unwrap_or_else(|| worker_id.clone());
     let base_url =
       env_opt("BULLX_COMPUTER_BASE_URL").unwrap_or_else(|| format!("http://localhost:{port}"));
@@ -84,6 +89,7 @@ impl Config {
       base_url,
       agent_url: env_opt("BULLX_AGENT_URL"),
       token: env_opt("BULLX_COMPUTER_TOKEN"),
+      database_url,
       workspace_root: PathBuf::from(env_or("BULLX_COMPUTER_WORKSPACE_ROOT", "/workspaces")),
       port,
       version: env!("CARGO_PKG_VERSION").to_string(),
@@ -102,5 +108,55 @@ impl Config {
         .parse()
         .unwrap_or(10),
     })
+  }
+}
+
+fn load_dev_env_files() {
+  if env_opt("NODE_ENV").as_deref() == Some("production") || env_opt("DATABASE_URL").is_some() {
+    return;
+  }
+  for path in [
+    ".env.local",
+    ".env.development",
+    ".env",
+    "packages/computer/.env.local",
+    "packages/computer/.env.development",
+    "packages/computer/.env",
+    "app/.env.local",
+    "app/.env.development",
+    "../app/.env.local",
+    "../app/.env.development",
+    "../../app/.env.local",
+    "../../app/.env.development",
+  ] {
+    load_dev_env_file(Path::new(path));
+    if env_opt("DATABASE_URL").is_some() {
+      return;
+    }
+  }
+}
+
+fn load_dev_env_file(path: &Path) {
+  let Ok(content) = std::fs::read_to_string(path) else {
+    return;
+  };
+  for line in content.lines() {
+    let trimmed = line.trim();
+    if trimmed.is_empty() || trimmed.starts_with('#') {
+      continue;
+    }
+    let Some((name, value)) = trimmed.split_once('=') else {
+      continue;
+    };
+    let name = name.trim();
+    if name.is_empty() || std::env::var_os(name).is_some() {
+      continue;
+    }
+    let value = value.trim().trim_matches('"').trim_matches('\'');
+    // Rust 2024 makes environment mutation unsafe because it is process-global.
+    // This runs during single-threaded startup before Tokio starts worker tasks.
+    unsafe {
+      std::env::set_var(name, value);
+    }
   }
 }

@@ -63,6 +63,7 @@ pub async fn write(
   let handle = session(&state, &agent_uid)?;
   let cwd = headers.get("x-cwd").and_then(|value| value.to_str().ok());
   let result = fs::write_tar_gz(&handle.paths, cwd, body).await?;
+  state.sessions.sync_library_containers(&agent_uid).await?;
   Ok(Json(json!({ "ok": true, "files": result.files })))
 }
 
