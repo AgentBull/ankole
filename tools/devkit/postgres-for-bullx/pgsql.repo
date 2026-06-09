@@ -1,0 +1,27 @@
+[pigsty-pgsql]
+name = Pigsty PGSQL $releasever - $basearch
+baseurl = https://repo.pigsty.cc/yum/pgsql/el9.$basearch
+gpgcheck = 0
+enabled = 1
+module_hotfixes = 1
+
+[pgdg-common]
+name = PostgreSQL Common $releasever - $basearch
+baseurl = https://mirrors.aliyun.com/postgresql/repos/yum/common/redhat/rhel-9.5-$basearch
+gpgcheck = 0
+enabled = 1
+module_hotfixes = 1
+
+[pgdg-el9fix]
+name = PostgreSQL EL9FIX $releasever - $basearch
+baseurl = https://mirrors.aliyun.com/postgresql/repos/yum/common/pgdg-rocky9-sysupdates/redhat/rhel-9-$basearch
+gpgcheck = 0
+enabled = 1
+module_hotfixes = 1
+
+[pgdg18]
+name = PostgreSQL 18 $releasever - $basearch
+baseurl = https://mirrors.aliyun.com/postgresql/repos/yum/18/redhat/rhel-9-$basearch
+gpgcheck = 0
+enabled = 1
+module_hotfixes = 1

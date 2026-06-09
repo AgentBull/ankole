@@ -1,0 +1,110 @@
+name: Publish postgres-for-bullx image
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: postgres-for-bullx-image-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Build and push postgres-for-bullx image
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout target commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 2
+
+      - name: Detect container-relevant changes
+        id: changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          head_sha="${{ github.event.workflow_run.head_sha }}"
+          if ! git cat-file -e "${head_sha}^" 2>/dev/null; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          base_sha="$(git rev-parse "${head_sha}^")"
+          changed_files="$(git diff --name-only "$base_sha" "$head_sha")"
+
+          if echo "$changed_files" | grep -Eq '^(tools/devkit/postgres-for-bullx/|\.github/workflows/postgres-for-bullx-image-publish\.yml$)'; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Skip when no relevant changes
+        if: ${{ steps.changes.outputs.changed != 'true' }}
+        run: echo "No postgres-for-bullx image changes detected."
+
+      - name: Set image metadata
+        if: ${{ steps.changes.outputs.changed == 'true' }}
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          owner_lower="${GITHUB_REPOSITORY_OWNER,,}"
+          image="ghcr.io/${owner_lower}/postgres-for-bullx"
+
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+
+      - name: Set up QEMU
+        if: ${{ steps.changes.outputs.changed == 'true' }}
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        if: ${{ steps.changes.outputs.changed == 'true' }}
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        if: ${{ steps.changes.outputs.changed == 'true' }}
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pick image version
+        if: ${{ steps.changes.outputs.changed == 'true' }}
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          image="${{ steps.meta.outputs.image }}"
+          date_tag="$(date -u +'%Y%m%d')"
+          candidate="$date_tag"
+          suffix=0
+
+          while docker buildx imagetools inspect "${image}:${candidate}" >/dev/null 2>&1; do
+            suffix=$((suffix + 1))
+            candidate="${date_tag}${suffix}"
+          done
+
+          echo "version=$candidate" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push multi-arch image
+        if: ${{ steps.changes.outputs.changed == 'true' }}
+        uses: docker/build-push-action@v6
+        with:
+          context: tools/devkit/postgres-for-bullx
+          file: tools/devkit/postgres-for-bullx/Dockerfile
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: |
+            ${{ steps.meta.outputs.image }}:${{ steps.version.outputs.version }}
+            ${{ steps.meta.outputs.image }}:main-latest
+          provenance: false
