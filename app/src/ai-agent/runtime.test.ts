@@ -3,6 +3,7 @@ import { redis } from 'bun'
 import { afterAll, afterEach, describe, expect, it } from 'bun:test'
 import { and, eq, sql } from 'drizzle-orm'
 import { z } from 'zod'
+import { isPlainObject, ms } from '@pleisto/active-support'
 import {
   fauxAssistantMessage,
   fauxToolCall,
@@ -1694,15 +1695,11 @@ function providerMessageIds(row: typeof AiAgentMessages.$inferSelect): string[] 
 
 function jsonObjects(value: unknown): Array<Record<string, unknown>> {
   if (!Array.isArray(value)) return []
-  return value.filter(
-    (item): item is Record<string, unknown> => typeof item === 'object' && item !== null && !Array.isArray(item)
-  )
+  return value.filter((item): item is Record<string, unknown> => isPlainObject(item))
 }
 
 function jsonRecord(value: unknown): Record<string, unknown> | undefined {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined
+  return isPlainObject(value) ? value : undefined
 }
 
 function toolNameFromJson(value: Record<string, unknown>): unknown {
@@ -1722,7 +1719,7 @@ async function clearAmbientRedisMembersForTestPrefix(): Promise<void> {
   if (testMembers.length > 0) await redis.send('ZREM', [AMBIENT_REDIS_KEY, ...testMembers]).catch(() => undefined)
 }
 
-async function eventually<T>(assertion: () => T | Promise<T>, timeoutMs = 4_000): Promise<T> {
+async function eventually<T>(assertion: () => T | Promise<T>, timeoutMs = ms('4s')): Promise<T> {
   const deadline = Date.now() + timeoutMs
   let lastError: unknown
 

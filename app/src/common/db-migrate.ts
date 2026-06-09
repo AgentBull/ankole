@@ -17,4 +17,7 @@ await migrate(DB, {
   migrationsTable: 'schema_migrations'
 })
 
+// oxlint-disable-next-line no-console
+console.log('Database migrated successfully.')
+
 await closeDatabase({ timeout: 1 })

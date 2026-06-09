@@ -1,4 +1,5 @@
 import { genUUIDv7 } from '@agentbull/bullx-native-addons'
+import { compact, isNonEmptyString, ms, match } from '@pleisto/active-support'
 import type { Runtime } from '@/common/lifecycle'
 import { logger } from '@/common/logger'
 import type { JsonObject } from '@/common/db-schema'
@@ -15,11 +16,11 @@ import { computeNextRun } from './schedule'
 import { createHeadlessAdapter } from './headless-adapter'
 import { schedulerStore, type SchedulerStore, type ScheduledTaskTrigger } from './store'
 
-const DEFAULT_LEASE_MS = 5 * 60_000
-const DEFAULT_LEASE_HEARTBEAT_MS = 60_000
-const FAILURE_BACKOFF_MS = [30_000, 60_000, 5 * 60_000, 15 * 60_000, 60 * 60_000] as const
+const DEFAULT_LEASE_MS = ms('5m')
+const DEFAULT_LEASE_HEARTBEAT_MS = ms('1m')
+const FAILURE_BACKOFF_MS = [ms('30s'), ms('1m'), ms('5m'), ms('15m'), ms('1h')] as const
 const DEFAULT_FAILURE_ALERT_THRESHOLD = 3
-const DEFAULT_FAILURE_ALERT_COOLDOWN_MS = 60 * 60_000
+const DEFAULT_FAILURE_ALERT_COOLDOWN_MS = ms('1h')
 
 export interface SchedulerRuntimeStats {
   instanceId: string
@@ -326,14 +327,12 @@ async function requireActiveAgent(agentUid: string): Promise<AgentResult> {
 function checkbackMessage(checkback: CheckbackRow): string {
   const wakeText = textFromContent(checkback.wakeMessage)
   if (wakeText.trim()) return wakeText
-  return [
+  return compact([
     '[check_back_later wakeup]',
     `Reason: ${checkback.reason}`,
     `Check: ${checkback.check}`,
     checkback.contextSummary ? `Context: ${checkback.contextSummary}` : ''
-  ]
-    .filter(Boolean)
-    .join('\n')
+  ]).join('\n')
 }
 
 function checkbackCompletionMetadata(result: AiAgentProgrammaticTurnResult): JsonObject {
@@ -353,7 +352,10 @@ function scheduledTaskEventId(
 }
 
 function resultStatus(status: AiAgentProgrammaticTurnResult['status']): Exclude<SchedulerRunStatus, 'running'> {
-  return status === 'succeeded' ? 'succeeded' : status === 'cancelled' || status === 'fenced' ? 'cancelled' : 'failed'
+  return match(status)
+    .with('succeeded', () => 'succeeded' as const)
+    .with('cancelled', 'fenced', () => 'cancelled' as const)
+    .otherwise(() => 'failed' as const)
 }
 
 function backoffMs(consecutiveFailures: number): number {
@@ -361,7 +363,7 @@ function backoffMs(consecutiveFailures: number): number {
 }
 
 function stringOrUndefined(value: unknown): string | undefined {
-  return typeof value === 'string' && value.length > 0 ? value : undefined
+  return isNonEmptyString(value) ? value : undefined
 }
 
 function errorMessage(error: unknown): string {

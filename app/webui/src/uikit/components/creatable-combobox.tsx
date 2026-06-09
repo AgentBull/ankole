@@ -1,6 +1,7 @@
 'use client'
 
 import * as React from 'react'
+import { compact } from '@pleisto/active-support'
 import {
   Combobox,
   ComboboxContent,
@@ -57,7 +58,7 @@ export function CreatableCombobox({
     normalizedInput === ''
       ? options
       : options.filter(option => {
-          const searchable = [option.value, option.label, option.description].filter(Boolean).join('\n').toLowerCase()
+          const searchable = compact([option.value, option.label, option.description]).join('\n').toLowerCase()
           return searchable.includes(normalizedInput)
         })
   const canCreate = trimmedInput !== '' && !matchedInputOption && !inputMatchesValue

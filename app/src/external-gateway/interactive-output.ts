@@ -1,3 +1,4 @@
+import { isPlainObject } from '@pleisto/active-support'
 import {
   bullxInteractiveOutputActionValueVersion,
   bullxInteractiveOutputVersion,
@@ -37,7 +38,7 @@ export function interactiveChoiceActionValue(
 
 export function parseInteractiveOutputActionValue(value: unknown): BullXInteractiveOutputActionValue | undefined {
   const record = typeof value === 'string' ? safeJsonParse(value) : value
-  if (!isRecord(record)) return undefined
+  if (!isPlainObject(record)) return undefined
   if (record.version !== bullxInteractiveOutputActionValueVersion) return undefined
   if (typeof record.interactionId !== 'string' || !record.interactionId) return undefined
   if (typeof record.controlId !== 'string' || !record.controlId) return undefined
@@ -55,13 +56,13 @@ export function isExternalGatewayCardPayload(value: unknown): value is BullXExte
 }
 
 export function isInteractiveOutputCardPayload(value: unknown): value is BullXInteractiveOutputCardPayload {
-  const record = isRecord(value) ? value : undefined
+  const record = isPlainObject(value) ? value : undefined
   return record?.kind === INTERACTIVE_OUTPUT_KIND && isInteractiveOutput(record.output)
 }
 
 export function isLarkNativeCardPayload(value: unknown): value is BullXLarkNativeCardPayload {
-  const record = isRecord(value) ? value : undefined
-  return record?.kind === LARK_NATIVE_CARD_KIND && isRecord(record.card) && typeof record.fallbackText === 'string'
+  const record = isPlainObject(value) ? value : undefined
+  return record?.kind === LARK_NATIVE_CARD_KIND && isPlainObject(record.card) && typeof record.fallbackText === 'string'
 }
 
 export function cardPayloadFallbackText(payload: BullXExternalGatewayCardPayload): string {
@@ -69,18 +70,18 @@ export function cardPayloadFallbackText(payload: BullXExternalGatewayCardPayload
 }
 
 export function isInteractiveOutput(value: unknown): value is BullXInteractiveOutput {
-  if (!isRecord(value)) return false
+  if (!isPlainObject(value)) return false
   if (value.version !== bullxInteractiveOutputVersion) return false
   if (typeof value.fallbackText !== 'string' || value.fallbackText.length === 0) return false
   const content = value.content
-  if (!isRecord(content) || typeof content.body !== 'string') return false
+  if (!isPlainObject(content) || typeof content.body !== 'string') return false
   if (value.response !== undefined && !isInteractiveOutputResponse(value.response)) return false
   if (value.state !== undefined && !isInteractiveOutputState(value.state)) return false
   return true
 }
 
 function isInteractiveOutputResponse(value: unknown): value is BullXInteractiveOutput['response'] {
-  if (!isRecord(value)) return false
+  if (!isPlainObject(value)) return false
   if (value.type !== 'choice') return false
   if (typeof value.interactionId !== 'string' || !value.interactionId) return false
   if (typeof value.controlId !== 'string' || !value.controlId) return false
@@ -91,7 +92,7 @@ function isInteractiveOutputResponse(value: unknown): value is BullXInteractiveO
 
 function isChoiceOption(value: unknown): value is BullXInteractiveOutputChoiceOption {
   return (
-    isRecord(value) &&
+    isPlainObject(value) &&
     typeof value.id === 'string' &&
     value.id.length > 0 &&
     typeof value.label === 'string' &&
@@ -100,7 +101,7 @@ function isChoiceOption(value: unknown): value is BullXInteractiveOutputChoiceOp
 }
 
 function isInteractiveOutputState(value: unknown): value is BullXInteractiveOutput['state'] {
-  if (!isRecord(value)) return false
+  if (!isPlainObject(value)) return false
   return (
     value.status === 'open' ||
     value.status === 'answered' ||
@@ -109,11 +110,6 @@ function isInteractiveOutputState(value: unknown): value is BullXInteractiveOutp
     value.status === 'superseded'
   )
 }
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
 function safeJsonParse(value: string): unknown {
   try {
     return JSON.parse(value)

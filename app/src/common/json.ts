@@ -1,4 +1,4 @@
-import { get, isNumber, isString } from '@pleisto/active-support'
+import { get, isNumber, isPlainObject, isString } from '@pleisto/active-support'
 import type { JsonObject, JsonValue } from './db-schema'
 
 /**
@@ -72,7 +72,7 @@ export function numberFromPath(object: Record<string, unknown>, path: string[]):
  * straight into the durable JSON value space.
  */
 export function isJsonObject(value: unknown): value is JsonObject {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
+  return isPlainObject(value)
 }
 
 /** Narrow a value to a {@link JsonObject}, or `undefined` when it is not object-shaped. */

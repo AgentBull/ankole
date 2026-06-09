@@ -4,6 +4,7 @@ import { toJsonArray, toJsonObject, toJsonValue } from '@/common/json'
 import { ExternalGatewayAgentEvents, type JsonObject, type JsonValue } from '@/common/db-schema'
 import { logger as defaultLogger, type Logger } from '@/common/logger'
 import { normalizeInboundText } from '@/common/normalize'
+import { isPlainObject } from '@pleisto/active-support'
 import type { AgentResult } from '@/principals/agents/service'
 import type {
   ExternalGatewayAgentEnvelope,
@@ -107,10 +108,6 @@ function pluginLogData(args: readonly unknown[]): Record<string, unknown> {
   if (args.length === 0) return {}
   if (args.length === 1 && isPlainObject(args[0])) return args[0]
   return { args: [...args] }
-}
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 async function handleInboundReceive(

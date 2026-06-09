@@ -1,4 +1,5 @@
 import { genericHash } from '@agentbull/bullx-native-addons'
+import { match } from '@pleisto/active-support'
 import { and, asc, eq, sql } from 'drizzle-orm'
 import { DB, jsonbParam } from '@/common/database'
 import { ExternalGatewayOutbox, type JsonObject } from '@/common/db-schema'
@@ -167,7 +168,10 @@ export class DrizzleExternalGatewayOutbox {
     try {
       const postMessage = requireOutboundCapability(
         input.adapter,
-        operation === 'reply' ? 'reply_message' : operation === 'post' ? 'post_message' : operation,
+        match(operation)
+          .with('reply', () => 'reply_message' as const)
+          .with('post', () => 'post_message' as const)
+          .otherwise(value => value),
         input.adapter.postMessage?.bind(input.adapter)
       )
       const rawMessage = await postMessage(input.intent.providerThreadId, postable, outboundOptions(input.intent))

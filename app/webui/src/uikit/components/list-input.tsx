@@ -1,6 +1,7 @@
 'use client'
 
 import { RiAddLine, RiCloseLine } from '@remixicon/react'
+import { compact } from '@pleisto/active-support'
 import * as React from 'react'
 import { Button } from '@/uikit/components/button'
 import {
@@ -51,10 +52,7 @@ export function StringListInput({
   }
 
   function addMany(raw: string) {
-    const items = raw
-      .split(/[\n,]/)
-      .map(item => item.trim())
-      .filter(Boolean)
+    const items = compact(raw.split(/[\n,]/).map(item => item.trim()))
 
     if (items.length === 0) return
 

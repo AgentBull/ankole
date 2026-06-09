@@ -12,6 +12,7 @@ import {
   type ToolResultMessage,
   validateToolArguments
 } from '@earendil-works/pi-ai'
+import { isPlainObject } from '@pleisto/active-support'
 import type {
   AgentContext,
   AgentEvent,
@@ -761,10 +762,6 @@ function withToolExecutionDetails(details: unknown, finalized: FinalizedToolCall
   if (isPlainObject(details)) return { ...details, bullx_execution: execution }
   if (details === undefined || details === null) return { bullx_execution: execution }
   return { value: details, bullx_execution: execution }
-}
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 async function emitToolResultMessage(toolResultMessage: ToolResultMessage, emit: AgentEventSink): Promise<void> {

@@ -1,3 +1,4 @@
+import { isPlainObject, mapValues } from '@pleisto/active-support'
 import type { BullXPluginJsonValue } from '@agentbull/bullx-sdk/plugins'
 
 export type PluginConfigJsonObject = { [key: string]: BullXPluginJsonValue }
@@ -74,7 +75,7 @@ export function mergePluginConfigObjects(
 }
 
 export function clonePluginJsonObject(value: PluginConfigJsonObject): PluginConfigJsonObject {
-  return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, clonePluginJsonValue(item)]))
+  return mapValues(value, item => clonePluginJsonValue(item)) as PluginConfigJsonObject
 }
 
 export function clonePluginJsonValue<TValue extends BullXPluginJsonValue | undefined>(value: TValue): TValue {
@@ -86,5 +87,5 @@ export function clonePluginJsonValue<TValue extends BullXPluginJsonValue | undef
 }
 
 export function isPluginConfigJsonObject(value: unknown): value is PluginConfigJsonObject {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
+  return isPlainObject(value)
 }

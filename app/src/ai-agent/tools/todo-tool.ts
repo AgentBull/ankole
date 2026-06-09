@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { isPlainObject } from '@pleisto/active-support'
 import type { AgentTool, AgentToolResult } from '../core'
 import { buildTool } from './build-tool'
 
@@ -193,7 +194,7 @@ export function summarizeTodos(todos: TodoItem[]): TodoSummary {
 }
 
 export function todoItemsFromToolDetails(details: unknown): TodoItem[] | undefined {
-  if (!isRecord(details)) return undefined
+  if (!isPlainObject(details)) return undefined
   if (!Array.isArray(details.todos)) return undefined
   const store = new TodoStore()
   store.hydrate(details.todos)
@@ -201,7 +202,7 @@ export function todoItemsFromToolDetails(details: unknown): TodoItem[] | undefin
 }
 
 function normalizeStringField(item: unknown, field: string): string {
-  if (!isRecord(item)) return ''
+  if (!isPlainObject(item)) return ''
   const value = item[field]
   return value === undefined || value === null ? '' : String(value).trim()
 }
@@ -214,8 +215,4 @@ function normalizeStatus(value: string): TodoStatus | undefined {
 function capContent(content: string): string {
   if (content.length <= MAX_TODO_CONTENT_CHARS) return content
   return content.slice(0, MAX_TODO_CONTENT_CHARS - TRUNCATION_MARKER.length) + TRUNCATION_MARKER
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }

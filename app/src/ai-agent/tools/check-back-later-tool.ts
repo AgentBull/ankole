@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { compact } from '@pleisto/active-support'
 import type { AiAgentCheckbackSource, JsonValue } from '@/common/db-schema'
 import { loadSystemTimezone } from '@/config/system'
 import { resolveCheckbackDueAt, CheckBackLaterAfterSchema } from '@/scheduler/schedule'
@@ -94,15 +95,13 @@ function checkbackWakeMessage(input: {
   return [
     {
       type: 'text',
-      text: [
+      text: compact([
         '[check_back_later wakeup]',
         `Due at: ${input.dueAt.toISOString()} (${input.timezone})`,
         `Reason: ${input.reason}`,
         `Check: ${input.check}`,
         input.contextSummary ? `Context: ${input.contextSummary}` : ''
-      ]
-        .filter(Boolean)
-        .join('\n')
+      ]).join('\n')
     }
   ]
 }

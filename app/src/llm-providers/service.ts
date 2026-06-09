@@ -8,6 +8,7 @@ import {
   type SimpleStreamOptions,
   type Transport
 } from '@earendil-works/pi-ai'
+import { mapValues, pickBy } from '@pleisto/active-support'
 import { eq, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { DB, jsonbParam } from '@/common/database'
@@ -480,10 +481,9 @@ function maskApiKey(): string {
 function stripUndefined(value: unknown): JsonValue {
   if (Array.isArray(value)) return value.map(item => stripUndefined(item))
   if (isJsonObject(value)) {
-    return Object.fromEntries(
-      Object.entries(value)
-        .filter(([, item]) => item !== undefined)
-        .map(([key, item]) => [key, stripUndefined(item)])
+    return mapValues(
+      pickBy(value, item => item !== undefined),
+      item => stripUndefined(item)
     ) as JsonObject
   }
   if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' || value === null) {

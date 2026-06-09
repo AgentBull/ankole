@@ -1,5 +1,6 @@
 import { genUUIDv7 } from '@agentbull/bullx-native-addons'
 import { isContextOverflow, streamSimple, type AssistantMessage, type ToolResultMessage } from '@earendil-works/pi-ai'
+import { match } from '@pleisto/active-support'
 import { and, desc, eq, sql } from 'drizzle-orm'
 import { DB, jsonbParam } from '@/common/database'
 import { logger } from '@/common/logger'
@@ -1747,8 +1748,10 @@ export class AiAgentRuntime {
     text: string,
     outboundKey: string
   ): Promise<{ messageId: string; cardId: string; outboundKey: string } | undefined> {
-    const status =
-      assistant.stopReason === 'aborted' ? 'cancelled' : assistant.stopReason === 'error' ? 'failed' : 'completed'
+    const status = match(assistant.stopReason)
+      .with('aborted', () => 'cancelled' as const)
+      .with('error', () => 'failed' as const)
+      .otherwise(() => 'completed' as const)
     try {
       await card.finish(text || assistant.errorMessage || '', status)
     } catch {
@@ -2041,7 +2044,10 @@ function assistantLlmTurnFinish(
   profile: AiAgentRuntimeProfile
 ): LlmTurnFinish {
   return {
-    status: message.stopReason === 'aborted' ? 'cancelled' : message.stopReason === 'error' ? 'failed' : 'succeeded',
+    status: match(message.stopReason)
+      .with('aborted', () => 'cancelled' as const)
+      .with('error', () => 'failed' as const)
+      .otherwise(() => 'succeeded' as const),
     response: normalizedAssistantResponse(message),
     usage: message.usage as unknown as JsonObject,
     providerMetadata: assistantProviderMetadata(message, providerObservation, profile)

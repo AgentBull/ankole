@@ -1,4 +1,5 @@
 import { authzAuthorize, authzAuthorizeAll } from '@agentbull/bullx-native-addons'
+import { match } from '@pleisto/active-support'
 import { and, eq, inArray, or } from 'drizzle-orm'
 import { DB, type QueryExecutor } from '@/common/database'
 import { PermissionGrants, PrincipalGroupMemberships, PrincipalGroups, Principals } from '@/common/db-schema'
@@ -287,19 +288,18 @@ async function loadAuthorizationSnapshot(
  * Converts native status strings into Principal/AuthZ domain errors.
  */
 function handleDecision(decision: NativeAuthzDecision): void {
-  switch (decision.status) {
-    case 'allow':
-      return
-    case 'principal_disabled':
+  return match(decision)
+    .with({ status: 'allow' }, () => undefined)
+    .with({ status: 'principal_disabled' }, () => {
       throw new PrincipalDomainError('principal_disabled')
-    case 'invalid_request':
+    })
+    .with({ status: 'invalid_request' }, () => {
       throw new PrincipalDomainError('invalid_request')
-    case 'deny':
-      throw new PrincipalDomainError(
-        'forbidden',
-        decision.deniedAction ? `forbidden: ${decision.deniedAction}` : 'forbidden'
-      )
-  }
+    })
+    .with({ status: 'deny' }, ({ deniedAction }) => {
+      throw new PrincipalDomainError('forbidden', deniedAction ? `forbidden: ${deniedAction}` : 'forbidden')
+    })
+    .exhaustive()
 }
 
 /**

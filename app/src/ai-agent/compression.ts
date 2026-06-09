@@ -1,4 +1,5 @@
 import { genUUIDv7 } from '@agentbull/bullx-native-addons'
+import { match } from '@pleisto/active-support'
 import { eq } from 'drizzle-orm'
 import { DB } from '@/common/database'
 import { AiAgentConversations, type JsonObject, type JsonValue } from '@/common/db-schema'
@@ -248,7 +249,10 @@ function llmToolDefinitionsPatch(tools: JsonValue[]): JsonValue {
 }
 
 function assistantStatus(message: { stopReason: string }): 'succeeded' | 'failed' | 'cancelled' {
-  return message.stopReason === 'aborted' ? 'cancelled' : message.stopReason === 'error' ? 'failed' : 'succeeded'
+  return match(message.stopReason)
+    .with('aborted', () => 'cancelled' as const)
+    .with('error', () => 'failed' as const)
+    .otherwise(() => 'succeeded' as const)
 }
 
 function normalizedAssistantResponse(message: {

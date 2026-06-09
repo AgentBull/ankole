@@ -1,4 +1,5 @@
 import { RiArrowRightSLine, RiLoginCircleLine } from '@remixicon/react'
+import { compact } from '@pleisto/active-support'
 import {
   resolveBullXPluginLocalizedText,
   type BullXPluginJsonValue,
@@ -427,5 +428,5 @@ function localizedText(value: LocalizedText | undefined, locale: string): string
 }
 
 function uniqueStrings(values: string[]): string[] {
-  return [...new Set(values.filter(Boolean))]
+  return [...new Set(compact(values))]
 }

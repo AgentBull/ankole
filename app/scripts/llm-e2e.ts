@@ -1,6 +1,7 @@
 import 'reflect-metadata'
 import assert from 'node:assert/strict'
 import { redis } from 'bun'
+import { compact, isPlainObject } from '@pleisto/active-support'
 import { eq, sql } from 'drizzle-orm'
 import type { AiAgentModelsConfig } from '../src/ai-agent/config'
 import type {
@@ -73,12 +74,7 @@ const webProviderId = `llm_e2e_web_${suffix}`
 
 const roomIds = new Set<string>()
 const webCalls: Array<{ args: WebSearchArgs | WebExtractArgs; kind: 'extract' | 'search' }> = []
-const onlyScenarios = new Set(
-  (Bun.env.LLM_E2E_ONLY ?? '')
-    .split(',')
-    .map(value => value.trim())
-    .filter(Boolean)
-)
+const onlyScenarios = new Set(compact((Bun.env.LLM_E2E_ONLY ?? '').split(',').map(value => value.trim())))
 let runtime: InstanceType<typeof ExternalGatewayRuntime> | undefined
 let aiRuntime: InstanceType<typeof AiAgentRuntime> | undefined
 let scheduler: InstanceType<typeof SchedulerRuntime> | undefined
@@ -302,7 +298,9 @@ async function scenarioResetSession(setup: RuntimeSetup): Promise<void> {
   })
   await waitForOutboundAfter(setup, beforeFirst)
   const firstConversation = await conversationForRoom(roomId)
-  assert.ok((await llmTurnsFor(firstConversation.id)).some(row => row.kind === 'generation' && row.status === 'succeeded'))
+  assert.ok(
+    (await llmTurnsFor(firstConversation.id)).some(row => row.kind === 'generation' && row.status === 'succeeded')
+  )
 
   await group.say({ id: 'reset-new', isMention: true, text: '/new' })
   await waitForOutboundText(setup, 'New conversation started.')
@@ -342,14 +340,24 @@ async function scenarioAmbient(setup: RuntimeSetup): Promise<void> {
     conversation = await conversationForRoom(roomId)
     const turns = await llmTurnsFor(conversation.id)
     const ambientTurn = turns.find(row => row.kind === 'ambient_recognizer' && row.profile === 'light')
-    assert.equal(ambientTurn?.status, 'succeeded', `ambient recognizer failed: ${JSON.stringify(ambientTurn?.response)}`)
-    const parsed = isRecord(ambientTurn.response) && isRecord(ambientTurn.response.parsed) ? ambientTurn.response.parsed : undefined
+    assert.equal(
+      ambientTurn?.status,
+      'succeeded',
+      `ambient recognizer failed: ${JSON.stringify(ambientTurn?.response)}`
+    )
+    const parsed =
+      isPlainObject(ambientTurn.response) && isPlainObject(ambientTurn.response.parsed)
+        ? ambientTurn.response.parsed
+        : undefined
     assert.equal(typeof parsed?.intervene, 'boolean')
   }, 120_000)
   assert.ok(conversation)
   const turns = await llmTurnsFor(conversation.id)
   const ambientTurn = turns.find(row => row.kind === 'ambient_recognizer' && row.profile === 'light')
-  const parsed = isRecord(ambientTurn?.response) && isRecord(ambientTurn.response.parsed) ? ambientTurn.response.parsed : undefined
+  const parsed =
+    isPlainObject(ambientTurn?.response) && isPlainObject(ambientTurn.response.parsed)
+      ? ambientTurn.response.parsed
+      : undefined
   const rows = await messagesFor(conversation.id)
   assert.ok(rows.some(row => row.role === 'im_ambient' && row.kind === 'normal'))
   if (parsed?.intervene === true) {
@@ -365,7 +373,10 @@ async function scenarioAmbient(setup: RuntimeSetup): Promise<void> {
         `ambient intervention generation did not succeed: ${JSON.stringify(updatedTurns.map(row => ({ kind: row.kind, status: row.status, response: row.response })))}`
       )
       assert.ok(updatedRows.some(row => row.role === 'im_ambient' && row.kind === 'introspection'))
-      assert.ok(setup.platform.outbound.length > previousOutbound, `expected ambient outbound; recent outbound:\n${recent}`)
+      assert.ok(
+        setup.platform.outbound.length > previousOutbound,
+        `expected ambient outbound; recent outbound:\n${recent}`
+      )
     }, 120_000)
   }
 }
@@ -640,33 +651,28 @@ async function toolNamesForConversation(conversationId: string): Promise<string[
 
 function transcriptEffect(row: typeof AiAgentMessages.$inferSelect | undefined): string | undefined {
   const effect = row?.metadata.transcript_effect
-  if (!isRecord(effect)) return undefined
+  if (!isPlainObject(effect)) return undefined
   return typeof effect.state === 'string' ? effect.state : undefined
 }
 
 function providerMessageIds(row: typeof AiAgentMessages.$inferSelect): string[] {
   const refs = row.metadata.provider_refs
-  if (!isRecord(refs)) return []
+  if (!isPlainObject(refs)) return []
   return Array.isArray(refs.message_ids) ? refs.message_ids.filter((id): id is string => typeof id === 'string') : []
 }
 
 function jsonObjects(value: unknown): Array<Record<string, unknown>> {
   if (!Array.isArray(value)) return []
-  return value.filter(isRecord)
+  return value.filter(isPlainObject)
 }
 
 function toolNameFromToolResult(result: Record<string, unknown>): string[] {
   if (typeof result.toolName === 'string') return [result.toolName]
   if (typeof result.tool_name === 'string') return [result.tool_name]
-  const details = isRecord(result.details) ? result.details : undefined
-  const execution = details && isRecord(details.bullx_execution) ? details.bullx_execution : undefined
+  const details = isPlainObject(result.details) ? result.details : undefined
+  const execution = details && isPlainObject(details.bullx_execution) ? details.bullx_execution : undefined
   return typeof execution?.tool_name === 'string' ? [execution.tool_name] : []
 }
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
 async function requireDevWorker(baseUrl: string): Promise<void> {
   let response: Response
   try {

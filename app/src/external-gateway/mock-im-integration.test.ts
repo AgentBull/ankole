@@ -1,5 +1,6 @@
 import 'reflect-metadata'
 import { afterAll, afterEach, describe, expect, it } from 'bun:test'
+import { mapValues } from '@pleisto/active-support'
 import { and, eq } from 'drizzle-orm'
 import { loadTestEnvFiles } from '@/common/tests/load-test-env'
 import type {
@@ -605,19 +606,14 @@ function platformProjection(message: MockImVisibleMessage) {
 }
 
 function reactionProjection(reactions: Record<string, unknown>) {
-  return Object.fromEntries(
-    Object.entries(reactions).map(([key, value]) => {
-      const input = value as { actors?: Record<string, unknown>; count?: number; rawEmoji?: string }
-      return [
-        key,
-        {
-          actors: Object.keys(input.actors ?? {}).sort(),
-          count: input.count ?? 0,
-          rawEmoji: input.rawEmoji ?? key
-        }
-      ]
-    })
-  )
+  return mapValues(reactions, (value, key) => {
+    const input = value as { actors?: Record<string, unknown>; count?: number; rawEmoji?: string }
+    return {
+      actors: Object.keys(input.actors ?? {}).sort(),
+      count: input.count ?? 0,
+      rawEmoji: input.rawEmoji ?? key
+    }
+  })
 }
 
 function sortMirror(left: ReturnType<typeof mirrorProjection>, right: ReturnType<typeof mirrorProjection>): number {
