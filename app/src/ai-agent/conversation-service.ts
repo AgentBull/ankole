@@ -18,6 +18,8 @@ export type AiAgentMessageKind = 'normal' | 'summary' | 'introspection' | 'error
 export type AiAgentLlmTurnKind =
   | 'generation'
   | 'retry_generation'
+  | 'scheduled_task'
+  | 'checkback_generation'
   | 'compression'
   | 'ambient_recognizer'
   | 'overflow_retry'

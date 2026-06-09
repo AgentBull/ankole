@@ -132,7 +132,8 @@ export class AiAgentAmbientBatcher {
       .map(row => `- ${textFromContent(row.content)}`)
       .join('\n')
 
-    const systemPrompt = 'Decide whether the AI coworker should proactively intervene in this room. Return strict JSON.'
+    const systemPrompt =
+      'Decide whether the AI coworker should proactively intervene in this room. Return only a strict JSON object, with no markdown.'
     const llmMessages: Message[] = [
       {
         role: 'user',
@@ -185,7 +186,7 @@ export class AiAgentAmbientBatcher {
         .flatMap(block => (block.type === 'text' ? [block.text] : []))
         .join('')
         .trim()
-      const parsed = parseJsonWithRepair<AmbientRecognizerResult>(text)
+      const parsed = parseAmbientRecognizerResult(text)
       await this.conversations.finishLlmTurn({
         llmTurnId: llmTurn.id,
         status: 'succeeded',
@@ -309,4 +310,24 @@ function scoreEntries(value: unknown[]): Array<[string, number]> {
     }
   }
   return entries
+}
+
+function parseAmbientRecognizerResult(text: string): AmbientRecognizerResult {
+  const parsed = parseJsonWithRepair<Partial<AmbientRecognizerResult>>(extractJsonObjectText(text))
+  return {
+    intervene: parsed.intervene === true,
+    ...(typeof parsed.reason_summary === 'string' && parsed.reason_summary.trim()
+      ? { reason_summary: parsed.reason_summary.trim() }
+      : {})
+  }
+}
+
+function extractJsonObjectText(text: string): string {
+  const trimmed = text.trim()
+  const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i)
+  const candidate = fenced?.[1]?.trim() ?? trimmed
+  const firstBrace = candidate.indexOf('{')
+  const lastBrace = candidate.lastIndexOf('}')
+  if (firstBrace >= 0 && lastBrace > firstBrace) return candidate.slice(firstBrace, lastBrace + 1)
+  return candidate
 }

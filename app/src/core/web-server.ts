@@ -8,6 +8,7 @@ import { consoleRoutes } from '@/console/routes'
 import { externalGatewayRoutes } from '@/external-gateway'
 import { sessionApiRoutes } from '@/principals/admin-auth/api-routes'
 import { computerRoutes } from '@/computer/routes'
+import { schedulerRoutes } from '@/scheduler/routes'
 import { setupRoutes } from '@/setup/routes'
 import { webAppRoutes } from './web-routes'
 import type { SpaName } from './spa-html'
@@ -86,6 +87,7 @@ export async function createWebServer(options: CreateWebServerOptions = {}) {
     .use(consoleRoutes())
     .use(computerRoutes())
     .use(externalGatewayRoutes())
+    .use(schedulerRoutes())
     .use(
       webAppRoutes({
         devSpaHtmlRenderer:

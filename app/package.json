@@ -7,6 +7,7 @@
     "web:build": "bun scripts/build-web-assets.ts",
     "test": "bun test",
     "test:computer:e2e": "bun scripts/computer-worker-e2e.ts",
+    "test:llm-e2e": "bun scripts/llm-e2e.ts",
     "type-check": "tsc -p tsconfig.json --noEmit",
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check",

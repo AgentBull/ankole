@@ -11,6 +11,7 @@ import { resolveComputerWorker } from '@/computer/service'
 import { initializeSetupBootstrap } from '@/setup/bootstrap'
 import { aiAgentRuntime } from '@/ai-agent/runtime'
 import { buildAiAgentTools, registerBuiltinWebProviders } from '@/ai-agent/tools'
+import { schedulerRuntime } from '@/scheduler'
 
 /**
  * Handle returned by `startBullXAgent()` for tests or embedders.
@@ -34,12 +35,14 @@ export async function startBullXAgent(): Promise<StartedBullXAgent> {
   let shuttingDown = false
   let pluginStartAttempted = false
   let externalGatewayStartAttempted = false
+  let schedulerStartAttempted = false
   let identityProviderStartAttempted = false
 
   const shutdownRuntime = async () => {
     // Stop ingress-capable runtime state before closing the shared database
     // connection, because shutdown hooks may still need persistence.
     if (identityProviderStartAttempted) await identityProviderRuntime.stop()
+    if (schedulerStartAttempted) await schedulerRuntime.stop()
     if (externalGatewayStartAttempted) await externalGatewayRuntime.stop()
     if (pluginStartAttempted) await pluginRuntime.stop()
     await closeDatabase({ timeout: 5 })
@@ -60,6 +63,8 @@ export async function startBullXAgent(): Promise<StartedBullXAgent> {
     aiAgentRuntime.setComputerEnabled(true, { resolveWorker: agentUid => resolveComputerWorker(agentUid) })
     externalGatewayStartAttempted = true
     const externalGateway = await externalGatewayRuntime.start()
+    schedulerStartAttempted = true
+    await schedulerRuntime.start()
     identityProviderStartAttempted = true
     const identityProviders = await identityProviderRuntime.start()
 

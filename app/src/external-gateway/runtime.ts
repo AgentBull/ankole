@@ -197,6 +197,10 @@ export class ExternalGatewayRuntime implements Runtime<ExternalGatewayRuntimeSta
     }
   }
 
+  triggerOutboxDrain(agentUid: string, bindingName: string, availableAt?: Date): void {
+    this.scheduleOutboxDrain(agentUid, bindingName, availableAt)
+  }
+
   private async doStart(options: ExternalGatewayRuntimeStartOptions): Promise<ExternalGatewayRuntimeStats> {
     const loadActiveAgents = options.loadActiveAgents ?? listActiveAgents
     const agents = await loadActiveAgents()

@@ -36,6 +36,7 @@ const { fullMockImCapabilities, MockImPlatform: MockImPlatformCtor } =
   await import('@/external-gateway/testing/mock-im-adapter')
 const { AiAgentRuntime } = await import('@/ai-agent/runtime')
 const { registerWorker, resolveComputerWorker } = await import('@/computer/service')
+const { loadSystemTimezone } = await import('@/config/system')
 
 const workerId = Bun.env.BULLX_COMPUTER_E2E_WORKER_ID ?? 'dev'
 const workerBaseUrl = (
@@ -166,10 +167,11 @@ function conversationOptions(
   }
 }
 
-function runtimeProfile(currentRegistration: FauxProviderRegistration): AiAgentRuntimeProfile {
+async function runtimeProfile(currentRegistration: FauxProviderRegistration): Promise<AiAgentRuntimeProfile> {
   const primary = currentRegistration.getModel('primary')!
   const light = currentRegistration.getModel('light')!
   const heavy = currentRegistration.getModel('heavy')!
+  const timezone = await loadSystemTimezone()
   return {
     ambient: { batchWindowMs: 20, freshnessMs: 5_000 },
     compression: {
@@ -180,7 +182,7 @@ function runtimeProfile(currentRegistration: FauxProviderRegistration): AiAgentR
       microcompactEnabled: false,
       microcompactKeepRecent: 6
     },
-    dailyReset: { enabled: true, hour: '00:00', retryMinutes: 30, timezone: 'Etc/UTC' },
+    dailyReset: { enabled: true, hour: '00:00', retryMinutes: 30, timezone },
     primaryModel: {
       config: {
         model: 'primary',

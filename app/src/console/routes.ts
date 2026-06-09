@@ -265,7 +265,7 @@ function agentInput(body: {
  * absent so handler success paths return a clean (Eden-Treaty-friendly) shape
  * instead of a `{ data } | { error }` union.
  */
-async function requireConsoleAdmin(request: Request): Promise<{ principalUid: string }> {
+export async function requireConsoleAdmin(request: Request): Promise<{ principalUid: string }> {
   const session = readAdminSessionCookie(request.headers.get('cookie'))
   if (session && (await activeHumanAdmin(session.principalUid))) {
     return { principalUid: session.principalUid }

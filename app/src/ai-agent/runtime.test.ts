@@ -26,6 +26,7 @@ await loadTestEnvFiles()
 const { DB } = await import('@/common/database')
 const {
   AiAgentConversations,
+  AiAgentCheckbacks,
   AiAgentLlmTurns,
   AiAgentMessages,
   ExternalGatewayAgentEvents,
@@ -43,6 +44,7 @@ const {
   MockImPlatform: MockImPlatformCtor
 } = await import('@/external-gateway/testing/mock-im-adapter')
 const { AiAgentRuntime } = await import('./runtime')
+const { SchedulerRuntime } = await import('@/scheduler/runtime')
 const { reconstructLlmTurnTrajectory, selectExportableGenerationLeases } = await import('./trajectory')
 const { aiAgentConversationService, providerRefs, textContent, textFromContent } =
   await import('./conversation-service')
@@ -69,6 +71,7 @@ afterEach(async () => {
 afterAll(async () => {
   await clearAmbientRedisMembersForTestPrefix()
   for (const agentUid of agentUids) {
+    await DB.delete(AiAgentCheckbacks).where(eq(AiAgentCheckbacks.agentUid, agentUid))
     await DB.delete(AiAgentLlmTurns).where(eq(AiAgentLlmTurns.agentUid, agentUid))
     await DB.delete(AiAgentMessages).where(eq(AiAgentMessages.agentUid, agentUid))
     await DB.delete(AiAgentConversations).where(eq(AiAgentConversations.agentUid, agentUid))
@@ -342,7 +345,7 @@ describe('AIAgent pi-ai runtime', () => {
       'ambient',
       [
         fauxAssistantMessage('{"intervene":false}'),
-        fauxAssistantMessage('{"intervene":true,"reason_summary":"asked for help"}'),
+        fauxAssistantMessage('```json\n{"intervene":true,"reason_summary":"asked for help"}\n```'),
         fauxAssistantMessage('ambient answer'),
         fauxAssistantMessage('addressed after ambient')
       ],
@@ -1143,6 +1146,119 @@ describe('AIAgent pi-ai runtime', () => {
     expect(execution?.idempotency_key).toBe(`llm-turn:${toolCallTurn!.id}:tool-call:${toolResult?.toolCallId}`)
   })
 
+  it('schedules check_back_later as a one-shot isolated wakeup and routes visible output back to source', async () => {
+    const setup = await startAiAgent('check_back_later', [
+      fauxAssistantMessage([
+        fauxToolCall('check_back_later', {
+          at: new Date(Date.now() - 1_000).toISOString(),
+          reason: 'approval is still pending',
+          check: 'Check whether the approval finished.',
+          context_summary: 'The account signup was submitted and is waiting for review.'
+        })
+      ]),
+      fauxAssistantMessage('I will check again later.'),
+      fauxAssistantMessage('The approval is still pending.')
+    ])
+    const roomId = `${setup.adapterName}:checkback-room`
+    const threadId = `${roomId}:thread`
+    const group = setup.platform.group(setup.conversationOptions({ channelId: roomId, threadId }))
+
+    await group.say({ id: 'm1', isMention: true, text: '@Agent submit approval status check' })
+    await eventually(() =>
+      expect(setup.platform.outbound.some(event => event.text === 'I will check again later.')).toBe(true)
+    )
+
+    const [sourceConversation] = await conversationsFor(setup.agentUid)
+    const [pendingCheckback] = await DB.select()
+      .from(AiAgentCheckbacks)
+      .where(eq(AiAgentCheckbacks.agentUid, setup.agentUid))
+      .limit(1)
+
+    expect(pendingCheckback?.status).toBe('pending')
+    expect(pendingCheckback?.timezone).toBeTruthy()
+    expect(pendingCheckback?.source.provider_room_id).toBe(roomId)
+    expect(pendingCheckback?.source.provider_thread_id).toBe(threadId)
+
+    const scheduler = new SchedulerRuntime()
+    scheduler.setAgentExecutor(setup.aiRuntime)
+    try {
+      await scheduler.start()
+      await eventually(async () => {
+        const [completed] = await DB.select()
+          .from(AiAgentCheckbacks)
+          .where(eq(AiAgentCheckbacks.id, pendingCheckback!.id))
+          .limit(1)
+        expect(completed?.status).toBe('succeeded')
+        expect(completed?.conversationId).toBeTruthy()
+      })
+    } finally {
+      await scheduler.stop()
+    }
+
+    const [completedCheckback] = await DB.select()
+      .from(AiAgentCheckbacks)
+      .where(eq(AiAgentCheckbacks.id, pendingCheckback!.id))
+      .limit(1)
+    expect(completedCheckback?.conversationId).not.toBe(sourceConversation!.id)
+
+    await externalGatewayOutbox.dispatchPendingForBinding({
+      adapter: setup.adapter,
+      agent: setup.agent,
+      bindingName: setup.adapterName,
+      projection: externalGatewayProjectionSink,
+      room: {}
+    })
+    await eventually(() =>
+      expect(setup.platform.outbound.some(event => event.text === 'The approval is still pending.')).toBe(true)
+    )
+    const routedOutputCount = () =>
+      setup.platform.outbound.filter(event => event.text === 'The approval is still pending.').length
+
+    const checkbackMessages = await messagesFor(completedCheckback!.conversationId!)
+    expect(checkbackMessages.map(row => `${row.role}:${row.kind}`)).toEqual(['user:normal', 'assistant:normal'])
+    expect(checkbackMessages[0]?.eventSource).toBe('ai-agent.check_back_later')
+
+    const checkbackTurns = await llmTurnsFor(completedCheckback!.conversationId!)
+    expect(checkbackTurns.map(row => row.kind)).toEqual(['checkback_generation'])
+
+    await DB.update(AiAgentCheckbacks)
+      .set({
+        status: 'running',
+        claimedBy: null,
+        claimedAt: null,
+        leaseExpiresAt: new Date(Date.now() - 1_000),
+        completedAt: null,
+        updatedAt: sql`now()`
+      })
+      .where(eq(AiAgentCheckbacks.id, pendingCheckback!.id))
+
+    const retryScheduler = new SchedulerRuntime()
+    retryScheduler.setAgentExecutor(setup.aiRuntime)
+    try {
+      await retryScheduler.start()
+      await eventually(async () => {
+        const [completed] = await DB.select()
+          .from(AiAgentCheckbacks)
+          .where(eq(AiAgentCheckbacks.id, pendingCheckback!.id))
+          .limit(1)
+        expect(completed?.status).toBe('succeeded')
+      })
+    } finally {
+      await retryScheduler.stop()
+    }
+
+    await externalGatewayOutbox.dispatchPendingForBinding({
+      adapter: setup.adapter,
+      agent: setup.agent,
+      bindingName: setup.adapterName,
+      projection: externalGatewayProjectionSink,
+      room: {}
+    })
+    expect(routedOutputCount()).toBe(1)
+    expect(await messagesFor(completedCheckback!.conversationId!)).toHaveLength(2)
+    expect(await llmTurnsFor(completedCheckback!.conversationId!)).toHaveLength(1)
+  })
+
   it('exposes todo by default, shows compact editable progress, and hydrates active todos later', async () => {
     const setup = await startAiAgent('todo_default_hydrate', [
       fauxAssistantMessage([
@@ -1386,9 +1502,9 @@ async function startAiAgent(
   const registration = registerFauxProvider({
     provider: `${testPrefix}_${name}_provider`,
     models: [
-      { id: 'primary', contextWindow: 1024 },
-      { id: 'light', contextWindow: 1024 },
-      { id: 'heavy', contextWindow: 1024 }
+      { id: 'primary', contextWindow: 4096 },
+      { id: 'light', contextWindow: 4096 },
+      { id: 'heavy', contextWindow: 4096 }
     ]
   })
   registration.setResponses(responses)

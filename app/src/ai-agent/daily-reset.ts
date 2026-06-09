@@ -1,4 +1,5 @@
 import type { AiAgentRuntimeProfile } from './config'
+import { zonedLocalTimeToUtc, zonedParts } from '@/config/system'
 import {
   aiAgentConversationService,
   type AiAgentConversationRoute,
@@ -42,52 +43,24 @@ export function dailyResetBoundary(now: Date, timezone: string, hour: string): D
     return boundary
   }
 
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: timezone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hourCycle: 'h23'
-  }).formatToParts(now)
-  const value = (type: string) => Number(parts.find(part => part.type === type)?.value)
-  const local = {
-    year: value('year'),
-    month: value('month'),
-    day: value('day'),
-    hour: value('hour'),
-    minute: value('minute')
-  }
-  let boundary = zonedLocalTimeToUtc(timezone, local.year, local.month, local.day, resetHour, resetMinute)
+  const local = zonedParts(timezone, now)
+  let boundary = zonedLocalTimeToUtc({
+    timezone,
+    year: local.year,
+    month: local.month,
+    day: local.day,
+    hour: resetHour,
+    minute: resetMinute
+  })
   if (local.hour < resetHour || (local.hour === resetHour && local.minute < resetMinute)) {
-    boundary = zonedLocalTimeToUtc(timezone, local.year, local.month, local.day - 1, resetHour, resetMinute)
+    boundary = zonedLocalTimeToUtc({
+      timezone,
+      year: local.year,
+      month: local.month,
+      day: local.day - 1,
+      hour: resetHour,
+      minute: resetMinute
+    })
   }
   return boundary
-}
-
-function zonedLocalTimeToUtc(
-  timezone: string,
-  year: number,
-  month: number,
-  day: number,
-  hour: number,
-  minute: number
-): Date {
-  const utcGuess = new Date(Date.UTC(year, month - 1, day, hour, minute))
-  const formatted = new Intl.DateTimeFormat('en-US', {
-    timeZone: timezone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hourCycle: 'h23'
-  }).formatToParts(utcGuess)
-  const value = (type: string) => Number(formatted.find(part => part.type === type)?.value)
-  const offsetMs =
-    Date.UTC(value('year'), value('month') - 1, value('day'), value('hour'), value('minute')) - utcGuess.getTime()
-  return new Date(utcGuess.getTime() - offsetMs)
 }

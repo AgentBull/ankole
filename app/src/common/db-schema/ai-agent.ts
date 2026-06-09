@@ -174,7 +174,7 @@ export const AiAgentLlmTurns = pgTable(
     index('ai_agent_llm_turns_branch_index').on(t.conversationId, t.branchId),
     check(
       'ai_agent_llm_turns_kind_check',
-      sql`${t.kind} in ('generation', 'retry_generation', 'compression', 'ambient_recognizer', 'overflow_retry')`
+      sql`${t.kind} in ('generation', 'retry_generation', 'scheduled_task', 'checkback_generation', 'compression', 'ambient_recognizer', 'overflow_retry')`
     ),
     check('ai_agent_llm_turns_status_check', sql`${t.status} in ('started', 'succeeded', 'failed', 'cancelled')`),
     check('ai_agent_llm_turns_profile_check', sql`${t.profile} in ('primary', 'light', 'heavy')`),

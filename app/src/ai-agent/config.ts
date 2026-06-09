@@ -1,6 +1,7 @@
 import { type CacheRetention, type Model, type SimpleStreamOptions, type Transport } from '@earendil-works/pi-ai'
 import { z } from 'zod'
 import { defineAppConfig, registerAppConfigDefinitions, appConfigService } from '@/config/app-configure'
+import { loadSystemTimezoneWithLegacyBackfill } from '@/config/system'
 import type { ConfigureJsonValue } from '@/common/db-schema/app-configure'
 import type { JsonObject } from '@/common/db-schema'
 import { cloneJsonObject, jsonObject } from '@/common/json'
@@ -154,7 +155,10 @@ export async function loadAiAgentRuntimeProfile(agentUid: string): Promise<AiAge
   }
 
   const runtimeConfig = AiAgentRuntimeConfigSchema.parse(runtimeConfigValue ?? {})
-  const policy = resolveAiAgentRuntimePolicy(runtimeConfig)
+  const policy = resolveAiAgentRuntimePolicy(
+    runtimeConfig,
+    await loadSystemTimezoneWithLegacyBackfill(runtimeConfig.dailyReset?.timezone)
+  )
   const models = readAiAgentModelsConfig(agentResult.agent.metadata)
   if (models) return resolveAiAgentRuntimeProfile({ models, policy })
 
@@ -166,7 +170,10 @@ export async function resolveAiAgentRuntimeProfile(input: {
   policy?: AiAgentRuntimePolicyConfig
 }): Promise<AiAgentRuntimeProfile> {
   const models = resolveAiAgentModelsConfig(input.models)
-  const policy = resolveAiAgentRuntimePolicy(input.policy ?? {})
+  const policy = resolveAiAgentRuntimePolicy(
+    input.policy ?? {},
+    await loadSystemTimezoneWithLegacyBackfill(input.policy?.dailyReset?.timezone)
+  )
   const [primaryModel, lightModel, heavyModel] = await Promise.all([
     resolveModelProfile('primary', models.primary),
     resolveModelProfile('light', models.light),
@@ -228,7 +235,8 @@ export function writeAiAgentModelsConfig(metadata: JsonObject, models: AiAgentMo
 }
 
 function resolveAiAgentRuntimePolicy(
-  config: AiAgentRuntimePolicyConfig
+  config: AiAgentRuntimePolicyConfig,
+  systemTimezone: string
 ): Pick<AiAgentRuntimeProfile, 'ambient' | 'compression' | 'dailyReset'> {
   return {
     compression: {
@@ -245,7 +253,7 @@ function resolveAiAgentRuntimePolicy(
     },
     dailyReset: {
       enabled: config.dailyReset?.enabled ?? true,
-      timezone: config.dailyReset?.timezone ?? 'Etc/UTC',
+      timezone: systemTimezone,
       hour: config.dailyReset?.hour ?? '04:00',
       retryMinutes: config.dailyReset?.retryMinutes ?? 30
     }

@@ -43,8 +43,10 @@ export interface ClarifyRunBinding {
   leaseId: string
   agentUid: string
   bindingName: string
+  providerRealmId?: string | null
   providerRoomId: string
   providerThreadId: string
+  triggerMessageId: string
   /** Whether the channel can render the interactive clarify card (else plain text). */
   cardCapable: boolean
   outbox: DrizzleExternalGatewayOutbox

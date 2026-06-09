@@ -44,6 +44,7 @@ import { aiAgentLifecycleRevisionService, type AiAgentLifecycleRevisionService }
 import { aiAgentRunRegistry, type AiAgentRunRegistry } from './run-registry'
 import { aiAgentClarifyRegistry, type AiAgentClarifyRegistry, type ClarifyEntry } from './clarify-registry'
 import { createClarifyTool, type ClarifyRunBinding } from './tools/clarify-tool'
+import { createCheckBackLaterTool } from './tools/check-back-later-tool'
 import { createComputerTools, type ComputerToolsDeps } from './tools/computer'
 import { type ClarifyAnswerValue, parseClarifyAnswerValue, renderClarifyChoicePrompt } from './tools/choice-prompt'
 import { mapAnswer } from './tools/clarify-format'
@@ -88,12 +89,14 @@ export interface AiAgentRuntimeOptions {
 type RunGenerationInput = {
   context: ExternalGatewayAgentExecutionContext
   conversationId: string
+  disableInteractiveTools?: boolean
   leaseId?: string
   llmTurnKind?: AiAgentLlmTurnKind
   overflowAttempts?: number
   profile: AiAgentRuntimeProfile
   providerRoomId?: string
   providerThreadId?: string
+  suppressVisibleOutput?: boolean
   triggerMessageId?: string
 }
 
@@ -132,10 +135,36 @@ interface NextGeneration {
 
 type CommitAssistantResult =
   | {
+      assistantMessageId: string
       enqueuedOutput: boolean
       nextGeneration?: NextGeneration
     }
   | undefined
+
+type GenerationResultStatus = 'succeeded' | 'failed' | 'cancelled' | 'fenced'
+
+interface GenerationResult {
+  enqueuedOutput: boolean
+  status: GenerationResultStatus
+}
+
+export interface AiAgentProgrammaticTurnInput {
+  conversationProviderRoomId: string
+  disableInteractiveTools?: boolean
+  eventId: string
+  eventSource: string
+  kind: Extract<AiAgentLlmTurnKind, 'scheduled_task' | 'checkback_generation'>
+  message: string
+  metadata?: JsonObject
+  outputProviderRoomId?: string
+  outputProviderThreadId?: string
+  suppressVisibleOutput?: boolean
+}
+
+export interface AiAgentProgrammaticTurnResult extends GenerationResult {
+  conversationId: string
+  triggerMessageId: string
+}
 
 type RunOutcome =
   | {
@@ -535,10 +564,16 @@ export class AiAgentRuntime {
   }
 
   /** Active run-static tools plus run-bound foundational tools (computer, clarify). */
-  private buildActiveToolsForRun(binding: ClarifyRunBinding, todoStore: TodoStore): AgentTool<any>[] {
-    const tools = [...this.getActiveTools(), createTodoTool(todoStore)]
+  private buildActiveToolsForRun(
+    binding: ClarifyRunBinding,
+    todoStore: TodoStore,
+    options: { disableInteractiveTools?: boolean } = {}
+  ): AgentTool<any>[] {
+    const tools = [...this.getActiveTools(), createTodoTool(todoStore), createCheckBackLaterTool(binding)]
     if (this.computerFactory) tools.push(...this.computerFactory(binding))
-    if (this.clarifyFactory && binding.providerRoomId) tools.push(this.clarifyFactory(binding))
+    if (!options.disableInteractiveTools && this.clarifyFactory && binding.providerRoomId) {
+      tools.push(this.clarifyFactory(binding))
+    }
     return tools
   }
 
@@ -582,7 +617,7 @@ export class AiAgentRuntime {
   private shouldStopAfterGenerationTurn(context: ShouldStopAfterTurnContext): boolean {
     const text = textFromAgentMessage(context.message).trim()
     if (!text) return false
-    if (context.toolResults.length === 0) return false
+    if (context.toolResults.length === 0) return true
     return context.toolResults.every(result => !result.isError && result.toolName === 'todo')
   }
 
@@ -707,6 +742,83 @@ export class AiAgentRuntime {
     }
 
     return { status: 'accepted' }
+  }
+
+  async runProgrammaticTurn(
+    context: ExternalGatewayAgentExecutionContext,
+    input: AiAgentProgrammaticTurnInput
+  ): Promise<AiAgentProgrammaticTurnResult> {
+    const profile = await this.loadProfile(context.agentUid)
+    const conversation = await this.conversations.getOrCreateActiveConversation({
+      agentUid: context.agentUid,
+      bindingName: context.bindingName,
+      providerRealmId: context.providerRealmId ?? null,
+      providerRoomId: input.conversationProviderRoomId
+    })
+    const userMessage = createUserMessage(input.message)
+    const row = await this.conversations.appendMessage({
+      conversationId: conversation.id,
+      role: 'user',
+      kind: 'normal',
+      content: textContent(input.message),
+      agentMessage: userMessage,
+      eventSource: input.eventSource,
+      eventId: input.eventId,
+      metadata: {
+        ...input.metadata,
+        route: routeMetadata(context, {
+          providerRoomId: input.outputProviderRoomId,
+          providerThreadId: input.outputProviderThreadId
+        }),
+        control: {
+          ...toJsonObject(input.metadata?.control ?? {}),
+          origin: input.kind
+        }
+      }
+    })
+    const existingAssistant = await this.existingAssistantForTrigger(conversation.id, row.id)
+    if (existingAssistant) {
+      return {
+        conversationId: conversation.id,
+        triggerMessageId: row.id,
+        status: existingAssistant.kind === 'error' ? 'failed' : 'succeeded',
+        enqueuedOutput: hasOutbound(existingAssistant.metadata)
+      }
+    }
+    const result = await this.runGeneration({
+      context,
+      conversationId: conversation.id,
+      disableInteractiveTools: input.disableInteractiveTools,
+      llmTurnKind: input.kind,
+      profile,
+      providerRoomId: input.outputProviderRoomId,
+      providerThreadId: input.outputProviderThreadId,
+      suppressVisibleOutput: input.suppressVisibleOutput,
+      triggerMessageId: row.id
+    })
+    return {
+      ...result,
+      conversationId: conversation.id,
+      triggerMessageId: row.id
+    }
+  }
+
+  private async existingAssistantForTrigger(
+    conversationId: string,
+    triggerMessageId: string
+  ): Promise<typeof AiAgentMessages.$inferSelect | undefined> {
+    const [assistant] = await DB.select()
+      .from(AiAgentMessages)
+      .where(
+        and(
+          eq(AiAgentMessages.conversationId, conversationId),
+          eq(AiAgentMessages.role, 'assistant'),
+          sql`${AiAgentMessages.metadata}->'generation'->>'trigger_message_id' = ${triggerMessageId}`
+        )
+      )
+      .orderBy(desc(AiAgentMessages.createdAt), desc(AiAgentMessages.id))
+      .limit(1)
+    return assistant
   }
 
   /** True when this provider room has a pending clarify (group free-text reply gate). */
@@ -922,7 +1034,10 @@ export class AiAgentRuntime {
             providerRoomId: event.providerRoomId,
             providerThreadId: event.providerThreadId
           }),
-          route: routeMetadata(context, event.providerThreadId)
+          route: routeMetadata(context, {
+            providerRoomId: event.providerRoomId,
+            providerThreadId: event.providerThreadId
+          })
         }
       })
       triggerMessageId = row.id
@@ -1136,16 +1251,16 @@ export class AiAgentRuntime {
     })
   }
 
-  private async runGeneration(input: RunGenerationInput): Promise<void> {
+  private async runGeneration(input: RunGenerationInput): Promise<GenerationResult> {
     const triggerMessageId = input.triggerMessageId ?? (await this.latestTriggerMessageId(input.conversationId))
-    if (!triggerMessageId) return
+    if (!triggerMessageId) return { status: 'failed', enqueuedOutput: false }
     const lease = input.leaseId
       ? { leaseId: input.leaseId }
       : await this.conversations.acquireGenerationLease({
           conversationId: input.conversationId,
           triggerMessageId
         })
-    if (!lease) return
+    if (!lease) return { status: 'fenced', enqueuedOutput: false }
 
     // Middle compaction tier: have the renderer clear old re-derivable tool results
     // once the model-bound context reaches the same threshold full compaction uses,
@@ -1192,13 +1307,17 @@ export class AiAgentRuntime {
       leaseId: lease.leaseId,
       agentUid: input.context.agentUid,
       bindingName: input.context.bindingName,
+      providerRealmId: input.context.providerRealmId,
       providerRoomId: clarifyRoomId,
       providerThreadId: input.providerThreadId ?? clarifyRoomId,
+      triggerMessageId,
       cardCapable: adapterSupportsCapability(input.context.adapter, 'outbound', 'card'),
       outbox: input.context.outbox,
       scheduleOutboxDrain: input.context.scheduleOutboxDrain
     }
-    const activeTools = this.buildActiveToolsForRun(binding, todoStore)
+    const activeTools = this.buildActiveToolsForRun(binding, todoStore, {
+      disableInteractiveTools: input.disableInteractiveTools
+    })
     const stream = this.buildGenerationStreamingSink(input, lease.leaseId)
     const recorder = new GenerationTrajectoryRecorder(
       input,
@@ -1246,7 +1365,7 @@ export class AiAgentRuntime {
         error
       }
     }
-    await this.finishGenerationRun(runContext, outcome)
+    return this.finishGenerationRun(runContext, outcome)
   }
 
   private buildGenerationStreamingSink(input: RunGenerationInput, leaseId: string): GenerationStreamingSink {
@@ -1404,22 +1523,26 @@ export class AiAgentRuntime {
     }
   }
 
-  private async finishGenerationRun(run: GenerationRunContext, outcome: RunOutcome): Promise<void> {
+  private async finishGenerationRun(run: GenerationRunContext, outcome: RunOutcome): Promise<GenerationResult> {
     let clearLease = false
     let nextGenerationInput: RunGenerationInput | undefined
+    let result: GenerationResult = { status: 'failed', enqueuedOutput: false }
     try {
       switch (outcome.kind) {
         case 'no_assistant':
           await run.recorder.failOpenTurn('failed', { error: 'Provider did not return an assistant message' })
           clearLease = true
+          result = { status: 'failed', enqueuedOutput: false }
           break
         case 'failed':
           await run.recorder.failOpenTurn(outcome.aborted ? 'cancelled' : 'failed', {
             error: errorMessage(outcome.error)
           })
           clearLease = true
+          result = { status: outcome.aborted ? 'cancelled' : 'failed', enqueuedOutput: false }
           break
         case 'fenced':
+          result = { status: 'fenced', enqueuedOutput: false }
           break
         case 'overflow_retry':
           await this.compression.compress({
@@ -1434,6 +1557,7 @@ export class AiAgentRuntime {
             llmTurnKind: 'overflow_retry',
             overflowAttempts: outcome.attempts + 1
           }
+          result = { status: 'failed', enqueuedOutput: false }
           break
         case 'committed': {
           const llmTurnId = run.recorder.lastFinishedTurnId
@@ -1452,7 +1576,11 @@ export class AiAgentRuntime {
             llmTurnId,
             providerRoomId: run.input.providerRoomId,
             providerThreadId: run.input.providerThreadId,
-            routeMetadata: routeMetadata(run.input.context),
+            routeMetadata: routeMetadata(run.input.context, {
+              providerRoomId: run.input.providerRoomId,
+              providerThreadId: run.input.providerThreadId
+            }),
+            suppressVisibleOutput: run.input.suppressVisibleOutput,
             text,
             triggerMessageId: run.triggerMessageId,
             streamedCard
@@ -1467,6 +1595,15 @@ export class AiAgentRuntime {
               triggerMessageId: commit.nextGeneration.triggerMessageId
             }
           }
+          result = {
+            status:
+              outcome.assistant.stopReason === 'aborted'
+                ? 'cancelled'
+                : outcome.assistant.stopReason === 'error'
+                  ? 'failed'
+                  : 'succeeded',
+            enqueuedOutput: commit?.enqueuedOutput ?? false
+          }
           break
         }
       }
@@ -1475,6 +1612,7 @@ export class AiAgentRuntime {
         error: errorMessage(error)
       })
       clearLease = true
+      result = { status: run.abortController.signal.aborted ? 'cancelled' : 'failed', enqueuedOutput: false }
     } finally {
       try {
         if (clearLease) await this.conversations.clearGenerationLease(run.input.conversationId, run.leaseId)
@@ -1483,6 +1621,7 @@ export class AiAgentRuntime {
       }
     }
     if (nextGenerationInput) this.startGeneration(nextGenerationInput)
+    return result
   }
 
   private async retryLastExchange(
@@ -1629,6 +1768,7 @@ export class AiAgentRuntime {
     providerRoomId?: string
     providerThreadId?: string
     routeMetadata: JsonObject
+    suppressVisibleOutput?: boolean
     text: string
     triggerMessageId: string
     streamedCard?: StreamedAssistantCard
@@ -1648,7 +1788,10 @@ export class AiAgentRuntime {
       const pendingSteering = normalizePendingArray<PendingSteering>(conversation.generation.pending_steering)
       const assistantMessageId = genUUIDv7()
       const isVisibleOutput =
-        input.text.length > 0 && input.assistant.stopReason !== 'error' && input.assistant.stopReason !== 'aborted'
+        !input.suppressVisibleOutput &&
+        input.text.length > 0 &&
+        input.assistant.stopReason !== 'error' &&
+        input.assistant.stopReason !== 'aborted'
       const outboundKey = input.streamedCard?.outboundKey ?? `ai-agent-final:${assistantMessageId}`
       let nextTriggerMessageId: string | undefined
       let nextProviderRoomId = input.providerRoomId
@@ -1782,6 +1925,7 @@ export class AiAgentRuntime {
         .where(eq(AiAgentConversations.id, input.conversationId))
 
       return {
+        assistantMessageId,
         enqueuedOutput: isVisibleOutput,
         nextGeneration:
           nextLeaseId && nextTriggerMessageId
@@ -1873,13 +2017,22 @@ function actorFromEnvelope(envelope: ExternalGatewayAgentEnvelope): JsonObject {
   return typeof author === 'object' && author !== null && !Array.isArray(author) ? (author as JsonObject) : {}
 }
 
-function routeMetadata(context: ExternalGatewayAgentExecutionContext, providerThreadId?: string): JsonObject {
+function routeMetadata(
+  context: ExternalGatewayAgentExecutionContext,
+  route: { providerRoomId?: string; providerThreadId?: string } = {}
+): JsonObject {
   return buildRouteMetadata({
     agentUid: context.agentUid,
     bindingName: context.bindingName,
     providerRealmId: context.providerRealmId,
-    providerThreadId
+    providerRoomId: route.providerRoomId,
+    providerThreadId: route.providerThreadId
   })
+}
+
+function hasOutbound(metadata: JsonObject): boolean {
+  const outbound = metadata.outbound
+  return isJsonObject(outbound) && typeof outbound.outbound_key === 'string' && outbound.outbound_key.length > 0
 }
 
 function assistantLlmTurnFinish(
