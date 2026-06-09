@@ -1,0 +1,94 @@
+name: Publish computer image
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: computer-image-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Build and push computer image
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout target commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 2
+
+      - name: Detect container-relevant changes
+        id: changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          head_sha="${{ github.event.workflow_run.head_sha }}"
+          if ! git cat-file -e "${head_sha}^" 2>/dev/null; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          base_sha="$(git rev-parse "${head_sha}^")"
+          changed_files="$(git diff --name-only "$base_sha" "$head_sha")"
+
+          if echo "$changed_files" | grep -Eq '^(packages/computer/src/|packages/computer/browser/|packages/computer/Cargo\.toml$|packages/computer/Cargo\.lock$|packages/computer/docker/Dockerfile$)'; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Skip when no relevant changes
+        if: ${{ steps.changes.outputs.changed != 'true' }}
+        run: echo "No packages/computer container source or Dockerfile changes detected."
+
+      - name: Set image metadata
+        if: ${{ steps.changes.outputs.changed == 'true' }}
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          owner_lower="${GITHUB_REPOSITORY_OWNER,,}"
+          timestamp="$(date -u +'%Y%m%d%H%M%S')"
+          image="ghcr.io/${owner_lower}/bullx-computer-worker"
+
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+          echo "timestamp=$timestamp" >> "$GITHUB_OUTPUT"
+
+      - name: Set up QEMU
+        if: ${{ steps.changes.outputs.changed == 'true' }}
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        if: ${{ steps.changes.outputs.changed == 'true' }}
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        if: ${{ steps.changes.outputs.changed == 'true' }}
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push multi-arch image
+        if: ${{ steps.changes.outputs.changed == 'true' }}
+        uses: docker/build-push-action@v6
+        with:
+          context: packages/computer
+          file: packages/computer/docker/Dockerfile
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: |
+            ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.timestamp }}
+            ${{ steps.meta.outputs.image }}:main-latest
+          provenance: false
