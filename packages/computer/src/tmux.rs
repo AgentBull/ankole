@@ -5,10 +5,13 @@
 //! can reattach across tool calls and HTTP disconnects on the same sticky worker.
 
 use std::collections::BTreeMap;
+use std::process::Stdio;
+use std::sync::Arc;
 use std::time::Duration;
 
 use serde::Serialize;
-use tokio::process::Command;
+use tokio::process::{Child, Command};
+use tokio::sync::Mutex as AsyncMutex;
 
 use crate::config::IsolationMode;
 use crate::error::{AppError, AppResult};
@@ -17,11 +20,17 @@ use crate::paths::{WORKSPACE_MOUNT, WorkspacePaths};
 
 const TMUX_SOCKET_FILE: &str = ".bullx-computer.tmux.sock";
 const TMUX_TIMEOUT: Duration = Duration::from_secs(10);
+const SERVER_READY_TIMEOUT: Duration = Duration::from_secs(10);
+const SERVER_READY_POLL: Duration = Duration::from_millis(100);
 
 #[derive(Clone)]
 pub struct TmuxManager {
   paths: WorkspacePaths,
   launcher: Launcher,
+  /// Bwrap mode only: the keeper sandbox whose PID namespace hosts the tmux
+  /// server (see `ensure_server`). `None` in direct mode or before the first
+  /// terminal starts.
+  server: Arc<AsyncMutex<Option<Child>>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -48,15 +57,22 @@ pub struct TerminalCapture {
 
 impl TmuxManager {
   pub fn new(paths: WorkspacePaths, launcher: Launcher) -> Self {
-    Self { paths, launcher }
+    Self {
+      paths,
+      launcher,
+      server: Arc::new(AsyncMutex::new(None)),
+    }
   }
 
   pub async fn list(&self) -> AppResult<Vec<TerminalInfo>> {
+    // Colon-separated with the name last: tmux sanitizes ':' (and '.') out of
+    // session names, so the first two fields are unambiguous. A control-char
+    // separator like \t would itself be sanitized to '_' under a C locale.
     let output = self
       .run_tmux(&[
         "list-sessions".to_string(),
         "-F".to_string(),
-        "#S\t#{session_windows}\t#{session_attached}".to_string(),
+        "#{session_windows}:#{session_attached}:#S".to_string(),
       ])
       .await?;
     if !output.status.success() {
@@ -79,6 +95,7 @@ impl TmuxManager {
     rows: u16,
   ) -> AppResult<TerminalStatus> {
     validate_name(name)?;
+    self.ensure_server().await?;
     if self.has_session(name).await? {
       return Ok(TerminalStatus {
         name: name.to_string(),
@@ -198,22 +215,93 @@ impl TmuxManager {
     })
   }
 
+  /// Kill the keeper sandbox — and with it the tmux server and every terminal
+  /// process. No-op in direct mode, where the server is a host daemon owned by
+  /// tmux itself.
+  pub async fn shutdown(&self) {
+    let mut guard = self.server.lock().await;
+    if let Some(mut child) = guard.take() {
+      let _ = child.start_kill();
+      let _ = child.wait().await;
+    }
+  }
+
+  /// In bwrap mode every tmux client runs in a transient sandbox with its own
+  /// PID namespace, so a server daemonized by `new-session` would be killed as
+  /// soon as that sandbox's init exits. Host the server in a long-lived keeper
+  /// sandbox instead: `start-server` + `exit-empty off` pins the server for the
+  /// keeper's lifetime, and clients in transient sandboxes reach it over the
+  /// socket on the shared `/workspace/temp` bind mount. `--die-with-parent`
+  /// ties the keeper (and so all terminals) to this worker process.
+  async fn ensure_server(&self) -> AppResult<()> {
+    if !matches!(self.launcher.mode(), IsolationMode::Bwrap) {
+      return Ok(());
+    }
+    let mut guard = self.server.lock().await;
+    if let Some(child) = guard.as_mut() {
+      match child.try_wait() {
+        Ok(None) => return Ok(()),
+        _ => *guard = None,
+      }
+    }
+
+    tokio::fs::create_dir_all(&self.paths.temp).await?;
+    let socket = self.socket_path();
+    let script = format!(
+      "tmux -S '{socket}' start-server \\; set-option -s exit-empty off && exec sleep infinity"
+    );
+    let mut command = self.launcher.exec_command(
+      &self.paths,
+      "sh",
+      &["-c".to_string(), script],
+      Some(WORKSPACE_MOUNT),
+      &BTreeMap::new(),
+    );
+    // The keeper produces no output; null the pipes so nothing can fill up.
+    command
+      .stdin(Stdio::null())
+      .stdout(Stdio::null())
+      .stderr(Stdio::null());
+    command.kill_on_drop(true);
+    let mut child = command
+      .spawn()
+      .map_err(|error| AppError::internal("terminal_server_spawn_failed", error.to_string()))?;
+
+    let deadline = tokio::time::Instant::now() + SERVER_READY_TIMEOUT;
+    loop {
+      let probe = self
+        .run_tmux(&[
+          "list-sessions".to_string(),
+          "-F".to_string(),
+          "#S".to_string(),
+        ])
+        .await?;
+      if probe.status.success() {
+        break;
+      }
+      let keeper_died = !matches!(child.try_wait(), Ok(None));
+      if keeper_died || tokio::time::Instant::now() >= deadline {
+        let _ = child.start_kill();
+        let _ = child.wait().await;
+        let stderr = String::from_utf8_lossy(&probe.stderr);
+        return Err(AppError::internal(
+          "terminal_server_start_failed",
+          format!("tmux server did not come up: {}", stderr.trim()),
+        ));
+      }
+      tokio::time::sleep(SERVER_READY_POLL).await;
+    }
+    *guard = Some(child);
+    Ok(())
+  }
+
+  /// Exact-name lookup via `list-sessions` rather than `has-session`: the
+  /// latter reports a missing session with version-dependent messages ("can't
+  /// find session" vs "no current target" on an empty server), and `-t` does
+  /// prefix matching rather than exact matching.
   async fn has_session(&self, name: &str) -> AppResult<bool> {
-    let output = self
-      .run_tmux(&[
-        "has-session".to_string(),
-        "-t".to_string(),
-        name.to_string(),
-      ])
-      .await?;
-    if output.status.success() {
-      return Ok(true);
-    }
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    if is_missing_server(&stderr) || stderr.contains("can't find session") {
-      return Ok(false);
-    }
-    Err(tmux_error("terminal_lookup_failed", output))
+    let sessions = self.list().await?;
+    Ok(sessions.iter().any(|session| session.name == name))
   }
 
   async fn run_tmux(&self, args: &[String]) -> AppResult<std::process::Output> {
@@ -282,13 +370,10 @@ async fn output_with_timeout(mut command: Command) -> AppResult<std::process::Ou
 }
 
 fn parse_terminal_info(line: &str) -> Option<TerminalInfo> {
-  let mut parts = line.split('\t');
+  let mut parts = line.splitn(3, ':');
+  let windows = parts.next()?.parse::<u32>().ok().unwrap_or(0);
+  let attached = parts.next()? == "1";
   let name = parts.next()?.to_string();
-  let windows = parts
-    .next()
-    .and_then(|value| value.parse::<u32>().ok())
-    .unwrap_or(0);
-  let attached = parts.next() == Some("1");
   Some(TerminalInfo {
     name,
     windows,
@@ -297,7 +382,8 @@ fn parse_terminal_info(line: &str) -> Option<TerminalInfo> {
 }
 
 fn validate_name(name: &str) -> AppResult<()> {
-  let valid_len = !name.is_empty() && name.len() <= 64;
+  // 64 user chars + the host-side per-conversation scope suffix.
+  let valid_len = !name.is_empty() && name.len() <= 96;
   let valid_chars = name
     .bytes()
     .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b'-'));

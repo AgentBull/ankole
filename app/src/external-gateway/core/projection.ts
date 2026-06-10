@@ -1,10 +1,12 @@
 import { and, eq, sql } from 'drizzle-orm'
+import { genUUIDv7 } from '@agentbull/bullx-native-addons'
 import { DB, jsonbParam, type QueryExecutor } from '@/common/database'
 import { toJsonArray, toJsonObject, toJsonValue } from '@/common/json'
 import { ExternalRooms, ExternalMessages, type JsonObject, type JsonValue } from '@/common/db-schema'
+import { projectChatRecallDocument } from '@/chat-recall/projection'
 import type { ExternalGatewayMessageInput, ExternalGatewayReactionEvent, ExternalGatewayRoomInput } from './events'
 
-export type ExternalGatewayChannel = typeof ExternalRooms.$inferSelect
+type ExternalGatewayChannel = typeof ExternalRooms.$inferSelect
 export type ExternalGatewayMessage = typeof ExternalMessages.$inferSelect
 
 export interface ExternalGatewayProjectMessageInput<TRawMessage = unknown> {
@@ -172,12 +174,13 @@ async function upsertProjectedMessage(input: NormalizedMessageInput): Promise<Ex
 
       if (!message) throw new ExternalGatewayProjectionError(`Failed to update projected message ${input.messageId}`)
 
-      return message
+      return projectChatRecallDocument(tx, message)
     }
 
     const [message] = await tx
       .insert(ExternalMessages)
       .values({
+        documentId: genUUIDv7(),
         roomId: room.id,
         messageId: input.messageId,
         authorId: input.authorId,
@@ -197,7 +200,7 @@ async function upsertProjectedMessage(input: NormalizedMessageInput): Promise<Ex
 
     if (!message) throw new ExternalGatewayProjectionError(`Failed to insert projected message ${input.messageId}`)
 
-    return message
+    return projectChatRecallDocument(tx, message)
   })
 }
 
@@ -422,7 +425,7 @@ function ensureNonEmpty(value: string, label: string): string {
   return value
 }
 
-export class ExternalGatewayProjectionError extends Error {
+class ExternalGatewayProjectionError extends Error {
   constructor(message: string) {
     super(message)
     this.name = 'ExternalGatewayProjectionError'

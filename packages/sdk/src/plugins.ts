@@ -10,19 +10,6 @@
 export const bullxExternalIdentityNamespaceIdPatternSource = '[a-z][a-z0-9_-]*'
 export const bullxExternalIdentityNamespaceIdPattern = new RegExp(`^${bullxExternalIdentityNamespaceIdPatternSource}$`)
 
-/**
- * @deprecated Use {@link bullxExternalIdentityNamespaceIdPatternSource}. This
- * legacy name predates the explicit split between login identity providers and
- * External Gateway platform-subject attribution.
- */
-export const bullxExternalIdentityProviderIdPatternSource = bullxExternalIdentityNamespaceIdPatternSource
-
-/**
- * @deprecated Use {@link bullxExternalIdentityNamespaceIdPattern}. This is kept
- * only so older plugins keep compiling while host code migrates terminology.
- */
-export const bullxExternalIdentityProviderIdPattern = bullxExternalIdentityNamespaceIdPattern
-
 export type BullXPluginJsonValue =
   | string
   | number
@@ -60,11 +47,6 @@ export interface BullXAgentExternalBinding {
   groupMessageMode?: BullXExternalGatewayGroupMessageMode
   name: string
 }
-
-/**
- * @deprecated Use {@link BullXAgentExternalBinding}.
- */
-export type BullXAgentChannelBinding = BullXAgentExternalBinding
 
 export interface BullXPlatformSubjectProfile {
   displayName?: string | null
@@ -203,6 +185,103 @@ export interface BullXLarkNativeCardPayload {
 }
 
 export type BullXExternalGatewayCardPayload = BullXInteractiveOutputCardPayload | BullXLarkNativeCardPayload
+
+function bullxJsonRecord(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined
+}
+
+/** Validates a cross-boundary interactive-output value (host and adapters share this). */
+export function isBullXInteractiveOutput(value: unknown): value is BullXInteractiveOutput {
+  const record = bullxJsonRecord(value)
+  if (!record || record.version !== bullxInteractiveOutputVersion) return false
+  if (typeof record.fallbackText !== 'string' || record.fallbackText.length === 0) return false
+  const content = bullxJsonRecord(record.content)
+  if (!content || typeof content.body !== 'string') return false
+  if (record.response !== undefined && !isBullXInteractiveOutputResponse(record.response)) return false
+  if (record.state !== undefined && !isBullXInteractiveOutputState(record.state)) return false
+  return true
+}
+
+function isBullXInteractiveOutputResponse(value: unknown): value is BullXInteractiveOutputResponse {
+  const record = bullxJsonRecord(value)
+  if (!record || record.type !== 'choice') return false
+  if (typeof record.interactionId !== 'string' || !record.interactionId) return false
+  if (typeof record.controlId !== 'string' || !record.controlId) return false
+  if (record.selection !== 'single' && record.selection !== 'multi') return false
+  if (!Array.isArray(record.options)) return false
+  return record.options.every(isBullXInteractiveOutputChoiceOption)
+}
+
+function isBullXInteractiveOutputChoiceOption(value: unknown): value is BullXInteractiveOutputChoiceOption {
+  const record = bullxJsonRecord(value)
+  return (
+    record !== undefined &&
+    typeof record.id === 'string' &&
+    record.id.length > 0 &&
+    typeof record.label === 'string' &&
+    typeof record.value === 'string'
+  )
+}
+
+function isBullXInteractiveOutputState(value: unknown): value is BullXInteractiveOutputState {
+  const record = bullxJsonRecord(value)
+  if (!record) return false
+  return (
+    record.status === 'open' ||
+    record.status === 'answered' ||
+    record.status === 'expired' ||
+    record.status === 'cancelled' ||
+    record.status === 'superseded'
+  )
+}
+
+export function isBullXInteractiveOutputCardPayload(value: unknown): value is BullXInteractiveOutputCardPayload {
+  const record = bullxJsonRecord(value)
+  return record?.kind === 'interactive_output' && isBullXInteractiveOutput(record.output)
+}
+
+export function isBullXLarkNativeCardPayload(value: unknown): value is BullXLarkNativeCardPayload {
+  const record = bullxJsonRecord(value)
+  return (
+    record?.kind === 'lark_native_card' &&
+    bullxJsonRecord(record.card) !== undefined &&
+    typeof record.fallbackText === 'string'
+  )
+}
+
+export function isBullXExternalGatewayCardPayload(value: unknown): value is BullXExternalGatewayCardPayload {
+  return isBullXInteractiveOutputCardPayload(value) || isBullXLarkNativeCardPayload(value)
+}
+
+export function bullxCardPayloadFallbackText(payload: BullXExternalGatewayCardPayload): string {
+  return payload.kind === 'interactive_output' ? payload.output.fallbackText : payload.fallbackText
+}
+
+/** Parses an adapter action callback value (JSON string or object) into the typed action value. */
+export function parseBullXInteractiveOutputActionValue(value: unknown): BullXInteractiveOutputActionValue | undefined {
+  const record = bullxJsonRecord(typeof value === 'string' ? bullxSafeJsonParse(value) : value)
+  if (!record) return undefined
+  if (record.version !== bullxInteractiveOutputActionValueVersion) return undefined
+  if (typeof record.interactionId !== 'string' || !record.interactionId) return undefined
+  if (typeof record.controlId !== 'string' || !record.controlId) return undefined
+  return {
+    version: bullxInteractiveOutputActionValueVersion,
+    interactionId: record.interactionId,
+    controlId: record.controlId,
+    optionId: typeof record.optionId === 'string' ? record.optionId : undefined,
+    value: typeof record.value === 'string' ? record.value : undefined
+  }
+}
+
+function bullxSafeJsonParse(value: string): unknown {
+  try {
+    return JSON.parse(value)
+  } catch {
+    return undefined
+  }
+}
 
 /**
  * Normalized External Gateway facts emitted by chat adapters.
@@ -754,7 +833,9 @@ export interface BullXWebExtractResult {
 }
 
 export interface BullXWebProviderFactoryContext {
-  /** Resolve a registered (plugin-declared) app-config secret by key. */
+  /** Resolve a registered (plugin-declared) app-config value by key, with its declared JSON type. */
+  getConfig(key: string): Promise<BullXPluginJsonValue | undefined>
+  /** Resolve a registered (plugin-declared) app-config secret by key. Use for credentials only. */
   getSecret(key: string): Promise<string | undefined>
   isProduction: boolean
   logger?: {

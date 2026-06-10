@@ -1,12 +1,32 @@
 import { get, isString } from '@pleisto/active-support'
 import type { ExternalGatewayAgentDelivery } from './agent-events'
-import type { ExternalGatewayAdapter } from './core/events'
+import type {
+  ExternalGatewayAdapterCapabilities,
+  ExternalGatewayBeginStreamingCardInput,
+  ExternalGatewayStreamingCardHandle
+} from './core/events'
 import type { ExternalGatewayProjectionSink } from './core/projection'
 import type { DrizzleExternalGatewayOutbox, ExternalGatewayOutboundIntent } from './outbox'
 import type { AgentResult } from '@/principals/agents/service'
 
+/**
+ * The adapter surface the agent execution path actually needs: capability
+ * checks, the optional live streaming card, and room-shape hints for
+ * projection. Full chat adapters satisfy this structurally; outbound-only
+ * contexts (the scheduler) implement just this instead of stubbing the whole
+ * chat adapter contract.
+ */
+export interface ExternalGatewayOutboundAdapter {
+  readonly name: string
+  readonly userName?: string
+  readonly capabilities?: ExternalGatewayAdapterCapabilities
+  beginStreamingCard?(input: ExternalGatewayBeginStreamingCardInput): Promise<ExternalGatewayStreamingCardHandle>
+  isDM?(threadId: string): boolean
+  getChannelVisibility?(threadId: string): string
+}
+
 export interface ExternalGatewayAgentExecutionContext {
-  adapter: ExternalGatewayAdapter
+  adapter: ExternalGatewayOutboundAdapter
   agent: AgentResult
   agentUid: string
   bindingName: string
@@ -14,10 +34,23 @@ export interface ExternalGatewayAgentExecutionContext {
   projection: ExternalGatewayProjectionSink
   providerRealmId?: string | null
   scheduleOutboxDrain(availableAt?: Date): void
+  /**
+   * Called with the settle promise of each generation this delivery starts.
+   * The gateway holds the delivery lane (per-agent parallelism quota) and the
+   * pending input row until these resolve, so a crash mid-generation re-delivers.
+   */
+  trackSettled?(settled: Promise<void>): void
 }
 
 export interface ExternalGatewayAgentAcceptance {
   status: 'accepted'
+  /**
+   * Resolves when the work this delivery started (typically one generation)
+   * has settled. The delivery lane — and so the per-agent parallelism quota —
+   * stays occupied until then; the input row stays `pending` for crash
+   * recovery. Absent when the delivery queued work for a later trigger.
+   */
+  settled?: Promise<void>
 }
 
 export interface ExternalGatewayAgentExecutor {

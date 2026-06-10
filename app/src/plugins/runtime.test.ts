@@ -1,4 +1,3 @@
-import 'reflect-metadata'
 import { describe, expect, it } from 'bun:test'
 import {
   defineBullXPlugin,

@@ -18,7 +18,7 @@ The implementation lives under `app/src/external-gateway/`.
 - `agent-events.ts` owns the unlogged input window, addressed-message batch window, process-local in-flight handoff, tombstones, and session/batch key helpers.
 - `outbox.ts` executes provider-visible outbound operations. Provider failures are stored on the outbox row and must not turn an already accepted agent input into a failed input.
 - `core/projection.ts` owns the latest-state projection sink for rooms, messages, deletes, and reactions.
-- `core/visible-output-stream.ts` owns the Redis weak visible stream for in-progress output chunks.
+- `core/visible-output-stream.ts` owns the Redis weak visible stream for in-progress output chunks. The AIAgent generation sink mirrors streaming text into it, and the console live-output view reads it incrementally.
 - `testing/mock-im-adapter.ts` and `mock-im-integration.test.ts` are the user-story integration fixture.
 - `packages/sdk/src/plugins.ts` exposes the structural plugin contract.
 - `plugin/lark-adapter/src/index.ts` implements the Feishu/Lark adapter on that contract.
@@ -52,15 +52,18 @@ provider webhook or long-connection event
   -> handler applies binding policy and tombstone checks
   -> observed provider-visible facts update external_rooms/external_messages
   -> agent-relevant facts enter external_gateway_agent_events
-  -> runtime drains ready events and calls the agent executor
+  -> runtime claims ready events into per-room delivery lanes (bounded by
+     ai_agent.runtime parallelism.maxConversationsPerAgent) and calls the agent executor
   -> agent persists its durable effect and may enqueue pending outbox rows
-  -> gateway marks the input done after agent acceptance
+  -> gateway marks the input done after the started work settles
   -> external_gateway_outbox drains supported provider side effects
   -> successful visible outbound is projected into external_messages
   -> failed/unsupported outbound remains only in external_gateway_outbox
 ```
 
 Production startup defaults to the AIAgent executor. It returns only durable acceptance: External Gateway marks the input `done` after the agent has persisted the relevant conversation effect and any required pending outbox rows. Provider send failure after that point stays on `external_gateway_outbox` and does not roll the input window back to `failed`.
+
+Delivery is parallel across conversations and serial within one: the runtime claims work into process-local delivery lanes — at most `parallelism.maxConversationsPerAgent` (default 16, set 1 for strictly serial) concurrently executing conversations per agent — while rows already claimed by an in-flight delivery stay excluded from claiming and stay `pending` until the started generation settles, so a crash mid-generation re-delivers. Same-conversation follow-up and steering input keeps flowing to the executor while a generation runs; the `ai_agent_conversations.generation` lease remains the only same-conversation safety primitive.
 
 `MockExternalGatewayAgentExecutor` remains a test fixture for External Gateway adapter/runtime coverage. It is not the production default and should not shape agent conversation semantics.
 

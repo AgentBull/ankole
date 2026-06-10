@@ -1,10 +1,11 @@
 import type { BullXStreamingCardHandle, BullXStreamingCardStatus } from '@agentbull/bullx-sdk/plugins'
-import { asRecord, optionalString } from './lark-helpers'
+import { asRecord, assertLarkSuccess, optionalString } from './lark-helpers'
 import type { SharedLarkConnection } from './connection'
 
 const STREAMING_ELEMENT_ID = 'content'
 const STREAM_THINKING = '思考中…'
 const STREAM_EMPTY = '（无内容）'
+const DEFAULT_CARD_ID_RETRY_DELAYS_MS = [250, 750, 1500, 3000, 5000]
 
 export interface LarkStreamingCardOptions {
   chatId: string
@@ -13,6 +14,7 @@ export interface LarkStreamingCardOptions {
   initialText?: string
   intervalMs: number
   bufferThreshold: number
+  cardIdRetryDelaysMs?: number[]
   logger?: { warn?: (...args: unknown[]) => void }
 }
 
@@ -63,6 +65,7 @@ class LarkStreamingCardSession implements BullXStreamingCardHandle {
           data: JSON.stringify(streamingCardDefinition(this.options.initialText ?? STREAM_THINKING))
         }
       })
+      assertLarkSuccess(created, 'cardkit card create')
       this.cardId = optionalString(created?.data?.card_id) ?? ''
       if (!this.cardId) {
         this.degraded = true
@@ -70,20 +73,22 @@ class LarkStreamingCardSession implements BullXStreamingCardHandle {
       }
       const content = JSON.stringify({ type: 'card', data: { card_id: this.cardId } })
       const rootId = optionalString(this.options.rootId)
-      const sent = rootId
-        ? await this.connection.rawClient.im.v1.message.reply({
-            path: { message_id: rootId },
-            data: { msg_type: 'interactive', content, reply_in_thread: true, uuid: this.options.idempotencyKey }
-          })
-        : await this.connection.rawClient.im.v1.message.create({
-            params: { receive_id_type: 'chat_id' },
-            data: {
-              receive_id: this.options.chatId,
-              msg_type: 'interactive',
-              content,
-              uuid: this.options.idempotencyKey
-            }
-          })
+      const sent = await this.sendCardMessageWithCardIdRetry(() =>
+        rootId
+          ? this.connection.rawClient.im.v1.message.reply({
+              path: { message_id: rootId },
+              data: { msg_type: 'interactive', content, reply_in_thread: false, uuid: this.options.idempotencyKey }
+            })
+          : this.connection.rawClient.im.v1.message.create({
+              params: { receive_id_type: 'chat_id' },
+              data: {
+                receive_id: this.options.chatId,
+                msg_type: 'interactive',
+                content,
+                uuid: this.options.idempotencyKey
+              }
+            })
+      )
       this.messageId = optionalString(asRecord(asRecord(sent)?.data)?.message_id) ?? ''
       if (!this.messageId) this.degraded = true
     } catch (error) {
@@ -107,7 +112,7 @@ class LarkStreamingCardSession implements BullXStreamingCardHandle {
     if (this.degraded || !this.cardId) return
     try {
       this.sequence += 1
-      await this.connection.rawClient.cardkit.v1.card.settings({
+      const response = await this.connection.rawClient.cardkit.v1.card.settings({
         path: { card_id: this.cardId },
         data: {
           settings: JSON.stringify({
@@ -117,6 +122,7 @@ class LarkStreamingCardSession implements BullXStreamingCardHandle {
           uuid: crypto.randomUUID()
         }
       })
+      assertLarkSuccess(response, 'cardkit card settings')
     } catch (error) {
       // Best-effort close: leaving streaming_mode on is a visual blemish, not a
       // correctness failure (the host still records the card as delivered).
@@ -136,22 +142,25 @@ class LarkStreamingCardSession implements BullXStreamingCardHandle {
     this.clearFlushTimer()
     try {
       this.sequence += 1
+      const cardText = larkCardMarkdown(text)
       if (!this.contentReady) {
         // First write replaces the placeholder element with a markdown element.
-        await this.connection.rawClient.cardkit.v1.cardElement.update({
+        const response = await this.connection.rawClient.cardkit.v1.cardElement.update({
           path: { card_id: this.cardId, element_id: STREAMING_ELEMENT_ID },
           data: {
-            element: JSON.stringify({ tag: 'markdown', content: text, element_id: STREAMING_ELEMENT_ID }),
+            element: JSON.stringify({ tag: 'markdown', content: cardText, element_id: STREAMING_ELEMENT_ID }),
             sequence: this.sequence,
             uuid: crypto.randomUUID()
           }
         })
+        assertLarkSuccess(response, 'cardkit card element update')
         this.contentReady = true
       } else {
-        await this.connection.rawClient.cardkit.v1.cardElement.content({
+        const response = await this.connection.rawClient.cardkit.v1.cardElement.content({
           path: { card_id: this.cardId, element_id: STREAMING_ELEMENT_ID },
-          data: { content: text, sequence: this.sequence, uuid: crypto.randomUUID() }
+          data: { content: cardText, sequence: this.sequence, uuid: crypto.randomUUID() }
         })
+        assertLarkSuccess(response, 'cardkit card element content')
       }
       this.lastUpdateMs = Date.now()
       this.lastWrittenLen = text.length
@@ -186,6 +195,19 @@ class LarkStreamingCardSession implements BullXStreamingCardHandle {
       })
     }, delayMs)
   }
+
+  private async sendCardMessageWithCardIdRetry(send: () => Promise<unknown>): Promise<unknown> {
+    const retryDelaysMs = this.options.cardIdRetryDelaysMs ?? DEFAULT_CARD_ID_RETRY_DELAYS_MS
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await send()
+      } catch (error) {
+        const delayMs = retryDelaysMs[attempt]
+        if (delayMs === undefined || !isInvalidCardIdError(error)) throw error
+        await Bun.sleep(delayMs)
+      }
+    }
+  }
 }
 
 function fallbackForStatus(status: BullXStreamingCardStatus): string {
@@ -218,6 +240,27 @@ export function mergeStreamingText(previousText: string | undefined, nextText: s
     if (previous.slice(-overlap) === next.slice(0, overlap)) return `${previous}${next.slice(overlap)}`
   }
   return `${previous}${next}`
+}
+
+function isInvalidCardIdError(error: unknown): boolean {
+  const response = asRecord(asRecord(error)?.response)
+  const data = asRecord(response?.data)
+  const code = data?.code
+  const msg = optionalString(data?.msg)?.toLowerCase()
+  return code === 230099 && Boolean(msg?.includes('cardid is invalid'))
+}
+
+function larkCardMarkdown(text: string): string {
+  return text.replace(/```([^\n`]*)\n([\s\S]*?)```/g, (_match, language: string, body: string) => {
+    const label = language.trim()
+    const lines = body.replace(/\n$/, '').split(/\r?\n/)
+    const rendered = lines.map(line => `\`${escapeInlineCode(line || ' ')}\``)
+    return [label ? `\`${escapeInlineCode(label)}\`` : undefined, ...rendered].filter(Boolean).join('\n')
+  })
+}
+
+function escapeInlineCode(text: string): string {
+  return text.replace(/`/g, '\\`')
 }
 
 function streamingCardDefinition(initialText: string): Record<string, unknown> {

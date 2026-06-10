@@ -2,7 +2,6 @@ import type {
   BullXExternalGatewayAdapterFactory,
   BullXExternalGatewayAdapterFactoryContext
 } from '@agentbull/bullx-sdk/plugins'
-import { rootContainer } from '@/common/di'
 
 export type ExternalGatewayAdapterFactoryContext = BullXExternalGatewayAdapterFactoryContext
 export type ExternalGatewayAdapterFactory = BullXExternalGatewayAdapterFactory
@@ -31,34 +30,23 @@ export class DuplicateExternalGatewayAdapterFactoryError extends Error {
   }
 }
 
+const factories = new Map<string, ExternalGatewayAdapterFactory>()
+
 /**
- * Registers an External Gateway adapter factory in the root tsyringe container.
- *
- * Keeping this in DI rather than a module-local map is deliberate: future plugin
- * activation will register factories as side effects of plugin loading, and the
- * runtime only needs to resolve by factory id.
+ * Registers an External Gateway adapter factory by id. Plugin activation calls
+ * this as a side effect of plugin loading; the runtime resolves by factory id.
  */
 export function registerExternalGatewayAdapterFactory(factory: ExternalGatewayAdapterFactory): void {
-  const token = externalGatewayAdapterFactoryToken(factory.id)
-  if (rootContainer.isRegistered(token)) throw new DuplicateExternalGatewayAdapterFactoryError(factory.id)
+  if (factories.has(factory.id)) throw new DuplicateExternalGatewayAdapterFactoryError(factory.id)
 
-  rootContainer.registerInstance(token, factory)
+  factories.set(factory.id, factory)
 }
 
 /**
  * Resolves an adapter factory by metadata id.
  */
 export function resolveExternalGatewayAdapterFactory(id: string): ExternalGatewayAdapterFactory {
-  try {
-    return rootContainer.resolve<ExternalGatewayAdapterFactory>(externalGatewayAdapterFactoryToken(id))
-  } catch (error) {
-    throw new MissingExternalGatewayAdapterFactoryError(id)
-  }
-}
-
-/**
- * Stable DI token namespace for External Gateway adapter factories.
- */
-export function externalGatewayAdapterFactoryToken(id: string): string {
-  return `external-gateway.adapter-factory.${id}`
+  const factory = factories.get(id)
+  if (!factory) throw new MissingExternalGatewayAdapterFactoryError(id)
+  return factory
 }

@@ -1,5 +1,6 @@
-import { closeDatabase } from '@/common/database'
+import { closeDatabase, databaseRuntimeConfig } from '@/common/database'
 import { logger, type Logger } from '@/common/logger'
+import { Computer } from '@agentbull/bullx-computer'
 import { loadavg } from 'node:os'
 import { AppEnv } from '@/config/env'
 import { externalGatewayRuntime } from '@/external-gateway'
@@ -9,16 +10,28 @@ import type { IdentityProviderRuntimeStats } from '@/principals/identity-provide
 import { pluginRuntime } from '@/plugins'
 import type { PluginRuntimeStats } from '@/plugins/runtime'
 import { releaseComputerWorkerBinding, resolveComputerWorker } from '@/computer/service'
+import { ensureComputerTlsBundle } from '@/computer/tls-config'
 import { initializeSetupBootstrap } from '@/setup/bootstrap'
 import { aiAgentRuntime } from '@/ai-agent/runtime'
 import { buildAiAgentTools, registerBuiltinWebProviders } from '@/ai-agent/tools'
 import { schedulerRuntime } from '@/scheduler'
 import { syncBuiltinLibraryFromAppDirectory } from '@/ai-agent/library/service'
+import { chatRecallRuntime } from '@/chat-recall/runtime'
+import type { ChatRecallStatus } from '@/chat-recall/readiness'
+
+const processShutdownStateKey = '__bullxAgentProcessShutdownState'
+
+interface ProcessShutdownState {
+  shuttingDown: boolean
+  currentShutdown?: (signal: NodeJS.Signals) => Promise<void>
+  signalHandlers: Partial<Record<NodeJS.Signals, true>>
+}
 
 /**
  * Handle returned by `startBullXAgent()` for tests or embedders.
  */
 export interface StartedBullXAgent {
+  chatRecall: ChatRecallStatus
   externalGateway: ExternalGatewayRuntimeStats
   identityProviders: IdentityProviderRuntimeStats
   plugins: PluginRuntimeStats
@@ -34,9 +47,10 @@ export interface StartedBullXAgent {
  * chat consumers before any long-connection IM event can arrive.
  */
 export async function startBullXAgent(): Promise<StartedBullXAgent> {
-  let shuttingDown = false
+  const processShutdownState = getProcessShutdownState()
   let pluginStartAttempted = false
   let externalGatewayStartAttempted = false
+  let chatRecallStartAttempted = false
   let schedulerStartAttempted = false
   let identityProviderStartAttempted = false
 
@@ -46,12 +60,14 @@ export async function startBullXAgent(): Promise<StartedBullXAgent> {
     if (identityProviderStartAttempted) await identityProviderRuntime.stop()
     if (schedulerStartAttempted) await schedulerRuntime.stop()
     if (externalGatewayStartAttempted) await externalGatewayRuntime.stop()
+    if (chatRecallStartAttempted) await chatRecallRuntime.stop()
     if (pluginStartAttempted) await pluginRuntime.stop()
     await closeDatabase({ timeout: 5 })
   }
 
   try {
     const setup = await initializeSetupBootstrap()
+    await ensureComputerTlsBundle()
     await syncBuiltinLibraryFromAppDirectory()
     // Register built-in web providers before plugins so plugin-contributed providers append after them.
     registerBuiltinWebProviders()
@@ -67,31 +83,51 @@ export async function startBullXAgent(): Promise<StartedBullXAgent> {
       resolveWorker: agentUid => resolveComputerWorker(agentUid),
       releaseWorkerBinding: (agentUid, worker) => releaseComputerWorkerBinding(agentUid, worker)
     })
+    chatRecallStartAttempted = true
+    const chatRecall = await chatRecallRuntime.start()
+    aiAgentRuntime.setChatRecallEnabled(chatRecall.enabled)
     externalGatewayStartAttempted = true
-    const externalGateway = await externalGatewayRuntime.start()
+    const externalGateway = await externalGatewayRuntime.start({
+      getComputerFileWriter: (agentUid, signal) =>
+        Computer.getOrCreate({
+          agentUid,
+          resolveWorker: uid => resolveComputerWorker(uid),
+          signal
+        })
+    })
     schedulerStartAttempted = true
     await schedulerRuntime.start()
     identityProviderStartAttempted = true
     const identityProviders = await identityProviderRuntime.start()
 
     const shutdown = async (signal?: NodeJS.Signals) => {
-      if (shuttingDown) return
+      if (processShutdownState.shuttingDown) return
 
-      shuttingDown = true
+      processShutdownState.shuttingDown = true
       logger.info({ signal, snapshot: shutdownSnapshot() }, 'Shutting down BullX Agent')
       await shutdownRuntime()
 
       process.exit(exitCodeForShutdown(signal))
     }
 
-    registerShutdownHandler('SIGINT', shutdown, logger)
-    registerShutdownHandler('SIGTERM', shutdown, logger)
+    processShutdownState.currentShutdown = shutdown
+    registerShutdownHandler('SIGINT', processShutdownState, logger)
+    registerShutdownHandler('SIGTERM', processShutdownState, logger)
 
     logger.info(
       {
         env: AppEnv.NODE_ENV,
+        database: {
+          poolMax: databaseRuntimeConfig.poolMax
+        },
         idleTimeoutSeconds: 0,
         plugins,
+        chatRecall: {
+          enabled: chatRecall.enabled,
+          disabledReasons: chatRecall.disabledReasons,
+          worker: chatRecall.worker,
+          stats: chatRecall.stats
+        },
         identityProviders,
         externalGateway,
         setup: {
@@ -102,6 +138,7 @@ export async function startBullXAgent(): Promise<StartedBullXAgent> {
     )
 
     return {
+      chatRecall,
       externalGateway,
       identityProviders,
       plugins,
@@ -116,16 +153,29 @@ export async function startBullXAgent(): Promise<StartedBullXAgent> {
 /**
  * Registers one-shot process signal shutdown.
  */
-function registerShutdownHandler(
-  signal: NodeJS.Signals,
-  shutdown: (signal: NodeJS.Signals) => Promise<void>,
-  log: Logger
-) {
+function registerShutdownHandler(signal: NodeJS.Signals, state: ProcessShutdownState, log: Logger) {
+  if (state.signalHandlers[signal]) return
+
+  state.signalHandlers[signal] = true
   process.once(signal, () => {
+    const shutdown = state.currentShutdown
+    if (!shutdown) return
+
     shutdown(signal).catch(error => {
       log.error({ error, signal }, 'Failed to shut down BullX Agent cleanly')
       process.exit(1)
     })
+  })
+}
+
+function getProcessShutdownState(): ProcessShutdownState {
+  const globalScope = globalThis as typeof globalThis & {
+    [processShutdownStateKey]?: ProcessShutdownState
+  }
+
+  return (globalScope[processShutdownStateKey] ??= {
+    shuttingDown: false,
+    signalHandlers: {}
   })
 }
 

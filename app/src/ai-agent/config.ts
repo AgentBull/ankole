@@ -1,7 +1,6 @@
 import { type CacheRetention, type Model, type SimpleStreamOptions, type Transport } from '@earendil-works/pi-ai'
 import { z } from 'zod'
 import { defineAppConfig, registerAppConfigDefinitions, appConfigService } from '@/config/app-configure'
-import { loadSystemTimezoneWithLegacyBackfill } from '@/config/system'
 import type { ConfigureJsonValue } from '@/common/db-schema/app-configure'
 import type { JsonObject } from '@/common/db-schema'
 import { cloneJsonObject, jsonObject } from '@/common/json'
@@ -42,6 +41,9 @@ export interface AiAgentRuntimePolicyConfig {
     batchWindowMs?: number
     hardCapMs?: number
   }
+  generation?: {
+    maxTurns?: number
+  }
   compression?: {
     enabled?: boolean
     keepRecentTokens?: number
@@ -55,7 +57,10 @@ export interface AiAgentRuntimePolicyConfig {
   dailyReset?: {
     enabled?: boolean
     hour?: string
-    timezone?: string
+  }
+  parallelism?: {
+    /** Bound on concurrently executing conversations per agent (1 = serial). */
+    maxConversationsPerAgent?: number
   }
 }
 
@@ -72,6 +77,8 @@ export interface AiAgentRuntimeProfile {
   ambient: Required<NonNullable<AiAgentRuntimePolicyConfig['ambient']>>
   compression: Required<NonNullable<AiAgentRuntimePolicyConfig['compression']>>
   dailyReset: Required<NonNullable<AiAgentRuntimePolicyConfig['dailyReset']>>
+  generation: Required<NonNullable<AiAgentRuntimePolicyConfig['generation']>>
+  parallelism: Required<NonNullable<AiAgentRuntimePolicyConfig['parallelism']>>
   heavyModel: ResolvedAiAgentModelProfile
   lightModel: ResolvedAiAgentModelProfile
   primaryModel: ResolvedAiAgentModelProfile
@@ -119,14 +126,23 @@ const AiAgentRuntimePolicyConfigSchema = z
         hardCapMs: z.number().int().positive().optional()
       })
       .optional(),
+    generation: z
+      .object({
+        maxTurns: z.number().int().positive().optional()
+      })
+      .optional(),
     dailyReset: z
       .object({
         enabled: z.boolean().optional(),
-        timezone: z.string().min(1).optional(),
         hour: z
           .string()
           .regex(/^\d{2}:\d{2}$/)
           .optional()
+      })
+      .optional(),
+    parallelism: z
+      .object({
+        maxConversationsPerAgent: z.number().int().min(1).max(128).optional()
       })
       .optional()
   })
@@ -143,6 +159,22 @@ export const AiAgentRuntimeConfigDefinition = defineAppConfig<ConfigureJsonValue
 
 registerAppConfigDefinitions([AiAgentRuntimeConfigDefinition])
 
+/**
+ * Default bound on concurrently executing conversations per agent. Chat loads
+ * are IO-dominated, so 16 in-flight LLM turns fit a 4-core baseline; set the
+ * config to 1 to restore strictly serial delivery.
+ */
+export const DEFAULT_MAX_CONVERSATIONS_PER_AGENT = 16
+
+/** Installation-wide delivery parallelism knobs (cheap read; values are cached by app config). */
+export async function loadAiAgentParallelismConfig(): Promise<{ maxConversationsPerAgent: number }> {
+  const runtimeConfigValue = await appConfigService.get(AiAgentRuntimeConfigDefinition)
+  const runtimeConfig = AiAgentRuntimeConfigSchema.parse(runtimeConfigValue ?? {})
+  return {
+    maxConversationsPerAgent: runtimeConfig.parallelism?.maxConversationsPerAgent ?? DEFAULT_MAX_CONVERSATIONS_PER_AGENT
+  }
+}
+
 export async function loadAiAgentRuntimeProfile(agentUid: string): Promise<AiAgentRuntimeProfile> {
   const [agentResult, runtimeConfigValue] = await Promise.all([
     getAgent(agentUid),
@@ -153,10 +185,7 @@ export async function loadAiAgentRuntimeProfile(agentUid: string): Promise<AiAge
   }
 
   const runtimeConfig = AiAgentRuntimeConfigSchema.parse(runtimeConfigValue ?? {})
-  const policy = resolveAiAgentRuntimePolicy(
-    runtimeConfig,
-    await loadSystemTimezoneWithLegacyBackfill(runtimeConfig.dailyReset?.timezone)
-  )
+  const policy = resolveAiAgentRuntimePolicy(runtimeConfig)
   const models = readAiAgentModelsConfig(agentResult.agent.metadata)
   if (models) return resolveAiAgentRuntimeProfile({ models, policy })
 
@@ -168,10 +197,7 @@ export async function resolveAiAgentRuntimeProfile(input: {
   policy?: AiAgentRuntimePolicyConfig
 }): Promise<AiAgentRuntimeProfile> {
   const models = resolveAiAgentModelsConfig(input.models)
-  const policy = resolveAiAgentRuntimePolicy(
-    input.policy ?? {},
-    await loadSystemTimezoneWithLegacyBackfill(input.policy?.dailyReset?.timezone)
-  )
+  const policy = resolveAiAgentRuntimePolicy(input.policy ?? {})
   const [primaryModel, lightModel, heavyModel] = await Promise.all([
     resolveModelProfile('primary', models.primary),
     resolveModelProfile('light', models.light),
@@ -233,9 +259,8 @@ export function writeAiAgentModelsConfig(metadata: JsonObject, models: AiAgentMo
 }
 
 function resolveAiAgentRuntimePolicy(
-  config: AiAgentRuntimePolicyConfig,
-  systemTimezone: string
-): Pick<AiAgentRuntimeProfile, 'ambient' | 'compression' | 'dailyReset'> {
+  config: AiAgentRuntimePolicyConfig
+): Pick<AiAgentRuntimeProfile, 'ambient' | 'compression' | 'dailyReset' | 'generation' | 'parallelism'> {
   return {
     compression: {
       enabled: config.compression?.enabled ?? true,
@@ -249,10 +274,15 @@ function resolveAiAgentRuntimePolicy(
       batchWindowMs: config.ambient?.batchWindowMs ?? 1500,
       hardCapMs: config.ambient?.hardCapMs ?? 60000
     },
+    generation: {
+      maxTurns: config.generation?.maxTurns ?? 100
+    },
     dailyReset: {
       enabled: config.dailyReset?.enabled ?? true,
-      timezone: systemTimezone,
       hour: config.dailyReset?.hour ?? '04:00'
+    },
+    parallelism: {
+      maxConversationsPerAgent: config.parallelism?.maxConversationsPerAgent ?? DEFAULT_MAX_CONVERSATIONS_PER_AGENT
     }
   }
 }

@@ -1,14 +1,16 @@
 import { and, asc, eq, sql } from 'drizzle-orm'
+import { ms } from '@pleisto/active-support'
 import type { TextContent } from '@earendil-works/pi-ai'
 import { DB, type QueryExecutor } from '@/common/database'
 import { AiAgentMessages, type JsonObject, type JsonValue } from '@/common/db-schema'
 import { isJsonObject, stringFromPath, toJsonObject } from '@/common/json'
+import { zonedParts } from '@/config/system'
 import type { AgentMessage } from './core'
 import { textFromContent } from './conversation-service'
 
 export const MESSAGE_CONTEXT_METADATA_KEY = 'message_context'
 
-const TIME_CONTEXT_GAP_MS = 60 * 60 * 1000
+const TIME_CONTEXT_GAP_MS = ms('1h')
 const MAX_AMBIENT_REFERENCE_SNIPPETS = 12
 const MAX_AMBIENT_REFERENCE_TEXT = 800
 
@@ -17,6 +19,7 @@ export interface MessageContextInput {
   ambientReferences?: AmbientReferenceSnippet[]
   room?: JsonObject
   sentAt: Date
+  timezone: string
 }
 
 export interface MessageContextHistoryItem {
@@ -53,14 +56,15 @@ export function buildMessageContextMetadata(
   input: MessageContextInput,
   history: MessageContextHistoryItem[]
 ): JsonObject {
-  const sentAt = truncateToSecond(input.sentAt)
+  const sentAt = input.sentAt
   const actor = actorContext(input.actor)
   const room = roomContext(input.room, actor.displayName)
   const context: JsonObject = {
     time: {
       sent_at: sentAt.toISOString(),
       injected: shouldInjectTime(sentAt, history),
-      gap_ms: TIME_CONTEXT_GAP_MS
+      gap_ms: TIME_CONTEXT_GAP_MS,
+      timezone: input.timezone
     }
   }
 
@@ -143,7 +147,8 @@ export function renderMessageContextPrefix(metadata: JsonObject): string | undef
 
   const time = toJsonObject(context.time)
   if (time.injected === true && typeof time.sent_at === 'string') {
-    lines.push(`sent_at: ${formatTimestamp(time.sent_at)}`)
+    const timezone = typeof time.timezone === 'string' ? time.timezone : undefined
+    lines.push(`sent_at: ${formatTimestamp(time.sent_at, timezone)}`)
   }
 
   const room = toJsonObject(context.room)
@@ -152,13 +157,10 @@ export function renderMessageContextPrefix(metadata: JsonObject): string | undef
   const actor = toJsonObject(context.actor)
   if (actor.injected === true && typeof actor.display_name === 'string') lines.push(`speaker: ${actor.display_name}`)
 
-  const prefixBlocks: string[] = []
-  if (lines.length > 0) prefixBlocks.push(`<message_context>\n${lines.join('\n')}\n</message_context>`)
-
   const ambientReference = renderAmbientReferenceBlock(context)
-  if (ambientReference) prefixBlocks.push(ambientReference)
+  if (ambientReference) lines.push(ambientReference)
 
-  return prefixBlocks.length > 0 ? prefixBlocks.join('\n') : undefined
+  return lines.length > 0 ? `<message_context>\n${lines.join('\n')}\n</message_context>` : undefined
 }
 
 export function ambientReferenceSnippetsFromRows(
@@ -181,20 +183,43 @@ export function ambientReferenceSnippetsFromRows(
 function renderAmbientReferenceBlock(context: JsonObject): string | undefined {
   const ambient = toJsonObject(context.ambient_references)
   if (ambient.injected !== true || !Array.isArray(ambient.snippets)) return undefined
+  const timezone = stringFromPath(context, ['time', 'timezone'])
 
-  const lines = ambient.snippets.flatMap(snippetValue => {
+  const references = ambient.snippets.flatMap(snippetValue => {
     if (!isJsonObject(snippetValue)) return []
     const text = typeof snippetValue.text === 'string' ? snippetValue.text.trim() : ''
     if (!text) return []
-    const sentAt = typeof snippetValue.sentAt === 'string' ? formatTimestamp(snippetValue.sentAt) : 'unknown time'
+    const sentAt =
+      typeof snippetValue.sentAt === 'string' ? formatTimestamp(snippetValue.sentAt, timezone) : 'unknown time'
     const actor =
       typeof snippetValue.actorDisplayName === 'string' && snippetValue.actorDisplayName.trim()
         ? snippetValue.actorDisplayName.trim()
         : 'unknown speaker'
-    return [`- ${sentAt} ${actor}: ${text}`]
+    return [
+      `<ambient_reference sent_at="${escapeXmlAttribute(sentAt)}" speaker="${escapeXmlAttribute(actor)}">${escapeXmlText(text)}</ambient_reference>`
+    ]
   })
 
-  return lines.length > 0 ? `<ambient_reference_context>\n${lines.join('\n')}\n</ambient_reference_context>` : undefined
+  if (references.length === 0) return undefined
+
+  return [
+    '<ambient_references purpose="evidence_for_intervention" reply_policy="do_not_answer_directly">',
+    ...references,
+    '</ambient_references>',
+    '<ambient_intervention_instruction>',
+    'Use ambient references only to understand why a brief proactive reply may help.',
+    'Do not answer every ambient reference line. Reply to the current room situation.',
+    'Offer one useful next action and wait for an explicit user request before expanding.',
+    '</ambient_intervention_instruction>'
+  ].join('\n')
+}
+
+function escapeXmlText(value: string): string {
+  return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
+}
+
+function escapeXmlAttribute(value: string): string {
+  return escapeXmlText(value).replaceAll('"', '&quot;')
 }
 
 function shouldInjectTime(sentAt: Date, history: MessageContextHistoryItem[]): boolean {
@@ -311,14 +336,15 @@ function normalizeAmbientReferences(snippets: AmbientReferenceSnippet[] | undefi
     .slice(-MAX_AMBIENT_REFERENCE_SNIPPETS)
 }
 
-function truncateToSecond(date: Date): Date {
-  return new Date(Math.floor(date.getTime() / 1000) * 1000)
+function formatTimestamp(value: string, timezone?: string): string {
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime()) || !timezone) return value
+  const parts = zonedParts(timezone, parsed)
+  return `${pad(parts.year, 4)}-${pad(parts.month)}-${pad(parts.day)} ${pad(parts.hour)}:${pad(parts.minute)}:${pad(parts.second)} (${timezone})`
 }
 
-function formatTimestamp(value: string): string {
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) return value
-  return parsed.toISOString()
+function pad(value: number, length = 2): string {
+  return value.toString().padStart(length, '0')
 }
 
 function stringFromNullable(value: unknown): string | undefined {

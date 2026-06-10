@@ -9,6 +9,7 @@ spec:
   selector:
     app: bullx-computer
   ports:
-    - name: http
+    - name: h2-mtls
       port: 8787
       targetPort: 8787
+      protocol: TCP

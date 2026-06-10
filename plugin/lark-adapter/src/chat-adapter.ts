@@ -13,11 +13,8 @@ import type {
 } from '@agentbull/bullx-sdk/plugins'
 import { LarkAdapterConfigError, type LarkChannelConfig } from './config'
 import { sharedLarkConnections, type LarkConnectionLease, type SharedLarkConnection } from './connection'
-import {
-  isBullXInteractiveOutputPayload,
-  isLarkNativeCardPayload,
-  renderInteractiveOutputToLarkCard
-} from './interactive-output'
+import { isBullXInteractiveOutputCardPayload, isBullXLarkNativeCardPayload } from '@agentbull/bullx-sdk/plugins'
+import { renderInteractiveOutputToLarkCard } from './interactive-output'
 import { createLarkStreamingCardSession } from './streaming-card'
 import {
   actorIdFromNormalizedMessage,
@@ -34,9 +31,12 @@ import {
   encodeThreadId,
   firstLarkMessageItem,
   fromLarkEmojiType,
+  isBotSenderFromNormalizedMessage,
   larkActorMetadata,
   larkChannelLoggerFromChat,
+  larkDividerOriginalTextFromPayload,
   larkDividerPayloadFromMessage,
+  normalizeLarkDividerText,
   larkResourceAttachmentType,
   larkTextContent,
   larkUuidFromOptions,
@@ -148,14 +148,28 @@ export class BullXLarkChatAdapter {
     const threadId = this.threadIdOf(normalizedMessage)
     const platformUserId = platformUserIdFromNormalizedMessage(normalizedMessage)
     if (!platformUserId) {
-      logLarkChatWarning(this, { normalizedMessage }, 'Lark message event missing sender user_id')
-      throw new LarkAdapterConfigError('Lark message event is missing sender user_id')
+      logLarkChatWarning(this, { normalizedMessage }, 'Lark message event missing sender id')
+      throw new LarkAdapterConfigError('Lark message event is missing sender id')
     }
 
     const content = normalizedMessage.content
     const senderName = optionalString(normalizedMessage.senderName) ?? platformUserId
     const botIdentity = this.connection?.botIdentity
-    const isMe = platformUserId === botIdentity?.userId || platformUserId === botIdentity?.openId
+    const actorId = actorIdFromNormalizedMessage(normalizedMessage)
+    const botUserId = optionalString(botIdentity?.userId)
+    const botOpenId = optionalString(botIdentity?.openId)
+    const actorUserId = optionalString(actorId?.user_id)
+    const isTypedBotSubject = platformUserId.startsWith('bot:')
+    const isMe =
+      !isTypedBotSubject &&
+      ((botUserId !== undefined && (platformUserId === botUserId || actorUserId === botUserId)) ||
+        (botOpenId !== undefined && platformUserId === botOpenId))
+    const isBotSender = isMe || isBotSenderFromNormalizedMessage(normalizedMessage)
+    const attachments = this.attachmentsFromResources(messageId, normalizedMessage.resources)
+    if (attachments.length === 0) {
+      attachments.push(...(await this.backfillRecentSiblingResourceAttachments(normalizedMessage, actorId)))
+    }
+
     const message = {
       id: messageId,
       threadId,
@@ -165,19 +179,20 @@ export class BullXLarkChatAdapter {
         userId: platformUserId,
         userName: senderName,
         fullName: senderName,
-        isBot: isMe,
+        isBot: isBotSender,
         isMe
       },
       metadata: {
-        dateSent: dateFromLarkMillis(normalizedMessage.createTime) ?? new Date()
+        dateSent: dateFromLarkMillis(normalizedMessage.createTime) ?? new Date(),
+        platform_subject_provider: this.config.platformSubjectNamespace
       },
       raw: normalizedMessage,
-      attachments: this.attachmentsFromResources(messageId, normalizedMessage.resources),
+      attachments,
       isMention: normalizedMessage.mentionedBot === true
     }
 
     await recordLarkPlatformSubject(this.context, this.config, platformUserId, {
-      metadata: larkActorMetadata(this.config, actorIdFromNormalizedMessage(normalizedMessage), 'message'),
+      metadata: larkActorMetadata(this.config, actorId, 'message'),
       profile: profileFromMessage(message, normalizedMessage)
     })
     return message
@@ -204,6 +219,9 @@ export class BullXLarkChatAdapter {
     const card = this.renderOutboundCard(message)
     if (card) return this.postCard(threadId, chatId, rootId, card, options)
 
+    const files = outboundFileInputsFromMessage(message)
+    if (files.length > 0) return this.postFiles(threadId, chatId, rootId, message, files, options)
+
     const targetMessageId = options?.targetMessageId ?? (rootId || undefined)
     const uuid = larkUuidFromOptions(options)
     if (targetMessageId) {
@@ -212,7 +230,6 @@ export class BullXLarkChatAdapter {
         data: {
           msg_type: 'text',
           content: larkTextContent(this.messageToMarkdown(message)),
-          reply_in_thread: Boolean(rootId),
           uuid
         }
       })
@@ -316,12 +333,18 @@ export class BullXLarkChatAdapter {
 
   rehydrateAttachment(attachment: BullXAttachment): BullXAttachment {
     const metadata = attachment.fetchMetadata
-    if (metadata?.provider !== 'lark' || !metadata.fileKey || !metadata.downloadType) return attachment
+    if (metadata?.provider !== 'lark' || !metadata.messageId || !metadata.fileKey || !metadata.downloadType) {
+      return attachment
+    }
 
     return {
       ...attachment,
       fetchData: () =>
-        this.requireConnection().downloadResource(metadata.fileKey, metadata.downloadType as lark.ResourceType)
+        this.requireConnection().downloadMessageResource(
+          metadata.messageId,
+          metadata.fileKey,
+          metadata.downloadType as lark.ResourceType
+        )
     }
   }
 
@@ -516,6 +539,17 @@ export class BullXLarkChatAdapter {
     divider: Record<string, unknown>,
     options?: BullXExternalGatewayOutboundOptions
   ): Promise<{ id: string; raw: unknown; threadId: string }> {
+    const originalText = this.dividerOriginalText(divider)
+    if (originalText) {
+      const normalized = normalizeLarkDividerText(originalText)
+      if (normalized.truncated) {
+        this._getLogger()?.warn?.('Lark system divider text exceeded Feishu limits and was truncated', {
+          originalLength: Array.from(originalText).length,
+          normalizedText: normalized.text
+        })
+      }
+    }
+
     const response = await this.requireConnection().rawClient.im.v1.message.create({
       params: { receive_id_type: 'chat_id' },
       data: {
@@ -530,9 +564,13 @@ export class BullXLarkChatAdapter {
     return { id: messageId, threadId, raw: response }
   }
 
+  private dividerOriginalText(divider: Record<string, unknown>): string | undefined {
+    return larkDividerOriginalTextFromPayload(divider)
+  }
+
   private renderOutboundCard(message: unknown): Record<string, unknown> | undefined {
-    if (isBullXInteractiveOutputPayload(message)) return renderInteractiveOutputToLarkCard(message.output)
-    if (isLarkNativeCardPayload(message)) return message.card
+    if (isBullXInteractiveOutputCardPayload(message)) return renderInteractiveOutputToLarkCard(message.output)
+    if (isBullXLarkNativeCardPayload(message)) return message.card
     return undefined
   }
 
@@ -562,7 +600,7 @@ export class BullXLarkChatAdapter {
     if (targetMessageId) {
       const response = await this.requireConnection().rawClient.im.v1.message.reply({
         path: { message_id: targetMessageId },
-        data: { msg_type: 'interactive', content, reply_in_thread: Boolean(rootId), uuid }
+        data: { msg_type: 'interactive', content, uuid }
       })
       assertLarkSuccess(response, 'card reply')
       return { id: messageIdFromLarkResponse(response), threadId, raw: response }
@@ -574,6 +612,67 @@ export class BullXLarkChatAdapter {
     })
     assertLarkSuccess(response, 'card create')
     return { id: messageIdFromLarkResponse(response), threadId, raw: response }
+  }
+
+  private async postFiles(
+    threadId: string,
+    chatId: string,
+    rootId: string,
+    message: unknown,
+    files: readonly LarkOutboundFileInput[],
+    options?: BullXExternalGatewayOutboundOptions
+  ): Promise<BullXExternalGatewayRawMessage> {
+    const targetMessageId = options?.targetMessageId ?? (rootId || undefined)
+    const uuid = larkUuidFromOptions(options)
+    const connection = this.requireConnection()
+    let lastSent: BullXExternalGatewayRawMessage | undefined
+
+    const leadingText = this.messageToMarkdown(message).trim()
+    if (leadingText) {
+      const textUuid = uuid ? `${uuid}-text` : undefined
+      const response = targetMessageId
+        ? await connection.rawClient.im.v1.message.reply({
+            path: { message_id: targetMessageId },
+            data: { msg_type: 'text', content: larkTextContent(leadingText), uuid: textUuid }
+          })
+        : await connection.rawClient.im.v1.message.create({
+            params: { receive_id_type: 'chat_id' },
+            data: { receive_id: chatId, msg_type: 'text', content: larkTextContent(leadingText), uuid: textUuid }
+          })
+      assertLarkSuccess(response, 'message text create before file')
+      lastSent = { id: messageIdFromLarkResponse(response), threadId, raw: response }
+    }
+
+    for (const [index, file] of files.entries()) {
+      const buffer = await bufferFromOutboundFileData(file.data)
+      const upload = await connection.rawClient.im.v1.file.create({
+        data: {
+          file_type: larkUploadFileType(file.filename, file.mimeType),
+          file_name: file.filename,
+          file: buffer
+        }
+      })
+      const fileKey =
+        optionalString(asRecord(upload)?.file_key) ?? optionalString(asRecord(asRecord(upload)?.data)?.file_key)
+      if (!fileKey) throw new LarkAdapterConfigError('Lark file upload response is missing file_key')
+
+      const content = JSON.stringify({ file_key: fileKey })
+      const fileUuid = uuid ? `${uuid}-file-${index}` : undefined
+      const response = targetMessageId
+        ? await connection.rawClient.im.v1.message.reply({
+            path: { message_id: targetMessageId },
+            data: { msg_type: 'file', content, uuid: fileUuid }
+          })
+        : await connection.rawClient.im.v1.message.create({
+            params: { receive_id_type: 'chat_id' },
+            data: { receive_id: chatId, msg_type: 'file', content, uuid: fileUuid }
+          })
+      assertLarkSuccess(response, 'message file create')
+      lastSent = { id: messageIdFromLarkResponse(response), threadId, raw: response }
+    }
+
+    if (!lastSent) throw new LarkAdapterConfigError('No outbound files were sent')
+    return lastSent
   }
 
   private messageToMarkdown(message: unknown): string {
@@ -604,6 +703,100 @@ export class BullXLarkChatAdapter {
     return attachments
   }
 
+  private async backfillRecentSiblingResourceAttachments(
+    normalizedMessage: lark.NormalizedMessage,
+    actorId: Record<string, any> | undefined
+  ): Promise<BullXAttachment[]> {
+    if (normalizedMessage.mentionedBot !== true) return []
+    if (!isBotSenderFromNormalizedMessage(normalizedMessage)) return []
+    if (normalizedMessage.chatType !== 'group') return []
+    if (!shouldBackfillRecentAttachment(normalizedMessage.content)) return []
+
+    const triggerTime = Number(normalizedMessage.createTime)
+    if (!Number.isFinite(triggerTime)) return []
+
+    const windowMs = 2 * 60 * 1000
+    const startTime = Math.max(0, Math.floor((triggerTime - windowMs) / 1000))
+    const endTime = Math.ceil(triggerTime / 1000)
+
+    try {
+      const response = await this.requireConnection().rawClient.im.v1.message.list({
+        params: {
+          container_id_type: 'chat',
+          container_id: normalizedMessage.chatId,
+          start_time: String(startTime),
+          end_time: String(endTime),
+          sort_type: 'ByCreateTimeDesc',
+          page_size: 20
+        }
+      })
+      assertLarkSuccess(response, 'message list for recent attachment backfill')
+
+      const attachments: BullXAttachment[] = []
+      const data = asRecord(response.data)
+      const items = Array.isArray(data?.items)
+        ? data.items.flatMap(item => (asRecord(item) ? [asRecord(item)!] : []))
+        : []
+      const skipped: Array<Record<string, unknown>> = []
+
+      for (const item of items) {
+        const candidateMessageId = optionalString(item.message_id)
+        if (!candidateMessageId || candidateMessageId === normalizedMessage.messageId) continue
+
+        const candidateTime = Number(optionalString(item.create_time))
+        if (Number.isFinite(candidateTime) && candidateTime >= triggerTime) continue
+
+        const senderMatch = recentAttachmentSenderMatch(actorId, asRecord(item.sender))
+        if (!senderMatch.matched) {
+          skipped.push({
+            messageId: candidateMessageId,
+            reason: senderMatch.reason,
+            sender: item.sender
+          })
+          continue
+        }
+
+        const resources = larkResourcesFromApiMessage(item)
+        for (const resource of resources) {
+          const attachment = this.attachmentFromResource(candidateMessageId, resource)
+          if (attachment) attachments.push(attachment)
+          if (attachments.length >= 3) break
+        }
+        if (attachments.length > 0) {
+          this._getLogger()?.debug?.('Lark recent attachment backfill matched prior message', {
+            triggerMessageId: normalizedMessage.messageId,
+            candidateMessageId,
+            senderMatch: senderMatch.reason,
+            resourceCount: resources.length,
+            attachmentCount: attachments.length,
+            windowMs
+          })
+          break
+        }
+      }
+
+      if (attachments.length === 0) {
+        this._getLogger()?.debug?.('Lark recent attachment backfill found no usable prior resources', {
+          triggerMessageId: normalizedMessage.messageId,
+          chatId: normalizedMessage.chatId,
+          startTime,
+          endTime,
+          candidateCount: items.length,
+          skipped: skipped.slice(0, 5)
+        })
+      }
+
+      return attachments
+    } catch (error) {
+      this._getLogger()?.warn?.('Lark recent attachment backfill failed', {
+        triggerMessageId: normalizedMessage.messageId,
+        chatId: normalizedMessage.chatId,
+        error
+      })
+      return []
+    }
+  }
+
   private attachmentFromResource(messageId: string, resource: lark.ResourceDescriptor): BullXAttachment | undefined {
     const fileKey = optionalString(resource.fileKey)
     if (!fileKey) return undefined
@@ -626,7 +819,7 @@ export class BullXLarkChatAdapter {
       type,
       name: optionalString(resource.fileName),
       fetchMetadata,
-      fetchData: () => this.requireConnection().downloadResource(fileKey, downloadType)
+      fetchData: () => this.requireConnection().downloadMessageResource(messageId, fileKey, downloadType)
     }
   }
 
@@ -634,4 +827,152 @@ export class BullXLarkChatAdapter {
     if (!this.connection) throw new LarkAdapterConfigError('Lark shared connection is not initialized')
     return this.connection
   }
+}
+
+type LarkOutboundFileInput = {
+  data: unknown
+  filename: string
+  mimeType?: string
+}
+
+function outboundFileInputsFromMessage(message: unknown): LarkOutboundFileInput[] {
+  const record = asRecord(message)
+  if (!record || !Array.isArray(record.files)) return []
+
+  return record.files.flatMap(file => {
+    const fileRecord = asRecord(file)
+    const filename = optionalString(fileRecord?.filename)?.trim()
+    if (!fileRecord || !filename) return []
+    return [
+      {
+        data: fileRecord.data,
+        filename,
+        mimeType: optionalString(fileRecord.mimeType)
+      }
+    ]
+  })
+}
+
+type RecentAttachmentSenderMatch = {
+  matched: boolean
+  reason: string
+}
+
+function recentAttachmentSenderMatch(
+  triggerActor: Record<string, any> | undefined,
+  candidateSender: Record<string, any> | undefined
+): RecentAttachmentSenderMatch {
+  if (!candidateSender) return { matched: false, reason: 'candidate_missing_sender' }
+
+  const candidateId = optionalString(candidateSender.id)
+  const candidateIdType = optionalString(candidateSender.id_type)
+  const candidateSenderType = optionalString(candidateSender.sender_type)
+  const triggerUserId = optionalString(triggerActor?.user_id)
+  const triggerOpenId = optionalString(triggerActor?.open_id)
+  const triggerSenderType = optionalString(triggerActor?.sender_type)
+
+  if (candidateId && candidateIdType === 'user_id' && triggerUserId && candidateId === triggerUserId) {
+    return { matched: true, reason: 'same_user_id' }
+  }
+  if (candidateId && candidateIdType === 'open_id' && triggerOpenId && candidateId === triggerOpenId) {
+    return { matched: true, reason: 'same_open_id' }
+  }
+  if (isLarkBotLikeSenderType(triggerSenderType) && isLarkBotLikeSenderType(candidateSenderType)) {
+    return { matched: true, reason: 'bot_sender_type_fallback' }
+  }
+
+  return { matched: false, reason: 'sender_mismatch' }
+}
+
+function isLarkBotLikeSenderType(senderType: string | undefined): boolean {
+  return senderType === 'bot' || senderType === 'app'
+}
+
+function shouldBackfillRecentAttachment(text: string | undefined): boolean {
+  if (!text) return false
+  const normalized = text.toLowerCase()
+  return /上一条|前一条|刚发|刚刚发|刚才|上面|附件|文件|图片|图像|照片|last message|previous message|previous file|previous image|attached|attachment/.test(
+    normalized
+  )
+}
+
+function larkResourcesFromApiMessage(item: Record<string, any>): lark.ResourceDescriptor[] {
+  const msgType = optionalString(item.msg_type)
+  const content = parseLarkApiMessageContent(optionalString(asRecord(item.body)?.content))
+  if (!content) return []
+
+  const resources: lark.ResourceDescriptor[] = []
+  if (msgType === 'file') {
+    const fileKey = optionalString(content.file_key)
+    if (fileKey) resources.push({ type: 'file', fileKey, fileName: optionalString(content.file_name) })
+  } else if (msgType === 'image') {
+    const imageKey = optionalString(content.image_key)
+    if (imageKey) resources.push({ type: 'image', fileKey: imageKey })
+  } else if (msgType === 'audio') {
+    const fileKey = optionalString(content.file_key)
+    if (fileKey) resources.push({ type: 'audio', fileKey })
+  } else if (msgType === 'media') {
+    const fileKey = optionalString(content.file_key)
+    if (fileKey) resources.push({ type: 'video', fileKey, fileName: optionalString(content.file_name) })
+  } else if (msgType === 'post') {
+    resources.push(...larkResourcesFromPostContent(content))
+  }
+
+  return resources
+}
+
+function parseLarkApiMessageContent(content: string | undefined): Record<string, any> | undefined {
+  if (!content) return undefined
+  try {
+    return asRecord(JSON.parse(content))
+  } catch {
+    return undefined
+  }
+}
+
+function larkResourcesFromPostContent(content: Record<string, any>): lark.ResourceDescriptor[] {
+  const resources: lark.ResourceDescriptor[] = []
+  const visit = (value: unknown) => {
+    const record = asRecord(value)
+    if (record) {
+      const tag = optionalString(record.tag)
+      const imageKey = optionalString(record.image_key)
+      const fileKey = optionalString(record.file_key)
+      if (tag === 'img' && imageKey) resources.push({ type: 'image', fileKey: imageKey })
+      if (tag === 'file' && fileKey) {
+        resources.push({ type: 'file', fileKey, fileName: optionalString(record.file_name) })
+      }
+      for (const child of Object.values(record)) visit(child)
+      return
+    }
+    if (Array.isArray(value)) {
+      for (const child of value) visit(child)
+    }
+  }
+
+  visit(content)
+  return resources
+}
+
+async function bufferFromOutboundFileData(data: unknown): Promise<Buffer> {
+  if (Buffer.isBuffer(data)) return data
+  if (data instanceof ArrayBuffer) return Buffer.from(data)
+  if (ArrayBuffer.isView(data)) return Buffer.from(data.buffer, data.byteOffset, data.byteLength)
+  if (data instanceof Blob) return Buffer.from(await data.arrayBuffer())
+  throw new LarkAdapterConfigError('Outbound file data must be Buffer, ArrayBuffer, typed array, or Blob')
+}
+
+function larkUploadFileType(
+  filename: string,
+  mimeType: string | undefined
+): 'opus' | 'mp4' | 'pdf' | 'doc' | 'xls' | 'ppt' | 'stream' {
+  const lowerName = filename.toLowerCase()
+  const lowerMime = mimeType?.toLowerCase() ?? ''
+  if (lowerName.endsWith('.pdf') || lowerMime === 'application/pdf') return 'pdf'
+  if (lowerName.endsWith('.doc') || lowerName.endsWith('.docx')) return 'doc'
+  if (lowerName.endsWith('.xls') || lowerName.endsWith('.xlsx')) return 'xls'
+  if (lowerName.endsWith('.ppt') || lowerName.endsWith('.pptx')) return 'ppt'
+  if (lowerName.endsWith('.mp4') || lowerMime === 'video/mp4') return 'mp4'
+  if (lowerName.endsWith('.opus') || lowerMime === 'audio/opus') return 'opus'
+  return 'stream'
 }

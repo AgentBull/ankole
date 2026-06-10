@@ -1,29 +1,10 @@
 import {
   bullxInteractiveOutputActionValueVersion,
-  bullxInteractiveOutputVersion,
   type BullXInteractiveOutput,
   type BullXInteractiveOutputActionValue,
   type BullXInteractiveOutputChoiceOption,
   type BullXInteractiveOutputChoiceResponse
 } from '@agentbull/bullx-sdk/plugins'
-
-export function isBullXInteractiveOutputPayload(
-  value: unknown
-): value is { kind: 'interactive_output'; output: BullXInteractiveOutput } {
-  const record = asRecord(value)
-  return record?.kind === 'interactive_output' && isBullXInteractiveOutput(record.output)
-}
-
-export function isLarkNativeCardPayload(
-  value: unknown
-): value is { kind: 'lark_native_card'; card: Record<string, unknown>; fallbackText: string } {
-  const record = asRecord(value)
-  return (
-    record?.kind === 'lark_native_card' &&
-    asRecord(record.card) !== undefined &&
-    typeof record.fallbackText === 'string'
-  )
-}
 
 export function renderInteractiveOutputToLarkCard(output: BullXInteractiveOutput): Record<string, unknown> {
   const elements: Record<string, unknown>[] = []
@@ -127,30 +108,6 @@ function stateText(output: BullXInteractiveOutput): string | undefined {
   if (output.state?.status === 'cancelled') return 'Cancelled'
   if (output.state?.status === 'superseded') return 'Superseded'
   return undefined
-}
-
-function isBullXInteractiveOutput(value: unknown): value is BullXInteractiveOutput {
-  const record = asRecord(value)
-  if (!record || record.version !== bullxInteractiveOutputVersion) return false
-  if (typeof record.fallbackText !== 'string' || record.fallbackText.length === 0) return false
-  const content = asRecord(record.content)
-  if (!content || typeof content.body !== 'string') return false
-  return record.response === undefined || isChoiceResponse(record.response)
-}
-
-function isChoiceResponse(value: unknown): value is BullXInteractiveOutputChoiceResponse {
-  const record = asRecord(value)
-  if (!record || record.type !== 'choice') return false
-  if (typeof record.interactionId !== 'string' || !record.interactionId) return false
-  if (typeof record.controlId !== 'string' || !record.controlId) return false
-  if (record.selection !== 'single' && record.selection !== 'multi') return false
-  return Array.isArray(record.options)
-}
-
-function asRecord(value: unknown): Record<string, any> | undefined {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-    ? (value as Record<string, any>)
-    : undefined
 }
 
 function escapeMarkdown(value: string): string {

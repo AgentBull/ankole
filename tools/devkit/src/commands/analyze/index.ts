@@ -1,4 +1,5 @@
 import { Crust } from '@crustjs/core'
+import { TOPOLOGY_GATED_SCOPES } from './config'
 import { runCycles } from './cycles'
 import { runDuplicates } from './duplicates'
 import { runSmells } from './smells'
@@ -19,7 +20,7 @@ function emit(result: CheckResult, json: boolean): void {
   process.exitCode = result.exitCode
 }
 
-/** Run every gate (+ topology report-only) and aggregate the exit code. */
+/** Run every gate (+ the report-only topology scope) and aggregate the exit code. */
 async function runAll(options: { json: boolean; skip?: string }): Promise<void> {
   const skip = new Set(
     (options.skip ?? '')
@@ -32,7 +33,12 @@ async function runAll(options: { json: boolean; skip?: string }): Promise<void> 
     { name: 'smells', run: () => runSmells() },
     { name: 'unused', run: () => runUnused() },
     { name: 'duplicates', run: () => runDuplicates() },
-    { name: 'cycles', run: () => runCycles() }
+    { name: 'cycles', run: () => runCycles() },
+    // Internal module surfaces must not export what nothing consumes.
+    ...TOPOLOGY_GATED_SCOPES.map(scope => ({
+      name: `topology:${scope}`,
+      run: () => runTopology({ scope, report: 'unused-public-surface' })
+    }))
   ]
 
   const results: Array<{ name: string; result: CheckResult; gate: boolean }> = []
@@ -88,7 +94,7 @@ export function analyzeCommand(): Crust {
     })
     .command('smells', cmd =>
       cmd
-        .meta({ description: 'Boundary / architecture-smell gate (§7.1).' })
+        .meta({ description: 'Boundary / architecture-smell gate.' })
         .flags({ ...jsonFlag })
         .run(({ flags }) => {
           emit(runSmells({ json: flags.json }), flags.json)
@@ -96,7 +102,7 @@ export function analyzeCommand(): Crust {
     )
     .command('unused', cmd =>
       cmd
-        .meta({ description: 'Knip unused-file gate vs the owner/reason allowlist (§7.2).' })
+        .meta({ description: 'Knip unused-file gate vs the owner/reason allowlist.' })
         .flags({ ...jsonFlag })
         .run(async ({ flags }) => {
           emit(await runUnused({ json: flags.json }), flags.json)
@@ -104,7 +110,7 @@ export function analyzeCommand(): Crust {
     )
     .command('duplicates', cmd =>
       cmd
-        .meta({ aliases: ['dup'], description: 'jscpd cross-module duplication gate (§7.3).' })
+        .meta({ aliases: ['dup'], description: 'jscpd cross-module duplication gate.' })
         .flags({
           ...jsonFlag,
           'coverage-only': {
@@ -129,7 +135,7 @@ export function analyzeCommand(): Crust {
     )
     .command('cycles', cmd =>
       cmd
-        .meta({ description: 'Runtime-value import-cycle gate, target = 0 (§7.4).' })
+        .meta({ description: 'Runtime-value import-cycle gate, target = 0.' })
         .flags({
           ...jsonFlag,
           'include-tests': { type: 'boolean', description: 'Include test files.', default: false }
@@ -140,7 +146,7 @@ export function analyzeCommand(): Crust {
     )
     .command('topology', cmd =>
       cmd
-        .meta({ description: 'Public-surface usage report, report-only (§7.7).' })
+        .meta({ description: 'Public-surface usage reports; unused-public-surface gates internal scopes.' })
         .flags({
           ...jsonFlag,
           scope: {

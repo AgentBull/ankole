@@ -14,12 +14,24 @@ services:
     ports:
       - '8787:8787'
     volumes:
-      - ./dev-workspaces:/workspaces
+      - ./dev-workspaces/user-files:/workspaces/user-files
+    tmpfs:
+      - /workspaces/workspace
+      - /workspaces/temp
+      - /workspaces/library-containers
     environment:
       BULLX_COMPUTER_WORKER_ID: local-worker-1
       BULLX_COMPUTER_INSTANCE_ID: local-worker-1-dev
-      BULLX_COMPUTER_BASE_URL: http://localhost:8787
-      BULLX_AGENT_URL: http://host.docker.internal:3000
-      BULLX_COMPUTER_WORKSPACE_ROOT: /workspaces
+      BULLX_COMPUTER_BASE_URL: https://localhost:8787
+      BULLX_COMPUTER_TOKEN: ${BULLX_COMPUTER_TOKEN:-local-dev-computer-token-change-me}
+      BULLX_COMPUTER_WORKSPACE_ROOT: /workspaces/workspace
+      BULLX_COMPUTER_USER_FILES_ROOT: /workspaces/user-files
+      BULLX_COMPUTER_TEMP_ROOT: /workspaces/temp
+      BULLX_COMPUTER_LIBRARY_CONTAINERS_ROOT: /workspaces/library-containers
       BULLX_COMPUTER_FEATURES: bwrap,persistent-shell,tmux,tigerfs,python,jupyter,bun,browser
       DATABASE_URL: postgres://postgres:just4local-dev@host.docker.internal:5433/bullx_development
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /tmp/bullx-computerd.ready"]
+      interval: 2s
+      timeout: 5s
+      retries: 30

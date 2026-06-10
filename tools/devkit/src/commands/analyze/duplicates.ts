@@ -1,4 +1,4 @@
-// `analyze duplicates` — jscpd cross-module duplication gate (§7.3).
+// `analyze duplicates` — jscpd cross-module duplication gate.
 //
 // Ported (min-change) from openclaw's check-duplicates.mjs: the git-ls-files
 // coverage assertion and multi-scan loop. Reworked for jscpd v5's Rust CLI

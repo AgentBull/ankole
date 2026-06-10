@@ -72,12 +72,12 @@ export interface ExternalGatewayAgentDelivery {
   events: Array<typeof ExternalGatewayAgentEvents.$inferSelect>
 }
 
-type ExternalGatewayAgentEventKey = Pick<
+export type ExternalGatewayAgentEventKey = Pick<
   typeof ExternalGatewayAgentEvents.$inferSelect,
   'agentUid' | 'bindingName' | 'providerEventId'
 >
 
-const NORMAL_RECEIVE_BATCH_WINDOW_MS = 75
+export const NORMAL_RECEIVE_BATCH_WINDOW_MS = 75
 const INPUT_TOMBSTONE_TTL_MS = ms('24h')
 const MAX_ADDRESSED_RECEIVE_BATCH_SIZE = 10_000
 
@@ -265,18 +265,19 @@ export class DrizzleExternalGatewayAgentEventQueue {
   async claimReady(
     input: {
       agentUids?: readonly string[]
+      /** Events already claimed by an in-flight delivery; rows stay pending until markDone/markFailed. */
+      excludeEvents?: readonly ExternalGatewayAgentEventKey[]
     } = {}
   ): Promise<ExternalGatewayAgentDelivery | undefined> {
     if (input.agentUids && input.agentUids.length === 0) return undefined
 
     return DB.transaction(async tx => {
-      const readyPredicate = input.agentUids
-        ? and(
-            eq(ExternalGatewayAgentEvents.status, 'pending'),
-            lte(ExternalGatewayAgentEvents.availableAt, new Date()),
-            inArray(ExternalGatewayAgentEvents.agentUid, [...input.agentUids])
-          )
-        : and(eq(ExternalGatewayAgentEvents.status, 'pending'), lte(ExternalGatewayAgentEvents.availableAt, new Date()))
+      const readyPredicate = and(
+        eq(ExternalGatewayAgentEvents.status, 'pending'),
+        lte(ExternalGatewayAgentEvents.availableAt, new Date()),
+        input.agentUids ? inArray(ExternalGatewayAgentEvents.agentUid, [...input.agentUids]) : undefined,
+        notInEvents(input.excludeEvents)
+      )
 
       const [first] = await tx
         .select()
@@ -294,7 +295,7 @@ export class DrizzleExternalGatewayAgentEventQueue {
        * markDone/markFailed. If the process dies before completion, the row is
        * still pending.
        */
-      const events = isReadyBatchableReceive(first) ? await claimReadyBatch(tx, first) : [first]
+      const events = isReadyBatchableReceive(first) ? await claimReadyBatch(tx, first, input.excludeEvents) : [first]
       return { events }
     })
   }
@@ -302,16 +303,16 @@ export class DrizzleExternalGatewayAgentEventQueue {
   async nextPendingAvailableAt(
     input: {
       agentUids?: readonly string[]
+      excludeEvents?: readonly ExternalGatewayAgentEventKey[]
     } = {}
   ): Promise<Date | undefined> {
     if (input.agentUids && input.agentUids.length === 0) return undefined
 
-    const pendingPredicate = input.agentUids
-      ? and(
-          eq(ExternalGatewayAgentEvents.status, 'pending'),
-          inArray(ExternalGatewayAgentEvents.agentUid, [...input.agentUids])
-        )
-      : eq(ExternalGatewayAgentEvents.status, 'pending')
+    const pendingPredicate = and(
+      eq(ExternalGatewayAgentEvents.status, 'pending'),
+      input.agentUids ? inArray(ExternalGatewayAgentEvents.agentUid, [...input.agentUids]) : undefined,
+      notInEvents(input.excludeEvents)
+    )
 
     const [row] = await DB.select({ availableAt: ExternalGatewayAgentEvents.availableAt })
       .from(ExternalGatewayAgentEvents)
@@ -398,7 +399,8 @@ async function extendPendingBatchWindow(
 
 async function claimReadyBatch(
   db: QueryExecutor,
-  first: typeof ExternalGatewayAgentEvents.$inferSelect
+  first: typeof ExternalGatewayAgentEvents.$inferSelect,
+  excludeEvents?: readonly ExternalGatewayAgentEventKey[]
 ): Promise<Array<typeof ExternalGatewayAgentEvents.$inferSelect>> {
   if (!first.batchKey) return [first]
 
@@ -413,7 +415,8 @@ async function claimReadyBatch(
         eq(ExternalGatewayAgentEvents.type, 'message.received'),
         eq(ExternalGatewayAgentEvents.deliveryMode, 'addressed'),
         eq(ExternalGatewayAgentEvents.status, 'pending'),
-        lte(ExternalGatewayAgentEvents.availableAt, new Date())
+        lte(ExternalGatewayAgentEvents.availableAt, new Date()),
+        notInEvents(excludeEvents)
       )
     )
     .orderBy(asc(ExternalGatewayAgentEvents.createdAt), asc(ExternalGatewayAgentEvents.providerEventId))
@@ -454,6 +457,12 @@ function agentEventKeyWhere(event: ExternalGatewayAgentEventKey) {
 function agentEventKeysWhere(events: readonly ExternalGatewayAgentEventKey[]) {
   const predicates = events.map(agentEventKeyWhere)
   return predicates.length === 1 ? predicates[0]! : or(...predicates)
+}
+
+/** Excludes rows already claimed by an in-flight delivery. */
+function notInEvents(events: readonly ExternalGatewayAgentEventKey[] | undefined) {
+  if (!events || events.length === 0) return undefined
+  return sql`not (${agentEventKeysWhere(events)})`
 }
 
 export class ExternalGatewayAgentEventQueueError extends Error {

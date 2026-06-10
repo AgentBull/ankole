@@ -1,4 +1,5 @@
 import { sql } from 'drizzle-orm'
+import type { JsonValue } from './principals'
 import { check, jsonb, pgTable, text, timestamp, unique } from 'drizzle-orm/pg-core'
 
 export enum ConfigureKeyType {
@@ -6,13 +7,7 @@ export enum ConfigureKeyType {
   CIPHER = 'cipher'
 }
 
-export type ConfigureJsonValue =
-  | string
-  | number
-  | boolean
-  | null
-  | { [key: string]: ConfigureJsonValue }
-  | ConfigureJsonValue[]
+export type ConfigureJsonValue = JsonValue
 
 export interface ConfigureValue {
   type: ConfigureKeyType

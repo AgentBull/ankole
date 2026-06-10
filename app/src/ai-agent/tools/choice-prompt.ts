@@ -3,7 +3,7 @@ import {
   type BullXInteractiveOutput,
   type BullXInteractiveOutputChoiceOption
 } from '@agentbull/bullx-sdk/plugins'
-import { parseInteractiveOutputActionValue } from '@/external-gateway/interactive-output'
+import { parseBullXInteractiveOutputActionValue } from '@agentbull/bullx-sdk/plugins'
 
 const CLARIFY_CONTROL_ID = 'clarify_answer'
 const FREE_TEXT_HINT = 'Reply in this chat if none of the choices fit.'
@@ -55,7 +55,7 @@ export function renderClarifyChoicePrompt(input: ClarifyChoicePromptInput): Bull
 }
 
 export function parseClarifyAnswerValue(value: unknown): ClarifyAnswerValue | undefined {
-  const action = parseInteractiveOutputActionValue(value)
+  const action = parseBullXInteractiveOutputActionValue(value)
   if (!action || action.controlId !== CLARIFY_CONTROL_ID) return undefined
 
   return {

@@ -6,6 +6,7 @@ describe('patch tool', () => {
     let written = ''
     const tool = createPatchTool({
       agentUid: 'agent',
+      executionScopeId: 'test-scope',
       backgroundIds: new Set(),
       getComputer: async () =>
         ({

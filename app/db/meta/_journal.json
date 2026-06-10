@@ -5,50 +5,8 @@
     {
       "idx": 0,
       "version": "7",
-      "when": 1780725177497,
-      "tag": "20260606055257_secret_aaron_stack",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "7",
-      "when": 1780749423624,
-      "tag": "20260606123703_cloudy_darwin",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "7",
-      "when": 1780774862418,
-      "tag": "20260606194102_chemical_captain_britain",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "7",
-      "when": 1780914300000,
-      "tag": "20260608182500_ai_agent_llm_trajectory",
-      "breakpoints": true
-    },
-    {
-      "idx": 4,
-      "version": "7",
-      "when": 1780939082818,
-      "tag": "20260608171802_modern_invisible_woman",
-      "breakpoints": true
-    },
-    {
-      "idx": 5,
-      "version": "7",
-      "when": 1780943105102,
-      "tag": "20260608182505_scheduler_checkbacks",
-      "breakpoints": true
-    },
-    {
-      "idx": 6,
-      "version": "7",
-      "when": 1780981329741,
-      "tag": "20260609050209_familiar_mesmero",
+      "when": 1781082787803,
+      "tag": "20260610091307_init",
       "breakpoints": true
     }
   ]

@@ -1,6 +1,26 @@
 import { sql } from 'drizzle-orm'
-import { boolean, check, index, integer, jsonb, pgTable, primaryKey, text, timestamp } from 'drizzle-orm/pg-core'
+import {
+  boolean,
+  check,
+  customType,
+  index,
+  integer,
+  jsonb,
+  pgTable,
+  primaryKey,
+  text,
+  timestamp,
+  uniqueIndex,
+  uuid
+} from 'drizzle-orm/pg-core'
 import type { JsonObject, JsonValue } from './principals'
+import { Agents, Principals } from './principals'
+
+const pgVector = customType<{ data: number[] | null; driverData: string | null }>({
+  dataType() {
+    return 'vector'
+  }
+})
 
 /**
  * Latest known visible state of one upstream external room.
@@ -48,6 +68,9 @@ export const ExternalRooms = pgTable(
 export const ExternalMessages = pgTable(
   'external_messages',
   {
+    documentId: uuid('document_id')
+      .default(sql`gen_random_uuid()`)
+      .notNull(),
     roomId: text('room_id')
       .notNull()
       .references(() => ExternalRooms.id, { onDelete: 'cascade' }),
@@ -63,6 +86,9 @@ export const ExternalMessages = pgTable(
     metadata: jsonb('metadata').$type<JsonObject>().default({}).notNull(),
     reactions: jsonb('reactions').$type<JsonObject>().default({}).notNull(),
     raw: jsonb('raw').$type<JsonValue>(),
+    searchText: text('search_text').default('').notNull(),
+    metadataText: text('metadata_text').default('').notNull(),
+    contentHash: text('content_hash').default('').notNull(),
     sentAt: timestamp('sent_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true })
       .default(sql`now()`)
@@ -73,6 +99,7 @@ export const ExternalMessages = pgTable(
   },
   t => [
     primaryKey({ name: 'external_messages_pkey', columns: [t.roomId, t.messageId] }),
+    uniqueIndex('external_messages_document_id_index').on(t.documentId),
     index('external_messages_room_id_sent_at_index').on(t.roomId, t.sentAt),
     check('external_messages_message_id_nonempty', sql`${t.messageId} <> ''`),
     check('external_messages_author_object', sql`jsonb_typeof(${t.author}) = 'object'`),
@@ -82,6 +109,122 @@ export const ExternalMessages = pgTable(
     check('external_messages_links_array', sql`jsonb_typeof(${t.links}) = 'array'`),
     check('external_messages_metadata_object', sql`jsonb_typeof(${t.metadata}) = 'object'`),
     check('external_messages_reactions_object', sql`jsonb_typeof(${t.reactions}) = 'object'`)
+  ]
+)
+
+/**
+ * Embedding state for chat history recall.
+ *
+ * `external_messages.document_id` is the stable pg_search key and embedding
+ * identity. Each embedding profile gets its own row so model/profile switches
+ * can re-embed without rewriting the canonical external message mirror.
+ */
+export const ChatRecallEmbeddings = pgTable(
+  'chat_recall_embeddings',
+  {
+    documentId: uuid('document_id')
+      .notNull()
+      .references(() => ExternalMessages.documentId, { onDelete: 'cascade' }),
+    profileId: text('profile_id').notNull(),
+    providerKind: text('provider_kind').notNull(),
+    providerId: text('provider_id').notNull(),
+    model: text('model').notNull(),
+    dimensions: integer('dimensions').default(0).notNull(),
+    embedding: pgVector('embedding'),
+    contentHash: text('content_hash').notNull(),
+    status: text('status').default('pending').notNull(),
+    attemptCount: integer('attempt_count').default(0).notNull(),
+    nextRetryAt: timestamp('next_retry_at', { withTimezone: true })
+      .default(sql`now()`)
+      .notNull(),
+    lockedAt: timestamp('locked_at', { withTimezone: true }),
+    lastError: text('last_error'),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .default(sql`now()`)
+      .notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .default(sql`now()`)
+      .notNull()
+  },
+  t => [
+    primaryKey({ name: 'chat_recall_embeddings_pkey', columns: [t.documentId, t.profileId] }),
+    index('chat_recall_embeddings_ready_idx').on(t.status, t.nextRetryAt, t.updatedAt),
+    index('chat_recall_embeddings_profile_status_idx').on(t.profileId, t.status, t.dimensions),
+    check('chat_recall_embeddings_dimensions_check', sql`${t.dimensions} >= 0`),
+    check('chat_recall_embeddings_status_check', sql`${t.status} in ('pending', 'processing', 'synced', 'failed')`)
+  ]
+)
+
+/**
+ * Observed human membership in an external room.
+ *
+ * V1 records members when a trusted platform subject is observed sending a
+ * message. Lark full/incremental group member sync can later upsert the same
+ * table to cover silent members.
+ */
+export const ExternalRoomMemberships = pgTable(
+  'external_room_memberships',
+  {
+    roomId: text('room_id')
+      .notNull()
+      .references(() => ExternalRooms.id, { onDelete: 'cascade' }),
+    principalUid: text('principal_uid')
+      .notNull()
+      .references(() => Principals.uid, { onDelete: 'cascade' }),
+    externalId: text('external_id'),
+    source: text('source').default('message_author').notNull(),
+    metadata: jsonb('metadata').$type<JsonObject>().default({}).notNull(),
+    observedAt: timestamp('observed_at', { withTimezone: true })
+      .default(sql`now()`)
+      .notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .default(sql`now()`)
+      .notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .default(sql`now()`)
+      .notNull()
+  },
+  t => [
+    primaryKey({ name: 'external_room_memberships_pkey', columns: [t.roomId, t.principalUid] }),
+    index('external_room_memberships_principal_uid_index').on(t.principalUid),
+    check('external_room_memberships_metadata_object', sql`jsonb_typeof(${t.metadata}) = 'object'`)
+  ]
+)
+
+/**
+ * Agent/binding visibility of external rooms.
+ *
+ * A group room is in recall scope only when the requesting human is a member
+ * and the agent has observed that room through one of its enabled bindings.
+ */
+export const ExternalAgentRoomObservations = pgTable(
+  'external_agent_room_observations',
+  {
+    agentUid: text('agent_uid')
+      .notNull()
+      .references(() => Agents.uid, { onDelete: 'cascade' }),
+    bindingName: text('binding_name').notNull(),
+    roomId: text('room_id')
+      .notNull()
+      .references(() => ExternalRooms.id, { onDelete: 'cascade' }),
+    metadata: jsonb('metadata').$type<JsonObject>().default({}).notNull(),
+    observedAt: timestamp('observed_at', { withTimezone: true })
+      .default(sql`now()`)
+      .notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true })
+      .default(sql`now()`)
+      .notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true })
+      .default(sql`now()`)
+      .notNull()
+  },
+  t => [
+    primaryKey({
+      name: 'external_agent_room_observations_pkey',
+      columns: [t.agentUid, t.bindingName, t.roomId]
+    }),
+    index('external_agent_room_observations_room_id_index').on(t.roomId),
+    check('external_agent_room_observations_metadata_object', sql`jsonb_typeof(${t.metadata}) = 'object'`)
   ]
 )
 

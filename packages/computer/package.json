@@ -8,7 +8,7 @@
     ".": "./client-sdk/index.ts"
   },
   "scripts": {
-    "type-check": "tsc -p tsconfig.json --noEmit",
+    "type-check": "tsgo -p tsconfig.json --noEmit",
     "lint": "cargo clippy --all-targets",
     "fmt": "oxfmt && cargo fmt",
     "fmt:check": "oxfmt --check && cargo fmt --check",

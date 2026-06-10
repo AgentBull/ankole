@@ -10,7 +10,7 @@ packages/computer
 
 The daemon uses [bubblewrap](https://github.com/containers/bubblewrap) to give each agent a lightweight
 filesystem / PID view, hosts a long-lived shell per agent, supports recoverable tmux sessions for TTY
-programs, and exposes an HTTP API for commands and files.
+programs, and exposes an h2-over-mTLS API for commands and files.
 The SDK gives callers an ergonomic, Vercel-Computer-like experience:
 
 ```ts
@@ -27,7 +27,7 @@ console.log(result.exitCode, await result.stdout())
 > Do **not** expose `bullx-computerd` as a public, untrusted code-execution service.
 > It does lightweight FS/PID-view isolation via bubblewrap — not a microVM, not Firecracker.
 
-Baseline protections are still enforced: signed worker tokens, lexical path-traversal rejection for
+Baseline protections are still enforced: app/worker mTLS, lexical path-traversal rejection for
 direct `..` / absolute path escapes, command timeouts, max output / upload sizes, read-only
 `library-containers`, and worker heartbeat timeouts. Existing symlinks are intentionally followed; this
 keeps the environment useful for trusted agent work and software installation rather than pretending to be
@@ -36,24 +36,40 @@ a strict containment boundary.
 ## Architecture
 
 ```
-BullX app (Bun)  ──OpenAPI──▶  @agentbull/bullx-computer SDK  ──HTTP+NDJSON+tar.gz──▶  bullx-computerd  ──▶  bubblewrap session
-  · computer_workers                · Computer.getOrCreate            · session manager        · /workspace/library-containers
-  · computer_agent_worker_pins      · runCommand / runShellCommand   · persistent shell       · /workspace/user-files
-  · computer_agent_worker_bindings  · writeFiles / readFile          · command + file API     · /workspace/temp
-  · resolve agent_uid -> worker                                     · tigerfs mount manager
-                                                                    · tmux socket/session
+BullX app (Bun)  ──SDK fetch+h2/mTLS+NDJSON+tar.gz──▶  bullx-computerd  ──▶  bubblewrap session
+  · computer_workers                                  · session manager        · /workspace/library-containers
+  · computer_agent_worker_pins                        · persistent shell       · /workspace/user-files
+  · computer_agent_worker_bindings                    · command + file API     · /workspace/temp
+  · computer.tls.bundle.v1 app-config                 · tigerfs mount manager
+  · resolve agent_uid -> worker                       · tmux socket/session
 ```
 
-`agent_uid -> sticky worker -> long-lived shell`. The BullX app owns worker registration, health, and the
-agent→worker sticky binding. The worker only executes local session / command / file operations.
+`agent_uid -> sticky worker -> long-lived shell`. The BullX app owns the agent→worker sticky binding and
+generates the computer mTLS bundle in `app_configure`. Workers read that bundle from PostgreSQL using
+`DATABASE_URL` + `BULLX_COMPUTER_TOKEN`, then record registration/heartbeat rows directly in
+`computer_workers`. Worker health is not an HTTP endpoint; deployments should use process/exec probes and
+the DB heartbeat.
+
+The worker API is TLS-only and advertises h2 through ALPN. The app presents the generated client
+certificate on every worker request. Per-session JWTs are intentionally not used.
 
 ## Filesystem layout
 
 | Path (in computer)              | Semantics                                              | Storage          |
 | ------------------------------ | ----------------------------------------------------- | ---------------- |
-| `/workspace/library-containers`| skills, instructions, memory, settings, small scripts | PG + TigerFS, ro |
+| `/workspace/library-containers`| skills, instructions, memory, settings, small scripts | PG + TigerFS projection, synced |
 | `/workspace/user-files`        | uploads/downloads, PDFs, images, large binaries       | PVC, rw          |
 | `/workspace/temp`              | scratch scripts, intermediate results, drafts         | non-persistent   |
+
+The public `/workspace` shape is stable, but the backing roots should stay
+separate. Local Compose mounts only `user-files` from the host, keeps `temp` on
+tmpfs, and keeps `library-containers` on an isolated tmpfs projection that is
+materialized from PostgreSQL. Deployments can override:
+
+- `BULLX_COMPUTER_WORKSPACE_ROOT` for the lightweight `/workspace` view.
+- `BULLX_COMPUTER_USER_FILES_ROOT` for durable user artifacts.
+- `BULLX_COMPUTER_TEMP_ROOT` for scratch state.
+- `BULLX_COMPUTER_LIBRARY_CONTAINERS_ROOT` for the DB/TigerFS projection.
 
 ## Runtime baseline
 

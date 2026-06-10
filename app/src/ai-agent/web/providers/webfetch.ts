@@ -1,10 +1,11 @@
 import { htmlToMarkdown } from '@mdream/js'
+import { ms } from '@pleisto/active-support'
 import desktop from 'top-user-agents/desktop'
 import { all, createCombinedAbortSignal, withRetry } from '@/common/async'
 import { WebProviderError, type WebExtractArgs, type WebExtractResult, type WebProvider } from '../provider'
 
-const UA_CACHE_TTL_MS = 6 * 60 * 60 * 1000
-const FETCH_TIMEOUT_MS = 30_000
+const UA_CACHE_TTL_MS = ms('6h')
+const FETCH_TIMEOUT_MS = ms('30s')
 const MAX_CONTENT_CHARS = 50_000
 const MAX_RESPONSE_BYTES = 5 * 1024 * 1024
 const ACCEPT_HEADER = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'

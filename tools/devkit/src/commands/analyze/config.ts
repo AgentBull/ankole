@@ -1,9 +1,6 @@
 // Single source of truth for every BullX-specific `analyze` constant.
 // Policy lives here; algorithms live in ./lib and the per-check modules.
 // Tightening or relaxing a guard should be an edit to THIS file only.
-//
-// Derived from ARCHITECTURE_AUDIT_REPORT.md §7 (the bullx adaptation of the
-// OpenClaw boundary-guard scripts).
 
 // ---------------------------------------------------------------------------
 // Scan roots & source extensions
@@ -38,7 +35,7 @@ export const ALIAS_TSCONFIGS = [
 ] as const
 
 // ---------------------------------------------------------------------------
-// smells: boundary rules (§7.1)
+// smells: boundary rules
 // ---------------------------------------------------------------------------
 
 export interface BoundaryRule {
@@ -84,8 +81,8 @@ export const BOUNDARY_RULES: BoundaryRule[] = [
 ]
 
 // ④ public-ish barrels must only re-export from an allowed module list.
-//    Seeded GREEN from the current exports (audit §8 phase 1: guardrail only,
-//    no behavior change). Narrowing happens later by deleting allowlist lines.
+//    Every entry must be on the current runtime path; widening this list is a
+//    deliberate public-surface decision.
 
 export interface BarrelAllowlist {
   allowed: string[]
@@ -94,16 +91,7 @@ export interface BarrelAllowlist {
 
 export const BARREL_ALLOWLIST: Record<string, BarrelAllowlist> = {
   'app/src/external-gateway/core/index.ts': {
-    allowed: [
-      './capabilities',
-      './events',
-      './markdown',
-      './stream',
-      './projection',
-      './visible-output-stream',
-      './types',
-      './errors'
-    ],
+    allowed: ['./capabilities', './events', './projection', './visible-output-stream', './errors'],
     note: 'External Gateway stable runtime surface. Adding a module here is a deliberate public-surface widening.'
   },
   'app/src/ai-agent/core/index.ts': {
@@ -114,22 +102,18 @@ export const BARREL_ALLOWLIST: Record<string, BarrelAllowlist> = {
       './harness/messages',
       './harness/session/session',
       './harness/skills',
-      './harness/system-prompt',
       './harness/types',
       './types',
       './bullx'
     ],
-    // TODO(audit-P3): remove the future-harness entries below when the barrel is
-    // narrowed — ./harness/skills, ./harness/system-prompt, ./harness/types are
-    // exported today but not on the current runtime path.
-    note: 'AIAgent core surface seeded from current exports; future-harness entries pending P3 narrowing.'
+    note: 'AIAgent core surface. Every entry is consumed by the current runtime.'
   }
 }
 
 export const BARREL_EXPORT_CATEGORY = 'barrel-export-out-of-allowlist'
 
 // ---------------------------------------------------------------------------
-// unused: Knip (§7.2)
+// unused: Knip
 // ---------------------------------------------------------------------------
 
 /** Top-level dirs whose paths are real repo files in Knip's compact output. */
@@ -145,14 +129,14 @@ export interface UnusedAllowEntry {
 
 /**
  * Files Knip reports as unused that are intentional. Every entry carries
- * owner/reason (audit §7.2). Build entrypoints (webui entries, drizzle config,
+ * owner/reason. Build entrypoints (webui entries, drizzle config,
  * db-migrate, package exports) are declared as `entry` in knip.config.ts so
  * Knip treats them as used — they do NOT belong here (that would be stale).
  */
 export const UNUSED_ALLOWLIST: UnusedAllowEntry[] = []
 
 // ---------------------------------------------------------------------------
-// duplicates: jscpd v5 (§7.3)
+// duplicates: jscpd v5
 // ---------------------------------------------------------------------------
 
 export const DUP_FORMATS = 'typescript,tsx,javascript,jsx'
@@ -173,7 +157,7 @@ export const DUP_IGNORE_PATTERNS = [
   'app/webui/src/uikit/**',
   'packages/native-addons/**',
   // Contract type definitions: their shape repetition is intentional, not a
-  // clone to merge (audit §6.1/§7.3, P6 Lark setup fields are similar).
+  // clone to merge.
   'packages/sdk/src/plugins.ts'
 ] as const
 
@@ -202,7 +186,7 @@ export const DUP_INTENTIONALLY_UNSCANNED = [
 ] as const
 
 // ---------------------------------------------------------------------------
-// topology: ts-topology named scopes (§7.7)
+// topology: ts-topology named scopes
 // ---------------------------------------------------------------------------
 
 export interface TopologyScopeConfig {
@@ -212,27 +196,34 @@ export interface TopologyScopeConfig {
 }
 
 export const TOPOLOGY_SCOPES: Record<string, TopologyScopeConfig> = {
-  // §7.7①: real consumers of the SDK plugin contract.
+  // Real consumers of the SDK plugin contract.
   'sdk-plugins': {
     entrypointRoot: 'packages/sdk/src',
     importPrefix: '@agentbull/bullx-sdk',
     description: 'BullX SDK public plugin surface'
   },
-  // §7.7②: External Gateway core public-surface usage.
+  // External Gateway core public-surface usage.
   'eg-core': {
     entrypointRoot: 'app/src/external-gateway/core',
     importPrefix: '@/external-gateway/core',
     description: 'External Gateway core public surface'
   },
-  // §7.7③: is the ai-agent future harness used by the current runtime?
+  // AIAgent core surface usage.
   'ai-agent-core': {
     entrypointRoot: 'app/src/ai-agent/core',
     importPrefix: '@/ai-agent/core',
-    description: 'AIAgent core surface including future harness'
+    description: 'AIAgent core surface'
   }
 } as const
 
 export const DEFAULT_TOPOLOGY_SCOPE = 'sdk-plugins'
+
+/**
+ * Scopes where `unused-public-surface` is a CI gate: an internal module surface
+ * must not export what nothing consumes. `sdk-plugins` stays report-only — a
+ * public contract may legitimately export ahead of external consumers.
+ */
+export const TOPOLOGY_GATED_SCOPES = ['eg-core', 'ai-agent-core'] as const
 
 export interface TopologyUnusedAllowEntry {
   scope: string
@@ -241,26 +232,4 @@ export interface TopologyUnusedAllowEntry {
   reason: string
 }
 
-export const TOPOLOGY_UNUSED_ALLOWLIST: TopologyUnusedAllowEntry[] = [
-  {
-    scope: 'sdk-plugins',
-    exportName: 'BullXAgentChannelBinding',
-    owner: 'sdk compatibility',
-    reason:
-      'deprecated alias kept so existing chat-channel plugins compile while migrating to BullXAgentExternalBinding'
-  },
-  {
-    scope: 'sdk-plugins',
-    exportName: 'bullxExternalIdentityProviderIdPattern',
-    owner: 'sdk compatibility',
-    reason:
-      'deprecated alias kept while older plugins migrate from identity-provider naming to external-identity namespace naming'
-  },
-  {
-    scope: 'sdk-plugins',
-    exportName: 'bullxExternalIdentityProviderIdPatternSource',
-    owner: 'sdk compatibility',
-    reason:
-      'deprecated alias kept while older plugins migrate from identity-provider naming to external-identity namespace naming'
-  }
-]
+export const TOPOLOGY_UNUSED_ALLOWLIST: TopologyUnusedAllowEntry[] = []

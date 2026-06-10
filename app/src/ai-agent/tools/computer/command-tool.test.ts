@@ -1,9 +1,12 @@
-import 'reflect-metadata'
 import { describe, expect, it } from 'bun:test'
 import type { Computer } from '@agentbull/bullx-computer'
-import { createCommandTool } from './command-tool'
-import { createComputerTools } from '.'
+import { loadTestEnvFiles } from '@/common/tests/load-test-env'
 import type { ComputerToolContext } from './context'
+
+await loadTestEnvFiles()
+
+const { createCommandTool } = await import('./command-tool')
+const { createComputerTools } = await import('.')
 
 describe('createCommandTool', () => {
   it('runs through stateless runCommand instead of the persistent shell', async () => {
@@ -24,6 +27,7 @@ describe('createCommandTool', () => {
     } as unknown as Computer
     const context: ComputerToolContext = {
       agentUid: 'agent_123',
+      executionScopeId: 'test-scope',
       getComputer: async () => computer,
       backgroundIds: new Set()
     }
@@ -56,9 +60,9 @@ describe('createCommandTool', () => {
       {
         resolveWorker: async () => ({
           agentUid: 'agent_123',
-          worker: { workerId: 'dev', instanceId: 'i0', baseUrl: 'http://worker.local' },
+          worker: { workerId: 'dev', instanceId: 'i0', baseUrl: 'https://worker.local' },
           binding: { kind: 'implicit', reason: 'test' },
-          token: 'token'
+          tls: { caCert: 'CA', cert: 'CERT', key: 'KEY' }
         })
       }
     )
@@ -68,11 +72,13 @@ describe('createCommandTool', () => {
       'browser_open',
       'browser_extract',
       'browser_run',
+      'codex_delegate',
       'command',
       'terminal',
       'interactive_terminal',
       'process',
       'read_file',
+      'send_file',
       'patch'
     ])
   })

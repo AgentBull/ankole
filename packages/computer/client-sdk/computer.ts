@@ -71,7 +71,7 @@ async function resolveSession(
 
 function workerFor(resolved: ResolveSessionResponse, params: ComputerConnectionConfig, agentUid: string): WorkerClient {
   return new WorkerClient(
-    { baseUrl: resolved.worker.baseUrl, token: resolved.token, fetch: params.fetch, debug: params.debug },
+    { baseUrl: resolved.worker.baseUrl, tls: resolved.tls, fetch: params.fetch, debug: params.debug },
     agentUid
   )
 }
@@ -172,7 +172,7 @@ export class Computer {
 
   async runShellCommand(command: string, opts: RunShellCommandOptions = {}): Promise<CommandFinished> {
     const response = await this.worker.openShell(
-      { command, cwd: opts.cwd, env: opts.env, wait: true, timeout: opts.timeoutMs },
+      { command, cwd: opts.cwd, env: opts.env, scope: opts.shellScope, wait: true, timeout: opts.timeoutMs },
       opts.signal
     )
     const result = await consumeCommandResponse(this.worker, response, {

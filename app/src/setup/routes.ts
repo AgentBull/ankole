@@ -1,12 +1,13 @@
 import { Elysia } from 'elysia'
 import { z } from 'zod'
-import { statusFromError } from '@/common/errors'
+import { DomainError, statusFromError } from '@/common/errors'
 import { appConfigService, type AppConfigJsonValue } from '@/config/app-configure'
 import { AppEnv } from '@/config/env'
 import { AppI18nDefaultLocaleConfig } from '@/config/i18n'
 import { DEFAULT_LOCALE, SUPPORTED_LOCALES, isSupportedLocale } from '@/config/i18n-locales'
 import { appConfigJsonRecordSchema } from '@/config/json-value-schema'
 import { appendSetCookie } from '@/core/http'
+import { llmProviderCreateBody } from '@/llm-providers/service'
 import {
   checkLlmProvider,
   listLlmProviderModels,
@@ -22,6 +23,7 @@ import {
   resolveIdentityProviderPublicBaseUrl
 } from '@/principals/admin-auth/oidc'
 import { ActiveIdentityProvidersConfig, identityProviderConfigKey } from '@/principals/identity-providers/config'
+import { createOidcLoginAdapter } from '@/principals/identity-providers/adapters'
 import {
   getEnabledIdentityProviderAdapter,
   listEnabledIdentityProviderAdapters
@@ -65,15 +67,6 @@ const identityProviderConfigBody = z.object({
 })
 
 // Provider entries are re-validated by the service (saveLlmProviders parses each
-// with LlmProviderCreateInputSchema); the route schema describes the request
-// shape for Treaty and leaves deep option validation to the service.
-const llmProviderCreateBody = z.object({
-  providerId: z.string().min(1),
-  piProvider: z.string().min(1),
-  baseUrl: z.string().nullable().optional(),
-  apiKey: z.string().nullable().optional(),
-  providerOptions: jsonObjectBody.optional()
-})
 
 const llmProvidersBody = z.object({
   providers: z.array(llmProviderCreateBody)
@@ -97,15 +90,6 @@ const oidcAuthorizationQuery = z.object({
  * `onError` handler maps it to a status and the handler success paths return a
  * clean (Eden-Treaty-friendly) shape instead of a `{ data } | { error }` union.
  */
-export class SetupDomainError extends Error {
-  constructor(
-    readonly status: number,
-    message: string
-  ) {
-    super(message)
-    this.name = 'SetupDomainError'
-  }
-}
 
 export function setupRoutes() {
   return new Elysia({ name: 'setup-routes' })
@@ -283,7 +267,7 @@ export function setupRoutes() {
       async ({ params, query, request, set }) => {
         await requireActiveSetupSession(request)
 
-        const provider = await createSetupOidcProvider(params.providerId, request)
+        const provider = await createOidcLoginAdapter(params.providerId, request)
         if (!provider.adapter.buildOidcAuthorizationUrl) {
           set.status = 404
           return { error: 'identity provider does not support OIDC' }
@@ -321,13 +305,13 @@ export function setupRoutes() {
 }
 
 /**
- * Requires an active setup session. Throws {@link SetupDomainError} (409 once
+ * Requires an active setup session. Throws {@link DomainError} (409 once
  * setup has completed, 401 otherwise) so handler success paths return a clean
  * (Eden-Treaty-friendly) shape instead of a `{ data } | { error }` union.
  */
 async function requireActiveSetupSession(request: Request): Promise<void> {
   const completed = (await appConfigService.get(SetupCompletedConfig)) === true
-  if (completed) throw new SetupDomainError(409, 'setup already completed')
+  if (completed) throw new DomainError(409, 'setup already completed')
 
   /*
    * A setup session only proves possession of the current bootstrap activation
@@ -337,7 +321,7 @@ async function requireActiveSetupSession(request: Request): Promise<void> {
   const setupSession = readSetupSessionCookie(request.headers.get('cookie'))
   if (setupSession) return
 
-  throw new SetupDomainError(401, 'setup session required')
+  throw new DomainError(401, 'setup session required')
 }
 
 async function upsertActiveIdentityProvider(input: { providerId: string; adapter: string; enabled: boolean }) {
@@ -353,27 +337,4 @@ async function upsertActiveIdentityProvider(input: { providerId: string; adapter
   else providers[existingIndex] = next
 
   await appConfigService.set(ActiveIdentityProvidersConfig, providers)
-}
-
-async function createSetupOidcProvider(providerId: string, request: Request) {
-  const active = ((await appConfigService.get(ActiveIdentityProvidersConfig)) ?? []).find(
-    provider => provider.providerId === providerId && provider.enabled !== false
-  )
-  if (!active) throw new Error(`Identity provider is not configured: ${providerId}`)
-
-  const factory = await getEnabledIdentityProviderAdapter(active.adapter)
-  const config = await appConfigService.getByKey(identityProviderConfigKey(providerId))
-  const publicBaseUrl = await resolveIdentityProviderPublicBaseUrl(request)
-  const adapter = await factory.create({
-    providerId,
-    config: clonePluginJsonValue(config),
-    publicBaseUrl,
-    isProduction: AppEnv.IS_PRODUCTION,
-    syncSink: createNoopIdentityProviderSyncSink()
-  })
-
-  return {
-    active,
-    adapter
-  }
 }

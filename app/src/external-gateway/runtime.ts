@@ -1,7 +1,6 @@
 import type { BullXExternalGatewayExternalIdentitySink } from '@agentbull/bullx-sdk/plugins'
 import { get, isNonEmptyString, isString } from '@pleisto/active-support'
 import { aiAgentRuntime } from '@/ai-agent/runtime'
-import { singleton } from '@/common/di'
 import type { Runtime } from '@/common/lifecycle'
 import { logger } from '@/common/logger'
 import { type AppConfigJsonValue, appConfigService } from '@/config/app-configure'
@@ -13,10 +12,13 @@ import type { ExternalGatewayAgentExecutor } from './agent'
 import {
   externalGatewayAgentEventQueue,
   type DrizzleExternalGatewayAgentEventQueue,
-  type ExternalGatewayAgentDelivery
+  type ExternalGatewayAgentDelivery,
+  type ExternalGatewayAgentEventKey
 } from './agent-events'
+import { loadAiAgentParallelismConfig } from '@/ai-agent/config'
 import { agentChannelConfigKey } from './config'
 import { createExternalGatewayAdapterContext, type RuntimeExternalBinding } from './handlers'
+import type { ExternalMediaComputerWriter } from './media-cache'
 import { type AgentExternalBinding, type GroupMessageMode, parseAgentExternalBindings } from './metadata'
 import { externalGatewayOutbox, type DrizzleExternalGatewayOutbox } from './outbox'
 import { externalGatewayProjectionSink, type ExternalGatewayProjectionSink } from './core/projection'
@@ -83,6 +85,7 @@ export interface ExternalGatewayRuntimeStartOptions {
   loadActiveAgents?: () => Promise<AgentResult[]>
   outbox?: DrizzleExternalGatewayOutbox
   projection?: ExternalGatewayProjectionSink
+  getComputerFileWriter?: (agentUid: string, signal?: AbortSignal) => Promise<ExternalMediaComputerWriter>
   resolveAdapterFactory?: (id: string) => ExternalGatewayAdapterFactory
 }
 
@@ -103,16 +106,31 @@ export class ExternalGatewayRuntimeError extends Error {
  * context`. The context emits normalized events into projection and the agent
  * input window.
  */
-@singleton()
 export class ExternalGatewayRuntime implements Runtime<ExternalGatewayRuntimeStats> {
   private readonly instances = new Map<string, AgentChatRuntimeInstance>()
   private agentExecutor: ExternalGatewayAgentExecutor = aiAgentRuntime
   private drainingAgentEvents = false
+  private drainRequested = false
   private eventQueue: DrizzleExternalGatewayAgentEventQueue = externalGatewayAgentEventQueue
   private outbox: DrizzleExternalGatewayOutbox = externalGatewayOutbox
   private projection: ExternalGatewayProjectionSink = externalGatewayProjectionSink
   private readonly drainTimers = new Set<ReturnType<typeof setTimeout>>()
   private drainPromise: Promise<void> | null = null
+  /**
+   * Process-local in-flight deliveries. Rows stay `pending` until
+   * markDone/markFailed, so claiming excludes the in-flight event keys (not
+   * whole rooms: same-room follow-up and steering input must keep flowing to
+   * the executor while a generation runs). The per-agent parallelism quota
+   * counts these deliveries; queued-only deliveries (follow-up appends) settle
+   * in milliseconds and barely occupy a slot. Conversation-level safety stays
+   * with the `ai_agent_conversations.generation` lease.
+   */
+  private readonly inFlightDeliveries = new Map<
+    number,
+    { agentUid: string; events: ExternalGatewayAgentEventKey[]; run: Promise<void> }
+  >()
+  private nextDeliveryId = 0
+  private readonly outboxDrains = new Map<string, { requested: boolean; promise: Promise<void> }>()
   private started = false
   private startPromise: Promise<ExternalGatewayRuntimeStats> | null = null
 
@@ -143,6 +161,9 @@ export class ExternalGatewayRuntime implements Runtime<ExternalGatewayRuntimeSta
         logger.error({ error }, 'Failed to finish External Gateway agent event drain before shutdown')
       })
     }
+
+    // Wait for every in-flight delivery: rows stay pending until they settle.
+    await Promise.allSettled([...this.inFlightDeliveries.values()].map(delivery => delivery.run))
 
     await this.agentExecutor.stop?.()
 
@@ -276,6 +297,7 @@ export class ExternalGatewayRuntime implements Runtime<ExternalGatewayRuntimeSta
           agent,
           binding: runtimeBinding,
           eventQueue: this.eventQueue,
+          getComputerFileWriter: options.getComputerFileWriter,
           projection,
           scheduleDrain: availableAt => this.scheduleAgentEventDrain(availableAt),
           roomHasPendingClarify: roomId => this.agentExecutor.roomHasPendingClarify?.(roomId) ?? false
@@ -310,46 +332,92 @@ export class ExternalGatewayRuntime implements Runtime<ExternalGatewayRuntimeSta
   }
 
   private async runAgentEventDrain(): Promise<void> {
-    if (this.drainPromise) return this.drainPromise
+    // A drain pass claims without awaiting deliveries, so it can finish in the
+    // gap between an event insert and its schedule callback. Re-run requests
+    // that arrive mid-pass instead of dropping the wakeup.
+    if (this.drainPromise) {
+      this.drainRequested = true
+      return this.drainPromise
+    }
 
-    this.drainPromise = this.drainAgentEvents().finally(() => {
+    this.drainPromise = (async () => {
+      do {
+        this.drainRequested = false
+        await this.drainAgentEvents()
+      } while (this.drainRequested && this.started)
+    })().finally(() => {
       this.drainPromise = null
     })
     return this.drainPromise
   }
 
+  /**
+   * Lane-scheduling claim loop. Each pass claims ready work for agents below
+   * their conversation-parallelism quota, excluding rows already claimed by an
+   * in-flight delivery, and starts the delivery WITHOUT awaiting it — lanes of
+   * the same agent (and different agents) run concurrently. A settled delivery
+   * re-arms the drain so freed quota and unblocked rows are re-scanned.
+   */
   private async drainAgentEvents(): Promise<void> {
     if (this.drainingAgentEvents) return
     this.drainingAgentEvents = true
 
     try {
+      const { maxConversationsPerAgent } = await loadAiAgentParallelismConfig()
       while (this.started) {
-        const delivery = await this.eventQueue.claimReady({
-          agentUids: [...this.instances.keys()]
-        })
+        const laneCounts = new Map<string, number>()
+        for (const delivery of this.inFlightDeliveries.values()) {
+          laneCounts.set(delivery.agentUid, (laneCounts.get(delivery.agentUid) ?? 0) + 1)
+        }
+        const eligibleAgents = [...this.instances.keys()].filter(
+          agentUid => (laneCounts.get(agentUid) ?? 0) < maxConversationsPerAgent
+        )
+        const excludeEvents = [...this.inFlightDeliveries.values()].flatMap(delivery => delivery.events)
+
+        if (eligibleAgents.length === 0) return
+        const delivery = await this.eventQueue.claimReady({ agentUids: eligibleAgents, excludeEvents })
         if (!delivery) {
           const nextAvailableAt = await this.eventQueue.nextPendingAvailableAt({
-            agentUids: [...this.instances.keys()]
+            agentUids: eligibleAgents,
+            excludeEvents
           })
           if (nextAvailableAt) this.scheduleAgentEventDrain(nextAvailableAt)
           return
         }
 
-        try {
-          await this.deliverAgentEvents(delivery)
-          await this.eventQueue.markDone(delivery.events)
-          const first = delivery.events[0]
-          if (first) this.scheduleOutboxDrain(first.agentUid, first.bindingName)
-        } catch (error) {
-          await this.eventQueue.markFailed(delivery.events, error)
-          logger.error(
-            { error, events: delivery.events.map(event => event.providerEventId) },
-            'External Gateway agent delivery failed'
-          )
-        }
+        const first = delivery.events[0]
+        if (!first) continue
+        const deliveryId = this.nextDeliveryId++
+        const events = delivery.events.map(event => ({
+          agentUid: event.agentUid,
+          bindingName: event.bindingName,
+          providerEventId: event.providerEventId
+        }))
+        const run = this.deliverLane(delivery).finally(() => {
+          this.inFlightDeliveries.delete(deliveryId)
+          // Freed quota / settled rows: re-scan promptly for queued work.
+          if (this.started) this.scheduleAgentEventDrain()
+        })
+        this.inFlightDeliveries.set(deliveryId, { agentUid: first.agentUid, events, run })
       }
     } finally {
       this.drainingAgentEvents = false
+    }
+  }
+
+  /** Runs one claimed delivery to completion and settles its input rows. */
+  private async deliverLane(delivery: ExternalGatewayAgentDelivery): Promise<void> {
+    try {
+      await this.deliverAgentEvents(delivery)
+      await this.eventQueue.markDone(delivery.events)
+      const first = delivery.events[0]
+      if (first) this.scheduleOutboxDrain(first.agentUid, first.bindingName)
+    } catch (error) {
+      await this.eventQueue.markFailed(delivery.events, error)
+      logger.error(
+        { error, events: delivery.events.map(event => event.providerEventId) },
+        'External Gateway agent delivery failed'
+      )
     }
   }
 
@@ -367,7 +435,8 @@ export class ExternalGatewayRuntime implements Runtime<ExternalGatewayRuntimeSta
       throw new ExternalGatewayRuntimeError(`Binding is not ready for External Gateway event: ${first.bindingName}`)
     }
 
-    await this.agentExecutor.acceptExternalGatewayDelivery(delivery, {
+    const settledWork: Promise<void>[] = []
+    const acceptance = await this.agentExecutor.acceptExternalGatewayDelivery(delivery, {
       adapter,
       agent: instance.agent,
       agentUid: first.agentUid,
@@ -375,8 +444,14 @@ export class ExternalGatewayRuntime implements Runtime<ExternalGatewayRuntimeSta
       outbox: this.outbox,
       projection: this.projection,
       providerRealmId: providerRealmIdFromPayload(first.payload),
-      scheduleOutboxDrain: availableAt => this.scheduleOutboxDrain(first.agentUid, first.bindingName, availableAt)
+      scheduleOutboxDrain: availableAt => this.scheduleOutboxDrain(first.agentUid, first.bindingName, availableAt),
+      trackSettled: settled => settledWork.push(settled)
     })
+    // Hold the lane (and the per-agent quota slot) until the started work
+    // settles. Work started after acceptance (delayed media-batch triggers)
+    // is not awaited — those lanes free early by design.
+    if (acceptance.settled) await acceptance.settled
+    await Promise.all(settledWork)
   }
 
   private async recoverAgentBinding(instance: AgentChatRuntimeInstance, bindingName: string): Promise<void> {
@@ -405,18 +480,40 @@ export class ExternalGatewayRuntime implements Runtime<ExternalGatewayRuntimeSta
     this.drainTimers.add(timer)
   }
 
+  /**
+   * One outbox drain per (agent, binding) at a time. Concurrent lanes of one
+   * agent commit (and trigger drains) simultaneously; without this mutex two
+   * overlapping drains would select the same pending rows and double-deliver.
+   * Requests that arrive mid-drain re-run the drain instead of overlapping it.
+   */
   private async runOutboxDrain(agentUid: string, bindingName: string): Promise<void> {
-    const instance = this.instances.get(agentUid)
-    if (!instance) return
-    const adapter = instance.adapters[bindingName]
-    if (!adapter) return
-    await this.outbox.dispatchPendingForBinding({
-      adapter,
-      agent: instance.agent,
-      bindingName,
-      projection: this.projection,
-      room: {}
+    const key = `${agentUid}\u0000${bindingName}`
+    const existing = this.outboxDrains.get(key)
+    if (existing) {
+      existing.requested = true
+      return existing.promise
+    }
+    const state = { requested: false, promise: Promise.resolve() }
+    state.promise = (async () => {
+      do {
+        state.requested = false
+        const instance = this.instances.get(agentUid)
+        if (!instance) return
+        const adapter = instance.adapters[bindingName]
+        if (!adapter) return
+        await this.outbox.dispatchPendingForBinding({
+          adapter,
+          agent: instance.agent,
+          bindingName,
+          projection: this.projection,
+          room: {}
+        })
+      } while (state.requested && this.started)
+    })().finally(() => {
+      this.outboxDrains.delete(key)
     })
+    this.outboxDrains.set(key, state)
+    return state.promise
   }
 
   private async shutdownInstances(instances: AgentChatRuntimeInstance[]): Promise<void> {
@@ -454,3 +551,6 @@ function providerRealmIdFromPayload(payload: unknown): string | undefined {
   const realm = get(payload, 'data.room.metadata.providerRealmId') ?? get(payload, 'data.room.metadata.tenantKey')
   return isNonEmptyString(realm) ? realm : undefined
 }
+
+/** Shared External Gateway runtime instance. */
+export const externalGatewayRuntime = new ExternalGatewayRuntime()

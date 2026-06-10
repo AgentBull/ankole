@@ -7,21 +7,16 @@ export type {
   ExternalGatewayAdapterCapabilities,
   ExternalGatewayAdapterContext,
   ExternalGatewayBeginStreamingCardInput,
-  ExternalGatewayInboundCapability,
   ExternalGatewayMessageDeletedEvent,
   ExternalGatewayMessageInput,
   ExternalGatewayMessageReconciliation,
-  ExternalGatewayOutboundCapability,
   ExternalGatewayOutboundOptions,
   ExternalGatewayRawMessage,
   ExternalGatewayReactionEvent,
   ExternalGatewayRoomInput,
   ExternalGatewayStreamingCardHandle,
-  ExternalGatewayStreamingCardStatus,
   ExternalGatewayWebhookOptions
 } from './events'
-export { parseMarkdown } from './markdown'
-export { normalizeBullXStream } from './stream'
 export {
   externalGatewayProjectionSink,
   DrizzleExternalGatewayProjectionSink,
@@ -40,22 +35,4 @@ export {
   type ExternalGatewayVisibleOutputStreamKey,
   type ReadExternalGatewayVisibleOutputInput
 } from './visible-output-stream'
-export type {
-  AdapterPostableMessage,
-  Attachment,
-  Author,
-  FileUpload,
-  FormattedContent,
-  LinkPreview,
-  MarkdownTextChunk,
-  PlanUpdateChunk,
-  PostableAst,
-  PostableMarkdown,
-  PostableMessage,
-  PostableRaw,
-  RawMessage,
-  StreamChunk,
-  StreamOptions,
-  TaskUpdateChunk
-} from './types'
 export { UnsupportedChannelCapabilityError } from './errors'

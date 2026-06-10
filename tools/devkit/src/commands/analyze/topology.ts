@@ -1,9 +1,12 @@
-// `analyze topology` — public-surface usage report (§7.7). Report-only: never a
-// gate (exitCode 0 unless the analyzer itself fails). Glue rewritten for bullx
-// around the ported ts-topology lib; named scopes come from config.
+// `analyze topology` — public-surface usage reports. The `unused-public-surface`
+// report is a CI gate for the scopes in TOPOLOGY_GATED_SCOPES (internal module
+// surfaces must not export what nothing consumes); every other scope/report
+// combination is report-only (exitCode 0 unless the analyzer itself fails).
+// Glue rewritten for bullx around the ported ts-topology lib; named scopes come
+// from config.
 
 import { repoRootPath } from '../../utils'
-import { DEFAULT_TOPOLOGY_SCOPE, TOPOLOGY_SCOPES, TOPOLOGY_UNUSED_ALLOWLIST } from './config'
+import { DEFAULT_TOPOLOGY_SCOPE, TOPOLOGY_GATED_SCOPES, TOPOLOGY_SCOPES, TOPOLOGY_UNUSED_ALLOWLIST } from './config'
 import { analyzeTopology } from './lib/ts-topology/analyze'
 import { renderTextReport } from './lib/ts-topology/reports'
 import { createFilesystemPublicSurfaceScope } from './lib/ts-topology/scope'
@@ -47,6 +50,7 @@ export function runTopology(options: TopologyOptions = {}): CheckResult {
   if (!VALID_REPORTS.has(report)) {
     return infraResult(`unknown report '${report}' (valid: ${[...VALID_REPORTS].join(', ')})`)
   }
+  const gated = report === 'unused-public-surface' && (TOPOLOGY_GATED_SCOPES as readonly string[]).includes(scopeId)
   const limit = options.limit ?? 25
   const intentionalUnusedPublicExportNames = new Set(
     TOPOLOGY_UNUSED_ALLOWLIST.filter(entry => entry.scope === scopeId).map(entry => entry.exportName)
@@ -72,13 +76,16 @@ export function runTopology(options: TopologyOptions = {}): CheckResult {
       envelope.totals.allowlistedUnused > 0
         ? `${envelope.totals.unused} unused, ${envelope.totals.allowlistedUnused} allowlisted`
         : `${envelope.totals.unused} unused`
+    const ok = !gated || envelope.totals.unused === 0
+    const exitCode = ok ? 0 : 1
+    const mode = gated ? 'gate' : 'report-only'
     return {
       check: 'topology',
-      ok: true,
-      exitCode: 0,
-      summary: `report (${scopeId}: ${envelope.totals.exports} exports, ${unusedSummary}) [report-only]`,
-      human: `analyze:topology [report-only]\n${renderTextReport(envelope, limit)}`,
-      json: { check: 'topology', scope: scopeId, report, envelope }
+      ok,
+      exitCode,
+      summary: `${ok ? (gated ? 'OK' : 'report') : 'FAIL'} (${scopeId}: ${envelope.totals.exports} exports, ${unusedSummary}) [${mode}]`,
+      human: `analyze:topology [${mode}]\n${renderTextReport(envelope, limit)}`,
+      json: { check: 'topology', ok, exitCode, scope: scopeId, report, envelope }
     }
   } catch (error) {
     return infraResult(error instanceof Error ? error.message : String(error))

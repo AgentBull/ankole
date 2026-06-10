@@ -1,5 +1,5 @@
 import type { AiAgentRuntimeProfile } from './config'
-import { zonedLocalTimeToUtc, zonedParts } from '@/config/system'
+import { loadSystemTimezone, zonedLocalTimeToUtc, zonedParts } from '@/config/system'
 import {
   aiAgentConversationService,
   type AiAgentConversationRoute,
@@ -16,7 +16,7 @@ export class AiAgentDailyResetService {
   async ensureFreshConversation(route: AiAgentConversationRoute, profile: AiAgentRuntimeProfile) {
     const conversation = await this.conversations.getOrCreateActiveConversation(route)
     if (!profile.dailyReset.enabled) return conversation
-    const boundary = dailyResetBoundary(new Date(), profile.dailyReset.timezone, profile.dailyReset.hour)
+    const boundary = dailyResetBoundary(new Date(), await loadSystemTimezone(), profile.dailyReset.hour)
     if (conversation.createdAt.getTime() >= boundary.getTime()) return conversation
 
     if (conversation.generation.lease_id) {

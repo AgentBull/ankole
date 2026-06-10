@@ -1,9 +1,9 @@
+import { ms } from '@pleisto/active-support'
 import type {
   BullXIdentityProviderAdapter,
   BullXIdentityProviderAdapterFactory,
   BullXIdentityProviderSyncSink
 } from '@agentbull/bullx-sdk/plugins'
-import { rootContainer, singleton } from '@/common/di'
 import type { Runtime } from '@/common/lifecycle'
 import { logger } from '@/common/logger'
 import { AppEnv } from '@/config/env'
@@ -17,9 +17,9 @@ import {
   syncIdentityProviderUser,
   upsertIdentityProviderGroup
 } from './service'
-import { IdentityProviderAdapterRegistry } from './registry'
+import { identityProviderAdapterRegistry, type IdentityProviderAdapterRegistry } from './registry'
 
-const DEFAULT_RETRY_MS = 60_000
+const DEFAULT_RETRY_MS = ms('1m')
 
 export interface IdentityProviderRuntimeStats {
   activeProviders: string[]
@@ -57,7 +57,6 @@ export interface IdentityProviderRuntimeStartOptions {
   retryMs?: number
 }
 
-@singleton()
 export class IdentityProviderRuntime implements Runtime<IdentityProviderRuntimeStats> {
   private readonly providers = new Map<string, RuntimeProvider>()
   private readonly degradedStagesByProvider = new Map<string, Set<string>>()
@@ -77,7 +76,7 @@ export class IdentityProviderRuntime implements Runtime<IdentityProviderRuntimeS
     if (this.startedStats) return this.startedStats
 
     const log = options.logger ?? logger
-    const registry = options.registry ?? rootContainer.resolve(IdentityProviderAdapterRegistry)
+    const registry = options.registry ?? identityProviderAdapterRegistry
     const retryMs = options.retryMs ?? DEFAULT_RETRY_MS
     const activations =
       (await (options.getActiveProviders ?? (() => appConfigService.get(ActiveIdentityProvidersConfig)))()) ?? []
@@ -271,4 +270,4 @@ async function defaultProviderConfig(providerId: string): Promise<AppConfigJsonV
   return appConfigService.getByKey(identityProviderConfigKey(providerId))
 }
 
-export const identityProviderRuntime = rootContainer.resolve(IdentityProviderRuntime)
+export const identityProviderRuntime = new IdentityProviderRuntime()

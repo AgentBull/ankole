@@ -1,4 +1,3 @@
-import 'reflect-metadata'
 import { describe, expect, it } from 'bun:test'
 import { loadTestEnvFiles } from '@/common/tests/load-test-env'
 import type { AgentMessage } from './core'

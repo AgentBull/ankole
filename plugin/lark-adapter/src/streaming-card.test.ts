@@ -48,7 +48,7 @@ function fakeConnection(calls: RecordedCall[]): SharedLarkConnection {
             return { code: 0, data: { message_id: 'msg-1' } }
           },
           reply: async (payload: any) => {
-            calls.push({ kind: 'message.reply', data: payload.data })
+            calls.push({ kind: 'message.reply', data: payload.data, path: payload.path })
             return { code: 0, data: { message_id: 'msg-2' } }
           }
         }
@@ -125,5 +125,127 @@ describe('LarkStreamingCardSession', () => {
     await session.update('x')
     await session.finish('x', 'completed')
     expect(session.cardId).toBe('')
+  })
+
+  it('degrades without sending when CardKit create returns a non-success code', async () => {
+    const calls: RecordedCall[] = []
+    const connection = fakeConnection(calls)
+    connection.rawClient.cardkit.v1.card.create = async (payload: any) => {
+      calls.push({ kind: 'card.create', data: payload.data })
+      return { code: 999, msg: 'bad card', data: { card_id: 'card-bad' } }
+    }
+
+    const session = await createLarkStreamingCardSession(connection, {
+      chatId: 'oc_x',
+      intervalMs: 0,
+      bufferThreshold: 1
+    })
+
+    expect(session.cardId).toBe('')
+    expect(calls.some(c => c.kind === 'message.create' || c.kind === 'message.reply')).toBe(false)
+  })
+
+  it('replies to the root message without creating a Lark topic', async () => {
+    const calls: RecordedCall[] = []
+    const session = await createLarkStreamingCardSession(fakeConnection(calls), {
+      chatId: 'oc_x',
+      rootId: 'om_root',
+      idempotencyKey: 'uuid-stream',
+      intervalMs: 0,
+      bufferThreshold: 1
+    })
+
+    expect(session.messageId).toBe('msg-2')
+    expect(calls.some(c => c.kind === 'message.create')).toBe(false)
+    const reply = calls.find(c => c.kind === 'message.reply')
+    expect(reply).toMatchObject({
+      path: { message_id: 'om_root' },
+      data: {
+        msg_type: 'interactive',
+        reply_in_thread: false,
+        uuid: 'uuid-stream'
+      }
+    })
+  })
+
+  it('renders fenced code blocks as visible inline-code lines for CardKit markdown', async () => {
+    const calls: RecordedCall[] = []
+    const session = await createLarkStreamingCardSession(fakeConnection(calls), {
+      chatId: 'oc_x',
+      intervalMs: 0,
+      bufferThreshold: 1
+    })
+
+    await session.update('Rows:\n```csv\nn,square\n1,1\n2,4\n```')
+
+    const replace = calls.find(c => c.kind === 'cardElement.update')
+    const element = JSON.parse(replace!.data.element)
+    expect(element.content).toBe('Rows:\n`csv`\n`n,square`\n`1,1`\n`2,4`')
+    expect(element.content).not.toContain('```')
+  })
+
+  it('retries an interactive reply when Feishu has not made the new card_id visible yet', async () => {
+    const calls: RecordedCall[] = []
+    let replyAttempts = 0
+    const connection = fakeConnection(calls)
+    const originalReply = connection.rawClient.im.v1.message.reply
+    connection.rawClient.im.v1.message.reply = async (payload: any) => {
+      replyAttempts += 1
+      calls.push({ kind: 'message.reply', data: payload.data, path: payload.path })
+      if (replyAttempts === 1) {
+        throw {
+          response: {
+            data: {
+              code: 230099,
+              msg: 'Failed to create card content, ext=ErrCode: 11310; ErrMsg: cardid is invalid; '
+            }
+          }
+        }
+      }
+      return originalReply(payload)
+    }
+
+    const session = await createLarkStreamingCardSession(connection, {
+      chatId: 'oc_x',
+      rootId: 'om_root',
+      intervalMs: 0,
+      bufferThreshold: 1,
+      cardIdRetryDelaysMs: [0]
+    })
+
+    expect(session.messageId).toBe('msg-2')
+    expect(replyAttempts).toBe(2)
+  })
+
+  it('keeps retrying invalid card_id with the default visibility wait budget', async () => {
+    const calls: RecordedCall[] = []
+    let replyAttempts = 0
+    const connection = fakeConnection(calls)
+    const originalReply = connection.rawClient.im.v1.message.reply
+    connection.rawClient.im.v1.message.reply = async (payload: any) => {
+      replyAttempts += 1
+      calls.push({ kind: 'message.reply', data: payload.data, path: payload.path })
+      if (replyAttempts <= 2) {
+        throw {
+          response: {
+            data: {
+              code: 230099,
+              msg: 'Failed to create card content, ext=ErrCode: 11310; ErrMsg: cardid is invalid; '
+            }
+          }
+        }
+      }
+      return originalReply(payload)
+    }
+
+    const session = await createLarkStreamingCardSession(connection, {
+      chatId: 'oc_x',
+      rootId: 'om_root',
+      intervalMs: 0,
+      bufferThreshold: 1
+    })
+
+    expect(session.messageId).toBe('msg-2')
+    expect(replyAttempts).toBe(3)
   })
 })

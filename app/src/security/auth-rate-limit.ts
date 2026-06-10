@@ -1,4 +1,5 @@
 import net from 'node:net'
+import { ms } from '@pleisto/active-support'
 
 export interface RateLimitConfig {
   maxAttempts?: number
@@ -24,9 +25,9 @@ export interface AuthRateLimiter {
 }
 
 const DEFAULT_MAX_ATTEMPTS = 10
-const DEFAULT_WINDOW_MS = 60_000
-const DEFAULT_LOCKOUT_MS = 300_000
-const DEFAULT_PRUNE_INTERVAL_MS = 60_000
+const DEFAULT_WINDOW_MS = ms('1m')
+const DEFAULT_LOCKOUT_MS = ms('5m')
+const DEFAULT_PRUNE_INTERVAL_MS = ms('1m')
 const DEFAULT_SCOPE = 'default'
 
 interface Entry {

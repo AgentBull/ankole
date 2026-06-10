@@ -1,13 +1,11 @@
 import { Elysia, t } from 'elysia'
+import { createOidcLoginAdapter } from '@/principals/identity-providers/adapters'
 import { AppEnv } from '@/config/env'
 import { appConfigService } from '@/config/app-configure'
 import { appendSetCookie, redirectWithSetCookies } from '@/core/http'
 import { rootInitAdmin } from '../authorization/service'
 import { upsertIdentityProviderUser } from '../identity-providers/service'
-import { ActiveIdentityProvidersConfig, identityProviderConfigKey } from '../identity-providers/config'
-import { createNoopIdentityProviderSyncSink } from '../identity-providers/noop-sync-sink'
-import { getEnabledIdentityProviderAdapter } from '../identity-providers/adapters'
-import { clonePluginJsonValue } from '@/plugins/config-json'
+import { ActiveIdentityProvidersConfig } from '../identity-providers/config'
 import { SetupBootstrapActivationCodeConfig, SetupCompletedConfig } from '@/setup/config'
 import { isSetupCompletionRestartRecommended, markSetupCompletionRestartRecommended } from '@/setup/runtime-state'
 import {
@@ -67,7 +65,7 @@ export function sessionApiRoutes() {
     .post(
       '/api/identity-providers/:providerId/oidc/authorizations',
       async ({ params, query, request, set }) => {
-        const provider = await createOidcProvider(params.providerId, request)
+        const provider = await createOidcLoginAdapter(params.providerId, request)
         if (!provider.adapter.buildOidcAuthorizationUrl) {
           set.status = 404
           return { error: 'identity provider does not support OIDC' }
@@ -128,7 +126,7 @@ export function sessionApiRoutes() {
         return { error: 'invalid OIDC provider' }
       }
 
-      const provider = await createOidcProvider(params.providerId, request)
+      const provider = await createOidcLoginAdapter(params.providerId, request)
       if (!provider.adapter.completeOidcLogin) {
         set.status = 404
         return { error: 'identity provider does not support OIDC' }
@@ -174,7 +172,7 @@ async function completeSetupOidcCallback(input: {
     return { error: 'invalid OIDC provider' }
   }
 
-  const provider = await createOidcProvider(input.providerId, input.request)
+  const provider = await createOidcLoginAdapter(input.providerId, input.request)
   if (!provider.adapter.completeOidcLogin) {
     input.set.status = 404
     return { error: 'identity provider does not support OIDC' }
@@ -206,24 +204,4 @@ async function completeSetupOidcCallback(input: {
       maxAgeSeconds: ADMIN_SESSION_TTL_SECONDS
     })
   ])
-}
-
-async function createOidcProvider(providerId: string, request: Request) {
-  const active = ((await appConfigService.get(ActiveIdentityProvidersConfig)) ?? []).find(
-    provider => provider.providerId === providerId && provider.enabled !== false
-  )
-  if (!active) throw new Error(`Identity provider is not configured: ${providerId}`)
-
-  const factory = await getEnabledIdentityProviderAdapter(active.adapter)
-  const config = await appConfigService.getByKey(identityProviderConfigKey(providerId))
-  const publicBaseUrl = await resolveIdentityProviderPublicBaseUrl(request)
-  const adapter = await factory.create({
-    providerId,
-    config: clonePluginJsonValue(config),
-    publicBaseUrl,
-    isProduction: AppEnv.IS_PRODUCTION,
-    syncSink: createNoopIdentityProviderSyncSink()
-  })
-
-  return { active, adapter }
 }

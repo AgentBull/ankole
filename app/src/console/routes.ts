@@ -1,6 +1,6 @@
 import { Elysia } from 'elysia'
 import { z } from 'zod'
-import { statusFromError } from '@/common/errors'
+import { DomainError, statusFromError } from '@/common/errors'
 import { logger } from '@/common/logger'
 import { AiAgentModelsConfigSchema } from '@/ai-agent/config'
 import { AppEnv } from '@/config/env'
@@ -8,6 +8,7 @@ import { appConfigJsonRecordSchema } from '@/config/json-value-schema'
 import type { JsonObject } from '@/common/db-schema'
 import type { UpsertConsoleAgentInput } from './service'
 import {
+  llmProviderCreateBody,
   checkLlmProvider,
   createLlmProvider,
   deleteLlmProvider,
@@ -21,48 +22,49 @@ import { activeHumanAdmin } from '@/principals/admin-auth/access'
 import { readAdminSessionCookie } from '@/principals/admin-auth/session'
 import { clientIpFromRequest, createAuthRateLimiter } from '@/security/auth-rate-limit'
 import { PrincipalDomainError } from '@/principals/principals/service'
+import { createPrincipalGroup, deletePrincipalGroup, updatePrincipalGroup } from '@/principals/authorization/groups'
+import { testConsoleChatRecallEmbedding } from '@/chat-recall/service'
 import {
-  ConsoleDomainError,
   createConsoleAgent,
   createConsoleChatChannel,
   createConsoleHumanUser,
-  createConsolePrincipalGroup,
   deleteConsoleAgent,
   deleteConsoleChatChannel,
   deleteConsoleInteractiveConfigSession,
-  deleteConsolePrincipalGroup,
+  getConsoleAgentMission,
   getConsoleAgentSoul,
+  getConsoleChatRecall,
   getConsoleOverview,
   getConsoleAgent,
   getConsoleInteractiveConfigSession,
+  getConsoleSettings,
   listConsoleAgentLibraryEntries,
+  listConsoleAgentLiveStreams,
   listConsoleAgentSkills,
+  readConsoleAgentLiveOutput,
   listConsoleAgents,
   listConsoleExternalGatewayAdapters,
   listConsoleExternalRooms,
   listConsoleHumanUsers,
   listConsoleLibrarySkills,
   listConsolePrincipalGroups,
+  pauseConsoleChatRecall,
+  reindexConsoleChatRecall,
+  resumeConsoleChatRecall,
   setConsoleAgentSkillAssignment,
+  setConsoleAgentMission,
   setConsoleAgentSoul,
   startConsoleInteractiveConfigSession,
   updateConsoleAgent,
+  updateConsoleChatRecall,
   updateConsoleChatChannel,
   updateConsoleHumanUser,
-  updateConsolePrincipalGroup
+  updateConsoleSettings
 } from './service'
 
 // Loose JSON object body fragment. Deep domain validation stays in the service
 // layer, so route schemas only describe request shape for Eden Treaty.
 const jsonObjectBody = appConfigJsonRecordSchema as z.ZodType<JsonObject>
-
-const llmProviderCreateBody = z.object({
-  providerId: z.string().min(1),
-  piProvider: z.string().min(1),
-  baseUrl: z.string().nullable().optional(),
-  apiKey: z.string().nullable().optional(),
-  providerOptions: jsonObjectBody.optional()
-})
 
 const llmProviderUpdateBody = z.object({
   piProvider: z.string().min(1).optional(),
@@ -82,17 +84,27 @@ const llmProviderCheckBody = z.object({
 
 const llmProfileBody = z.object({ models: z.unknown() }).optional()
 
+const liveOutputQuery = z.object({
+  conversationId: z.string().min(1),
+  streamId: z.string().min(1),
+  after: z.string().optional()
+})
+
 const createAgentBody = z.object({
   uid: z.string().min(1),
   displayName: z.string().nullable().optional(),
   avatarUrl: z.string().nullable().optional(),
-  llmProfile: llmProfileBody
+  llmProfile: llmProfileBody,
+  mission: z.string().optional(),
+  soul: z.string().optional()
 })
 
 const updateAgentBody = z.object({
   displayName: z.string().nullable().optional(),
   avatarUrl: z.string().nullable().optional(),
-  llmProfile: llmProfileBody
+  llmProfile: llmProfileBody,
+  mission: z.string().optional(),
+  soul: z.string().optional()
 })
 
 const createHumanBody = z.object({
@@ -148,10 +160,53 @@ const interactiveConfigBody = z.object({
   locale: z.string().optional()
 })
 
+// Loose request shape; each field is validated against its config definition's
+// own schema in the service layer.
+const updateConsoleSettingsBody = z.object({
+  defaultLocale: z.string().min(1).optional(),
+  timezone: z.string().min(1).optional(),
+  publicBaseUrl: z.string().min(1).optional()
+})
+
+const chatRecallConfigBody = z
+  .object({
+    vector: z
+      .object({
+        enabled: z.boolean().optional(),
+        providerKind: z.enum(['openai', 'openrouter', 'vllm']).optional(),
+        providerId: z.string().min(1).optional(),
+        model: z.string().min(1).optional(),
+        dimensions: z.number().int().positive().optional(),
+        batchSize: z.number().int().min(1).max(256).optional(),
+        concurrency: z.number().int().min(1).max(8).optional(),
+        indexStrategy: z.enum(['auto', 'halfvec_hnsw', 'binary_quantized_hnsw', 'exact_only']).optional()
+      })
+      .strict()
+      .optional(),
+    rerank: z
+      .object({
+        limit: z.number().int().min(1).max(50).optional(),
+        rrfK: z.number().positive().optional(),
+        recencyHalfLifeDays: z.number().positive().optional(),
+        mmrLambda: z.number().min(0).max(1).optional()
+      })
+      .strict()
+      .optional(),
+    worker: z
+      .object({
+        enabled: z.boolean().optional(),
+        pollIntervalMs: z.number().int().min(250).max(300_000).optional(),
+        maxAttempts: z.number().int().min(1).max(20).optional()
+      })
+      .strict()
+      .optional()
+  })
+  .strict()
+
 export function consoleRoutes() {
   return new Elysia({ name: 'console-routes' })
     .onError(({ code, error, set }) => {
-      if (error instanceof ConsoleDomainError) {
+      if (error instanceof DomainError) {
         set.status = error.status
         return { error: error.message }
       }
@@ -187,6 +242,46 @@ export function consoleRoutes() {
       await requireConsoleAdmin(request)
       return { overview: await getConsoleOverview() }
     })
+    .get('/api/console/settings', async ({ request }) => {
+      await requireConsoleAdmin(request)
+      return { settings: await getConsoleSettings() }
+    })
+    .put(
+      '/api/console/settings',
+      async ({ body, request }) => {
+        await requireConsoleAdmin(request)
+        return { settings: await updateConsoleSettings(body) }
+      },
+      { body: updateConsoleSettingsBody }
+    )
+    .get('/api/console/chat-recall', async ({ request }) => {
+      await requireConsoleAdmin(request)
+      return { chatRecall: await getConsoleChatRecall() }
+    })
+    .put(
+      '/api/console/chat-recall',
+      async ({ body, request }) => {
+        await requireConsoleAdmin(request)
+        return { chatRecall: await updateConsoleChatRecall(body) }
+      },
+      { body: chatRecallConfigBody }
+    )
+    .post('/api/console/chat-recall/embedding-test', async ({ request }) => {
+      await requireConsoleAdmin(request)
+      return await testConsoleChatRecallEmbedding()
+    })
+    .post('/api/console/chat-recall/reindex', async ({ request }) => {
+      await requireConsoleAdmin(request)
+      return { chatRecall: await reindexConsoleChatRecall() }
+    })
+    .post('/api/console/chat-recall/pause', async ({ request }) => {
+      await requireConsoleAdmin(request)
+      return { chatRecall: await pauseConsoleChatRecall() }
+    })
+    .post('/api/console/chat-recall/resume', async ({ request }) => {
+      await requireConsoleAdmin(request)
+      return { chatRecall: await resumeConsoleChatRecall() }
+    })
     .get('/api/console/human-users', async ({ request }) => {
       await requireConsoleAdmin(request)
       return { humans: await listConsoleHumanUsers() }
@@ -217,7 +312,7 @@ export function consoleRoutes() {
       async ({ body, request, set }) => {
         await requireConsoleAdmin(request)
         set.status = 201
-        return { group: await createConsolePrincipalGroup(body) }
+        return { group: await createPrincipalGroup(body) }
       },
       { body: createPrincipalGroupBody }
     )
@@ -225,13 +320,13 @@ export function consoleRoutes() {
       '/api/console/principal-groups/:id',
       async ({ params, body, request }) => {
         await requireConsoleAdmin(request)
-        return { group: await updateConsolePrincipalGroup(params.id, body) }
+        return { group: await updatePrincipalGroup(params.id, body) }
       },
       { body: updatePrincipalGroupBody }
     )
     .delete('/api/console/principal-groups/:id', async ({ params, request, set }) => {
       await requireConsoleAdmin(request)
-      await deleteConsolePrincipalGroup(params.id)
+      await deletePrincipalGroup(params.id)
       set.status = 204
     })
     .get('/api/console/library-skills', async ({ request }) => {
@@ -313,6 +408,23 @@ export function consoleRoutes() {
       await deleteConsoleAgent(params.uid)
       set.status = 204
     })
+    .get('/api/console/agents/:uid/live-streams', async ({ params, request }) => {
+      await requireConsoleAdmin(request)
+      return { streams: await listConsoleAgentLiveStreams(params.uid) }
+    })
+    .get(
+      '/api/console/agents/:uid/live-output',
+      async ({ params, query, request }) => {
+        await requireConsoleAdmin(request)
+        return await readConsoleAgentLiveOutput({
+          agentUid: params.uid,
+          conversationId: query.conversationId,
+          streamId: query.streamId,
+          after: typeof query.after === 'string' && query.after.length > 0 ? query.after : undefined
+        })
+      },
+      { query: liveOutputQuery }
+    )
     .get('/api/console/agents/:uid/skills', async ({ params, request }) => {
       await requireConsoleAdmin(request)
       return { skills: await listConsoleAgentSkills(params.uid) }
@@ -344,6 +456,18 @@ export function consoleRoutes() {
       async ({ params, body, request }) => {
         await requireConsoleAdmin(request)
         return await setConsoleAgentSoul(params.uid, body.content)
+      },
+      { body: soulBody }
+    )
+    .get('/api/console/agents/:uid/mission', async ({ params, request }) => {
+      await requireConsoleAdmin(request)
+      return await getConsoleAgentMission(params.uid)
+    })
+    .put(
+      '/api/console/agents/:uid/mission',
+      async ({ params, body, request }) => {
+        await requireConsoleAdmin(request)
+        return await setConsoleAgentMission(params.uid, body.content)
       },
       { body: soulBody }
     )
@@ -417,23 +541,27 @@ function agentInput(body: {
   displayName?: string | null
   avatarUrl?: string | null
   llmProfile?: { models: unknown }
+  mission?: string
+  soul?: string
 }): UpsertConsoleAgentInput {
   return {
     displayName: body.displayName,
     avatarUrl: body.avatarUrl,
-    llmProfile: body.llmProfile ? { models: AiAgentModelsConfigSchema.parse(body.llmProfile.models) } : undefined
+    llmProfile: body.llmProfile ? { models: AiAgentModelsConfigSchema.parse(body.llmProfile.models) } : undefined,
+    mission: body.mission,
+    soul: body.soul
   }
 }
 
 /**
- * Requires an active human-admin session. Throws `ConsoleDomainError(401)` when
+ * Requires an active human-admin session. Throws `DomainError(401)` when
  * absent so handler success paths return a clean (Eden-Treaty-friendly) shape
  * instead of a `{ data } | { error }` union.
  */
 export async function requireConsoleAdmin(request: Request): Promise<{ principalUid: string }> {
   const clientIp = clientIpFromRequest(request)
   const limit = consoleAdminRateLimiter.check(clientIp, CONSOLE_ADMIN_SCOPE)
-  if (!limit.allowed) throw new ConsoleDomainError(429, 'too many failed admin authentication attempts')
+  if (!limit.allowed) throw new DomainError(429, 'too many failed admin authentication attempts')
 
   const session = readAdminSessionCookie(request.headers.get('cookie'))
   if (session && (await activeHumanAdmin(session.principalUid))) {
@@ -442,5 +570,5 @@ export async function requireConsoleAdmin(request: Request): Promise<{ principal
   }
 
   consoleAdminRateLimiter.recordFailure(clientIp, CONSOLE_ADMIN_SCOPE)
-  throw new ConsoleDomainError(401, 'admin session required')
+  throw new DomainError(401, 'admin session required')
 }

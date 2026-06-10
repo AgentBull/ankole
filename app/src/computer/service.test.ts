@@ -32,7 +32,7 @@ beforeAll(async () => {
     await registerWorker({
       workerId,
       instanceId: `${workerId}-inst`,
-      baseUrl: `http://${workerId}:8787`,
+      baseUrl: `https://${workerId}:8787`,
       features: ['bwrap'],
       capacity: { maxAgents: 128 }
     })

@@ -1,23 +1,41 @@
 import { genUUIDv7 } from '@agentbull/bullx-native-addons'
-import { isContextOverflow, streamSimple, type AssistantMessage, type ToolResultMessage } from '@earendil-works/pi-ai'
+import { Computer } from '@agentbull/bullx-computer'
+import {
+  isContextOverflow,
+  streamSimple,
+  type AssistantMessage,
+  type ImageContent,
+  type TextContent,
+  type ToolResultMessage
+} from '@earendil-works/pi-ai'
 import { match } from '@pleisto/active-support'
-import { and, asc, desc, eq, sql } from 'drizzle-orm'
-import { DB, jsonbParam } from '@/common/database'
+import { and, desc, eq, sql } from 'drizzle-orm'
+import { DB, jsonbParam, type QueryExecutor } from '@/common/database'
 import { logger } from '@/common/logger'
 import {
   AiAgentConversations,
   AiAgentLlmTurns,
   AiAgentMessages,
+  ExternalRooms,
   ExternalGatewayOutbox,
+  ScheduledTasks,
   type JsonObject,
   type JsonValue
 } from '@/common/db-schema'
+import { appConfigService } from '@/config/app-configure'
+import { loadSystemTimezone } from '@/config/system'
 import { adapterSupportsCapability } from '@/external-gateway/core/capabilities'
+import {
+  externalGatewayVisibleOutputStream,
+  type ExternalGatewayVisibleOutputEventType
+} from '@/external-gateway/core/visible-output-stream'
+import { agentChannelConfigKey } from '@/external-gateway/config'
 import type {
   ExternalGatewayAgentDelivery,
   ExternalGatewayAgentEnvelope,
   ExternalGatewaySlashCommandStub
 } from '@/external-gateway/agent-events'
+import { NORMAL_RECEIVE_BATCH_WINDOW_MS } from '@/external-gateway/agent-events'
 import type { ExternalGatewayAgentExecutionContext } from '@/external-gateway/agent'
 import type { ExternalGatewayStreamingCardHandle } from '@/external-gateway/core/events'
 import { commandEditIntent, commandFeedbackIntent } from './commands'
@@ -46,6 +64,7 @@ import { aiAgentRunRegistry, type AiAgentRunRegistry } from './run-registry'
 import { aiAgentClarifyRegistry, type AiAgentClarifyRegistry, type ClarifyEntry } from './clarify-registry'
 import { createClarifyTool, type ClarifyRunBinding } from './tools/clarify-tool'
 import { createCheckBackLaterTool } from './tools/check-back-later-tool'
+import { createChatHistorySearchTool } from './tools/chat-history-search-tool'
 import { createComputerTools, type ComputerToolsDeps } from './tools/computer'
 import { type ClarifyAnswerValue, parseClarifyAnswerValue, renderClarifyChoicePrompt } from './tools/choice-prompt'
 import { mapAnswer } from './tools/clarify-format'
@@ -68,10 +87,10 @@ import {
   type ShouldStopAfterTurnContext
 } from './core'
 import { isJsonObject, stringFromPath as stringFromMetadata, toJsonObject, toJsonValue } from '@/common/json'
-import { idempotencyKeyFromOutboundKey } from '@/external-gateway/outbox'
+import { idempotencyKeyFromOutboundKey, projectVisibleOutbound } from '@/external-gateway/outbox'
 import { interactiveOutputCardPayload, larkNativeCardPayload } from '@/external-gateway/interactive-output'
 import { createTodoTool, TodoStore, todoItemsFromToolDetails, type TodoToolDetails } from './tools/todo-tool'
-import { buildAgentSystemPrompt } from './library/service'
+import { buildAgentSystemPrompt, type CurrentChannelContext } from './prompts/system-prompt'
 import { createSkillTools } from './library/tools'
 import { estimateContextTokensJsonAware } from './token-estimate'
 import { classifyLlmError } from './core/llm-error-classifier'
@@ -83,14 +102,29 @@ import {
   type MessageContextHistoryItem
 } from './message-context'
 
-/**
- * Hard cap on LLM turns per generation. On reaching it the loop runs one tool-free
- * grace summary turn (so a runaway tool-calling model still produces a usable answer)
- * and stops. Generous by default; can be lifted to the runtime profile later.
- */
-const MAX_GENERATION_TURNS = 100
+const EXTERNAL_IMAGE_INLINE_LIMIT_BYTES = 8 * 1024 * 1024
+const DEFAULT_ADDRESSED_MEDIA_BATCH_WINDOW_MS = Math.ceil(NORMAL_RECEIVE_BATCH_WINDOW_MS * 1.3)
+
+function appendAmbientInterventionPolicy(systemPrompt: string, enabled: boolean): string {
+  if (!enabled) return systemPrompt
+  return [
+    systemPrompt,
+    [
+      '<ambient_intervention_policy>',
+      'You are proactively entering a group room based on non-addressed ambient messages.',
+      'Keep the first intervention brief and low-disruption: answer in 1-3 short sentences.',
+      'Do not write headings, sections, tables, long lists, or a full deliverable in this first proactive response.',
+      'Available tools remain enabled for proactive intervention; do not disable tools solely because this is the first proactive intervention.',
+      'Use the necessary focused tools when they make the intervention useful, but keep tool use bounded and stop as soon as you have enough context to offer a concrete next action.',
+      'Offer a concrete next action and wait for the user to explicitly hand you the task before expanding.',
+      'Do not mention recognizers, ambient mode, internal classification, or hidden transcript mechanics.',
+      '</ambient_intervention_policy>'
+    ].join('\n')
+  ].join('\n\n')
+}
 
 export interface AiAgentRuntimeOptions {
+  addressedMediaBatchWindowMs?: number
   ambient?: AiAgentAmbientBatcher
   compression?: AiAgentCompressionService
   conversations?: AiAgentConversationService
@@ -104,8 +138,11 @@ export interface AiAgentRuntimeOptions {
   clarifyHeartbeatMs?: number
 }
 
+export type ComputerFileReader = (agentUid: string, path: string, signal?: AbortSignal) => Promise<Buffer | null>
+
 type RunGenerationInput = {
   abortSignal?: AbortSignal
+  ambientIntervention?: boolean
   context: ExternalGatewayAgentExecutionContext
   conversationId: string
   disableInteractiveTools?: boolean
@@ -115,6 +152,8 @@ type RunGenerationInput = {
   profile: AiAgentRuntimeProfile
   providerRoomId?: string
   providerThreadId?: string
+  requesterExternalId?: string | null
+  requesterPrincipalUid?: string | null
   suppressVisibleOutput?: boolean
   triggerMessageId?: string
 }
@@ -134,9 +173,19 @@ interface StreamedAssistantCard {
   outboundKey: string
 }
 
+interface StreamedCardProjection {
+  messageId: string
+  providerRoomId: string
+  providerThreadId: string
+  raw: JsonObject
+  text: string
+}
+
 interface GenerationStreamingSink {
   onStreamingText?: (fullText: string) => void
   finalize(assistant: AssistantMessage, text: string): Promise<StreamedAssistantCard | undefined>
+  /** Close the live visible-output mirror for a run that did not commit. */
+  closeFailed(reason: string): void
 }
 
 interface TodoProgressState {
@@ -158,6 +207,7 @@ type CommitAssistantResult =
       assistantMessageId: string
       enqueuedOutput: boolean
       nextGeneration?: NextGeneration
+      streamedCardProjection?: StreamedCardProjection
     }
   | undefined
 
@@ -543,6 +593,8 @@ export class AiAgentRuntime {
   private readonly registry: AiAgentRunRegistry
   private readonly renderer: AiAgentContextRenderer
   private readonly ambientTimers = new Set<ReturnType<typeof setTimeout>>()
+  private readonly addressedMediaTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  private readonly addressedMediaBatchWindowMs: number
   private readonly tools = new Map<string, AgentTool<any>>()
   private activeToolNames: string[] = []
   private readonly clarify: AiAgentClarifyRegistry
@@ -550,6 +602,10 @@ export class AiAgentRuntime {
   private readonly clarifyHeartbeatMs?: number
   private clarifyFactory?: (binding: ClarifyRunBinding) => AgentTool<any>
   private computerFactory?: (binding: ClarifyRunBinding) => AgentTool<any>[]
+  private computerDeps?: ComputerToolsDeps
+  private computerFileReader?: ComputerFileReader
+  private readonly computerSessions = new Map<string, Promise<Computer>>()
+  private chatRecallFactory?: (binding: ClarifyRunBinding) => AgentTool<any>
 
   constructor(options: AiAgentRuntimeOptions = {}) {
     this.ambient = options.ambient ?? aiAgentAmbientBatcher
@@ -563,11 +619,14 @@ export class AiAgentRuntime {
     this.clarify = options.clarify ?? aiAgentClarifyRegistry
     this.clarifyTimeoutMs = options.clarifyTimeoutMs
     this.clarifyHeartbeatMs = options.clarifyHeartbeatMs
+    this.addressedMediaBatchWindowMs = options.addressedMediaBatchWindowMs ?? DEFAULT_ADDRESSED_MEDIA_BATCH_WINDOW_MS
   }
 
   stop(): void {
     for (const timer of this.ambientTimers) clearTimeout(timer)
     this.ambientTimers.clear()
+    for (const timer of this.addressedMediaTimers.values()) clearTimeout(timer)
+    this.addressedMediaTimers.clear()
   }
 
   /**
@@ -619,6 +678,43 @@ export class AiAgentRuntime {
   /** Enable/disable the run-bound computer tools (terminal/process/read_file/patch). */
   setComputerEnabled(enabled: boolean, deps: ComputerToolsDeps): void {
     this.computerFactory = enabled ? binding => createComputerTools(binding, deps) : undefined
+    this.computerDeps = enabled ? deps : undefined
+    this.computerFileReader = enabled
+      ? (agentUid, path, signal) => this.readComputerFile(agentUid, path, signal)
+      : undefined
+    if (!enabled) this.computerSessions.clear()
+  }
+
+  /** Override computer-backed file reads for tests or embedders that provide their own file transport. */
+  setComputerFileReader(reader?: ComputerFileReader): void {
+    this.computerFileReader = reader
+  }
+
+  private async readComputerFile(agentUid: string, path: string, signal?: AbortSignal): Promise<Buffer | null> {
+    const computer = await this.getComputerSession(agentUid, signal)
+    return computer.readFileToBuffer({ path }, { signal })
+  }
+
+  private async getComputerSession(agentUid: string, signal?: AbortSignal): Promise<Computer> {
+    if (!this.computerDeps) throw new Error('computer file reader is not configured')
+    let promise = this.computerSessions.get(agentUid)
+    if (!promise) {
+      promise = Computer.getOrCreate({
+        agentUid,
+        resolveWorker: (uid, resolveSignal) => this.computerDeps!.resolveWorker(uid, resolveSignal),
+        signal
+      }).catch(error => {
+        this.computerSessions.delete(agentUid)
+        throw error
+      })
+      this.computerSessions.set(agentUid, promise)
+    }
+    return promise
+  }
+
+  /** Enable/disable chat history recall. The tool is only registered when pg_search + pgvector are ready. */
+  setChatRecallEnabled(enabled: boolean): void {
+    this.chatRecallFactory = enabled ? binding => createChatHistorySearchTool(binding) : undefined
   }
 
   /** Active run-static tools plus run-bound foundational tools (computer, clarify). */
@@ -634,6 +730,7 @@ export class AiAgentRuntime {
       createCheckBackLaterTool(binding)
     ]
     if (this.computerFactory) tools.push(...this.computerFactory(binding))
+    if (this.chatRecallFactory) tools.push(this.chatRecallFactory(binding))
     if (!options.disableInteractiveTools && this.clarifyFactory && binding.providerRoomId) {
       tools.push(this.clarifyFactory(binding))
     }
@@ -686,14 +783,15 @@ export class AiAgentRuntime {
 
   private async handleTodoProgressEvent(
     input: RunGenerationInput,
+    leaseId: string,
     event: AgentEvent,
     states: Map<string, TodoProgressState>
   ): Promise<void> {
     try {
       if (event.type === 'tool_execution_start' && event.toolName === 'todo') {
-        await this.startTodoProgress(input, event.toolCallId, event.args, states)
+        await this.startTodoProgress(input, leaseId, event.toolCallId, event.args, states)
       } else if (event.type === 'tool_execution_end' && event.toolName === 'todo') {
-        await this.finishTodoProgress(input, event.toolCallId, event.result, event.isError, states)
+        await this.finishTodoProgress(input, leaseId, event.toolCallId, event.result, event.isError, states)
       }
     } catch (error) {
       logger.debug({ error, conversationId: input.conversationId }, 'Todo tool progress update failed')
@@ -702,17 +800,44 @@ export class AiAgentRuntime {
 
   private async startTodoProgress(
     input: RunGenerationInput,
+    leaseId: string,
     toolCallId: string,
     args: unknown,
     states: Map<string, TodoProgressState>
   ): Promise<void> {
     if (!this.canShowTodoProgress(input)) return
+    if (await this.hasPendingSteering(input.conversationId, leaseId)) return
     const providerRoomId = input.providerRoomId ?? input.providerThreadId
     const providerThreadId = input.providerThreadId ?? providerRoomId
     if (!providerRoomId || !providerThreadId) return
 
-    const outboundKey = `ai-agent-tool-progress:${input.conversationId}:${toolCallId}`
-    states.set(toolCallId, { args, outboundKey, posted: true, toolCallId })
+    const existing = states.get('todo')
+    if (existing?.posted) {
+      const state = { args, outboundKey: existing.outboundKey, posted: true, toolCallId }
+      states.set('todo', state)
+      states.set(toolCallId, state)
+      await input.context.outbox.enqueuePending({
+        agentUid: input.context.agentUid,
+        bindingName: input.context.bindingName,
+        intent: {
+          operation: 'edit',
+          outboundKey: `${existing.outboundKey}:start:${toolCallId}`,
+          providerRoomId,
+          providerThreadId,
+          finalPayload: {
+            targetOutboundKey: existing.outboundKey,
+            text: formatTodoProgressStart(args)
+          }
+        }
+      })
+      input.context.scheduleOutboxDrain()
+      return
+    }
+
+    const outboundKey = `ai-agent-tool-progress:${input.conversationId}:todo`
+    const state = { args, outboundKey, posted: true, toolCallId }
+    states.set('todo', state)
+    states.set(toolCallId, state)
     await input.context.outbox.enqueuePending({
       agentUid: input.context.agentUid,
       bindingName: input.context.bindingName,
@@ -729,6 +854,7 @@ export class AiAgentRuntime {
 
   private async finishTodoProgress(
     input: RunGenerationInput,
+    leaseId: string,
     toolCallId: string,
     result: unknown,
     isError: boolean,
@@ -739,6 +865,24 @@ export class AiAgentRuntime {
     const providerRoomId = input.providerRoomId ?? input.providerThreadId
     const providerThreadId = input.providerThreadId ?? providerRoomId
     if (!providerRoomId || !providerThreadId) return
+
+    if (await this.hasPendingSteering(input.conversationId, leaseId)) {
+      await input.context.outbox.enqueuePending({
+        agentUid: input.context.agentUid,
+        bindingName: input.context.bindingName,
+        intent: {
+          operation: 'delete',
+          outboundKey: `${state.outboundKey}:steering-delete`,
+          providerRoomId,
+          providerThreadId,
+          finalPayload: {
+            targetOutboundKey: state.outboundKey
+          }
+        }
+      })
+      input.context.scheduleOutboxDrain()
+      return
+    }
 
     await input.context.outbox.enqueuePending({
       agentUid: input.context.agentUid,
@@ -754,6 +898,7 @@ export class AiAgentRuntime {
         }
       }
     })
+    states.set('todo', { ...state, args: result })
     input.context.scheduleOutboxDrain()
   }
 
@@ -776,10 +921,14 @@ export class AiAgentRuntime {
 
   private async afterToolCall(
     _context: AfterToolCallContext,
+    input: RunGenerationInput,
+    leaseId: string,
     _signal?: AbortSignal
   ): Promise<AfterToolCallResult | undefined> {
-    // Tool result patch extension point (AgentHarness tool_result hook). No global
-    // post-processing today; tools shape their own results.
+    // Stop the old tool chain at the next tool boundary when a human steering command
+    // is waiting. The runtime will materialize the steering note and start the next
+    // generation without committing a visible answer from this interrupted turn.
+    if (await this.hasPendingSteering(input.conversationId, leaseId)) return { terminate: true }
     return undefined
   }
 
@@ -820,7 +969,8 @@ export class AiAgentRuntime {
     })
     const userMessage = createUserMessage(input.message)
     const history = await loadMessageContextHistory(conversation.id)
-    const messageContext = buildMessageContextMetadata({ sentAt: new Date() }, history)
+    const timezone = await loadSystemTimezone()
+    const messageContext = buildMessageContextMetadata({ sentAt: new Date(), timezone }, history)
     const row = await this.conversations.appendMessage({
       conversationId: conversation.id,
       role: 'user',
@@ -978,6 +1128,7 @@ export class AiAgentRuntime {
           stringFromMetadata(conversation.metadata, ['route', 'provider_room_id']) ??
           '',
         providerThreadId: trigger ? stringFromMetadata(trigger.metadata, ['provider_refs', 'thread_id']) : undefined,
+        requesterExternalId: trigger ? externalIdFromActor(toJsonObject(trigger.metadata.actor ?? {})) : undefined,
         triggerMessageId
       })
     }
@@ -1066,8 +1217,14 @@ export class AiAgentRuntime {
     if (isActiveGeneration(conversation.generation)) {
       for (const event of delivery.events) {
         const envelope = payloadEnvelope(event)
+        const sentAt = sentAtFromEnvelope(envelope, event)
+        const userMessage = await createUserMessageFromEnvelope(envelope, sentAt, {
+          agentUid: event.agentUid,
+          readComputerFile: this.computerFileReader
+        })
         await this.conversations.appendPendingFollowup(conversation.id, {
           actor: actorFromEnvelope(envelope),
+          agent_message: toJsonObject(userMessage),
           created_at: new Date().toISOString(),
           event_id: event.providerEventId,
           event_source: envelope.source,
@@ -1078,7 +1235,7 @@ export class AiAgentRuntime {
             providerThreadId: event.providerThreadId
           }),
           room: roomFromEnvelope(envelope),
-          sent_at: sentAtFromEnvelope(envelope, event).toISOString(),
+          sent_at: sentAt.toISOString(),
           text: messageText(envelope)
         })
       }
@@ -1086,15 +1243,20 @@ export class AiAgentRuntime {
     }
 
     let triggerMessageId: string | undefined
+    let hasImmediateTrigger = false
     const history = await loadMessageContextHistory(conversation.id)
+    const timezone = await loadSystemTimezone()
     for (const event of delivery.events) {
       const envelope = payloadEnvelope(event)
       const text = messageText(envelope)
       const actor = actorFromEnvelope(envelope)
       const room = roomFromEnvelope(envelope)
       const sentAt = sentAtFromEnvelope(envelope, event)
-      const userMessage = createUserMessage(text, sentAt.getTime())
-      const messageContext = buildMessageContextMetadata({ actor, room, sentAt }, history)
+      const userMessage = await createUserMessageFromEnvelope(envelope, sentAt, {
+        agentUid: event.agentUid,
+        readComputerFile: this.computerFileReader
+      })
+      const messageContext = buildMessageContextMetadata({ actor, room, sentAt, timezone }, history)
       const row = await this.conversations.appendMessage({
         conversationId: conversation.id,
         role: 'user',
@@ -1122,18 +1284,27 @@ export class AiAgentRuntime {
       })
       appendMessageContextHistory(history, row.metadata)
       triggerMessageId = row.id
+      if (!isAttachmentOnlyContextMessage(envelope)) hasImmediateTrigger = true
     }
 
     const anchor = delivery.events.at(-1)
     if (triggerMessageId && anchor) {
-      this.startGeneration({
+      const anchorActor = actorFromEnvelope(payloadEnvelope(anchor))
+      const generationInput = {
         context,
         conversationId: conversation.id,
         profile,
         providerRoomId: anchor.providerRoomId,
         providerThreadId: anchor.providerThreadId,
+        requesterExternalId: externalIdFromActor(anchorActor),
         triggerMessageId
-      })
+      } satisfies RunGenerationInput
+      if (hasImmediateTrigger) {
+        this.cancelAddressedMediaTrigger(conversation.id)
+        this.startGeneration(generationInput)
+      } else {
+        this.scheduleAddressedMediaTrigger(generationInput)
+      }
     }
   }
 
@@ -1145,12 +1316,13 @@ export class AiAgentRuntime {
   ): Promise<void> {
     const conversation = await this.dailyReset.ensureFreshConversation(route, profile)
     const history = await loadMessageContextHistory(conversation.id)
+    const timezone = await loadSystemTimezone()
     for (const event of delivery.events) {
       const envelope = payloadEnvelope(event)
       const actor = actorFromEnvelope(envelope)
       const room = roomFromEnvelope(envelope)
       const sentAt = sentAtFromEnvelope(envelope, event)
-      const messageContext = buildMessageContextMetadata({ actor, room, sentAt }, history)
+      const messageContext = buildMessageContextMetadata({ actor, room, sentAt, timezone }, history)
       const row = await this.conversations.appendMessage({
         conversationId: conversation.id,
         role: 'im_ambient',
@@ -1200,23 +1372,77 @@ export class AiAgentRuntime {
     const command = commandFromEnvelope(envelope)
     if (!command) return
     const conversation = await this.conversations.getOrCreateActiveConversation(route)
+    this.cancelAddressedMediaTrigger(conversation.id)
 
     if (command.name === 'new') {
       // abortAndWait drives the parked clarify's signal -> onAbort -> resolve; the
       // explicit abort below is a backstop if the signal chain didn't settle it.
       await this.registry.abortAndWait(conversation.id, 'new_session')
       this.clarify.abort(conversation.id, 'superseded')
-      await this.conversations.rolloverConversation(route, 'new_session')
-      await this.enqueueFeedback(context, event, 'New conversation started.')
+      const nextConversation = await this.conversations.rolloverConversation(route, 'new_session', DB, {
+        sourceEventId: event.providerEventId
+      })
+      await this.enqueueFeedback(context, event, 'New conversation')
+      const nextText = command.argsText.trim()
+      if (nextText) {
+        const actor = actorFromEnvelope(envelope)
+        const room = roomFromEnvelope(envelope)
+        const sentAt = sentAtFromEnvelope(envelope, event)
+        const history = await loadMessageContextHistory(nextConversation.id)
+        const timezone = await loadSystemTimezone()
+        const messageContext = buildMessageContextMetadata({ actor, room, sentAt, timezone }, history)
+        const row = await this.conversations.appendMessage({
+          conversationId: nextConversation.id,
+          role: 'user',
+          kind: 'normal',
+          content: textContent(nextText),
+          agentMessage: createUserMessage(nextText, sentAt.getTime()),
+          eventSource: envelope.source,
+          eventId: event.providerEventId,
+          metadata: mergeMessageContextMetadata(
+            {
+              actor,
+              control: {
+                origin: 'new',
+                type: 'new_with_message',
+                source_command_event_id: event.providerEventId,
+                command_event_id: event.providerEventId
+              },
+              provider_refs: providerRefs({
+                eventId: event.providerEventId,
+                providerMessageId: event.providerMessageId,
+                providerRoomId: event.providerRoomId,
+                providerThreadId: event.providerThreadId
+              }),
+              route: routeMetadata(context, {
+                providerRoomId: event.providerRoomId,
+                providerThreadId: event.providerThreadId
+              })
+            },
+            messageContext
+          )
+        })
+        this.startGeneration({
+          context,
+          conversationId: nextConversation.id,
+          profile,
+          providerRoomId: event.providerRoomId,
+          providerThreadId: event.providerThreadId,
+          requesterExternalId: externalIdFromActor(actor),
+          triggerMessageId: row.id
+        })
+      }
       return
     }
 
     if (command.name === 'stop') {
       // Fence first, then let abortAndWait's signal settle the parked clarify; the
       // explicit abort below is a backstop (avoids an extra model turn vs aborting clarify early).
+      const wasActive = isActiveGeneration(conversation.generation)
       await this.conversations.cancelGeneration(conversation.id, 'stop', event.providerEventId)
       await this.registry.abortAndWait(conversation.id, 'stop')
       this.clarify.abort(conversation.id, 'aborted')
+      if (wasActive) await this.materializeStop(conversation.id, event, await loadSystemTimezone())
       await this.enqueueFeedback(context, event, 'Stopped.')
       return
     }
@@ -1234,16 +1460,17 @@ export class AiAgentRuntime {
       } satisfies PendingSteering
       if (isActiveGeneration(conversation.generation)) {
         await this.conversations.appendPendingSteering(conversation.id, steering)
-        await this.enqueueFeedback(context, event, 'No tool boundary to steer; queued as next turn.')
+        await this.enqueueFeedback(context, event, 'Steering queued')
       } else {
-        const row = await this.materializeSteering(conversation.id, steering)
-        await this.enqueueFeedback(context, event, 'No tool boundary to steer; queued as next turn.')
+        const row = await this.materializeSteering(conversation.id, steering, await loadSystemTimezone())
+        await this.enqueueFeedback(context, event, 'Steering queued')
         this.startGeneration({
           context,
           conversationId: conversation.id,
           profile,
           providerRoomId: event.providerRoomId,
           providerThreadId: event.providerThreadId,
+          requesterExternalId: externalIdFromActor(actorFromEnvelope(envelope)),
           triggerMessageId: row.id
         })
       }
@@ -1303,7 +1530,7 @@ export class AiAgentRuntime {
 
     if (command.name === 'retry') {
       if (isActiveGeneration(conversation.generation)) {
-        await this.enqueueFeedback(context, event, 'A response is still running; stop it before retrying.')
+        await this.enqueueFeedback(context, event, 'Still running')
         return
       }
       await this.retryLastExchange(conversation.id, context, event, profile)
@@ -1340,9 +1567,38 @@ export class AiAgentRuntime {
   }
 
   private startGeneration(input: RunGenerationInput): void {
-    void this.runGeneration(input).catch(error => {
-      logger.error({ error, conversationId: input.conversationId }, 'AI agent generation failed')
-    })
+    const settled = this.runGeneration(input).then(
+      () => undefined,
+      error => {
+        logger.error({ error, conversationId: input.conversationId }, 'AI agent generation failed')
+      }
+    )
+    input.context.trackSettled?.(settled)
+  }
+
+  private scheduleAddressedMediaTrigger(input: RunGenerationInput): void {
+    this.cancelAddressedMediaTrigger(input.conversationId)
+    const timer = setTimeout(() => {
+      this.addressedMediaTimers.delete(input.conversationId)
+      void this.startDelayedAddressedMediaGeneration(input)
+    }, this.addressedMediaBatchWindowMs)
+    this.addressedMediaTimers.set(input.conversationId, timer)
+  }
+
+  private cancelAddressedMediaTrigger(conversationId: string): void {
+    const timer = this.addressedMediaTimers.get(conversationId)
+    if (!timer) return
+    clearTimeout(timer)
+    this.addressedMediaTimers.delete(conversationId)
+  }
+
+  private async startDelayedAddressedMediaGeneration(input: RunGenerationInput): Promise<void> {
+    const [conversation] = await DB.select()
+      .from(AiAgentConversations)
+      .where(eq(AiAgentConversations.id, input.conversationId))
+      .limit(1)
+    if (!conversation || conversation.endedAt || isActiveGeneration(conversation.generation)) return
+    this.startGeneration(input)
   }
 
   private async runGeneration(input: RunGenerationInput): Promise<GenerationResult> {
@@ -1379,6 +1635,8 @@ export class AiAgentRuntime {
       providerRealmId: input.context.providerRealmId,
       providerRoomId: clarifyRoomId,
       providerThreadId: input.providerThreadId ?? clarifyRoomId,
+      requesterExternalId: input.requesterExternalId,
+      requesterPrincipalUid: input.requesterPrincipalUid,
       triggerMessageId,
       cardCapable: adapterSupportsCapability(input.context.adapter, 'outbound', 'card'),
       outbox: input.context.outbox,
@@ -1387,7 +1645,14 @@ export class AiAgentRuntime {
     const activeTools = this.buildActiveToolsForRun(binding, todoStore, {
       disableInteractiveTools: input.disableInteractiveTools
     })
-    const systemPrompt = await buildAgentSystemPrompt(input.context.agentUid)
+    const [conversationStartedAt, currentChannel] = await Promise.all([
+      this.conversationStartedAt(input.conversationId),
+      this.currentChannelContext(input, triggerMessageId)
+    ])
+    const systemPrompt = appendAmbientInterventionPolicy(
+      await buildAgentSystemPrompt(input.context.agentUid, DB, { conversationStartedAt, currentChannel }),
+      input.ambientIntervention === true
+    )
 
     let rendered = await this.renderer.render(input.conversationId, microcompactOptions)
     // shouldCompact preflight (ported from AgentHarness threshold check): if the rebuilt context already
@@ -1446,6 +1711,7 @@ export class AiAgentRuntime {
       const agent = await this.buildGenerationAgent({
         activeTools,
         input,
+        leaseId: lease.leaseId,
         recorder,
         rendered,
         stream,
@@ -1478,6 +1744,9 @@ export class AiAgentRuntime {
       return await this.finishGenerationRun(runContext, outcome)
     } finally {
       input.abortSignal?.removeEventListener('abort', abortFromParent)
+      // The committed path emits stream.finished from finalize; every other
+      // terminal outcome closes the live mirror as failed.
+      if (outcome.kind !== 'committed') stream.closeFailed(outcome.kind)
     }
   }
 
@@ -1508,21 +1777,53 @@ export class AiAgentRuntime {
         })
     }
 
+    // Weak live mirror of in-progress output (Redis stream). The webui live view
+    // reads it; Redis failures degrade to a log line and never affect the run.
+    const visibleKey = { agentUid: input.context.agentUid, sessionId: input.conversationId, streamId: leaseId }
+    let visibleSequence = 0
+    let visibleClosed = false
+    let visibleBroken = false
+    let mirroredLength = 0
+    const mirror = (
+      type: ExternalGatewayVisibleOutputEventType,
+      extra: { delta?: string; metadata?: JsonObject } = {}
+    ): void => {
+      if (visibleBroken || visibleClosed) return
+      if (type === 'stream.finished' || type === 'stream.failed') visibleClosed = true
+      void externalGatewayVisibleOutputStream
+        .append({ ...visibleKey, sequence: visibleSequence++, type, ...extra })
+        .catch(error => {
+          visibleBroken = true
+          logger.warn(
+            { error, conversationId: input.conversationId, leaseId },
+            'Visible output stream append failed; live view degraded for this run'
+          )
+        })
+    }
+    mirror('stream.started')
+
     return {
-      onStreamingText: streamingCapable
-        ? (fullText: string) => {
-            if (!fullText) return
-            latestText = fullText
-            if (card) {
-              void card.update(fullText)
-              return
-            }
-            ensureCard()
-          }
-        : undefined,
+      onStreamingText: (fullText: string) => {
+        if (!fullText) return
+        if (fullText.length > mirroredLength) {
+          mirror('stream.delta', { delta: fullText.slice(mirroredLength) })
+          mirroredLength = fullText.length
+        }
+        if (!streamingCapable) return
+        latestText = fullText
+        if (card) {
+          void card.update(fullText)
+          return
+        }
+        ensureCard()
+      },
       finalize: async (assistant, text) => {
+        mirror('stream.finished')
         if (cardStart) await cardStart.catch(() => {})
         return card ? this.finalizeStreamingCard(card, assistant, text, outboundKey) : undefined
+      },
+      closeFailed: reason => {
+        mirror('stream.failed', { metadata: { reason } })
       }
     }
   }
@@ -1530,6 +1831,7 @@ export class AiAgentRuntime {
   private async buildGenerationAgent(input: {
     activeTools: AgentTool<any>[]
     input: RunGenerationInput
+    leaseId: string
     recorder: GenerationTrajectoryRecorder
     rendered: RenderedAiAgentContext
     stream: GenerationStreamingSink
@@ -1552,7 +1854,7 @@ export class AiAgentRuntime {
       toolExecution: 'parallel',
       // Iteration budget + graceful summary, and a one-shot nudge when the model
       // returns an empty reply right after tools (instead of ending the run silently).
-      maxTurns: MAX_GENERATION_TURNS,
+      maxTurns: input.input.profile.generation.maxTurns,
       nudgeOnEmptyAfterTools: true,
       onStreamingText: input.stream.onStreamingText,
       // Context transform hook (AgentHarness 'context' event) — extension point for in-run context shaping.
@@ -1562,7 +1864,9 @@ export class AiAgentRuntime {
       beforeToolCall:
         input.activeTools.length > 0 ? (toolContext, signal) => this.beforeToolCall(toolContext, signal) : undefined,
       afterToolCall:
-        input.activeTools.length > 0 ? (toolContext, signal) => this.afterToolCall(toolContext, signal) : undefined,
+        input.activeTools.length > 0
+          ? (toolContext, signal) => this.afterToolCall(toolContext, input.input, input.leaseId, signal)
+          : undefined,
       beforeLlmCall: (llmContext, _signal) => input.recorder.beforeLlmCall(llmContext),
       // Provider request policy + observability (AgentHarness stream options + before/after provider hooks).
       streamFn: (model, context, options) => {
@@ -1590,9 +1894,23 @@ export class AiAgentRuntime {
     agent.subscribe(async event => {
       if (event.type === 'turn_end') await input.recorder.finishTurn(event.message, event.toolResults)
     })
+    agent.subscribe(event => {
+      if (event.type !== 'max_turns_reached') return
+      logger.warn(
+        {
+          agentUid: input.input.context.agentUid,
+          conversationId: input.input.conversationId,
+          leaseId: input.leaseId,
+          maxTurns: event.maxTurns,
+          turnCount: event.turnCount,
+          triggerMessageId: input.input.triggerMessageId
+        },
+        'AI agent generation reached max turn budget'
+      )
+    })
     const todoProgress = new Map<string, TodoProgressState>()
     agent.subscribe(async event => {
-      await this.handleTodoProgressEvent(input.input, event, todoProgress)
+      await this.handleTodoProgressEvent(input.input, input.leaseId, event, todoProgress)
     })
     return agent
   }
@@ -1685,6 +2003,26 @@ export class AiAgentRuntime {
             break
           }
           const text = textFromAgentMessage(outcome.assistant).trim()
+          if (outcome.assistant.content.some(block => block.type === 'toolCall')) {
+            const steered = await this.materializePendingSteeringAtToolBoundary({
+              conversationId: run.input.conversationId,
+              leaseId: run.leaseId,
+              providerRoomId: run.input.providerRoomId,
+              providerThreadId: run.input.providerThreadId,
+              timezone: await loadSystemTimezone()
+            })
+            if (steered) {
+              nextGenerationInput = {
+                ...run.input,
+                leaseId: steered.leaseId,
+                providerRoomId: steered.providerRoomId,
+                providerThreadId: steered.providerThreadId,
+                triggerMessageId: steered.triggerMessageId
+              }
+              result = { status: 'succeeded', enqueuedOutput: false }
+              break
+            }
+          }
           const streamedCard = await outcome.stream.finalize(outcome.assistant, text)
           const commit = await this.commitAssistantResult({
             assistant: outcome.assistant,
@@ -1701,9 +2039,13 @@ export class AiAgentRuntime {
             suppressVisibleOutput: run.input.suppressVisibleOutput,
             text,
             triggerMessageId: run.triggerMessageId,
-            streamedCard
+            streamedCard,
+            timezone: await loadSystemTimezone()
           })
-          if (commit?.enqueuedOutput) run.input.context.scheduleOutboxDrain()
+          if (commit?.enqueuedOutput && !commit.streamedCardProjection) run.input.context.scheduleOutboxDrain()
+          if (commit?.streamedCardProjection) {
+            await this.projectStreamingCardOutbound(run.input.context, commit.streamedCardProjection)
+          }
           if (commit?.nextGeneration) {
             nextGenerationInput = {
               ...run.input,
@@ -1791,9 +2133,101 @@ export class AiAgentRuntime {
       profile,
       providerRoomId: event.providerRoomId,
       providerThreadId: event.providerThreadId,
+      requesterExternalId: externalIdFromActor(actorFromEnvelope(payloadEnvelope(event))),
       triggerMessageId
     })
-    await this.enqueueFeedback(context, event, 'Retrying the last exchange.')
+    await this.enqueueFeedback(context, event, 'Retrying')
+  }
+
+  private async conversationStartedAt(conversationId: string): Promise<Date | undefined> {
+    const [conversation] = await DB.select({ createdAt: AiAgentConversations.createdAt })
+      .from(AiAgentConversations)
+      .where(eq(AiAgentConversations.id, conversationId))
+      .limit(1)
+    return conversation?.createdAt
+  }
+
+  private async currentChannelContext(
+    input: RunGenerationInput,
+    triggerMessageId: string
+  ): Promise<CurrentChannelContext | undefined> {
+    const [trigger] = await DB.select({ metadata: AiAgentMessages.metadata })
+      .from(AiAgentMessages)
+      .where(and(eq(AiAgentMessages.id, triggerMessageId), eq(AiAgentMessages.conversationId, input.conversationId)))
+      .limit(1)
+    const triggerMetadata = trigger?.metadata ?? {}
+    const controlType = stringFromMetadata(triggerMetadata, ['control', 'type'])
+
+    if (input.llmTurnKind === 'scheduled_task' || controlType === 'scheduled_task') {
+      const taskId = stringFromMetadata(triggerMetadata, ['control', 'task_id'])
+      return {
+        kind: 'scheduled_task',
+        id: taskId,
+        name: taskId ? await this.scheduledTaskName(taskId) : undefined
+      }
+    }
+
+    if (input.llmTurnKind === 'checkback_generation' || controlType === 'check_back_later') {
+      return {
+        kind: 'checkback',
+        id: stringFromMetadata(triggerMetadata, ['control', 'checkback_id'])
+      }
+    }
+
+    const providerRoomId =
+      input.providerRoomId ??
+      stringFromMetadata(triggerMetadata, ['provider_refs', 'room_id']) ??
+      (await this.conversationProviderRoomId(input.conversationId))
+    if (!providerRoomId) return undefined
+
+    const [room] = await DB.select({
+      id: ExternalRooms.id,
+      isDM: ExternalRooms.isDM,
+      name: ExternalRooms.name
+    })
+      .from(ExternalRooms)
+      .where(eq(ExternalRooms.id, providerRoomId))
+      .limit(1)
+    const providerThreadId =
+      input.providerThreadId ?? stringFromMetadata(triggerMetadata, ['provider_refs', 'thread_id']) ?? providerRoomId
+    const isDM = room?.isDM ?? input.context.adapter.isDM?.(providerThreadId) ?? false
+    const name = trimOptionalString(room?.name) ?? (isDM ? actorDisplayName(triggerMetadata.actor) : undefined)
+
+    return {
+      bindingName: input.context.bindingName,
+      id: providerRoomId,
+      kind: isDM ? 'external_dm' : 'external_group',
+      name,
+      platform: await this.currentChannelPlatform(input.context)
+    }
+  }
+
+  private async scheduledTaskName(taskId: string): Promise<string | undefined> {
+    const [task] = await DB.select({ name: ScheduledTasks.name })
+      .from(ScheduledTasks)
+      .where(eq(ScheduledTasks.id, taskId))
+      .limit(1)
+    return trimOptionalString(task?.name)
+  }
+
+  private async conversationProviderRoomId(conversationId: string): Promise<string | undefined> {
+    const [conversation] = await DB.select({ metadata: AiAgentConversations.metadata })
+      .from(AiAgentConversations)
+      .where(eq(AiAgentConversations.id, conversationId))
+      .limit(1)
+    return stringFromMetadata(conversation?.metadata ?? {}, ['route', 'provider_room_id'])
+  }
+
+  private async currentChannelPlatform(context: ExternalGatewayAgentExecutionContext): Promise<string | undefined> {
+    const adapter = bindingAdapter(context.agent.agent.metadata, context.bindingName)
+    if (adapter === 'lark') {
+      const config = await appConfigService
+        .getByKey(agentChannelConfigKey(context.agentUid, context.bindingName))
+        .catch(() => undefined)
+      const domain = stringFromMetadata(toJsonObject(config ?? {}), ['domain'])
+      return domain === 'lark' ? 'lark' : 'feishu'
+    }
+    return adapter
   }
 
   private async drainAmbientAndStartGeneration(
@@ -1807,6 +2241,7 @@ export class AiAgentRuntime {
     })
     for (const conversation of conversations) {
       this.startGeneration({
+        ambientIntervention: true,
         context,
         conversationId: conversation.conversationId,
         profile,
@@ -1870,8 +2305,9 @@ export class AiAgentRuntime {
       .with('aborted', () => 'cancelled' as const)
       .with('error', () => 'failed' as const)
       .otherwise(() => 'completed' as const)
+    const finalText = status === 'completed' ? text : userFacingAssistantErrorText(assistant) || text
     try {
-      await card.finish(text || userFacingAssistantErrorText(assistant) || '', status)
+      await card.finish(finalText, status)
     } catch {
       // Best-effort close: a failed PATCH still leaves a delivered card message, so
       // the caller records it as sent rather than double-posting the answer.
@@ -1891,6 +2327,7 @@ export class AiAgentRuntime {
     routeMetadata: JsonObject
     suppressVisibleOutput?: boolean
     text: string
+    timezone: string
     triggerMessageId: string
     streamedCard?: StreamedAssistantCard
   }): Promise<CommitAssistantResult> {
@@ -1917,20 +2354,8 @@ export class AiAgentRuntime {
       let nextTriggerMessageId: string | undefined
       let nextProviderRoomId = input.providerRoomId
       let nextProviderThreadId = input.providerThreadId
-      const messageContextHistory: MessageContextHistoryItem[] = (
-        await tx
-          .select({ metadata: AiAgentMessages.metadata })
-          .from(AiAgentMessages)
-          .where(
-            and(
-              eq(AiAgentMessages.conversationId, input.conversationId),
-              sql`${AiAgentMessages.role} in ('user', 'im_ambient')`,
-              sql`${AiAgentMessages.kind} in ('normal', 'introspection')`,
-              sql`${AiAgentMessages.metadata}->'transcript_effect' is null`
-            )
-          )
-          .orderBy(asc(AiAgentMessages.createdAt), asc(AiAgentMessages.id))
-      ).map(row => ({ metadata: row.metadata }))
+      let streamedCardProjection: StreamedCardProjection | undefined
+      const messageContextHistory = await loadMessageContextHistory(input.conversationId, tx)
 
       await tx.insert(AiAgentMessages).values({
         id: assistantMessageId,
@@ -1957,6 +2382,19 @@ export class AiAgentRuntime {
         const providerRoomId =
           input.providerRoomId ?? stringFromMetadata(conversation.metadata, ['route', 'provider_room_id']) ?? ''
         const providerThreadId = input.providerThreadId ?? input.providerRoomId ?? providerRoomId
+        if (input.streamedCard && providerRoomId && providerThreadId) {
+          streamedCardProjection = {
+            messageId: input.streamedCard.messageId,
+            providerRoomId,
+            providerThreadId,
+            raw: toJsonObject({
+              type: 'card',
+              data: { card_id: input.streamedCard.cardId },
+              message_id: input.streamedCard.messageId
+            }),
+            text: input.text
+          }
+        }
         // A successful streaming card already delivered the answer as a live card
         // message: record it as sent (drain skips sent rows) so we never double-post.
         // Otherwise enqueue the usual pending post for the outbox to dispatch.
@@ -2001,36 +2439,13 @@ export class AiAgentRuntime {
       }
 
       for (const steering of pendingSteering) {
-        const messageId = genUUIDv7()
-        const marker = steeringMarker(steering)
-        const sentAt = dateFromString(steering.created_at) ?? new Date()
-        const messageContext = buildMessageContextMetadata({ sentAt }, messageContextHistory)
-        const metadata = mergeMessageContextMetadata(
-          {
-            control: {
-              origin: 'steering',
-              type: 'steering',
-              source_command_event_id: steering.command_event_id,
-              command_event_id: steering.command_event_id
-            }
-          },
-          messageContext
-        )
-        await tx.insert(AiAgentMessages).values({
-          id: messageId,
+        nextTriggerMessageId = await this.insertSteeringMarkerRow(tx, {
           agentUid: conversation.agentUid,
           conversationId: input.conversationId,
-          role: 'user',
-          kind: 'introspection',
-          status: 'complete',
-          content: jsonbParam(textContent(marker)),
-          agentMessage: jsonbParam(toJsonObject(createUserMessage(marker, sentAt.getTime()))),
-          eventSource: 'ai-agent.command.steer',
-          eventId: steering.command_event_id,
-          metadata: jsonbParam(metadata)
+          messageContextHistory,
+          steering,
+          timezone: input.timezone
         })
-        appendMessageContextHistory(messageContextHistory, metadata)
-        nextTriggerMessageId = messageId
       }
 
       for (const followup of pendingFollowups) {
@@ -2040,7 +2455,8 @@ export class AiAgentRuntime {
           {
             actor: followup.actor ?? {},
             room: followup.room,
-            sentAt
+            sentAt,
+            timezone: input.timezone
           },
           messageContextHistory
         )
@@ -2060,7 +2476,9 @@ export class AiAgentRuntime {
           kind: 'normal',
           status: 'complete',
           content: jsonbParam(textContent(followup.text)),
-          agentMessage: jsonbParam(toJsonObject(createUserMessage(followup.text, sentAt.getTime()))),
+          agentMessage: jsonbParam(
+            followup.agent_message ?? toJsonObject(createUserMessage(followup.text, sentAt.getTime()))
+          ),
           eventSource: followup.event_source,
           eventId: followup.event_id,
           metadata: jsonbParam(metadata)
@@ -2083,6 +2501,7 @@ export class AiAgentRuntime {
       return {
         assistantMessageId,
         enqueuedOutput: isVisibleOutput,
+        streamedCardProjection,
         nextGeneration:
           nextLeaseId && nextTriggerMessageId
             ? {
@@ -2094,6 +2513,40 @@ export class AiAgentRuntime {
             : undefined
       }
     })
+  }
+
+  private async projectStreamingCardOutbound(
+    context: ExternalGatewayAgentExecutionContext,
+    projection: StreamedCardProjection
+  ): Promise<void> {
+    try {
+      await projectVisibleOutbound({
+        adapter: context.adapter,
+        agent: context.agent,
+        messageId: projection.messageId,
+        projection: context.projection,
+        raw: projection.raw,
+        room: {
+          id: projection.providerRoomId,
+          isDM: context.adapter.isDM?.(projection.providerThreadId) ?? false,
+          roomVisibility: context.adapter.getChannelVisibility?.(projection.providerThreadId) ?? 'unknown'
+        },
+        text: projection.text,
+        threadId: projection.providerThreadId
+      })
+    } catch (error) {
+      logger.error(
+        {
+          error,
+          agentUid: context.agentUid,
+          bindingName: context.bindingName,
+          messageId: projection.messageId,
+          providerRoomId: projection.providerRoomId,
+          providerThreadId: projection.providerThreadId
+        },
+        'AIAgent failed to project streaming card outbound message'
+      )
+    }
   }
 
   private async enqueueFeedback(
@@ -2123,10 +2576,125 @@ export class AiAgentRuntime {
     context.scheduleOutboxDrain()
   }
 
-  private async materializeSteering(conversationId: string, steering: PendingSteering) {
+  private async hasPendingSteering(conversationId: string, leaseId: string): Promise<boolean> {
+    const [conversation] = await DB.select({ generation: AiAgentConversations.generation })
+      .from(AiAgentConversations)
+      .where(eq(AiAgentConversations.id, conversationId))
+      .limit(1)
+    if (!conversation || conversation.generation.lease_id !== leaseId || conversation.generation.cancelled_at) {
+      return false
+    }
+    return normalizePendingArray<PendingSteering>(conversation.generation.pending_steering).length > 0
+  }
+
+  private async materializePendingSteeringAtToolBoundary(input: {
+    conversationId: string
+    leaseId: string
+    providerRoomId?: string
+    providerThreadId?: string
+    timezone: string
+  }): Promise<NextGeneration | undefined> {
+    return DB.transaction(async tx => {
+      const [conversation] = await tx
+        .select()
+        .from(AiAgentConversations)
+        .where(eq(AiAgentConversations.id, input.conversationId))
+        .for('update')
+        .limit(1)
+      if (!conversation) return undefined
+      if (
+        conversation.endedAt ||
+        conversation.generation.lease_id !== input.leaseId ||
+        conversation.generation.cancelled_at
+      ) {
+        return undefined
+      }
+
+      const pendingSteering = normalizePendingArray<PendingSteering>(conversation.generation.pending_steering)
+      if (pendingSteering.length === 0) return undefined
+
+      const messageContextHistory = await loadMessageContextHistory(input.conversationId, tx)
+
+      let nextTriggerMessageId: string | undefined
+      for (const steering of pendingSteering) {
+        nextTriggerMessageId = await this.insertSteeringMarkerRow(tx, {
+          agentUid: conversation.agentUid,
+          conversationId: input.conversationId,
+          messageContextHistory,
+          steering,
+          timezone: input.timezone
+        })
+      }
+
+      if (!nextTriggerMessageId) return undefined
+      const nextLeaseId = genUUIDv7()
+      await tx
+        .update(AiAgentConversations)
+        .set({
+          generation: jsonbParam(newGenerationLease(nextLeaseId, nextTriggerMessageId)),
+          updatedAt: sql`now()`
+        })
+        .where(eq(AiAgentConversations.id, input.conversationId))
+
+      return {
+        leaseId: nextLeaseId,
+        providerRoomId: input.providerRoomId,
+        providerThreadId: input.providerThreadId,
+        triggerMessageId: nextTriggerMessageId
+      }
+    })
+  }
+
+  /** Insert one steering-marker introspection row inside the caller's transaction. */
+  private async insertSteeringMarkerRow(
+    tx: QueryExecutor,
+    input: {
+      agentUid: string
+      conversationId: string
+      messageContextHistory: MessageContextHistoryItem[]
+      steering: PendingSteering
+      timezone: string
+    }
+  ): Promise<string> {
+    const messageId = genUUIDv7()
+    const marker = steeringMarker(input.steering)
+    const sentAt = dateFromString(input.steering.created_at) ?? new Date()
+    const messageContext = buildMessageContextMetadata(
+      { sentAt, timezone: input.timezone },
+      input.messageContextHistory
+    )
+    const metadata = mergeMessageContextMetadata(
+      {
+        control: {
+          origin: 'steering',
+          type: 'steering',
+          source_command_event_id: input.steering.command_event_id,
+          command_event_id: input.steering.command_event_id
+        }
+      },
+      messageContext
+    )
+    await tx.insert(AiAgentMessages).values({
+      id: messageId,
+      agentUid: input.agentUid,
+      conversationId: input.conversationId,
+      role: 'user',
+      kind: 'introspection',
+      status: 'complete',
+      content: jsonbParam(textContent(marker)),
+      agentMessage: jsonbParam(toJsonObject(createUserMessage(marker, sentAt.getTime()))),
+      eventSource: 'ai-agent.command.steer',
+      eventId: input.steering.command_event_id,
+      metadata: jsonbParam(metadata)
+    })
+    appendMessageContextHistory(input.messageContextHistory, metadata)
+    return messageId
+  }
+
+  private async materializeSteering(conversationId: string, steering: PendingSteering, timezone: string) {
     const sentAt = dateFromString(steering.created_at) ?? new Date()
     const history = await loadMessageContextHistory(conversationId)
-    const messageContext = buildMessageContextMetadata({ sentAt }, history)
+    const messageContext = buildMessageContextMetadata({ sentAt, timezone }, history)
     return this.conversations.appendMessage({
       conversationId,
       role: 'user',
@@ -2142,6 +2710,44 @@ export class AiAgentRuntime {
             type: 'steer_fallback',
             source_command_event_id: steering.command_event_id,
             command_event_id: steering.command_event_id
+          }
+        },
+        messageContext
+      )
+    })
+  }
+
+  private async materializeStop(
+    conversationId: string,
+    event: ExternalGatewayAgentDelivery['events'][number],
+    timezone: string
+  ) {
+    const envelope = payloadEnvelope(event)
+    const sentAt = sentAtFromEnvelope(envelope, event)
+    const note = [
+      '<task_cancellation>',
+      'The user stopped the active generation.',
+      'Treat the interrupted task as cancelled.',
+      'Do not continue or resume that stopped task in later turns unless the user explicitly asks again.',
+      '</task_cancellation>'
+    ].join('\n')
+    const history = await loadMessageContextHistory(conversationId)
+    const messageContext = buildMessageContextMetadata({ sentAt, timezone }, history)
+    return this.conversations.appendMessage({
+      conversationId,
+      role: 'user',
+      kind: 'introspection',
+      content: textContent(note),
+      agentMessage: createUserMessage(note, sentAt.getTime()),
+      eventSource: 'ai-agent.command.stop',
+      eventId: event.providerEventId,
+      metadata: mergeMessageContextMetadata(
+        {
+          control: {
+            origin: 'stop',
+            type: 'stop',
+            source_command_event_id: event.providerEventId,
+            command_event_id: event.providerEventId
           }
         },
         messageContext
@@ -2173,6 +2779,105 @@ function messageText(envelope: ExternalGatewayAgentEnvelope): string {
   return typeof text === 'string' ? text : ''
 }
 
+function isAttachmentOnlyContextMessage(envelope: ExternalGatewayAgentEnvelope): boolean {
+  const attachments = envelope.data.message?.attachments
+  if (!Array.isArray(attachments) || attachments.length === 0) return false
+  return stripAttachmentContextText(messageText(envelope)).length === 0
+}
+
+function stripAttachmentContextText(text: string): string {
+  return text
+    .replace(/<file\b[^>]*\/>/gi, '')
+    .replace(/!\[[^\]]*]\([^)]*\)/g, '')
+    .replace(/\[\s*(?:document|image)\b[^\]]*?\bsaved at:\s*[^\]]+]/gi, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
+async function createUserMessageFromEnvelope(
+  envelope: ExternalGatewayAgentEnvelope,
+  sentAt: Date,
+  options: { agentUid: string; readComputerFile?: ComputerFileReader }
+): Promise<AgentMessage> {
+  const text = messageText(envelope)
+  const imageBlocks = await imageContentBlocksFromEnvelope(envelope, options)
+  if (imageBlocks.length === 0) return createUserMessage(text, sentAt.getTime())
+
+  const content: Array<TextContent | ImageContent> = [
+    { type: 'text', text: modelTextForInlineImages(text, imageBlocks.length) },
+    ...imageBlocks
+  ]
+  return createUserMessage(content, sentAt.getTime())
+}
+
+function modelTextForInlineImages(text: string, imageCount: number): string {
+  const cleaned = text
+    .replace(/!\[[^\]]*]\([^)]*\)/g, '')
+    .replace(/\[\s*image\b[^\]]*?\bsaved at:\s*[^\]]+]/gi, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+
+  if (cleaned) return cleaned
+  return imageCount === 1 ? '[Image attached]' : `[${imageCount} images attached]`
+}
+
+async function imageContentBlocksFromEnvelope(
+  envelope: ExternalGatewayAgentEnvelope,
+  options: { agentUid: string; readComputerFile?: ComputerFileReader }
+): Promise<ImageContent[]> {
+  const attachments = envelope.data.message?.attachments
+  if (!Array.isArray(attachments)) return []
+
+  const blocks: ImageContent[] = []
+  for (const attachment of attachments) {
+    const materialized = isJsonObject(attachment) ? attachment.materialized : undefined
+    if (!isJsonObject(materialized)) continue
+    if (materialized.status !== 'saved' || materialized.kind !== 'image') continue
+
+    const computerPath = typeof materialized.computerPath === 'string' ? materialized.computerPath : undefined
+    const mimeType = typeof materialized.mimeType === 'string' ? materialized.mimeType : undefined
+    const size = typeof materialized.size === 'number' ? materialized.size : undefined
+    if (!computerPath || !options.readComputerFile || !mimeType?.startsWith('image/')) continue
+    if (size !== undefined && size > EXTERNAL_IMAGE_INLINE_LIMIT_BYTES) continue
+
+    const data = await options.readComputerFile(options.agentUid, computerPath)
+    if (!data) continue
+    if (data.byteLength > EXTERNAL_IMAGE_INLINE_LIMIT_BYTES) continue
+    blocks.push({
+      type: 'image',
+      data: data.toString('base64'),
+      mimeType
+    })
+  }
+
+  return blocks
+}
+
+function bindingAdapter(metadata: JsonObject, bindingName: string): string | undefined {
+  const external = toJsonObject(metadata.external)
+  const adapters = external.adapters
+  if (!Array.isArray(adapters)) return undefined
+  for (const value of adapters) {
+    const binding = toJsonObject(value)
+    if (binding.name === bindingName && typeof binding.adapter === 'string') return binding.adapter
+  }
+  return undefined
+}
+
+function actorDisplayName(actorValue: unknown): string | undefined {
+  const actor = toJsonObject(actorValue)
+  return (
+    trimOptionalString(stringFromMetadata(actor, ['fullName'])) ??
+    trimOptionalString(stringFromMetadata(actor, ['userName'])) ??
+    trimOptionalString(stringFromMetadata(actor, ['display_name'])) ??
+    trimOptionalString(stringFromMetadata(actor, ['name']))
+  )
+}
+
+function trimOptionalString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined
+}
+
 function roomFromEnvelope(envelope: ExternalGatewayAgentEnvelope): JsonObject {
   return toJsonObject(envelope.data.room)
 }
@@ -2181,6 +2886,16 @@ function actorFromEnvelope(envelope: ExternalGatewayAgentEnvelope): JsonObject {
   const message = envelope.data.message
   const author = message?.author
   return typeof author === 'object' && author !== null && !Array.isArray(author) ? (author as JsonObject) : {}
+}
+
+function externalIdFromActor(actor: JsonObject): string | undefined {
+  return (
+    stringFromMetadata(actor, ['userId']) ??
+    stringFromMetadata(actor, ['id']) ??
+    stringFromMetadata(actor, ['user_id']) ??
+    stringFromMetadata(actor, ['openId']) ??
+    stringFromMetadata(actor, ['open_id'])
+  )
 }
 
 function sentAtFromEnvelope(
@@ -2295,7 +3010,22 @@ function normalizePendingArray<T>(value: unknown): T[] {
 }
 
 function steeringMarker(steering: PendingSteering): string {
-  return `<human_steering_note command_event_id="${steering.command_event_id}">${steering.text}</human_steering_note>`
+  return [
+    `<human_steering_note command_event_id="${escapeXmlAttribute(steering.command_event_id)}" effect="override_current_incomplete_task">`,
+    'The user changed direction while the previous generation was in progress.',
+    'Apply the instruction below as the current highest-priority user instruction for the unfinished task.',
+    'Do not continue pre-steering tool plans, searches, commands, or long-form deliverables unless this instruction explicitly asks for them.',
+    `<instruction>${escapeXmlText(steering.text)}</instruction>`,
+    '</human_steering_note>'
+  ].join('\n')
+}
+
+function escapeXmlText(value: string): string {
+  return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
+}
+
+function escapeXmlAttribute(value: string): string {
+  return escapeXmlText(value).replaceAll('"', '&quot;')
 }
 
 function observeProviderPayload(observation: JsonObject, payload: unknown): void {

@@ -114,4 +114,4 @@ bun run db:create
 bun run db:rebuild --yes
 ```
 
-Local Compose file: `tools/devkit/external-services.docker-compose.yml`, with default ports aligned to `app/.env.development`: Postgres `localhost:5433`, Redis `localhost:6379`.
+Local Compose file: `tools/devkit/external-services.docker-compose.yml`, with default ports aligned to `app/.env.development`: Postgres `localhost:5433`, Redis `localhost:6379`. The local Postgres service defaults to `max_connections=300` via `BULLX_POSTGRES_MAX_CONNECTIONS`, and the app DB pool defaults to `BULLX_DATABASE_POOL_MAX=30` in development.

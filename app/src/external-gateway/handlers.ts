@@ -4,8 +4,10 @@ import { toJsonArray, toJsonObject, toJsonValue } from '@/common/json'
 import { ExternalGatewayAgentEvents, type JsonObject, type JsonValue } from '@/common/db-schema'
 import { logger as defaultLogger, type Logger } from '@/common/logger'
 import { normalizeInboundText } from '@/common/normalize'
+import { recordAgentRoomObservation } from '@/chat-recall/projection'
 import { isPlainObject } from '@pleisto/active-support'
 import type { AgentResult } from '@/principals/agents/service'
+import { materializeInboundMessageAttachments, type ExternalMediaComputerWriter } from './media-cache'
 import type {
   ExternalGatewayAgentEnvelope,
   ExternalGatewayCanonicalType,
@@ -38,6 +40,7 @@ export interface CreateExternalGatewayAdapterContextInput {
   eventQueue: DrizzleExternalGatewayAgentEventQueue
   logger?: Logger
   projection: ExternalGatewayProjectionSink
+  getComputerFileWriter?(agentUid: string, signal?: AbortSignal): Promise<ExternalMediaComputerWriter>
   scheduleDrain(availableAt?: Date): void
   /** Reads the executor's pending-clarify gate so group replies can be routed in. */
   roomHasPendingClarify?(providerRoomId: string): boolean
@@ -85,6 +88,15 @@ function adapterLogger(logger: Logger, prefix?: string): ExternalGatewayAdapterL
 
 function pluginLogEntry(args: readonly unknown[]): { data: Record<string, unknown>; message: string } {
   if (typeof args[0] === 'string') {
+    if (args[0].includes('[object Object]')) {
+      return {
+        data: {
+          rawMessage: args[0],
+          ...pluginLogData(args.slice(1))
+        },
+        message: 'External Gateway adapter log'
+      }
+    }
     return {
       data: pluginLogData(args.slice(1)),
       message: args[0]
@@ -127,8 +139,27 @@ async function handleInboundReceive(
   if (delivery !== 'addressed' && Boolean(message.text?.trim()) && runtime.roomHasPendingClarify?.(room.id) === true) {
     delivery = 'addressed'
   }
+  runtime.logger?.debug?.(
+    {
+      agentUid: runtime.agent.agent.uid,
+      bindingName: runtime.binding.name,
+      adapter: runtime.binding.adapter,
+      groupMessageMode: runtime.binding.groupMessageMode,
+      providerMessageId: message.id,
+      providerRoomId: room.id,
+      providerThreadId: message.threadId,
+      roomIsDM: room.isDM,
+      delivery,
+      isMention: message.isMention === true,
+      authorUserId: message.author.userId,
+      authorIsBot: message.author.isBot,
+      authorIsMe: message.author.isMe,
+      attachmentCount: message.attachments?.length ?? 0,
+      textPreview: message.text ? Array.from(message.text).slice(0, 120).join('') : ''
+    },
+    'External Gateway inbound message delivery decision'
+  )
   if (delivery === 'ignored') return
-
   const tombstoned = await runtime.eventQueue.hasInputTombstone({
     agentUid: runtime.agent.agent.uid,
     bindingName: runtime.binding.name,
@@ -137,9 +168,28 @@ async function handleInboundReceive(
   })
   if (tombstoned) return
 
+  message = await materializeInboundMessageAttachments(message, {
+    agentUid: runtime.agent.agent.uid,
+    binding: runtime.binding,
+    computerWriter: runtime.getComputerFileWriter
+      ? () => runtime.getComputerFileWriter!(runtime.agent.agent.uid)
+      : undefined,
+    logger: runtime.logger,
+    room
+  })
+
   await runtime.projection.projectMessage({
     room,
     message
+  })
+  await recordAgentRoomObservation({
+    agentUid: runtime.agent.agent.uid,
+    bindingName: runtime.binding.name,
+    roomId: room.id,
+    metadata: {
+      delivery,
+      adapter: runtime.binding.adapter
+    }
   })
   if (delivery === 'observed') return
 
@@ -208,6 +258,15 @@ async function handleMessageDeleted(
   event: ExternalGatewayMessageDeletedEvent
 ): Promise<void> {
   const room = await roomForLifecycle(runtime.adapter, event)
+  await recordAgentRoomObservation({
+    agentUid: runtime.agent.agent.uid,
+    bindingName: runtime.binding.name,
+    roomId: room.id,
+    metadata: {
+      delivery: 'lifecycle',
+      adapter: runtime.binding.adapter
+    }
+  })
   const type = event.kind === 'recalled' ? 'message.recalled' : 'message.deleted'
   const envelope = envelopeForDelete({
     agentUid: runtime.agent.agent.uid,
@@ -318,9 +377,20 @@ async function handleReaction(
   runtime: CreateExternalGatewayAdapterContextInput,
   event: ExternalGatewayReactionEvent
 ): Promise<void> {
+  const room = event.room?.id ? event.room : await roomForThread(runtime.adapter, event.threadId, event.room)
+  if (!room.id) throw new Error('External Gateway reaction event missing room id')
+  await recordAgentRoomObservation({
+    agentUid: runtime.agent.agent.uid,
+    bindingName: runtime.binding.name,
+    roomId: room.id,
+    metadata: {
+      delivery: 'reaction',
+      adapter: runtime.binding.adapter
+    }
+  })
   await runtime.projection.projectReaction({
     ...event,
-    room: event.room?.id ? event.room : await roomForThread(runtime.adapter, event.threadId, event.room)
+    room
   })
 }
 
@@ -329,6 +399,15 @@ async function handleAction(
   event: ExternalGatewayActionEvent
 ): Promise<void> {
   const room = await roomForThread(runtime.adapter, event.threadId, event.room)
+  await recordAgentRoomObservation({
+    agentUid: runtime.agent.agent.uid,
+    bindingName: runtime.binding.name,
+    roomId: room.id,
+    metadata: {
+      delivery: 'action',
+      adapter: runtime.binding.adapter
+    }
+  })
   const envelope = envelopeForAction({
     agentUid: runtime.agent.agent.uid,
     binding: runtime.binding,

@@ -54,7 +54,7 @@ export const LibrarySkillFiles = pgTable(
       .references(() => LibrarySkills.id, { onDelete: 'cascade' }),
     virtualPath: text('virtual_path').notNull(),
     contentText: text('content_text').notNull(),
-    contentSha256: text('content_sha256').notNull(),
+    contentBlake3: text('content_blake3').notNull(),
     contentMediaType: text('content_media_type').default('text/plain').notNull(),
     metadata: jsonb('metadata').$type<JsonObject>().default({}).notNull(),
     createdAt: timestamp('created_at', { withTimezone: true })
@@ -99,7 +99,7 @@ export const AgentSkillAssignments = pgTable(
   ]
 )
 
-/** Agent-owned library filesystem entries: SOUL.md and per-agent skill append overlays. */
+/** Agent-owned library filesystem entries: SOUL.md, MISSION.md, and per-agent skill append overlays. */
 export const AgentLibraryContainerEntries = pgTable(
   'agent_library_container_entries',
   {
@@ -114,7 +114,7 @@ export const AgentLibraryContainerEntries = pgTable(
     contentText: text('content_text'),
     contentBytes: text('content_bytes'),
     contentMediaType: text('content_media_type').default('text/plain').notNull(),
-    contentSha256: text('content_sha256').notNull(),
+    contentBlake3: text('content_blake3').notNull(),
     metadata: jsonb('metadata').$type<JsonObject>().default({}).notNull(),
     enabled: boolean('enabled').default(true).notNull(),
     version: text('version').default('1').notNull(),
@@ -135,7 +135,7 @@ export const AgentLibraryContainerEntries = pgTable(
     check('agent_library_entries_kind_check', sql`${t.entryKind} in ('file', 'directory')`),
     check(
       'agent_library_entries_source_check',
-      sql`${t.sourceKind} in ('soul', 'skill_append', 'setting', 'memory', 'system', 'user', 'computer')`
+      sql`${t.sourceKind} in ('soul', 'mission', 'skill_append', 'setting', 'memory', 'system', 'user', 'computer')`
     ),
     check(
       'agent_library_entries_one_content',

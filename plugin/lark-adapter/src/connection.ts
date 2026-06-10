@@ -1,6 +1,6 @@
 import * as lark from '@larksuiteoapi/node-sdk'
 import { LarkAdapterConfigError, type LarkChannelConfig, type LarkIdentityProviderConfig } from './config'
-import { sdkDomain, type LarkSdkLogger } from './lark-helpers'
+import { asRecord, optionalString, sdkDomain, type LarkSdkLogger } from './lark-helpers'
 import type { BullXLarkChatAdapter } from './chat-adapter'
 import type { BullXLarkIdentityProviderAdapter } from './identity-adapter'
 
@@ -156,6 +156,18 @@ export class SharedLarkConnection {
     return this.requireChannel().downloadResource(fileKey, type)
   }
 
+  async downloadMessageResource(messageId: string, fileKey: string, type: lark.ResourceType): Promise<Buffer> {
+    const resource = await this.rawClient.im.v1.messageResource.get({
+      path: {
+        message_id: messageId,
+        file_key: fileKey
+      },
+      params: { type }
+    })
+
+    return bufferFromReadable(resource.getReadableStream())
+  }
+
   async recallMessage(messageId: string): Promise<void> {
     await this.requireChannel().recallMessage(messageId)
   }
@@ -252,6 +264,7 @@ export class SharedLarkConnection {
   }
 
   private async dispatchMessage(message: lark.NormalizedMessage): Promise<void> {
+    this.logger?.debug?.('Lark message event received by shared dispatcher', larkMessageDebugData(this.config, message))
     await Promise.all([...this.chatAdapters].map(adapter => adapter.handleSharedMessage(message)))
   }
 
@@ -291,6 +304,36 @@ export class SharedLarkConnection {
 
   private async dispatchContactScopeUpdated(): Promise<void> {
     await Promise.all([...this.identityProviders].map(provider => provider.handleContactScopeUpdated()))
+  }
+}
+
+async function bufferFromReadable(stream: AsyncIterable<Buffer | Uint8Array | string>): Promise<Buffer> {
+  const chunks: Buffer[] = []
+  for await (const chunk of stream) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
+  }
+  return Buffer.concat(chunks)
+}
+
+function larkMessageDebugData(config: LarkConnectionConfig, message: lark.NormalizedMessage): Record<string, unknown> {
+  const raw = asRecord(message.raw)
+  const sender = asRecord(raw?.sender)
+  const senderId = asRecord(sender?.sender_id)
+  return {
+    appId: config.appId,
+    domain: config.domain,
+    messageId: message.messageId,
+    chatId: message.chatId,
+    chatType: message.chatType,
+    rawContentType: message.rawContentType,
+    mentionedBot: message.mentionedBot,
+    mentionAll: message.mentionAll,
+    senderType: optionalString(sender?.sender_type),
+    senderUserId: optionalString(senderId?.user_id),
+    senderUnionId: optionalString(senderId?.union_id),
+    senderOpenId: optionalString(senderId?.open_id),
+    resourceCount: message.resources?.length ?? 0,
+    textPreview: message.content ? Array.from(message.content).slice(0, 120).join('') : ''
   }
 }
 

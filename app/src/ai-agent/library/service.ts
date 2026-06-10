@@ -1,6 +1,5 @@
 import { genUUIDv7, genericHash } from '@agentbull/bullx-native-addons'
 import { and, asc, eq, inArray, isNull, notInArray, sql } from 'drizzle-orm'
-import { parse } from 'yaml'
 import { readdir } from 'node:fs/promises'
 import path from 'node:path'
 import { DB, jsonbParam, type QueryExecutor } from '@/common/database'
@@ -13,15 +12,21 @@ import {
   LibrarySkills,
   type JsonObject
 } from '@/common/db-schema'
-import type { Skill } from '../core'
-import { formatSkillsForSystemPrompt } from '../core/harness/system-prompt'
-import { APP_SKILLS_ROOT, INTERNALS_SKILLS_ROOT, loadDefaultSoulTemplate } from './default-soul'
+import { parseSkillFile, type Skill } from '../core'
+import {
+  APP_SKILLS_ROOT,
+  INTERNALS_SKILLS_ROOT,
+  loadDefaultMissionTemplate,
+  loadDefaultSoulTemplate
+} from './default-soul'
 import { auditSkillAppendContent, type SkillContentDiagnostic } from './skill-guard'
 
 const SYNC_KEY = 'app+internals/library/skills'
 const SKILL_FILE = 'SKILL.md'
 const AGENT_APPEND_FILE = 'AGENT_APPEND.md'
 const SOUL_FILE = 'SOUL.md'
+const MISSION_FILE = 'MISSION.md'
+const SKILL_SYNC_IGNORE_FILE = '.skill-sync-ignore'
 
 const BUILTIN_SKILL_ROOTS = [
   { label: 'app', root: APP_SKILLS_ROOT },
@@ -62,21 +67,6 @@ export interface EffectiveSkillContent extends EffectiveSkillSummary {
   content: string
   baseContent?: string
   appendContent?: string
-}
-
-type SkillFrontmatter = JsonObject & {
-  name?: string
-  description?: string
-  default_enabled?: boolean
-  defaultEnabled?: boolean
-  tags?: unknown
-  category?: unknown
-  'disable-model-invocation'?: boolean
-}
-
-interface ParsedSkillFile {
-  frontmatter: SkillFrontmatter
-  body: string
 }
 
 interface BuiltinSkillSource {
@@ -171,7 +161,7 @@ export async function syncBuiltinLibraryFromAppDirectory(
             skillId: skill.id,
             virtualPath: file.virtualPath,
             contentText: file.content,
-            contentSha256: file.sha,
+            contentBlake3: file.sha,
             contentMediaType: mediaTypeForPath(file.virtualPath),
             metadata: jsonbParam({})
           }))
@@ -223,6 +213,17 @@ export async function seedDefaultSoulForAgent(agentUid: string, executor: QueryE
   })
 }
 
+export async function seedDefaultMissionForAgent(agentUid: string, executor: QueryExecutor = DB): Promise<void> {
+  const content = await loadDefaultMissionTemplate()
+  await upsertAgentTextEntry(executor, {
+    agentUid,
+    virtualPath: MISSION_FILE,
+    sourceKind: 'mission',
+    content,
+    sourceRef: { source: 'app_template' }
+  })
+}
+
 export async function getSoul(agentUid: string, executor: QueryExecutor = DB): Promise<string | null> {
   const [row] = await executor
     .select({ contentText: AgentLibraryContainerEntries.contentText })
@@ -237,6 +238,25 @@ export async function setSoul(agentUid: string, content: string, executor: Query
     agentUid,
     virtualPath: SOUL_FILE,
     sourceKind: 'soul',
+    content,
+    sourceRef: { source: 'api' }
+  })
+}
+
+export async function getMission(agentUid: string, executor: QueryExecutor = DB): Promise<string | null> {
+  const [row] = await executor
+    .select({ contentText: AgentLibraryContainerEntries.contentText })
+    .from(AgentLibraryContainerEntries)
+    .where(activeAgentEntry(agentUid, MISSION_FILE))
+    .limit(1)
+  return row?.contentText ?? null
+}
+
+export async function setMission(agentUid: string, content: string, executor: QueryExecutor = DB): Promise<void> {
+  await upsertAgentTextEntry(executor, {
+    agentUid,
+    virtualPath: MISSION_FILE,
+    sourceKind: 'mission',
     content,
     sourceRef: { source: 'api' }
   })
@@ -424,19 +444,6 @@ export async function getEffectiveSkillContent(input: {
   }
 }
 
-export async function buildAgentSystemPrompt(agentUid: string, executor: QueryExecutor = DB): Promise<string> {
-  const soul = (await getSoul(agentUid, executor)) ?? (await loadDefaultSoulTemplate())
-  const skills = await skillsForSystemPrompt(agentUid, executor)
-  const skillPrompt = formatSkillsForSystemPrompt(skills)
-  const runtimeIdentity = [
-    '<runtime_identity>',
-    `Agent UID: ${agentUid}`,
-    'Use this exact Agent UID when a tool or skill asks for the current agent identity.',
-    '</runtime_identity>'
-  ].join('\n')
-  return [soul.trim(), runtimeIdentity, skillPrompt.trim()].filter(Boolean).join('\n\n')
-}
-
 export async function skillsForSystemPrompt(agentUid: string, executor: QueryExecutor = DB): Promise<Skill[]> {
   const summaries = await listEffectiveSkills(agentUid, executor)
   return summaries.map(skill => ({
@@ -448,18 +455,20 @@ export async function skillsForSystemPrompt(agentUid: string, executor: QueryExe
   }))
 }
 
+// Mirrors the worker-side upsert in packages/computer/src/tigerfs.rs: same
+// conflict target and version bump. Schema changes must update both.
 async function upsertAgentTextEntry(
   executor: QueryExecutor,
   input: {
     agentUid: string
     virtualPath: string
-    sourceKind: 'soul' | 'skill_append' | 'setting' | 'memory' | 'system' | 'user' | 'computer'
+    sourceKind: 'soul' | 'mission' | 'skill_append' | 'setting' | 'memory' | 'system' | 'user' | 'computer'
     content: string
     sourceRef?: JsonObject
   }
 ): Promise<void> {
   const virtualPath = normalizeVirtualPath(input.virtualPath)
-  const contentSha256 = stableHash([input.content])
+  const contentBlake3 = stableHash([input.content])
   await executor
     .insert(AgentLibraryContainerEntries)
     .values({
@@ -472,7 +481,7 @@ async function upsertAgentTextEntry(
       contentText: input.content,
       contentBytes: null,
       contentMediaType: mediaTypeForPath(virtualPath),
-      contentSha256,
+      contentBlake3,
       metadata: jsonbParam({}),
       enabled: true,
       version: '1',
@@ -488,7 +497,7 @@ async function upsertAgentTextEntry(
         contentText: input.content,
         contentBytes: null,
         contentMediaType: mediaTypeForPath(virtualPath),
-        contentSha256,
+        contentBlake3,
         enabled: true,
         version: sql`(${AgentLibraryContainerEntries.version}::int + 1)::text`,
         deletedAt: null,
@@ -570,7 +579,8 @@ async function readBuiltinSkillSourcesFromRoot(sourceRoot: {
     const skillPath = path.join(skillDir, SKILL_FILE)
     const skillFile = Bun.file(skillPath)
     if (!(await skillFile.exists())) continue
-    const files = await readTextFilesRecursive(skillDir)
+    const ignoreRules = await readSkillSyncIgnoreRules(skillDir)
+    const files = await readTextFilesRecursive(skillDir, '', ignoreRules)
     const skillMd = files.find(file => file.virtualPath === SKILL_FILE)
     if (!skillMd) continue
     const parsed = parseSkillFile(skillMd.content)
@@ -648,9 +658,37 @@ function validateBuiltinSkillMetadata(input: {
   return diagnostics
 }
 
+interface SkillSyncIgnoreRule {
+  pattern: string
+  directoryOnly: boolean
+  basenameOnly: boolean
+}
+
+async function readSkillSyncIgnoreRules(root: string): Promise<SkillSyncIgnoreRule[]> {
+  const file = Bun.file(path.join(root, SKILL_SYNC_IGNORE_FILE))
+  if (!(await file.exists())) return []
+  const content = await file.text()
+  return content
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .filter(line => line && !line.startsWith('#'))
+    .map(line => {
+      const normalized = line.replace(/\\/g, '/').replace(/^\/+/, '')
+      const directoryOnly = normalized.endsWith('/')
+      const pattern = directoryOnly ? normalized.replace(/\/+$/, '') : normalized
+      return {
+        pattern,
+        directoryOnly,
+        basenameOnly: !pattern.includes('/')
+      }
+    })
+    .filter(rule => rule.pattern.length > 0)
+}
+
 async function readTextFilesRecursive(
   root: string,
-  relative = ''
+  relative = '',
+  ignoreRules: SkillSyncIgnoreRule[] = []
 ): Promise<Array<{ virtualPath: string; content: string; sha: string }>> {
   const dir = path.join(root, relative)
   const entries = await readdir(dir, { withFileTypes: true })
@@ -659,8 +697,9 @@ async function readTextFilesRecursive(
     if (entry.name.startsWith('.')) continue
     const childRelative = relative ? `${relative}/${entry.name}` : entry.name
     const childPath = path.join(root, childRelative)
+    if (isSkillSyncIgnored(childRelative, entry.isDirectory(), ignoreRules)) continue
     if (entry.isDirectory()) {
-      files.push(...(await readTextFilesRecursive(root, childRelative)))
+      files.push(...(await readTextFilesRecursive(root, childRelative, ignoreRules)))
       continue
     }
     if (!entry.isFile()) continue
@@ -670,13 +709,22 @@ async function readTextFilesRecursive(
   return files
 }
 
-function parseSkillFile(raw: string): ParsedSkillFile {
-  if (!raw.startsWith('---')) return { frontmatter: {}, body: raw }
-  const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/.exec(raw)
-  if (!match) return { frontmatter: {}, body: raw }
-  const parsed = parse(match[1] ?? '')
-  const frontmatter = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as SkillFrontmatter) : {}
-  return { frontmatter, body: match[2] ?? '' }
+function isSkillSyncIgnored(relativePath: string, isDirectory: boolean, rules: SkillSyncIgnoreRule[]): boolean {
+  const normalized = normalizeSkillRelativePath(relativePath)
+  const basename = normalized.split('/').pop() ?? normalized
+  for (const rule of rules) {
+    if (rule.directoryOnly && !isDirectory && !normalized.startsWith(`${rule.pattern}/`)) continue
+    const target = rule.basenameOnly ? basename : normalized
+    if (globLikeMatch(target, rule.pattern)) return true
+    if (!rule.basenameOnly && (normalized === rule.pattern || normalized.startsWith(`${rule.pattern}/`))) return true
+  }
+  return false
+}
+
+function globLikeMatch(value: string, pattern: string): boolean {
+  if (value === pattern) return true
+  const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '[^/]*')
+  return new RegExp(`^${escaped}$`).test(value)
 }
 
 function normalizeVirtualPath(value: string): string {

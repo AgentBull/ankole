@@ -116,4 +116,4 @@ bun run db:create
 bun run db:rebuild --yes
 ```
 
-本地 Compose 文件在 `tools/devkit/external-services.docker-compose.yml`，默认端口与 `app/.env.development` 对齐：Postgres `localhost:5433`，Redis `localhost:6379`。
+本地 Compose 文件在 `tools/devkit/external-services.docker-compose.yml`，默认端口与 `app/.env.development` 对齐：Postgres `localhost:5433`，Redis `localhost:6379`。本地 Postgres 默认通过 `BULLX_POSTGRES_MAX_CONNECTIONS` 使用 `max_connections=300`，开发环境 app DB pool 默认通过 `BULLX_DATABASE_POOL_MAX=30` 配置。

@@ -1,7 +1,5 @@
 import { Elysia } from 'elysia'
-import { rootContainer } from '@/common/di'
-import type { ExternalGatewayRuntime } from './runtime'
-import { ExternalGatewayRuntime as ExternalGatewayRuntimeToken } from './runtime'
+import { externalGatewayRuntime, type ExternalGatewayRuntime } from './runtime'
 
 /**
  * Public External Gateway webhook surface.
@@ -11,9 +9,7 @@ import { ExternalGatewayRuntime as ExternalGatewayRuntimeToken } from './runtime
  * `/api/agents/:agent-uid/webhooks/:channel` shape: external webhooks identify
  * both the agent instance and the channel bound in that agent's metadata.
  */
-export function externalGatewayRoutes(
-  runtime: ExternalGatewayRuntime = rootContainer.resolve(ExternalGatewayRuntimeToken)
-) {
+export function externalGatewayRoutes(runtime: ExternalGatewayRuntime = externalGatewayRuntime) {
   return new Elysia({ name: 'external-gateway-routes' }).post(
     '/api/agents/:agentUid/webhooks/:channel',
     ({ params, request }) => runtime.handleWebhook(params.agentUid, params.channel, request)

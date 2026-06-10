@@ -9,8 +9,12 @@ import { seconds } from '@pleisto/active-support'
 
 let closingDatabase = false
 
+export const databaseRuntimeConfig = {
+  poolMax: AppEnv.BULLX_DATABASE_POOL_MAX
+} as const
+
 const sqlClient = new BunSQL(AppEnv.DATABASE_URL, {
-  max: 10,
+  max: databaseRuntimeConfig.poolMax,
   idleTimeout: seconds('1h'),
   connectionTimeout: seconds('20s'),
   maxLifetime: 0,

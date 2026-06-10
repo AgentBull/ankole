@@ -19,6 +19,7 @@ spec:
           image: ghcr.io/agentbull/bullx-computer-worker:latest
           ports:
             - containerPort: 8787
+              protocol: TCP
           env:
             # Stable worker identity = the StatefulSet pod name (bullx-computer-0, -1, ...).
             - name: BULLX_COMPUTER_WORKER_ID
@@ -41,43 +42,52 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
-            - name: BULLX_AGENT_URL
-              value: 'http://bullx-agent:3000'
             - name: BULLX_COMPUTER_WORKSPACE_ROOT
-              value: '/workspaces'
+              value: '/workspaces/workspace'
+            - name: BULLX_COMPUTER_USER_FILES_ROOT
+              value: '/workspaces/user-files'
+            - name: BULLX_COMPUTER_TEMP_ROOT
+              value: '/workspaces/temp'
+            - name: BULLX_COMPUTER_LIBRARY_CONTAINERS_ROOT
+              value: '/workspaces/library-containers'
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
                   name: bullx-agent
                   key: database-url
             - name: BULLX_COMPUTER_BASE_URL
-              value: 'http://$(BULLX_COMPUTER_WORKER_ID).bullx-computer.$(BULLX_COMPUTER_POD_NAMESPACE).svc.cluster.local:8787'
+              value: 'https://$(BULLX_COMPUTER_WORKER_ID).bullx-computer.$(BULLX_COMPUTER_POD_NAMESPACE).svc.cluster.local:8787'
             - name: BULLX_COMPUTER_MAX_AGENTS
               value: '128'
             - name: BULLX_COMPUTER_MAX_COMMANDS
               value: '32'
             - name: BULLX_COMPUTER_FEATURES
               value: 'bwrap,persistent-shell,tmux,tigerfs,python,jupyter,bun,browser'
-            # Shared secret with the BullX app (register/heartbeat auth + session-token signing).
+            # Shared bootstrap secret with the BullX app. Used to unseal the
+            # mTLS bundle in app_configure; not BULLX_SECRET_BASE.
             - name: BULLX_COMPUTER_TOKEN
               valueFrom:
                 secretKeyRef:
                   name: bullx-computer
                   key: token
           readinessProbe:
-            httpGet:
-              path: /readyz
-              port: 8787
+            exec:
+              command: ['test', '-f', '/tmp/bullx-computerd.ready']
             initialDelaySeconds: 2
             periodSeconds: 10
           livenessProbe:
-            httpGet:
-              path: /healthz
-              port: 8787
+            exec:
+              command: ['pgrep', 'bullx-computerd']
             periodSeconds: 15
           volumeMounts:
-            - name: workspaces
-              mountPath: /workspaces
+            - name: workspace-view
+              mountPath: /workspaces/workspace
+            - name: user-files
+              mountPath: /workspaces/user-files
+            - name: temp
+              mountPath: /workspaces/temp
+            - name: library-containers
+              mountPath: /workspaces/library-containers
             - name: dev-fuse
               mountPath: /dev/fuse
           securityContext:
@@ -88,6 +98,12 @@ spec:
         - name: dev-fuse
           hostPath:
             path: /dev/fuse
-        - name: workspaces
+        - name: workspace-view
+          emptyDir: {}
+        - name: temp
+          emptyDir: {}
+        - name: library-containers
+          emptyDir: {}
+        - name: user-files
           persistentVolumeClaim:
             claimName: bullx-workspaces-rwx

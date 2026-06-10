@@ -1,4 +1,3 @@
-import 'reflect-metadata'
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test'
 import { and, eq, like } from 'drizzle-orm'
 import { loadTestEnvFiles } from '@/common/tests/load-test-env'

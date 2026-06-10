@@ -2,6 +2,7 @@
 # /// script
 # requires-python = ">=3.10"
 # dependencies = [
+#     "blake3>=1",
 #     "jupyter-client>=8",
 #     "jupyter-server>=2",
 #     "nbformat>=5",
@@ -13,7 +14,6 @@ from __future__ import annotations
 
 import argparse
 import ast
-import hashlib
 import json
 import os
 import re
@@ -27,6 +27,7 @@ from urllib.parse import quote, urlencode, urljoin, urlparse, urlunparse
 
 import requests
 import websocket
+from blake3 import blake3
 from jupyter_client import BlockingKernelClient
 from jupyter_client.connect import find_connection_file
 from jupyter_server.serverapp import list_running_servers
@@ -34,6 +35,11 @@ from nbformat import v4 as nbf
 
 DEFAULT_TIMEOUT = 10.0
 DEFAULT_EXEC_TIMEOUT = 30.0
+MAX_STREAM_TEXT_CHARS = 12000
+MAX_MIME_TEXT_CHARS = 4000
+MAX_EXECUTE_INPUT_CHARS = 8000
+BINARY_MIME_PREFIXES = ("image/", "audio/", "video/")
+BINARY_MIME_TYPES = {"application/pdf", "application/octet-stream"}
 
 
 class CommandError(RuntimeError):
@@ -230,8 +236,39 @@ def _server_from_raw(raw: dict[str, Any]) -> ServerInfo:
     )
 
 
+def _server_from_explicit(server_url: str | None, port: int | None) -> ServerInfo:
+    url = server_url or f"http://127.0.0.1:{port}/"
+    parsed = urlparse(url)
+    detected_port = port or parsed.port
+    root_dir = (
+        os.environ.get("JUPYTER_NOTEBOOK_DIR")
+        or os.environ.get("NOTEBOOK_DIR")
+        or "/workspace/user-files/notebooks"
+    )
+    return ServerInfo(
+        url=url,
+        base_url="/",
+        root_dir=root_dir,
+        token=os.environ.get("JUPYTER_TOKEN", ""),
+        port=detected_port,
+        raw={"source": "explicit-probe", "url": url, "port": detected_port},
+    )
+
+
 def _running_server_infos() -> list[ServerInfo]:
     return [_server_from_raw(raw) for raw in list_running_servers()]
+
+
+def _dedupe_servers(servers: list[ServerInfo]) -> list[ServerInfo]:
+    seen: set[tuple[str, int | None]] = set()
+    deduped: list[ServerInfo] = []
+    for server in servers:
+        key = (server.root_url.rstrip("/"), server.port)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(server)
+    return deduped
 
 
 def discover_servers(timeout: float = DEFAULT_TIMEOUT) -> list[dict[str, Any]]:
@@ -280,7 +317,9 @@ def _select_server(
     timeout: float,
 ) -> ServerInfo:
     if server_url or port:
-        for server in _running_server_infos():
+        candidates = _running_server_infos()
+        candidates.append(_server_from_explicit(server_url, port))
+        for server in _dedupe_servers(candidates):
             if port and server.port != port:
                 continue
             if server_url and server.root_url.rstrip("/") != server_url.rstrip("/"):
@@ -535,7 +574,7 @@ def _synthetic_cell_id(cell: dict[str, Any], *, notebook_path: str, cell_index: 
         },
         sort_keys=True,
     )
-    digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()[:12]
+    digest = blake3(payload.encode("utf-8")).hexdigest()[:12]
     return f"synthetic-{digest}"
 
 
@@ -882,12 +921,12 @@ def _summarize_output(output: dict[str, Any]) -> dict[str, Any]:
         return {
             "output_type": "stream",
             "name": output.get("name"),
-            "text": output.get("text", ""),
+            "text": _truncate_text(output.get("text", ""), limit=MAX_STREAM_TEXT_CHARS),
         }
     if output_type in {"display_data", "execute_result"}:
         return {
             "output_type": output_type,
-            "data": output.get("data", {}),
+            "data": _summarize_mime_bundle(output.get("data", {})),
             "execution_count": output.get("execution_count"),
         }
     if output_type == "error":
@@ -1162,21 +1201,70 @@ def _belongs_to_execution(msg: dict[str, Any], msg_id: str) -> bool:
     return _message_parent_id(msg) == msg_id
 
 
+def _truncate_text(value: Any, *, limit: int) -> Any:
+    if not isinstance(value, str) or len(value) <= limit:
+        return value
+    omitted = len(value) - limit
+    return f"{value[:limit]}\n... [truncated {omitted} chars]"
+
+
+def _is_binary_mime(mime_type: str) -> bool:
+    return mime_type in BINARY_MIME_TYPES or mime_type.startswith(BINARY_MIME_PREFIXES)
+
+
+def _summarize_mime_value(mime_type: str, value: Any) -> Any:
+    if _is_binary_mime(mime_type):
+        summary: dict[str, Any] = {
+            "omitted": True,
+            "mime_type": mime_type,
+            "reason": "binary_mime_output",
+        }
+        if isinstance(value, str):
+            summary["base64_chars"] = len(value)
+        elif isinstance(value, list):
+            summary["items"] = len(value)
+        return summary
+
+    if isinstance(value, str):
+        return _truncate_text(value, limit=MAX_MIME_TEXT_CHARS)
+    if isinstance(value, list) and all(isinstance(item, str) for item in value):
+        joined = "".join(value)
+        return _truncate_text(joined, limit=MAX_MIME_TEXT_CHARS)
+    return value
+
+
+def _summarize_mime_bundle(data: Any) -> dict[str, Any]:
+    if not isinstance(data, dict):
+        return {}
+    return {
+        str(mime_type): _summarize_mime_value(str(mime_type), value)
+        for mime_type, value in data.items()
+    }
+
+
 
 def _summarize_channel_message(msg: dict[str, Any]) -> dict[str, Any] | None:
     msg_type = _message_type(msg)
     content = msg.get("content") or {}
     if msg_type == "stream":
-        return {"type": "stream", "name": content.get("name"), "text": content.get("text", "")}
+        return {
+            "type": "stream",
+            "name": content.get("name"),
+            "text": _truncate_text(content.get("text", ""), limit=MAX_STREAM_TEXT_CHARS),
+        }
     if msg_type == "execute_result":
         return {
             "type": "execute_result",
             "execution_count": content.get("execution_count"),
-            "data": content.get("data", {}),
+            "data": _summarize_mime_bundle(content.get("data", {})),
             "metadata": content.get("metadata", {}),
         }
     if msg_type == "display_data":
-        return {"type": "display_data", "data": content.get("data", {}), "metadata": content.get("metadata", {})}
+        return {
+            "type": "display_data",
+            "data": _summarize_mime_bundle(content.get("data", {})),
+            "metadata": content.get("metadata", {}),
+        }
     if msg_type == "error":
         return {
             "type": "error",
@@ -1188,7 +1276,7 @@ def _summarize_channel_message(msg: dict[str, Any]) -> dict[str, Any] | None:
         return {
             "type": "execute_input",
             "execution_count": content.get("execution_count"),
-            "code": content.get("code", ""),
+            "code": _truncate_text(content.get("code", ""), limit=MAX_EXECUTE_INPUT_CHARS),
         }
     if msg_type == "status":
         return {"type": "status", "execution_state": content.get("execution_state")}
@@ -1441,7 +1529,7 @@ def run_all_cells(
     notebook_path = path or target.path
 
     model = _load_notebook_model(server, notebook_path, timeout=timeout)
-    snapshot_sha256 = hashlib.sha256(json.dumps(model["content"], sort_keys=True).encode("utf-8")).hexdigest()
+    snapshot_blake3 = blake3(json.dumps(model["content"], sort_keys=True).encode("utf-8")).hexdigest()
     results: list[dict[str, Any]] = []
     executed_cell_count = 0
     skipped_cell_count = 0
@@ -1517,7 +1605,7 @@ def run_all_cells(
         "kernel_name": target.kernel_name,
         "session_id": target.session_id,
         "snapshot_last_modified": model.get("last_modified"),
-        "snapshot_sha256": snapshot_sha256,
+        "snapshot_blake3": snapshot_blake3,
         "transport_requested": transport,
         "timeout_per_cell_seconds": timeout,
         "status": overall_status,

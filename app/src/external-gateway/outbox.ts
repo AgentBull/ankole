@@ -1,5 +1,5 @@
 import { genericHash } from '@agentbull/bullx-native-addons'
-import { match } from '@pleisto/active-support'
+import { match, ms } from '@pleisto/active-support'
 import { and, asc, eq, sql } from 'drizzle-orm'
 import { DB, jsonbParam } from '@/common/database'
 import { ExternalGatewayOutbox, type JsonObject } from '@/common/db-schema'
@@ -9,9 +9,10 @@ import type { AgentResult } from '@/principals/agents/service'
 import { adapterSupportsCapability, requireOutboundCapability } from './core/capabilities'
 import { UnsupportedChannelCapabilityError } from './core/errors'
 import { parseMarkdown } from './core/markdown'
-import { cardPayloadFallbackText, isExternalGatewayCardPayload } from './interactive-output'
+import { bullxCardPayloadFallbackText, isBullXExternalGatewayCardPayload } from '@agentbull/bullx-sdk/plugins'
 import type { ExternalGatewayProjectionSink } from './core/projection'
 import type { ExternalGatewayAdapter, ExternalGatewayOutboundOptions, ExternalGatewayRoomInput } from './core/events'
+import type { FileUpload } from './core/types'
 
 export type ExternalGatewayOutboxOperation =
   | 'post'
@@ -29,6 +30,8 @@ export interface ExternalGatewayOutboundIntent {
    * Operation-specific payload. The column stays `jsonb`; producers set the
    * canonical keys per operation so the dispatcher does not probe ad-hoc aliases:
    * - post / reply : `{ text }` or `{ markdown }`
+   *                  optional files use JSON-safe descriptors:
+   *                  `{ files: [{ filename, dataBase64 }] }` or `{ files: [{ filename, text }] }`
    * - card         : `{ kind: 'interactive_output', output }` or `{ kind: 'lark_native_card', card, fallbackText }`
    * - divider      : `{ kind: 'control_notice', text, fallbackText? }`
    * - edit         : `{ targetOutboundKey, text|interactive_output|lark_native_card, ... }` (or `intent.providerMessageId`)
@@ -58,7 +61,7 @@ type ExternalGatewayOutboxKey = Pick<
   'agentUid' | 'bindingName' | 'outboundKey'
 >
 
-const IDEMPOTENT_SEND_REPLAY_WINDOW_MS = 55 * 60 * 1000
+const IDEMPOTENT_SEND_REPLAY_WINDOW_MS = ms('55m')
 const MAX_OUTBOX_RETRY_COUNT = 5
 const OUTBOX_BACKOFF_MS = [5_000, 25_000, 120_000, 600_000] as const
 const PERMANENT_DELIVERY_ERROR_PATTERNS = [
@@ -70,6 +73,7 @@ const PERMANENT_DELIVERY_ERROR_PATTERNS = [
   /forbidden: bot was kicked/i,
   /chat_id is empty/i,
   /recipient is not a valid/i,
+  /^Request failed with status code 400$/i,
   /outbound not configured for channel/i,
   /ambiguous .* recipient/i,
   /User .* not in room/i
@@ -615,8 +619,8 @@ export function idempotencyKeyFromOutboundKey(outboundKey: string): string {
   return `${hash.slice(0, 8)}-${hash.slice(8, 12)}-${hash.slice(12, 16)}-${hash.slice(16, 20)}-${hash.slice(20, 32)}`
 }
 
-async function projectVisibleOutbound(input: {
-  adapter: ExternalGatewayAdapter
+export async function projectVisibleOutbound(input: {
+  adapter: { userName?: string }
   agent: AgentResult
   messageId: string
   projection: ExternalGatewayProjectionSink
@@ -659,18 +663,24 @@ function postableFromFinalPayload(
    * postable object the adapter already declares it can handle.
    */
   if (operation === 'divider') return { ...payload, type: 'divider' }
-  if (operation === 'card') return isExternalGatewayCardPayload(payload) ? payload : undefined
+  if (operation === 'card') return isBullXExternalGatewayCardPayload(payload) ? payload : undefined
+
+  const files = fileUploadsFromFinalPayload(payload)
+  if (files.length > 0) {
+    if (typeof payload.markdown === 'string' || typeof payload.raw === 'string' || 'ast' in payload) {
+      return { ...payload, files }
+    }
+    return { markdown: typeof payload.text === 'string' ? payload.text : '', files }
+  }
 
   if (typeof payload.text === 'string') return payload.text
-  if (typeof payload.markdown === 'string' || typeof payload.raw === 'string' || 'ast' in payload) {
-    return payload
-  }
+  if (typeof payload.markdown === 'string' || typeof payload.raw === 'string' || 'ast' in payload) return payload
 
   return undefined
 }
 
 function postableFromEditPayload(payload: JsonObject): unknown {
-  if (isExternalGatewayCardPayload(payload)) return payload
+  if (isBullXExternalGatewayCardPayload(payload)) return payload
   if (typeof payload.text === 'string') return payload.text
   if (typeof payload.markdown === 'string' || typeof payload.raw === 'string' || 'ast' in payload) return payload
 
@@ -686,9 +696,39 @@ function fallbackTextFromFinalPayload(
   if (typeof payload.fallbackText === 'string') return payload.fallbackText
   if (typeof payload.raw === 'string') return payload.raw
   if (operation === 'divider') return '[divider]'
-  if (isExternalGatewayCardPayload(payload)) return cardPayloadFallbackText(payload)
+  if (isBullXExternalGatewayCardPayload(payload)) return bullxCardPayloadFallbackText(payload)
+  const fileNames = fileNamesFromFinalPayload(payload)
+  if (fileNames.length > 0) return `[files: ${fileNames.join(', ')}]`
 
   return JSON.stringify(payload)
+}
+
+function fileUploadsFromFinalPayload(payload: JsonObject): FileUpload[] {
+  const files = Array.isArray(payload.files) ? payload.files : []
+  return files.flatMap(file => {
+    if (!file || typeof file !== 'object' || Array.isArray(file)) return []
+    const record = file as Record<string, unknown>
+    const filename = typeof record.filename === 'string' ? record.filename.trim() : ''
+    if (!filename) return []
+
+    const mimeType = typeof record.mimeType === 'string' && record.mimeType.trim() ? record.mimeType.trim() : undefined
+    if (typeof record.dataBase64 === 'string' && record.dataBase64.trim()) {
+      return [{ filename, mimeType, data: Buffer.from(record.dataBase64, 'base64') }]
+    }
+    if (typeof record.text === 'string') {
+      return [{ filename, mimeType: mimeType ?? 'text/plain; charset=utf-8', data: Buffer.from(record.text) }]
+    }
+    return []
+  })
+}
+
+function fileNamesFromFinalPayload(payload: JsonObject): string[] {
+  const files = Array.isArray(payload.files) ? payload.files : []
+  return files.flatMap(file => {
+    if (!file || typeof file !== 'object' || Array.isArray(file)) return []
+    const filename = (file as Record<string, unknown>).filename
+    return typeof filename === 'string' && filename.trim() ? [filename.trim()] : []
+  })
 }
 
 function emojiFromFinalPayload(payload: JsonObject): unknown {

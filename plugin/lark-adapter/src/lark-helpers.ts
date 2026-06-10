@@ -28,6 +28,8 @@ export type BullXAttachment = {
   width?: number
 }
 
+const larkDividerOriginalTextSymbol = Symbol('bullx.larkDividerOriginalText')
+
 export type LarkSdkLogger = {
   debug?: (...args: unknown[]) => void
   error?: (...args: unknown[]) => void
@@ -40,11 +42,11 @@ export type LarkSdkLogger = {
 export function larkChannelLoggerFromChat(chat: any) {
   const logger = chat?.getLogger?.('lark')
   return {
-    debug: (...args: unknown[]) => logger?.debug?.(String(args[0] ?? ''), ...args.slice(1)),
-    info: (...args: unknown[]) => logger?.info?.(String(args[0] ?? ''), ...args.slice(1)),
-    warn: (...args: unknown[]) => logger?.warn?.(String(args[0] ?? ''), ...args.slice(1)),
-    error: (...args: unknown[]) => logger?.error?.(String(args[0] ?? ''), ...args.slice(1)),
-    trace: (...args: unknown[]) => logger?.debug?.(String(args[0] ?? ''), ...args.slice(1))
+    debug: (...args: unknown[]) => logger?.debug?.(larkSdkLogData(args), larkSdkLogMessage(args)),
+    info: (...args: unknown[]) => logger?.info?.(larkSdkLogData(args), larkSdkLogMessage(args)),
+    warn: (...args: unknown[]) => logger?.warn?.(larkSdkLogData(args), larkSdkLogMessage(args)),
+    error: (...args: unknown[]) => logger?.error?.(larkSdkLogData(args), larkSdkLogMessage(args)),
+    trace: (...args: unknown[]) => logger?.debug?.(larkSdkLogData(args), larkSdkLogMessage(args))
   }
 }
 
@@ -62,11 +64,15 @@ export function larkLoggerFromRuntimeLogger(
 }
 
 export function larkSdkLogMessage(args: readonly unknown[]): string {
-  return String(args[0] ?? 'Lark SDK')
+  return typeof args[0] === 'string' && args[0].length > 0 ? args[0] : 'Lark SDK log'
 }
 
 export function larkSdkLogData(args: readonly unknown[]): Record<string, unknown> {
-  return args.length > 1 ? { args: args.slice(1) } : {}
+  const dataArgs = typeof args[0] === 'string' ? args.slice(1) : args
+  if (dataArgs.length === 0) return {}
+  const data = dataArgs.length === 1 ? asRecord(dataArgs[0]) : undefined
+  if (data) return data
+  return { args: [...dataArgs] }
 }
 
 export interface LarkThreadId {
@@ -161,13 +167,82 @@ export function larkDividerPayloadFromMessage(message: unknown): Record<string, 
   return larkDividerPayload(text)
 }
 
-/** Feishu system-divider message content (content_mapper.ex render_control_notice_system parity). */
+export function larkDividerTextFromPayload(payload: unknown): string {
+  const record = asRecord(payload)
+  return optionalString(asRecord(asRecord(record?.params)?.divider_text)?.text) ?? optionalString(record?.text) ?? ''
+}
+
+export function larkDividerOriginalTextFromPayload(payload: unknown): string | undefined {
+  if (!payload || typeof payload !== 'object') return undefined
+  return optionalString((payload as { [larkDividerOriginalTextSymbol]?: unknown })[larkDividerOriginalTextSymbol])
+}
+
+/** Feishu divider payload shape kept as the provider-native control-notice model. */
 export function larkDividerPayload(text: string): Record<string, unknown> {
-  return {
+  const normalized = normalizeLarkDividerText(text)
+  const payload = {
     type: 'divider',
-    params: { divider_text: { text } },
+    params: { divider_text: { text: normalized.text } },
     options: { need_rollup: true }
   }
+  if (normalized.truncated) {
+    Object.defineProperty(payload, larkDividerOriginalTextSymbol, {
+      value: text,
+      enumerable: false
+    })
+  }
+  return payload
+}
+
+export function normalizeLarkDividerText(text: string): { text: string; truncated: boolean } {
+  const trimmed = text.trim()
+  const fallback = trimmed || 'BullX'
+  return truncateLarkSystemText(fallback, 20)
+}
+
+function truncateLarkSystemText(text: string, maxWidth: number): { text: string; truncated: boolean } {
+  if (larkSystemTextWidth(text) <= maxWidth) return { text, truncated: false }
+
+  const ellipsis = '...'
+  const targetWidth = maxWidth - ellipsis.length
+  let width = 0
+  let result = ''
+  for (const char of text) {
+    const charWidth = larkSystemCharWidth(char)
+    if (width + charWidth > targetWidth) break
+    width += charWidth
+    result += char
+  }
+
+  return { text: `${result.trimEnd()}${ellipsis}`, truncated: true }
+}
+
+function larkSystemTextWidth(text: string): number {
+  let width = 0
+  for (const char of text) width += larkSystemCharWidth(char)
+  return width
+}
+
+function larkSystemCharWidth(char: string): number {
+  const codePoint = char.codePointAt(0)
+  if (codePoint === undefined) return 0
+  return isWideLarkSystemCodePoint(codePoint) ? 2 : 1
+}
+
+function isWideLarkSystemCodePoint(codePoint: number): boolean {
+  return (
+    (codePoint >= 0x1100 && codePoint <= 0x115f) ||
+    (codePoint >= 0x2329 && codePoint <= 0x232a) ||
+    (codePoint >= 0x2e80 && codePoint <= 0xa4cf) ||
+    (codePoint >= 0xac00 && codePoint <= 0xd7a3) ||
+    (codePoint >= 0xf900 && codePoint <= 0xfaff) ||
+    (codePoint >= 0xfe10 && codePoint <= 0xfe19) ||
+    (codePoint >= 0xfe30 && codePoint <= 0xfe6f) ||
+    (codePoint >= 0xff00 && codePoint <= 0xff60) ||
+    (codePoint >= 0xffe0 && codePoint <= 0xffe6) ||
+    (codePoint >= 0x1f300 && codePoint <= 0x1faff) ||
+    (codePoint >= 0x20000 && codePoint <= 0x3fffd)
+  )
 }
 
 /** Feishu compact notice card (content_mapper.ex compact_notice_card parity): grey notation text, optional hr. */
@@ -286,10 +361,9 @@ export async function recordLarkPlatformSubject(
   input: { metadata: { [key: string]: BullXPluginJsonValue }; profile?: BullXPlatformSubjectProfile }
 ): Promise<void> {
   /*
-   * This records a Lark `user_id` fact observed through a chat channel. It does
-   * not call, require, or configure any identity-provider adapter; External
-   * Gateway channels and login identity providers are independent plugin
-   * capabilities.
+   * This records a Lark actor id observed through a chat channel. It does not
+   * call, require, or configure any identity-provider adapter; External Gateway
+   * channels and login identity providers are independent plugin capabilities.
    */
   await context.externalIdentities?.upsertPlatformSubject({
     provider: config.platformSubjectNamespace,
@@ -309,14 +383,16 @@ export function platformUserIdFromNormalizedMessage(input: unknown): string | un
   const rawUserId = optionalString(rawActor?.user_id)
   if (rawUserId) return rawUserId
 
+  const rawOpenId = optionalString(rawActor?.open_id)
+  if (rawOpenId && optionalString(rawActor?.sender_type) === 'bot') return `bot:${rawOpenId}`
+
   /*
    * Future LarkChannel versions may normalize `senderId` to `user_id` directly.
    * Trust it only when raw `open_id` is absent or different; otherwise the event
-   * is the known open_id shape and must fail closed instead of recording the
-   * wrong identifier as a BullX platform subject.
+   * only exposed open_id and we would persist the wrong identifier as a BullX
+   * platform subject.
    */
   const normalizedSenderId = optionalString(normalized?.senderId)
-  const rawOpenId = optionalString(rawActor?.open_id)
   return normalizedSenderId && normalizedSenderId !== rawOpenId ? normalizedSenderId : undefined
 }
 
@@ -324,7 +400,19 @@ export function actorIdFromNormalizedMessage(input: unknown): Record<string, any
   const normalized = asRecord(input)
   const raw = asRecord(normalized?.raw)
   const sender = asRecord(raw?.sender)
-  return asRecord(sender?.sender_id)
+  const senderId = asRecord(sender?.sender_id)
+  const senderType = optionalString(sender?.sender_type)
+  if (!senderId && !senderType) return undefined
+  return {
+    ...senderId,
+    ...(senderType ? { sender_type: senderType } : {})
+  }
+}
+
+export function isBotSenderFromNormalizedMessage(input: unknown): boolean {
+  const actor = actorIdFromNormalizedMessage(input)
+  const senderType = optionalString(actor?.sender_type)
+  return senderType === 'app' || senderType === 'bot'
 }
 
 export function profileFromMessage(
@@ -355,6 +443,7 @@ export function larkActorMetadata(
   return compactJsonObject({
     app_id: config.appId,
     source,
+    sender_type: optionalString(input?.sender_type) ?? optionalString(input?.senderType),
     open_id: optionalString(input?.open_id) ?? optionalString(input?.openId),
     union_id: optionalString(input?.union_id) ?? optionalString(input?.unionId),
     tenant_key: optionalString(input?.tenant_key) ?? optionalString(input?.tenantKey)

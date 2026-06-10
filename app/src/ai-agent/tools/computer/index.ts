@@ -1,15 +1,17 @@
 import { type ResolveSessionResponse, Computer } from '@agentbull/bullx-computer'
 import type { AgentTool } from '../../core'
 import { createBrowserTools } from '../browser/browser-tools'
+import { createCodexDelegateTool } from './codex-delegate-tool'
 import { createCommandTool } from './command-tool'
 import type { ComputerToolContext } from './context'
 import { createInteractiveTerminalTool } from './interactive-terminal-tool'
 import { createPatchTool } from './patch-tool'
 import { createProcessTool } from './process-tool'
 import { createReadFileTool } from './read-file-tool'
+import { createSendFileTool, type SendFileRunBinding } from './send-file-tool'
 import { createTerminalTool } from './terminal-tool'
 
-export interface ComputerToolsBinding {
+export interface ComputerToolsBinding extends SendFileRunBinding {
   agentUid: string
 }
 
@@ -58,14 +60,22 @@ export function createComputerTools(binding: ComputerToolsBinding, deps: Compute
     })
     return computerPromise
   }
-  const context: ComputerToolContext = { agentUid: binding.agentUid, getComputer, backgroundIds: new Set() }
+  const context: ComputerToolContext = {
+    agentUid: binding.agentUid,
+    // No conversation (programmatic runs) degrades to the agent-shared scope.
+    executionScopeId: binding.conversationId ?? binding.agentUid,
+    getComputer,
+    backgroundIds: new Set()
+  }
   return [
     ...createBrowserTools(context),
+    createCodexDelegateTool(context),
     createCommandTool(context),
     createTerminalTool(context),
     createInteractiveTerminalTool(context),
     createProcessTool(context),
     createReadFileTool(context),
+    createSendFileTool(context, binding),
     createPatchTool(context)
   ]
 }

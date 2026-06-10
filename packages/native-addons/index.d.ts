@@ -24,14 +24,24 @@ export declare function aeadEncrypt(plain: string | Buffer, key: string): string
  */
 export declare function anyAscii(input: string): string
 
+/** Authorizes one exact action on one concrete resource. */
 export declare function authzAuthorize(snapshot: any): any
 
+/**
+ * Authorizes every requested action against the same concrete resource.
+ *
+ * The first denied action is returned so TypeScript can produce a useful domain
+ * error while preserving default-deny behavior.
+ */
 export declare function authzAuthorizeAll(snapshot: any): any
 
+/** Matches one persisted resource pattern against one concrete request resource. */
 export declare function authzMatchResourcePattern(pattern: string, resource: string): boolean
 
+/** Validates CEL syntax for grants or computed-group conditions. */
 export declare function authzValidateCondition(condition: string): boolean
 
+/** Validates persisted resource-pattern syntax. */
 export declare function authzValidateResourcePattern(pattern: string): boolean
 
 /**
@@ -76,6 +86,13 @@ export declare function crc32Hex(input: Uint8Array | string, initialState?: numb
  */
 export declare function deriveKey(keySeed: string | Buffer, subKeyId: string, context?: string): string
 
+/**
+ * Estimated character count for token estimation: CJK code points are
+ * weighted so that one CJK character ~= one token under the 4-chars/token
+ * heuristic. Hot path of the compaction trigger.
+ */
+export declare function estimateStringChars(text: string): number
+
 /** Generate Base36-encoded UUID v4 string */
 export declare function genBase36UUID(): string
 
@@ -84,6 +101,14 @@ export declare function genBase36UUID(): string
  * @returns hex encoded string
  */
 export declare function generateKey(): string
+
+/**
+ * Generates a self-signed mTLS bundle for the app <-> computer-worker link:
+ * one root CA, a client certificate for the app, and a server certificate for
+ * the worker carrying the supplied DNS/IP SANs. Keys are ECDSA P-256; validity
+ * is `validDays` from now.
+ */
+export declare function generateMtlsBundle(workerDnsNames: Array<string>, workerIpAddresses: Array<string>, validDays: number): MtlsBundle
 
 /**
  * Computes a fixed-length fingerprint of a string.
@@ -125,6 +150,16 @@ export declare function intDecrypt(dataStr: string, keyStr: string): number
  * @return {String} base58 encoded ciphertext
  */
 export declare function intEncrypt(data: number, keyStr: string): string
+
+/**
+ * Returns true when an IP address (v4 or v6 textual form) must not be fetched
+ * for external media: private, loopback, link-local, CGNAT, ULA, v4-mapped
+ * and NAT64-embedded forms included. Unparseable input is blocked.
+ */
+export declare function isBlockedIpAddress(host: string): boolean
+
+/** Validates a cron expression (same dialect as `nextCronFire`). */
+export declare function isValidCronExpression(expression: string): boolean
 
 export declare const enum JWTAlgorithm {
   /** HMAC using SHA-256 */
@@ -287,6 +322,24 @@ export declare function jwtVerify(token: string, key: string | Uint8Array, valid
 
 export declare function jwtVerifySync(token: string, key: string | Uint8Array, validation?: JWTValidation | undefined | null): { [key: string]: any }
 
+export interface MtlsBundle {
+  caCertPem: string
+  appCertPem: string
+  appKeyPem: string
+  workerCertPem: string
+  workerKeyPem: string
+}
+
+/**
+ * Next cron fire time strictly after `afterMs`, evaluated inside an IANA
+ * timezone so DST transitions cannot skew the schedule.
+ *
+ * Accepts 5-field (minute-first) and 6-field (second-first) POSIX/Vixie cron
+ * expressions. Returns the fire time as Unix epoch milliseconds, or null when
+ * the expression never fires again.
+ */
+export declare function nextCronFire(expression: string, afterMs: number, timezone: string): number | null
+
 /** Parsed User-Agent struct */
 export interface ParsedUa {
   name: string
@@ -299,6 +352,26 @@ export interface ParsedUa {
 }
 
 /**
+ * Parses GFM markdown into an mdast-shaped JSON tree (`{type: "root", ...}`).
+ * Replaces the unified/remark dependency tree for outbound-message projection.
+ */
+export declare function parseMarkdownAst(markdown: string): Record<string, unknown>
+
+/**
+ * Reranks chat recall candidates with RRF, recency decay, metadata weighting,
+ * and MMR de-duplication. The TypeScript layer supplies all database/provider
+ * facts; native remains a deterministic pure function.
+ */
+export declare function recallRerank(snapshot: any): any
+
+/**
+ * Neutralizes wrapper-marker forgeries (including fullwidth/lookalike glyph
+ * and zero-width-character evasions) and known LLM special tokens in external
+ * untrusted content, before the host wraps it with authentic markers.
+ */
+export declare function sanitizeExternalContentText(content: string): string
+
+/**
  * Expand shorted UUID v4 string
  * @param shorted_uuid shorted UUID v4 string
  * @returns standard UUID v4 string
@@ -306,6 +379,17 @@ export interface ParsedUa {
 export declare function shortUUIDExpand(shortUuid: string): string
 
 export declare function siphash24(input: Buffer, key: Buffer): Buffer
+
+export interface SniffedImage {
+  mimeType: string
+  defaultExt: string
+}
+
+/**
+ * Sniffs image bytes by magic numbers (PNG/JPEG/GIF/BMP/WebP/HEIC/AVIF/...).
+ * Returns null when the buffer is not a recognized image format.
+ */
+export declare function sniffImageMedia(data: Buffer): SniffedImage | null
 
 /**
  * User-Agent Parser
@@ -333,3 +417,11 @@ export declare function z85Decode(input: string): Buffer
  * @returns z85 encoded string
  */
 export declare function z85Encode(input: string | Buffer): string
+
+/**
+ * Converts a wall-clock local time in an IANA timezone to Unix epoch
+ * milliseconds, with RFC 5545-style disambiguation: ambiguous local times
+ * (DST fall-back) take the earlier instant; skipped local times (DST
+ * spring-forward gap) roll forward past the gap.
+ */
+export declare function zonedLocalTimeToUtcMs(timezone: string, year: number, month: number, day: number, hour: number, minute: number, second: number): number

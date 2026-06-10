@@ -1,10 +1,13 @@
-//! Worker registration + heartbeat against the BullX control plane.
-//! Skipped entirely when `BULLX_AGENT_URL` is unset (pure local dev).
+//! Worker registration + heartbeat through PostgreSQL.
+//!
+//! The worker no longer calls the BullX app over an internal HTTP endpoint.
+//! It shares the database with the app, records its own presence there, and the
+//! app resolver reads the same `computer_workers` table.
 
 use std::time::Duration;
 
-use reqwest::Client;
 use serde_json::json;
+use tokio_postgres::{Client, NoTls};
 
 use crate::state::AppState;
 
@@ -13,18 +16,11 @@ pub fn start(state: AppState) -> tokio::task::JoinHandle<()> {
 }
 
 async fn run(state: AppState) {
-  let Some(agent_url) = state.config.agent_url.clone() else {
-    tracing::warn!("BULLX_AGENT_URL not set — skipping worker registration / heartbeat");
-    return;
-  };
-  let agent_url = agent_url.trim_end_matches('/').to_string();
-  let client = Client::new();
-
-  // Register, retrying until the control plane accepts us.
+  // Register, retrying until PostgreSQL accepts us.
   loop {
-    match register(&client, &agent_url, &state).await {
+    match register(&state).await {
       Ok(()) => {
-        tracing::info!(worker_id = %state.config.worker_id, "registered with control plane");
+        tracing::info!(worker_id = %state.config.worker_id, "registered in PostgreSQL");
         break;
       }
       Err(error) => {
@@ -37,57 +33,61 @@ async fn run(state: AppState) {
   let mut ticker = tokio::time::interval(Duration::from_secs(state.config.heartbeat_secs));
   loop {
     ticker.tick().await;
-    if let Err(error) = heartbeat(&client, &agent_url, &state).await {
+    if let Err(error) = heartbeat(&state).await {
       tracing::warn!(%error, "heartbeat failed");
     }
   }
 }
 
-async fn register(client: &Client, agent_url: &str, state: &AppState) -> anyhow::Result<()> {
+async fn register(state: &AppState) -> anyhow::Result<()> {
+  let client = connect(&state.config.database_url).await?;
   let config = &state.config;
-  let body = json!({
-    "workerId": config.worker_id,
-    "instanceId": config.instance_id,
-    "baseUrl": config.base_url,
-    "version": config.version,
-    "features": config.features,
-    "capacity": { "maxAgents": config.max_agents, "maxCommands": config.max_commands },
-    "metadata": { "podName": config.pod_name, "namespace": config.namespace, "nodeName": config.node_name },
+  let features = json!(config.features);
+  let capacity = json!({ "maxAgents": config.max_agents, "maxCommands": config.max_commands });
+  let metadata = json!({
+    "podName": config.pod_name,
+    "namespace": config.namespace,
+    "nodeName": config.node_name,
+    "transport": "h2-mtls"
   });
-  let mut request = client
-    .post(format!("{agent_url}/internal/computer/workers/register"))
-    .json(&body);
-  if let Some(token) = &config.token {
-    request = request.bearer_auth(token);
-  }
-  let response = request.send().await?;
-  if !response.status().is_success() {
-    anyhow::bail!("register returned HTTP {}", response.status());
+  client
+    .execute(
+      "insert into computer_workers (worker_id, instance_id, base_url, status, version, features, capacity, metadata, last_heartbeat_at, updated_at) values ($1, $2, $3, 'ready', $4, $5, $6, $7, now(), now()) on conflict (worker_id) do update set instance_id = excluded.instance_id, base_url = excluded.base_url, status = 'ready', version = excluded.version, features = excluded.features, capacity = excluded.capacity, metadata = excluded.metadata, last_heartbeat_at = now(), updated_at = now()",
+      &[&config.worker_id, &config.instance_id, &config.base_url, &config.version, &features, &capacity, &metadata],
+    )
+    .await?;
+  Ok(())
+}
+
+async fn heartbeat(state: &AppState) -> anyhow::Result<()> {
+  let client = connect(&state.config.database_url).await?;
+  let config = &state.config;
+  let load = json!({
+    "cpu": 0.0,
+    "memoryBytes": memory_bytes(),
+    "runningSessions": state.sessions.count(),
+    "runningCommands": state.sessions.running_commands()
+  });
+  let updated = client
+    .execute(
+      "update computer_workers set instance_id = $2, status = 'ready', load = $3, last_heartbeat_at = now(), updated_at = now() where worker_id = $1",
+      &[&config.worker_id, &config.instance_id, &load],
+    )
+    .await?;
+  if updated == 0 {
+    register(state).await?;
   }
   Ok(())
 }
 
-async fn heartbeat(client: &Client, agent_url: &str, state: &AppState) -> anyhow::Result<()> {
-  let config = &state.config;
-  let body = json!({
-    "workerId": config.worker_id,
-    "instanceId": config.instance_id,
-    "status": "ready",
-    "runningSessions": state.sessions.count(),
-    "runningCommands": state.sessions.running_commands(),
-    "load": { "cpu": 0.0, "memoryBytes": memory_bytes() },
+async fn connect(database_url: &str) -> anyhow::Result<Client> {
+  let (client, connection) = tokio_postgres::connect(database_url, NoTls).await?;
+  tokio::spawn(async move {
+    if let Err(error) = connection.await {
+      tracing::warn!(%error, "PostgreSQL worker connection task ended");
+    }
   });
-  let mut request = client
-    .post(format!("{agent_url}/internal/computer/workers/heartbeat"))
-    .json(&body);
-  if let Some(token) = &config.token {
-    request = request.bearer_auth(token);
-  }
-  let response = request.send().await?;
-  if !response.status().is_success() {
-    anyhow::bail!("heartbeat returned HTTP {}", response.status());
-  }
-  Ok(())
+  Ok(client)
 }
 
 #[cfg(target_os = "linux")]

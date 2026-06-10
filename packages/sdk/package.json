@@ -6,7 +6,7 @@
     "./plugins": "./src/plugins.ts"
   },
   "scripts": {
-    "type-check": "tsc -p tsconfig.json --noEmit",
+    "type-check": "tsgo -p tsconfig.json --noEmit",
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check"
   }

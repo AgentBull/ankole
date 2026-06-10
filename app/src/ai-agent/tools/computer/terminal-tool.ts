@@ -60,7 +60,12 @@ export function createTerminalTool(context: ComputerToolContext): AgentTool<type
         }
       }
 
-      const result = await computer.runShellCommand(params.command, { cwd: params.workdir, timeoutMs, signal })
+      const result = await computer.runShellCommand(params.command, {
+        cwd: params.workdir,
+        shellScope: context.executionScopeId,
+        timeoutMs,
+        signal
+      })
       const output = truncateOutput(await result.output('both', { signal }))
       return {
         content: [{ type: 'text', text: `exit_code=${result.exitCode}\n${output}` }],

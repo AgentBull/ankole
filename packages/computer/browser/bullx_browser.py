@@ -61,20 +61,33 @@ def session_name(value: str | None) -> str:
     return safe[:96] or "default"
 
 
+def profile_session_name(args: argparse.Namespace, session: str) -> str:
+    value = getattr(args, "profile_session", None)
+    if value:
+        return session_name(value)
+    return session
+
+
 def task_name(value: str | None) -> str:
     raw = (value or f"task-{int(time.time())}").strip()
     safe = "".join(char if char.isalnum() or char in "._-" else "-" for char in raw)
     return safe[:96] or f"task-{int(time.time())}"
 
 
-def prepare_env(session: str) -> dict[str, Path]:
+def prepare_env(session: str, profile_session: str | None = None) -> dict[str, Path]:
     base = state_root()
-    home = base / "home" / session
-    profile = base / "profiles" / session
+    # Browser state (HOME, cache, persistent profile/cookies) follows the
+    # profile session — shared per agent. Captures/downloads follow the
+    # (per-conversation) execution session.
+    state_session = profile_session or session
+    home = base / "home" / state_session
+    cache = home / ".cache"
+    profile = base / "profiles" / state_session
     downloads = workspace_root() / "downloads" / session
-    for path in (base, home, profile, downloads, workspace_root()):
+    for path in (base, home, cache, profile, downloads, workspace_root()):
         path.mkdir(parents=True, exist_ok=True)
-    os.environ.setdefault("HOME", str(home))
+    os.environ["HOME"] = str(home)
+    os.environ["XDG_CACHE_HOME"] = str(cache)
     os.environ.setdefault("BULLX_BROWSER_PROFILE_DIR", str(profile))
     os.environ.setdefault("BULLX_BROWSER_DOWNLOADS_DIR", str(downloads))
     return {"home": home, "profile": profile, "downloads": downloads}
@@ -212,7 +225,7 @@ def latest_path(session: str) -> Path:
 
 def capture_page(args: argparse.Namespace) -> dict[str, Any]:
     session = session_name(args.session)
-    env_paths = prepare_env(session)
+    env_paths = prepare_env(session, profile_session=profile_session_name(args, session))
     task = task_name(args.task_id)
     out_dir = task_dir(session, task)
     screenshot_path = out_dir / "screenshot.png"
@@ -307,7 +320,7 @@ def extract_page(args: argparse.Namespace) -> dict[str, Any]:
 
 def run_script(args: argparse.Namespace) -> dict[str, Any]:
     session = session_name(args.session)
-    prepare_env(session)
+    prepare_env(session, profile_session=profile_session_name(args, session))
     task = task_name(args.task_id)
     root = task_dir(session, task)
     final_root = root / "final_runs"
@@ -402,6 +415,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     run = subparsers.add_parser("run", help="Run a browser automation Python script with BullX artifact paths.")
     run.add_argument("--session")
+    run.add_argument("--profile-session", help="Profile/cookie scope; defaults to --session.")
     run.add_argument("--task-id")
     run.add_argument("--script", required=True)
     run.add_argument("--start-url")
@@ -414,6 +428,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def add_capture_args(parser: argparse.ArgumentParser, *, url_required: bool) -> None:
     parser.add_argument("--session")
+    parser.add_argument("--profile-session", help="Profile/cookie scope; defaults to --session.")
     parser.add_argument("--task-id")
     parser.add_argument("--url", required=url_required)
     parser.add_argument("--timeout-ms", type=int, default=60000)

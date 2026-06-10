@@ -44,6 +44,7 @@ export interface ProviderRefs {
 
 export interface PendingFollowup {
   actor?: JsonObject
+  agent_message?: JsonObject
   created_at: string
   event_id: string
   event_source: string
@@ -176,30 +177,47 @@ export class AiAgentConversationService {
   async rolloverConversation(
     route: AiAgentConversationRoute,
     reason: 'new_session' | 'daily_reset',
-    db: QueryExecutor = DB
+    db: QueryExecutor = DB,
+    options: { sourceEventId?: string } = {}
   ): Promise<typeof AiAgentConversations.$inferSelect> {
-    const existing = await this.getOrCreateActiveConversation(route, db)
-    await db
-      .update(AiAgentConversations)
-      .set({
-        endedAt: new Date(),
-        generation: jsonbParam(cancelGeneration(existing.generation, reason, undefined)),
-        metadata: sql`jsonb_set(${AiAgentConversations.metadata}, '{end_reason}', ${JSON.stringify(reason)}::jsonb, true)`,
-        updatedAt: sql`now()`
-      })
-      .where(eq(AiAgentConversations.id, existing.id))
+    if (db === DB) {
+      return DB.transaction(tx => this.rolloverConversation(route, reason, tx, options))
+    }
+
+    const conversationKey = this.conversationKey(route)
+    await (db as QueryExecutor & { execute(query: unknown): Promise<unknown> }).execute(
+      sql`select pg_advisory_xact_lock(hashtext(${conversationKey}))`
+    )
+
+    const existing = await this.getActiveConversation(route, db)
+    if (existing && rolloverSourceEventId(existing.metadata) === options.sourceEventId && options.sourceEventId) {
+      return existing
+    }
+
+    if (existing) {
+      await db
+        .update(AiAgentConversations)
+        .set({
+          endedAt: new Date(),
+          generation: jsonbParam(cancelGeneration(existing.generation, reason, undefined)),
+          metadata: sql`jsonb_set(${AiAgentConversations.metadata}, '{end_reason}', ${JSON.stringify(reason)}::jsonb, true)`,
+          updatedAt: sql`now()`
+        })
+        .where(eq(AiAgentConversations.id, existing.id))
+    }
 
     const [created] = await db
       .insert(AiAgentConversations)
       .values({
         id: genUUIDv7(),
         agentUid: route.agentUid,
-        conversationKey: existing.conversationKey,
+        conversationKey,
         generation: jsonbParam({}),
         metadata: jsonbParam({
           route: routeJson(route),
-          previous_conversation_id: existing.id,
-          rollover_reason: reason
+          ...(existing ? { previous_conversation_id: existing.id } : {}),
+          rollover_reason: reason,
+          ...(options.sourceEventId ? { rollover_source_event_id: options.sourceEventId } : {})
         })
       })
       .returning()
@@ -625,6 +643,11 @@ function routeJson(route: AiAgentConversationRoute): JsonObject {
     providerRealmId: route.providerRealmId,
     providerRoomId: route.providerRoomId
   })
+}
+
+function rolloverSourceEventId(metadata: JsonObject): string | undefined {
+  const value = metadata.rollover_source_event_id
+  return typeof value === 'string' && value.length > 0 ? value : undefined
 }
 
 function cancelGeneration(

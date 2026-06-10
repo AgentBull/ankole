@@ -1,10 +1,12 @@
+import { genericHash, isValidCronExpression, nextCronFire } from '@agentbull/bullx-native-addons'
+import { ms } from '@pleisto/active-support'
 import { z } from 'zod'
-import { timezoneOffsetMs, zonedLocalTimeToUtc } from '@/config/system'
+import { zonedLocalTimeToUtc } from '@/config/system'
 import type { ScheduledTaskSchedule } from '@/common/db-schema'
 
 const EXPLICIT_OFFSET = /(z|[+-]\d{2}:?\d{2})$/i
 const LOCAL_DATE_TIME = /^(\d{4})-(\d{2})-(\d{2})(?:[T\s](\d{2}):(\d{2})(?::(\d{2}))?)?$/
-const DEFAULT_TOP_OF_HOUR_STAGGER_MS = 5 * 60 * 1000
+const DEFAULT_TOP_OF_HOUR_STAGGER_MS = ms('5m')
 const TEN_YEARS_MS = 10 * 365.25 * 24 * 60 * 60 * 1000
 
 export const ScheduledTaskScheduleSchema = z.discriminatedUnion('kind', [
@@ -56,15 +58,20 @@ export function computeNextRun(input: {
 }
 
 function computeCronBaseNextRun(expression: string, after: Date, timezone: string): Date {
-  const offset = timezoneOffsetMs(timezone, after)
-  const localAfter = new Date(after.getTime() + offset)
-  const parsed = Bun.cron.parse(expression, localAfter)
-  if (!parsed) throw new SchedulerScheduleError(`Invalid cron expression: ${expression}`)
-  return new Date(parsed.getTime() - offset)
+  let nextMs: number | null
+  try {
+    // Native fire-time math iterates inside the IANA timezone, so DST
+    // transitions cannot skew "every day at 9am"-style schedules.
+    nextMs = nextCronFire(expression, after.getTime(), timezone)
+  } catch (error) {
+    throw new SchedulerScheduleError(error instanceof Error ? error.message : `Invalid cron expression: ${expression}`)
+  }
+  if (nextMs === null) throw new SchedulerScheduleError(`Cron expression never fires again: ${expression}`)
+  return new Date(nextMs)
 }
 
 export function validateCronExpression(expression: string): void {
-  if (!Bun.cron.parse(expression, new Date())) {
+  if (!isValidCronExpression(expression)) {
     throw new SchedulerScheduleError(`Invalid cron expression: ${expression}`)
   }
 }
@@ -126,12 +133,7 @@ function afterToMs(after: CheckBackLaterAfter): number {
 
 function stableOffset(input: string, modulo: number): number {
   if (modulo <= 1) return 0
-  let hash = 2166136261
-  for (let index = 0; index < input.length; index++) {
-    hash ^= input.charCodeAt(index)
-    hash = Math.imul(hash, 16777619)
-  }
-  return Math.abs(hash) % modulo
+  return Number.parseInt(genericHash(input).slice(0, 8), 16) % modulo
 }
 
 function resolveCronStaggerMs(schedule: Extract<ScheduledTaskSchedule, { kind: 'cron' }>): number {

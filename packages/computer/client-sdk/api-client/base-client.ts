@@ -1,10 +1,12 @@
 import { COMPUTER_SDK_VERSION } from '../version'
-import type { FetchLike } from '../types'
+import type { FetchLike, WorkerTlsConfig } from '../types'
 import { ApiError } from './api-error'
+import { h2Request } from './h2-client'
 
 export interface BaseClientConfig {
   baseUrl: string
   token?: string
+  tls?: WorkerTlsConfig
   fetch?: FetchLike
   userAgent?: string
   /** When true, request lines are logged to stderr (mirrors the Vercel SDK debug switch). */
@@ -37,13 +39,17 @@ export interface RequestOptions {
 export class BaseClient {
   protected readonly baseUrl: string
   protected readonly token: string | undefined
+  protected readonly tls: WorkerTlsConfig | undefined
   protected readonly fetchImpl: FetchLike
+  protected readonly customFetch: boolean
   protected readonly userAgent: string
   protected readonly debug: boolean
 
   constructor(config: BaseClientConfig) {
     this.baseUrl = config.baseUrl.replace(/\/+$/, '')
     this.token = config.token
+    this.tls = config.tls
+    this.customFetch = Boolean(config.fetch)
     this.fetchImpl = config.fetch ?? globalThis.fetch
     this.userAgent = config.userAgent ?? `agentbull/bullx-computer/${COMPUTER_SDK_VERSION}`
     this.debug = config.debug ?? false
@@ -74,14 +80,20 @@ export class BaseClient {
     const headers = this.buildHeaders(opts)
     if (this.debug) console.error(`[bullx-computer] ${method} ${url}`)
 
-    const response = await this.fetchImpl(url, {
+    const init = {
       method,
       headers,
       // Cast to the host's exact body type: bun and the app's DOM lib type `fetch`
       // bodies slightly differently, and a plain Uint8Array trips overload resolution.
       body: (opts.body ?? null) as RequestInit['body'],
       signal: opts.signal
-    })
+    } as RequestInit & { tls?: { ca?: string[]; cert?: string; key?: string } }
+    if (this.tls) init.tls = { ca: [this.tls.caCert], cert: this.tls.cert, key: this.tls.key }
+
+    const response =
+      this.tls && !this.customFetch
+        ? await h2Request({ method, url, headers, body: opts.body ?? null, signal: opts.signal, tls: this.tls })
+        : await this.fetchImpl(url, init)
 
     if (!response.ok && !opts.noThrow) throw await toApiError(response, method, url)
     return response

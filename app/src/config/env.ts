@@ -8,10 +8,13 @@ const envSchema = z.object({
   BULLX_SECRET_BASE: z.string().min(16),
   REDIS_URL: z.string().min(1),
   DATABASE_URL: z.string().min(1),
-  // Shared secret with the computer worker fleet: authenticates worker
-  // register/heartbeat calls and signs the per-session worker tokens. When unset,
-  // computer auth is disabled (local dev only).
-  BULLX_COMPUTER_TOKEN: z.string().min(1).optional()
+  BULLX_DATABASE_POOL_MAX: z.coerce.number().int().positive().default(10),
+  // Shared bootstrap secret with the computer worker fleet. It seals the
+  // computer mTLS bundle in app-configure without exposing BULLX_SECRET_BASE to
+  // workers.
+  BULLX_COMPUTER_TOKEN: z.string().min(16),
+  BULLX_COMPUTER_TLS_DNS_NAMES: z.string().min(1).optional(),
+  BULLX_COMPUTER_TLS_IP_ADDRESSES: z.string().min(1).optional()
 })
 
 const parsedEnv = envSchema.parse(Bun.env)

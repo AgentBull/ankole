@@ -1,8 +1,7 @@
-//! Router assembly for the worker HTTP API.
+//! Router assembly for the worker h2/mTLS API.
 
 pub mod commands;
 pub mod files;
-pub mod health;
 pub mod sessions;
 pub mod terminals;
 
@@ -13,9 +12,6 @@ use crate::state::AppState;
 
 pub fn router(state: AppState) -> Router {
   Router::new()
-    .route("/healthz", get(health::healthz))
-    .route("/readyz", get(health::readyz))
-    .route("/v1/worker", get(health::worker_info))
     .route(
       "/v1/sessions/{agent_uid}",
       put(sessions::put_session).get(sessions::get_session),

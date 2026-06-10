@@ -6,7 +6,6 @@
 import {
   type AssistantMessage,
   type Context,
-  EventStream,
   type Message,
   streamSimple,
   type Tool,
@@ -114,73 +113,9 @@ function stubToolResult(toolCallId: string, toolName: string, timestamp: number)
 }
 
 /**
- * Start an agent loop with a new prompt message.
- * The prompt is added to the context and events are emitted for it.
+ * Start an agent loop with new prompt messages.
+ * The prompts are added to the context and events are emitted for them.
  */
-export function agentLoop(
-  prompts: AgentMessage[],
-  context: AgentContext,
-  config: AgentLoopConfig,
-  signal?: AbortSignal,
-  streamFn?: StreamFn
-): EventStream<AgentEvent, AgentMessage[]> {
-  const stream = createAgentStream()
-
-  void runAgentLoop(
-    prompts,
-    context,
-    config,
-    async event => {
-      stream.push(event)
-    },
-    signal,
-    streamFn
-  ).then(messages => {
-    stream.end(messages)
-  })
-
-  return stream
-}
-
-/**
- * Continue an agent loop from the current context without adding a new message.
- * Used for retries - context already has user message or tool results.
- *
- * **Important:** The last message in context must convert to a `user` or `toolResult` message
- * via `convertToLlm`. If it doesn't, the LLM provider will reject the request.
- * This cannot be validated here since `convertToLlm` is only called once per turn.
- */
-export function agentLoopContinue(
-  context: AgentContext,
-  config: AgentLoopConfig,
-  signal?: AbortSignal,
-  streamFn?: StreamFn
-): EventStream<AgentEvent, AgentMessage[]> {
-  if (context.messages.length === 0) {
-    throw new Error('Cannot continue: no messages in context')
-  }
-
-  if (context.messages[context.messages.length - 1].role === 'assistant') {
-    throw new Error('Cannot continue from message role: assistant')
-  }
-
-  const stream = createAgentStream()
-
-  void runAgentLoopContinue(
-    context,
-    config,
-    async event => {
-      stream.push(event)
-    },
-    signal,
-    streamFn
-  ).then(messages => {
-    stream.end(messages)
-  })
-
-  return stream
-}
-
 export async function runAgentLoop(
   prompts: AgentMessage[],
   context: AgentContext,
@@ -231,15 +166,8 @@ export async function runAgentLoopContinue(
   return newMessages
 }
 
-function createAgentStream(): EventStream<AgentEvent, AgentMessage[]> {
-  return new EventStream<AgentEvent, AgentMessage[]>(
-    (event: AgentEvent) => event.type === 'agent_end',
-    (event: AgentEvent) => (event.type === 'agent_end' ? event.messages : [])
-  )
-}
-
 /**
- * Main loop logic shared by agentLoop and agentLoopContinue.
+ * Main loop logic shared by runAgentLoop and runAgentLoopContinue.
  */
 async function runLoop(
   initialContext: AgentContext,
@@ -270,6 +198,7 @@ async function runLoop(
       // Iteration budget: on reaching the cap, run one tool-free grace turn so a
       // runaway tool-calling model still yields a usable summary, then stop.
       if (config.maxTurns !== undefined && turnCount >= config.maxTurns) {
+        await emit({ type: 'max_turns_reached', maxTurns: config.maxTurns, turnCount })
         await runGraceSummaryTurn(currentContext, config, signal, emit, newMessages, streamFn)
         await emit({ type: 'agent_end', messages: newMessages })
         return

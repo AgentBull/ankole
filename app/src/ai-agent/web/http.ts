@@ -1,7 +1,8 @@
 import { createCombinedAbortSignal, withRetry } from '@/common/async'
+import { ms } from '@pleisto/active-support'
 import { WebProviderError } from './provider'
 
-const DEFAULT_TIMEOUT_MS = 30_000
+const DEFAULT_TIMEOUT_MS = ms('30s')
 
 export function isRetryableStatus(status: number): boolean {
   return status === 408 || status === 425 || status === 429 || (status >= 500 && status <= 599)

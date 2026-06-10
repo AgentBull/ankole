@@ -9,7 +9,10 @@ interface Captured {
   path: string
   headers: Headers
   body: unknown
+  tls?: unknown
 }
+
+const TEST_TLS = { caCert: 'CA CERT', cert: 'CLIENT CERT', key: 'CLIENT KEY' }
 
 function sleepForTest(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -37,14 +40,20 @@ function makeFetch(captured: Captured[]): FetchLike {
   return (async (input, init) => {
     const url = new URL(String(input))
     const method = (init?.method ?? 'GET').toUpperCase()
-    captured.push({ method, path: url.pathname, headers: new Headers(init?.headers), body: init?.body ?? null })
+    captured.push({
+      method,
+      path: url.pathname,
+      headers: new Headers(init?.headers),
+      body: init?.body ?? null,
+      tls: (init as RequestInit & { tls?: unknown })?.tls
+    })
 
     if (method === 'POST' && url.pathname === '/internal/computer/sessions/resolve') {
       return json({
         agentUid: 'agent_123',
-        worker: { workerId: 'w0', instanceId: 'i0', baseUrl: 'http://worker.local' },
+        worker: { workerId: 'w0', instanceId: 'i0', baseUrl: 'https://worker.local' },
         binding: { kind: 'implicit', reason: 'least_bound_random' },
-        token: 'session-token'
+        tls: TEST_TLS
       })
     }
     if (method === 'PUT' && url.pathname === '/v1/sessions/agent_123') {
@@ -141,6 +150,9 @@ describe('Computer', () => {
     expect(createdHook).toBe(true)
     expect(captured.map(c => c.path)).toContain('/internal/computer/sessions/resolve')
     expect(captured.some(c => c.method === 'PUT' && c.path === '/v1/sessions/agent_123')).toBe(true)
+    const sessionRequest = captured.find(c => c.method === 'PUT' && c.path === '/v1/sessions/agent_123')
+    expect(sessionRequest?.tls).toEqual({ ca: ['CA CERT'], cert: 'CLIENT CERT', key: 'CLIENT KEY' })
+    expect(sessionRequest?.headers.has('authorization')).toBe(false)
   })
 
   it('runCommand returns a finished command with stdout/stderr', async () => {
@@ -275,9 +287,9 @@ describe('Computer', () => {
       fetch: fetchImpl,
       resolveWorker: async () => ({
         agentUid: 'agent_123',
-        worker: { workerId: 'w0', instanceId: 'i0', baseUrl: 'http://worker.local' },
+        worker: { workerId: 'w0', instanceId: 'i0', baseUrl: 'https://worker.local' },
         binding: { kind: 'explicit_pin', reason: 'configured_pin' },
-        token: 'session-token'
+        tls: TEST_TLS
       })
     })
     expect(computer.workerId).toBe('w0')

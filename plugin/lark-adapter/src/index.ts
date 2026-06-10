@@ -51,9 +51,10 @@ function larkDomainField(zhLabel: string): BullXPluginSetupField {
 export function createBullXLarkAdapter(context: BullXExternalGatewayAdapterFactoryContext) {
   const parsed = larkChannelConfigSchema.safeParse(context.config)
   if (!parsed.success) {
-    throw new LarkAdapterConfigError(`Invalid Lark adapter config for channel ${context.channel.name}`, {
-      cause: parsed.error
-    })
+    throw new LarkAdapterConfigError(
+      `Invalid Lark adapter config for channel ${context.channel.name}: ${zodIssueSummary(parsed.error)}`,
+      { cause: parsed.error }
+    )
   }
 
   return new BullXLarkChatAdapter(context, parsed.data)
@@ -64,9 +65,10 @@ export function createBullXLarkIdentityProvider(
 ): BullXIdentityProviderAdapter {
   const parsed = larkIdentityProviderConfigSchema.safeParse(context.config)
   if (!parsed.success) {
-    throw new LarkAdapterConfigError(`Invalid Lark identity provider config for ${context.providerId}`, {
-      cause: parsed.error
-    })
+    throw new LarkAdapterConfigError(
+      `Invalid Lark identity provider config for ${context.providerId}: ${zodIssueSummary(parsed.error)}`,
+      { cause: parsed.error }
+    )
   }
 
   if (parsed.data.oidc.enabled && context.isProduction && !context.publicBaseUrl) {
@@ -118,9 +120,9 @@ export const larkAdapterPlugin = {
             },
             description: {
               'en-US':
-                'Namespace used when this chat channel records Lark user_id subjects, for example lark-main. Use the same value for channels in the same Lark tenant.',
+                'Namespace used when this chat channel records Lark actor subjects, for example lark-main. Use the same value for channels in the same Lark tenant.',
               'zh-Hans-CN':
-                '此 chat channel 记录 Lark user_id 时使用的平台用户命名空间，例如 lark-main。同一个飞书租户下的多个 channel 可以使用同一个值。'
+                '此 chat channel 记录 Lark actor 时使用的平台用户命名空间，例如 lark-main。同一个飞书租户下的多个 channel 可以使用同一个值。'
             },
             defaultValue: 'lark-main'
           },
@@ -203,8 +205,7 @@ export const larkAdapterPlugin = {
             departments: true,
             websocket: true,
             pageSize: 50
-          },
-          event: {}
+          }
         },
         fields: [
           ...larkAppCredentialFields,
@@ -260,5 +261,9 @@ export const larkAdapterPlugin = {
     }
   ]
 } satisfies BullXPlugin
+
+function zodIssueSummary(error: z.ZodError): string {
+  return error.issues.map(issue => `${issue.path.join('.') || '<root>'}: ${issue.message}`).join('; ')
+}
 
 export default larkAdapterPlugin

@@ -1,4 +1,3 @@
-import 'reflect-metadata'
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import path from 'node:path'
 import { loadTestEnvFiles } from '@/common/tests/load-test-env'

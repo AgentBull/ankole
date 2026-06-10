@@ -1,8 +1,7 @@
-import 'reflect-metadata'
 import assert from 'node:assert/strict'
 import { redis } from 'bun'
 import { compact, isPlainObject } from '@pleisto/active-support'
-import { eq, sql } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 import type { AiAgentModelsConfig } from '../src/ai-agent/config'
 import type {
   MockImConversationOptions,
@@ -24,6 +23,7 @@ const {
   AiAgentMessages,
   ComputerAgentWorkerBindings,
   ComputerAgentWorkerPins,
+  ComputerWorkers,
   ExternalGatewayAgentEvents,
   ExternalGatewayInputTombstones,
   ExternalGatewayOutbox,
@@ -49,7 +49,7 @@ const { createWebExtractTool } = await import('@/ai-agent/tools/web-extract-tool
 const { webProviderRegistry } = await import('@/ai-agent/web/registry')
 const { WebExtractProviderConfig, WebSearchProviderConfig } = await import('@/ai-agent/web/config')
 const { appConfigService } = await import('@/config/app-configure')
-const { recordHeartbeat, registerWorker, resolveComputerWorker } = await import('@/computer/service')
+const { resolveComputerWorker } = await import('@/computer/service')
 const { SchedulerRuntime } = await import('@/scheduler/runtime')
 const { schedulerStore } = await import('@/scheduler/store')
 const { externalGatewayOutbox } = await import('@/external-gateway/outbox')
@@ -64,9 +64,8 @@ assert.ok(apiKey, 'OPENROUTER_API_KEY is required in .env, .env.local, .env.deve
 
 const workerId = Bun.env.BULLX_COMPUTER_E2E_WORKER_ID ?? 'dev'
 const workerBaseUrl = (
-  Bun.env.BULLX_COMPUTER_E2E_WORKER_URL ?? `http://localhost:${Bun.env.BULLX_COMPUTER_PORT ?? '8787'}`
+  Bun.env.BULLX_COMPUTER_E2E_WORKER_URL ?? `https://localhost:${Bun.env.BULLX_COMPUTER_PORT ?? '8787'}`
 ).replace(/\/$/, '')
-const workerInstanceId = `${workerId}-llm-e2e`
 
 const suffix = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`.toLowerCase()
 const agentUid = `llm_e2e_${suffix}`
@@ -84,10 +83,9 @@ let scheduler: InstanceType<typeof SchedulerRuntime> | undefined
 let previousSearchProvider: string | undefined
 let previousExtractProvider: string | undefined
 let appConfigSnapshotLoaded = false
-let workerHeartbeatTimer: ReturnType<typeof setInterval> | undefined
 
 try {
-  await requireDevWorker(workerBaseUrl)
+  await requireDevWorker()
   const setup = await startRuntime()
 
   await step('core', 'user edits a live group-thread handoff and recalled context is ignored', () =>
@@ -130,7 +128,6 @@ try {
   // oxlint-disable-next-line no-console
   console.log(`OK llm e2e passed: agent=${agentUid} provider=${llmProviderId} model=openrouter/${MODEL_ID}`)
 } finally {
-  if (workerHeartbeatTimer) clearInterval(workerHeartbeatTimer)
   await scheduler?.stop().catch(() => undefined)
   await runtime?.stop().catch(() => undefined)
   aiRuntime?.stop()
@@ -162,16 +159,6 @@ async function startRuntime() {
       timeoutMs: 180_000
     }
   })
-
-  await registerWorker({
-    workerId,
-    instanceId: workerInstanceId,
-    baseUrl: workerBaseUrl,
-    features: ['bwrap', 'persistent-shell', 'tmux', 'tigerfs', 'python', 'jupyter', 'bun', 'browser'],
-    capacity: { maxAgents: 128, maxCommands: 32 },
-    metadata: { source: 'llm-e2e' }
-  })
-  startWorkerHeartbeat()
 
   const platform: MockImPlatformInstance = new MockImPlatformCtor()
   registerExternalGatewayAdapterFactory({
@@ -205,7 +192,7 @@ async function startRuntime() {
         microcompactKeepRecent: 6,
         reserveTokens: 0
       },
-      dailyReset: { enabled: true, hour: '00:00', retryMinutes: 30, timezone: 'Etc/UTC' }
+      dailyReset: { enabled: true, hour: '00:00', retryMinutes: 30 }
     }
   })
 
@@ -337,7 +324,7 @@ async function scenarioResetSession(setup: RuntimeSetup): Promise<void> {
   )
 
   await group.say({ id: 'reset-new', isMention: true, text: '/new' })
-  await waitForOutboundText(setup, 'New conversation started.')
+  await waitForOutboundText(setup, 'New conversation')
 
   const beforeSecond = setup.platform.outbound.length
   await group.say({
@@ -955,41 +942,25 @@ function toolNameFromToolResult(result: Record<string, unknown>): string[] {
   const execution = details && isPlainObject(details.bullx_execution) ? details.bullx_execution : undefined
   return typeof execution?.tool_name === 'string' ? [execution.tool_name] : []
 }
-async function requireDevWorker(baseUrl: string): Promise<void> {
-  let response: Response
-  try {
-    response = await fetch(`${baseUrl}/healthz`, { signal: AbortSignal.timeout(3_000) })
-  } catch (error) {
-    throw new Error(
-      `Computer worker is not reachable at ${baseUrl}. Start it with "bun run services:start" before running this script.`,
-      { cause: error }
-    )
+async function requireDevWorker(): Promise<void> {
+  const deadline = Date.now() + 60_000
+  while (Date.now() < deadline) {
+    const [row] = await DB.select({ workerId: ComputerWorkers.workerId })
+      .from(ComputerWorkers)
+      .where(
+        and(
+          eq(ComputerWorkers.workerId, workerId),
+          eq(ComputerWorkers.status, 'ready'),
+          sql`${ComputerWorkers.lastHeartbeatAt} > now() - interval '30 seconds'`
+        )
+      )
+      .limit(1)
+    if (row) return
+    await Bun.sleep(1_000)
   }
-  if (!response.ok) {
-    throw new Error(`Computer worker health check failed at ${baseUrl}/healthz: HTTP ${response.status}`)
-  }
-}
-
-function startWorkerHeartbeat(): void {
-  if (workerHeartbeatTimer) clearInterval(workerHeartbeatTimer)
-  const beat = async () => {
-    await recordHeartbeat({
-      workerId,
-      instanceId: workerInstanceId,
-      status: 'ready',
-      runningSessions: 0,
-      runningCommands: 0,
-      load: { source: 'llm-e2e' }
-    })
-  }
-  void beat()
-  workerHeartbeatTimer = setInterval(() => {
-    void beat().catch(error => {
-      // oxlint-disable-next-line no-console
-      console.warn('llm-e2e computer worker heartbeat failed', error)
-    })
-  }, 10_000)
-  ;(workerHeartbeatTimer as unknown as { unref?(): void }).unref?.()
+  throw new Error(
+    `Computer worker ${workerId} has no fresh DB heartbeat. Start it with "bun run services:start" before running this script. Expected worker URL: ${workerBaseUrl}`
+  )
 }
 
 async function eventually(assertion: () => void | Promise<void>, timeoutMs: number): Promise<void> {

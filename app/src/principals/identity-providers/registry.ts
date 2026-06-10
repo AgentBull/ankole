@@ -2,7 +2,6 @@ import type {
   BullXIdentityProviderAdapterFactory,
   BullXIdentityProviderAdapterFactoryContext
 } from '@agentbull/bullx-sdk/plugins'
-import { rootContainer, singleton } from '@/common/di'
 
 export type IdentityProviderAdapterFactory = BullXIdentityProviderAdapterFactory
 export type IdentityProviderAdapterFactoryContext = BullXIdentityProviderAdapterFactoryContext
@@ -21,7 +20,6 @@ export class UnknownIdentityProviderAdapterError extends Error {
   }
 }
 
-@singleton()
 export class IdentityProviderAdapterRegistry {
   private readonly factories = new Map<string, IdentityProviderAdapterFactory>()
 
@@ -43,7 +41,7 @@ export class IdentityProviderAdapterRegistry {
 }
 
 export function registerIdentityProviderAdapterFactory(factory: IdentityProviderAdapterFactory): void {
-  rootContainer.resolve(IdentityProviderAdapterRegistry).register(factory)
+  identityProviderAdapterRegistry.register(factory)
 }
 
-export const identityProviderAdapterRegistry = rootContainer.resolve(IdentityProviderAdapterRegistry)
+export const identityProviderAdapterRegistry = new IdentityProviderAdapterRegistry()

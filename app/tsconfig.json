@@ -10,8 +10,6 @@
     "skipLibCheck": true,
     "noEmit": true,
     "isolatedModules": true,
-    "experimentalDecorators": true,
-    "emitDecoratorMetadata": true,
     "allowJs": true,
     "esModuleInterop": true,
     "resolveJsonModule": true,

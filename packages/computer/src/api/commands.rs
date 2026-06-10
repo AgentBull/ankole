@@ -45,6 +45,9 @@ pub struct ShellBody {
   env: BTreeMap<String, String>,
   #[serde(default)]
   timeout: Option<u64>,
+  /// Execution scope (conversation) owning the persistent shell; empty = agent-shared.
+  #[serde(default)]
+  scope: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -138,7 +141,13 @@ pub async fn run_shell(
 
   let timeout = Duration::from_millis(body.timeout.unwrap_or(DEFAULT_TIMEOUT_MS));
   let result = session
-    .shell_run(&body.command, body.cwd.as_deref(), &body.env, timeout)
+    .shell_run(
+      body.scope.as_deref().unwrap_or(""),
+      &body.command,
+      body.cwd.as_deref(),
+      &body.env,
+      timeout,
+    )
     .await?;
   if let Err(error) = state.sessions.sync_library_containers(&agent_uid).await {
     tracing::warn!(%agent_uid, %error, "failed to sync library-containers after shell command");

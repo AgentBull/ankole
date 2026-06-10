@@ -1,11 +1,12 @@
-import 'reflect-metadata'
 import { describe, expect, it } from 'bun:test'
 import type { Computer } from '@agentbull/bullx-computer'
 import { createBrowserTools } from './browser-tools'
-import type { ComputerToolContext } from '../computer/context'
+import { executionScopeTag, type ComputerToolContext } from '../computer/context'
+
+const SCOPE_TAG = executionScopeTag({ executionScopeId: 'test-scope' })
 
 describe('browser tools', () => {
-  it('opens through bullx-browser with the agent UID as the default session', async () => {
+  it('opens through bullx-browser with a conversation-scoped execution session and the agent-level profile', async () => {
     const calls: unknown[] = []
     const context = contextWithComputer({
       async runCommand(params: unknown) {
@@ -26,6 +27,8 @@ describe('browser tools', () => {
           '--json',
           'open',
           '--session',
+          `agent_123--s-${SCOPE_TAG}`,
+          '--profile-session',
           'agent_123',
           '--url',
           'https://example.com',
@@ -65,7 +68,7 @@ describe('browser tools', () => {
       {
         files: [
           {
-            path: 'user-files/browser/tasks/agent_123/smoke/input_script.py',
+            path: `user-files/browser/tasks/agent_123--s-${SCOPE_TAG}/smoke/input_script.py`,
             content: 'print("hello")'
           }
         ],
@@ -79,11 +82,13 @@ describe('browser tools', () => {
           '--json',
           'run',
           '--session',
+          `agent_123--s-${SCOPE_TAG}`,
+          '--profile-session',
           'agent_123',
           '--task-id',
           'smoke',
           '--script',
-          '/workspace/user-files/browser/tasks/agent_123/smoke/input_script.py',
+          `/workspace/user-files/browser/tasks/agent_123--s-${SCOPE_TAG}/smoke/input_script.py`,
           '--profile-mode',
           'persistent',
           '--timeout-ms',
@@ -99,6 +104,7 @@ describe('browser tools', () => {
 function contextWithComputer(computer: unknown): ComputerToolContext {
   return {
     agentUid: 'agent_123',
+    executionScopeId: 'test-scope',
     getComputer: async () => computer as Computer,
     backgroundIds: new Set()
   }

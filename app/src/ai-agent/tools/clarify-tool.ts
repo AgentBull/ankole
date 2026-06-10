@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { ms } from '@pleisto/active-support'
 import { toJsonObject } from '@/common/json'
 import type { DrizzleExternalGatewayOutbox } from '@/external-gateway/outbox'
 import { interactiveOutputCardPayload } from '@/external-gateway/interactive-output'
@@ -8,9 +9,9 @@ import { buildTool } from './build-tool'
 import { renderClarifyChoicePrompt } from './choice-prompt'
 import { renderClarifyPrompt } from './clarify-format'
 
-const DEFAULT_TIMEOUT_MS = 600_000 // hermes parity: 10 minutes
+const DEFAULT_TIMEOUT_MS = ms('10m') // hermes parity
 const DEFAULT_HEARTBEAT_MS = 1_000 // hermes parity: touch activity every second
-const CEILING_MARGIN_MS = 60_000
+const CEILING_MARGIN_MS = ms('1m')
 
 const ClarifyParams = z.object({
   question: z.string().min(1).describe('The question to ask the user.'),
@@ -46,6 +47,8 @@ export interface ClarifyRunBinding {
   providerRealmId?: string | null
   providerRoomId: string
   providerThreadId: string
+  requesterExternalId?: string | null
+  requesterPrincipalUid?: string | null
   triggerMessageId: string
   /** Whether the channel can render the interactive clarify card (else plain text). */
   cardCapable: boolean

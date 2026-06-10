@@ -1,4 +1,3 @@
-import 'reflect-metadata'
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { getModels, getProviders } from '@earendil-works/pi-ai'
 import { eq, like } from 'drizzle-orm'

@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'bun:test'
-import 'reflect-metadata'
 import { loadTestEnvFiles } from '../common/tests/load-test-env'
 
 await loadTestEnvFiles()

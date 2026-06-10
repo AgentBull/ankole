@@ -3,7 +3,6 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use chrono::{DateTime, Utc};
 
 use crate::config::Config;
 use crate::isolation::Launcher;
@@ -14,13 +13,14 @@ use crate::tigerfs::TigerFs;
 pub struct AppState {
   pub config: Arc<Config>,
   pub sessions: Arc<SessionManager>,
-  pub tigerfs: Arc<TigerFs>,
-  pub started_at: DateTime<Utc>,
 }
 
 impl AppState {
   pub async fn new(config: Arc<Config>) -> Result<Self> {
     tokio::fs::create_dir_all(&config.workspace_root).await?;
+    tokio::fs::create_dir_all(&config.user_files_root).await?;
+    tokio::fs::create_dir_all(&config.temp_root).await?;
+    tokio::fs::create_dir_all(&config.library_containers_root).await?;
     let tigerfs = Arc::new(TigerFs::postgres(config.database_url.clone()));
     let launcher = Launcher::new(config.isolation);
     let sessions = Arc::new(SessionManager::new(
@@ -28,11 +28,6 @@ impl AppState {
       launcher,
       tigerfs.clone(),
     ));
-    Ok(Self {
-      config,
-      sessions,
-      tigerfs,
-      started_at: Utc::now(),
-    })
+    Ok(Self { config, sessions })
   }
 }

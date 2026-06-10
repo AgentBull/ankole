@@ -22,8 +22,8 @@
     "build-on-mac": "napi build -x --target x86_64-unknown-linux-gnu --platform --release && napi build --platform --release --dts index.d.ts"
   },
   "devDependencies": {
-    "@napi-rs/cli": "^3.7.0",
-    "@swc/core": "^1.15.40",
+    "@napi-rs/cli": "^3.7.1",
+    "@swc/core": "^1.15.41",
     "per-env": "^1.0.2",
     "unplugin-swc": "^1.5.9"
   },

@@ -1,4 +1,3 @@
-import 'reflect-metadata'
 import { afterAll, describe, expect, it } from 'bun:test'
 import { and, eq } from 'drizzle-orm'
 import type {
@@ -142,6 +141,7 @@ describe('ExternalGatewayRuntime', () => {
     const threadId = `${roomId}:thread-1`
     createdAgentUids.add(agentUid)
     projectedRoomIds.add(roomId)
+    await createAgent({ uid: agentUid })
 
     registerExternalGatewayAdapterFactory({
       id: factoryId,
@@ -156,6 +156,17 @@ describe('ExternalGatewayRuntime', () => {
           if (!first) return { status: 'accepted' as const }
 
           if (first.type === 'message.received') {
+            const finalPayload: ExternalGatewayOutboundIntent['finalPayload'] = first.providerEventId.includes('m-file')
+              ? {
+                  files: [
+                    {
+                      filename: 'artifact.txt',
+                      mimeType: 'text/plain',
+                      dataBase64: Buffer.from('artifact body').toString('base64')
+                    }
+                  ]
+                }
+              : { text: 'agent reply' }
             await context.outbox.enqueuePendingMany({
               agentUid: context.agentUid,
               bindingName: context.bindingName,
@@ -165,7 +176,7 @@ describe('ExternalGatewayRuntime', () => {
                   outboundKey: `test-post:${first.providerEventId}`,
                   providerRoomId: first.providerRoomId,
                   providerThreadId: first.providerThreadId,
-                  finalPayload: { text: 'agent reply' }
+                  finalPayload
                 }
               ]
             })
@@ -213,6 +224,31 @@ describe('ExternalGatewayRuntime', () => {
       messageId: 'fake_delete-post-1',
       roomId,
       text: 'agent reply'
+    })
+
+    await runtime.handleWebhook(
+      agentUid,
+      'fake_delete',
+      jsonRequest({
+        id: 'm-file',
+        isMention: true,
+        text: '@Agent file',
+        threadId
+      })
+    )
+
+    await eventually(() => expect(adapter.posts).toHaveLength(2))
+    const filePostable = JSON.parse(adapter.posts[1]!.text)
+    expect(filePostable.markdown).toBe('')
+    expect(filePostable.files[0].filename).toBe('artifact.txt')
+    expect(filePostable.files[0].mimeType).toBe('text/plain')
+    expect(filePostable.files[0].data).toEqual({ type: 'Buffer', data: Array.from(Buffer.from('artifact body')) })
+    await assertProjectedMessage({
+      authorId: 'self',
+      mentions: false,
+      messageId: 'fake_delete-post-2',
+      roomId,
+      text: '[files: artifact.txt]'
     })
 
     await runtime.handleWebhook(
@@ -380,6 +416,47 @@ describe('ExternalGatewayRuntime', () => {
     expect(row?.status).toBe('failed')
     expect(row?.recoveryState).toBe('unknown_after_send')
     expect(adapter.posts).toEqual([])
+  })
+
+  it('marks provider HTTP 400 outbox failures permanent instead of retrying', async () => {
+    const adapter = new FakeExternalAdapter('fake_bad_request', {
+      ...defaultFakeCapabilities,
+      outbound: [...defaultFakeCapabilities.outbound, 'outbound_idempotency']
+    })
+    adapter.failNextPost(1, 'Request failed with status code 400')
+    const agentUid = `${testPrefix}-bad-request-agent`.toLowerCase()
+    createdAgentUids.add(agentUid)
+
+    await DB.insert(ExternalGatewayOutbox).values({
+      agentUid,
+      bindingName: 'fake_bad_request',
+      providerRoomId: 'fake_bad_request:channel',
+      providerThreadId: 'fake_bad_request:channel:thread-1',
+      outboundKey: 'test-bad-request',
+      operation: 'post',
+      finalPayload: jsonbParam({ text: 'provider rejects bad request' }),
+      status: 'pending',
+      recoveryState: 'not_started'
+    })
+
+    await externalGatewayOutbox.dispatchPendingForBinding({
+      adapter,
+      agent: agentResult(agentUid, [{ adapter: 'fake', name: 'fake_bad_request' }]),
+      bindingName: 'fake_bad_request',
+      projection: externalGatewayProjectionSink,
+      room: {}
+    })
+
+    const [row] = await DB.select()
+      .from(ExternalGatewayOutbox)
+      .where(
+        and(eq(ExternalGatewayOutbox.agentUid, agentUid), eq(ExternalGatewayOutbox.outboundKey, 'test-bad-request'))
+      )
+      .limit(1)
+    expect(row?.status).toBe('failed')
+    expect(row?.recoveryState).toBe('not_started')
+    expect(row?.retryCount).toBe(0)
+    expect(row?.safeError).toBe('Request failed with status code 400')
   })
 
   it('dead-letters pending outbox rows after the retry budget is exhausted', async () => {
@@ -630,6 +707,7 @@ class FakeExternalAdapter implements ExternalGatewayAdapter<FakeWebhookPayload> 
   deletes: Array<{ messageId: string; threadId: string }> = []
   reactions: Array<{ added: boolean; emoji: unknown; messageId: string; threadId: string }> = []
   private postFailures = 0
+  private postFailureMessage = 'fake provider post failure'
 
   constructor(
     readonly name: string,
@@ -638,8 +716,9 @@ class FakeExternalAdapter implements ExternalGatewayAdapter<FakeWebhookPayload> 
     this.capabilities = capabilities
   }
 
-  failNextPost(count = 1): void {
+  failNextPost(count = 1, message = 'fake provider post failure'): void {
     this.postFailures += count
+    this.postFailureMessage = message
   }
 
   async initialize(context: ExternalGatewayAdapterContext): Promise<void> {
@@ -700,7 +779,7 @@ class FakeExternalAdapter implements ExternalGatewayAdapter<FakeWebhookPayload> 
   async postMessage(threadId: string, message: unknown) {
     if (this.postFailures > 0) {
       this.postFailures -= 1
-      throw new Error('fake provider post failure')
+      throw new Error(this.postFailureMessage)
     }
 
     const text = typeof message === 'string' ? message : JSON.stringify(message)

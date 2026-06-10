@@ -1,4 +1,3 @@
-import 'reflect-metadata'
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { getModels, getProviders } from '@earendil-works/pi-ai'
 import path from 'node:path'
@@ -13,8 +12,8 @@ const { appConfigService } = await import('@/config/app-configure')
 const { agentChannelConfigKey } = await import('@/external-gateway/config')
 const { updateAgent, getAgent } = await import('@/principals/agents/service')
 const { createLlmProvider } = await import('@/llm-providers/service')
+const { DomainError } = await import('@/common/errors')
 const {
-  ConsoleDomainError,
   createConsoleAgent,
   createConsoleChatChannel,
   deleteConsoleAgent,
@@ -316,7 +315,7 @@ describe('console interactive config sessions', () => {
     deleteConsoleInteractiveConfigSession(started.sessionId)
 
     expect(observedSignal?.aborted).toBe(true)
-    expect(() => getConsoleInteractiveConfigSession(started.sessionId)).toThrow(ConsoleDomainError)
+    expect(() => getConsoleInteractiveConfigSession(started.sessionId)).toThrow(DomainError)
   })
 
   it('surfaces adapter setup failures on the session', async () => {
@@ -335,19 +334,18 @@ async function clearTestRows(): Promise<void> {
   await DB.delete(AppConfigure).where(like(AppConfigure.key, `agents.${testPrefix}%`))
   await DB.delete(Principals).where(like(Principals.uid, `${testPrefix}%`))
   await DB.delete(LlmProviders).where(like(LlmProviders.providerId, `${providerPrefix}%`))
-  await appConfigService.refreshRegisteredExactKeys()
 }
 
 async function expectConsoleError(promise: Promise<unknown>, status: number): Promise<void> {
   try {
     await promise
   } catch (error) {
-    expect(error).toBeInstanceOf(ConsoleDomainError)
-    expect((error as InstanceType<typeof ConsoleDomainError>).status).toBe(status)
+    expect(error).toBeInstanceOf(DomainError)
+    expect((error as InstanceType<typeof DomainError>).status).toBe(status)
     return
   }
 
-  throw new Error(`expected ConsoleDomainError(${status})`)
+  throw new Error(`expected DomainError(${status})`)
 }
 
 async function waitForSessionState(sessionId: string, state: string) {

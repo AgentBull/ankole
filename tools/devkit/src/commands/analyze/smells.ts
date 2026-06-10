@@ -1,4 +1,4 @@
-// `analyze smells` — bullx boundary / architecture-smell gate (§7.1).
+// `analyze smells` — bullx boundary / architecture-smell gate.
 //
 // Rules are bullx-specific (the OpenClaw smells don't apply); only the regex
 // reference scanner is ported. Four rules:

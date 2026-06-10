@@ -18,15 +18,9 @@ import {
   type SessionTreeEntry
 } from './core'
 import { toJsonValue } from '@/common/json'
+import { COMPACTION_FOCUS_INSTRUCTIONS } from './prompts/compression-prompt'
 
-/**
- * Extra summarization focus appended (as "Additional focus: …") to pi's base
- * compaction prompt via compact()'s customInstructions hook: a brief chronological
- * `<analysis>` scratchpad (discarded from the stored summary) plus verbatim
- * identifier preservation so the post-compaction turn resumes without drift.
- */
-export const COMPACTION_FOCUS_INSTRUCTIONS =
-  "First, in an <analysis> block, walk the conversation chronologically and note each step's intent, decisions, and any errors and their fixes (this block is scratch work and will be discarded). Then write the summary. Preserve verbatim — never paraphrase — file paths, function and identifier names, error messages, command lines, and IDs/UUIDs; when the latest task is unfinished, quote its exact instruction so work resumes without drift."
+export { COMPACTION_FOCUS_INSTRUCTIONS } from './prompts/compression-prompt'
 
 /** Strip the throwaway `<analysis>` scratchpad from a generated summary. */
 export function stripCompactionScratch(summary: string): string {

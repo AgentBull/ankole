@@ -1,19 +1,22 @@
-import 'reflect-metadata'
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { getModels, getProviders } from '@earendil-works/pi-ai'
 import { like } from 'drizzle-orm'
 import { loadTestEnvFiles } from '@/common/tests/load-test-env'
+import type { AppConfigDefinition, AppConfigJsonValue } from '@/config/app-configure'
 
 await loadTestEnvFiles()
 
 const { DB } = await import('@/common/database')
 const { LlmProviders, PrincipalGroups, Principals } = await import('@/common/db-schema')
 const { createWebServer } = await import('@/core/web-server')
-const { createAgent } = await import('@/principals/agents/service')
 const { ensureBuiltInAdminGroup } = await import('@/principals/authorization/groups')
 const { insertMembership } = await import('@/principals/authorization/memberships')
 const { createHuman } = await import('@/principals/human-users/service')
 const { ADMIN_SESSION_COOKIE, cookieHeader, createAdminSessionCookie } = await import('@/principals/admin-auth/session')
+const { appConfigService } = await import('@/config/app-configure')
+const { AppI18nDefaultLocaleConfig } = await import('@/config/i18n')
+const { SystemTimezoneConfig } = await import('@/config/system')
+const { AdminAuthPublicBaseUrlConfig } = await import('@/principals/admin-auth/config')
 
 const webServer = await createWebServer({ serveStaticAssets: false })
 const testPrefix = `test_console_routes_${Date.now()}_${Math.random().toString(36).slice(2)}`.toLowerCase()
@@ -157,7 +160,22 @@ describe('console expanded resource routes', () => {
     const humanUid = `${testPrefix}_operator`
     const groupName = `${testPrefix}_team`
 
-    await createAgent({ uid: agentUid })
+    const createdAgent = await authedFetch('/api/console/agents', {
+      method: 'POST',
+      body: {
+        uid: agentUid,
+        displayName: 'Route Test Agent',
+        mission: 'Start with route mission.',
+        soul: 'You are a route-created agent.'
+      }
+    })
+    expect(createdAgent.status).toBe(201)
+    await expect(createdAgent.json()).resolves.toMatchObject({
+      agent: {
+        uid: agentUid,
+        displayName: 'Route Test Agent'
+      }
+    })
 
     const human = await authedFetch('/api/console/human-users', {
       method: 'POST',
@@ -208,7 +226,7 @@ describe('console expanded resource routes', () => {
 
     const soul = await authedFetch(`/api/console/agents/${agentUid}/soul`)
     expect(soul.status).toBe(200)
-    expect(((await soul.json()) as { content: string | null }).content).toBeString()
+    expect(((await soul.json()) as { content: string | null }).content).toBe('You are a route-created agent.')
 
     const updatedSoul = await authedFetch(`/api/console/agents/${agentUid}/soul`, {
       method: 'PUT',
@@ -217,13 +235,24 @@ describe('console expanded resource routes', () => {
     expect(updatedSoul.status).toBe(200)
     await expect(updatedSoul.json()).resolves.toEqual({ content: 'You are a route-test agent.' })
 
+    const mission = await authedFetch(`/api/console/agents/${agentUid}/mission`)
+    expect(mission.status).toBe(200)
+    expect(((await mission.json()) as { content: string | null }).content).toBe('Start with route mission.')
+
+    const updatedMission = await authedFetch(`/api/console/agents/${agentUid}/mission`, {
+      method: 'PUT',
+      body: { content: 'Keep route tests grounded.' }
+    })
+    expect(updatedMission.status).toBe(200)
+    await expect(updatedMission.json()).resolves.toEqual({ content: 'Keep route tests grounded.' })
+
     const entries = await authedFetch(`/api/console/agents/${agentUid}/library-entries`)
     expect(entries.status).toBe(200)
-    expect(
-      ((await entries.json()) as { entries: Array<{ virtualPath: string }> }).entries.some(
-        entry => entry.virtualPath === 'SOUL.md'
-      )
-    ).toBe(true)
+    const entryPaths = ((await entries.json()) as { entries: Array<{ virtualPath: string }> }).entries.map(
+      entry => entry.virtualPath
+    )
+    expect(entryPaths).toContain('SOUL.md')
+    expect(entryPaths).toContain('MISSION.md')
 
     const overview = await authedFetch('/api/console/overview')
     expect(overview.status).toBe(200)
@@ -246,6 +275,75 @@ describe('console expanded resource routes', () => {
     expect(deletedGroup.status).toBe(204)
   })
 })
+
+describe('console settings routes', () => {
+  it('reads and updates installation settings', async () => {
+    const originalLocale = await appConfigService.get(AppI18nDefaultLocaleConfig)
+    const originalTimezone = await appConfigService.refreshByKey(SystemTimezoneConfig.key)
+    const originalPublicBaseUrl = await appConfigService.get(AdminAuthPublicBaseUrlConfig)
+
+    try {
+      const initial = await authedFetch('/api/console/settings')
+      expect(initial.status).toBe(200)
+      await expect(initial.json()).resolves.toMatchObject({
+        settings: {
+          defaultLocale: expect.any(String),
+          availableLocales: expect.arrayContaining([expect.objectContaining({ value: 'en-US' })])
+        }
+      })
+
+      const updated = await authedFetch('/api/console/settings', {
+        method: 'PUT',
+        body: {
+          defaultLocale: 'zh-Hans-CN',
+          timezone: 'Asia/Shanghai',
+          publicBaseUrl: 'https://console.example.com'
+        }
+      })
+      expect(updated.status).toBe(200)
+      await expect(updated.json()).resolves.toMatchObject({
+        settings: {
+          defaultLocale: 'zh-Hans-CN',
+          timezone: 'Asia/Shanghai',
+          effectiveTimezone: 'Asia/Shanghai',
+          publicBaseUrl: 'https://console.example.com'
+        }
+      })
+    } finally {
+      await restoreConfig(AppI18nDefaultLocaleConfig, originalLocale)
+      await restoreConfig(SystemTimezoneConfig, originalTimezone)
+      await restoreConfig(AdminAuthPublicBaseUrlConfig, originalPublicBaseUrl)
+    }
+  })
+
+  it('rejects invalid settings with 422', async () => {
+    const badTimezone = await authedFetch('/api/console/settings', {
+      method: 'PUT',
+      body: { timezone: 'Not/AZone' }
+    })
+    expect(badTimezone.status).toBe(422)
+
+    const badUrl = await authedFetch('/api/console/settings', {
+      method: 'PUT',
+      body: { publicBaseUrl: 'not-a-url' }
+    })
+    expect(badUrl.status).toBe(422)
+
+    const badLocale = await authedFetch('/api/console/settings', {
+      method: 'PUT',
+      body: { defaultLocale: 'fr-FR' }
+    })
+    expect(badLocale.status).toBe(422)
+  })
+})
+
+async function restoreConfig<TValue extends AppConfigJsonValue>(
+  definition: AppConfigDefinition<TValue>,
+  value: TValue | undefined
+): Promise<void> {
+  if (value === undefined) await appConfigService.delete(definition)
+  else await appConfigService.set(definition, value)
+}
 
 async function clearTestRows(): Promise<void> {
   await DB.delete(LlmProviders).where(like(LlmProviders.providerId, `${providerPrefix}%`))

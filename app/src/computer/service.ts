@@ -1,26 +1,13 @@
 import { and, eq, sql } from 'drizzle-orm'
+import { DomainError } from '@/common/errors'
 import { DB, type AppDbTransaction, jsonbParam, type QueryExecutor } from '@/common/database'
 import type { JsonValue } from '@/common/db-schema'
 import { ComputerAgentWorkerBindings, ComputerAgentWorkerPins, ComputerWorkers } from '@/common/db-schema/computer'
-import { AppEnv } from '@/config/env'
-import { signComputerToken } from './tokens'
+import { getComputerClientTlsConfig, type ComputerClientTlsConfig } from './tls-config'
 
 /** Health window: a worker is healthy if `ready` and seen within this interval. */
 const HEALTH_INTERVAL = sql`now() - interval '30 seconds'`
-const SESSION_TOKEN_TTL_SECONDS = 600
-
 export type ComputerBindingKind = 'explicit_pin' | 'implicit' | 'fallback'
-
-export class ComputerDomainError extends Error {
-  constructor(
-    readonly status: number,
-    readonly code: string,
-    message: string
-  ) {
-    super(message)
-    this.name = 'ComputerDomainError'
-  }
-}
 
 export interface RegisterWorkerInput {
   workerId: string
@@ -51,7 +38,7 @@ export interface ComputerResolveResult {
   agentUid: string
   worker: ResolvedComputerWorker
   binding: { kind: ComputerBindingKind; reason: string }
-  token: string
+  tls: ComputerClientTlsConfig
 }
 
 export async function registerWorker(input: RegisterWorkerInput): Promise<void> {
@@ -121,7 +108,7 @@ export async function resolveComputerWorker(agentUid: string): Promise<ComputerR
     const candidates = await getLeastBoundHealthyWorkers(tx)
     const selected = candidates[Math.floor(Math.random() * candidates.length)]
     if (!selected) {
-      throw new ComputerDomainError(503, 'computer_no_worker_available', 'no healthy computer worker available')
+      throw new DomainError(503, 'no healthy computer worker available', 'computer_no_worker_available')
     }
     const kind: ComputerBindingKind = pin ? 'fallback' : 'implicit'
     const reason = pin ? 'pin_worker_unavailable' : 'least_bound_random'
@@ -132,7 +119,7 @@ export async function resolveComputerWorker(agentUid: string): Promise<ComputerR
     agentUid,
     worker: decision.worker,
     binding: { kind: decision.kind, reason: decision.reason },
-    token: mintSessionToken(agentUid, decision.worker)
+    tls: await getComputerClientTlsConfig()
   }
 }
 
@@ -143,20 +130,6 @@ export async function releaseComputerWorkerBinding(agentUid: string, worker: Res
       eq(ComputerAgentWorkerBindings.workerId, worker.workerId),
       eq(ComputerAgentWorkerBindings.instanceId, worker.instanceId)
     )
-  )
-}
-
-function mintSessionToken(agentUid: string, worker: ResolvedComputerWorker): string {
-  const secret = AppEnv.BULLX_COMPUTER_TOKEN
-  if (!secret) return '' // dev: worker auth disabled
-  return signComputerToken(
-    {
-      agentUid,
-      workerId: worker.workerId,
-      instanceId: worker.instanceId,
-      exp: Math.floor(Date.now() / 1000) + SESSION_TOKEN_TTL_SECONDS
-    },
-    secret
   )
 }
 
@@ -207,7 +180,7 @@ async function getWorker(tx: QueryExecutor, workerId: string): Promise<ResolvedC
     .from(ComputerWorkers)
     .where(eq(ComputerWorkers.workerId, workerId))
     .limit(1)
-  if (!worker) throw new ComputerDomainError(503, 'computer_worker_gone', 'worker disappeared during resolve')
+  if (!worker) throw new DomainError(503, 'worker disappeared during resolve', 'computer_worker_gone')
   return worker
 }
 
@@ -273,7 +246,7 @@ export async function setAgentPin(input: SetPinInput): Promise<void> {
     .from(ComputerWorkers)
     .where(eq(ComputerWorkers.workerId, input.workerId))
     .limit(1)
-  if (!worker) throw new ComputerDomainError(404, 'computer_worker_not_found', `unknown worker: ${input.workerId}`)
+  if (!worker) throw new DomainError(404, `unknown worker: ${input.workerId}`, 'computer_worker_not_found')
 
   const shared = {
     workerId: input.workerId,

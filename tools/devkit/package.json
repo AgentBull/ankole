@@ -8,7 +8,7 @@
   "sideEffects": false,
   "scripts": {
     "bin": "bun run src/main.ts",
-    "type-check": "tsc -p tsconfig.json --noEmit",
+    "type-check": "tsgo -p tsconfig.json --noEmit",
     "test": "bun test",
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check"

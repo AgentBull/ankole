@@ -472,6 +472,7 @@ export type AgentEvent =
   // Turn lifecycle - a turn is one assistant response + any tool calls/results
   | { type: 'turn_start' }
   | { type: 'turn_end'; message: AgentMessage; toolResults: ToolResultMessage[] }
+  | { type: 'max_turns_reached'; maxTurns: number; turnCount: number }
   // Message lifecycle - emitted for user, assistant, and toolResult messages
   | { type: 'message_start'; message: AgentMessage }
   // Only emitted for assistant messages during streaming

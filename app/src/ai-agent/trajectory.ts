@@ -1,3 +1,6 @@
+// Trajectory replay is a README-pillar capability. The rebuild functions below
+// currently have test-only consumers; runtime wiring arrives with the replay
+// surface, so do not treat them as dead code.
 import { eq } from 'drizzle-orm'
 import type { Message } from '@earendil-works/pi-ai'
 import { DB } from '@/common/database'

@@ -1,4 +1,5 @@
 import { aeadDecrypt, aeadEncrypt } from '@agentbull/bullx-native-addons'
+import { DomainError } from '@/common/errors'
 import {
   getModel,
   getModels,
@@ -14,6 +15,7 @@ import { z } from 'zod'
 import { DB, jsonbParam } from '@/common/database'
 import { Agents, LlmProviders, type JsonObject, type JsonValue } from '@/common/db-schema'
 import { cloneJsonObject, isJsonObject, jsonObject } from '@/common/json'
+import { appConfigJsonRecordSchema } from '@/config/json-value-schema'
 import { getSecretKey, SecretKeyPurpose } from '@/common/kms'
 
 const providerIdPattern = /^[a-z][a-z0-9_-]{0,62}$/
@@ -72,7 +74,15 @@ export interface ResolvedLlmProviderModelProfile {
   options: SimpleStreamOptions
 }
 
-type NormalizedLlmProviderOptions = JsonObject & {
+export interface LlmProviderApiAccess {
+  providerId: string
+  piProvider: string
+  baseUrl: string | null
+  apiKey: string
+  providerOptions: NormalizedLlmProviderOptions
+}
+
+export type NormalizedLlmProviderOptions = JsonObject & {
   headers?: Record<string, string>
   timeoutMs?: number
   websocketConnectTimeoutMs?: number
@@ -80,16 +90,6 @@ type NormalizedLlmProviderOptions = JsonObject & {
   maxRetryDelayMs?: number
   transport?: Transport
   compat?: JsonObject
-}
-
-export class LlmProviderError extends Error {
-  constructor(
-    readonly status: number,
-    message: string
-  ) {
-    super(message)
-    this.name = 'LlmProviderError'
-  }
 }
 
 const JsonObjectSchema = z.custom<JsonObject>(value => isJsonObject(value))
@@ -141,6 +141,18 @@ export const LlmProviderCheckInputSchema = z
   .strict()
 
 export type LlmProviderCreateInput = z.infer<typeof LlmProviderCreateInputSchema>
+
+/**
+ * Route-layer request body for creating an LLM provider (shared by setup and
+ * console routes). Deep option validation stays in the service schemas.
+ */
+export const llmProviderCreateBody = z.object({
+  providerId: z.string().min(1),
+  piProvider: z.string().min(1),
+  baseUrl: z.string().nullable().optional(),
+  apiKey: z.string().nullable().optional(),
+  providerOptions: (appConfigJsonRecordSchema as z.ZodType<JsonObject>).optional()
+})
 export type LlmProviderUpdateInput = z.infer<typeof LlmProviderUpdateInputSchema>
 export type LlmProviderCheckInput = z.infer<typeof LlmProviderCheckInputSchema>
 
@@ -157,7 +169,7 @@ export async function upsertLlmProvider(input: LlmProviderCreateInput | LlmProvi
   const parsed = LlmProviderUpdateInputSchema.parse(input)
   const existing = await getLlmProviderRow(parsed.providerId)
   const piProvider = parsed.piProvider ?? existing?.piProvider
-  if (!piProvider) throw new LlmProviderError(422, 'piProvider is required')
+  if (!piProvider) throw new DomainError(422, 'piProvider is required')
   assertKnownPiProvider(piProvider)
 
   const providerOptions =
@@ -192,7 +204,7 @@ export async function upsertLlmProvider(input: LlmProviderCreateInput | LlmProvi
 
 export async function createLlmProvider(input: LlmProviderCreateInput): Promise<LlmProviderProjection> {
   const parsed = LlmProviderCreateInputSchema.parse(input)
-  if (await getLlmProviderRow(parsed.providerId)) throw new LlmProviderError(409, 'llm provider already exists')
+  if (await getLlmProviderRow(parsed.providerId)) throw new DomainError(409, 'llm provider already exists')
   return upsertLlmProvider(parsed)
 }
 
@@ -208,7 +220,7 @@ export async function deleteLlmProvider(providerId: string): Promise<void> {
 
   const references = await listAgentModelReferences(normalizedProviderId)
   if (references.length > 0) {
-    throw new LlmProviderError(409, `llm provider is used by agent models: ${references.join(', ')}`)
+    throw new DomainError(409, `llm provider is used by agent models: ${references.join(', ')}`)
   }
 
   await DB.delete(LlmProviders).where(eq(LlmProviders.providerId, normalizedProviderId))
@@ -229,7 +241,7 @@ export async function checkLlmProvider(input: LlmProviderCheckInput): Promise<{
   const existing = parsed.providerId ? await getLlmProviderRow(parsed.providerId) : undefined
   const providerId = parsed.providerId ?? existing?.providerId ?? 'check'
   const piProvider = parsed.piProvider ?? existing?.piProvider
-  if (!piProvider) throw new LlmProviderError(422, 'piProvider is required')
+  if (!piProvider) throw new DomainError(422, 'piProvider is required')
   assertKnownPiProvider(piProvider)
 
   const providerOptions =
@@ -238,7 +250,7 @@ export async function checkLlmProvider(input: LlmProviderCheckInput): Promise<{
       : cloneJsonObject(existing?.providerOptions ?? {})
   const baseUrl = Object.hasOwn(parsed, 'baseUrl') ? normalizeBaseUrl(parsed.baseUrl) : (existing?.baseUrl ?? null)
   const apiKey = checkInputApiKey(parsed, existing)
-  if (!apiKey) throw new LlmProviderError(422, `llm provider api key is not configured: ${providerId}`)
+  if (!apiKey) throw new DomainError(422, `llm provider api key is not configured: ${providerId}`)
 
   const model = parsed.model
     ? projectModel(providerId, piProvider, requirePiModel(piProvider, parsed.model))
@@ -281,7 +293,7 @@ export async function resolveLlmProviderModelProfile(
 ): Promise<ResolvedLlmProviderModelProfile> {
   const row = await requireLlmProviderRow(ref.providerId)
   const apiKey = decryptApiKey(row)
-  if (!apiKey) throw new LlmProviderError(422, `llm provider api key is not configured: ${row.providerId}`)
+  if (!apiKey) throw new DomainError(422, `llm provider api key is not configured: ${row.providerId}`)
 
   const providerOptions = normalizeProviderOptions(row.providerOptions)
   const model = clonePiModelWithProviderOverrides(requirePiModel(row.piProvider, ref.model), row, providerOptions)
@@ -310,6 +322,20 @@ export async function resolveLlmProviderModelProfile(
       reasoning: ref.reasoning === 'off' ? undefined : ref.reasoning,
       temperature: ref.temperature
     }
+  }
+}
+
+export async function resolveLlmProviderApiAccess(providerId: string): Promise<LlmProviderApiAccess> {
+  const row = await requireLlmProviderRow(providerId)
+  const apiKey = decryptApiKey(row)
+  if (!apiKey) throw new DomainError(422, `llm provider api key is not configured: ${row.providerId}`)
+
+  return {
+    providerId: row.providerId,
+    piProvider: row.piProvider,
+    baseUrl: row.baseUrl,
+    apiKey,
+    providerOptions: normalizeProviderOptions(row.providerOptions)
   }
 }
 
@@ -350,19 +376,19 @@ async function getLlmProviderRow(providerId: string): Promise<LlmProviderRecord 
 
 async function requireLlmProviderRow(providerId: string): Promise<LlmProviderRecord> {
   const row = await getLlmProviderRow(providerId)
-  if (!row) throw new LlmProviderError(404, `llm provider not found: ${providerId}`)
+  if (!row) throw new DomainError(404, `llm provider not found: ${providerId}`)
   return row
 }
 
 function assertKnownPiProvider(piProvider: string): void {
   if (!getProviders().includes(piProvider as never)) {
-    throw new LlmProviderError(422, `unknown Pi provider: ${piProvider}`)
+    throw new DomainError(422, `unknown Pi provider: ${piProvider}`)
   }
 }
 
 function requirePiModel(piProvider: string, modelId: string): Model<any> {
   const model = getModel(piProvider as never, modelId as never) as Model<any> | undefined
-  if (!model) throw new LlmProviderError(422, `unknown Pi model: ${piProvider}/${modelId}`)
+  if (!model) throw new DomainError(422, `unknown Pi model: ${piProvider}/${modelId}`)
   return model
 }
 
@@ -375,7 +401,7 @@ function normalizeProviderOptions(value: unknown): NormalizedLlmProviderOptions 
 function assertNonSecretHeaders(headers: Record<string, string>): void {
   for (const name of Object.keys(headers)) {
     if (secretHeaderNames.has(name.trim().toLowerCase())) {
-      throw new LlmProviderError(422, `providerOptions.headers.${name} must not contain secret credentials`)
+      throw new DomainError(422, `providerOptions.headers.${name} must not contain secret credentials`)
     }
   }
 }
@@ -389,10 +415,10 @@ function normalizeBaseUrl(value: string | null | undefined): string | null {
   try {
     url = new URL(trimmed)
   } catch {
-    throw new LlmProviderError(422, 'baseUrl must be a valid URL')
+    throw new DomainError(422, 'baseUrl must be a valid URL')
   }
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-    throw new LlmProviderError(422, 'baseUrl must use http or https')
+    throw new DomainError(422, 'baseUrl must use http or https')
   }
   return trimmed
 }
@@ -428,7 +454,7 @@ function decryptApiKey(row: LlmProviderRecord): string | null {
   try {
     return aeadDecrypt(row.encryptedApiKey, apiKeyEncryptionKey(row.providerId)).toString('utf-8')
   } catch (error) {
-    throw new LlmProviderError(
+    throw new DomainError(
       422,
       `failed to decrypt llm provider api key: ${row.providerId}${error instanceof Error ? ` (${error.message})` : ''}`
     )

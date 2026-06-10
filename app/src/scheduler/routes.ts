@@ -1,10 +1,10 @@
 import { Elysia } from 'elysia'
 import { z } from 'zod'
-import { statusFromError } from '@/common/errors'
+import { DomainError, statusFromError } from '@/common/errors'
 import { logger } from '@/common/logger'
 import { AppEnv } from '@/config/env'
 import { requireConsoleAdmin } from '@/console/routes'
-import { CreateScheduledTaskSchema, SchedulerDomainError, UpdateScheduledTaskSchema, schedulerService } from './service'
+import { CreateScheduledTaskSchema, UpdateScheduledTaskSchema, schedulerService } from './service'
 
 const taskIdParams = z.object({ taskId: z.string().min(1) })
 const agentParams = z.object({ uid: z.string().min(1) })
@@ -12,7 +12,7 @@ const agentParams = z.object({ uid: z.string().min(1) })
 export function schedulerRoutes() {
   return new Elysia({ name: 'scheduler-routes' })
     .onError(({ code, error, set }) => {
-      if (error instanceof SchedulerDomainError) {
+      if (error instanceof DomainError) {
         set.status = error.status
         return { error: error.message }
       }

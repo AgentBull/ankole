@@ -1,4 +1,3 @@
-import 'reflect-metadata'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test'
 import { eq } from 'drizzle-orm'
 import { loadTestEnvFiles } from '@/common/tests/load-test-env'
@@ -8,19 +7,13 @@ await loadTestEnvFiles()
 
 const { DB, jsonbParam } = await import('@/common/database')
 const { appConfigService } = await import('./app-configure')
-const {
-  SystemConfigError,
-  SystemTimezoneConfig,
-  assertValidIanaTimezone,
-  loadSystemTimezone,
-  loadSystemTimezoneWithLegacyBackfill,
-  osTimezone
-} = await import('./system')
+const { SystemConfigError, SystemTimezoneConfig, assertValidIanaTimezone, loadSystemTimezone, osTimezone } =
+  await import('./system')
 
 let originalSystemTimezone: string | undefined
 
 beforeAll(async () => {
-  originalSystemTimezone = await appConfigService.refresh(SystemTimezoneConfig)
+  originalSystemTimezone = await appConfigService.refreshByKey(SystemTimezoneConfig.key)
 })
 
 beforeEach(async () => {
@@ -43,6 +36,7 @@ describe('system.timezone', () => {
   })
 
   it('falls back to the OS timezone when system.timezone is missing', async () => {
+    expect(await appConfigService.get(SystemTimezoneConfig)).toBe(osTimezone())
     expect(await loadSystemTimezone()).toBe(osTimezone())
   })
 
@@ -70,15 +64,5 @@ describe('system.timezone', () => {
 
     await expect(loadSystemTimezone()).rejects.toThrow()
     await DB.delete(AppConfigure).where(eq(AppConfigure.key, SystemTimezoneConfig.key))
-  })
-
-  it('backfills legacy daily reset timezone only when system.timezone is absent', async () => {
-    expect(await loadSystemTimezoneWithLegacyBackfill('Asia/Shanghai')).toBe('Asia/Shanghai')
-    expect(await appConfigService.refresh(SystemTimezoneConfig)).toBe('Asia/Shanghai')
-
-    await appConfigService.set(SystemTimezoneConfig, 'Europe/Berlin')
-
-    expect(await loadSystemTimezoneWithLegacyBackfill('Asia/Shanghai')).toBe('Europe/Berlin')
-    expect(await appConfigService.refresh(SystemTimezoneConfig)).toBe('Europe/Berlin')
   })
 })

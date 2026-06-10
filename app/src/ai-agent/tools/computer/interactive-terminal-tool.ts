@@ -1,10 +1,25 @@
 import { z } from 'zod'
 import type { AgentTool, AgentToolResult } from '../../core'
 import { buildTool } from '../build-tool'
-import type { ComputerToolContext } from './context'
+import { executionScopeTag, type ComputerToolContext } from './context'
 import { truncateOutput } from './format'
 
 const SESSION_NAME = /^[A-Za-z0-9_.-]{1,64}$/
+const SCOPE_SEPARATOR = '--s-'
+
+/**
+ * tmux names are namespaced per execution scope (conversation) on the worker,
+ * so two conversations of one agent can both run a session called `main`.
+ * The model keeps seeing the plain name.
+ */
+function scopedTmuxName(context: ComputerToolContext, name: string): string {
+  return `${name}${SCOPE_SEPARATOR}${executionScopeTag(context)}`
+}
+
+function unscopedTmuxName(context: ComputerToolContext, name: string): string {
+  const suffix = `${SCOPE_SEPARATOR}${executionScopeTag(context)}`
+  return name.endsWith(suffix) ? name.slice(0, -suffix.length) : name
+}
 
 const InteractiveTerminalParams = z.object({
   action: z
@@ -64,14 +79,17 @@ export function createInteractiveTerminalTool(
       const computer = await context.getComputer(signal)
       switch (params.action) {
         case 'list': {
+          const suffix = `${SCOPE_SEPARATOR}${executionScopeTag(context)}`
           const terminals = await computer.terminals.list({ signal })
           return jsonResult(
             {
-              sessions: terminals.map(terminal => ({
-                session: terminal.name,
-                windows: terminal.windows,
-                attached: terminal.attached
-              }))
+              sessions: terminals
+                .filter(terminal => terminal.name.endsWith(suffix))
+                .map(terminal => ({
+                  session: unscopedTmuxName(context, terminal.name),
+                  windows: terminal.windows,
+                  attached: terminal.attached
+                }))
             },
             { action: 'list' }
           )
@@ -82,10 +100,15 @@ export function createInteractiveTerminalTool(
           const workdir = params.workdir?.trim() || '/workspace'
           const cols = params.cols ?? 140
           const rows = params.rows ?? 40
-          const terminal = await computer.terminals.start(session, { command, cwd: workdir, cols, rows }, { signal })
+          const terminal = await computer.terminals.start(
+            scopedTmuxName(context, session),
+            { command, cwd: workdir, cols, rows },
+            { signal }
+          )
+          const name = unscopedTmuxName(context, terminal.name)
           return jsonResult(
-            { session: terminal.name, status: terminal.status },
-            { action: 'start', session: terminal.name, status: terminal.status }
+            { session: name, status: terminal.status },
+            { action: 'start', session: name, status: terminal.status }
           )
         }
         case 'send': {
@@ -93,30 +116,33 @@ export function createInteractiveTerminalTool(
           const keys = [...(params.keys ?? [])]
           if (params.input === undefined && keys.length === 0) throw new Error('input or keys is required for send')
           const terminal = await computer.terminals.send(
-            session,
+            scopedTmuxName(context, session),
             { input: params.input, keys, enter: params.enter },
             { signal }
           )
+          const name = unscopedTmuxName(context, terminal.name)
           return jsonResult(
-            { session: terminal.name, status: terminal.status },
-            { action: 'send', session: terminal.name, status: terminal.status }
+            { session: name, status: terminal.status },
+            { action: 'send', session: name, status: terminal.status }
           )
         }
         case 'capture': {
           const session = requireSession(params.session)
           const lines = params.lines ?? 80
-          const capture = await computer.terminals.capture(session, { lines }, { signal })
+          const capture = await computer.terminals.capture(scopedTmuxName(context, session), { lines }, { signal })
+          const name = unscopedTmuxName(context, capture.name)
           return jsonResult(
-            { session: capture.name, screen: truncateOutput(capture.screen) },
-            { action: 'capture', session: capture.name, status: 'captured' }
+            { session: name, screen: truncateOutput(capture.screen) },
+            { action: 'capture', session: name, status: 'captured' }
           )
         }
         case 'kill': {
           const session = requireSession(params.session)
-          const terminal = await computer.terminals.kill(session, { signal })
+          const terminal = await computer.terminals.kill(scopedTmuxName(context, session), { signal })
+          const name = unscopedTmuxName(context, terminal.name)
           return jsonResult(
-            { session: terminal.name, status: terminal.status },
-            { action: 'kill', session: terminal.name, status: terminal.status }
+            { session: name, status: terminal.status },
+            { action: 'kill', session: name, status: terminal.status }
           )
         }
         default:

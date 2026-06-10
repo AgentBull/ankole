@@ -3,7 +3,7 @@ import type { PgUpdateSetSource } from 'drizzle-orm/pg-core'
 import { DB, jsonbParam } from '@/common/database'
 import { Agents, type JsonObject, Principals } from '@/common/db-schema'
 import { isJsonObject } from '@/common/json'
-import { seedDefaultSoulForAgent } from '@/ai-agent/library/service'
+import { seedDefaultMissionForAgent, seedDefaultSoulForAgent } from '@/ai-agent/library/service'
 import {
   normalizeUid,
   type Principal,
@@ -87,6 +87,7 @@ export async function createAgent(input: CreateAgentInput): Promise<AgentResult>
       .returning()
 
     await seedDefaultSoulForAgent(agent.uid, tx)
+    await seedDefaultMissionForAgent(agent.uid, tx)
 
     return { principal, agent }
   })

@@ -1,5 +1,5 @@
+import { parseMarkdown } from '../core/markdown'
 import {
-  parseMarkdown,
   type ExternalGatewayAdapter,
   type ExternalGatewayAdapterCapabilities,
   type ExternalGatewayAdapterContext,
@@ -30,6 +30,7 @@ export interface MockImConversationOptions {
 export type MockImDeliver = (agentUid: string, channelName: string, request: Request) => Promise<Response>
 
 export interface MockImMessageOptions {
+  attachments?: MockImAttachmentInput[]
   authorId?: string
   authorName?: string
   dateSent?: Date
@@ -39,6 +40,22 @@ export interface MockImMessageOptions {
   raw?: Record<string, unknown>
   replyToBot?: boolean
   text?: string
+}
+
+export interface MockImAttachmentInput {
+  data: ArrayBuffer | ArrayBufferView | string
+  fileKey?: string
+  mimeType?: string
+  name?: string
+  type: 'image' | 'file' | 'video' | 'audio'
+}
+
+export interface MockImResourceDescriptor {
+  fileKey: string
+  fileName?: string
+  mimeType?: string
+  resourceType: 'image' | 'file' | 'video' | 'audio'
+  size?: number
 }
 
 export interface MockImDeleteOptions {
@@ -73,7 +90,7 @@ export interface MockImStreamingCardRecord {
 }
 
 export interface MockImRawMessage {
-  attachments?: unknown[]
+  attachments?: MockImResourceDescriptor[]
   authorId: string
   authorName: string
   channelId: string
@@ -191,6 +208,7 @@ export class MockImPlatform {
 
   private readonly messages = new Map<string, StoredMessage>()
   private readonly observedInboundKeys = new Set<string>()
+  private readonly resources = new Map<string, Uint8Array>()
   private readonly failures: Record<MockImFailurePoint, number> = {
     post: 0,
     delete: 0,
@@ -270,6 +288,7 @@ export class MockImPlatform {
       dateSent: (message.sentAt ?? new Date()).toISOString(),
       id: message.id,
       isMention: message.isMention,
+      attachments: mockResourceDescriptorsFromRaw(message.raw),
       raw: typeof message.raw === 'object' && message.raw !== null ? (message.raw as Record<string, unknown>) : {},
       surface: message.surface,
       text: message.text,
@@ -305,6 +324,32 @@ export class MockImPlatform {
 
   applyInboundReceive(message: MockImRawMessage): void {
     this.upsertInbound(message, message.dateSent)
+  }
+
+  downloadResource(fileKey: string): Buffer {
+    const data = this.resources.get(fileKey)
+    if (!data) throw new Error(`mock im resource not found: ${fileKey}`)
+    return Buffer.from(data)
+  }
+
+  registerInboundAttachments(
+    messageId: string,
+    attachments: readonly MockImAttachmentInput[] | undefined
+  ): MockImResourceDescriptor[] {
+    const descriptors: MockImResourceDescriptor[] = []
+    for (const [index, attachment] of (attachments ?? []).entries()) {
+      const data = mockAttachmentBytes(attachment.data)
+      const fileKey = attachment.fileKey ?? `mock-resource-${messageId}-${index}-${crypto.randomUUID()}`
+      this.resources.set(fileKey, data)
+      descriptors.push({
+        fileKey,
+        fileName: attachment.name,
+        mimeType: attachment.mimeType,
+        resourceType: attachment.type,
+        size: data.byteLength
+      })
+    }
+    return descriptors
   }
 
   applyInboundDelete(channelId: string, messageId: string, deletedAt: Date): void {
@@ -513,7 +558,7 @@ export class MockImPlatform {
       id: message.id,
       isBot: false,
       isMention: message.isMention ?? false,
-      raw: message.raw ?? message,
+      raw: message.raw ? { ...message.raw, attachments: message.attachments } : message,
       reactions: existing?.reactions ?? {},
       revisionAt,
       sentAt: new Date(message.dateSent),
@@ -696,6 +741,7 @@ export class MockImConversation {
     const authorName = options.authorName ?? authorId
 
     return {
+      attachments: this.platform.registerInboundAttachments(id, options.attachments),
       authorId,
       authorName,
       channelId: this.channelId,
@@ -821,7 +867,20 @@ export class MockImAdapter implements ExternalGatewayAdapter<MockImRawMessage> {
   parseMessage(raw: MockImRawMessage): ExternalGatewayMessageInput<MockImRawMessage> {
     const text = raw.text ?? ''
     return {
-      attachments: [],
+      attachments: (raw.attachments ?? []).map(resource => ({
+        fetchData: async () => this.platform.downloadResource(resource.fileKey),
+        fetchMetadata: {
+          provider: 'mock-im',
+          fileKey: resource.fileKey,
+          resourceType: resource.resourceType,
+          downloadType: resource.resourceType === 'image' ? 'image' : 'file',
+          messageId: raw.id
+        },
+        mimeType: resource.mimeType,
+        name: resource.fileName,
+        size: resource.size,
+        type: resource.resourceType
+      })),
       author: {
         fullName: raw.authorName,
         isBot: false,
@@ -976,6 +1035,30 @@ export class MockImAdapter implements ExternalGatewayAdapter<MockImRawMessage> {
 
 function messageKey(channelId: string, messageId: string): string {
   return `${channelId}\u0000${messageId}`
+}
+
+function mockAttachmentBytes(data: ArrayBuffer | ArrayBufferView | string): Uint8Array {
+  if (typeof data === 'string') return Buffer.from(data)
+  if (data instanceof ArrayBuffer) return new Uint8Array(data)
+  return new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
+}
+
+function mockResourceDescriptorsFromRaw(raw: unknown): MockImResourceDescriptor[] | undefined {
+  if (typeof raw !== 'object' || raw === null || !('attachments' in raw)) return undefined
+  const attachments = (raw as { attachments?: unknown }).attachments
+  if (!Array.isArray(attachments)) return undefined
+
+  const descriptors = attachments.filter(isMockResourceDescriptor)
+  return descriptors.length > 0 ? descriptors : undefined
+}
+
+function isMockResourceDescriptor(value: unknown): value is MockImResourceDescriptor {
+  if (typeof value !== 'object' || value === null) return false
+  const descriptor = value as Partial<MockImResourceDescriptor>
+  return (
+    typeof descriptor.fileKey === 'string' &&
+    ['image', 'file', 'video', 'audio'].includes(String(descriptor.resourceType))
+  )
 }
 
 function postableText(value: unknown): string {

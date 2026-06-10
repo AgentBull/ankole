@@ -2,7 +2,7 @@ import { z } from 'zod'
 import type { CommandFinished } from '@agentbull/bullx-computer'
 import type { AgentTool, AgentToolResult } from '../../core'
 import { buildTool } from '../build-tool'
-import type { ComputerToolContext } from '../computer/context'
+import { executionScopeTag, type ComputerToolContext } from '../computer/context'
 import { truncateOutput } from '../computer/format'
 
 const BrowserSession = z
@@ -132,6 +132,8 @@ function createBrowserOpenTool(context: ComputerToolContext): AgentTool<typeof B
           'open',
           '--session',
           sessionFor(context, params.session),
+          '--profile-session',
+          profileSessionFor(context, params.session),
           '--url',
           params.url,
           ...optionalArg('--task-id', params.taskId),
@@ -169,6 +171,8 @@ function createBrowserExtractTool(
           'extract',
           '--session',
           sessionFor(context, params.session),
+          '--profile-session',
+          profileSessionFor(context, params.session),
           ...optionalArg('--url', params.url),
           ...optionalArg('--task-id', params.taskId),
           ...optionalArg('--format', params.format),
@@ -209,6 +213,8 @@ function createBrowserRunTool(context: ComputerToolContext): AgentTool<typeof Br
           'run',
           '--session',
           session,
+          '--profile-session',
+          profileSessionFor(context, params.session),
           '--task-id',
           taskId,
           '--script',
@@ -265,7 +271,18 @@ function parseJsonOutput(output: string): unknown | undefined {
   return undefined
 }
 
+/**
+ * Execution session: captures, downloads, artifacts, and the latest-capture
+ * pointer are scoped per conversation. An explicit session id opts out of the
+ * scoping and is used verbatim for both execution and profile.
+ */
 function sessionFor(context: ComputerToolContext, value: string | undefined): string {
+  if (value) return sanitizeId(value, 'browser-session')
+  return sanitizeId(`${context.agentUid}--s-${executionScopeTag(context)}`, 'browser-session')
+}
+
+/** Profile (cookies/localStorage/HOME) scope: shared across the agent's conversations. */
+function profileSessionFor(context: ComputerToolContext, value: string | undefined): string {
   return sanitizeId(value ?? context.agentUid, 'browser-session')
 }
 

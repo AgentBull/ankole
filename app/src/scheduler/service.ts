@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { DomainError } from '@/common/errors'
 import { genUUIDv7 } from '@agentbull/bullx-native-addons'
 import { type ScheduledTaskDelivery, type ScheduledTaskPayload, type ScheduledTaskSchedule } from '@/common/db-schema'
 import { loadSystemTimezone } from '@/config/system'
@@ -71,7 +72,7 @@ export class SchedulerService {
 
   async getTask(taskId: string) {
     const task = await this.store.getTask(taskId)
-    if (!task) throw new SchedulerDomainError(404, `Unknown scheduled task: ${taskId}`)
+    if (!task) throw new DomainError(404, `Unknown scheduled task: ${taskId}`)
     return {
       task,
       runs: await this.store.listRuns(taskId, 20)
@@ -80,7 +81,7 @@ export class SchedulerService {
 
   async updateTask(taskId: string, input: UpdateScheduledTaskInput) {
     const existing = await this.store.getTask(taskId)
-    if (!existing) throw new SchedulerDomainError(404, `Unknown scheduled task: ${taskId}`)
+    if (!existing) throw new DomainError(404, `Unknown scheduled task: ${taskId}`)
     const schedule = (input.schedule ?? existing.schedule) as ScheduledTaskSchedule
     validateSchedule(schedule)
     const scheduleChanged = input.schedule !== undefined
@@ -112,7 +113,7 @@ export class SchedulerService {
 
   async runNow(taskId: string): Promise<void> {
     const existing = await this.store.getTask(taskId)
-    if (!existing) throw new SchedulerDomainError(404, `Unknown scheduled task: ${taskId}`)
+    if (!existing) throw new DomainError(404, `Unknown scheduled task: ${taskId}`)
     await schedulerRuntime.runNow(taskId)
   }
 
@@ -143,16 +144,6 @@ function validateSchedule(schedule: ScheduledTaskSchedule): void {
 async function requireAgent(agentUid: string): Promise<void> {
   const agent = await getAgent(agentUid)
   if (!agent || agent.principal.status !== 'active') {
-    throw new SchedulerDomainError(404, `Unknown active agent: ${agentUid}`)
-  }
-}
-
-export class SchedulerDomainError extends Error {
-  constructor(
-    public readonly status: number,
-    message: string
-  ) {
-    super(message)
-    this.name = 'SchedulerDomainError'
+    throw new DomainError(404, `Unknown active agent: ${agentUid}`)
   }
 }

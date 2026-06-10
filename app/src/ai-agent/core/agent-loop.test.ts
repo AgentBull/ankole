@@ -4,7 +4,7 @@ import type { AssistantMessage, Message, Model } from '@earendil-works/pi-ai'
 import { runAgentLoop } from './agent-loop'
 import { convertToLlm } from './harness/messages'
 import { buildTool } from '../tools/build-tool'
-import type { AgentContext, AgentLoopConfig, AgentMessage, StreamFn } from './types'
+import type { AgentContext, AgentEvent, AgentLoopConfig, AgentMessage, StreamFn } from './types'
 
 const USAGE = {
   input: 0,
@@ -97,9 +97,10 @@ async function run(
   prompt: AgentMessage[],
   context: AgentContext,
   config: AgentLoopConfig,
-  streamFn: StreamFn
+  streamFn: StreamFn,
+  emit: (event: AgentEvent) => Promise<void> | void = async () => {}
 ): Promise<AgentMessage[]> {
-  return runAgentLoop(prompt, context, config, async () => {}, undefined, streamFn)
+  return runAgentLoop(prompt, context, config, emit, undefined, streamFn)
 }
 
 function assistantTexts(messages: AgentMessage[]): string[] {
@@ -183,7 +184,10 @@ describe('agent-loop iteration budget (maxTurns + grace)', () => {
       assistant([text('grace summary')])
     ])
     const context: AgentContext = { systemPrompt: 'sys', messages: [], tools: [echoTool] }
-    const result = await run([userMessage('go')], context, makeConfig({ maxTurns: 3 }), streamFn)
+    const events: AgentEvent[] = []
+    const result = await run([userMessage('go')], context, makeConfig({ maxTurns: 3 }), streamFn, event => {
+      events.push(event)
+    })
 
     // 3 capped turns + 1 grace turn = 4 provider calls; the loop does not run forever.
     expect(capture.calls).toBe(4)
@@ -191,6 +195,9 @@ describe('agent-loop iteration budget (maxTurns + grace)', () => {
     expect(capture.contexts[3]!.tools).toBeUndefined()
     // The final message is the grace summary, not a truncated tool call.
     expect(assistantTexts(result).at(-1)).toBe('grace summary')
+    expect(
+      events.some(event => event.type === 'max_turns_reached' && event.maxTurns === 3 && event.turnCount === 3)
+    ).toBe(true)
   })
 
   it('does not cap when maxTurns is unset (historical behavior)', async () => {

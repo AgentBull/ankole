@@ -1,4 +1,3 @@
-import 'reflect-metadata'
 import { afterAll, describe, expect, it } from 'bun:test'
 import { eq, sql } from 'drizzle-orm'
 import { z } from 'zod'
@@ -153,7 +152,7 @@ describe('AppConfigService database persistence', () => {
       .where(eq(AppConfigure.key, definition.key))
 
     expect(await appConfigService.get(definition)).toEqual({ enabled: true, limit: 3 })
-    await appConfigService.refreshRegisteredExactKeys()
+    await appConfigService.refreshByKey(definition.key)
     expect(await appConfigService.get(definition)).toEqual({ enabled: false, limit: 7 })
 
     await appConfigService.delete(definition)
@@ -179,7 +178,7 @@ describe('AppConfigService database persistence', () => {
     expect(row?.value.value).toBeString()
     expect(row?.value.value).not.toContain('secret-api-key')
 
-    expect(await appConfigService.refresh(definition)).toEqual({ apiKey: 'secret-api-key' })
+    expect(await appConfigService.refreshByKey(definition.key)).toEqual({ apiKey: 'secret-api-key' })
   })
 
   it('does not cache corrupted encrypted values', async () => {
@@ -204,7 +203,7 @@ describe('AppConfigService database persistence', () => {
       })
       .where(eq(AppConfigure.key, definition.key))
 
-    await expect(appConfigService.refresh(definition)).rejects.toThrow(AppConfigStorageError)
+    await expect(appConfigService.refreshByKey(definition.key)).rejects.toThrow(AppConfigStorageError)
 
     await DB.delete(AppConfigure).where(eq(AppConfigure.key, definition.key))
 

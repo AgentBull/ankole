@@ -1,3 +1,4 @@
+import { zonedLocalTimeToUtcMs } from '@agentbull/bullx-native-addons'
 import { z } from 'zod'
 import { defineAppConfig, registerAppConfigDefinitions, appConfigService } from './app-configure'
 
@@ -16,29 +17,17 @@ export const SystemTimezoneConfig = defineAppConfig<string>({
   key: 'system.timezone',
   encrypted: false,
   schema: IanaTimezoneSchema,
-  description: 'Installation-wide timezone used by BullX Agent scheduling and local-time policies'
+  defaultValue: osTimezone(),
+  description:
+    'Installation-wide timezone used by BullX Agent scheduling and local-time policies. Defaults to the host OS timezone when unset.'
 })
 
 registerAppConfigDefinitions([SystemTimezoneConfig])
 
 export async function loadSystemTimezone(): Promise<string> {
-  const configured = await appConfigService.get(SystemTimezoneConfig)
-  if (configured) return configured
-
-  return osTimezone()
-}
-
-export async function loadSystemTimezoneWithLegacyBackfill(legacyTimezone?: string): Promise<string> {
-  const configured = await appConfigService.get(SystemTimezoneConfig)
-  if (configured) return configured
-
-  if (legacyTimezone !== undefined) {
-    assertValidIanaTimezone(legacyTimezone)
-    await appConfigService.set(SystemTimezoneConfig, legacyTimezone)
-    return legacyTimezone
-  }
-
-  return osTimezone()
+  const timezone = await appConfigService.get(SystemTimezoneConfig)
+  if (!timezone) throw new SystemConfigError('Unable to resolve system.timezone')
+  return timezone
 }
 
 export function assertValidIanaTimezone(timezone: string): void {
@@ -71,14 +60,19 @@ export function zonedLocalTimeToUtc(input: {
   timezone: string
   year: number
 }): Date {
-  assertValidIanaTimezone(input.timezone)
-  const utcGuess = new Date(
-    Date.UTC(input.year, input.month - 1, input.day, input.hour, input.minute, input.second ?? 0)
+  // Native chrono-tz conversion: ambiguous local times (DST fall-back) take the
+  // earlier instant, skipped local times (spring-forward gap) roll past the gap.
+  return new Date(
+    zonedLocalTimeToUtcMs(
+      input.timezone,
+      input.year,
+      input.month,
+      input.day,
+      input.hour,
+      input.minute,
+      input.second ?? 0
+    )
   )
-  const parts = zonedParts(input.timezone, utcGuess)
-  const offsetMs =
-    Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second) - utcGuess.getTime()
-  return new Date(utcGuess.getTime() - offsetMs)
 }
 
 export function zonedParts(
@@ -112,9 +106,4 @@ export function zonedParts(
     minute: value('minute'),
     second: value('second')
   }
-}
-
-export function timezoneOffsetMs(timezone: string, at: Date): number {
-  const parts = zonedParts(timezone, at)
-  return Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second) - at.getTime()
 }

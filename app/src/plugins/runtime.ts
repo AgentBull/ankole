@@ -9,7 +9,6 @@ import type {
 } from '@agentbull/bullx-sdk/plugins'
 import { webProviderRegistry } from '@/ai-agent/web/registry'
 import { AppEnv } from '@/config/env'
-import { rootContainer, singleton } from '@/common/di'
 import type { Runtime } from '@/common/lifecycle'
 import {
   appConfigService,
@@ -115,7 +114,6 @@ export class UnknownDefaultPluginError extends Error {
   }
 }
 
-@singleton()
 export class PluginRuntime implements Runtime<PluginRuntimeStats> {
   private startedStats: PluginRuntimeStats | null = null
 
@@ -148,6 +146,13 @@ export class PluginRuntime implements Runtime<PluginRuntimeStats> {
       options.registerIdentityProviderAdapterFactory ?? registerHostIdentityProviderAdapterFactory
     const registerWebProvider = options.registerWebProvider ?? registerHostWebProvider
     const webProviderContext: BullXWebProviderFactoryContext = {
+      getConfig: async key => {
+        try {
+          return await appConfigService.getByKey(key)
+        } catch {
+          return undefined
+        }
+      },
       getSecret: async key => {
         try {
           return await appConfigService.getByKey<string>(key)
@@ -293,4 +298,4 @@ function registerHostWebProvider(provider: BullXWebProvider): void {
   })
 }
 
-export const pluginRuntime = rootContainer.resolve(PluginRuntime)
+export const pluginRuntime = new PluginRuntime()

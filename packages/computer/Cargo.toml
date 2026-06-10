@@ -13,9 +13,10 @@ path = "src/main.rs"
 [dependencies]
 tokio = { version = "1", features = ["full"] }
 axum = { version = "0.8", features = ["macros"] }
+axum-server = { version = "0.8", features = ["tls-rustls"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
-uuid = { version = "1.23.2", features = ["v4", "v7", "serde", "fast-rng"] }
+uuid = { version = "1.23.3", features = ["v4", "v7", "serde", "fast-rng"] }
 chrono = { version = "0.4", features = ["serde"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
@@ -26,13 +27,16 @@ async-stream = "0.3"
 tokio-util = { version = "0.7", features = ["io"] }
 tar = "0.4"
 flate2 = "1"
-reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
-jsonwebtoken = { version = "10.3.0", features = ["aws_lc_rs"] }
+rustls = "0.23"
+rustls-pemfile = "2"
+base64 = "0.22"
+blake3 = "1"
+chacha20poly1305 = "0.10"
+hex = "0.4"
 thiserror = "2"
 anyhow = "1"
 clap = { version = "4", features = ["derive", "env"] }
-tokio-postgres = { version = "0.7", features = ["with-uuid-1"] }
-sha2 = "0.10"
+tokio-postgres = { version = "0.7", features = ["with-uuid-1", "with-serde_json-1"] }
 
 [target.'cfg(unix)'.dependencies]
 nix = { version = "0.31", features = ["signal", "process", "fs", "user"] }

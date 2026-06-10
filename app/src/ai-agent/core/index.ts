@@ -11,7 +11,6 @@ export {
   findCutPoint,
   findTurnStartIndex,
   generateSummary,
-  getLastAssistantUsage,
   prepareCompaction,
   serializeConversation,
   shouldCompact
@@ -20,7 +19,6 @@ export type { CompactionLlmCallContext, CompactionLlmCallRunner } from './harnes
 export * from './harness/messages'
 export * from './harness/session/session'
 export * from './harness/skills'
-export * from './harness/system-prompt'
 // Harness
 export * from './harness/types'
 // Types

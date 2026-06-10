@@ -1,9 +1,10 @@
-import 'reflect-metadata'
 import { redis } from 'bun'
 import { afterAll, afterEach, describe, expect, it } from 'bun:test'
-import { and, eq, sql } from 'drizzle-orm'
+import posix from 'node:path/posix'
+import { and, eq, inArray, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { isPlainObject, ms } from '@pleisto/active-support'
+import type { ComputerFile } from '@agentbull/bullx-computer'
 import {
   fauxAssistantMessage,
   fauxToolCall,
@@ -33,6 +34,7 @@ const {
   ExternalGatewayAgentEvents,
   ExternalGatewayInputTombstones,
   ExternalGatewayOutbox,
+  ExternalMessages,
   ExternalRooms,
   Principals
 } = await import('@/common/db-schema')
@@ -49,6 +51,8 @@ const { SchedulerRuntime } = await import('@/scheduler/runtime')
 const { reconstructLlmTurnTrajectory, selectExportableGenerationLeases } = await import('./trajectory')
 const { aiAgentConversationService, providerRefs, textContent, textFromContent } =
   await import('./conversation-service')
+const { AiAgentRuntimeConfigDefinition } = await import('./config')
+const { appConfigService } = await import('@/config/app-configure')
 const { createUserMessage } = await import('./core')
 const { buildTool } = await import('./tools/build-tool')
 const { AiAgentAmbientBatcher } = await import('./ambient')
@@ -131,6 +135,134 @@ describe('AIAgent pi-ai runtime', () => {
     ).toBe(true)
     expect(turns.every(row => row.status === 'succeeded')).toBe(true)
     expect(turns.every(row => typeof (row.usage as { totalTokens?: unknown }).totalTokens === 'number')).toBe(true)
+    expect((turns[0]!.requestContext as JsonObject).system_prompt).toContain('<tool_routing_policy>')
+    expect((turns[0]!.requestContext as JsonObject).system_prompt).toContain('use chat_history_search')
+    expect((turns[0]!.requestContext as JsonObject).system_prompt).toContain('do not guess')
+  })
+
+  it('materializes inbound image attachments into model-visible image blocks', async () => {
+    const setup = await startAiAgent('inbound_image_context', [fauxAssistantMessage('saw image')])
+    const dm = setup.platform.dm(setup.conversationOptions())
+
+    await dm.say({
+      attachments: [
+        {
+          data: Buffer.from(
+            'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=',
+            'base64'
+          ),
+          mimeType: 'image/png',
+          name: 'pixel.png',
+          type: 'image'
+        }
+      ],
+      id: 'm-image',
+      text: 'describe this image'
+    })
+
+    await eventually(() => expect(setup.platform.outbound.some(event => event.text === 'saw image')).toBe(true))
+    const [conversation] = await conversationsFor(setup.agentUid)
+    const rows = await messagesFor(conversation!.id)
+    const imageMessage = rows.find(row => row.role === 'user' && textOf(row.content).includes('describe this image'))
+    const content = (imageMessage?.agentMessage as any)?.content
+
+    expect(content?.[0]).toMatchObject({ type: 'text', text: expect.stringContaining('describe this image') })
+    expect(content?.[1]).toMatchObject({ type: 'image', mimeType: 'image/png' })
+    expect(typeof content?.[1]?.data).toBe('string')
+    expect(content?.[1]?.data.length).toBeGreaterThan(20)
+  })
+
+  it('does not send materialized image cache paths as model-visible text', async () => {
+    const setup = await startAiAgent('inbound_image_text_cleanup', [fauxAssistantMessage('saw image')])
+    const dm = setup.platform.dm(setup.conversationOptions())
+
+    await dm.say({
+      attachments: [
+        {
+          data: Buffer.from(
+            'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=',
+            'base64'
+          ),
+          mimeType: 'image/png',
+          name: 'pixel.png',
+          type: 'image'
+        }
+      ],
+      id: 'm-image-path',
+      text: "![image](img_v3_test)\n\n[image 'image' saved at: /workspace/user-files/external-gateway/lark/lark/om_test/image.jpg]"
+    })
+
+    await eventually(() => expect(setup.platform.outbound.some(event => event.text === 'saw image')).toBe(true))
+    const [conversation] = await conversationsFor(setup.agentUid)
+    const rows = await messagesFor(conversation!.id)
+    const imageMessage = rows.find(row => row.role === 'user')
+    const content = (imageMessage?.agentMessage as any)?.content
+
+    expect(content?.[0]).toEqual({ type: 'text', text: '[Image attached]' })
+    expect(content?.[1]).toMatchObject({ type: 'image', mimeType: 'image/png' })
+  })
+
+  it('starts generation for pure attachment messages after the media batch window', async () => {
+    const setup = await startAiAgent('attachment_only_media_delay', [fauxAssistantMessage('saw attachment')], {
+      addressedMediaBatchWindowMs: 5
+    })
+    const dm = setup.platform.dm(setup.conversationOptions())
+
+    await dm.say({
+      attachments: [
+        {
+          data: Buffer.from('hello document'),
+          mimeType: 'text/plain',
+          name: 'note.txt',
+          type: 'file'
+        }
+      ],
+      id: 'm-file-only',
+      text: ''
+    })
+
+    await eventually(() => expect(setup.platform.outbound.some(event => event.text === 'saw attachment')).toBe(true))
+    const [conversation] = await conversationsFor(setup.agentUid)
+    const turns = await llmTurnsFor(conversation!.id)
+    expect(turns.filter(row => row.kind === 'generation')).toHaveLength(1)
+    const trigger = (await messagesFor(conversation!.id)).find(row => providerMessageIds(row).includes('m-file-only'))
+    expect(turns[0]!.triggerMessageId).toBe(trigger!.id)
+  })
+
+  it('coalesces a pure attachment followed by text into one generation triggered by the text', async () => {
+    const setup = await startAiAgent(
+      'attachment_then_text_media_delay',
+      [fauxAssistantMessage('read with instruction')],
+      {
+        addressedMediaBatchWindowMs: 1_000
+      }
+    )
+    const dm = setup.platform.dm(setup.conversationOptions())
+
+    await dm.say({
+      attachments: [
+        {
+          data: Buffer.from('contract body'),
+          mimeType: 'text/plain',
+          name: 'contract.txt',
+          type: 'file'
+        }
+      ],
+      id: 'm-file-first',
+      text: ''
+    })
+    await dm.say({ id: 'm-text-second', text: 'Please summarize the file.' })
+
+    await eventually(() =>
+      expect(setup.platform.outbound.some(event => event.text === 'read with instruction')).toBe(true)
+    )
+    const [conversation] = await conversationsFor(setup.agentUid)
+    const turns = (await llmTurnsFor(conversation!.id)).filter(row => row.kind === 'generation')
+    expect(turns).toHaveLength(1)
+    const rows = await messagesFor(conversation!.id)
+    const textTrigger = rows.find(row => providerMessageIds(row).includes('m-text-second'))
+    expect(turns[0]!.triggerMessageId).toBe(textTrigger!.id)
+    expect(rows.some(row => providerMessageIds(row).includes('m-file-first'))).toBe(true)
   })
 
   it('deduplicates provider redelivery before it can duplicate transcript or output', async () => {
@@ -240,8 +372,62 @@ describe('AIAgent pi-ai runtime', () => {
     const selectedTurnIds = new Set(leases[0]!.turnIds)
     const selectedTurns = turns.filter(row => selectedTurnIds.has(row.id))
     expect(selectedTurns.map(row => row.kind)).toEqual(['retry_generation'])
+    // Tools are always offered; the model decides whether to use them.
+    expect(Number((selectedTurns[0]?.requestContext as JsonObject | undefined)?.tool_count)).toBeGreaterThan(0)
     expect(selectedTurns.some(row => JSON.stringify(row.response).includes('old answer'))).toBe(false)
     expect(selectedTurns.some(row => JSON.stringify(row.response).includes('retry answer'))).toBe(true)
+  })
+
+  it('keeps tools enabled when retrying a multi-turn generation that previously used tools', async () => {
+    const lookupTool = buildTool({
+      name: 'lookup_budget',
+      label: 'Lookup budget',
+      description: 'Looks up a budget fact.',
+      schema: z.object({ query: z.string() }),
+      async execute(_toolCallId, params) {
+        return {
+          content: [{ type: 'text', text: `budget result for ${params.query}: 8500` }],
+          details: { value: 8500 }
+        }
+      }
+    })
+    const setup = await startAiAgent(
+      'retry_tool_generation',
+      [
+        fauxAssistantMessage([fauxToolCall('lookup_budget', { query: 'outing' })]),
+        fauxAssistantMessage('partial search note', {
+          errorMessage: 'Upstream idle timeout exceeded',
+          stopReason: 'error'
+        }),
+        fauxAssistantMessage([fauxToolCall('lookup_budget', { query: 'outing' })]),
+        fauxAssistantMessage('retry answer with 8500')
+      ],
+      { tools: [lookupTool] }
+    )
+    const dm = setup.platform.dm(setup.conversationOptions())
+
+    await dm.say({ id: 'm1', text: 'what is the outing budget?' })
+    await eventually(async () => {
+      const [conversation] = await conversationsFor(setup.agentUid)
+      const turns = await llmTurnsFor(conversation!.id)
+      expect(turns.some(row => row.status === 'failed')).toBe(true)
+    })
+    await dm.say({ id: 'retry-command', text: '/retry' })
+    await eventually(() =>
+      expect(setup.platform.outbound.some(event => event.text === 'retry answer with 8500')).toBe(true)
+    )
+
+    const [conversation] = await conversationsFor(setup.agentUid)
+    const retryTurns = (await llmTurnsFor(conversation!.id)).filter(row => row.kind === 'retry_generation')
+    expect(retryTurns).toHaveLength(2)
+    expect(
+      retryTurns.every(row => {
+        const toolCount = (row.requestContext as JsonObject | undefined)?.tool_count
+        return typeof toolCount === 'number' && toolCount > 0
+      })
+    ).toBe(true)
+    expect((retryTurns[0]!.requestContext as JsonObject | undefined)?.tool_names).toContain('lookup_budget')
+    expect(JSON.stringify(retryTurns[0]!.response)).toContain('lookup_budget')
   })
 
   it('handles latest and historical IM recall without hallucinating away old turns', async () => {
@@ -327,9 +513,7 @@ describe('AIAgent pi-ai runtime', () => {
     await endedGroup.say({ id: 'm1', isMention: true, text: '@Agent old session' })
     await eventually(() => expect(ended.platform.outbound.some(event => event.text === 'old answer')).toBe(true))
     await endedGroup.say({ id: 'new-command', isMention: true, text: '/new' })
-    await eventually(() =>
-      expect(ended.platform.outbound.some(event => event.text === 'New conversation started.')).toBe(true)
-    )
+    await eventually(() => expect(ended.platform.outbound.some(event => event.text === 'New conversation')).toBe(true))
     await endedGroup.recall('m1')
     await Bun.sleep(120)
 
@@ -341,6 +525,28 @@ describe('AIAgent pi-ai runtime', () => {
     expect(ended.platform.outbound.some(event => event.op === 'delete')).toBe(false)
   })
 
+  it('starts a fresh generation when /new includes a follow-up message', async () => {
+    const setup = await startAiAgent('new_with_message', [
+      fauxAssistantMessage('old answer'),
+      fauxAssistantMessage('fresh answer')
+    ])
+    const group = setup.platform.group(setup.conversationOptions({ channelId: `${setup.adapterName}:room` }))
+
+    await group.say({ id: 'm1', isMention: true, text: '@Agent old session' })
+    await eventually(() => expect(setup.platform.outbound.some(event => event.text === 'old answer')).toBe(true))
+    await group.say({ id: 'new-with-message', isMention: true, text: '/new fresh task' })
+    await eventually(() => expect(setup.platform.outbound.some(event => event.text === 'fresh answer')).toBe(true))
+
+    const conversations = await conversationsFor(setup.agentUid)
+    expect(conversations).toHaveLength(2)
+    const freshConversation = conversations.find(row => !row.endedAt)!
+    const rows = await messagesFor(freshConversation.id)
+    expect(rows.map(row => `${row.role}:${row.kind}:${textOf(row.content)}`)).toEqual([
+      'user:normal:fresh task',
+      'assistant:normal:fresh answer'
+    ])
+  })
+
   it('batches ambient may_intervene inside AIAgent and routes recognizer through the light model profile', async () => {
     const setup = await startAiAgent(
       'ambient',
@@ -348,7 +554,9 @@ describe('AIAgent pi-ai runtime', () => {
         fauxAssistantMessage('{"intervene":false}'),
         fauxAssistantMessage('```json\n{"intervene":true,"reason_summary":"asked for help"}\n```'),
         fauxAssistantMessage('ambient answer'),
-        fauxAssistantMessage('addressed after ambient')
+        fauxAssistantMessage('addressed after ambient'),
+        fauxAssistantMessage('{"intervene":true,"reason_summary":"second help"}'),
+        fauxAssistantMessage('second ambient answer')
       ],
       { groupMessageMode: 'may_intervene', ambientBatchWindowMs: 10 }
     )
@@ -366,6 +574,7 @@ describe('AIAgent pi-ai runtime', () => {
     expect(turns.map(row => `${row.kind}:${row.profile}:${row.model}`)).toContain('ambient_recognizer:light:light')
     expect(turns.map(row => `${row.kind}:${row.profile}:${row.model}`)).toContain('generation:primary:primary')
     const ambientTurn = turns.find(row => row.kind === 'ambient_recognizer')
+    const ambientGeneration = turns.find(row => row.kind === 'generation')
     expect(ambientTurn?.provider).toBe(setup.profile.lightModel.config.providerId)
     expect(ambientTurn?.callIndex).toBe(0)
     expect(ambientTurn?.leaseId).toBeTruthy()
@@ -377,6 +586,14 @@ describe('AIAgent pi-ai runtime', () => {
     ).toBe(true)
     expect((ambientTurn?.providerMetadata as JsonObject | undefined)?.pi_provider).toBe(
       setup.profile.lightModel.config.piProvider
+    )
+    const ambientGenerationContext = ambientGeneration?.requestContext as Record<string, unknown> | undefined
+    const ambientGenerationToolNames = ambientGenerationContext?.tool_names as string[] | undefined
+    expect(ambientGenerationContext?.tool_count).toBeGreaterThan(0)
+    expect(ambientGenerationToolNames).toContain('todo')
+    expect(ambientGenerationContext?.system_prompt).toContain('<ambient_intervention_policy>')
+    expect(ambientGenerationContext?.system_prompt).toContain(
+      'Available tools remain enabled for proactive intervention'
     )
     const rows = await messagesFor(conversation!.id)
     expect(rows.some(row => row.role === 'im_ambient' && row.kind === 'normal')).toBe(true)
@@ -390,6 +607,173 @@ describe('AIAgent pi-ai runtime', () => {
     const updatedTurns = await llmTurnsFor(conversation!.id)
     const latestGeneration = updatedTurns.filter(row => row.kind === 'generation').at(-1)!
     expect(latestGeneration.inputMessageIds).toContain(introspection!.id)
+
+    await group.say({ id: 'a3', text: 'another ambient help request' })
+    await eventually(() =>
+      expect(setup.platform.outbound.some(event => event.text === 'second ambient answer')).toBe(true)
+    )
+    const finalTurns = await llmTurnsFor(conversation!.id)
+    const latestAmbientTurn = finalTurns.filter(row => row.kind === 'ambient_recognizer').at(-1)!
+    expect(latestAmbientTurn.inputMessageIds).toHaveLength(1)
+    const latestAmbientMessage = (await messagesFor(conversation!.id)).find(
+      row => row.role === 'im_ambient' && row.kind === 'normal' && textOf(row.content).includes('another ambient help')
+    )
+    expect(latestAmbientTurn.inputMessageIds).toEqual([latestAmbientMessage!.id])
+  })
+
+  it('coalesces concurrent ambient drains for one batch', async () => {
+    const setup = await startAiAgent(
+      'ambient_batch_once',
+      [fauxAssistantMessage('{"intervene":true,"reason_summary":"demo prep"}')],
+      { groupMessageMode: 'may_intervene', ambientBatchWindowMs: 250 }
+    )
+    const group = setup.platform.group(setup.conversationOptions({ channelId: `${setup.adapterName}:ambient-batch` }))
+
+    await Promise.all([
+      group.say({ id: 'b1', text: 'demo env needs prep' }),
+      group.say({ id: 'b2', text: 'demo data needs prep' }),
+      group.say({ id: 'b3', text: 'projector needs testing' })
+    ])
+
+    const [conversation] = await conversationsFor(setup.agentUid)
+    await eventually(async () => {
+      const turns = await llmTurnsFor(conversation!.id)
+      expect(turns.filter(row => row.kind === 'ambient_recognizer')).toHaveLength(1)
+    })
+    const turns = await llmTurnsFor(conversation!.id)
+    const ambientTurns = turns.filter(row => row.kind === 'ambient_recognizer')
+    expect(ambientTurns[0]!.inputMessageIds).toHaveLength(3)
+
+    const rows = await messagesFor(conversation!.id)
+    expect(rows.filter(row => row.role === 'im_ambient' && row.kind === 'introspection')).toHaveLength(1)
+  })
+
+  it('recovers ambient intervention when recognizer JSON is malformed but the decision is clear', async () => {
+    const setup = await startAiAgent(
+      'ambient_malformed_json',
+      [
+        fauxAssistantMessage('{"intervene": true, "reason_summary": "asked "who can help"'),
+        fauxAssistantMessage('ambient recovered answer')
+      ],
+      { groupMessageMode: 'may_intervene', ambientBatchWindowMs: 10 }
+    )
+    const group = setup.platform.group(setup.conversationOptions({ channelId: `${setup.adapterName}:ambient-repair` }))
+
+    await group.say({ id: 'm1', text: 'who can help search history?' })
+    await eventually(() =>
+      expect(setup.platform.outbound.some(event => event.text === 'ambient recovered answer')).toBe(true)
+    )
+
+    const [conversation] = await conversationsFor(setup.agentUid)
+    const turns = await llmTurnsFor(conversation!.id)
+    const recognizer = turns.find(row => row.kind === 'ambient_recognizer')
+    expect(recognizer?.status).toBe('succeeded')
+    expect((recognizer?.response as JsonObject | undefined)?.raw_text).toContain('"intervene": true')
+    const rows = await messagesFor(conversation!.id)
+    expect(rows.some(row => row.role === 'im_ambient' && row.kind === 'introspection')).toBe(true)
+  })
+
+  it('runs conversations of one agent in parallel lanes (different rooms do not queue)', async () => {
+    const releases: Array<() => void> = []
+    const blocked = Array.from({ length: 3 }, () => {
+      let release!: () => void
+      const gate = new Promise<void>(resolve => {
+        release = resolve
+      })
+      releases.push(release)
+      return async () => {
+        await gate
+        return fauxAssistantMessage('parallel answer')
+      }
+    })
+    const setup = await startAiAgent('lane_parallel', blocked)
+
+    for (const index of [0, 1, 2]) {
+      const room = setup.platform.group(setup.conversationOptions({ channelId: `${setup.adapterName}:lane-${index}` }))
+      await room.say({ id: `m-${index}`, text: `@Agent hello ${index}`, isMention: true })
+    }
+
+    // All three rooms hold an active generation lease at the same time.
+    await eventually(async () => {
+      const conversations = await conversationsFor(setup.agentUid)
+      const active = conversations.filter(
+        row => !row.endedAt && row.generation.lease_id && !row.generation.cancelled_at
+      )
+      expect(active.length).toBe(3)
+    })
+
+    for (const release of releases) release()
+    await eventually(() =>
+      expect(setup.platform.outbound.filter(event => event.text === 'parallel answer').length).toBe(3)
+    )
+  })
+
+  it('caps in-flight conversations at maxConversationsPerAgent and frees the slot afterwards', async () => {
+    await appConfigService.set(AiAgentRuntimeConfigDefinition, { parallelism: { maxConversationsPerAgent: 2 } })
+    try {
+      const releases: Array<() => void> = []
+      const blocked = Array.from({ length: 3 }, () => {
+        let release!: () => void
+        const gate = new Promise<void>(resolve => {
+          release = resolve
+        })
+        releases.push(release)
+        return async () => {
+          await gate
+          return fauxAssistantMessage('capped answer')
+        }
+      })
+      const setup = await startAiAgent('lane_capped', blocked)
+
+      for (const index of [0, 1, 2]) {
+        const room = setup.platform.group(setup.conversationOptions({ channelId: `${setup.adapterName}:cap-${index}` }))
+        await room.say({ id: `m-${index}`, text: `@Agent hello ${index}`, isMention: true })
+      }
+
+      await eventually(async () => {
+        const conversations = await conversationsFor(setup.agentUid)
+        const active = conversations.filter(
+          row => !row.endedAt && row.generation.lease_id && !row.generation.cancelled_at
+        )
+        expect(active.length).toBe(2)
+      })
+      // The third room stays queued while both lanes are saturated.
+      await Bun.sleep(150)
+      const beforeRelease = await conversationsFor(setup.agentUid)
+      expect(
+        beforeRelease.filter(row => !row.endedAt && row.generation.lease_id && !row.generation.cancelled_at).length
+      ).toBe(2)
+
+      for (const release of releases) release()
+      await eventually(() =>
+        expect(setup.platform.outbound.filter(event => event.text === 'capped answer').length).toBe(3)
+      )
+    } finally {
+      await appConfigService.delete(AiAgentRuntimeConfigDefinition)
+    }
+  })
+
+  it('mirrors generation lifecycle into the Redis visible-output stream', async () => {
+    const setup = await startAiAgent('visible_mirror', [fauxAssistantMessage('mirrored answer')])
+    const dm = setup.platform.dm(setup.conversationOptions())
+    await dm.say({ id: 'm1', text: 'hello' })
+    await eventually(() => expect(setup.platform.outbound.some(event => event.text === 'mirrored answer')).toBe(true))
+
+    const [conversation] = await conversationsFor(setup.agentUid)
+    const keyPrefix = `bullx-agent:external-gateway:visible-output:${encodeURIComponent(setup.agentUid)}:${encodeURIComponent(conversation!.id)}:*`
+    const keys = await redis.send('KEYS', [keyPrefix])
+    expect(Array.isArray(keys) && keys.length > 0).toBe(true)
+    const rows = await redis.send('XRANGE', [String((keys as unknown[])[0]), '-', '+'])
+    const types = (rows as Array<[string, string[]]>).flatMap(([, fields]) => {
+      for (let index = 0; index < fields.length; index += 2) {
+        if (String(fields[index]) === 'payload') {
+          return [(JSON.parse(String(fields[index + 1])) as { type: string }).type]
+        }
+      }
+      return []
+    })
+    expect(types[0]).toBe('stream.started')
+    expect(types.at(-1)).toBe('stream.finished')
   })
 
   it('recovers due ambient batch from Redis after in-memory scheduler state is lost', async () => {
@@ -532,7 +916,7 @@ describe('AIAgent pi-ai runtime', () => {
     })
     await eventually(async () => {
       const members = await ambientRedisMembersForAgent(setup.agentUid)
-      expect(members.some(member => member.includes(setup.adapterName))).toBe(true)
+      expect(members.length).toBeGreaterThan(0)
     })
 
     await setup.runtime.stop()
@@ -761,9 +1145,17 @@ describe('AIAgent pi-ai runtime', () => {
       const [row] = await conversationsFor(setup.agentUid)
       expect(row!.generation.cancelled_at).toBeTruthy()
     })
-    expect(setup.platform.outbound.some(event => event.text === 'Stopped.')).toBe(true)
+    await eventually(() => expect(setup.platform.outbound.some(event => event.text === 'Stopped.')).toBe(true))
     const transcript = await messagesFor(conversation.id)
-    expect(transcript.some(row => row.eventId === 'stop-command')).toBe(false)
+    expect(transcript.some(row => row.eventId === 'stop-command' && textOf(row.content) === 'Stopped.')).toBe(false)
+    const stopMarker = transcript.find(row => row.eventSource === 'ai-agent.command.stop')
+    expect(stopMarker?.eventId).toContain('stop-command')
+    expect(stopMarker?.kind).toBe('introspection')
+    expect(
+      ((stopMarker?.metadata as JsonObject | undefined)?.control as JsonObject | undefined)?.command_event_id
+    ).toBe(stopMarker?.eventId)
+    expect(textOf(stopMarker?.content)).toContain('Treat the interrupted task as cancelled.')
+    expect(textOf(stopMarker?.content)).toContain('Do not continue or resume that stopped task')
 
     await dm.say({ id: 'steer-fallback-command', text: '/steer answer now' })
     await eventually(() => expect(setup.platform.outbound.some(event => event.text === 'steered answer')).toBe(true))
@@ -773,6 +1165,48 @@ describe('AIAgent pi-ai runtime', () => {
         row => row.eventSource === 'ai-agent.command.steer' && textOf(row.content) === 'answer now'
       )
     ).toBe(true)
+    const generationTurns = (await llmTurnsFor(conversation.id)).filter(row => row.kind === 'generation')
+    expect(Number((generationTurns.at(-1)?.requestContext as JsonObject | undefined)?.tool_count)).toBeGreaterThan(0)
+  })
+
+  it('keeps tools offered on steer fallback followups (the model decides whether to use them)', async () => {
+    let releaseProvider!: () => void
+    const providerBlocker = new Promise<void>(resolve => {
+      releaseProvider = resolve
+    })
+    const setup = await startAiAgent('steer_fallback_followup', [
+      async () => {
+        await providerBlocker
+        return fauxAssistantMessage('style accepted')
+      },
+      fauxAssistantMessage('Bananas are usually yellow.')
+    ])
+    const dm = setup.platform.dm(setup.conversationOptions())
+
+    await dm.say({ id: 'steer-command', text: '/steer answer with the conclusion first' })
+    await eventually(async () => {
+      const [conversation] = await conversationsFor(setup.agentUid)
+      expect(conversation?.generation.lease_id).toBeTruthy()
+    })
+    await dm.say({ id: 'followup', text: 'What color are bananas usually?' })
+    await eventually(async () => {
+      const [conversation] = await conversationsFor(setup.agentUid)
+      expect(conversation?.generation.pending_followups ?? []).toHaveLength(1)
+    })
+    releaseProvider()
+
+    await eventually(() => expect(setup.platform.outbound.some(event => event.text === 'style accepted')).toBe(true))
+    await eventually(() =>
+      expect(setup.platform.outbound.some(event => event.text === 'Bananas are usually yellow.')).toBe(true)
+    )
+    const [conversation] = await conversationsFor(setup.agentUid)
+    const rows = await messagesFor(conversation!.id)
+    const followup = rows.find(row => row.role === 'user' && textOf(row.content) === 'What color are bananas usually?')
+    expect(((followup?.metadata as JsonObject | undefined)?.control as JsonObject | undefined)?.origin).toBe(
+      'followup_or_steer_fallback'
+    )
+    const generationTurns = (await llmTurnsFor(conversation!.id)).filter(row => row.kind === 'generation')
+    expect(Number((generationTurns.at(-1)?.requestContext as JsonObject | undefined)?.tool_count)).toBeGreaterThan(0)
   })
 
   it('drains active steer as a Hermes-style out-of-band note after the current answer', async () => {
@@ -813,7 +1247,121 @@ describe('AIAgent pi-ai runtime', () => {
     )
     expect(steering?.kind).toBe('introspection')
     expect(textOf(steering?.content)).toContain('<human_steering_note command_event_id="')
+    expect(textOf(steering?.content)).toContain('effect="override_current_incomplete_task"')
+    expect(textOf(steering?.content)).toContain('Do not continue pre-steering tool plans')
     expect(textOf(steering?.content)).toContain('focus on error handling')
+  })
+
+  it('cuts over to pending steer at the next tool boundary', async () => {
+    let releaseTool!: () => void
+    const toolBlocker = new Promise<void>(resolve => {
+      releaseTool = resolve
+    })
+    let toolStarted = false
+    const slowTool = buildTool({
+      name: 'slow_echo',
+      label: 'Slow echo',
+      description: 'Waits before echoing a value.',
+      schema: z.object({ value: z.string() }),
+      async execute(_toolCallId, params) {
+        toolStarted = true
+        await toolBlocker
+        return {
+          content: [{ type: 'text', text: params.value }],
+          details: { value: params.value }
+        }
+      }
+    })
+    const setup = await startAiAgent(
+      'steer_tool_boundary',
+      [
+        fauxAssistantMessage([fauxToolCall('slow_echo', { value: 'old task' })]),
+        fauxAssistantMessage('steered answer')
+      ],
+      { tools: [slowTool] }
+    )
+    const dm = setup.platform.dm(setup.conversationOptions())
+
+    await dm.say({ id: 'm1', text: 'start tool work' })
+    await eventually(() => expect(toolStarted).toBe(true))
+    await dm.say({ id: 'steer-command', text: '/steer answer in Chinese with 3 sentences' })
+    await eventually(async () => {
+      const [conversation] = await conversationsFor(setup.agentUid)
+      expect(conversation?.generation.pending_steering ?? []).toHaveLength(1)
+    })
+    releaseTool()
+
+    await eventually(() => expect(setup.platform.outbound.some(event => event.text === 'steered answer')).toBe(true))
+    const [conversation] = await conversationsFor(setup.agentUid)
+    expect(conversation?.generation.pending_steering ?? []).toEqual([])
+    const turns = (await llmTurnsFor(conversation!.id)).filter(row => row.kind === 'generation')
+    const steeredTurnContext = turns.at(-1)?.requestContext as JsonObject | undefined
+    expect(Number(steeredTurnContext?.tool_count)).toBeGreaterThan(0)
+    const rows = await messagesFor(conversation!.id)
+    expect(rows.some(row => row.role === 'assistant' && textOf(row.content).includes('model did not return'))).toBe(
+      false
+    )
+    const steering = rows.find(
+      row =>
+        row.eventSource === 'ai-agent.command.steer' &&
+        textOf(row.content).includes('answer in Chinese with 3 sentences')
+    )
+    expect(steering?.kind).toBe('introspection')
+    expect(textOf(steering?.content)).toContain('override_current_incomplete_task')
+  })
+
+  it('removes stale todo progress when steering cuts over at a tool boundary', async () => {
+    let releaseTool!: () => void
+    const toolBlocker = new Promise<void>(resolve => {
+      releaseTool = resolve
+    })
+    let toolStarted = false
+    const slowTodoTool = buildTool({
+      name: 'todo',
+      label: 'Todo',
+      description: 'Slow test todo tool.',
+      schema: z.object({
+        todos: z.array(z.object({ id: z.string(), content: z.string(), status: z.string() })),
+        merge: z.boolean().optional()
+      }),
+      async execute(_toolCallId, params) {
+        toolStarted = true
+        await toolBlocker
+        return {
+          content: [{ type: 'text', text: JSON.stringify({ todos: params.todos }) }],
+          details: { todos: params.todos, summary: { total: params.todos.length } }
+        }
+      }
+    })
+    const setup = await startAiAgent(
+      'steer_todo_progress_cleanup',
+      [
+        fauxAssistantMessage([
+          fauxToolCall('todo', {
+            merge: false,
+            todos: [{ id: 'old', content: 'Continue the old long task', status: 'pending' }]
+          })
+        ]),
+        fauxAssistantMessage('steered answer')
+      ],
+      { tools: [slowTodoTool] }
+    )
+    const dm = setup.platform.dm(setup.conversationOptions())
+
+    await dm.say({ id: 'm1', text: 'start tool work' })
+    await eventually(() => expect(toolStarted).toBe(true))
+    await dm.say({ id: 'steer-command', text: '/steer answer in Chinese with 3 sentences' })
+    await eventually(async () => {
+      const [conversation] = await conversationsFor(setup.agentUid)
+      expect(conversation?.generation.pending_steering ?? []).toHaveLength(1)
+    })
+    releaseTool()
+
+    await eventually(() => expect(setup.platform.outbound.some(event => event.text === 'steered answer')).toBe(true))
+    await eventually(() => {
+      const visibleText = setup.platform.visibleMessages(`${setup.adapterName}:room`).map(message => message.text)
+      expect(visibleText.some(text => text?.startsWith('📋 todo'))).toBe(false)
+    })
   })
 
   it('fences delayed provider output after /stop so stale answers are not sent', async () => {
@@ -1314,6 +1862,37 @@ describe('AIAgent pi-ai runtime', () => {
     expect(lastRequestText).not.toContain('Already done')
   })
 
+  it('edits one todo progress message across repeated todo calls in a run', async () => {
+    const setup = await startAiAgent('todo_progress_dedupe', [
+      fauxAssistantMessage([
+        fauxToolCall('todo', {
+          todos: [
+            { id: '1', content: 'Inspect repo', status: 'pending' },
+            { id: '2', content: 'Push branch', status: 'pending' }
+          ]
+        })
+      ]),
+      fauxAssistantMessage([
+        fauxToolCall('todo', {
+          todos: [
+            { id: '1', content: 'Inspect repo', status: 'completed' },
+            { id: '2', content: 'Push branch', status: 'pending' }
+          ]
+        })
+      ]),
+      fauxAssistantMessage('plan ready')
+    ])
+    const dm = setup.platform.dm(setup.conversationOptions())
+
+    await dm.say({ id: 'm1', text: '@Agent plan this' })
+    await eventually(() => expect(setup.platform.outbound.some(event => event.text === 'plan ready')).toBe(true))
+
+    const todoPosts = setup.platform.outbound.filter(event => event.op === 'post' && event.text?.startsWith('📋 todo:'))
+    const todoEdits = setup.platform.outbound.filter(event => event.op === 'edit' && event.text?.startsWith('📋'))
+    expect(todoPosts).toHaveLength(1)
+    expect(todoEdits.length).toBeGreaterThanOrEqual(2)
+  })
+
   it('drops todo progress on non-editable IM surfaces', async () => {
     const setup = await startAiAgent(
       'todo_no_progress',
@@ -1461,6 +2040,39 @@ describe('AIAgent pi-ai runtime', () => {
     })
     // no duplicate plain post of the same answer
     expect(setup.platform.outbound.some(event => event.op === 'post' && event.text === 'hello world')).toBe(false)
+
+    await eventually(async () => {
+      const [projected] = await DB.select()
+        .from(ExternalMessages)
+        .where(and(eq(ExternalMessages.roomId, dm.channelId), eq(ExternalMessages.messageId, card.messageId)))
+      expect(projected).toMatchObject({
+        authorId: 'self',
+        text: 'hello world',
+        roomId: dm.channelId,
+        messageId: card.messageId
+      })
+    })
+  })
+
+  it('finishes failed streaming cards with a user-facing error instead of partial model text', async () => {
+    const setup = await startAiAgent(
+      'streaming_card_error',
+      [
+        fauxAssistantMessage('I will continue searching before answering.', {
+          errorMessage: 'Upstream idle timeout exceeded',
+          stopReason: 'error'
+        })
+      ],
+      { enableStreaming: true }
+    )
+    const dm = setup.platform.dm(setup.conversationOptions())
+
+    await dm.say({ id: 'm1', text: '@Agent search then answer' })
+    await eventually(() => expect(setup.platform.streamingCards).toHaveLength(1))
+    const card = setup.platform.streamingCards[0]!
+    await eventually(() => expect(card.finalStatus).toBe('failed'))
+    expect(card.finalText).toBe('模型请求超时，请稍后重试。')
+    expect(card.finalText).not.toContain('continue searching')
   })
 
   it('falls back to a single post when the adapter does not support streaming', async () => {
@@ -1482,6 +2094,7 @@ async function startAiAgent(
   responses: FauxResponseStep[],
   options: {
     adapterCapabilities?: ExternalGatewayAdapterCapabilities
+    addressedMediaBatchWindowMs?: number
     ambientBatchWindowMs?: number
     compressionKeepRecentTokens?: number
     groupMessageMode?: 'observe_all' | 'may_intervene'
@@ -1531,17 +2144,28 @@ async function startAiAgent(
   })
   const profile = runtimeProfile(registration, options)
   const aiRuntime = new AiAgentRuntime({
+    addressedMediaBatchWindowMs: options.addressedMediaBatchWindowMs,
     loadProfile: async () => profile,
     clarifyTimeoutMs: options.clarifyTimeoutMs,
     clarifyHeartbeatMs: options.clarifyHeartbeatMs,
     clarify: options.clarifyRegistry
   })
+  const computerFiles = new Map<string, Buffer>()
+  aiRuntime.setComputerFileReader(async (_agentUid, path) => computerFiles.get(posix.normalize(path)) ?? null)
   if (options.tools) aiRuntime.setTools(options.tools, options.activeToolNames ?? options.tools.map(tool => tool.name))
   if (options.enableClarify) aiRuntime.setClarifyEnabled(true)
   const runtime = new ExternalGatewayRuntime()
   runtimes.add(runtime)
   await runtime.start({
     agentExecutor: aiRuntime,
+    getComputerFileWriter: async () => ({
+      writeFiles: async (files, opts = {}) => {
+        for (const file of files) {
+          const path = normalizeComputerPath(file.path, opts.cwd ?? '/workspace')
+          computerFiles.set(path, await computerFileContentBuffer(file.content))
+        }
+      }
+    }),
     getChannelConfig: async () => ({ group_message_mode: options.groupMessageMode ?? 'observe_all' }),
     loadActiveAgents: async () => [agent]
   })
@@ -1582,6 +2206,16 @@ async function startAiAgent(
   }
 }
 
+function normalizeComputerPath(path: string, cwd: string): string {
+  return posix.normalize(path.startsWith('/') ? path : `${cwd.replace(/\/+$/u, '')}/${path}`)
+}
+
+async function computerFileContentBuffer(content: ComputerFile['content']): Promise<Buffer> {
+  if (typeof content === 'string') return Buffer.from(content)
+  if (content instanceof Blob) return Buffer.from(await content.arrayBuffer())
+  return Buffer.from(content)
+}
+
 async function restartAiAgentBinding(setup: Awaited<ReturnType<typeof startAiAgent>>): Promise<void> {
   const aiRuntime = new AiAgentRuntime({
     loadProfile: async () => setup.profile
@@ -1607,6 +2241,12 @@ function runtimeProfile(
       batchWindowMs: options.ambientBatchWindowMs ?? 20,
       hardCapMs: 5_000
     },
+    parallelism: {
+      maxConversationsPerAgent: 16
+    },
+    generation: {
+      maxTurns: 100
+    },
     compression: {
       enabled: true,
       keepRecentTokens: options.compressionKeepRecentTokens ?? 20_000,
@@ -1617,8 +2257,7 @@ function runtimeProfile(
     },
     dailyReset: {
       enabled: true,
-      hour: '00:00',
-      timezone: 'Etc/UTC'
+      hour: '00:00'
     },
     primaryModel: {
       config: {
@@ -1705,16 +2344,28 @@ function toolNameFromJson(value: Record<string, unknown>): unknown {
   return value.toolName ?? value.name
 }
 
+// Wake members are conversation ids; map them back to agents through PG.
+async function ambientMemberAgents(members: string[]): Promise<Map<string, string>> {
+  const ids = members.filter(member => /^[0-9a-f-]{36}$/i.test(member))
+  if (ids.length === 0) return new Map()
+  const rows = await DB.select({ id: AiAgentConversations.id, agentUid: AiAgentConversations.agentUid })
+    .from(AiAgentConversations)
+    .where(inArray(AiAgentConversations.id, ids))
+  return new Map(rows.map(row => [row.id, row.agentUid]))
+}
+
 async function ambientRedisMembersForAgent(agentUid: string): Promise<string[]> {
   const members = await redis.send('ZRANGE', [AMBIENT_REDIS_KEY, '0', '-1'])
   if (!Array.isArray(members)) return []
-  return members.map(String).filter(member => member.includes(agentUid))
+  const agents = await ambientMemberAgents(members.map(String))
+  return members.map(String).filter(member => agents.get(member) === agentUid)
 }
 
 async function clearAmbientRedisMembersForTestPrefix(): Promise<void> {
   const members = await redis.send('ZRANGE', [AMBIENT_REDIS_KEY, '0', '-1']).catch(() => [])
   if (!Array.isArray(members)) return
-  const testMembers = members.map(String).filter(member => member.includes(testPrefix))
+  const agents = await ambientMemberAgents(members.map(String))
+  const testMembers = members.map(String).filter(member => (agents.get(member) ?? '').includes(testPrefix))
   if (testMembers.length > 0) await redis.send('ZREM', [AMBIENT_REDIS_KEY, ...testMembers]).catch(() => undefined)
 }
 

@@ -9,7 +9,6 @@
 use std::collections::BTreeSet;
 use std::path::{Component, Path, PathBuf};
 
-use sha2::{Digest, Sha256};
 use tokio_postgres::{Client, NoTls};
 use uuid::Uuid;
 
@@ -98,22 +97,6 @@ impl TigerFs {
     Ok(())
   }
 
-  /// Liveness probe for the mount layer.
-  pub async fn healthy(&self) -> bool {
-    match self.backend {
-      MountBackend::Directory => true,
-      MountBackend::TigerFs => {
-        let Some(database_url) = &self.database_url else {
-          return false;
-        };
-        match connect(database_url).await {
-          Ok(client) => client.query_one("select 1", &[]).await.is_ok(),
-          Err(_) => false,
-        }
-      }
-    }
-  }
-
   async fn export_agent_library(&self, mountpoint: &Path, agent_uid: &str) -> AppResult<()> {
     let Some(database_url) = &self.database_url else {
       return Ok(());
@@ -183,12 +166,15 @@ async fn upsert_agent_entry(
   content: &str,
 ) -> AppResult<()> {
   let id = Uuid::new_v4();
-  let content_sha = sha256_hex(content.as_bytes());
+  let content_hash = blake3_hex(content.as_bytes());
   let media_type = media_type(virtual_path);
+  // Mirrors the app-side upsert in app/src/ai-agent/library/service.ts
+  // (upsertAgentTextEntry): same conflict target and version bump. Schema
+  // changes must update both.
   client
     .execute(
-      "insert into agent_library_container_entries (id, agent_uid, virtual_path, entry_kind, source_kind, source_ref, content_text, content_bytes, content_media_type, content_sha256, metadata, enabled, version, created_at, updated_at, deleted_at) values ($1, $2, $3, 'file', $4, '{}'::jsonb, $5, null, $6, $7, '{}'::jsonb, true, '1', now(), now(), null) on conflict (agent_uid, virtual_path) where deleted_at is null do update set source_kind = excluded.source_kind, content_text = excluded.content_text, content_bytes = null, content_media_type = excluded.content_media_type, content_sha256 = excluded.content_sha256, enabled = true, version = ((agent_library_container_entries.version)::int + 1)::text, deleted_at = null, updated_at = now()",
-      &[&id, &agent_uid, &virtual_path, &source_kind, &content, &media_type, &content_sha],
+      "insert into agent_library_container_entries (id, agent_uid, virtual_path, entry_kind, source_kind, source_ref, content_text, content_bytes, content_media_type, content_blake3, metadata, enabled, version, created_at, updated_at, deleted_at) values ($1, $2, $3, 'file', $4, '{}'::jsonb, $5, null, $6, $7, '{}'::jsonb, true, '1', now(), now(), null) on conflict (agent_uid, virtual_path) where deleted_at is null do update set source_kind = excluded.source_kind, content_text = excluded.content_text, content_bytes = null, content_media_type = excluded.content_media_type, content_blake3 = excluded.content_blake3, enabled = true, version = ((agent_library_container_entries.version)::int + 1)::text, deleted_at = null, updated_at = now()",
+      &[&id, &agent_uid, &virtual_path, &source_kind, &content, &media_type, &content_hash],
     )
     .await?;
   Ok(())
@@ -281,10 +267,8 @@ fn resolve_virtual_path(root: &Path, virtual_path: &str) -> AppResult<PathBuf> {
   Ok(out)
 }
 
-fn sha256_hex(bytes: &[u8]) -> String {
-  let mut hasher = Sha256::new();
-  hasher.update(bytes);
-  format!("{:x}", hasher.finalize())
+fn blake3_hex(bytes: &[u8]) -> String {
+  blake3::hash(bytes).to_hex().to_string()
 }
 
 fn media_type(path: &str) -> &'static str {

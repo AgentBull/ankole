@@ -12,9 +12,9 @@ export const larkChannelConfigSchema = z
     domain: z.enum(['feishu', 'lark']).default('feishu'),
     group_message_mode: z.enum(['addressed_only', 'observe_all', 'may_intervene']).default('observe_all'),
     /**
-     * Namespace used when this chat channel records Lark `user_id` subjects.
+     * Namespace used when this chat channel records Lark actor subjects.
      * Channels installed in the same Lark tenant can use the same namespace so
-     * BullX recognizes the same human across those chat channels.
+     * BullX recognizes the same actor across those chat channels.
      */
     platformSubjectNamespace: z.string().regex(bullxExternalIdentityNamespaceIdPattern),
     userName: z.string().min(1).optional(),
@@ -56,17 +56,7 @@ export const larkIdentityProviderConfigSchema = z
         websocket: z.boolean().default(true),
         pageSize: z.number().int().min(1).max(50).default(50)
       })
-      .default({ users: true, departments: true, websocket: true, pageSize: 50 }),
-    /*
-     * Kept only so older saved configs can still parse. The current Lark/Feishu
-     * long-connection API does not need event verification token or encrypt key.
-     */
-    event: z
-      .object({
-        verificationToken: z.string().min(1).optional(),
-        encryptKey: z.string().min(1).optional()
-      })
-      .default({})
+      .default({ users: true, departments: true, websocket: true, pageSize: 50 })
   })
   .strict()
 

@@ -1,0 +1,14 @@
+.git
+.gitmodules
+.github
+.forgejo
+**/.git
+**/.turbo
+**/node_modules
+**/target
+**/.env
+**/.env.*
+var
+tmp
+*.log
+.DS_Store

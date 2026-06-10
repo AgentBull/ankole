@@ -1,7 +1,7 @@
 //! Session manager: one sticky session per `agent_uid`, holding the persistent
 //! shell and the command registry, backed by the agent's workspace directories.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -28,7 +28,8 @@ pub struct SessionHandle {
   pub terminals: TmuxManager,
   pub created_at: DateTime<Utc>,
   last_used_at: Mutex<DateTime<Utc>>,
-  shell: AsyncMutex<Option<PersistentShell>>,
+  /// Persistent shells keyed by execution scope (conversation); "" is the agent-shared default scope.
+  shells: AsyncMutex<HashMap<String, Arc<AsyncMutex<PersistentShell>>>>,
   launcher: Launcher,
 }
 
@@ -41,20 +42,31 @@ impl SessionHandle {
     *self.last_used_at.lock().unwrap() = Utc::now();
   }
 
-  /// Run a command in the persistent shell. cwd/env are applied as `cd`/`export`
-  /// prefixes so they persist for subsequent calls.
+  /// Run a command in the scope's persistent shell. cwd/env are applied as
+  /// `cd`/`export` prefixes so they persist for subsequent calls in that scope.
+  /// Scopes (one per conversation) get independent shells so concurrent
+  /// conversations of the same agent cannot leak cwd/env into each other.
   pub async fn shell_run(
     &self,
+    scope: &str,
     command: &str,
     cwd: Option<&str>,
     env: &BTreeMap<String, String>,
     timeout: Duration,
   ) -> AppResult<ShellResult> {
-    let mut guard = self.shell.lock().await;
-    if guard.is_none() {
-      let shell = PersistentShell::start(self.launcher.shell_command(&self.paths)).await?;
-      *guard = Some(shell);
-    }
+    let shell_arc = {
+      let mut shells = self.shells.lock().await;
+      match shells.get(scope) {
+        Some(existing) => Arc::clone(existing),
+        None => {
+          let shell = PersistentShell::start(self.launcher.shell_command(&self.paths)).await?;
+          let arc = Arc::new(AsyncMutex::new(shell));
+          shells.insert(scope.to_string(), Arc::clone(&arc));
+          arc
+        }
+      }
+    };
+    let mut guard = shell_arc.lock().await;
     // In bwrap, `/workspace` is real inside the namespace; in direct mode it isn't,
     // so translate the cwd option to its host path for the `cd` prefix.
     let cd_target = match (cwd.filter(|value| !value.is_empty()), self.launcher.mode()) {
@@ -67,29 +79,33 @@ impl SessionHandle {
       (None, _) => None,
     };
     let effective = build_shell_command(cd_target.as_deref(), command, env);
-    let shell = guard.as_mut().expect("shell just initialized");
-    let result = shell.run(&effective, timeout).await;
-    match result {
-      Ok(result) => {
-        if result.timed_out {
-          // The command may still have been running when the protocol marker timed
-          // out. The shell was killed by PersistentShell::run; drop the handle so
-          // the next call starts with a synchronized bash.
-          *guard = None;
-        }
-        Ok(result)
-      }
-      Err(error) => {
-        // The shell died — drop it so the next call restarts a fresh one.
-        *guard = None;
-        Err(error)
-      }
+    let result = guard.run(&effective, timeout).await;
+    let drop_shell = match &result {
+      // The command may still have been running when the protocol marker timed
+      // out. The shell was killed by PersistentShell::run; drop the handle so
+      // the next call starts with a synchronized bash.
+      Ok(result) => result.timed_out,
+      // The shell died — drop it so the next call restarts a fresh one.
+      Err(_) => true,
+    };
+    if drop_shell {
+      drop(guard);
+      self.shells.lock().await.remove(scope);
     }
+    result
   }
 
+  /// Shut down every scope's persistent shell.
   pub async fn reset_shell(&self) -> AppResult<()> {
-    let mut guard = self.shell.lock().await;
-    if let Some(shell) = guard.take() {
+    let shells: Vec<_> = {
+      let mut guard = self.shells.lock().await;
+      guard.drain().map(|(_, shell)| shell).collect()
+    };
+    for shell_arc in shells {
+      let shell = AsyncMutex::into_inner(match Arc::try_unwrap(shell_arc) {
+        Ok(mutex) => mutex,
+        Err(_busy) => continue,
+      });
       shell.shutdown().await;
     }
     Ok(())
@@ -114,10 +130,8 @@ impl SessionHandle {
 
   async fn teardown(&self) {
     self.commands.kill_all();
-    let mut guard = self.shell.lock().await;
-    if let Some(shell) = guard.take() {
-      shell.shutdown().await;
-    }
+    let _ = self.reset_shell().await;
+    self.terminals.shutdown().await;
   }
 }
 
@@ -185,13 +199,21 @@ impl SessionManager {
       ));
     }
 
-    let paths = WorkspacePaths::new(&self.config.workspace_root, agent_uid);
+    let paths = WorkspacePaths::with_roots(
+      &self.config.workspace_root,
+      &self.config.user_files_root,
+      &self.config.temp_root,
+      &self.config.library_containers_root,
+      agent_uid,
+    );
+    tokio::fs::create_dir_all(&paths.root).await?;
     tokio::fs::create_dir_all(&paths.user_files).await?;
     tokio::fs::create_dir_all(&paths.temp).await?;
     self
       .tigerfs
       .ensure_mounted(&paths.library_containers, agent_uid)
       .await?;
+    ensure_workspace_view(&paths).await?;
     let terminals = TmuxManager::new(paths.clone(), self.launcher);
 
     let handle = Arc::new(SessionHandle {
@@ -202,7 +224,7 @@ impl SessionManager {
       terminals,
       created_at: Utc::now(),
       last_used_at: Mutex::new(Utc::now()),
-      shell: AsyncMutex::new(None),
+      shells: AsyncMutex::new(HashMap::new()),
       launcher: self.launcher,
     });
 
@@ -244,5 +266,60 @@ impl SessionManager {
     for agent in agents {
       self.stop(&agent).await;
     }
+  }
+}
+
+async fn ensure_workspace_view(paths: &WorkspacePaths) -> AppResult<()> {
+  ensure_workspace_entry(&paths.root.join("user-files"), &paths.user_files).await?;
+  ensure_workspace_entry(&paths.root.join("temp"), &paths.temp).await?;
+  ensure_workspace_entry(
+    &paths.root.join("library-containers"),
+    &paths.library_containers,
+  )
+  .await?;
+  Ok(())
+}
+
+async fn ensure_workspace_entry(
+  link_path: &std::path::Path,
+  target: &std::path::Path,
+) -> AppResult<()> {
+  if link_path == target {
+    return Ok(());
+  }
+
+  if let Ok(metadata) = tokio::fs::symlink_metadata(link_path).await {
+    if metadata.file_type().is_symlink() {
+      if tokio::fs::read_link(link_path).await? == target {
+        return Ok(());
+      }
+      tokio::fs::remove_file(link_path).await?;
+    } else if metadata.is_dir() {
+      let mut entries = tokio::fs::read_dir(link_path).await?;
+      if entries.next_entry().await?.is_some() {
+        return Err(AppError::internal(
+          "workspace_entry_conflict",
+          format!(
+            "workspace entry is a non-empty directory: {}",
+            link_path.display()
+          ),
+        ));
+      }
+      tokio::fs::remove_dir(link_path).await?;
+    } else {
+      tokio::fs::remove_file(link_path).await?;
+    }
+  }
+
+  #[cfg(unix)]
+  {
+    std::os::unix::fs::symlink(target, link_path)?;
+    Ok(())
+  }
+
+  #[cfg(not(unix))]
+  {
+    tokio::fs::create_dir_all(link_path).await?;
+    Ok(())
   }
 }

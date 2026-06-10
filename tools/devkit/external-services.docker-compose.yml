@@ -2,7 +2,8 @@ name: bullx-agent-dev
 
 services:
   postgres:
-    image: postgres:latest
+    image: ghcr.io/agentbull/postgres-for-bullx:main-latest
+    command: ["postgres", "-c", "max_connections=${BULLX_POSTGRES_MAX_CONNECTIONS:-300}"]
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: just4local-dev
@@ -10,7 +11,7 @@ services:
     ports:
       - "${BULLX_POSTGRES_PORT:-5433}:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql
+      - postgres_for_bullx_data:/var/lib/pgsql/18/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d bullx_development"]
       interval: 2s
@@ -38,21 +39,28 @@ services:
     ports:
       - "${BULLX_COMPUTER_PORT:-8787}:8787"
     volumes:
-      - ../../var/computer-dev:/workspaces
+      - ../../var/computer-dev/user-files:/workspaces/user-files
+    tmpfs:
+      - /workspaces/workspace
+      - /workspaces/temp
+      - /workspaces/library-containers
     environment:
       BULLX_COMPUTER_WORKER_ID: dev
       BULLX_COMPUTER_INSTANCE_ID: dev-local
-      BULLX_COMPUTER_BASE_URL: "http://localhost:${BULLX_COMPUTER_PORT:-8787}"
-      BULLX_AGENT_URL: "http://host.docker.internal:${HTTP_PORT:-3000}"
-      BULLX_COMPUTER_WORKSPACE_ROOT: /workspaces
+      BULLX_COMPUTER_BASE_URL: "https://localhost:${BULLX_COMPUTER_PORT:-8787}"
+      BULLX_COMPUTER_TOKEN: "${BULLX_COMPUTER_TOKEN:-local-dev-computer-token-change-me}"
+      BULLX_COMPUTER_WORKSPACE_ROOT: /workspaces/workspace
+      BULLX_COMPUTER_USER_FILES_ROOT: /workspaces/user-files
+      BULLX_COMPUTER_TEMP_ROOT: /workspaces/temp
+      BULLX_COMPUTER_LIBRARY_CONTAINERS_ROOT: /workspaces/library-containers
       BULLX_COMPUTER_FEATURES: "bwrap,persistent-shell,tmux,tigerfs,python,jupyter,bun,browser"
       DATABASE_URL: "postgres://postgres:just4local-dev@postgres:5432/bullx_development"
     healthcheck:
-      test: ["CMD-SHELL", "timeout 2 bash -c '</dev/tcp/127.0.0.1/8787'"]
+      test: ["CMD-SHELL", "test -f /tmp/bullx-computerd.ready"]
       interval: 2s
       timeout: 5s
       retries: 30
 
 volumes:
-  postgres_data:
+  postgres_for_bullx_data:
   redis_data:

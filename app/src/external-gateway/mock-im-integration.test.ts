@@ -1,4 +1,3 @@
-import 'reflect-metadata'
 import { afterAll, afterEach, describe, expect, it } from 'bun:test'
 import { mapValues } from '@pleisto/active-support'
 import { and, eq } from 'drizzle-orm'

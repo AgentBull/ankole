@@ -259,6 +259,33 @@ function applyReachablePublicDeclarationDependencies(
   }
 }
 
+/**
+ * Map a raw import specifier to the public entrypoint specifier it addresses.
+ * Aliased/bare specifiers must match an entrypoint literally; relative
+ * specifiers are resolved against the importer and matched against entrypoint
+ * source paths (`./core` -> `<root>/index.ts`, `./core/types` -> `<root>/types.ts`),
+ * so same-package consumers that bypass the alias still count as consumption.
+ */
+function resolveEntrypointSpecifier(
+  scope: TopologyScope,
+  importerRelPath: string,
+  rawSpecifier: string
+): string | null {
+  if (scope.importFilter(rawSpecifier)) {
+    return rawSpecifier
+  }
+  if (!rawSpecifier.startsWith('.')) {
+    return null
+  }
+  const resolved = path.posix.normalize(path.posix.join(path.posix.dirname(importerRelPath), rawSpecifier))
+  for (const entrypoint of scope.entrypoints) {
+    if (entrypoint.sourcePath === `${resolved}.ts` || entrypoint.sourcePath === `${resolved}/index.ts`) {
+      return entrypoint.importSpecifier
+    }
+  }
+  return null
+}
+
 function collectReferenceEvents(
   context: ProgramContext,
   scope: TopologyScope,
@@ -284,8 +311,8 @@ function collectReferenceEvents(
       if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) {
         continue
       }
-      const importSpecifier = statement.moduleSpecifier.text.trim()
-      if (!scope.importFilter(importSpecifier)) {
+      const importSpecifier = resolveEntrypointSpecifier(scope, relPath, statement.moduleSpecifier.text.trim())
+      if (!importSpecifier) {
         continue
       }
       const recordMap = recordBySpecifierAndExportName.get(importSpecifier)

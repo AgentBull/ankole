@@ -31,6 +31,8 @@ export interface ShellRequest {
   command: string
   cwd?: string
   env?: Record<string, string>
+  /** Execution scope (conversation) owning the persistent shell; omit for the agent-shared shell. */
+  scope?: string
   wait: boolean
   timeout?: number
 }

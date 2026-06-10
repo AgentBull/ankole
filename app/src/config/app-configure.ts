@@ -8,7 +8,6 @@ import {
   ConfigureKeyType,
   type ConfigureValue
 } from '../common/db-schema/app-configure'
-import { rootContainer, singleton } from '../common/di'
 import { getSecretKey, SecretKeyPurpose } from '../common/kms'
 
 /**
@@ -193,7 +192,6 @@ export function defineAppConfigPattern<TValue extends AppConfigJsonValue>(
  * config surface, prevents typo-created database rows, and makes encryption and
  * validation policy visible at the definition site instead of at call sites.
  */
-@singleton()
 export class AppConfigRegistry {
   private readonly definitions = new Map<string, AppConfigDefinition>()
   private readonly patternDefinitions = new Map<string, AppConfigPatternDefinition>()
@@ -289,11 +287,10 @@ export class AppConfigRegistry {
  * database config is a small declared surface, not an unbounded request cache,
  * and explicit invalidation keeps the runtime model easier to reason about.
  */
-@singleton()
 export class AppConfigService {
   private readonly cache = new Map<string, AppConfigJsonValue>()
 
-  constructor(private readonly registry: AppConfigRegistry = rootContainer.resolve(AppConfigRegistry)) {}
+  constructor(private readonly registry: AppConfigRegistry = appConfigRegistry) {}
 
   /**
    * Reads a typed config value by definition.
@@ -408,53 +405,14 @@ export class AppConfigService {
   }
 
   /**
-   * Evicts one key from cache and reloads it from PostgreSQL.
-   *
-   * Use this when another process or an admin path may have updated the row
-   * outside this service instance.
-   */
-  async refresh<TDefinition extends AppConfigDefinition>(
-    definition: TDefinition
-  ): Promise<AppConfigDefinitionValue<TDefinition> | undefined> {
-    const registered = this.registry.get(definition)
-    return this.refreshWithDefinition(registered.key, registered) as Promise<
-      AppConfigDefinitionValue<TDefinition> | undefined
-    >
-  }
-
-  /**
-   * Evicts and reloads a runtime key, including pattern-backed keys.
+   * Evicts one key from cache and reloads it from PostgreSQL. Covers exact and
+   * pattern-backed keys. Use this when another process or an admin path may
+   * have updated the row outside this service instance.
    */
   async refreshByKey<TValue extends AppConfigJsonValue = AppConfigJsonValue>(key: string): Promise<TValue | undefined> {
     const definition = this.registry.require<AppConfigRegisteredDefinition<TValue>>(key)
-    return this.refreshWithDefinition(key, definition)
-  }
-
-  private async refreshWithDefinition<TValue extends AppConfigJsonValue>(
-    key: string,
-    definition: AppConfigRegisteredDefinition<TValue>
-  ): Promise<TValue | undefined> {
     this.cache.delete(key)
     return this.loadFromDatabase(key, definition)
-  }
-
-  /**
-   * Clears the process-local cache and reloads every *registered exact* database
-   * value.
-   *
-   * Pattern-backed keys (e.g. `agents.<uid>.<channel>`) are loaded lazily through
-   * `getByKey`/`refreshByKey` and are intentionally NOT refreshed here, because the
-   * service does not enumerate concrete keys for a pattern. The name reflects that
-   * narrower contract; use `refreshByKey` to invalidate a specific pattern key.
-   */
-  async refreshRegisteredExactKeys(): Promise<void> {
-    this.cache.clear()
-
-    for (const definition of this.registry.list()) await this.loadFromDatabase(definition.key, definition)
-  }
-
-  listDefinitions(): AppConfigDefinition[] {
-    return this.registry.list()
   }
 
   private async loadFromDatabase<TValue extends AppConfigJsonValue>(
@@ -532,21 +490,21 @@ export class AppConfigService {
 }
 
 /**
- * Registers dynamic app config definitions in the root DI container.
+ * Registers dynamic app config definitions in the shared registry.
  *
  * Import-time registration is acceptable for static app modules. Plugin modules
  * should call this from their activation path so their keys become available
  * only when the plugin is loaded.
  */
 export function registerAppConfigDefinitions(definitions: readonly AppConfigDefinition[]): void {
-  rootContainer.resolve(AppConfigRegistry).register(definitions)
+  appConfigRegistry.register(definitions)
 }
 
 /**
- * Registers dynamic app config patterns in the root DI container.
+ * Registers dynamic app config patterns in the shared registry.
  */
 export function registerAppConfigPatterns(definitions: readonly AppConfigPatternDefinition[]): void {
-  rootContainer.resolve(AppConfigRegistry).registerPatterns(definitions)
+  appConfigRegistry.registerPatterns(definitions)
 }
 
 function appConfigPatternMatches(definition: AppConfigPatternDefinition, key: string): boolean {
@@ -555,7 +513,7 @@ function appConfigPatternMatches(definition: AppConfigPatternDefinition, key: st
 }
 
 /** Root dynamic app config registry instance. */
-export const appConfigRegistry = rootContainer.resolve(AppConfigRegistry)
+export const appConfigRegistry = new AppConfigRegistry()
 
 /** Root dynamic app config service instance. */
-export const appConfigService = rootContainer.resolve(AppConfigService)
+export const appConfigService = new AppConfigService()

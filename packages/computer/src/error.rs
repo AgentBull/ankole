@@ -30,10 +30,6 @@ impl AppError {
     Self::new(StatusCode::BAD_REQUEST, code, message)
   }
 
-  pub fn unauthorized(message: impl Into<String>) -> Self {
-    Self::new(StatusCode::UNAUTHORIZED, "unauthorized", message)
-  }
-
   pub fn forbidden(code: &'static str, message: impl Into<String>) -> Self {
     Self::new(StatusCode::FORBIDDEN, code, message)
   }

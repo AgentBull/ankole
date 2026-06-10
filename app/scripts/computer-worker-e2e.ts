@@ -1,4 +1,3 @@
-import 'reflect-metadata'
 import assert from 'node:assert/strict'
 import {
   fauxAssistantMessage,
@@ -6,7 +5,7 @@ import {
   registerFauxProvider,
   type FauxProviderRegistration
 } from '@earendil-works/pi-ai'
-import { eq } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 import type { AiAgentRuntimeProfile } from '../src/ai-agent/config'
 import type {
   MockImConversationOptions,
@@ -23,8 +22,10 @@ const {
   AiAgentMessages,
   ComputerAgentWorkerBindings,
   ComputerAgentWorkerPins,
+  ComputerWorkers,
   ExternalGatewayAgentEvents,
   ExternalGatewayInputTombstones,
+  ExternalMessages,
   ExternalGatewayOutbox,
   ExternalRooms,
   Principals
@@ -35,32 +36,76 @@ const { registerExternalGatewayAdapterFactory } = await import('@/external-gatew
 const { fullMockImCapabilities, MockImPlatform: MockImPlatformCtor } =
   await import('@/external-gateway/testing/mock-im-adapter')
 const { AiAgentRuntime } = await import('@/ai-agent/runtime')
-const { registerWorker, resolveComputerWorker } = await import('@/computer/service')
-const { loadSystemTimezone } = await import('@/config/system')
+const { resolveComputerWorker } = await import('@/computer/service')
 
 const workerId = Bun.env.BULLX_COMPUTER_E2E_WORKER_ID ?? 'dev'
 const workerBaseUrl = (
-  Bun.env.BULLX_COMPUTER_E2E_WORKER_URL ?? `http://localhost:${Bun.env.BULLX_COMPUTER_PORT ?? '8787'}`
+  Bun.env.BULLX_COMPUTER_E2E_WORKER_URL ?? `https://localhost:${Bun.env.BULLX_COMPUTER_PORT ?? '8787'}`
 ).replace(/\/$/, '')
 const suffix = `${Date.now()}_${Math.random().toString(36).slice(2)}`.toLowerCase()
 const agentUid = `computer_e2e_${suffix}`
 const adapterName = `mock_computer_e2e_${suffix}`
 const factoryId = `computer_e2e_factory_${suffix}`
+const attachmentText = `computer-attachment-e2e:${agentUid}`
 const roomIds = new Set<string>()
 let runtime: InstanceType<typeof ExternalGatewayRuntime> | undefined
 let aiRuntime: InstanceType<typeof AiAgentRuntime> | undefined
 let registration: FauxProviderRegistration | undefined
 
 try {
-  await requireDevWorker(workerBaseUrl)
-  await registerWorker({
-    workerId,
-    instanceId: `${workerId}-e2e`,
-    baseUrl: workerBaseUrl,
-    features: ['bwrap', 'persistent-shell', 'tmux'],
-    capacity: { maxAgents: 128, maxCommands: 32 },
-    metadata: { source: 'computer-worker-e2e' }
-  })
+  await requireDevWorker()
+
+  // P1: conversation-scoped execution state on one agent session. Persistent
+  // shells are independent per execution scope, and scope-suffixed tmux names
+  // (what interactive_terminal generates for the same user-visible name) coexist.
+  {
+    const { Computer } = await import('@agentbull/bullx-computer')
+    const computer = await Computer.getOrCreate({
+      agentUid,
+      resolveWorker: uid => resolveComputerWorker(uid)
+    })
+    const scopeA = `conv_a_${suffix}`
+    const scopeB = `conv_b_${suffix}`
+    await computer.runShellCommand('cd /tmp && export BULLX_E2E_SCOPE=a', { shellScope: scopeA })
+    const shellA = await computer.runShellCommand('echo "cwd=$(pwd) scope=$BULLX_E2E_SCOPE"', { shellScope: scopeA })
+    const outputA = await shellA.output('both')
+    assert.match(outputA, /cwd=\/tmp scope=a/, `scope A shell must keep its own cwd/env: ${outputA}`)
+    const shellB = await computer.runShellCommand('echo "cwd=$(pwd) scope=${BULLX_E2E_SCOPE:-unset}"', {
+      shellScope: scopeB
+    })
+    const outputB = await shellB.output('both')
+    assert.doesNotMatch(outputB, /cwd=\/tmp/, `scope B shell must not inherit scope A cwd: ${outputB}`)
+    assert.match(outputB, /scope=unset/, `scope B shell must not inherit scope A env: ${outputB}`)
+
+    // Scope-suffixed tmux names for the same user-visible name (>64 chars
+    // included) coexist on the keeper-hosted tmux server, which outlives the
+    // transient per-command sandboxes: sessions stay listable, capturable, and
+    // killable across tool calls.
+    const tmuxA = `main--s-a${suffix.slice(-7)}`
+    const tmuxB = `main--s-b${suffix.slice(-7)}`
+    const startedA = await computer.terminals.start(tmuxA, { command: 'bash' })
+    const startedB = await computer.terminals.start(tmuxB, { command: 'bash' })
+    assert.equal(startedA.status, 'started', `tmux ${tmuxA} must start: ${JSON.stringify(startedA)}`)
+    assert.equal(startedB.status, 'started', `tmux ${tmuxB} must start: ${JSON.stringify(startedB)}`)
+    const terminalNames = (await computer.terminals.list()).map(terminal => terminal.name)
+    assert.ok(
+      terminalNames.includes(tmuxA) && terminalNames.includes(tmuxB),
+      `tmux server must keep both scoped sessions alive: ${JSON.stringify(terminalNames)}`
+    )
+    await computer.terminals.send(tmuxA, { input: 'echo "marker:$BULLX_AGENT_UID"', enter: true })
+    await eventually(async () => {
+      const capture = await computer.terminals.capture(tmuxA, { lines: 50 })
+      assert.match(capture.screen, /marker:/, `tmux capture must show the echoed marker: ${capture.screen}`)
+    }, 10_000)
+    await computer.terminals.kill(tmuxA)
+    await computer.terminals.kill(tmuxB)
+    const afterKill = (await computer.terminals.list()).map(terminal => terminal.name)
+    assert.ok(
+      !afterKill.includes(tmuxA) && !afterKill.includes(tmuxB),
+      `killed tmux sessions must disappear from the list: ${JSON.stringify(afterKill)}`
+    )
+    console.warn('computer-worker-e2e: conversation-scope isolation OK (shell scopes + tmux lifecycle)')
+  }
 
   const platform: MockImPlatformInstance = new MockImPlatformCtor()
   registration = registerFauxProvider({
@@ -74,12 +119,37 @@ try {
   registration.setResponses([
     fauxAssistantMessage([
       fauxToolCall('command', {
-        command:
-          'python3 -c \'import os, pathlib; uid=os.environ["BULLX_AGENT_UID"]; p=pathlib.Path("user-files/e2e-command.txt"); p.parent.mkdir(parents=True, exist_ok=True); p.write_text("computer-e2e:" + uid); print(p.read_text())\'',
+        command: [
+          "python3 - <<'PY'",
+          'import pathlib',
+          'import os',
+          'import time',
+          'roots = [',
+          '    pathlib.Path("/workspace/user-files/external-gateway"),',
+          '    pathlib.Path("/workspaces/user-files") / os.environ["BULLX_AGENT_UID"] / "external-gateway",',
+          ']',
+          'matches = []',
+          'deadline = time.time() + 5',
+          'while time.time() < deadline and not matches:',
+          '    for root in roots:',
+          '        matches.extend(sorted(root.rglob("*inbound.txt")))',
+          '    if not matches:',
+          '        time.sleep(0.1)',
+          'if not matches:',
+          '    workspace = pathlib.Path("/workspace")',
+          '    print("BULLX_ATTACHMENT_DEBUG agent_uid=", os.environ.get("BULLX_AGENT_UID"))',
+          '    print("BULLX_ATTACHMENT_DEBUG roots=", roots)',
+          '    print("BULLX_ATTACHMENT_DEBUG workspace_exists=", workspace.exists())',
+          '    for path in sorted(workspace.rglob("*"))[:80]:',
+          '        print("BULLX_ATTACHMENT_DEBUG", path)',
+          '    raise AssertionError("no inbound attachment under expected user-files roots")',
+          'print(matches[0].read_text())',
+          'PY'
+        ].join('\n'),
         timeout: 10
       })
     ]),
-    fauxAssistantMessage('computer command finished')
+    fauxAssistantMessage('computer attachment read finished')
   ])
 
   registerExternalGatewayAdapterFactory({
@@ -108,17 +178,49 @@ try {
   runtime = new ExternalGatewayRuntime()
   await runtime.start({
     agentExecutor: aiRuntime,
+    getComputerFileWriter: async uid => {
+      const { Computer } = await import('@agentbull/bullx-computer')
+      return Computer.getOrCreate({
+        agentUid: uid,
+        resolveWorker: resolveComputerWorker
+      })
+    },
     getChannelConfig: async () => ({ group_message_mode: 'observe_all' }),
     loadActiveAgents: async () => [agent]
   })
 
   const dm = platform.dm(conversationOptions(runtime, agentUid, adapterName))
   roomIds.add(dm.channelId)
-  await dm.say({ id: 'm1', text: '@Agent run a python command in your computer' })
+  await dm.say({
+    attachments: [
+      {
+        data: attachmentText,
+        mimeType: 'text/plain',
+        name: 'inbound.txt',
+        type: 'file'
+      }
+    ],
+    id: 'm1',
+    text: '@Agent read the attached file in your computer'
+  })
+
+  const materialized = await waitForMaterializedAttachment(dm.channelId, 'm1')
+  assert.equal(materialized.status, 'saved')
+  assert.equal(typeof materialized.computerPath, 'string')
+  assert.equal(materialized.computerPath.includes('/workspace/user-files/external-gateway/'), true)
+  {
+    const { Computer } = await import('@agentbull/bullx-computer')
+    const computer = await Computer.getOrCreate({
+      agentUid,
+      resolveWorker: uid => resolveComputerWorker(uid)
+    })
+    const data = await computer.readFileToBuffer({ path: materialized.computerPath as string })
+    assert.equal(data?.toString('utf8'), attachmentText)
+  }
 
   await eventually(() => {
     assert.equal(
-      platform.outbound.some(event => event.op === 'post' && event.text === 'computer command finished'),
+      platform.outbound.some(event => event.op === 'post' && event.text === 'computer attachment read finished'),
       true
     )
   }, 20_000)
@@ -137,7 +239,8 @@ try {
   const turns = await DB.select().from(AiAgentLlmTurns).where(eq(AiAgentLlmTurns.conversationId, conversation.id))
   const serializedToolResults = JSON.stringify(turns.flatMap(turn => turn.toolResults ?? []))
   assert.match(serializedToolResults, /exit_code=0/)
-  assert.equal(serializedToolResults.includes(`computer-e2e:${agentUid}`), true)
+  assert.equal(serializedToolResults.includes(attachmentText), true)
+  assert.equal(serializedToolResults.includes('/workspace/user-files/external-gateway'), true)
 
   // oxlint-disable-next-line no-console
   console.log(`OK computer worker e2e passed: agent=${agentUid} worker=${workerId} url=${workerBaseUrl}`)
@@ -146,6 +249,7 @@ try {
   aiRuntime?.stop()
   registration?.unregister()
   await cleanup()
+  await cleanupMediaFiles()
   await closeDatabase({ timeout: 5 }).catch(() => undefined)
 }
 
@@ -171,9 +275,10 @@ async function runtimeProfile(currentRegistration: FauxProviderRegistration): Pr
   const primary = currentRegistration.getModel('primary')!
   const light = currentRegistration.getModel('light')!
   const heavy = currentRegistration.getModel('heavy')!
-  const timezone = await loadSystemTimezone()
   return {
-    ambient: { batchWindowMs: 20, freshnessMs: 5_000 },
+    ambient: { batchWindowMs: 20, hardCapMs: 5_000 },
+    parallelism: { maxConversationsPerAgent: 16 },
+    generation: { maxTurns: 100 },
     compression: {
       enabled: true,
       keepRecentTokens: 20_000,
@@ -182,7 +287,7 @@ async function runtimeProfile(currentRegistration: FauxProviderRegistration): Pr
       microcompactEnabled: false,
       microcompactKeepRecent: 6
     },
-    dailyReset: { enabled: true, hour: '00:00', retryMinutes: 30, timezone },
+    dailyReset: { enabled: true, hour: '00:00' },
     primaryModel: {
       config: {
         model: 'primary',
@@ -209,19 +314,25 @@ async function runtimeProfile(currentRegistration: FauxProviderRegistration): Pr
   }
 }
 
-async function requireDevWorker(baseUrl: string): Promise<void> {
-  let response: Response
-  try {
-    response = await fetch(`${baseUrl}/healthz`, { signal: AbortSignal.timeout(3_000) })
-  } catch (error) {
-    throw new Error(
-      `Computer worker is not reachable at ${baseUrl}. Start it with "bun run services:start" before running this script.`,
-      { cause: error }
-    )
+async function requireDevWorker(): Promise<void> {
+  const deadline = Date.now() + 60_000
+  while (Date.now() < deadline) {
+    const [row] = await DB.select({ workerId: ComputerWorkers.workerId })
+      .from(ComputerWorkers)
+      .where(
+        and(
+          eq(ComputerWorkers.workerId, workerId),
+          eq(ComputerWorkers.status, 'ready'),
+          sql`${ComputerWorkers.lastHeartbeatAt} > now() - interval '30 seconds'`
+        )
+      )
+      .limit(1)
+    if (row) return
+    await Bun.sleep(1_000)
   }
-  if (!response.ok) {
-    throw new Error(`Computer worker health check failed at ${baseUrl}/healthz: HTTP ${response.status}`)
-  }
+  throw new Error(
+    `Computer worker ${workerId} has no fresh DB heartbeat. Start it with "bun run services:start" before running this script. Expected worker URL: ${workerBaseUrl}`
+  )
 }
 
 async function cleanup(): Promise<void> {
@@ -235,6 +346,46 @@ async function cleanup(): Promise<void> {
   await DB.delete(ExternalGatewayInputTombstones).where(eq(ExternalGatewayInputTombstones.agentUid, agentUid))
   for (const roomId of roomIds) await DB.delete(ExternalRooms).where(eq(ExternalRooms.id, roomId))
   await DB.delete(Principals).where(eq(Principals.uid, agentUid))
+}
+
+async function waitForMaterializedAttachment(roomId: string, messageId: string): Promise<Record<string, unknown>> {
+  let row: typeof ExternalMessages.$inferSelect | undefined
+  await eventually(async () => {
+    ;[row] = await DB.select()
+      .from(ExternalMessages)
+      .where(and(eq(ExternalMessages.roomId, roomId), eq(ExternalMessages.messageId, messageId)))
+      .limit(1)
+    const materialized = materializedAttachment(row)
+    assert.equal(
+      materialized?.status,
+      'saved',
+      `expected saved materialized attachment, got ${JSON.stringify(row?.attachments)}`
+    )
+  }, 10_000)
+  const materialized = materializedAttachment(row)
+  assert.ok(materialized)
+  return materialized
+}
+
+function materializedAttachment(
+  row: typeof ExternalMessages.$inferSelect | undefined
+): Record<string, unknown> | undefined {
+  const attachment = row?.attachments[0]
+  if (typeof attachment !== 'object' || attachment === null || Array.isArray(attachment)) return undefined
+  const materialized = attachment.materialized
+  if (typeof materialized !== 'object' || materialized === null || Array.isArray(materialized)) return undefined
+  return materialized
+}
+
+async function cleanupMediaFiles(): Promise<void> {
+  const { Computer } = await import('@agentbull/bullx-computer')
+  const computer = await Computer.getOrCreate({
+    agentUid,
+    resolveWorker: uid => resolveComputerWorker(uid)
+  })
+  await computer
+    .runCommand('rm', ['-rf', '/workspace/user-files/external-gateway'], { timeoutMs: 5_000 })
+    .catch(() => undefined)
 }
 
 async function eventually(assertion: () => void | Promise<void>, timeoutMs: number): Promise<void> {

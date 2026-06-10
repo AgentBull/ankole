@@ -1,4 +1,4 @@
-// `analyze unused` — Knip unused-file gate vs the owner/reason allowlist (§7.2).
+// `analyze unused` — Knip unused-file gate vs the owner/reason allowlist.
 //
 // Runner is rewritten for bun (knip-bun, local bin, no pnpm dlx); the
 // parse/compare/format core mirrors openclaw's check-deadcode-unused-files.mjs,

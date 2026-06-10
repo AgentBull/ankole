@@ -4,18 +4,15 @@ import type {
   BullXExternalGatewayAdapter,
   BullXExternalGatewayAdapterCapabilities,
   BullXExternalGatewayAdapterContext,
-  BullXExternalGatewayInboundCapability,
   BullXExternalGatewayLogger,
   BullXExternalGatewayMessageReconciliation,
   BullXExternalGatewayMessageDeletedEvent,
   BullXExternalGatewayMessageInput,
   BullXExternalGatewayOutboundOptions,
-  BullXExternalGatewayOutboundCapability,
   BullXExternalGatewayRawMessage,
   BullXExternalGatewayReactionEvent,
   BullXExternalGatewayRoomInput,
   BullXStreamingCardHandle,
-  BullXStreamingCardStatus,
   BullXExternalGatewayWebhookOptions
 } from '@agentbull/bullx-sdk/plugins'
 
@@ -33,10 +30,8 @@ export type ExternalGatewayAdapterContext = BullXExternalGatewayAdapterContext
 export type ExternalGatewayAdapterLogger = BullXExternalGatewayLogger
 export type ExternalGatewayMessageReconciliation<TRawMessage = unknown> =
   BullXExternalGatewayMessageReconciliation<TRawMessage>
-export type ExternalGatewayInboundCapability = BullXExternalGatewayInboundCapability
 export type ExternalGatewayMessageDeletedEvent<TRawEvent = unknown> = BullXExternalGatewayMessageDeletedEvent<TRawEvent>
 export type ExternalGatewayMessageInput<TRawMessage = unknown> = BullXExternalGatewayMessageInput<TRawMessage>
-export type ExternalGatewayOutboundCapability = BullXExternalGatewayOutboundCapability
 export type ExternalGatewayOutboundOptions = BullXExternalGatewayOutboundOptions
 export type ExternalGatewayRawMessage<TRawMessage = unknown> = BullXExternalGatewayRawMessage<TRawMessage>
 export type ExternalGatewayReactionEvent<TRawEvent = unknown> = BullXExternalGatewayReactionEvent<TRawEvent>
@@ -44,4 +39,3 @@ export type ExternalGatewayRoomInput = BullXExternalGatewayRoomInput
 export type ExternalGatewayWebhookOptions = BullXExternalGatewayWebhookOptions
 export type ExternalGatewayBeginStreamingCardInput = BullXBeginStreamingCardInput
 export type ExternalGatewayStreamingCardHandle = BullXStreamingCardHandle
-export type ExternalGatewayStreamingCardStatus = BullXStreamingCardStatus

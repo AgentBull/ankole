@@ -41,7 +41,8 @@ const config: KnipConfig = {
       project: ['src/**/*.ts']
     }
   },
-  ignore: ['**/*.d.ts'],
+  // var/ holds dev-worker runtime volumes (browser caches etc.), not source.
+  ignore: ['**/*.d.ts', 'var/**', 'internals/skills/**'],
   ignoreBinaries: ['cargo', 'napi']
 }
 

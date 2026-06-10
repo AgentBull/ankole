@@ -1,9 +1,12 @@
 import { redis } from 'bun'
 import { genUUIDv7 } from '@agentbull/bullx-native-addons'
 import { completeSimple, parseJsonWithRepair, type Message } from '@earendil-works/pi-ai'
-import { and, desc, eq, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gt, inArray, sql } from 'drizzle-orm'
 import { DB } from '@/common/database'
-import { AiAgentMessages, type JsonObject, type JsonValue } from '@/common/db-schema'
+import { AiAgentConversations, AiAgentMessages, type JsonObject, type JsonValue } from '@/common/db-schema'
+import { isJsonObject, toJsonValue } from '@/common/json'
+import { logger } from '@/common/logger'
+import { loadSystemTimezone } from '@/config/system'
 import { createUserMessage } from './core'
 import type { AiAgentRuntimeProfile } from './config'
 import {
@@ -12,19 +15,17 @@ import {
   textFromContent,
   type AiAgentConversationService
 } from './conversation-service'
-import { toJsonValue } from '@/common/json'
 import {
   ambientReferenceSnippetsFromRows,
   buildMessageContextMetadata,
   mergeMessageContextMetadata
 } from './message-context'
+import { AMBIENT_RECOGNIZER_SYSTEM_PROMPT, buildAmbientRecognizerUserPrompt } from './prompts/ambient-prompt'
 
 interface AmbientBatch {
   agentUid: string
   bindingName?: string
   conversationId: string
-  dueAt: Date
-  firstSeenAt: Date
   providerRoomId: string
   providerThreadId: string
 }
@@ -34,8 +35,19 @@ interface AmbientRecognizerResult {
   reason_summary?: string
 }
 
+const UUID_MEMBER_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/**
+ * Batches ambient (non-addressed) room messages per conversation and wakes the
+ * recognizer when a batch is due.
+ *
+ * The Redis ZSET is the only wake ledger: member = conversation id, score = due
+ * time. Batch payload (route, thread, first-seen anchor) is re-derived from PG,
+ * where the ambient message rows already live, so the ledger survives process
+ * restarts without a second in-memory bookkeeping copy.
+ */
 export class AiAgentAmbientBatcher {
-  private readonly batches = new Map<string, AmbientBatch>()
+  private readonly drainingMembers = new Set<string>()
   private readonly redisKey = 'bullx-agent:ai-agent:ambient-wake'
 
   constructor(private readonly conversations: AiAgentConversationService = aiAgentConversationService) {}
@@ -49,28 +61,19 @@ export class AiAgentAmbientBatcher {
     providerThreadId: string
   }): Promise<void> {
     const now = Date.now()
-    const key = this.batchKey(
-      input.agentUid,
-      input.bindingName,
-      input.conversationId,
-      input.providerRoomId,
-      input.providerThreadId
-    )
-    const existing = this.batches.get(key)
-    const firstSeenAt = existing?.firstSeenAt ?? new Date(now)
-    const dueAt = new Date(
-      Math.min(now + input.profile.ambient.batchWindowMs, firstSeenAt.getTime() + input.profile.ambient.hardCapMs)
-    )
-    this.batches.set(key, {
-      agentUid: input.agentUid,
-      bindingName: input.bindingName,
-      conversationId: input.conversationId,
-      dueAt,
-      firstSeenAt,
-      providerRoomId: input.providerRoomId,
-      providerThreadId: input.providerThreadId
-    })
-    await redis.send('ZADD', [this.redisKey, String(dueAt.getTime()), key]).catch(() => undefined)
+    // The hard cap anchors at the oldest unprocessed ambient message so a busy
+    // room cannot push the batch window forward forever.
+    const oldestPending = await this.oldestPendingAmbientRow(input.conversationId)
+    const firstSeenMs = oldestPending?.createdAt.getTime() ?? now
+    const dueAt = Math.min(now + input.profile.ambient.batchWindowMs, firstSeenMs + input.profile.ambient.hardCapMs)
+    try {
+      await redis.send('ZADD', [this.redisKey, String(dueAt), input.conversationId])
+    } catch (error) {
+      logger.warn(
+        { error, conversationId: input.conversationId },
+        'Ambient wake ZADD failed; batch will only recover via a later schedule or recovery drain'
+      )
+    }
   }
 
   async drainDue(
@@ -82,48 +85,157 @@ export class AiAgentAmbientBatcher {
     const members = await this.dueMembers(now)
     const intervened: Array<{ conversationId: string; providerRoomId: string; providerThreadId: string }> = []
     for (const member of members) {
-      const batch = this.batches.get(member) ?? this.batchFromMember(member)
-      if (!batch) {
-        await redis.send('ZREM', [this.redisKey, member]).catch(() => undefined)
-        continue
-      }
-      if (!this.matchesFilter(batch, filter)) continue
-      this.batches.delete(member)
-      await redis.send('ZREM', [this.redisKey, member]).catch(() => undefined)
-      const result = await this.recognize(batch.conversationId, profile)
-      if (result?.intervene) {
-        intervened.push({
-          conversationId: batch.conversationId,
-          providerRoomId: batch.providerRoomId,
-          providerThreadId: batch.providerThreadId
-        })
+      if (this.drainingMembers.has(member)) continue
+      this.drainingMembers.add(member)
+      try {
+        const batch = await this.loadBatch(member)
+        if (!batch) {
+          await this.removeMember(member)
+          continue
+        }
+        if (!this.matchesFilter(batch, filter)) continue
+        await this.removeMember(member)
+        const result = await this.recognize(batch.conversationId, profile)
+        if (result?.intervene) {
+          intervened.push({
+            conversationId: batch.conversationId,
+            providerRoomId: batch.providerRoomId,
+            providerThreadId: batch.providerThreadId
+          })
+        }
+      } finally {
+        this.drainingMembers.delete(member)
       }
     }
     return intervened
   }
 
   async nextDueDelayMs(input: { agentUid?: string; bindingName?: string } = {}): Promise<number | undefined> {
-    const scores: number[] = []
-    for (const batch of this.batches.values()) {
-      if (this.matchesFilter(batch, input)) scores.push(batch.dueAt.getTime())
+    let redisEntries: unknown
+    try {
+      redisEntries = await redis.send('ZRANGE', [this.redisKey, '0', '-1', 'WITHSCORES'])
+    } catch (error) {
+      logger.warn({ error }, 'Ambient wake ZRANGE failed; next due time unknown')
+      return undefined
     }
+    if (!Array.isArray(redisEntries)) return undefined
+    const entries = scoreEntries(redisEntries)
+    if (entries.length === 0) return undefined
 
-    const redisEntries = await redis.send('ZRANGE', [this.redisKey, '0', '-1', 'WITHSCORES']).catch(() => [])
-    if (Array.isArray(redisEntries)) {
-      for (const [member, score] of scoreEntries(redisEntries)) {
-        const batch = this.batches.get(member) ?? this.batchFromMember(member)
-        if (batch && this.matchesFilter(batch, input)) scores.push(score)
-      }
+    let candidates = entries
+    if (input.agentUid || input.bindingName) {
+      const routes = await this.conversationRoutes(entries.map(([member]) => member))
+      candidates = entries.filter(([member]) => {
+        const route = routes.get(member)
+        return route !== undefined && this.matchesFilter(route, input)
+      })
     }
+    if (candidates.length === 0) return undefined
+    return Math.max(0, Math.min(...candidates.map(([, score]) => score)) - Date.now())
+  }
 
-    if (scores.length === 0) return undefined
-    return Math.max(0, Math.min(...scores) - Date.now())
+  /** Re-derive the batch payload for a wake member from PG. */
+  private async loadBatch(member: string): Promise<AmbientBatch | undefined> {
+    if (!UUID_MEMBER_PATTERN.test(member)) return undefined
+    const [conversation] = await DB.select({
+      id: AiAgentConversations.id,
+      agentUid: AiAgentConversations.agentUid,
+      metadata: AiAgentConversations.metadata
+    })
+      .from(AiAgentConversations)
+      .where(eq(AiAgentConversations.id, member))
+      .limit(1)
+    if (!conversation) return undefined
+
+    const route = isJsonObject(conversation.metadata.route) ? conversation.metadata.route : {}
+    const oldestPending = await this.oldestPendingAmbientRow(member)
+    if (!oldestPending) return undefined
+    const refs = isJsonObject(oldestPending.metadata.provider_refs) ? oldestPending.metadata.provider_refs : {}
+
+    const providerRoomId = stringOrUndefined(route.provider_room_id) ?? stringOrUndefined(refs.room_id)
+    const providerThreadId = stringOrUndefined(refs.thread_id) ?? providerRoomId
+    if (!providerRoomId || !providerThreadId) return undefined
+    return {
+      agentUid: conversation.agentUid,
+      bindingName: stringOrUndefined(route.binding_name),
+      conversationId: conversation.id,
+      providerRoomId,
+      providerThreadId
+    }
+  }
+
+  /** agentUid/bindingName per wake member, for filtered next-due queries. */
+  private async conversationRoutes(
+    members: string[]
+  ): Promise<Map<string, { agentUid: string; bindingName?: string }>> {
+    const ids = members.filter(member => UUID_MEMBER_PATTERN.test(member))
+    const routes = new Map<string, { agentUid: string; bindingName?: string }>()
+    if (ids.length === 0) return routes
+    const rows = await DB.select({
+      id: AiAgentConversations.id,
+      agentUid: AiAgentConversations.agentUid,
+      metadata: AiAgentConversations.metadata
+    })
+      .from(AiAgentConversations)
+      .where(inArray(AiAgentConversations.id, ids))
+    for (const row of rows) {
+      const route = isJsonObject(row.metadata.route) ? row.metadata.route : {}
+      routes.set(row.id, { agentUid: row.agentUid, bindingName: stringOrUndefined(route.binding_name) })
+    }
+    return routes
+  }
+
+  /** Oldest ambient message not yet consumed by an intervention (hard-cap anchor + thread source). */
+  private async oldestPendingAmbientRow(
+    conversationId: string
+  ): Promise<{ createdAt: Date; metadata: JsonObject } | undefined> {
+    const latestInterventionAt = await this.latestInterventionAt(conversationId)
+    const [row] = await DB.select({ createdAt: AiAgentMessages.createdAt, metadata: AiAgentMessages.metadata })
+      .from(AiAgentMessages)
+      .where(
+        and(
+          eq(AiAgentMessages.conversationId, conversationId),
+          eq(AiAgentMessages.role, 'im_ambient'),
+          eq(AiAgentMessages.kind, 'normal'),
+          sql`${AiAgentMessages.metadata}->'transcript_effect' is null`,
+          latestInterventionAt ? gt(AiAgentMessages.createdAt, latestInterventionAt) : undefined
+        )
+      )
+      .orderBy(asc(AiAgentMessages.createdAt), asc(AiAgentMessages.id))
+      .limit(1)
+    return row
+  }
+
+  private async latestInterventionAt(conversationId: string): Promise<Date | undefined> {
+    const [latestIntervention] = await DB.select({ createdAt: AiAgentMessages.createdAt })
+      .from(AiAgentMessages)
+      .where(
+        and(
+          eq(AiAgentMessages.conversationId, conversationId),
+          eq(AiAgentMessages.role, 'im_ambient'),
+          eq(AiAgentMessages.kind, 'introspection'),
+          sql`${AiAgentMessages.metadata}->'control'->>'type' = 'ambient_intervention'`
+        )
+      )
+      .orderBy(desc(AiAgentMessages.createdAt), desc(AiAgentMessages.id))
+      .limit(1)
+    return latestIntervention?.createdAt
+  }
+
+  private async removeMember(member: string): Promise<void> {
+    try {
+      await redis.send('ZREM', [this.redisKey, member])
+    } catch (error) {
+      logger.warn({ error, member }, 'Ambient wake ZREM failed; member may be drained again')
+    }
   }
 
   private async recognize(
     conversationId: string,
     profile: AiAgentRuntimeProfile
   ): Promise<AmbientRecognizerResult | undefined> {
+    const latestInterventionAt = await this.latestInterventionAt(conversationId)
+
     const rows = await DB.select()
       .from(AiAgentMessages)
       .where(
@@ -131,7 +243,8 @@ export class AiAgentAmbientBatcher {
           eq(AiAgentMessages.conversationId, conversationId),
           eq(AiAgentMessages.role, 'im_ambient'),
           eq(AiAgentMessages.kind, 'normal'),
-          sql`${AiAgentMessages.metadata}->'transcript_effect' is null`
+          sql`${AiAgentMessages.metadata}->'transcript_effect' is null`,
+          latestInterventionAt ? gt(AiAgentMessages.createdAt, latestInterventionAt) : undefined
         )
       )
       .orderBy(desc(AiAgentMessages.createdAt))
@@ -144,13 +257,12 @@ export class AiAgentAmbientBatcher {
       .map(row => `- ${textFromContent(row.content)}`)
       .join('\n')
 
-    const systemPrompt =
-      'Decide whether the AI coworker should proactively intervene in this room. Return only a strict JSON object, with no markdown.'
+    const systemPrompt = AMBIENT_RECOGNIZER_SYSTEM_PROMPT
     const llmMessages: Message[] = [
       {
         role: 'user',
         timestamp: Date.now(),
-        content: `Recent ambient room messages:\n${prompt}\n\nReturn {"intervene": boolean, "reason_summary": string}.`
+        content: buildAmbientRecognizerUserPrompt(prompt)
       }
     ]
     const llmTurn = await this.conversations.startLlmTurn({
@@ -188,6 +300,7 @@ export class AiAgentAmbientBatcher {
       ]
     })
 
+    let rawText: string | undefined
     try {
       const response = await completeSimple(
         profile.lightModel.model,
@@ -198,6 +311,7 @@ export class AiAgentAmbientBatcher {
         .flatMap(block => (block.type === 'text' ? [block.text] : []))
         .join('')
         .trim()
+      rawText = text
       const parsed = parseAmbientRecognizerResult(text)
       await this.conversations.finishLlmTurn({
         llmTurnId: llmTurn.id,
@@ -214,12 +328,20 @@ export class AiAgentAmbientBatcher {
         }
       })
       if (parsed.intervene) {
-        const introspection = parsed.reason_summary || 'Ambient context suggests the agent should intervene.'
+        const reason = parsed.reason_summary || 'Ambient context suggests the agent should intervene.'
+        const introspection = [
+          'Ambient intervention trigger.',
+          'Goal: offer one useful next action for the current room situation.',
+          `Reason: ${reason}`,
+          'Do not answer every ambient reference.',
+          'Use tools only when needed; keep tool use bounded and stop once there is enough context to help.'
+        ].join('\n')
         const ambientReferences = ambientReferenceSnippetsFromRows(rows.slice().reverse())
         const messageContext = buildMessageContextMetadata(
           {
             ambientReferences,
-            sentAt: new Date()
+            sentAt: new Date(),
+            timezone: await loadSystemTimezone()
           },
           []
         )
@@ -243,66 +365,34 @@ export class AiAgentAmbientBatcher {
       await this.conversations.finishLlmTurn({
         llmTurnId: llmTurn.id,
         status: 'failed',
-        response: { error: error instanceof Error ? error.message : String(error) }
+        response: { error: error instanceof Error ? error.message : String(error), raw_text: rawText ?? null }
       })
       return undefined
     }
   }
 
-  private batchKey(
-    agentUid: string,
-    bindingName: string | undefined,
-    conversationId: string,
-    providerRoomId: string,
-    providerThreadId: string
-  ): string {
-    return JSON.stringify({
-      agentUid,
-      bindingName,
-      conversationId,
-      providerRoomId,
-      providerThreadId
-    })
-  }
-
-  private batchFromMember(member: string): AmbientBatch | undefined {
-    try {
-      const parsed = JSON.parse(member) as unknown
-      if (typeof parsed !== 'object' || parsed === null) return undefined
-      const batch = parsed as Partial<Record<keyof AmbientBatch, unknown>>
-      if (
-        typeof batch.conversationId !== 'string' ||
-        typeof batch.providerRoomId !== 'string' ||
-        typeof batch.providerThreadId !== 'string'
-      ) {
-        return undefined
-      }
-      return {
-        agentUid: typeof batch.agentUid === 'string' ? batch.agentUid : '',
-        bindingName: typeof batch.bindingName === 'string' ? batch.bindingName : undefined,
-        conversationId: batch.conversationId,
-        dueAt: new Date(0),
-        firstSeenAt: typeof batch.firstSeenAt === 'string' ? new Date(batch.firstSeenAt) : new Date(0),
-        providerRoomId: batch.providerRoomId,
-        providerThreadId: batch.providerThreadId
-      }
-    } catch {
-      return undefined
-    }
-  }
-
-  private matchesFilter(batch: AmbientBatch, filter: { agentUid?: string; bindingName?: string }): boolean {
+  private matchesFilter(
+    batch: { agentUid: string; bindingName?: string },
+    filter: { agentUid?: string; bindingName?: string }
+  ): boolean {
     if (filter.agentUid && batch.agentUid && batch.agentUid !== filter.agentUid) return false
     if (filter.bindingName && batch.bindingName && batch.bindingName !== filter.bindingName) return false
     return true
   }
 
   private async dueMembers(now: number): Promise<string[]> {
-    const localDue = [...this.batches.entries()].filter(([, batch]) => batch.dueAt.getTime() <= now).map(([key]) => key)
-    const redisDue = await redis.send('ZRANGEBYSCORE', [this.redisKey, '-inf', String(now)]).catch(() => [])
-    if (!Array.isArray(redisDue)) return localDue
-    return [...new Set([...localDue, ...redisDue.map(String)])]
+    try {
+      const redisDue = await redis.send('ZRANGEBYSCORE', [this.redisKey, '-inf', String(now)])
+      return Array.isArray(redisDue) ? redisDue.map(String) : []
+    } catch (error) {
+      logger.warn({ error }, 'Ambient wake ZRANGEBYSCORE failed; no batches drained this pass')
+      return []
+    }
   }
+}
+
+function stringOrUndefined(value: unknown): string | undefined {
+  return typeof value === 'string' && value.length > 0 ? value : undefined
 }
 
 export const aiAgentAmbientBatcher = new AiAgentAmbientBatcher()
@@ -337,13 +427,41 @@ function scoreEntries(value: unknown[]): Array<[string, number]> {
 }
 
 function parseAmbientRecognizerResult(text: string): AmbientRecognizerResult {
-  const parsed = parseJsonWithRepair<Partial<AmbientRecognizerResult>>(extractJsonObjectText(text))
+  const parsed = parseAmbientRecognizerJson(text)
   return {
     intervene: parsed.intervene === true,
     ...(typeof parsed.reason_summary === 'string' && parsed.reason_summary.trim()
       ? { reason_summary: parsed.reason_summary.trim() }
       : {})
   }
+}
+
+function parseAmbientRecognizerJson(text: string): Partial<AmbientRecognizerResult> {
+  try {
+    return parseJsonWithRepair<Partial<AmbientRecognizerResult>>(extractJsonObjectText(text))
+  } catch (error) {
+    const recovered = recoverAmbientRecognizerBoolean(text)
+    if (recovered !== undefined) {
+      return {
+        intervene: recovered,
+        reason_summary: recoverAmbientRecognizerReason(text)
+      }
+    }
+    throw error
+  }
+}
+
+function recoverAmbientRecognizerBoolean(text: string): boolean | undefined {
+  if (/(^|[,{;\s])["']?intervene["']?\s*[:=]\s*true\b/i.test(text)) return true
+  if (/(^|[,{;\s])["']?intervene["']?\s*[:=]\s*false\b/i.test(text)) return false
+  return undefined
+}
+
+function recoverAmbientRecognizerReason(text: string): string | undefined {
+  const match = text.match(/["']?reason_summary["']?\s*[:=]\s*["']?([^{}\n\r]+?)(?:["']?\s*[,}]|$)/i)
+  const reason = match?.[1]?.trim()
+  if (!reason) return undefined
+  return reason.length > 240 ? `${reason.slice(0, 240)}...` : reason
 }
 
 function extractJsonObjectText(text: string): string {

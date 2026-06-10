@@ -15,6 +15,12 @@ export interface ResolvedWorker {
   baseUrl: string
 }
 
+export interface WorkerTlsConfig {
+  caCert: string
+  cert: string
+  key: string
+}
+
 /** How the agent→worker binding was decided. */
 export type BindingKind = 'explicit_pin' | 'implicit' | 'fallback'
 
@@ -28,8 +34,8 @@ export interface ResolveSessionResponse {
   agentUid: string
   worker: ResolvedWorker
   binding: SessionBinding
-  /** Short-lived signed token the SDK presents to the worker. */
-  token: string
+  /** Client certificate material used for worker mTLS. */
+  tls: WorkerTlsConfig
 }
 
 /** The three workspace mount points, as absolute paths inside the computer. */
@@ -87,6 +93,8 @@ export interface RunCommandParams {
 export interface RunShellCommandOptions {
   cwd?: string
   env?: Record<string, string>
+  /** Execution scope (conversation) owning the persistent shell; omit for the agent-shared shell. */
+  shellScope?: string
   stdout?: WritableStream<Uint8Array>
   stderr?: WritableStream<Uint8Array>
   timeoutMs?: number

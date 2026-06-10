@@ -1,17 +1,23 @@
 import { genUUIDv7 } from '@agentbull/bullx-native-addons'
-import { asc, desc, eq, isNull, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, isNull, sql } from 'drizzle-orm'
 import type {
   BullXExternalGatewayAdapterFactory,
   BullXExternalGatewayAdapterSetup,
   BullXPluginInteractiveConfigUpdate,
   BullXPluginSetupField
 } from '@agentbull/bullx-sdk/plugins'
+import { DomainError } from '@/common/errors'
 import { DB } from '@/common/database'
 import { appConfigService } from '@/config/app-configure'
+import { AppI18nDefaultLocaleConfig } from '@/config/i18n'
+import { DEFAULT_LOCALE, SUPPORTED_LOCALES, nativeLocaleLabel } from '@/config/i18n-locales'
+import { SystemTimezoneConfig, loadSystemTimezone } from '@/config/system'
+import { AdminAuthPublicBaseUrlConfig } from '@/principals/admin-auth/config'
 import { agentChannelConfigKey } from '@/external-gateway/config'
 import {
   AgentLibraryContainerEntries,
   Agents,
+  AiAgentConversations,
   HumanUsers,
   LibrarySkills,
   PrincipalGroupMemberships,
@@ -19,11 +25,14 @@ import {
   type JsonObject,
   type JsonValue
 } from '@/common/db-schema'
+import { externalGatewayVisibleOutputStream } from '@/external-gateway/core/visible-output-stream'
 import { isJsonObject } from '@/common/json'
 import {
+  getMission,
   getSoul,
   listEffectiveSkills,
   setAgentSkillEnabled,
+  setMission,
   setSoul,
   type EffectiveSkillSummary
 } from '@/ai-agent/library/service'
@@ -33,6 +42,11 @@ import {
   writeAiAgentModelsConfig,
   type AiAgentModelsConfig
 } from '@/ai-agent/config'
+import { aiAgentRuntime } from '@/ai-agent/runtime'
+import { getConsoleChatRecallConfig, updateConsoleChatRecallConfig } from '@/chat-recall/service'
+import { chatRecallRuntime } from '@/chat-recall/runtime'
+import type { ChatRecallConfig, NormalizedChatRecallConfig } from '@/chat-recall/config'
+import type { ChatRecallStatus } from '@/chat-recall/readiness'
 import { loadPluginCatalog, type PluginCatalog } from '@/plugins/catalog'
 import {
   clonePluginJsonObject as cloneJsonObject,
@@ -51,13 +65,7 @@ import {
   updateAgent
 } from '@/principals/agents/service'
 import { ensureCanDisablePrincipal } from '@/principals/authorization/memberships'
-import {
-  createPrincipalGroup,
-  deletePrincipalGroup,
-  listPrincipalGroups,
-  updatePrincipalGroup,
-  type PrincipalGroup
-} from '@/principals/authorization/groups'
+import { listPrincipalGroups, type PrincipalGroup } from '@/principals/authorization/groups'
 import { createHuman, upsertHumanProfile } from '@/principals/human-users/service'
 import { normalizeUid, updatePrincipalStatus, type Principal } from '@/principals/principals/service'
 import {
@@ -92,6 +100,13 @@ const consoleResourceSummaries: ConsoleResourceSummary[] = [
     owner: 'operator'
   },
   {
+    id: 'chat-recall',
+    title: 'Chat Recall',
+    description: 'Operate pg_search and pgvector-backed historical chat recall.',
+    operations: ['inspect readiness', 'enable/disable vector search', 'test embedding', 'reindex', 'pause/resume'],
+    owner: 'runtime'
+  },
+  {
     id: 'schedules',
     title: 'Scheduled Tasks',
     description: 'Define recurring agent work and inspect immutable run history.',
@@ -116,8 +131,8 @@ const consoleResourceSummaries: ConsoleResourceSummary[] = [
   {
     id: 'library',
     title: 'Agent Library Container',
-    description: 'Edit agent-owned SOUL.md and inspect generated skill append/library entries.',
-    operations: ['inspect entries', 'edit SOUL.md'],
+    description: 'Edit agent-owned SOUL.md and MISSION.md, then inspect generated skill append/library entries.',
+    operations: ['inspect entries', 'edit SOUL.md', 'edit MISSION.md'],
     owner: 'operator'
   },
   {
@@ -251,6 +266,8 @@ export interface UpsertConsoleAgentInput {
   avatarUrl?: string | null
   displayName?: string | null
   llmProfile?: ConsoleAgentLlmProfile
+  mission?: string
+  soul?: string
 }
 
 type InteractiveConfigState = 'running' | 'succeeded' | 'failed' | 'cancelled'
@@ -269,16 +286,6 @@ interface ConsoleInteractiveConfigSession extends ConsoleInteractiveConfigSessio
   abortController: AbortController
 }
 
-export class ConsoleDomainError extends Error {
-  constructor(
-    readonly status: number,
-    message: string
-  ) {
-    super(message)
-    this.name = 'ConsoleDomainError'
-  }
-}
-
 /**
  * Process-local interactive config sessions.
  *
@@ -288,12 +295,136 @@ export class ConsoleDomainError extends Error {
  */
 const interactiveConfigSessions = new Map<string, ConsoleInteractiveConfigSession>()
 
-export async function loadConsolePluginCatalog(): Promise<PluginCatalog> {
-  return loadPluginCatalog()
+export interface ConsoleSettingsLocaleOption {
+  value: string
+  label: string
+}
+
+/**
+ * Installation-level operational settings exposed for editing in the console.
+ *
+ * This is a deliberately curated subset of the registered app config surface —
+ * the keys with an explicit operator story — not a generic editor over every
+ * dynamic config key.
+ */
+export interface ConsoleSettings {
+  /** Application-wide default locale (`i18n.default_locale`). */
+  defaultLocale: string
+  /** Installation timezone (`system.timezone`), defaulting to the host OS timezone when unset. */
+  timezone: string
+  /** Timezone actually in effect now. Kept explicit for setup/admin clients. */
+  effectiveTimezone: string
+  /** Public base URL for admin OIDC redirects (`admin_auth.public_base_url`), or null when unset. */
+  publicBaseUrl: string | null
+  /** Selectable locales for `defaultLocale`. */
+  availableLocales: ConsoleSettingsLocaleOption[]
+}
+
+export interface UpdateConsoleSettingsInput {
+  defaultLocale?: string
+  timezone?: string
+  publicBaseUrl?: string
+}
+
+export interface ConsoleChatRecall {
+  config: NormalizedChatRecallConfig
+  status: ChatRecallStatus
+}
+
+export async function getConsoleSettings(): Promise<ConsoleSettings> {
+  const [defaultLocale, timezone, publicBaseUrl] = await Promise.all([
+    appConfigService.get(AppI18nDefaultLocaleConfig),
+    loadSystemTimezone(),
+    appConfigService.get(AdminAuthPublicBaseUrlConfig)
+  ])
+
+  return {
+    defaultLocale: defaultLocale ?? DEFAULT_LOCALE,
+    timezone,
+    effectiveTimezone: timezone,
+    publicBaseUrl: publicBaseUrl ?? null,
+    availableLocales: SUPPORTED_LOCALES.map(value => ({ value, label: nativeLocaleLabel(value) }))
+  }
+}
+
+/**
+ * Validates then persists the supplied settings. Each provided field is validated
+ * against its config definition's own schema before any write, so a single
+ * invalid value rejects the whole request instead of partially applying it.
+ * Omitted fields are left unchanged; there is no unset path here.
+ */
+export async function updateConsoleSettings(input: UpdateConsoleSettingsInput): Promise<ConsoleSettings> {
+  const writes: Array<() => Promise<unknown>> = []
+
+  if (input.defaultLocale !== undefined) {
+    const parsed = AppI18nDefaultLocaleConfig.schema.safeParse(input.defaultLocale)
+    if (!parsed.success) throw new DomainError(422, `unsupported locale: ${input.defaultLocale}`)
+    writes.push(() => appConfigService.set(AppI18nDefaultLocaleConfig, parsed.data))
+  }
+
+  if (input.timezone !== undefined) {
+    const parsed = SystemTimezoneConfig.schema.safeParse(input.timezone)
+    if (!parsed.success) throw new DomainError(422, `invalid IANA timezone: ${input.timezone}`)
+    writes.push(() => appConfigService.set(SystemTimezoneConfig, parsed.data))
+  }
+
+  if (input.publicBaseUrl !== undefined) {
+    const parsed = AdminAuthPublicBaseUrlConfig.schema.safeParse(input.publicBaseUrl)
+    if (!parsed.success) throw new DomainError(422, 'public base URL must be a valid absolute URL')
+    writes.push(() => appConfigService.set(AdminAuthPublicBaseUrlConfig, parsed.data))
+  }
+
+  for (const write of writes) await write()
+
+  return getConsoleSettings()
+}
+
+export async function getConsoleChatRecall(): Promise<ConsoleChatRecall> {
+  const [config, status] = await Promise.all([
+    getConsoleChatRecallConfig(),
+    chatRecallRuntime.status({ install: true })
+  ])
+  return { config, status }
+}
+
+export async function updateConsoleChatRecall(input: ChatRecallConfig): Promise<ConsoleChatRecall> {
+  await updateConsoleChatRecallConfig(input)
+  const status = await chatRecallRuntime.start()
+  aiAgentRuntime.setChatRecallEnabled(status.enabled)
+  return {
+    config: await getConsoleChatRecallConfig(),
+    status
+  }
+}
+
+export async function reindexConsoleChatRecall(): Promise<ConsoleChatRecall> {
+  const status = await chatRecallRuntime.reindex()
+  aiAgentRuntime.setChatRecallEnabled(status.enabled)
+  return {
+    config: await getConsoleChatRecallConfig(),
+    status
+  }
+}
+
+export async function pauseConsoleChatRecall(): Promise<ConsoleChatRecall> {
+  const status = await chatRecallRuntime.pause()
+  return {
+    config: await getConsoleChatRecallConfig(),
+    status
+  }
+}
+
+export async function resumeConsoleChatRecall(): Promise<ConsoleChatRecall> {
+  const status = await chatRecallRuntime.resume()
+  aiAgentRuntime.setChatRecallEnabled(status.enabled)
+  return {
+    config: await getConsoleChatRecallConfig(),
+    status
+  }
 }
 
 export async function listConsoleExternalGatewayAdapters(): Promise<ConsoleExternalGatewayAdapter[]> {
-  const catalog = await loadConsolePluginCatalog()
+  const catalog = await loadPluginCatalog()
   return listEnabledExternalGatewayAdapters(catalog)
 }
 
@@ -351,11 +482,74 @@ export async function createConsoleAgent(
       createdByPrincipalUid
     })
   } catch (error) {
-    if (isDatabaseErrorCode(error, '23505')) throw new ConsoleDomainError(409, 'agent uid already exists')
+    if (isDatabaseErrorCode(error, '23505')) throw new DomainError(409, 'agent uid already exists')
     throw error
   }
 
+  await updateAgentLibraryTextFiles(result.agent.uid, input)
   return projectConsoleAgent(result)
+}
+
+export interface ConsoleAgentLiveStream {
+  conversationId: string
+  streamId: string
+  startedAt: string | null
+}
+
+export interface ConsoleAgentLiveOutputEvent {
+  cursor: string
+  type: string
+  sequence: number
+  delta?: string
+  at?: string
+}
+
+/** Conversations of this agent with an active (uncancelled) generation lease. */
+export async function listConsoleAgentLiveStreams(agentUid: string): Promise<ConsoleAgentLiveStream[]> {
+  await requireActiveAgent(agentUid)
+  const rows = await DB.select({ id: AiAgentConversations.id, generation: AiAgentConversations.generation })
+    .from(AiAgentConversations)
+    .where(and(eq(AiAgentConversations.agentUid, agentUid), isNull(AiAgentConversations.endedAt)))
+    .orderBy(desc(AiAgentConversations.updatedAt))
+    .limit(50)
+  return rows.flatMap(row => {
+    const generation = row.generation
+    if (typeof generation.lease_id !== 'string' || generation.cancelled_at) return []
+    return [
+      {
+        conversationId: row.id,
+        streamId: generation.lease_id,
+        startedAt: typeof generation.started_at === 'string' ? generation.started_at : null
+      }
+    ]
+  })
+}
+
+/**
+ * Incremental read of one live visible-output stream. `after` is the cursor of
+ * the last record the client has seen (exclusive); omit it to read from the start.
+ */
+export async function readConsoleAgentLiveOutput(input: {
+  agentUid: string
+  conversationId: string
+  streamId: string
+  after?: string
+}): Promise<{ events: ConsoleAgentLiveOutputEvent[]; cursor: string | null }> {
+  const records = await externalGatewayVisibleOutputStream.read({
+    agentUid: input.agentUid,
+    sessionId: input.conversationId,
+    streamId: input.streamId,
+    start: input.after ? `(${input.after}` : undefined,
+    count: 500
+  })
+  const events = records.map(record => ({
+    cursor: record.redisId,
+    type: record.event.type,
+    sequence: record.event.sequence,
+    delta: record.event.delta,
+    at: record.event.at?.toISOString()
+  }))
+  return { events, cursor: events.at(-1)?.cursor ?? input.after ?? null }
 }
 
 export async function getConsoleAgent(uid: string): Promise<ConsoleAgent> {
@@ -371,8 +565,9 @@ export async function updateConsoleAgent(uid: string, input: UpsertConsoleAgentI
     displayName: input.displayName,
     metadata
   })
-  if (result.principal.status !== 'active') throw new ConsoleDomainError(404, 'agent not found')
+  if (result.principal.status !== 'active') throw new DomainError(404, 'agent not found')
 
+  await updateAgentLibraryTextFiles(result.agent.uid, input)
   return projectConsoleAgent(result)
 }
 
@@ -442,18 +637,6 @@ export async function listConsolePrincipalGroups(): Promise<ConsolePrincipalGrou
   )
 }
 
-export async function createConsolePrincipalGroup(input: Parameters<typeof createPrincipalGroup>[0]) {
-  return createPrincipalGroup(input)
-}
-
-export async function updateConsolePrincipalGroup(id: string, input: Parameters<typeof updatePrincipalGroup>[1]) {
-  return updatePrincipalGroup(id, input)
-}
-
-export async function deleteConsolePrincipalGroup(id: string): Promise<void> {
-  await deletePrincipalGroup(id)
-}
-
 export async function listConsoleLibrarySkills(): Promise<ConsoleLibrarySkill[]> {
   const skills = await DB.select()
     .from(LibrarySkills)
@@ -502,9 +685,20 @@ export async function getConsoleAgentSoul(agentUid: string): Promise<{ content: 
   return { content: await getSoul(agentUid) }
 }
 
+export async function getConsoleAgentMission(agentUid: string): Promise<{ content: string | null }> {
+  await requireActiveAgent(agentUid)
+  return { content: await getMission(agentUid) }
+}
+
 export async function setConsoleAgentSoul(agentUid: string, content: string): Promise<{ content: string }> {
   await requireActiveAgent(agentUid)
   await setSoul(agentUid, content)
+  return { content }
+}
+
+export async function setConsoleAgentMission(agentUid: string, content: string): Promise<{ content: string }> {
+  await requireActiveAgent(agentUid)
+  await setMission(agentUid, content)
   return { content }
 }
 
@@ -521,7 +715,7 @@ export async function createConsoleChatChannel(
   const adapter = await requireEnabledExternalGatewayAdapter(requiredText(input.adapter, 'adapter'))
   const name = normalizeChannelName(input.name ?? adapter.setup?.defaultChannelName ?? adapter.id)
   const bindings = readStoredChannelBindings(agent.agent.metadata)
-  if (bindings.some(binding => binding.name === name)) throw new ConsoleDomainError(409, 'chat channel already exists')
+  if (bindings.some(binding => binding.name === name)) throw new DomainError(409, 'chat channel already exists')
 
   const config = mergeConfigForSave(adapter.setup, defaultConfigForSetup(adapter.setup), input.config ?? {})
   await persistChannelConfigWithMetadata(
@@ -550,11 +744,11 @@ export async function updateConsoleChatChannel(
   const name = normalizeChannelName(channelName)
   const bindings = readStoredChannelBindings(agent.agent.metadata)
   const index = bindings.findIndex(binding => binding.name === name)
-  if (index === -1) throw new ConsoleDomainError(404, 'chat channel not found')
+  if (index === -1) throw new DomainError(404, 'chat channel not found')
 
   const current = bindings[index]!
   if (input.adapter && input.adapter !== current.adapter) {
-    throw new ConsoleDomainError(422, 'chat channel adapter cannot be changed; delete and recreate the channel')
+    throw new DomainError(422, 'chat channel adapter cannot be changed; delete and recreate the channel')
   }
   const adapter = await requireEnabledExternalGatewayAdapter(input.adapter ?? current.adapter)
   const previousConfig = await loadChannelConfig(agent.agent.uid, name)
@@ -575,7 +769,7 @@ export async function deleteConsoleChatChannel(agentUid: string, channelName: st
   const name = normalizeChannelName(channelName)
   const bindings = readStoredChannelBindings(agent.agent.metadata)
   const nextBindings = bindings.filter(binding => binding.name !== name)
-  if (nextBindings.length === bindings.length) throw new ConsoleDomainError(404, 'chat channel not found')
+  if (nextBindings.length === bindings.length) throw new DomainError(404, 'chat channel not found')
 
   await updateAgent(agent.agent.uid, {
     metadata: writeAgentExternalBindings(agent.agent.metadata, nextBindings)
@@ -587,7 +781,7 @@ export async function getConsoleChatChannel(agentUid: string, channelName: strin
   const agent = await requireActiveAgent(agentUid)
   const name = normalizeChannelName(channelName)
   const channel = (await projectConsoleExternalRooms(agent)).find(candidate => candidate.name === name)
-  if (!channel) throw new ConsoleDomainError(404, 'chat channel not found')
+  if (!channel) throw new DomainError(404, 'chat channel not found')
 
   return channel
 }
@@ -599,7 +793,7 @@ export async function startConsoleInteractiveConfigSession(input: {
 }): Promise<ConsoleInteractiveConfigSessionProjection> {
   const adapter = await requireEnabledExternalGatewayAdapter(input.adapterId)
   const interactiveConfig = adapter.setup?.interactiveConfig
-  if (!interactiveConfig) throw new ConsoleDomainError(404, 'chat adapter does not support interactive config')
+  if (!interactiveConfig) throw new DomainError(404, 'chat adapter does not support interactive config')
 
   const sessionId = genUUIDv7()
   const session: ConsoleInteractiveConfigSession = {
@@ -640,7 +834,7 @@ export async function startConsoleInteractiveConfigSession(input: {
 
 export function getConsoleInteractiveConfigSession(sessionId: string): ConsoleInteractiveConfigSessionProjection {
   const session = interactiveConfigSessions.get(sessionId)
-  if (!session) throw new ConsoleDomainError(404, 'interactive config session not found')
+  if (!session) throw new DomainError(404, 'interactive config session not found')
 
   return projectInteractiveConfigSession(session)
 }
@@ -695,7 +889,7 @@ function projectLibrarySkill(skill: typeof LibrarySkills.$inferSelect): ConsoleL
 }
 
 async function requireEnabledExternalGatewayAdapter(adapterId: string): Promise<BullXExternalGatewayAdapterFactory> {
-  const catalog = await loadConsolePluginCatalog()
+  const catalog = await loadPluginCatalog()
   const enabled = new Set(catalog.enabledPluginIds)
 
   for (const plugin of catalog.plugins) {
@@ -705,12 +899,12 @@ async function requireEnabledExternalGatewayAdapter(adapterId: string): Promise<
     if (adapter) return adapter
   }
 
-  throw new ConsoleDomainError(404, 'chat adapter is not enabled')
+  throw new DomainError(404, 'chat adapter is not enabled')
 }
 
 async function requireActiveAgent(uid: string): Promise<AgentResult> {
   const agent = await getAgent(uid)
-  if (!agent || agent.principal.status !== 'active') throw new ConsoleDomainError(404, 'agent not found')
+  if (!agent || agent.principal.status !== 'active') throw new DomainError(404, 'agent not found')
 
   return agent
 }
@@ -732,6 +926,11 @@ async function projectConsoleAgent(agent: AgentResult): Promise<ConsoleAgent> {
 async function agentMetadataWithLlmProfile(metadata: JsonObject, profile: ConsoleAgentLlmProfile): Promise<JsonObject> {
   await validateAiAgentModelsConfig(profile.models)
   return writeAiAgentModelsConfig(metadata, profile.models)
+}
+
+async function updateAgentLibraryTextFiles(agentUid: string, input: UpsertConsoleAgentInput): Promise<void> {
+  if (input.soul !== undefined) await setSoul(agentUid, input.soul)
+  if (input.mission !== undefined) await setMission(agentUid, input.mission)
 }
 
 async function projectConsoleExternalRooms(agent: AgentResult): Promise<ConsoleChatChannel[]> {
@@ -781,7 +980,7 @@ function readStoredChannelBindings(metadata: JsonObject): AgentExternalBinding[]
   try {
     return parseAgentExternalBindingsAll(metadata)
   } catch (error) {
-    if (error instanceof AgentChatMetadataError) throw new ConsoleDomainError(422, error.message)
+    if (error instanceof AgentChatMetadataError) throw new DomainError(422, error.message)
     throw error
   }
 }
@@ -878,16 +1077,16 @@ function projectInteractiveConfigSession(
 
 function normalizeChannelName(value: unknown): string {
   const name = requiredText(value, 'channel name')
-  if (!channelNamePattern.test(name)) throw new ConsoleDomainError(422, `channel name must match ${channelNamePattern}`)
+  if (!channelNamePattern.test(name)) throw new DomainError(422, `channel name must match ${channelNamePattern}`)
 
   return name
 }
 
 function requiredText(value: unknown, label: string): string {
-  if (typeof value !== 'string') throw new ConsoleDomainError(422, `${label} must be a string`)
+  if (typeof value !== 'string') throw new DomainError(422, `${label} must be a string`)
 
   const trimmed = value.trim()
-  if (!trimmed) throw new ConsoleDomainError(422, `${label} must not be empty`)
+  if (!trimmed) throw new DomainError(422, `${label} must not be empty`)
   return trimmed
 }
 
