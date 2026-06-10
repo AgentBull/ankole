@@ -329,6 +329,83 @@ describe('BullX Lark chat adapter', () => {
     expect(debugLogs[0][0]).toBe('Lark recent attachment backfill matched prior message')
   })
 
+  it('backfills recent human attachment messages when a later human text mentions the agent', async () => {
+    const adapter = createAdapter() as any
+    const triggerTime = Date.now()
+    adapter.chat = {
+      getLogger: () => ({
+        debug: () => {},
+        warn: () => {}
+      })
+    }
+    adapter.connection = {
+      rawClient: {
+        im: {
+          v1: {
+            message: {
+              list: async () => ({
+                code: 0,
+                data: {
+                  items: [
+                    {
+                      message_id: 'om_trigger',
+                      msg_type: 'text',
+                      create_time: String(triggerTime),
+                      sender: { id: 'boris', id_type: 'user_id', sender_type: 'user' },
+                      body: { content: '{"text":"mention"}' }
+                    },
+                    {
+                      message_id: 'om_image',
+                      msg_type: 'image',
+                      create_time: String(triggerTime - 1_000),
+                      sender: { id: 'boris', id_type: 'user_id', sender_type: 'user' },
+                      body: { content: JSON.stringify({ image_key: 'img_key' }) }
+                    }
+                  ]
+                }
+              })
+            }
+          }
+        }
+      },
+      downloadMessageResource: async (messageId: string, fileKey: string, type: string) =>
+        Buffer.from(`${messageId}:${fileKey}:${type}`)
+    }
+
+    const message = await adapter.parseMessage(
+      normalizedMessage({
+        messageId: 'om_trigger',
+        chatType: 'group',
+        createTime: triggerTime,
+        content: '请看我刚刚发的图片',
+        mentionedBot: true,
+        resources: [],
+        raw: {
+          sender: {
+            sender_type: 'user',
+            sender_id: {
+              open_id: 'ou_open_id',
+              user_id: 'boris'
+            }
+          }
+        }
+      }) as never
+    )
+
+    expect(message.attachments).toHaveLength(1)
+    expect(message.attachments[0]).toMatchObject({
+      type: 'image',
+      fetchMetadata: {
+        provider: 'lark',
+        messageId: 'om_image',
+        fileKey: 'img_key',
+        downloadType: 'image',
+        resourceType: 'image'
+      }
+    })
+    expect(await message.attachments[0].fetchData()).toEqual(Buffer.from('om_image:img_key:image'))
+  })
+
   it('does not backfill unrelated bot mention text just because a recent attachment exists', async () => {
     const adapter = createAdapter() as any
     const lists: any[] = []

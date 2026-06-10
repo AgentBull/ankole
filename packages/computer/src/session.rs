@@ -277,7 +277,17 @@ async fn ensure_workspace_view(paths: &WorkspacePaths) -> AppResult<()> {
     &paths.library_containers,
   )
   .await?;
+  ensure_codex_agent_skills_mount(paths).await?;
   Ok(())
+}
+
+async fn ensure_codex_agent_skills_mount(paths: &WorkspacePaths) -> AppResult<()> {
+  let agents_dir = paths.temp.join(".agents");
+  let library_skills = paths.library_containers.join("skills");
+  let agent_skills = agents_dir.join("skills");
+
+  tokio::fs::create_dir_all(&agents_dir).await?;
+  ensure_workspace_entry(&agent_skills, &library_skills).await
 }
 
 async fn ensure_workspace_entry(

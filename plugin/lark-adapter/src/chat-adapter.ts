@@ -708,7 +708,6 @@ export class BullXLarkChatAdapter {
     actorId: Record<string, any> | undefined
   ): Promise<BullXAttachment[]> {
     if (normalizedMessage.mentionedBot !== true) return []
-    if (!isBotSenderFromNormalizedMessage(normalizedMessage)) return []
     if (normalizedMessage.chatType !== 'group') return []
     if (!shouldBackfillRecentAttachment(normalizedMessage.content)) return []
 

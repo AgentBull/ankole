@@ -5,6 +5,7 @@ import type {
   BullXPlugin,
   BullXPluginSetupField
 } from '@agentbull/bullx-sdk/plugins'
+import type { z } from 'zod'
 import { LarkAdapterConfigError, larkChannelConfigSchema, larkIdentityProviderConfigSchema } from './config'
 import { larkInteractiveConfig } from './interactive-config'
 import { BullXLarkChatAdapter } from './chat-adapter'
