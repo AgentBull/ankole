@@ -9,7 +9,7 @@ import {
   type SimpleStreamOptions,
   type Transport
 } from '@earendil-works/pi-ai'
-import { mapValues, pickBy } from '@pleisto/active-support'
+import { mapValues, pickBy, ms } from '@pleisto/active-support'
 import { eq, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { DB, jsonbParam } from '@/common/database'
@@ -19,7 +19,7 @@ import { appConfigJsonRecordSchema } from '@/config/json-value-schema'
 import { getSecretKey, SecretKeyPurpose } from '@/common/kms'
 
 const providerIdPattern = /^[a-z][a-z0-9_-]{0,62}$/
-const DEFAULT_LLM_TIMEOUT_MS = 180_000
+const DEFAULT_LLM_TIMEOUT_MS = ms('10m')
 const secretHeaderNames = new Set([
   'authorization',
   'proxy-authorization',

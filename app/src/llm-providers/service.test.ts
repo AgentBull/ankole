@@ -198,7 +198,7 @@ describe('LLM provider service', () => {
       reasoning: 'medium'
     })
 
-    expect(resolved.options.timeoutMs).toBe(180_000)
+    expect(resolved.options.timeoutMs).toBe(600_000)
   })
 
   it('rejects non-secret providerOptions headers that look like credentials', async () => {

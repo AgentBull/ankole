@@ -165,7 +165,7 @@ async function startRuntime() {
         'X-OpenRouter-Title': 'BullX Agent LLM E2E'
       },
       maxRetries: 1,
-      timeoutMs: 180_000
+      timeoutMs: 600_000
     }
   })
 
@@ -409,7 +409,7 @@ async function scenarioAmbient(setup: RuntimeSetup): Promise<void> {
         setup.platform.outbound.length > previousOutbound,
         `expected ambient outbound; recent outbound:\n${recent}`
       )
-    }, 180_000)
+    }, 600_000)
   }
 }
 
@@ -621,7 +621,7 @@ async function scenarioComputerCommand(setup: RuntimeSetup): Promise<void> {
       text
     })
     conversation = await waitForConversationForRoom(roomId)
-    const result = await waitForToolResultText(conversation.id, 'LLM_E2E_COMMAND_DONE', 180_000, ignoreTurnIds)
+    const result = await waitForToolResultText(conversation.id, 'LLM_E2E_COMMAND_DONE', 600_000, ignoreTurnIds)
     if (result.ok) break
     lastDiagnostic = result.diagnostic
     await waitForAllGenerationsIdle()
@@ -665,7 +665,7 @@ async function scenarioRuntimeSkillSmokes(setup: RuntimeSetup): Promise<void> {
       text
     })
     conversation = await waitForConversationForRoom(roomId)
-    const result = await waitForToolResultText(conversation.id, 'JUPYTER_LIVE_KERNEL_SMOKE_OK', 180_000, ignoreTurnIds)
+    const result = await waitForToolResultText(conversation.id, 'JUPYTER_LIVE_KERNEL_SMOKE_OK', 600_000, ignoreTurnIds)
     if (result.ok) break
     lastDiagnostic = result.diagnostic
     await waitForAllGenerationsIdle()
@@ -693,7 +693,7 @@ async function scenarioBrowserTool(setup: RuntimeSetup): Promise<void> {
     ].join('\n')
   })
 
-  await waitForOutboundText(setup, 'LLM_E2E_BROWSER_DONE', 180_000)
+  await waitForOutboundText(setup, 'LLM_E2E_BROWSER_DONE', 600_000)
   const conversation = await conversationForRoom(roomId)
   const names = await toolNamesForConversation(conversation.id)
   assert.ok(names.includes('browser_open'), `missing browser_open tool result: ${names.join(', ')}`)
