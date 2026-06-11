@@ -4,6 +4,7 @@ import { createSendFileTool } from './send-file-tool'
 describe('send_file tool', () => {
   it('queues a JSON-safe outbound file payload from a computer file', async () => {
     const enqueued: unknown[] = []
+    const reads: unknown[] = []
     let drained = false
     const tool = createSendFileTool(
       {
@@ -12,7 +13,10 @@ describe('send_file tool', () => {
         backgroundIds: new Set(),
         getComputer: async () =>
           ({
-            readFileToBuffer: async () => Buffer.from('n,square\n1,1\n')
+            readFileToBuffer: async (params: unknown) => {
+              reads.push(params)
+              return Buffer.from('n,square\n1,1\n')
+            }
           }) as never
       },
       {
@@ -34,6 +38,7 @@ describe('send_file tool', () => {
 
     const result = await tool.execute('tc_send_file', {
       path: '/workspace/user-files/squares.csv',
+      workdir: '/workspace/user-files',
       mimeType: 'text/csv',
       message: '已生成 CSV。'
     })
@@ -64,6 +69,7 @@ describe('send_file tool', () => {
         }
       }
     })
+    expect(reads).toEqual([{ path: '/workspace/user-files/squares.csv', cwd: '/workspace/user-files' }])
     expect(drained).toBe(true)
   })
 })

@@ -11,6 +11,7 @@ const { SystemTimezoneConfig } = await import('@/config/system')
 const { createAgent } = await import('@/principals/agents/service')
 const {
   getEffectiveSkillContent,
+  listEffectiveLibraryContainerFiles,
   listEffectiveSkills,
   getMission,
   getSoul,
@@ -181,6 +182,15 @@ describe('agent library containers and skills', () => {
       filePath: 'scripts/gh-env.sh'
     })
     expect(githubEnv?.content).toContain('/workspace/temp/.bullx/github.env')
+    const libraryContainerFiles = await listEffectiveLibraryContainerFiles(agentA)
+    expect(libraryContainerFiles).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          virtualPath: 'skills/github-auth/scripts/gh-env.sh',
+          content: expect.stringContaining('/workspace/temp/.bullx/github.env')
+        })
+      ])
+    )
 
     await setAgentSkillAppend({ agentUid: agentA, skillName: 'jupyter-live-kernel', content: 'Prefer e2e evidence.' })
     const merged = await getEffectiveSkillContent({ agentUid: agentA, skillName: 'jupyter-live-kernel' })

@@ -666,20 +666,29 @@ function mentionsFromMessage(message: Pick<ExternalGatewayMessageInput, 'isMenti
 }
 
 function commandFromMessage(
-  message: Pick<ExternalGatewayMessageInput, 'text'>
+  message: Pick<ExternalGatewayMessageInput, 'isMention' | 'text'>
 ): ExternalGatewaySlashCommandStub | undefined {
   const text = message.text?.trim()
   if (!text) return undefined
 
-  const match = /^\/(new|compress|retry|steer|stop)(?:\s+(.*))?$/i.exec(text)
+  const commandText = normalizedCommandText(message, text)
+  const match = /^\/(new|compress|retry|steer|stop)(?:\s+(.*))?$/i.exec(commandText)
   if (!match) return undefined
 
   return {
     argsText: match[2]?.trim() ?? '',
     name: match[1]!.toLowerCase() as ExternalGatewaySlashCommandStub['name'],
-    raw: text,
+    raw: commandText,
     status: 'stub'
   }
+}
+
+function normalizedCommandText(message: Pick<ExternalGatewayMessageInput, 'isMention'>, text: string): string {
+  if (text.startsWith('/')) return text
+  if (message.isMention !== true) return text
+
+  const match = /^@\S+\s+(\/\S[\s\S]*)$/u.exec(text)
+  return match?.[1]?.trim() ?? text
 }
 
 async function hasDeliveredReceive(

@@ -538,8 +538,9 @@ export class DrizzleExternalGatewayOutbox {
       })
       return sent
     } catch (fallbackError) {
-      if (fallbackError instanceof UnsupportedChannelCapabilityError)
+      if (fallbackError instanceof UnsupportedChannelCapabilityError) {
         return this.markUnsupported(key, fallbackError.message)
+      }
       return this.markProviderFailure(key, input.adapter, fallbackError)
     }
   }

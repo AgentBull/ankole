@@ -53,26 +53,6 @@ export function commandFeedbackIntent(input: {
   }
 }
 
-export function commandEditIntent(input: {
-  commandEventId: string
-  providerRoomId: string
-  providerThreadId: string
-  targetOutboundKey: string
-  text: string
-}): ExternalGatewayOutboundIntent {
-  return {
-    operation: 'edit',
-    outboundKey: `ai-agent-command-feedback:${input.commandEventId}:edit`,
-    providerRoomId: input.providerRoomId,
-    providerThreadId: input.providerThreadId,
-    finalPayload: {
-      editFallback: 'post',
-      targetOutboundKey: input.targetOutboundKey,
-      text: input.text
-    }
-  }
-}
-
 function noticeOutput(text: string): BullXInteractiveOutput {
   return {
     version: bullxInteractiveOutputVersion,

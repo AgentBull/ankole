@@ -19,6 +19,7 @@ import { appConfigJsonRecordSchema } from '@/config/json-value-schema'
 import { getSecretKey, SecretKeyPurpose } from '@/common/kms'
 
 const providerIdPattern = /^[a-z][a-z0-9_-]{0,62}$/
+const DEFAULT_LLM_TIMEOUT_MS = 180_000
 const secretHeaderNames = new Set([
   'authorization',
   'proxy-authorization',
@@ -312,7 +313,7 @@ export async function resolveLlmProviderModelProfile(
     model,
     options: {
       apiKey,
-      timeoutMs: providerOptions.timeoutMs,
+      timeoutMs: providerOptions.timeoutMs ?? DEFAULT_LLM_TIMEOUT_MS,
       websocketConnectTimeoutMs: providerOptions.websocketConnectTimeoutMs,
       maxRetries: providerOptions.maxRetries,
       maxRetryDelayMs: providerOptions.maxRetryDelayMs,

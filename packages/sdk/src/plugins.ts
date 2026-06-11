@@ -433,14 +433,16 @@ export interface BullXBeginStreamingCardInput {
  * Live streaming-card session handle (Lark CardKit parity).
  *
  * `update` is fed the full answer text so far (the adapter throttles and
- * diff-applies provider-side); `finish` closes the stream. Implementations must
- * never throw from `update`/`finish` — streaming is decorative and must not fail
- * the agent generation that drives it.
+ * diff-applies provider-side); `updateStatus` is fed transient run/tool status
+ * that belongs inside the same card but outside the final answer text; `finish`
+ * closes the stream. Implementations must never throw from `update`/`finish` —
+ * streaming is decorative and must not fail the agent generation that drives it.
  */
 export interface BullXStreamingCardHandle {
   cardId: string
   messageId: string
   update(fullText: string): Promise<void>
+  updateStatus?(statusText: string): Promise<void>
   finish(finalText: string, status: BullXStreamingCardStatus): Promise<BullXStreamingCardFinishResult | void>
 }
 

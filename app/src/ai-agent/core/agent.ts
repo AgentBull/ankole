@@ -517,7 +517,7 @@ export class Agent {
       model: this._state.model.id,
       usage: EMPTY_USAGE,
       stopReason: aborted ? 'aborted' : 'error',
-      errorMessage: error instanceof Error ? error.message : String(error),
+      errorMessage: agentErrorMessage(error),
       timestamp: Date.now()
     } satisfies AgentMessage
     await this.processEvents({ type: 'message_start', message: failureMessage })
@@ -596,4 +596,47 @@ export class Agent {
       await listener(event, signal)
     }
   }
+}
+
+function agentErrorMessage(error: unknown): string {
+  const messages: string[] = []
+  collectErrorMessages(error, messages, new WeakSet<object>())
+  return dedupeMessages(messages).join('\nCaused by: ') || 'Unknown error'
+}
+
+function collectErrorMessages(error: unknown, messages: string[], seen: WeakSet<object>, depth = 0): void {
+  if (error === undefined || error === null || depth > 12) return
+  if (typeof error === 'string') {
+    messages.push(error)
+    return
+  }
+  if (typeof error !== 'object') {
+    messages.push(String(error))
+    return
+  }
+  if (seen.has(error)) return
+  seen.add(error)
+
+  if (error instanceof Error && error.message) messages.push(error.message)
+  const record = error as Record<string, unknown>
+  for (const key of ['code', 'constraint', 'detail', 'hint', 'table', 'column']) {
+    const value = record[key]
+    if (typeof value === 'string' && value.trim()) messages.push(`${key}: ${value}`)
+  }
+  for (const key of ['cause', 'error', 'response', 'data']) {
+    const nested = record[key]
+    if (nested && nested !== error) collectErrorMessages(nested, messages, seen, depth + 1)
+  }
+}
+
+function dedupeMessages(messages: string[]): string[] {
+  const seen = new Set<string>()
+  const result: string[] = []
+  for (const message of messages) {
+    const normalized = message.trim()
+    if (!normalized || seen.has(normalized)) continue
+    seen.add(normalized)
+    result.push(normalized)
+  }
+  return result
 }

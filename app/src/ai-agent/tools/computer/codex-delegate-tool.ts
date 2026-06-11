@@ -5,9 +5,8 @@ import { buildTool } from '../build-tool'
 import type { ComputerToolContext } from './context'
 import { truncateOutput } from './format'
 import { materializeRuntimeCredential } from '@/runtime-credentials/service'
+import { CODEX_AUTH_PATH, CODEX_CONFIG_PATH, CODEX_HOME } from './runtime-credential-materialization'
 
-const CODEX_AUTH_PATH = 'temp/.codex/auth.json'
-const CODEX_HOME = '/workspace/temp/.codex'
 const CODEX_RUNS_DIR = 'temp/codex-runs'
 
 const CodexDelegateParams = z.object({
@@ -41,6 +40,7 @@ interface CodexDelegateDetails {
   lastMessagePath: string
   lastMessage?: string | null
   credentialMaterialized: boolean
+  configMaterialized: boolean
 }
 
 export function createCodexDelegateTool(
@@ -50,7 +50,7 @@ export function createCodexDelegateTool(
     name: 'codex_delegate',
     label: 'Codex Delegate',
     description:
-      'Delegate a coding task to the Codex CLI inside this agent computer. The tool materializes the agent/default Codex auth.json from encrypted DB credentials into /workspace/temp before execution.',
+      'Delegate a coding task to the Codex CLI inside this agent computer. The tool materializes the agent/default Codex auth.json and config.toml from encrypted DB credentials into /workspace/temp before execution.',
     schema: CodexDelegateParams,
     executionMode: 'sequential',
     isDestructive: true,
@@ -85,10 +85,19 @@ export function createCodexDelegateTool(
             errorMessage: 'Codex auth is not configured for skill/codex/auth_json.',
             lastMessagePath: absoluteLastMessagePath,
             lastMessage: null,
-            credentialMaterialized: false
+            credentialMaterialized: false,
+            configMaterialized: false
           }
         }
       }
+      const codexConfig = await materializeRuntimeCredential({
+        computer,
+        agentUid: context.agentUid,
+        consumerKind: 'skill',
+        consumerName: 'codex',
+        credentialName: 'config_toml',
+        path: CODEX_CONFIG_PATH
+      })
 
       await computer.writeFiles([{ path: promptPath, content: params.prompt, mode: 0o600 }], { signal })
       const command = buildCodexCommand({
@@ -125,7 +134,8 @@ export function createCodexDelegateTool(
             sessionId: started.cmdId,
             lastMessagePath: absoluteLastMessagePath,
             lastMessage: null,
-            credentialMaterialized: true
+            credentialMaterialized: true,
+            configMaterialized: Boolean(codexConfig)
           }
         }
       }
@@ -162,7 +172,8 @@ export function createCodexDelegateTool(
           errorMessage: status === 'failed' ? `Codex exited with code ${result.exitCode}.` : undefined,
           lastMessagePath: absoluteLastMessagePath,
           lastMessage,
-          credentialMaterialized: true
+          credentialMaterialized: true,
+          configMaterialized: Boolean(codexConfig)
         }
       }
     }

@@ -184,6 +184,23 @@ describe('LLM provider service', () => {
     })
   })
 
+  it('uses a finite default provider timeout when none is configured', async () => {
+    const id = providerId('default_timeout')
+    await createLlmProvider({
+      providerId: id,
+      piProvider: catalog.provider,
+      apiKey: 'sk-db'
+    })
+
+    const resolved = await resolveLlmProviderModelProfile({
+      providerId: id,
+      model: catalog.model.id,
+      reasoning: 'medium'
+    })
+
+    expect(resolved.options.timeoutMs).toBe(180_000)
+  })
+
   it('rejects non-secret providerOptions headers that look like credentials', async () => {
     await expect(
       createLlmProvider({

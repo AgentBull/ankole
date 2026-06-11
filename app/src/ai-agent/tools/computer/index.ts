@@ -8,6 +8,7 @@ import { createInteractiveTerminalTool } from './interactive-terminal-tool'
 import { createPatchTool } from './patch-tool'
 import { createProcessTool } from './process-tool'
 import { createReadFileTool } from './read-file-tool'
+import { materializeComputerRuntimeCredentials } from './runtime-credential-materialization'
 import { createSendFileTool, type SendFileRunBinding } from './send-file-tool'
 import { createTerminalTool } from './terminal-tool'
 
@@ -31,8 +32,9 @@ export interface ComputerToolsDeps {
  */
 export function createComputerTools(binding: ComputerToolsBinding, deps: ComputerToolsDeps): AgentTool<any>[] {
   let computerPromise: Promise<Computer> | undefined
+  let credentialsPromise: Promise<Computer> | undefined
   let lastResolvedWorker: ResolveSessionResponse['worker'] | undefined
-  const getComputer = (signal?: AbortSignal): Promise<Computer> => {
+  const getComputerSession = (signal?: AbortSignal): Promise<Computer> => {
     computerPromise ??= Computer.getOrCreate({
       agentUid: binding.agentUid,
       resolveWorker: async (agentUid, resolveSignal) => {
@@ -59,6 +61,18 @@ export function createComputerTools(binding: ComputerToolsBinding, deps: Compute
       throw error
     })
     return computerPromise
+  }
+  const getComputer = (signal?: AbortSignal): Promise<Computer> => {
+    credentialsPromise ??= getComputerSession(signal)
+      .then(async computer => {
+        await materializeComputerRuntimeCredentials({ computer, agentUid: binding.agentUid })
+        return computer
+      })
+      .catch(error => {
+        credentialsPromise = undefined
+        throw error
+      })
+    return credentialsPromise
   }
   const context: ComputerToolContext = {
     agentUid: binding.agentUid,

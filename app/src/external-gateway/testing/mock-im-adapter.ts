@@ -85,6 +85,7 @@ export interface MockImStreamingCardRecord {
   messageId: string
   threadId: string
   updates: string[]
+  statusUpdates: string[]
   finalText?: string
   finalStatus?: 'completed' | 'cancelled' | 'failed'
 }
@@ -426,7 +427,7 @@ export class MockImPlatform {
     const channelId = threadId.split(':').slice(0, 2).join(':')
     const cardId = `${adapterName}-card-${n}`
     const messageId = `${adapterName}-card-msg-${n}`
-    const record: MockImStreamingCardRecord = { cardId, messageId, threadId, updates: [] }
+    const record: MockImStreamingCardRecord = { cardId, messageId, threadId, updates: [], statusUpdates: [] }
     this.streamingCards.push(record)
     const now = new Date()
     this.messages.set(messageKey(channelId, messageId), {
@@ -448,16 +449,27 @@ export class MockImPlatform {
       const stored = this.messages.get(messageKey(channelId, messageId))
       if (stored) stored.text = text
     }
+    let latestStatusText = ''
+    let latestText = ''
+    const render = () => [latestStatusText, latestText].filter(Boolean).join('\n\n')
     return {
       cardId,
       messageId,
       update: async (fullText: string) => {
         record.updates.push(fullText)
-        setText(fullText)
+        latestText = fullText
+        setText(render())
+      },
+      updateStatus: async (statusText: string) => {
+        record.statusUpdates.push(statusText)
+        latestStatusText = statusText
+        setText(render())
       },
       finish: async (finalText, status) => {
         record.finalText = finalText
         record.finalStatus = status
+        latestStatusText = ''
+        latestText = finalText
         setText(finalText)
         this.outbound.push({ op: 'stream-card', messageId, text: finalText, threadId })
         return { delivered: true, finalTextConfirmed: true }

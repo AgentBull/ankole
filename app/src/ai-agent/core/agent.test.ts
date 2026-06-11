@@ -1,0 +1,51 @@
+import { describe, expect, it } from 'bun:test'
+import type { Model } from '@earendil-works/pi-ai'
+import { Agent } from './agent'
+
+const TEST_MODEL = {
+  id: 'test-model',
+  name: 'Test model',
+  api: 'test',
+  provider: 'test',
+  baseUrl: '',
+  reasoning: false,
+  input: ['text'],
+  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+  contextWindow: 8_000,
+  maxTokens: 1_000
+} satisfies Model<any>
+
+describe('Agent', () => {
+  it('preserves nested failure causes when lifecycle listeners fail', async () => {
+    const cause = Object.assign(new Error('duplicate key value violates unique constraint'), {
+      code: '23505',
+      constraint: 'ai_agent_llm_turns_lease_call_index',
+      detail: 'Key (conversation_id, lease_id, call_index) already exists.'
+    })
+    const error = Object.assign(new Error('Failed query: insert into "ai_agent_llm_turns" ...'), { cause })
+    const agent = new Agent({
+      initialState: {
+        model: TEST_MODEL,
+        messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }], timestamp: Date.now() }],
+        thinkingLevel: 'off'
+      },
+      beforeLlmCall: async () => {
+        throw error
+      },
+      streamFn: (() => {
+        throw new Error('stream should not be called')
+      }) as never
+    })
+
+    await agent.continue()
+
+    const assistant = agent.state.messages.at(-1)
+    expect(assistant?.role).toBe('assistant')
+    if (assistant?.role !== 'assistant') throw new Error('expected assistant message')
+    expect(assistant?.stopReason).toBe('error')
+    expect(assistant?.errorMessage).toContain('Failed query: insert into "ai_agent_llm_turns"')
+    expect(assistant?.errorMessage).toContain('duplicate key value violates unique constraint')
+    expect(assistant?.errorMessage).toContain('constraint: ai_agent_llm_turns_lease_call_index')
+    expect(assistant?.errorMessage).toContain('detail: Key (conversation_id, lease_id, call_index) already exists.')
+  })
+})

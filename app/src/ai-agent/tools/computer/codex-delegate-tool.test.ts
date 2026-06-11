@@ -9,13 +9,22 @@ const { DB } = await import('@/common/database')
 const { Principals } = await import('@/common/db-schema')
 const { createAgent } = await import('@/principals/agents/service')
 const { setRuntimeCredential } = await import('@/runtime-credentials/service')
+const { setAgentSkillEnabled, syncBuiltinLibraryFromAppDirectory } = await import('@/ai-agent/library/service')
 const { createCodexDelegateTool } = await import('./codex-delegate-tool')
 const { createComputerTools } = await import('.')
+const { materializeComputerRuntimeCredentials } = await import('./runtime-credential-materialization')
 const suffix = `${Date.now()}_${Math.random().toString(36).slice(2)}`.toLowerCase()
 const agentUid = `codex_tool_${suffix}`
 
 beforeAll(async () => {
+  await syncBuiltinLibraryFromAppDirectory({ force: true })
   await createAgent({ uid: agentUid })
+  await setAgentSkillEnabled({
+    agentUid,
+    skillName: 'github-auth',
+    enabled: true,
+    reason: 'computer materialization test'
+  })
   await setRuntimeCredential({
     consumerKind: 'skill',
     consumerName: 'codex',
@@ -23,6 +32,22 @@ beforeAll(async () => {
     scope: { kind: 'agent', agentUid },
     payload: `{"refresh_token":"secret-${suffix}"}`,
     payloadMediaType: 'application/json'
+  })
+  await setRuntimeCredential({
+    consumerKind: 'skill',
+    consumerName: 'codex',
+    credentialName: 'config_toml',
+    scope: { kind: 'agent', agentUid },
+    payload: `model = "gpt-test-${suffix}"\n`,
+    payloadMediaType: 'text/x-toml'
+  })
+  await setRuntimeCredential({
+    consumerKind: 'skill',
+    consumerName: 'github',
+    credentialName: 'env',
+    scope: { kind: 'agent', agentUid },
+    payload: `GITHUB_TOKEN=github-secret-${suffix}\n`,
+    payloadMediaType: 'text/plain'
   })
 })
 
@@ -73,7 +98,14 @@ describe('codex_delegate tool', () => {
         mode: 0o600
       }
     ])
-    expect(writes[1]?.[0]).toMatchObject({ path: expect.stringContaining('temp/codex-runs/') })
+    expect(writes[1]).toEqual([
+      {
+        path: 'temp/.codex/config.toml',
+        content: `model = "gpt-test-${suffix}"\n`,
+        mode: 0o600
+      }
+    ])
+    expect(writes[2]?.[0]).toMatchObject({ path: expect.stringContaining('temp/codex-runs/') })
     expect(commands).toHaveLength(1)
     expect(commands[0]).toMatchObject({
       cmd: 'bash',
@@ -86,6 +118,44 @@ describe('codex_delegate tool', () => {
     expect(args[1]).toContain('--dangerously-bypass-approvals-and-sandbox')
     expect(args[1]).toContain("--cd' '/workspace/user-files/repo'")
     expect(result.details?.lastMessage).toBe('Codex finished')
+    expect(result.details?.configMaterialized).toBe(true)
+  })
+
+  it('materializes shared computer runtime credentials for command-oriented skills', async () => {
+    const writes: Array<{ path: string; content: string; mode?: number }[]> = []
+    const computer = {
+      async writeFiles(files: Array<{ path: string; content: string; mode?: number }>) {
+        writes.push(files)
+      }
+    } as unknown as Computer
+
+    const result = await materializeComputerRuntimeCredentials({ computer, agentUid })
+
+    expect(result).toMatchObject({ codexAuth: true, codexConfig: true, githubEnv: true })
+    expect(result.libraryFiles).toBeGreaterThan(0)
+    expect(writes.flat()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: 'library-containers/skills/github-auth/scripts/gh-env.sh',
+          mode: 0o644
+        }),
+        {
+          path: 'temp/.codex/auth.json',
+          content: `{"refresh_token":"secret-${suffix}"}`,
+          mode: 0o600
+        },
+        {
+          path: 'temp/.codex/config.toml',
+          content: `model = "gpt-test-${suffix}"\n`,
+          mode: 0o600
+        },
+        {
+          path: 'temp/.bullx/github.env',
+          content: `GITHUB_TOKEN=github-secret-${suffix}\n`,
+          mode: 0o600
+        }
+      ])
+    )
   })
 
   it('registers detached Codex runs with process-compatible session ids', async () => {

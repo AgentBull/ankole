@@ -69,6 +69,11 @@ export interface EffectiveSkillContent extends EffectiveSkillSummary {
   appendContent?: string
 }
 
+export interface LibraryContainerFile {
+  content: string
+  virtualPath: string
+}
+
 interface BuiltinSkillSource {
   name: string
   description: string
@@ -442,6 +447,58 @@ export async function getEffectiveSkillContent(input: {
     baseContent,
     appendContent
   }
+}
+
+export async function listEffectiveLibraryContainerFiles(
+  agentUid: string,
+  executor: QueryExecutor = DB
+): Promise<LibraryContainerFile[]> {
+  const files: LibraryContainerFile[] = []
+
+  const agentRows = await executor
+    .select({
+      virtualPath: AgentLibraryContainerEntries.virtualPath,
+      content: AgentLibraryContainerEntries.contentText
+    })
+    .from(AgentLibraryContainerEntries)
+    .where(
+      and(
+        eq(AgentLibraryContainerEntries.agentUid, agentUid),
+        eq(AgentLibraryContainerEntries.enabled, true),
+        isNull(AgentLibraryContainerEntries.deletedAt),
+        sql`${AgentLibraryContainerEntries.contentText} is not null`,
+        sql`(${AgentLibraryContainerEntries.virtualPath} = ${SOUL_FILE} or ${AgentLibraryContainerEntries.virtualPath} like 'skills/%/AGENT_APPEND.md')`
+      )
+    )
+    .orderBy(asc(AgentLibraryContainerEntries.virtualPath))
+  for (const row of agentRows) {
+    if (row.content !== null) files.push({ virtualPath: row.virtualPath, content: row.content })
+  }
+
+  const summaries = await listEffectiveSkills(agentUid, executor)
+  if (summaries.length === 0) return files
+
+  const skillById = new Map(summaries.map(skill => [skill.id, skill]))
+  const skillFiles = await executor
+    .select()
+    .from(LibrarySkillFiles)
+    .where(
+      inArray(
+        LibrarySkillFiles.skillId,
+        summaries.map(skill => skill.id)
+      )
+    )
+    .orderBy(asc(LibrarySkillFiles.virtualPath))
+  for (const file of skillFiles) {
+    const skill = skillById.get(file.skillId)
+    if (!skill) continue
+    files.push({
+      virtualPath: `skills/${skill.name}/${file.virtualPath}`,
+      content: file.contentText
+    })
+  }
+
+  return files
 }
 
 export async function skillsForSystemPrompt(agentUid: string, executor: QueryExecutor = DB): Promise<Skill[]> {

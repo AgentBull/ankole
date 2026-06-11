@@ -300,7 +300,7 @@ describe('AIAgent pi-ai runtime', () => {
     expect(turns.filter(row => row.kind === 'generation')).toHaveLength(1)
   })
 
-  it('compresses with the light model profile and edits one progress message', async () => {
+  it('compresses with the light model profile and emits one final command feedback', async () => {
     const setup = await startAiAgent(
       'compress',
       [
@@ -321,12 +321,11 @@ describe('AIAgent pi-ai runtime', () => {
     await eventually(() => expect(setup.platform.outbound.filter(event => event.text === 'answer two')).toHaveLength(1))
     await dm.say({ id: 'compress-command', text: '/compress' })
 
-    await eventually(() => expect(setup.platform.outbound.some(event => event.op === 'edit')).toBe(true))
-    const edit = setup.platform.outbound.find(event => event.op === 'edit')!
-    expect(edit.text).toBe('Conversation compressed.')
-    expect(
-      setup.platform.outbound.some(event => event.op === 'post' && event.text === 'Compressing conversation...')
-    ).toBe(true)
+    await eventually(() =>
+      expect(setup.platform.outbound.filter(event => event.text === 'Conversation compressed.')).toHaveLength(1)
+    )
+    expect(setup.platform.outbound.some(event => event.op === 'edit')).toBe(false)
+    expect(setup.platform.outbound.some(event => event.text === 'Compressing conversation...')).toBe(false)
 
     const [conversation] = await conversationsFor(setup.agentUid)
     const summaries = (await messagesFor(conversation!.id)).filter(row => row.kind === 'summary')
@@ -354,6 +353,36 @@ describe('AIAgent pi-ai runtime', () => {
     expect((compressionTurn.providerMetadata as JsonObject | undefined)?.pi_provider).toBe(
       setup.profile.lightModel.config.piProvider
     )
+  })
+
+  it('compresses from a mentioned group command without posting progress chatter', async () => {
+    const setup = await startAiAgent(
+      'compress_group',
+      [
+        fauxAssistantMessage('group answer one'),
+        fauxAssistantMessage('group answer two'),
+        fauxAssistantMessage('group summary text'),
+        fauxAssistantMessage('group turn prefix summary')
+      ],
+      { compressionKeepRecentTokens: 1 }
+    )
+    const group = setup.platform.group(setup.conversationOptions({ channelId: `${setup.adapterName}:group` }))
+
+    await group.say({ id: 'm1', isMention: true, text: '@Agent first group message that is long enough' })
+    await eventually(() =>
+      expect(setup.platform.outbound.filter(event => event.text === 'group answer one')).toHaveLength(1)
+    )
+    await group.say({ id: 'm2', isMention: true, text: '@Agent second group message that is long enough' })
+    await eventually(() =>
+      expect(setup.platform.outbound.filter(event => event.text === 'group answer two')).toHaveLength(1)
+    )
+    await group.say({ id: 'compress-command', isMention: true, text: '@Agent /compress' })
+
+    await eventually(() =>
+      expect(setup.platform.outbound.filter(event => event.text === 'Conversation compressed.')).toHaveLength(1)
+    )
+    expect(setup.platform.outbound.some(event => event.op === 'edit')).toBe(false)
+    expect(setup.platform.outbound.some(event => event.text === 'Compressing conversation...')).toBe(false)
   })
 
   it('retries the latest exchange without removing the original user trigger', async () => {
@@ -516,7 +545,9 @@ describe('AIAgent pi-ai runtime', () => {
       expect(compressed.platform.outbound.some(event => event.text === 'second answer')).toBe(true)
     )
     await compressedGroup.say({ id: 'compress-command', isMention: true, text: '/compress' })
-    await eventually(() => expect(compressed.platform.outbound.some(event => event.op === 'edit')).toBe(true))
+    await eventually(() =>
+      expect(compressed.platform.outbound.some(event => event.text === 'Conversation compressed.')).toBe(true)
+    )
     await compressedGroup.recall('m1')
     await Bun.sleep(120)
 
@@ -1524,7 +1555,7 @@ describe('AIAgent pi-ai runtime', () => {
     expect(turns.at(-1)?.status).toBe('cancelled')
   })
 
-  it('does not start /compress when edit is unsupported by the adapter', async () => {
+  it('does not require message edit support for /compress feedback', async () => {
     const setup = await startAiAgent('compress_unsupported', [], {
       adapterCapabilities: mockImCapabilitiesWithout('outbound', 'edit_message')
     })
@@ -1532,7 +1563,9 @@ describe('AIAgent pi-ai runtime', () => {
 
     await dm.say({ id: 'compress-command', text: '/compress' })
     await eventually(() =>
-      expect(setup.platform.outbound.some(event => event.text?.includes('message edit is unsupported'))).toBe(true)
+      expect(
+        setup.platform.outbound.some(event => event.text === 'Conversation already fits in the active context.')
+      ).toBe(true)
     )
     expect(setup.platform.outbound.some(event => event.op === 'edit')).toBe(false)
     const [conversation] = await conversationsFor(setup.agentUid)
@@ -1830,6 +1863,37 @@ describe('AIAgent pi-ai runtime', () => {
     expect(execution?.idempotency_key).toBe(`llm-turn:${toolCallTurn!.id}:tool-call:${toolResult?.toolCallId}`)
   })
 
+  it('continues after a visible planning message that only writes active todos', async () => {
+    const setup = await startAiAgent('todo_planning_continue', [
+      fauxAssistantMessage([
+        { type: 'text', text: 'I will make a plan first.' },
+        fauxToolCall('todo', {
+          todos: [
+            { id: 'inspect', content: 'Inspect migration files', status: 'in_progress' },
+            { id: 'pr', content: 'Open the pull request', status: 'pending' }
+          ]
+        })
+      ]),
+      fauxAssistantMessage('final answer after plan')
+    ])
+    const dm = setup.platform.dm(setup.conversationOptions())
+
+    await dm.say({ id: 'm1', text: '@Agent migrate the repo' })
+    await eventually(() =>
+      expect(
+        setup.platform.outbound.some(event => event.op === 'post' && event.text === 'final answer after plan')
+      ).toBe(true)
+    )
+    expect(
+      setup.platform.outbound.some(event => event.op === 'post' && event.text === 'I will make a plan first.')
+    ).toBe(false)
+
+    const [conversation] = await conversationsFor(setup.agentUid)
+    const turns = (await llmTurnsFor(conversation!.id)).filter(row => row.kind === 'generation')
+    expect(turns).toHaveLength(2)
+    expect(turns.map(row => row.callIndex)).toEqual([0, 1])
+  })
+
   it('schedules check_back_later as a one-shot isolated wakeup and routes visible output back to source', async () => {
     const setup = await startAiAgent('check_back_later', [
       fauxAssistantMessage([
@@ -2026,6 +2090,35 @@ describe('AIAgent pi-ai runtime', () => {
     const todoEdits = setup.platform.outbound.filter(event => event.op === 'edit' && event.text?.startsWith('📋'))
     expect(todoPosts).toHaveLength(1)
     expect(todoEdits.length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('routes todo progress into the active streaming card status area', async () => {
+    const setup = await startAiAgent(
+      'todo_progress_streaming_card',
+      [
+        fauxAssistantMessage([
+          fauxToolCall('todo', {
+            todos: [
+              { id: '1', content: 'Inspect repo', status: 'pending' },
+              { id: '2', content: 'Push branch', status: 'pending' }
+            ]
+          })
+        ]),
+        fauxAssistantMessage('plan ready')
+      ],
+      { enableStreaming: true }
+    )
+    const dm = setup.platform.dm(setup.conversationOptions())
+
+    await dm.say({ id: 'm1', text: '@Agent plan this' })
+    await eventually(() => expect(setup.platform.streamingCards).toHaveLength(1))
+    const card = setup.platform.streamingCards[0]!
+    await eventually(() => expect(card.statusUpdates).toContain('📋 todo: "planning 2 task(s)"'))
+    await eventually(() => expect(card.statusUpdates).toContain('📋 plan 2 task(s)'))
+    await eventually(() => expect(setup.platform.outbound.some(event => event.text === 'plan ready')).toBe(true))
+
+    expect(setup.platform.outbound.some(event => event.text?.includes('📋'))).toBe(false)
+    expect(card.finalText).toBe('plan ready')
   })
 
   it('drops todo progress on non-editable IM surfaces', async () => {
@@ -2286,6 +2379,31 @@ describe('AIAgent pi-ai runtime', () => {
     await eventually(() => expect(card.finalStatus).toBe('failed'))
     expect(card.finalText).toBe('模型请求超时，请稍后重试。')
     expect(card.finalText).not.toContain('continue searching')
+  })
+
+  it('summarizes internal database errors in streaming cards without exposing raw SQL', async () => {
+    const setup = await startAiAgent(
+      'streaming_card_internal_error',
+      [
+        fauxAssistantMessage('', {
+          errorMessage:
+            'Failed query: insert into "ai_agent_llm_turns" ("id", "agent_uid", "conversation_id") values (...)' +
+            '\nCaused by: duplicate key value violates unique constraint' +
+            '\nconstraint: ai_agent_llm_turns_lease_call_index',
+          stopReason: 'error'
+        })
+      ],
+      { enableStreaming: true }
+    )
+    const dm = setup.platform.dm(setup.conversationOptions())
+
+    await dm.say({ id: 'm1', text: '@Agent run' })
+    await eventually(() => expect(setup.platform.streamingCards).toHaveLength(1))
+    const card = setup.platform.streamingCards[0]!
+    await eventually(() => expect(card.finalStatus).toBe('failed'))
+    expect(card.finalText).toBe('内部运行错误：数据库写入失败。详细错误已记录，请查看服务日志。')
+    expect(card.finalText).not.toContain('insert into')
+    expect(card.finalText).not.toContain('ai_agent_llm_turns')
   })
 
   it('falls back to a single post when the adapter does not support streaming', async () => {

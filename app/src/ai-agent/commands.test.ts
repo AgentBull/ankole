@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { commandEditIntent, commandFeedbackIntent } from './commands'
+import { commandFeedbackIntent } from './commands'
 
 describe('commandFeedbackIntent', () => {
   const base = { commandEventId: 'evt-1', providerRoomId: 'room', providerThreadId: 'thread', text: 'Stopped.' }
@@ -35,20 +35,5 @@ describe('commandFeedbackIntent', () => {
       }
     })
     expect(groupWithoutCards).toMatchObject({ operation: 'post', finalPayload: { text: 'Stopped.' } })
-  })
-
-  it('opts command edits into post fallback for provider edit-window failures', () => {
-    expect(
-      commandEditIntent({
-        commandEventId: 'evt-1',
-        providerRoomId: 'room',
-        providerThreadId: 'thread',
-        targetOutboundKey: 'feedback',
-        text: 'Done.'
-      })
-    ).toMatchObject({
-      operation: 'edit',
-      finalPayload: { editFallback: 'post', targetOutboundKey: 'feedback', text: 'Done.' }
-    })
   })
 })

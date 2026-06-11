@@ -157,7 +157,8 @@ function supportsAmbientRecognizerStructuredOutput(model: {
 }): boolean {
   if (model.api === 'openai-responses' || model.api === 'azure-openai-responses') return true
   if (model.api !== 'openai-completions') return false
-  if (model.provider === 'openai' || model.provider === 'openrouter' || model.provider === 'vercel-ai-gateway')
+  if (model.provider === 'openai' || model.provider === 'openrouter' || model.provider === 'vercel-ai-gateway') {
     return true
+  }
   return Boolean(model.baseUrl?.includes('api.openai.com') || model.baseUrl?.includes('openrouter.ai'))
 }

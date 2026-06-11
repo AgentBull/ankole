@@ -44,7 +44,7 @@ export function createProcessTool(context: ComputerToolContext): AgentTool<typeo
     name: 'process',
     label: 'Process',
     description:
-      'Manage background processes started with terminal(background=true): list them, poll status + recent output, fetch the full log, wait for exit, or kill. (stdin write/submit/close are not supported in this computer version.)',
+      'Manage background processes started with terminal(background=true). Use list for tracked sessions, poll for status and recent output, log for full output, wait to block until exit, and kill to terminate. Use this after starting servers, watchers, long builds, deploys, test suites, or CI pollers in the background. stdin write/submit/close are not supported in this computer version; use interactive_terminal for interactive programs.',
     schema: ProcessParams,
     executionMode: 'sequential',
     isDestructive: true,

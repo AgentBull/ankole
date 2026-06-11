@@ -103,6 +103,39 @@ describe('LarkStreamingCardSession', () => {
     expect(finish).toMatchObject({ delivered: true, finalTextConfirmed: true })
   })
 
+  it('updates transient tool status inside the same card without mixing it into the final answer', async () => {
+    const calls: RecordedCall[] = []
+    const session = await createLarkStreamingCardSession(fakeConnection(calls), {
+      chatId: 'oc_x',
+      intervalMs: 0,
+      bufferThreshold: 1
+    })
+
+    await session.updateStatus?.('📋 todo: "planning 2 task(s)"')
+    await session.update('Working draft')
+    const finish = await session.finish('Final answer', 'completed')
+
+    const statusUpdates = calls.filter(c => c.kind === 'cardElement.update' && c.path?.element_id === 'status')
+    expect(JSON.parse(statusUpdates[0]!.data.element)).toMatchObject({
+      tag: 'div',
+      element_id: 'status',
+      text: { content: '📋 todo: "planning 2 task(s)"' }
+    })
+    expect(JSON.parse(statusUpdates.at(-1)!.data.element)).toMatchObject({
+      tag: 'markdown',
+      element_id: 'status',
+      content: ''
+    })
+
+    const contentUpdates = calls.filter(c => c.kind === 'cardElement.update' && c.path?.element_id === 'content')
+    expect(JSON.parse(contentUpdates.at(-1)!.data.element)).toMatchObject({
+      tag: 'markdown',
+      element_id: 'content',
+      content: 'Final answer'
+    })
+    expect(finish).toMatchObject({ delivered: true, finalTextConfirmed: true })
+  })
+
   it('degrades silently and never throws when CardKit calls fail', async () => {
     const failing = {
       rawClient: {
@@ -167,7 +200,7 @@ describe('LarkStreamingCardSession', () => {
     await session.update("I'll")
     const finish = await session.finish('Final answer', 'completed')
 
-    const updates = calls.filter(c => c.kind === 'cardElement.update')
+    const updates = calls.filter(c => c.kind === 'cardElement.update' && c.path?.element_id === 'content')
     expect(updates).toHaveLength(2)
     expect(JSON.parse(updates[1]!.data.element)).toMatchObject({
       tag: 'markdown',

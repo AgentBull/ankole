@@ -6,6 +6,7 @@ import type {
 import { asRecord, assertLarkSuccess, optionalString } from './lark-helpers'
 import type { SharedLarkConnection } from './connection'
 
+const STREAMING_STATUS_ELEMENT_ID = 'status'
 const STREAMING_ELEMENT_ID = 'content'
 const STREAM_THINKING = '思考中…'
 const STREAM_EMPTY = '（无内容）'
@@ -54,13 +55,18 @@ class LarkStreamingCardSession implements BullXStreamingCardHandle {
   private contentReady = false
   private degraded = false
   private latestText = ''
+  private latestStatusText = ''
+  private lastWrittenStatusText = ''
   private flushTimer: ReturnType<typeof setTimeout> | null = null
   private tail: Promise<void> = Promise.resolve()
 
   constructor(
     private readonly connection: SharedLarkConnection,
     private readonly options: LarkStreamingCardOptions
-  ) {}
+  ) {
+    this.latestStatusText = options.initialText ?? STREAM_THINKING
+    this.lastWrittenStatusText = this.latestStatusText
+  }
 
   async start(): Promise<void> {
     try {
@@ -108,11 +114,21 @@ class LarkStreamingCardSession implements BullXStreamingCardHandle {
     return this.tail
   }
 
+  async updateStatus(statusText: string): Promise<void> {
+    this.latestStatusText = statusText.trim()
+    this.tail = this.tail.then(() => this.flushStatus().then(() => undefined))
+    return this.tail
+  }
+
   async finish(finalText: string, status: BullXStreamingCardStatus): Promise<BullXStreamingCardFinishResult> {
     const display = finalText.trim() ? finalText : fallbackForStatus(status)
+    this.latestStatusText = ''
     this.latestText = display || STREAM_EMPTY
     this.clearFlushTimer()
-    this.tail = this.tail.then(() => this.flush(true).then(() => undefined))
+    this.tail = this.tail.then(async () => {
+      await this.flushStatus()
+      await this.flush(true)
+    })
     await this.tail
     const delivered = Boolean(this.cardId && this.messageId)
     const finalTextConfirmed = delivered && this.lastWrittenText === this.latestText
@@ -196,6 +212,28 @@ class LarkStreamingCardSession implements BullXStreamingCardHandle {
       }
     })
     assertLarkSuccess(response, operation)
+  }
+
+  private async flushStatus(): Promise<boolean> {
+    if (this.degraded || !this.cardId) return false
+    if (this.latestStatusText === this.lastWrittenStatusText) return true
+    try {
+      this.sequence += 1
+      const response = await this.connection.rawClient.cardkit.v1.cardElement.update({
+        path: { card_id: this.cardId, element_id: STREAMING_STATUS_ELEMENT_ID },
+        data: {
+          element: JSON.stringify(statusElement(this.latestStatusText)),
+          sequence: this.sequence,
+          uuid: crypto.randomUUID()
+        }
+      })
+      assertLarkSuccess(response, 'cardkit card status update')
+      this.lastWrittenStatusText = this.latestStatusText
+      return true
+    } catch (error) {
+      this.options.logger?.warn?.('lark streaming card status update failed', error)
+      return false
+    }
   }
 
   private isDue(text: string): boolean {
@@ -290,6 +328,31 @@ function escapeInlineCode(text: string): string {
   return text.replace(/`/g, '\\`')
 }
 
+function statusElement(statusText: string): Record<string, unknown> {
+  const text = statusText.trim()
+  if (!text) {
+    return {
+      tag: 'markdown',
+      content: '',
+      margin: '0px 0px 0px 0px',
+      element_id: STREAMING_STATUS_ELEMENT_ID
+    }
+  }
+  return {
+    tag: 'div',
+    text: {
+      tag: 'plain_text',
+      content: text,
+      text_size: 'notation',
+      text_align: 'left',
+      text_color: 'grey'
+    },
+    icon: { tag: 'standard_icon', token: 'ai-common_colorful', color: 'grey' },
+    margin: '0px 0px 0px 0px',
+    element_id: STREAMING_STATUS_ELEMENT_ID
+  }
+}
+
 function streamingCardDefinition(initialText: string): Record<string, unknown> {
   return {
     schema: '2.0',
@@ -311,16 +374,12 @@ function streamingCardDefinition(initialText: string): Record<string, unknown> {
       vertical_align: 'top',
       padding: '12px 12px 12px 12px',
       elements: [
+        statusElement(initialText),
         {
-          tag: 'div',
-          text: {
-            tag: 'plain_text',
-            content: initialText,
-            text_size: 'notation',
-            text_align: 'left',
-            text_color: 'grey'
-          },
-          icon: { tag: 'standard_icon', token: 'ai-common_colorful', color: 'grey' },
+          tag: 'markdown',
+          content: '',
+          text_align: 'left',
+          text_size: 'normal_v2',
           margin: '0px 0px 0px 0px',
           element_id: STREAMING_ELEMENT_ID
         }

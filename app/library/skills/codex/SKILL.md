@@ -30,9 +30,10 @@ Requires the codex CLI and a git repository.
 ## Prerequisites
 
 - Codex installed: `npm install -g @openai/codex`
-- OpenAI auth configured. In BullX, the preferred path is the encrypted runtime
-  credential `skill/codex/auth_json`, materialized by `codex_delegate` to
-  `/workspace/temp/.codex/auth.json`.
+- OpenAI auth configured. In BullX, the preferred path is encrypted runtime
+  credentials materialized under `~/.codex` in BullX Computer:
+  `skill/codex/auth_json` -> `/workspace/temp/.codex/auth.json`, and optional
+  `skill/codex/config_toml` -> `/workspace/temp/.codex/config.toml`.
 - **Must run inside a git repository** — Codex refuses to run outside one
 - Prefer the native `codex_delegate` tool for delegated coding work. It handles
   credential materialization, prompt files, logs, and final-message capture.

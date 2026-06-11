@@ -321,6 +321,22 @@ describe('External Gateway Mock IM adapter integration', () => {
     await eventually(() => expect(setup.platform.outbound.some(event => event.text?.includes('／compress'))).toBe(true))
   })
 
+  it('parses a mentioned slash command after the bot mention prefix', async () => {
+    const setup = await startMockRuntime('mentioned_command_stub')
+    const group = setup.platform.group(setup.conversationOptions({ channelId: `${setup.adapterName}:group` }))
+
+    await group.say({ id: 'mentioned-compress', isMention: true, text: '@Agent /compress' })
+
+    await assertAgentEventCount(setup.agentUid, 'slash_command', 'command', 1)
+    await assertCommandPayload(setup.agentUid, 'mentioned-compress', {
+      argsText: '',
+      name: 'compress',
+      raw: '/compress',
+      status: 'stub'
+    })
+    expect(setup.platform.outbound).toHaveLength(0)
+  })
+
   it('does not wake the agent when an observe_all group message is recalled', async () => {
     const setup = await startMockRuntime('observe_recall', {
       groupMessageMode: 'observe_all'

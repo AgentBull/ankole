@@ -10,6 +10,7 @@ const MAX_LARK_FILE_BYTES = 30 * 1024 * 1024
 const SendFileParams = z.object({
   path: z.string().min(1).describe('File to send from the computer (absolute /workspace/... or relative).'),
   cwd: z.string().optional().describe('Base directory for a relative path (default /workspace).'),
+  workdir: z.string().optional().describe('Alias for cwd, matching command tool terminology.'),
   filename: z.string().optional().describe('Visible filename in IM. Defaults to the basename of path.'),
   mimeType: z.string().optional().describe('Optional MIME type, e.g. text/csv or application/pdf.'),
   message: z.string().optional().describe('Optional short text to send immediately before the file.')
@@ -40,7 +41,7 @@ export function createSendFileTool(
     name: 'send_file',
     label: 'Send File',
     description:
-      'Send a file from the computer back to the current IM conversation. Use this after creating an artifact the user asked you to send, such as CSV, PDF, image, or report files. First create the file under /workspace/user-files, then call send_file with its path.',
+      'Send a file from the computer back to the current IM conversation. Use this after creating an artifact the user asked you to send, such as CSV, PDF, image, or report files. Prefer creating user-visible artifacts under /workspace/user-files, then call send_file with its path. Relative paths resolve from cwd/workdir, defaulting to /workspace.',
     schema: SendFileParams,
     executionMode: 'sequential',
     isDestructive: false,
@@ -65,7 +66,10 @@ export function createSendFileTool(
       }
 
       const computer = await context.getComputer(signal)
-      const buffer = await computer.readFileToBuffer({ path: params.path, cwd: params.cwd }, { signal })
+      const buffer = await computer.readFileToBuffer(
+        { path: params.path, cwd: params.cwd ?? params.workdir },
+        { signal }
+      )
       const filename = sanitizeFilename(params.filename ?? path.basename(params.path))
       if (!buffer) {
         return {

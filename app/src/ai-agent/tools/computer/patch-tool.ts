@@ -20,8 +20,12 @@ const PatchParams = z.object({
     .boolean()
     .optional()
     .describe('Replace all occurrences instead of requiring a unique match (replace mode).'),
-  patch: z.string().optional().describe('V4A patch envelope (patch mode).'),
-  cwd: z.string().optional().describe('Base directory for relative paths (default /workspace).')
+  patch: z
+    .string()
+    .optional()
+    .describe('V4A patch envelope (patch mode): *** Begin Patch, file operations, hunks, then *** End Patch.'),
+  cwd: z.string().optional().describe('Base directory for relative paths (default /workspace).'),
+  workdir: z.string().optional().describe('Alias for cwd, matching command tool terminology.')
 })
 
 type PatchInput = z.infer<typeof PatchParams>
@@ -42,7 +46,7 @@ export function createPatchTool(context: ComputerToolContext): AgentTool<typeof 
     name: 'patch',
     label: 'Patch',
     description:
-      "Targeted edits to files in the computer. Use this instead of sed/awk. REPLACE MODE (default): find a unique old_string and replace it (set replace_all for all matches). PATCH MODE (mode='patch'): apply a V4A multi-file patch. Returns a unified diff.",
+      "Targeted edits to files in the computer. Use this instead of sed/awk/perl/python scripts or heredocs for editing. Returns a unified diff. REPLACE MODE (default): pass path, old_string, and new_string; old_string must match uniquely unless replace_all=true, so include surrounding context lines. Use new_string='' to delete the match. PATCH MODE (mode='patch'): apply a V4A multi-file patch with *** Begin Patch / *** End Patch. Relative paths resolve from cwd/workdir, defaulting to /workspace.",
     schema: PatchParams,
     executionMode: 'sequential',
     isDestructive: true,
@@ -96,7 +100,8 @@ async function applyReplace(
   if (!params.path || params.old_string === undefined || params.new_string === undefined) {
     throw new Error('replace mode requires path, old_string, and new_string')
   }
-  const buffer = await computer.readFileToBuffer({ path: params.path, cwd: params.cwd }, { signal })
+  const cwd = patchCwd(params)
+  const buffer = await computer.readFileToBuffer({ path: params.path, cwd }, { signal })
   if (!buffer) throw new Error(`File not found: ${params.path}`)
 
   const snapshot = snapshotTextFile(buffer)
@@ -124,8 +129,11 @@ async function applyReplace(
     updated = replaceRange(original, match.start, match.end, replacement)
   }
 
-  const { relative, cwd } = splitWritePath(params.path, params.cwd)
-  await computer.fs.writeFiles([{ path: relative, content: restoreTextFile(snapshot, updated) }], { cwd, signal })
+  const target = splitWritePath(params.path, cwd)
+  await computer.fs.writeFiles([{ path: target.relative, content: restoreTextFile(snapshot, updated) }], {
+    cwd: target.cwd,
+    signal
+  })
 
   const count = params.replace_all ? occurrences : 1
   const diff = unifiedDiff(original, updated, params.path)
@@ -154,6 +162,7 @@ async function applyV4A(
   if (!params.patch) throw new Error("patch mode requires 'patch'")
   const operations = parseV4APatch(params.patch)
   if (operations.length === 0) throw new Error('no operations parsed from patch')
+  const cwd = patchCwd(params)
 
   // Phase 1: validate every operation and compute the new file contents up-front.
   const writes: PlannedWrite[] = []
@@ -161,19 +170,19 @@ async function applyV4A(
     if (operation.kind === 'delete' || operation.kind === 'move') {
       throw new Error(`V4A ${operation.kind} is not supported in this computer version (no file delete API)`)
     }
-    const { relative, cwd } = splitWritePath(operation.path, params.cwd)
+    const target = splitWritePath(operation.path, cwd)
     if (operation.kind === 'add') {
       writes.push({
         path: operation.path,
-        relative,
-        cwd,
+        relative: target.relative,
+        cwd: target.cwd,
         snapshot: { hasBom: false, lineEnding: '\n' },
         before: '',
         after: operation.content.replace(/\r\n/g, '\n')
       })
       continue
     }
-    const buffer = await computer.readFileToBuffer({ path: operation.path, cwd: params.cwd }, { signal })
+    const buffer = await computer.readFileToBuffer({ path: operation.path, cwd }, { signal })
     if (!buffer) throw new Error(`File not found: ${operation.path}`)
     const snapshot = snapshotTextFile(buffer)
     let after = snapshot.normalized
@@ -185,7 +194,7 @@ async function applyV4A(
       if (!match) throw new Error(`patch hunk did not match uniquely in ${operation.path}`)
       after = replaceRange(after, match.start, match.end, replacement)
     }
-    writes.push({ path: operation.path, relative, cwd, snapshot, before, after })
+    writes.push({ path: operation.path, relative: target.relative, cwd: target.cwd, snapshot, before, after })
   }
 
   // Phase 2: apply (validation already passed, so partial failure is unlikely).
@@ -201,4 +210,8 @@ async function applyV4A(
     content: [{ type: 'text', text: `Applied V4A patch to ${writes.length} file(s):\n\n${diffs.join('\n\n')}` }],
     details: { mode: 'patch', filesModified: writes.map(write => write.path) }
   }
+}
+
+function patchCwd(params: Pick<PatchInput, 'cwd' | 'workdir'>): string | undefined {
+  return params.cwd ?? params.workdir
 }

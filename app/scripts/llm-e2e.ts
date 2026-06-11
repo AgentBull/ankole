@@ -308,7 +308,7 @@ async function scenarioCompression(setup: RuntimeSetup): Promise<void> {
 
   await group.say({ id: 'compress-command', isMention: true, text: '/compress' })
   await eventually(() => {
-    assert.ok(setup.platform.outbound.some(event => event.op === 'edit' && event.text === 'Conversation compressed.'))
+    assert.ok(setup.platform.outbound.some(event => event.text === 'Conversation compressed.'))
   }, 120_000)
 
   const conversation = await conversationForRoom(roomId)
@@ -341,7 +341,7 @@ async function scenarioResetSession(setup: RuntimeSetup): Promise<void> {
   await group.say({
     id: 'reset-2',
     isMention: true,
-    text: '@Agent /new 之后我们开始一个全新的客户任务：Beta 续费跟进。请确认你从新上下文开始，不要调用工具，简短回复。'
+    text: '@Agent 新会话创建之后我们开始一个全新的客户任务：Beta 续费跟进。请确认你从新上下文开始，不要调用工具，简短回复。'
   })
   await waitForOutboundAfter(setup, beforeSecond)
 
@@ -442,8 +442,8 @@ async function scenarioSoulAndSkills(setup: RuntimeSetup): Promise<void> {
     'LLM_E2E_SKILLS_APPEND_DONE'
   )
 
-  let conversation = await conversationForRoom(roomId)
-  let names = await toolNamesForConversation(conversation.id)
+  const conversation = await conversationForRoom(roomId)
+  const names = await toolNamesForConversation(conversation.id)
   assert.ok(names.includes('skill_view'), `missing skill_view tool result: ${names.join(', ')}`)
   assert.ok(names.includes('skill_append'), `missing skill_append tool result: ${names.join(', ')}`)
 

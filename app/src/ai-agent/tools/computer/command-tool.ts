@@ -9,8 +9,15 @@ const CommandParams = z.object({
   workdir: z
     .string()
     .optional()
-    .describe('Working directory for this command. Relative paths are resolved by the worker from /workspace.'),
-  timeout: z.number().int().min(1).optional().describe('Max seconds to wait for the command (default 60).'),
+    .describe('Working directory for this command. Absolute /workspace/... or relative to /workspace.'),
+  timeout: z
+    .number()
+    .int()
+    .min(1)
+    .optional()
+    .describe(
+      'Max seconds to wait for the command (default 60). High values return immediately if the command is fast.'
+    ),
   env: z.record(z.string(), z.string()).optional().describe('Environment variables for this command only.')
 })
 
@@ -23,7 +30,7 @@ export function createCommandTool(context: ComputerToolContext): AgentTool<typeo
     name: 'command',
     label: 'Command',
     description:
-      'Execute one stateless non-interactive shell command in the computer, similar to Hermes command usage. Use this for curl, python -c, jq, grep, and other one-shot commands that should not depend on or mutate the persistent shell cwd/export/alias state. Use terminal when you intentionally want persistent shell state, process for background sessions, and interactive_terminal for TTY/TUI programs.',
+      'Execute one stateless, non-interactive shell command in the computer. Use this for builds, installs, git, rg/find searches, package managers, scripts, network checks, and other one-shot commands that should not depend on persistent cd/export/alias state. Do not use cat/head/tail to read files; use read_file. Do not use sed/awk/perl/python scripts or heredocs to edit files; use patch. Use terminal when you intentionally need persistent shell state or a tracked background process. Use interactive_terminal for Codex, Claude, REPLs, installers, and other TTY/TUI programs.',
     schema: CommandParams,
     executionMode: 'sequential',
     isDestructive: true,

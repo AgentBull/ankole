@@ -38,7 +38,7 @@ import type {
 import { NORMAL_RECEIVE_BATCH_WINDOW_MS } from '@/external-gateway/agent-events'
 import type { ExternalGatewayAgentExecutionContext } from '@/external-gateway/agent'
 import type { ExternalGatewayStreamingCardHandle } from '@/external-gateway/core/events'
-import { commandEditIntent, commandFeedbackIntent } from './commands'
+import { commandFeedbackIntent } from './commands'
 import { loadAiAgentRuntimeProfile, type AiAgentRuntimeProfile } from './config'
 import {
   aiAgentConversationService,
@@ -165,6 +165,7 @@ interface StreamedCardProjection {
 
 interface GenerationStreamingSink {
   onStreamingText?: (fullText: string) => void
+  updateStatus(statusText: string): boolean
   finalize(assistant: AssistantMessage, text: string): Promise<StreamedAssistantCard | undefined>
   /** Close the live visible-output mirror for a run that did not commit. */
   closeFailed(reason: string): void
@@ -172,8 +173,8 @@ interface GenerationStreamingSink {
 
 interface TodoProgressState {
   args: unknown
-  outboundKey: string
-  posted: boolean
+  delivery: 'streaming-card' | 'message'
+  outboundKey?: string
   toolCallId: string
 }
 
@@ -444,6 +445,15 @@ function latestTodoItemsFromToolResults(toolResults: JsonValue[]): unknown[] | u
     if (fromContent) return fromContent
   }
   return undefined
+}
+
+function todoResultIsTerminal(result: ToolResultMessage): boolean {
+  const todos = todoItemsFromToolDetails(result.details) ?? todoItemsFromToolContent(result.content)
+  if (!todos || todos.length === 0) return false
+  return todos.every(item => {
+    if (!isJsonObject(item)) return false
+    return item.status === 'completed' || item.status === 'cancelled'
+  })
 }
 
 function toolNameFromToolResult(result: JsonObject): string | undefined {
@@ -766,20 +776,23 @@ export class AiAgentRuntime {
     const text = textFromAgentMessage(context.message).trim()
     if (!text) return false
     if (context.toolResults.length === 0) return true
-    return context.toolResults.every(result => !result.isError && result.toolName === 'todo')
+    return context.toolResults.every(
+      result => !result.isError && result.toolName === 'todo' && todoResultIsTerminal(result)
+    )
   }
 
   private async handleTodoProgressEvent(
     input: RunGenerationInput,
     leaseId: string,
+    stream: GenerationStreamingSink,
     event: AgentEvent,
     states: Map<string, TodoProgressState>
   ): Promise<void> {
     try {
       if (event.type === 'tool_execution_start' && event.toolName === 'todo') {
-        await this.startTodoProgress(input, leaseId, event.toolCallId, event.args, states)
+        await this.startTodoProgress(input, leaseId, stream, event.toolCallId, event.args, states)
       } else if (event.type === 'tool_execution_end' && event.toolName === 'todo') {
-        await this.finishTodoProgress(input, leaseId, event.toolCallId, event.result, event.isError, states)
+        await this.finishTodoProgress(input, leaseId, stream, event.toolCallId, event.result, event.isError, states)
       }
     } catch (error) {
       logger.debug({ error, conversationId: input.conversationId }, 'Todo tool progress update failed')
@@ -789,10 +802,19 @@ export class AiAgentRuntime {
   private async startTodoProgress(
     input: RunGenerationInput,
     leaseId: string,
+    stream: GenerationStreamingSink,
     toolCallId: string,
     args: unknown,
     states: Map<string, TodoProgressState>
   ): Promise<void> {
+    const statusText = formatTodoProgressStart(args)
+    if (stream.updateStatus(statusText)) {
+      const state: TodoProgressState = { args, delivery: 'streaming-card', toolCallId }
+      states.set('todo', state)
+      states.set(toolCallId, state)
+      return
+    }
+
     if (!this.canShowTodoProgress(input)) return
     if (await this.hasPendingSteering(input.conversationId, leaseId)) return
     const providerRoomId = input.providerRoomId ?? input.providerThreadId
@@ -800,8 +822,8 @@ export class AiAgentRuntime {
     if (!providerRoomId || !providerThreadId) return
 
     const existing = states.get('todo')
-    if (existing?.posted) {
-      const state = { args, outboundKey: existing.outboundKey, posted: true, toolCallId }
+    if (existing?.delivery === 'message' && existing.outboundKey) {
+      const state: TodoProgressState = { args, delivery: 'message', outboundKey: existing.outboundKey, toolCallId }
       states.set('todo', state)
       states.set(toolCallId, state)
       await input.context.outbox.enqueuePending({
@@ -815,7 +837,7 @@ export class AiAgentRuntime {
           finalPayload: {
             editFallback: 'post',
             targetOutboundKey: existing.outboundKey,
-            text: formatTodoProgressStart(args)
+            text: statusText
           }
         }
       })
@@ -824,7 +846,7 @@ export class AiAgentRuntime {
     }
 
     const outboundKey = `ai-agent-tool-progress:${input.conversationId}:todo`
-    const state = { args, outboundKey, posted: true, toolCallId }
+    const state: TodoProgressState = { args, delivery: 'message', outboundKey, toolCallId }
     states.set('todo', state)
     states.set(toolCallId, state)
     await input.context.outbox.enqueuePending({
@@ -835,7 +857,7 @@ export class AiAgentRuntime {
         outboundKey,
         providerRoomId,
         providerThreadId,
-        finalPayload: { text: formatTodoProgressStart(args) }
+        finalPayload: { text: statusText }
       }
     })
     input.context.scheduleOutboxDrain()
@@ -844,13 +866,26 @@ export class AiAgentRuntime {
   private async finishTodoProgress(
     input: RunGenerationInput,
     leaseId: string,
+    stream: GenerationStreamingSink,
     toolCallId: string,
     result: unknown,
     isError: boolean,
     states: Map<string, TodoProgressState>
   ): Promise<void> {
     const state = states.get(toolCallId)
-    if (!state?.posted) return
+    if (!state) return
+
+    if (state.delivery === 'streaming-card') {
+      if (await this.hasPendingSteering(input.conversationId, leaseId)) {
+        stream.updateStatus('')
+        return
+      }
+      stream.updateStatus(formatTodoProgressEnd(state.args, result, isError))
+      states.set('todo', { ...state, args: result })
+      return
+    }
+
+    if (!state.outboundKey) return
     const providerRoomId = input.providerRoomId ?? input.providerThreadId
     const providerThreadId = input.providerThreadId ?? providerRoomId
     if (!providerRoomId || !providerThreadId) return
@@ -1482,26 +1517,6 @@ export class AiAgentRuntime {
         await this.enqueueFeedback(context, event, 'A response is still running; stop it before compressing.')
         return
       }
-      if (!adapterSupportsCapability(context.adapter, 'outbound', 'edit_message')) {
-        await this.enqueueFeedback(
-          context,
-          event,
-          'Compression is unavailable on this channel because message edit is unsupported.'
-        )
-        return
-      }
-      const progressKey = `ai-agent-command-feedback:${event.providerEventId}:progress`
-      await context.outbox.enqueuePending({
-        agentUid: context.agentUid,
-        bindingName: context.bindingName,
-        intent: commandFeedbackIntent({
-          commandEventId: event.providerEventId,
-          phase: 'progress',
-          providerRoomId: event.providerRoomId,
-          providerThreadId: event.providerThreadId,
-          text: 'Compressing conversation...'
-        })
-      })
       let finalText = 'Conversation compressed.'
       try {
         const result = await this.compression.compress({
@@ -1513,18 +1528,7 @@ export class AiAgentRuntime {
       } catch (error) {
         finalText = `Compression failed: ${error instanceof Error ? error.message : String(error)}`
       }
-      await context.outbox.enqueuePending({
-        agentUid: context.agentUid,
-        bindingName: context.bindingName,
-        intent: commandEditIntent({
-          commandEventId: event.providerEventId,
-          providerRoomId: event.providerRoomId,
-          providerThreadId: event.providerThreadId,
-          targetOutboundKey: progressKey,
-          text: finalText
-        })
-      })
-      context.scheduleOutboxDrain()
+      await this.enqueueFeedback(context, event, finalText)
       return
     }
 
@@ -1795,6 +1799,7 @@ export class AiAgentRuntime {
     let cardStart: Promise<void> | undefined
     let cardFailed = false
     let latestText = ''
+    let latestStatusText = ''
     const ensureCard = (): void => {
       if (cardFailed || card || cardStart) return
       cardStart = input.context.adapter.beginStreamingCard!({
@@ -1806,11 +1811,24 @@ export class AiAgentRuntime {
       })
         .then(handle => {
           card = handle
-          void handle.update(latestText)
+          if (latestStatusText && handle.updateStatus) void handle.updateStatus(latestStatusText)
+          if (latestText) void handle.update(latestText)
+          else if (latestStatusText && !handle.updateStatus) void handle.update(latestStatusText)
         })
         .catch(() => {
           cardFailed = true
         })
+    }
+    const updateStatus = (statusText: string): boolean => {
+      if (!streamingCapable || input.ambientIntervention === true) return false
+      latestStatusText = statusText
+      if (card) {
+        if (card.updateStatus) void card.updateStatus(statusText)
+        else if (statusText && !latestText) void card.update(statusText)
+        return true
+      }
+      ensureCard()
+      return true
     }
     const closeCard = (status: 'cancelled' | 'failed'): void => {
       // Preserve streamed partial text; the adapter substitutes its status
@@ -1850,6 +1868,7 @@ export class AiAgentRuntime {
     if (streamingCapable && input.ambientIntervention !== true) ensureCard()
 
     return {
+      updateStatus,
       onStreamingText: (fullText: string) => {
         if (!fullText) return
         if (fullText.length > mirroredLength) {
@@ -1972,7 +1991,7 @@ export class AiAgentRuntime {
     })
     const todoProgress = new Map<string, TodoProgressState>()
     agent.subscribe(async event => {
-      await this.handleTodoProgressEvent(input.input, input.leaseId, event, todoProgress)
+      await this.handleTodoProgressEvent(input.input, input.leaseId, input.stream, event, todoProgress)
     })
     return agent
   }
@@ -3055,8 +3074,19 @@ function userFacingAssistantErrorText(message: AssistantMessage): string | undef
   if (classification.kind === 'timeout') return '模型请求超时，请稍后重试。'
   if (classification.kind === 'server') return '模型服务暂时不可用，请稍后重试。'
   if (classification.kind === 'auth') return '模型服务认证失败，请检查模型提供方配置后重试。'
+  if (looksLikeInternalRuntimeError(raw)) return '内部运行错误：数据库写入失败。详细错误已记录，请查看服务日志。'
   if (looksLikeRawProviderPayload(raw)) return '模型服务返回错误，请稍后重试。'
   return raw.length <= 240 ? raw : `${raw.slice(0, 237)}...`
+}
+
+function looksLikeInternalRuntimeError(raw: string): boolean {
+  return (
+    /\bFailed query:/i.test(raw) ||
+    /\bDrizzleQueryError\b/i.test(raw) ||
+    /\bPostgresError\b/i.test(raw) ||
+    /\bERR_POSTGRES/i.test(raw) ||
+    /\bviolates .*constraint\b/i.test(raw)
+  )
 }
 
 function looksLikeRawProviderPayload(raw: string): boolean {
