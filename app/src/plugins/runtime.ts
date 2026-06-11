@@ -100,20 +100,6 @@ export class DuplicatePluginIdentityProviderAdapterError extends Error {
   }
 }
 
-export class UnknownPluginOverrideError extends Error {
-  constructor(id: string) {
-    super(`Plugin enablement override references an unknown plugin: ${id}`)
-    this.name = 'UnknownPluginOverrideError'
-  }
-}
-
-export class UnknownDefaultPluginError extends Error {
-  constructor(id: string) {
-    super(`Default enabled plugin is not in the trusted plugin registry: ${id}`)
-    this.name = 'UnknownDefaultPluginError'
-  }
-}
-
 export class PluginRuntime implements Runtime<PluginRuntimeStats> {
   private startedStats: PluginRuntimeStats | null = null
 
@@ -186,7 +172,7 @@ export class PluginRuntime implements Runtime<PluginRuntimeStats> {
     const registeredWebProviders: string[] = []
     for (const pluginId of enabledPluginIds) {
       const plugin = registry.pluginsById.get(pluginId)
-      if (!plugin) throw new UnknownPluginOverrideError(pluginId)
+      if (!plugin) continue
 
       for (const factory of plugin.externalGatewayAdapters ?? []) {
         registerAdapterFactory(factory)
@@ -216,7 +202,7 @@ export class PluginRuntime implements Runtime<PluginRuntimeStats> {
 
   async stop(): Promise<void> {
     // Plugin activation is process-lifetime. There is no hot unload path because
-    // plugin code is trusted, statically imported, and disabled only on restart.
+    // plugin code is loaded by local discovery, and can only be disabled on restart.
   }
 }
 
@@ -258,12 +244,10 @@ export function resolveEnabledPluginIds(input: {
   const enabled = new Set<string>()
 
   for (const id of input.defaultEnabledPluginIds) {
-    if (!input.registry.pluginsById.has(id)) throw new UnknownDefaultPluginError(id)
     enabled.add(id)
   }
 
   for (const [id, override] of Object.entries(input.overrides)) {
-    if (!input.registry.pluginsById.has(id)) throw new UnknownPluginOverrideError(id)
     override ? enabled.add(id) : enabled.delete(id)
   }
 

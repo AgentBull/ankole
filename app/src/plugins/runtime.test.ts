@@ -23,8 +23,7 @@ const {
   DuplicatePluginIdentityProviderAdapterError,
   effectiveDefaultEnabledPluginIds,
   PluginRuntime,
-  resolveEnabledPluginIds,
-  UnknownPluginOverrideError
+  resolveEnabledPluginIds
 } = await import('./runtime')
 
 describe('plugin enablement', () => {
@@ -60,10 +59,10 @@ describe('plugin enablement', () => {
     ).toEqual(['default-plugin', 'future-plugin'])
   })
 
-  it('rejects unknown override plugin ids', () => {
+  it('ignores unknown override plugin ids', () => {
     const registry = buildPluginRegistry([plugin('default-plugin')])
 
-    expect(() =>
+    expect(
       resolveEnabledPluginIds({
         registry,
         defaultEnabledPluginIds: ['default-plugin'],
@@ -71,7 +70,19 @@ describe('plugin enablement', () => {
           missing: true
         }
       })
-    ).toThrow(UnknownPluginOverrideError)
+    ).toEqual(['default-plugin'])
+  })
+
+  it('ignores unknown default plugin ids', () => {
+    const registry = buildPluginRegistry([plugin('default-plugin')])
+
+    expect(
+      resolveEnabledPluginIds({
+        registry,
+        defaultEnabledPluginIds: ['default-plugin', 'missing-plugin'],
+        overrides: {}
+      })
+    ).toEqual(['default-plugin'])
   })
 })
 
