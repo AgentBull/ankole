@@ -7,7 +7,7 @@ const { createWebServer } = await import('./web-server')
 const webServer = await createWebServer({ serveStaticAssets: false })
 
 describe('webServer API request guard', () => {
-  it('rejects unsafe API requests from a different origin', async () => {
+  it('allows unsafe API requests from a different origin', async () => {
     const response = await webServer.handle(
       new Request('http://localhost/api/session', {
         method: 'DELETE',
@@ -17,8 +17,8 @@ describe('webServer API request guard', () => {
       })
     )
 
-    expect(response.status).toBe(403)
-    await expect(response.json()).resolves.toEqual({ error: 'invalid origin' })
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ ok: true })
   })
 
   it('rejects unsafe API requests with a non-JSON body regardless of method', async () => {

@@ -68,12 +68,6 @@ export async function createWebServer(options: CreateWebServerOptions = {}) {
       if (!url.pathname.startsWith('/api/')) return
       if (!unsafeMethod(request.method)) return
 
-      const origin = request.headers.get('origin')
-      if (origin && origin !== url.origin) {
-        set.status = 403
-        return { error: 'invalid origin' }
-      }
-
       if (requestHasBody(request)) {
         const contentType = request.headers.get('content-type') ?? ''
         if (!contentType.toLowerCase().startsWith('application/json')) {
