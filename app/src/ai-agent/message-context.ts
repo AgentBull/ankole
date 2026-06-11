@@ -2,34 +2,29 @@ import { and, asc, eq, sql } from 'drizzle-orm'
 import { ms } from '@pleisto/active-support'
 import type { TextContent } from '@earendil-works/pi-ai'
 import { DB, type QueryExecutor } from '@/common/database'
-import { AiAgentMessages, type JsonObject, type JsonValue } from '@/common/db-schema'
-import { isJsonObject, stringFromPath, toJsonObject } from '@/common/json'
+import { AiAgentMessages, type JsonObject } from '@/common/db-schema'
+import { stringFromPath, toJsonObject } from '@/common/json'
 import { zonedParts } from '@/config/system'
 import type { AgentMessage } from './core'
-import { textFromContent } from './conversation-service'
 
 export const MESSAGE_CONTEXT_METADATA_KEY = 'message_context'
 
 const TIME_CONTEXT_GAP_MS = ms('1h')
-const MAX_AMBIENT_REFERENCE_SNIPPETS = 12
-const MAX_AMBIENT_REFERENCE_TEXT = 800
+const MAX_CONTEXT_LINE_TEXT = 800
 
 export interface MessageContextInput {
   actor?: JsonObject
-  ambientReferences?: AmbientReferenceSnippet[]
   room?: JsonObject
   sentAt: Date
+  speaker?: string
+  speakerRole?: string
+  speakerTrigger?: string
+  think?: string
   timezone: string
 }
 
 export interface MessageContextHistoryItem {
   metadata: JsonObject
-}
-
-export interface AmbientReferenceSnippet {
-  actorDisplayName?: string
-  sentAt?: string
-  text: string
 }
 
 export async function loadMessageContextHistory(
@@ -86,11 +81,23 @@ export function buildMessageContextMetadata(
     }
   }
 
-  const ambientReferences = normalizeAmbientReferences(input.ambientReferences)
-  if (ambientReferences.length > 0) {
-    context.ambient_references = {
-      injected: true,
-      snippets: ambientReferences as unknown as JsonValue[]
+  const speaker = normalizeContextLine(input.speaker)
+  const speakerRole = normalizeContextLine(input.speakerRole)
+  const speakerTrigger = normalizeContextLine(input.speakerTrigger)
+  if (speaker || speakerRole || speakerTrigger) {
+    context.speaker = {
+      display_name: speaker ?? null,
+      role: speakerRole ?? null,
+      trigger: speakerTrigger ?? null,
+      injected: true
+    }
+  }
+
+  const think = normalizeContextLine(input.think)
+  if (think) {
+    context.think = {
+      text: think,
+      injected: true
     }
   }
 
@@ -151,85 +158,33 @@ export function renderMessageContextPrefix(metadata: JsonObject): string | undef
     lines.push(`sent_at: ${formatTimestamp(time.sent_at, timezone)}`)
   }
 
+  const actor = toJsonObject(context.actor)
   const room = toJsonObject(context.room)
   if (room.injected === true && typeof room.label === 'string') lines.push(`room: ${room.label}`)
 
-  const actor = toJsonObject(context.actor)
-  if (actor.injected === true && typeof actor.display_name === 'string') lines.push(`speaker: ${actor.display_name}`)
+  const speaker = toJsonObject(context.speaker)
+  if (speaker.injected === true) {
+    if (typeof speaker.display_name === 'string') lines.push(`speaker: ${speaker.display_name}`)
+    if (typeof speaker.role === 'string') lines.push(`speaker_role: ${speaker.role}`)
+    if (typeof speaker.trigger === 'string') lines.push(`speaker_trigger: ${speaker.trigger}`)
+  } else if (actor.injected === true && typeof actor.display_name === 'string') {
+    lines.push(`speaker: ${actor.display_name}`)
+  }
 
-  const ambientReference = renderAmbientReferenceBlock(context)
-  if (ambientReference) lines.push(ambientReference)
+  const think = toJsonObject(context.think)
+  if (think.injected === true && typeof think.text === 'string') lines.push(`think: ${think.text}`)
 
   return lines.length > 0 ? `<message_context>\n${lines.join('\n')}\n</message_context>` : undefined
-}
-
-export function ambientReferenceSnippetsFromRows(
-  rows: Array<{ content: JsonValue[]; createdAt: Date; metadata: JsonObject }>
-): AmbientReferenceSnippet[] {
-  return rows.map(row => {
-    const context = toJsonObject(row.metadata[MESSAGE_CONTEXT_METADATA_KEY])
-    return {
-      actorDisplayName:
-        stringFromPath(context, ['actor', 'display_name']) ??
-        stringFromPath(row.metadata, ['actor', 'fullName']) ??
-        stringFromPath(row.metadata, ['actor', 'userName']) ??
-        stringFromPath(row.metadata, ['actor', 'display_name']),
-      sentAt: stringFromPath(context, ['time', 'sent_at']) ?? row.createdAt.toISOString(),
-      text: textFromContent(row.content).slice(0, MAX_AMBIENT_REFERENCE_TEXT)
-    }
-  })
-}
-
-function renderAmbientReferenceBlock(context: JsonObject): string | undefined {
-  const ambient = toJsonObject(context.ambient_references)
-  if (ambient.injected !== true || !Array.isArray(ambient.snippets)) return undefined
-  const timezone = stringFromPath(context, ['time', 'timezone'])
-
-  const references = ambient.snippets.flatMap(snippetValue => {
-    if (!isJsonObject(snippetValue)) return []
-    const text = typeof snippetValue.text === 'string' ? snippetValue.text.trim() : ''
-    if (!text) return []
-    const sentAt =
-      typeof snippetValue.sentAt === 'string' ? formatTimestamp(snippetValue.sentAt, timezone) : 'unknown time'
-    const actor =
-      typeof snippetValue.actorDisplayName === 'string' && snippetValue.actorDisplayName.trim()
-        ? snippetValue.actorDisplayName.trim()
-        : 'unknown speaker'
-    return [
-      `<ambient_reference sent_at="${escapeXmlAttribute(sentAt)}" speaker="${escapeXmlAttribute(actor)}">${escapeXmlText(text)}</ambient_reference>`
-    ]
-  })
-
-  if (references.length === 0) return undefined
-
-  return [
-    '<ambient_references purpose="evidence_for_intervention" reply_policy="do_not_answer_directly">',
-    ...references,
-    '</ambient_references>',
-    '<ambient_intervention_instruction>',
-    'Use ambient references only to understand why a brief proactive reply may help.',
-    'Do not answer every ambient reference line. Reply to the current room situation.',
-    'Offer one useful next action and wait for an explicit user request before expanding.',
-    '</ambient_intervention_instruction>'
-  ].join('\n')
-}
-
-function escapeXmlText(value: string): string {
-  return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
-}
-
-function escapeXmlAttribute(value: string): string {
-  return escapeXmlText(value).replaceAll('"', '&quot;')
 }
 
 function shouldInjectTime(sentAt: Date, history: MessageContextHistoryItem[]): boolean {
   const previous = findLastContext(history, context => {
     const time = toJsonObject(context.time)
-    if (time.injected !== true || typeof time.sent_at !== 'string') return undefined
+    if (typeof time.sent_at !== 'string') return undefined
     const parsed = new Date(time.sent_at)
     return Number.isNaN(parsed.getTime()) ? undefined : parsed
   })
-  return !previous || sentAt.getTime() - previous.getTime() >= TIME_CONTEXT_GAP_MS
+  return Boolean(previous && sentAt.getTime() - previous.getTime() >= TIME_CONTEXT_GAP_MS)
 }
 
 function shouldInjectRoom(room: RoomContext, history: MessageContextHistoryItem[]): boolean {
@@ -247,12 +202,18 @@ function shouldInjectActor(actor: ActorContext, history: MessageContextHistoryIt
   const current = actor.key ?? actor.displayName
   if (!current) return false
 
-  const previous = findLastContext(history, context => {
-    const value = toJsonObject(context.actor)
-    if (value.injected !== true) return undefined
-    return (typeof value.actor_key === 'string' && value.actor_key) || stringFromNullable(value.display_name)
-  })
+  const previousContext = lastMessageContext(history)
+  if (!previousContext) return true
+  const value = toJsonObject(previousContext.actor)
+  const previous = (typeof value.actor_key === 'string' && value.actor_key) || stringFromNullable(value.display_name)
   return previous !== current
+}
+
+function lastMessageContext(history: MessageContextHistoryItem[]): JsonObject | undefined {
+  for (let index = history.length - 1; index >= 0; index -= 1) {
+    return toJsonObject(history[index]!.metadata[MESSAGE_CONTEXT_METADATA_KEY])
+  }
+  return undefined
 }
 
 function findLastContext<T>(
@@ -320,20 +281,9 @@ function roomContext(room: JsonObject | undefined, actorDisplayName: string | un
   }
 }
 
-function normalizeAmbientReferences(snippets: AmbientReferenceSnippet[] | undefined): AmbientReferenceSnippet[] {
-  return (snippets ?? [])
-    .flatMap(snippet => {
-      const text = snippet.text.trim().slice(0, MAX_AMBIENT_REFERENCE_TEXT)
-      if (!text) return []
-      return [
-        {
-          actorDisplayName: snippet.actorDisplayName?.slice(0, 160),
-          sentAt: snippet.sentAt,
-          text
-        }
-      ]
-    })
-    .slice(-MAX_AMBIENT_REFERENCE_SNIPPETS)
+function normalizeContextLine(value: string | undefined): string | undefined {
+  const text = value?.trim().replace(/\s+/g, ' ').slice(0, MAX_CONTEXT_LINE_TEXT)
+  return text || undefined
 }
 
 function formatTimestamp(value: string, timezone?: string): string {

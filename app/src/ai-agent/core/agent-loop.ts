@@ -31,14 +31,13 @@ export type AgentEventSink = (event: AgentEvent) => Promise<void> | void
 
 const MAX_TURNS_GRACE_PROMPT =
   'You have reached the maximum number of steps for this task. Do not call any more tools. ' +
-  'Summarize what you accomplished, note anything still unfinished, and give your best final answer now.'
+  'Summarize what you accomplished, mark anything still unfinished or blocked, and give your best final answer now.'
 
 const EMPTY_AFTER_TOOL_NUDGE_TEXT =
-  'You returned an empty response after the tool results above. ' +
-  'Process those results and either continue with the task or give your final answer.'
+  'You just executed tool calls but returned an empty response. ' +
+  'Process the tool results above and either continue with the task or give your final answer.'
 
-const ORPHAN_TOOL_RESULT_STUB =
-  '[Tool result unavailable — the matching tool call was removed during context compaction.]'
+const ORPHAN_TOOL_RESULT_STUB = '[Tool result unavailable - the matching tool call was removed from the model view.]'
 const EMPTY_ASSISTANT_PLACEHOLDER = '(no content)'
 
 /**
@@ -188,6 +187,7 @@ async function runLoop(
   let turnCount = 0
   let prevTurnHadToolResults = false
   let nudgedAfterEmpty = false
+  let retriedPreToolAssistantError = false
 
   // Outer loop: continues when queued follow-up messages arrive after agent would stop
   while (true) {
@@ -222,7 +222,21 @@ async function runLoop(
       }
 
       // Stream assistant response
+      const contextLengthBeforeAssistant = currentContext.messages.length
       const message = await streamAssistantResponse(currentContext, config, signal, emit, streamFn)
+      if (
+        shouldRetryPreToolAssistantError(message, {
+          alreadyRetried: retriedPreToolAssistantError,
+          prevTurnHadToolResults,
+          turnCount
+        })
+      ) {
+        retriedPreToolAssistantError = true
+        currentContext.messages.splice(contextLengthBeforeAssistant)
+        firstTurn = true
+        await sleepBeforePreToolAssistantRetry(config.maxRetryDelayMs, signal)
+        continue
+      }
       newMessages.push(message)
       turnCount++
 
@@ -323,6 +337,28 @@ async function runLoop(
 /** True when the assistant produced at least one non-empty visible text block. */
 function assistantHasAnswerText(message: AssistantMessage): boolean {
   return message.content.some(block => block.type === 'text' && block.text.trim().length > 0)
+}
+
+function shouldRetryPreToolAssistantError(
+  message: AssistantMessage,
+  state: {
+    alreadyRetried: boolean
+    prevTurnHadToolResults: boolean
+    turnCount: number
+  }
+): boolean {
+  if (state.alreadyRetried || state.turnCount !== 0 || state.prevTurnHadToolResults) return false
+  if (message.stopReason !== 'error') return false
+  if (assistantHasAnswerText(message)) return false
+  if (message.content.some(block => block.type === 'toolCall')) return false
+  return isRetryableLlmError({ message: message.errorMessage ?? '' })
+}
+
+async function sleepBeforePreToolAssistantRetry(maxRetryDelayMs: number | undefined, signal: AbortSignal | undefined) {
+  if (signal?.aborted) return
+  const delayMs = Math.max(0, Math.min(maxRetryDelayMs ?? 250, 250))
+  if (delayMs === 0) return
+  await Bun.sleep(delayMs)
 }
 
 function emptyAfterToolNudgeMessage(): AgentMessage {

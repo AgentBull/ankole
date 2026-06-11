@@ -10,6 +10,7 @@ import type { AgentResult } from '@/principals/agents/service'
 import { materializeInboundMessageAttachments, type ExternalMediaComputerWriter } from './media-cache'
 import type {
   ExternalGatewayAgentEnvelope,
+  ExternalGatewayAgentEventKey,
   ExternalGatewayCanonicalType,
   DrizzleExternalGatewayAgentEventQueue,
   ExternalGatewaySlashCommandStub
@@ -41,6 +42,7 @@ export interface CreateExternalGatewayAdapterContextInput {
   logger?: Logger
   projection: ExternalGatewayProjectionSink
   getComputerFileWriter?(agentUid: string, signal?: AbortSignal): Promise<ExternalMediaComputerWriter>
+  getInFlightAgentEvents?(): readonly ExternalGatewayAgentEventKey[]
   scheduleDrain(availableAt?: Date): void
   /** Reads the executor's pending-clarify gate so group replies can be routed in. */
   roomHasPendingClarify?(providerRoomId: string): boolean
@@ -320,6 +322,7 @@ async function handleMessageDeleted(
   const pending = await runtime.eventQueue.mutatePendingReceive({
     agentUid: runtime.agent.agent.uid,
     bindingName: runtime.binding.name,
+    inFlightEvents: runtime.getInFlightAgentEvents?.(),
     providerMessageId: event.messageId,
     providerRoomId: room.id,
     remove: true
@@ -337,17 +340,20 @@ async function handleMessageDeleted(
   if (pending === 'removed') return
 
   const delivered = await hasDeliveredReceive(runtime.agent.agent.uid, runtime.binding.name, room.id, event.messageId)
+  const receiveState =
+    pending === 'in_flight' ? 'in_flight' : delivered ? 'materialized' : pending === 'not_pending' ? 'absent' : pending
   runtime.logger?.debug?.(
     {
       agentUid: runtime.agent.agent.uid,
       type,
       messageId: event.messageId,
       roomId: room.id,
-      delivered
+      delivered,
+      receiveState
     },
     'External Gateway message lifecycle delivered receive lookup completed'
   )
-  if (!delivered) return
+  if (!delivered && pending !== 'in_flight') return
 
   const queued = await runtime.eventQueue.enqueue({
     agentUid: runtime.agent.agent.uid,

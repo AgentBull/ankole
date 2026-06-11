@@ -66,6 +66,7 @@ export function commandEditIntent(input: {
     providerRoomId: input.providerRoomId,
     providerThreadId: input.providerThreadId,
     finalPayload: {
+      editFallback: 'post',
       targetOutboundKey: input.targetOutboundKey,
       text: input.text
     }

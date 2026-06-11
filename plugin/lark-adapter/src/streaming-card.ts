@@ -1,4 +1,8 @@
-import type { BullXStreamingCardHandle, BullXStreamingCardStatus } from '@agentbull/bullx-sdk/plugins'
+import type {
+  BullXStreamingCardFinishResult,
+  BullXStreamingCardHandle,
+  BullXStreamingCardStatus
+} from '@agentbull/bullx-sdk/plugins'
 import { asRecord, assertLarkSuccess, optionalString } from './lark-helpers'
 import type { SharedLarkConnection } from './connection'
 
@@ -26,8 +30,9 @@ export interface LarkStreamingCardOptions {
  * cardElement.content patches it (sequence-ordered, throttled) -> card.settings
  * closes streaming on finish. All calls use the SDK's typed CardKit resource.
  *
- * Errors are isolated: streaming is decorative, so a failed CardKit call degrades
- * the session (subsequent writes short-circuit) instead of throwing into the run.
+ * Errors are isolated: streaming is decorative, so provider write failures are
+ * kept inside the session. Preview writes can fail and be retried by a later
+ * suffix/finalize write; `finish` reports whether the final text was confirmed.
  */
 export async function createLarkStreamingCardSession(
   connection: SharedLarkConnection,
@@ -99,17 +104,25 @@ class LarkStreamingCardSession implements BullXStreamingCardHandle {
 
   async update(fullText: string): Promise<void> {
     this.latestText = mergeStreamingText(this.latestText, fullText)
-    this.tail = this.tail.then(() => this.flush(false))
+    this.tail = this.tail.then(() => this.flush(false).then(() => undefined))
     return this.tail
   }
 
-  async finish(finalText: string, status: BullXStreamingCardStatus): Promise<void> {
+  async finish(finalText: string, status: BullXStreamingCardStatus): Promise<BullXStreamingCardFinishResult> {
     const display = finalText.trim() ? finalText : fallbackForStatus(status)
     this.latestText = display || STREAM_EMPTY
     this.clearFlushTimer()
-    this.tail = this.tail.then(() => this.flush(true))
+    this.tail = this.tail.then(() => this.flush(true).then(() => undefined))
     await this.tail
-    if (this.degraded || !this.cardId) return
+    const delivered = Boolean(this.cardId && this.messageId)
+    const finalTextConfirmed = delivered && this.lastWrittenText === this.latestText
+    if (this.degraded || !this.cardId) {
+      return {
+        delivered,
+        finalTextConfirmed,
+        fallbackReason: this.degraded ? 'streaming_card_degraded' : 'missing_card_id'
+      }
+    }
     try {
       this.sequence += 1
       const response = await this.connection.rawClient.cardkit.v1.card.settings({
@@ -128,47 +141,61 @@ class LarkStreamingCardSession implements BullXStreamingCardHandle {
       // correctness failure (the host still records the card as delivered).
       this.options.logger?.warn?.('lark streaming card finish failed', error)
     }
+    return {
+      delivered,
+      finalTextConfirmed,
+      fallbackReason: finalTextConfirmed ? undefined : 'final_text_unconfirmed'
+    }
   }
 
-  private async flush(force: boolean): Promise<void> {
-    if (this.degraded || !this.cardId) return
+  private async flush(force: boolean): Promise<boolean> {
+    if (this.degraded || !this.cardId) return false
     const text = this.latestText
-    if (text.length === 0) return
+    if (text.length === 0) return false
     if (!force && !this.isDue(text)) {
       this.schedulePendingFlush()
-      return
+      return false
     }
-    if (text === this.lastWrittenText) return
+    if (text === this.lastWrittenText) return true
     this.clearFlushTimer()
     try {
       this.sequence += 1
-      const cardText = larkCardMarkdown(text)
       if (!this.contentReady) {
         // First write replaces the placeholder element with a markdown element.
-        const response = await this.connection.rawClient.cardkit.v1.cardElement.update({
-          path: { card_id: this.cardId, element_id: STREAMING_ELEMENT_ID },
-          data: {
-            element: JSON.stringify({ tag: 'markdown', content: cardText, element_id: STREAMING_ELEMENT_ID }),
-            sequence: this.sequence,
-            uuid: crypto.randomUUID()
-          }
-        })
-        assertLarkSuccess(response, 'cardkit card element update')
+        await this.replaceElement(text, 'cardkit card element update')
         this.contentReady = true
-      } else {
+      } else if (text.startsWith(this.lastWrittenText)) {
+        const suffix = text.slice(this.lastWrittenText.length)
+        if (suffix.length === 0) return true
         const response = await this.connection.rawClient.cardkit.v1.cardElement.content({
           path: { card_id: this.cardId, element_id: STREAMING_ELEMENT_ID },
-          data: { content: cardText, sequence: this.sequence, uuid: crypto.randomUUID() }
+          data: { content: larkCardMarkdown(suffix), sequence: this.sequence, uuid: crypto.randomUUID() }
         })
         assertLarkSuccess(response, 'cardkit card element content')
+      } else {
+        await this.replaceElement(text, 'cardkit card element replace')
+        this.contentReady = true
       }
       this.lastUpdateMs = Date.now()
       this.lastWrittenLen = text.length
       this.lastWrittenText = text
+      return true
     } catch (error) {
-      this.degraded = true
       this.options.logger?.warn?.('lark streaming card update failed', error)
+      return false
     }
+  }
+
+  private async replaceElement(text: string, operation: string): Promise<void> {
+    const response = await this.connection.rawClient.cardkit.v1.cardElement.update({
+      path: { card_id: this.cardId, element_id: STREAMING_ELEMENT_ID },
+      data: {
+        element: JSON.stringify({ tag: 'markdown', content: larkCardMarkdown(text), element_id: STREAMING_ELEMENT_ID }),
+        sequence: this.sequence,
+        uuid: crypto.randomUUID()
+      }
+    })
+    assertLarkSuccess(response, operation)
   }
 
   private isDue(text: string): boolean {
@@ -189,7 +216,7 @@ class LarkStreamingCardSession implements BullXStreamingCardHandle {
     const delayMs = Math.max(0, this.options.intervalMs - (Date.now() - this.lastUpdateMs))
     this.flushTimer = setTimeout(() => {
       this.flushTimer = null
-      this.tail = this.tail.then(() => this.flush(false))
+      this.tail = this.tail.then(() => this.flush(false).then(() => undefined))
       this.tail.catch(error => {
         this.options.logger?.warn?.('lark streaming card pending flush failed', error)
       })

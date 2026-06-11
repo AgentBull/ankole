@@ -2,7 +2,7 @@ import { describe, expect, it } from 'bun:test'
 import { createTodoTool, TodoStore } from './todo-tool'
 
 describe('TodoStore', () => {
-  it('reads empty, writes replacements, and summarizes statuses', () => {
+  it('normalizes replacement and merge writes while keeping the active todo snapshot useful', () => {
     const store = new TodoStore()
     expect(store.read()).toEqual([])
 
@@ -24,32 +24,23 @@ describe('TodoStore', () => {
       completed: 1,
       cancelled: 0
     })
-  })
-
-  it('merges by id, appends new items, and normalizes invalid items', () => {
-    const store = new TodoStore()
-    store.write([
-      { id: '1', content: 'Plan', status: 'pending' },
-      { id: '2', content: 'Build', status: 'pending' }
-    ])
 
     store.write(
       [
         { id: '1', status: 'completed' },
-        { id: '3', content: 'Verify', status: 'invalid' }
+        { id: '3', content: 'Verify', status: 'invalid' },
+        { id: '4', content: 'New invalid status', status: 'invalid' }
       ],
       true
     )
 
     expect(store.read()).toEqual([
       { id: '1', content: 'Plan', status: 'completed' },
-      { id: '2', content: 'Build', status: 'pending' },
-      { id: '3', content: 'Verify', status: 'pending' }
+      { id: '2', content: 'Ship', status: 'pending' },
+      { id: '3', content: 'Verify', status: 'completed' },
+      { id: '4', content: 'New invalid status', status: 'pending' }
     ])
-  })
 
-  it('dedupes duplicate ids with the last item and formats only active items', () => {
-    const store = new TodoStore()
     store.write([
       { id: '1', content: 'Old', status: 'pending' },
       { id: '1', content: 'New', status: 'in_progress' },

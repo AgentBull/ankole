@@ -1,24 +1,21 @@
 import { z } from 'zod'
 import type { AgentTool, AgentToolResult } from '../core'
 import { buildTool } from '../tools/build-tool'
-import { getEffectiveSkillContent, searchEffectiveSkills, setAgentSkillAppend, setAgentSkillEnabled } from './service'
+import { getEffectiveSkillContent, setAgentSkillAppend } from './service'
 import { wrapExternalContent } from '@/security/external-content'
 
 export interface SkillToolsBinding {
   agentUid: string
 }
 
-const SkillSearchParams = z.object({
-  query: z.string().optional().describe('Task intent, skill name, category, or tag to search for.'),
-  limit: z.number().int().min(1).max(50).optional().describe('Maximum number of skills to return.')
-})
-
-const SkillUseParams = z.object({
-  name: z.string().min(1).describe('Skill name to load and use.'),
+const SkillViewParams = z.object({
+  name: z.string().min(1).describe('The skill name. Choose from the <available_skills> index in the system prompt.'),
   filePath: z
     .string()
     .optional()
-    .describe('Optional supporting file path relative to the skill directory, for example references/foo.md.')
+    .describe(
+      "OPTIONAL: Path to a linked file within the skill (e.g., 'references/api.md', 'templates/config.yaml', 'scripts/validate.py'). Omit to get the main SKILL.md content."
+    )
 })
 
 const SkillAppendParams = z.object({
@@ -26,68 +23,17 @@ const SkillAppendParams = z.object({
   content: z.string().describe('Complete AGENT_APPEND.md content for this agent and skill.')
 })
 
-const SkillEnableParams = z.object({
-  name: z.string().min(1).describe('Skill name to enable or disable for this agent.'),
-  enabled: z.boolean().describe('true to enable for this agent, false to disable for this agent.'),
-  reason: z.string().optional().describe('Short reason for the override.')
-})
-
 export function createSkillTools(binding: SkillToolsBinding): AgentTool<any>[] {
-  return [
-    createSkillSearchTool(binding),
-    createSkillUseTool(binding),
-    createSkillAppendTool(binding),
-    createSkillEnableTool(binding)
-  ]
+  return [createSkillViewTool(binding), createSkillAppendTool(binding)]
 }
 
-function createSkillSearchTool(binding: SkillToolsBinding): AgentTool<typeof SkillSearchParams> {
+function createSkillViewTool(binding: SkillToolsBinding): AgentTool<typeof SkillViewParams> {
   return buildTool({
-    name: 'skill_search',
-    label: 'Skill Search',
+    name: 'skill_view',
+    label: 'Skill View',
     description:
-      'Search the skills currently enabled for this agent. Use this before specialized work when a skill may contain relevant local instructions.',
-    schema: SkillSearchParams,
-    executionMode: 'parallel',
-    isReadOnly: true,
-    isDestructive: false,
-    async execute(_toolCallId, params): Promise<AgentToolResult<unknown>> {
-      const skills = await searchEffectiveSkills({
-        agentUid: binding.agentUid,
-        query: params.query,
-        limit: params.limit
-      })
-      return {
-        content: [
-          {
-            type: 'text',
-            text: JSON.stringify(
-              skills.map(skill => ({
-                name: skill.name,
-                description: skill.description,
-                tags: skill.tags,
-                category: skill.category,
-                location: `/workspace/library-containers/skills/${skill.name}/SKILL.md`,
-                has_agent_append: skill.hasAgentAppend
-              })),
-              null,
-              2
-            )
-          }
-        ],
-        details: { count: skills.length, skills }
-      }
-    }
-  })
-}
-
-function createSkillUseTool(binding: SkillToolsBinding): AgentTool<typeof SkillUseParams> {
-  return buildTool({
-    name: 'skill_use',
-    label: 'Skill Use',
-    description:
-      "Load a skill for the current task. Without filePath, returns the effective SKILL.md instructions merged with this agent's AGENT_APPEND.md. With filePath, returns a supporting file.",
-    schema: SkillUseParams,
+      "Skills allow for loading information about specific tasks and workflows, as well as scripts and templates. Load a skill's full content or access its linked files (references, templates, scripts). Omit filePath to get the effective SKILL.md content; provide filePath to access a linked file.",
+    schema: SkillViewParams,
     executionMode: 'parallel',
     isReadOnly: true,
     isDestructive: false,
@@ -133,31 +79,6 @@ function createSkillAppendTool(binding: SkillToolsBinding): AgentTool<typeof Ski
       return {
         content: [{ type: 'text', text: `Updated AGENT_APPEND.md for skill ${params.name}.` }],
         details: { name: params.name, path: `/workspace/library-containers/skills/${params.name}/AGENT_APPEND.md` }
-      }
-    }
-  })
-}
-
-function createSkillEnableTool(binding: SkillToolsBinding): AgentTool<typeof SkillEnableParams> {
-  return buildTool({
-    name: 'skill_enable',
-    label: 'Skill Enable',
-    description: 'Enable or disable an existing canonical skill for this agent. Disabling affects only this agent.',
-    schema: SkillEnableParams,
-    executionMode: 'sequential',
-    isDestructive: true,
-    async execute(_toolCallId, params): Promise<AgentToolResult<unknown>> {
-      await setAgentSkillEnabled({
-        agentUid: binding.agentUid,
-        skillName: params.name,
-        enabled: params.enabled,
-        reason: params.reason
-      })
-      return {
-        content: [
-          { type: 'text', text: `${params.enabled ? 'Enabled' : 'Disabled'} skill ${params.name} for this agent.` }
-        ],
-        details: { name: params.name, enabled: params.enabled }
       }
     }
   })

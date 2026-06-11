@@ -8,35 +8,38 @@ export function formatSkillsForSystemPrompt(skills: Skill[]): string {
   const visibleSkills = skills.filter(skill => !skill.disableModelInvocation)
   if (visibleSkills.length === 0) return ''
   const limited = applySkillsPromptLimits(visibleSkills)
+  const categories = groupSkillsByCategory(limited.skills)
 
   const lines = [
-    'The following skills provide specialized instructions for specific tasks.',
-    'Read the full skill file when the task matches its description.',
-    'When a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.',
-    '',
+    '## Skills',
+    `The skills below are a catalog of SOPs for specific tasks. A skill does not choose or perform a task; it provides instructions for how to perform a task.
+
+Before performing a task or subtask you are already going to do, call \`skill_view(name)\` only if a listed skill covers that task, then follow the loaded instructions. Otherwise continue without a skill.`,
     '<available_skills>'
   ]
-  if (limited.truncated) lines.push(`  <notice>Skills list truncated to ${limited.skills.length} entries.</notice>`)
+  if (limited.truncated) lines.push(`  # Skills list truncated to ${limited.skills.length} entries.`)
 
-  for (const skill of limited.skills) {
-    lines.push('  <skill>')
-    lines.push(`    <name>${escapeXml(skill.name)}</name>`)
-    if (!limited.compact) lines.push(`    <description>${escapeXml(skill.description)}</description>`)
-    lines.push(`    <location>${escapeXml(skill.filePath)}</location>`)
-    lines.push('  </skill>')
+  for (const [category, categorySkills] of categories) {
+    lines.push(`  ${formatYamlScalar(category)}:`)
+    for (const skill of categorySkills) {
+      const name = formatYamlScalar(skill.name)
+      const description = formatYamlScalar(skill.description)
+      lines.push(limited.compact || !description ? `    - ${name}` : `    - ${name}: ${description}`)
+    }
   }
 
   lines.push('</available_skills>')
   return lines.join('\n')
 }
 
-function escapeXml(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&apos;')
+function formatYamlScalar(value: string): string {
+  const trimmed = value.trim()
+  return isPlainYamlScalar(trimmed) ? trimmed : JSON.stringify(value)
+}
+
+function isPlainYamlScalar(value: string): boolean {
+  if (!/^[A-Za-z0-9][A-Za-z0-9_./-]*$/.test(value)) return false
+  return !/^(true|false|null|~|yes|no|on|off)$/i.test(value)
 }
 
 function applySkillsPromptLimits(skills: Skill[]): { skills: Skill[]; truncated: boolean; compact: boolean } {
@@ -63,5 +66,24 @@ function applySkillsPromptLimits(skills: Skill[]): { skills: Skill[]; truncated:
 }
 
 function formatSkills(skills: Skill[], compact: boolean): string {
-  return skills.map(skill => `${skill.name}\n${compact ? '' : skill.description}\n${skill.filePath}`).join('\n')
+  return skills
+    .map(skill => `${skill.category ?? 'general'}\n${skill.name}\n${compact ? '' : skill.description}`)
+    .join('\n')
+}
+
+function groupSkillsByCategory(skills: Skill[]): Array<[string, Skill[]]> {
+  const grouped = new Map<string, Skill[]>()
+  for (const skill of [...skills].sort(compareSkills)) {
+    const category = skill.category?.trim() || 'general'
+    const bucket = grouped.get(category)
+    if (bucket) bucket.push(skill)
+    else grouped.set(category, [skill])
+  }
+  return [...grouped.entries()]
+}
+
+function compareSkills(a: Skill, b: Skill): number {
+  const category = (a.category?.trim() || 'general').localeCompare(b.category?.trim() || 'general')
+  if (category !== 0) return category
+  return a.name.localeCompare(b.name)
 }

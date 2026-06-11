@@ -57,6 +57,7 @@ describe('ExternalGatewayRuntime', () => {
     const roomId = 'fake:channel'
     createdAgentUids.add(agentUid)
     projectedRoomIds.add(roomId)
+    await createAgent({ uid: agentUid })
 
     registerExternalGatewayAdapterFactory({
       id: factoryId,
@@ -278,6 +279,7 @@ describe('ExternalGatewayRuntime', () => {
     const threadId = `${roomId}:thread-1`
     createdAgentUids.add(agentUid)
     projectedRoomIds.add(roomId)
+    await createAgent({ uid: agentUid })
 
     registerExternalGatewayAdapterFactory({
       id: factoryId,
@@ -459,6 +461,60 @@ describe('ExternalGatewayRuntime', () => {
     expect(row?.safeError).toBe('Request failed with status code 400')
   })
 
+  it('falls back to a new post for opt-in edits when the provider edit window is permanently closed', async () => {
+    const adapter = new FakeExternalAdapter('fake_edit_fallback', {
+      ...defaultFakeCapabilities,
+      outbound: [...defaultFakeCapabilities.outbound, 'edit_message']
+    })
+    const editWindowError = new Error('Request failed with status code 400') as Error & {
+      response: { data: { code: number; msg: string }; status: number; statusText: string }
+    }
+    editWindowError.response = {
+      data: { code: 230075, msg: 'The message has exceeded the time that can be edited.' },
+      status: 400,
+      statusText: 'Bad Request'
+    }
+    adapter.failNextEdit(1, editWindowError)
+    const agentUid = `${testPrefix}-edit-fallback-agent`.toLowerCase()
+    const roomId = 'fake_edit_fallback:channel'
+    createdAgentUids.add(agentUid)
+    projectedRoomIds.add(roomId)
+
+    await DB.insert(ExternalGatewayOutbox).values({
+      agentUid,
+      bindingName: 'fake_edit_fallback',
+      providerRoomId: roomId,
+      providerThreadId: `${roomId}:thread-1`,
+      outboundKey: 'test-edit-fallback',
+      operation: 'edit',
+      finalPayload: jsonbParam({
+        editFallback: 'post',
+        targetMessageId: 'old-message',
+        text: 'final status'
+      }),
+      status: 'pending',
+      recoveryState: 'not_started'
+    })
+
+    await externalGatewayOutbox.dispatchPendingForBinding({
+      adapter,
+      agent: agentResult(agentUid, [{ adapter: 'fake', name: 'fake_edit_fallback' }]),
+      bindingName: 'fake_edit_fallback',
+      projection: externalGatewayProjectionSink,
+      room: {}
+    })
+
+    const [row] = await DB.select()
+      .from(ExternalGatewayOutbox)
+      .where(
+        and(eq(ExternalGatewayOutbox.agentUid, agentUid), eq(ExternalGatewayOutbox.outboundKey, 'test-edit-fallback'))
+      )
+      .limit(1)
+    expect(row?.status).toBe('sent')
+    expect(row?.providerMessageId).toBe('fake_edit_fallback-post-1')
+    expect(adapter.posts).toEqual([{ threadId: `${roomId}:thread-1`, text: 'final status' }])
+  })
+
   it('dead-letters pending outbox rows after the retry budget is exhausted', async () => {
     const adapter = new FakeExternalAdapter('fake_retry_exhausted', {
       ...defaultFakeCapabilities,
@@ -508,6 +564,7 @@ describe('ExternalGatewayRuntime', () => {
     const threadId = `${roomId}:thread-1`
     createdAgentUids.add(agentUid)
     projectedRoomIds.add(roomId)
+    await createAgent({ uid: agentUid })
 
     registerExternalGatewayAdapterFactory({
       id: factoryId,
@@ -590,6 +647,81 @@ describe('ExternalGatewayRuntime', () => {
       const reactions = rows[0]?.reactions as Record<string, { actors?: Record<string, unknown> }> | undefined
       expect(Object.keys(reactions?.['+1']?.actors ?? {})).toEqual(['self'])
     })
+
+    await runtime.stop()
+  })
+
+  it('distinguishes in-flight receives from removable pending input and defers lifecycle delivery until receive settles', async () => {
+    const adapter = new FakeExternalAdapter('fake_inflight')
+    const factoryId = `${factoryPrefix}_inflight_factory`
+    const agentUid = `${testPrefix}-inflight-agent`.toLowerCase()
+    const roomId = 'fake_inflight:channel'
+    const threadId = `${roomId}:thread-1`
+    createdAgentUids.add(agentUid)
+    projectedRoomIds.add(roomId)
+    await createAgent({ uid: agentUid })
+
+    let releaseReceive!: () => void
+    const receiveBlocked = new Promise<void>(resolve => {
+      releaseReceive = resolve
+    })
+    let receiveStarted!: () => void
+    const receiveStartedPromise = new Promise<void>(resolve => {
+      receiveStarted = resolve
+    })
+    const deliveries: string[] = []
+
+    registerExternalGatewayAdapterFactory({
+      id: factoryId,
+      create: () => adapter
+    })
+
+    const runtime = new ExternalGatewayRuntime()
+    await runtime.start({
+      agentExecutor: {
+        async acceptExternalGatewayDelivery(delivery) {
+          const first = delivery.events[0]
+          if (!first) return { status: 'accepted' as const }
+          deliveries.push(first.type)
+          if (first.type === 'message.received') {
+            receiveStarted()
+            await receiveBlocked
+          }
+          return { status: 'accepted' as const }
+        }
+      },
+      loadActiveAgents: async () => [agentResult(agentUid, [{ name: 'fake_inflight', adapter: factoryId }])]
+    })
+
+    await runtime.handleWebhook(
+      agentUid,
+      'fake_inflight',
+      jsonRequest({
+        id: 'm1',
+        isMention: true,
+        text: '@Agent hello',
+        threadId
+      })
+    )
+    await receiveStartedPromise
+
+    await runtime.handleWebhook(
+      agentUid,
+      'fake_inflight',
+      jsonRequest({
+        event: 'delete',
+        id: 'm1',
+        threadId
+      })
+    )
+
+    await Bun.sleep(100)
+    expect(deliveries).toEqual(['message.received'])
+
+    releaseReceive()
+    await eventually(() => expect(deliveries).toEqual(['message.received', 'message.deleted']))
+    await assertAgentEventDone(agentUid, 'message.received', 'addressed')
+    await assertAgentEventDone(agentUid, 'message.deleted', 'lifecycle')
 
     await runtime.stop()
   })
@@ -705,7 +837,10 @@ class FakeExternalAdapter implements ExternalGatewayAdapter<FakeWebhookPayload> 
   initialized = 0
   posts: Array<{ text: string; threadId: string }> = []
   deletes: Array<{ messageId: string; threadId: string }> = []
+  edits: Array<{ messageId: string; text: string; threadId: string }> = []
   reactions: Array<{ added: boolean; emoji: unknown; messageId: string; threadId: string }> = []
+  private editFailures = 0
+  private editFailure: unknown = 'fake provider edit failure'
   private postFailures = 0
   private postFailureMessage = 'fake provider post failure'
 
@@ -719,6 +854,11 @@ class FakeExternalAdapter implements ExternalGatewayAdapter<FakeWebhookPayload> 
   failNextPost(count = 1, message = 'fake provider post failure'): void {
     this.postFailures += count
     this.postFailureMessage = message
+  }
+
+  failNextEdit(count = 1, error: unknown = 'fake provider edit failure'): void {
+    this.editFailures += count
+    this.editFailure = error
   }
 
   async initialize(context: ExternalGatewayAdapterContext): Promise<void> {
@@ -793,6 +933,21 @@ class FakeExternalAdapter implements ExternalGatewayAdapter<FakeWebhookPayload> 
 
   async deleteMessage(threadId: string, messageId: string): Promise<void> {
     this.deletes.push({ messageId, threadId })
+  }
+
+  async editMessage(threadId: string, messageId: string, message: unknown) {
+    if (this.editFailures > 0) {
+      this.editFailures -= 1
+      if (this.editFailure instanceof Error) throw this.editFailure
+      throw new Error(String(this.editFailure))
+    }
+    const text = typeof message === 'string' ? message : JSON.stringify(message)
+    this.edits.push({ messageId, text, threadId })
+    return {
+      id: messageId,
+      threadId,
+      raw: { text }
+    }
   }
 
   async addReaction(threadId: string, messageId: string, emoji: unknown): Promise<void> {

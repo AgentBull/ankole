@@ -13,7 +13,15 @@ export const databaseRuntimeConfig = {
   poolMax: AppEnv.BULLX_DATABASE_POOL_MAX
 } as const
 
-const sqlClient = new BunSQL(AppEnv.DATABASE_URL, {
+// `bun --hot` re-evaluates this module on every reload; constructing a fresh
+// BunSQL each time would leak the previous pool's connections (idle for up to
+// 1h) until PostgreSQL exhausts max_connections. Cache the client on
+// globalThis so reloads reuse the same pool.
+declare global {
+  var __bullxSqlClient: BunSQL | undefined
+}
+
+const sqlClient = (globalThis.__bullxSqlClient ??= new BunSQL(AppEnv.DATABASE_URL, {
   max: databaseRuntimeConfig.poolMax,
   idleTimeout: seconds('1h'),
   connectionTimeout: seconds('20s'),
@@ -24,7 +32,7 @@ const sqlClient = new BunSQL(AppEnv.DATABASE_URL, {
   onclose: error => {
     if (error && !closingDatabase) logger.error({ error }, 'PostgreSQL connection closed with error')
   }
-})
+}))
 
 export const DB = drizzle({
   client: sqlClient,

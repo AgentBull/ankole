@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { mkdir } from 'node:fs/promises'
 import { redis } from 'bun'
 import { compact, isPlainObject } from '@pleisto/active-support'
 import { and, eq, sql } from 'drizzle-orm'
@@ -34,8 +35,14 @@ const {
   ScheduledTasks
 } = await import('@/common/db-schema')
 const { createAgent } = await import('@/principals/agents/service')
-const { getEffectiveSkillContent, getSoul, searchEffectiveSkills, syncBuiltinLibraryFromAppDirectory } =
-  await import('@/ai-agent/library/service')
+const {
+  getEffectiveSkillContent,
+  getSoul,
+  setAgentSkillEnabled,
+  setMission,
+  skillsForSystemPrompt,
+  syncBuiltinLibraryFromAppDirectory
+} = await import('@/ai-agent/library/service')
 const { resolveAiAgentRuntimeProfile } = await import('@/ai-agent/config')
 const { createLlmProvider } = await import('@/llm-providers/service')
 const { AiAgentRuntime } = await import('@/ai-agent/runtime')
@@ -55,7 +62,7 @@ const { schedulerStore } = await import('@/scheduler/store')
 const { externalGatewayOutbox } = await import('@/external-gateway/outbox')
 const { externalGatewayProjectionSink } = await import('@/external-gateway/core/projection')
 
-const MODEL_ID = 'xiaomi/mimo-v2.5'
+const MODEL_ID = 'minimax/minimax-m3'
 const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1'
 const AMBIENT_REDIS_KEY = 'bullx-agent:ai-agent:ambient-wake'
 
@@ -77,6 +84,7 @@ const webProviderId = `llm_e2e_web_${suffix}`
 const roomIds = new Set<string>()
 const webCalls: Array<{ args: WebSearchArgs | WebExtractArgs; kind: 'extract' | 'search' }> = []
 const onlyScenarios = new Set(compact((Bun.env.LLM_E2E_ONLY ?? '').split(',').map(value => value.trim())))
+const dumpTrajectory = Bun.env.LLM_E2E_DUMP_TRAJECTORY === '1'
 let runtime: InstanceType<typeof ExternalGatewayRuntime> | undefined
 let aiRuntime: InstanceType<typeof AiAgentRuntime> | undefined
 let scheduler: InstanceType<typeof SchedulerRuntime> | undefined
@@ -131,6 +139,7 @@ try {
   await scheduler?.stop().catch(() => undefined)
   await runtime?.stop().catch(() => undefined)
   aiRuntime?.stop()
+  if (dumpTrajectory) await dumpTrajectoryArtifact().catch(error => console.error(error))
   await cleanup()
   await closeDatabase({ timeout: 5 }).catch(() => undefined)
 }
@@ -180,6 +189,7 @@ async function startRuntime() {
       }
     }
   })
+  await setMission(agentUid, '')
   const profile = await resolveAiAgentRuntimeProfile({
     models,
     policy: {
@@ -192,7 +202,8 @@ async function startRuntime() {
         microcompactKeepRecent: 6,
         reserveTokens: 0
       },
-      dailyReset: { enabled: true, hour: '00:00', retryMinutes: 30 }
+      dailyReset: { enabled: true, hour: '00:00', retryMinutes: 30 },
+      generation: { maxTurns: 8 }
     }
   })
 
@@ -390,7 +401,7 @@ async function scenarioAmbient(setup: RuntimeSetup): Promise<void> {
         .map(event => `${event.op}:${event.text ?? ''}`)
         .join('\n')
       assert.ok(
-        updatedTurns.some(row => row.kind === 'generation' && row.profile === 'primary' && row.status === 'succeeded'),
+        updatedTurns.some(row => row.kind === 'generation' && row.profile === 'primary' && isFinalSucceededTurn(row)),
         `ambient intervention generation did not succeed: ${JSON.stringify(updatedTurns.map(row => ({ kind: row.kind, status: row.status, response: row.response })))}`
       )
       assert.ok(updatedRows.some(row => row.role === 'im_ambient' && row.kind === 'introspection'))
@@ -406,10 +417,10 @@ async function scenarioSoulAndSkills(setup: RuntimeSetup): Promise<void> {
   const soul = await getSoul(agentUid)
   assert.ok(soul?.includes('Bayesian'), 'new agent should have SOUL.md seeded from the app template')
 
-  const initialSkills = await searchEffectiveSkills({ agentUid, query: 'jupyter data science python' })
+  const initialSkills = await skillsForSystemPrompt(agentUid)
   assert.ok(
     initialSkills.some(skill => skill.name === 'jupyter-live-kernel'),
-    'jupyter-live-kernel skill should be default-enabled and searchable'
+    'jupyter-live-kernel skill should be default-enabled and present in the available_skills index'
   )
 
   const roomId = `${adapterName}:library`
@@ -421,11 +432,10 @@ async function scenarioSoulAndSkills(setup: RuntimeSetup): Promise<void> {
     group,
     roomId,
     threadId,
-    'library-search-use-append',
+    'library-index-use-append',
     [
-      '@Agent 我正在给你配置 Jupyter live-kernel SOP。不要凭印象回答，先从技能库发现和读取可用技能。',
-      'Call skill_search with query "jupyter data science python" and limit 5.',
-      'Then call skill_use with name "jupyter-live-kernel".',
+      '@Agent 我正在给你配置 Jupyter live-kernel SOP。不要凭印象回答，先根据 available_skills 索引读取可用技能。',
+      'Call skill_view with name "jupyter-live-kernel".',
       'Then add one agent-specific operating note by calling skill_append with name "jupyter-live-kernel" and content "LLM_E2E_AGENT_APPEND_SENTINEL".',
       'After those tool results, tell me the Jupyter SOP overlay is installed and reply exactly: LLM_E2E_SKILLS_APPEND_DONE'
     ].join('\n'),
@@ -434,8 +444,7 @@ async function scenarioSoulAndSkills(setup: RuntimeSetup): Promise<void> {
 
   let conversation = await conversationForRoom(roomId)
   let names = await toolNamesForConversation(conversation.id)
-  assert.ok(names.includes('skill_search'), `missing skill_search tool result: ${names.join(', ')}`)
-  assert.ok(names.includes('skill_use'), `missing skill_use tool result: ${names.join(', ')}`)
+  assert.ok(names.includes('skill_view'), `missing skill_view tool result: ${names.join(', ')}`)
   assert.ok(names.includes('skill_append'), `missing skill_append tool result: ${names.join(', ')}`)
 
   let effectiveSkill = await getEffectiveSkillContent({ agentUid, skillName: 'jupyter-live-kernel' })
@@ -445,51 +454,28 @@ async function scenarioSoulAndSkills(setup: RuntimeSetup): Promise<void> {
     'effective skill should include agent AGENT_APPEND.md'
   )
 
-  await sayAndWaitForLibraryStep(
-    setup,
-    group,
-    roomId,
-    threadId,
-    'library-disable',
-    [
-      '@Agent 这个 agent 临时不该使用 Jupyter SOP。Call skill_enable with name "jupyter-live-kernel", enabled false, and reason "llm e2e disable check".',
-      'After that tool result, confirm the Jupyter SOP is disabled and reply exactly: LLM_E2E_SKILLS_DISABLED'
-    ].join('\n'),
-    'LLM_E2E_SKILLS_DISABLED'
-  )
-
-  conversation = await conversationForRoom(roomId)
-  names = await toolNamesForConversation(conversation.id)
+  await setAgentSkillEnabled({
+    agentUid,
+    skillName: 'jupyter-live-kernel',
+    enabled: false,
+    reason: 'llm e2e disable check'
+  })
+  const disabledSkills = await skillsForSystemPrompt(agentUid)
   assert.ok(
-    names.filter(name => name === 'skill_enable').length >= 1,
-    `missing skill_enable disable call: ${names.join(', ')}`
-  )
-  const disabledSkills = await searchEffectiveSkills({ agentUid, query: 'jupyter data science python' })
-  assert.equal(disabledSkills.length, 0, 'skill_enable(false) should disable the skill for this agent only')
-
-  await sayAndWaitForLibraryStep(
-    setup,
-    group,
-    roomId,
-    threadId,
-    'library-restore',
-    [
-      '@Agent 现在恢复这个 agent 的 Jupyter SOP。Call skill_enable with name "jupyter-live-kernel", enabled true, and reason "llm e2e restore check".',
-      'After that tool result, confirm the Jupyter SOP is restored and reply exactly: LLM_E2E_SKILLS_RESTORED'
-    ].join('\n'),
-    'LLM_E2E_SKILLS_RESTORED'
+    !disabledSkills.some(skill => skill.name === 'jupyter-live-kernel'),
+    'console/service disabling should remove the skill from this agent available_skills index'
   )
 
-  conversation = await conversationForRoom(roomId)
-  names = await toolNamesForConversation(conversation.id)
-  assert.ok(
-    names.filter(name => name === 'skill_enable').length >= 2,
-    `missing skill_enable restore call: ${names.join(', ')}`
-  )
-  const restoredSkills = await searchEffectiveSkills({ agentUid, query: 'jupyter data science python' })
+  await setAgentSkillEnabled({
+    agentUid,
+    skillName: 'jupyter-live-kernel',
+    enabled: true,
+    reason: 'llm e2e restore check'
+  })
+  const restoredSkills = await skillsForSystemPrompt(agentUid)
   assert.ok(
     restoredSkills.some(skill => skill.name === 'jupyter-live-kernel'),
-    'skill should be searchable after restore'
+    'skill should return to this agent available_skills index after restore'
   )
 
   effectiveSkill = await getEffectiveSkillContent({ agentUid, skillName: 'jupyter-live-kernel' })
@@ -616,35 +602,38 @@ async function scenarioCheckBackLater(setup: RuntimeSetup): Promise<void> {
 async function scenarioComputerCommand(setup: RuntimeSetup): Promise<void> {
   const roomId = `${adapterName}:computer`
   const group = setup.platform.group(setup.conversationOptions({ channelId: roomId }))
-
-  await group.say({
-    id: 'computer-1',
-    isMention: true,
-    text: [
-      '@Agent 你需要像数字员工一样更新自己的工作区文件和个人 SOP overlay。这个任务不能只靠文字确认完成。',
-      'You must call the command tool with this exact command:',
-      '`mkdir -p user-files library-containers/skills/jupyter-live-kernel && printf LLM_E2E_COMMAND_DONE > user-files/llm-e2e-command.txt && printf LLM_E2E_SOUL_FROM_COMPUTER > library-containers/SOUL.md && printf LLM_E2E_APPEND_FROM_COMPUTER > library-containers/skills/jupyter-live-kernel/AGENT_APPEND.md && cat user-files/llm-e2e-command.txt && cat library-containers/SOUL.md && cat library-containers/skills/jupyter-live-kernel/AGENT_APPEND.md`.',
-      'Only after the command tool result shows LLM_E2E_COMMAND_DONE, LLM_E2E_SOUL_FROM_COMPUTER, and LLM_E2E_APPEND_FROM_COMPUTER, confirm the workspace and SOP overlay were updated and reply exactly: LLM_E2E_COMPUTER_DONE.',
-      'If you have not called the command tool, do not reply with LLM_E2E_COMPUTER_DONE.'
-    ].join(' ')
-  })
-
   let conversation: Awaited<ReturnType<typeof conversationForRoom>> | undefined
-  await eventually(async () => {
-    conversation = await conversationForRoom(roomId)
-  }, 20_000)
+  let lastDiagnostic = 'computer command was not attempted'
+  const text = [
+    '@Agent 你需要像数字员工一样更新自己的工作区文件和个人 SOP overlay。这个任务不能只靠文字确认完成。',
+    'You must call the command tool with this exact command:',
+    '`mkdir -p user-files library-containers/skills/jupyter-live-kernel && printf LLM_E2E_COMMAND_DONE > user-files/llm-e2e-command.txt && printf LLM_E2E_SOUL_FROM_COMPUTER > library-containers/SOUL.md && printf LLM_E2E_APPEND_FROM_COMPUTER > library-containers/skills/jupyter-live-kernel/AGENT_APPEND.md && cat user-files/llm-e2e-command.txt && cat library-containers/SOUL.md && cat library-containers/skills/jupyter-live-kernel/AGENT_APPEND.md`.',
+    'Only after the command tool result shows LLM_E2E_COMMAND_DONE, LLM_E2E_SOUL_FROM_COMPUTER, and LLM_E2E_APPEND_FROM_COMPUTER, confirm the workspace and SOP overlay were updated and reply exactly: LLM_E2E_COMPUTER_DONE.',
+    'If you have not called the command tool, do not reply with LLM_E2E_COMPUTER_DONE.'
+  ].join(' ')
+
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    const existing = (await conversationsFor(agentUid)).find(row => row.conversationKey.includes(`room:${roomId}`))
+    const ignoreTurnIds = new Set(existing ? (await llmTurnsFor(existing.id)).map(row => row.id) : [])
+    await group.say({
+      id: `computer-${attempt}`,
+      isMention: true,
+      text
+    })
+    conversation = await waitForConversationForRoom(roomId)
+    const result = await waitForToolResultText(conversation.id, 'LLM_E2E_COMMAND_DONE', 180_000, ignoreTurnIds)
+    if (result.ok) break
+    lastDiagnostic = result.diagnostic
+    await waitForAllGenerationsIdle()
+  }
   assert.ok(conversation, `expected conversation for room ${roomId}`)
-  await eventually(async () => {
-    const names = await toolNamesForConversation(conversation!.id)
-    assert.ok(names.includes('command'), `missing command tool result: ${names.join(', ')}`)
-  }, 120_000)
-  await waitForOutboundText(setup, 'LLM_E2E_COMPUTER_DONE', 120_000)
 
   conversation = await conversationForRoom(roomId)
   const serializedToolResults = JSON.stringify((await llmTurnsFor(conversation.id)).flatMap(row => row.toolResults))
-  assert.match(serializedToolResults, /LLM_E2E_COMMAND_DONE/)
+  assert.match(serializedToolResults, /LLM_E2E_COMMAND_DONE/, lastDiagnostic)
   assert.match(serializedToolResults, /LLM_E2E_SOUL_FROM_COMPUTER/)
   assert.match(serializedToolResults, /LLM_E2E_APPEND_FROM_COMPUTER/)
+  await waitForOutboundText(setup, 'LLM_E2E_COMPUTER_DONE', 120_000)
 
   assert.equal(await getSoul(agentUid), 'LLM_E2E_SOUL_FROM_COMPUTER')
   const effectiveSkill = await getEffectiveSkillContent({ agentUid, skillName: 'jupyter-live-kernel' })
@@ -657,25 +646,35 @@ async function scenarioComputerCommand(setup: RuntimeSetup): Promise<void> {
 async function scenarioRuntimeSkillSmokes(setup: RuntimeSetup): Promise<void> {
   const roomId = `${adapterName}:runtime-skills`
   const group = setup.platform.group(setup.conversationOptions({ channelId: roomId }))
+  let conversation: Awaited<ReturnType<typeof conversationForRoom>> | undefined
+  let lastDiagnostic = 'runtime skill smoke was not attempted'
 
-  await group.say({
-    id: 'runtime-skills-1',
-    isMention: true,
-    text: [
-      '@Agent 请通过 computer 的 command tool 端到端验证内置 Jupyter runtime skill。',
-      'First call command with command `bash /workspace/library-containers/skills/jupyter-live-kernel/scripts/smoke_live_kernel.sh` and timeout 120.',
-      'Only after the command tool result shows JUPYTER_LIVE_KERNEL_SMOKE_OK, reply exactly: LLM_E2E_RUNTIME_SKILLS_DONE.',
-      'If the command fails, do not reply with LLM_E2E_RUNTIME_SKILLS_DONE; explain the failing command output.'
-    ].join('\n')
-  })
+  const text = [
+    '@Agent 请通过 computer 的 command tool 端到端验证内置 Jupyter runtime skill。',
+    'First call command with command `bash /workspace/library-containers/skills/jupyter-live-kernel/scripts/smoke_live_kernel.sh` and timeout 120.',
+    'Only after the command tool result shows JUPYTER_LIVE_KERNEL_SMOKE_OK, reply exactly: LLM_E2E_RUNTIME_SKILLS_DONE.',
+    'If the command fails, do not reply with LLM_E2E_RUNTIME_SKILLS_DONE; explain the failing command output.'
+  ].join('\n')
 
-  await waitForOutboundText(setup, 'LLM_E2E_RUNTIME_SKILLS_DONE', 180_000)
-  const conversation = await conversationForRoom(roomId)
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    const existing = (await conversationsFor(agentUid)).find(row => row.conversationKey.includes(`room:${roomId}`))
+    const ignoreTurnIds = new Set(existing ? (await llmTurnsFor(existing.id)).map(row => row.id) : [])
+    await group.say({
+      id: `runtime-skills-${attempt}`,
+      isMention: true,
+      text
+    })
+    conversation = await waitForConversationForRoom(roomId)
+    const result = await waitForToolResultText(conversation.id, 'JUPYTER_LIVE_KERNEL_SMOKE_OK', 180_000, ignoreTurnIds)
+    if (result.ok) break
+    lastDiagnostic = result.diagnostic
+    await waitForAllGenerationsIdle()
+  }
+  assert.ok(conversation)
+  const serializedToolResults = JSON.stringify((await llmTurnsFor(conversation.id)).flatMap(row => row.toolResults))
+  assert.ok(serializedToolResults.includes('JUPYTER_LIVE_KERNEL_SMOKE_OK'), lastDiagnostic)
   const names = await toolNamesForConversation(conversation.id)
   assert.ok(names.filter(name => name === 'command').length >= 1, `missing command tool results: ${names.join(', ')}`)
-
-  const serializedToolResults = JSON.stringify((await llmTurnsFor(conversation.id)).flatMap(row => row.toolResults))
-  assert.ok(serializedToolResults.includes('JUPYTER_LIVE_KERNEL_SMOKE_OK'), 'missing Jupyter smoke sentinel')
 }
 
 async function scenarioBrowserTool(setup: RuntimeSetup): Promise<void> {
@@ -881,6 +880,7 @@ async function step(key: string, name: string, fn: () => Promise<void>): Promise
   // oxlint-disable-next-line no-console
   console.log(`- ${key}: ${name}`)
   await fn()
+  await waitForAllGenerationsIdle()
   // oxlint-disable-next-line no-console
   console.log(`  ok ${Date.now() - start}ms`)
 }
@@ -892,11 +892,78 @@ async function conversationsFor(uid: string) {
     .orderBy(AiAgentConversations.createdAt, AiAgentConversations.id)
 }
 
+async function waitForAllGenerationsIdle(timeoutMs = 240_000): Promise<void> {
+  await eventually(async () => {
+    const active = (await conversationsFor(agentUid)).flatMap(row => {
+      const leaseId = activeGenerationLease(row.generation)
+      return leaseId ? [{ id: row.id, conversationKey: row.conversationKey, leaseId }] : []
+    })
+    assert.equal(active.length, 0, `active generation(s) still running: ${JSON.stringify(active)}`)
+  }, timeoutMs)
+}
+
+async function waitForToolResultText(
+  conversationId: string,
+  text: string,
+  timeoutMs: number,
+  ignoreTurnIds: Set<string> = new Set()
+): Promise<{ diagnostic: string; ok: false } | { ok: true }> {
+  const started = Date.now()
+  while (Date.now() - started < timeoutMs) {
+    const turns = (await llmTurnsFor(conversationId)).filter(row => !ignoreTurnIds.has(row.id))
+    const serializedToolResults = JSON.stringify(turns.flatMap(row => row.toolResults))
+    if (serializedToolResults.includes(text)) return { ok: true }
+    const terminal = [...turns]
+      .reverse()
+      .find(
+        row =>
+          row.kind === 'generation' &&
+          row.profile === 'primary' &&
+          (row.status === 'failed' || row.status === 'cancelled' || isFinalSucceededTurn(row))
+      )
+    if (terminal) {
+      return {
+        ok: false,
+        diagnostic: `missing ${text}; terminal turn: ${JSON.stringify({
+          id: terminal.id,
+          status: terminal.status,
+          response: terminal.response,
+          toolResults: terminal.toolResults
+        })}`
+      }
+    }
+    await Bun.sleep(100)
+  }
+  return { ok: false, diagnostic: `timed out waiting for tool result text ${text}` }
+}
+
+function activeGenerationLease(generation: unknown): string | undefined {
+  if (!isPlainObject(generation)) return undefined
+  if (generation.cancelled_at) return undefined
+  const leaseId = generation.lease_id
+  return typeof leaseId === 'string' && leaseId.length > 0 ? leaseId : undefined
+}
+
+function isFinalSucceededTurn(row: typeof AiAgentLlmTurns.$inferSelect): boolean {
+  if (row.status !== 'succeeded') return false
+  if (!isPlainObject(row.response)) return false
+  return row.response.stop_reason === 'stop'
+}
+
 async function conversationForRoom(roomId: string) {
   const rows = (await conversationsFor(agentUid)).filter(row => row.conversationKey.includes(`room:${roomId}`))
   const active = rows.find(row => !row.endedAt) ?? rows.at(-1)
   assert.ok(active, `expected conversation for room ${roomId}`)
   return active
+}
+
+async function waitForConversationForRoom(roomId: string, timeoutMs = 20_000) {
+  let conversation: Awaited<ReturnType<typeof conversationForRoom>> | undefined
+  await eventually(async () => {
+    conversation = await conversationForRoom(roomId)
+  }, timeoutMs)
+  assert.ok(conversation, `expected conversation for room ${roomId}`)
+  return conversation
 }
 
 async function messagesFor(conversationId: string) {
@@ -911,6 +978,50 @@ async function llmTurnsFor(conversationId: string) {
     .from(AiAgentLlmTurns)
     .where(eq(AiAgentLlmTurns.conversationId, conversationId))
     .orderBy(AiAgentLlmTurns.startedAt, AiAgentLlmTurns.id)
+}
+
+async function dumpTrajectoryArtifact(): Promise<void> {
+  const conversations = await conversationsFor(agentUid)
+  const conversationArtifacts = []
+  for (const conversation of conversations) {
+    conversationArtifacts.push({
+      conversation,
+      messages: await messagesFor(conversation.id),
+      llmTurns: await llmTurnsFor(conversation.id)
+    })
+  }
+
+  const outbox = await DB.select()
+    .from(ExternalGatewayOutbox)
+    .where(eq(ExternalGatewayOutbox.agentUid, agentUid))
+    .orderBy(ExternalGatewayOutbox.createdAt, ExternalGatewayOutbox.outboundKey)
+  const agentEvents = await DB.select()
+    .from(ExternalGatewayAgentEvents)
+    .where(eq(ExternalGatewayAgentEvents.agentUid, agentUid))
+    .orderBy(ExternalGatewayAgentEvents.createdAt, ExternalGatewayAgentEvents.providerEventId)
+
+  const artifactUrl = new URL(`../../var/llm-e2e/${agentUid}.json`, import.meta.url)
+  await mkdir(new URL('../../var/llm-e2e/', import.meta.url), { recursive: true })
+  await Bun.write(
+    artifactUrl,
+    JSON.stringify(
+      {
+        generatedAt: new Date().toISOString(),
+        agentUid,
+        adapterName,
+        llmProviderId,
+        model: `openrouter/${MODEL_ID}`,
+        onlyScenarios: [...onlyScenarios],
+        roomIds: [...roomIds],
+        conversations: conversationArtifacts,
+        externalGateway: { agentEvents, outbox }
+      },
+      null,
+      2
+    )
+  )
+  // oxlint-disable-next-line no-console
+  console.log(`trajectory artifact: ${artifactUrl.pathname}`)
 }
 
 async function toolNamesForConversation(conversationId: string): Promise<string[]> {
@@ -1009,6 +1120,12 @@ async function cleanup(): Promise<void> {
 
     if (previousExtractProvider === undefined) await appConfigService.delete(WebExtractProviderConfig)
     else await appConfigService.set(WebExtractProviderConfig, previousExtractProvider)
+  }
+
+  if (dumpTrajectory) {
+    // oxlint-disable-next-line no-console
+    console.log(`preserving llm e2e DB rows for trajectory dump: agent=${agentUid}`)
+    return
   }
 
   await DB.delete(ScheduledTaskRuns).where(eq(ScheduledTaskRuns.agentUid, agentUid))

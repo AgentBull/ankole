@@ -449,6 +449,7 @@ export async function skillsForSystemPrompt(agentUid: string, executor: QueryExe
   return summaries.map(skill => ({
     name: skill.name,
     description: skill.description,
+    category: skill.category,
     content: '',
     filePath: `/workspace/library-containers/skills/${skill.name}/${SKILL_FILE}`,
     disableModelInvocation: skill.metadata.disable_model_invocation === true

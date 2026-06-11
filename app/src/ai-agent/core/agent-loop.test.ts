@@ -38,7 +38,8 @@ const toolCall = (id: string, name: string, args: Record<string, unknown> = {}) 
 
 function assistant(
   content: AssistantMessage['content'],
-  stopReason: AssistantMessage['stopReason'] = 'stop'
+  stopReason: AssistantMessage['stopReason'] = 'stop',
+  extra: Partial<AssistantMessage> = {}
 ): AssistantMessage {
   return {
     role: 'assistant',
@@ -48,7 +49,8 @@ function assistant(
     model: 'm',
     usage: USAGE,
     stopReason,
-    timestamp: 0
+    timestamp: 0,
+    ...extra
   }
 }
 
@@ -133,6 +135,39 @@ describe('agent-loop wire sanitization (orphan tool pairs + empty assistant)', (
 
     expect(calls).toBe(2)
     expect(assistantTexts(result)).toEqual(['recovered'])
+  })
+
+  it('retries one empty pre-tool assistant error returned by the provider stream', async () => {
+    const context: AgentContext = { systemPrompt: 'sys', messages: [], tools: [echoTool] }
+    const { streamFn, capture } = scriptedStreamFn([
+      assistant([], 'error', { errorMessage: 'Connection error.' }),
+      assistant([text('recovered')])
+    ])
+    const events: AgentEvent[] = []
+
+    const result = await run([userMessage('go')], context, makeConfig({ maxRetryDelayMs: 1 }), streamFn, event => {
+      events.push(event)
+    })
+
+    expect(capture.calls).toBe(2)
+    expect(assistantTexts(result)).toEqual(['recovered'])
+    expect(result.filter(message => message.role === 'assistant')).toHaveLength(1)
+    expect(events.filter(event => event.type === 'turn_end')).toHaveLength(1)
+  })
+
+  it('does not retry assistant errors after tool results have been produced', async () => {
+    const context: AgentContext = { systemPrompt: 'sys', messages: [], tools: [echoTool] }
+    const { streamFn, capture } = scriptedStreamFn([
+      assistant([toolCall('e1', 'echo')]),
+      assistant([], 'error', { errorMessage: 'Connection error.' }),
+      assistant([text('should not run')])
+    ])
+
+    const result = await run([userMessage('go')], context, makeConfig({ maxRetryDelayMs: 1 }), streamFn)
+
+    expect(capture.calls).toBe(2)
+    expect(result.filter(message => message.role === 'assistant')).toHaveLength(2)
+    expect(assistantTexts(result).at(-1)).toBe('')
   })
 
   it('drops orphan tool results, stubs missing results, and backfills empty assistant content', async () => {

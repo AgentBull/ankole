@@ -10,32 +10,50 @@ export const SUMMARIZATION_SYSTEM_PROMPT = `You are a context summarization assi
 
 Do NOT continue the conversation. Do NOT respond to any questions in the conversation. ONLY output the structured summary.`
 
-export const SUMMARIZATION_PROMPT = `The messages above are a conversation to summarize. Create a structured context checkpoint summary that another LLM will use to continue the work.
+export const SUMMARIZATION_PROMPT = `The messages above are a conversation to summarize. Create a structured context checkpoint summary that another LLM will use as reference background.
+
+The summary is not an instruction to continue old work by itself. The latest user message after the summary decides what to do now. If later messages include reverse signals such as stop, undo, rollback, never mind, just verify, or a topic change, mark the stale work as cancelled or superseded instead of preserving it as active.
 
 Use this EXACT format:
 
-## Goal
-[What is the user trying to accomplish? Can be multiple items if the session covers different tasks.]
+## Active Task
+[The current task, or "(none)" if no task remains active.]
 
 ## Constraints & Preferences
 - [Any constraints, preferences, or requirements mentioned by user]
 - [Or "(none)" if none were mentioned]
 
-## Progress
-### Done
+## Completed Actions
 - [x] [Completed tasks/changes]
+- [Or "(none)" if no meaningful actions were completed]
 
-### In Progress
+## Active State
+- [Current files, processes, tools, data, environment, or UI state needed to resume]
+- [Or "(none)" if not applicable]
+
+## In Progress
 - [ ] [Current work]
+- [Or "(none)" if no work is in progress]
 
-### Blocked
+## Blocked
 - [Issues preventing progress, if any]
+- [Or "(none)" if not blocked]
 
 ## Key Decisions
 - **[Decision]**: [Brief rationale]
+- [Or "(none)" if none were made]
 
-## Next Steps
-1. [Ordered list of what should happen next]
+## Resolved Questions
+- [Questions that were answered or choices that were settled]
+- [Or "(none)" if none]
+
+## Pending User Asks
+- [Explicit requests from the user that still need response/action]
+- [Or "(none)" if none]
+
+## Remaining Work
+1. [What remains to complete the active task]
+2. [Or "(none)" if nothing remains]
 
 ## Critical Context
 - [Any data, examples, or references needed to continue]
@@ -48,34 +66,50 @@ export const UPDATE_SUMMARIZATION_PROMPT = `The messages above are NEW conversat
 Update the existing structured summary with new information. RULES:
 - PRESERVE all existing information from the previous summary
 - ADD new progress, decisions, and context from the new messages
-- UPDATE the Progress section: move items from "In Progress" to "Done" when completed
-- UPDATE "Next Steps" based on what was accomplished
+- UPDATE "Completed Actions", "In Progress", and "Remaining Work" based on what was accomplished
 - PRESERVE exact file paths, function names, and error messages
 - If something is no longer relevant, you may remove it
+- If the new messages include reverse signals such as stop, undo, rollback, never mind, just verify, or a topic change, mark stale work as cancelled or superseded instead of preserving it as active
 
 Use this EXACT format:
 
-## Goal
-[Preserve existing goals, add new ones if the task expanded]
+## Active Task
+[Preserve or update the current task, or "(none)" if no task remains active.]
 
 ## Constraints & Preferences
 - [Preserve existing, add new ones discovered]
 
-## Progress
-### Done
+## Completed Actions
 - [x] [Include previously done items AND newly completed items]
+- [Or "(none)" if no meaningful actions were completed]
 
-### In Progress
+## Active State
+- [Preserve/update current files, processes, tools, data, environment, or UI state]
+- [Or "(none)" if not applicable]
+
+## In Progress
 - [ ] [Current work - update based on progress]
+- [Or "(none)" if no work is in progress]
 
-### Blocked
+## Blocked
 - [Current blockers - remove if resolved]
+- [Or "(none)" if not blocked]
 
 ## Key Decisions
 - **[Decision]**: [Brief rationale] (preserve all previous, add new)
+- [Or "(none)" if none were made]
 
-## Next Steps
+## Resolved Questions
+- [Preserve/add questions that were answered or choices that were settled]
+- [Or "(none)" if none]
+
+## Pending User Asks
+- [Explicit requests from the user that still need response/action]
+- [Or "(none)" if none]
+
+## Remaining Work
 1. [Update based on current state]
+2. [Or "(none)" if nothing remains]
 
 ## Critical Context
 - [Preserve important context, add new if needed]

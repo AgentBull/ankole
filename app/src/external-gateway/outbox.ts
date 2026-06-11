@@ -34,7 +34,8 @@ export interface ExternalGatewayOutboundIntent {
    *                  `{ files: [{ filename, dataBase64 }] }` or `{ files: [{ filename, text }] }`
    * - card         : `{ kind: 'interactive_output', output }` or `{ kind: 'lark_native_card', card, fallbackText }`
    * - divider      : `{ kind: 'control_notice', text, fallbackText? }`
-   * - edit         : `{ targetOutboundKey, text|interactive_output|lark_native_card, ... }` (or `intent.providerMessageId`)
+   * - edit         : `{ targetOutboundKey, text|interactive_output|lark_native_card, ... }` (or `intent.providerMessageId`);
+   *                  `editFallback: "post"` opts command/progress edits into post fallback on permanent edit failures
    * - delete       : `{ targetMessageId }` or `{ targetOutboundKey }`
    * - reaction_*   : `{ targetMessageId, emoji }`
    */
@@ -77,6 +78,26 @@ const PERMANENT_DELIVERY_ERROR_PATTERNS = [
   /outbound not configured for channel/i,
   /ambiguous .* recipient/i,
   /User .* not in room/i
+] as const
+const PERMANENT_EDIT_FALLBACK_ERROR_PATTERNS = [
+  /230075/,
+  /exceeded the time that can be edited/i,
+  /message.*not found/i,
+  /message.*deleted/i,
+  /message.*recalled/i,
+  /message.*withdrawn/i,
+  /target.*not found/i
+] as const
+const TRANSIENT_EDIT_FAILURE_PATTERNS = [
+  /timeout/i,
+  /timed out/i,
+  /rate limit/i,
+  /too many requests/i,
+  /socket/i,
+  /network/i,
+  /econnreset/i,
+  /temporarily unavailable/i,
+  /request failed with status code 5\d\d/i
 ] as const
 
 /**
@@ -470,8 +491,56 @@ export class DrizzleExternalGatewayOutbox {
       })
       return sent
     } catch (error) {
+      if (editFallbackMode(input.intent.finalPayload) === 'post') {
+        const shouldFallback =
+          error instanceof UnsupportedChannelCapabilityError || isPermanentEditFailureForFallback(error)
+        if (shouldFallback) return this.dispatchEditFallbackPost(key, input, postable, targetMessageId, error)
+      }
       if (error instanceof UnsupportedChannelCapabilityError) return this.markUnsupported(key, error.message)
       return this.markProviderFailure(key, input.adapter, error)
+    }
+  }
+
+  private async dispatchEditFallbackPost(
+    key: ExternalGatewayOutboxKey,
+    input: DispatchExternalGatewayOutboundInput,
+    postable: unknown,
+    targetMessageId: string,
+    editError: unknown
+  ): Promise<typeof ExternalGatewayOutbox.$inferSelect> {
+    try {
+      const postMessage = requireOutboundCapability(
+        input.adapter,
+        'post_message',
+        input.adapter.postMessage?.bind(input.adapter)
+      )
+      const rawMessage = await postMessage(input.intent.providerThreadId, postable, outboundOptions(input.intent))
+      logger.warn(
+        {
+          agentUid: key.agentUid,
+          bindingName: key.bindingName,
+          outboundKey: key.outboundKey,
+          targetMessageId,
+          reason: redactSensitiveText(errorText(editError))
+        },
+        'External Gateway edit failed permanently; posted fallback message'
+      )
+      const sent = await this.markSent(key, rawMessage.id)
+      await projectVisibleOutbound({
+        agent: input.agent,
+        adapter: input.adapter,
+        messageId: rawMessage.id,
+        projection: input.projection,
+        room: roomFromIntent(input.intent, input.room, input.adapter),
+        raw: rawMessage.raw,
+        text: fallbackTextFromFinalPayload(input.intent.finalPayload, 'post'),
+        threadId: rawMessage.threadId || input.intent.providerThreadId
+      })
+      return sent
+    } catch (fallbackError) {
+      if (fallbackError instanceof UnsupportedChannelCapabilityError)
+        return this.markUnsupported(key, fallbackError.message)
+      return this.markProviderFailure(key, input.adapter, fallbackError)
     }
   }
 
@@ -685,6 +754,52 @@ function postableFromEditPayload(payload: JsonObject): unknown {
   if (typeof payload.markdown === 'string' || typeof payload.raw === 'string' || 'ast' in payload) return payload
 
   return undefined
+}
+
+function editFallbackMode(payload: JsonObject): 'post' | undefined {
+  return payload.editFallback === 'post' ? 'post' : undefined
+}
+
+function isPermanentEditFailureForFallback(error: unknown): boolean {
+  const text = errorText(error)
+  if (TRANSIENT_EDIT_FAILURE_PATTERNS.some(pattern => pattern.test(text))) return false
+  return PERMANENT_EDIT_FALLBACK_ERROR_PATTERNS.some(pattern => pattern.test(text))
+}
+
+function errorText(error: unknown): string {
+  if (typeof error === 'string') return error
+  const parts: string[] = []
+  if (error instanceof Error && error.message) parts.push(error.message)
+  collectProviderErrorDetails(error, parts)
+  if (parts.length > 0) return parts.join(' ')
+  try {
+    return JSON.stringify(error)
+  } catch {
+    return String(error)
+  }
+}
+
+function collectProviderErrorDetails(error: unknown, parts: string[]): void {
+  if (!error || typeof error !== 'object') return
+  const record = error as Record<string, unknown>
+  appendProviderErrorFields(record, parts)
+  const response = record.response
+  if (response && typeof response === 'object') {
+    const responseRecord = response as Record<string, unknown>
+    appendProviderErrorFields(responseRecord, parts)
+    appendProviderErrorFields(responseRecord.data, parts)
+  }
+  const cause = record.cause
+  if (cause && cause !== error) collectProviderErrorDetails(cause, parts)
+}
+
+function appendProviderErrorFields(value: unknown, parts: string[]): void {
+  if (!value || typeof value !== 'object') return
+  const record = value as Record<string, unknown>
+  for (const key of ['code', 'status', 'statusCode', 'statusText', 'msg', 'message', 'log_id']) {
+    const field = record[key]
+    if (typeof field === 'string' || typeof field === 'number') parts.push(`${key}=${field}`)
+  }
 }
 
 function fallbackTextFromFinalPayload(

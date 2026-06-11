@@ -20,6 +20,11 @@ RUN rm -rf \
   /app/internals/skills/financial-data/cli/target
 
 FROM oven/bun:1.3.14
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends openssh-client \
+  && rm -rf /var/lib/apt/lists/* \
+  && ssh -V \
+  && test -x /usr/bin/ssh-keygen
 WORKDIR /app
 ENV NODE_ENV=production \
     HTTP_PORT=3000 \

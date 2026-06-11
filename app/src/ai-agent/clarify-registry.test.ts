@@ -25,34 +25,36 @@ function register(
 }
 
 describe('AiAgentClarifyRegistry', () => {
-  it('registers, reports pending, and resolves exactly once', () => {
+  it('guards one pending clarify from reservation through room-scoped resolution', () => {
     const registry = new AiAgentClarifyRegistry()
-    let resolved: ClarifyResolution | undefined
-    register(registry, 'c1', r => {
-      resolved = r
-    })
 
-    expect(registry.has('c1')).toBe(true)
-    expect(registry.resolveByConversation('c1', { kind: 'answer', text: 'x', choiceIndex: 0 })).toBe(true)
-    expect(resolved).toEqual({ kind: 'answer', text: 'x', choiceIndex: 0 })
-    expect(registry.has('c1')).toBe(false)
-    // second resolve is a no-op
-    expect(registry.resolveByConversation('c1', { kind: 'timeout' })).toBe(false)
-  })
-
-  it('tryReserve blocks a second concurrent claim until released', () => {
-    const registry = new AiAgentClarifyRegistry()
     expect(registry.tryReserve('c1')).toBe(true)
     expect(registry.tryReserve('c1')).toBe(false)
     registry.releaseReservation('c1')
     expect(registry.tryReserve('c1')).toBe(true)
-  })
+    registry.releaseReservation('c1')
 
-  it('register throws when a clarify is already pending', () => {
-    const registry = new AiAgentClarifyRegistry()
-    register(registry, 'c1', () => undefined)
+    let resolved: ClarifyResolution | undefined
+    register(
+      registry,
+      'c1',
+      r => {
+        resolved = r
+      },
+      'room-a'
+    )
+
+    expect(registry.has('c1')).toBe(true)
+    expect(registry.pendingConversationForRoom('room-a')).toBe('c1')
+    expect(registry.pendingConversationForRoom('room-b')).toBeUndefined()
     expect(() => register(registry, 'c1', () => undefined)).toThrow()
-    registry.resolveByConversation('c1', { kind: 'aborted' })
+
+    expect(registry.resolveByConversation('c1', { kind: 'answer', text: 'x', choiceIndex: 0 })).toBe(true)
+    expect(resolved).toEqual({ kind: 'answer', text: 'x', choiceIndex: 0 })
+    expect(registry.has('c1')).toBe(false)
+    expect(registry.pendingConversationForRoom('room-a')).toBeUndefined()
+    // second resolve is a no-op
+    expect(registry.resolveByConversation('c1', { kind: 'timeout' })).toBe(false)
   })
 
   it('abort resolves with the given reason', () => {
@@ -63,14 +65,5 @@ describe('AiAgentClarifyRegistry', () => {
     })
     expect(registry.abort('c1', 'superseded')).toBe(true)
     expect(resolved).toEqual({ kind: 'superseded' })
-  })
-
-  it('opens a room gate on register and closes it on resolve', () => {
-    const registry = new AiAgentClarifyRegistry()
-    register(registry, 'c1', () => undefined, 'room-a')
-    expect(registry.pendingConversationForRoom('room-a')).toBe('c1')
-    expect(registry.pendingConversationForRoom('room-b')).toBeUndefined()
-    registry.resolveByConversation('c1', { kind: 'answer', text: 'x' })
-    expect(registry.pendingConversationForRoom('room-a')).toBeUndefined()
   })
 })

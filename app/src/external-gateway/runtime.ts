@@ -13,7 +13,7 @@ import {
   externalGatewayAgentEventQueue,
   type DrizzleExternalGatewayAgentEventQueue,
   type ExternalGatewayAgentDelivery,
-  type ExternalGatewayAgentEventKey
+  type ExternalGatewayInFlightAgentEvent
 } from './agent-events'
 import { loadAiAgentParallelismConfig } from '@/ai-agent/config'
 import { agentChannelConfigKey } from './config'
@@ -127,7 +127,7 @@ export class ExternalGatewayRuntime implements Runtime<ExternalGatewayRuntimeSta
    */
   private readonly inFlightDeliveries = new Map<
     number,
-    { agentUid: string; events: ExternalGatewayAgentEventKey[]; run: Promise<void> }
+    { agentUid: string; events: ExternalGatewayInFlightAgentEvent[]; run: Promise<void> }
   >()
   private nextDeliveryId = 0
   private readonly outboxDrains = new Map<string, { requested: boolean; promise: Promise<void> }>()
@@ -298,6 +298,7 @@ export class ExternalGatewayRuntime implements Runtime<ExternalGatewayRuntimeSta
           binding: runtimeBinding,
           eventQueue: this.eventQueue,
           getComputerFileWriter: options.getComputerFileWriter,
+          getInFlightAgentEvents: () => this.inFlightAgentEvents(),
           projection,
           scheduleDrain: availableAt => this.scheduleAgentEventDrain(availableAt),
           roomHasPendingClarify: roomId => this.agentExecutor.roomHasPendingClarify?.(roomId) ?? false
@@ -372,14 +373,19 @@ export class ExternalGatewayRuntime implements Runtime<ExternalGatewayRuntimeSta
         const eligibleAgents = [...this.instances.keys()].filter(
           agentUid => (laneCounts.get(agentUid) ?? 0) < maxConversationsPerAgent
         )
-        const excludeEvents = [...this.inFlightDeliveries.values()].flatMap(delivery => delivery.events)
+        const inFlightEvents = this.inFlightAgentEvents()
 
         if (eligibleAgents.length === 0) return
-        const delivery = await this.eventQueue.claimReady({ agentUids: eligibleAgents, excludeEvents })
+        const delivery = await this.eventQueue.claimReady({
+          agentUids: eligibleAgents,
+          blockLifecycleForReceives: inFlightEvents,
+          excludeEvents: inFlightEvents
+        })
         if (!delivery) {
           const nextAvailableAt = await this.eventQueue.nextPendingAvailableAt({
             agentUids: eligibleAgents,
-            excludeEvents
+            blockLifecycleForReceives: inFlightEvents,
+            excludeEvents: inFlightEvents
           })
           if (nextAvailableAt) this.scheduleAgentEventDrain(nextAvailableAt)
           return
@@ -391,7 +397,10 @@ export class ExternalGatewayRuntime implements Runtime<ExternalGatewayRuntimeSta
         const events = delivery.events.map(event => ({
           agentUid: event.agentUid,
           bindingName: event.bindingName,
-          providerEventId: event.providerEventId
+          providerEventId: event.providerEventId,
+          providerMessageId: event.providerMessageId,
+          providerRoomId: event.providerRoomId,
+          type: event.type
         }))
         const run = this.deliverLane(delivery).finally(() => {
           this.inFlightDeliveries.delete(deliveryId)
@@ -403,6 +412,10 @@ export class ExternalGatewayRuntime implements Runtime<ExternalGatewayRuntimeSta
     } finally {
       this.drainingAgentEvents = false
     }
+  }
+
+  private inFlightAgentEvents(): ExternalGatewayInFlightAgentEvent[] {
+    return [...this.inFlightDeliveries.values()].flatMap(delivery => delivery.events)
   }
 
   /** Runs one claimed delivery to completion and settles its input rows. */

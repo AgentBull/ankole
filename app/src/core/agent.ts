@@ -10,6 +10,7 @@ import type { IdentityProviderRuntimeStats } from '@/principals/identity-provide
 import { pluginRuntime } from '@/plugins'
 import type { PluginRuntimeStats } from '@/plugins/runtime'
 import { releaseComputerWorkerBinding, resolveComputerWorker } from '@/computer/service'
+import { ensureComputerGitSshIdentity } from '@/computer/git-ssh-identity'
 import { ensureComputerTlsBundle } from '@/computer/tls-config'
 import { initializeSetupBootstrap } from '@/setup/bootstrap'
 import { aiAgentRuntime } from '@/ai-agent/runtime'
@@ -68,6 +69,7 @@ export async function startBullXAgent(): Promise<StartedBullXAgent> {
   try {
     const setup = await initializeSetupBootstrap()
     await ensureComputerTlsBundle()
+    await ensureComputerGitSshIdentity()
     await syncBuiltinLibraryFromAppDirectory()
     // Register built-in web providers before plugins so plugin-contributed providers append after them.
     registerBuiltinWebProviders()

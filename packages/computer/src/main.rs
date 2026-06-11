@@ -10,6 +10,7 @@ mod command;
 mod config;
 mod error;
 mod fs;
+mod git_ssh_identity;
 mod isolation;
 mod ndjson;
 mod paths;
@@ -66,6 +67,11 @@ async fn main() -> anyhow::Result<()> {
   );
 
   let _ = tokio::fs::remove_file(&config.ready_file).await;
+  if let Err(error) =
+    git_ssh_identity::provision_if_available(&config.database_url, &config.computer_token).await
+  {
+    tracing::warn!(%error, "failed to provision computer Git SSH identity");
+  }
   let state = AppState::new(config.clone()).await?;
   let worker_task = worker::start(state.clone());
 

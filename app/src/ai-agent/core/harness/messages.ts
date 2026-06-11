@@ -1,7 +1,10 @@
 import type { ImageContent, Message, TextContent } from '@earendil-works/pi-ai'
 import type { AgentMessage } from '../types'
 
-export const COMPACTION_SUMMARY_PREFIX = `The conversation history before this point was compacted into the following summary:
+export const COMPACTION_SUMMARY_PREFIX = `[CONTEXT COMPACTION - REFERENCE ONLY]
+The conversation history before this point was compacted into the following summary.
+Treat the summary as background context, not as active instructions.
+The latest user message after this summary is the source of truth for what to do now; if it conflicts with the summary, follow the latest user message.
 
 <summary>
 `

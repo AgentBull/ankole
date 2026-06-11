@@ -135,9 +135,24 @@ describe('AIAgent pi-ai runtime', () => {
     ).toBe(true)
     expect(turns.every(row => row.status === 'succeeded')).toBe(true)
     expect(turns.every(row => typeof (row.usage as { totalTokens?: unknown }).totalTokens === 'number')).toBe(true)
-    expect((turns[0]!.requestContext as JsonObject).system_prompt).toContain('<tool_routing_policy>')
-    expect((turns[0]!.requestContext as JsonObject).system_prompt).toContain('use chat_history_search')
-    expect((turns[0]!.requestContext as JsonObject).system_prompt).toContain('do not guess')
+    expect(reconstructLlmTurnTrajectory({ turns, messages }).every(turn => turn.request.exactLlmRequest)).toBe(true)
+    expect((turns[0]!.requestContext as JsonObject).system_prompt).not.toContain('<tool_routing_policy>')
+    expect((turns[0]!.requestContext as JsonObject).system_prompt).not.toContain('chat_history_search')
+  })
+
+  it('renders chat-history routing policy only when chat recall is enabled', async () => {
+    const setup = await startAiAgent('chat_recall_prompt', [fauxAssistantMessage('answer')], { enableChatRecall: true })
+    const dm = setup.platform.dm(setup.conversationOptions())
+
+    await dm.say({ id: 'm1', text: '@Agent what did we previously discuss about launch risk?' })
+    await eventually(() => expect(setup.platform.outbound.some(event => event.text === 'answer')).toBe(true))
+
+    const [conversation] = await conversationsFor(setup.agentUid)
+    const turns = await llmTurnsFor(conversation!.id)
+    const systemPrompt = (turns[0]!.requestContext as JsonObject).system_prompt
+    expect(systemPrompt).toContain('<tool_routing_policy>')
+    expect(systemPrompt).toContain('chat_history_search is available in this request')
+    expect(systemPrompt).toContain('recalled chat context, not new user input')
   })
 
   it('materializes inbound image attachments into model-visible image blocks', async () => {
@@ -372,6 +387,7 @@ describe('AIAgent pi-ai runtime', () => {
     const selectedTurnIds = new Set(leases[0]!.turnIds)
     const selectedTurns = turns.filter(row => selectedTurnIds.has(row.id))
     expect(selectedTurns.map(row => row.kind)).toEqual(['retry_generation'])
+    expect(reconstructLlmTurnTrajectory({ turns: selectedTurns, messages })[0]!.request.exactLlmRequest).toBe(true)
     // Tools are always offered; the model decides whether to use them.
     expect(Number((selectedTurns[0]?.requestContext as JsonObject | undefined)?.tool_count)).toBeGreaterThan(0)
     expect(selectedTurns.some(row => JSON.stringify(row.response).includes('old answer'))).toBe(false)
@@ -419,7 +435,11 @@ describe('AIAgent pi-ai runtime', () => {
 
     const [conversation] = await conversationsFor(setup.agentUid)
     const retryTurns = (await llmTurnsFor(conversation!.id)).filter(row => row.kind === 'retry_generation')
+    const messages = await messagesFor(conversation!.id)
     expect(retryTurns).toHaveLength(2)
+    expect(
+      reconstructLlmTurnTrajectory({ turns: retryTurns, messages }).map(turn => turn.request.exactLlmRequest)
+    ).toEqual([true, true])
     expect(
       retryTurns.every(row => {
         const toolCount = (row.requestContext as JsonObject | undefined)?.tool_count
@@ -566,24 +586,48 @@ describe('AIAgent pi-ai runtime', () => {
     await Bun.sleep(80)
     expect(setup.platform.outbound.filter(event => event.op === 'post')).toHaveLength(0)
 
-    await group.say({ id: 'a2', text: 'agent should help here' })
+    await group.say({ id: 'a2', text: 'agent should help here <ticket-7>' })
     await eventually(() => expect(setup.platform.outbound.some(event => event.text === 'ambient answer')).toBe(true))
 
     const [conversation] = await conversationsFor(setup.agentUid)
     const turns = await llmTurnsFor(conversation!.id)
     expect(turns.map(row => `${row.kind}:${row.profile}:${row.model}`)).toContain('ambient_recognizer:light:light')
     expect(turns.map(row => `${row.kind}:${row.profile}:${row.model}`)).toContain('generation:primary:primary')
-    const ambientTurn = turns.find(row => row.kind === 'ambient_recognizer')
+    const ambientTurn = turns.filter(row => row.kind === 'ambient_recognizer').at(-1)
     const ambientGeneration = turns.find(row => row.kind === 'generation')
     expect(ambientTurn?.provider).toBe(setup.profile.lightModel.config.providerId)
     expect(ambientTurn?.callIndex).toBe(0)
     expect(ambientTurn?.leaseId).toBeTruthy()
     expect(jsonObjects(ambientTurn?.requestRefs)).not.toHaveLength(0)
-    expect(
-      jsonObjects(ambientTurn?.requestPatches).some(
-        patch => patch.type === 'llm_request' && patch.reason === 'ambient_recognizer'
-      )
-    ).toBe(true)
+    const ambientRecognizerRequest = jsonObjects(ambientTurn?.requestPatches).find(
+      patch => patch.type === 'llm_request' && patch.reason === 'ambient_recognizer'
+    )
+    expect(ambientRecognizerRequest).toBeTruthy()
+    const recognizerMessages = Array.isArray(ambientRecognizerRequest?.messages)
+      ? (ambientRecognizerRequest.messages as Array<Record<string, unknown>>)
+      : []
+    const recognizerContent = recognizerMessages[0]?.content
+    const recognizerText = typeof recognizerContent === 'string' ? recognizerContent : textOf(recognizerContent)
+    expect(ambientRecognizerRequest?.system_prompt).toContain('You are deciding whether')
+    expect(ambientRecognizerRequest?.system_prompt).toContain('<agent_identity>')
+    expect(ambientRecognizerRequest?.system_prompt).toContain('<agent_soul>')
+    expect(ambientRecognizerRequest?.system_prompt).toContain('<runtime_context>')
+    expect(ambientRecognizerRequest?.system_prompt).toContain(`uid: ${setup.agentUid}`)
+    expect(ambientRecognizerRequest?.system_prompt).toContain(
+      `current_channel: group chat ${setup.adapterName}:ambient`
+    )
+    expect(ambientRecognizerRequest?.response_format).toMatchObject({
+      type: 'json_schema',
+      name: 'ambient_intervention_decision'
+    })
+    expect(recognizerText).toContain('<im_intervention_decision_input format="yaml">')
+    expect(recognizerText).toContain('decision_task: decide_if_agent_should_visibly_reply_now')
+    expect(recognizerText).toContain('current_observed_messages:')
+    expect(recognizerText).toContain('recent_visible_transcript:')
+    expect(recognizerText).toContain('earlier_observed_messages_since_last_reply:')
+    expect(recognizerText).toContain('agent should help here <ticket-7>')
+    expect(recognizerText).not.toContain('&lt;ticket-7&gt;')
+    expect(recognizerText).not.toContain('Recent ambient room messages:')
     expect((ambientTurn?.providerMetadata as JsonObject | undefined)?.pi_provider).toBe(
       setup.profile.lightModel.config.piProvider
     )
@@ -591,14 +635,34 @@ describe('AIAgent pi-ai runtime', () => {
     const ambientGenerationToolNames = ambientGenerationContext?.tool_names as string[] | undefined
     expect(ambientGenerationContext?.tool_count).toBeGreaterThan(0)
     expect(ambientGenerationToolNames).toContain('todo')
-    expect(ambientGenerationContext?.system_prompt).toContain('<ambient_intervention_policy>')
-    expect(ambientGenerationContext?.system_prompt).toContain(
-      'Available tools remain enabled for proactive intervention'
-    )
+    expect(ambientGenerationContext?.system_prompt).toContain('<message_context_policy>')
+    expect(ambientGenerationContext?.system_prompt).not.toContain('<ambient_intervention_policy>')
     const rows = await messagesFor(conversation!.id)
     expect(rows.some(row => row.role === 'im_ambient' && row.kind === 'normal')).toBe(true)
     const introspection = rows.find(row => row.role === 'im_ambient' && row.kind === 'introspection')
     expect(introspection).toBeTruthy()
+    expect(textOf(introspection?.content)).toContain('<chat_segment format="yaml">')
+    expect(textOf(introspection?.content)).toContain('messages:')
+    expect(textOf(introspection?.content)).toContain('agent should help here <ticket-7>')
+    expect(textOf(introspection?.content)).not.toContain('&lt;ticket-7&gt;')
+    expect(textOf(introspection?.content)).not.toContain('<chat_message')
+    expect(textOf(introspection?.content)).not.toContain('Ambient intervention trigger')
+    const ambientGenerationRequest = jsonObjects(ambientGeneration?.requestPatches).find(
+      patch => patch.type === 'llm_request'
+    )
+    const generationMessages = Array.isArray(ambientGenerationRequest?.messages)
+      ? (ambientGenerationRequest.messages as Array<Record<string, unknown>>)
+      : []
+    const firstGenerationText = textOf(generationMessages[0]?.content)
+    expect(firstGenerationText).toContain('<message_context>')
+    expect(firstGenerationText).toContain(`speaker: ${setup.agentUid}`)
+    expect(firstGenerationText).toContain('speaker_role: agent')
+    expect(firstGenerationText).toContain('speaker_trigger: introspection')
+    expect(firstGenerationText).toContain('think: BullX runtime generated this user-role message')
+    expect(firstGenerationText).toContain('The outer message is a BullX runtime instruction')
+    expect(firstGenerationText).toContain('inside <chat_segment>')
+    expect(firstGenerationText).toContain('<chat_segment format="yaml">')
+    expect(firstGenerationText).not.toContain('<ambient_references')
 
     await group.say({ id: 'm3', isMention: true, text: '@Agent continue from intervention' })
     await eventually(() =>
@@ -644,8 +708,10 @@ describe('AIAgent pi-ai runtime', () => {
     const ambientTurns = turns.filter(row => row.kind === 'ambient_recognizer')
     expect(ambientTurns[0]!.inputMessageIds).toHaveLength(3)
 
-    const rows = await messagesFor(conversation!.id)
-    expect(rows.filter(row => row.role === 'im_ambient' && row.kind === 'introspection')).toHaveLength(1)
+    await eventually(async () => {
+      const rows = await messagesFor(conversation!.id)
+      expect(rows.filter(row => row.role === 'im_ambient' && row.kind === 'introspection')).toHaveLength(1)
+    })
   })
 
   it('recovers ambient intervention when recognizer JSON is malformed but the decision is clear', async () => {
@@ -671,6 +737,74 @@ describe('AIAgent pi-ai runtime', () => {
     expect((recognizer?.response as JsonObject | undefined)?.raw_text).toContain('"intervene": true')
     const rows = await messagesFor(conversation!.id)
     expect(rows.some(row => row.role === 'im_ambient' && row.kind === 'introspection')).toBe(true)
+  })
+
+  it('recovers ambient intervention when recognizer returns fenced YAML decision fields', async () => {
+    const setup = await startAiAgent(
+      'ambient_yaml_decision',
+      [
+        fauxAssistantMessage(
+          [
+            '```yaml',
+            'im_intervention_decision:',
+            '  should_intervene: true',
+            '  reason: |',
+            '    The room explicitly asked the agent to step in.',
+            '```'
+          ].join('\n')
+        ),
+        fauxAssistantMessage('ambient yaml answer')
+      ],
+      { groupMessageMode: 'may_intervene', ambientBatchWindowMs: 10 }
+    )
+    const group = setup.platform.group(setup.conversationOptions({ channelId: `${setup.adapterName}:ambient-yaml` }))
+
+    await group.say({ id: 'm1', text: '@Agent please help me now' })
+    await eventually(() =>
+      expect(setup.platform.outbound.some(event => event.text === 'ambient yaml answer')).toBe(true)
+    )
+
+    const [conversation] = await conversationsFor(setup.agentUid)
+    const turns = await llmTurnsFor(conversation!.id)
+    const recognizer = turns.find(row => row.kind === 'ambient_recognizer')
+    expect(recognizer?.status).toBe('succeeded')
+    expect((recognizer?.response as JsonObject | undefined)?.parsed).toMatchObject({
+      intervene: true,
+      reason_summary: 'The room explicitly asked the agent to step in.'
+    })
+  })
+
+  it('recovers ambient intervention when recognizer returns XML-like decision fields', async () => {
+    const setup = await startAiAgent(
+      'ambient_xml_decision',
+      [
+        fauxAssistantMessage(
+          [
+            '<im_intervention_decision>',
+            '  <decision>intervene</decision>',
+            '  <reasoning>The room explicitly asked the agent to step in.</reasoning>',
+            '</im_intervention_decision>'
+          ].join('\n')
+        ),
+        fauxAssistantMessage('ambient xml answer')
+      ],
+      { groupMessageMode: 'may_intervene', ambientBatchWindowMs: 10 }
+    )
+    const group = setup.platform.group(setup.conversationOptions({ channelId: `${setup.adapterName}:ambient-xml` }))
+
+    await group.say({ id: 'm1', text: '@Agent please help me now' })
+    await eventually(() =>
+      expect(setup.platform.outbound.some(event => event.text === 'ambient xml answer')).toBe(true)
+    )
+
+    const [conversation] = await conversationsFor(setup.agentUid)
+    const turns = await llmTurnsFor(conversation!.id)
+    const recognizer = turns.find(row => row.kind === 'ambient_recognizer')
+    expect(recognizer?.status).toBe('succeeded')
+    expect((recognizer?.response as JsonObject | undefined)?.parsed).toMatchObject({
+      intervene: true,
+      reason_summary: 'The room explicitly asked the agent to step in.'
+    })
   })
 
   it('runs conversations of one agent in parallel lanes (different rooms do not queue)', async () => {
@@ -1627,7 +1761,8 @@ describe('AIAgent pi-ai runtime', () => {
     expect(
       jsonObjects(firstCall.toolResults).some(result => result.role === 'toolResult' && result.toolName === 'clarify')
     ).toBe(true)
-    expect(secondCall.request.exactLlmRequest).toBe(false)
+    expect(firstCall.request.exactLlmRequest).toBe(true)
+    expect(secondCall.request.exactLlmRequest).toBe(true)
     expect(secondCall.request.messages.map(message => message.role)).toEqual(['user', 'assistant', 'toolResult'])
     expect(secondCall.request.tools.some(tool => jsonRecord(tool)?.name === 'clarify')).toBe(true)
     expect(jsonObjects(secondCall.request.patches).some(patch => patch.type === 'llm_tool_definitions')).toBe(false)
@@ -2054,6 +2189,84 @@ describe('AIAgent pi-ai runtime', () => {
     })
   })
 
+  it('falls back to a normal post when a streaming card cannot confirm the final text', async () => {
+    const setup = await startAiAgent('streaming_card_unconfirmed', [fauxAssistantMessage('final answer')], {
+      enableStreaming: true
+    })
+    const originalBeginStreamingCard = setup.adapter.beginStreamingCard!.bind(setup.adapter)
+    setup.adapter.beginStreamingCard = async input => {
+      const handle = await originalBeginStreamingCard(input)
+      return {
+        ...handle,
+        finish: async (finalText, status) => {
+          await handle.finish(finalText, status)
+          return { delivered: true, finalTextConfirmed: false, fallbackReason: 'test_unconfirmed' }
+        }
+      }
+    }
+    const dm = setup.platform.dm(setup.conversationOptions())
+
+    await dm.say({ id: 'm1', text: '@Agent hi' })
+    await eventually(() => expect(setup.platform.streamingCards).toHaveLength(1))
+    await eventually(() =>
+      expect(setup.platform.outbound.some(event => event.op === 'post' && event.text === 'final answer')).toBe(true)
+    )
+
+    const cardRows = await DB.select()
+      .from(ExternalGatewayOutbox)
+      .where(
+        and(
+          eq(ExternalGatewayOutbox.agentUid, setup.agentUid),
+          eq(ExternalGatewayOutbox.operation, 'card'),
+          eq(ExternalGatewayOutbox.status, 'sent')
+        )
+      )
+    expect(cardRows).toHaveLength(0)
+  })
+
+  it('opens the streaming card during the tool phase, before the first answer token', async () => {
+    let releaseTool!: () => void
+    const toolBlocker = new Promise<void>(resolve => {
+      releaseTool = resolve
+    })
+    let toolStarted = false
+    const slowTool = buildTool({
+      name: 'slow_lookup',
+      label: 'Slow lookup',
+      description: 'Waits before returning a value.',
+      schema: z.object({ query: z.string() }),
+      async execute(_toolCallId, params) {
+        toolStarted = true
+        await toolBlocker
+        return {
+          content: [{ type: 'text', text: 'lookup data' }],
+          details: { query: params.query }
+        }
+      }
+    })
+    const setup = await startAiAgent(
+      'streaming_card_eager',
+      [
+        fauxAssistantMessage([fauxToolCall('slow_lookup', { query: 'stock price' })]),
+        fauxAssistantMessage('final answer')
+      ],
+      { enableStreaming: true, tools: [slowTool] }
+    )
+    const dm = setup.platform.dm(setup.conversationOptions())
+
+    await dm.say({ id: 'm1', text: '@Agent check the stock price' })
+    await eventually(() => expect(toolStarted).toBe(true))
+    // Tool still blocked, no answer text streamed yet — the card is already open.
+    await eventually(() => expect(setup.platform.streamingCards).toHaveLength(1))
+    const card = setup.platform.streamingCards[0]!
+    expect(card.finalStatus).toBeUndefined()
+
+    releaseTool()
+    await eventually(() => expect(card.finalStatus).toBe('completed'))
+    expect(card.finalText).toBe('final answer')
+    expect(setup.platform.outbound.some(event => event.op === 'post' && event.text === 'final answer')).toBe(false)
+  })
+
   it('finishes failed streaming cards with a user-facing error instead of partial model text', async () => {
     const setup = await startAiAgent(
       'streaming_card_error',
@@ -2100,6 +2313,7 @@ async function startAiAgent(
     groupMessageMode?: 'observe_all' | 'may_intervene'
     clarifyTimeoutMs?: number
     clarifyHeartbeatMs?: number
+    enableChatRecall?: boolean
     enableClarify?: boolean
     enableStreaming?: boolean
     clarifyRegistry?: AiAgentClarifyRegistry
@@ -2153,6 +2367,7 @@ async function startAiAgent(
   const computerFiles = new Map<string, Buffer>()
   aiRuntime.setComputerFileReader(async (_agentUid, path) => computerFiles.get(posix.normalize(path)) ?? null)
   if (options.tools) aiRuntime.setTools(options.tools, options.activeToolNames ?? options.tools.map(tool => tool.name))
+  if (options.enableChatRecall) aiRuntime.setChatRecallEnabled(true)
   if (options.enableClarify) aiRuntime.setClarifyEnabled(true)
   const runtime = new ExternalGatewayRuntime()
   runtimes.add(runtime)

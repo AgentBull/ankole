@@ -38,7 +38,7 @@ export function createCheckBackLaterTool(
     name: 'check_back_later',
     label: 'Check back later',
     description:
-      'Schedule a one-shot delayed self-wakeup when the current decision should be made after time has passed. This is not a heartbeat, cron, or recurring task.',
+      'Schedule a one-shot delayed self-wakeup when the current decision should be made after time has passed. Use for a specific future check, not for heartbeat, cron, recurring monitoring, or reminders that need no agent judgment. Do not infer or repeat old tasks from prior chats.',
     schema: CheckBackLaterParams,
     executionMode: 'sequential',
     isReadOnly: false,
@@ -97,6 +97,11 @@ function checkbackWakeMessage(input: {
       type: 'text',
       text: compact([
         '[check_back_later wakeup]',
+        'This is a one-shot delayed wakeup, not a recurring heartbeat.',
+        'The check below is the current task. Use the context as background only.',
+        'Do not infer or repeat old tasks from prior chats.',
+        "If nothing needs the user's attention, do not send a visible message.",
+        'Send a visible message only when the user should be interrupted: meaningful result, blocker, needed decision, or time-sensitive risk.',
         `Due at: ${input.dueAt.toISOString()} (${input.timezone})`,
         `Reason: ${input.reason}`,
         `Check: ${input.check}`,

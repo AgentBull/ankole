@@ -448,6 +448,11 @@ function checkbackMessage(checkback: CheckbackRow): string {
   if (wakeText.trim()) return wakeText
   return compact([
     '[check_back_later wakeup]',
+    'This is a one-shot delayed wakeup, not a recurring heartbeat.',
+    'The check below is the current task. Use the context as background only.',
+    'Do not infer or repeat old tasks from prior chats.',
+    "If nothing needs the user's attention, do not send a visible message.",
+    'Send a visible message only when the user should be interrupted: meaningful result, blocker, needed decision, or time-sensitive risk.',
     `Reason: ${checkback.reason}`,
     `Check: ${checkback.check}`,
     checkback.contextSummary ? `Context: ${checkback.contextSummary}` : ''

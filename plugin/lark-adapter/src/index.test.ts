@@ -428,7 +428,7 @@ describe('BullX Lark chat adapter', () => {
       normalizedMessage({
         messageId: 'om_skill',
         chatType: 'group',
-        content: 'BOT-SKILL please use skill_search for PDF related skills',
+        content: 'BOT-NOTE please handle the PDF workflow',
         mentionedBot: true,
         resources: [],
         raw: {

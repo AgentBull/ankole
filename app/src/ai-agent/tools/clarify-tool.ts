@@ -98,7 +98,18 @@ export function createClarifyTool(
     name: 'clarify',
     label: 'Ask for clarification',
     description:
-      'Ask the human a question and wait for their reply before continuing. Provide up to 4 choices, or ask open-ended.',
+      'Ask the user a question when you need clarification, feedback, or a ' +
+      'decision before proceeding. Supports two modes:\n\n' +
+      '1. **Multiple choice** — provide up to 4 choices. The user picks one ' +
+      "or types their own answer via a 5th 'Other' option.\n" +
+      '2. **Open-ended** — omit choices entirely. The user types a free-form ' +
+      'response.\n\n' +
+      'Use this tool when:\n' +
+      '- The task is ambiguous and you need the user to choose an approach\n' +
+      "- You want post-task feedback ('How did that work out?')\n" +
+      '- A decision has meaningful trade-offs the user should weigh in on\n\n' +
+      'Do NOT use this tool for simple yes/no confirmation of dangerous ' +
+      'commands. Prefer making a reasonable default choice yourself when the decision is low-stakes.',
     schema: ClarifyParams,
     executionMode: 'sequential',
     isDestructive: false,

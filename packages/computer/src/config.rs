@@ -22,6 +22,7 @@ pub struct Config {
   pub instance_id: String,
   pub base_url: String,
   pub tls: ComputerTlsMaterial,
+  pub computer_token: String,
   /// Shared PostgreSQL database used by the Bun app and DB-backed library-containers.
   pub database_url: String,
   pub workspace_root: PathBuf,
@@ -109,6 +110,7 @@ impl Config {
       instance_id,
       base_url,
       tls,
+      computer_token,
       database_url,
       workspace_root,
       user_files_root,

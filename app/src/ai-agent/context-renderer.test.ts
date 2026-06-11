@@ -150,6 +150,7 @@ describe('AiAgentContextRenderer + microcompact', () => {
     const rendered = await renderer.render('conv-1')
     const first = rendered.messages[0] as { content: Array<{ text: string }> }
     expect(first.content[0]!.text).toContain('<message_context>')
+    expect(first.content[0]!.text).not.toContain('room: group chat "Ops"')
     expect(first.content[0]!.text).toContain('speaker: Alice')
     expect(first.content[0]!.text).toContain('hello')
     expect(sourceMessage.content[0]!.text).toBe('hello')

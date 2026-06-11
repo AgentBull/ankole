@@ -23,12 +23,13 @@ function textOf(message: AgentMessage): string {
 }
 
 describe('microcompact', () => {
-  it('clears old compactable tool results, keeps the most recent N in full', () => {
+  it('clears old compactable tool results without changing replay-critical content', () => {
     const messages = [
       user('q1'),
       toolResult('web_search', 'search result 1', 's1'),
       toolResult('web_extract', 'extract result 1', 'e1'),
       toolResult('web_search', 'search result 2', 's2'),
+      toolResult('clarify', 'user said yes', 'c1'),
       toolResult('web_search', 'search result 3', 's3')
     ]
     const out = microcompact(messages, { keepRecent: 2 })
@@ -36,30 +37,13 @@ describe('microcompact', () => {
     expect(textOf(out[1]!)).toBe(MICROCOMPACT_CLEARED_TEXT)
     expect(textOf(out[2]!)).toBe(MICROCOMPACT_CLEARED_TEXT)
     expect(textOf(out[3]!)).toBe('search result 2')
-    expect(textOf(out[4]!)).toBe('search result 3')
+    expect(textOf(out[4]!)).toBe('user said yes')
+    expect(textOf(out[5]!)).toBe('search result 3')
     expect(textOf(out[0]!)).toBe('q1')
+    expect(textOf(messages[1]!)).toBe('search result 1')
   })
 
-  it('never clears clarify (user answers)', () => {
-    const messages = [
-      toolResult('clarify', 'user said yes', 'c1'),
-      toolResult('web_search', 'r1', 's1'),
-      toolResult('web_search', 'r2', 's2'),
-      toolResult('web_search', 'r3', 's3')
-    ]
-    const out = microcompact(messages, { keepRecent: 1 })
-    expect(textOf(out[0]!)).toBe('user said yes')
-  })
-
-  it('does not mutate the input array or its messages (PG trajectory stays intact)', () => {
-    const source = toolResult('web_search', 'original result', 's1')
-    const messages = [source, toolResult('web_search', 'r2', 's2'), toolResult('web_search', 'r3', 's3')]
-    microcompact(messages, { keepRecent: 1 })
-    expect(textOf(source)).toBe('original result')
-    expect(textOf(messages[0]!)).toBe('original result')
-  })
-
-  it('is idempotent / monotonic — re-running yields byte-identical output (cache-safe)', () => {
+  it('is stable across repeated compaction and returns the original array when no work is needed', () => {
     const messages = [
       toolResult('web_search', 'r1', 's1'),
       toolResult('web_search', 'r2', 's2'),
@@ -68,21 +52,8 @@ describe('microcompact', () => {
     const once = microcompact(messages, { keepRecent: 1 })
     const twice = microcompact(once, { keepRecent: 1 })
     expect(JSON.stringify(twice)).toBe(JSON.stringify(once))
-  })
 
-  it('is a no-op (same reference) when compactable count <= keepRecent', () => {
-    const messages = [toolResult('web_search', 'r1', 's1'), user('q')]
-    expect(microcompact(messages, { keepRecent: 5 })).toBe(messages)
-  })
-
-  it('shrinks cleared content', () => {
-    const big = 'x'.repeat(10_000)
-    const messages = [
-      toolResult('web_search', big, 's1'),
-      toolResult('web_search', 'r2', 's2'),
-      toolResult('web_search', 'r3', 's3')
-    ]
-    const out = microcompact(messages, { keepRecent: 2 })
-    expect(textOf(out[0]!).length).toBeLessThan(big.length)
+    const unchanged = [toolResult('web_search', 'r1', 's1'), user('q')]
+    expect(microcompact(unchanged, { keepRecent: 5 })).toBe(unchanged)
   })
 })

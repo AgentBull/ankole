@@ -460,6 +460,7 @@ export class MockImPlatform {
         record.finalStatus = status
         setText(finalText)
         this.outbound.push({ op: 'stream-card', messageId, text: finalText, threadId })
+        return { delivered: true, finalTextConfirmed: true }
       }
     }
   }

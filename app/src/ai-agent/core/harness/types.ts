@@ -17,18 +17,19 @@ export function err<TValue, TError>(error: TError): Result<TValue, TError> {
 /**
  * Skill loaded from the agent library or provided by an application.
  *
- * `name`, `description`, and `filePath` are inserted into the system prompt in an XML-formatted block as
- * suggested by agentskills.io. Use `formatSkillsForSystemPrompt` (prompts/skills-prompt.ts) to generate
- * the system prompt block.
+ * `name`, `description`, and optional `category` are inserted into the system prompt skill index.
+ * Use `formatSkillsForSystemPrompt` (prompts/skills-prompt.ts) to generate the system prompt block.
  */
 export interface Skill {
   /** Stable skill name used for lookup and model-visible listings. */
   name: string
   /** Short model-visible description of when to use the skill. */
   description: string
+  /** Optional model-visible category used to group the skill index. */
+  category?: string
   /** Full skill instructions. */
   content: string
-  /** Absolute path to the skill file. Used for model-visible location and resolving relative references. */
+  /** Absolute path to the skill file. Used for resolving relative references after the skill is loaded. */
   filePath: string
   /** Exclude this skill from model-visible skill lists while still allowing explicit application invocation. */
   disableModelInvocation?: boolean

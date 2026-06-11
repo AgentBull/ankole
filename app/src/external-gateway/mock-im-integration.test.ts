@@ -17,8 +17,10 @@ const {
   ExternalGatewayInputTombstones,
   ExternalGatewayOutbox,
   ExternalMessages,
-  ExternalRooms
+  ExternalRooms,
+  Principals
 } = await import('@/common/db-schema')
+const { createAgent } = await import('@/principals/agents/service')
 const { ExternalGatewayRuntime } = await import('./runtime')
 const { registerExternalGatewayAdapterFactory } = await import('./adapter-registry')
 const { fullMockImCapabilities, MockImPlatform: MockImPlatformCtor } = await import('./testing/mock-im-adapter')
@@ -40,6 +42,8 @@ afterAll(async () => {
     await DB.delete(ExternalGatewayOutbox).where(eq(ExternalGatewayOutbox.agentUid, agentUid))
     await DB.delete(ExternalGatewayAgentEvents).where(eq(ExternalGatewayAgentEvents.agentUid, agentUid))
     await DB.delete(ExternalGatewayInputTombstones).where(eq(ExternalGatewayInputTombstones.agentUid, agentUid))
+    // Cascades through agents to room observations and library seeds.
+    await DB.delete(Principals).where(eq(Principals.uid, agentUid))
   }
   for (const roomId of projectedRoomIds) await DB.delete(ExternalRooms).where(eq(ExternalRooms.id, roomId))
 })
@@ -392,15 +396,20 @@ describe('External Gateway Mock IM adapter integration', () => {
         })
     })
 
+    const activeAgents = await Promise.all(
+      [firstAgent, secondAgent].map(uid =>
+        createAgent({
+          uid,
+          metadata: { external: { adapters: [{ adapter: factoryId, name: adapterName }] } }
+        })
+      )
+    )
     const runtime = new ExternalGatewayRuntime()
     startedRuntimes.add(runtime)
     await runtime.start({
       agentExecutor: mockExternalGatewayAgentExecutor,
       getChannelConfig: async () => ({ group_message_mode: 'observe_all' }),
-      loadActiveAgents: async () => [
-        agentResult(firstAgent, [{ adapter: factoryId, name: adapterName }]),
-        agentResult(secondAgent, [{ adapter: factoryId, name: adapterName }])
-      ]
+      loadActiveAgents: async () => activeAgents
     })
 
     const roomId = `${adapterName}:group`
@@ -505,17 +514,20 @@ async function startMockRuntime(
       })
   })
 
+  const agent = await createAgent({
+    uid: agentUid,
+    metadata: {
+      external: {
+        adapters: adapterNames.map(adapterName => ({ adapter: factoryId, name: adapterName }))
+      }
+    }
+  })
   const runtime = new ExternalGatewayRuntime()
   startedRuntimes.add(runtime)
   await runtime.start({
     agentExecutor: mockExternalGatewayAgentExecutor,
     getChannelConfig: async () => ({ group_message_mode: options.groupMessageMode ?? 'observe_all' }),
-    loadActiveAgents: async () => [
-      agentResult(
-        agentUid,
-        adapterNames.map(adapterName => ({ adapter: factoryId, name: adapterName }))
-      )
-    ]
+    loadActiveAgents: async () => [agent]
   })
 
   const defaultAdapterName = adapterNames[0]!
@@ -539,36 +551,6 @@ async function startMockRuntime(
     platform,
     runtime
   }
-}
-
-function agentResult(uid: string, adapters: Array<{ adapter: string; enabled?: boolean; name: string }>) {
-  const normalizedUid = uid.toLowerCase()
-  const now = new Date()
-
-  return {
-    principal: {
-      id: crypto.randomUUID(),
-      uid: normalizedUid,
-      type: 'agent',
-      status: 'active',
-      displayName: normalizedUid,
-      avatarUrl: null,
-      createdAt: now,
-      updatedAt: now
-    },
-    agent: {
-      uid: normalizedUid,
-      type: 'llm_agentic_loop',
-      metadata: {
-        external: {
-          adapters
-        }
-      },
-      createdByPrincipalUid: null,
-      createdAt: now,
-      updatedAt: now
-    }
-  } as never
 }
 
 async function assertMirrorEqualsPlatform(platform: MockImPlatformInstance, roomId: string): Promise<void> {

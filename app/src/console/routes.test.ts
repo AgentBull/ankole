@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { getModels, getProviders } from '@earendil-works/pi-ai'
+import path from 'node:path'
 import { like } from 'drizzle-orm'
 import { loadTestEnvFiles } from '@/common/tests/load-test-env'
 import type { AppConfigDefinition, AppConfigJsonValue } from '@/config/app-configure'
@@ -22,9 +23,12 @@ const webServer = await createWebServer({ serveStaticAssets: false })
 const testPrefix = `test_console_routes_${Date.now()}_${Math.random().toString(36).slice(2)}`.toLowerCase()
 const providerPrefix = `crp_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`.toLowerCase()
 const catalog = firstCatalogModel()
+const pluginRoot = path.resolve(import.meta.dir, '../../../plugin')
+const originalPluginDir = Bun.env.PLUGIN_DIR
 let adminCookie = ''
 
 beforeEach(async () => {
+  Bun.env.PLUGIN_DIR = pluginRoot
   await clearTestRows()
   const adminUid = `${testPrefix}_admin`
   await createHuman({ uid: adminUid })
@@ -43,6 +47,8 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await clearTestRows()
+  if (originalPluginDir === undefined) delete Bun.env.PLUGIN_DIR
+  else Bun.env.PLUGIN_DIR = originalPluginDir
 })
 
 describe('console routes error responses', () => {

@@ -79,7 +79,7 @@ describe('LarkStreamingCardSession', () => {
 
     await session.update('hi')
     await session.update('hi there')
-    await session.finish('hi there', 'completed')
+    const finish = await session.finish('hi there', 'completed')
 
     // first content write replaces the placeholder element with a full markdown element
     const replace = calls.find(c => c.kind === 'cardElement.update')
@@ -89,7 +89,7 @@ describe('LarkStreamingCardSession', () => {
     // subsequent writes patch element content only
     const patch = calls.find(c => c.kind === 'cardElement.content')
     expect(patch?.path).toEqual({ card_id: 'card-1', element_id: 'content' })
-    expect(patch!.data.content).toBe('hi there')
+    expect(patch!.data.content).toBe(' there')
 
     // finish closes streaming mode
     const settings = calls.find(c => c.kind === 'card.settings')
@@ -100,6 +100,7 @@ describe('LarkStreamingCardSession', () => {
     const seqs = calls.filter(c => typeof c.data?.sequence === 'number').map(c => c.data.sequence as number)
     expect(seqs.length).toBeGreaterThanOrEqual(3)
     for (let i = 1; i < seqs.length; i++) expect(seqs[i]!).toBeGreaterThan(seqs[i - 1]!)
+    expect(finish).toMatchObject({ delivered: true, finalTextConfirmed: true })
   })
 
   it('degrades silently and never throws when CardKit calls fail', async () => {
@@ -123,8 +124,79 @@ describe('LarkStreamingCardSession', () => {
     const session = await createLarkStreamingCardSession(failing, { chatId: 'oc_x', intervalMs: 0, bufferThreshold: 1 })
     // create failed -> degraded; updates/finish must not throw
     await session.update('x')
-    await session.finish('x', 'completed')
+    const finish = await session.finish('x', 'completed')
     expect(session.cardId).toBe('')
+    expect(finish).toMatchObject({ delivered: false, finalTextConfirmed: false })
+  })
+
+  it('keeps a preview session alive after a transient content failure and confirms the final suffix', async () => {
+    const calls: RecordedCall[] = []
+    const connection = fakeConnection(calls)
+    let contentAttempts = 0
+    connection.rawClient.cardkit.v1.cardElement.content = async (payload: any) => {
+      contentAttempts += 1
+      calls.push({ kind: 'cardElement.content', data: payload.data, path: payload.path })
+      if (contentAttempts === 1) throw new Error('temporary cardkit content failure')
+      return { code: 0, data: {} }
+    }
+    const session = await createLarkStreamingCardSession(connection, {
+      chatId: 'oc_x',
+      intervalMs: 0,
+      bufferThreshold: 1
+    })
+
+    await session.update('hi')
+    await session.update('hi there')
+    const finish = await session.finish('hi there friend', 'completed')
+
+    expect(contentAttempts).toBe(2)
+    const patches = calls.filter(c => c.kind === 'cardElement.content')
+    expect(patches[0]!.data.content).toBe(' there')
+    expect(patches[1]!.data.content).toBe(' there friend')
+    expect(finish).toMatchObject({ delivered: true, finalTextConfirmed: true })
+  })
+
+  it('replaces the preview element on finalize when the final answer is not a suffix', async () => {
+    const calls: RecordedCall[] = []
+    const session = await createLarkStreamingCardSession(fakeConnection(calls), {
+      chatId: 'oc_x',
+      intervalMs: 0,
+      bufferThreshold: 1
+    })
+
+    await session.update("I'll")
+    const finish = await session.finish('Final answer', 'completed')
+
+    const updates = calls.filter(c => c.kind === 'cardElement.update')
+    expect(updates).toHaveLength(2)
+    expect(JSON.parse(updates[1]!.data.element)).toMatchObject({
+      tag: 'markdown',
+      element_id: 'content',
+      content: 'Final answer'
+    })
+    expect(finish).toMatchObject({ delivered: true, finalTextConfirmed: true })
+  })
+
+  it('returns an unconfirmed final result when the final write fails', async () => {
+    const calls: RecordedCall[] = []
+    const connection = fakeConnection(calls)
+    connection.rawClient.cardkit.v1.cardElement.update = async (payload: any) => {
+      calls.push({ kind: 'cardElement.update', data: payload.data, path: payload.path })
+      throw new Error('cardkit update down')
+    }
+    const session = await createLarkStreamingCardSession(connection, {
+      chatId: 'oc_x',
+      intervalMs: 0,
+      bufferThreshold: 1
+    })
+
+    const finish = await session.finish('Final answer', 'completed')
+
+    expect(finish).toMatchObject({
+      delivered: true,
+      finalTextConfirmed: false,
+      fallbackReason: 'final_text_unconfirmed'
+    })
   })
 
   it('degrades without sending when CardKit create returns a non-success code', async () => {

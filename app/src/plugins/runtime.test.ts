@@ -28,7 +28,7 @@ const {
 } = await import('./runtime')
 
 describe('plugin enablement', () => {
-  it('enables default plugins without overrides', () => {
+  it('starts from default plugins and applies operator overrides', () => {
     const registry = buildPluginRegistry([plugin('default-plugin'), plugin('future-plugin')])
 
     expect(
@@ -38,10 +38,6 @@ describe('plugin enablement', () => {
         overrides: {}
       })
     ).toEqual(['default-plugin'])
-  })
-
-  it('applies false overrides to disable default plugins', () => {
-    const registry = buildPluginRegistry([plugin('default-plugin'), plugin('future-plugin')])
 
     expect(
       resolveEnabledPluginIds({
@@ -52,10 +48,6 @@ describe('plugin enablement', () => {
         }
       })
     ).toEqual([])
-  })
-
-  it('applies true overrides to enable known non-default plugins', () => {
-    const registry = buildPluginRegistry([plugin('default-plugin'), plugin('future-plugin')])
 
     expect(
       resolveEnabledPluginIds({
@@ -277,30 +269,18 @@ describe('PluginRuntime', () => {
 })
 
 describe('auto-enabled internal plugins', () => {
-  it('merges static defaults with auto-enabled ids and de-duplicates', () => {
+  it('resolves default plugin ids and auto-enabled plugin roots from operator configuration', () => {
     expect(effectiveDefaultEnabledPluginIds(['internal-a', 'lark-adapter'], ['lark-adapter'])).toEqual([
       'lark-adapter',
       'internal-a'
     ])
-  })
 
-  it('resolves no auto-enabled roots under bun test unless INTERNAL_PLUGIN_DIR is set', () => {
     const previous = Bun.env.INTERNAL_PLUGIN_DIR
     delete Bun.env.INTERNAL_PLUGIN_DIR
 
     try {
       expect(defaultAutoEnabledPluginRoots()).toEqual([])
-    } finally {
-      if (previous === undefined) delete Bun.env.INTERNAL_PLUGIN_DIR
-      else Bun.env.INTERNAL_PLUGIN_DIR = previous
-    }
-  })
-
-  it('parses INTERNAL_PLUGIN_DIR into auto-enabled roots', () => {
-    const previous = Bun.env.INTERNAL_PLUGIN_DIR
-    Bun.env.INTERNAL_PLUGIN_DIR = '../internals/plugins'
-
-    try {
+      Bun.env.INTERNAL_PLUGIN_DIR = '../internals/plugins'
       expect(defaultAutoEnabledPluginRoots()).toEqual([path.resolve(process.cwd(), '../internals/plugins')])
     } finally {
       if (previous === undefined) delete Bun.env.INTERNAL_PLUGIN_DIR
@@ -315,7 +295,7 @@ describe('auto-enabled internal plugins', () => {
     expect(result.autoEnabledPluginIds).toContain('lark-adapter')
   })
 
-  it('enables internal plugins by default without listing them in defaultEnabledPluginIds', async () => {
+  it('enables internal plugins by default while still allowing explicit disable overrides', async () => {
     const runtime = new PluginRuntime()
     const stats = await runtime.start({
       plugins: [defineBullXPlugin({ metadata: { id: 'internal-plugin', apiVersion: 1 } })],
@@ -325,18 +305,16 @@ describe('auto-enabled internal plugins', () => {
     })
 
     expect(stats.enabledPlugins).toEqual(['internal-plugin'])
-  })
 
-  it('lets an override disable an auto-enabled internal plugin', async () => {
-    const runtime = new PluginRuntime()
-    const stats = await runtime.start({
+    const disabledRuntime = new PluginRuntime()
+    const disabledStats = await disabledRuntime.start({
       plugins: [defineBullXPlugin({ metadata: { id: 'internal-plugin', apiVersion: 1 } })],
       autoEnabledPluginIds: ['internal-plugin'],
       defaultEnabledPluginIds: [],
       getEnabledOverrides: async () => ({ 'internal-plugin': false })
     })
 
-    expect(stats.enabledPlugins).toEqual([])
+    expect(disabledStats.enabledPlugins).toEqual([])
   })
 
   it('does not throw when an auto-enabled root is absent', async () => {

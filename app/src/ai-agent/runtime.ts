@@ -105,24 +105,6 @@ import {
 const EXTERNAL_IMAGE_INLINE_LIMIT_BYTES = 8 * 1024 * 1024
 const DEFAULT_ADDRESSED_MEDIA_BATCH_WINDOW_MS = Math.ceil(NORMAL_RECEIVE_BATCH_WINDOW_MS * 1.3)
 
-function appendAmbientInterventionPolicy(systemPrompt: string, enabled: boolean): string {
-  if (!enabled) return systemPrompt
-  return [
-    systemPrompt,
-    [
-      '<ambient_intervention_policy>',
-      'You are proactively entering a group room based on non-addressed ambient messages.',
-      'Keep the first intervention brief and low-disruption: answer in 1-3 short sentences.',
-      'Do not write headings, sections, tables, long lists, or a full deliverable in this first proactive response.',
-      'Available tools remain enabled for proactive intervention; do not disable tools solely because this is the first proactive intervention.',
-      'Use the necessary focused tools when they make the intervention useful, but keep tool use bounded and stop as soon as you have enough context to offer a concrete next action.',
-      'Offer a concrete next action and wait for the user to explicitly hand you the task before expanding.',
-      'Do not mention recognizers, ambient mode, internal classification, or hidden transcript mechanics.',
-      '</ambient_intervention_policy>'
-    ].join('\n')
-  ].join('\n\n')
-}
-
 export interface AiAgentRuntimeOptions {
   addressedMediaBatchWindowMs?: number
   ambient?: AiAgentAmbientBatcher
@@ -303,6 +285,12 @@ class GenerationTrajectoryRecorder {
       })
       this.previousToolsSnapshot = toolsSnapshotJson
     }
+    requestPatches.push({
+      type: 'llm_request',
+      reason: this.input.llmTurnKind ?? 'generation',
+      system_prompt: context.llmContext.systemPrompt ?? null,
+      messages: toJsonValue(context.llmMessages)
+    })
     const branchId = branchIdForRendered(this.input.conversationId, this.rendered)
     const llmTurn = await this.conversations.startLlmTurn({
       agentUid: this.input.context.agentUid,
@@ -825,6 +813,7 @@ export class AiAgentRuntime {
           providerRoomId,
           providerThreadId,
           finalPayload: {
+            editFallback: 'post',
             targetOutboundKey: existing.outboundKey,
             text: formatTodoProgressStart(args)
           }
@@ -893,6 +882,7 @@ export class AiAgentRuntime {
         providerRoomId,
         providerThreadId,
         finalPayload: {
+          editFallback: 'post',
           targetOutboundKey: state.outboundKey,
           text: formatTodoProgressEnd(state.args, result, isError)
         }
@@ -940,6 +930,16 @@ export class AiAgentRuntime {
     if (!first) return { status: 'accepted' }
     const profile = await this.loadProfile(context.agentUid)
     const route = routeFromContext(context, first.providerRoomId)
+    logger.debug(
+      {
+        agentUid: context.agentUid,
+        bindingName: context.bindingName,
+        deliveryMode: first.deliveryMode,
+        providerRoomId: first.providerRoomId,
+        events: delivery.events.length
+      },
+      'AI agent delivery accepted'
+    )
 
     if (first.deliveryMode === 'addressed') {
       await this.acceptAddressed(delivery, context, route, profile)
@@ -1611,6 +1611,18 @@ export class AiAgentRuntime {
           triggerMessageId
         })
     if (!lease) return { status: 'fenced', enqueuedOutput: false }
+    const generationStartedAt = Date.now()
+    logger.debug(
+      {
+        agentUid: input.context.agentUid,
+        conversationId: input.conversationId,
+        leaseId: lease.leaseId,
+        triggerMessageId,
+        llmTurnKind: input.llmTurnKind ?? 'generation',
+        model: input.profile.primaryModel.model.id
+      },
+      'AI agent generation started'
+    )
 
     // Middle compaction tier: have the renderer clear old re-derivable tool results
     // once the model-bound context reaches the same threshold full compaction uses,
@@ -1649,10 +1661,11 @@ export class AiAgentRuntime {
       this.conversationStartedAt(input.conversationId),
       this.currentChannelContext(input, triggerMessageId)
     ])
-    const systemPrompt = appendAmbientInterventionPolicy(
-      await buildAgentSystemPrompt(input.context.agentUid, DB, { conversationStartedAt, currentChannel }),
-      input.ambientIntervention === true
-    )
+    const systemPrompt = await buildAgentSystemPrompt(input.context.agentUid, DB, {
+      chatRecallEnabled: activeTools.some(tool => tool.name === 'chat_history_search'),
+      conversationStartedAt,
+      currentChannel
+    })
 
     let rendered = await this.renderer.render(input.conversationId, microcompactOptions)
     // shouldCompact preflight (ported from AgentHarness threshold check): if the rebuilt context already
@@ -1740,21 +1753,41 @@ export class AiAgentRuntime {
         error
       }
     }
+    let finished: GenerationResult | undefined
     try {
-      return await this.finishGenerationRun(runContext, outcome)
+      finished = await this.finishGenerationRun(runContext, outcome)
+      return finished
     } finally {
       input.abortSignal?.removeEventListener('abort', abortFromParent)
       // The committed path emits stream.finished from finalize; every other
-      // terminal outcome closes the live mirror as failed.
-      if (outcome.kind !== 'committed') stream.closeFailed(outcome.kind)
+      // terminal outcome closes the live mirror (and any open streaming card),
+      // with user aborts reported as cancellations rather than failures.
+      if (outcome.kind !== 'committed') {
+        stream.closeFailed(outcome.kind === 'failed' && outcome.aborted ? 'cancelled' : outcome.kind)
+      }
+      logger.debug(
+        {
+          agentUid: input.context.agentUid,
+          conversationId: input.conversationId,
+          leaseId: lease.leaseId,
+          outcome: outcome.kind,
+          status: finished?.status,
+          durationMs: Date.now() - generationStartedAt
+        },
+        'AI agent generation finished'
+      )
     }
   }
 
   private buildGenerationStreamingSink(input: RunGenerationInput, leaseId: string): GenerationStreamingSink {
-    // Live streaming-card sink (CardKit). Created lazily on the first non-empty
-    // answer text so a thinking-only or instantly-failing turn leaves no empty card.
+    // Live streaming-card sink (CardKit). Visible-output runs open the card (with
+    // the adapter's thinking placeholder) as soon as the generation starts, so
+    // tool-heavy runs give feedback before the first answer token. Ambient
+    // interventions stay lazy: they usually end without speaking, and an empty
+    // card in a group would be noise.
     const streamingCapable =
       Boolean(input.providerThreadId) &&
+      !input.suppressVisibleOutput &&
       adapterSupportsCapability(input.context.adapter, 'outbound', 'streaming') &&
       typeof input.context.adapter.beginStreamingCard === 'function'
     const outboundKey = `ai-agent-stream:${input.conversationId}:${leaseId}`
@@ -1766,7 +1799,10 @@ export class AiAgentRuntime {
       if (cardFailed || card || cardStart) return
       cardStart = input.context.adapter.beginStreamingCard!({
         threadId: input.providerThreadId!,
-        idempotencyKey: idempotencyKeyFromOutboundKey(outboundKey)
+        // Per-attempt key: crash recovery reruns under the same lease, and reusing
+        // the dead attempt's key would dedupe the new card message into the old
+        // frozen one, leaving the recovered answer on a card no message shows.
+        idempotencyKey: idempotencyKeyFromOutboundKey(`${outboundKey}:${genUUIDv7()}`)
       })
         .then(handle => {
           card = handle
@@ -1775,6 +1811,16 @@ export class AiAgentRuntime {
         .catch(() => {
           cardFailed = true
         })
+    }
+    const closeCard = (status: 'cancelled' | 'failed'): void => {
+      // Preserve streamed partial text; the adapter substitutes its status
+      // fallback when nothing was streamed. Chained on cardStart so an in-flight
+      // eager create cannot resolve after the close and leave the card spinning.
+      const finish = (): void => {
+        if (card) void card.finish(latestText, status).catch(() => {})
+      }
+      if (cardStart) void cardStart.then(finish)
+      else finish()
     }
 
     // Weak live mirror of in-progress output (Redis stream). The webui live view
@@ -1801,6 +1847,7 @@ export class AiAgentRuntime {
         })
     }
     mirror('stream.started')
+    if (streamingCapable && input.ambientIntervention !== true) ensureCard()
 
     return {
       onStreamingText: (fullText: string) => {
@@ -1824,6 +1871,7 @@ export class AiAgentRuntime {
       },
       closeFailed: reason => {
         mirror('stream.failed', { metadata: { reason } })
+        closeCard(reason === 'failed' || reason === 'no_assistant' ? 'failed' : 'cancelled')
       }
     }
   }
@@ -1892,7 +1940,21 @@ export class AiAgentRuntime {
       }
     })
     agent.subscribe(async event => {
-      if (event.type === 'turn_end') await input.recorder.finishTurn(event.message, event.toolResults)
+      if (event.type !== 'turn_end') return
+      await input.recorder.finishTurn(event.message, event.toolResults)
+      const assistant = event.message.role === 'assistant' ? event.message : undefined
+      logger.debug(
+        {
+          agentUid: input.input.context.agentUid,
+          conversationId: input.input.conversationId,
+          leaseId: input.leaseId,
+          llmTurnId: input.recorder.lastFinishedTurnId,
+          stopReason: assistant?.stopReason,
+          toolCalls: assistant?.content.filter(block => block.type === 'toolCall').length ?? 0,
+          emittedText: assistant?.content.some(block => block.type === 'text' && block.text.trim().length > 0) ?? false
+        },
+        'AI agent LLM turn completed'
+      )
     })
     agent.subscribe(event => {
       if (event.type !== 'max_turns_reached') return
@@ -2012,6 +2074,10 @@ export class AiAgentRuntime {
               timezone: await loadSystemTimezone()
             })
             if (steered) {
+              // The interrupted turn never finalizes: close its live mirror and any
+              // open streaming card so the steered generation (new lease, new card)
+              // takes over cleanly instead of leaving a card spinning forever.
+              outcome.stream.closeFailed('steered')
               nextGenerationInput = {
                 ...run.input,
                 leaseId: steered.leaseId,
@@ -2306,13 +2372,22 @@ export class AiAgentRuntime {
       .with('error', () => 'failed' as const)
       .otherwise(() => 'completed' as const)
     const finalText = status === 'completed' ? text : userFacingAssistantErrorText(assistant) || text
+    let finalTextConfirmed = false
     try {
-      await card.finish(finalText, status)
-    } catch {
-      // Best-effort close: a failed PATCH still leaves a delivered card message, so
-      // the caller records it as sent rather than double-posting the answer.
+      const finishResult = await card.finish(finalText, status)
+      finalTextConfirmed = finishResult?.finalTextConfirmed ?? true
+    } catch (error) {
+      logger.warn({ error, outboundKey }, 'Streaming card finish threw; falling back to normal final output')
     }
-    if (status !== 'completed' || text.length === 0 || !card.messageId || !card.cardId) return undefined
+    if (status !== 'completed' || text.length === 0 || !card.messageId || !card.cardId || !finalTextConfirmed) {
+      if (status === 'completed' && text.length > 0 && card.messageId && card.cardId) {
+        logger.warn(
+          { outboundKey, cardId: card.cardId, messageId: card.messageId },
+          'Streaming card final text was not confirmed; falling back to normal final output'
+        )
+      }
+      return undefined
+    }
     return { messageId: card.messageId, cardId: card.cardId, outboundKey }
   }
 

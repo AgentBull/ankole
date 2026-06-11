@@ -51,14 +51,28 @@ describe('agent library containers and skills', () => {
     expect(await getMission(agentA)).toBeString()
 
     const systemPrompt = await buildAgentSystemPrompt(agentA)
-    expect(systemPrompt.startsWith('You are Library Test Agent, an AI colleague powered by BullX.')).toBe(true)
+    expect(systemPrompt.startsWith('You are Library Test Agent')).toBe(true)
+    expect(systemPrompt).toContain(agentA)
+    expect(systemPrompt).toContain('<runtime_context>')
     expect(systemPrompt).toContain(`Agent UID: ${agentA}`)
+    expect(systemPrompt).not.toContain('<runtime_identity>')
+    expect(systemPrompt).toContain('<message_context_policy>')
+    expect(systemPrompt).toContain('trusted system-managed runtime metadata')
+    expect(systemPrompt).toContain('not as text written by a human user')
+    expect(systemPrompt).toContain('do not quote it as user text')
+    expect(systemPrompt).not.toContain('<tool_routing_policy>')
+    expect(systemPrompt).not.toContain('chat_history_search is available')
+
+    const chatRecallPrompt = await buildAgentSystemPrompt(agentA, DB, { chatRecallEnabled: true })
+    expect(chatRecallPrompt).toContain('<tool_routing_policy>')
+    expect(chatRecallPrompt).toContain('chat_history_search is available in this request')
+    expect(chatRecallPrompt).toContain('recalled chat context, not new user input')
 
     await appConfigService.set(SystemTimezoneConfig, 'Asia/Shanghai')
     const timedPrompt = await buildAgentSystemPrompt(agentA, DB, {
       conversationStartedAt: new Date('2026-06-09T19:43:12.000Z')
     })
-    expect(timedPrompt).toContain('Installation timezone: Asia/Shanghai')
+    expect(timedPrompt).toContain('Current timezone: Asia/Shanghai')
     expect(timedPrompt).toContain('Conversation started date: 2026-06-10')
     expect(timedPrompt).not.toContain('Current installation local time')
     expect(timedPrompt).not.toContain('Current UTC time')
@@ -66,19 +80,19 @@ describe('agent library containers and skills', () => {
     const groupPrompt = await buildAgentSystemPrompt(agentA, DB, {
       currentChannel: { kind: 'external_group', platform: 'feishu', name: '研发群' }
     })
-    expect(groupPrompt).toContain('Current channel: Feishu group chat "研发群"')
+    expect(groupPrompt).toContain('Conversation started channel: Feishu Group Chat "研发群"')
 
     const unnamedGroupPrompt = await buildAgentSystemPrompt(agentA, DB, {
       currentChannel: { kind: 'external_group', platform: 'feishu' }
     })
-    expect(unnamedGroupPrompt).toContain('Current channel: Feishu group chat')
+    expect(unnamedGroupPrompt).toContain('Conversation started channel: Feishu Group Chat')
     expect(unnamedGroupPrompt).not.toContain('unknown')
     expect(unnamedGroupPrompt).not.toContain('room id')
 
     const scheduledPrompt = await buildAgentSystemPrompt(agentA, DB, {
       currentChannel: { kind: 'scheduled_task', name: 'Daily report' }
     })
-    expect(scheduledPrompt).toContain('Current channel: scheduled task "Daily report"')
+    expect(scheduledPrompt).toContain('Conversation started channel: Scheduled Task "Daily report"')
 
     await setMission(agentA, 'Keep the operator loop grounded in evidence.')
     const missionPrompt = await buildAgentSystemPrompt(agentA)
@@ -118,14 +132,14 @@ describe('agent library containers and skills', () => {
 
     const financialData = await getEffectiveSkillContent({ agentUid: agentA, skillName: 'financial-data' })
     expect(financialData?.defaultEnabled).toBe(true)
-    expect(financialData?.content).toContain('financial_data')
-    expect(financialData?.content).toContain('tushare')
+    expect(financialData?.content).toContain('financial-data')
+    expect(financialData?.content).toContain('ByteHouse')
     const financialDataReference = await getEffectiveSkillContent({
       agentUid: agentA,
       skillName: 'financial-data',
-      filePath: 'references/tushare-provider-contract.md'
+      filePath: 'references/wind.md'
     })
-    expect(financialDataReference?.content).toContain('futures')
+    expect(financialDataReference?.content).toContain('Wind MCP Contract')
     expect(
       await getEffectiveSkillContent({
         agentUid: agentA,

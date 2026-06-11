@@ -408,6 +408,20 @@ export interface BullXExternalGatewayMessageReconciliation<TRawMessage = unknown
 
 export type BullXStreamingCardStatus = 'completed' | 'cancelled' | 'failed'
 
+export interface BullXStreamingCardFinishResult {
+  /**
+   * True when the provider-visible card message exists. A delivered preview is not
+   * enough to suppress the final post unless `finalTextConfirmed` is also true.
+   */
+  delivered: boolean
+  /**
+   * True only when the provider confirmed the final text requested by `finish`.
+   * Adapters should return false when the card is stuck on an older preview.
+   */
+  finalTextConfirmed: boolean
+  fallbackReason?: string
+}
+
 export interface BullXBeginStreamingCardInput {
   threadId: string
   rootId?: string
@@ -427,7 +441,7 @@ export interface BullXStreamingCardHandle {
   cardId: string
   messageId: string
   update(fullText: string): Promise<void>
-  finish(finalText: string, status: BullXStreamingCardStatus): Promise<void>
+  finish(finalText: string, status: BullXStreamingCardStatus): Promise<BullXStreamingCardFinishResult | void>
 }
 
 export type BullXExternalGatewayInboundCapability =

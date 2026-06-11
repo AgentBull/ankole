@@ -77,6 +77,9 @@ export type ExternalGatewayAgentEventKey = Pick<
   'agentUid' | 'bindingName' | 'providerEventId'
 >
 
+export type ExternalGatewayInFlightAgentEvent = ExternalGatewayAgentEventKey &
+  Pick<typeof ExternalGatewayAgentEvents.$inferSelect, 'providerMessageId' | 'providerRoomId' | 'type'>
+
 export const NORMAL_RECEIVE_BATCH_WINDOW_MS = 75
 const INPUT_TOMBSTONE_TTL_MS = ms('24h')
 const MAX_ADDRESSED_RECEIVE_BATCH_SIZE = 10_000
@@ -155,11 +158,12 @@ export class DrizzleExternalGatewayAgentEventQueue {
   async mutatePendingReceive(input: {
     agentUid: string
     bindingName: string
+    inFlightEvents?: readonly ExternalGatewayAgentEventKey[]
     providerMessageId: string
     providerRoomId: string
     payload?: ExternalGatewayAgentEnvelope
     remove?: boolean
-  }): Promise<'mutated' | 'removed' | 'not_pending'> {
+  }): Promise<'mutated' | 'removed' | 'in_flight' | 'not_pending'> {
     return DB.transaction(async tx => {
       const [event] = await tx
         .select()
@@ -180,6 +184,7 @@ export class DrizzleExternalGatewayAgentEventQueue {
       if (!event) return 'not_pending'
 
       if (input.remove) {
+        if (isInFlightEvent(event, input.inFlightEvents)) return 'in_flight'
         await tx.delete(ExternalGatewayAgentEvents).where(agentEventKeyWhere(event))
         return 'removed'
       }
@@ -267,6 +272,8 @@ export class DrizzleExternalGatewayAgentEventQueue {
       agentUids?: readonly string[]
       /** Events already claimed by an in-flight delivery; rows stay pending until markDone/markFailed. */
       excludeEvents?: readonly ExternalGatewayAgentEventKey[]
+      /** Lifecycle events for these receives must wait until the receive delivery settles. */
+      blockLifecycleForReceives?: readonly ExternalGatewayInFlightAgentEvent[]
     } = {}
   ): Promise<ExternalGatewayAgentDelivery | undefined> {
     if (input.agentUids && input.agentUids.length === 0) return undefined
@@ -276,7 +283,8 @@ export class DrizzleExternalGatewayAgentEventQueue {
         eq(ExternalGatewayAgentEvents.status, 'pending'),
         lte(ExternalGatewayAgentEvents.availableAt, new Date()),
         input.agentUids ? inArray(ExternalGatewayAgentEvents.agentUid, [...input.agentUids]) : undefined,
-        notInEvents(input.excludeEvents)
+        notInEvents(input.excludeEvents),
+        notLifecycleBlockedByInFlightReceives(input.blockLifecycleForReceives)
       )
 
       const [first] = await tx
@@ -304,6 +312,7 @@ export class DrizzleExternalGatewayAgentEventQueue {
     input: {
       agentUids?: readonly string[]
       excludeEvents?: readonly ExternalGatewayAgentEventKey[]
+      blockLifecycleForReceives?: readonly ExternalGatewayInFlightAgentEvent[]
     } = {}
   ): Promise<Date | undefined> {
     if (input.agentUids && input.agentUids.length === 0) return undefined
@@ -311,7 +320,8 @@ export class DrizzleExternalGatewayAgentEventQueue {
     const pendingPredicate = and(
       eq(ExternalGatewayAgentEvents.status, 'pending'),
       input.agentUids ? inArray(ExternalGatewayAgentEvents.agentUid, [...input.agentUids]) : undefined,
-      notInEvents(input.excludeEvents)
+      notInEvents(input.excludeEvents),
+      notLifecycleBlockedByInFlightReceives(input.blockLifecycleForReceives)
     )
 
     const [row] = await DB.select({ availableAt: ExternalGatewayAgentEvents.availableAt })
@@ -463,6 +473,39 @@ function agentEventKeysWhere(events: readonly ExternalGatewayAgentEventKey[]) {
 function notInEvents(events: readonly ExternalGatewayAgentEventKey[] | undefined) {
   if (!events || events.length === 0) return undefined
   return sql`not (${agentEventKeysWhere(events)})`
+}
+
+function isInFlightEvent(
+  event: ExternalGatewayAgentEventKey,
+  inFlightEvents: readonly ExternalGatewayAgentEventKey[] | undefined
+): boolean {
+  return Boolean(inFlightEvents?.some(inFlight => sameAgentEventKey(event, inFlight)))
+}
+
+function sameAgentEventKey(left: ExternalGatewayAgentEventKey, right: ExternalGatewayAgentEventKey): boolean {
+  return (
+    left.agentUid === right.agentUid &&
+    left.bindingName === right.bindingName &&
+    left.providerEventId === right.providerEventId
+  )
+}
+
+function notLifecycleBlockedByInFlightReceives(events: readonly ExternalGatewayInFlightAgentEvent[] | undefined) {
+  const receiveEvents = events?.filter(
+    event => event.type === 'message.received' && typeof event.providerMessageId === 'string'
+  )
+  if (!receiveEvents || receiveEvents.length === 0) return undefined
+  return sql`not (${or(
+    ...receiveEvents.map(event =>
+      and(
+        eq(ExternalGatewayAgentEvents.agentUid, event.agentUid),
+        eq(ExternalGatewayAgentEvents.bindingName, event.bindingName),
+        eq(ExternalGatewayAgentEvents.providerRoomId, event.providerRoomId),
+        eq(ExternalGatewayAgentEvents.providerMessageId, event.providerMessageId!),
+        inArray(ExternalGatewayAgentEvents.type, ['message.deleted', 'message.recalled'])
+      )
+    )
+  )})`
 }
 
 export class ExternalGatewayAgentEventQueueError extends Error {

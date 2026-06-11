@@ -5,8 +5,7 @@ import type { AgentMessage } from './core'
  * timestamps / counters / ids) so re-rendering produces identical bytes and the
  * provider prompt-cache prefix is not invalidated every turn.
  */
-export const MICROCOMPACT_CLEARED_TEXT =
-  '[Old tool result content cleared to save context. Re-run the tool if you need it again.]'
+export const MICROCOMPACT_CLEARED_TEXT = '[Old tool output cleared to save context space]'
 
 /**
  * Tool results safe to clear because they are cheaply re-derivable. `clarify`
