@@ -1,4 +1,4 @@
-import { RiSaveLine, RiSearchLine } from '@remixicon/react'
+import { RiSaveLine } from '@remixicon/react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
