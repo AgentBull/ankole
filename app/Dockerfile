@@ -9,7 +9,7 @@ RUN apt-get update \
 WORKDIR /app
 
 COPY . .
-RUN bun install --frozen-lockfile
+RUN bun install
 RUN bun run --filter @agentbull/bullx-native-addons build:production
 RUN bun run --filter @agentbull/bullx-agent web:build
 RUN rm -rf \
