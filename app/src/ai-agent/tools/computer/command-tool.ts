@@ -14,9 +14,10 @@ const CommandParams = z.object({
     .number()
     .int()
     .min(1)
+    .max(1800)
     .optional()
     .describe(
-      'Max seconds to wait for the command (default 60). High values return immediately if the command is fast.'
+      'Max seconds to wait for the command (default 60, max 1800). High values return immediately if the command is fast.'
     ),
   env: z.record(z.string(), z.string()).optional().describe('Environment variables for this command only.')
 })

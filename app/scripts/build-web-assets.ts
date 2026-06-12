@@ -7,7 +7,8 @@ const outdir = path.join(appRoot, 'public/assets')
 const entrypoints = [
   path.join(appRoot, 'webui/src/entries/setup.tsx'),
   path.join(appRoot, 'webui/src/entries/sessions.tsx'),
-  path.join(appRoot, 'webui/src/entries/console.tsx')
+  path.join(appRoot, 'webui/src/entries/console.tsx'),
+  path.join(appRoot, 'webui/src/entries/reasoning-trace.tsx')
 ]
 
 await rm(outdir, { recursive: true, force: true })
@@ -37,7 +38,8 @@ const buildId = Date.now().toString(36)
 const manifest = {
   setup: assetEntry('setup'),
   sessions: assetEntry('sessions'),
-  console: assetEntry('console')
+  console: assetEntry('console'),
+  'reasoning-trace': assetEntry('reasoning-trace')
 }
 
 await writeFile(path.join(outdir, 'manifest.json'), JSON.stringify(manifest, null, 2))

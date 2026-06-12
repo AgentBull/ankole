@@ -14,7 +14,13 @@ const ProcessParams = z.object({
     .string()
     .optional()
     .describe('Background session id from terminal(background=true). Required for every action except list.'),
-  timeout: z.number().int().min(1).optional().describe('Max seconds to block for wait (default 60).')
+  timeout: z
+    .number()
+    .int()
+    .min(1)
+    .max(1800)
+    .optional()
+    .describe('Max seconds to block for wait (default 60, max 1800).')
 })
 
 const KILL_GRACE_MS = 3000

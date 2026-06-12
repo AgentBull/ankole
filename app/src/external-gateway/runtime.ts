@@ -22,7 +22,7 @@ import type { ExternalMediaComputerWriter } from './media-cache'
 import { type AgentExternalBinding, type GroupMessageMode, parseAgentExternalBindings } from './metadata'
 import { externalGatewayOutbox, type DrizzleExternalGatewayOutbox } from './outbox'
 import { externalGatewayProjectionSink, type ExternalGatewayProjectionSink } from './core/projection'
-import type { ExternalGatewayAdapter } from './core/events'
+import type { ExternalGatewayAdapter, ExternalGatewayReasoningTraceViewAuthInput } from './core/events'
 
 /**
  * Host implementation of the Principal bridge exposed to chat adapters.
@@ -193,16 +193,50 @@ export class ExternalGatewayRuntime implements Runtime<ExternalGatewayRuntimeSta
     try {
       normalizedAgentUid = normalizeUid(agentUid)
     } catch {
+      logger.warn({ agentUid, channel }, 'External Gateway webhook for unparseable agent uid; returning 404')
       return new Response(`Unknown agent: ${agentUid}`, { status: 404 })
     }
 
     const instance = this.instances.get(normalizedAgentUid)
-    if (!instance) return new Response(`Unknown agent: ${agentUid}`, { status: 404 })
+    if (!instance) {
+      // A silent 404 here means a misrouted provider callback (or a caller bug)
+      // looks exactly like "nothing happened" — make it loud.
+      logger.warn({ agentUid, channel }, 'External Gateway webhook for unknown agent; returning 404')
+      return new Response(`Unknown agent: ${agentUid}`, { status: 404 })
+    }
 
     const adapter = instance.adapters[channel]
-    if (!adapter) return new Response(`Unknown channel: ${channel}`, { status: 404 })
+    if (!adapter) {
+      logger.warn(
+        { agentUid, channel, knownChannels: Object.keys(instance.adapters) },
+        'External Gateway webhook for unknown channel; returning 404'
+      )
+      return new Response(`Unknown channel: ${channel}`, { status: 404 })
+    }
 
     return adapter.handleWebhook(request)
+  }
+
+  async authorizeReasoningTraceView(input: ExternalGatewayReasoningTraceViewAuthInput): Promise<boolean> {
+    if (!this.started) return false
+
+    let normalizedAgentUid: string
+    try {
+      normalizedAgentUid = normalizeUid(input.agentUid)
+    } catch {
+      return false
+    }
+
+    const instance = this.instances.get(normalizedAgentUid)
+    const adapter = instance?.adapters[input.bindingName]
+    if (!adapter?.authorizeReasoningTraceView) return false
+
+    return Boolean(
+      await adapter.authorizeReasoningTraceView({
+        ...input,
+        agentUid: normalizedAgentUid
+      })
+    )
   }
 
   /**

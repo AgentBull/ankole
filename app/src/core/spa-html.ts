@@ -3,7 +3,7 @@ import path from 'node:path'
 import { AppEnv } from '@/config/env'
 import { DEFAULT_LOCALE } from '@/config/i18n-locales'
 
-export type SpaName = 'setup' | 'sessions' | 'console'
+export type SpaName = 'setup' | 'sessions' | 'console' | 'reasoning-trace'
 
 export type DevSpaHtmlRenderer = (app: SpaName, request: Request) => Promise<Response>
 
@@ -23,7 +23,8 @@ interface AssetManifestEntry {
 const defaultAssets: Record<SpaName, AssetManifestEntry> = {
   setup: { js: '/assets/setup-entry.js', css: '/assets/setup-entry.css' },
   sessions: { js: '/assets/sessions-entry.js', css: '/assets/sessions-entry.css' },
-  console: { js: '/assets/console-entry.js', css: '/assets/console-entry.css' }
+  console: { js: '/assets/console-entry.js', css: '/assets/console-entry.css' },
+  'reasoning-trace': { js: '/assets/reasoning-trace-entry.js', css: '/assets/reasoning-trace-entry.css' }
 }
 
 let cachedManifest: Partial<Record<SpaName, AssetManifestEntry>> | undefined

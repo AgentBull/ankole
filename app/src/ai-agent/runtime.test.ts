@@ -25,7 +25,7 @@ import type { AgentTool } from './core'
 
 await loadTestEnvFiles()
 
-const { DB } = await import('@/common/database')
+const { DB, jsonbParam } = await import('@/common/database')
 const {
   AiAgentConversations,
   AiAgentCheckbacks,
@@ -1205,6 +1205,212 @@ describe('AIAgent pi-ai runtime', () => {
     expect(rows.some(row => textOf(row.content) === 'withdraw this detail')).toBe(false)
   })
 
+  it('aborts a wedged provider stream via the stall watchdog and answers the queued follow-up', async () => {
+    const setup = await startAiAgent(
+      'stalled_stream_watchdog',
+      [
+        // A half-open connection: no stream events, no error — only the abort
+        // signal (driven by the stall watchdog) ever ends the call.
+        (_context, options) =>
+          new Promise<never>((_, reject) => {
+            const abort = () => reject(new Error('provider stream aborted'))
+            if (options?.signal?.aborted) return abort()
+            options?.signal?.addEventListener('abort', abort, { once: true })
+          }),
+        fauxAssistantMessage('recovered answer')
+      ],
+      { stallTimeoutMs: 200 }
+    )
+    const dm = setup.platform.dm(setup.conversationOptions())
+
+    await dm.say({ id: 'm1', text: 'long question' })
+    await eventually(async () => {
+      const [conversation] = await conversationsFor(setup.agentUid)
+      expect(conversation?.generation.lease_id).toBeTruthy()
+    })
+    await dm.say({ id: 'm2', text: 'are you stuck?' })
+    await eventually(async () => {
+      const [conversation] = await conversationsFor(setup.agentUid)
+      expect(conversation?.generation.pending_followups ?? []).toHaveLength(1)
+    })
+
+    await eventually(() => expect(setup.platform.outbound.some(event => event.text === 'recovered answer')).toBe(true))
+    const [conversation] = await conversationsFor(setup.agentUid)
+    const rows = await messagesFor(conversation!.id)
+    expect(rows.some(row => row.role === 'user' && textOf(row.content) === 'are you stuck?')).toBe(true)
+    await eventually(async () => {
+      const updated = (await conversationsFor(setup.agentUid))[0]!
+      expect(updated.generation.lease_id).toBeUndefined()
+      const turns = await llmTurnsFor(updated.id)
+      expect(turns.filter(row => row.status === 'started')).toHaveLength(0)
+    })
+  })
+
+  it('retries a stalled generation automatically and answers on the second attempt', async () => {
+    const setup = await startAiAgent(
+      'stall_retry',
+      [
+        (_context, options) =>
+          new Promise<never>((_, reject) => {
+            const abort = () => reject(new Error('provider stream aborted'))
+            if (options?.signal?.aborted) return abort()
+            options?.signal?.addEventListener('abort', abort, { once: true })
+          }),
+        fauxAssistantMessage('second attempt answer')
+      ],
+      { stallTimeoutMs: 200 }
+    )
+    const dm = setup.platform.dm(setup.conversationOptions())
+
+    await dm.say({ id: 'm1', text: 'do the long thing' })
+    await eventually(() =>
+      expect(setup.platform.outbound.some(event => event.text === 'second attempt answer')).toBe(true)
+    )
+
+    const [conversation] = await conversationsFor(setup.agentUid)
+    const turns = await llmTurnsFor(conversation!.id)
+    expect(turns.some(row => row.kind === 'retry_generation' && row.status === 'succeeded')).toBe(true)
+    expect(turns.filter(row => row.status === 'started')).toHaveLength(0)
+    expect(conversation!.generation.lease_id).toBeUndefined()
+  })
+
+  it('retries transient provider stream errors without user involvement', async () => {
+    // Two consecutive connection failures: the first is absorbed by the agent
+    // loop's one-shot first-turn retry; the second surfaces to the runtime and
+    // must trigger a generation-level transient retry.
+    const setup = await startAiAgent('transient_retry', [
+      () => {
+        throw new Error('Connection error.')
+      },
+      () => {
+        throw new Error('Connection error.')
+      },
+      fauxAssistantMessage('after the blip')
+    ])
+    const dm = setup.platform.dm(setup.conversationOptions())
+
+    await dm.say({ id: 'm1', text: 'hello' })
+    await eventually(() => expect(setup.platform.outbound.some(event => event.text === 'after the blip')).toBe(true))
+
+    const [conversation] = await conversationsFor(setup.agentUid)
+    const turns = await llmTurnsFor(conversation!.id)
+    expect(turns.some(row => row.kind === 'retry_generation' && row.status === 'succeeded')).toBe(true)
+  })
+
+  it('keeps the lease heartbeat fresh while a healthy provider stream is silent', async () => {
+    const setup = await startAiAgent(
+      'silent_stream_liveness',
+      [
+        (_context, options) =>
+          new Promise<never>((_, reject) => {
+            const abort = () => reject(new Error('provider stream aborted'))
+            if (options?.signal?.aborted) return abort()
+            options?.signal?.addEventListener('abort', abort, { once: true })
+          }),
+        fauxAssistantMessage('late answer')
+      ],
+      { stallTimeoutMs: 1_000, generationLivenessIntervalMs: 50 }
+    )
+    const dm = setup.platform.dm(setup.conversationOptions())
+
+    await dm.say({ id: 'm1', text: 'think hard' })
+    // While the stream is silent (a long reasoning stretch), the wall-clock
+    // liveness beat must keep the lease unexpired so nothing takes it over.
+    await eventually(async () => {
+      const [conversation] = await conversationsFor(setup.agentUid)
+      const generation = conversation?.generation
+      expect(generation?.lease_id).toBeTruthy()
+      expect(Date.parse(generation!.heartbeat_at!)).toBeGreaterThan(Date.parse(generation!.started_at!))
+      expect(Date.parse(generation!.expires_at!)).toBeGreaterThan(Date.now())
+    })
+    // Let the watchdog + retry settle the hung attempt so teardown is clean.
+    await eventually(() => expect(setup.platform.outbound.some(event => event.text === 'late answer')).toBe(true))
+  })
+
+  it('takes over an expired generation lease and materializes its queued follow-ups', async () => {
+    const setup = await startAiAgent('expired_lease_takeover', [
+      fauxAssistantMessage('first answer'),
+      fauxAssistantMessage('takeover answer')
+    ])
+    const dm = setup.platform.dm(setup.conversationOptions())
+    const roomId = `${setup.adapterName}:room`
+
+    await dm.say({ id: 'm1', text: 'start' })
+    await eventually(() => expect(setup.platform.outbound.some(event => event.text === 'first answer')).toBe(true))
+
+    // Simulate the production failure shape: a lease whose run died without
+    // unwinding (wedged provider call, then process loss), heartbeat frozen at
+    // start, expiry long past, with a queued follow-up nobody will ever drain.
+    const [conversation] = await conversationsFor(setup.agentUid)
+    const rows = await messagesFor(conversation!.id)
+    const trigger = rows.find(row => row.role === 'user')!
+    const now = Date.now()
+    const queuedAt = new Date(now - ms('5m')).toISOString()
+    await DB.update(AiAgentConversations)
+      .set({
+        generation: jsonbParam({
+          lease_id: 'stale-lease',
+          trigger_message_id: trigger.id,
+          trigger_event_id: null,
+          started_at: new Date(now - ms('20m')).toISOString(),
+          heartbeat_at: new Date(now - ms('20m')).toISOString(),
+          expires_at: new Date(now - ms('15m')).toISOString(),
+          max_expires_at: new Date(now + ms('10m')).toISOString(),
+          cancelled_at: null,
+          cancellation_reason: null,
+          cancelled_by_event_id: null,
+          streaming_card: {
+            provider_message_id: 'stale-card-1',
+            provider_room_id: roomId,
+            provider_thread_id: `${roomId}:thread`
+          },
+          pending_followups: [
+            {
+              actor: {},
+              agent_message: JSON.parse(JSON.stringify(createUserMessage('queued while wedged', now - ms('5m')))),
+              created_at: queuedAt,
+              event_id: 'evt-queued',
+              event_source: 'mock-im',
+              provider_refs: providerRefs({
+                eventId: 'evt-queued',
+                providerMessageId: 'm-queued',
+                providerRoomId: roomId,
+                providerThreadId: `${roomId}:thread`
+              }),
+              room: {},
+              sent_at: queuedAt,
+              text: 'queued while wedged'
+            }
+          ],
+          pending_steering: []
+        }),
+        updatedAt: sql`now()`
+      })
+      .where(eq(AiAgentConversations.id, conversation!.id))
+
+    await dm.say({ id: 'm2', text: 'hello again' })
+    await eventually(() => expect(setup.platform.outbound.some(event => event.text === 'takeover answer')).toBe(true))
+    await eventually(() =>
+      expect(setup.platform.outbound.some(event => event.op === 'delete' && event.messageId === 'stale-card-1')).toBe(
+        true
+      )
+    )
+
+    const updated = (await conversationsFor(setup.agentUid))[0]!
+    expect(updated.generation.lease_id).not.toBe('stale-lease')
+    const rowsAfter = await messagesFor(conversation!.id)
+    const materialized = rowsAfter.find(row => row.role === 'user' && textOf(row.content) === 'queued while wedged')
+    const newTrigger = rowsAfter.find(row => row.role === 'user' && textOf(row.content) === 'hello again')
+    expect(materialized?.eventId).toBe('evt-queued')
+    // The queued follow-up enters the transcript before the takeover trigger…
+    expect(materialized!.id < newTrigger!.id).toBe(true)
+    // …and the takeover generation actually saw it.
+    const turns = await llmTurnsFor(conversation!.id)
+    expect(turns.filter(row => row.status === 'started')).toHaveLength(0)
+    const takeoverTurn = turns.at(-1)!
+    expect(takeoverTurn.inputMessageIds).toContain(materialized!.id)
+  })
+
   it('starts a new conversation on daily reset while keeping the same conversation key', async () => {
     const setup = await startAiAgent('daily_reset', [fauxAssistantMessage('old day'), fauxAssistantMessage('new day')])
     const dm = setup.platform.dm(setup.conversationOptions())
@@ -1529,6 +1735,60 @@ describe('AIAgent pi-ai runtime', () => {
     })
   })
 
+  it('/stop cancels the running task but still answers messages queued behind it', async () => {
+    let releaseProvider!: () => void
+    const providerBlocker = new Promise<void>(resolve => {
+      releaseProvider = resolve
+    })
+    const setup = await startAiAgent('stop_resumes_followups', [
+      async (_context, options) => {
+        // Parked until released — and abort-aware, like a real provider call,
+        // so /stop's abortAndWait settles promptly instead of timing out.
+        await new Promise<void>((resolve, reject) => {
+          const abort = () => reject(new Error('aborted by stop'))
+          if (options?.signal?.aborted) return abort()
+          options?.signal?.addEventListener('abort', abort, { once: true })
+          void providerBlocker.then(resolve)
+        })
+        return fauxAssistantMessage('should be fenced')
+      },
+      fauxAssistantMessage('answer for the queued ask')
+    ])
+    const dm = setup.platform.dm(setup.conversationOptions())
+
+    await dm.say({ id: 'm1', text: 'long task' })
+    await eventually(async () => {
+      const [conversation] = await conversationsFor(setup.agentUid)
+      expect(conversation?.generation.lease_id).toBeTruthy()
+    })
+    // Someone else's question queues behind the running task…
+    await dm.say({ id: 'm2', text: 'queued question from someone else' })
+    await eventually(async () => {
+      const [conversation] = await conversationsFor(setup.agentUid)
+      expect(conversation?.generation.pending_followups ?? []).toHaveLength(1)
+    })
+    // …then the task is stopped. The queued question must not evaporate.
+    // (release on a timer: dm.say awaits the whole /stop handler, including
+    // abortAndWait on the parked run)
+    setTimeout(() => releaseProvider(), 50)
+    await dm.say({ id: 'stop-command', text: '/stop' })
+
+    await eventually(() => expect(setup.platform.outbound.some(event => event.text === 'Stopped.')).toBe(true))
+    await eventually(() =>
+      expect(setup.platform.outbound.some(event => event.text === 'answer for the queued ask')).toBe(true)
+    )
+    expect(setup.platform.outbound.some(event => event.text === 'should be fenced')).toBe(false)
+
+    const [conversation] = await conversationsFor(setup.agentUid)
+    const rows = await messagesFor(conversation!.id)
+    expect(rows.some(row => row.role === 'user' && textOf(row.content) === 'queued question from someone else')).toBe(
+      true
+    )
+    expect(rows.some(row => row.kind === 'introspection' && textOf(row.content).includes('task_cancellation'))).toBe(
+      true
+    )
+  })
+
   it('fences delayed provider output after /stop so stale answers are not sent', async () => {
     const setup = await startAiAgent('stop_fence', [
       async () => {
@@ -1662,6 +1922,91 @@ describe('AIAgent pi-ai runtime', () => {
     expect(updated!.generation.lease_id).toBeUndefined()
   })
 
+  it('recovers a lease that crashed mid-run by continuing its call_index sequence', async () => {
+    const setup = await startAiAgent('recovery_midlease', [fauxAssistantMessage('recovered answer')])
+    const dm = setup.platform.dm(setup.conversationOptions())
+    const route = {
+      agentUid: setup.agentUid,
+      bindingName: setup.adapterName,
+      providerRealmId: null,
+      providerRoomId: dm.channelId
+    }
+    const conversation = await aiAgentConversationService.getOrCreateActiveConversation(route)
+    const trigger = await aiAgentConversationService.appendMessage({
+      conversationId: conversation.id,
+      role: 'user',
+      kind: 'normal',
+      content: textContent('recover this'),
+      agentMessage: createUserMessage('recover this'),
+      eventSource: 'test',
+      eventId: 'recover-midlease',
+      metadata: {
+        provider_refs: providerRefs({
+          providerMessageId: 'recover-midlease',
+          providerRoomId: dm.channelId,
+          providerThreadId: dm.threadId
+        }) as JsonObject
+      }
+    })
+    const lease = await aiAgentConversationService.acquireGenerationLease({
+      conversationId: conversation.id,
+      triggerMessageId: trigger.id
+    })
+    // The dead attempt also left a streaming card spinning in the chat.
+    await DB.update(AiAgentConversations)
+      .set({
+        generation: sql`${AiAgentConversations.generation} || ${jsonbParam({
+          streaming_card: {
+            provider_message_id: 'orphan-card-1',
+            provider_room_id: dm.channelId,
+            provider_thread_id: dm.threadId
+          }
+        })}`
+      })
+      .where(eq(AiAgentConversations.id, conversation.id))
+    // The crashed process already recorded turns under this lease: one settled
+    // call and one left open in flight (the production wedge signature).
+    const turnDefaults = {
+      agentUid: setup.agentUid,
+      conversationId: conversation.id,
+      kind: 'generation',
+      profile: 'primary',
+      provider: setup.profile.primaryModel.config.providerId,
+      model: 'primary',
+      leaseId: lease!.leaseId,
+      triggerMessageId: trigger.id
+    } as const
+    await DB.insert(AiAgentLlmTurns).values([
+      { ...turnDefaults, id: crypto.randomUUID(), status: 'succeeded', callIndex: 0, completedAt: new Date() },
+      { ...turnDefaults, id: crypto.randomUUID(), status: 'started', callIndex: 1 }
+    ])
+
+    await setup.aiRuntime.recoverExternalGatewayBinding(setup.executionContext())
+    await eventually(async () => {
+      await externalGatewayOutbox.dispatchPendingForBinding({
+        adapter: setup.adapter,
+        agent: setup.agent,
+        bindingName: setup.adapterName,
+        projection: externalGatewayProjectionSink,
+        room: {}
+      })
+      expect(setup.platform.outbound.some(event => event.text === 'recovered answer')).toBe(true)
+      // …and the dead attempt's spinning card was deleted, not left as an orphan.
+      expect(setup.platform.outbound.some(event => event.op === 'delete' && event.messageId === 'orphan-card-1')).toBe(
+        true
+      )
+    })
+    const turns = await llmTurnsFor(conversation.id)
+    // The abandoned in-flight call is settled as failed, not left as phantom progress…
+    expect(turns.find(row => row.callIndex === 1)?.status).toBe('failed')
+    // …and the recovered run continued the lease's call_index sequence.
+    const recovered = turns.filter(row => row.leaseId === lease!.leaseId && (row.callIndex ?? 0) >= 2)
+    expect(recovered.length).toBeGreaterThan(0)
+    expect(recovered.every(row => row.status === 'succeeded')).toBe(true)
+    const [updated] = await conversationsFor(setup.agentUid)
+    expect(updated!.generation.lease_id).toBeUndefined()
+  })
+
   it('rebuilds a missing assistant final outbox row during binding recovery', async () => {
     const setup = await startAiAgent('missing_outbox_recovery', [])
     const dm = setup.platform.dm(setup.conversationOptions())
@@ -1708,7 +2053,7 @@ describe('AIAgent pi-ai runtime', () => {
     expect(row?.status).toBe('sent')
   })
 
-  it('clarify blocks the run until the user replies, then resumes without queuing a followup', async () => {
+  it('clarify ends the turn; the user reply starts the next turn', async () => {
     const clarifyRegistry = new AiAgentClarifyRegistry()
     const setup = await startAiAgent(
       'clarify_reply',
@@ -1716,7 +2061,7 @@ describe('AIAgent pi-ai runtime', () => {
         fauxAssistantMessage([fauxToolCall('clarify', { question: 'A or B?', choices: ['A', 'B'] })]),
         fauxAssistantMessage('you picked A')
       ],
-      { enableClarify: true, clarifyTimeoutMs: 5_000, clarifyHeartbeatMs: 50, clarifyRegistry }
+      { enableClarify: true, clarifyTimeoutMs: 5_000, clarifyRegistry }
     )
     const dm = setup.platform.dm(setup.conversationOptions())
 
@@ -1731,6 +2076,12 @@ describe('AIAgent pi-ai runtime', () => {
     )
     const [conversation] = await conversationsFor(setup.agentUid)
     await eventually(() => expect(clarifyRegistry.has(conversation!.id)).toBe(true))
+    // The ask ended the IM turn: the generation committed and released its
+    // lease; nothing waits in-process for the answer.
+    await eventually(async () => {
+      const [refreshed] = await conversationsFor(setup.agentUid)
+      expect(refreshed!.generation.lease_id).toBeUndefined()
+    })
     expect(setup.platform.outbound.filter(event => event.op === 'post' && event.text === 'you picked A')).toHaveLength(
       0
     )
@@ -1742,66 +2093,43 @@ describe('AIAgent pi-ai runtime', () => {
       )
     )
     expect(clarifyRegistry.has(conversation!.id)).toBe(false)
-    const [refreshed] = await conversationsFor(setup.agentUid)
-    const generation = refreshed!.generation as { pending_followups?: unknown[] }
-    expect(generation.pending_followups ?? []).toHaveLength(0)
+
+    const rows = await messagesFor(conversation!.id)
+    // The reply is a normal transcript message: turn = one IM Q&A exchange.
+    expect(rows.some(row => row.role === 'user' && textOf(row.content) === '1')).toBe(true)
 
     const turns = (await llmTurnsFor(conversation!.id)).filter(row => row.kind === 'generation')
     expect(turns).toHaveLength(2)
-    const toolCallTurn = turns[0]!
-    const finalTurn = turns[1]!
-    expect(turns.map(row => row.callIndex)).toEqual([0, 1])
-    expect(new Set(turns.map(row => row.leaseId))).toEqual(new Set([toolCallTurn.leaseId]))
+    const askTurn = turns[0]!
+    const answerTurn = turns[1]!
+    // Two separate turns under two separate leases, each a fresh call sequence.
+    expect(turns.map(row => row.callIndex)).toEqual([0, 0])
+    expect(askTurn.leaseId).not.toBe(answerTurn.leaseId)
     expect(turns.every(row => row.status === 'succeeded')).toBe(true)
 
-    const toolCallBlocks = jsonObjects((toolCallTurn.response as JsonObject).content)
+    const toolCallBlocks = jsonObjects((askTurn.response as JsonObject).content)
     expect(toolCallBlocks.some(block => block.type === 'toolCall' && toolNameFromJson(block) === 'clarify')).toBe(true)
-    const toolResults = jsonObjects(toolCallTurn.toolResults)
+    const toolResults = jsonObjects(askTurn.toolResults)
     expect(toolResults.some(result => result.role === 'toolResult' && toolNameFromJson(result) === 'clarify')).toBe(
       true
     )
 
-    const finalRefs = jsonObjects(finalTurn.requestRefs)
-    expect(finalRefs.some(ref => ref.type === 'llm_turn_response' && ref.llm_turn_id === toolCallTurn.id)).toBe(true)
-    expect(finalRefs.some(ref => ref.type === 'llm_turn_tool_result' && ref.llm_turn_id === toolCallTurn.id)).toBe(true)
-    expect(finalRefs.some(ref => ref.type === 'inline_agent_message')).toBe(false)
-    expect((finalTurn.requestContext as Record<string, unknown>).messages).toBeUndefined()
-
-    const toolDefinitionPatches = jsonObjects(toolCallTurn.requestPatches).filter(
-      patch => patch.type === 'llm_tool_definitions'
-    )
-    expect(toolDefinitionPatches).toHaveLength(1)
-    expect(jsonObjects(finalTurn.requestPatches).some(patch => patch.type === 'llm_tool_definitions')).toBe(false)
-    const tools = jsonObjects(toolDefinitionPatches[0]?.tools)
-    const clarifyTool = tools.find(tool => tool.name === 'clarify')
-    expect(clarifyTool).toBeTruthy()
-    expect(JSON.stringify(clarifyTool?.parameters)).toContain('question')
-
-    const trajectory = reconstructLlmTurnTrajectory({
-      turns,
-      messages: await messagesFor(conversation!.id)
-    })
-    const firstCall = trajectory[0]!
+    // The answer turn re-renders the ask turn (assistant + clarify tool result)
+    // plus the user's reply from the transcript.
+    const trajectory = reconstructLlmTurnTrajectory({ turns, messages: rows })
     const secondCall = trajectory[1]!
-    expect(firstCall.request.systemPrompt).toContain('Bayesian')
-    expect(firstCall.request.messages.map(message => message.role)).toEqual(['user'])
-    expect(firstCall.request.tools.some(tool => jsonRecord(tool)?.name === 'clarify')).toBe(true)
-    expect(
-      jsonObjects(firstCall.response.content).some(
-        block => block.type === 'toolCall' && toolNameFromJson(block) === 'clarify'
-      )
-    ).toBe(true)
-    expect(
-      jsonObjects(firstCall.toolResults).some(result => result.role === 'toolResult' && result.toolName === 'clarify')
-    ).toBe(true)
-    expect(firstCall.request.exactLlmRequest).toBe(true)
     expect(secondCall.request.exactLlmRequest).toBe(true)
-    expect(secondCall.request.messages.map(message => message.role)).toEqual(['user', 'assistant', 'toolResult'])
+    expect(secondCall.request.messages.map(message => message.role)).toEqual([
+      'user',
+      'assistant',
+      'toolResult',
+      'user'
+    ])
+    expect(JSON.stringify(secondCall.request.messages.at(-1))).toContain('1')
     expect(secondCall.request.tools.some(tool => jsonRecord(tool)?.name === 'clarify')).toBe(true)
-    expect(jsonObjects(secondCall.request.patches).some(patch => patch.type === 'llm_tool_definitions')).toBe(false)
   })
 
-  it('clarify times out and the run continues', async () => {
+  it('an unanswered clarify expires its gate; a later reply still starts the next turn', async () => {
     const clarifyRegistry = new AiAgentClarifyRegistry()
     const setup = await startAiAgent(
       'clarify_timeout',
@@ -1809,11 +2137,20 @@ describe('AIAgent pi-ai runtime', () => {
         fauxAssistantMessage([fauxToolCall('clarify', { question: 'still there?' })]),
         fauxAssistantMessage('moving on')
       ],
-      { enableClarify: true, clarifyTimeoutMs: 80, clarifyHeartbeatMs: 1_000, clarifyRegistry }
+      { enableClarify: true, clarifyTimeoutMs: 80, clarifyRegistry }
     )
     const dm = setup.platform.dm(setup.conversationOptions())
 
     await dm.say({ id: 'm1', text: '@Agent help' })
+    const [conversation] = await eventually(async () => {
+      const conversations = await conversationsFor(setup.agentUid)
+      expect(clarifyRegistry.has(conversations[0]!.id)).toBe(true)
+      return conversations
+    })
+    // The gate (card lock + group reply upgrade) expires; the turn stays over.
+    await eventually(() => expect(clarifyRegistry.has(conversation!.id)).toBe(false))
+    // A late reply is still just the next inbound message.
+    await dm.say({ id: 'm2', text: 'sorry, here now' })
     await eventually(() =>
       expect(setup.platform.outbound.filter(event => event.op === 'post').map(event => event.text)).toContain(
         'moving on'
@@ -2173,7 +2510,7 @@ describe('AIAgent pi-ai runtime', () => {
         fauxAssistantMessage([fauxToolCall('clarify', { question: 'A or B?', choices: ['A', 'B'] })]),
         fauxAssistantMessage('you picked A')
       ],
-      { enableClarify: true, clarifyTimeoutMs: 5_000, clarifyHeartbeatMs: 50, clarifyRegistry }
+      { enableClarify: true, clarifyTimeoutMs: 5_000, clarifyRegistry }
     )
     const dm = setup.platform.dm(setup.conversationOptions())
 
@@ -2215,7 +2552,6 @@ describe('AIAgent pi-ai runtime', () => {
       {
         enableClarify: true,
         clarifyTimeoutMs: 5_000,
-        clarifyHeartbeatMs: 50,
         clarifyRegistry,
         groupMessageMode: 'observe_all'
       }
@@ -2430,7 +2766,10 @@ async function startAiAgent(
     compressionKeepRecentTokens?: number
     groupMessageMode?: 'observe_all' | 'may_intervene'
     clarifyTimeoutMs?: number
-    clarifyHeartbeatMs?: number
+    stallTimeoutMs?: number
+    streamGapTimeoutMs?: number
+    maxTransientRetries?: number
+    generationLivenessIntervalMs?: number
     enableChatRecall?: boolean
     enableClarify?: boolean
     enableStreaming?: boolean
@@ -2479,7 +2818,7 @@ async function startAiAgent(
     addressedMediaBatchWindowMs: options.addressedMediaBatchWindowMs,
     loadProfile: async () => profile,
     clarifyTimeoutMs: options.clarifyTimeoutMs,
-    clarifyHeartbeatMs: options.clarifyHeartbeatMs,
+    generationLivenessIntervalMs: options.generationLivenessIntervalMs,
     clarify: options.clarifyRegistry
   })
   const computerFiles = new Map<string, Buffer>()
@@ -2564,7 +2903,13 @@ async function restartAiAgentBinding(setup: Awaited<ReturnType<typeof startAiAge
 
 function runtimeProfile(
   registration: FauxProviderRegistration,
-  options: { ambientBatchWindowMs?: number; compressionKeepRecentTokens?: number }
+  options: {
+    ambientBatchWindowMs?: number
+    compressionKeepRecentTokens?: number
+    stallTimeoutMs?: number
+    streamGapTimeoutMs?: number
+    maxTransientRetries?: number
+  }
 ): AiAgentRuntimeProfile {
   const primary = registration.getModel('primary')!
   const light = registration.getModel('light')!
@@ -2578,7 +2923,10 @@ function runtimeProfile(
       maxConversationsPerAgent: 16
     },
     generation: {
-      maxTurns: 100
+      maxTurns: 100,
+      stallTimeoutMs: options.stallTimeoutMs ?? ms('10m'),
+      streamGapTimeoutMs: options.streamGapTimeoutMs ?? options.stallTimeoutMs ?? ms('5m'),
+      maxTransientRetries: options.maxTransientRetries ?? 2
     },
     compression: {
       enabled: true,

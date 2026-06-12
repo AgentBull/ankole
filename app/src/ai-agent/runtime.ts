@@ -8,7 +8,7 @@ import {
   type TextContent,
   type ToolResultMessage
 } from '@earendil-works/pi-ai'
-import { match } from '@pleisto/active-support'
+import { match, ms } from '@pleisto/active-support'
 import { and, desc, eq, sql } from 'drizzle-orm'
 import { DB, jsonbParam, type QueryExecutor } from '@/common/database'
 import { logger } from '@/common/logger'
@@ -44,6 +44,7 @@ import {
   aiAgentConversationService,
   buildRouteMetadata,
   isActiveGeneration,
+  isExpiredGeneration,
   newGenerationLease,
   providerRefs,
   textContent,
@@ -61,6 +62,7 @@ import { aiAgentAmbientBatcher, type AiAgentAmbientBatcher } from './ambient'
 import { aiAgentCompressionService, type AiAgentCompressionService } from './compression'
 import { aiAgentLifecycleRevisionService, type AiAgentLifecycleRevisionService } from './lifecycle-revisions'
 import { aiAgentRunRegistry, type AiAgentRunRegistry } from './run-registry'
+import { GenerationStallWatchdog } from './generation-watchdog'
 import { aiAgentClarifyRegistry, type AiAgentClarifyRegistry, type ClarifyEntry } from './clarify-registry'
 import { createClarifyTool, type ClarifyRunBinding } from './tools/clarify-tool'
 import { createCheckBackLaterTool } from './tools/check-back-later-tool'
@@ -89,11 +91,12 @@ import {
 import { isJsonObject, stringFromPath as stringFromMetadata, toJsonObject, toJsonValue } from '@/common/json'
 import { idempotencyKeyFromOutboundKey, projectVisibleOutbound } from '@/external-gateway/outbox'
 import { interactiveOutputCardPayload, larkNativeCardPayload } from '@/external-gateway/interactive-output'
+import { AdminAuthPublicBaseUrlConfig } from '@/principals/admin-auth/config'
 import { createTodoTool, TodoStore, todoItemsFromToolDetails, type TodoToolDetails } from './tools/todo-tool'
 import { buildAgentSystemPrompt, type CurrentChannelContext } from './prompts/system-prompt'
 import { createSkillTools } from './library/tools'
 import { estimateContextTokensJsonAware } from './token-estimate'
-import { classifyLlmError } from './core/llm-error-classifier'
+import { classifyLlmError, isRetryableLlmError } from './core/llm-error-classifier'
 import {
   appendMessageContextHistory,
   buildMessageContextMetadata,
@@ -101,9 +104,23 @@ import {
   mergeMessageContextMetadata,
   type MessageContextHistoryItem
 } from './message-context'
+import {
+  createReasoningTraceToken,
+  REASONING_TRACE_TTL_MS,
+  ReasoningTraceRecorder,
+  type ReasoningTraceRef
+} from './reasoning-trace'
 
 const EXTERNAL_IMAGE_INLINE_LIMIT_BYTES = 8 * 1024 * 1024
 const DEFAULT_ADDRESSED_MEDIA_BATCH_WINDOW_MS = Math.ceil(NORMAL_RECEIVE_BATCH_WINDOW_MS * 1.3)
+const GENERATION_STALLED_ABORT_REASON = 'generation_stalled'
+const DEFAULT_GENERATION_LIVENESS_INTERVAL_MS = ms('60s')
+// First transient retry is immediate (a stall already waited out its budget,
+// and pi-ai's call-level retry already backed off quick failures); later
+// retries pause so a hard outage cannot spin a tight generation loop.
+const GENERATION_TRANSIENT_RETRY_DELAY_MS = ms('15s')
+// Long-run progress line cadence (the liveness interval checks this clock).
+const GENERATION_PROGRESS_LOG_INTERVAL_MS = ms('5m')
 
 export interface AiAgentRuntimeOptions {
   addressedMediaBatchWindowMs?: number
@@ -117,7 +134,7 @@ export interface AiAgentRuntimeOptions {
   renderer?: AiAgentContextRenderer
   clarify?: AiAgentClarifyRegistry
   clarifyTimeoutMs?: number
-  clarifyHeartbeatMs?: number
+  generationLivenessIntervalMs?: number
 }
 
 export type ComputerFileReader = (agentUid: string, path: string, signal?: AbortSignal) => Promise<Buffer | null>
@@ -131,6 +148,7 @@ type RunGenerationInput = {
   leaseId?: string
   llmTurnKind?: AiAgentLlmTurnKind
   overflowAttempts?: number
+  transientAttempts?: number
   profile: AiAgentRuntimeProfile
   providerRoomId?: string
   providerThreadId?: string
@@ -146,6 +164,7 @@ interface GenerationRunContext {
   input: RunGenerationInput
   leaseId: string
   recorder: GenerationTrajectoryRecorder
+  reasoningTrace?: PreparedReasoningTrace
   triggerMessageId: string
 }
 
@@ -169,6 +188,12 @@ interface GenerationStreamingSink {
   finalize(assistant: AssistantMessage, text: string): Promise<StreamedAssistantCard | undefined>
   /** Close the live visible-output mirror for a run that did not commit. */
   closeFailed(reason: string): void
+}
+
+interface PreparedReasoningTrace {
+  recorder: ReasoningTraceRecorder
+  ref(): ReasoningTraceRef
+  traceUrl?: string
 }
 
 interface TodoProgressState {
@@ -253,8 +278,11 @@ interface LlmTurnFinish {
 }
 
 class GenerationTrajectoryRecorder {
-  private callIndex = 0
+  private callIndex: number
+  private readonly startCallIndex: number
   private openTurnId?: string
+  private openTurnCallIndex?: number
+  private openTurnStartedAtMs?: number
   private readonly messageRefs = new WeakMap<object, JsonValue>()
   private readonly providerObservations = new Map<string, JsonObject>()
   private previousToolsSnapshot?: string
@@ -265,8 +293,11 @@ class GenerationTrajectoryRecorder {
     private readonly leaseId: string,
     private readonly triggerMessageId: string,
     private readonly rendered: RenderedAiAgentContext,
-    private readonly conversations: AiAgentConversationService
+    private readonly conversations: AiAgentConversationService,
+    startCallIndex = 0
   ) {
+    this.callIndex = startCallIndex
+    this.startCallIndex = startCallIndex
     rendered.messages.forEach((message, index) => {
       const ref = rendered.inputMessageRefs[index]
       if (ref && typeof message === 'object' && message !== null) this.messageRefs.set(message, ref)
@@ -324,6 +355,8 @@ class GenerationTrajectoryRecorder {
       triggerMessageId: this.triggerMessageId
     })
     this.openTurnId = llmTurn.id
+    this.openTurnCallIndex = callIndex
+    this.openTurnStartedAtMs = Date.now()
     this.providerObservations.set(llmTurn.id, {})
     return { metadata: { llm_turn_id: llmTurn.id } }
   }
@@ -367,6 +400,8 @@ class GenerationTrajectoryRecorder {
     }
     this.lastFinishedTurnId = llmTurnId
     this.openTurnId = undefined
+    this.openTurnCallIndex = undefined
+    this.openTurnStartedAtMs = undefined
   }
 
   async failOpenTurn(status: AiAgentLlmTurnStatus, response: JsonObject): Promise<void> {
@@ -379,6 +414,25 @@ class GenerationTrajectoryRecorder {
       providerMetadata: this.providerObservations.get(llmTurnId) ?? {}
     })
     this.openTurnId = undefined
+    this.openTurnCallIndex = undefined
+    this.openTurnStartedAtMs = undefined
+  }
+
+  /** Calls issued by this run so far (excludes turns inherited via crash recovery). */
+  get callsStarted(): number {
+    return this.callIndex - this.startCallIndex
+  }
+
+  /** The in-flight LLM call, if any — progress-log introspection for "wedged or just long". */
+  openLlmTurn(): { llmTurnId: string; callIndex: number; runningForMs: number } | undefined {
+    if (!this.openTurnId || this.openTurnCallIndex === undefined || this.openTurnStartedAtMs === undefined) {
+      return undefined
+    }
+    return {
+      llmTurnId: this.openTurnId,
+      callIndex: this.openTurnCallIndex,
+      runningForMs: Date.now() - this.openTurnStartedAtMs
+    }
   }
 
   private refForMessage(message: AgentMessage, index: number): JsonValue {
@@ -581,6 +635,17 @@ function safeJsonStringify(value: unknown): string {
   }
 }
 
+function reasoningTraceStorageRef(ref: ReasoningTraceRef) {
+  return {
+    binding_name: ref.bindingName,
+    expires_at: ref.expiresAt,
+    trace_id: ref.traceId,
+    ...(ref.providerRoomId ? { provider_room_id: ref.providerRoomId } : {}),
+    ...(ref.providerThreadId ? { provider_thread_id: ref.providerThreadId } : {}),
+    ...(ref.traceUrl ? { trace_url: ref.traceUrl } : {})
+  }
+}
+
 export class AiAgentRuntime {
   private readonly ambient: AiAgentAmbientBatcher
   private readonly compression: AiAgentCompressionService
@@ -597,7 +662,7 @@ export class AiAgentRuntime {
   private activeToolNames: string[] = []
   private readonly clarify: AiAgentClarifyRegistry
   private readonly clarifyTimeoutMs?: number
-  private readonly clarifyHeartbeatMs?: number
+  private readonly generationLivenessIntervalMs: number
   private clarifyFactory?: (binding: ClarifyRunBinding) => AgentTool<any>
   private computerFactory?: (binding: ClarifyRunBinding) => AgentTool<any>[]
   private computerDeps?: ComputerToolsDeps
@@ -616,7 +681,7 @@ export class AiAgentRuntime {
     this.renderer = options.renderer ?? aiAgentContextRenderer
     this.clarify = options.clarify ?? aiAgentClarifyRegistry
     this.clarifyTimeoutMs = options.clarifyTimeoutMs
-    this.clarifyHeartbeatMs = options.clarifyHeartbeatMs
+    this.generationLivenessIntervalMs = options.generationLivenessIntervalMs ?? DEFAULT_GENERATION_LIVENESS_INTERVAL_MS
     this.addressedMediaBatchWindowMs = options.addressedMediaBatchWindowMs ?? DEFAULT_ADDRESSED_MEDIA_BATCH_WINDOW_MS
   }
 
@@ -665,10 +730,8 @@ export class AiAgentRuntime {
     this.clarifyFactory = enabled
       ? binding =>
           createClarifyTool(binding, {
-            conversations: this.conversations,
             registry: this.clarify,
-            timeoutMs: this.clarifyTimeoutMs,
-            heartbeatMs: this.clarifyHeartbeatMs
+            timeoutMs: this.clarifyTimeoutMs
           })
       : undefined
   }
@@ -773,6 +836,9 @@ export class AiAgentRuntime {
   }
 
   private shouldStopAfterGenerationTurn(context: ShouldStopAfterTurnContext): boolean {
+    // A clarify ask ends the IM turn: the question is this turn's outbound, the
+    // user's reply is the next turn's inbound. Never keep generating past it.
+    if (context.toolResults.some(result => !result.isError && result.toolName === 'clarify')) return true
     const text = textFromAgentMessage(context.message).trim()
     if (!text) return false
     if (context.toolResults.length === 0) return true
@@ -983,7 +1049,7 @@ export class AiAgentRuntime {
     } else if (first.deliveryMode === 'command') {
       await this.acceptCommand(delivery, context, route, profile)
     } else if (first.deliveryMode === 'action') {
-      await this.acceptAction(delivery, context)
+      await this.acceptAction(delivery, context, profile)
     } else if (first.deliveryMode === 'lifecycle') {
       await this.acceptLifecycle(delivery, context, route)
     }
@@ -1081,14 +1147,15 @@ export class AiAgentRuntime {
   }
 
   /**
-   * Resolve a clarify from an interactive card button. First interaction wins and
-   * locks: resolveByConversation is a single-shot funnel, so a second click (any
-   * member) finds no entry and is silently ignored. On success we edit the card to
-   * its locked state (buttons disabled, choice marked).
+   * Answer a clarify from an interactive card button. First click wins: it takes
+   * the registry entry, locks the card (buttons disabled, choice marked), and
+   * materializes the choice as the next turn's inbound user message; later
+   * clicks (any member) find no entry and are silently ignored.
    */
   private async acceptAction(
     delivery: ExternalGatewayAgentDelivery,
-    context: ExternalGatewayAgentExecutionContext
+    context: ExternalGatewayAgentExecutionContext,
+    profile: AiAgentRuntimeProfile
   ): Promise<void> {
     const event = delivery.events[0]
     if (!event) return
@@ -1096,23 +1163,110 @@ export class AiAgentRuntime {
     const answer = parseClarifyAnswerValue(action?.value)
     if (!answer) return
 
-    const entry = this.clarify.get(answer.interactionId)
-    const resolved = this.clarify.resolveByConversation(answer.interactionId, {
-      kind: 'answer',
-      text: answer.choiceValue,
-      choiceIndex: answer.choiceIndex >= 0 ? answer.choiceIndex : undefined
-    })
-    if (resolved && entry) {
-      await this.enqueueClarifyCardLock(context, event, entry, answer)
-      context.scheduleOutboxDrain()
+    const entry = this.clarify.take(answer.interactionId)
+    if (!entry) return
+    logger.info(
+      {
+        agentUid: context.agentUid,
+        conversationId: entry.conversationId,
+        choiceIndex: answer.choiceIndex,
+        eventId: event.providerEventId
+      },
+      'AI agent clarify answered via card; starting the next turn'
+    )
+    await this.enqueueClarifyCardLock(context, event, entry, answer)
+    context.scheduleOutboxDrain()
+    await this.startClarifyAnswerTurn(context, profile, event, entry, answer)
+  }
+
+  /**
+   * A card click is an inbound answer: persist it as a user message in the
+   * asking conversation and start the next turn with it as the trigger. If a
+   * generation is already running (the user also typed something), queue it as
+   * a followup like any other concurrent inbound.
+   */
+  private async startClarifyAnswerTurn(
+    context: ExternalGatewayAgentExecutionContext,
+    profile: AiAgentRuntimeProfile,
+    event: ExternalGatewayAgentDelivery['events'][number],
+    entry: ClarifyEntry,
+    answer: Pick<ClarifyAnswerValue, 'choiceValue' | 'choiceIndex'>
+  ): Promise<void> {
+    const [conversation] = await DB.select()
+      .from(AiAgentConversations)
+      .where(eq(AiAgentConversations.id, entry.conversationId))
+      .limit(1)
+    if (!conversation || conversation.endedAt) return
+    const envelope = payloadEnvelope(event)
+    const actor = actorFromEnvelope(envelope)
+    const sentAt = sentAtFromEnvelope(envelope, event)
+    const providerRoomId = event.providerRoomId || entry.providerRoomId
+    const providerThreadId = event.providerThreadId || entry.providerThreadId
+    const text = answer.choiceValue
+    if (isActiveGeneration(conversation.generation) && !isExpiredGeneration(conversation.generation)) {
+      await this.conversations.appendPendingFollowup(conversation.id, {
+        actor,
+        agent_message: toJsonObject(createUserMessage(text, sentAt.getTime())),
+        created_at: new Date().toISOString(),
+        event_id: event.providerEventId,
+        event_source: envelope.source,
+        provider_refs: providerRefs({
+          eventId: event.providerEventId,
+          providerMessageId: event.providerMessageId,
+          providerRoomId,
+          providerThreadId
+        }),
+        room: roomFromEnvelope(envelope),
+        sent_at: sentAt.toISOString(),
+        text
+      })
+      return
     }
+    const history = await loadMessageContextHistory(conversation.id)
+    const timezone = await loadSystemTimezone()
+    const messageContext = buildMessageContextMetadata(
+      { actor, room: roomFromEnvelope(envelope), sentAt, timezone },
+      history
+    )
+    const row = await this.conversations.appendMessage({
+      conversationId: conversation.id,
+      role: 'user',
+      kind: 'normal',
+      content: textContent(text),
+      agentMessage: createUserMessage(text, sentAt.getTime()),
+      eventSource: envelope.source,
+      eventId: event.providerEventId,
+      metadata: mergeMessageContextMetadata(
+        {
+          actor,
+          control: { origin: 'clarify_card_answer', clarify_tool_call_id: entry.toolCallId },
+          provider_refs: providerRefs({
+            eventId: event.providerEventId,
+            providerMessageId: event.providerMessageId,
+            providerRoomId,
+            providerThreadId
+          }),
+          route: routeMetadata(context, { providerRoomId, providerThreadId })
+        },
+        messageContext
+      )
+    })
+    this.startGeneration({
+      context,
+      conversationId: conversation.id,
+      profile,
+      providerRoomId,
+      providerThreadId,
+      requesterExternalId: externalIdFromActor(actor),
+      triggerMessageId: row.id
+    })
   }
 
   private async enqueueClarifyCardLock(
     context: ExternalGatewayAgentExecutionContext,
     event: ExternalGatewayAgentDelivery['events'][number],
     entry: ClarifyEntry,
-    answer: ClarifyAnswerValue
+    answer: Pick<ClarifyAnswerValue, 'choiceValue' | 'choiceIndex'>
   ): Promise<void> {
     if (!entry.cardCapable) return
     const lockedOutput = renderClarifyChoicePrompt({
@@ -1143,7 +1297,13 @@ export class AiAgentRuntime {
   async recoverExternalGatewayBinding(context: ExternalGatewayAgentExecutionContext): Promise<void> {
     const profile = await this.loadProfile(context.agentUid)
     const rebuiltOutboxRows = await this.rebuildMissingAssistantOutbox(context)
-    if (rebuiltOutboxRows > 0) context.scheduleOutboxDrain()
+    if (rebuiltOutboxRows > 0) {
+      logger.info(
+        { agentUid: context.agentUid, bindingName: context.bindingName, rebuiltOutboxRows },
+        'AI agent crash recovery rebuilt missing assistant outbox rows'
+      )
+      context.scheduleOutboxDrain()
+    }
 
     const conversations = await this.conversations.findRecoverableGenerations(context.agentUid, context.bindingName)
 
@@ -1152,6 +1312,28 @@ export class AiAgentRuntime {
       const triggerMessageId = conversation.generation.trigger_message_id
       if (!leaseId || !triggerMessageId) continue
 
+      // The dead process left its in-flight calls open; settle them before the
+      // rerun so the trajectory shows one honest failure, not phantom progress.
+      const abandonedTurns = await this.conversations.failAbandonedLlmTurns(
+        conversation.id,
+        leaseId,
+        'process exited during generation'
+      )
+      logger.info(
+        {
+          agentUid: context.agentUid,
+          conversationId: conversation.id,
+          leaseId,
+          triggerMessageId,
+          abandonedTurns,
+          leaseStartedAt: conversation.generation.started_at,
+          leaseHeartbeatAt: conversation.generation.heartbeat_at
+        },
+        'AI agent crash recovery rerunning interrupted generation'
+      )
+      // The dead attempt's streaming card will never finish; the rerun opens a
+      // fresh one, so delete the orphan instead of leaving it spinning.
+      await this.enqueueOrphanStreamingCardCleanup(context, conversation)
       const [trigger] = await DB.select().from(AiAgentMessages).where(eq(AiAgentMessages.id, triggerMessageId)).limit(1)
       this.startGeneration({
         context,
@@ -1229,52 +1411,54 @@ export class AiAgentRuntime {
   ): Promise<void> {
     const conversation = await this.dailyReset.ensureFreshConversation(route, profile)
 
-    // clarify text-intercept: a parked clarify keeps the generation active, so this must
-    // precede the followup path. The next inbound message is the answer — resolve it and
-    // let the parked run continue (no pending followup, no new generation).
-    if (this.clarify.has(conversation.id)) {
+    // Pending clarify question: this inbound message IS the answer. Lock the
+    // question card with the mapped choice, then let the message flow down the
+    // normal path — it becomes the next turn's trigger like any other message.
+    const pendingClarify = this.clarify.take(conversation.id)
+    if (pendingClarify) {
       const lastEvent = delivery.events.at(-1)
       if (lastEvent) {
-        const entry = this.clarify.get(conversation.id)
-        const mapped = mapAnswer(messageText(payloadEnvelope(lastEvent)), entry?.choices)
-        if (
-          this.clarify.resolveByConversation(conversation.id, {
-            kind: 'answer',
-            text: mapped.text,
-            choiceIndex: mapped.choiceIndex
-          })
-        ) {
-          return
-        }
+        const mapped = mapAnswer(messageText(payloadEnvelope(lastEvent)), pendingClarify.choices)
+        await this.enqueueClarifyCardLock(context, lastEvent, pendingClarify, {
+          choiceValue: mapped.text,
+          choiceIndex: mapped.choiceIndex ?? -1
+        })
+        context.scheduleOutboxDrain()
       }
     }
 
     if (isActiveGeneration(conversation.generation)) {
-      for (const event of delivery.events) {
-        const envelope = payloadEnvelope(event)
-        const sentAt = sentAtFromEnvelope(envelope, event)
-        const userMessage = await createUserMessageFromEnvelope(envelope, sentAt, {
-          agentUid: event.agentUid,
-          readComputerFile: this.computerFileReader
-        })
-        await this.conversations.appendPendingFollowup(conversation.id, {
-          actor: actorFromEnvelope(envelope),
-          agent_message: toJsonObject(userMessage),
-          created_at: new Date().toISOString(),
-          event_id: event.providerEventId,
-          event_source: envelope.source,
-          provider_refs: providerRefs({
-            eventId: event.providerEventId,
-            providerMessageId: event.providerMessageId,
-            providerRoomId: event.providerRoomId,
-            providerThreadId: event.providerThreadId
-          }),
-          room: roomFromEnvelope(envelope),
-          sent_at: sentAt.toISOString(),
-          text: messageText(envelope)
-        })
+      if (!isExpiredGeneration(conversation.generation)) {
+        for (const event of delivery.events) {
+          const envelope = payloadEnvelope(event)
+          const sentAt = sentAtFromEnvelope(envelope, event)
+          const userMessage = await createUserMessageFromEnvelope(envelope, sentAt, {
+            agentUid: event.agentUid,
+            readComputerFile: this.computerFileReader
+          })
+          await this.conversations.appendPendingFollowup(conversation.id, {
+            actor: actorFromEnvelope(envelope),
+            agent_message: toJsonObject(userMessage),
+            created_at: new Date().toISOString(),
+            event_id: event.providerEventId,
+            event_source: envelope.source,
+            provider_refs: providerRefs({
+              eventId: event.providerEventId,
+              providerMessageId: event.providerMessageId,
+              providerRoomId: event.providerRoomId,
+              providerThreadId: event.providerThreadId
+            }),
+            room: roomFromEnvelope(envelope),
+            sent_at: sentAt.toISOString(),
+            text: messageText(envelope)
+          })
+        }
+        return
       }
-      return
+      // The lease outlived its expiry without a heartbeat: the run is wedged (or
+      // its process died and recovery died with it). Take the conversation over
+      // instead of queueing behind a lease that will never commit.
+      await this.takeoverExpiredGeneration(context, conversation, delivery.events[0]?.providerEventId)
     }
 
     let triggerMessageId: string | undefined
@@ -1410,10 +1594,8 @@ export class AiAgentRuntime {
     this.cancelAddressedMediaTrigger(conversation.id)
 
     if (command.name === 'new') {
-      // abortAndWait drives the parked clarify's signal -> onAbort -> resolve; the
-      // explicit abort below is a backstop if the signal chain didn't settle it.
       await this.registry.abortAndWait(conversation.id, 'new_session')
-      this.clarify.abort(conversation.id, 'superseded')
+      this.clarify.clear(conversation.id)
       const nextConversation = await this.conversations.rolloverConversation(route, 'new_session', DB, {
         sourceEventId: event.providerEventId
       })
@@ -1471,14 +1653,28 @@ export class AiAgentRuntime {
     }
 
     if (command.name === 'stop') {
-      // Fence first, then let abortAndWait's signal settle the parked clarify; the
-      // explicit abort below is a backstop (avoids an extra model turn vs aborting clarify early).
+      // Fence first so a delayed provider response cannot commit after the stop.
       const wasActive = isActiveGeneration(conversation.generation)
       await this.conversations.cancelGeneration(conversation.id, 'stop', event.providerEventId)
       await this.registry.abortAndWait(conversation.id, 'stop')
-      this.clarify.abort(conversation.id, 'aborted')
-      if (wasActive) await this.materializeStop(conversation.id, event, await loadSystemTimezone())
+      this.clarify.clear(conversation.id)
+      const timezone = await loadSystemTimezone()
+      if (wasActive) await this.materializeStop(conversation.id, event, timezone)
       await this.enqueueFeedback(context, event, 'Stopped.')
+      // /stop kills the running task, not the questions that queued behind it
+      // (often from other people in the room). Materialize them after the
+      // cancellation note and answer them in a fresh turn.
+      const resume = await this.materializeCancelledGenerationQueues(conversation.id, timezone)
+      if (resume) {
+        this.startGeneration({
+          context,
+          conversationId: conversation.id,
+          profile,
+          providerRoomId: resume.providerRoomId ?? event.providerRoomId,
+          providerThreadId: resume.providerThreadId ?? event.providerThreadId,
+          triggerMessageId: resume.triggerMessageId
+        })
+      }
       return
     }
 
@@ -1616,14 +1812,17 @@ export class AiAgentRuntime {
         })
     if (!lease) return { status: 'fenced', enqueuedOutput: false }
     const generationStartedAt = Date.now()
-    logger.debug(
+    logger.info(
       {
         agentUid: input.context.agentUid,
         conversationId: input.conversationId,
         leaseId: lease.leaseId,
         triggerMessageId,
         llmTurnKind: input.llmTurnKind ?? 'generation',
-        model: input.profile.primaryModel.model.id
+        model: input.profile.primaryModel.model.id,
+        stallTimeoutMs: input.profile.generation.stallTimeoutMs,
+        ...(input.transientAttempts ? { transientAttempt: input.transientAttempts } : {}),
+        ...(input.overflowAttempts ? { overflowAttempt: input.overflowAttempts } : {})
       },
       'AI agent generation started'
     )
@@ -1707,13 +1906,20 @@ export class AiAgentRuntime {
     const abortFromParent = () => abortController.abort(input.abortSignal?.reason)
     if (input.abortSignal?.aborted) abortFromParent()
     else input.abortSignal?.addEventListener('abort', abortFromParent, { once: true })
-    const stream = this.buildGenerationStreamingSink(input, lease.leaseId)
+    const reasoningTrace = await this.prepareReasoningTrace(input, lease.leaseId)
+    const stream = this.buildGenerationStreamingSink(input, lease.leaseId, reasoningTrace?.traceUrl)
+    // A handed-in lease (crash recovery, steer cutover) may already own recorded
+    // turns; continue its call_index sequence instead of colliding with it.
+    const startCallIndex = input.leaseId
+      ? await this.conversations.nextLlmTurnCallIndex(input.conversationId, lease.leaseId)
+      : 0
     const recorder = new GenerationTrajectoryRecorder(
       input,
       lease.leaseId,
       triggerMessageId,
       rendered,
-      this.conversations
+      this.conversations,
+      startCallIndex
     )
     const runContext: GenerationRunContext = {
       abortController,
@@ -1721,6 +1927,7 @@ export class AiAgentRuntime {
       input,
       leaseId: lease.leaseId,
       recorder,
+      reasoningTrace,
       triggerMessageId
     }
     let outcome: RunOutcome
@@ -1743,13 +1950,93 @@ export class AiAgentRuntime {
         abortController,
         startedAt: new Date()
       })
-      outcome = await this.runGenerationAgent({
-        abortController,
-        agent,
-        input,
-        leaseId: lease.leaseId,
-        stream
+      // Two independent liveness signals:
+      // 1. Lease heartbeat = "this process still owns the run" — a wall-clock
+      //    interval, deliberately blind to stream progress, because a healthy
+      //    long-thinking model may stream nothing for tens of minutes. Lease
+      //    expiry therefore always means the owning process died, and the
+      //    expired-lease takeover can never kill a healthy silent run.
+      // 2. Stall watchdog = "the provider stream/tool is still alive" — agent
+      //    events reset it; silence beyond the (reasoning-sized) budget aborts
+      //    the run, which finishGenerationRun answers with a transient retry.
+      //    The SDK timeout only covers time-to-response-headers, so a stream
+      //    wedged on a half-open connection would otherwise hang forever.
+      const watchdog = new GenerationStallWatchdog({
+        stallTimeoutMs: input.profile.generation.stallTimeoutMs,
+        streamGapTimeoutMs: input.profile.generation.streamGapTimeoutMs,
+        onStall: (silentForMs, phase) => {
+          logger.warn(
+            {
+              agentUid: input.context.agentUid,
+              conversationId: input.conversationId,
+              leaseId: lease.leaseId,
+              silentForMs,
+              phase,
+              stallTimeoutMs: input.profile.generation.stallTimeoutMs,
+              streamGapTimeoutMs: input.profile.generation.streamGapTimeoutMs
+            },
+            'AI agent generation made no progress within the stall budget; aborting run'
+          )
+          abortController.abort(GENERATION_STALLED_ABORT_REASON)
+        }
       })
+      // The progress line is the operator's "wedged or just long?" answer: small
+      // silentForMs = the model/tools are visibly working; silentForMs growing
+      // toward stallTimeoutMs = the run is about to be aborted and retried.
+      let lastProgressLogAt = Date.now()
+      const beatLiveness = () => {
+        void this.conversations.touchGenerationLiveness(input.conversationId, lease.leaseId).catch(() => {})
+        void reasoningTrace?.recorder.touch().catch(() => {})
+        if (Date.now() - lastProgressLogAt < GENERATION_PROGRESS_LOG_INTERVAL_MS) return
+        lastProgressLogAt = Date.now()
+        logger.info(
+          {
+            agentUid: input.context.agentUid,
+            conversationId: input.conversationId,
+            leaseId: lease.leaseId,
+            elapsedMs: Date.now() - generationStartedAt,
+            silentForMs: watchdog.silentForMs(),
+            stallTimeoutMs: input.profile.generation.stallTimeoutMs,
+            llmCalls: recorder.callsStarted,
+            openLlmTurn: recorder.openLlmTurn() ?? null
+          },
+          'AI agent generation in progress'
+        )
+      }
+      beatLiveness()
+      const livenessTimer = setInterval(beatLiveness, this.generationLivenessIntervalMs)
+      livenessTimer.unref?.()
+      // Content deltas hold the stream to the tight gap budget; boundary events
+      // (call start, turn end, tool activity) fall back to the generous one.
+      const unsubscribeWatchdog = agent.subscribe(event => {
+        if (event.type === 'message_update') watchdog.touchContent()
+        else watchdog.touch()
+      })
+      const unsubscribeReasoningTrace = reasoningTrace
+        ? agent.subscribe(event => {
+            void reasoningTrace.recorder.recordAgentEvent(event).catch(error => {
+              logger.warn(
+                { error, conversationId: input.conversationId, leaseId: lease.leaseId },
+                'Reasoning trace event append failed; trace view degraded for this run'
+              )
+            })
+          })
+        : undefined
+      watchdog.start()
+      try {
+        outcome = await this.runGenerationAgent({
+          abortController,
+          agent,
+          input,
+          leaseId: lease.leaseId,
+          stream
+        })
+      } finally {
+        watchdog.stop()
+        unsubscribeWatchdog()
+        unsubscribeReasoningTrace?.()
+        clearInterval(livenessTimer)
+      }
     } catch (error) {
       outcome = {
         kind: 'failed',
@@ -1769,21 +2056,32 @@ export class AiAgentRuntime {
       if (outcome.kind !== 'committed') {
         stream.closeFailed(outcome.kind === 'failed' && outcome.aborted ? 'cancelled' : outcome.kind)
       }
-      logger.debug(
+      await reasoningTrace?.recorder.finish(finished?.status).catch(error => {
+        logger.warn(
+          { error, conversationId: input.conversationId, leaseId: lease.leaseId },
+          'Reasoning trace finish append failed'
+        )
+      })
+      logger.info(
         {
           agentUid: input.context.agentUid,
           conversationId: input.conversationId,
           leaseId: lease.leaseId,
           outcome: outcome.kind,
           status: finished?.status,
-          durationMs: Date.now() - generationStartedAt
+          durationMs: Date.now() - generationStartedAt,
+          llmCalls: recorder.callsStarted
         },
         'AI agent generation finished'
       )
     }
   }
 
-  private buildGenerationStreamingSink(input: RunGenerationInput, leaseId: string): GenerationStreamingSink {
+  private buildGenerationStreamingSink(
+    input: RunGenerationInput,
+    leaseId: string,
+    traceUrl?: string
+  ): GenerationStreamingSink {
     // Live streaming-card sink (CardKit). Visible-output runs open the card (with
     // the adapter's thinking placeholder) as soon as the generation starts, so
     // tool-heavy runs give feedback before the first answer token. Ambient
@@ -1804,6 +2102,7 @@ export class AiAgentRuntime {
       if (cardFailed || card || cardStart) return
       cardStart = input.context.adapter.beginStreamingCard!({
         threadId: input.providerThreadId!,
+        traceUrl,
         // Per-attempt key: crash recovery reruns under the same lease, and reusing
         // the dead attempt's key would dedupe the new card message into the old
         // frozen one, leaving the recovered answer on a card no message shows.
@@ -1811,6 +2110,17 @@ export class AiAgentRuntime {
       })
         .then(handle => {
           card = handle
+          // Durable ref: if this process dies mid-run, recovery/takeover uses it
+          // to delete the orphaned "thinking" card nobody will ever finish.
+          if (handle.messageId) {
+            void this.conversations
+              .recordGenerationStreamingCard(input.conversationId, leaseId, {
+                provider_message_id: handle.messageId,
+                provider_room_id: input.providerRoomId,
+                provider_thread_id: input.providerThreadId
+              })
+              .catch(() => {})
+          }
           if (latestStatusText && handle.updateStatus) void handle.updateStatus(latestStatusText)
           if (latestText) void handle.update(latestText)
           else if (latestStatusText && !handle.updateStatus) void handle.update(latestStatusText)
@@ -2043,12 +2353,53 @@ export class AiAgentRuntime {
   private async finishGenerationRun(run: GenerationRunContext, outcome: RunOutcome): Promise<GenerationResult> {
     let clearLease = false
     let nextGenerationInput: RunGenerationInput | undefined
+    let retryDelayMs = 0
     let result: GenerationResult = { status: 'failed', enqueuedOutput: false }
+    const stallAborted = run.abortController.signal.reason === GENERATION_STALLED_ABORT_REASON
+    const scheduleTransientRetry = (cause: string): boolean => {
+      if (run.input.ambientIntervention === true) return false
+      const attempts = run.input.transientAttempts ?? 0
+      if (attempts >= run.input.profile.generation.maxTransientRetries) {
+        logger.error(
+          {
+            agentUid: run.input.context.agentUid,
+            conversationId: run.input.conversationId,
+            leaseId: run.leaseId,
+            attempts,
+            maxTransientRetries: run.input.profile.generation.maxTransientRetries,
+            cause
+          },
+          'AI agent generation failed after exhausting transient retries'
+        )
+        return false
+      }
+      nextGenerationInput = {
+        ...run.input,
+        leaseId: undefined,
+        llmTurnKind: 'retry_generation',
+        transientAttempts: attempts + 1
+      }
+      retryDelayMs = attempts === 0 ? 0 : GENERATION_TRANSIENT_RETRY_DELAY_MS
+      logger.warn(
+        {
+          agentUid: run.input.context.agentUid,
+          conversationId: run.input.conversationId,
+          leaseId: run.leaseId,
+          attempt: attempts + 1,
+          maxTransientRetries: run.input.profile.generation.maxTransientRetries,
+          retryDelayMs,
+          cause
+        },
+        'AI agent generation hit a transient provider failure; retrying'
+      )
+      return true
+    }
     try {
       switch (outcome.kind) {
         case 'no_assistant':
           await run.recorder.failOpenTurn('failed', { error: 'Provider did not return an assistant message' })
           clearLease = true
+          if (stallAborted) scheduleTransientRetry('stalled_before_first_event')
           result = { status: 'failed', enqueuedOutput: false }
           break
         case 'failed':
@@ -2056,9 +2407,20 @@ export class AiAgentRuntime {
             error: errorMessage(outcome.error)
           })
           clearLease = true
+          if (stallAborted || (!outcome.aborted && isRetryableLlmError(outcome.error))) {
+            scheduleTransientRetry(stallAborted ? 'stall_abort' : errorMessage(outcome.error))
+          }
           result = { status: outcome.aborted ? 'cancelled' : 'failed', enqueuedOutput: false }
           break
         case 'fenced':
+          logger.warn(
+            {
+              agentUid: run.input.context.agentUid,
+              conversationId: run.input.conversationId,
+              leaseId: run.leaseId
+            },
+            'AI agent generation fenced by a newer lease; output discarded'
+          )
           result = { status: 'fenced', enqueuedOutput: false }
           break
         case 'overflow_retry':
@@ -2102,7 +2464,8 @@ export class AiAgentRuntime {
                 leaseId: steered.leaseId,
                 providerRoomId: steered.providerRoomId,
                 providerThreadId: steered.providerThreadId,
-                triggerMessageId: steered.triggerMessageId
+                triggerMessageId: steered.triggerMessageId,
+                transientAttempts: undefined
               }
               result = { status: 'succeeded', enqueuedOutput: false }
               break
@@ -2124,6 +2487,7 @@ export class AiAgentRuntime {
             suppressVisibleOutput: run.input.suppressVisibleOutput,
             text,
             triggerMessageId: run.triggerMessageId,
+            reasoningTrace: run.reasoningTrace?.ref(),
             streamedCard,
             timezone: await loadSystemTimezone()
           })
@@ -2137,8 +2501,21 @@ export class AiAgentRuntime {
               leaseId: commit.nextGeneration.leaseId,
               providerRoomId: commit.nextGeneration.providerRoomId,
               providerThreadId: commit.nextGeneration.providerThreadId,
-              triggerMessageId: commit.nextGeneration.triggerMessageId
+              triggerMessageId: commit.nextGeneration.triggerMessageId,
+              transientAttempts: undefined
             }
+          } else if (
+            (outcome.assistant.stopReason === 'error' || outcome.assistant.stopReason === 'aborted') &&
+            (stallAborted ||
+              (outcome.assistant.stopReason === 'error' && isRetryableLlmError(outcome.assistant.errorMessage)))
+          ) {
+            // The attempt died of a stall or a transport failure that survived
+            // the loop's own one-shot first-turn retry, and produced no
+            // user-visible answer and no follow-up chain (queued followups
+            // re-render the whole context and inherently retry the ask).
+            // User aborts (/stop, /new) are stopReason 'aborted' without the
+            // stall reason and never retry.
+            scheduleTransientRetry(stallAborted ? 'stall_abort' : (outcome.assistant.errorMessage ?? 'provider error'))
           }
           result = {
             status:
@@ -2166,8 +2543,88 @@ export class AiAgentRuntime {
         this.registry.delete(run.input.conversationId, run.leaseId)
       }
     }
-    if (nextGenerationInput) this.startGeneration(nextGenerationInput)
+    if (nextGenerationInput) {
+      const next = nextGenerationInput
+      if (retryDelayMs > 0) {
+        const timer = setTimeout(() => this.startGeneration(next), retryDelayMs)
+        timer.unref?.()
+      } else {
+        this.startGeneration(next)
+      }
+    }
     return result
+  }
+
+  private async prepareReasoningTrace(
+    input: RunGenerationInput,
+    leaseId: string
+  ): Promise<PreparedReasoningTrace | undefined> {
+    if (!this.shouldCreateReasoningTrace(input)) return undefined
+
+    const traceId = leaseId
+    const { token } = createReasoningTraceToken({
+      agentUid: input.context.agentUid,
+      bindingName: input.context.bindingName,
+      conversationId: input.conversationId,
+      providerRoomId: input.providerRoomId,
+      providerThreadId: input.providerThreadId,
+      traceId
+    })
+    const publicBaseUrl = await appConfigService.get(AdminAuthPublicBaseUrlConfig).catch(() => undefined)
+    const traceUrl =
+      publicBaseUrl && typeof input.context.adapter.authorizeReasoningTraceView === 'function'
+        ? new URL(`/traces/reasoning/${encodeURIComponent(token)}`, publicBaseUrl).toString()
+        : undefined
+    const ref = (): ReasoningTraceRef => ({
+      agentUid: input.context.agentUid,
+      bindingName: input.context.bindingName,
+      conversationId: input.conversationId,
+      expiresAt: new Date(Date.now() + REASONING_TRACE_TTL_MS).toISOString(),
+      providerRoomId: input.providerRoomId,
+      providerThreadId: input.providerThreadId,
+      traceId,
+      traceUrl
+    })
+    const recorder = new ReasoningTraceRecorder({
+      agentUid: input.context.agentUid,
+      conversationId: input.conversationId,
+      traceId
+    })
+
+    try {
+      await recorder.start({
+        binding_name: input.context.bindingName,
+        provider_room_id: input.providerRoomId ?? null,
+        provider_thread_id: input.providerThreadId ?? null
+      })
+    } catch (error) {
+      logger.warn(
+        { error, conversationId: input.conversationId, leaseId },
+        'Reasoning trace stream unavailable; generation will continue without trace view'
+      )
+      return undefined
+    }
+
+    await this.conversations
+      .recordGenerationReasoningTrace(input.conversationId, leaseId, reasoningTraceStorageRef(ref()))
+      .catch(error => {
+        logger.warn(
+          { error, conversationId: input.conversationId, leaseId },
+          'Failed to record active generation reasoning trace ref'
+        )
+      })
+
+    return { recorder, ref, traceUrl }
+  }
+
+  private shouldCreateReasoningTrace(input: RunGenerationInput): boolean {
+    return (
+      Boolean(input.providerThreadId) &&
+      !input.suppressVisibleOutput &&
+      input.ambientIntervention !== true &&
+      adapterSupportsCapability(input.context.adapter, 'outbound', 'streaming') &&
+      typeof input.context.adapter.beginStreamingCard === 'function'
+    )
   }
 
   private async retryLastExchange(
@@ -2423,6 +2880,7 @@ export class AiAgentRuntime {
     text: string
     timezone: string
     triggerMessageId: string
+    reasoningTrace?: ReasoningTraceRef
     streamedCard?: StreamedAssistantCard
   }): Promise<CommitAssistantResult> {
     return DB.transaction(async tx => {
@@ -2467,6 +2925,7 @@ export class AiAgentRuntime {
         metadata: jsonbParam({
           llm_turn_id: input.llmTurnId,
           generation: { trigger_message_id: input.triggerMessageId, lease_id: input.leaseId },
+          ...(input.reasoningTrace ? { reasoning_trace: reasoningTraceStorageRef(input.reasoningTrace) } : {}),
           ...(isVisibleOutput ? { outbound: { outbound_key: outboundKey } } : {}),
           route: input.routeMetadata
         })
@@ -2808,6 +3267,188 @@ export class AiAgentRuntime {
         },
         messageContext
       )
+    })
+  }
+
+  /**
+   * Best-effort removal of a dead attempt's streaming card — the orphaned
+   * "thinking" bubble left when a process died or wedged mid-run. The new
+   * attempt opens its own card (per-attempt idempotency key), so the stale one
+   * would otherwise spin in the chat forever.
+   */
+  private async enqueueOrphanStreamingCardCleanup(
+    context: ExternalGatewayAgentExecutionContext,
+    conversation: typeof AiAgentConversations.$inferSelect
+  ): Promise<void> {
+    const generation = conversation.generation
+    const targetMessageId = generation.streaming_card?.provider_message_id
+    if (!targetMessageId || !generation.lease_id) return
+    if (!adapterSupportsCapability(context.adapter, 'outbound', 'delete_message')) return
+    const providerRoomId =
+      generation.streaming_card?.provider_room_id ??
+      stringFromMetadata(conversation.metadata, ['route', 'provider_room_id']) ??
+      ''
+    logger.info(
+      {
+        agentUid: context.agentUid,
+        conversationId: conversation.id,
+        leaseId: generation.lease_id,
+        targetMessageId
+      },
+      'AI agent deleting orphaned streaming card from a dead run'
+    )
+    await context.outbox.enqueuePending({
+      agentUid: context.agentUid,
+      bindingName: context.bindingName,
+      intent: {
+        operation: 'delete',
+        outboundKey: `ai-agent-stream-cleanup:${conversation.id}:${generation.lease_id}`,
+        providerRoomId,
+        providerThreadId: generation.streaming_card?.provider_thread_id ?? providerRoomId,
+        finalPayload: { targetMessageId }
+      }
+    })
+    context.scheduleOutboxDrain()
+  }
+
+  /**
+   * Recover a conversation whose generation lease expired without a heartbeat.
+   *
+   * The lease is cancelled first (scoped to its id, so a just-committed newer
+   * lease is left alone), which fences any zombie run out of committing; the
+   * in-process run — if one is still wedged on a dead provider call or tool —
+   * is then aborted. Queued followups/steering are materialized as transcript
+   * rows so the takeover generation sees them; the caller proceeds down the
+   * normal trigger path as if no run were active.
+   */
+  private async takeoverExpiredGeneration(
+    context: ExternalGatewayAgentExecutionContext,
+    conversation: typeof AiAgentConversations.$inferSelect,
+    eventId: string | undefined
+  ): Promise<void> {
+    const generation = conversation.generation
+    logger.warn(
+      {
+        agentUid: conversation.agentUid,
+        conversationId: conversation.id,
+        leaseId: generation.lease_id,
+        startedAt: generation.started_at,
+        heartbeatAt: generation.heartbeat_at,
+        expiresAt: generation.expires_at,
+        pendingFollowups: normalizePendingArray(generation.pending_followups).length,
+        pendingSteering: normalizePendingArray(generation.pending_steering).length
+      },
+      'AI agent generation lease expired without heartbeat; taking over conversation'
+    )
+    if (generation.lease_id) {
+      await this.conversations.cancelGeneration(conversation.id, 'lease_expired', eventId, generation.lease_id)
+    }
+    await this.registry.abortAndWait(conversation.id, 'lease_expired')
+    this.clarify.clear(conversation.id)
+    if (generation.lease_id) {
+      await this.conversations.failAbandonedLlmTurns(conversation.id, generation.lease_id, 'generation lease expired')
+    }
+    await this.enqueueOrphanStreamingCardCleanup(context, conversation)
+    await this.materializeCancelledGenerationQueues(conversation.id, await loadSystemTimezone())
+  }
+
+  /**
+   * Drain a cancelled lease's pending queues into transcript rows. The committed
+   * path normally materializes them, but a taken-over lease never commits, and
+   * the next `acquireGenerationLease` replaces the generation envelope wholesale
+   * — without this step the queued user input would be silently dropped. Row
+   * inserts and the queue clear share one transaction; the inbound-event unique
+   * index turns a replayed drain into a no-op.
+   */
+  private async materializeCancelledGenerationQueues(
+    conversationId: string,
+    timezone: string
+  ): Promise<{ triggerMessageId: string; providerRoomId?: string; providerThreadId?: string } | undefined> {
+    return DB.transaction(async tx => {
+      const [conversation] = await tx
+        .select()
+        .from(AiAgentConversations)
+        .where(eq(AiAgentConversations.id, conversationId))
+        .for('update')
+        .limit(1)
+      if (!conversation || conversation.endedAt) return undefined
+      const generation = conversation.generation
+      if (!generation.lease_id || !generation.cancelled_at) return undefined
+      const pendingSteering = normalizePendingArray<PendingSteering>(generation.pending_steering)
+      const pendingFollowups = normalizePendingArray<PendingFollowup>(generation.pending_followups)
+      if (pendingSteering.length === 0 && pendingFollowups.length === 0) return undefined
+      logger.info(
+        {
+          agentUid: conversation.agentUid,
+          conversationId,
+          leaseId: generation.lease_id,
+          followups: pendingFollowups.length,
+          steering: pendingSteering.length
+        },
+        'AI agent materializing queued input from a cancelled lease'
+      )
+      const messageContextHistory = await loadMessageContextHistory(conversationId, tx)
+      for (const steering of pendingSteering) {
+        await this.insertSteeringMarkerRow(tx, {
+          agentUid: conversation.agentUid,
+          conversationId,
+          messageContextHistory,
+          steering,
+          timezone
+        })
+      }
+      let resumeTrigger: { triggerMessageId: string; providerRoomId?: string; providerThreadId?: string } | undefined
+      for (const followup of pendingFollowups) {
+        const sentAt = dateFromString(followup.sent_at) ?? new Date(followup.created_at)
+        const messageContext = buildMessageContextMetadata(
+          { actor: followup.actor ?? {}, room: followup.room, sentAt, timezone },
+          messageContextHistory
+        )
+        const metadata = mergeMessageContextMetadata(
+          {
+            actor: followup.actor ?? {},
+            provider_refs: followup.provider_refs,
+            control: { origin: 'followup_or_steer_fallback' }
+          },
+          messageContext
+        )
+        const followupMessageId = genUUIDv7()
+        await tx
+          .insert(AiAgentMessages)
+          .values({
+            id: followupMessageId,
+            agentUid: conversation.agentUid,
+            conversationId,
+            role: 'user',
+            kind: 'normal',
+            status: 'complete',
+            content: jsonbParam(textContent(followup.text)),
+            agentMessage: jsonbParam(
+              followup.agent_message ?? toJsonObject(createUserMessage(followup.text, sentAt.getTime()))
+            ),
+            eventSource: followup.event_source,
+            eventId: followup.event_id,
+            metadata: jsonbParam(metadata)
+          })
+          .onConflictDoNothing()
+        appendMessageContextHistory(messageContextHistory, metadata)
+        resumeTrigger = {
+          triggerMessageId: followupMessageId,
+          providerRoomId: stringFromMetadata(followup.provider_refs, ['room_id']),
+          providerThreadId: stringFromMetadata(followup.provider_refs, ['thread_id'])
+        }
+      }
+      await tx
+        .update(AiAgentConversations)
+        .set({
+          generation: sql`${AiAgentConversations.generation} || ${jsonbParam({
+            pending_followups: [],
+            pending_steering: []
+          })}`,
+          updatedAt: sql`now()`
+        })
+        .where(eq(AiAgentConversations.id, conversationId))
+      return resumeTrigger
     })
   }
 

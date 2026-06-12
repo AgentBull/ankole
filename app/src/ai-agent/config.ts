@@ -1,4 +1,5 @@
 import { type CacheRetention, type Model, type SimpleStreamOptions, type Transport } from '@earendil-works/pi-ai'
+import { match, ms } from '@pleisto/active-support'
 import { z } from 'zod'
 import { defineAppConfig, registerAppConfigDefinitions, appConfigService } from '@/config/app-configure'
 import type { ConfigureJsonValue } from '@/common/db-schema/app-configure'
@@ -43,6 +44,21 @@ export interface AiAgentRuntimePolicyConfig {
   }
   generation?: {
     maxTurns?: number
+    /**
+     * Abort (and retry) a run after this long with no agent events (stream
+     * progress, tool activity). Defaults by the primary model's reasoning
+     * effort — see {@link defaultGenerationStallTimeoutMs}. Long-running silent
+     * tools must fit this budget too; clarify waits are exempt.
+     */
+    stallTimeoutMs?: number
+    /**
+     * Silence budget between content chunks once a call is streaming. Providers
+     * chunk continuously (reasoning included), so mid-stream silence is a dead
+     * pipe — this can be far tighter than `stallTimeoutMs`.
+     */
+    streamGapTimeoutMs?: number
+    /** Automatic re-runs after a stall abort or transient provider failure. */
+    maxTransientRetries?: number
   }
   compression?: {
     enabled?: boolean
@@ -128,7 +144,10 @@ const AiAgentRuntimePolicyConfigSchema = z
       .optional(),
     generation: z
       .object({
-        maxTurns: z.number().int().positive().optional()
+        maxTurns: z.number().int().positive().optional(),
+        stallTimeoutMs: z.number().int().positive().optional(),
+        streamGapTimeoutMs: z.number().int().positive().optional(),
+        maxTransientRetries: z.number().int().nonnegative().optional()
       })
       .optional(),
     dailyReset: z
@@ -185,9 +204,8 @@ export async function loadAiAgentRuntimeProfile(agentUid: string): Promise<AiAge
   }
 
   const runtimeConfig = AiAgentRuntimeConfigSchema.parse(runtimeConfigValue ?? {})
-  const policy = resolveAiAgentRuntimePolicy(runtimeConfig)
   const models = readAiAgentModelsConfig(agentResult.agent.metadata)
-  if (models) return resolveAiAgentRuntimeProfile({ models, policy })
+  if (models) return resolveAiAgentRuntimeProfile({ models, policy: runtimeConfig })
 
   throw new AiAgentConfigError(`agents.metadata.ai_agent.models.primary is not configured for ${agentUid}`)
 }
@@ -197,12 +215,14 @@ export async function resolveAiAgentRuntimeProfile(input: {
   policy?: AiAgentRuntimePolicyConfig
 }): Promise<AiAgentRuntimeProfile> {
   const models = resolveAiAgentModelsConfig(input.models)
-  const policy = resolveAiAgentRuntimePolicy(input.policy ?? {})
   const [primaryModel, lightModel, heavyModel] = await Promise.all([
     resolveModelProfile('primary', models.primary),
     resolveModelProfile('light', models.light),
     resolveModelProfile('heavy', models.heavy)
   ])
+  // Policy resolution wants the primary reasoning effort: the generation stall
+  // budget defaults differently for long-thinking models.
+  const policy = resolveAiAgentRuntimePolicy(input.policy ?? {}, primaryModel.config.reasoning)
 
   return {
     primaryModel,
@@ -258,8 +278,23 @@ export function writeAiAgentModelsConfig(metadata: JsonObject, models: AiAgentMo
   return next
 }
 
+/**
+ * Default stall budget by the primary model's reasoning effort. Long-thinking
+ * SOTA models legitimately stream nothing for tens of minutes (providers do not
+ * surface reasoning deltas or SSE keepalives through the SDK), so the silence
+ * budget must exceed the longest healthy quiet stretch — a stall abort is
+ * retried, but repeatedly killing a healthy 25-minute think would never finish.
+ */
+export function defaultGenerationStallTimeoutMs(reasoning: string | undefined): number {
+  return match(reasoning)
+    .with('high', 'xhigh', () => ms('40m'))
+    .with('medium', () => ms('20m'))
+    .otherwise(() => ms('10m'))
+}
+
 function resolveAiAgentRuntimePolicy(
-  config: AiAgentRuntimePolicyConfig
+  config: AiAgentRuntimePolicyConfig,
+  primaryReasoning?: string
 ): Pick<AiAgentRuntimeProfile, 'ambient' | 'compression' | 'dailyReset' | 'generation' | 'parallelism'> {
   return {
     compression: {
@@ -275,7 +310,10 @@ function resolveAiAgentRuntimePolicy(
       hardCapMs: config.ambient?.hardCapMs ?? 60000
     },
     generation: {
-      maxTurns: config.generation?.maxTurns ?? 100
+      maxTurns: config.generation?.maxTurns ?? 100,
+      stallTimeoutMs: config.generation?.stallTimeoutMs ?? defaultGenerationStallTimeoutMs(primaryReasoning),
+      streamGapTimeoutMs: config.generation?.streamGapTimeoutMs ?? ms('5m'),
+      maxTransientRetries: config.generation?.maxTransientRetries ?? 2
     },
     dailyReset: {
       enabled: config.dailyReset?.enabled ?? true,

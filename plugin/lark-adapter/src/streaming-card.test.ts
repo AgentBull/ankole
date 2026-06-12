@@ -136,6 +136,30 @@ describe('LarkStreamingCardSession', () => {
     expect(finish).toMatchObject({ delivered: true, finalTextConfirmed: true })
   })
 
+  it('adds an open_url reasoning trace button when traceUrl is present', async () => {
+    const calls: RecordedCall[] = []
+    await createLarkStreamingCardSession(fakeConnection(calls), {
+      chatId: 'oc_x',
+      traceUrl: 'https://bullx.example/traces/reasoning/token',
+      intervalMs: 0,
+      bufferThreshold: 1
+    })
+
+    const created = calls.find(c => c.kind === 'card.create')
+    const card = JSON.parse(created!.data.data)
+    const action = card.body.elements.find((element: any) => element.tag === 'action')
+    expect(action.actions[0]).toMatchObject({
+      tag: 'button',
+      text: { content: '查看推理' },
+      behaviors: [
+        {
+          type: 'open_url',
+          default_url: 'https://bullx.example/traces/reasoning/token'
+        }
+      ]
+    })
+  })
+
   it('degrades silently and never throws when CardKit calls fail', async () => {
     const failing = {
       rawClient: {

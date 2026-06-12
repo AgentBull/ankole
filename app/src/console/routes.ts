@@ -38,10 +38,12 @@ import {
   getConsoleAgent,
   getConsoleInteractiveConfigSession,
   getConsoleSettings,
+  getConsoleWebTools,
   listConsoleAgentLibraryEntries,
   listConsoleAgentLiveStreams,
   listConsoleAgentSkills,
   readConsoleAgentLiveOutput,
+  readConsoleAgentReasoningTrace,
   listConsoleAgents,
   listConsoleExternalGatewayAdapters,
   listConsoleExternalRooms,
@@ -59,7 +61,8 @@ import {
   updateConsoleChatRecall,
   updateConsoleChatChannel,
   updateConsoleHumanUser,
-  updateConsoleSettings
+  updateConsoleSettings,
+  updateConsoleWebTools
 } from './service'
 
 // Loose JSON object body fragment. Deep domain validation stays in the service
@@ -87,6 +90,12 @@ const llmProfileBody = z.object({ models: z.unknown() }).optional()
 const liveOutputQuery = z.object({
   conversationId: z.string().min(1),
   streamId: z.string().min(1),
+  after: z.string().optional()
+})
+
+const reasoningTraceOutputQuery = z.object({
+  conversationId: z.string().min(1),
+  traceId: z.string().min(1),
   after: z.string().optional()
 })
 
@@ -167,6 +176,16 @@ const updateConsoleSettingsBody = z.object({
   timezone: z.string().min(1).optional(),
   publicBaseUrl: z.string().min(1).optional()
 })
+
+const updateConsoleWebToolsBody = z
+  .object({
+    searchProvider: z.string().min(1).nullable().optional(),
+    extractProvider: z.string().min(1).nullable().optional(),
+    exaApiKey: z.string().min(1).nullable().optional(),
+    parallelApiKey: z.string().min(1).nullable().optional(),
+    jinaApiKey: z.string().min(1).nullable().optional()
+  })
+  .strict()
 
 const chatRecallConfigBody = z
   .object({
@@ -253,6 +272,18 @@ export function consoleRoutes() {
         return { settings: await updateConsoleSettings(body) }
       },
       { body: updateConsoleSettingsBody }
+    )
+    .get('/api/console/web-tools', async ({ request }) => {
+      await requireConsoleAdmin(request)
+      return { webTools: await getConsoleWebTools() }
+    })
+    .put(
+      '/api/console/web-tools',
+      async ({ body, request }) => {
+        await requireConsoleAdmin(request)
+        return { webTools: await updateConsoleWebTools(body) }
+      },
+      { body: updateConsoleWebToolsBody }
     )
     .get('/api/console/chat-recall', async ({ request }) => {
       await requireConsoleAdmin(request)
@@ -424,6 +455,19 @@ export function consoleRoutes() {
         })
       },
       { query: liveOutputQuery }
+    )
+    .get(
+      '/api/console/agents/:uid/reasoning-trace-output',
+      async ({ params, query, request }) => {
+        await requireConsoleAdmin(request)
+        return await readConsoleAgentReasoningTrace({
+          agentUid: params.uid,
+          conversationId: query.conversationId,
+          traceId: query.traceId,
+          after: typeof query.after === 'string' && query.after.length > 0 ? query.after : undefined
+        })
+      },
+      { query: reasoningTraceOutputQuery }
     )
     .get('/api/console/agents/:uid/skills', async ({ params, request }) => {
       await requireConsoleAdmin(request)

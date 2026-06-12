@@ -549,6 +549,23 @@ export function accountsBaseUrl(domain: LarkIdentityProviderConfig['domain']): s
   return domain === 'lark' ? 'https://accounts.larksuite.com' : 'https://accounts.feishu.cn'
 }
 
+const LARK_REPLY_TARGET_GONE_CODES = new Set([
+  230011, // "The message was withdrawn."
+  231003 // "The message does not exist."
+])
+
+/**
+ * The reply target was recalled or never existed. A recalled trigger must not
+ * strand the agent's output, so callers fall back to a plain chat-level post
+ * (losing only the quote header) — mirrors hermes' reply-fallback behavior.
+ */
+export function isLarkReplyTargetGoneError(error: unknown): boolean {
+  const nested = asRecord(asRecord(asRecord(error)?.response)?.data)?.code
+  const direct = asRecord(error)?.code
+  const code = typeof nested === 'number' ? nested : typeof direct === 'number' ? direct : undefined
+  return code !== undefined && LARK_REPLY_TARGET_GONE_CODES.has(code)
+}
+
 export function assertLarkSuccess(response: { code?: number; msg?: string }, label: string): void {
   if (response.code !== undefined && response.code !== 0) {
     throw new LarkAdapterConfigError(`Lark ${label} failed: ${response.msg ?? response.code}`)

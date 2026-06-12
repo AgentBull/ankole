@@ -1,69 +1,59 @@
 import { describe, expect, it } from 'bun:test'
-import { AiAgentClarifyRegistry, type ClarifyResolution } from './clarify-registry'
+import { AiAgentClarifyRegistry, type ClarifyEntry } from './clarify-registry'
 
-function register(
-  registry: AiAgentClarifyRegistry,
-  conversationId: string,
-  onResolve: (r: ClarifyResolution) => void,
-  providerRoomId = `room-${conversationId}`
-) {
-  registry.register({
+function entry(conversationId: string, overrides: Partial<ClarifyEntry> = {}): ClarifyEntry {
+  return {
     conversationId,
-    toolCallId: 'tc',
-    leaseId: 'lease',
-    question: 'q',
-    choices: [],
-    awaitingText: true,
-    askedOutboundKey: 'k',
-    providerRoomId,
-    providerThreadId: providerRoomId,
-    cardCapable: false,
-    resolve: onResolve,
-    timeoutTimer: setTimeout(() => undefined, 1_000_000),
-    heartbeatTimer: setInterval(() => undefined, 1_000_000)
-  })
+    toolCallId: 'tc-1',
+    question: 'A or B?',
+    choices: ['A', 'B'],
+    askedOutboundKey: `ai-agent-clarify:${conversationId}:tc-1`,
+    providerRoomId: 'room-1',
+    providerThreadId: 'room-1:thread',
+    cardCapable: true,
+    ...overrides
+  }
 }
 
 describe('AiAgentClarifyRegistry', () => {
-  it('guards one pending clarify from reservation through room-scoped resolution', () => {
+  it('take returns the entry once; later takes find nothing', () => {
     const registry = new AiAgentClarifyRegistry()
-
-    expect(registry.tryReserve('c1')).toBe(true)
-    expect(registry.tryReserve('c1')).toBe(false)
-    registry.releaseReservation('c1')
-    expect(registry.tryReserve('c1')).toBe(true)
-    registry.releaseReservation('c1')
-
-    let resolved: ClarifyResolution | undefined
-    register(
-      registry,
-      'c1',
-      r => {
-        resolved = r
-      },
-      'room-a'
-    )
-
+    registry.set(entry('c1'))
     expect(registry.has('c1')).toBe(true)
-    expect(registry.pendingConversationForRoom('room-a')).toBe('c1')
-    expect(registry.pendingConversationForRoom('room-b')).toBeUndefined()
-    expect(() => register(registry, 'c1', () => undefined)).toThrow()
+    expect(registry.pendingConversationForRoom('room-1')).toBe('c1')
 
-    expect(registry.resolveByConversation('c1', { kind: 'answer', text: 'x', choiceIndex: 0 })).toBe(true)
-    expect(resolved).toEqual({ kind: 'answer', text: 'x', choiceIndex: 0 })
+    const taken = registry.take('c1')
+    expect(taken?.question).toBe('A or B?')
     expect(registry.has('c1')).toBe(false)
-    expect(registry.pendingConversationForRoom('room-a')).toBeUndefined()
-    // second resolve is a no-op
-    expect(registry.resolveByConversation('c1', { kind: 'timeout' })).toBe(false)
+    expect(registry.pendingConversationForRoom('room-1')).toBeUndefined()
+    expect(registry.take('c1')).toBeUndefined()
   })
 
-  it('abort resolves with the given reason', () => {
+  it('a newer ask replaces the previous unanswered one', () => {
     const registry = new AiAgentClarifyRegistry()
-    let resolved: ClarifyResolution | undefined
-    register(registry, 'c1', r => {
-      resolved = r
-    })
-    expect(registry.abort('c1', 'superseded')).toBe(true)
-    expect(resolved).toEqual({ kind: 'superseded' })
+    registry.set(entry('c1', { toolCallId: 'tc-1', question: 'old?' }))
+    registry.set(entry('c1', { toolCallId: 'tc-2', question: 'new?' }))
+    expect(registry.get('c1')?.question).toBe('new?')
+    expect(registry.pendingConversationForRoom('room-1')).toBe('c1')
+    registry.clear('c1')
+    expect(registry.pendingConversationForRoom('room-1')).toBeUndefined()
+  })
+
+  it('expires the gate after the ttl', async () => {
+    const registry = new AiAgentClarifyRegistry()
+    registry.set(entry('c1'), 30)
+    expect(registry.has('c1')).toBe(true)
+    await Bun.sleep(80)
+    expect(registry.has('c1')).toBe(false)
+    expect(registry.pendingConversationForRoom('room-1')).toBeUndefined()
+  })
+
+  it('clear is idempotent and scoped to the conversation owning the room gate', () => {
+    const registry = new AiAgentClarifyRegistry()
+    registry.set(entry('c1', { providerRoomId: 'room-1' }))
+    registry.set(entry('c2', { providerRoomId: 'room-2' }))
+    expect(registry.clear('c1')).toBe(true)
+    expect(registry.clear('c1')).toBe(false)
+    expect(registry.pendingConversationForRoom('room-2')).toBe('c2')
   })
 })

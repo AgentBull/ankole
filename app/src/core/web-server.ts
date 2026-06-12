@@ -5,6 +5,7 @@ import path from 'node:path'
 import { logger } from '@/common/logger'
 import { AppEnv } from '@/config/env'
 import { consoleRoutes } from '@/console/routes'
+import { reasoningTraceRoutes } from '@/ai-agent/reasoning-trace-routes'
 import { externalGatewayRoutes } from '@/external-gateway'
 import { sessionApiRoutes } from '@/principals/admin-auth/api-routes'
 import { computerRoutes } from '@/computer/routes'
@@ -81,6 +82,12 @@ export async function createWebServer(options: CreateWebServerOptions = {}) {
     .use(consoleRoutes())
     .use(computerRoutes())
     .use(externalGatewayRoutes())
+    .use(
+      reasoningTraceRoutes({
+        devSpaHtmlRenderer:
+          (options.serveStaticAssets ?? true) && AppEnv.IS_DEVELOPMENT ? renderDevSpaHtmlFromBunRoute : undefined
+      })
+    )
     .use(schedulerRoutes())
     .use(
       webAppRoutes({

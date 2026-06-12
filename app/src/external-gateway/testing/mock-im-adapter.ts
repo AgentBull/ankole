@@ -8,6 +8,7 @@ import {
   type ExternalGatewayMessageReconciliation,
   type ExternalGatewayOutboundOptions,
   type ExternalGatewayRawMessage,
+  type ExternalGatewayReasoningTraceViewAuthInput,
   type ExternalGatewayStreamingCardHandle,
   type ExternalGatewayWebhookOptions
 } from '../core'
@@ -78,12 +79,14 @@ export interface MockImAdapterOptions {
   userName?: string
   /** Opt in to the streaming-card path; otherwise the adapter omits beginStreamingCard. */
   enableStreaming?: boolean
+  authorizeReasoningTraceView?: (input: ExternalGatewayReasoningTraceViewAuthInput) => boolean | Promise<boolean>
 }
 
 export interface MockImStreamingCardRecord {
   cardId: string
   messageId: string
   threadId: string
+  traceUrl?: string
   updates: string[]
   statusUpdates: string[]
   finalText?: string
@@ -421,13 +424,13 @@ export class MockImPlatform {
     }
   }
 
-  createStreamingCard(threadId: string): ExternalGatewayStreamingCardHandle {
+  createStreamingCard(threadId: string, traceUrl?: string): ExternalGatewayStreamingCardHandle {
     const n = ++this.postSeq
     const adapterName = threadId.split(':')[0] ?? 'mock'
     const channelId = threadId.split(':').slice(0, 2).join(':')
     const cardId = `${adapterName}-card-${n}`
     const messageId = `${adapterName}-card-msg-${n}`
-    const record: MockImStreamingCardRecord = { cardId, messageId, threadId, updates: [], statusUpdates: [] }
+    const record: MockImStreamingCardRecord = { cardId, messageId, threadId, traceUrl, updates: [], statusUpdates: [] }
     this.streamingCards.push(record)
     const now = new Date()
     this.messages.set(messageKey(channelId, messageId), {
@@ -778,6 +781,7 @@ export class MockImAdapter implements ExternalGatewayAdapter<MockImRawMessage> {
   // Present only when enableStreaming is set, so the runtime's streaming guard
   // (capability + method) stays false for the default post path.
   beginStreamingCard?: (input: ExternalGatewayBeginStreamingCardInput) => Promise<ExternalGatewayStreamingCardHandle>
+  authorizeReasoningTraceView?: (input: ExternalGatewayReasoningTraceViewAuthInput) => boolean | Promise<boolean>
 
   constructor(
     private readonly platform: MockImPlatform,
@@ -788,8 +792,9 @@ export class MockImAdapter implements ExternalGatewayAdapter<MockImRawMessage> {
     this.userName = options.userName ?? 'Agent'
     this.groupMessageMode = options.groupMessageMode ?? 'observe_all'
     if (options.enableStreaming) {
-      this.beginStreamingCard = async input => this.platform.createStreamingCard(input.threadId)
+      this.beginStreamingCard = async input => this.platform.createStreamingCard(input.threadId, input.traceUrl)
     }
+    this.authorizeReasoningTraceView = options.authorizeReasoningTraceView
   }
 
   private readonly groupMessageMode: MockImGroupMessageMode

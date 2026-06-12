@@ -1,69 +1,51 @@
 /**
- * In-memory resolver registry for pending clarify waits, keyed by conversation
- * id (a conversation has at most one active run, hence one pending clarify).
+ * In-memory bookkeeping for the latest unanswered clarify question, keyed by
+ * conversation id.
  *
- * Mirrors the module-singleton style of `run-registry.ts` and the in-memory
- * `_entries` map of hermes' clarify_gateway: process restart drops pending
- * waits (recovery re-asks). This is the bridge between the clarify tool's parked
- * `execute` and the inbound message that answers it.
+ * A clarify ask ends its IM turn: the question goes out, the generation commits
+ * and releases its lease, and the user's reply arrives as a normal inbound
+ * message that starts the next turn. Nothing waits in-process, so this registry
+ * holds no resolvers, timers or lease state tied to a run — only what the
+ * inbound side needs to dress the answer: lock the question card with the
+ * chosen option, and upgrade the next non-@mention group reply to addressed
+ * (room gate). Entries expire after a TTL so the gate cannot capture unrelated
+ * chatter forever; an expired or restart-dropped entry only costs the niceties,
+ * the answer itself still works as a plain message.
  */
-
-export type ClarifyResolution =
-  | { kind: 'answer'; text: string; choiceIndex?: number }
-  | { kind: 'timeout' }
-  | { kind: 'aborted' }
-  | { kind: 'superseded' }
 
 export interface ClarifyEntry {
   conversationId: string
   toolCallId: string
-  leaseId: string
   question: string
   choices: string[]
-  /** When true, the next inbound message is taken as the answer (text-intercept). */
-  awaitingText: boolean
   askedOutboundKey: string
   providerRoomId: string
   providerThreadId: string
   cardCapable: boolean
-  resolve: (resolution: ClarifyResolution) => void
-  timeoutTimer: ReturnType<typeof setTimeout>
-  heartbeatTimer: ReturnType<typeof setInterval>
-  signal?: AbortSignal
-  onAbort?: () => void
+}
+
+interface StoredClarifyEntry extends ClarifyEntry {
+  expireTimer: ReturnType<typeof setTimeout> | null
 }
 
 export class AiAgentClarifyRegistry {
-  private readonly entries = new Map<string, ClarifyEntry>()
-  private readonly reserved = new Set<string>()
+  private readonly entries = new Map<string, StoredClarifyEntry>()
   // Reverse index by provider room so the external-gateway handler can route a
-  // group reply (even non-@mention) to the pending clarify. A room has at most
+  // group reply (even non-@mention) to the pending question. A room has at most
   // one active conversation, hence one pending clarify.
   private readonly roomGate = new Map<string, string>()
 
   /**
-   * Synchronously claim the conversation slot before the async send, so a second
-   * concurrent clarify in the same batch fails immediately without sending a
-   * duplicate question. Returns false if a clarify is pending or reserved.
+   * Register the pending question for a conversation, replacing any earlier
+   * unanswered one (the newest ask wins; a stale card simply stays unlocked and
+   * later clicks on it find no entry).
    */
-  tryReserve(conversationId: string): boolean {
-    if (this.entries.has(conversationId) || this.reserved.has(conversationId)) return false
-    this.reserved.add(conversationId)
-    return true
-  }
-
-  /** Release a reservation taken by `tryReserve` when the send fails before `register`. */
-  releaseReservation(conversationId: string): void {
-    this.reserved.delete(conversationId)
-  }
-
-  /** Register a pending clarify. Throws if one already exists for the conversation. */
-  register(entry: ClarifyEntry): void {
-    this.reserved.delete(entry.conversationId)
-    if (this.entries.has(entry.conversationId)) {
-      throw new Error(`clarify already pending for conversation ${entry.conversationId}`)
-    }
-    this.entries.set(entry.conversationId, entry)
+  set(entry: ClarifyEntry, ttlMs?: number): void {
+    this.clear(entry.conversationId)
+    const expireTimer =
+      ttlMs && ttlMs > 0 && Number.isFinite(ttlMs) ? setTimeout(() => this.clear(entry.conversationId), ttlMs) : null
+    expireTimer?.unref?.()
+    this.entries.set(entry.conversationId, { ...entry, expireTimer })
     if (entry.providerRoomId) this.roomGate.set(entry.providerRoomId, entry.conversationId)
   }
 
@@ -80,28 +62,25 @@ export class AiAgentClarifyRegistry {
     return this.roomGate.get(providerRoomId)
   }
 
-  /**
-   * Single exit funnel: clears timers, detaches the abort listener, removes the
-   * entry, and resolves the parked promise exactly once. Idempotent — returns
-   * false if there was nothing pending.
-   */
-  resolveByConversation(conversationId: string, resolution: ClarifyResolution): boolean {
+  /** Remove and return the pending question — the answer arrived. First caller wins. */
+  take(conversationId: string): ClarifyEntry | undefined {
+    const entry = this.entries.get(conversationId)
+    if (!entry) return undefined
+    this.clear(conversationId)
+    const { expireTimer: _expireTimer, ...publicEntry } = entry
+    return publicEntry
+  }
+
+  /** Drop the pending question (answered, expired, /new, /stop, or takeover). */
+  clear(conversationId: string): boolean {
     const entry = this.entries.get(conversationId)
     if (!entry) return false
-    clearTimeout(entry.timeoutTimer)
-    clearInterval(entry.heartbeatTimer)
-    if (entry.signal && entry.onAbort) entry.signal.removeEventListener('abort', entry.onAbort)
+    if (entry.expireTimer) clearTimeout(entry.expireTimer)
     this.entries.delete(conversationId)
     if (entry.providerRoomId && this.roomGate.get(entry.providerRoomId) === conversationId) {
       this.roomGate.delete(entry.providerRoomId)
     }
-    entry.resolve(resolution)
     return true
-  }
-
-  /** Cancel a pending clarify (e.g. /stop -> 'aborted', /new -> 'superseded'). */
-  abort(conversationId: string, reason: 'aborted' | 'superseded'): boolean {
-    return this.resolveByConversation(conversationId, { kind: reason })
   }
 }
 

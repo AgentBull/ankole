@@ -8,7 +8,7 @@ import type {
 } from '@agentbull/bullx-sdk/plugins'
 import { DomainError } from '@/common/errors'
 import { DB } from '@/common/database'
-import { appConfigService } from '@/config/app-configure'
+import { appConfigService, type AppConfigDefinition } from '@/config/app-configure'
 import { AppI18nDefaultLocaleConfig } from '@/config/i18n'
 import { DEFAULT_LOCALE, SUPPORTED_LOCALES, nativeLocaleLabel } from '@/config/i18n-locales'
 import { SystemTimezoneConfig, loadSystemTimezone } from '@/config/system'
@@ -18,6 +18,7 @@ import {
   AgentLibraryContainerEntries,
   Agents,
   AiAgentConversations,
+  AiAgentMessages,
   HumanUsers,
   LibrarySkills,
   PrincipalGroupMemberships,
@@ -26,6 +27,7 @@ import {
   type JsonValue
 } from '@/common/db-schema'
 import { externalGatewayVisibleOutputStream } from '@/external-gateway/core/visible-output-stream'
+import { aiAgentReasoningTraceStream } from '@/ai-agent/reasoning-trace'
 import { isJsonObject } from '@/common/json'
 import {
   getMission,
@@ -42,6 +44,16 @@ import {
   writeAiAgentModelsConfig,
   type AiAgentModelsConfig
 } from '@/ai-agent/config'
+import { buildAiAgentTools, registerBuiltinWebProviders } from '@/ai-agent/tools'
+import {
+  WebExaApiKey,
+  WebExtractProviderConfig,
+  WebJinaApiKey,
+  WebParallelApiKey,
+  WebSearchProviderConfig
+} from '@/ai-agent/web/config'
+import type { WebProviderKind } from '@/ai-agent/web/provider'
+import { webProviderRegistry } from '@/ai-agent/web/registry'
 import { aiAgentRuntime } from '@/ai-agent/runtime'
 import { getConsoleChatRecallConfig, updateConsoleChatRecallConfig } from '@/chat-recall/service'
 import { chatRecallRuntime } from '@/chat-recall/runtime'
@@ -76,6 +88,8 @@ import {
 } from '@/external-gateway/metadata'
 
 const channelNamePattern = /^[a-z][a-z0-9_]*$/
+const WEB_PROVIDER_KINDS = ['search', 'extract'] as const satisfies readonly WebProviderKind[]
+const BUILT_IN_WEB_PROVIDER_IDS = new Set(['exa', 'parallel', 'jina', 'webfetch'])
 
 const consoleResourceSummaries: ConsoleResourceSummary[] = [
   {
@@ -97,6 +111,13 @@ const consoleResourceSummaries: ConsoleResourceSummary[] = [
     title: 'LLM Providers',
     description: 'Manage provider credentials and runtime options consumed by agent model profiles.',
     operations: ['create', 'inspect', 'edit', 'check', 'delete'],
+    owner: 'operator'
+  },
+  {
+    id: 'web-tools',
+    title: 'Web Tool Adapters',
+    description: 'Configure provider credentials and routing for web_search and web_extract.',
+    operations: ['inspect providers', 'set preferred adapters', 'edit API keys', 'clear API keys'],
     owner: 'operator'
   },
   {
@@ -326,6 +347,44 @@ export interface UpdateConsoleSettingsInput {
   publicBaseUrl?: string
 }
 
+export interface ConsoleSecretProjection {
+  present: boolean
+  masked: string | null
+}
+
+export interface ConsoleWebToolProviderAvailability {
+  available: boolean
+  reason: string | null
+}
+
+export interface ConsoleWebToolProvider {
+  id: string
+  supports: WebProviderKind[]
+  builtIn: boolean
+  availability: Partial<Record<WebProviderKind, ConsoleWebToolProviderAvailability>>
+}
+
+export interface ConsoleWebToolApiKeys {
+  exa: ConsoleSecretProjection
+  parallel: ConsoleSecretProjection
+  jina: ConsoleSecretProjection
+}
+
+export interface ConsoleWebTools {
+  searchProvider: string | null
+  extractProvider: string | null
+  apiKeys: ConsoleWebToolApiKeys
+  providers: ConsoleWebToolProvider[]
+}
+
+export interface UpdateConsoleWebToolsInput {
+  searchProvider?: string | null
+  extractProvider?: string | null
+  exaApiKey?: string | null
+  parallelApiKey?: string | null
+  jinaApiKey?: string | null
+}
+
 export interface ConsoleChatRecall {
   config: NormalizedChatRecallConfig
   status: ChatRecallStatus
@@ -377,6 +436,40 @@ export async function updateConsoleSettings(input: UpdateConsoleSettingsInput): 
   for (const write of writes) await write()
 
   return getConsoleSettings()
+}
+
+export async function getConsoleWebTools(): Promise<ConsoleWebTools> {
+  registerBuiltinWebProviders()
+  const [searchProvider, extractProvider, exaApiKey, parallelApiKey, jinaApiKey, providers] = await Promise.all([
+    appConfigService.get(WebSearchProviderConfig),
+    appConfigService.get(WebExtractProviderConfig),
+    appConfigService.get(WebExaApiKey),
+    appConfigService.get(WebParallelApiKey),
+    appConfigService.get(WebJinaApiKey),
+    listConsoleWebToolProviders()
+  ])
+
+  return {
+    searchProvider: searchProvider ?? null,
+    extractProvider: extractProvider ?? null,
+    apiKeys: {
+      exa: projectSecret(exaApiKey),
+      parallel: projectSecret(parallelApiKey),
+      jina: projectSecret(jinaApiKey)
+    },
+    providers
+  }
+}
+
+export async function updateConsoleWebTools(input: UpdateConsoleWebToolsInput): Promise<ConsoleWebTools> {
+  await writeOptionalStringConfig(WebSearchProviderConfig, input.searchProvider, 'web_search provider')
+  await writeOptionalStringConfig(WebExtractProviderConfig, input.extractProvider, 'web_extract provider')
+  await writeOptionalStringConfig(WebExaApiKey, input.exaApiKey, 'Exa API key')
+  await writeOptionalStringConfig(WebParallelApiKey, input.parallelApiKey, 'Parallel API key')
+  await writeOptionalStringConfig(WebJinaApiKey, input.jinaApiKey, 'Jina API key')
+
+  await refreshAiAgentWebTools()
+  return getConsoleWebTools()
 }
 
 export async function getConsoleChatRecall(): Promise<ConsoleChatRecall> {
@@ -491,9 +584,14 @@ export async function createConsoleAgent(
 }
 
 export interface ConsoleAgentLiveStream {
+  completedAt?: string | null
   conversationId: string
-  streamId: string
+  reasoningTraceExpiresAt?: string | null
+  reasoningTraceId?: string
+  reasoningTraceUrl?: string
   startedAt: string | null
+  status: 'active' | 'completed'
+  streamId?: string
 }
 
 export interface ConsoleAgentLiveOutputEvent {
@@ -504,6 +602,25 @@ export interface ConsoleAgentLiveOutputEvent {
   at?: string
 }
 
+export interface ConsoleAgentReasoningTraceEvent {
+  cursor: string
+  type: string
+  sequence: number
+  at?: string
+  delta?: string
+  metadata?: JsonObject
+  status?: string
+  text?: string
+  toolCallId?: string
+  toolName?: string
+}
+
+interface ConsoleReasoningTraceRef {
+  expiresAt?: string
+  id?: string
+  url?: string
+}
+
 /** Conversations of this agent with an active (uncancelled) generation lease. */
 export async function listConsoleAgentLiveStreams(agentUid: string): Promise<ConsoleAgentLiveStream[]> {
   await requireActiveAgent(agentUid)
@@ -512,17 +629,63 @@ export async function listConsoleAgentLiveStreams(agentUid: string): Promise<Con
     .where(and(eq(AiAgentConversations.agentUid, agentUid), isNull(AiAgentConversations.endedAt)))
     .orderBy(desc(AiAgentConversations.updatedAt))
     .limit(50)
-  return rows.flatMap(row => {
+  const active = rows.flatMap(row => {
     const generation = row.generation
     if (typeof generation.lease_id !== 'string' || generation.cancelled_at) return []
+    const trace = reasoningTraceFromValue(generation.reasoning_trace)
     return [
       {
         conversationId: row.id,
+        reasoningTraceExpiresAt: trace.expiresAt ?? null,
+        reasoningTraceId: trace.id,
+        reasoningTraceUrl: trace.url,
         streamId: generation.lease_id,
-        startedAt: typeof generation.started_at === 'string' ? generation.started_at : null
+        startedAt: typeof generation.started_at === 'string' ? generation.started_at : null,
+        status: 'active' as const
       }
     ]
   })
+
+  const seen = new Set(
+    active.flatMap(stream => (stream.reasoningTraceId ? [`${stream.conversationId}:${stream.reasoningTraceId}`] : []))
+  )
+  const nowIso = new Date().toISOString()
+  const completedRows = await DB.select({
+    conversationId: AiAgentMessages.conversationId,
+    createdAt: AiAgentMessages.createdAt,
+    metadata: AiAgentMessages.metadata
+  })
+    .from(AiAgentMessages)
+    .where(
+      and(
+        eq(AiAgentMessages.agentUid, agentUid),
+        eq(AiAgentMessages.role, 'assistant'),
+        sql`coalesce(${AiAgentMessages.metadata}->'reasoning_trace'->>'expires_at', '') > ${nowIso}`
+      )
+    )
+    .orderBy(desc(AiAgentMessages.createdAt), desc(AiAgentMessages.id))
+    .limit(50)
+
+  const completed = completedRows.flatMap(row => {
+    const trace = reasoningTraceFromValue(row.metadata.reasoning_trace)
+    if (!trace.id) return []
+    const key = `${row.conversationId}:${trace.id}`
+    if (seen.has(key)) return []
+    seen.add(key)
+    return [
+      {
+        completedAt: row.createdAt.toISOString(),
+        conversationId: row.conversationId,
+        reasoningTraceExpiresAt: trace.expiresAt ?? null,
+        reasoningTraceId: trace.id,
+        reasoningTraceUrl: trace.url,
+        startedAt: null,
+        status: 'completed' as const
+      }
+    ]
+  })
+
+  return [...active, ...completed]
 }
 
 /**
@@ -548,6 +711,39 @@ export async function readConsoleAgentLiveOutput(input: {
     sequence: record.event.sequence,
     delta: record.event.delta,
     at: record.event.at?.toISOString()
+  }))
+  return { events, cursor: events.at(-1)?.cursor ?? input.after ?? null }
+}
+
+export async function readConsoleAgentReasoningTrace(input: {
+  agentUid: string
+  conversationId: string
+  traceId: string
+  after?: string
+}): Promise<{ events: ConsoleAgentReasoningTraceEvent[]; cursor: string | null }> {
+  const key = {
+    agentUid: input.agentUid,
+    conversationId: input.conversationId,
+    traceId: input.traceId
+  }
+  if (!(await aiAgentReasoningTraceStream.exists(key))) throw new DomainError(410, 'reasoning trace has expired')
+
+  const records = await aiAgentReasoningTraceStream.read({
+    ...key,
+    start: input.after ? `(${input.after}` : undefined,
+    count: 500
+  })
+  const events = records.map(record => ({
+    cursor: record.redisId,
+    type: record.event.type,
+    sequence: record.event.sequence,
+    at: record.event.at?.toISOString(),
+    delta: record.event.delta,
+    metadata: record.event.metadata,
+    status: record.event.status,
+    text: record.event.text,
+    toolCallId: record.event.toolCallId,
+    toolName: record.event.toolName
   }))
   return { events, cursor: events.at(-1)?.cursor ?? input.after ?? null }
 }
@@ -973,6 +1169,64 @@ async function loadChannelConfig(agentUid: string, channelName: string): Promise
   return isJsonObject(value) ? cloneJsonObject(value) : {}
 }
 
+async function listConsoleWebToolProviders(): Promise<ConsoleWebToolProvider[]> {
+  const providers = await Promise.all(
+    webProviderRegistry.list().map(async provider => {
+      const availability: Partial<Record<WebProviderKind, ConsoleWebToolProviderAvailability>> = {}
+      for (const kind of WEB_PROVIDER_KINDS) {
+        if (!provider.supports.includes(kind)) continue
+        const available = await provider.available(kind)
+        availability[kind] = {
+          available,
+          reason: available ? null : ((await provider.unavailableReason?.(kind)) ?? 'provider is unavailable')
+        }
+      }
+
+      return {
+        id: provider.id,
+        supports: [...provider.supports],
+        builtIn: BUILT_IN_WEB_PROVIDER_IDS.has(provider.id),
+        availability
+      }
+    })
+  )
+
+  return providers.sort((left, right) => {
+    if (left.builtIn !== right.builtIn) return left.builtIn ? -1 : 1
+    return left.id.localeCompare(right.id)
+  })
+}
+
+async function writeOptionalStringConfig(
+  definition: AppConfigDefinition<string>,
+  value: string | null | undefined,
+  label: string
+): Promise<void> {
+  if (value === undefined) return
+  if (value === null) {
+    await appConfigService.delete(definition)
+    return
+  }
+
+  const trimmed = value.trim()
+  const parsed = definition.schema.safeParse(trimmed)
+  if (!parsed.success) throw new DomainError(422, `${label} is invalid`)
+  await appConfigService.set(definition, parsed.data)
+}
+
+async function refreshAiAgentWebTools(): Promise<void> {
+  registerBuiltinWebProviders()
+  const tools = await buildAiAgentTools()
+  aiAgentRuntime.setTools(tools.staticTools, tools.activeNames)
+}
+
+function projectSecret(value: string | undefined): ConsoleSecretProjection {
+  return {
+    present: Boolean(value),
+    masked: value ? '********' : null
+  }
+}
+
 function readStoredChannelBindings(metadata: JsonObject): AgentExternalBinding[] {
   // Console manages disabled channels too, so it reads the full binding list and
   // reuses External Gateway's validation. Malformed metadata is a 422 here, not a
@@ -1080,6 +1334,15 @@ function normalizeChannelName(value: unknown): string {
   if (!channelNamePattern.test(name)) throw new DomainError(422, `channel name must match ${channelNamePattern}`)
 
   return name
+}
+
+function reasoningTraceFromValue(value: unknown): ConsoleReasoningTraceRef {
+  if (!isJsonObject(value)) return {}
+  return {
+    expiresAt: typeof value.expires_at === 'string' ? value.expires_at : undefined,
+    id: typeof value.trace_id === 'string' ? value.trace_id : undefined,
+    url: typeof value.trace_url === 'string' ? value.trace_url : undefined
+  }
 }
 
 function requiredText(value: unknown, label: string): string {

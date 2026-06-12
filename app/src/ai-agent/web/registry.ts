@@ -27,6 +27,10 @@ export class WebProviderRegistry {
     return this.providers.get(id)
   }
 
+  list(): WebProvider[] {
+    return [...this.providers.values()]
+  }
+
   private supportsKind(provider: WebProvider, kind: WebProviderKind): boolean {
     if (!provider.supports.includes(kind)) return false
     return kind === 'search' ? typeof provider.search === 'function' : typeof provider.extract === 'function'

@@ -15,6 +15,17 @@ export type AiAgentConversationGeneration = JsonObject & {
   cancelled_by_event_id?: string | null
   pending_followups?: JsonValue[]
   pending_steering?: JsonValue[]
+  /** Live streaming-card message of this attempt, recorded so a dead run's card can be cleaned up. */
+  streaming_card?: { provider_message_id?: string; provider_room_id?: string; provider_thread_id?: string } | null
+  /** Redis-backed reasoning trace ref for the current generation attempt. */
+  reasoning_trace?: {
+    binding_name?: string
+    expires_at?: string
+    provider_room_id?: string
+    provider_thread_id?: string
+    trace_id?: string
+    trace_url?: string
+  } | null
 }
 
 /**
@@ -39,6 +50,8 @@ export type AiAgentMessageMetadata = JsonObject & {
   transcript_effect?: JsonObject
   /** Generation binding for an assistant row: trigger_message_id, lease_id. */
   generation?: JsonObject
+  /** Redis-backed reasoning trace ref retained while the trace stream TTL is alive. */
+  reasoning_trace?: JsonObject
   /** Inbound actor snapshot (author). */
   actor?: JsonObject
   /** Originating LLM turn id. */

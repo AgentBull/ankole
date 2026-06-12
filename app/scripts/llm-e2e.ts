@@ -210,7 +210,6 @@ async function startRuntime() {
   const clarifyRegistry = new AiAgentClarifyRegistry()
   aiRuntime = new AiAgentRuntime({
     clarify: clarifyRegistry,
-    clarifyHeartbeatMs: 500,
     clarifyTimeoutMs: 120_000,
     loadProfile: async () => profile
   })

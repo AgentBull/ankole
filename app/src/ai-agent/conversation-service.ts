@@ -387,18 +387,24 @@ export class AiAgentConversationService {
   }
 
   /**
-   * Refresh the lease heartbeat while a run is parked (e.g. waiting on clarify).
-   * Bumps `heartbeat_at` and pushes `expires_at` to now+5min, clamped to
-   * `max_expires_at`. No-op (returns false) if the lease changed or was cancelled.
+   * Process-liveness heartbeat, driven by a wall-clock interval while a run is
+   * in flight. Unlike {@link touchGenerationHeartbeat} it also pushes the
+   * `max_expires_at` ceiling forward, because liveness makes no statement about
+   * progress — a healthy long-thinking model may stream nothing for half an
+   * hour. Lease expiry therefore means exactly one thing: the owning process
+   * stopped beating (crashed, or lost the conversation). Runaway-run protection
+   * lives in the stall watchdog and `maxTurns`, not here.
    */
-  async touchGenerationHeartbeat(conversationId: string, leaseId: string): Promise<boolean> {
+  async touchGenerationLiveness(conversationId: string, leaseId: string): Promise<boolean> {
     const [row] = await DB.update(AiAgentConversations)
       .set({
-        generation: sql`jsonb_set(
-          jsonb_set(${AiAgentConversations.generation}, '{heartbeat_at}', to_jsonb(now()::text), true),
-          '{expires_at}',
-          to_jsonb(LEAST(now() + interval '5 minutes', (${AiAgentConversations.generation}->>'max_expires_at')::timestamptz)::text),
-          true
+        generation: sql`${AiAgentConversations.generation} || jsonb_build_object(
+          'heartbeat_at', now()::text,
+          'expires_at', (now() + interval '5 minutes')::text,
+          'max_expires_at', GREATEST(
+            coalesce((${AiAgentConversations.generation}->>'max_expires_at')::timestamptz, now()),
+            now() + interval '5 minutes'
+          )::text
         )`,
         updatedAt: sql`now()`
       })
@@ -415,48 +421,115 @@ export class AiAgentConversationService {
   }
 
   /**
-   * Push the lease ceiling (`max_expires_at`) forward by `extraMs` so a clarify
-   * wait window is not truncated by the 30-min run ceiling. Never lowers it.
+   * Record the live streaming-card message of the current attempt on its lease.
+   * The handle only lives in process memory; if the process dies mid-run, this
+   * ref is what lets crash recovery and lease takeover delete the orphaned
+   * "thinking" card instead of leaving it spinning in the chat forever.
    */
-  async extendGenerationCeiling(conversationId: string, leaseId: string, extraMs: number): Promise<boolean> {
-    const seconds = Math.ceil(extraMs / 1000)
+  async recordGenerationStreamingCard(
+    conversationId: string,
+    leaseId: string,
+    card: { provider_message_id: string; provider_room_id?: string; provider_thread_id?: string }
+  ): Promise<boolean> {
     const [row] = await DB.update(AiAgentConversations)
       .set({
-        generation: sql`jsonb_set(
-          ${AiAgentConversations.generation},
-          '{max_expires_at}',
-          to_jsonb(GREATEST(
-            coalesce((${AiAgentConversations.generation}->>'max_expires_at')::timestamptz, now()),
-            now() + ${seconds} * interval '1 second'
-          )::text),
-          true
-        )`,
+        generation: sql`${AiAgentConversations.generation} || ${jsonbParam({ streaming_card: card })}`,
         updatedAt: sql`now()`
       })
       .where(
         and(
           eq(AiAgentConversations.id, conversationId),
           isNull(AiAgentConversations.endedAt),
-          sql`${AiAgentConversations.generation}->>'lease_id' = ${leaseId}`,
-          sql`coalesce(${AiAgentConversations.generation}->>'cancelled_at', '') = ''`
+          sql`${AiAgentConversations.generation}->>'lease_id' = ${leaseId}`
         )
       )
       .returning()
     return Boolean(row)
   }
 
-  async cancelGeneration(conversationId: string, reason: string, eventId?: string | null): Promise<void> {
-    const [conversation] = await DB.select()
-      .from(AiAgentConversations)
-      .where(eq(AiAgentConversations.id, conversationId))
-      .limit(1)
-    if (!conversation) return
-    await DB.update(AiAgentConversations)
+  async recordGenerationReasoningTrace(
+    conversationId: string,
+    leaseId: string,
+    trace: NonNullable<AiAgentConversationGeneration['reasoning_trace']>
+  ): Promise<boolean> {
+    const [row] = await DB.update(AiAgentConversations)
       .set({
-        generation: jsonbParam(cancelGeneration(conversation.generation, reason, eventId)),
+        generation: sql`${AiAgentConversations.generation} || ${jsonbParam({ reasoning_trace: trace })}`,
         updatedAt: sql`now()`
       })
-      .where(eq(AiAgentConversations.id, conversationId))
+      .where(
+        and(
+          eq(AiAgentConversations.id, conversationId),
+          isNull(AiAgentConversations.endedAt),
+          sql`${AiAgentConversations.generation}->>'lease_id' = ${leaseId}`
+        )
+      )
+      .returning()
+    return Boolean(row)
+  }
+
+  /**
+   * Cancel the active lease in place (single-statement jsonb merge, so concurrent
+   * pending-queue appends are preserved). `expectedLeaseId` scopes the cancel to
+   * one lease: a no-op if that lease was already replaced by a newer generation.
+   */
+  async cancelGeneration(
+    conversationId: string,
+    reason: string,
+    eventId?: string | null,
+    expectedLeaseId?: string
+  ): Promise<void> {
+    const conditions = [
+      eq(AiAgentConversations.id, conversationId),
+      sql`coalesce(${AiAgentConversations.generation}->>'lease_id', '') <> ''`
+    ]
+    if (expectedLeaseId) conditions.push(sql`${AiAgentConversations.generation}->>'lease_id' = ${expectedLeaseId}`)
+    await DB.update(AiAgentConversations)
+      .set({
+        generation: sql`${AiAgentConversations.generation} || ${jsonbParam({
+          cancelled_at: new Date().toISOString(),
+          cancellation_reason: reason,
+          cancelled_by_event_id: eventId ?? null
+        })}`,
+        updatedAt: sql`now()`
+      })
+      .where(and(...conditions))
+  }
+
+  /**
+   * Next free `call_index` for a lease. Crash recovery reruns a lease whose
+   * earlier calls already recorded turns; starting again at 0 would violate the
+   * per-lease unique index and silently kill the recovered run.
+   */
+  async nextLlmTurnCallIndex(conversationId: string, leaseId: string): Promise<number> {
+    const [row] = await DB.select({ max: sql<number | null>`max(${AiAgentLlmTurns.callIndex})` })
+      .from(AiAgentLlmTurns)
+      .where(and(eq(AiAgentLlmTurns.conversationId, conversationId), eq(AiAgentLlmTurns.leaseId, leaseId)))
+    return (row?.max ?? -1) + 1
+  }
+
+  /**
+   * Settle `started` turns abandoned by a dead or wedged run (process loss, or a
+   * lease takeover) so the audit trail does not show phantom in-flight calls.
+   * Turns the run already settled (succeeded/cancelled/failed) are untouched.
+   */
+  async failAbandonedLlmTurns(conversationId: string, leaseId: string, error: string): Promise<number> {
+    const rows = await DB.update(AiAgentLlmTurns)
+      .set({
+        status: 'failed',
+        completedAt: sql`now()`,
+        response: sql`${AiAgentLlmTurns.response} || ${jsonbParam({ error_message: error })}`,
+        updatedAt: sql`now()`
+      })
+      .where(
+        and(
+          eq(AiAgentLlmTurns.conversationId, conversationId),
+          eq(AiAgentLlmTurns.leaseId, leaseId),
+          eq(AiAgentLlmTurns.status, 'started')
+        )
+      )
+      .returning({ id: AiAgentLlmTurns.id })
+    return rows.length
   }
 
   async appendPendingFollowup(conversationId: string, followup: PendingFollowup): Promise<void> {
@@ -667,6 +740,24 @@ function cancelGeneration(
 /** True when the generation holds an active (uncancelled) lease. */
 export function isActiveGeneration(generation: { lease_id?: unknown; cancelled_at?: unknown }): boolean {
   return typeof generation.lease_id === 'string' && generation.lease_id.length > 0 && !generation.cancelled_at
+}
+
+/**
+ * True when an active lease has outlived `expires_at`, i.e. the run stopped
+ * heartbeating (wedged provider stream, wedged tool, or a crashed process whose
+ * recovery also died). Healthy runs keep `expires_at` ahead of now via
+ * `touchGenerationHeartbeat`. Accepts both ISO (lease creation) and PostgreSQL
+ * text (heartbeat refresh) timestamp formats; an unparseable or missing
+ * `expires_at` counts as not expired so a malformed lease is never force-taken.
+ */
+export function isExpiredGeneration(
+  generation: { lease_id?: unknown; cancelled_at?: unknown; expires_at?: unknown },
+  at: Date = new Date()
+): boolean {
+  if (!isActiveGeneration(generation)) return false
+  if (typeof generation.expires_at !== 'string') return false
+  const expiresAt = Date.parse(generation.expires_at)
+  return Number.isFinite(expiresAt) && expiresAt < at.getTime()
 }
 
 /**

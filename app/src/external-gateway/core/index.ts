@@ -13,6 +13,7 @@ export type {
   ExternalGatewayOutboundOptions,
   ExternalGatewayRawMessage,
   ExternalGatewayReactionEvent,
+  ExternalGatewayReasoningTraceViewAuthInput,
   ExternalGatewayRoomInput,
   ExternalGatewayStreamingCardHandle,
   ExternalGatewayWebhookOptions

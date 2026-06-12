@@ -120,8 +120,24 @@ function pluginLogEntry(args: readonly unknown[]): { data: Record<string, unknow
 
 function pluginLogData(args: readonly unknown[]): Record<string, unknown> {
   if (args.length === 0) return {}
+  if (args.length === 1 && args[0] instanceof Error) return { err: serializeLogError(args[0]) }
   if (args.length === 1 && isPlainObject(args[0])) return args[0]
-  return { args: [...args] }
+  return { args: args.map(arg => (arg instanceof Error ? serializeLogError(arg) : arg)) }
+}
+
+/**
+ * Error fields are non-enumerable, so a raw Error inside an args array
+ * serializes as `{"name": "..."}` with the message and stack silently dropped —
+ * exactly the failure mode that made the Lark card-update error storms
+ * undiagnosable in production. Flatten them explicitly.
+ */
+function serializeLogError(error: Error): Record<string, unknown> {
+  return {
+    name: error.name,
+    message: error.message,
+    stack: error.stack,
+    ...(error.cause instanceof Error ? { cause: { name: error.cause.name, message: error.cause.message } } : {})
+  }
 }
 
 async function handleInboundReceive(
@@ -134,33 +150,40 @@ async function handleInboundReceive(
   if (message.text) message = { ...message, text: normalizeInboundText(message.text) }
   const room = await roomForMessage(runtime.adapter, message)
   let delivery = deliveryForMessage(runtime.binding.groupMessageMode, room, message)
-  // pending-clarify gate: a group reply (even non-@mention) must reach the parked
-  // clarify's text-intercept in acceptAddressed, so upgrade it to addressed when this
-  // room is awaiting an answer. The registry is single-shot — the first answer wins
-  // and closes the gate; slash commands are still detected below and take precedence.
+  // pending-clarify gate: a group reply (even non-@mention) must reach the
+  // conversation as the answer that starts the next turn, so upgrade it to
+  // addressed while this room is awaiting one. The registry is single-shot —
+  // the first answer wins and closes the gate; slash commands are still
+  // detected below and take precedence.
   if (delivery !== 'addressed' && Boolean(message.text?.trim()) && runtime.roomHasPendingClarify?.(room.id) === true) {
     delivery = 'addressed'
   }
-  runtime.logger?.debug?.(
-    {
-      agentUid: runtime.agent.agent.uid,
-      bindingName: runtime.binding.name,
-      adapter: runtime.binding.adapter,
-      groupMessageMode: runtime.binding.groupMessageMode,
-      providerMessageId: message.id,
-      providerRoomId: room.id,
-      providerThreadId: message.threadId,
-      roomIsDM: room.isDM,
-      delivery,
-      isMention: message.isMention === true,
-      authorUserId: message.author.userId,
-      authorIsBot: message.author.isBot,
-      authorIsMe: message.author.isMe,
-      attachmentCount: message.attachments?.length ?? 0,
-      textPreview: message.text ? Array.from(message.text).slice(0, 120).join('') : ''
-    },
-    'External Gateway inbound message delivery decision'
-  )
+  // Per-agent routing attribution: with several agents sharing one room, this
+  // line answers "which agent claimed this message, as what, and why" without
+  // reading the database. Pure observation stays at debug (the bulk of group
+  // traffic); anything an agent will act on logs at info.
+  const decisionLog = {
+    agentUid: runtime.agent.agent.uid,
+    bindingName: runtime.binding.name,
+    adapter: runtime.binding.adapter,
+    groupMessageMode: runtime.binding.groupMessageMode,
+    providerMessageId: message.id,
+    providerRoomId: room.id,
+    providerThreadId: message.threadId,
+    roomIsDM: room.isDM,
+    delivery,
+    isMention: message.isMention === true,
+    authorUserId: message.author.userId,
+    authorIsBot: message.author.isBot,
+    authorIsMe: message.author.isMe,
+    attachmentCount: message.attachments?.length ?? 0,
+    textPreview: message.text ? Array.from(message.text).slice(0, 120).join('') : ''
+  }
+  if (delivery === 'observed' || delivery === 'ignored') {
+    runtime.logger?.debug?.(decisionLog, 'External Gateway inbound message delivery decision')
+  } else {
+    runtime.logger?.info?.(decisionLog, 'External Gateway inbound message delivery decision')
+  }
   if (delivery === 'ignored') return
   const tombstoned = await runtime.eventQueue.hasInputTombstone({
     agentUid: runtime.agent.agent.uid,

@@ -3,6 +3,7 @@ import type { ExternalGatewayAgentDelivery } from './agent-events'
 import type {
   ExternalGatewayAdapterCapabilities,
   ExternalGatewayBeginStreamingCardInput,
+  ExternalGatewayReasoningTraceViewAuthInput,
   ExternalGatewayStreamingCardHandle
 } from './core/events'
 import type { ExternalGatewayProjectionSink } from './core/projection'
@@ -20,6 +21,7 @@ export interface ExternalGatewayOutboundAdapter {
   readonly name: string
   readonly userName?: string
   readonly capabilities?: ExternalGatewayAdapterCapabilities
+  authorizeReasoningTraceView?(input: ExternalGatewayReasoningTraceViewAuthInput): boolean | Promise<boolean>
   beginStreamingCard?(input: ExternalGatewayBeginStreamingCardInput): Promise<ExternalGatewayStreamingCardHandle>
   isDM?(threadId: string): boolean
   getChannelVisibility?(threadId: string): string
@@ -60,10 +62,10 @@ export interface ExternalGatewayAgentExecutor {
   ): Promise<ExternalGatewayAgentAcceptance>
   recoverExternalGatewayBinding?(context: ExternalGatewayAgentExecutionContext): Promise<void>
   /**
-   * True when this provider room has a pending clarify. The inbound handler uses
-   * it to route a group reply (even non-@mention) to the parked clarify instead of
-   * dropping it as observed/ambient. The executor (clarify registry) is the single
-   * source of truth; the handler only reads.
+   * True when this provider room has a pending clarify question. The inbound
+   * handler uses it to route a group reply (even non-@mention) in as the answer
+   * instead of dropping it as observed/ambient. The executor (clarify registry)
+   * is the single source of truth; the handler only reads.
    */
   roomHasPendingClarify?(providerRoomId: string): boolean
   stop?(): Promise<void> | void

@@ -427,6 +427,16 @@ export interface BullXBeginStreamingCardInput {
   rootId?: string
   idempotencyKey?: string
   initialText?: string
+  traceUrl?: string
+}
+
+export interface BullXReasoningTraceViewAuthInput {
+  agentUid: string
+  bindingName: string
+  providerRoomId?: string
+  providerThreadId?: string
+  request: Request
+  traceId: string
 }
 
 /**
@@ -523,6 +533,7 @@ export interface BullXExternalGatewayAdapter<TRawMessage = unknown> {
    * the host falls back to a single post when absent.
    */
   beginStreamingCard?(input: BullXBeginStreamingCardInput): Promise<BullXStreamingCardHandle>
+  authorizeReasoningTraceView?(input: BullXReasoningTraceViewAuthInput): boolean | Promise<boolean>
   channelIdFromThreadId(threadId: string): string
   decodeThreadId(threadId: string): unknown
   deleteMessage?(threadId: string, messageId: string, options?: BullXExternalGatewayOutboundOptions): Promise<void>

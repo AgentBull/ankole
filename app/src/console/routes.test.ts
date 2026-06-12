@@ -18,6 +18,8 @@ const { appConfigService } = await import('@/config/app-configure')
 const { AppI18nDefaultLocaleConfig } = await import('@/config/i18n')
 const { SystemTimezoneConfig } = await import('@/config/system')
 const { AdminAuthPublicBaseUrlConfig } = await import('@/principals/admin-auth/config')
+const { WebExaApiKey, WebExtractProviderConfig, WebJinaApiKey, WebParallelApiKey, WebSearchProviderConfig } =
+  await import('@/ai-agent/web/config')
 
 const webServer = await createWebServer({ serveStaticAssets: false })
 const testPrefix = `test_console_routes_${Date.now()}_${Math.random().toString(36).slice(2)}`.toLowerCase()
@@ -340,6 +342,78 @@ describe('console settings routes', () => {
       body: { defaultLocale: 'fr-FR' }
     })
     expect(badLocale.status).toBe(422)
+  })
+})
+
+describe('console web tool routes', () => {
+  it('reads, updates, and clears web tool adapter configuration', async () => {
+    const originalSearchProvider = await appConfigService.get(WebSearchProviderConfig)
+    const originalExtractProvider = await appConfigService.get(WebExtractProviderConfig)
+    const originalExaApiKey = await appConfigService.get(WebExaApiKey)
+    const originalParallelApiKey = await appConfigService.get(WebParallelApiKey)
+    const originalJinaApiKey = await appConfigService.get(WebJinaApiKey)
+
+    try {
+      const initial = await authedFetch('/api/console/web-tools')
+      expect(initial.status).toBe(200)
+      await expect(initial.json()).resolves.toMatchObject({
+        webTools: {
+          providers: expect.arrayContaining([
+            expect.objectContaining({ id: 'exa', supports: expect.arrayContaining(['search', 'extract']) }),
+            expect.objectContaining({ id: 'webfetch', supports: expect.arrayContaining(['extract']) })
+          ])
+        }
+      })
+
+      const updated = await authedFetch('/api/console/web-tools', {
+        method: 'PUT',
+        body: {
+          searchProvider: 'parallel',
+          extractProvider: 'jina',
+          exaApiKey: 'exa-route-secret',
+          parallelApiKey: 'parallel-route-secret',
+          jinaApiKey: 'jina-route-secret'
+        }
+      })
+      expect(updated.status).toBe(200)
+      await expect(updated.json()).resolves.toMatchObject({
+        webTools: {
+          searchProvider: 'parallel',
+          extractProvider: 'jina',
+          apiKeys: {
+            exa: { present: true, masked: '********' },
+            parallel: { present: true, masked: '********' },
+            jina: { present: true, masked: '********' }
+          }
+        }
+      })
+
+      const cleared = await authedFetch('/api/console/web-tools', {
+        method: 'PUT',
+        body: {
+          searchProvider: null,
+          exaApiKey: null
+        }
+      })
+      expect(cleared.status).toBe(200)
+      await expect(cleared.json()).resolves.toMatchObject({
+        webTools: {
+          searchProvider: null,
+          extractProvider: 'jina',
+          apiKeys: {
+            exa: { present: false, masked: null },
+            parallel: { present: true, masked: '********' }
+          }
+        }
+      })
+    } finally {
+      await restoreConfig(WebSearchProviderConfig, originalSearchProvider)
+      await restoreConfig(WebExtractProviderConfig, originalExtractProvider)
+      await restoreConfig(WebExaApiKey, originalExaApiKey)
+      await restoreConfig(WebParallelApiKey, originalParallelApiKey)
+      await restoreConfig(WebJinaApiKey, originalJinaApiKey)
+      await authedFetch('/api/console/web-tools', { method: 'PUT', body: {} })
+    }
   })
 })
 

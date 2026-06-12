@@ -7,7 +7,7 @@ import '@/globals.css'
 /**
  * Mounts one of the server-selected SPA entries.
  *
- * The three SPAs are separate browser entrypoints for server-side cookie-session
+ * The browser SPAs are separate entrypoints for server-side cookie-session
  * gates, but they should share the same client bootstrap contract: i18n,
  * React Query defaults, and the root DOM lookup.
  */

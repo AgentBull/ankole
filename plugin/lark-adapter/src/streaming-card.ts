@@ -3,7 +3,7 @@ import type {
   BullXStreamingCardHandle,
   BullXStreamingCardStatus
 } from '@agentbull/bullx-sdk/plugins'
-import { asRecord, assertLarkSuccess, optionalString } from './lark-helpers'
+import { asRecord, assertLarkSuccess, isLarkReplyTargetGoneError, optionalString } from './lark-helpers'
 import type { SharedLarkConnection } from './connection'
 
 const STREAMING_STATUS_ELEMENT_ID = 'status'
@@ -17,6 +17,7 @@ export interface LarkStreamingCardOptions {
   rootId?: string
   idempotencyKey?: string
   initialText?: string
+  traceUrl?: string
   intervalMs: number
   bufferThreshold: number
   cardIdRetryDelaysMs?: number[]
@@ -73,7 +74,9 @@ class LarkStreamingCardSession implements BullXStreamingCardHandle {
       const created = await this.connection.rawClient.cardkit.v1.card.create({
         data: {
           type: 'card_json',
-          data: JSON.stringify(streamingCardDefinition(this.options.initialText ?? STREAM_THINKING))
+          data: JSON.stringify(
+            streamingCardDefinition(this.options.initialText ?? STREAM_THINKING, this.options.traceUrl)
+          )
         }
       })
       assertLarkSuccess(created, 'cardkit card create')
@@ -84,22 +87,32 @@ class LarkStreamingCardSession implements BullXStreamingCardHandle {
       }
       const content = JSON.stringify({ type: 'card', data: { card_id: this.cardId } })
       const rootId = optionalString(this.options.rootId)
-      const sent = await this.sendCardMessageWithCardIdRetry(() =>
-        rootId
-          ? this.connection.rawClient.im.v1.message.reply({
+      // If the trigger message was recalled, replying fails permanently
+      // (230011/231003); downgrade to a chat-level card post once.
+      let replyTargetGone = false
+      const sent = await this.sendCardMessageWithCardIdRetry(async () => {
+        if (rootId && !replyTargetGone) {
+          try {
+            return await this.connection.rawClient.im.v1.message.reply({
               path: { message_id: rootId },
               data: { msg_type: 'interactive', content, reply_in_thread: false, uuid: this.options.idempotencyKey }
             })
-          : this.connection.rawClient.im.v1.message.create({
-              params: { receive_id_type: 'chat_id' },
-              data: {
-                receive_id: this.options.chatId,
-                msg_type: 'interactive',
-                content,
-                uuid: this.options.idempotencyKey
-              }
-            })
-      )
+          } catch (error) {
+            if (!isLarkReplyTargetGoneError(error)) throw error
+            replyTargetGone = true
+            this.options.logger?.warn?.('lark streaming card reply target is gone; posting card to the chat', error)
+          }
+        }
+        return await this.connection.rawClient.im.v1.message.create({
+          params: { receive_id_type: 'chat_id' },
+          data: {
+            receive_id: this.options.chatId,
+            msg_type: 'interactive',
+            content,
+            uuid: this.options.idempotencyKey
+          }
+        })
+      })
       this.messageId = optionalString(asRecord(asRecord(sent)?.data)?.message_id) ?? ''
       if (!this.messageId) this.degraded = true
     } catch (error) {
@@ -351,7 +364,40 @@ function statusElement(statusText: string): Record<string, unknown> {
   }
 }
 
-function streamingCardDefinition(initialText: string): Record<string, unknown> {
+function streamingCardDefinition(initialText: string, traceUrl?: string): Record<string, unknown> {
+  const elements: Record<string, unknown>[] = [
+    statusElement(initialText),
+    {
+      tag: 'markdown',
+      content: '',
+      text_align: 'left',
+      text_size: 'normal_v2',
+      margin: '0px 0px 0px 0px',
+      element_id: STREAMING_ELEMENT_ID
+    }
+  ]
+  if (traceUrl) {
+    elements.push({
+      tag: 'action',
+      actions: [
+        {
+          tag: 'button',
+          text: { tag: 'plain_text', content: '查看推理' },
+          type: 'default',
+          behaviors: [
+            {
+              type: 'open_url',
+              default_url: traceUrl,
+              pc_url: traceUrl,
+              ios_url: traceUrl,
+              android_url: traceUrl
+            }
+          ]
+        }
+      ]
+    })
+  }
+
   return {
     schema: '2.0',
     config: {
@@ -371,17 +417,7 @@ function streamingCardDefinition(initialText: string): Record<string, unknown> {
       horizontal_align: 'left',
       vertical_align: 'top',
       padding: '12px 12px 12px 12px',
-      elements: [
-        statusElement(initialText),
-        {
-          tag: 'markdown',
-          content: '',
-          text_align: 'left',
-          text_size: 'normal_v2',
-          margin: '0px 0px 0px 0px',
-          element_id: STREAMING_ELEMENT_ID
-        }
-      ]
+      elements
     }
   }
 }

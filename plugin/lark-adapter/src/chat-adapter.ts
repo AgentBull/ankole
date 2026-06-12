@@ -9,6 +9,7 @@ import type {
   BullXExternalGatewayOutboundOptions,
   BullXExternalGatewayRawMessage,
   BullXExternalGatewayRoomInput,
+  BullXReasoningTraceViewAuthInput,
   BullXStreamingCardHandle
 } from '@agentbull/bullx-sdk/plugins'
 import { LarkAdapterConfigError, type LarkChannelConfig } from './config'
@@ -38,6 +39,7 @@ import {
   larkDividerPayloadFromMessage,
   normalizeLarkDividerText,
   larkResourceAttachmentType,
+  isLarkReplyTargetGoneError,
   larkTextContent,
   larkUuidFromOptions,
   type LarkThreadId,
@@ -108,6 +110,10 @@ export class BullXLarkChatAdapter {
 
   async handleWebhook(): Promise<Response> {
     return new Response('Lark chat adapter is configured for WebSocket transport', { status: 405 })
+  }
+
+  authorizeReasoningTraceView(input: BullXReasoningTraceViewAuthInput): boolean {
+    return /(lark|feishu)/i.test(input.request.headers.get('user-agent') ?? '')
   }
 
   encodeThreadId(input: LarkThreadId): string {
@@ -224,32 +230,24 @@ export class BullXLarkChatAdapter {
 
     const targetMessageId = options?.targetMessageId ?? (rootId || undefined)
     const uuid = larkUuidFromOptions(options)
-    if (targetMessageId) {
+    const content = larkTextContent(this.messageToMarkdown(message))
+    const createInChat = async (): Promise<BullXExternalGatewayRawMessage> => {
+      const response = await this.requireConnection().rawClient.im.v1.message.create({
+        params: { receive_id_type: 'chat_id' },
+        data: { receive_id: chatId, msg_type: 'text', content, uuid }
+      })
+      assertLarkSuccess(response, 'message create')
+      return { id: messageIdFromLarkResponse(response), threadId, raw: response }
+    }
+    if (!targetMessageId) return createInChat()
+    return this.replyOrPostToChat(async () => {
       const response = await this.requireConnection().rawClient.im.v1.message.reply({
         path: { message_id: targetMessageId },
-        data: {
-          msg_type: 'text',
-          content: larkTextContent(this.messageToMarkdown(message)),
-          uuid
-        }
+        data: { msg_type: 'text', content, uuid }
       })
       assertLarkSuccess(response, 'message reply')
-      const messageId = messageIdFromLarkResponse(response)
-      return { id: messageId, threadId, raw: response }
-    }
-
-    const response = await this.requireConnection().rawClient.im.v1.message.create({
-      params: { receive_id_type: 'chat_id' },
-      data: {
-        receive_id: chatId,
-        msg_type: 'text',
-        content: larkTextContent(this.messageToMarkdown(message)),
-        uuid
-      }
-    })
-    assertLarkSuccess(response, 'message create')
-    const messageId = messageIdFromLarkResponse(response)
-    return { id: messageId, threadId, raw: response }
+      return { id: messageIdFromLarkResponse(response), threadId, raw: response }
+    }, createInChat)
   }
 
   async postChannelMessage(
@@ -581,6 +579,7 @@ export class BullXLarkChatAdapter {
       rootId: input.rootId ?? (rootId || undefined),
       idempotencyKey: input.idempotencyKey,
       initialText: input.initialText,
+      traceUrl: input.traceUrl,
       intervalMs: this.config.streamUpdateIntervalMs,
       bufferThreshold: this.config.streamBufferThreshold,
       logger: { warn: (...args) => this._getLogger()?.warn?.(String(args[0] ?? ''), ...args.slice(1)) }
@@ -597,21 +596,23 @@ export class BullXLarkChatAdapter {
     const targetMessageId = options?.targetMessageId ?? (rootId || undefined)
     const uuid = larkUuidFromOptions(options)
     const content = JSON.stringify(card)
-    if (targetMessageId) {
+    const createInChat = async (): Promise<BullXExternalGatewayRawMessage> => {
+      const response = await this.requireConnection().rawClient.im.v1.message.create({
+        params: { receive_id_type: 'chat_id' },
+        data: { receive_id: chatId, msg_type: 'interactive', content, uuid }
+      })
+      assertLarkSuccess(response, 'card create')
+      return { id: messageIdFromLarkResponse(response), threadId, raw: response }
+    }
+    if (!targetMessageId) return createInChat()
+    return this.replyOrPostToChat(async () => {
       const response = await this.requireConnection().rawClient.im.v1.message.reply({
         path: { message_id: targetMessageId },
         data: { msg_type: 'interactive', content, uuid }
       })
       assertLarkSuccess(response, 'card reply')
       return { id: messageIdFromLarkResponse(response), threadId, raw: response }
-    }
-
-    const response = await this.requireConnection().rawClient.im.v1.message.create({
-      params: { receive_id_type: 'chat_id' },
-      data: { receive_id: chatId, msg_type: 'interactive', content, uuid }
-    })
-    assertLarkSuccess(response, 'card create')
-    return { id: messageIdFromLarkResponse(response), threadId, raw: response }
+    }, createInChat)
   }
 
   private async postFiles(
@@ -627,19 +628,36 @@ export class BullXLarkChatAdapter {
     const connection = this.requireConnection()
     let lastSent: BullXExternalGatewayRawMessage | undefined
 
+    // One decision for the whole batch: if the reply target is gone, the
+    // leading text and every file all post to the chat instead.
+    let replyTargetGone = false
+    const sendPart = async (msgType: string, content: string, partUuid: string | undefined, label: string) => {
+      if (targetMessageId && !replyTargetGone) {
+        try {
+          const response = await connection.rawClient.im.v1.message.reply({
+            path: { message_id: targetMessageId },
+            data: { msg_type: msgType, content, uuid: partUuid }
+          })
+          assertLarkSuccess(response, label)
+          return response
+        } catch (error) {
+          if (!isLarkReplyTargetGoneError(error)) throw error
+          replyTargetGone = true
+          this._getLogger()?.warn?.('lark reply target message is gone; posting to the chat instead', error)
+        }
+      }
+      const response = await connection.rawClient.im.v1.message.create({
+        params: { receive_id_type: 'chat_id' },
+        data: { receive_id: chatId, msg_type: msgType, content, uuid: partUuid }
+      })
+      assertLarkSuccess(response, label)
+      return response
+    }
+
     const leadingText = this.messageToMarkdown(message).trim()
     if (leadingText) {
       const textUuid = uuid ? `${uuid}-text` : undefined
-      const response = targetMessageId
-        ? await connection.rawClient.im.v1.message.reply({
-            path: { message_id: targetMessageId },
-            data: { msg_type: 'text', content: larkTextContent(leadingText), uuid: textUuid }
-          })
-        : await connection.rawClient.im.v1.message.create({
-            params: { receive_id_type: 'chat_id' },
-            data: { receive_id: chatId, msg_type: 'text', content: larkTextContent(leadingText), uuid: textUuid }
-          })
-      assertLarkSuccess(response, 'message text create before file')
+      const response = await sendPart('text', larkTextContent(leadingText), textUuid, 'message text create before file')
       lastSent = { id: messageIdFromLarkResponse(response), threadId, raw: response }
     }
 
@@ -658,21 +676,27 @@ export class BullXLarkChatAdapter {
 
       const content = JSON.stringify({ file_key: fileKey })
       const fileUuid = uuid ? `${uuid}-file-${index}` : undefined
-      const response = targetMessageId
-        ? await connection.rawClient.im.v1.message.reply({
-            path: { message_id: targetMessageId },
-            data: { msg_type: 'file', content, uuid: fileUuid }
-          })
-        : await connection.rawClient.im.v1.message.create({
-            params: { receive_id_type: 'chat_id' },
-            data: { receive_id: chatId, msg_type: 'file', content, uuid: fileUuid }
-          })
-      assertLarkSuccess(response, 'message file create')
+      const response = await sendPart('file', content, fileUuid, 'message file create')
       lastSent = { id: messageIdFromLarkResponse(response), threadId, raw: response }
     }
 
     if (!lastSent) throw new LarkAdapterConfigError('No outbound files were sent')
     return lastSent
+  }
+
+  /**
+   * Reply, falling back to a plain chat-level post when the reply target was
+   * withdrawn or never existed — a recalled trigger must not strand the
+   * agent's output (only the quote header is lost).
+   */
+  private async replyOrPostToChat<T>(reply: () => Promise<T>, postToChat: () => Promise<T>): Promise<T> {
+    try {
+      return await reply()
+    } catch (error) {
+      if (!isLarkReplyTargetGoneError(error)) throw error
+      this._getLogger()?.warn?.('lark reply target message is gone; posting to the chat instead', error)
+      return await postToChat()
+    }
   }
 
   private messageToMarkdown(message: unknown): string {

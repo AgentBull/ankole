@@ -120,9 +120,9 @@ export async function startBullXAgent(): Promise<StartedBullXAgent> {
       {
         env: AppEnv.NODE_ENV,
         database: {
-          poolMax: databaseRuntimeConfig.poolMax
+          poolMax: databaseRuntimeConfig.poolMax,
+          idleTimeoutSeconds: databaseRuntimeConfig.idleTimeoutSeconds
         },
-        idleTimeoutSeconds: 0,
         plugins,
         chatRecall: {
           enabled: chatRecall.enabled,

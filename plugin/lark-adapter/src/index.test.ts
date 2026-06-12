@@ -35,6 +35,24 @@ describe('BullX Lark chat adapter', () => {
     expect(adapter.capabilities?.outbound).toContain('outbound_reconciliation')
   })
 
+  it('authorizes reasoning trace view by Lark or Feishu user-agent only', () => {
+    const adapter = createAdapter()
+    const input = (userAgent?: string) => ({
+      agentUid: 'agent',
+      bindingName: 'lark',
+      request: new Request('https://bullx.example/traces/reasoning/token', {
+        headers: userAgent ? { 'user-agent': userAgent } : {}
+      }),
+      traceId: 'trace'
+    })
+
+    expect(adapter.authorizeReasoningTraceView?.(input('Lark/7.0'))).toBe(true)
+    expect(adapter.authorizeReasoningTraceView?.(input('Mozilla FeiShu Mobile'))).toBe(true)
+    expect(adapter.authorizeReasoningTraceView?.(input('fEiShU Desktop'))).toBe(true)
+    expect(adapter.authorizeReasoningTraceView?.(input('Mozilla/5.0'))).toBe(false)
+    expect(adapter.authorizeReasoningTraceView?.(input())).toBe(false)
+  })
+
   it('uses Lark user_id for inbound message authors and DM placeholders', async () => {
     const subjects: any[] = []
     const adapter = createAdapter(subjects)
@@ -226,6 +244,65 @@ describe('BullX Lark chat adapter', () => {
       { messageId: 'om_message', fileKey: 'img_key', type: 'image' },
       { messageId: 'om_message', fileKey: 'file_key', type: 'file' }
     ])
+  })
+
+  it('falls back to a chat-level post when the reply target was recalled', async () => {
+    const adapter = createAdapter() as any
+    const warns: any[] = []
+    const calls: Array<[string, any]> = []
+    adapter.chat = { getLogger: () => ({ warn: (...args: any[]) => warns.push(args) }) }
+    adapter.connection = {
+      rawClient: {
+        im: {
+          v1: {
+            message: {
+              reply: async (payload: any) => {
+                calls.push(['reply', payload])
+                const error: any = new Error('Request failed with status code 400')
+                error.response = { status: 400, data: { code: 230011, msg: 'The message was withdrawn.' } }
+                throw error
+              },
+              create: async (payload: any) => {
+                calls.push(['create', payload])
+                return { code: 0, data: { message_id: 'om_fallback' } }
+              }
+            }
+          }
+        }
+      }
+    }
+
+    const result = await adapter.postMessage('lark:oc_chat:om_recalled', 'still delivered', undefined)
+
+    expect(result.id).toBe('om_fallback')
+    expect(calls.map(([kind]) => kind)).toEqual(['reply', 'create'])
+    expect(calls[1]![1].data.receive_id).toBe('oc_chat')
+    expect(warns.length).toBeGreaterThan(0)
+  })
+
+  it('does not swallow unrelated reply failures', async () => {
+    const adapter = createAdapter() as any
+    adapter.chat = { getLogger: () => ({ warn: () => {} }) }
+    adapter.connection = {
+      rawClient: {
+        im: {
+          v1: {
+            message: {
+              reply: async () => {
+                const error: any = new Error('Request failed with status code 429')
+                error.response = { status: 429, data: { code: 99991400, msg: 'rate limited' } }
+                throw error
+              },
+              create: async () => {
+                throw new Error('create must not be attempted')
+              }
+            }
+          }
+        }
+      }
+    }
+
+    await expect(adapter.postMessage('lark:oc_chat:om_target', 'hello', undefined)).rejects.toThrow('429')
   })
 
   it('backfills recent bot attachment messages when a later bot text mentions the agent', async () => {

@@ -21,8 +21,11 @@ const TerminalParams = z.object({
     .number()
     .int()
     .min(1)
+    .max(1800)
     .optional()
-    .describe('Max seconds to wait for a foreground command (default 60). High values return immediately if fast.')
+    .describe(
+      'Max seconds to wait for a foreground command (default 60, max 1800). High values return immediately if fast.'
+    )
 })
 
 interface TerminalDetails {

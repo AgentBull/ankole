@@ -10,7 +10,8 @@ import { seconds } from '@pleisto/active-support'
 let closingDatabase = false
 
 export const databaseRuntimeConfig = {
-  poolMax: AppEnv.BULLX_DATABASE_POOL_MAX
+  poolMax: AppEnv.BULLX_DATABASE_POOL_MAX,
+  idleTimeoutSeconds: seconds('10m')
 } as const
 
 // `bun --hot` re-evaluates this module on every reload; constructing a fresh
@@ -23,7 +24,11 @@ declare global {
 
 const sqlClient = (globalThis.__bullxSqlClient ??= new BunSQL(AppEnv.DATABASE_URL, {
   max: databaseRuntimeConfig.poolMax,
-  idleTimeout: seconds('1h'),
+  // Below the idle reap window of network load balancers commonly fronting
+  // PostgreSQL (e.g. Volces NLB kills idle TCP flows at ~900s): the client must
+  // retire idle connections first or it inherits half-open sockets that surface
+  // as ERR_POSTGRES_CONNECTION_CLOSED storms.
+  idleTimeout: seconds('10m'),
   connectionTimeout: seconds('20s'),
   maxLifetime: 0,
   onconnect: () => {

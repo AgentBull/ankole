@@ -55,6 +55,7 @@ import { PluginsPage } from './sections/plugins'
 import { SchedulesPage } from './sections/schedules'
 import { SettingsPage } from './sections/settings'
 import { SkillsPage } from './sections/skills'
+import { WebToolsPage } from './sections/web-tools'
 import { WorkersPage } from './sections/workers'
 import { mountSpa } from '../mount-spa'
 
@@ -65,6 +66,7 @@ type ConsoleSection =
   | 'channels'
   | 'chat-recall'
   | 'llm-providers'
+  | 'web-tools'
   | 'schedules'
   | 'workers'
   | 'skills'
@@ -152,6 +154,12 @@ const NAV_GROUPS: NavGroup[] = [
         slug: 'llm-providers',
         description: 'console.nav.llm_providers_description',
         icon: RiSparkling2Line
+      },
+      {
+        title: 'console.nav.web_tools',
+        slug: 'web-tools',
+        description: 'console.nav.web_tools_description',
+        icon: RiSearchLine
       },
       {
         title: 'console.nav.chat_recall',
@@ -319,6 +327,7 @@ function ConsoleSectionView({ section }: { section: ConsoleSection }) {
     .with('live', () => <LivePage />)
     .with('channels', () => <AgentOperationsPage />)
     .with('llm-providers', () => <LlmProvidersPage />)
+    .with('web-tools', () => <WebToolsPage />)
     .with('chat-recall', () => <ChatRecallPage />)
     .with('schedules', () => <SchedulesPage />)
     .with('workers', () => <WorkersPage />)

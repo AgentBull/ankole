@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api, unwrap } from '@/lib/api'
 import type { ConsoleAgentLiveStream } from '@/console/service'
@@ -9,6 +9,11 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@/uikit/compon
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/uikit/components/select'
 import { Spinner } from '@/uikit/components/spinner'
 import { ErrorAlert, SectionHeader } from '../shared'
+import {
+  ReasoningTracePanel,
+  useReasoningTraceOutput,
+  type ReasoningTraceFetcher
+} from '@/apps/reasoning-trace/trace-view'
 
 type LiveStatus = 'streaming' | 'finished' | 'failed'
 
@@ -22,7 +27,8 @@ function useLiveOutput(agentUid: string | undefined, stream: ConsoleAgentLiveStr
   const cursorRef = useRef<string | undefined>(undefined)
 
   useEffect(() => {
-    if (!agentUid || !stream) return
+    if (!agentUid || !stream?.streamId) return
+    const streamId = stream.streamId
     setText('')
     setStatus('streaming')
     cursorRef.current = undefined
@@ -34,7 +40,7 @@ function useLiveOutput(agentUid: string | undefined, stream: ConsoleAgentLiveStr
           api.console.agents({ uid: agentUid })['live-output'].get({
             query: {
               conversationId: stream.conversationId,
-              streamId: stream.streamId,
+              streamId,
               after: cursorRef.current
             }
           })
@@ -70,23 +76,42 @@ function useLiveOutput(agentUid: string | undefined, stream: ConsoleAgentLiveStr
 function LiveStreamView({ agentUid, stream }: { agentUid: string; stream: ConsoleAgentLiveStream }) {
   const { t } = useTranslation()
   const { text, status } = useLiveOutput(agentUid, stream)
+  const traceFetcher = useMemo<ReasoningTraceFetcher | undefined>(() => {
+    if (!stream.reasoningTraceId) return undefined
+    return after =>
+      unwrap(
+        api.console.agents({ uid: agentUid })['reasoning-trace-output'].get({
+          query: {
+            conversationId: stream.conversationId,
+            traceId: stream.reasoningTraceId!,
+            after
+          }
+        })
+      )
+  }, [agentUid, stream.conversationId, stream.reasoningTraceId])
+  const trace = useReasoningTraceOutput(traceFetcher, `${stream.conversationId}:${stream.reasoningTraceId ?? ''}`)
 
   return (
     <Card size="sm">
       <CardHeader className="flex flex-row items-center justify-between">
         <CardTitle className="text-base font-mono">{stream.conversationId.slice(0, 8)}</CardTitle>
-        {status === 'streaming' ? (
+        {stream.streamId && status === 'streaming' ? (
           <Badge variant="secondary">
             <Spinner className="size-3" /> {t('console.live.streaming')}
           </Badge>
         ) : (
-          <Badge variant={status === 'finished' ? 'outline' : 'destructive'}>{t(`console.live.${status}`)}</Badge>
+          <Badge variant={status === 'finished' || stream.status === 'completed' ? 'outline' : 'destructive'}>
+            {stream.status === 'completed' ? t('console.live.finished') : t(`console.live.${status}`)}
+          </Badge>
         )}
       </CardHeader>
-      <CardContent>
-        <pre className="max-h-96 overflow-y-auto whitespace-pre-wrap break-words text-sm">
-          {text || t('console.live.waiting')}
-        </pre>
+      <CardContent className="flex flex-col gap-4">
+        {stream.streamId ? (
+          <pre className="max-h-96 overflow-y-auto whitespace-pre-wrap break-words text-sm">
+            {text || t('console.live.waiting')}
+          </pre>
+        ) : null}
+        {stream.reasoningTraceId ? <ReasoningTracePanel snapshot={trace} /> : null}
       </CardContent>
     </Card>
   )
@@ -127,7 +152,11 @@ export function LivePage() {
         </Select>
       </div>
       {(streams.data?.streams ?? []).map(stream => (
-        <LiveStreamView key={`${stream.conversationId}:${stream.streamId}`} agentUid={agentUid} stream={stream} />
+        <LiveStreamView
+          key={`${stream.conversationId}:${stream.streamId ?? stream.reasoningTraceId ?? 'trace'}`}
+          agentUid={agentUid}
+          stream={stream}
+        />
       ))}
       {agentUid && streams.data && streams.data.streams.length === 0 ? (
         <Empty>

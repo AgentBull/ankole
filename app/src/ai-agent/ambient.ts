@@ -373,6 +373,10 @@ export class AiAgentAmbientBatcher {
       })
       if (parsed.intervene) {
         const reason = parsed.reason_summary || 'Recent group chat suggests the agent should respond.'
+        // Visible attribution for "why did this agent jump into the group" —
+        // with several may_intervene agents in one room this is the conflict
+        // triage line.
+        logger.info({ agentUid, conversationId, reason }, 'AI agent ambient recognizer decided to intervene')
         const chatSegment = renderChatSegment(rows.slice().reverse())
         const messageContext = buildMessageContextMetadata(
           {
