@@ -59,7 +59,7 @@ function fakeConnection(calls: RecordedCall[]): SharedLarkConnection {
 }
 
 describe('LarkStreamingCardSession', () => {
-  it('creates a CardKit card, sends an interactive message, replaces-element then patches-content with rising sequence, and closes streaming', async () => {
+  it('creates a CardKit card, sends an interactive message, then streams cumulative content with rising sequence, and closes streaming', async () => {
     const calls: RecordedCall[] = []
     const session = await createLarkStreamingCardSession(fakeConnection(calls), {
       chatId: 'oc_x',
@@ -86,10 +86,10 @@ describe('LarkStreamingCardSession', () => {
     expect(replace?.path).toEqual({ card_id: 'card-1', element_id: 'content' })
     expect(JSON.parse(replace!.data.element)).toMatchObject({ tag: 'markdown', element_id: 'content', content: 'hi' })
 
-    // subsequent writes patch element content only
+    // subsequent writes stream cumulative content updates
     const patch = calls.find(c => c.kind === 'cardElement.content')
     expect(patch?.path).toEqual({ card_id: 'card-1', element_id: 'content' })
-    expect(patch!.data.content).toBe(' there')
+    expect(patch!.data.content).toBe('hi there')
 
     // finish closes streaming mode
     const settings = calls.find(c => c.kind === 'card.settings')
@@ -162,7 +162,7 @@ describe('LarkStreamingCardSession', () => {
     expect(finish).toMatchObject({ delivered: false, finalTextConfirmed: false })
   })
 
-  it('keeps a preview session alive after a transient content failure and confirms the final suffix', async () => {
+  it('keeps a preview session alive after a transient content failure and confirms the final cumulative content', async () => {
     const calls: RecordedCall[] = []
     const connection = fakeConnection(calls)
     let contentAttempts = 0
@@ -184,8 +184,8 @@ describe('LarkStreamingCardSession', () => {
 
     expect(contentAttempts).toBe(2)
     const patches = calls.filter(c => c.kind === 'cardElement.content')
-    expect(patches[0]!.data.content).toBe(' there')
-    expect(patches[1]!.data.content).toBe(' there friend')
+    expect(patches[0]!.data.content).toBe('hi there')
+    expect(patches[1]!.data.content).toBe('hi there friend')
     expect(finish).toMatchObject({ delivered: true, finalTextConfirmed: true })
   })
 
