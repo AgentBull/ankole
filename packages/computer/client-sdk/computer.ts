@@ -17,9 +17,9 @@ import type {
 } from './types'
 
 export interface ComputerConnectionConfig {
-  /** Control-plane base URL. Defaults to env `BULLX_COMPUTER_CONTROL_URL` / `BULLX_AGENT_URL`. */
+  /** Control-plane base URL. Defaults to env `BULLX_AGENT_URL`. */
   baseUrl?: string
-  /** Control-plane service token. Defaults to env `BULLX_COMPUTER_CONTROL_TOKEN` / `BULLX_COMPUTER_TOKEN`. */
+  /** Control-plane service token. Defaults to env  `BULLX_COMPUTER_TOKEN`. */
   token?: string
   fetch?: FetchLike
   debug?: boolean
@@ -54,17 +54,17 @@ async function resolveSession(
   params: ComputerConnectionConfig & { agentUid: string; signal?: AbortSignal }
 ): Promise<ResolveSessionResponse> {
   if (params.resolveWorker) return params.resolveWorker(params.agentUid, params.signal)
-  const baseUrl = params.baseUrl ?? Bun.env.BULLX_COMPUTER_CONTROL_URL ?? Bun.env.BULLX_AGENT_URL
+  const baseUrl = params.baseUrl ?? Bun.env.BULLX_AGENT_URL
   if (!baseUrl) {
     throw new ApiError({
       status: 500,
       code: 'missing_control_url',
-      message: 'no control-plane baseUrl (set BULLX_COMPUTER_CONTROL_URL / BULLX_AGENT_URL or pass baseUrl)',
+      message: 'no control-plane baseUrl (set BULLX_AGENT_URL or pass baseUrl)',
       method: 'POST',
       url: ''
     })
   }
-  const token = params.token ?? Bun.env.BULLX_COMPUTER_CONTROL_TOKEN ?? Bun.env.BULLX_COMPUTER_TOKEN
+  const token = params.token ?? Bun.env.BULLX_COMPUTER_TOKEN
   const control = new ControlClient({ baseUrl, token, fetch: params.fetch, debug: params.debug })
   return withRetry(() => control.resolveSession(params.agentUid, params.signal), { signal: params.signal })
 }

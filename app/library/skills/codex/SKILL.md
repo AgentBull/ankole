@@ -1,147 +1,123 @@
 ---
 name: codex
-description: "Delegate coding to OpenAI Codex CLI (features, PRs)."
+description: "Delegate bounded Codex sub-agent runs."
 default_enabled: true
 category: autonomous-ai-agents
-tags: [Coding-Agent, Codex, OpenAI, Code-Review, Refactoring]
-version: 1.0.0
+tags: [Sub-Agent, Codex, OpenAI, Automation, Knowledge-Work]
+version: 1.1.0
 author: Hermes Agent
 license: MIT
 platforms: [linux, macos, windows]
 metadata:
   hermes:
-    tags: [Coding-Agent, Codex, OpenAI, Code-Review, Refactoring]
+    tags: [Sub-Agent, Codex, OpenAI, Automation, Knowledge-Work, Coding-Agent, Code-Review, Refactoring]
     related_skills: [claude-code, hermes-agent]
 ---
 
-# Codex CLI
+# Codex Sub-Agent Runs
 
-Delegate coding tasks to [Codex](https://github.com/openai/codex) through BullX Computer. Codex is OpenAI's autonomous coding agent CLI.
+Use `codex_delegate` when you want another autonomous agent loop to take a bounded task and work through it inside the BullX workspace computer. Codex can plan, inspect files, write and run commands or scripts, validate outputs, and return a concise final message or artifact.
 
-## When to use
+This is useful when the main agent can define the goal and review the result, but should not personally drive every command step.
 
-- Building features
-- Refactoring
-- PR reviews
-- Batch issue fixing
+## When to call
 
-Requires the codex CLI and a git repository.
+Call `codex_delegate` when:
 
-## Prerequisites
+- the task needs several command/script/file iterations
+- the task may take a while and can run in the background
+- the task can be described with a clear goal, inputs, constraints, and output
+- multiple independent tasks can run in parallel
+- you want a second agent loop to investigate, build, analyze, or produce an artifact
 
-- Codex installed: `npm install -g @openai/codex`
-- OpenAI auth configured. In BullX, the preferred path is encrypted runtime
-  credentials materialized under `~/.codex` in BullX Computer:
-  `skill/codex/auth_json` -> `/workspace/temp/.codex/auth.json`, and optional
-  `skill/codex/config_toml` -> `/workspace/temp/.codex/config.toml`.
-- **Must run inside a git repository** — Codex refuses to run outside one
-- Prefer the native `codex_delegate` tool for delegated coding work. It handles
-  credential materialization, prompt files, logs, and final-message capture.
-- For direct TTY usage, use `interactive_terminal`, not `terminal`.
+Do not call it for simple reads, one-shot commands, targeted edits, or deterministic transformations. Use `read_file`, `command`, `terminal`, or `patch` directly for those.
 
-## One-Shot Tasks
+## How to prompt Codex
 
-Use the native tool:
+Give Codex a complete task prompt. It sees its prompt and the workspace, not your hidden conversation state.
 
-```json
-{"prompt":"Add dark mode toggle to settings","workdir":"/workspace/user-files/project"}
+Include:
+
+- the goal and definition of done
+- relevant files, paths, data sources, and `workdir`
+- allowed changes and output locations
+- validation commands or checks
+- what the final answer should contain
+- constraints that should not be guessed
+
+Keep the prompt narrow enough that Codex can finish without turning into an open-ended responsibility.
+
+## One-Shot Runs
+
+Use `wait=true` or omit `wait` when the main run needs the result before continuing:
+
+```text
+codex_delegate(
+  prompt="<complete bounded task prompt>",
+  workdir="/workspace/user-files/<workdir>"
+)
 ```
 
-For scratch work (Codex needs a git repo):
-```json
-{"prompt":"Build a snake game in Python","workdir":"/workspace/temp/scratch","skipGitRepoCheck":true}
+For non-repository workspace work, set `skipGitRepoCheck=true` when appropriate:
+
+```text
+codex_delegate(
+  prompt="<complete bounded task prompt>",
+  workdir="/workspace/user-files/<workdir>",
+  skipGitRepoCheck=true
+)
 ```
 
-## Background Mode (Long Tasks)
+## Background Runs
 
+Use `wait=false` for slow work or parallel work:
+
+```text
+codex_delegate(
+  prompt="<complete bounded task prompt>",
+  workdir="/workspace/user-files/<workdir>",
+  wait=false
+)
 ```
-codex_delegate(prompt="Refactor the auth module", workdir="/workspace/user-files/project", wait=false)
-# Returns session_id
 
-# Monitor progress
+The tool returns a `session_id`. Monitor it with:
+
+```text
 process(action="poll", session_id="<id>")
 process(action="log", session_id="<id>")
-
-# Kill if needed
 process(action="kill", session_id="<id>")
 ```
 
-## Key Flags
+Be patient with long-running sub-agents. Poll for progress and inspect logs, but do not keep restarting or interfering unless there is a clear failure.
 
-| Flag | Effect |
-|------|--------|
-| `exec "prompt"` | One-shot execution, exits when done |
-| `--dangerously-bypass-approvals-and-sandbox` | No sandbox, no approvals. BullX uses the Computer boundary as the safety layer |
-| `--sandbox danger-full-access` | No Codex sandbox; useful when the host service context breaks bubblewrap |
+## Parallel Runs
 
-## BullX Computer Caveat
+Parallel Codex runs are appropriate when the tasks are independent. Give each run a separate workdir or output path so they do not race on the same files.
 
-When invoking the Codex CLI from BullX Computer, Codex `workspace-write`
-sandboxing may fail even when the same command works in an interactive shell. A typical symptom is
-bubblewrap/user-namespace errors such as `setting up uid map: Permission denied`
-or `loopback: Failed RTM_NEWADDR: Operation not permitted`.
-
-In that context, prefer:
-
-```
-codex_delegate(..., bypassApprovals=true)
-```
-
-Use process boundaries as the safety layer instead: explicit `workdir`, clean git
-status before launch, narrow task prompts, `git diff` review, targeted tests, and
-human/agent confirmation before committing broad changes.
-
-## PR Reviews
-
-Clone to a temp directory for safe review:
-
-```
-interactive_terminal(action="start", session="codex-review-42", command="bash", workdir="/workspace")
-interactive_terminal(action="send", session="codex-review-42", input="REVIEW=$(mktemp -d) && git clone https://github.com/user/repo.git $REVIEW && cd $REVIEW && gh pr checkout 42 && codex exec review --base origin/main", enter=true)
-```
-
-## Parallel Issue Fixing with Worktrees
-
-```
-# Create worktrees
-command(command="git worktree add -b fix/issue-78 /workspace/temp/issue-78 main", workdir="/workspace/user-files/project")
-command(command="git worktree add -b fix/issue-99 /workspace/temp/issue-99 main", workdir="/workspace/user-files/project")
-
-# Launch Codex in each
-codex_delegate(prompt="Fix issue #78: <description>. Commit when done.", workdir="/workspace/temp/issue-78", wait=false)
-codex_delegate(prompt="Fix issue #99: <description>. Commit when done.", workdir="/workspace/temp/issue-99", wait=false)
-
-# Monitor
+```text
+codex_delegate(prompt="<task A>", workdir="/workspace/user-files/<workdir-a>", wait=false)
+codex_delegate(prompt="<task B>", workdir="/workspace/user-files/<workdir-b>", wait=false)
 process(action="list")
-
-# After completion, push and create PRs
-command(command="git push -u origin fix/issue-78", workdir="/workspace/temp/issue-78")
-command(command="gh pr create --repo user/repo --head fix/issue-78 --title 'fix: ...' --body '...'", workdir="/workspace/temp/issue-78")
-
-# Cleanup
-command(command="git worktree remove /workspace/temp/issue-78", workdir="/workspace/user-files/project")
 ```
 
-## Batch PR Reviews
+After completion, inspect each final message, logs, changed files, and artifacts before combining results or taking irreversible actions.
 
-```
-# Fetch all PR refs
-command(command="git fetch origin '+refs/pull/*/head:refs/remotes/origin/pr/*'", workdir="/workspace/user-files/project")
+## Operational Notes
 
-# Review multiple PRs in parallel
-codex_delegate(prompt="Review PR #86. git diff origin/main...origin/pr/86", workdir="/workspace/user-files/project", wait=false)
-codex_delegate(prompt="Review PR #87. git diff origin/main...origin/pr/87", workdir="/workspace/user-files/project", wait=false)
-
-# Post results
-command(command="gh pr comment 86 --body '<review>'", workdir="/workspace/user-files/project")
-```
+- Use the native `codex_delegate` tool. It handles Codex credentials, prompt files, logs, and final-message capture.
+- OpenAI auth should be configured as encrypted BullX runtime credentials:
+  `skill/codex/auth_json` -> `/workspace/temp/.codex/auth.json`, and optional
+  `skill/codex/config_toml` -> `/workspace/temp/.codex/config.toml`.
+- `workdir` must stay under `/workspace`.
+- Codex runs inside the same BullX workspace computer. Use explicit workdirs and output paths when separation matters.
+- Put durable artifacts under `/workspace/user-files`; `/workspace/temp` is disposable.
 
 ## Rules
 
-1. **Prefer `codex_delegate`** — it materializes credentials and captures the final message
-2. **Git repo required** — Codex won't run outside a git directory. Use `mktemp -d && git init` for scratch
-3. **Use `exec` for one-shots** — `codex exec "prompt"` runs and exits cleanly
-4. **Use the Computer boundary** — `bypassApprovals=true` is the default for delegated BullX runs
-5. **Background for long tasks** — use `background=true` and monitor with `process` tool
-6. **Don't interfere** — monitor with `poll`/`log`, be patient with long-running tasks
-7. **Parallel is fine** — run multiple Codex processes at once for batch work
+1. **Prefer `codex_delegate`** — it is the BullX path for Codex sub-agent runs.
+2. **Delegate bounded work** — give Codex a complete task, not an open-ended role.
+3. **Give enough context** — include required files, paths, constraints, success criteria, and expected output.
+4. **Use background mode deliberately** — set `wait=false` for slow or parallel work, then monitor with `process`.
+5. **Separate concurrent runs** — use distinct workdirs or output paths.
+6. **Review before acting** — inspect final messages, logs, diffs, generated files, or validation output before committing to the user.
+7. **Avoid unbounded nesting** — do not ask Codex to spawn more agents unless orchestration depth is explicit and bounded.

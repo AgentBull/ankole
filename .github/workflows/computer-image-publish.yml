@@ -1,6 +1,13 @@
 name: Publish computer image
 
 on:
+  workflow_dispatch:
+    inputs:
+      force_rebuild:
+        description: "Force image rebuild even when no computer changes are detected"
+        required: false
+        type: boolean
+        default: false
   workflow_run:
     workflows: ["CI"]
     types: [completed]
@@ -11,48 +18,23 @@ permissions:
   packages: write
 
 concurrency:
-  group: computer-image-${{ github.event.workflow_run.head_sha }}
+  group: computer-image-${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
   cancel-in-progress: false
 
 jobs:
   publish:
     name: Build and push computer image
-    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' }}
+    if: ${{ (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main') || (github.event_name == 'workflow_dispatch' && github.ref_name == 'main') }}
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout target commit
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
-          fetch-depth: 2
-
-      - name: Detect container-relevant changes
-        id: changes
-        shell: bash
-        run: |
-          set -euo pipefail
-          head_sha="${{ github.event.workflow_run.head_sha }}"
-          if ! git cat-file -e "${head_sha}^" 2>/dev/null; then
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          base_sha="$(git rev-parse "${head_sha}^")"
-          changed_files="$(git diff --name-only "$base_sha" "$head_sha")"
-
-          if echo "$changed_files" | grep -Eq '^(packages/computer/src/|packages/computer/browser/|packages/computer/Cargo\.toml$|packages/computer/Cargo\.lock$|packages/computer/docker/)'; then
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Skip when no relevant changes
-        if: ${{ steps.changes.outputs.changed != 'true' }}
-        run: echo "No packages/computer container source or Dockerfile changes detected."
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+          fetch-depth: 0
 
       - name: Set image metadata
-        if: ${{ steps.changes.outputs.changed == 'true' }}
         id: meta
         shell: bash
         run: |
@@ -60,17 +42,69 @@ jobs:
           owner_lower="${GITHUB_REPOSITORY_OWNER,,}"
           timestamp="$(date -u +'%Y%m%d%H%M%S')"
           image="ghcr.io/${owner_lower}/bullx-computer-worker"
+          target_sha="${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}"
 
           echo "image=$image" >> "$GITHUB_OUTPUT"
           echo "timestamp=$timestamp" >> "$GITHUB_OUTPUT"
+          echo "target_sha=$target_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Detect container-relevant changes
+        id: changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          head_sha="${{ steps.meta.outputs.target_sha }}"
+          image="${{ steps.meta.outputs.image }}"
+          force_rebuild="${{ github.event_name == 'workflow_dispatch' && github.event.inputs.force_rebuild == 'true' }}"
+
+          if [ "${force_rebuild}" = "true" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "Forced rebuild requested"
+            exit 0
+          fi
+
+          published_metadata="$(docker buildx imagetools inspect "${image}:main-latest" --format '{{json .}}' 2>/dev/null || true)"
+          if [ -z "${published_metadata}" ]; then
+            published_metadata="{}"
+          fi
+          published_revision="$(
+            jq -r '(.image["linux/amd64"].config.Labels // {})["org.opencontainers.image.revision"] // empty' \
+              <<<"${published_metadata}"
+          )"
+
+          if [ -z "${published_revision}" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "No published revision label found on ${image}:main-latest; rebuilding"
+            exit 0
+          fi
+
+          if ! git cat-file -e "${published_revision}^{commit}" 2>/dev/null; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "Published revision ${published_revision} is not present in this checkout; rebuilding"
+            exit 0
+          fi
+
+          changed_files="$(git diff --name-only "${published_revision}" "${head_sha}")"
+
+          if echo "$changed_files" | grep -Eq '^(packages/computer/src/|packages/computer/browser/|packages/computer/Cargo\.toml$|packages/computer/Cargo\.lock$|packages/computer/docker/|\.github/workflows/computer-image-publish\.yml$)'; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "Computer image changes since published revision ${published_revision}:"
+            echo "$changed_files" | grep -E '^(packages/computer/src/|packages/computer/browser/|packages/computer/Cargo\.toml$|packages/computer/Cargo\.lock$|packages/computer/docker/|\.github/workflows/computer-image-publish\.yml$)'
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No computer image changes since published revision ${published_revision}"
+          fi
+
+      - name: Skip when no relevant changes
+        if: ${{ steps.changes.outputs.changed != 'true' }}
+        run: echo "No packages/computer container source or Dockerfile changes detected."
 
       - name: Set up QEMU
         if: ${{ steps.changes.outputs.changed == 'true' }}
         uses: docker/setup-qemu-action@v3
-
-      - name: Set up Docker Buildx
-        if: ${{ steps.changes.outputs.changed == 'true' }}
-        uses: docker/setup-buildx-action@v3
 
       - name: Log in to GHCR
         if: ${{ steps.changes.outputs.changed == 'true' }}
@@ -91,4 +125,7 @@ jobs:
           tags: |
             ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.timestamp }}
             ${{ steps.meta.outputs.image }}:main-latest
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ steps.meta.outputs.target_sha }}
           provenance: false

@@ -50,7 +50,7 @@ export function createCodexDelegateTool(
     name: 'codex_delegate',
     label: 'Codex Delegate',
     description:
-      'Delegate a coding task to the Codex CLI inside this agent computer. The tool materializes the agent/default Codex auth.json and config.toml from encrypted DB credentials into /workspace/temp before execution.',
+      'Start a bounded Codex sub-agent run inside this agent computer. Use it when you can define the goal but want another agent loop to plan, inspect files, write and run commands or scripts, validate results, and return a concise answer or artifact. Use wait=false for slow or parallel work, then monitor with the process tool. Give Codex a complete task prompt with relevant context, paths, constraints, success criteria, and output location.',
     schema: CodexDelegateParams,
     executionMode: 'sequential',
     isDestructive: true,

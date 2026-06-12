@@ -24,22 +24,24 @@ function unscopedTmuxName(context: ComputerToolContext, name: string): string {
 const InteractiveTerminalParams = z.object({
   action: z
     .enum(['list', 'start', 'send', 'capture', 'kill'])
-    .describe("Action: 'start' a recoverable tmux session, 'send' input/keys, 'capture' screen, 'kill', or 'list'."),
+    .describe(
+      "Action: 'start' a recoverable interactive terminal session, 'send' input/keys, 'capture' screen, 'kill', or 'list'."
+    ),
   session: z
     .string()
     .optional()
-    .describe('tmux session name. Required for every action except list. Use letters, numbers, _, ., or -.'),
+    .describe(
+      'Interactive terminal session name. Required for every action except list. Use letters, numbers, _, ., or -.'
+    ),
   command: z
     .string()
     .optional()
-    .describe(
-      "Command used by action=start. Defaults to 'bash'. Use this for TTY/TUI programs such as codex or claude."
-    ),
+    .describe("Command used by action=start. Defaults to 'bash'. Use this for TTY/TUI programs such as claude."),
   input: z.string().optional().describe('Text to send for action=send.'),
   keys: z
     .array(z.string())
     .optional()
-    .describe('Additional tmux key names for action=send, such as Enter, Down, C-c, or Space.'),
+    .describe('Additional terminal key names for action=send, such as Enter, Down, C-c, or Space.'),
   enter: z
     .boolean()
     .optional()
@@ -73,7 +75,7 @@ export function createInteractiveTerminalTool(
     name: 'interactive_terminal',
     label: 'Interactive Terminal',
     description:
-      'Manage recoverable tmux sessions in the computer for TTY/TUI programs such as Codex, Claude, REPLs, full-screen CLIs, and interactive installers. Use start to launch a session, send to provide text or tmux keys, capture to inspect the screen, and kill when done. Use command or terminal for non-interactive shell commands. Do not use this for simple file reads or edits; use read_file and patch.',
+      'Manage recoverable interactive terminal sessions in the computer for TTY/TUI programs such as Claude, REPLs, full-screen CLIs, and interactive installers. These sessions are backed internally by tmux so they can be captured and resumed through this tool; use this tool rather than calling tmux directly. Use start to launch a session, send to provide text or terminal keys, capture to inspect the screen, and kill when done. Use command or terminal for non-interactive shell commands. Do not use this for simple file reads or edits; use read_file and patch.',
     schema: InteractiveTerminalParams,
     executionMode: 'sequential',
     isDestructive: true,

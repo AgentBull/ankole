@@ -30,7 +30,7 @@ export function createCommandTool(context: ComputerToolContext): AgentTool<typeo
     name: 'command',
     label: 'Command',
     description:
-      'Execute one stateless, non-interactive shell command in the computer. Use this for builds, installs, git, rg/find searches, package managers, scripts, network checks, and other one-shot commands that should not depend on persistent cd/export/alias state. Do not use cat/head/tail to read files; use read_file. Do not use sed/awk/perl/python scripts or heredocs to edit files; use patch. Use terminal when you intentionally need persistent shell state or a tracked background process. Use interactive_terminal for Codex, Claude, REPLs, installers, and other TTY/TUI programs.',
+      'Execute one stateless, non-interactive shell command in the computer. Use this for builds, installs, git, rg/find searches, package managers, scripts, network checks, and other one-shot commands that should not depend on persistent cd/export/alias state. Do not use cat/head/tail to read files; use read_file. Do not use sed/awk/perl/python scripts or heredocs to edit files; use patch. Use terminal when you intentionally need persistent shell state or a tracked background process. Use interactive_terminal for direct TTY/TUI programs, REPLs, installers, and troubleshooting interactive CLIs.',
     schema: CommandParams,
     executionMode: 'sequential',
     isDestructive: true,

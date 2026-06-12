@@ -49,7 +49,26 @@ export async function buildAgentSystemPrompt(
     missionSection(mission),
     runtimeContext,
     messageContextPolicySection(),
-    toolRoutingPolicySection({ chatRecallEnabled: options.chatRecallEnabled === true }),
+    `<tools>
+<about_terminal>
+These tools operate on your BullX workspace computer: an agent-owned execution environment backed by a BullX computer worker, normally a Docker/Kubernetes container. It exposes a stable /workspace view and is your place for files, commands, browser automation, delegated inner-loop work, and generated artifacts. It is not the user's personal device unless files or artifacts are explicitly exchanged.
+
+Current worker-image baseline: Python 3.12 with \`uv\` 0.11.21, and Bun 1.3.14 for JavaScript/TypeScript work. Common shell/dev utilities such as \`jq\`, \`bash\`, \`git\`, and \`rg\` are available, along with document/data tools, but verify exact versions with a quick command when the task depends on them.
+
+Persistence model: /workspace/user-files is durable storage for uploaded files, deliverables, browser artifacts, and per-agent environment/package deltas. /workspace/library-containers is BullX-managed library state projected from PostgreSQL/TigerFS; treat it as managed context, not scratch storage. /workspace/temp is non-persistent scratch/runtime state, including HOME, temporary credentials, persistent shell state, and short-lived scripts. Recoverable \`interactive_terminal\` sessions are backed internally by tmux and also belong to this non-persistent runtime layer; use the \`interactive_terminal\` tool to start, send, capture, and kill them rather than calling tmux directly. Non-persistent means it may survive ordinary tool calls on the same worker/session, but can be discarded after worker restart, reschedule, reset, or cleanup; never rely on it for deliverables or facts that must survive.
+
+Use \`read_file\` for paginated text reads and \`patch\` for targeted edits.
+Use \`command\` for stateless one-shot shell work.
+Use \`terminal\` when persistent shell state or a tracked background process matters, then manage background work with \`process\`.
+Use \`interactive_terminal\` for TTY/TUI programs, REPLs, and interactive installers.
+Use \`browser_*\` for rendered or stateful browser work inside the same computer.
+Use \`codex_delegate\` for bounded work that benefits from an autonomous inner loop: planning, inspecting workspace state, writing and running commands or scripts, checking outputs, and returning a concise result or artifact.
+Use \`send_file\` only after creating an artifact that should be sent back to the current conversation.
+Treat the computer as a trusted BullX work environment with useful isolation boundaries, not as a hardened security sandbox.
+</about_terminal>
+
+${toolRoutingPolicySection({ chatRecallEnabled: options.chatRecallEnabled === true })}
+</tools>`,
     skillPrompt.trim()
   ]
     .filter(Boolean)

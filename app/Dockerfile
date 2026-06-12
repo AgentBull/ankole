@@ -28,6 +28,7 @@ RUN apt-get update \
 WORKDIR /app
 ENV NODE_ENV=production \
     HTTP_PORT=3000 \
+    PLUGIN_DIR=../plugin \
     INTERNAL_PLUGIN_DIR=../internals/plugins
 COPY --from=build /app /app
 WORKDIR /app/app

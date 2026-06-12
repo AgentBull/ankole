@@ -201,14 +201,11 @@ fn rrf_best_possible(route_weights: &HashMap<String, f64>, rrf_k: f64) -> f64 {
 }
 
 fn route_weight(route_weights: &HashMap<String, f64>, route: &str) -> f64 {
-  route_weights
-    .get(route)
-    .copied()
-    .unwrap_or_else(|| match route {
-      "bm25" => DEFAULT_BM25_WEIGHT,
-      "vector" => DEFAULT_VECTOR_WEIGHT,
-      _ => 1.0,
-    })
+  route_weights.get(route).copied().unwrap_or(match route {
+    "bm25" => DEFAULT_BM25_WEIGHT,
+    "vector" => DEFAULT_VECTOR_WEIGHT,
+    _ => 1.0,
+  })
 }
 
 fn recency_score(sent_at_ms: Option<f64>, now_ms: f64, half_life_days: f64) -> f64 {

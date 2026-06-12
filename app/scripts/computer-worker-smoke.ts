@@ -37,10 +37,74 @@ const checks = [
       'soffice --version',
       'command -v pdftoppm',
       'pdftoppm -v 2>&1 | head -n 2',
+      'python3 -m markitdown --help >/dev/null',
       "python3 - <<'PY'",
-      'import pptx, PIL',
+      'import defusedxml, markitdown, pptx, PIL',
       'print("python powerpoint deps ok")',
       'PY'
+    ].join('\n')
+  },
+  {
+    name: 'office-fonts',
+    command: ['command -v fc-match', 'fc-match "Noto Sans CJK SC"', 'fc-match "Noto Color Emoji"'].join('\n')
+  },
+  {
+    name: 'data-clients',
+    command: [
+      'command -v duckdb',
+      'duckdb --version',
+      'command -v clickhouse-client',
+      'clickhouse-client --version',
+      'command -v psql',
+      'psql --version'
+    ].join('\n')
+  },
+  {
+    name: 'document-media-tools',
+    command: [
+      'command -v qpdf',
+      'qpdf --version',
+      'command -v gs',
+      'gs --version',
+      'command -v ffmpeg',
+      'ffmpeg -version | head -n 1',
+      'command -v pandoc',
+      'pandoc --version | head -n 1'
+    ].join('\n')
+  },
+  {
+    name: 'shell-utilities',
+    command: [
+      'command -v rg',
+      'rg --version | head -n 1',
+      'command -v file',
+      'file --version | head -n 1',
+      'command -v less',
+      'less --version | head -n 1',
+      'command -v tree',
+      'tree --version',
+      'command -v zip',
+      'zip -v | head -n 1',
+      'command -v rsync',
+      'rsync --version | head -n 1',
+      'command -v ps',
+      'ps --version | head -n 1',
+      'command -v lsof'
+    ].join('\n')
+  },
+  {
+    name: 'build-toolchain',
+    command: [
+      'command -v gcc',
+      'gcc --version | head -n 1',
+      'command -v g++',
+      'g++ --version | head -n 1',
+      'command -v make',
+      'make --version | head -n 1',
+      'command -v pkg-config',
+      'pkg-config --version',
+      'command -v python3-config',
+      'python3-config --includes'
     ].join('\n')
   }
 ]
