@@ -35,6 +35,6 @@ The default isolation boundary is the computer worker, not a copied Python envir
 - `packages/computer/docker/Dockerfile` defines the image baseline.
 - `packages/computer/src/isolation.rs` exposes the read-only system directories inside bubblewrap.
 - `app/library/skills/jupyter-live-kernel/SKILL.md` defines agent-facing usage rules for the live-kernel integration.
-- `packages/computer/k8s/statefulset.yaml` and dev compose files advertise runtime features through `BULLX_COMPUTER_FEATURES`.
+- Dev compose files advertise runtime features through `BULLX_COMPUTER_FEATURES`.
 
 Verification should include image-level imports for the Python baseline, Bun and shell utility checks, and a live hamelnb/Jupyter kernel smoke test that proves state persists across two executions.

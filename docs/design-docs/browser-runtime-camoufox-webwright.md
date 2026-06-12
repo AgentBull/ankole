@@ -99,7 +99,7 @@ tool 层核心行为：
 
 - `packages/computer/docker/Dockerfile`: 安装 Camoufox package、system dependencies、`bullx-browser`。
 - `packages/computer/src/config.rs`: 只有 browser binary smoke 通过后才把 default features 加回 `browser`。
-- `packages/computer/docker/docker-compose.yml`, `packages/computer/k8s/statefulset.yaml`, `tools/devkit/external-services.docker-compose.yml`: 同步 feature advertisement。
+- `packages/computer/docker/docker-compose.yml`, `tools/devkit/external-services.docker-compose.yml`: 同步 feature advertisement。
 - `packages/computer/browser/`: 放 `bullx-browser` Python wrapper。
 - `app/src/ai-agent/tools/browser/`: BullX browser tools，不暴露 BrowserAct、Camoufox 或 Webwright 作为能力名。
 - `app/scripts/llm-e2e.ts`: 增加 LLM 通过 computer 访问 Wikipedia 或 example 页面并验证截图/标题的场景。
