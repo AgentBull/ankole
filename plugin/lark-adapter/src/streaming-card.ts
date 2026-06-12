@@ -181,11 +181,9 @@ class LarkStreamingCardSession implements BullXStreamingCardHandle {
         await this.replaceElement(text, 'cardkit card element update')
         this.contentReady = true
       } else if (text.startsWith(this.lastWrittenText)) {
-        const suffix = text.slice(this.lastWrittenText.length)
-        if (suffix.length === 0) return true
         const response = await this.connection.rawClient.cardkit.v1.cardElement.content({
           path: { card_id: this.cardId, element_id: STREAMING_ELEMENT_ID },
-          data: { content: larkCardMarkdown(suffix), sequence: this.sequence, uuid: crypto.randomUUID() }
+          data: { content: larkCardMarkdown(text), sequence: this.sequence, uuid: crypto.randomUUID() }
         })
         assertLarkSuccess(response, 'cardkit card element content')
       } else {
