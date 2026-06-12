@@ -23,8 +23,7 @@ const {
 const { Principals } = await import('@/common/db-schema/principals')
 const { createAgent } = await import('@/principals/agents/service')
 const { ExternalGatewayRuntime } = await import('./runtime')
-const { MissingExternalGatewayAdapterFactoryError, registerExternalGatewayAdapterFactory } =
-  await import('./adapter-registry')
+const { registerExternalGatewayAdapterFactory } = await import('./adapter-registry')
 const { externalGatewayOutbox } = await import('./outbox')
 const { externalGatewayProjectionSink } = await import('./core/projection')
 const { externalGatewayRoutes } = await import('./routes')
@@ -726,16 +725,18 @@ describe('ExternalGatewayRuntime', () => {
     await runtime.stop()
   })
 
-  it('fails startup when an enabled binding references an unregistered factory', async () => {
+  it('ignores an enabled binding that references an unregistered factory', async () => {
     const runtime = new ExternalGatewayRuntime()
 
-    await expect(
-      runtime.start({
-        loadActiveAgents: async () => [
-          agentResult(`${testPrefix}-missing-factory`, [{ name: 'fake', adapter: `${factoryPrefix}_missing` }])
-        ]
-      })
-    ).rejects.toThrow(MissingExternalGatewayAdapterFactoryError)
+    const stats = await runtime.start({
+      loadActiveAgents: async () => [
+        agentResult(`${testPrefix}-missing-factory`, [{ name: 'fake', adapter: `${factoryPrefix}_missing` }])
+      ]
+    })
+
+    expect(stats).toEqual({ readyAgents: 0, readyChannels: 0 })
+
+    await runtime.stop()
   })
 
   it('uses adapter factories registered by enabled trusted plugins', async () => {

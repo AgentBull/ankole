@@ -7,7 +7,11 @@ import { type AppConfigJsonValue, appConfigService } from '@/config/app-configur
 import { type AgentResult, listActiveAgents } from '@/principals/agents/service'
 import { upsertPlatformSubjectHuman } from '@/principals/external-identities/service'
 import { normalizeUid } from '@/principals/principals/service'
-import { type ExternalGatewayAdapterFactory, resolveExternalGatewayAdapterFactory } from './adapter-registry'
+import {
+  type ExternalGatewayAdapterFactory,
+  MissingExternalGatewayAdapterFactoryError,
+  resolveExternalGatewayAdapterFactory
+} from './adapter-registry'
 import type { ExternalGatewayAgentExecutor } from './agent'
 import {
   externalGatewayAgentEventQueue,
@@ -311,7 +315,25 @@ export class ExternalGatewayRuntime implements Runtime<ExternalGatewayRuntimeSta
     const adapters: Record<string, ExternalGatewayAdapter> = {}
     const bindings: RuntimeExternalBinding[] = []
     for (const binding of configuredBindings) {
-      const factory = resolveFactory(binding.adapter)
+      let factory: ExternalGatewayAdapterFactory
+      try {
+        factory = resolveFactory(binding.adapter)
+      } catch (error) {
+        if (error instanceof MissingExternalGatewayAdapterFactoryError) {
+          logger.warn(
+            {
+              error,
+              agentUid: agent.agent.uid,
+              adapterId: binding.adapter,
+              bindingName: binding.name
+            },
+            'External Gateway adapter factory is not registered; skipping binding'
+          )
+          continue
+        }
+
+        throw error
+      }
       const config = await getChannelConfig(agentChannelConfigKey(agent.agent.uid, binding.name))
       const runtimeBinding = {
         ...binding,
@@ -339,6 +361,8 @@ export class ExternalGatewayRuntime implements Runtime<ExternalGatewayRuntimeSta
         })
       )
     }
+
+    if (bindings.length === 0) return undefined
 
     logger.debug(
       {

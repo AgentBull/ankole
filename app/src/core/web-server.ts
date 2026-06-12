@@ -52,6 +52,9 @@ export async function createWebServer(options: CreateWebServerOptions = {}) {
       app.use(
         await staticPlugin({
           assets: path.resolve(import.meta.dir, '../../public/assets'),
+          // The production build can exceed @elysiajs/static's 1024-file always-static limit
+          // once Shiki/UI chunks are emitted. Use the dynamic file route so /assets/* never vanishes.
+          alwaysStatic: false,
           prefix: '/assets'
         })
       )

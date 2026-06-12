@@ -8,9 +8,6 @@ export type ExternalGatewayAdapterFactory = BullXExternalGatewayAdapterFactory
 
 /**
  * Raised when an enabled channel asks for a factory that no plugin registered.
- *
- * This is a startup failure by design. Skipping the channel would leave the
- * service apparently healthy while external webhooks for that agent return 404.
  */
 export class MissingExternalGatewayAdapterFactoryError extends Error {
   constructor(id: string) {
