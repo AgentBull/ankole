@@ -1,5 +1,5 @@
 import { type CacheRetention, type Model, type SimpleStreamOptions, type Transport } from '@earendil-works/pi-ai'
-import { match, ms } from '@pleisto/active-support'
+import { ms } from '@pleisto/active-support'
 import { z } from 'zod'
 import { defineAppConfig, registerAppConfigDefinitions, appConfigService } from '@/config/app-configure'
 import type { ConfigureJsonValue } from '@/common/db-schema/app-configure'
@@ -46,9 +46,9 @@ export interface AiAgentRuntimePolicyConfig {
     maxTurns?: number
     /**
      * Abort (and retry) a run after this long with no agent events (stream
-     * progress, tool activity). Defaults by the primary model's reasoning
-     * effort — see {@link defaultGenerationStallTimeoutMs}. Long-running silent
-     * tools must fit this budget too; clarify waits are exempt.
+     * progress, tool activity). Defaults to OpenAI's own request-timeout ceiling
+     * — see {@link defaultGenerationStallTimeoutMs}. Long-running silent tools
+     * must fit this budget too; clarify waits are exempt.
      */
     stallTimeoutMs?: number
     /**
@@ -220,9 +220,7 @@ export async function resolveAiAgentRuntimeProfile(input: {
     resolveModelProfile('light', models.light),
     resolveModelProfile('heavy', models.heavy)
   ])
-  // Policy resolution wants the primary reasoning effort: the generation stall
-  // budget defaults differently for long-thinking models.
-  const policy = resolveAiAgentRuntimePolicy(input.policy ?? {}, primaryModel.config.reasoning)
+  const policy = resolveAiAgentRuntimePolicy(input.policy ?? {})
 
   return {
     primaryModel,
@@ -279,22 +277,24 @@ export function writeAiAgentModelsConfig(metadata: JsonObject, models: AiAgentMo
 }
 
 /**
- * Default stall budget by the primary model's reasoning effort. Long-thinking
- * SOTA models legitimately stream nothing for tens of minutes (providers do not
- * surface reasoning deltas or SSE keepalives through the SDK), so the silence
- * budget must exceed the longest healthy quiet stretch — a stall abort is
- * retried, but repeatedly killing a healthy 25-minute think would never finish.
+ * Default silence budget, anchored to the vendor's own request-timeout default:
+ * the OpenAI SDK uses `DEFAULT_TIMEOUT = 600000` (10 minutes) as the longest it
+ * waits for a response, and its guidance for anything longer is to switch to
+ * streaming / background, not to wait more (OpenRouter publishes no figure and
+ * keeps the pipe warm with `: OPENROUTER PROCESSING` comments). Since we stream,
+ * a healthy reasoning model emits content deltas continuously (observed
+ * silentForMs ≈ tens of ms), so the streaming phase is governed by the tighter
+ * `streamGapTimeoutMs`; this budget only bounds pre-first-token silence and
+ * silent tool execution. Ten minutes of *no progress at all* therefore already
+ * matches OpenAI's whole-request ceiling — beyond it the run is treated as a
+ * dead stream and retried. Per-deployment overrides ride `generation.stallTimeoutMs`.
  */
-export function defaultGenerationStallTimeoutMs(reasoning: string | undefined): number {
-  return match(reasoning)
-    .with('high', 'xhigh', () => ms('40m'))
-    .with('medium', () => ms('20m'))
-    .otherwise(() => ms('10m'))
+export function defaultGenerationStallTimeoutMs(): number {
+  return ms('10m')
 }
 
 function resolveAiAgentRuntimePolicy(
-  config: AiAgentRuntimePolicyConfig,
-  primaryReasoning?: string
+  config: AiAgentRuntimePolicyConfig
 ): Pick<AiAgentRuntimeProfile, 'ambient' | 'compression' | 'dailyReset' | 'generation' | 'parallelism'> {
   return {
     compression: {
@@ -311,7 +311,7 @@ function resolveAiAgentRuntimePolicy(
     },
     generation: {
       maxTurns: config.generation?.maxTurns ?? 100,
-      stallTimeoutMs: config.generation?.stallTimeoutMs ?? defaultGenerationStallTimeoutMs(primaryReasoning),
+      stallTimeoutMs: config.generation?.stallTimeoutMs ?? defaultGenerationStallTimeoutMs(),
       streamGapTimeoutMs: config.generation?.streamGapTimeoutMs ?? ms('5m'),
       maxTransientRetries: config.generation?.maxTransientRetries ?? 2
     },

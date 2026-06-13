@@ -3,7 +3,7 @@ import { ms } from '@pleisto/active-support'
 export type GenerationStallPhase = 'awaiting_content' | 'streaming'
 
 export interface GenerationStallWatchdogOptions {
-  /** Silence budget while waiting for a call's first content chunk (or during tool execution). */
+  /** Silence budget while waiting for a call's first content chunk after its response headers. */
   stallTimeoutMs: number
   /**
    * Silence budget between content chunks once a call has started streaming.
@@ -22,34 +22,52 @@ export interface GenerationStallWatchdogOptions {
 const MAX_CHECK_INTERVAL_MS = ms('5s')
 
 /**
- * Stream-health monitor for one generation run, two-phase:
+ * Stream-health monitor for the LLM API request, and *only* that request.
  *
- * - `awaiting_content` — between a call starting and its first content chunk,
- *   and during tool execution. Hidden-CoT models may legitimately stay silent
- *   here for a long time, so the budget is sized by reasoning effort (see
- *   `defaultGenerationStallTimeoutMs`).
- * - `streaming` — the current call has produced content chunks. Providers emit
- *   them at token cadence (including reasoning deltas), so sustained silence
- *   now means the connection died mid-stream; the tighter `streamGapTimeoutMs`
- *   applies.
+ * "Stall" means the provider call itself went silent — not that the run is
+ * idle. The watchdog is therefore armed only while a call is in flight (`arm()`
+ * when the call begins, before the request, so a pre-headers wedge is caught
+ * too; `disarm()` when the stream ends). Everything between calls — tool
+ * execution above all — is deliberately unwatched: a 20-minute build or a hung
+ * worker is the tool layer's problem to bound (its own timeout / transport),
+ * never a "generation stall". The previous design counted tool time against
+ * this budget and aborted+retried the whole generation when a tool ran long;
+ * that conflation is the bug this fixes.
  *
- * Both wedge modes observed in production go silent instead of erroring (the
- * SDK request timeout only covers time-to-response-headers). The watchdog turns
- * silence beyond the active budget into an abort, which the runtime answers
- * with an automatic retry. This signal is deliberately kept away from the lease
- * heartbeat, which tracks process liveness instead.
+ * While armed, two phases:
+ * - `awaiting_content` — the call is in flight but no content chunk has arrived
+ *   yet (sending the request, awaiting headers, then the model's first token).
+ *   Hidden-CoT models can think a while here, so the budget is the generous
+ *   `stallTimeoutMs` (see `defaultGenerationStallTimeoutMs`).
+ * - `streaming` — content chunks are flowing. Providers emit them at token
+ *   cadence (reasoning included), so sustained silence now means the connection
+ *   died mid-stream; the tighter `streamGapTimeoutMs` applies.
+ *
+ * Both wedge modes go silent rather than erroring (the SDK request timeout only
+ * covers time-to-response-headers). The watchdog turns post-header silence into
+ * an abort, which the runtime answers with a retry. This signal is kept away
+ * from the lease heartbeat, which tracks process liveness instead.
  */
 export class GenerationStallWatchdog {
   private lastEventAt = 0
   private phase: GenerationStallPhase = 'awaiting_content'
   private timer: ReturnType<typeof setInterval> | null = null
   private stalled = false
+  private armed = false
 
   constructor(private readonly options: GenerationStallWatchdogOptions) {}
 
-  start(): void {
-    if (this.timer || this.stalled) return
+  /**
+   * Begin watching an LLM call: it is about to issue its request (turn start).
+   * Resets the silence clock and (re)starts the check timer. Called again for
+   * each call in the run.
+   */
+  arm(): void {
+    if (this.stalled) return
+    this.armed = true
     this.lastEventAt = this.now()
+    this.phase = 'awaiting_content'
+    if (this.timer) return
     const interval =
       this.options.checkIntervalMs ??
       Math.min(MAX_CHECK_INTERVAL_MS, this.options.stallTimeoutMs / 4, this.activeGapBudget() / 4)
@@ -57,26 +75,31 @@ export class GenerationStallWatchdog {
     this.timer.unref?.()
   }
 
-  /** A boundary event (call started, turn ended, tool activity): back to the generous budget. */
-  touch(): void {
-    if (this.stalled) return
-    this.lastEventAt = this.now()
-    this.phase = 'awaiting_content'
+  /** The LLM stream ended (or errored): stop watching until the next call arms. */
+  disarm(): void {
+    this.armed = false
   }
 
-  /** A content chunk of the current call: the stream is talking, hold it to the tight gap budget. */
+  /** A content chunk of the in-flight call: the stream is talking, hold it to the tight gap budget. */
   touchContent(): void {
-    if (this.stalled) return
+    if (this.stalled || !this.armed) return
     this.lastEventAt = this.now()
     this.phase = 'streaming'
   }
 
-  /** Time since the last agent event — the operator's wedged-vs-working signal. */
+  /** Whether a provider stream is currently being watched — the operator's "LLM vs tool" signal. */
+  isWatchingLlmStream(): boolean {
+    return this.armed
+  }
+
+  /** Time since the last stream event while armed; 0 when not watching a call (e.g. tool execution). */
   silentForMs(): number {
-    return this.lastEventAt === 0 ? 0 : this.now() - this.lastEventAt
+    if (!this.armed || this.lastEventAt === 0) return 0
+    return this.now() - this.lastEventAt
   }
 
   stop(): void {
+    this.armed = false
     if (!this.timer) return
     clearInterval(this.timer)
     this.timer = null
@@ -89,6 +112,7 @@ export class GenerationStallWatchdog {
   }
 
   private check(): void {
+    if (!this.armed) return
     const silentForMs = this.now() - this.lastEventAt
     if (silentForMs < this.activeGapBudget()) return
     this.stalled = true

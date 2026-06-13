@@ -1995,11 +1995,14 @@ export class AiAgentRuntime {
       //    long-thinking model may stream nothing for tens of minutes. Lease
       //    expiry therefore always means the owning process died, and the
       //    expired-lease takeover can never kill a healthy silent run.
-      // 2. Stall watchdog = "the provider stream/tool is still alive" — agent
-      //    events reset it; silence beyond the (reasoning-sized) budget aborts
-      //    the run, which finishGenerationRun answers with a transient retry.
-      //    The SDK timeout only covers time-to-response-headers, so a stream
-      //    wedged on a half-open connection would otherwise hang forever.
+      // 2. Stall watchdog = "the in-flight LLM API call is still alive" — armed
+      //    only while a provider stream is open (message_start..message_end);
+      //    silence beyond the budget aborts the run, which finishGenerationRun
+      //    answers with a transient retry. The SDK timeout only covers
+      //    time-to-response-headers, so a stream wedged on a half-open
+      //    connection would otherwise hang forever. Tool execution is NOT a
+      //    stall: the watchdog disarms for it, leaving each tool to its own
+      //    timeout/transport, so a long or hung tool never aborts the run here.
       const watchdog = new GenerationStallWatchdog({
         stallTimeoutMs: input.profile.generation.stallTimeoutMs,
         streamGapTimeoutMs: input.profile.generation.streamGapTimeoutMs,
@@ -2039,7 +2042,10 @@ export class AiAgentRuntime {
             conversationId: input.conversationId,
             leaseId: lease.leaseId,
             elapsedMs: Date.now() - generationStartedAt,
+            // silentForMs is 0 while a tool runs (watchdog disarmed): pair it
+            // with watchingLlmStream to read "stalled LLM" vs "long-running tool".
             silentForMs: watchdog.silentForMs(),
+            watchingLlmStream: watchdog.isWatchingLlmStream(),
             stallTimeoutMs: input.profile.generation.stallTimeoutMs,
             llmCalls: recorder.callsStarted,
             openLlmTurn: recorder.openLlmTurn() ?? null
@@ -2050,11 +2056,15 @@ export class AiAgentRuntime {
       beatLiveness()
       const livenessTimer = setInterval(beatLiveness, this.generationLivenessIntervalMs)
       livenessTimer.unref?.()
-      // Content deltas hold the stream to the tight gap budget; boundary events
-      // (call start, turn end, tool activity) fall back to the generous one.
+      // Scope the watchdog to the LLM API call: arm when the call begins
+      // (turn_start, before the request — so a pre-headers wedge is caught too),
+      // hold it to the tight gap budget while content flows, and disarm when the
+      // stream ends so the tool execution that follows is never counted as a
+      // stall. tool_execution_* events are intentionally not observed here.
       const unsubscribeWatchdog = agent.subscribe(event => {
-        if (event.type === 'message_update') watchdog.touchContent()
-        else watchdog.touch()
+        if (event.type === 'turn_start') watchdog.arm()
+        else if (event.type === 'message_update') watchdog.touchContent()
+        else if (event.type === 'message_end') watchdog.disarm()
       })
       const unsubscribeReasoningTrace = reasoningTrace
         ? agent.subscribe(event => {
@@ -2066,7 +2076,6 @@ export class AiAgentRuntime {
             })
           })
         : undefined
-      watchdog.start()
       try {
         outcome = await this.runGenerationAgent({
           abortController,

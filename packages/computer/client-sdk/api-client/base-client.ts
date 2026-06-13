@@ -29,6 +29,14 @@ export interface RequestOptions {
   signal?: AbortSignal
   /** When true, non-2xx responses are returned instead of thrown (caller inspects status). */
   noThrow?: boolean
+  /**
+   * Inter-frame read budget for a streaming (NDJSON) response. Set only for
+   * `wait:true` command/shell streams, to that command's own timeout + grace —
+   * the worker emits no keepalive frames mid-command, so a fixed value would
+   * kill a legitimately quiet long command. Plain calls leave it unset and lean
+   * on the h2 keepalive ping.
+   */
+  idleTimeoutMs?: number
 }
 
 /**
@@ -92,7 +100,16 @@ export class BaseClient {
 
     const response =
       this.tls && !this.customFetch
-        ? await h2Request({ method, url, headers, body: opts.body ?? null, signal: opts.signal, tls: this.tls })
+        ? await h2Request({
+            method,
+            url,
+            headers,
+            body: opts.body ?? null,
+            signal: opts.signal,
+            tls: this.tls,
+            idleTimeoutMs: opts.idleTimeoutMs,
+            debug: this.debug
+          })
         : await this.fetchImpl(url, init)
 
     if (!response.ok && !opts.noThrow) throw await toApiError(response, method, url)

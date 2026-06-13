@@ -98,25 +98,37 @@ pub async fn run_command(
   let snapshot = handle.snapshot();
   let first = running_line(&snapshot);
 
+  let timeout_ms = body.timeout.unwrap_or(DEFAULT_TIMEOUT_MS);
+  tracing::info!(
+    %agent_uid,
+    cmd_id = %snapshot.id,
+    wait = body.wait,
+    timeout_ms,
+    command = %body.command.chars().take(200).collect::<String>(),
+    "command spawned"
+  );
+
   if !body.wait {
     return Ok(ndjson_stream(futures::stream::once(async move { first })));
   }
 
   let id = handle.id.clone();
   let output = handle.output.clone();
-  let timeout = Duration::from_millis(body.timeout.unwrap_or(DEFAULT_TIMEOUT_MS));
+  let timeout = Duration::from_millis(timeout_ms);
   let commands_session = session.clone();
 
   let stream = async_stream::stream! {
     yield first;
     match tokio::time::timeout(timeout, output.wait_done()).await {
       Ok((status, exit_code)) => {
+        tracing::info!(%agent_uid, cmd_id = %id, status = status.as_str(), exit_code, "command finished");
         if let Err(error) = state.sessions.sync_library_containers(&agent_uid).await {
           tracing::warn!(%agent_uid, %error, "failed to sync library-containers after command");
         }
         yield json!({ "command": { "id": id, "status": status.as_str(), "exitCode": exit_code } });
       }
       Err(_) => {
+        tracing::warn!(%agent_uid, cmd_id = %id, timeout_ms, "command timed out; killing");
         let _ = commands_session.commands.kill(&id, Some("SIGTERM"));
         tokio::time::sleep(Duration::from_millis(KILL_GRACE_MS)).await;
         let _ = commands_session.commands.kill(&id, Some("SIGKILL"));

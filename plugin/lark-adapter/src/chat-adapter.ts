@@ -112,8 +112,9 @@ export class BullXLarkChatAdapter {
     return new Response('Lark chat adapter is configured for WebSocket transport', { status: 405 })
   }
 
-  authorizeReasoningTraceView(input: BullXReasoningTraceViewAuthInput): boolean {
-    return /(lark|feishu)/i.test(input.request.headers.get('user-agent') ?? '')
+  authorizeReasoningTraceView(_input: BullXReasoningTraceViewAuthInput): boolean {
+    // /(lark|feishu)/i.test(input.request.headers.get('user-agent') ?? '') 会导致mac侧无法查看，因为是打开的chrome
+    return true
   }
 
   encodeThreadId(input: LarkThreadId): string {

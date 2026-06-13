@@ -17,6 +17,19 @@ import { expectOctetStream } from './validators'
 const NDJSON = 'application/x-ndjson'
 const JSON_CT = 'application/json'
 
+// Fallback command budget when the caller omits `timeout` (mirrors the worker's
+// own DEFAULT_TIMEOUT_MS), and the grace added on top before the client gives up
+// on a silent stream: the worker still has to detect its server-side timeout,
+// SIGTERM, wait the kill grace, SIGKILL, and flush the terminal frame.
+const DEFAULT_COMMAND_TIMEOUT_MS = 60_000
+const COMMAND_IDLE_GRACE_MS = 30_000
+
+/** A `wait:true` stream is silent until the worker's own timeout fires; bound the client at timeout + grace. */
+function commandIdleTimeoutMs(body: { wait: boolean; timeout?: number }): number | undefined {
+  if (!body.wait) return undefined
+  return (body.timeout ?? DEFAULT_COMMAND_TIMEOUT_MS) + COMMAND_IDLE_GRACE_MS
+}
+
 export interface CommandRequest {
   command: string
   args?: string[]
@@ -85,6 +98,7 @@ export class WorkerClient extends BaseClient {
       accept: NDJSON,
       contentType: JSON_CT,
       body: JSON.stringify(body),
+      idleTimeoutMs: commandIdleTimeoutMs(body),
       signal
     })
   }
@@ -96,6 +110,7 @@ export class WorkerClient extends BaseClient {
       accept: NDJSON,
       contentType: JSON_CT,
       body: JSON.stringify(body),
+      idleTimeoutMs: commandIdleTimeoutMs(body),
       signal
     })
   }

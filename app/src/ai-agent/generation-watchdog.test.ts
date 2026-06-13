@@ -2,7 +2,7 @@ import { describe, expect, it } from 'bun:test'
 import { GenerationStallWatchdog } from './generation-watchdog'
 
 describe('GenerationStallWatchdog', () => {
-  it('fires onStall exactly once after sustained silence', async () => {
+  it('fires onStall exactly once after sustained silence on an armed call', async () => {
     let stalls = 0
     const watchdog = new GenerationStallWatchdog({
       stallTimeoutMs: 40,
@@ -11,13 +11,13 @@ describe('GenerationStallWatchdog', () => {
         stalls += 1
       }
     })
-    watchdog.start()
+    watchdog.arm()
     await Bun.sleep(150)
     expect(stalls).toBe(1)
     watchdog.stop()
   })
 
-  it('stays quiet while events flow, then fires once they stop', async () => {
+  it('stays quiet while content streams, then fires once it stops', async () => {
     let stalls = 0
     const watchdog = new GenerationStallWatchdog({
       stallTimeoutMs: 80,
@@ -26,10 +26,10 @@ describe('GenerationStallWatchdog', () => {
         stalls += 1
       }
     })
-    watchdog.start()
+    watchdog.arm()
     for (let i = 0; i < 6; i++) {
       await Bun.sleep(20)
-      watchdog.touch()
+      watchdog.touchContent()
     }
     expect(stalls).toBe(0)
     await Bun.sleep(200)
@@ -37,7 +37,7 @@ describe('GenerationStallWatchdog', () => {
     watchdog.stop()
   })
 
-  it('applies the tight gap budget once content streams, and resets at boundaries', async () => {
+  it('applies the tight gap budget once content streams', async () => {
     const stalls: string[] = []
     const watchdog = new GenerationStallWatchdog({
       stallTimeoutMs: 500,
@@ -47,8 +47,8 @@ describe('GenerationStallWatchdog', () => {
         stalls.push(phase)
       }
     })
-    watchdog.start()
-    // Boundary-only silence stays under the generous budget.
+    watchdog.arm()
+    // Awaiting first content: generous budget, no stall yet.
     await Bun.sleep(100)
     expect(stalls).toHaveLength(0)
     // Content starts streaming, then the pipe dies: tight budget fires.
@@ -58,21 +58,42 @@ describe('GenerationStallWatchdog', () => {
     watchdog.stop()
   })
 
-  it('a boundary event after content returns to the generous budget', async () => {
+  it('does not stall during tool execution: disarm stops the clock past the budget', async () => {
     let stalls = 0
     const watchdog = new GenerationStallWatchdog({
-      stallTimeoutMs: 400,
+      stallTimeoutMs: 30,
       streamGapTimeoutMs: 30,
       checkIntervalMs: 5,
       onStall: () => {
         stalls += 1
       }
     })
-    watchdog.start()
+    watchdog.arm()
     watchdog.touchContent()
-    watchdog.touch() // turn ended / tool started: silent tool work is allowed again
+    // The LLM stream ended and a (possibly long) tool call begins; the watchdog
+    // must ignore that silence entirely — a slow tool is not an LLM stall.
+    watchdog.disarm()
+    expect(watchdog.isWatchingLlmStream()).toBe(false)
+    expect(watchdog.silentForMs()).toBe(0)
     await Bun.sleep(120)
     expect(stalls).toBe(0)
+    watchdog.stop()
+  })
+
+  it('re-arms for the next call after a tool pause', async () => {
+    let stalls = 0
+    const watchdog = new GenerationStallWatchdog({
+      stallTimeoutMs: 40,
+      checkIntervalMs: 5,
+      onStall: () => {
+        stalls += 1
+      }
+    })
+    watchdog.arm()
+    watchdog.disarm() // first call finished, tool ran
+    watchdog.arm() // next call's stream opened — watched again
+    await Bun.sleep(150)
+    expect(stalls).toBe(1)
     watchdog.stop()
   })
 
@@ -85,7 +106,7 @@ describe('GenerationStallWatchdog', () => {
         stalls += 1
       }
     })
-    watchdog.start()
+    watchdog.arm()
     watchdog.stop()
     await Bun.sleep(100)
     expect(stalls).toBe(0)
