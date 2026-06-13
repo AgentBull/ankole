@@ -33,13 +33,9 @@ export function renderInteractiveOutputToLarkCard(output: BullXInteractiveOutput
       })
     }
 
-    if (output.response.options.length > 0) {
-      elements.push({
-        tag: 'action',
-        actions: output.response.options.map(option =>
-          choiceButton(output.response as BullXInteractiveOutputChoiceResponse, option, output)
-        )
-      })
+    // Card JSON 2.0 rejects the `action` wrapper module; buttons sit directly in elements.
+    for (const option of output.response.options) {
+      elements.push(choiceButton(output.response as BullXInteractiveOutputChoiceResponse, option, output))
     }
   }
 
@@ -59,6 +55,8 @@ export function renderInteractiveOutputToLarkCard(output: BullXInteractiveOutput
     ...(output.content.title ? { header: { title: { tag: 'plain_text', content: output.content.title } } } : {}),
     body: {
       direction: 'vertical',
+      horizontal_spacing: '8px',
+      vertical_spacing: '8px',
       padding: '12px 12px 12px 12px',
       elements
     }
@@ -81,7 +79,7 @@ function choiceButton(
     },
     ...(option.style && option.style !== 'default' ? { type: option.style } : {}),
     ...(locked ? { disabled: true } : {}),
-    value: actionValue(response, option)
+    behaviors: [{ type: 'callback', value: actionValue(response, option) }]
   }
 }
 

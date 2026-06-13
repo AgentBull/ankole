@@ -277,6 +277,19 @@ interface LlmTurnFinish {
   usage?: JsonObject
 }
 
+interface OpenLlmTurnIntrospection {
+  llmTurnId: string
+  callIndex: number
+  runningForMs: number
+  providerResponse: {
+    status?: number
+    generationId?: string
+    cfRay?: string
+    forwardedRequestId?: string
+    headersAfterMs: number
+  } | null
+}
+
 class GenerationTrajectoryRecorder {
   private callIndex: number
   private readonly startCallIndex: number
@@ -424,14 +437,40 @@ class GenerationTrajectoryRecorder {
   }
 
   /** The in-flight LLM call, if any — progress-log introspection for "wedged or just long". */
-  openLlmTurn(): { llmTurnId: string; callIndex: number; runningForMs: number } | undefined {
+  openLlmTurn(): OpenLlmTurnIntrospection | undefined {
     if (!this.openTurnId || this.openTurnCallIndex === undefined || this.openTurnStartedAtMs === undefined) {
       return undefined
     }
     return {
       llmTurnId: this.openTurnId,
       callIndex: this.openTurnCallIndex,
-      runningForMs: Date.now() - this.openTurnStartedAtMs
+      runningForMs: Date.now() - this.openTurnStartedAtMs,
+      providerResponse: this.openTurnProviderResponse()
+    }
+  }
+
+  /**
+   * Transport-level forensics for the in-flight call. `null` = the HTTP request
+   * is still awaiting response headers (connect/accept problem, bounded by the
+   * SDK header timeout). Non-null with a growing silence = the provider accepted
+   * the request and then its event stream went mute — a provider/gateway-side
+   * wedge; `requestId` is the handle to chase it upstream.
+   */
+  private openTurnProviderResponse(): OpenLlmTurnIntrospection['providerResponse'] {
+    if (!this.openTurnId || this.openTurnStartedAtMs === undefined) return null
+    const observation = this.providerObservations.get(this.openTurnId)
+    const observedAtMs = typeof observation?.observed_at === 'string' ? Date.parse(observation.observed_at) : Number.NaN
+    if (Number.isNaN(observedAtMs)) return null
+    return {
+      ...(typeof observation?.response_status === 'number' ? { status: observation.response_status } : {}),
+      ...(typeof observation?.provider_generation_id === 'string'
+        ? { generationId: observation.provider_generation_id }
+        : {}),
+      ...(typeof observation?.provider_cf_ray === 'string' ? { cfRay: observation.provider_cf_ray } : {}),
+      ...(typeof observation?.forwarded_request_id === 'string'
+        ? { forwardedRequestId: observation.forwarded_request_id }
+        : {}),
+      headersAfterMs: observedAtMs - this.openTurnStartedAtMs
     }
   }
 
@@ -1965,6 +2004,10 @@ export class AiAgentRuntime {
         stallTimeoutMs: input.profile.generation.stallTimeoutMs,
         streamGapTimeoutMs: input.profile.generation.streamGapTimeoutMs,
         onStall: (silentForMs, phase) => {
+          // openLlmTurn.providerResponse separates the wedge modes: null =
+          // response headers never arrived; non-null = the provider accepted the
+          // request (status/requestId/headersAfterMs) and its stream then went
+          // mute — chase the requestId on the provider/gateway side.
           logger.warn(
             {
               agentUid: input.context.agentUid,
@@ -1973,7 +2016,8 @@ export class AiAgentRuntime {
               silentForMs,
               phase,
               stallTimeoutMs: input.profile.generation.stallTimeoutMs,
-              streamGapTimeoutMs: input.profile.generation.streamGapTimeoutMs
+              streamGapTimeoutMs: input.profile.generation.streamGapTimeoutMs,
+              openLlmTurn: recorder.openLlmTurn() ?? null
             },
             'AI agent generation made no progress within the stall budget; aborting run'
           )
@@ -3787,8 +3831,25 @@ function observeProviderResponse(observation: JsonObject, response: unknown): vo
   if (!response || typeof response !== 'object') return
   const { status, headers } = response as { status?: unknown; headers?: unknown }
   if (typeof status === 'number') observation.response_status = status
-  const requestId = headerValue(headers, 'x-request-id') ?? headerValue(headers, 'request-id')
-  if (requestId) observation.provider_request_id = requestId
+  // OpenRouter's own request id (req-…) and upstream id (chatcmpl-…) live only
+  // in the GET /api/v1/generation body, never in response headers — so a stalled
+  // stream cannot capture them inline. The only OpenRouter handle present in the
+  // headers is X-Generation-Id (gen-…), allocated up front and sent before any
+  // token (and before the ": OPENROUTER PROCESSING" keepalive comments), so even
+  // a stream that never emits a token still records it. It is the query key for
+  // /api/v1/generation, which then yields request_id / upstream_id / latency /
+  // generation_time / cancelled / finish_reason.
+  const generationId = headerValue(headers, 'x-generation-id')
+  if (generationId) observation.provider_generation_id = generationId
+  // Cloudflare-fronted providers (OpenRouter): cf-ray is the handle CF support
+  // needs to trace a request that died after response headers.
+  const cfRay = headerValue(headers, 'cf-ray')
+  if (cfRay) observation.provider_cf_ray = cfRay
+  // x-request-id, when present, is injected by an intermediate hop
+  // (cross-walker-proxy / ingress / CF) — it is NOT OpenRouter's request id, so
+  // it is named for what it is and kept only as a cross-hop correlation breadcrumb.
+  const forwardedRequestId = headerValue(headers, 'x-request-id') ?? headerValue(headers, 'request-id')
+  if (forwardedRequestId) observation.forwarded_request_id = forwardedRequestId
   observation.observed_at = new Date().toISOString()
 }
 

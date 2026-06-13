@@ -35,7 +35,14 @@ const sqlClient = (globalThis.__bullxSqlClient ??= new BunSQL(AppEnv.DATABASE_UR
     logger.trace('PostgreSQL connection opened')
   },
   onclose: error => {
-    if (error && !closingDatabase) logger.error({ error }, 'PostgreSQL connection closed with error')
+    if (!error || closingDatabase) return
+    // Bun reports the pool's own idleTimeout reap (configured above) as an
+    // error-shaped close; that is routine churn, not a failure.
+    if ((error as { code?: string }).code === 'ERR_POSTGRES_IDLE_TIMEOUT') {
+      logger.trace({ error }, 'PostgreSQL connection closed by idle timeout reap')
+      return
+    }
+    logger.error({ error }, 'PostgreSQL connection closed with error')
   }
 }))
 

@@ -147,8 +147,10 @@ describe('LarkStreamingCardSession', () => {
 
     const created = calls.find(c => c.kind === 'card.create')
     const card = JSON.parse(created!.data.data)
-    const action = card.body.elements.find((element: any) => element.tag === 'action')
-    expect(action.actions[0]).toMatchObject({
+    // Card JSON 2.0 dropped the `action` wrapper module: buttons live directly in elements.
+    expect(card.body.elements.some((element: any) => element.tag === 'action')).toBe(false)
+    const button = card.body.elements.find((element: any) => element.tag === 'button')
+    expect(button).toMatchObject({
       tag: 'button',
       text: { content: '查看推理' },
       behaviors: [

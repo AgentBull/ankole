@@ -377,22 +377,18 @@ function streamingCardDefinition(initialText: string, traceUrl?: string): Record
     }
   ]
   if (traceUrl) {
+    // Card JSON 2.0 rejects the `action` wrapper module; buttons sit directly in elements.
     elements.push({
-      tag: 'action',
-      actions: [
+      tag: 'button',
+      text: { tag: 'plain_text', content: '查看推理' },
+      type: 'default',
+      behaviors: [
         {
-          tag: 'button',
-          text: { tag: 'plain_text', content: '查看推理' },
-          type: 'default',
-          behaviors: [
-            {
-              type: 'open_url',
-              default_url: traceUrl,
-              pc_url: traceUrl,
-              ios_url: traceUrl,
-              android_url: traceUrl
-            }
-          ]
+          type: 'open_url',
+          default_url: traceUrl,
+          pc_url: traceUrl,
+          ios_url: traceUrl,
+          android_url: traceUrl
         }
       ]
     })
