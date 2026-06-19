@@ -1,4 +1,7 @@
-import type { BullXExternalGatewayExternalIdentitySink } from '@agentbull/bullx-sdk/plugins'
+import {
+  isBullXExternalGatewayGroupMessageMode,
+  type BullXExternalGatewayExternalIdentitySink
+} from '@agentbull/bullx-sdk/plugins'
 import { get, isNonEmptyString, isString } from '@pleisto/active-support'
 import { aiAgentRuntime } from '@/ai-agent/runtime'
 import type { Runtime } from '@/common/lifecycle'
@@ -599,8 +602,6 @@ export class ExternalGatewayRuntime implements Runtime<ExternalGatewayRuntimeSta
   }
 }
 
-const groupMessageModes = new Set<GroupMessageMode>(['addressed_only', 'observe_all', 'may_intervene'])
-
 function resolveGroupMessageMode(
   binding: AgentExternalBinding,
   config: AppConfigJsonValue | undefined
@@ -615,7 +616,7 @@ function resolveGroupMessageMode(
 
 function groupMessageModeFromConfig(config: AppConfigJsonValue | undefined): GroupMessageMode | undefined {
   const mode = get(config, 'group_message_mode') ?? get(config, 'groupMessageMode')
-  return isString(mode) && groupMessageModes.has(mode as GroupMessageMode) ? (mode as GroupMessageMode) : undefined
+  return isString(mode) && isBullXExternalGatewayGroupMessageMode(mode) ? mode : undefined
 }
 
 function providerRealmIdFromPayload(payload: unknown): string | undefined {

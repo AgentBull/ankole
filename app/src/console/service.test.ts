@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
-import { getModels, getProviders } from '@earendil-works/pi-ai'
+import { getModels, getProviders } from '@/llm'
 import path from 'node:path'
 import { loadTestEnvFiles } from '@/common/tests/load-test-env'
 
@@ -95,7 +95,7 @@ describe('console agents', () => {
     const providerId = llmProviderId('agent')
     await createLlmProvider({
       providerId,
-      piProvider: catalog.provider,
+      llmProvider: catalog.provider,
       apiKey: 'sk-test'
     })
     await createConsoleAgent(uid)
@@ -380,5 +380,5 @@ function firstCatalogModel() {
     const [model] = getModels(provider as never)
     if (model) return { provider, model }
   }
-  throw new Error('Pi catalog did not expose any models')
+  throw new Error('LLM catalog did not expose any models')
 }

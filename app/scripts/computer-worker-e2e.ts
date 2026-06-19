@@ -1,10 +1,5 @@
 import assert from 'node:assert/strict'
-import {
-  fauxAssistantMessage,
-  fauxToolCall,
-  registerFauxProvider,
-  type FauxProviderRegistration
-} from '@earendil-works/pi-ai'
+import { fauxAssistantMessage, fauxToolCall, registerFauxProvider, type FauxProviderRegistration } from '@/llm'
 import { and, eq, sql } from 'drizzle-orm'
 import type { AiAgentRuntimeProfile } from '../src/ai-agent/config'
 import type {
@@ -38,7 +33,10 @@ const { fullMockImCapabilities, MockImPlatform: MockImPlatformCtor } =
 const { AiAgentRuntime } = await import('@/ai-agent/runtime')
 const { resolveComputerWorker } = await import('@/computer/service')
 
-const workerId = Bun.env.BULLX_COMPUTER_E2E_WORKER_ID ?? 'dev'
+const workerId = requiredEnv(
+  'BULLX_COMPUTER_E2E_WORKER_ID',
+  'Set BULLX_COMPUTER_E2E_WORKER_ID to an isolated test worker id; the script no longer defaults to the dev worker because that reuses stale computer workspaces.'
+)
 const workerBaseUrl = (
   Bun.env.BULLX_COMPUTER_E2E_WORKER_URL ?? `https://localhost:${Bun.env.BULLX_COMPUTER_PORT ?? '8787'}`
 ).replace(/\/$/, '')
@@ -51,6 +49,12 @@ const roomIds = new Set<string>()
 let runtime: InstanceType<typeof ExternalGatewayRuntime> | undefined
 let aiRuntime: InstanceType<typeof AiAgentRuntime> | undefined
 let registration: FauxProviderRegistration | undefined
+
+function requiredEnv(name: string, message: string): string {
+  const value = Bun.env[name]?.trim()
+  assert.ok(value, message)
+  return value
+}
 
 try {
   await requireDevWorker()
@@ -292,7 +296,7 @@ async function runtimeProfile(currentRegistration: FauxProviderRegistration): Pr
       config: {
         model: 'primary',
         providerId: `${primary.provider}_local`,
-        piProvider: primary.provider,
+        llmProvider: primary.provider,
         reasoning: 'medium'
       },
       model: primary,
@@ -300,13 +304,13 @@ async function runtimeProfile(currentRegistration: FauxProviderRegistration): Pr
       profile: 'primary'
     },
     lightModel: {
-      config: { model: 'light', providerId: `${light.provider}_local`, piProvider: light.provider, reasoning: 'low' },
+      config: { model: 'light', providerId: `${light.provider}_local`, llmProvider: light.provider, reasoning: 'low' },
       model: light,
       options: { reasoning: 'low' },
       profile: 'light'
     },
     heavyModel: {
-      config: { model: 'heavy', providerId: `${heavy.provider}_local`, piProvider: heavy.provider, reasoning: 'high' },
+      config: { model: 'heavy', providerId: `${heavy.provider}_local`, llmProvider: heavy.provider, reasoning: 'high' },
       model: heavy,
       options: { reasoning: 'high' },
       profile: 'heavy'

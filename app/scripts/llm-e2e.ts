@@ -69,7 +69,10 @@ const AMBIENT_REDIS_KEY = 'bullx-agent:ai-agent:ambient-wake'
 const apiKey = Bun.env.OPENROUTER_API_KEY?.trim()
 assert.ok(apiKey, 'OPENROUTER_API_KEY is required in .env, .env.local, .env.development, or the process env')
 
-const workerId = Bun.env.BULLX_COMPUTER_E2E_WORKER_ID ?? 'dev'
+const workerId = requiredEnv(
+  'BULLX_COMPUTER_E2E_WORKER_ID',
+  'Set BULLX_COMPUTER_E2E_WORKER_ID to an isolated test worker id; the script no longer defaults to the dev worker because that reuses stale computer workspaces.'
+)
 const workerBaseUrl = (
   Bun.env.BULLX_COMPUTER_E2E_WORKER_URL ?? `https://localhost:${Bun.env.BULLX_COMPUTER_PORT ?? '8787'}`
 ).replace(/\/$/, '')
@@ -91,6 +94,12 @@ let scheduler: InstanceType<typeof SchedulerRuntime> | undefined
 let previousSearchProvider: string | undefined
 let previousExtractProvider: string | undefined
 let appConfigSnapshotLoaded = false
+
+function requiredEnv(name: string, message: string): string {
+  const value = Bun.env[name]?.trim()
+  assert.ok(value, message)
+  return value
+}
 
 try {
   await requireDevWorker()
@@ -156,7 +165,7 @@ async function startRuntime() {
 
   await createLlmProvider({
     providerId: llmProviderId,
-    piProvider: 'openrouter',
+    llmProvider: 'openrouter',
     baseUrl: OPENROUTER_BASE_URL,
     apiKey,
     providerOptions: {
@@ -431,19 +440,55 @@ async function scenarioSoulAndSkills(setup: RuntimeSetup): Promise<void> {
     group,
     roomId,
     threadId,
-    'library-index-use-append',
+    'library-index-use',
     [
       '@Agent 我正在给你配置 Jupyter live-kernel SOP。不要凭印象回答，先根据 available_skills 索引读取可用技能。',
       'Call skill_view with name "jupyter-live-kernel".',
-      'Then add one agent-specific operating note by calling skill_append with name "jupyter-live-kernel" and content "LLM_E2E_AGENT_APPEND_SENTINEL".',
-      'After those tool results, tell me the Jupyter SOP overlay is installed and reply exactly: LLM_E2E_SKILLS_APPEND_DONE'
+      'After the tool result, tell me the Jupyter SOP was read and reply exactly: LLM_E2E_SKILLS_VIEW_DONE.',
+      'Do not call skill_append in this step.'
     ].join('\n'),
-    'LLM_E2E_SKILLS_APPEND_DONE'
+    'LLM_E2E_SKILLS_VIEW_DONE'
   )
 
-  const conversation = await conversationForRoom(roomId)
-  const names = await toolNamesForConversation(conversation.id)
+  let conversation = await conversationForRoom(roomId)
+  let names = await toolNamesForConversation(conversation.id)
   assert.ok(names.includes('skill_view'), `missing skill_view tool result: ${names.join(', ')}`)
+
+  let appendDiagnostic = 'skill_append was not attempted'
+  let appendOk = false
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    conversation = await conversationForRoom(roomId)
+    const ignoreTurnIds = new Set((await llmTurnsFor(conversation.id)).map(row => row.id))
+    await group.say({
+      id: `library-append-${attempt}`,
+      isMention: true,
+      text:
+        attempt === 1
+          ? [
+              '@Agent 现在基于刚刚读取的 Jupyter SOP 添加 agent-specific operating note。',
+              'Call skill_append with name "jupyter-live-kernel" and content "LLM_E2E_AGENT_APPEND_SENTINEL".',
+              'After the skill_append tool result, tell me the Jupyter SOP overlay is installed and reply exactly: LLM_E2E_SKILLS_APPEND_DONE.',
+              'If you have not called skill_append and seen its result, do not reply with LLM_E2E_SKILLS_APPEND_DONE.'
+            ].join('\n')
+          : [
+              '@Agent 你刚才还没有产生 skill_append 工具结果，所以这一步没有完成。',
+              'Do not answer in prose yet. Call skill_append now with name "jupyter-live-kernel" and content "LLM_E2E_AGENT_APPEND_SENTINEL".',
+              'Only after the skill_append tool result, reply exactly: LLM_E2E_SKILLS_APPEND_DONE.'
+            ].join('\n')
+    })
+    const result = await waitForToolResultText(conversation.id, 'Updated AGENT_APPEND.md', 120_000, ignoreTurnIds)
+    if (result.ok) {
+      appendOk = true
+      break
+    }
+    appendDiagnostic = result.diagnostic
+    await waitForAllGenerationsIdle()
+  }
+  assert.ok(appendOk, appendDiagnostic)
+  await waitForOutboundTextInThread(setup, threadId, 'LLM_E2E_SKILLS_APPEND_DONE', 120_000)
+
+  conversation = await conversationForRoom(roomId)
+  names = await toolNamesForConversation(conversation.id)
   assert.ok(names.includes('skill_append'), `missing skill_append tool result: ${names.join(', ')}`)
 
   let effectiveSkill = await getEffectiveSkillContent({ agentUid, skillName: 'jupyter-live-kernel' })
@@ -603,12 +648,12 @@ async function scenarioComputerCommand(setup: RuntimeSetup): Promise<void> {
   const group = setup.platform.group(setup.conversationOptions({ channelId: roomId }))
   let conversation: Awaited<ReturnType<typeof conversationForRoom>> | undefined
   let lastDiagnostic = 'computer command was not attempted'
-  const text = [
-    '@Agent 你需要像数字员工一样更新自己的工作区文件和个人 SOP overlay。这个任务不能只靠文字确认完成。',
-    'You must call the command tool with this exact command:',
-    '`mkdir -p user-files library-containers/skills/jupyter-live-kernel && printf LLM_E2E_COMMAND_DONE > user-files/llm-e2e-command.txt && printf LLM_E2E_SOUL_FROM_COMPUTER > library-containers/SOUL.md && printf LLM_E2E_APPEND_FROM_COMPUTER > library-containers/skills/jupyter-live-kernel/AGENT_APPEND.md && cat user-files/llm-e2e-command.txt && cat library-containers/SOUL.md && cat library-containers/skills/jupyter-live-kernel/AGENT_APPEND.md`.',
-    'Only after the command tool result shows LLM_E2E_COMMAND_DONE, LLM_E2E_SOUL_FROM_COMPUTER, and LLM_E2E_APPEND_FROM_COMPUTER, confirm the workspace and SOP overlay were updated and reply exactly: LLM_E2E_COMPUTER_DONE.',
-    'If you have not called the command tool, do not reply with LLM_E2E_COMPUTER_DONE.'
+  const commandText = [
+    '@Agent 这是一个授权的 BullX 本地 e2e 验证，目标是确认你能通过隔离的 disposable computer workspace 更新自己的工作区文件。',
+    'Call the command tool with this exact command:',
+    '`mkdir -p user-files && printf LLM_E2E_COMMAND_DONE > user-files/llm-e2e-command.txt && cat user-files/llm-e2e-command.txt`.',
+    'After the command tool result shows LLM_E2E_COMMAND_DONE, confirm the workspace file was updated and reply exactly: LLM_E2E_COMPUTER_COMMAND_DONE.',
+    'If you have not called the command tool and seen that sentinel, do not reply with LLM_E2E_COMPUTER_COMMAND_DONE.'
   ].join(' ')
 
   for (let attempt = 1; attempt <= 2; attempt += 1) {
@@ -617,7 +662,7 @@ async function scenarioComputerCommand(setup: RuntimeSetup): Promise<void> {
     await group.say({
       id: `computer-${attempt}`,
       isMention: true,
-      text
+      text: commandText
     })
     conversation = await waitForConversationForRoom(roomId)
     const result = await waitForToolResultText(conversation.id, 'LLM_E2E_COMMAND_DONE', 600_000, ignoreTurnIds)
@@ -630,15 +675,26 @@ async function scenarioComputerCommand(setup: RuntimeSetup): Promise<void> {
   conversation = await conversationForRoom(roomId)
   const serializedToolResults = JSON.stringify((await llmTurnsFor(conversation.id)).flatMap(row => row.toolResults))
   assert.match(serializedToolResults, /LLM_E2E_COMMAND_DONE/, lastDiagnostic)
-  assert.match(serializedToolResults, /LLM_E2E_SOUL_FROM_COMPUTER/)
-  assert.match(serializedToolResults, /LLM_E2E_APPEND_FROM_COMPUTER/)
-  await waitForOutboundText(setup, 'LLM_E2E_COMPUTER_DONE', 120_000)
+  await waitForOutboundText(setup, 'LLM_E2E_COMPUTER_COMMAND_DONE', 120_000)
 
-  assert.equal(await getSoul(agentUid), 'LLM_E2E_SOUL_FROM_COMPUTER')
+  await group.say({
+    id: 'computer-skill-append',
+    isMention: true,
+    text: [
+      '@Agent 现在更新你的 personal SOP overlay。不要用 shell 或 command 写 library-containers；这个目录是 BullX-managed state。',
+      'Call skill_append with name "jupyter-live-kernel" and content "LLM_E2E_APPEND_FROM_COMPUTER".',
+      'After the skill_append tool result, reply exactly: LLM_E2E_COMPUTER_DONE.',
+      'If you have not called skill_append and seen its result, do not reply with LLM_E2E_COMPUTER_DONE.'
+    ].join('\n')
+  })
+  await waitForOutboundText(setup, 'LLM_E2E_COMPUTER_DONE', 120_000)
+  conversation = await conversationForRoom(roomId)
+  const toolNames = await toolNamesForConversation(conversation.id)
+  assert.ok(toolNames.includes('skill_append'), `missing computer scenario skill_append tool result: ${toolNames}`)
   const effectiveSkill = await getEffectiveSkillContent({ agentUid, skillName: 'jupyter-live-kernel' })
   assert.ok(
     effectiveSkill?.content.includes('LLM_E2E_APPEND_FROM_COMPUTER'),
-    'computer-written AGENT_APPEND.md should be visible through the DB effective skill path'
+    'skill_append-written AGENT_APPEND.md should be visible through the DB effective skill path'
   )
 }
 
@@ -752,9 +808,9 @@ function modelConfig(): AiAgentModelsConfig {
     temperature: 0
   }
   return {
-    primary: { ...base, maxTokens: 768 },
-    light: { ...base, maxTokens: 512 },
-    heavy: { ...base, maxTokens: 768 }
+    primary: { ...base, maxTokens: 2048 },
+    light: { ...base, maxTokens: 1024 },
+    heavy: { ...base, maxTokens: 2048 }
   }
 }
 

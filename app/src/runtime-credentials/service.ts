@@ -1,6 +1,7 @@
-import { aeadDecrypt, aeadEncrypt, genUUIDv7, genericHash } from '@agentbull/bullx-native-addons'
+import { genUUIDv7, genericHash } from '@agentbull/bullx-native-addons'
 import type { Computer } from '@agentbull/bullx-computer'
 import { and, eq, isNull, sql } from 'drizzle-orm'
+import { sealText, unsealText } from '@/common/aead-seal'
 import { DB, jsonbParam, type QueryExecutor } from '@/common/database'
 import { RuntimeCredentials, type JsonObject } from '@/common/db-schema'
 import { getSecretKey, SecretKeyPurpose } from '@/common/kms'
@@ -178,11 +179,11 @@ function scopeWhere(ref: RuntimeCredentialRef, scope: RuntimeCredentialScope) {
 }
 
 function encryptPayload(ref: RuntimeCredentialRef, scope: RuntimeCredentialScope, payload: string): string {
-  return aeadEncrypt(payload, encryptionKey(ref, scope))
+  return sealText(payload, encryptionKey(ref, scope))
 }
 
 function decryptPayload(ref: RuntimeCredentialRef, scope: RuntimeCredentialScope, encryptedPayload: string): string {
-  return aeadDecrypt(encryptedPayload, encryptionKey(ref, scope)).toString('utf-8')
+  return unsealText(encryptedPayload, encryptionKey(ref, scope))
 }
 
 function encryptionKey(ref: RuntimeCredentialRef, scope: RuntimeCredentialScope): string {

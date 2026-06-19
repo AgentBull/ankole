@@ -1,6 +1,8 @@
-import { aeadDecrypt, aeadEncrypt, deriveKey, generateMtlsBundle } from '@agentbull/bullx-native-addons'
+import { generateMtlsBundle } from '@agentbull/bullx-native-addons'
+import type { WorkerTlsConfig } from '@agentbull/bullx-computer'
 import { eq, sql } from 'drizzle-orm'
 import { z } from 'zod'
+import { deriveSealKey, sealJson, unsealJson } from '@/common/aead-seal'
 import { DB, jsonbParam } from '@/common/database'
 import { AppConfigure, ConfigureKeyType } from '@/common/db-schema/app-configure'
 import { defineAppConfig, registerAppConfigDefinitions } from '@/config/app-configure'
@@ -38,11 +40,7 @@ const tlsMaterialSchema = z.object({
 
 export type ComputerTlsMaterial = z.infer<typeof tlsMaterialSchema>
 
-export interface ComputerClientTlsConfig {
-  caCert: string
-  cert: string
-  key: string
-}
+export type ComputerClientTlsConfig = WorkerTlsConfig
 
 export async function ensureComputerTlsBundle(): Promise<ComputerTlsMaterial> {
   return DB.transaction(async tx => {
@@ -83,7 +81,7 @@ export function sealComputerTlsBundle(
   const parsed = tlsMaterialSchema.parse(material)
   return {
     version: 1,
-    sealed: aeadEncrypt(JSON.stringify(parsed), computerTlsBundleKey(token))
+    sealed: sealJson(parsed, computerTlsBundleKey(token))
   }
 }
 
@@ -92,15 +90,14 @@ export function unsealComputerTlsBundle(
   token: string = AppEnv.BULLX_COMPUTER_TOKEN
 ): ComputerTlsMaterial {
   try {
-    const plainText = aeadDecrypt(value.sealed, computerTlsBundleKey(token)).toString('utf-8')
-    return tlsMaterialSchema.parse(JSON.parse(plainText))
+    return tlsMaterialSchema.parse(unsealJson(value.sealed, computerTlsBundleKey(token)))
   } catch (error) {
     throw new Error('failed to unseal computer TLS bundle with BULLX_COMPUTER_TOKEN', { cause: error })
   }
 }
 
 function computerTlsBundleKey(token: string): string {
-  return deriveKey(token, 'computer_tls_bundle', COMPUTER_TLS_BUNDLE_KDF_CONTEXT)
+  return deriveSealKey(token, 'computer_tls_bundle', COMPUTER_TLS_BUNDLE_KDF_CONTEXT)
 }
 
 /** Certificate generation lives in the native addon (rcgen); this stays IO + policy. */

@@ -6,24 +6,10 @@ import type {
   Message,
   Model,
   SimpleStreamOptions,
-  streamSimple,
   TextContent,
   ToolResultMessage
-} from '@earendil-works/pi-ai'
+} from '@/llm'
 import type { z } from 'zod'
-
-/**
- * Stream function used by the agent loop.
- *
- * Contract:
- * - Must not throw or return a rejected promise for request/model/runtime failures.
- * - Must return an AssistantMessageEventStream.
- * - Failures must be encoded in the returned stream via protocol events and a
- *   final AssistantMessage with stopReason "error" or "aborted" and errorMessage.
- */
-export type StreamFn = (
-  ...args: Parameters<typeof streamSimple>
-) => ReturnType<typeof streamSimple> | Promise<ReturnType<typeof streamSimple>>
 
 /**
  * Configuration for how tool calls from a single assistant message are executed.
@@ -138,7 +124,7 @@ export interface BeforeLlmCallContext {
   context: AgentContext
   /** Agent messages after `transformContext` and before `convertToLlm`. */
   messages: AgentMessage[]
-  /** Provider-bound LLM context that will be sent to `streamFn`. */
+  /** Provider-bound LLM context that will be sent to the AI SDK model. */
   llmContext: Context
   /** Provider-bound messages; same object as `llmContext.messages`, exposed for convenience. */
   llmMessages: Message[]
@@ -148,7 +134,7 @@ export interface BeforeLlmCallContext {
 
 /** Optional request option updates returned from `beforeLlmCall`. */
 export interface BeforeLlmCallResult {
-  /** Metadata merged into the immediately following `streamFn` call. */
+  /** Metadata attached to BullX-local provider observability for the immediately following request. */
   metadata?: Record<string, unknown>
 }
 
@@ -206,16 +192,6 @@ export interface AgentLoopConfig extends SimpleStreamOptions {
   transformContext?: (messages: AgentMessage[], signal?: AbortSignal) => Promise<AgentMessage[]>
 
   /**
-   * Resolves an API key dynamically for each LLM call.
-   *
-   * Useful for short-lived OAuth tokens (e.g., GitHub Copilot) that may expire
-   * during long-running tool execution phases.
-   *
-   * Contract: must not throw or reject. Return undefined when no key is available.
-   */
-  getApiKey?: (provider: string) => Promise<string | undefined> | string | undefined
-
-  /**
    * Called after each turn fully completes and `turn_end` has been emitted.
    *
    * If it returns true, the loop emits `agent_end` and exits before polling steering or follow-up queues,
@@ -240,7 +216,7 @@ export interface AgentLoopConfig extends SimpleStreamOptions {
    * Called after `transformContext` and `convertToLlm`, immediately before the provider request.
    *
    * This is the only point where the exact model-visible request shape is available.
-   * Return metadata to attach to the immediately following `streamFn` request.
+   * Return metadata to attach to BullX-local observability for the immediately following request.
    */
   beforeLlmCall?: (
     context: BeforeLlmCallContext,
@@ -325,7 +301,7 @@ export interface AgentLoopConfig extends SimpleStreamOptions {
 /**
  * Thinking/reasoning level for models that support it.
  * Note: "xhigh" is only supported by selected model families. Use model thinking-level metadata
- * from @earendil-works/pi-ai to detect support for a concrete model.
+ * from @/llm to detect support for a concrete model.
  */
 export type ThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
 
@@ -403,16 +379,12 @@ export interface AgentToolResult<T> {
 /** Callback used by tools to stream partial execution updates. */
 export type AgentToolUpdateCallback<T = any> = (partialResult: AgentToolResult<T>) => void
 
-export type AgentToolParametersJsonSchema = Record<string, unknown>
-
 /** Tool definition used by the agent runtime. */
 export interface AgentTool<TParameters extends z.ZodType = z.ZodType, TDetails = any> {
   name: string
   description: string
   /** Zod schema owned by BullX business code. */
   schema: TParameters
-  /** Plain JSON Schema generated from `schema` for pi-ai/provider payloads. */
-  parameters: AgentToolParametersJsonSchema
   /** Human-readable label for UI display. */
   label: string
   /**
@@ -437,7 +409,7 @@ export interface AgentTool<TParameters extends z.ZodType = z.ZodType, TDetails =
   executionMode?: ToolExecutionMode
   /**
    * Declared (fail-closed) read-only hint — true means the tool only reads state.
-   * Bullx tool-layer metadata set via `buildTool`; not consumed by the pi loop,
+   * Bullx tool-layer metadata set via `buildTool`; not consumed by the AI SDK loop,
    * reserved for the permission gate. Defaults to false (treated as a write).
    */
   isReadOnly?: boolean

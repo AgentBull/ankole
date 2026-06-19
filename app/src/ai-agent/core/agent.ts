@@ -1,13 +1,4 @@
-import {
-  type ImageContent,
-  type Message,
-  type Model,
-  type SimpleStreamOptions,
-  streamSimple,
-  type TextContent,
-  type ThinkingBudgets,
-  type Transport
-} from '@earendil-works/pi-ai'
+import { type ImageContent, type Message, type Model, type SimpleStreamOptions, type TextContent } from '@/llm'
 import { runAgentLoop, runAgentLoopContinue } from './agent-loop'
 import { textFromAgentMessage } from './bullx'
 import type {
@@ -26,7 +17,6 @@ import type {
   BeforeToolCallResult,
   QueueMode,
   ShouldStopAfterTurnContext,
-  StreamFn,
   ToolExecutionMode
 } from './types'
 
@@ -101,8 +91,6 @@ export interface AgentOptions {
   initialState?: Partial<Omit<AgentState, 'pendingToolCalls' | 'isStreaming' | 'streamingMessage' | 'errorMessage'>>
   convertToLlm?: (messages: AgentMessage[]) => Message[] | Promise<Message[]>
   transformContext?: (messages: AgentMessage[], signal?: AbortSignal) => Promise<AgentMessage[]>
-  streamFn?: StreamFn
-  getApiKey?: (provider: string) => Promise<string | undefined> | string | undefined
   onPayload?: SimpleStreamOptions['onPayload']
   onResponse?: SimpleStreamOptions['onResponse']
   /**
@@ -121,10 +109,7 @@ export interface AgentOptions {
   prepareNextTurn?: (signal?: AbortSignal) => Promise<AgentLoopTurnUpdate | undefined> | AgentLoopTurnUpdate | undefined
   steeringMode?: QueueMode
   followUpMode?: QueueMode
-  sessionId?: string
-  thinkingBudgets?: ThinkingBudgets
-  transport?: Transport
-  maxRetryDelayMs?: number
+  requestOptions?: SimpleStreamOptions
   toolExecution?: ToolExecutionMode
   /** Hard cap on LLM turns per run; on reaching it a tool-free grace summary turn runs, then the loop stops. */
   maxTurns?: number
@@ -188,8 +173,6 @@ export class Agent {
 
   public convertToLlm: (messages: AgentMessage[]) => Message[] | Promise<Message[]>
   public transformContext?: (messages: AgentMessage[], signal?: AbortSignal) => Promise<AgentMessage[]>
-  public streamFn: StreamFn
-  public getApiKey?: (provider: string) => Promise<string | undefined> | string | undefined
   public onPayload?: SimpleStreamOptions['onPayload']
   public onResponse?: SimpleStreamOptions['onResponse']
   public onStreamingText?: (fullText: string) => void
@@ -210,14 +193,7 @@ export class Agent {
     signal?: AbortSignal
   ) => Promise<AgentLoopTurnUpdate | undefined> | AgentLoopTurnUpdate | undefined
   private activeRun?: ActiveRun
-  /** Session identifier forwarded to providers for cache-aware backends. */
-  public sessionId?: string
-  /** Optional per-level thinking token budgets forwarded to the stream function. */
-  public thinkingBudgets?: ThinkingBudgets
-  /** Preferred transport forwarded to the stream function. */
-  public transport: Transport
-  /** Optional cap for provider-requested retry delays. */
-  public maxRetryDelayMs?: number
+  public requestOptions?: SimpleStreamOptions
   /** Tool execution strategy for assistant messages that contain multiple tool calls. */
   public toolExecution: ToolExecutionMode
   /** Hard cap on LLM turns per run; on reaching it a tool-free grace summary turn runs, then the loop stops. */
@@ -229,8 +205,6 @@ export class Agent {
     this._state = createMutableAgentState(options.initialState)
     this.convertToLlm = options.convertToLlm ?? defaultConvertToLlm
     this.transformContext = options.transformContext
-    this.streamFn = options.streamFn ?? streamSimple
-    this.getApiKey = options.getApiKey
     this.onPayload = options.onPayload
     this.onResponse = options.onResponse
     this.onStreamingText = options.onStreamingText
@@ -241,10 +215,7 @@ export class Agent {
     this.prepareNextTurn = options.prepareNextTurn
     this.steeringQueue = new PendingMessageQueue(options.steeringMode ?? 'one-at-a-time')
     this.followUpQueue = new PendingMessageQueue(options.followUpMode ?? 'one-at-a-time')
-    this.sessionId = options.sessionId
-    this.thinkingBudgets = options.thinkingBudgets
-    this.transport = options.transport ?? 'auto'
-    this.maxRetryDelayMs = options.maxRetryDelayMs
+    this.requestOptions = options.requestOptions
     this.toolExecution = options.toolExecution ?? 'parallel'
     this.maxTurns = options.maxTurns
     this.nudgeOnEmptyAfterTools = options.nudgeOnEmptyAfterTools ?? false
@@ -422,8 +393,7 @@ export class Agent {
         this.createContextSnapshot(),
         this.createLoopConfig(options),
         event => this.processEvents(event),
-        signal,
-        this.streamFn
+        signal
       )
     })
   }
@@ -434,8 +404,7 @@ export class Agent {
         this.createContextSnapshot(),
         this.createLoopConfig(),
         event => this.processEvents(event),
-        signal,
-        this.streamFn
+        signal
       )
     })
   }
@@ -452,13 +421,10 @@ export class Agent {
     let skipInitialSteeringPoll = options.skipInitialSteeringPoll === true
     return {
       model: this._state.model,
-      reasoning: this._state.thinkingLevel === 'off' ? undefined : this._state.thinkingLevel,
-      sessionId: this.sessionId,
-      onPayload: this.onPayload,
-      onResponse: this.onResponse,
-      transport: this.transport,
-      thinkingBudgets: this.thinkingBudgets,
-      maxRetryDelayMs: this.maxRetryDelayMs,
+      ...this.requestOptions,
+      reasoning: this._state.thinkingLevel === 'off' ? 'none' : this._state.thinkingLevel,
+      onPayload: this.onPayload ?? this.requestOptions?.onPayload,
+      onResponse: this.onResponse ?? this.requestOptions?.onResponse,
       toolExecution: this.toolExecution,
       maxTurns: this.maxTurns,
       nudgeOnEmptyAfterTools: this.nudgeOnEmptyAfterTools,
@@ -471,7 +437,6 @@ export class Agent {
       prepareNextTurn: this.prepareNextTurn ? async () => await this.prepareNextTurn?.(this.signal) : undefined,
       convertToLlm: this.convertToLlm,
       transformContext: this.transformContext,
-      getApiKey: this.getApiKey,
       getSteeringMessages: async () => {
         if (skipInitialSteeringPoll) {
           skipInitialSteeringPoll = false

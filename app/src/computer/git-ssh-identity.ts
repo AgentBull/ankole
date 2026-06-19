@@ -1,9 +1,10 @@
-import { aeadDecrypt, aeadEncrypt, deriveKey, genericHash } from '@agentbull/bullx-native-addons'
+import { genericHash } from '@agentbull/bullx-native-addons'
 import { eq, sql } from 'drizzle-orm'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { z } from 'zod'
+import { deriveSealKey, sealJson, unsealJson } from '@/common/aead-seal'
 import { DB, jsonbParam } from '@/common/database'
 import { AppConfigure, ConfigureKeyType } from '@/common/db-schema/app-configure'
 import { defineAppConfig, registerAppConfigDefinitions } from '@/config/app-configure'
@@ -71,7 +72,7 @@ export function sealComputerGitSshIdentity(
     version: 1,
     publicKeyOpenSsh: parsed.publicKeyOpenSsh,
     publicKeyBlake3: genericHash(parsed.publicKeyOpenSsh),
-    sealed: aeadEncrypt(JSON.stringify(parsed), computerGitSshIdentityKey(token))
+    sealed: sealJson(parsed, computerGitSshIdentityKey(token))
   }
 }
 
@@ -80,8 +81,7 @@ export function unsealComputerGitSshIdentity(
   token: string = AppEnv.BULLX_COMPUTER_TOKEN
 ): ComputerGitSshIdentityMaterial {
   try {
-    const plainText = aeadDecrypt(value.sealed, computerGitSshIdentityKey(token)).toString('utf-8')
-    const material = gitSshIdentityMaterialSchema.parse(JSON.parse(plainText))
+    const material = gitSshIdentityMaterialSchema.parse(unsealJson(value.sealed, computerGitSshIdentityKey(token)))
     if (material.publicKeyOpenSsh !== value.publicKeyOpenSsh) {
       throw new Error('public key mismatch')
     }
@@ -118,5 +118,5 @@ export async function generateComputerGitSshIdentityMaterial(): Promise<Computer
 }
 
 function computerGitSshIdentityKey(token: string): string {
-  return deriveKey(token, 'computer_git_ssh_identity', COMPUTER_GIT_SSH_IDENTITY_KDF_CONTEXT)
+  return deriveSealKey(token, 'computer_git_ssh_identity', COMPUTER_GIT_SSH_IDENTITY_KDF_CONTEXT)
 }

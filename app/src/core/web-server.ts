@@ -2,6 +2,7 @@ import { openapi } from '@elysiajs/openapi'
 import { staticPlugin } from '@elysiajs/static'
 import { Elysia } from 'elysia'
 import path from 'node:path'
+import { statusFromError } from '@/common/errors'
 import { logger } from '@/common/logger'
 import { AppEnv } from '@/config/env'
 import { consoleRoutes } from '@/console/routes'
@@ -99,8 +100,7 @@ export async function createWebServer(options: CreateWebServerOptions = {}) {
       })
     )
     .onError(({ code, error, set }) => {
-      const status =
-        typeof error === 'object' && error && 'status' in error && typeof error.status === 'number' ? error.status : 500
+      const status = statusFromError(error)
       const isInternalServerError = status >= 500
       isInternalServerError
         ? logger.error({ error, code }, 'Internal Server Error')

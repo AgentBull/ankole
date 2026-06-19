@@ -164,20 +164,18 @@ COPY browser/bullx_browser.py /usr/local/bin/bullx-browser
 ENV BULLX_CAMOUFOX_PREINSTALLED_DIR=/opt/camoufox
 RUN chmod +x /usr/local/bin/bullx-browser \
   && mkdir -p /opt/camoufox
-ARG BULLX_CAMOUFOX_VERSION=150.0.2
 ARG BULLX_CAMOUFOX_DOWNLOAD=1
-RUN if [ "$BULLX_CAMOUFOX_DOWNLOAD" = "1" ]; then \
-    case "$TARGETARCH" in \
-      arm64) CAMOUFOX_ARCH="arm64" ;; \
-      amd64) CAMOUFOX_ARCH="x86_64" ;; \
-      *) echo "unsupported Camoufox architecture: $TARGETARCH" >&2; exit 1 ;; \
-    esac; \
-    CAMOUFOX_URL="https://github.com/daijro/camoufox/releases/download/v${BULLX_CAMOUFOX_VERSION}/camoufox-${BULLX_CAMOUFOX_VERSION}-lin.${CAMOUFOX_ARCH}.zip"; \
-    aria2c --continue=true --max-connection-per-server=8 --split=8 --min-split-size=4M --max-tries=5 --retry-wait=5 --timeout=60 --connect-timeout=30 --dir=/tmp --out=camoufox.zip "$CAMOUFOX_URL"; \
-    unzip -q /tmp/camoufox.zip -d /opt/camoufox; \
-    python -c "import json, pathlib; version='${BULLX_CAMOUFOX_VERSION}'; pathlib.Path('/opt/camoufox/version.json').write_text(json.dumps({'version': version.split('-', 1)[0], 'release': version.split('-', 1)[1] if '-' in version else ''}))"; \
+RUN set -eux; \
+  if [ "$BULLX_CAMOUFOX_DOWNLOAD" = "1" ]; then \
+    HOME=/tmp/bullx-camoufox-fetch python -m camoufox fetch; \
+    CAMOUFOX_CACHE="$(HOME=/tmp/bullx-camoufox-fetch python -m camoufox path)"; \
+    test -d "$CAMOUFOX_CACHE"; \
+    rm -rf /opt/camoufox; \
+    mkdir -p /opt/camoufox; \
+    cp -a "$CAMOUFOX_CACHE/." /opt/camoufox/; \
+    test -x /opt/camoufox/camoufox; \
     chmod -R 755 /opt/camoufox; \
-    rm -f /tmp/camoufox.zip; \
+    rm -rf /tmp/bullx-camoufox-fetch; \
   fi
 RUN bun --version \
   && aria2c --version >/dev/null \
@@ -210,7 +208,10 @@ RUN bun --version \
   && nano-pdf --help >/dev/null \
   && soffice --version \
   && pdftoppm -v >/dev/null 2>&1 \
-  && HOME=/tmp/bullx-browser-doctor bullx-browser --json doctor \
+  && BULLX_BROWSER_WORKSPACE=/tmp/bullx-browser-doctor/workspace BULLX_BROWSER_STATE_DIR=/tmp/bullx-browser-doctor/state HOME=/tmp/bullx-browser-doctor/home bullx-browser --json doctor > /tmp/bullx-browser-doctor.json \
+  && python -c "import json, pathlib; status = json.loads(pathlib.Path('/tmp/bullx-browser-doctor.json').read_text()); assert status.get('ready') is True, status" \
+  && BULLX_BROWSER_WORKSPACE=/tmp/bullx-browser-doctor/workspace BULLX_BROWSER_STATE_DIR=/tmp/bullx-browser-doctor/state HOME=/tmp/bullx-browser-doctor/home bullx-browser --json open --session doctor --profile-session doctor --url 'data:text/html,<title>BullX Browser Doctor</title><body>BULLX_BROWSER_DOCTOR_OK</body>' --wait-until load --timeout-ms 60000 > /tmp/bullx-browser-open.json \
+  && python -c "import json, pathlib; status = json.loads(pathlib.Path('/tmp/bullx-browser-open.json').read_text()); assert status.get('ok') is True, status; assert status.get('title') == 'BullX Browser Doctor', status; assert 'BULLX_BROWSER_DOCTOR_OK' in status.get('text_preview', ''), status" \
   && rm -rf /tmp/bullx-browser-doctor
 COPY --from=builder /build/target/release/bullx-computerd /usr/local/bin/bullx-computerd
 ENV BULLX_COMPUTER_WORKSPACE_ROOT=/workspaces \

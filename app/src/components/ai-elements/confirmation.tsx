@@ -3,7 +3,7 @@
 import { Alert, AlertDescription } from '@/uikit/components/alert'
 import { Button } from '@/uikit/components/button'
 import { cn } from '@/uikit/lib/utils'
-import type { ToolUIPart } from 'ai'
+import type { ToolUIPart } from '@/llm'
 import type { ComponentProps, ReactNode } from 'react'
 import { createContext, useContext, useMemo } from 'react'
 

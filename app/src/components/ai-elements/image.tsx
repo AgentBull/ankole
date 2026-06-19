@@ -1,5 +1,5 @@
 import { cn } from '@/uikit/lib/utils'
-import type { Experimental_GeneratedImage } from 'ai'
+import type { Experimental_GeneratedImage } from '@/llm'
 
 export type ImageProps = Experimental_GeneratedImage & {
   className?: string

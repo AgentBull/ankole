@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
-import { getModels, getProviders } from '@earendil-works/pi-ai'
+import { getModels, getProviders } from '@/llm'
 import { eq, like } from 'drizzle-orm'
 import { loadTestEnvFiles } from '@/common/tests/load-test-env'
 
@@ -31,11 +31,11 @@ afterEach(async () => {
 })
 
 describe('LLM provider service', () => {
-  it('validates ids and Pi provider/model references', async () => {
+  it('validates ids and LLM provider/model references', async () => {
     await expect(
       createLlmProvider({
         providerId: 'BadProvider',
-        piProvider: catalog.provider,
+        llmProvider: catalog.provider,
         apiKey: 'sk-test'
       })
     ).rejects.toThrow()
@@ -43,17 +43,17 @@ describe('LLM provider service', () => {
     await expect(
       createLlmProvider({
         providerId: providerId('unknown_pi'),
-        piProvider: 'missing-pi-provider',
+        llmProvider: 'missing-pi-provider',
         apiKey: 'sk-test'
       })
     ).rejects.toMatchObject({
       status: 422,
-      message: 'unknown Pi provider: missing-pi-provider'
+      message: 'unknown LLM provider: missing-pi-provider'
     })
 
     const provider = await createLlmProvider({
       providerId: providerId('models'),
-      piProvider: catalog.provider,
+      llmProvider: catalog.provider,
       apiKey: 'sk-test'
     })
     expect(provider.apiKey).toEqual({ present: true, masked: '********' })
@@ -64,7 +64,7 @@ describe('LLM provider service', () => {
     const id = providerId('keys')
     await createLlmProvider({
       providerId: id,
-      piProvider: catalog.provider,
+      llmProvider: catalog.provider,
       apiKey: 'sk-original'
     })
 
@@ -99,7 +99,7 @@ describe('LLM provider service', () => {
     Bun.env.OPENAI_API_KEY = 'sk-env-should-not-be-used'
     await createLlmProvider({
       providerId: id,
-      piProvider: catalog.provider,
+      llmProvider: catalog.provider,
       apiKey: 'sk-db'
     })
     await updateLlmProvider({
@@ -133,7 +133,7 @@ describe('LLM provider service', () => {
     const id = providerId('resolve')
     await createLlmProvider({
       providerId: id,
-      piProvider: catalog.provider,
+      llmProvider: catalog.provider,
       baseUrl: 'https://llm.example.test/v1',
       apiKey: 'sk-db',
       providerOptions: {
@@ -141,10 +141,8 @@ describe('LLM provider service', () => {
           'x-bullx-test': 'yes'
         },
         timeoutMs: 1200,
-        websocketConnectTimeoutMs: 300,
         maxRetries: 4,
         maxRetryDelayMs: 900,
-        transport: 'websocket',
         compat: {
           supportsDeveloperRole: false
         }
@@ -157,13 +155,12 @@ describe('LLM provider service', () => {
       reasoning: 'high',
       temperature: 0.2,
       maxTokens: 123,
-      cacheRetention: 'long',
-      transport: 'sse'
+      cacheRetention: 'long'
     })
 
     expect(resolved.config).toMatchObject({
       providerId: id,
-      piProvider: catalog.provider,
+      llmProvider: catalog.provider,
       model: catalog.model.id,
       reasoning: 'high'
     })
@@ -173,10 +170,8 @@ describe('LLM provider service', () => {
     expect(resolved.options).toMatchObject({
       apiKey: 'sk-db',
       timeoutMs: 1200,
-      websocketConnectTimeoutMs: 300,
       maxRetries: 4,
       maxRetryDelayMs: 900,
-      transport: 'sse',
       cacheRetention: 'long',
       maxTokens: 123,
       reasoning: 'high',
@@ -188,7 +183,7 @@ describe('LLM provider service', () => {
     const id = providerId('default_timeout')
     await createLlmProvider({
       providerId: id,
-      piProvider: catalog.provider,
+      llmProvider: catalog.provider,
       apiKey: 'sk-db'
     })
 
@@ -201,11 +196,28 @@ describe('LLM provider service', () => {
     expect(resolved.options.timeoutMs).toBe(600_000)
   })
 
+  it('maps profile reasoning off to the AI SDK none value', async () => {
+    const id = providerId('reasoning_off')
+    await createLlmProvider({
+      providerId: id,
+      llmProvider: catalog.provider,
+      apiKey: 'sk-db'
+    })
+
+    const resolved = await resolveLlmProviderModelProfile({
+      providerId: id,
+      model: catalog.model.id,
+      reasoning: 'off'
+    })
+
+    expect(resolved.options.reasoning).toBe('none')
+  })
+
   it('rejects non-secret providerOptions headers that look like credentials', async () => {
     await expect(
       createLlmProvider({
         providerId: providerId('secret_header'),
-        piProvider: catalog.provider,
+        llmProvider: catalog.provider,
         apiKey: 'sk-db',
         providerOptions: {
           headers: {
@@ -222,7 +234,7 @@ describe('LLM provider service', () => {
     const id = providerId('ref_guard')
     await createLlmProvider({
       providerId: id,
-      piProvider: catalog.provider,
+      llmProvider: catalog.provider,
       apiKey: 'sk-db'
     })
     await createAgent({
@@ -273,5 +285,5 @@ function firstCatalogModel() {
     const [model] = getModels(provider as never)
     if (model) return { provider, model }
   }
-  throw new Error('Pi catalog did not expose any models')
+  throw new Error('LLM catalog did not expose any models')
 }

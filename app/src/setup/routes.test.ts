@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
-import { getModels, getProviders } from '@earendil-works/pi-ai'
+import { getModels, getProviders } from '@/llm'
 import { like } from 'drizzle-orm'
 import { loadTestEnvFiles } from '../common/tests/load-test-env'
 
@@ -111,7 +111,7 @@ describe('setup llm provider routes', () => {
         providers: [
           {
             providerId,
-            piProvider: catalog.provider,
+            llmProvider: catalog.provider,
             apiKey: 'sk-setup',
             providerOptions: {
               maxRetries: 1
@@ -170,7 +170,7 @@ describe('setup llm provider routes', () => {
           providers: [
             {
               providerId,
-              piProvider: catalog.provider
+              llmProvider: catalog.provider
             }
           ]
         }
@@ -238,5 +238,5 @@ function firstCatalogModel() {
     const [model] = getModels(provider as never)
     if (model) return { provider, model }
   }
-  throw new Error('Pi catalog did not expose any models')
+  throw new Error('LLM catalog did not expose any models')
 }

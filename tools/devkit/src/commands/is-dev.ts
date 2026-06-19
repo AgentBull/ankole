@@ -1,7 +1,7 @@
 import { env, exit } from 'node:process'
 import { Crust } from '@crustjs/core'
 
-const isDev = env.NODE_ENV === 'development' || env.NODE_ENV !== 'production'
+const isDev = env.NODE_ENV !== 'production'
 
 export function isDevCommand(): Crust {
   return new Crust('is-dev')

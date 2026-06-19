@@ -1,13 +1,5 @@
-import type {
-  AssistantMessage,
-  ImageContent,
-  Message,
-  Model,
-  SimpleStreamOptions,
-  TextContent,
-  Usage
-} from '@earendil-works/pi-ai'
-import { completeSimple } from '@earendil-works/pi-ai'
+import type { AssistantMessage, ImageContent, Message, Model, SimpleStreamOptions, TextContent, Usage } from '@/llm'
+import { generateBullXText } from '@/llm'
 import type { AgentMessage, ThinkingLevel } from '../../types'
 import { convertToLlm, createCompactionSummaryMessage, createCustomMessage } from '../messages'
 import { buildSessionContext } from '../session/session'
@@ -240,10 +232,6 @@ export function estimateTokens(message: AgentMessage): number {
       chars = estimateTextAndImageContentChars(message.content)
       return Math.ceil(chars / 4)
     }
-    case 'bashExecution': {
-      chars = message.command.length + message.output.length
-      return Math.ceil(chars / 4)
-    }
     case 'compactionSummary': {
       chars = message.summary.length
       return Math.ceil(chars / 4)
@@ -260,7 +248,6 @@ function findValidCutPoints(entries: SessionTreeEntry[], startIndex: number, end
       case 'message': {
         const role = entry.message.role
         switch (role) {
-          case 'bashExecution':
           case 'custom':
           case 'compactionSummary':
           case 'user':
@@ -299,7 +286,7 @@ export function findTurnStartIndex(entries: SessionTreeEntry[], entryIndex: numb
     }
     if (entry.type === 'message') {
       const role = entry.message.role
-      if (role === 'user' || role === 'bashExecution') {
+      if (role === 'user') {
         return i
       }
     }
@@ -419,7 +406,7 @@ export async function generateSummary(
     systemPrompt: SUMMARIZATION_SYSTEM_PROMPT
   }
   const complete = () =>
-    completeSimple(
+    generateBullXText(
       model,
       { systemPrompt: SUMMARIZATION_SYSTEM_PROMPT, messages: summarizationMessages },
       summarizationOptions(model, maxTokens, options, signal, thinkingLevel)
@@ -667,7 +654,7 @@ async function generateTurnPrefixSummary(
     systemPrompt: SUMMARIZATION_SYSTEM_PROMPT
   }
   const complete = () =>
-    completeSimple(
+    generateBullXText(
       model,
       { systemPrompt: SUMMARIZATION_SYSTEM_PROMPT, messages: summarizationMessages },
       summarizationOptions(model, maxTokens, options, signal, thinkingLevel)

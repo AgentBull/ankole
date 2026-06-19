@@ -169,8 +169,9 @@ def ensure_camoufox_available(fetch: bool) -> dict[str, Any]:
         installed_versions = sorted(child.name for child in install_path.iterdir() if child.is_dir())
     result["browser_installed"] = cache_has_browser(install_path)
     result["installed_versions"] = installed_versions
-    result["ok"] = checks["playwright"] and result["package_version"] is not None
-    result["ready"] = result["ok"] and result["browser_installed"]
+    result["runtime_ok"] = checks["playwright"] and result["package_version"] is not None
+    result["ready"] = result["runtime_ok"] and result["browser_installed"]
+    result["ok"] = result["ready"]
     return result
 
 
@@ -355,9 +356,9 @@ def run_script(args: argparse.Namespace) -> dict[str, Any]:
     if args.start_url:
         env["BULLX_BROWSER_START_URL"] = args.start_url
     if args.auto_fetch:
-        ensure_camoufox_available(fetch=True)
+        require_camoufox_ready(fetch=True)
     else:
-        ensure_camoufox_available(fetch=False)
+        require_camoufox_ready(fetch=False)
 
     started = time.time()
     process = subprocess.run(

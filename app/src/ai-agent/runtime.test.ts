@@ -11,7 +11,7 @@ import {
   registerFauxProvider,
   type FauxProviderRegistration,
   type FauxResponseStep
-} from '@earendil-works/pi-ai'
+} from '@/llm'
 import type { JsonObject } from '@/common/db-schema'
 import { loadTestEnvFiles } from '@/common/tests/load-test-env'
 import type { AiAgentRuntimeProfile } from './config'
@@ -88,7 +88,7 @@ afterAll(async () => {
   for (const roomId of projectedRoomIds) await DB.delete(ExternalRooms).where(eq(ExternalRooms.id, roomId))
 })
 
-describe('AIAgent pi-ai runtime', () => {
+describe('AIAgent AI SDK runtime', () => {
   it('runs multi-turn pure text, audits LLM turns, and keys conversation by room not thread', async () => {
     const setup = await startAiAgent('multi_turn', [
       fauxAssistantMessage('first answer'),
@@ -130,7 +130,7 @@ describe('AIAgent pi-ai runtime', () => {
     ])
     expect(
       turns.every(
-        row => (row.providerMetadata as JsonObject).pi_provider === setup.profile.primaryModel.config.piProvider
+        row => (row.providerMetadata as JsonObject).llm_provider === setup.profile.primaryModel.config.llmProvider
       )
     ).toBe(true)
     expect(turns.every(row => row.status === 'succeeded')).toBe(true)
@@ -350,8 +350,8 @@ describe('AIAgent pi-ai runtime', () => {
     ).toBe(true)
     expect(jsonRecord(summaries[0]!.metadata.compression)?.llm_turn_ids).toEqual(compressionTurns.map(row => row.id))
     expect(compressionTurn.provider).toBe(setup.profile.lightModel.config.providerId)
-    expect((compressionTurn.providerMetadata as JsonObject | undefined)?.pi_provider).toBe(
-      setup.profile.lightModel.config.piProvider
+    expect((compressionTurn.providerMetadata as JsonObject | undefined)?.llm_provider).toBe(
+      setup.profile.lightModel.config.llmProvider
     )
   })
 
@@ -659,8 +659,8 @@ describe('AIAgent pi-ai runtime', () => {
     expect(recognizerText).toContain('agent should help here <ticket-7>')
     expect(recognizerText).not.toContain('&lt;ticket-7&gt;')
     expect(recognizerText).not.toContain('Recent ambient room messages:')
-    expect((ambientTurn?.providerMetadata as JsonObject | undefined)?.pi_provider).toBe(
-      setup.profile.lightModel.config.piProvider
+    expect((ambientTurn?.providerMetadata as JsonObject | undefined)?.llm_provider).toBe(
+      setup.profile.lightModel.config.llmProvider
     )
     const ambientGenerationContext = ambientGeneration?.requestContext as Record<string, unknown> | undefined
     const ambientGenerationToolNames = ambientGenerationContext?.tool_names as string[] | undefined
@@ -793,6 +793,42 @@ describe('AIAgent pi-ai runtime', () => {
     await group.say({ id: 'm1', text: '@Agent please help me now' })
     await eventually(() =>
       expect(setup.platform.outbound.some(event => event.text === 'ambient yaml answer')).toBe(true)
+    )
+
+    const [conversation] = await conversationsFor(setup.agentUid)
+    const turns = await llmTurnsFor(conversation!.id)
+    const recognizer = turns.find(row => row.kind === 'ambient_recognizer')
+    expect(recognizer?.status).toBe('succeeded')
+    expect((recognizer?.response as JsonObject | undefined)?.parsed).toMatchObject({
+      intervene: true,
+      reason_summary: 'The room explicitly asked the agent to step in.'
+    })
+  })
+
+  it('recovers ambient intervention when recognizer returns terse YAML decision text', async () => {
+    const setup = await startAiAgent(
+      'ambient_yaml_decision_word',
+      [
+        fauxAssistantMessage(
+          [
+            '```yaml',
+            'decision: intervene',
+            'reasoning: The room explicitly asked the agent to step in.',
+            'confidence: high',
+            '```'
+          ].join('\n')
+        ),
+        fauxAssistantMessage('ambient yaml decision word answer')
+      ],
+      { groupMessageMode: 'may_intervene', ambientBatchWindowMs: 10 }
+    )
+    const group = setup.platform.group(
+      setup.conversationOptions({ channelId: `${setup.adapterName}:ambient-yaml-decision-word` })
+    )
+
+    await group.say({ id: 'm1', text: '@Agent please help me now' })
+    await eventually(() =>
+      expect(setup.platform.outbound.some(event => event.text === 'ambient yaml decision word answer')).toBe(true)
     )
 
     const [conversation] = await conversationsFor(setup.agentUid)
@@ -1833,7 +1869,7 @@ describe('AIAgent pi-ai runtime', () => {
     expect(await llmTurnsFor(conversation!.id)).toHaveLength(0)
   })
 
-  it('compresses and retries when pi-ai reports provider context overflow', async () => {
+  it('compresses and retries when AI SDK reports provider context overflow', async () => {
     const overflow = fauxAssistantMessage('', {
       stopReason: 'error',
       errorMessage: 'Your input exceeds the context window of this model'
@@ -2944,7 +2980,7 @@ function runtimeProfile(
       config: {
         model: 'primary',
         providerId: `${primary.provider}_local`,
-        piProvider: primary.provider,
+        llmProvider: primary.provider,
         reasoning: 'medium'
       },
       model: primary,
@@ -2952,13 +2988,13 @@ function runtimeProfile(
       profile: 'primary'
     },
     lightModel: {
-      config: { model: 'light', providerId: `${light.provider}_local`, piProvider: light.provider, reasoning: 'low' },
+      config: { model: 'light', providerId: `${light.provider}_local`, llmProvider: light.provider, reasoning: 'low' },
       model: light,
       options: { reasoning: 'low' },
       profile: 'light'
     },
     heavyModel: {
-      config: { model: 'heavy', providerId: `${heavy.provider}_local`, piProvider: heavy.provider, reasoning: 'high' },
+      config: { model: 'heavy', providerId: `${heavy.provider}_local`, llmProvider: heavy.provider, reasoning: 'high' },
       model: heavy,
       options: { reasoning: 'high' },
       profile: 'heavy'

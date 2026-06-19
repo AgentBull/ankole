@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'bun:test'
-import { validateToolArguments } from '@earendil-works/pi-ai'
+import { validateToolArguments } from '@/llm'
 import { z } from 'zod'
 import { buildTool } from './build-tool'
 
-type PiAiTool = Parameters<typeof validateToolArguments>[0]
+type LlmTool = Parameters<typeof validateToolArguments>[0]
 
 const minimalDef = {
   name: 'minimal',
@@ -33,10 +33,10 @@ describe('buildTool fail-closed defaults', () => {
     expect(explicitlySafe.isDestructive).toBe(false)
   })
 
-  it('converts zod schemas into pi-ai-compatible JSON Schema parameters', () => {
+  it('uses the zod schema as the single source of truth for tool arguments', () => {
     const tool = buildTool({
-      name: 'coerce',
-      label: 'Coerce',
+      name: 'validate',
+      label: 'Validate',
       description: 'test tool',
       schema: z.object({
         value: z.string().min(1).describe('Value to echo.'),
@@ -47,24 +47,24 @@ describe('buildTool fail-closed defaults', () => {
       }
     })
 
-    expect(tool.parameters).toMatchObject({
-      type: 'object',
-      properties: {
-        value: { type: 'string', minLength: 1, description: 'Value to echo.' },
-        limit: { type: 'integer', minimum: 1, maximum: 20 }
-      },
-      required: ['value']
-    })
     expect(
-      validateToolArguments(tool as unknown as PiAiTool, {
+      validateToolArguments(tool as unknown as LlmTool, {
         type: 'toolCall',
         id: 'tc_1',
-        name: 'coerce',
-        arguments: { value: 123, limit: '2' }
+        name: 'validate',
+        arguments: { value: 'ok', limit: 2 }
       })
     ).toEqual({
-      value: '123',
+      value: 'ok',
       limit: 2
     })
+    expect(() =>
+      validateToolArguments(tool as unknown as LlmTool, {
+        type: 'toolCall',
+        id: 'tc_2',
+        name: 'validate',
+        arguments: { value: 123, limit: '2' }
+      })
+    ).toThrow()
   })
 })

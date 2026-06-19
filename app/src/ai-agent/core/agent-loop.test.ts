@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'bun:test'
 import { z } from 'zod'
-import type { AssistantMessage, Message, Model } from '@earendil-works/pi-ai'
+import type { AssistantMessage, Message, Model } from '@/llm'
 import { runAgentLoop } from './agent-loop'
 import { convertToLlm } from './harness/messages'
 import { buildTool } from '../tools/build-tool'
-import type { AgentContext, AgentEvent, AgentLoopConfig, AgentMessage, StreamFn } from './types'
+import type { AgentContext, AgentEvent, AgentLoopConfig, AgentMessage } from './types'
 
 const USAGE = {
   input: 0,
@@ -15,7 +15,7 @@ const USAGE = {
   cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }
 }
 
-const MODEL = {
+const MODEL_BASE = {
   id: 'm',
   name: 'm',
   api: 'unknown',
@@ -70,39 +70,123 @@ const echoTool = buildTool({
 
 interface StreamCapture {
   contexts: { messages: Message[]; tools: unknown }[]
+  requests: unknown[]
   calls: number
 }
 
-/** A streamFn that returns scripted assistant messages (last one repeats) and records each wire context. */
-function scriptedStreamFn(responses: AssistantMessage[]): { streamFn: StreamFn; capture: StreamCapture } {
-  const capture: StreamCapture = { contexts: [], calls: 0 }
-  const streamFn = ((_model: unknown, context: { messages: Message[]; tools: unknown }) => {
-    capture.contexts.push({ messages: context.messages, tools: context.tools })
-    const message = responses[Math.min(capture.calls, responses.length - 1)]
-    capture.calls += 1
-    return {
-      async *[Symbol.asyncIterator]() {
-        yield { type: 'start', partial: message }
-        yield { type: 'done', partial: message }
-      },
-      result: async () => message
+type ScriptedResponse = AssistantMessage | ((request: unknown) => AssistantMessage | Promise<AssistantMessage>)
+
+/** A fake AI SDK model that returns scripted assistant messages (last one repeats). */
+function scriptedModel(responses: ScriptedResponse[]): { model: Model<any>; capture: StreamCapture } {
+  const capture: StreamCapture = { contexts: [], requests: [], calls: 0 }
+  const sdkModel = {
+    specificationVersion: 'v4',
+    provider: 'test',
+    modelId: 'm',
+    supportedUrls: {},
+    async doGenerate() {
+      throw new Error('doGenerate is not used by agent-loop tests')
+    },
+    async doStream(request: unknown) {
+      capture.requests.push(request)
+      const step = responses[Math.min(capture.calls, responses.length - 1)]
+      capture.calls += 1
+      const message = typeof step === 'function' ? await step(request) : step
+      return {
+        stream: new ReadableStream({
+          start(controller) {
+            controller.enqueue({ type: 'stream-start', warnings: [] })
+            controller.enqueue({
+              type: 'response-metadata',
+              id: message.responseId,
+              modelId: message.responseModel ?? message.model,
+              timestamp: new Date(message.timestamp)
+            })
+            for (const part of streamParts(message)) controller.enqueue(part)
+            controller.enqueue({ type: 'finish', usage: v4Usage(message.usage), finishReason: finishReason(message) })
+            controller.close()
+          }
+        })
+      }
     }
-  }) as unknown as StreamFn
-  return { streamFn, capture }
+  }
+  return { model: { ...MODEL_BASE, sdkModel: sdkModel as never }, capture }
 }
 
-function makeConfig(overrides: Partial<AgentLoopConfig> = {}): AgentLoopConfig {
-  return { model: MODEL, convertToLlm, ...overrides }
+function streamParts(message: AssistantMessage) {
+  const parts: unknown[] = []
+  let index = 0
+  for (const block of message.content) {
+    const id = block.type === 'toolCall' ? block.id : `part_${index++}`
+    if (block.type === 'text') {
+      parts.push({ type: 'text-start', id }, { type: 'text-delta', id, delta: block.text }, { type: 'text-end', id })
+    } else if (block.type === 'thinking') {
+      parts.push(
+        { type: 'reasoning-start', id },
+        { type: 'reasoning-delta', id, delta: block.thinking },
+        { type: 'reasoning-end', id }
+      )
+    } else {
+      const input = JSON.stringify(block.arguments)
+      parts.push(
+        { type: 'tool-input-start', id: block.id, toolName: block.name },
+        { type: 'tool-input-delta', id: block.id, delta: input },
+        { type: 'tool-input-end', id: block.id },
+        { type: 'tool-call', toolCallId: block.id, toolName: block.name, input }
+      )
+    }
+  }
+  if (message.stopReason === 'error') parts.push({ type: 'error', error: message.errorMessage ?? 'provider error' })
+  return parts
+}
+
+function finishReason(message: AssistantMessage) {
+  if (message.stopReason === 'length') return { unified: 'length', raw: 'length' }
+  if (message.stopReason === 'toolUse') return { unified: 'tool-calls', raw: 'tool-calls' }
+  if (message.stopReason === 'error') return { unified: 'error', raw: 'error' }
+  return { unified: 'stop', raw: message.stopReason }
+}
+
+function v4Usage(usage: AssistantMessage['usage']) {
+  return {
+    inputTokens: {
+      total: usage.input,
+      noCache: Math.max(0, usage.input - usage.cacheRead - usage.cacheWrite),
+      cacheRead: usage.cacheRead,
+      cacheWrite: usage.cacheWrite
+    },
+    outputTokens: {
+      total: usage.output,
+      text: usage.output,
+      reasoning: undefined
+    }
+  }
+}
+
+function makeConfig(
+  model: Model<any>,
+  capture: StreamCapture,
+  overrides: Partial<AgentLoopConfig> = {}
+): AgentLoopConfig {
+  const beforeLlmCall = overrides.beforeLlmCall
+  return {
+    model,
+    convertToLlm,
+    ...overrides,
+    beforeLlmCall: async (context, signal) => {
+      capture.contexts.push({ messages: context.llmMessages, tools: context.llmContext.tools })
+      return beforeLlmCall?.(context, signal)
+    }
+  }
 }
 
 async function run(
   prompt: AgentMessage[],
   context: AgentContext,
   config: AgentLoopConfig,
-  streamFn: StreamFn,
   emit: (event: AgentEvent) => Promise<void> | void = async () => {}
 ): Promise<AgentMessage[]> {
-  return runAgentLoop(prompt, context, config, emit, undefined, streamFn)
+  return runAgentLoop(prompt, context, config, emit)
 }
 
 function assistantTexts(messages: AgentMessage[]): string[] {
@@ -117,37 +201,68 @@ function assistantTexts(messages: AgentMessage[]): string[] {
 }
 
 describe('agent-loop wire sanitization (orphan tool pairs + empty assistant)', () => {
+  it('passes reasoning and cache policy through the AI SDK request shape', async () => {
+    const { model, capture } = scriptedModel([assistant([text('ok')])])
+    Object.assign(model, { provider: 'openai', id: 'gpt-5', reasoning: true })
+    const context: AgentContext = { systemPrompt: 'sys', messages: [], tools: [] }
+
+    await run(
+      [userMessage('go')],
+      context,
+      makeConfig(model, capture, {
+        reasoning: 'high',
+        cacheRetention: 'long',
+        metadata: { conversation_id: 'conv_1' }
+      })
+    )
+
+    const request = capture.requests[0] as {
+      reasoning?: unknown
+      providerOptions?: Record<string, unknown>
+    }
+    expect(request.reasoning).toBe('high')
+    expect(request.providerOptions).toEqual({
+      openai: {
+        promptCacheKey: 'bullx:openai:gpt-5:conv_1',
+        promptCacheRetention: '24h'
+      }
+    })
+    expect(request.providerOptions).not.toHaveProperty('bullx')
+  })
+
   it('retries retryable provider stream creation errors before surfacing failure', async () => {
     const context: AgentContext = { systemPrompt: 'sys', messages: [], tools: [] }
-    let calls = 0
-    const success = scriptedStreamFn([assistant([text('recovered')])]).streamFn
-    const streamFn = (async (...args: Parameters<StreamFn>) => {
-      calls += 1
-      if (calls === 1) {
+    const { model, capture } = scriptedModel([
+      () => {
         const error = new Error('rate limit')
         ;(error as Error & { status?: number }).status = 429
         throw error
-      }
-      return success(...args)
-    }) as unknown as StreamFn
+      },
+      assistant([text('recovered')])
+    ])
 
-    const result = await run([userMessage('go')], context, makeConfig({ maxRetryDelayMs: 1 }), streamFn)
+    const result = await run([userMessage('go')], context, makeConfig(model, capture, { maxRetryDelayMs: 1 }))
 
-    expect(calls).toBe(2)
+    expect(capture.calls).toBe(2)
     expect(assistantTexts(result)).toEqual(['recovered'])
   })
 
   it('retries one empty pre-tool assistant error returned by the provider stream', async () => {
     const context: AgentContext = { systemPrompt: 'sys', messages: [], tools: [echoTool] }
-    const { streamFn, capture } = scriptedStreamFn([
+    const { model, capture } = scriptedModel([
       assistant([], 'error', { errorMessage: 'Connection error.' }),
       assistant([text('recovered')])
     ])
     const events: AgentEvent[] = []
 
-    const result = await run([userMessage('go')], context, makeConfig({ maxRetryDelayMs: 1 }), streamFn, event => {
-      events.push(event)
-    })
+    const result = await run(
+      [userMessage('go')],
+      context,
+      makeConfig(model, capture, { maxRetryDelayMs: 1 }),
+      event => {
+        events.push(event)
+      }
+    )
 
     expect(capture.calls).toBe(2)
     expect(assistantTexts(result)).toEqual(['recovered'])
@@ -157,13 +272,13 @@ describe('agent-loop wire sanitization (orphan tool pairs + empty assistant)', (
 
   it('does not retry assistant errors after tool results have been produced', async () => {
     const context: AgentContext = { systemPrompt: 'sys', messages: [], tools: [echoTool] }
-    const { streamFn, capture } = scriptedStreamFn([
+    const { model, capture } = scriptedModel([
       assistant([toolCall('e1', 'echo')]),
       assistant([], 'error', { errorMessage: 'Connection error.' }),
       assistant([text('should not run')])
     ])
 
-    const result = await run([userMessage('go')], context, makeConfig({ maxRetryDelayMs: 1 }), streamFn)
+    const result = await run([userMessage('go')], context, makeConfig(model, capture, { maxRetryDelayMs: 1 }))
 
     expect(capture.calls).toBe(2)
     expect(result.filter(message => message.role === 'assistant')).toHaveLength(2)
@@ -186,9 +301,9 @@ describe('agent-loop wire sanitization (orphan tool pairs + empty assistant)', (
       messages: [userMessage('hi'), callWithMissingResult, orphanResult, emptyAssistant],
       tools: []
     }
-    const { streamFn, capture } = scriptedStreamFn([assistant([text('done')])])
+    const { model, capture } = scriptedModel([assistant([text('done')])])
 
-    await run([userMessage('go')], context, makeConfig(), streamFn)
+    await run([userMessage('go')], context, makeConfig(model, capture))
 
     const wire = capture.contexts[0]!.messages
     // Orphan result whose tool call no longer exists is dropped.
@@ -212,7 +327,7 @@ describe('agent-loop iteration budget (maxTurns + grace)', () => {
   it('runs one tool-free grace turn after the turn cap, then stops with a usable answer', async () => {
     // Every capped turn requests another tool call → runaway loop. With maxTurns=3
     // the first three calls run (c1,c2,c3) and the fourth call is the grace turn.
-    const { streamFn, capture } = scriptedStreamFn([
+    const { model, capture } = scriptedModel([
       assistant([toolCall('c1', 'echo')]),
       assistant([toolCall('c2', 'echo')]),
       assistant([toolCall('c3', 'echo')]),
@@ -220,7 +335,7 @@ describe('agent-loop iteration budget (maxTurns + grace)', () => {
     ])
     const context: AgentContext = { systemPrompt: 'sys', messages: [], tools: [echoTool] }
     const events: AgentEvent[] = []
-    const result = await run([userMessage('go')], context, makeConfig({ maxTurns: 3 }), streamFn, event => {
+    const result = await run([userMessage('go')], context, makeConfig(model, capture, { maxTurns: 3 }), event => {
       events.push(event)
     })
 
@@ -236,22 +351,22 @@ describe('agent-loop iteration budget (maxTurns + grace)', () => {
   })
 
   it('does not cap when maxTurns is unset (historical behavior)', async () => {
-    const { streamFn, capture } = scriptedStreamFn([assistant([text('answer')])])
+    const { model, capture } = scriptedModel([assistant([text('answer')])])
     const context: AgentContext = { systemPrompt: 'sys', messages: [], tools: [echoTool] }
-    await run([userMessage('go')], context, makeConfig(), streamFn)
+    await run([userMessage('go')], context, makeConfig(model, capture))
     expect(capture.calls).toBe(1)
   })
 })
 
 describe('agent-loop empty-after-tools nudge', () => {
   it('nudges the model to continue once when it returns empty right after tool results', async () => {
-    const { streamFn, capture } = scriptedStreamFn([
+    const { model, capture } = scriptedModel([
       assistant([toolCall('e1', 'echo')]),
       assistant([text('')]),
       assistant([text('final answer')])
     ])
     const context: AgentContext = { systemPrompt: 'sys', messages: [], tools: [echoTool] }
-    const result = await run([userMessage('go')], context, makeConfig({ nudgeOnEmptyAfterTools: true }), streamFn)
+    const result = await run([userMessage('go')], context, makeConfig(model, capture, { nudgeOnEmptyAfterTools: true }))
 
     // tool turn + empty turn + (nudge) continuation = 3 provider calls.
     expect(capture.calls).toBe(3)
@@ -268,13 +383,13 @@ describe('agent-loop empty-after-tools nudge', () => {
   })
 
   it('ends on the empty turn when the nudge is disabled', async () => {
-    const { streamFn, capture } = scriptedStreamFn([
+    const { model, capture } = scriptedModel([
       assistant([toolCall('e1', 'echo')]),
       assistant([text('')]),
       assistant([text('should-not-be-requested')])
     ])
     const context: AgentContext = { systemPrompt: 'sys', messages: [], tools: [echoTool] }
-    const result = await run([userMessage('go')], context, makeConfig(), streamFn)
+    const result = await run([userMessage('go')], context, makeConfig(model, capture))
 
     // Only the tool turn and the empty turn run; the third response is never requested.
     expect(capture.calls).toBe(2)

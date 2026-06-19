@@ -1,4 +1,7 @@
-import { bullxExternalIdentityNamespaceIdPattern } from '@agentbull/bullx-sdk/plugins'
+import {
+  bullxExternalGatewayGroupMessageModes,
+  bullxExternalIdentityNamespaceIdPattern
+} from '@agentbull/bullx-sdk/plugins'
 import { z } from 'zod'
 
 export const larkChannelConfigSchema = z
@@ -10,7 +13,7 @@ export const larkChannelConfigSchema = z
      * Chat and identity realtime sync can share one app only when this matches.
      */
     domain: z.enum(['feishu', 'lark']).default('feishu'),
-    group_message_mode: z.enum(['addressed_only', 'observe_all', 'may_intervene']).default('observe_all'),
+    group_message_mode: z.enum(bullxExternalGatewayGroupMessageModes).default('observe_all'),
     /**
      * Namespace used when this chat channel records Lark actor subjects.
      * Channels installed in the same Lark tenant can use the same namespace so

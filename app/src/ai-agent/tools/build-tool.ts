@@ -1,7 +1,7 @@
-import { z } from 'zod'
+import type { z } from 'zod'
 import type { AgentTool } from '../core'
 
-type AgentToolDefinition<TParameters extends z.ZodType, TDetails> = Omit<AgentTool<TParameters, TDetails>, 'parameters'>
+type AgentToolDefinition<TParameters extends z.ZodType, TDetails> = AgentTool<TParameters, TDetails>
 
 /**
  * Fail-closed defaults for declarative tool behavior. A tool only declares what
@@ -27,7 +27,6 @@ export function buildTool<TParameters extends z.ZodType, TDetails = unknown>(
 ): AgentTool<TParameters, TDetails> {
   return {
     ...TOOL_DEFAULTS,
-    ...def,
-    parameters: z.toJSONSchema(def.schema)
+    ...def
   }
 }

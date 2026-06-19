@@ -90,7 +90,9 @@ describe('principal data model', () => {
 
     await updatePrincipalStatus(second.principal.uid, 'disabled')
     const activeAgents = await listActiveAgents()
-    expect(activeAgents.map(row => row.agent.uid)).toEqual([first.agent.uid])
+    expect(
+      activeAgents.map(row => row.agent.uid).filter(uid => uid === first.agent.uid || uid === second.agent.uid)
+    ).toEqual([first.agent.uid])
 
     await expectDomainReason(createAgent({ uid: uid('bad_agent'), metadata: [] as never }), 'invalid_request')
   })

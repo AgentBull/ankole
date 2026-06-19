@@ -1,4 +1,4 @@
-import type { ImageContent, TextContent } from '@earendil-works/pi-ai'
+import type { ImageContent, TextContent } from '@/llm'
 import type { AgentMessage } from '../types'
 
 /** Result of a fallible operation. Expected failures are returned as `ok: false` instead of thrown. */

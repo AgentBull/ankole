@@ -3,7 +3,7 @@
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/uikit/components/collapsible'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/uikit/components/tabs'
 import { cn } from '@/uikit/lib/utils'
-import type { ToolUIPart } from 'ai'
+import type { ToolUIPart } from '@/llm'
 import { ChevronDownIcon, Code } from 'lucide-react'
 import type { ComponentProps } from 'react'
 

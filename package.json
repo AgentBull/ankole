@@ -37,14 +37,14 @@
     "analyze:topology": "bun run kit analyze topology"
   },
   "dependencies": {
-    "knip": "^6.16.1",
+    "knip": "^6.17.1",
     "turbo": "^2.9.18"
   },
   "devDependencies": {
     "@types/bun": "latest",
-    "@typescript/native-preview": "^7.0.0-dev.20260612.1",
-    "oxfmt": "^0.54.0",
-    "oxlint": "^1.69.0",
+    "@typescript/native-preview": "^7.0.0-dev.20260619.1",
+    "oxfmt": "^0.55.0",
+    "oxlint": "^1.70.0",
     "pino-pretty": "^13.1.3",
     "typescript": "^6.0.3"
   },

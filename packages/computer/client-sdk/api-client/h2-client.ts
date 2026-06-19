@@ -189,8 +189,6 @@ function connect(url: URL, tls: WorkerTlsConfig, signal?: AbortSignal): Promise<
         reject(new Error(`worker did not negotiate h2; got ${String(client.alpnProtocol)}`))
         return
       }
-      // Lower-layer backstop to the PING liveness: surface a dead TCP peer.
-      client.socket?.setKeepAlive?.(true, KEEPALIVE_INTERVAL_MS)
       resolve(client)
     }
     signal?.addEventListener('abort', onAbort, { once: true })

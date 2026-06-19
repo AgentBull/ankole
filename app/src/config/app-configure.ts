@@ -1,6 +1,6 @@
-import { aeadDecrypt, aeadEncrypt } from '@agentbull/bullx-native-addons'
 import { eq, sql } from 'drizzle-orm'
 import type { z } from 'zod'
+import { sealJson, unsealJson } from '../common/aead-seal'
 import { DB, jsonbParam } from '../common/database'
 import {
   AppConfigure,
@@ -441,7 +441,7 @@ export class AppConfigService {
 
     return {
       type: ConfigureKeyType.CIPHER,
-      value: aeadEncrypt(JSON.stringify(value), this.encryptionKey(key))
+      value: sealJson(value, this.encryptionKey(key))
     }
   }
 
@@ -458,8 +458,7 @@ export class AppConfigService {
       }
 
       try {
-        const plainText = aeadDecrypt(storedValue.value, this.encryptionKey(key)).toString('utf-8')
-        return definition.schema.parse(JSON.parse(plainText))
+        return definition.schema.parse(unsealJson(storedValue.value, this.encryptionKey(key)))
       } catch (error) {
         throw new AppConfigStorageError(key, 'failed to decrypt or validate value', { cause: error })
       }

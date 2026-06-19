@@ -1,4 +1,4 @@
-import type { Message } from '@earendil-works/pi-ai'
+import type { Message } from '@/llm'
 import type { AgentMessage } from '../../types'
 
 /** File paths touched by a session branch or compaction range. */

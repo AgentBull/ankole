@@ -1,14 +1,14 @@
-import { aeadDecrypt, aeadEncrypt } from '@agentbull/bullx-native-addons'
 import { DomainError } from '@/common/errors'
+import { sealText, unsealText } from '@/common/aead-seal'
 import {
+  createLanguageModel,
   getModel,
   getModels,
   getProviders,
   type CacheRetention,
   type Model,
-  type SimpleStreamOptions,
-  type Transport
-} from '@earendil-works/pi-ai'
+  type SimpleStreamOptions
+} from '@/llm'
 import { mapValues, pickBy, ms } from '@pleisto/active-support'
 import { eq, sql } from 'drizzle-orm'
 import { z } from 'zod'
@@ -34,7 +34,7 @@ export type LlmProviderRecord = typeof LlmProviders.$inferSelect
 
 export interface LlmProviderProjection {
   providerId: string
-  piProvider: string
+  llmProvider: string
   baseUrl: string | null
   providerOptions: JsonObject
   apiKey: {
@@ -50,7 +50,7 @@ export interface LlmProviderModelProjection {
   name: string
   api: string
   providerId: string
-  piProvider: string
+  llmProvider: string
   contextWindow: number
   maxTokens: number
   reasoning: boolean
@@ -64,12 +64,11 @@ export interface LlmProviderResolvedModelRef {
   temperature?: number
   maxTokens?: number
   cacheRetention?: CacheRetention
-  transport?: Transport
 }
 
 export interface ResolvedLlmProviderModelProfile {
   config: LlmProviderResolvedModelRef & {
-    piProvider: string
+    llmProvider: string
   }
   model: Model<any>
   options: SimpleStreamOptions
@@ -77,7 +76,7 @@ export interface ResolvedLlmProviderModelProfile {
 
 export interface LlmProviderApiAccess {
   providerId: string
-  piProvider: string
+  llmProvider: string
   baseUrl: string | null
   apiKey: string
   providerOptions: NormalizedLlmProviderOptions
@@ -86,10 +85,8 @@ export interface LlmProviderApiAccess {
 export type NormalizedLlmProviderOptions = JsonObject & {
   headers?: Record<string, string>
   timeoutMs?: number
-  websocketConnectTimeoutMs?: number
   maxRetries?: number
   maxRetryDelayMs?: number
-  transport?: Transport
   compat?: JsonObject
 }
 
@@ -101,10 +98,8 @@ export const LlmProviderOptionsSchema = z
   .object({
     headers: z.record(z.string(), z.string()).optional(),
     timeoutMs: z.number().int().positive().optional(),
-    websocketConnectTimeoutMs: z.number().int().positive().optional(),
     maxRetries: z.number().int().nonnegative().optional(),
     maxRetryDelayMs: z.number().int().nonnegative().optional(),
-    transport: z.enum(['sse', 'websocket', 'websocket-cached', 'auto']).optional(),
     compat: JsonObjectSchema.optional()
   })
   .strict()
@@ -113,7 +108,7 @@ export const LlmProviderOptionsSchema = z
 export const LlmProviderCreateInputSchema = z
   .object({
     providerId: LlmProviderIdSchema,
-    piProvider: z.string().min(1),
+    llmProvider: z.string().min(1),
     baseUrl: z.string().nullable().optional(),
     apiKey: z.string().nullable().optional(),
     providerOptions: LlmProviderOptionsSchema.optional()
@@ -123,7 +118,7 @@ export const LlmProviderCreateInputSchema = z
 export const LlmProviderUpdateInputSchema = z
   .object({
     providerId: LlmProviderIdSchema,
-    piProvider: z.string().min(1).optional(),
+    llmProvider: z.string().min(1).optional(),
     baseUrl: z.string().nullable().optional(),
     apiKey: z.string().nullable().optional(),
     providerOptions: LlmProviderOptionsSchema.optional()
@@ -133,7 +128,7 @@ export const LlmProviderUpdateInputSchema = z
 export const LlmProviderCheckInputSchema = z
   .object({
     providerId: LlmProviderIdSchema.optional(),
-    piProvider: z.string().min(1).optional(),
+    llmProvider: z.string().min(1).optional(),
     model: z.string().min(1).optional(),
     baseUrl: z.string().nullable().optional(),
     apiKey: z.string().nullable().optional(),
@@ -149,7 +144,7 @@ export type LlmProviderCreateInput = z.infer<typeof LlmProviderCreateInputSchema
  */
 export const llmProviderCreateBody = z.object({
   providerId: z.string().min(1),
-  piProvider: z.string().min(1),
+  llmProvider: z.string().min(1),
   baseUrl: z.string().nullable().optional(),
   apiKey: z.string().nullable().optional(),
   providerOptions: (appConfigJsonRecordSchema as z.ZodType<JsonObject>).optional()
@@ -169,9 +164,9 @@ export async function getLlmProvider(providerId: string): Promise<LlmProviderPro
 export async function upsertLlmProvider(input: LlmProviderCreateInput | LlmProviderUpdateInput) {
   const parsed = LlmProviderUpdateInputSchema.parse(input)
   const existing = await getLlmProviderRow(parsed.providerId)
-  const piProvider = parsed.piProvider ?? existing?.piProvider
-  if (!piProvider) throw new DomainError(422, 'piProvider is required')
-  assertKnownPiProvider(piProvider)
+  const llmProvider = parsed.llmProvider ?? existing?.llmProvider
+  if (!llmProvider) throw new DomainError(422, 'llmProvider is required')
+  assertKnownLlmProvider(llmProvider)
 
   const providerOptions =
     parsed.providerOptions !== undefined
@@ -183,7 +178,7 @@ export async function upsertLlmProvider(input: LlmProviderCreateInput | LlmProvi
   const [row] = await DB.insert(LlmProviders)
     .values({
       providerId: parsed.providerId,
-      piProvider,
+      llmProvider,
       baseUrl,
       encryptedApiKey,
       providerOptions: jsonbParam(providerOptions)
@@ -191,7 +186,7 @@ export async function upsertLlmProvider(input: LlmProviderCreateInput | LlmProvi
     .onConflictDoUpdate({
       target: LlmProviders.providerId,
       set: {
-        piProvider,
+        llmProvider,
         baseUrl,
         encryptedApiKey,
         providerOptions: jsonbParam(providerOptions),
@@ -241,9 +236,9 @@ export async function checkLlmProvider(input: LlmProviderCheckInput): Promise<{
   const parsed = LlmProviderCheckInputSchema.parse(input)
   const existing = parsed.providerId ? await getLlmProviderRow(parsed.providerId) : undefined
   const providerId = parsed.providerId ?? existing?.providerId ?? 'check'
-  const piProvider = parsed.piProvider ?? existing?.piProvider
-  if (!piProvider) throw new DomainError(422, 'piProvider is required')
-  assertKnownPiProvider(piProvider)
+  const llmProvider = parsed.llmProvider ?? existing?.llmProvider
+  if (!llmProvider) throw new DomainError(422, 'llmProvider is required')
+  assertKnownLlmProvider(llmProvider)
 
   const providerOptions =
     parsed.providerOptions !== undefined
@@ -254,13 +249,13 @@ export async function checkLlmProvider(input: LlmProviderCheckInput): Promise<{
   if (!apiKey) throw new DomainError(422, `llm provider api key is not configured: ${providerId}`)
 
   const model = parsed.model
-    ? projectModel(providerId, piProvider, requirePiModel(piProvider, parsed.model))
+    ? projectModel(providerId, llmProvider, requireLlmModel(llmProvider, parsed.model))
     : undefined
   return {
     ok: true,
     provider: {
       providerId,
-      piProvider,
+      llmProvider,
       baseUrl,
       providerOptions,
       apiKey: {
@@ -274,10 +269,10 @@ export async function checkLlmProvider(input: LlmProviderCheckInput): Promise<{
 
 export async function listLlmProviderModels(providerId: string): Promise<LlmProviderModelProjection[]> {
   const row = await requireLlmProviderRow(providerId)
-  return getModels(row.piProvider as never).map(model => projectModel(row.providerId, row.piProvider, model))
+  return getModels(row.llmProvider as never).map(model => projectModel(row.providerId, row.llmProvider, model))
 }
 
-export function listPiLlmProviders(): Array<{ id: string; modelCount: number }> {
+export function listLlmProviderCatalog(): Array<{ id: string; modelCount: number }> {
   return getProviders().map(id => ({
     id,
     modelCount: getModels(id as never).length
@@ -286,7 +281,7 @@ export function listPiLlmProviders(): Array<{ id: string; modelCount: number }> 
 
 export async function assertLlmProviderModelReference(input: { providerId: string; model: string }): Promise<void> {
   const row = await requireLlmProviderRow(input.providerId)
-  requirePiModel(row.piProvider, input.model)
+  requireLlmModel(row.llmProvider, input.model)
 }
 
 export async function resolveLlmProviderModelProfile(
@@ -297,30 +292,32 @@ export async function resolveLlmProviderModelProfile(
   if (!apiKey) throw new DomainError(422, `llm provider api key is not configured: ${row.providerId}`)
 
   const providerOptions = normalizeProviderOptions(row.providerOptions)
-  const model = clonePiModelWithProviderOverrides(requirePiModel(row.piProvider, ref.model), row, providerOptions)
+  const model = cloneLlmModelWithProviderOverrides(
+    requireLlmModel(row.llmProvider, ref.model),
+    row,
+    providerOptions,
+    apiKey
+  )
 
   return {
     config: {
       providerId: row.providerId,
-      piProvider: row.piProvider,
+      llmProvider: row.llmProvider,
       model: ref.model,
       reasoning: ref.reasoning,
       temperature: ref.temperature,
       maxTokens: ref.maxTokens,
-      cacheRetention: ref.cacheRetention,
-      transport: ref.transport
+      cacheRetention: ref.cacheRetention
     },
     model,
     options: {
       apiKey,
       timeoutMs: providerOptions.timeoutMs ?? DEFAULT_LLM_TIMEOUT_MS,
-      websocketConnectTimeoutMs: providerOptions.websocketConnectTimeoutMs,
       maxRetries: providerOptions.maxRetries,
       maxRetryDelayMs: providerOptions.maxRetryDelayMs,
-      transport: ref.transport ?? providerOptions.transport,
       cacheRetention: ref.cacheRetention,
       maxTokens: ref.maxTokens,
-      reasoning: ref.reasoning === 'off' ? undefined : ref.reasoning,
+      reasoning: ref.reasoning === 'off' ? 'none' : ref.reasoning,
       temperature: ref.temperature
     }
   }
@@ -333,7 +330,7 @@ export async function resolveLlmProviderApiAccess(providerId: string): Promise<L
 
   return {
     providerId: row.providerId,
-    piProvider: row.piProvider,
+    llmProvider: row.llmProvider,
     baseUrl: row.baseUrl,
     apiKey,
     providerOptions: normalizeProviderOptions(row.providerOptions)
@@ -343,7 +340,7 @@ export async function resolveLlmProviderApiAccess(providerId: string): Promise<L
 function projectLlmProvider(row: LlmProviderRecord): LlmProviderProjection {
   return {
     providerId: row.providerId,
-    piProvider: row.piProvider,
+    llmProvider: row.llmProvider,
     baseUrl: row.baseUrl,
     providerOptions: cloneJsonObject(row.providerOptions),
     apiKey: {
@@ -355,13 +352,13 @@ function projectLlmProvider(row: LlmProviderRecord): LlmProviderProjection {
   }
 }
 
-function projectModel(providerId: string, piProvider: string, model: Model<any>): LlmProviderModelProjection {
+function projectModel(providerId: string, llmProvider: string, model: Model<any>): LlmProviderModelProjection {
   return {
     id: model.id,
     name: model.name,
     api: model.api,
     providerId,
-    piProvider,
+    llmProvider,
     contextWindow: model.contextWindow,
     maxTokens: model.maxTokens,
     reasoning: model.reasoning,
@@ -381,15 +378,15 @@ async function requireLlmProviderRow(providerId: string): Promise<LlmProviderRec
   return row
 }
 
-function assertKnownPiProvider(piProvider: string): void {
-  if (!getProviders().includes(piProvider as never)) {
-    throw new DomainError(422, `unknown Pi provider: ${piProvider}`)
+function assertKnownLlmProvider(llmProvider: string): void {
+  if (!getProviders().includes(llmProvider as never)) {
+    throw new DomainError(422, `unknown LLM provider: ${llmProvider}`)
   }
 }
 
-function requirePiModel(piProvider: string, modelId: string): Model<any> {
-  const model = getModel(piProvider as never, modelId as never) as Model<any> | undefined
-  if (!model) throw new DomainError(422, `unknown Pi model: ${piProvider}/${modelId}`)
+function requireLlmModel(llmProvider: string, modelId: string): Model<any> {
+  const model = getModel(llmProvider as never, modelId as never) as Model<any> | undefined
+  if (!model) throw new DomainError(422, `unknown LLM model: ${llmProvider}/${modelId}`)
   return model
 }
 
@@ -447,13 +444,13 @@ function normalizeApiKey(value: string | null | undefined): string | null {
 }
 
 function encryptApiKey(providerId: string, apiKey: string): string {
-  return aeadEncrypt(apiKey, apiKeyEncryptionKey(providerId))
+  return sealText(apiKey, apiKeyEncryptionKey(providerId))
 }
 
 function decryptApiKey(row: LlmProviderRecord): string | null {
   if (!row.encryptedApiKey) return null
   try {
-    return aeadDecrypt(row.encryptedApiKey, apiKeyEncryptionKey(row.providerId)).toString('utf-8')
+    return unsealText(row.encryptedApiKey, apiKeyEncryptionKey(row.providerId))
   } catch (error) {
     throw new DomainError(
       422,
@@ -466,22 +463,36 @@ function apiKeyEncryptionKey(providerId: string): string {
   return getSecretKey(SecretKeyPurpose.DATABASE_ENCRYPTION, `llm_providers:${providerId}:api_key`)
 }
 
-function clonePiModelWithProviderOverrides(
+function cloneLlmModelWithProviderOverrides(
   model: Model<any>,
   row: LlmProviderRecord,
-  providerOptions: NormalizedLlmProviderOptions
+  providerOptions: NormalizedLlmProviderOptions,
+  apiKey?: string
 ): Model<any> {
   const headers = providerOptions.headers ? { ...model.headers, ...providerOptions.headers } : model.headers
   const compat = providerOptions.compat
     ? ({ ...(model.compat as JsonObject | undefined), ...providerOptions.compat } as Model<any>['compat'])
     : model.compat
 
-  return {
+  const resolvedModel = {
     ...model,
     baseUrl: row.baseUrl ?? model.baseUrl,
     headers,
     compat
   }
+  return apiKey
+    ? {
+        ...resolvedModel,
+        sdkModel: createLanguageModel({
+          llmProvider: row.llmProvider,
+          model: resolvedModel,
+          apiKey,
+          baseUrl: resolvedModel.baseUrl,
+          headers,
+          providerOptions
+        })
+      }
+    : resolvedModel
 }
 
 async function listAgentModelReferences(providerId: string): Promise<string[]> {

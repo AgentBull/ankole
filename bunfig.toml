@@ -4,5 +4,8 @@ telemetry = false
 bun = true
 elide-lines = 0
 
+[test]
+pathIgnorePatterns = ["var/**"]
+
 [install]
 linker = "isolated"

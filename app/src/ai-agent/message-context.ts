@@ -1,6 +1,6 @@
 import { and, asc, eq, sql } from 'drizzle-orm'
 import { ms } from '@pleisto/active-support'
-import type { TextContent } from '@earendil-works/pi-ai'
+import type { TextContent } from '@/llm'
 import { DB, type QueryExecutor } from '@/common/database'
 import { AiAgentMessages, type JsonObject } from '@/common/db-schema'
 import { stringFromPath, toJsonObject } from '@/common/json'

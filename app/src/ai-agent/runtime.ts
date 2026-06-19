@@ -2,14 +2,14 @@ import { genUUIDv7 } from '@agentbull/bullx-native-addons'
 import { Computer } from '@agentbull/bullx-computer'
 import {
   isContextOverflow,
-  streamSimple,
   type AssistantMessage,
   type ImageContent,
   type TextContent,
   type ToolResultMessage
-} from '@earendil-works/pi-ai'
+} from '@/llm'
 import { match, ms } from '@pleisto/active-support'
 import { and, desc, eq, sql } from 'drizzle-orm'
+import { z } from 'zod'
 import { DB, jsonbParam, type QueryExecutor } from '@/common/database'
 import { logger } from '@/common/logger'
 import {
@@ -39,7 +39,7 @@ import { NORMAL_RECEIVE_BATCH_WINDOW_MS } from '@/external-gateway/agent-events'
 import type { ExternalGatewayAgentExecutionContext } from '@/external-gateway/agent'
 import type { ExternalGatewayStreamingCardHandle } from '@/external-gateway/core/events'
 import { commandFeedbackIntent } from './commands'
-import { loadAiAgentRuntimeProfile, type AiAgentRuntimeProfile } from './config'
+import { defaultGenerationStallTimeoutMs, loadAiAgentRuntimeProfile, type AiAgentRuntimeProfile } from './config'
 import {
   aiAgentConversationService,
   buildRouteMetadata,
@@ -116,7 +116,7 @@ const DEFAULT_ADDRESSED_MEDIA_BATCH_WINDOW_MS = Math.ceil(NORMAL_RECEIVE_BATCH_W
 const GENERATION_STALLED_ABORT_REASON = 'generation_stalled'
 const DEFAULT_GENERATION_LIVENESS_INTERVAL_MS = ms('60s')
 // First transient retry is immediate (a stall already waited out its budget,
-// and pi-ai's call-level retry already backed off quick failures); later
+// and the provider call-level retry already backed off quick failures); later
 // retries pause so a hard outage cannot spin a tight generation loop.
 const GENERATION_TRANSIENT_RETRY_DELAY_MS = ms('15s')
 // Long-run progress line cadence (the liveness interval checks this clock).
@@ -378,6 +378,16 @@ class GenerationTrajectoryRecorder {
     return typeof llmTurnId === 'string' ? (this.providerObservations.get(llmTurnId) ?? {}) : {}
   }
 
+  observeProviderPayload(payload: unknown): void {
+    if (!this.openTurnId) return
+    observeProviderPayload(this.providerObservations.get(this.openTurnId) ?? {}, payload)
+  }
+
+  observeProviderResponse(response: { status: number; headers: Record<string, string> }): void {
+    if (!this.openTurnId) return
+    observeProviderResponse(this.providerObservations.get(this.openTurnId) ?? {}, response)
+  }
+
   async finishTurn(message: AgentMessage, toolResults: ToolResultMessage[]): Promise<void> {
     const llmTurnId = this.openTurnId
     if (!llmTurnId) return
@@ -549,6 +559,12 @@ function todoResultIsTerminal(result: ToolResultMessage): boolean {
   })
 }
 
+function todoResultIsHousekeeping(result: ToolResultMessage): boolean {
+  const todos = todoItemsFromToolDetails(result.details) ?? todoItemsFromToolContent(result.content)
+  if (!todos || todos.length === 0) return false
+  return todos.every(item => isJsonObject(item) && item.status === 'in_progress')
+}
+
 function toolNameFromToolResult(result: JsonObject): string | undefined {
   if (typeof result.toolName === 'string') return result.toolName
   if (typeof result.tool_name === 'string') return result.tool_name
@@ -625,10 +641,11 @@ function numberValue(value: unknown): number {
 
 function snapshotTools(tools: AgentTool<any>[] | undefined): JsonValue[] {
   return (tools ?? []).flatMap(tool => {
+    const parameters = z.toJSONSchema(tool.schema)
     const snapshot = toJsonValue({
       name: tool.name,
       description: tool.description ?? null,
-      parameters: tool.parameters ?? null,
+      parameters,
       execution_mode: tool.executionMode ?? null,
       is_read_only: tool.isReadOnly ?? null,
       is_destructive: tool.isDestructive ?? null
@@ -645,7 +662,7 @@ function estimateGenerationContextTokens(
   const messageTokens = estimateContextTokensJsonAware(messages)
   const systemTokens = Math.ceil(systemPrompt.length / 4)
   const toolChars = tools.reduce((sum, tool) => {
-    return sum + tool.name.length + tool.description.length + safeJsonStringify(tool.parameters).length
+    return sum + tool.name.length + tool.description.length + safeJsonStringify(z.toJSONSchema(tool.schema)).length
   }, 0)
   return messageTokens + systemTokens + Math.ceil(toolChars / 4)
 }
@@ -683,6 +700,27 @@ function reasoningTraceStorageRef(ref: ReasoningTraceRef) {
     ...(ref.providerThreadId ? { provider_thread_id: ref.providerThreadId } : {}),
     ...(ref.traceUrl ? { trace_url: ref.traceUrl } : {})
   }
+}
+
+function normalizeRuntimeProfile(profile: AiAgentRuntimeProfile): AiAgentRuntimeProfile {
+  const generation = profile.generation as Partial<AiAgentRuntimeProfile['generation']> | undefined
+  return {
+    ...profile,
+    generation: {
+      maxTurns: positiveNumber(generation?.maxTurns) ?? 100,
+      stallTimeoutMs: positiveNumber(generation?.stallTimeoutMs) ?? defaultGenerationStallTimeoutMs(),
+      streamGapTimeoutMs: positiveNumber(generation?.streamGapTimeoutMs) ?? ms('5m'),
+      maxTransientRetries: nonNegativeNumber(generation?.maxTransientRetries) ?? 2
+    }
+  }
+}
+
+function positiveNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : undefined
+}
+
+function nonNegativeNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined
 }
 
 export class AiAgentRuntime {
@@ -737,6 +775,10 @@ export class AiAgentRuntime {
    */
   getTools(): AgentTool<any>[] {
     return [...this.tools.values()]
+  }
+
+  private async loadRuntimeProfile(agentUid: string): Promise<AiAgentRuntimeProfile> {
+    return normalizeRuntimeProfile(await this.loadProfile(agentUid))
   }
 
   setTools(tools: AgentTool<any>[], activeToolNames?: string[]): void {
@@ -882,7 +924,10 @@ export class AiAgentRuntime {
     if (!text) return false
     if (context.toolResults.length === 0) return true
     return context.toolResults.every(
-      result => !result.isError && result.toolName === 'todo' && todoResultIsTerminal(result)
+      result =>
+        !result.isError &&
+        result.toolName === 'todo' &&
+        (todoResultIsTerminal(result) || todoResultIsHousekeeping(result))
     )
   }
 
@@ -1068,7 +1113,7 @@ export class AiAgentRuntime {
   ): Promise<{ status: 'accepted' }> {
     const first = delivery.events[0]
     if (!first) return { status: 'accepted' }
-    const profile = await this.loadProfile(context.agentUid)
+    const profile = await this.loadRuntimeProfile(context.agentUid)
     const route = routeFromContext(context, first.providerRoomId)
     logger.debug(
       {
@@ -1100,7 +1145,7 @@ export class AiAgentRuntime {
     context: ExternalGatewayAgentExecutionContext,
     input: AiAgentProgrammaticTurnInput
   ): Promise<AiAgentProgrammaticTurnResult> {
-    const profile = await this.loadProfile(context.agentUid)
+    const profile = await this.loadRuntimeProfile(context.agentUid)
     const conversation = await this.conversations.getOrCreateActiveConversation({
       agentUid: context.agentUid,
       bindingName: context.bindingName,
@@ -1334,7 +1379,7 @@ export class AiAgentRuntime {
   }
 
   async recoverExternalGatewayBinding(context: ExternalGatewayAgentExecutionContext): Promise<void> {
-    const profile = await this.loadProfile(context.agentUid)
+    const profile = await this.loadRuntimeProfile(context.agentUid)
     const rebuiltOutboxRows = await this.rebuildMissingAssistantOutbox(context)
     if (rebuiltOutboxRows > 0) {
       logger.info(
@@ -2277,8 +2322,7 @@ export class AiAgentRuntime {
         thinkingLevel: input.input.profile.primaryModel.config.reasoning ?? 'medium',
         tools: input.activeTools
       },
-      // core's low-level Agent has no `streamOptions`: forward curated provider request options via a
-      // streamFn wrapper, and pass the harness `convertToLlm` so compaction-summary messages reach the model
+      // Pass the harness `convertToLlm` so compaction-summary messages reach the model
       // (the Agent's default convertToLlm would drop them).
       convertToLlm,
       toolExecution: 'parallel',
@@ -2299,26 +2343,19 @@ export class AiAgentRuntime {
           : undefined,
       beforeLlmCall: (llmContext, _signal) => input.recorder.beforeLlmCall(llmContext),
       // Provider request policy + observability (AgentHarness stream options + before/after provider hooks).
-      streamFn: (model, context, options) => {
-        const llmTurnId = options?.metadata?.llm_turn_id
-        const providerObservation = input.recorder.providerObservation(llmTurnId)
-        return streamSimple(model, context, {
-          ...options,
-          ...profileOptions,
-          metadata: {
-            ...options?.metadata,
-            conversation_id: input.input.conversationId
-          },
-          onPayload: async payload => {
-            const replacement = await options?.onPayload?.(payload, model)
-            observeProviderPayload(providerObservation, replacement ?? payload)
-            return replacement
-          },
-          onResponse: async response => {
-            await options?.onResponse?.(response, model)
-            observeProviderResponse(providerObservation, response)
-          }
-        })
+      requestOptions: {
+        ...profileOptions,
+        metadata: {
+          ...profileOptions.metadata,
+          conversation_id: input.input.conversationId
+        }
+      },
+      onPayload: async payload => {
+        input.recorder.observeProviderPayload(payload)
+        return undefined
+      },
+      onResponse: async response => {
+        input.recorder.observeProviderResponse(response)
       }
     })
     agent.subscribe(async event => {
@@ -3744,7 +3781,7 @@ function assistantProviderMetadata(
   profile: AiAgentRuntimeProfile
 ): JsonObject {
   return {
-    pi_provider: profile.primaryModel.config.piProvider,
+    llm_provider: profile.primaryModel.config.llmProvider,
     response_id: message.responseId ?? null,
     response_model: message.responseModel ?? null,
     ...providerObservation

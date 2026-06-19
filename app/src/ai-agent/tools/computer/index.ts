@@ -1,4 +1,5 @@
 import { type ResolveSessionResponse, Computer } from '@agentbull/bullx-computer'
+import { statusFromError } from '@/common/errors'
 import type { AgentTool } from '../../core'
 import { createBrowserTools } from '../browser/browser-tools'
 import { createCodexDelegateTool } from './codex-delegate-tool'
@@ -95,20 +96,10 @@ export function createComputerTools(binding: ComputerToolsBinding, deps: Compute
 }
 
 function isRecoverableComputerResolveError(error: unknown): boolean {
-  const status = statusFromError(error)
+  const status = statusFromError(error, { fallback: undefined, includeCode: true })
   if (typeof status === 'number' && (status >= 500 || status === 408 || status === 429)) return true
   const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase()
   return ['econnrefused', 'econnreset', 'fetch failed', 'socket hang up', 'timeout', 'timed out'].some(part =>
     message.includes(part)
   )
-}
-
-function statusFromError(error: unknown): number | undefined {
-  if (!error || typeof error !== 'object') return undefined
-  for (const key of ['status', 'statusCode', 'code']) {
-    const value = (error as Record<string, unknown>)[key]
-    const parsed = typeof value === 'number' ? value : typeof value === 'string' ? Number.parseInt(value, 10) : NaN
-    if (Number.isInteger(parsed) && parsed >= 100 && parsed <= 599) return parsed
-  }
-  return undefined
 }

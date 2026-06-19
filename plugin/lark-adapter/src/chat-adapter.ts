@@ -113,7 +113,7 @@ export class BullXLarkChatAdapter {
   }
 
   authorizeReasoningTraceView(_input: BullXReasoningTraceViewAuthInput): boolean {
-    // /(lark|feishu)/i.test(input.request.headers.get('user-agent') ?? '') 会导致mac侧无法查看，因为是打开的chrome
+    // The sealed trace token is the authority; desktop clients may open the link in Chrome.
     return true
   }
 

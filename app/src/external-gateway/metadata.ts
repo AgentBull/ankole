@@ -1,10 +1,14 @@
+import {
+  bullxExternalGatewayGroupMessageModes,
+  isBullXExternalGatewayGroupMessageMode,
+  type BullXExternalGatewayGroupMessageMode
+} from '@agentbull/bullx-sdk/plugins'
 import type { JsonObject, JsonValue } from '@/common/db-schema'
 import { jsonObject } from '@/common/json'
 
 const channelNamePattern = /^[a-z][a-z0-9_]*$/
-const groupMessageModes = new Set(['addressed_only', 'observe_all', 'may_intervene'])
 
-export type GroupMessageMode = 'addressed_only' | 'observe_all' | 'may_intervene'
+export type GroupMessageMode = BullXExternalGatewayGroupMessageMode
 
 /**
  * One enabled `agents.metadata.external.adapters[]` entry after validation.
@@ -155,7 +159,7 @@ function requiredChannelName(value: JsonValue | undefined, field: string): strin
 
 function optionalGroupMessageMode(value: JsonValue | undefined, field: string): GroupMessageMode | undefined {
   if (value === undefined) return undefined
-  if (typeof value === 'string' && groupMessageModes.has(value)) return value as GroupMessageMode
+  if (isBullXExternalGatewayGroupMessageMode(value)) return value
 
-  throw new AgentChatMetadataError(`${field} must be addressed_only, observe_all, or may_intervene`)
+  throw new AgentChatMetadataError(`${field} must be ${bullxExternalGatewayGroupMessageModes.join(', ')}`)
 }

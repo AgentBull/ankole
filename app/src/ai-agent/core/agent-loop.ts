@@ -6,12 +6,20 @@
 import {
   type AssistantMessage,
   type Context,
+  convertBullXMessagesToModelMessages,
+  createBullXAssistantMessage,
+  createBullXProviderOptions,
+  isStepCount,
   type Message,
-  streamSimple,
-  type Tool,
+  resolveBullXReasoning,
+  streamText,
+  type ToolSet,
   type ToolResultMessage,
+  toBullXStopReason,
+  toBullXUsage,
   validateToolArguments
-} from '@earendil-works/pi-ai'
+} from '@/llm'
+import type { LanguageModelUsage } from '@/llm'
 import { isPlainObject } from '@pleisto/active-support'
 import { withRetry } from '@/common/async'
 import { redactJsonValue, redactSensitiveText } from '@/security/redact'
@@ -23,8 +31,7 @@ import type {
   AgentMessage,
   AgentTool,
   AgentToolCall,
-  AgentToolResult,
-  StreamFn
+  AgentToolResult
 } from './types'
 
 export type AgentEventSink = (event: AgentEvent) => Promise<void> | void
@@ -39,7 +46,6 @@ const EMPTY_AFTER_TOOL_NUDGE_TEXT =
 
 const ORPHAN_TOOL_RESULT_STUB = '[Tool result unavailable - the matching tool call was removed from the model view.]'
 const EMPTY_ASSISTANT_PLACEHOLDER = '(no content)'
-
 /**
  * Repairs the provider-bound message list at the send boundary.
  *
@@ -120,8 +126,7 @@ export async function runAgentLoop(
   context: AgentContext,
   config: AgentLoopConfig,
   emit: AgentEventSink,
-  signal?: AbortSignal,
-  streamFn?: StreamFn
+  signal?: AbortSignal
 ): Promise<AgentMessage[]> {
   const newMessages: AgentMessage[] = [...prompts]
   const currentContext: AgentContext = {
@@ -136,7 +141,7 @@ export async function runAgentLoop(
     await emit({ type: 'message_end', message: prompt })
   }
 
-  await runLoop(currentContext, newMessages, config, signal, emit, streamFn)
+  await runLoop(currentContext, newMessages, config, signal, emit)
   return newMessages
 }
 
@@ -144,8 +149,7 @@ export async function runAgentLoopContinue(
   context: AgentContext,
   config: AgentLoopConfig,
   emit: AgentEventSink,
-  signal?: AbortSignal,
-  streamFn?: StreamFn
+  signal?: AbortSignal
 ): Promise<AgentMessage[]> {
   if (context.messages.length === 0) {
     throw new Error('Cannot continue: no messages in context')
@@ -161,7 +165,7 @@ export async function runAgentLoopContinue(
   await emit({ type: 'agent_start' })
   await emit({ type: 'turn_start' })
 
-  await runLoop(currentContext, newMessages, config, signal, emit, streamFn)
+  await runLoop(currentContext, newMessages, config, signal, emit)
   return newMessages
 }
 
@@ -173,8 +177,7 @@ async function runLoop(
   newMessages: AgentMessage[],
   initialConfig: AgentLoopConfig,
   signal: AbortSignal | undefined,
-  emit: AgentEventSink,
-  streamFn?: StreamFn
+  emit: AgentEventSink
 ): Promise<void> {
   let currentContext = initialContext
   let config = initialConfig
@@ -199,7 +202,7 @@ async function runLoop(
       // runaway tool-calling model still yields a usable summary, then stop.
       if (config.maxTurns !== undefined && turnCount >= config.maxTurns) {
         await emit({ type: 'max_turns_reached', maxTurns: config.maxTurns, turnCount })
-        await runGraceSummaryTurn(currentContext, config, signal, emit, newMessages, streamFn)
+        await runGraceSummaryTurn(currentContext, config, signal, emit, newMessages)
         await emit({ type: 'agent_end', messages: newMessages })
         return
       }
@@ -223,7 +226,7 @@ async function runLoop(
 
       // Stream assistant response
       const contextLengthBeforeAssistant = currentContext.messages.length
-      const message = await streamAssistantResponse(currentContext, config, signal, emit, streamFn)
+      const message = await streamAssistantResponse(currentContext, config, signal, emit)
       if (
         shouldRetryPreToolAssistantError(message, {
           alreadyRetried: retriedPreToolAssistantError,
@@ -376,8 +379,7 @@ async function runGraceSummaryTurn(
   config: AgentLoopConfig,
   signal: AbortSignal | undefined,
   emit: AgentEventSink,
-  newMessages: AgentMessage[],
-  streamFn?: StreamFn
+  newMessages: AgentMessage[]
 ): Promise<void> {
   const graceUser: AgentMessage = {
     role: 'user',
@@ -392,7 +394,7 @@ async function runGraceSummaryTurn(
 
   // Strip tools for the grace turn so the model summarizes instead of calling more.
   const toollessContext: AgentContext = { ...context, tools: undefined }
-  const message = await streamAssistantResponse(toollessContext, config, signal, emit, streamFn)
+  const message = await streamAssistantResponse(toollessContext, config, signal, emit)
   newMessages.push(message)
   await emit({ type: 'turn_end', message, toolResults: [] })
 }
@@ -405,8 +407,7 @@ async function streamAssistantResponse(
   context: AgentContext,
   config: AgentLoopConfig,
   signal: AbortSignal | undefined,
-  emit: AgentEventSink,
-  streamFn?: StreamFn
+  emit: AgentEventSink
 ): Promise<AssistantMessage> {
   // Apply context transform if configured (AgentMessage[] → AgentMessage[])
   let messages = context.messages
@@ -423,7 +424,7 @@ async function streamAssistantResponse(
   const llmContext: Context = {
     systemPrompt: context.systemPrompt,
     messages: llmMessages,
-    tools: context.tools as unknown as Tool[] | undefined
+    tools: context.tools
   }
 
   const beforeCall = await config.beforeLlmCall?.(
@@ -437,89 +438,272 @@ async function streamAssistantResponse(
     signal
   )
 
-  const streamFunction = streamFn || streamSimple
+  const sdkModel = config.model.sdkModel
+  if (!sdkModel) {
+    const message = createBullXAssistantMessage(config.model, 'error', [], {
+      errorMessage: `LLM model ${config.model.provider}/${config.model.id} is missing an AI SDK model instance`
+    })
+    context.messages.push(message)
+    await emit({ type: 'message_start', message: { ...message } })
+    await emit({ type: 'message_end', message })
+    return message
+  }
 
-  const response = await withRetry(
-    async () => {
-      // Resolve API key inside the retry attempt so expiring-token providers can recover.
-      const resolvedApiKey =
-        (config.getApiKey ? await config.getApiKey(config.model.provider) : undefined) || config.apiKey
-      return await streamFunction(config.model, llmContext, {
-        ...config,
-        apiKey: resolvedApiKey,
-        metadata: {
+  const sdkMessages = convertBullXMessagesToModelMessages(llmMessages)
+  const sdkTools = createAiSdkTools(context.tools)
+
+  let partialMessage = createBullXAssistantMessage(config.model, 'stop', [])
+  let addedPartial = false
+  let lastFinishStep:
+    | {
+        responseId?: string
+        responseModel?: string
+        usage?: LanguageModelUsage
+        finishReason?: string
+      }
+    | undefined
+  const textBlocks = new Map<string, number>()
+  const reasoningBlocks = new Map<string, number>()
+
+  const emitStartOnce = async () => {
+    if (addedPartial) return
+    context.messages.push(partialMessage)
+    addedPartial = true
+    await emit({ type: 'message_start', message: { ...partialMessage } })
+  }
+
+  const emitUpdate = async (assistantMessageEvent: AgentMessageUpdateEvent) => {
+    await emitStartOnce()
+    context.messages[context.messages.length - 1] = partialMessage
+    await emit({
+      type: 'message_update',
+      assistantMessageEvent,
+      message: { ...partialMessage }
+    })
+  }
+
+  try {
+    const result = await withRetry(
+      async () => {
+        const metadata = {
           ...config.metadata,
           ...beforeCall?.metadata
-        },
-        signal
-      })
-    },
-    {
-      maxAttempts: 3,
-      maxMs: config.maxRetryDelayMs,
-      signal,
-      isRetryable: isRetryableLlmError
-    }
-  )
+        }
+        const requestOptions = {
+          ...config,
+          metadata
+        }
+        return streamText({
+          model: sdkModel,
+          system: context.systemPrompt,
+          messages: sdkMessages,
+          tools: sdkTools,
+          stopWhen: isStepCount(1),
+          maxOutputTokens: typeof config.maxTokens === 'number' && config.maxTokens > 0 ? config.maxTokens : undefined,
+          temperature: config.temperature,
+          reasoning: resolveBullXReasoning(config.model, requestOptions),
+          maxRetries: config.maxRetries,
+          timeout: config.timeoutMs,
+          headers: config.headers,
+          abortSignal: signal,
+          providerOptions: createBullXProviderOptions(config.model, requestOptions),
+          onLanguageModelCallStart: async event => {
+            await config.onPayload?.({ ...event, metadata }, config.model)
+          }
+        })
+      },
+      {
+        maxAttempts: 3,
+        maxMs: config.maxRetryDelayMs,
+        signal,
+        isRetryable: isRetryableLlmError
+      }
+    )
 
-  let partialMessage: AssistantMessage | null = null
-  let addedPartial = false
-
-  for await (const event of response) {
-    switch (event.type) {
-      case 'start':
-        partialMessage = event.partial
-        context.messages.push(partialMessage)
-        addedPartial = true
-        await emit({ type: 'message_start', message: { ...partialMessage } })
-        break
-
-      case 'text_start':
-      case 'text_delta':
-      case 'text_end':
-      case 'thinking_start':
-      case 'thinking_delta':
-      case 'thinking_end':
-      case 'toolcall_start':
-      case 'toolcall_delta':
-      case 'toolcall_end':
-        if (partialMessage) {
-          partialMessage = event.partial
-          context.messages[context.messages.length - 1] = partialMessage
-          await emit({
-            type: 'message_update',
-            assistantMessageEvent: event,
-            message: { ...partialMessage }
+    for await (const part of result.stream) {
+      switch (part.type) {
+        case 'start':
+          await emitStartOnce()
+          break
+        case 'text-start': {
+          const index = partialMessage.content.length
+          partialMessage = {
+            ...partialMessage,
+            content: [...partialMessage.content, { type: 'text' as const, text: '' }]
+          }
+          textBlocks.set(part.id, index)
+          await emitUpdate({ type: 'text_start', contentIndex: index, partial: partialMessage })
+          break
+        }
+        case 'text-delta': {
+          const index = ensureTextBlock(part.id, textBlocks, partialMessage)
+          const block = partialMessage.content[index]
+          if (block?.type === 'text') {
+            const content = [...partialMessage.content]
+            content[index] = { ...block, text: block.text + part.text }
+            partialMessage = { ...partialMessage, content }
+          }
+          await emitUpdate({ type: 'text_delta', contentIndex: index, delta: part.text, partial: partialMessage })
+          break
+        }
+        case 'text-end': {
+          const index = textBlocks.get(part.id) ?? -1
+          const block = partialMessage.content[index]
+          await emitUpdate({
+            type: 'text_end',
+            contentIndex: index,
+            content: block?.type === 'text' ? block.text : '',
+            partial: partialMessage
           })
+          break
         }
-        break
-
-      case 'done':
-      case 'error': {
-        const finalMessage = await response.result()
-        if (addedPartial) {
-          context.messages[context.messages.length - 1] = finalMessage
-        } else {
-          context.messages.push(finalMessage)
+        case 'reasoning-start': {
+          const index = partialMessage.content.length
+          partialMessage = {
+            ...partialMessage,
+            content: [...partialMessage.content, { type: 'thinking' as const, thinking: '' }]
+          }
+          reasoningBlocks.set(part.id, index)
+          await emitUpdate({ type: 'thinking_start', contentIndex: index, partial: partialMessage })
+          break
         }
-        if (!addedPartial) {
-          await emit({ type: 'message_start', message: { ...finalMessage } })
+        case 'reasoning-delta': {
+          const index = ensureThinkingBlock(part.id, reasoningBlocks, partialMessage)
+          const block = partialMessage.content[index]
+          if (block?.type === 'thinking') {
+            const content = [...partialMessage.content]
+            content[index] = { ...block, thinking: block.thinking + part.text }
+            partialMessage = { ...partialMessage, content }
+          }
+          await emitUpdate({ type: 'thinking_delta', contentIndex: index, delta: part.text, partial: partialMessage })
+          break
         }
-        await emit({ type: 'message_end', message: finalMessage })
-        return finalMessage
+        case 'reasoning-end': {
+          const index = reasoningBlocks.get(part.id) ?? -1
+          const block = partialMessage.content[index]
+          await emitUpdate({
+            type: 'thinking_end',
+            contentIndex: index,
+            content: block?.type === 'thinking' ? block.thinking : '',
+            partial: partialMessage
+          })
+          break
+        }
+        case 'tool-call': {
+          const toolCall = {
+            type: 'toolCall' as const,
+            id: part.toolCallId,
+            name: part.toolName,
+            arguments: isPlainObject(part.input) ? part.input : {}
+          }
+          const index = partialMessage.content.length
+          partialMessage = {
+            ...partialMessage,
+            content: [...partialMessage.content, toolCall]
+          }
+          await emitUpdate({ type: 'toolcall_end', contentIndex: index, toolCall, partial: partialMessage })
+          break
+        }
+        case 'finish-step':
+          lastFinishStep = {
+            responseId: part.response.id,
+            responseModel: part.response.modelId,
+            usage: part.usage,
+            finishReason: part.finishReason
+          }
+          if (part.response.headers) {
+            await config.onResponse?.({ status: 200, headers: part.response.headers }, config.model)
+          }
+          break
+        case 'finish':
+          partialMessage = {
+            ...partialMessage,
+            stopReason: toBullXStopReason(part.finishReason),
+            usage: toBullXUsage(part.totalUsage, config.model)
+          }
+          break
+        case 'abort':
+          partialMessage = {
+            ...partialMessage,
+            stopReason: 'aborted',
+            errorMessage: part.reason
+          }
+          break
+        case 'error':
+          partialMessage = {
+            ...partialMessage,
+            stopReason: 'error',
+            errorMessage: errorMessage(part.error)
+          }
+          break
       }
     }
+
+    if (lastFinishStep) {
+      partialMessage = {
+        ...partialMessage,
+        responseId: lastFinishStep.responseId,
+        responseModel: lastFinishStep.responseModel,
+        usage: toBullXUsage(lastFinishStep.usage, config.model),
+        stopReason: lastFinishStep.finishReason
+          ? toBullXStopReason(lastFinishStep.finishReason)
+          : partialMessage.stopReason
+      }
+    }
+  } catch (error) {
+    partialMessage = {
+      ...partialMessage,
+      stopReason: signal?.aborted ? 'aborted' : 'error',
+      errorMessage: errorMessage(error)
+    }
   }
 
-  const finalMessage = await response.result()
   if (addedPartial) {
-    context.messages[context.messages.length - 1] = finalMessage
+    context.messages[context.messages.length - 1] = partialMessage
   } else {
-    context.messages.push(finalMessage)
-    await emit({ type: 'message_start', message: { ...finalMessage } })
+    context.messages.push(partialMessage)
+    await emit({ type: 'message_start', message: { ...partialMessage } })
   }
-  await emit({ type: 'message_end', message: finalMessage })
-  return finalMessage
+  await emit({ type: 'message_end', message: partialMessage })
+  return partialMessage
+}
+
+type AgentMessageUpdateEvent = Extract<AgentEvent, { type: 'message_update' }>['assistantMessageEvent']
+
+function createAiSdkTools(tools: AgentTool<any>[] | undefined): ToolSet | undefined {
+  if (!tools?.length) return undefined
+  return Object.fromEntries(
+    tools.map(agentTool => [
+      agentTool.name,
+      {
+        description: agentTool.description,
+        inputSchema: agentTool.schema
+      }
+    ])
+  ) as ToolSet
+}
+
+function ensureTextBlock(id: string, blocks: Map<string, number>, message: AssistantMessage): number {
+  const existing = blocks.get(id)
+  if (existing !== undefined) return existing
+  const index = message.content.length
+  message.content.push({ type: 'text', text: '' })
+  blocks.set(id, index)
+  return index
+}
+
+function ensureThinkingBlock(id: string, blocks: Map<string, number>, message: AssistantMessage): number {
+  const existing = blocks.get(id)
+  if (existing !== undefined) return existing
+  const index = message.content.length
+  message.content.push({ type: 'thinking', thinking: '' })
+  blocks.set(id, index)
+  return index
+}
+
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message
+  return String(error)
 }
 
 /**
@@ -735,7 +919,7 @@ async function prepareToolCall(
 
   try {
     const preparedToolCall = prepareToolCallArguments(tool, toolCall)
-    const validatedArgs = validateToolArguments(tool as unknown as Tool, preparedToolCall)
+    const validatedArgs = validateToolArguments(tool, preparedToolCall)
     if (config.beforeToolCall) {
       const beforeResult = await config.beforeToolCall(
         {

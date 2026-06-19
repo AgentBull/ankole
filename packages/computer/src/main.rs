@@ -14,6 +14,7 @@ mod git_ssh_identity;
 mod isolation;
 mod ndjson;
 mod paths;
+mod sealed;
 mod session;
 mod shell;
 mod shutdown;

@@ -3,7 +3,7 @@
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/uikit/components/accordion'
 import { Badge } from '@/uikit/components/badge'
 import { cn } from '@/uikit/lib/utils'
-import type { Tool } from 'ai'
+import type { Tool } from '@/llm'
 import { BotIcon } from 'lucide-react'
 import type { ComponentProps } from 'react'
 import { memo } from 'react'

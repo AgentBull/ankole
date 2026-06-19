@@ -180,7 +180,7 @@ export class AiAgentCompressionService {
           response: normalizedAssistantResponse(response),
           usage: response.usage as unknown as JsonObject,
           providerMetadata: {
-            pi_provider: input.modelProfile.config.piProvider,
+            llm_provider: input.modelProfile.config.llmProvider,
             response_id: response.responseId ?? null,
             response_model: response.responseModel ?? null
           }
@@ -191,7 +191,7 @@ export class AiAgentCompressionService {
           llmTurnId: llmTurn.id,
           status: 'failed',
           response: { error: error instanceof Error ? error.message : String(error) },
-          providerMetadata: { pi_provider: input.modelProfile.config.piProvider }
+          providerMetadata: { llm_provider: input.modelProfile.config.llmProvider }
         })
         throw error
       }

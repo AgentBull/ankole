@@ -6,8 +6,7 @@
 // derive outbound chat text from an assistant message. Keeping them here leaves the vendored upstream
 // files untouched.
 
-import type { ImageContent, TextContent, UserMessage } from '@earendil-works/pi-ai'
-import { bashExecutionToText } from './harness/messages'
+import type { ImageContent, TextContent, UserMessage } from '@/llm'
 import type { AgentMessage } from './types'
 
 /** Build a user message with an explicit timestamp (epoch millis). String content is wrapped in a text block. */
@@ -49,8 +48,6 @@ export function textFromAgentMessage(message: AgentMessage): string {
             .flatMap(block => (block.type === 'text' ? [block.text] : []))
             .join('')
             .trim()
-    case 'bashExecution':
-      return bashExecutionToText(message).trim()
     case 'compactionSummary':
       return message.summary.trim()
     default:

@@ -21,7 +21,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Spinner } from '@/uikit/components/spinner'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/uikit/components/tooltip'
 import { cn } from '@/uikit/lib/utils'
-import type { ChatStatus, FileUIPart, SourceDocumentUIPart } from 'ai'
+import type { ChatStatus, FileUIPart, SourceDocumentUIPart } from '@/llm'
 import { CornerDownLeftIcon, ImageIcon, Monitor, PlusIcon, SquareIcon, XIcon } from 'lucide-react'
 import { nanoid } from 'nanoid'
 import type {

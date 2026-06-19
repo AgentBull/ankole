@@ -8,15 +8,15 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use base64::Engine;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use chacha20poly1305::aead::{Aead, KeyInit};
-use chacha20poly1305::{Key, XChaCha20Poly1305, XNonce};
 use serde::Deserialize;
 use tokio_postgres::NoTls;
 
+use crate::sealed;
+
 const COMPUTER_GIT_SSH_IDENTITY_KEY: &str = "computer.git_ssh_identity.v1";
-const KDF_CONTEXT: &str = "[subKeyId=computer_git_ssh_identity] [extra=v1]";
+const KEY_SUB_ID: &str = "computer_git_ssh_identity";
+const KEY_CONTEXT: &str = "v1";
+const SEAL_LABEL: &str = "computer Git SSH identity";
 const DEFAULT_SSH_DIR: &str = "/etc/bullx-computer/ssh";
 const DEFAULT_SSH_CONFIG: &str = "/etc/ssh/ssh_config.d/bullx-computer-github.conf";
 
@@ -89,7 +89,13 @@ async fn load_identity(
     "unsupported computer Git SSH identity version"
   );
 
-  let plain = decrypt_identity(&envelope.value.sealed, computer_token)?;
+  let plain = sealed::unseal(
+    &envelope.value.sealed,
+    computer_token,
+    KEY_SUB_ID,
+    Some(KEY_CONTEXT),
+    SEAL_LABEL,
+  )?;
   let identity: ComputerGitSshIdentity =
     serde_json::from_slice(&plain).context("decode unsealed computer Git SSH identity")?;
   anyhow::ensure!(
@@ -180,21 +186,4 @@ fn env_bool(key: &str) -> bool {
       .map(|value| value.trim().to_ascii_lowercase()),
     Some(value) if matches!(value.as_str(), "1" | "true" | "yes" | "on")
   )
-}
-
-fn decrypt_identity(sealed: &str, token: &str) -> Result<Vec<u8>> {
-  let (nonce, ciphertext) = sealed
-    .split_once('.')
-    .context("invalid sealed computer Git SSH identity")?;
-  let nonce = URL_SAFE_NO_PAD
-    .decode(nonce)
-    .context("decode computer Git SSH identity nonce")?;
-  let ciphertext = URL_SAFE_NO_PAD
-    .decode(ciphertext)
-    .context("decode computer Git SSH identity ciphertext")?;
-  let key = blake3::derive_key(KDF_CONTEXT, token.as_bytes());
-  let aead = XChaCha20Poly1305::new(Key::from_slice(&key));
-  aead
-    .decrypt(XNonce::from_slice(&nonce), ciphertext.as_ref())
-    .map_err(|error| anyhow::anyhow!("decrypt computer Git SSH identity: {error}"))
 }

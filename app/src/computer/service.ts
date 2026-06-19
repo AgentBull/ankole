@@ -1,13 +1,22 @@
 import { and, eq, sql } from 'drizzle-orm'
+import type {
+  BindingKind as SdkComputerBindingKind,
+  ResolveSessionResponse,
+  ResolvedWorker,
+  WorkerTlsConfig
+} from '@agentbull/bullx-computer'
 import { DomainError } from '@/common/errors'
 import { DB, type AppDbTransaction, jsonbParam, type QueryExecutor } from '@/common/database'
 import type { JsonValue } from '@/common/db-schema'
 import { ComputerAgentWorkerBindings, ComputerAgentWorkerPins, ComputerWorkers } from '@/common/db-schema/computer'
-import { getComputerClientTlsConfig, type ComputerClientTlsConfig } from './tls-config'
+import { getComputerClientTlsConfig } from './tls-config'
 
 /** Health window: a worker is healthy if `ready` and seen within this interval. */
 const HEALTH_INTERVAL = sql`now() - interval '30 seconds'`
-export type ComputerBindingKind = 'explicit_pin' | 'implicit' | 'fallback'
+export type ComputerBindingKind = SdkComputerBindingKind
+export type ResolvedComputerWorker = ResolvedWorker
+export type ComputerResolveResult = ResolveSessionResponse
+export type ComputerClientTlsConfig = WorkerTlsConfig
 
 export interface RegisterWorkerInput {
   workerId: string
@@ -26,19 +35,6 @@ export interface HeartbeatInput {
   runningSessions?: number
   runningCommands?: number
   load?: Record<string, JsonValue>
-}
-
-export interface ResolvedComputerWorker {
-  workerId: string
-  instanceId: string
-  baseUrl: string
-}
-
-export interface ComputerResolveResult {
-  agentUid: string
-  worker: ResolvedComputerWorker
-  binding: { kind: ComputerBindingKind; reason: string }
-  tls: ComputerClientTlsConfig
 }
 
 export async function registerWorker(input: RegisterWorkerInput): Promise<void> {

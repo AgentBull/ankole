@@ -1,6 +1,6 @@
 import { genUUIDv7 } from '@agentbull/bullx-native-addons'
 import { and, asc, eq, isNull, sql } from 'drizzle-orm'
-import type { AssistantMessage } from '@earendil-works/pi-ai'
+import type { AssistantMessage } from '@/llm'
 import { DB, jsonbParam, type QueryExecutor } from '@/common/database'
 import {
   AiAgentConversations,

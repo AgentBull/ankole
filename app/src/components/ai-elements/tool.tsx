@@ -3,7 +3,7 @@
 import { Badge } from '@/uikit/components/badge'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/uikit/components/collapsible'
 import { cn } from '@/uikit/lib/utils'
-import type { DynamicToolUIPart, ToolUIPart } from 'ai'
+import type { DynamicToolUIPart, ToolUIPart } from '@/llm'
 import { CheckCircleIcon, ChevronDownIcon, CircleIcon, ClockIcon, WrenchIcon, XCircleIcon } from 'lucide-react'
 import type { ComponentProps, ReactNode } from 'react'
 import { isValidElement } from 'react'

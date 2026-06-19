@@ -35,7 +35,7 @@ describe('BullX Lark chat adapter', () => {
     expect(adapter.capabilities?.outbound).toContain('outbound_reconciliation')
   })
 
-  it('authorizes reasoning trace view by Lark or Feishu user-agent only', () => {
+  it('authorizes sealed reasoning trace links independent of user-agent', () => {
     const adapter = createAdapter()
     const input = (userAgent?: string) => ({
       agentUid: 'agent',
@@ -49,8 +49,8 @@ describe('BullX Lark chat adapter', () => {
     expect(adapter.authorizeReasoningTraceView?.(input('Lark/7.0'))).toBe(true)
     expect(adapter.authorizeReasoningTraceView?.(input('Mozilla FeiShu Mobile'))).toBe(true)
     expect(adapter.authorizeReasoningTraceView?.(input('fEiShU Desktop'))).toBe(true)
-    expect(adapter.authorizeReasoningTraceView?.(input('Mozilla/5.0'))).toBe(false)
-    expect(adapter.authorizeReasoningTraceView?.(input())).toBe(false)
+    expect(adapter.authorizeReasoningTraceView?.(input('Mozilla/5.0'))).toBe(true)
+    expect(adapter.authorizeReasoningTraceView?.(input())).toBe(true)
   })
 
   it('uses Lark user_id for inbound message authors and DM placeholders', async () => {

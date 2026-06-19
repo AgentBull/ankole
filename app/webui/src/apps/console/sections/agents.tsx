@@ -42,7 +42,6 @@ import {
   numberInputValue,
   optionalFiniteNumber,
   optionalPositiveInteger,
-  TRANSPORT_OPTIONS,
   useAdaptersQuery,
   useAgentsQuery
 } from '../helpers'
@@ -108,7 +107,6 @@ type AiAgentModelProfileFormState = {
   providerId: string
   reasoning: AiAgentReasoning
   temperature: string
-  transport: '' | NonNullable<AiAgentModelProfileConfig['transport']>
 }
 
 type AiAgentModelsFormState = Record<AiAgentModelProfileName, AiAgentModelProfileFormState>
@@ -162,8 +160,7 @@ function aiAgentModelProfileFormFromConfig(
     model: config.model,
     providerId: config.providerId,
     reasoning: config.reasoning ?? AI_AGENT_MODEL_PROFILE_DEFAULT_REASONING[profile],
-    temperature: numberInputValue(config.temperature),
-    transport: config.transport ?? ''
+    temperature: numberInputValue(config.temperature)
   }
 }
 
@@ -175,8 +172,7 @@ function emptyAiAgentModelProfileForm(profile: AiAgentModelProfileName): AiAgent
     model: '',
     providerId: '',
     reasoning: AI_AGENT_MODEL_PROFILE_DEFAULT_REASONING[profile],
-    temperature: '',
-    transport: ''
+    temperature: ''
   }
 }
 
@@ -214,7 +210,6 @@ function aiAgentModelConfigFromForm(
   if (temperature !== undefined) config.temperature = temperature
   if (maxTokens !== undefined) config.maxTokens = maxTokens
   if (form.cacheRetention) config.cacheRetention = form.cacheRetention
-  if (form.transport) config.transport = form.transport
   return config
 }
 
@@ -832,30 +827,6 @@ function AiAgentModelProfileSection({
               <SelectContent>
                 <SelectItem value="default">{t('console.default_option')}</SelectItem>
                 {CACHE_RETENTION_OPTIONS.map(option => (
-                  <SelectItem key={option} value={option}>
-                    {option}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </Field>
-
-          <Field>
-            <FieldLabel>{t('console.agents.transport_label')}</FieldLabel>
-            <Select
-              value={value.transport || 'default'}
-              onValueChange={transport =>
-                onChange({
-                  transport:
-                    transport === 'default' ? '' : (transport as NonNullable<AiAgentModelProfileConfig['transport']>)
-                })
-              }>
-              <SelectTrigger className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="default">{t('console.default_option')}</SelectItem>
-                {TRANSPORT_OPTIONS.map(option => (
                   <SelectItem key={option} value={option}>
                     {option}
                   </SelectItem>

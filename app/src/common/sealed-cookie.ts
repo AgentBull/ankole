@@ -1,4 +1,4 @@
-import { aeadDecrypt, aeadEncrypt } from '@agentbull/bullx-native-addons'
+import { sealJson, unsealJson } from './aead-seal'
 import { getSecretKey, SecretKeyPurpose } from './kms'
 
 /**
@@ -20,11 +20,11 @@ export function createSealedCookieCodec(purpose: SecretKeyPurpose, context: stri
   const key = () => getSecretKey(purpose, context)
   return {
     seal(payload: unknown): string {
-      return aeadEncrypt(JSON.stringify(payload), key())
+      return sealJson(payload, key())
     },
     read<TPayload extends { expiresAt: number }>(value: string): TPayload | undefined {
       try {
-        const payload = JSON.parse(aeadDecrypt(value, key()).toString('utf-8')) as TPayload
+        const payload = unsealJson<TPayload>(value, key())
         if (payload.expiresAt < Date.now()) return undefined
 
         return payload

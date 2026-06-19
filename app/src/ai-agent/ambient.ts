@@ -1,6 +1,6 @@
 import { redis } from 'bun'
 import { genUUIDv7 } from '@agentbull/bullx-native-addons'
-import { completeSimple, parseJsonWithRepair, type Message } from '@earendil-works/pi-ai'
+import { generateBullXText, parseJsonWithRepair, type Message } from '@/llm'
 import { and, asc, desc, eq, gt, inArray, lt, sql } from 'drizzle-orm'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 import { DB } from '@/common/database'
@@ -346,7 +346,7 @@ export class AiAgentAmbientBatcher {
 
     let rawText: string | undefined
     try {
-      const response = await completeSimple(
+      const response = await generateBullXText(
         profile.lightModel.model,
         { systemPrompt, messages: llmMessages },
         withAmbientRecognizerStructuredOutputOptions(profile.lightModel.options)
@@ -367,7 +367,7 @@ export class AiAgentAmbientBatcher {
         },
         usage: response.usage as unknown as JsonObject,
         providerMetadata: {
-          pi_provider: profile.lightModel.config.piProvider,
+          llm_provider: profile.lightModel.config.llmProvider,
           response_id: response.responseId ?? null
         }
       })
@@ -687,9 +687,13 @@ function recoverAmbientRecognizerYaml(text: string): Partial<AmbientRecognizerRe
     : isJsonObject(parsed.ambient_intervention_decision)
       ? parsed.ambient_intervention_decision
       : parsed
-  const intervene = booleanDecisionValue(decision.intervene ?? decision.should_intervene ?? decision.shouldIntervene)
+  const intervene = booleanDecisionValue(
+    decision.intervene ?? decision.should_intervene ?? decision.shouldIntervene ?? decision.decision
+  )
   if (intervene === undefined) return undefined
-  const reason = stringDecisionValue(decision.reason_summary ?? decision.reasonSummary ?? decision.reason)
+  const reason = stringDecisionValue(
+    decision.reason_summary ?? decision.reasonSummary ?? decision.reason ?? decision.reasoning
+  )
   return {
     intervene,
     ...(reason ? { reason_summary: reason } : {})
@@ -746,8 +750,26 @@ function extractFencedBlockText(text: string): string {
 function booleanDecisionValue(value: unknown): boolean | undefined {
   if (typeof value === 'boolean') return value
   if (typeof value !== 'string') return undefined
-  if (/^true$/i.test(value.trim())) return true
-  if (/^false$/i.test(value.trim())) return false
+  const normalized = value
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g, ' ')
+  if (['true', 'intervene', 'respond', 'speak', 'yes', 'should intervene'].includes(normalized)) return true
+  if (
+    [
+      'false',
+      'do not intervene',
+      'dont intervene',
+      "don't intervene",
+      'no',
+      'silent',
+      'stay silent',
+      'ignore',
+      'no intervention'
+    ].includes(normalized)
+  ) {
+    return false
+  }
   return undefined
 }
 

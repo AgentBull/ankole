@@ -39,7 +39,12 @@ export interface BullXAppConfigPatternDefinition<TValue extends BullXPluginJsonV
   description?: string
 }
 
-export type BullXExternalGatewayGroupMessageMode = 'addressed_only' | 'observe_all' | 'may_intervene'
+export const bullxExternalGatewayGroupMessageModes = ['addressed_only', 'observe_all', 'may_intervene'] as const
+export type BullXExternalGatewayGroupMessageMode = (typeof bullxExternalGatewayGroupMessageModes)[number]
+
+export function isBullXExternalGatewayGroupMessageMode(value: unknown): value is BullXExternalGatewayGroupMessageMode {
+  return typeof value === 'string' && (bullxExternalGatewayGroupMessageModes as readonly string[]).includes(value)
+}
 
 export interface BullXAgentExternalBinding {
   adapter: string

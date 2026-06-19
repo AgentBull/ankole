@@ -138,7 +138,7 @@ describe('AiAgentContextRenderer + microcompact', () => {
         metadata: {
           message_context: {
             time: { sent_at: '2026-06-09T01:00:00.000Z', injected: true },
-            room: { label: 'group chat "Ops"', injected: true },
+            room: { label: 'group chat "Ops"', injected: false },
             actor: { display_name: 'Alice', injected: true }
           }
         }

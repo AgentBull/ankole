@@ -1,13 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
 import { api, unwrap } from '@/lib/api'
-import type { AiAgentModelProfileConfig } from '@/ai-agent/config'
-
-export const TRANSPORT_OPTIONS = [
-  'auto',
-  'sse',
-  'websocket',
-  'websocket-cached'
-] as const satisfies readonly NonNullable<AiAgentModelProfileConfig['transport']>[]
 
 export function useAgentsQuery() {
   return useQuery({

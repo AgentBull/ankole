@@ -1,4 +1,4 @@
-import { type CacheRetention, type Model, type SimpleStreamOptions, type Transport } from '@earendil-works/pi-ai'
+import { type CacheRetention, type Model, type SimpleStreamOptions } from '@/llm'
 import { ms } from '@pleisto/active-support'
 import { z } from 'zod'
 import { defineAppConfig, registerAppConfigDefinitions, appConfigService } from '@/config/app-configure'
@@ -22,7 +22,6 @@ export interface AiAgentModelProfileConfig {
   providerId: string
   reasoning?: AiAgentReasoning
   temperature?: number
-  transport?: Transport
 }
 
 export interface AiAgentModelsConfig {
@@ -82,7 +81,7 @@ export interface AiAgentRuntimePolicyConfig {
 
 export interface ResolvedAiAgentModelProfile {
   config: LlmProviderResolvedModelRef & {
-    piProvider: string
+    llmProvider: string
   }
   model: Model<any>
   options: SimpleStreamOptions
@@ -102,7 +101,6 @@ export interface AiAgentRuntimeProfile {
 
 const ReasoningSchema = z.enum(['off', 'minimal', 'low', 'medium', 'high', 'xhigh'])
 const CacheRetentionSchema = z.enum(['none', 'short', 'long'])
-const TransportSchema = z.enum(['sse', 'websocket', 'websocket-cached', 'auto'])
 
 export const AiAgentModelProfileConfigSchema = z
   .object({
@@ -111,8 +109,7 @@ export const AiAgentModelProfileConfigSchema = z
     temperature: z.number().finite().optional(),
     maxTokens: z.number().int().positive().optional(),
     reasoning: ReasoningSchema.optional(),
-    cacheRetention: CacheRetentionSchema.optional(),
-    transport: TransportSchema.optional()
+    cacheRetention: CacheRetentionSchema.optional()
   })
   .strict()
 

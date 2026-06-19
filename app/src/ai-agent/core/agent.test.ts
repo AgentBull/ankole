@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import type { Model } from '@earendil-works/pi-ai'
+import type { Model } from '@/llm'
 import { Agent } from './agent'
 
 const TEST_MODEL = {
@@ -31,10 +31,7 @@ describe('Agent', () => {
       },
       beforeLlmCall: async () => {
         throw error
-      },
-      streamFn: (() => {
-        throw new Error('stream should not be called')
-      }) as never
+      }
     })
 
     await agent.continue()

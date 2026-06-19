@@ -3,7 +3,7 @@
 import { Button } from '@/uikit/components/button'
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/uikit/components/hover-card'
 import { cn } from '@/uikit/lib/utils'
-import type { FileUIPart, SourceDocumentUIPart } from 'ai'
+import type { FileUIPart, SourceDocumentUIPart } from '@/llm'
 import { FileTextIcon, GlobeIcon, ImageIcon, Music2Icon, PaperclipIcon, VideoIcon, XIcon } from 'lucide-react'
 import type { ComponentProps, HTMLAttributes, ReactNode } from 'react'
 import { createContext, useCallback, useContext, useMemo } from 'react'

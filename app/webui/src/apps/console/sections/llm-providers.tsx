@@ -4,7 +4,6 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { api, unwrap } from '@/lib/api'
-import type { AiAgentModelProfileConfig } from '@/ai-agent/config'
 import { isPluginConfigJsonObject as isJsonObject, type PluginConfigJsonObject } from '@/plugins/config-json'
 import { Alert, AlertDescription, AlertTitle } from '@/uikit/components/alert'
 import { Button } from '@/uikit/components/button'
@@ -14,7 +13,7 @@ import { Input } from '@/uikit/components/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/uikit/components/select'
 import { Spinner } from '@/uikit/components/spinner'
 import { TableCell, TableRow } from '@/uikit/components/table'
-import { numberInputValue, optionalPositiveInteger, TRANSPORT_OPTIONS } from '../helpers'
+import { numberInputValue, optionalPositiveInteger } from '../helpers'
 import { ErrorAlert, SectionHeader, TableCard } from '../shared'
 
 type JsonValue = BullXPluginJsonValue
@@ -29,7 +28,7 @@ export function LlmProvidersPage() {
   })
   const [editingProviderId, setEditingProviderId] = useState<string | null>(null)
   const [providerId, setProviderId] = useState('')
-  const [piProvider, setPiProvider] = useState('')
+  const [llmProvider, setLlmProvider] = useState('')
   const [baseUrl, setBaseUrl] = useState('')
   const [apiKey, setApiKey] = useState('')
   const [checkModel, setCheckModel] = useState('')
@@ -42,7 +41,7 @@ export function LlmProvidersPage() {
       unwrap(
         api.console['llm-providers'].post({
           providerId,
-          piProvider,
+          llmProvider,
           baseUrl: baseUrl.trim() ? baseUrl : null,
           apiKey: apiKey.trim() ? apiKey : null,
           providerOptions: llmProviderOptionsFromForm(providerOptions)
@@ -51,7 +50,7 @@ export function LlmProvidersPage() {
     onSuccess: () => {
       setEditingProviderId(null)
       setProviderId('')
-      setPiProvider('')
+      setLlmProvider('')
       setBaseUrl('')
       setApiKey('')
       setCheckModel('')
@@ -63,7 +62,7 @@ export function LlmProvidersPage() {
     mutationFn: () =>
       unwrap(
         api.console['llm-providers']({ providerId }).put({
-          piProvider,
+          llmProvider,
           baseUrl: baseUrl.trim() ? baseUrl : null,
           apiKey: apiKey.trim() ? apiKey : undefined,
           providerOptions: llmProviderOptionsFromForm(providerOptions)
@@ -79,7 +78,7 @@ export function LlmProvidersPage() {
       unwrap(
         api.console['llm-providers'].check.post({
           providerId: providerId || undefined,
-          piProvider: piProvider || undefined,
+          llmProvider: llmProvider || undefined,
           model: checkModel.trim() || undefined,
           baseUrl: baseUrl.trim() ? baseUrl : null,
           apiKey: apiKey.trim() ? apiKey : undefined,
@@ -95,7 +94,7 @@ export function LlmProvidersPage() {
   useEffect(() => {
     if (!editingProvider) return
     setProviderId(editingProvider.providerId)
-    setPiProvider(editingProvider.piProvider)
+    setLlmProvider(editingProvider.llmProvider)
     setBaseUrl(editingProvider.baseUrl ?? '')
     setApiKey('')
     setCheckModel('')
@@ -105,19 +104,19 @@ export function LlmProvidersPage() {
   function resetForm() {
     setEditingProviderId(null)
     setProviderId('')
-    setPiProvider('')
+    setLlmProvider('')
     setBaseUrl('')
     setApiKey('')
     setCheckModel('')
     setProviderOptions(llmProviderOptionsFormFromValue({}))
   }
 
-  function changePiProvider(nextPiProvider: string | null) {
-    const value = nextPiProvider ?? ''
-    if (!editingProviderId && (!providerId.trim() || providerId === piProvider)) {
+  function changeLlmProvider(nextLlmProvider: string | null) {
+    const value = nextLlmProvider ?? ''
+    if (!editingProviderId && (!providerId.trim() || providerId === llmProvider)) {
       setProviderId(value)
     }
-    setPiProvider(value)
+    setLlmProvider(value)
   }
 
   return (
@@ -142,13 +141,13 @@ export function LlmProvidersPage() {
               </p>
               <FieldGroup className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                 <Field>
-                  <FieldLabel>{t('console.llm_providers.pi_provider_label')}</FieldLabel>
-                  <Select value={piProvider} onValueChange={changePiProvider}>
+                  <FieldLabel>{t('console.llm_providers.llm_provider_label')}</FieldLabel>
+                  <Select value={llmProvider} onValueChange={changeLlmProvider}>
                     <SelectTrigger className="w-full">
-                      <SelectValue placeholder={t('console.llm_providers.select_pi_provider')} />
+                      <SelectValue placeholder={t('console.llm_providers.select_llm_provider')} />
                     </SelectTrigger>
                     <SelectContent>
-                      {(providers.data?.piProviders ?? []).map(provider => (
+                      {(providers.data?.llmProviders ?? []).map(provider => (
                         <SelectItem key={provider.id} value={provider.id}>
                           {provider.id} ({provider.modelCount})
                         </SelectItem>
@@ -203,7 +202,7 @@ export function LlmProvidersPage() {
                 <Button
                   type="button"
                   variant="outline"
-                  disabled={!piProvider || check.isPending}
+                  disabled={!llmProvider || check.isPending}
                   onClick={() => check.mutate()}>
                   {check.isPending ? <Spinner /> : <RiSparkling2Line />}
                   {t('console.llm_providers.check_button')}
@@ -213,7 +212,7 @@ export function LlmProvidersPage() {
             <div className="flex flex-wrap items-center gap-2">
               <Button
                 type="submit"
-                disabled={!providerId.trim() || !piProvider || create.isPending || update.isPending}>
+                disabled={!providerId.trim() || !llmProvider || create.isPending || update.isPending}>
                 {create.isPending || update.isPending ? (
                   <Spinner />
                 ) : editingProviderId ? (
@@ -251,7 +250,7 @@ export function LlmProvidersPage() {
         empty={providers.data?.providers.length === 0}
         columns={[
           t('console.llm_providers.column_provider'),
-          t('console.llm_providers.column_pi_provider'),
+          t('console.llm_providers.column_llm_provider'),
           t('console.llm_providers.base_url_label'),
           t('console.llm_providers.api_key_label'),
           t('console.actions')
@@ -259,7 +258,7 @@ export function LlmProvidersPage() {
         {(providers.data?.providers ?? []).map(provider => (
           <TableRow key={provider.providerId}>
             <TableCell className="font-mono text-xs">{provider.providerId}</TableCell>
-            <TableCell>{provider.piProvider}</TableCell>
+            <TableCell>{provider.llmProvider}</TableCell>
             <TableCell className="max-w-[280px] truncate">{provider.baseUrl ?? '-'}</TableCell>
             <TableCell>{provider.apiKey.present ? provider.apiKey.masked : '-'}</TableCell>
             <TableCell>
@@ -300,8 +299,6 @@ type LlmProviderOptionsFormState = {
   maxRetries: string
   maxRetryDelayMs: string
   timeoutMs: string
-  transport: '' | NonNullable<AiAgentModelProfileConfig['transport']>
-  websocketConnectTimeoutMs: string
 }
 
 function LlmProviderOptionsForm({
@@ -337,17 +334,6 @@ function LlmProviderOptionsForm({
           <FieldDescription>{t('console.llm_providers.milliseconds_hint')}</FieldDescription>
         </Field>
         <Field>
-          <FieldLabel>{t('console.llm_providers.websocket_timeout_label')}</FieldLabel>
-          <Input
-            type="number"
-            min={1}
-            step={1}
-            value={value.websocketConnectTimeoutMs}
-            onChange={event => patch({ websocketConnectTimeoutMs: event.target.value })}
-          />
-          <FieldDescription>{t('console.llm_providers.milliseconds_hint')}</FieldDescription>
-        </Field>
-        <Field>
           <FieldLabel>{t('console.llm_providers.max_retries_label')}</FieldLabel>
           <Input
             type="number"
@@ -367,29 +353,6 @@ function LlmProviderOptionsForm({
             onChange={event => patch({ maxRetryDelayMs: event.target.value })}
           />
           <FieldDescription>{t('console.llm_providers.milliseconds_hint')}</FieldDescription>
-        </Field>
-        <Field>
-          <FieldLabel>{t('console.llm_providers.transport_label')}</FieldLabel>
-          <Select
-            value={value.transport || 'default'}
-            onValueChange={transport =>
-              patch({
-                transport:
-                  transport === 'default' ? '' : (transport as NonNullable<AiAgentModelProfileConfig['transport']>)
-              })
-            }>
-            <SelectTrigger className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="default">{t('console.default_option')}</SelectItem>
-              {TRANSPORT_OPTIONS.map(option => (
-                <SelectItem key={option} value={option}>
-                  {option}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
         </Field>
       </FieldGroup>
       <LlmProviderKeyValueRows
@@ -484,11 +447,7 @@ function llmProviderOptionsFormFromValue(value: JsonObject): LlmProviderOptionsF
     headers: keyValueRowsFromJsonObject(headers, { forceString: true }),
     maxRetries: numberInputValue(typeof value.maxRetries === 'number' ? value.maxRetries : undefined),
     maxRetryDelayMs: numberInputValue(typeof value.maxRetryDelayMs === 'number' ? value.maxRetryDelayMs : undefined),
-    timeoutMs: numberInputValue(typeof value.timeoutMs === 'number' ? value.timeoutMs : undefined),
-    transport: isLlmTransport(value.transport) ? value.transport : '',
-    websocketConnectTimeoutMs: numberInputValue(
-      typeof value.websocketConnectTimeoutMs === 'number' ? value.websocketConnectTimeoutMs : undefined
-    )
+    timeoutMs: numberInputValue(typeof value.timeoutMs === 'number' ? value.timeoutMs : undefined)
   }
 }
 
@@ -497,16 +456,13 @@ function llmProviderOptionsFromForm(form: LlmProviderOptionsFormState): JsonObje
   const headers = jsonObjectFromKeyValueRows(form.headers, { forceString: true })
   const compat = jsonObjectFromKeyValueRows(form.compat)
   const timeoutMs = optionalPositiveInteger(form.timeoutMs, 'Request timeout')
-  const websocketConnectTimeoutMs = optionalPositiveInteger(form.websocketConnectTimeoutMs, 'WebSocket connect timeout')
   const maxRetries = optionalNonNegativeInteger(form.maxRetries, 'Max retries')
   const maxRetryDelayMs = optionalNonNegativeInteger(form.maxRetryDelayMs, 'Max retry delay')
 
   if (Object.keys(headers).length > 0) options.headers = headers
   if (timeoutMs !== undefined) options.timeoutMs = timeoutMs
-  if (websocketConnectTimeoutMs !== undefined) options.websocketConnectTimeoutMs = websocketConnectTimeoutMs
   if (maxRetries !== undefined) options.maxRetries = maxRetries
   if (maxRetryDelayMs !== undefined) options.maxRetryDelayMs = maxRetryDelayMs
-  if (form.transport) options.transport = form.transport
   if (Object.keys(compat).length > 0) options.compat = compat
 
   return options
@@ -541,13 +497,6 @@ function parseLooseJsonValue(value: string): JsonValue {
 function jsonInputValue(value: JsonValue): string {
   if (typeof value === 'string') return value
   return JSON.stringify(value)
-}
-
-function isLlmTransport(value: JsonValue | undefined): value is NonNullable<AiAgentModelProfileConfig['transport']> {
-  return (
-    typeof value === 'string' &&
-    TRANSPORT_OPTIONS.includes(value as NonNullable<AiAgentModelProfileConfig['transport']>)
-  )
 }
 
 function optionalNonNegativeInteger(value: string, label: string): number | undefined {

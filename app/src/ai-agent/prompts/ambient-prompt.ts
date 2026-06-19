@@ -1,4 +1,4 @@
-import type { SimpleStreamOptions } from '@earendil-works/pi-ai'
+import type { SimpleStreamOptions } from '@/llm'
 
 export interface AmbientRecognizerSystemPromptInput {
   agentUid: string

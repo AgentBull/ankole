@@ -1,5 +1,5 @@
 import { Elysia, t } from 'elysia'
-import { DomainError } from '@/common/errors'
+import { DomainError, statusFromError } from '@/common/errors'
 import { logger } from '@/common/logger'
 import { AppEnv } from '@/config/env'
 import { activeHumanAdmin } from '@/principals/admin-auth/access'
@@ -21,8 +21,7 @@ export function computerRoutes() {
         set.status = error.status
         return { error: { code: error.code, message: error.message } }
       }
-      const status =
-        typeof error === 'object' && error && 'status' in error && typeof error.status === 'number' ? error.status : 500
+      const status = statusFromError(error)
       if (status >= 500) logger.error({ error, code }, 'Computer API Error')
       else logger.warn({ error, code }, 'Computer API Error')
       set.status = status

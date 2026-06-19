@@ -2,7 +2,7 @@
 
 import { Button } from '@/uikit/components/button'
 import { cn } from '@/uikit/lib/utils'
-import type { UIMessage } from 'ai'
+import type { UIMessage } from '@/llm'
 import { ArrowDownIcon, DownloadIcon } from 'lucide-react'
 import type { ComponentProps } from 'react'
 import { useCallback } from 'react'

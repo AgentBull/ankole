@@ -10,9 +10,9 @@ import { appendSetCookie } from '@/core/http'
 import { llmProviderCreateBody } from '@/llm-providers/service'
 import {
   checkLlmProvider,
+  listLlmProviderCatalog,
   listLlmProviderModels,
   listLlmProviders,
-  listPiLlmProviders,
   saveLlmProviders
 } from '@/llm-providers/service'
 import { AdminAuthPublicBaseUrlConfig } from '@/principals/admin-auth/config'
@@ -74,7 +74,7 @@ const llmProvidersBody = z.object({
 
 const llmProviderCheckBody = z.object({
   providerId: z.string().min(1).optional(),
-  piProvider: z.string().min(1).optional(),
+  llmProvider: z.string().min(1).optional(),
   model: z.string().min(1).optional(),
   baseUrl: z.string().nullable().optional(),
   apiKey: z.string().nullable().optional(),
@@ -190,7 +190,7 @@ export function setupRoutes() {
 
       return {
         providers: await listLlmProviders(),
-        piProviders: listPiLlmProviders()
+        llmProviders: listLlmProviderCatalog()
       }
     })
     .put(

@@ -1,3 +1,4 @@
+import type { BullXExternalGatewayGroupMessageMode } from '@agentbull/bullx-sdk/plugins'
 import { parseMarkdown } from '../core/markdown'
 import {
   type ExternalGatewayAdapter,
@@ -13,7 +14,7 @@ import {
   type ExternalGatewayWebhookOptions
 } from '../core'
 
-export type MockImGroupMessageMode = 'addressed_only' | 'observe_all' | 'may_intervene'
+export type MockImGroupMessageMode = BullXExternalGatewayGroupMessageMode
 
 export type MockImSurface = 'dm' | 'group'
 

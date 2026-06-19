@@ -2,7 +2,7 @@
 // currently have test-only consumers; runtime wiring arrives with the replay
 // surface, so do not treat them as dead code.
 import { eq } from 'drizzle-orm'
-import type { Message } from '@earendil-works/pi-ai'
+import type { Message } from '@/llm'
 import { DB } from '@/common/database'
 import { AiAgentLlmTurns, AiAgentMessages, type JsonObject, type JsonValue } from '@/common/db-schema'
 import { isJsonObject, numberFromPath, stringFromPath } from '@/common/json'

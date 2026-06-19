@@ -84,7 +84,7 @@ try {
 
   await createLlmProvider({
     providerId: llmProviderId,
-    piProvider: 'openrouter',
+    llmProvider: 'openrouter',
     baseUrl: OPENROUTER_BASE_URL,
     apiKey,
     providerOptions: {

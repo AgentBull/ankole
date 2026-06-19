@@ -10,12 +10,21 @@ const { ComputerAgentWorkerBindings, ComputerAgentWorkerPins, ComputerWorkers, P
 const { createAgent } = await import('@/principals/agents/service')
 const { resolveComputerWorker } = await import('@/computer/service')
 
-const workerId = Bun.env.BULLX_COMPUTER_E2E_WORKER_ID ?? 'dev'
+const workerId = requiredEnv(
+  'BULLX_COMPUTER_E2E_WORKER_ID',
+  'Set BULLX_COMPUTER_E2E_WORKER_ID to an isolated test worker id; the script no longer defaults to the dev worker because that reuses stale computer workspaces.'
+)
 const workerBaseUrl = (
   Bun.env.BULLX_COMPUTER_E2E_WORKER_URL ?? `https://localhost:${Bun.env.BULLX_COMPUTER_PORT ?? '8787'}`
 ).replace(/\/$/, '')
 const suffix = `${Date.now()}_${Math.random().toString(36).slice(2)}`.toLowerCase()
 const agentUid = `computer_smoke_${suffix}`
+
+function requiredEnv(name: string, message: string): string {
+  const value = Bun.env[name]?.trim()
+  if (!value) throw new Error(message)
+  return value
+}
 
 const checks = [
   {
@@ -24,7 +33,7 @@ const checks = [
   },
   {
     name: 'github-cli',
-    command: 'command -v gh && gh --version | head -n 1'
+    command: 'command -v gh && gh --version'
   },
   {
     name: 'nano-pdf',
@@ -36,7 +45,7 @@ const checks = [
       'command -v soffice',
       'soffice --version',
       'command -v pdftoppm',
-      'pdftoppm -v 2>&1 | head -n 2',
+      'pdftoppm -v 2>&1',
       'python3 -m markitdown --help >/dev/null',
       "python3 - <<'PY'",
       'import defusedxml, markitdown, pptx, PIL',
@@ -67,28 +76,28 @@ const checks = [
       'command -v gs',
       'gs --version',
       'command -v ffmpeg',
-      'ffmpeg -version | head -n 1',
+      'ffmpeg -version >/dev/null && echo "ffmpeg ok"',
       'command -v pandoc',
-      'pandoc --version | head -n 1'
+      'pandoc --version'
     ].join('\n')
   },
   {
     name: 'shell-utilities',
     command: [
       'command -v rg',
-      'rg --version | head -n 1',
+      'rg --version',
       'command -v file',
-      'file --version | head -n 1',
+      'file --version',
       'command -v less',
-      'less --version | head -n 1',
+      'less --version',
       'command -v tree',
       'tree --version',
       'command -v zip',
-      'zip -v | head -n 1',
+      'zip -v >/dev/null && echo "zip ok"',
       'command -v rsync',
-      'rsync --version | head -n 1',
+      'rsync --version >/dev/null && echo "rsync ok"',
       'command -v ps',
-      'ps --version | head -n 1',
+      'ps --version',
       'command -v lsof'
     ].join('\n')
   },
@@ -96,11 +105,11 @@ const checks = [
     name: 'build-toolchain',
     command: [
       'command -v gcc',
-      'gcc --version | head -n 1',
+      'gcc --version',
       'command -v g++',
-      'g++ --version | head -n 1',
+      'g++ --version',
       'command -v make',
-      'make --version | head -n 1',
+      'make --version',
       'command -v pkg-config',
       'pkg-config --version',
       'command -v python3-config',

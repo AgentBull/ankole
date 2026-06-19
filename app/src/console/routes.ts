@@ -13,9 +13,9 @@ import {
   createLlmProvider,
   deleteLlmProvider,
   getLlmProvider,
+  listLlmProviderCatalog,
   listLlmProviderModels,
   listLlmProviders,
-  listPiLlmProviders,
   updateLlmProvider
 } from '@/llm-providers/service'
 import { activeHumanAdmin } from '@/principals/admin-auth/access'
@@ -70,7 +70,7 @@ import {
 const jsonObjectBody = appConfigJsonRecordSchema as z.ZodType<JsonObject>
 
 const llmProviderUpdateBody = z.object({
-  piProvider: z.string().min(1).optional(),
+  llmProvider: z.string().min(1).optional(),
   baseUrl: z.string().nullable().optional(),
   apiKey: z.string().nullable().optional(),
   providerOptions: jsonObjectBody.optional()
@@ -78,7 +78,7 @@ const llmProviderUpdateBody = z.object({
 
 const llmProviderCheckBody = z.object({
   providerId: z.string().min(1).optional(),
-  piProvider: z.string().min(1).optional(),
+  llmProvider: z.string().min(1).optional(),
   model: z.string().min(1).optional(),
   baseUrl: z.string().nullable().optional(),
   apiKey: z.string().nullable().optional(),
@@ -368,7 +368,7 @@ export function consoleRoutes() {
       await requireConsoleAdmin(request)
       return {
         providers: await listLlmProviders(),
-        piProviders: listPiLlmProviders()
+        llmProviders: listLlmProviderCatalog()
       }
     })
     .post(

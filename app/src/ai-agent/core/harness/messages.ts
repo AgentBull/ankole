@@ -1,4 +1,4 @@
-import type { ImageContent, Message, TextContent } from '@earendil-works/pi-ai'
+import type { ImageContent, Message, TextContent } from '@/llm'
 import type { AgentMessage } from '../types'
 
 export const COMPACTION_SUMMARY_PREFIX = `[CONTEXT COMPACTION - REFERENCE ONLY]
@@ -11,18 +11,6 @@ The latest user message after this summary is the source of truth for what to do
 
 export const COMPACTION_SUMMARY_SUFFIX = `
 </summary>`
-
-export interface BashExecutionMessage {
-  role: 'bashExecution'
-  command: string
-  output: string
-  exitCode: number | undefined
-  cancelled: boolean
-  truncated: boolean
-  fullOutputPath?: string
-  timestamp: number
-  excludeFromContext?: boolean
-}
 
 export interface CustomMessage<T = unknown> {
   role: 'custom'
@@ -42,28 +30,9 @@ export interface CompactionSummaryMessage {
 
 declare module '../types' {
   interface CustomAgentMessages {
-    bashExecution: BashExecutionMessage
     custom: CustomMessage
     compactionSummary: CompactionSummaryMessage
   }
-}
-
-export function bashExecutionToText(msg: BashExecutionMessage): string {
-  let text = `Ran \`${msg.command}\`\n`
-  if (msg.output) {
-    text += `\`\`\`\n${msg.output}\n\`\`\``
-  } else {
-    text += '(no output)'
-  }
-  if (msg.cancelled) {
-    text += '\n\n(command cancelled)'
-  } else if (msg.exitCode !== null && msg.exitCode !== undefined && msg.exitCode !== 0) {
-    text += `\n\nCommand exited with code ${msg.exitCode}`
-  }
-  if (msg.truncated && msg.fullOutputPath) {
-    text += `\n\n[Output truncated. Full output: ${msg.fullOutputPath}]`
-  }
-  return text
 }
 
 export function createCompactionSummaryMessage(
@@ -100,15 +69,6 @@ export function convertToLlm(messages: AgentMessage[]): Message[] {
   return messages
     .map((m): Message | undefined => {
       switch (m.role) {
-        case 'bashExecution':
-          if (m.excludeFromContext) {
-            return undefined
-          }
-          return {
-            role: 'user',
-            content: [{ type: 'text', text: bashExecutionToText(m) }],
-            timestamp: m.timestamp
-          }
         case 'custom': {
           const content = typeof m.content === 'string' ? [{ type: 'text' as const, text: m.content }] : m.content
           return {

@@ -1,4 +1,4 @@
-import type { ImageContent, TextContent } from '@earendil-works/pi-ai'
+import type { ImageContent, TextContent } from '@/llm'
 import type { AgentMessage } from '../../types'
 import { createCompactionSummaryMessage, createCustomMessage } from '../messages'
 import type { CompactionEntry, SessionContext, SessionTreeEntry } from '../types'

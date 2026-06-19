@@ -7,18 +7,18 @@ use std::io::Cursor;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use base64::Engine;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use chacha20poly1305::aead::{Aead, KeyInit};
-use chacha20poly1305::{Key, XChaCha20Poly1305, XNonce};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use rustls::server::WebPkiClientVerifier;
 use rustls::{RootCertStore, ServerConfig};
 use serde::Deserialize;
 use tokio_postgres::NoTls;
 
+use crate::sealed;
+
 const COMPUTER_TLS_BUNDLE_KEY: &str = "computer.tls.bundle.v1";
-const KDF_CONTEXT: &str = "[subKeyId=computer_tls_bundle] [extra=v1]";
+const KEY_SUB_ID: &str = "computer_tls_bundle";
+const KEY_CONTEXT: &str = "v1";
+const SEAL_LABEL: &str = "computer TLS bundle";
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -72,7 +72,13 @@ pub async fn load_computer_tls_material(
     envelope.value.version == 1,
     "unsupported computer TLS bundle version"
   );
-  let plain = decrypt_bundle(&envelope.value.sealed, computer_token)?;
+  let plain = sealed::unseal(
+    &envelope.value.sealed,
+    computer_token,
+    KEY_SUB_ID,
+    Some(KEY_CONTEXT),
+    SEAL_LABEL,
+  )?;
   serde_json::from_slice(&plain).context("decode unsealed computer TLS bundle")
 }
 
@@ -94,23 +100,6 @@ pub fn rustls_server_config(material: &ComputerTlsMaterial) -> Result<ServerConf
     .context("build computer worker TLS certificate")?;
   config.alpn_protocols = vec![b"h2".to_vec()];
   Ok(config)
-}
-
-fn decrypt_bundle(sealed: &str, token: &str) -> Result<Vec<u8>> {
-  let (nonce, ciphertext) = sealed
-    .split_once('.')
-    .context("invalid sealed computer TLS bundle")?;
-  let nonce = URL_SAFE_NO_PAD
-    .decode(nonce)
-    .context("decode computer TLS bundle nonce")?;
-  let ciphertext = URL_SAFE_NO_PAD
-    .decode(ciphertext)
-    .context("decode computer TLS bundle ciphertext")?;
-  let key = blake3::derive_key(KDF_CONTEXT, token.as_bytes());
-  let aead = XChaCha20Poly1305::new(Key::from_slice(&key));
-  aead
-    .decrypt(XNonce::from_slice(&nonce), ciphertext.as_ref())
-    .map_err(|error| anyhow::anyhow!("decrypt computer TLS bundle: {error}"))
 }
 
 fn certificates(pem: &str) -> Result<Vec<CertificateDer<'static>>> {
