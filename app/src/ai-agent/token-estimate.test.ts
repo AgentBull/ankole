@@ -1,3 +1,6 @@
+// Pins the two deliberate biases of the trigger-time estimator: JSON-dense tool results count heavier
+// than equal-length prose (they tokenize denser), and inline base64 image data is charged a flat image
+// cost rather than its raw character length.
 import { describe, expect, it } from 'bun:test'
 import { loadTestEnvFiles } from '@/common/tests/load-test-env'
 import type { AgentMessage } from './core'

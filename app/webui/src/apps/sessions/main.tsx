@@ -7,6 +7,12 @@ import { Button } from '@/uikit/components/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/uikit/components/card'
 import { mountSpa } from '../mount-spa'
 
+/**
+ * Renders the anonymous sign-in page after setup is complete.
+ *
+ * The server guards `/sessions/*`; this SPA only lists enabled providers and
+ * starts OIDC authorization while preserving the requested `return_to` target.
+ */
 function SessionsApp() {
   const { t } = useTranslation()
   const providers = useQuery({

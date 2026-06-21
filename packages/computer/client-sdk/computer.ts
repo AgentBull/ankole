@@ -31,6 +31,12 @@ export interface ComputerConnectionConfig {
   resolveWorker?: (agentUid: string, signal?: AbortSignal) => Promise<ResolveSessionResponse>
 }
 
+/**
+ * Parameters for {@link Computer.getOrCreate}. `onCreate` runs only when this
+ * call freshly created the session; `onResume` runs when an existing session was
+ * reattached. They let callers seed a brand-new workspace once without re-running
+ * that setup on every reconnect.
+ */
 export interface GetOrCreateComputerParams extends ComputerConnectionConfig {
   agentUid: string
   signal?: AbortSignal
@@ -50,6 +56,14 @@ interface ComputerInit {
   worker: WorkerClient
 }
 
+/**
+ * Resolves which worker hosts this agent, plus the mTLS material to reach it.
+ *
+ * When an in-process `resolveWorker` is supplied (the BullX app binding itself),
+ * the control-plane HTTP call is skipped entirely. Otherwise the call goes
+ * through {@link withRetry} because worker resolution is a transient control-plane
+ * operation that may briefly fail during deploys or rebinding.
+ */
 async function resolveSession(
   params: ComputerConnectionConfig & { agentUid: string; signal?: AbortSignal }
 ): Promise<ResolveSessionResponse> {
@@ -69,6 +83,7 @@ async function resolveSession(
   return withRetry(() => control.resolveSession(params.agentUid, params.signal), { signal: params.signal })
 }
 
+/** Builds the worker client from a resolved binding, carrying its mTLS config across. */
 function workerFor(resolved: ResolveSessionResponse, params: ComputerConnectionConfig, agentUid: string): WorkerClient {
   return new WorkerClient(
     { baseUrl: resolved.worker.baseUrl, tls: resolved.tls, fetch: params.fetch, debug: params.debug },
@@ -98,6 +113,13 @@ export class Computer {
     this.terminals = new TerminalManager(init.worker)
   }
 
+  /**
+   * Resolves the agent's worker and ensures a live session, creating one if none
+   * exists. `PUT` is idempotent: a second caller for the same agent reattaches to
+   * the running session rather than starting a second one. The worker's `created`
+   * flag (not anything client-side) decides whether `onCreate` or `onResume` fires,
+   * so first-run setup happens exactly once even across reconnects.
+   */
   static async getOrCreate(params: GetOrCreateComputerParams): Promise<Computer> {
     const resolved = await resolveSession(params)
     const worker = workerFor(resolved, params, params.agentUid)
@@ -113,6 +135,11 @@ export class Computer {
     return computer
   }
 
+  /**
+   * Attaches to an agent's already-running session. Unlike {@link getOrCreate},
+   * this never starts a worker — it `GET`s the existing session and fails if there
+   * is none. Used when the caller expects the session to already exist.
+   */
   static async get(params: GetComputerParams): Promise<Computer> {
     const resolved = await resolveSession(params)
     const worker = workerFor(resolved, params, params.agentUid)
@@ -125,6 +152,18 @@ export class Computer {
     })
   }
 
+  /**
+   * Runs a one-off process on the worker (not the persistent shell — see
+   * {@link runShellCommand}). The overloads encode the return contract: a
+   * `detached: true` call yields a live {@link Command} you poll or kill later,
+   * while every other call blocks and yields a {@link CommandFinished} with the
+   * exit code. The convenience `(command, args, opts)` form is sugar for the
+   * common foreground case.
+   *
+   * `timeoutMs` is a worker-side execution budget (the worker kills the process and
+   * reports a non-zero exit), not a client fetch abort — pass `signal` to abort
+   * from the client side.
+   */
   runCommand(
     command: string,
     args?: string[],
@@ -141,6 +180,9 @@ export class Computer {
       typeof commandOrParams === 'string'
         ? { cmd: commandOrParams, args, signal: opts?.signal, timeoutMs: opts?.timeoutMs }
         : commandOrParams
+    // This computer build runs commands as a single unprivileged user, so sudo can
+    // never succeed. Reject up front with a clear code instead of letting the
+    // worker fail it opaquely.
     if (params.sudo) {
       throw new ApiError({
         status: 400,
@@ -150,6 +192,8 @@ export class Computer {
         url: ''
       })
     }
+    // `wait: !detached` tells the worker whether to hold the NDJSON stream open
+    // until the command finishes; the response shape is consumed accordingly below.
     const response = await this.worker.openCommand(
       {
         command: params.cmd,
@@ -170,6 +214,14 @@ export class Computer {
     })
   }
 
+  /**
+   * Runs a command inside the agent's *persistent* shell, so state set by earlier
+   * calls (working directory, exported env, shell variables) carries over. This is
+   * the BullX-specific counterpart to {@link runCommand}, which spawns an isolated
+   * process each time. Always foreground (`wait: true`); the returned
+   * {@link CommandFinished} reports the shell-observed cwd after the command ran.
+   * `shellScope` picks a per-conversation shell; omit it for the agent-shared one.
+   */
   async runShellCommand(command: string, opts: RunShellCommandOptions = {}): Promise<CommandFinished> {
     const response = await this.worker.openShell(
       { command, cwd: opts.cwd, env: opts.env, scope: opts.shellScope, wait: true, timeout: opts.timeoutMs },
@@ -225,10 +277,16 @@ export class Computer {
     return this.worker.listCommands(opts.signal)
   }
 
+  /** Tears down the session on the worker and returns a final snapshot of it. */
   stop(opts?: { signal?: AbortSignal }): Promise<SessionSnapshot> {
     return this.worker.stopSession(opts?.signal)
   }
 
+  /**
+   * Restarts the persistent shell, discarding accumulated state (cwd, env, shell
+   * variables). Used to recover when {@link runShellCommand} state has drifted into
+   * a bad shape, without tearing down the whole session.
+   */
   resetShell(opts?: { signal?: AbortSignal }): Promise<void> {
     return this.worker.resetShell(opts?.signal)
   }

@@ -141,6 +141,16 @@ export async function ensureBuiltInAllHumansGroup(db: QueryExecutor = DB): Promi
   )
 }
 
+/**
+ * Idempotently ensures a built-in group exists with the exact expected shape.
+ *
+ * Safe to call on every boot. If a row with the name already exists it must
+ * match on `builtIn`, `kind`, and (for computed groups) the exact condition;
+ * any mismatch throws `conflicting_built_in_group` instead of silently adopting
+ * or mutating the row. That refusal is the safety property: admin/root checks
+ * key off these built-in rows, so a same-name operator group, or a drifted
+ * condition, must never be mistaken for the real built-in.
+ */
 async function ensureBuiltInGroup(
   input: Required<CreatePrincipalGroupInput>,
   db: QueryExecutor

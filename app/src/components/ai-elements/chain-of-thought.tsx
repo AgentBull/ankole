@@ -9,6 +9,8 @@ import { BrainIcon, ChevronDownIcon, DotIcon } from 'lucide-react'
 import type { ComponentProps, ReactNode } from 'react'
 import { createContext, memo, useContext, useMemo } from 'react'
 
+// Shared open/closed state for the whole block. The header (trigger) and the content live in separate
+// subcomponents, so the expanded state is held here in context rather than locally in either one.
 interface ChainOfThoughtContextValue {
   isOpen: boolean
   setIsOpen: (open: boolean) => void
@@ -30,6 +32,13 @@ export type ChainOfThoughtProps = ComponentProps<'div'> & {
   onOpenChange?: (open: boolean) => void
 }
 
+/**
+ * Collapsible panel that surfaces an agent's intermediate reasoning ("chain of thought") in the console:
+ * a header, a vertical list of steps, optional search-result chips and images.
+ *
+ * Open state works in both controlled and uncontrolled modes: pass `open`/`onOpenChange` to drive it, or
+ * leave them off and it manages its own state seeded from `defaultOpen`.
+ */
 export const ChainOfThought = memo(
   ({ className, open, defaultOpen = false, onOpenChange, children, ...props }: ChainOfThoughtProps) => {
     const [isOpen, setIsOpen] = useControllableState({
@@ -52,6 +61,7 @@ export const ChainOfThought = memo(
 
 export type ChainOfThoughtHeaderProps = ComponentProps<typeof CollapsibleTrigger>
 
+/** Clickable header that toggles the panel; the chevron rotates to reflect the shared open state. */
 export const ChainOfThoughtHeader = memo(({ className, children, ...props }: ChainOfThoughtHeaderProps) => {
   const { isOpen, setIsOpen } = useChainOfThought()
 
@@ -78,12 +88,16 @@ export type ChainOfThoughtStepProps = ComponentProps<'div'> & {
   status?: 'complete' | 'active' | 'pending'
 }
 
+// Status drives only the text emphasis: the in-progress step is full-strength, finished steps are muted,
+// not-yet-reached steps are dimmest.
 const stepStatusStyles = {
   active: 'text-foreground',
   complete: 'text-muted-foreground',
   pending: 'text-muted-foreground/50'
 }
 
+/** One step in the reasoning timeline: an icon, a label, optional description, and any nested detail. The
+ * small absolutely-positioned line under the icon is the connector that visually links steps into a thread. */
 export const ChainOfThoughtStep = memo(
   ({
     className,
@@ -117,12 +131,14 @@ export const ChainOfThoughtStep = memo(
 
 export type ChainOfThoughtSearchResultsProps = ComponentProps<'div'>
 
+/** Row that wraps the search-result chips produced while the agent was searching during a step. */
 export const ChainOfThoughtSearchResults = memo(({ className, ...props }: ChainOfThoughtSearchResultsProps) => (
   <div className={cn('flex flex-wrap items-center gap-2', className)} {...props} />
 ))
 
 export type ChainOfThoughtSearchResultProps = ComponentProps<typeof Badge>
 
+/** A single search-result chip (e.g. a queried source) shown inside a step. */
 export const ChainOfThoughtSearchResult = memo(({ className, children, ...props }: ChainOfThoughtSearchResultProps) => (
   <Badge className={cn('gap-1 px-2 py-0.5 font-normal text-xs', className)} variant="secondary" {...props}>
     {children}
@@ -131,6 +147,7 @@ export const ChainOfThoughtSearchResult = memo(({ className, children, ...props 
 
 export type ChainOfThoughtContentProps = ComponentProps<typeof CollapsibleContent>
 
+/** Collapsible body holding the steps; its visibility follows the shared open state set by the header. */
 export const ChainOfThoughtContent = memo(({ className, children, ...props }: ChainOfThoughtContentProps) => {
   const { isOpen } = useChainOfThought()
 
@@ -153,6 +170,7 @@ export type ChainOfThoughtImageProps = ComponentProps<'div'> & {
   caption?: string
 }
 
+/** Framed image slot inside a step (e.g. a screenshot the agent looked at), with an optional caption. */
 export const ChainOfThoughtImage = memo(({ className, children, caption, ...props }: ChainOfThoughtImageProps) => (
   <div className={cn('mt-2 space-y-2', className)} {...props}>
     <div className="relative flex max-h-[22rem] items-center justify-center overflow-hidden rounded-lg bg-muted p-3">

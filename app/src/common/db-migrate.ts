@@ -20,4 +20,6 @@ await migrate(DB, {
 // oxlint-disable-next-line no-console
 console.log('Database migrated successfully.')
 
+// One-shot script: migrations are done, so close fast and exit. The 1s timeout
+// just bounds the wait — there is no live traffic to drain here.
 await closeDatabase({ timeout: 1 })

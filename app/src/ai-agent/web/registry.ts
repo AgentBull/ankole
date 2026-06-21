@@ -31,16 +31,34 @@ export class WebProviderRegistry {
     return [...this.providers.values()]
   }
 
+  /**
+   * Whether the provider can actually serve `kind`: it must both advertise the
+   * capability AND implement the matching method. The method check guards a
+   * provider that lists a kind in `supports` but never wired up the function.
+   */
   private supportsKind(provider: WebProvider, kind: WebProviderKind): boolean {
     if (!provider.supports.includes(kind)) return false
     return kind === 'search' ? typeof provider.search === 'function' : typeof provider.extract === 'function'
   }
 
+  /**
+   * Returns the provider only if it exists, can serve `kind`, and reports itself
+   * available right now; otherwise `undefined`. Used by fallback selection, where a
+   * provider that fails any of these is simply skipped rather than raising.
+   */
   private async usable(provider: WebProvider | undefined, kind: WebProviderKind): Promise<WebProvider | undefined> {
     if (!provider || !this.supportsKind(provider, kind)) return undefined
     return (await provider.available(kind)) ? provider : undefined
   }
 
+  /**
+   * Resolves an operator-pinned provider, or raises. This is the deliberate
+   * counterpart to fallback selection: once an operator names a provider, an
+   * unexpected fallback to a different one would be surprising and could leak
+   * queries to an unintended vendor, so any of the three failure modes — not
+   * registered, wrong capability, configured-but-unavailable — fails fast with a
+   * precise, non-retryable error instead of silently substituting another.
+   */
   private async requirePreferred(kind: WebProviderKind, preferredId: string): Promise<WebProvider> {
     const provider = this.providers.get(preferredId)
     if (!provider) {
@@ -78,6 +96,9 @@ export class WebProviderRegistry {
       const builtin = await this.usable(this.providers.get(id), kind)
       if (builtin) return builtin
     }
+    // Last resort: any registered provider not already tried above (i.e. plugin
+    // providers). Built-ins are skipped here because the priority loop just
+    // covered them — re-checking would only repeat their availability calls.
     const builtinIds = new Set(BUILTIN_PRIORITY[kind])
     for (const provider of this.providers.values()) {
       if (builtinIds.has(provider.id)) continue

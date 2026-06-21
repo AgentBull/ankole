@@ -1,3 +1,6 @@
+// End-to-end tests for the `Computer` facade. Every test drives the real SDK code
+// path (resolve → session → command/fs/terminal) against an in-memory `fetch` that
+// stands in for the control plane and worker, so no network or daemon is needed.
 import { describe, expect, it } from 'bun:test'
 import { isApiError } from './api-client/api-error'
 import { Command, CommandFinished } from './command'
@@ -32,6 +35,9 @@ function sleepForTest(ms: number, signal?: AbortSignal): Promise<void> {
   })
 }
 
+// Builds a fake `fetch` that routes by method+path to canned worker/control
+// responses, and records every request into `captured` so tests can assert what the
+// SDK actually sent (headers, body, mTLS material).
 function makeFetch(captured: Captured[]): FetchLike {
   const ndjson = (text: string) => new Response(text, { headers: { 'content-type': 'application/x-ndjson' } })
   const json = (value: unknown, status = 200) =>
@@ -72,6 +78,9 @@ function makeFetch(captured: Captured[]): FetchLike {
       })
     }
     if (method === 'POST' && url.pathname === '/v1/sessions/agent_123/cmd') {
+      // Foreground (`wait`) returns the running line then the finished line in one
+      // stream; detached returns only the running line, mimicking the worker leaving
+      // the process alive after the handle is handed back.
       const body = JSON.parse(String(init?.body)) as { wait: boolean }
       return body.wait
         ? ndjson(
@@ -151,6 +160,9 @@ describe('Computer', () => {
     expect(captured.map(c => c.path)).toContain('/internal/computer/sessions/resolve')
     expect(captured.some(c => c.method === 'PUT' && c.path === '/v1/sessions/agent_123')).toBe(true)
     const sessionRequest = captured.find(c => c.method === 'PUT' && c.path === '/v1/sessions/agent_123')
+    // The resolver's `caCert`/`cert`/`key` must reach the worker request as the
+    // `tls` init field (note `caCert` becomes `ca: [...]`). Worker auth is mTLS, so
+    // there must be no bearer `authorization` header on the worker call.
     expect(sessionRequest?.tls).toEqual({ ca: ['CA CERT'], cert: 'CLIENT CERT', key: 'CLIENT KEY' })
     expect(sessionRequest?.headers.has('authorization')).toBe(false)
   })
@@ -216,6 +228,9 @@ describe('Computer', () => {
     expect(start?.body).toBe(JSON.stringify({ command: 'codex', cwd: '/workspace', cols: 120 }))
   })
 
+  // Pins the contract that `timeoutMs` bounds the command on the worker (which
+  // returns it as a killed/124 line) and is NOT wired to abort the client fetch —
+  // the fetch here deliberately outlives the 1ms timeout yet still resolves.
   it('treats timeoutMs as a worker execution timeout, not a fetch abort', async () => {
     const captured: Captured[] = []
     const baseFetch = makeFetch(captured)
@@ -241,6 +256,8 @@ describe('Computer', () => {
     expect(result.exitCode).toBe(124)
   })
 
+  // A killed command often reports `exitCode: null`; `wait()` must surface that as 1
+  // (failure), never 0, so a signalled command is not mistaken for success.
   it('does not treat signal-killed commands as successful when exitCode is missing', async () => {
     const computer = await Computer.getOrCreate({ agentUid: 'agent_123', ...connect([]) })
     const finished = await computer.getCommand('cmd_signal').wait()
@@ -266,6 +283,8 @@ describe('Computer', () => {
     expect(write).toBeDefined()
     expect(write!.headers.get('content-type')).toBe('application/gzip')
     expect(write!.headers.get('x-cwd')).toBe('/workspace')
+    // 0x1f 0x8b is the gzip magic — confirms the body is a real gzip stream, and the
+    // X-Cwd header carries the extraction root the worker untars into.
     const bytes = write!.body as Uint8Array
     expect(bytes[0]).toBe(0x1f)
     expect(bytes[1]).toBe(0x8b)
@@ -279,6 +298,8 @@ describe('Computer', () => {
     expect(missing).toBeNull()
   })
 
+  // When a `resolveWorker` is supplied, the control-plane resolve endpoint must not
+  // be hit at all — the binding comes straight from the in-process resolver.
   it('supports an in-process resolveWorker (no control HTTP)', async () => {
     const captured: Captured[] = []
     const fetchImpl = makeFetch(captured)

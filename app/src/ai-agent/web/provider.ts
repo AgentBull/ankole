@@ -34,12 +34,26 @@ export interface WebExtractArgs {
 
 export interface WebProvider {
   readonly id: string
+  /**
+   * Capabilities the provider advertises. The matching `search`/`extract` method
+   * must also be present — `supports` is the declared intent, the method is the
+   * implementation, and the registry requires both before routing to it. They are
+   * kept separate so a half-implemented provider fails selection rather than at
+   * call time.
+   */
   readonly supports: readonly WebProviderKind[]
   /**
    * Whether this provider is usable now for `kind` (key configured, or no key
    * needed). May read config, hence async-capable.
    */
   available(kind: WebProviderKind): boolean | Promise<boolean>
+  /**
+   * Human-readable reason the provider is unavailable (e.g. "exa api key not
+   * configured"), surfaced only when an operator pinned this provider and it then
+   * fails the `available` check. Optional: a provider that is always available, or
+   * has nothing useful to add, can omit it and routing falls back to a generic
+   * message.
+   */
   unavailableReason?(kind: WebProviderKind): string | undefined | Promise<string | undefined>
   search?(args: WebSearchArgs, signal?: AbortSignal): Promise<WebSearchResult[]>
   extract?(args: WebExtractArgs, signal?: AbortSignal): Promise<WebExtractResult[]>

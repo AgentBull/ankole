@@ -19,6 +19,10 @@ export interface GenerationStallWatchdogOptions {
   now?: () => number
 }
 
+// Upper bound on how often the silence check runs. The interval is otherwise
+// derived from the budget (see `arm`); this cap keeps the timer from firing
+// rarely on a very generous budget, so a stall is still noticed within a few
+// seconds of the budget elapsing rather than a fraction of it.
 const MAX_CHECK_INTERVAL_MS = ms('5s')
 
 /**
@@ -63,15 +67,22 @@ export class GenerationStallWatchdog {
    * each call in the run.
    */
   arm(): void {
+    // A watchdog that already fired stays fired: the run is being torn down and
+    // re-arming would let a second call resurrect a dead monitor.
     if (this.stalled) return
     this.armed = true
     this.lastEventAt = this.now()
     this.phase = 'awaiting_content'
+    // The timer is shared across all calls in a run; later arms just reset the
+    // clock above and reuse the running interval.
     if (this.timer) return
+    // Sample several times per budget so silence is caught near the budget, not
+    // a multiple of it. Capped by MAX_CHECK_INTERVAL_MS for very large budgets.
     const interval =
       this.options.checkIntervalMs ??
       Math.min(MAX_CHECK_INTERVAL_MS, this.options.stallTimeoutMs / 4, this.activeGapBudget() / 4)
     this.timer = setInterval(() => this.check(), Math.max(1, interval))
+    // Do not let this background timer keep the process alive on its own.
     this.timer.unref?.()
   }
 
@@ -98,6 +109,7 @@ export class GenerationStallWatchdog {
     return this.now() - this.lastEventAt
   }
 
+  /** Tears down the check timer for good (run end, or right after a stall fires). Unlike {@link disarm} this also kills the interval, so the watchdog cannot be re-armed for a later call. */
   stop(): void {
     this.armed = false
     if (!this.timer) return
@@ -105,12 +117,18 @@ export class GenerationStallWatchdog {
     this.timer = null
   }
 
+  // The silence budget for the current phase: the tight stream-gap budget once
+  // content is flowing, the generous first-token budget while still waiting. The
+  // gap budget falls back to the first-token budget when not separately set.
   private activeGapBudget(): number {
     return this.phase === 'streaming'
       ? (this.options.streamGapTimeoutMs ?? this.options.stallTimeoutMs)
       : this.options.stallTimeoutMs
   }
 
+  // One tick of the silence check. Fires `onStall` exactly once: `stalled` latches
+  // and the timer is stopped before the callback runs, so a long-running callback
+  // (abort + recovery) cannot re-enter or fire twice.
   private check(): void {
     if (!this.armed) return
     const silentForMs = this.now() - this.lastEventAt

@@ -1,3 +1,10 @@
+// Tests the inbound-attachment materializer, which is a security boundary as much
+// as a convenience: bytes arrive from external chat platforms, so these cases pin
+// the defenses — a MIME allowlist that rejects unsupported types BEFORE any bytes
+// are fetched, image content sniffing that overrides the declared mime/extension,
+// filename-traversal stripping, no silent overwrite of same-named files, and
+// unicode-safe names. They run against an in-memory fake computer writer (no real
+// filesystem), so the assertions describe what the agent's workspace would see.
 import { describe, expect, it } from 'bun:test'
 import posix from 'node:path/posix'
 import type { ComputerFile } from '@agentbull/bullx-computer'
@@ -8,6 +15,8 @@ describe('External Gateway media cache', () => {
   it('saves supported documents through the computer writer and exposes computer paths', async () => {
     const storage = createComputerStorage()
     const message = await materializeInboundMessageAttachments(
+      // Leading `../` is a traversal attempt; the saved name is sanitized down to
+      // `report.pdf` so a hostile filename cannot escape the user-files directory.
       messageWithAttachment({
         name: '../report.pdf',
         mimeType: 'application/pdf',
@@ -53,6 +62,8 @@ describe('External Gateway media cache', () => {
       }),
       testOptions(createComputerStorage())
     )
+    // Only txt/markdown are inlined into the prompt; csv (and other supported
+    // docs) are saved to disk and referenced by path, never spliced into the text.
     expect(csv.text).toContain("[document 'rows.csv' saved at:")
     expect(csv.text).not.toContain('[Content of rows.csv]')
   })
@@ -72,6 +83,9 @@ describe('External Gateway media cache', () => {
       testOptions(storage)
     )
 
+    // The extension is rejected by the allowlist before `fetchData` ever runs, so
+    // a disallowed type never triggers a download (cheaper, and avoids fetching
+    // attacker-controlled URLs for files we would discard anyway).
     expect(fetched).toBe(false)
     expect(storage.writes).toHaveLength(0)
     expect(message.text).toContain("[attachment 'installer.exe' could not be saved: unsupported attachment type]")
@@ -114,6 +128,9 @@ describe('External Gateway media cache', () => {
       testOptions(storage)
     )
 
+    // Declared as jpg/jpeg but the bytes are actually PNG. Content sniffing wins:
+    // the saved mime and extension follow the real bytes, not the (spoofable)
+    // declared name — only the human-facing displayName keeps the original.
     const materialized = (message.attachments![0] as any).materialized
     expect(materialized).toMatchObject({
       displayName: 'image.jpg',
@@ -172,6 +189,9 @@ describe('External Gateway media cache', () => {
     )
     const materialized = (message.attachments![0] as any).materialized
 
+    // The agent uid is NOT baked into the path: per-agent isolation is the computer
+    // session's responsibility, so the path stays uniform and a unicode uid cannot
+    // leak into (or corrupt) the workspace path.
     expect(materialized.computerPath).toContain('/workspace/user-files/external-gateway/')
     expect(materialized.computerPath).not.toContain('agentbull测试')
     expect(storage.read(materialized.computerPath)?.toString('utf8')).toBe('%PDF-unicode-agent')
@@ -219,6 +239,10 @@ function testOptions(storage: ExternalMediaComputerWriter) {
   }
 }
 
+// An in-memory stand-in for the agent's computer file writer: it records every
+// write and resolves paths against the cwd the way the real computer would, so
+// tests can assert both the write log and read the saved bytes back, without
+// touching a real filesystem.
 function createComputerStorage(): ExternalMediaComputerWriter & {
   read(path: string): Buffer | undefined
   writes: Array<{ content: Buffer; path: string }>

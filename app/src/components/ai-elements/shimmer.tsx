@@ -8,9 +8,12 @@ import { memo, useMemo } from 'react'
 
 type MotionHTMLProps = MotionProps & Record<string, unknown>
 
-// Cache motion components at module level to avoid creating during render
+// `motion.create(tag)` builds a brand-new component type each call. Doing that during render would
+// remount the element on every pass (losing the animation) and leak component identities, so the
+// generated motion component is memoised per tag at module scope and reused.
 const motionComponentCache = new Map<keyof JSX.IntrinsicElements, React.ComponentType<MotionHTMLProps>>()
 
+/** Returns the motion-wrapped component for an intrinsic tag, creating it once and caching it. */
 const getMotionComponent = (element: keyof JSX.IntrinsicElements) => {
   let component = motionComponentCache.get(element)
   if (!component) {
@@ -22,15 +25,21 @@ const getMotionComponent = (element: keyof JSX.IntrinsicElements) => {
 
 export interface TextShimmerProps {
   children: string
+  /** Tag (or component) to render as; defaults to `p`. */
   as?: ElementType
   className?: string
+  /** Seconds for one sweep of the highlight across the text. */
   duration?: number
+  /** Per-character multiplier for the bright band's width (see `dynamicSpread`). */
   spread?: number
 }
 
 const ShimmerComponent = ({ children, as: Component = 'p', className, duration = 2, spread = 2 }: TextShimmerProps) => {
   const MotionComponent = getMotionComponent(Component as keyof JSX.IntrinsicElements)
 
+  // The shimmer is a moving gradient highlight; its bright band must stay the same visual width no
+  // matter how long the text is. Scaling the spread by character count keeps the highlight from
+  // looking too narrow on long strings and too wide on short ones.
   const dynamicSpread = useMemo(() => (children?.length ?? 0) * spread, [children, spread])
 
   return (
@@ -58,4 +67,10 @@ const ShimmerComponent = ({ children, as: Component = 'p', className, duration =
   )
 }
 
+/**
+ * Animated "shimmering text" used as a lightweight loading/streaming indicator — e.g. a plan title or
+ * the "Thinking..." label while the agent is still producing tokens. Renders the text with a gradient
+ * highlight that sweeps across it on an infinite loop. Memoised because it usually re-renders on every
+ * streaming tick from its parent while its own props rarely change.
+ */
 export const Shimmer = memo(ShimmerComponent)

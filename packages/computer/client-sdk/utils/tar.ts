@@ -27,6 +27,13 @@ function writeOctal(block: Uint8Array, offset: number, value: number, width: num
   writeString(block, offset, text, width - 1)
 }
 
+/**
+ * Splits a long path across the USTAR `name` (100 bytes) and `prefix` (155 bytes)
+ * header fields, which is how USTAR represents names longer than 100 bytes without
+ * a GNU/PAX extension. The split must fall on a `/` boundary, so this walks
+ * slashes from the right looking for a cut where both halves fit; if none does,
+ * the name simply cannot be expressed in plain USTAR and is rejected.
+ */
 function splitName(name: string): { name: string; prefix: string } {
   if (encoder.encode(name).length <= 100) return { name, prefix: '' }
   const slash = name.lastIndexOf('/', name.length - 1)
@@ -38,6 +45,15 @@ function splitName(name: string): { name: string; prefix: string } {
   throw new Error(`tar entry name too long for USTAR: ${name}`)
 }
 
+/**
+ * Builds the 512-byte USTAR header block for one entry.
+ *
+ * The checksum is the one subtle part: it is the byte-sum of the whole header, but
+ * computed with the 8-byte checksum field itself read as ASCII spaces (0x20). So
+ * the field is pre-filled with spaces, the sum is taken, and only then is the octal
+ * result written back over it. Readers recompute the same way, so this convention
+ * must be followed exactly.
+ */
 function header(entry: TarEntry): Uint8Array {
   const block = new Uint8Array(BLOCK)
   const { name, prefix } = splitName(entry.name)
@@ -62,6 +78,12 @@ function header(entry: TarEntry): Uint8Array {
   return block
 }
 
+/**
+ * Serializes entries into a single uncompressed USTAR archive. Each entry is a
+ * header block followed by its data padded up to the next 512-byte boundary
+ * (`tar` always works in fixed blocks). The archive ends with two all-zero blocks,
+ * which is the USTAR end-of-archive marker.
+ */
 export function createTar(entries: TarEntry[]): Uint8Array<ArrayBuffer> {
   const blocks: Uint8Array[] = []
   for (const entry of entries) {

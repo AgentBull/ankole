@@ -1,3 +1,8 @@
+// Slash-command feedback rendering. This module does NOT parse `/steer`, `/stop`
+// etc. — the external gateway already parses the text into a command stub on the
+// envelope, and the runtime dispatches it. What lives here is the other half: how
+// the short confirmation ("Stopped.", "Steering queued") is dressed for the
+// channel it goes back to, and how that intent is keyed for idempotent delivery.
 import { bullxInteractiveOutputVersion, type BullXInteractiveOutput } from '@agentbull/bullx-sdk/plugins'
 import { toJsonObject } from '@/common/json'
 import { interactiveOutputCardPayload } from '@/external-gateway/interactive-output'
@@ -27,6 +32,13 @@ export function controlNoticeOperation(
   return 'post'
 }
 
+/**
+ * Builds the outbound intent that delivers a command's confirmation notice. The
+ * operation (and thus the payload shape) is chosen from surface + capabilities;
+ * when either is absent it falls back to a plain post. `phase` lets one command
+ * emit more than one notice (e.g. a progress line then a final one) under
+ * distinct keys.
+ */
 export function commandFeedbackIntent(input: {
   commandEventId: string
   phase?: string
@@ -53,6 +65,9 @@ export function commandFeedbackIntent(input: {
   }
 }
 
+// Wraps the notice text as a minimal closed interactive-output card (neutral,
+// plain body) for the group/card surface. `fallbackText` mirrors the body so
+// channels that cannot render the card still show the same line.
 function noticeOutput(text: string): BullXInteractiveOutput {
   return {
     version: bullxInteractiveOutputVersion,

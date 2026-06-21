@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'bun:test'
 import { GenerationStallWatchdog } from './generation-watchdog'
 
+// Covers the two stall signatures and, crucially, the cases that must NOT count
+// as a stall: streaming gaps under budget, and tool execution (disarmed) silence.
 describe('GenerationStallWatchdog', () => {
+  // Wedge before any content: the generous first-token budget eventually fires,
+  // and only once even though the check keeps ticking.
   it('fires onStall exactly once after sustained silence on an armed call', async () => {
     let stalls = 0
     const watchdog = new GenerationStallWatchdog({
@@ -17,6 +21,8 @@ describe('GenerationStallWatchdog', () => {
     watchdog.stop()
   })
 
+  // Each chunk resets the clock, so a steadily-streaming model never trips; the
+  // stall only lands once the chunks stop for longer than the budget.
   it('stays quiet while content streams, then fires once it stops', async () => {
     let stalls = 0
     const watchdog = new GenerationStallWatchdog({
@@ -80,6 +86,8 @@ describe('GenerationStallWatchdog', () => {
     watchdog.stop()
   })
 
+  // The watchdog is per-call, not per-run: after a tool pause (disarm) the next
+  // call re-arms and is watched again on its own budget.
   it('re-arms for the next call after a tool pause', async () => {
     let stalls = 0
     const watchdog = new GenerationStallWatchdog({

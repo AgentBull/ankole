@@ -1,4 +1,10 @@
 //! First-class tmux terminal endpoints.
+//!
+//! These back the app's interactive_terminal tool for TTY/TUI programs (REPLs, Codex,
+//! installers). tmux is what makes a terminal *recoverable*: the session lives in a tmux
+//! socket on the worker, so it survives across separate LLM runs on the same worker
+//! rather than dying with one HTTP request. Handlers here are thin — name resolution,
+//! input validation, and bounds-clamping — over the session's `TmuxManager`.
 
 use axum::Json;
 use axum::extract::{Path, Query, State};
@@ -22,6 +28,10 @@ pub struct StartTerminalBody {
   rows: u16,
 }
 
+/// Input to a running terminal. `input` is literal text to type; `keys` are named
+/// special keys (arrows, Ctrl-C, etc.) for driving TUIs; `enter` controls whether a
+/// trailing Return is sent. The two input forms are separate because tmux types literal
+/// text and named keys through different mechanisms.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SendTerminalBody {
@@ -72,6 +82,8 @@ pub async fn start_terminal(
     .sessions
     .get(&agent_uid)
     .ok_or_else(|| AppError::not_found("session_not_found", "no session; call PUT first"))?;
+  // Clamp the requested size to a sane range so a bad client value cannot ask tmux for a
+  // degenerate (zero) or absurd window.
   let cols = body.cols.clamp(40, 300);
   let rows = body.rows.clamp(10, 100);
   let terminal = session
@@ -98,6 +110,9 @@ pub async fn send_terminal(
     .sessions
     .get(&agent_uid)
     .ok_or_else(|| AppError::not_found("session_not_found", "no session; call PUT first"))?;
+  // Default the trailing Return based on intent: typing literal text usually means
+  // "submit it", so `enter` defaults to true when `input` is present; a bare key sequence
+  // (e.g. an arrow press) defaults to no Return. An explicit `enter` always wins.
   let enter = body.enter.unwrap_or(body.input.is_some());
   let terminal = session
     .terminals
@@ -117,6 +132,8 @@ pub async fn capture_terminal(
     .sessions
     .get(&agent_uid)
     .ok_or_else(|| AppError::not_found("session_not_found", "no session; call PUT first"))?;
+  // Capture the last N lines of the pane; default 80, clamped so a client cannot pull an
+  // unboundedly large scrollback in one request.
   let lines = query.lines.unwrap_or(80).clamp(1, 2000);
   let capture = session.terminals.capture(&name, lines).await?;
   Ok(Json(json!(capture)))

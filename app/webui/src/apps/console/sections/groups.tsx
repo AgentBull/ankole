@@ -12,6 +12,7 @@ import { Spinner } from '@/uikit/components/spinner'
 import { TableCell, TableRow } from '@/uikit/components/table'
 import { ErrorAlert, SectionHeader, TableCard } from '../shared'
 
+/** Manages principal groups that authorization and computed membership rules consume. */
 export function GroupsPage() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()

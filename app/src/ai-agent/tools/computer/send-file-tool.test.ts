@@ -2,6 +2,10 @@ import { describe, expect, it } from 'bun:test'
 import { createSendFileTool } from './send-file-tool'
 
 describe('send_file tool', () => {
+  // Pins the full happy path: the computer file is base64-encoded into the outbox
+  // payload, the idempotency key is `ai-agent-file:<conversationId>:<toolCallId>`, the
+  // optional message rides along as markdown, and the outbox drain is kicked. `size` is
+  // the raw byte length (13), not the base64 length.
   it('queues a JSON-safe outbound file payload from a computer file', async () => {
     const enqueued: unknown[] = []
     const reads: unknown[] = []

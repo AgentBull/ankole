@@ -9,6 +9,10 @@ import type { ComponentProps, HTMLAttributes } from 'react'
 
 export type ArtifactProps = HTMLAttributes<HTMLDivElement>
 
+/**
+ * Framed panel that shows a single agent-produced artifact (a document, a piece of code, a preview)
+ * in the console. The header/title/actions/content pieces below compose inside it.
+ */
 export const Artifact = ({ className, ...props }: ArtifactProps) => (
   <div
     className={cn('flex flex-col overflow-hidden rounded-lg border bg-background shadow-sm', className)}
@@ -18,12 +22,14 @@ export const Artifact = ({ className, ...props }: ArtifactProps) => (
 
 export type ArtifactHeaderProps = HTMLAttributes<HTMLDivElement>
 
+/** Top bar of the artifact panel; usually holds the title/description on the left and actions on the right. */
 export const ArtifactHeader = ({ className, ...props }: ArtifactHeaderProps) => (
   <div className={cn('flex items-center justify-between border-b bg-muted/50 px-4 py-3', className)} {...props} />
 )
 
 export type ArtifactCloseProps = ComponentProps<typeof Button>
 
+/** Icon button that closes/dismisses the artifact panel. Defaults to an X icon with a screen-reader label. */
 export const ArtifactClose = ({
   className,
   children,
@@ -44,18 +50,21 @@ export const ArtifactClose = ({
 
 export type ArtifactTitleProps = HTMLAttributes<HTMLParagraphElement>
 
+/** Artifact name shown in the header. */
 export const ArtifactTitle = ({ className, ...props }: ArtifactTitleProps) => (
   <p className={cn('font-medium text-foreground text-sm', className)} {...props} />
 )
 
 export type ArtifactDescriptionProps = HTMLAttributes<HTMLParagraphElement>
 
+/** Secondary muted line under the title, for a short artifact subtitle or status. */
 export const ArtifactDescription = ({ className, ...props }: ArtifactDescriptionProps) => (
   <p className={cn('text-muted-foreground text-sm', className)} {...props} />
 )
 
 export type ArtifactActionsProps = HTMLAttributes<HTMLDivElement>
 
+/** Right-side container in the header that groups the action buttons (copy, download, close, ...). */
 export const ArtifactActions = ({ className, ...props }: ArtifactActionsProps) => (
   <div className={cn('flex items-center gap-1', className)} {...props} />
 )
@@ -66,6 +75,10 @@ export type ArtifactActionProps = ComponentProps<typeof Button> & {
   icon?: LucideIcon
 }
 
+/**
+ * Single header action button (e.g. copy, download). The button is wrapped in a tooltip only when a
+ * `tooltip` string is given; otherwise the bare button is returned to avoid an empty tooltip popup.
+ */
 export const ArtifactAction = ({
   tooltip,
   label,
@@ -106,6 +119,7 @@ export const ArtifactAction = ({
 
 export type ArtifactContentProps = HTMLAttributes<HTMLDivElement>
 
+/** Scrollable body of the panel that holds the actual artifact content. */
 export const ArtifactContent = ({ className, ...props }: ArtifactContentProps) => (
   <div className={cn('flex-1 overflow-auto p-4', className)} {...props} />
 )

@@ -14,10 +14,15 @@ use uuid::Uuid;
 
 use crate::error::{AppError, AppResult};
 
+/// Outcome of one command run in the persistent shell.
 pub struct ShellResult {
   pub output: String,
   pub exit_code: i32,
+  /// `$PWD` captured from the marker line, so the caller can track where the
+  /// shell ended up after a `cd`. `None` when the command timed out.
   pub cwd: Option<String>,
+  /// True when the completion marker never arrived within the timeout. The shell
+  /// has been killed in that case (see `run`) and must not be reused.
   pub timed_out: bool,
 }
 
@@ -25,10 +30,17 @@ pub struct PersistentShell {
   child: Child,
   stdin: ChildStdin,
   reader: BufReader<ChildStdout>,
+  /// Per-shell random sentinel printed after each command. Randomized per shell so
+  /// a command that happens to echo the literal text cannot forge a completion.
   marker: String,
 }
 
 impl PersistentShell {
+  /// Spawns the bash process and primes it for the marker protocol.
+  ///
+  /// The caller supplies the already-built command (bwrap-wrapped or direct).
+  /// `exec 2>&1` is sent once up front so stderr and stdout interleave on the one
+  /// pipe we read; without it stderr would be lost or need a second reader.
   pub async fn start(mut command: Command) -> AppResult<Self> {
     let mut child = command.spawn().map_err(|error| {
       AppError::internal("shell_spawn", format!("failed to start shell: {error}"))
@@ -55,6 +67,19 @@ impl PersistentShell {
     Ok(shell)
   }
 
+  /// Runs one command and blocks until its completion marker is read or the
+  /// timeout fires.
+  ///
+  /// The command is written followed by a `printf` that emits `<marker> <exit>
+  /// <pwd>`; everything before that line is the command's output. Reading the
+  /// marker is how we know the command finished — bash gives no other in-band
+  /// "done" signal on a shared pipe.
+  ///
+  /// On timeout the whole shell is killed (not just the command): bash has no way
+  /// to interrupt a single foreground command from outside, and a still-running
+  /// command would desynchronize the marker stream for every later call. The
+  /// caller is expected to drop this shell and start a fresh one. The exit code
+  /// 124 mirrors GNU `timeout` so callers can treat it uniformly.
   pub async fn run(&mut self, command: &str, timeout: Duration) -> AppResult<ShellResult> {
     let payload = format!(
       "{command}\nprintf '\\n%s %s %s\\n' '{marker}' \"$?\" \"$PWD\"\n",
@@ -71,6 +96,9 @@ impl PersistentShell {
       loop {
         let mut line = String::new();
         let bytes = reader.read_line(&mut line).await?;
+        // EOF before the marker means bash itself exited (e.g. the command ran
+        // `exit`, or the process crashed). Surface it as an error so the scope
+        // drops this shell and the next call starts a clean one.
         if bytes == 0 {
           return Err(AppError::internal(
             "shell_closed",
@@ -120,6 +148,11 @@ impl PersistentShell {
     }
   }
 
+  /// Stops the shell, taking `self` by value so it cannot be used afterward.
+  ///
+  /// Asks bash to `exit` first for a clean teardown, then force-kills as a
+  /// fallback in case it is wedged. Every step is best-effort; on shutdown there
+  /// is nothing useful to do with an error here.
   pub async fn shutdown(mut self) {
     let _ = self.stdin.write_all(b"exit\n").await;
     let _ = self.child.start_kill();

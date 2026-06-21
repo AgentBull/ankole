@@ -2,6 +2,11 @@ import { describe, expect, it } from 'bun:test'
 import { createTodoTool, TodoStore } from './todo-tool'
 
 describe('TodoStore', () => {
+  // Walks the tricky paths together: a replace write, then a merge that patches
+  // some ids / invents others / carries an invalid status (which must default to
+  // pending, not be dropped), then a replace whose payload has a duplicate id
+  // (last one wins). The final assertions check the active-only snapshot hides
+  // completed/cancelled items.
   it('normalizes replacement and merge writes while keeping the active todo snapshot useful', () => {
     const store = new TodoStore()
     expect(store.read()).toEqual([])
@@ -58,6 +63,8 @@ describe('TodoStore', () => {
     expect(store.formatActiveSnapshot()).not.toContain('Cancelled')
   })
 
+  // Guards the context-window caps: 300 items truncate to 256, and an oversized
+  // content string is cut to 4000 chars with the visible truncation marker.
   it('caps item count and item content length', () => {
     const store = new TodoStore()
     store.write(

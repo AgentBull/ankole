@@ -23,10 +23,20 @@ const SkillAppendParams = z.object({
   content: z.string().describe('Complete AGENT_APPEND.md content for this agent and skill.')
 })
 
+/**
+ * Creates the model-facing skill tools bound to one agent's effective library.
+ */
 export function createSkillTools(binding: SkillToolsBinding): AgentTool<any>[] {
   return [createSkillViewTool(binding), createSkillAppendTool(binding)]
 }
 
+/**
+ * Builds the read-only tool that exposes enabled skill content to the model.
+ *
+ * Skill files are wrapped as untrusted content because skills and agent append
+ * files may come from repo/user-controlled sources, even though they are part of
+ * the local library.
+ */
 function createSkillViewTool(binding: SkillToolsBinding): AgentTool<typeof SkillViewParams> {
   return buildTool({
     name: 'skill_view',
@@ -65,6 +75,9 @@ function createSkillViewTool(binding: SkillToolsBinding): AgentTool<typeof Skill
   })
 }
 
+/**
+ * Builds the destructive tool that replaces an agent-specific AGENT_APPEND.md.
+ */
 function createSkillAppendTool(binding: SkillToolsBinding): AgentTool<typeof SkillAppendParams> {
   return buildTool({
     name: 'skill_append',

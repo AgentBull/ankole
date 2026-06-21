@@ -5,6 +5,9 @@ import { buildTool } from '../build-tool'
 import { executionScopeTag, type ComputerToolContext } from '../computer/context'
 import { truncateOutput } from '../computer/format'
 
+// Shared schema fragments reused across the four browser tools. Each `.describe`
+// is model-facing text; the wording steers when and how the tool is called.
+
 const BrowserSession = z
   .string()
   .min(1)
@@ -19,6 +22,10 @@ const BrowserTaskId = z
 
 const BrowserHeadless = z.enum(['true', 'virtual']).optional().describe('Headless mode. Use virtual for Xvfb.')
 
+// The single most behavior-shaping field: ephemeral throws the profile away
+// (clean one-off render), persistent keeps cookies/localStorage so a login or a
+// multi-step flow survives across calls. The description spells out the choice
+// because the model picks it.
 const BrowserProfileMode = z
   .enum(['ephemeral', 'persistent'])
   .optional()
@@ -26,6 +33,9 @@ const BrowserProfileMode = z
     'Browser profile persistence. Use ephemeral for one-off rendered page views. Use persistent for login/session workflows or a sequence of interactions that must share cookies/localStorage.'
   )
 
+// `fetch` downloads the (large) Camoufox binary on demand. It is opt-in because
+// the fetch is slow and only needed the first time on a fresh workspace — which
+// is also why a doctor call with fetch gets a much longer timeout below.
 const BrowserDoctorParams = z.object({
   fetch: z.boolean().optional().describe('Fetch the Camoufox browser binary into this computer workspace if missing.')
 })
@@ -83,11 +93,20 @@ const BrowserRunParams = z.object({
   headless: BrowserHeadless
 })
 
+// Structured echo for logs/UI. `exitCode` is the CLI process exit; `result` is
+// the parsed JSON the CLI printed, when it printed any.
 interface BrowserToolDetails {
   exitCode: number
   result?: unknown
 }
 
+/**
+ * Builds the browser tool family bound to one run's computer context. These are
+ * the rendered-browser path: stateful browsing, screenshots, login/session
+ * flows, and a fallback for when plain `web_extract` is blocked or cannot see
+ * JavaScript-rendered state. They all shell out to the `bullx-browser` CLI
+ * inside the agent's computer rather than driving a browser from this process.
+ */
 export function createBrowserTools(context: ComputerToolContext): AgentTool<any>[] {
   return [
     createBrowserDoctorTool(context),
@@ -97,6 +116,12 @@ export function createBrowserTools(context: ComputerToolContext): AgentTool<any>
   ]
 }
 
+/**
+ * Health check for the in-computer browser runtime, optionally fetching the
+ * browser binary. Marked destructive (not read-only) because with `fetch` it
+ * writes the binary into the workspace; the timeout jumps to 900s for that
+ * download path and stays short (60s) for a plain check.
+ */
 function createBrowserDoctorTool(
   context: ComputerToolContext
 ): AgentTool<typeof BrowserDoctorParams, BrowserToolDetails> {
@@ -115,6 +140,13 @@ function createBrowserDoctorTool(
   })
 }
 
+/**
+ * Opens a URL in the rendered browser and captures a screenshot plus text/html
+ * artifacts. Defaults to an ephemeral profile (clean one-off view). Treated as
+ * destructive because it drives a real browser and writes capture artifacts into
+ * the workspace, even though the caller's intent is usually to read. The default
+ * timeout is 120s, or 900s when `autoFetch` may trigger a binary download first.
+ */
 function createBrowserOpenTool(context: ComputerToolContext): AgentTool<typeof BrowserOpenParams, BrowserToolDetails> {
   return buildTool({
     name: 'browser_open',
@@ -152,6 +184,12 @@ function createBrowserOpenTool(context: ComputerToolContext): AgentTool<typeof B
   })
 }
 
+/**
+ * Extracts rendered text either from a fresh URL or from this session's latest
+ * capture (when `url` is omitted) — the rendered counterpart to `web_extract`,
+ * used when a page needs JavaScript or `web_extract` is blocked. Same
+ * destructive/ephemeral defaults and timeout selection as `browser_open`.
+ */
 function createBrowserExtractTool(
   context: ComputerToolContext
 ): AgentTool<typeof BrowserExtractParams, BrowserToolDetails> {
@@ -191,6 +229,13 @@ function createBrowserExtractTool(
   })
 }
 
+/**
+ * Runs an arbitrary Python automation script in the computer browser — the main
+ * path for multi-step/stateful work. Defaults to a persistent profile so cookies
+ * and login survive across steps. Clearly destructive: it executes model-written
+ * code that drives a browser and writes a tree of run artifacts. Longest default
+ * timeout of the family (180s, or 900s with autoFetch) because scripts run long.
+ */
 function createBrowserRunTool(context: ComputerToolContext): AgentTool<typeof BrowserRunParams, BrowserToolDetails> {
   return buildTool({
     name: 'browser_run',
@@ -202,6 +247,10 @@ function createBrowserRunTool(context: ComputerToolContext): AgentTool<typeof Br
     isReadOnly: false,
     isDestructive: true,
     async execute(_toolCallId, params, signal) {
+      // The script is written to a file in the computer first, then the CLI is
+      // pointed at that path — the source is not passed as an argv string (too
+      // large, and avoids shell-quoting hazards). Path is namespaced by session +
+      // task id so concurrent runs do not clobber each other's script file.
       const computer = await context.getComputer(signal)
       const session = sessionFor(context, params.session)
       const taskId = sanitizeTaskId(params.taskId)
@@ -233,6 +282,14 @@ function createBrowserRunTool(context: ComputerToolContext): AgentTool<typeof Br
   })
 }
 
+/**
+ * Single choke point that runs the `bullx-browser` CLI in the computer and
+ * shapes its output into a tool result. The CLI is always run with `--json`. If
+ * a JSON line is found it is pretty-printed for the model and kept structured in
+ * `details`; otherwise the raw output is shown, truncated to the shared output
+ * cap so a noisy run cannot blow the context window. The exit code is surfaced
+ * either way so the model can see a non-zero failure even when output parsed.
+ */
 async function runBrowserCli(
   context: ComputerToolContext,
   args: string[],
@@ -257,6 +314,10 @@ async function runBrowserCli(
   }
 }
 
+// Pulls the CLI's JSON result line out of mixed stdout+stderr. Scans bottom-up
+// and returns the last line that parses, on the assumption that the CLI prints
+// its machine-readable result after any human-readable log lines. Non-JSON noise
+// is skipped rather than treated as an error.
 function parseJsonOutput(output: string): unknown | undefined {
   const trimmed = output.trim()
   if (!trimmed) return undefined
@@ -290,6 +351,10 @@ function sanitizeTaskId(value: string | undefined): string {
   return sanitizeId(value ?? `task-${Date.now()}`, 'browser-task')
 }
 
+// These ids end up in filesystem paths and CLI argv, so model-supplied values
+// are hardened: collapse anything outside [A-Za-z0-9._-] to '-', trim stray
+// dashes, cap length, and fall back to a safe constant if nothing usable is
+// left. This both keeps paths valid and blocks traversal/injection via the id.
 function sanitizeId(value: string, fallback: string): string {
   const safe = value
     .trim()
@@ -298,6 +363,8 @@ function sanitizeId(value: string, fallback: string): string {
   return safe.slice(0, 96) || fallback
 }
 
+// argv builders: emit the flag only when the value is present, so optional
+// params simply vanish from the command line instead of passing empty strings.
 function optionalArg(name: string, value: string | undefined): string[] {
   return value ? [name, value] : []
 }
@@ -306,6 +373,7 @@ function optionalNumberArg(name: string, value: number | undefined): string[] {
   return value === undefined ? [] : [name, String(value)]
 }
 
+// The tool takes a timeout in seconds (model-friendly) but the CLI wants ms.
 function optionalTimeoutArg(value: number | undefined): string[] {
   return value === undefined ? [] : ['--timeout-ms', String(value * 1000)]
 }

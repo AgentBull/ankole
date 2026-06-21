@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'bun:test'
 import { identityProviderOidcCallbackPath, identityProviderOidcRedirectUri, requestPublicBaseUrl } from './oidc'
 
+// Pins the redirect-URI construction. The callback path and base-URL handling
+// must stay byte-stable because the resulting URI has to match what is
+// registered at the identity provider.
 describe('identity provider OIDC callback URLs', () => {
   it('uses the sessions callback path expected by local Lark/Feishu OIDC apps', () => {
     const request = new Request('http://localhost:3000/api/identity-providers/lark-main/oidc/authorizations')

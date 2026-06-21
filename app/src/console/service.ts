@@ -390,6 +390,9 @@ export interface ConsoleChatRecall {
   status: ChatRecallStatus
 }
 
+/**
+ * Reads the curated installation settings shown in the console.
+ */
 export async function getConsoleSettings(): Promise<ConsoleSettings> {
   const [defaultLocale, timezone, publicBaseUrl] = await Promise.all([
     appConfigService.get(AppI18nDefaultLocaleConfig),
@@ -438,6 +441,9 @@ export async function updateConsoleSettings(input: UpdateConsoleSettingsInput): 
   return getConsoleSettings()
 }
 
+/**
+ * Reads web-search/extract provider routing and secret presence for the console.
+ */
 export async function getConsoleWebTools(): Promise<ConsoleWebTools> {
   registerBuiltinWebProviders()
   const [searchProvider, extractProvider, exaApiKey, parallelApiKey, jinaApiKey, providers] = await Promise.all([
@@ -461,6 +467,9 @@ export async function getConsoleWebTools(): Promise<ConsoleWebTools> {
   }
 }
 
+/**
+ * Updates web tool routing and credentials, then refreshes runtime tool state.
+ */
 export async function updateConsoleWebTools(input: UpdateConsoleWebToolsInput): Promise<ConsoleWebTools> {
   await writeOptionalStringConfig(WebSearchProviderConfig, input.searchProvider, 'web_search provider')
   await writeOptionalStringConfig(WebExtractProviderConfig, input.extractProvider, 'web_extract provider')
@@ -472,6 +481,9 @@ export async function updateConsoleWebTools(input: UpdateConsoleWebToolsInput): 
   return getConsoleWebTools()
 }
 
+/**
+ * Reads Chat Recall config plus runtime readiness.
+ */
 export async function getConsoleChatRecall(): Promise<ConsoleChatRecall> {
   const [config, status] = await Promise.all([
     getConsoleChatRecallConfig(),
@@ -480,6 +492,9 @@ export async function getConsoleChatRecall(): Promise<ConsoleChatRecall> {
   return { config, status }
 }
 
+/**
+ * Persists Chat Recall config and starts/restarts the runtime projection.
+ */
 export async function updateConsoleChatRecall(input: ChatRecallConfig): Promise<ConsoleChatRecall> {
   await updateConsoleChatRecallConfig(input)
   const status = await chatRecallRuntime.start()
@@ -490,6 +505,9 @@ export async function updateConsoleChatRecall(input: ChatRecallConfig): Promise<
   }
 }
 
+/**
+ * Rebuilds Chat Recall indexes from stored external messages.
+ */
 export async function reindexConsoleChatRecall(): Promise<ConsoleChatRecall> {
   const status = await chatRecallRuntime.reindex()
   aiAgentRuntime.setChatRecallEnabled(status.enabled)
@@ -499,6 +517,9 @@ export async function reindexConsoleChatRecall(): Promise<ConsoleChatRecall> {
   }
 }
 
+/**
+ * Pauses Chat Recall runtime use without deleting its persisted config.
+ */
 export async function pauseConsoleChatRecall(): Promise<ConsoleChatRecall> {
   const status = await chatRecallRuntime.pause()
   return {
@@ -507,6 +528,9 @@ export async function pauseConsoleChatRecall(): Promise<ConsoleChatRecall> {
   }
 }
 
+/**
+ * Resumes Chat Recall and updates the agent runtime feature flag.
+ */
 export async function resumeConsoleChatRecall(): Promise<ConsoleChatRecall> {
   const status = await chatRecallRuntime.resume()
   aiAgentRuntime.setChatRecallEnabled(status.enabled)
@@ -516,16 +540,25 @@ export async function resumeConsoleChatRecall(): Promise<ConsoleChatRecall> {
   }
 }
 
+/**
+ * Lists gateway adapters from enabled plugins for channel setup screens.
+ */
 export async function listConsoleExternalGatewayAdapters(): Promise<ConsoleExternalGatewayAdapter[]> {
   const catalog = await loadPluginCatalog()
   return listEnabledExternalGatewayAdapters(catalog)
 }
 
+/**
+ * Lists active AI agents with console-specific channel/model projections.
+ */
 export async function listConsoleAgents(): Promise<ConsoleAgent[]> {
   const agents = await listActiveAgents()
   return Promise.all(agents.map(projectConsoleAgent))
 }
 
+/**
+ * Builds the console overview counts from each owning subsystem.
+ */
 export async function getConsoleOverview(): Promise<ConsoleOverview> {
   const [agentsCount, channelBindingsCount, humanUsers, groups, skills, entries] = await Promise.all([
     DB.select({ count: sql<number>`count(*)::int` })
@@ -559,6 +592,9 @@ export async function getConsoleOverview(): Promise<ConsoleOverview> {
   }
 }
 
+/**
+ * Creates an agent principal and optional agent-owned library text files.
+ */
 export async function createConsoleAgent(
   uid: string,
   createdByPrincipalUid?: string,
@@ -748,10 +784,16 @@ export async function readConsoleAgentReasoningTrace(input: {
   return { events, cursor: events.at(-1)?.cursor ?? input.after ?? null }
 }
 
+/**
+ * Reads one active agent for console detail pages.
+ */
 export async function getConsoleAgent(uid: string): Promise<ConsoleAgent> {
   return projectConsoleAgent(await requireActiveAgent(uid))
 }
 
+/**
+ * Updates an agent profile, model config, and optional library text files.
+ */
 export async function updateConsoleAgent(uid: string, input: UpsertConsoleAgentInput): Promise<ConsoleAgent> {
   const metadata = input.llmProfile
     ? await agentMetadataWithLlmProfile((await requireActiveAgent(uid)).agent.metadata, input.llmProfile)
@@ -767,6 +809,9 @@ export async function updateConsoleAgent(uid: string, input: UpsertConsoleAgentI
   return projectConsoleAgent(result)
 }
 
+/**
+ * Disables an agent and removes its external gateway channel config rows.
+ */
 export async function deleteConsoleAgent(uid: string): Promise<void> {
   const agent = await requireActiveAgent(uid)
   const bindings = readStoredChannelBindings(agent.agent.metadata)
@@ -781,6 +826,9 @@ export async function deleteConsoleAgent(uid: string): Promise<void> {
   await disableAgent(agent.agent.uid)
 }
 
+/**
+ * Lists human principals with their profile rows.
+ */
 export async function listConsoleHumanUsers(): Promise<ConsoleHumanUser[]> {
   const rows = await DB.select({ principal: Principals, humanUser: HumanUsers })
     .from(HumanUsers)
@@ -789,6 +837,9 @@ export async function listConsoleHumanUsers(): Promise<ConsoleHumanUser[]> {
   return rows
 }
 
+/**
+ * Creates a local human principal/profile from the console.
+ */
 export async function createConsoleHumanUser(input: UpsertConsoleHumanInput): Promise<ConsoleHumanUser> {
   const result = await createHuman(input)
   return {
@@ -797,6 +848,9 @@ export async function createConsoleHumanUser(input: UpsertConsoleHumanInput): Pr
   }
 }
 
+/**
+ * Updates a human profile and, when requested, the principal status.
+ */
 export async function updateConsoleHumanUser(
   principalUid: string,
   input: UpdateConsoleHumanInput
@@ -818,6 +872,9 @@ export async function updateConsoleHumanUser(
   }
 }
 
+/**
+ * Lists principal groups with stored membership counts for console display.
+ */
 export async function listConsolePrincipalGroups(): Promise<ConsolePrincipalGroup[]> {
   const groups = await listPrincipalGroups()
   return Promise.all(
@@ -833,6 +890,9 @@ export async function listConsolePrincipalGroups(): Promise<ConsolePrincipalGrou
   )
 }
 
+/**
+ * Lists non-archived canonical library skills for console assignment screens.
+ */
 export async function listConsoleLibrarySkills(): Promise<ConsoleLibrarySkill[]> {
   const skills = await DB.select()
     .from(LibrarySkills)
@@ -841,11 +901,17 @@ export async function listConsoleLibrarySkills(): Promise<ConsoleLibrarySkill[]>
   return skills.map(projectLibrarySkill)
 }
 
+/**
+ * Lists the effective skill assignment set for one active agent.
+ */
 export async function listConsoleAgentSkills(agentUid: string): Promise<EffectiveSkillSummary[]> {
   await requireActiveAgent(agentUid)
   return listEffectiveSkills(agentUid)
 }
 
+/**
+ * Sets or clears one agent-specific skill assignment.
+ */
 export async function setConsoleAgentSkillAssignment(input: {
   agentUid: string
   skillName: string
@@ -856,6 +922,9 @@ export async function setConsoleAgentSkillAssignment(input: {
   await setAgentSkillEnabled(input)
 }
 
+/**
+ * Lists an agent's generated and authored library-container entries.
+ */
 export async function listConsoleAgentLibraryEntries(agentUid: string): Promise<ConsoleAgentLibraryEntry[]> {
   await requireActiveAgent(agentUid)
   return DB.select({
@@ -876,33 +945,51 @@ export async function listConsoleAgentLibraryEntries(agentUid: string): Promise<
     .orderBy(asc(AgentLibraryContainerEntries.virtualPath), desc(AgentLibraryContainerEntries.updatedAt))
 }
 
+/**
+ * Reads the agent-owned SOUL.md content.
+ */
 export async function getConsoleAgentSoul(agentUid: string): Promise<{ content: string | null }> {
   await requireActiveAgent(agentUid)
   return { content: await getSoul(agentUid) }
 }
 
+/**
+ * Reads the agent-owned MISSION.md content.
+ */
 export async function getConsoleAgentMission(agentUid: string): Promise<{ content: string | null }> {
   await requireActiveAgent(agentUid)
   return { content: await getMission(agentUid) }
 }
 
+/**
+ * Writes the agent-owned SOUL.md content.
+ */
 export async function setConsoleAgentSoul(agentUid: string, content: string): Promise<{ content: string }> {
   await requireActiveAgent(agentUid)
   await setSoul(agentUid, content)
   return { content }
 }
 
+/**
+ * Writes the agent-owned MISSION.md content.
+ */
 export async function setConsoleAgentMission(agentUid: string, content: string): Promise<{ content: string }> {
   await requireActiveAgent(agentUid)
   await setMission(agentUid, content)
   return { content }
 }
 
+/**
+ * Lists external chat channel bindings for one active agent.
+ */
 export async function listConsoleExternalRooms(agentUid: string): Promise<ConsoleChatChannel[]> {
   const agent = await requireActiveAgent(agentUid)
   return projectConsoleExternalRooms(agent)
 }
 
+/**
+ * Creates a chat channel binding and its adapter-owned config row.
+ */
 export async function createConsoleChatChannel(
   agentUid: string,
   input: UpsertConsoleChatChannelInput
@@ -931,6 +1018,13 @@ export async function createConsoleChatChannel(
   return getConsoleChatChannel(agent.agent.uid, name)
 }
 
+/**
+ * Updates a chat channel config without changing its adapter identity.
+ *
+ * Adapter changes are rejected because stored config shape, identity binding,
+ * and external webhook state are adapter-specific. Delete/recreate keeps that
+ * operational boundary explicit.
+ */
 export async function updateConsoleChatChannel(
   agentUid: string,
   channelName: string,
@@ -960,6 +1054,9 @@ export async function updateConsoleChatChannel(
   return getConsoleChatChannel(agent.agent.uid, name)
 }
 
+/**
+ * Deletes one chat channel binding and its dynamic config row.
+ */
 export async function deleteConsoleChatChannel(agentUid: string, channelName: string): Promise<void> {
   const agent = await requireActiveAgent(agentUid)
   const name = normalizeChannelName(channelName)
@@ -973,6 +1070,9 @@ export async function deleteConsoleChatChannel(agentUid: string, channelName: st
   await appConfigService.deleteByKey(agentChannelConfigKey(agent.agent.uid, name))
 }
 
+/**
+ * Reads one chat channel projection for detail/edit screens.
+ */
 export async function getConsoleChatChannel(agentUid: string, channelName: string): Promise<ConsoleChatChannel> {
   const agent = await requireActiveAgent(agentUid)
   const name = normalizeChannelName(channelName)
@@ -982,6 +1082,13 @@ export async function getConsoleChatChannel(agentUid: string, channelName: strin
   return channel
 }
 
+/**
+ * Starts a process-local interactive adapter setup session.
+ *
+ * The plugin flow can emit HTML/status updates before it produces final config
+ * values. The session keeps those transient updates out of durable app-config
+ * until the browser explicitly saves the patched channel form.
+ */
 export async function startConsoleInteractiveConfigSession(input: {
   adapterId: string
   currentConfig?: JsonObject
@@ -1028,6 +1135,9 @@ export async function startConsoleInteractiveConfigSession(input: {
   return projectInteractiveConfigSession(session)
 }
 
+/**
+ * Reads the latest state for one interactive setup session.
+ */
 export function getConsoleInteractiveConfigSession(sessionId: string): ConsoleInteractiveConfigSessionProjection {
   const session = interactiveConfigSessions.get(sessionId)
   if (!session) throw new DomainError(404, 'interactive config session not found')
@@ -1035,6 +1145,9 @@ export function getConsoleInteractiveConfigSession(sessionId: string): ConsoleIn
   return projectInteractiveConfigSession(session)
 }
 
+/**
+ * Cancels and forgets one interactive setup session.
+ */
 export function deleteConsoleInteractiveConfigSession(sessionId: string): void {
   const session = interactiveConfigSessions.get(sessionId)
   if (!session) return

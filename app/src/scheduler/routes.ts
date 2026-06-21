@@ -9,15 +9,26 @@ import { CreateScheduledTaskSchema, UpdateScheduledTaskSchema, schedulerService 
 const taskIdParams = z.object({ taskId: z.string().min(1) })
 const agentParams = z.object({ uid: z.string().min(1) })
 
+/**
+ * Console-admin HTTP surface for scheduled tasks (list, create, read, update,
+ * delete, run-now, list-runs). Every route is gated by {@link requireConsoleAdmin}
+ * and delegates to {@link schedulerService}; this layer only does auth, status
+ * codes, and error shaping.
+ */
 export function schedulerRoutes() {
   return new Elysia({ name: 'scheduler-routes' })
     .onError(({ code, error, set }) => {
+      // A DomainError already carries the intended HTTP status and a
+      // caller-safe message, so it is surfaced verbatim and not logged as a
+      // server fault.
       if (error instanceof DomainError) {
         set.status = error.status
         return { error: error.message }
       }
       const status = statusFromError(error)
       const isInternalServerError = status >= 500
+      // Log 5xx as errors and 4xx as warnings, so genuine server faults stand
+      // out from ordinary client mistakes.
       isInternalServerError
         ? logger.error({ error, code }, 'Scheduler API Error')
         : logger.warn({ error, code }, 'Scheduler API Error')
@@ -26,6 +37,9 @@ export function schedulerRoutes() {
         error: {
           code: status,
           status: String(code),
+          // In production a 5xx body is reduced to a generic line so internal
+          // error text does not leak to clients; non-prod and 4xx keep the real
+          // message to aid debugging.
           message:
             AppEnv.IS_PRODUCTION && isInternalServerError
               ? 'Internal Server Error'
@@ -81,6 +95,8 @@ export function schedulerRoutes() {
       '/api/console/scheduled-tasks/:taskId/run',
       async ({ params, request, set }) => {
         await requireConsoleAdmin(request)
+        // 202 Accepted: this kicks off the run but the agent turn completes
+        // asynchronously, so the response does not wait for the result.
         await schedulerService.runNow(params.taskId)
         set.status = 202
         return { status: 'accepted' }

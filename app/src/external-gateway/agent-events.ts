@@ -31,6 +31,11 @@ export interface ExternalGatewaySlashCommandStub {
   status: 'stub'
 }
 
+/**
+ * Payload carried inside the envelope's `data`. This is the snapshot the
+ * executor reads: the normalized message/room/mentions, the original provider
+ * `raw` for adapters that need it, and the per-room session the turn belongs to.
+ */
 export interface ExternalGatewayAgentEnvelopeData {
   command?: ExternalGatewaySlashCommandStub
   mentions?: JsonValue[]
@@ -43,6 +48,11 @@ export interface ExternalGatewayAgentEnvelopeData {
   }
 }
 
+/**
+ * The CloudEvents-1.0-shaped envelope persisted as the input row's payload and
+ * delivered to the executor. The gateway speaks this one canonical event shape
+ * regardless of which IM platform produced it.
+ */
 export interface ExternalGatewayAgentEnvelope {
   data: ExternalGatewayAgentEnvelopeData
   id: string
@@ -68,20 +78,51 @@ export interface EnqueueExternalGatewayAgentEventInput {
   type: ExternalGatewayCanonicalType
 }
 
+export type EnqueueExternalGatewayInboundMessageInput = Omit<
+  EnqueueExternalGatewayAgentEventInput,
+  'providerMessageId' | 'quietUntil'
+> & {
+  providerMessageId: string
+  quietUntil?: Date
+  type: Extract<ExternalGatewayCanonicalType, 'message.received' | 'slash_command'>
+}
+
 export interface ExternalGatewayAgentDelivery {
   events: Array<typeof ExternalGatewayAgentEvents.$inferSelect>
 }
 
+/**
+ * Minimal identity of one input row: (agent, binding, providerEventId). Used to
+ * exclude rows already claimed by an in-flight delivery and to address a row for
+ * markDone/markFailed.
+ */
 export type ExternalGatewayAgentEventKey = Pick<
   typeof ExternalGatewayAgentEvents.$inferSelect,
   'agentUid' | 'bindingName' | 'providerEventId'
 >
 
+/**
+ * An in-flight event key plus the room/message/type fields the claim predicates
+ * need to also hold back lifecycle (delete/recall) events for a receive that is
+ * still being delivered.
+ */
 export type ExternalGatewayInFlightAgentEvent = ExternalGatewayAgentEventKey &
   Pick<typeof ExternalGatewayAgentEvents.$inferSelect, 'providerMessageId' | 'providerRoomId' | 'type'>
 
+/**
+ * How long an addressed receive waits before it becomes claimable, so a fast
+ * burst of replies in the same room/thread coalesces into one agent turn. Kept
+ * small (75ms) because it is pure added latency on the common single-message
+ * case; it only needs to span the gap between back-to-back webhook deliveries.
+ */
 export const NORMAL_RECEIVE_BATCH_WINDOW_MS = 75
+/**
+ * Lifetime of the stale-receive tombstone. Long enough (24h) to cover a provider
+ * that delivers a recall well before its out-of-order original receive, but
+ * bounded so the guard table self-expires instead of growing forever.
+ */
 const INPUT_TOMBSTONE_TTL_MS = ms('24h')
+/** Hard cap so one runaway room cannot pull an unbounded batch into a turn. */
 const MAX_ADDRESSED_RECEIVE_BATCH_SIZE = 10_000
 
 export class DrizzleExternalGatewayAgentEventQueue {
@@ -93,55 +134,40 @@ export class DrizzleExternalGatewayAgentEventQueue {
    */
   async enqueue(input: EnqueueExternalGatewayAgentEventInput): Promise<typeof ExternalGatewayAgentEvents.$inferSelect> {
     return DB.transaction(async tx => {
-      const availableAt = input.quietUntil ?? new Date()
-      const [event] = await tx
-        .insert(ExternalGatewayAgentEvents)
-        .values({
-          agentUid: input.agentUid,
-          bindingName: input.bindingName,
-          providerRoomId: input.providerRoomId,
-          providerThreadId: input.providerThreadId,
-          providerEventId: input.providerEventId,
-          providerMessageId: input.providerMessageId ?? null,
-          type: input.type,
-          deliveryMode: input.deliveryMode,
-          batchKey: input.batchKey ?? null,
-          actorKey: input.actorKey ?? null,
-          payload: jsonbParam(input.payload as unknown as JsonObject),
-          status: 'pending',
-          availableAt
-        })
-        .onConflictDoNothing()
-        .returning()
-
-      if (event) {
-        if (isBatchableReceive(input)) {
-          await extendPendingBatchWindow(tx, input.agentUid, input.bindingName, input.batchKey!, availableAt)
-        }
-        return event
-      }
-
-      const [existing] = await tx
-        .select()
-        .from(ExternalGatewayAgentEvents)
-        .where(
-          and(
-            eq(ExternalGatewayAgentEvents.agentUid, input.agentUid),
-            eq(ExternalGatewayAgentEvents.bindingName, input.bindingName),
-            eq(ExternalGatewayAgentEvents.providerEventId, input.providerEventId)
-          )
-        )
-        .limit(1)
-
-      if (!existing) throw new ExternalGatewayAgentEventQueueError(`Failed to enqueue ${input.providerEventId}`)
-      return existing
+      return enqueueInTransaction(tx, input)
     })
   }
 
+  /**
+   * Enqueues a received message or slash command, unless a delete/recall for it
+   * already arrived.
+   *
+   * Takes the per-message advisory lock first, then re-checks the tombstone
+   * inside it, so a recall that is racing this enqueue cannot slip in between
+   * the check and the insert. Returns undefined when the tombstone wins (the
+   * message was recalled before we could deliver it).
+   */
+  async enqueueInboundMessage(
+    input: EnqueueExternalGatewayInboundMessageInput
+  ): Promise<typeof ExternalGatewayAgentEvents.$inferSelect | undefined> {
+    return DB.transaction(async tx => {
+      await lockInputTombstoneKey(tx, input)
+      if (await hasLiveInputTombstone(tx, input)) return undefined
+      return enqueueInTransaction(tx, input)
+    })
+  }
+
+  /**
+   * Enqueues an addressed receive into the batch window.
+   *
+   * Thin wrapper over {@link enqueueInboundMessage} that sets `type` and the
+   * `quietUntil` so the row stays unclaimable for the batch window and a burst
+   * of replies coalesces into one turn.
+   */
   async enqueueReceive(
-    input: Omit<EnqueueExternalGatewayAgentEventInput, 'quietUntil' | 'type'>
-  ): Promise<typeof ExternalGatewayAgentEvents.$inferSelect> {
-    return this.enqueue({
+    input: Omit<EnqueueExternalGatewayInboundMessageInput, 'quietUntil' | 'type'>
+  ): Promise<typeof ExternalGatewayAgentEvents.$inferSelect | undefined> {
+    return this.enqueueInboundMessage({
       ...input,
       quietUntil: new Date(Date.now() + NORMAL_RECEIVE_BATCH_WINDOW_MS),
       type: 'message.received'
@@ -216,20 +242,7 @@ export class DrizzleExternalGatewayAgentEventQueue {
     providerMessageId: string
     providerRoomId: string
   }): Promise<boolean> {
-    const rows = await DB.select({ providerMessageId: ExternalGatewayInputTombstones.providerMessageId })
-      .from(ExternalGatewayInputTombstones)
-      .where(
-        and(
-          eq(ExternalGatewayInputTombstones.agentUid, input.agentUid),
-          eq(ExternalGatewayInputTombstones.bindingName, input.bindingName),
-          eq(ExternalGatewayInputTombstones.providerRoomId, input.providerRoomId),
-          eq(ExternalGatewayInputTombstones.providerMessageId, input.providerMessageId),
-          gte(ExternalGatewayInputTombstones.expiresAt, new Date())
-        )
-      )
-      .limit(1)
-
-    return rows.length > 0
+    return hasLiveInputTombstone(DB, input)
   }
 
   /**
@@ -242,6 +255,7 @@ export class DrizzleExternalGatewayAgentEventQueue {
     providerRoomId: string
   }): Promise<void> {
     await DB.transaction(async tx => {
+      await lockInputTombstoneKey(tx, input)
       const expiresAt = new Date(Date.now() + INPUT_TOMBSTONE_TTL_MS)
       await tx
         .insert(ExternalGatewayInputTombstones)
@@ -267,6 +281,17 @@ export class DrizzleExternalGatewayAgentEventQueue {
     })
   }
 
+  /**
+   * Claims the next ready delivery for processing, oldest first.
+   *
+   * "Ready" means pending, past its `availableAt`, for an eligible agent, not
+   * already in-flight, and (for lifecycle events) not blocked behind a receive
+   * still being delivered. Ordering by `createdAt` then `providerEventId` gives
+   * a stable FIFO with a deterministic tiebreak. When the head row is a
+   * batchable addressed receive, the whole same-actor batch is claimed together.
+   *
+   * @returns the claimed events, or undefined when nothing is ready right now.
+   */
   async claimReady(
     input: {
       agentUids?: readonly string[]
@@ -308,6 +333,14 @@ export class DrizzleExternalGatewayAgentEventQueue {
     })
   }
 
+  /**
+   * Returns when the soonest not-yet-ready pending event becomes claimable,
+   * under the same eligibility filters as {@link claimReady}.
+   *
+   * The drain loop uses this to arm its next wakeup precisely (e.g. at the end
+   * of a batch window) instead of polling, so a row waiting on `availableAt` is
+   * picked up the moment it ripens.
+   */
   async nextPendingAvailableAt(
     input: {
       agentUids?: readonly string[]
@@ -382,6 +415,129 @@ function isReadyBatchableReceive(event: typeof ExternalGatewayAgentEvents.$infer
   return event.type === 'message.received' && event.deliveryMode === 'addressed' && event.batchKey !== null
 }
 
+/**
+ * Idempotent insert of one input row, keyed by provider event id.
+ *
+ * `onConflictDoNothing` then re-select means provider redelivery returns the
+ * existing row instead of erroring or duplicating. A successful insert of a
+ * batchable receive also slides the batch window forward so later messages in
+ * the burst join the same turn. The throw is a real invariant violation: a
+ * conflict with no findable existing row should be impossible.
+ */
+async function enqueueInTransaction(
+  tx: QueryExecutor,
+  input: EnqueueExternalGatewayAgentEventInput
+): Promise<typeof ExternalGatewayAgentEvents.$inferSelect> {
+  const availableAt = input.quietUntil ?? new Date()
+  const [event] = await tx
+    .insert(ExternalGatewayAgentEvents)
+    .values({
+      agentUid: input.agentUid,
+      bindingName: input.bindingName,
+      providerRoomId: input.providerRoomId,
+      providerThreadId: input.providerThreadId,
+      providerEventId: input.providerEventId,
+      providerMessageId: input.providerMessageId ?? null,
+      type: input.type,
+      deliveryMode: input.deliveryMode,
+      batchKey: input.batchKey ?? null,
+      actorKey: input.actorKey ?? null,
+      payload: jsonbParam(input.payload as unknown as JsonObject),
+      status: 'pending',
+      availableAt
+    })
+    .onConflictDoNothing()
+    .returning()
+
+  if (event) {
+    if (isBatchableReceive(input)) {
+      await extendPendingBatchWindow(tx, input.agentUid, input.bindingName, input.batchKey!, availableAt)
+    }
+    return event
+  }
+
+  const [existing] = await tx
+    .select()
+    .from(ExternalGatewayAgentEvents)
+    .where(
+      and(
+        eq(ExternalGatewayAgentEvents.agentUid, input.agentUid),
+        eq(ExternalGatewayAgentEvents.bindingName, input.bindingName),
+        eq(ExternalGatewayAgentEvents.providerEventId, input.providerEventId)
+      )
+    )
+    .limit(1)
+
+  if (!existing) throw new ExternalGatewayAgentEventQueueError(`Failed to enqueue ${input.providerEventId}`)
+  return existing
+}
+
+/**
+ * Serializes enqueue and tombstone-record for one provider message.
+ *
+ * A transaction-scoped advisory lock on the message key is what closes the
+ * recall-versus-receive race: whichever side takes it first runs to commit
+ * before the other observes state, so a recall cannot land between a receive's
+ * tombstone check and its insert (and vice versa).
+ */
+async function lockInputTombstoneKey(
+  tx: QueryExecutor,
+  input: {
+    agentUid: string
+    bindingName: string
+    providerMessageId: string
+    providerRoomId: string
+  }
+): Promise<void> {
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${externalGatewayInputTombstoneLockKey(input)}))`)
+}
+
+/**
+ * The string hashed into the advisory lock id for a message. Exported so tests
+ * can take the same lock and drive the race deterministically.
+ */
+export function externalGatewayInputTombstoneLockKey(input: {
+  agentUid: string
+  bindingName: string
+  providerMessageId: string
+  providerRoomId: string
+}): string {
+  return JSON.stringify([input.agentUid, input.bindingName, input.providerRoomId, input.providerMessageId])
+}
+
+async function hasLiveInputTombstone(
+  db: QueryExecutor,
+  input: {
+    agentUid: string
+    bindingName: string
+    providerMessageId: string
+    providerRoomId: string
+  }
+): Promise<boolean> {
+  const rows = await db
+    .select({ providerMessageId: ExternalGatewayInputTombstones.providerMessageId })
+    .from(ExternalGatewayInputTombstones)
+    .where(
+      and(
+        eq(ExternalGatewayInputTombstones.agentUid, input.agentUid),
+        eq(ExternalGatewayInputTombstones.bindingName, input.bindingName),
+        eq(ExternalGatewayInputTombstones.providerRoomId, input.providerRoomId),
+        eq(ExternalGatewayInputTombstones.providerMessageId, input.providerMessageId),
+        gte(ExternalGatewayInputTombstones.expiresAt, new Date())
+      )
+    )
+    .limit(1)
+
+  return rows.length > 0
+}
+
+/**
+ * Pushes every pending row in a batch to the same new `availableAt`.
+ *
+ * Keeps the whole burst ready at once (rather than each message ripening on its
+ * own clock) so they are claimed together as one turn. Touches only still-pending
+ * rows; anything already claimed or done is left alone.
+ */
 async function extendPendingBatchWindow(
   db: QueryExecutor,
   agentUid: string,
@@ -407,6 +563,15 @@ async function extendPendingBatchWindow(
     )
 }
 
+/**
+ * Collects the contiguous run of same-actor receives that share the head row's
+ * batch key, in FIFO order, to deliver as one turn.
+ *
+ * The loop stops at the first row from a different actor (the head row itself is
+ * always kept): a turn is one user's burst, so it must not absorb a second
+ * speaker's message that happened to arrive into the same room window. Falls
+ * back to just the head row if the run is empty.
+ */
 async function claimReadyBatch(
   db: QueryExecutor,
   first: typeof ExternalGatewayAgentEvents.$inferSelect,
@@ -443,6 +608,10 @@ async function claimReadyBatch(
   return batch.length ? batch : [first]
 }
 
+/**
+ * The key that groups addressed receives into one batch: same agent, binding,
+ * room, and thread. Messages sharing it coalesce into a single agent turn.
+ */
 export function externalGatewayBatchKey(input: {
   agentUid: string
   bindingName: string
@@ -452,6 +621,10 @@ export function externalGatewayBatchKey(input: {
   return JSON.stringify([input.agentUid, input.bindingName, input.providerRoomId, input.providerThreadId])
 }
 
+/**
+ * The agent's conversation session id for one room. Scoped per room (not per
+ * thread) so every exchange in a room threads into the same conversation.
+ */
 export function externalGatewaySessionId(agentUid: string, providerRoomId: string): string {
   return `${agentUid}:external-room:${providerRoomId}`
 }
@@ -490,6 +663,15 @@ function sameAgentEventKey(left: ExternalGatewayAgentEventKey, right: ExternalGa
   )
 }
 
+/**
+ * Predicate that hides delete/recall events whose receive is still in-flight.
+ *
+ * Ordering guard: a lifecycle event must not be delivered before the receive it
+ * compensates has finished delivering, or the agent could see "this message was
+ * recalled" before (or instead of) the message itself. So while a receive is
+ * in-flight, its matching delete/recall rows are excluded from claiming and
+ * become claimable again once the receive settles.
+ */
 function notLifecycleBlockedByInFlightReceives(events: readonly ExternalGatewayInFlightAgentEvent[] | undefined) {
   const receiveEvents = events?.filter(
     event => event.type === 'message.received' && typeof event.providerMessageId === 'string'

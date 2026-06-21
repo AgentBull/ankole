@@ -21,6 +21,9 @@ use uuid::Uuid;
 use crate::error::{AppError, AppResult};
 
 /// Per-command output cap; output beyond this is dropped (marked truncated).
+/// A hard ceiling so one chatty command cannot grow the in-memory buffer without
+/// bound. The whole buffer lives in RAM, so this is a memory-safety limit, not a
+/// display nicety.
 const MAX_OUTPUT_BYTES: usize = 8 * 1024 * 1024;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -79,6 +82,12 @@ struct BufferInner {
   truncated: bool,
 }
 
+/// Append-only record of a command's output plus its terminal status.
+///
+/// Events are retained (not consumed) so a late or reconnecting reader can replay
+/// from the start and then follow live output — the `tail -f`-like contract the
+/// logs endpoint exposes. `notify` wakes followers when new output lands or the
+/// command finishes, avoiding a polling loop.
 pub struct OutputBuffer {
   inner: Mutex<BufferInner>,
   notify: Notify,
@@ -97,6 +106,12 @@ impl OutputBuffer {
     })
   }
 
+  /// Appends one chunk of output and wakes any followers.
+  ///
+  /// Once the cap is reached the chunk is discarded and the buffer is flagged
+  /// truncated; the command keeps running and finishing normally, it just stops
+  /// recording. Dropping new output (rather than evicting old) keeps the head of
+  /// the log — usually the most diagnostic part — intact.
   fn push(&self, stream: LogStream, data: Bytes) {
     {
       let mut guard = self.inner.lock().unwrap();
@@ -110,6 +125,11 @@ impl OutputBuffer {
     self.notify.notify_waiters();
   }
 
+  /// Records the terminal status once and wakes followers so they can stop.
+  ///
+  /// First writer wins: the `is_none()` guard makes this idempotent, so a kill
+  /// racing with the natural process-exit reporter cannot overwrite an already
+  /// recorded result.
   fn finish(&self, status: CommandStatus, exit_code: Option<i32>) {
     {
       let mut guard = self.inner.lock().unwrap();
@@ -138,6 +158,11 @@ impl OutputBuffer {
     self.inner.lock().unwrap().events.clone()
   }
 
+  /// Awaits the command's terminal status, returning immediately if already done.
+  ///
+  /// The `notified()` future is created before the flag is checked on purpose: it
+  /// registers interest first, so a `finish` that fires in the gap between the
+  /// check and the await is not lost (the classic notify-after-check race).
   pub async fn wait_done(&self) -> (CommandStatus, Option<i32>) {
     loop {
       let notified = self.notify.notified();
@@ -187,6 +212,11 @@ impl CommandHandle {
   }
 }
 
+/// Per-session table of every command ever started, keyed by command id.
+///
+/// Handles are kept after the process exits so callers can still fetch the final
+/// status and replay logs; the table is bounded by session lifetime, not pruned
+/// per command.
 pub struct CommandRegistry {
   commands: DashMap<String, Arc<CommandHandle>>,
 }
@@ -221,6 +251,12 @@ impl CommandRegistry {
   }
 
   /// Spawn a one-shot process and track its output until it exits.
+  ///
+  /// Returns as soon as the child is launched; output collection and exit
+  /// reporting happen on detached tasks (one reader per stdout/stderr pipe, plus
+  /// a waiter that records the exit code). Doing the wait off-thread is what lets
+  /// a caller stream live logs while the process is still running, and lets a
+  /// `detached` command outlive the request that started it.
   pub fn spawn(
     &self,
     mut command: TokioCommand,
@@ -263,6 +299,12 @@ impl CommandRegistry {
   }
 
   /// Register an already-finished result (used by the persistent shell).
+  ///
+  /// The persistent shell runs its command synchronously and hands back a
+  /// complete `ShellResult`, but the HTTP/SDK surface speaks in command ids and
+  /// handles. Wrapping the result as a pre-finished command keeps that one shape,
+  /// so a shell command and a spawned process look the same to callers (`list`,
+  /// `get`, `logs`).
   pub fn insert_finished(
     &self,
     output: String,
@@ -287,6 +329,10 @@ impl CommandRegistry {
     handle
   }
 
+  /// Signal a running command. A no-such-command is an error, but signalling a
+  /// command that has already exited (or has no pid) is treated as success — the
+  /// caller's goal, "this command is not running", is already true, so kill is
+  /// idempotent and races between exit and kill stay quiet.
   pub fn kill(&self, id: &str, signal: Option<&str>) -> AppResult<()> {
     let handle = self
       .get(id)
@@ -300,6 +346,8 @@ impl CommandRegistry {
     kill_pid(pid, signal)
   }
 
+  /// Force-kill every still-running command. Used on session teardown; failures
+  /// are ignored because the session is going away regardless.
   pub fn kill_all(&self) {
     for handle in self.commands.iter() {
       if matches!(handle.output.status().0, CommandStatus::Running)
@@ -311,6 +359,11 @@ impl CommandRegistry {
   }
 }
 
+/// Translate an OS exit status into our status + numeric code.
+///
+/// A real exit code means the process returned normally. No code means it was
+/// terminated by a signal, which we report as `Killed` with the conventional
+/// `128 + signal` code so the number still carries the cause.
 fn classify_exit_status(status: ExitStatus) -> (CommandStatus, Option<i32>) {
   if let Some(code) = status.code() {
     return (CommandStatus::Finished, Some(code));
@@ -329,6 +382,11 @@ fn signal_exit_code(_status: &ExitStatus) -> Option<i32> {
   None
 }
 
+/// Drain one child pipe (stdout or stderr) into the buffer on its own task.
+///
+/// Reads in fixed chunks and forwards bytes as-is — no line buffering — so partial
+/// lines and binary output stream through unchanged. Any read error simply ends
+/// the task; the waiter task is what records the command's final status.
 fn spawn_reader<R>(mut reader: R, stream: LogStream, output: Arc<OutputBuffer>)
 where
   R: AsyncReadExt + Unpin + Send + 'static,
@@ -345,6 +403,14 @@ where
 }
 
 /// Stream a command's logs: replay everything buffered so far, then follow until done.
+///
+/// `idx` is the cursor into the retained event log, so a follower that connects
+/// late still gets the full history before live output. Seeing `done` is not
+/// enough to stop: output written just before completion may still sit past
+/// `idx`, so the loop only breaks once every buffered event has been yielded —
+/// otherwise the final lines of a fast command would be dropped. As in
+/// `wait_done`, `notified()` is taken before reading state to avoid a lost
+/// wakeup.
 pub fn follow(output: Arc<OutputBuffer>) -> impl Stream<Item = LogEvent> {
   async_stream::stream! {
     let mut idx = 0usize;
@@ -370,6 +436,13 @@ pub fn follow(output: Arc<OutputBuffer>) -> impl Stream<Item = LogEvent> {
   }
 }
 
+/// Send a signal to a spawned command, preferring its whole process group.
+///
+/// Commands are launched in their own process group (see `set_process_group` in
+/// `isolation`), so signalling the negative pid hits the leader and all its
+/// children — without this, a shell that forked workers would leave orphans
+/// behind. Falls back to the single pid when the group send fails (e.g. the
+/// leader already reaped its group).
 #[cfg(unix)]
 fn kill_pid(pid: u32, signal: Option<&str>) -> AppResult<()> {
   use nix::sys::signal::kill;

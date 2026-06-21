@@ -25,6 +25,7 @@ const ClarifyParams = z.object({
 export interface ClarifyDetails {
   question: string
   choices: string[]
+  /** False when the ask was skipped (run already aborted); true once delivered. */
   asked: boolean
 }
 
@@ -46,6 +47,7 @@ export interface ClarifyRunBinding {
   scheduleOutboxDrain: (availableAt?: Date) => void
 }
 
+/** Test/override seams: a custom registry (defaults to the process-wide singleton) and gate TTL. */
 export interface ClarifyToolDeps {
   registry?: AiAgentClarifyRegistry
   /** Gate TTL: how long an unanswered question keeps its card/group-gate niceties. */
@@ -89,11 +91,15 @@ export function createClarifyTool(
     executionMode: 'sequential',
     isDestructive: false,
     async execute(toolCallId, params, signal): Promise<AgentToolResult<ClarifyDetails>> {
+      // Re-trim and re-cap defensively: the schema caps at 4, but blank options
+      // are dropped here so an empty button never renders.
       const choices = (params.choices ?? [])
         .map(choice => choice.trim())
         .filter(choice => choice.length > 0)
         .slice(0, 4)
 
+      // If the run was already cancelled, report not-asked instead of posting a
+      // question into a channel for a turn that is being torn down.
       if (signal?.aborted) {
         return {
           content: [{ type: 'text', text: 'Clarification cancelled.' }],
@@ -101,12 +107,17 @@ export function createClarifyTool(
         }
       }
 
+      // Idempotency key for the outbox: derived from conversation + tool call, so
+      // a retried enqueue of the same ask collapses to one delivered message.
       const outboundKey = `ai-agent-clarify:${binding.conversationId}:${toolCallId}`
       const promptText = renderClarifyPrompt(params.question, choices)
       await binding.outbox.enqueuePending({
         agentUid: binding.agentUid,
         bindingName: binding.bindingName,
         intent: {
+          // Channels that can render the interactive card get one; the rest get
+          // the numbered plain-text prompt. The card always carries the same
+          // plain text as its fallback, so a non-rendering client still works.
           operation: binding.cardCapable ? 'card' : 'post',
           outboundKey,
           providerRoomId: binding.providerRoomId,
@@ -125,7 +136,11 @@ export function createClarifyTool(
             : { text: promptText }
         }
       })
+      // Nudge the outbox to flush now; enqueue alone does not send.
       binding.scheduleOutboxDrain()
+      // Arm the answer niceties (card lock + group reply gate) under a TTL. This
+      // holds no run state — the turn is ending; see clarify-registry for why an
+      // expired/lost entry only costs the niceties, not the answer itself.
       registry.set(
         {
           conversationId: binding.conversationId,
@@ -140,6 +155,9 @@ export function createClarifyTool(
         gateTtlMs
       )
 
+      // The tool result repeats the "turn ends here" contract in-band so the
+      // model, reading its own tool output, does not keep calling tools after
+      // asking — reinforcing the same rule the description states.
       const text = JSON.stringify({
         question: params.question,
         choices_offered: choices,

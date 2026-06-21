@@ -82,6 +82,10 @@ pub async fn load_computer_tls_material(
   serde_json::from_slice(&plain).context("decode unsealed computer TLS bundle")
 }
 
+/// Builds the worker's h2-only rustls server config from the unsealed bundle.
+///
+/// Client certificate verification is required here, so request handlers can
+/// treat the app as authenticated before route-specific code runs.
 pub fn rustls_server_config(material: &ComputerTlsMaterial) -> Result<ServerConfig> {
   let ca_certs = certificates(&material.ca_cert_pem)?;
   let worker_certs = certificates(&material.worker_cert_pem)?;
@@ -102,12 +106,14 @@ pub fn rustls_server_config(material: &ComputerTlsMaterial) -> Result<ServerConf
   Ok(config)
 }
 
+/// Parses a PEM certificate chain into rustls-owned DER values.
 fn certificates(pem: &str) -> Result<Vec<CertificateDer<'static>>> {
   rustls_pemfile::certs(&mut Cursor::new(pem))
     .collect::<std::result::Result<Vec<_>, _>>()
     .context("parse certificate PEM")
 }
 
+/// Parses the single private key expected in worker TLS material.
 fn private_key(pem: &str) -> Result<PrivateKeyDer<'static>> {
   rustls_pemfile::private_key(&mut Cursor::new(pem))
     .context("parse private key PEM")?

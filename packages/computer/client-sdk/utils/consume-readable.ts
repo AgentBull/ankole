@@ -14,6 +14,7 @@ export async function readableToBuffer(stream: ReadableStream<Uint8Array>): Prom
   return Buffer.concat(chunks)
 }
 
+/** Drains a byte stream and decodes it as UTF-8. */
 export async function readableToString(stream: ReadableStream<Uint8Array>): Promise<string> {
   return (await readableToBuffer(stream)).toString('utf-8')
 }

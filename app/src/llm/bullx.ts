@@ -174,6 +174,7 @@ export const ZERO_USAGE: Usage = {
   }
 }
 
+/** Calculates the normalized cost fields from model metadata after provider usage has been mapped to BullX tokens. */
 export function calculateCost(model: Model<any>, usage: Usage): Usage['cost'] {
   return {
     input: usage.input * model.cost.input,
@@ -188,6 +189,7 @@ export function calculateCost(model: Model<any>, usage: Usage): Usage['cost'] {
   }
 }
 
+/** Parses model tool-call arguments with the tool schema before the agent loop executes side effects. */
 export function validateToolArguments(
   tool: {
     schema?: { parse?: (value: unknown) => unknown }
@@ -198,6 +200,7 @@ export function validateToolArguments(
   return toolCall.arguments
 }
 
+/** Repairs common malformed JSON from lightweight LLM calls before falling back to strict parsing. */
 export function parseJsonWithRepair<T>(json: string): T {
   const fixed = fixJson(json)
   if (fixed === undefined) return JSON.parse(json) as T
@@ -218,6 +221,7 @@ const OVERFLOW_PATTERNS = [
   /exceeded model token limit/i
 ]
 
+/** Detects context overflow across providers that report it either as text errors, length stops, or usage counts. */
 export function isContextOverflow(message: AssistantMessage, contextWindow?: number): boolean {
   if (message.stopReason === 'error' && message.errorMessage) {
     return OVERFLOW_PATTERNS.some(pattern => pattern.test(message.errorMessage!))

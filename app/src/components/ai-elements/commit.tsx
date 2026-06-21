@@ -10,6 +10,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 export type CommitProps = ComponentProps<typeof Collapsible>
 
+/** Collapsible card representing a single git commit the agent made; expands to reveal the changed files. */
 export const Commit = ({ className, children, ...props }: CommitProps) => (
   <Collapsible className={cn('rounded-lg border bg-background', className)} {...props}>
     {children}
@@ -18,6 +19,7 @@ export const Commit = ({ className, children, ...props }: CommitProps) => (
 
 export type CommitHeaderProps = ComponentProps<typeof CollapsibleTrigger>
 
+/** Always-visible header row that toggles the card; usually holds the message, hash, and metadata. */
 export const CommitHeader = ({ className, children, ...props }: CommitHeaderProps) => (
   <CollapsibleTrigger
     {...props}

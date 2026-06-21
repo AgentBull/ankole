@@ -33,6 +33,13 @@ export function sanitizeExternalContentText(content: string): string {
   return nativeSanitizeExternalContentText(content)
 }
 
+/**
+ * Wraps untrusted content with explicit boundaries and an optional model-facing warning.
+ *
+ * The random marker id makes it harder for fetched content to spoof the closing
+ * boundary by copying a static delimiter, while sanitizer handling removes known
+ * marker-forgery tricks before the model sees the payload.
+ */
 export function wrapExternalContent(
   content: string,
   options: { source: ExternalContentSource; includeWarning?: boolean }
@@ -49,6 +56,9 @@ export function wrapExternalContent(
   ].join('\n')
 }
 
+/**
+ * Wraps web tool output with source-specific warning policy.
+ */
 export function wrapWebContent(content: string, source: 'web_search' | 'web_fetch'): string {
   return wrapExternalContent(content, { source, includeWarning: source === 'web_fetch' })
 }

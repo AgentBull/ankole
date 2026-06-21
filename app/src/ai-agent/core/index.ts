@@ -1,3 +1,7 @@
+// Public surface of the reusable agent core: the stateful Agent wrapper, the low-level loop, the
+// shared types, the harness helpers (compaction, messages, session, skills), and BullX-only additions
+// that upstream does not ship. Importers should pull from here rather than reaching into submodules.
+
 // Core Agent
 export * from './agent'
 // Loop functions

@@ -11,10 +11,18 @@ use tokio_postgres::{Client, NoTls};
 
 use crate::state::AppState;
 
+/// Spawns the registration + heartbeat loop as a detached task and returns its
+/// handle. `main` aborts that handle during shutdown so the loop stops cleanly.
 pub fn start(state: AppState) -> tokio::task::JoinHandle<()> {
   tokio::spawn(async move { run(state).await })
 }
 
+/// Registers the worker, then heartbeats forever on a fixed interval.
+///
+/// Registration is retried indefinitely (the daemon is useless until the app can
+/// see it), but once registered, a single failed heartbeat is only logged — the
+/// next tick retries, and the app's own staleness check handles a worker that
+/// goes quiet for too long.
 async fn run(state: AppState) {
   // Register, retrying until PostgreSQL accepts us.
   loop {
@@ -39,6 +47,10 @@ async fn run(state: AppState) {
   }
 }
 
+/// Inserts (or refreshes) this worker's row in `computer_workers` and marks it
+/// `ready`. Upsert on `worker_id` so a restart of the same worker re-takes its
+/// own row in place instead of leaving a stale duplicate, and the heartbeat
+/// fallback can reuse this same path to recreate a row that was reaped.
 async fn register(state: &AppState) -> anyhow::Result<()> {
   let client = connect(&state.config.database_url).await?;
   let config = &state.config;
@@ -59,6 +71,8 @@ async fn register(state: &AppState) -> anyhow::Result<()> {
   Ok(())
 }
 
+/// Refreshes `last_heartbeat_at` and reports current load so the app can see this
+/// worker is alive and how busy it is.
 async fn heartbeat(state: &AppState) -> anyhow::Result<()> {
   let client = connect(&state.config.database_url).await?;
   let config = &state.config;
@@ -74,12 +88,22 @@ async fn heartbeat(state: &AppState) -> anyhow::Result<()> {
       &[&config.worker_id, &config.instance_id, &load],
     )
     .await?;
+  // Zero rows updated means our row is gone — typically a reaper deleted it after
+  // we were unreachable long enough to look dead. Re-register to resurrect it
+  // rather than silently heartbeating into the void.
   if updated == 0 {
     register(state).await?;
   }
   Ok(())
 }
 
+/// Opens a fresh PostgreSQL connection for a single register/heartbeat call.
+///
+/// `tokio_postgres` splits the client from the IO driver: the returned
+/// `connection` future must be polled on its own task or the client stalls, so it
+/// is spawned here. A new connection per call is deliberate — the heartbeat is
+/// infrequent and a long-lived socket would need its own reconnect handling;
+/// reconnecting each tick keeps this loop trivially self-healing.
 async fn connect(database_url: &str) -> anyhow::Result<Client> {
   let (client, connection) = tokio_postgres::connect(database_url, NoTls).await?;
   tokio::spawn(async move {
@@ -90,6 +114,11 @@ async fn connect(database_url: &str) -> anyhow::Result<Client> {
   Ok(client)
 }
 
+/// Resident memory of this process, reported in the heartbeat load.
+///
+/// Only the Linux container path matters operationally; the non-Linux fallback
+/// returns 0 because dev/macOS load figures are not used for scheduling. Any
+/// parse failure also degrades to 0 rather than failing the heartbeat.
 #[cfg(target_os = "linux")]
 fn memory_bytes() -> u64 {
   // RSS pages from /proc/self/statm * page size.

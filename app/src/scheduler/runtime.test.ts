@@ -1,7 +1,13 @@
+// Integration tests for SchedulerRuntime against a real database. They cover the
+// behaviors that are hard to reason about by reading the code: startup catch-up,
+// lease-scoped orphan recovery (a live peer's run must survive), mid-run lease
+// renewal, the failure-alert threshold plus cooldown, and the run timeout.
 import { afterEach, describe, expect, it } from 'bun:test'
 import { eq, like } from 'drizzle-orm'
 import { loadTestEnvFiles } from '@/common/tests/load-test-env'
 
+// Modules are imported dynamically after env files load, so DB connection
+// settings from the test env are in place before any module reads them.
 await loadTestEnvFiles()
 
 const { DB } = await import('@/common/database')
@@ -12,6 +18,8 @@ const { createAgent } = await import('@/principals/agents/service')
 const { SchedulerRuntime } = await import('./runtime')
 const { schedulerStore } = await import('./store')
 
+// Unique per test run; every row this file creates is keyed by it so cleanup can
+// delete exactly this run's rows without disturbing anything else in the database.
 const testPrefix = `test_scheduler_${Date.now()}_${Math.random().toString(36).slice(2)}`.toLowerCase()
 
 interface ProgrammaticTurnStub {
@@ -56,6 +64,47 @@ describe('SchedulerRuntime', () => {
     expect(refreshed?.nextRunAt?.getTime()).toBeGreaterThan(Date.now() - 5_000)
   })
 
+  it('recovers only orphaned runs whose lease lapsed, never a live peer instance run', async () => {
+    const agentUid = uid('recover_scope_agent')
+    await createAgent({ uid: agentUid })
+
+    // A peer instance is mid-run with a fresh lease: recovery must leave it alone,
+    // or a rolling deploy would kill a healthy run and double-deliver.
+    const liveTask = await createDueTask(agentUid, 'recover_live')
+    const liveRun = await schedulerStore.createTaskRun({
+      instanceId: 'peer-alive',
+      scheduledFor: new Date(),
+      task: liveTask,
+      trigger: 'schedule'
+    })
+    await DB.update(ScheduledTasks)
+      .set({ claimedBy: 'peer-alive', leaseExpiresAt: new Date(Date.now() + 5 * 60_000) })
+      .where(eq(ScheduledTasks.id, liveTask.id))
+
+    // The instance running this one died: its lease has lapsed, so it is a genuine orphan.
+    const deadTask = await createDueTask(agentUid, 'recover_dead')
+    const deadRun = await schedulerStore.createTaskRun({
+      instanceId: 'peer-dead',
+      scheduledFor: new Date(),
+      task: deadTask,
+      trigger: 'schedule'
+    })
+    await DB.update(ScheduledTasks)
+      .set({ claimedBy: 'peer-dead', leaseExpiresAt: new Date(Date.now() - 60_000) })
+      .where(eq(ScheduledTasks.id, deadTask.id))
+
+    const now = new Date()
+    const recovered = await schedulerStore.recoverOrphanedTaskRuns({
+      error: 'test orphan recovery',
+      now,
+      retryAt: new Date(now.getTime() + 30_000)
+    })
+    expect(recovered).toBe(1)
+
+    expect((await runsForTask(liveTask.id)).find(run => run.id === liveRun.id)?.status).toBe('running')
+    expect((await runsForTask(deadTask.id)).find(run => run.id === deadRun.id)?.status).toBe('failed')
+  })
+
   it('renews the task lease while a scheduled turn is still running', async () => {
     const agentUid = uid('lease_agent')
     await createAgent({ uid: agentUid })
@@ -79,6 +128,8 @@ describe('SchedulerRuntime', () => {
 
     expect(observedClaimedAt).toBeInstanceOf(Date)
     expect(observedLeaseExpiresAt).toBeInstanceOf(Date)
+    // With a 100ms lease, an un-renewed lease would expire at claimedAt + 100.
+    // Observing an expiry beyond that proves the heartbeat extended it mid-run.
     expect(observedLeaseExpiresAt!.getTime()).toBeGreaterThan(observedClaimedAt!.getTime() + 100)
   })
 
@@ -153,6 +204,8 @@ describe('SchedulerRuntime', () => {
   })
 })
 
+// Creates a task that is already due (nextRunAt in the past) so a tick or runNow
+// picks it up immediately, without waiting for a real schedule boundary.
 async function createDueTask(agentUid: string, name: string) {
   return schedulerStore.createTask({
     agentUid,
@@ -212,6 +265,9 @@ async function runsForTask(taskId: string): Promise<Array<typeof ScheduledTaskRu
   return DB.select().from(ScheduledTaskRuns).where(eq(ScheduledTaskRuns.taskId, taskId))
 }
 
+// Retries an assertion until it passes or the deadline elapses. Used where the
+// scheduler tick runs in the background, so the row under test appears only after
+// some asynchronous delay rather than synchronously.
 async function eventually(assertion: () => Promise<void>, timeoutMs = 2_000): Promise<void> {
   const deadline = Date.now() + timeoutMs
   let lastError: unknown

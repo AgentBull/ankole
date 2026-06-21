@@ -18,6 +18,10 @@ import {
 import { upsertPlatformSubjectHuman } from '../external-identities/service'
 import { newPrincipalDomainRowId, normalizeUid, PrincipalDomainError, trimOptionalText } from '../principals/service'
 
+// Marker stored on a platform-subject identity's metadata recording that the
+// directory provider (not an operator) disabled this user. It lets a later sync
+// distinguish "the provider re-enabled them" from "an operator disabled them
+// manually" and reactivate only in the former case.
 const PROVIDER_DISABLED_METADATA_KEY = 'bullxDisabledByProvider'
 
 export interface IdentityProviderSyncStats {
@@ -54,6 +58,10 @@ export async function applyIdentityProviderFullSync(
       membershipsUpserted: 0
     }
 
+    // Order matters. Groups are reconciled first so that when users are upserted
+    // the group bindings (and their parent links) already exist; otherwise
+    // ancestor membership expansion below would miss departments created in the
+    // same snapshot.
     for (const group of snapshot.groups) {
       await upsertIdentityProviderGroup(provider, group, tx)
       stats.groupsUpserted += 1
@@ -61,11 +69,15 @@ export async function applyIdentityProviderFullSync(
 
     const seenGroupIds = new Set(snapshot.groups.map(group => group.externalId))
     stats.groupsDeleted += await deleteMissingIdentityProviderGroups(provider, seenGroupIds, tx)
+    // Load the now-current binding/parent map once and thread it through every
+    // membership replace below, instead of re-querying per user.
     const groupContext = await loadIdentityProviderGroupContext(provider, tx)
 
     for (const user of snapshot.users) {
       const principalUid = await upsertIdentityProviderUser(provider, user, tx)
       stats.usersUpserted += 1
+      // A disabled user keeps no group memberships; the upsert above already
+      // cleared them, so skip the membership replace entirely.
       if (user.status === 'disabled') continue
 
       stats.membershipsUpserted += await replaceIdentityProviderMemberships(
@@ -77,6 +89,9 @@ export async function applyIdentityProviderFullSync(
       )
     }
 
+    // Anything this provider previously managed but did not appear in this
+    // snapshot is now absent from the directory, so disable it. Runs last so a
+    // user moved between departments is re-upserted (and thus "seen") first.
     const seenUserIds = new Set(snapshot.users.map(user => user.externalId))
     stats.usersDisabled += await disableMissingIdentityProviderUsers(provider, seenUserIds, tx)
 
@@ -108,6 +123,17 @@ export async function syncIdentityProviderUser(
   })
 }
 
+/**
+ * Idempotently upserts one directory user into its platform-subject Principal.
+ *
+ * Keyed on the stable `provider + externalId` platform subject, so repeated full
+ * or incremental syncs converge on the same Principal rather than creating
+ * duplicates. Returns the resolved principal uid for membership wiring.
+ *
+ * Reactivation is conditional: a user that comes back as `active` is re-enabled
+ * only if BullX itself had marked it disabled-by-provider. This avoids overriding
+ * a deliberate operator disable just because the directory still lists the user.
+ */
 export async function upsertIdentityProviderUser(
   providerId: string,
   user: BullXIdentityProviderUserRecord,
@@ -129,6 +155,8 @@ export async function upsertIdentityProviderUser(
 
   const existingMetadata = metadataObject(existingIdentity?.metadata)
   const disabledByProvider = existingMetadata[PROVIDER_DISABLED_METADATA_KEY] === true
+  // `syncedAt` is the provider-sync evidence that later lets full sync treat
+  // absence as authoritative (see `identityProviderHasManagedUser`).
   const activeMetadata = {
     ...metadataObject(user.metadata),
     provider,
@@ -137,6 +165,10 @@ export async function upsertIdentityProviderUser(
   } satisfies JsonObject
 
   if (user.status === 'disabled') {
+    // Still upsert the profile so name/avatar stay current on a disabled user,
+    // but stamp the disabled-by-provider marker, force the Principal to disabled,
+    // and strip its provider-owned memberships. `uid` only takes effect when no
+    // binding exists yet; an existing binding's principal uid wins.
     const { principal } = await upsertPlatformSubjectHuman(
       {
         provider,
@@ -176,11 +208,23 @@ export async function upsertIdentityProviderUser(
     },
     db
   )
+  // Only flip status back to active if BullX had disabled this user on the
+  // provider's behalf. A user the operator disabled by hand carries no such
+  // marker and is left disabled even though the directory still lists them.
   if (disabledByProvider) await updatePrincipalStatusInExecutor(principal.uid, 'active', db)
 
   return principal.uid
 }
 
+/**
+ * Disables a single platform subject in response to a provider event or a
+ * missing-from-full-sync sweep.
+ *
+ * Sets the Principal to disabled, drops its provider-owned memberships, and
+ * records the disabled-by-provider marker plus a timestamp on the identity so a
+ * later reactivation can be attributed correctly. A no-op when no such identity
+ * exists, because there is nothing this provider manages to disable.
+ */
 export async function disableIdentityProviderUser(
   providerId: string,
   externalId: string,
@@ -219,6 +263,13 @@ export async function disableIdentityProviderUser(
     .where(eq(PrincipalExternalIdentities.id, identity.id))
 }
 
+/**
+ * Removes a principal's memberships in groups owned by this provider only.
+ *
+ * Scoping the delete to `providerGroupIds` is deliberate: memberships in
+ * non-provider groups (manual ops grants, other providers' departments) must
+ * survive a directory disable or department change.
+ */
 async function clearIdentityProviderMemberships(
   providerId: string,
   principalUid: string,
@@ -237,6 +288,14 @@ async function clearIdentityProviderMemberships(
     )
 }
 
+/**
+ * Idempotently upserts a provider department into a BullX `static` group.
+ *
+ * A department maps to one group via a `provider + externalId` binding. When the
+ * binding already exists it just refreshes the group and binding; otherwise it
+ * either adopts an existing group with the deterministic external name or creates
+ * a fresh one. Returns the group id so memberships can target it.
+ */
 export async function upsertIdentityProviderGroup(
   providerId: string,
   group: BullXIdentityProviderGroupRecord,
@@ -267,6 +326,10 @@ export async function upsertIdentityProviderGroup(
     return binding.groupId
   }
 
+  // No binding yet. Adopt a group already carrying this provider's deterministic
+  // department name if one exists (e.g. left over from a prior sync whose binding
+  // was lost), otherwise mint a new group id. This keeps re-sync from creating
+  // duplicate department groups.
   const name = externalGroupName(provider, externalId)
   const [existingGroup] = await db.select().from(PrincipalGroups).where(eq(PrincipalGroups.name, name)).limit(1)
   const groupId = existingGroup?.id ?? newPrincipalDomainRowId()
@@ -286,6 +349,14 @@ export async function upsertIdentityProviderGroup(
   return groupId
 }
 
+/**
+ * Removes a provider department: drops all its memberships and the binding.
+ *
+ * Only the membership rows and the external binding are deleted, not the
+ * underlying `PrincipalGroups` row; leaving the group avoids cascading away any
+ * grants attached to it should the department reappear. A no-op when the
+ * department was never bound here.
+ */
 export async function deleteIdentityProviderGroup(
   providerId: string,
   externalId: string,
@@ -317,6 +388,19 @@ export async function deleteIdentityProviderGroup(
     )
 }
 
+/**
+ * Resets a principal's provider-owned department memberships to match a fresh
+ * list of direct departments.
+ *
+ * Implemented as "delete all of this provider's memberships for the user, then
+ * insert the new target set" rather than a diff, because it is simpler and the
+ * provider is authoritative for its own departments. Direct departments are
+ * expanded up the parent chain so a member of a leaf department is also a member
+ * of its ancestor org units, letting grants target either level.
+ *
+ * The delete is scoped to `providerGroupIds`, so memberships in non-provider
+ * groups are untouched. Returns the number of target groups joined.
+ */
 async function replaceIdentityProviderMemberships(
   providerId: string,
   principalUid: string,
@@ -324,6 +408,8 @@ async function replaceIdentityProviderMemberships(
   db: QueryExecutor,
   context?: IdentityProviderGroupMembershipContext
 ): Promise<number> {
+  // Callers inside a full sync pass a preloaded context to avoid re-querying the
+  // binding map once per user; incremental callers let it load lazily.
   const groupContext = context ?? (await loadIdentityProviderGroupContext(providerId, db))
   const { bindingsByExternalId, providerGroupIds } = groupContext
 
@@ -338,6 +424,8 @@ async function replaceIdentityProviderMemberships(
       )
   }
 
+  // Expand each direct department to itself plus all ancestors, then map the
+  // external ids to bound group ids. A Set dedups overlapping ancestor chains.
   const targetGroupIds = new Set<string>()
   for (const externalGroupId of directExternalGroupIds) {
     for (const expandedExternalId of expandGroupAncestors(externalGroupId, bindingsByExternalId)) {
@@ -353,6 +441,8 @@ async function replaceIdentityProviderMemberships(
         principalUid,
         groupId
       })
+      // Tolerate a membership that already survived (or a concurrent insert)
+      // instead of erroring on the composite primary key.
       .onConflictDoNothing()
   }
 
@@ -364,6 +454,14 @@ interface IdentityProviderGroupMembershipContext {
   providerGroupIds: string[]
 }
 
+/**
+ * Loads this provider's department bindings once for membership math.
+ *
+ * Returns both a by-external-id lookup (used to resolve parents during ancestor
+ * expansion) and the flat list of this provider's group ids (used to scope
+ * membership deletes). Sharing one read keeps a full sync from re-querying the
+ * bindings for every user.
+ */
 async function loadIdentityProviderGroupContext(
   providerId: string,
   db: QueryExecutor
@@ -380,6 +478,15 @@ async function loadIdentityProviderGroupContext(
   }
 }
 
+/**
+ * Disables platform subjects this provider previously managed but that are
+ * absent from the current full-sync snapshot.
+ *
+ * The `identityProviderHasManagedUser` guard is the important part: a
+ * platform-subject row created only from a chat observation (no sync evidence)
+ * is skipped, so a directory full sync never disables a user the directory has
+ * not actually accounted for.
+ */
 async function disableMissingIdentityProviderUsers(
   providerId: string,
   seenExternalIds: ReadonlySet<string>,
@@ -408,6 +515,12 @@ async function disableMissingIdentityProviderUsers(
   return disabled
 }
 
+/**
+ * Deletes provider department bindings absent from the current snapshot.
+ *
+ * Unlike users, groups have no chat-observation path, so any bound department
+ * missing from the snapshot is genuinely gone and can be removed unconditionally.
+ */
 async function deleteMissingIdentityProviderGroups(
   providerId: string,
   seenExternalIds: ReadonlySet<string>,
@@ -429,6 +542,14 @@ async function deleteMissingIdentityProviderGroups(
   return deleted
 }
 
+/**
+ * Writes (or refreshes) the binding row that ties a provider department to a
+ * BullX group.
+ *
+ * The department's `parentExternalId` is persisted into the binding metadata
+ * because `expandGroupAncestors` walks that field to build ancestor membership;
+ * the parent link lives here, not on the group row.
+ */
 async function updateGroupBinding(
   provider: string,
   externalId: string,
@@ -478,6 +599,13 @@ async function updatePrincipalStatusInExecutor(
     .where(eq(Principals.uid, normalizeUid(principalUid)))
 }
 
+/**
+ * Returns a department's external id followed by its ancestor chain.
+ *
+ * Walks `parentExternalId` links from the binding metadata. The `visited` set is
+ * a cycle guard: a malformed directory that reports a department as its own
+ * ancestor (directly or in a loop) would otherwise spin forever here.
+ */
 function expandGroupAncestors(
   externalGroupId: string,
   bindingsByExternalId: ReadonlyMap<string, typeof PrincipalGroupExternalBindings.$inferSelect>
@@ -496,6 +624,9 @@ function expandGroupAncestors(
   return expanded
 }
 
+// Deterministic group name for a provider department. Being a pure function of
+// provider + external id is what lets `upsertIdentityProviderGroup` re-adopt a
+// group whose binding was lost instead of creating a duplicate.
 function externalGroupName(providerId: string, externalId: string): string {
   return `${providerId}:department:${externalId}`.trim().toLowerCase()
 }
@@ -507,6 +638,9 @@ function requiredText(value: string | null | undefined, field: string): string {
   return normalized
 }
 
+// A provider id must match the shared external-identity namespace contract, the
+// same pattern enforced on the `provider` column, so sync writes can never
+// introduce a namespace the rest of the system would reject.
 function requiredProviderId(value: string | null | undefined, field: string): string {
   const normalized = requiredText(value, field)
   if (!bullxExternalIdentityNamespaceIdPattern.test(normalized)) {
@@ -516,6 +650,8 @@ function requiredProviderId(value: string | null | undefined, field: string): st
   return normalized
 }
 
+// Coerces an unknown (possibly non-object or null) JSON value to a safe object so
+// metadata merges never spread a primitive.
 function metadataObject(value: unknown): JsonObject {
   return jsonObject(value) ?? {}
 }

@@ -1,14 +1,26 @@
 import type { AgentMessage } from './core'
 
+// Placeholder left in the model-bound view where an older image was removed. The
+// wording tells the model an image existed and that only the newest one is kept,
+// so it does not hallucinate that the user sent no image at all.
 export const HISTORICAL_MEDIA_STRIPPED_TEXT =
   '[Attached image stripped from older context. The latest image-bearing user message is retained.]'
 
+// Placeholder used only while estimating token size — never sent to the model.
 export const INLINE_IMAGE_DATA_STRIPPED_TEXT = '[inline image data stripped for token estimate]'
 
+// Flat token budget charged per stripped image during estimation, standing in for
+// the provider's real (model-dependent) image token cost.
 export const INLINE_IMAGE_DATA_TOKEN_COST = 1500
 
+// Matches a base64 `data:image/...;base64,...` URL anywhere in a text run. The
+// global flag drives both the membership test and the replace; callers reset
+// `lastIndex` before each use because a global regex carries state between calls.
 const INLINE_IMAGE_DATA_URL_PATTERN = /data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=_-]+/g
 
+// Minimal structural view of one content block. Images appear either as a typed
+// image block or as a base64 data-URL embedded in a text block, so both shapes
+// must be detected.
 type ContentBlock = { type?: string; text?: string; image_url?: unknown; image?: unknown }
 
 function textContainsInlineImageData(text: string): boolean {
@@ -16,6 +28,8 @@ function textContainsInlineImageData(text: string): boolean {
   return INLINE_IMAGE_DATA_URL_PATTERN.test(text)
 }
 
+// Replaces every inline image data-URL in `text` and reports how many were
+// replaced, so the token estimator can charge a flat cost per image.
 function replaceInlineImageData(text: string, replacement: string): { text: string; count: number } {
   let count = 0
   INLINE_IMAGE_DATA_URL_PATTERN.lastIndex = 0
@@ -47,6 +61,10 @@ function messageContent(message: AgentMessage): unknown {
   return (message as { content?: unknown }).content
 }
 
+// Returns content with image parts swapped for the placeholder. Returns the
+// original reference unchanged when nothing matched, so callers can use identity
+// (`stripped === content`) to skip rebuilding the message — see
+// `stripHistoricalMedia`, which relies on that to avoid needless copies.
 function stripImagesFromContent(content: unknown): unknown {
   if (typeof content === 'string') {
     return replaceInlineImageData(content, HISTORICAL_MEDIA_STRIPPED_TEXT).text
@@ -74,6 +92,8 @@ function stripImagesFromContent(content: unknown): unknown {
  * visible, while older image payloads are replaced in the model-bound view only.
  */
 export function stripHistoricalMedia(messages: AgentMessage[]): AgentMessage[] {
+  // Walk back to the newest user message that carries an image — that one is the
+  // "anchor" and is kept intact; only messages strictly before it are stripped.
   let anchor = -1
   for (let index = messages.length - 1; index >= 0; index--) {
     const message = messages[index]!
@@ -82,6 +102,8 @@ export function stripHistoricalMedia(messages: AgentMessage[]): AgentMessage[] {
       break
     }
   }
+  // `anchor < 0` (no image anywhere) and `anchor === 0` (the only image is the
+  // first message, nothing before it to strip) both leave the input untouched.
   if (anchor <= 0) return messages
 
   let changed = false

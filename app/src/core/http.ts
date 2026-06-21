@@ -1,3 +1,6 @@
+/**
+ * Adds one `Set-Cookie` header without dropping cookies already staged by Elysia.
+ */
 export function appendSetCookie(set: { headers?: Record<string, unknown> }, value: string): void {
   const existing = set.headers?.['Set-Cookie']
   if (!set.headers) set.headers = {}
@@ -9,6 +12,9 @@ export function appendSetCookie(set: { headers?: Record<string, unknown> }, valu
   set.headers['Set-Cookie'] = Array.isArray(existing) ? [...existing, value] : [String(existing), value]
 }
 
+/**
+ * Builds a redirect response that preserves multiple `Set-Cookie` headers.
+ */
 export function redirectWithSetCookies(
   url: string,
   cookies: string[],

@@ -82,6 +82,9 @@ export const HumanUsers = pgTable(
       .notNull()
   },
   t => [
+    // Partial unique indexes: uniqueness is enforced only over present values, so
+    // an unbounded number of humans can exist with no email/phone yet (the
+    // IM-first onboarding case) while a populated address stays globally unique.
     uniqueIndex('human_users_email_index')
       .on(t.email)
       .where(sql`${t.email} IS NOT NULL`),
@@ -107,6 +110,8 @@ export const Agents = pgTable(
       .references(() => Principals.uid, { onDelete: 'cascade' }),
     type: AgentType('type').default('llm_agentic_loop').notNull(),
     metadata: jsonb('metadata').$type<JsonObject>().default({}).notNull(),
+    // Provenance only: kept on `set null` so deleting the creating principal does
+    // not cascade-delete the agent. The agent outlives whoever created it.
     createdByPrincipalUid: text('created_by_principal_uid').references(() => Principals.uid, { onDelete: 'set null' }),
     createdAt: timestamp('created_at')
       .default(sql`CURRENT_TIMESTAMP`)
@@ -151,6 +156,11 @@ export const PrincipalExternalIdentities = pgTable(
   },
   t => [
     index('principal_external_identities_principal_uid_index').on(t.principalUid),
+    // One identity row per kind-shaped key. Each partial unique index pins the
+    // identifier tuple that actually matters for that kind: a channel actor is
+    // unique within (adapter, channel), while platform/login/outbound subjects
+    // are unique within (provider) regardless of channel. This is what lets one
+    // human map to at most one Lark account, etc.
     uniqueIndex('principal_external_identities_channel_actor_index')
       .on(t.adapter, t.channelId, t.externalId)
       .where(sql`${t.kind} = 'channel_actor'`),

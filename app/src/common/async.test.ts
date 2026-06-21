@@ -39,6 +39,8 @@ describe('createCombinedAbortSignal', () => {
     expect(timeout.signal.aborted).toBe(true)
     timeout.cleanup()
 
+    // After cleanup the timer must be cancelled: waiting past the timeout proves
+    // the signal never fires, i.e. cleanup actually frees the pending timeout.
     const cleaned = createCombinedAbortSignal(undefined, 20)
     cleaned.cleanup()
     await Bun.sleep(50)
@@ -89,6 +91,9 @@ describe('withRetry', () => {
     expect(failureCalls).toBe(3)
   })
 
+  // Both guards must short-circuit on the very first call: a non-retryable error
+  // is fatal, and an already-aborted signal means the caller has given up — neither
+  // should sleep or burn further attempts.
   it('does not back off for non-retryable or already-aborted work', async () => {
     let fatalCalls = 0
     await expect(
@@ -117,7 +122,10 @@ describe('withRetry', () => {
     expect(abortedCalls).toBe(1)
   })
 
+  // Proves the server's backoff hint flows end-to-end: a retryable error carrying
+  // `Retry-After-Ms` makes the retry wait at least that long before the next try.
   it('honors Retry-After headers from retryable errors', async () => {
+    // 0.02s expressed as the standard seconds form resolves to 20ms.
     expect(parseRetryAfterHeaders({ 'Retry-After': '0.02' })).toBe(20)
 
     let calls = 0

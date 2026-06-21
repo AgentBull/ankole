@@ -4,6 +4,9 @@ import { commandFeedbackIntent } from './commands'
 describe('commandFeedbackIntent', () => {
   const base = { commandEventId: 'evt-1', providerRoomId: 'room', providerThreadId: 'thread', text: 'Stopped.' }
 
+  // The load-bearing invariant: surface + caps pick the operation/payload
+  // (divider vs card vs plain post), but the outboundKey stays identical across
+  // all four so idempotency/recovery is unaffected when the surface flips.
   it('renders command feedback for DM, group, and fallback surfaces without changing the recovery key', () => {
     const post = commandFeedbackIntent(base)
     const divider = commandFeedbackIntent({

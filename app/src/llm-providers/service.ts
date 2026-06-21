@@ -152,15 +152,28 @@ export const llmProviderCreateBody = z.object({
 export type LlmProviderUpdateInput = z.infer<typeof LlmProviderUpdateInputSchema>
 export type LlmProviderCheckInput = z.infer<typeof LlmProviderCheckInputSchema>
 
+/**
+ * Lists configured LLM providers without exposing stored API keys.
+ */
 export async function listLlmProviders(): Promise<LlmProviderProjection[]> {
   const rows = await DB.select().from(LlmProviders).orderBy(LlmProviders.createdAt)
   return rows.map(projectLlmProvider)
 }
 
+/**
+ * Reads one configured LLM provider as a console/setup-safe projection.
+ */
 export async function getLlmProvider(providerId: string): Promise<LlmProviderProjection> {
   return projectLlmProvider(await requireLlmProviderRow(providerId))
 }
 
+/**
+ * Creates or updates one provider row while preserving omitted secret fields.
+ *
+ * `apiKey` has clear semantics: omitted keeps the current key, `null` or blank
+ * clears it, and a non-empty string replaces it. That lets setup and console
+ * forms save non-secret changes without accidentally deleting credentials.
+ */
 export async function upsertLlmProvider(input: LlmProviderCreateInput | LlmProviderUpdateInput) {
   const parsed = LlmProviderUpdateInputSchema.parse(input)
   const existing = await getLlmProviderRow(parsed.providerId)
@@ -198,18 +211,27 @@ export async function upsertLlmProvider(input: LlmProviderCreateInput | LlmProvi
   return projectLlmProvider(row!)
 }
 
+/**
+ * Creates a provider and rejects duplicate provider ids.
+ */
 export async function createLlmProvider(input: LlmProviderCreateInput): Promise<LlmProviderProjection> {
   const parsed = LlmProviderCreateInputSchema.parse(input)
   if (await getLlmProviderRow(parsed.providerId)) throw new DomainError(409, 'llm provider already exists')
   return upsertLlmProvider(parsed)
 }
 
+/**
+ * Updates an existing provider and rejects unknown ids.
+ */
 export async function updateLlmProvider(input: LlmProviderUpdateInput): Promise<LlmProviderProjection> {
   const parsed = LlmProviderUpdateInputSchema.parse(input)
   await requireLlmProviderRow(parsed.providerId)
   return upsertLlmProvider(parsed)
 }
 
+/**
+ * Deletes a provider only when no agent model profile still references it.
+ */
 export async function deleteLlmProvider(providerId: string): Promise<void> {
   const normalizedProviderId = LlmProviderIdSchema.parse(providerId)
   await requireLlmProviderRow(normalizedProviderId)
@@ -222,12 +244,21 @@ export async function deleteLlmProvider(providerId: string): Promise<void> {
   await DB.delete(LlmProviders).where(eq(LlmProviders.providerId, normalizedProviderId))
 }
 
+/**
+ * Saves the setup-time provider list using upsert semantics.
+ */
 export async function saveLlmProviders(inputs: readonly LlmProviderCreateInput[]): Promise<LlmProviderProjection[]> {
   const projections: LlmProviderProjection[] = []
   for (const input of inputs) projections.push(await upsertLlmProvider(LlmProviderCreateInputSchema.parse(input)))
   return projections
 }
 
+/**
+ * Validates provider credentials and optional model selection without persisting.
+ *
+ * This uses the same normalization path as writes so setup failures match what
+ * the runtime would later see.
+ */
 export async function checkLlmProvider(input: LlmProviderCheckInput): Promise<{
   ok: true
   provider: Omit<LlmProviderProjection, 'createdAt' | 'updatedAt'>
@@ -267,11 +298,17 @@ export async function checkLlmProvider(input: LlmProviderCheckInput): Promise<{
   }
 }
 
+/**
+ * Lists the model catalog for one configured provider id.
+ */
 export async function listLlmProviderModels(providerId: string): Promise<LlmProviderModelProjection[]> {
   const row = await requireLlmProviderRow(providerId)
   return getModels(row.llmProvider as never).map(model => projectModel(row.providerId, row.llmProvider, model))
 }
 
+/**
+ * Lists built-in provider families and their bundled model counts.
+ */
 export function listLlmProviderCatalog(): Array<{ id: string; modelCount: number }> {
   return getProviders().map(id => ({
     id,
@@ -279,11 +316,21 @@ export function listLlmProviderCatalog(): Array<{ id: string; modelCount: number
   }))
 }
 
+/**
+ * Ensures an agent model profile points at an existing provider/model pair.
+ */
 export async function assertLlmProviderModelReference(input: { providerId: string; model: string }): Promise<void> {
   const row = await requireLlmProviderRow(input.providerId)
   requireLlmModel(row.llmProvider, input.model)
 }
 
+/**
+ * Resolves the concrete model object and runtime call options for an agent profile.
+ *
+ * Provider-level overrides are applied here instead of at catalog load time so
+ * the same bundled model catalog can serve multiple configured providers with
+ * different base URLs, headers, retry policy, and API keys.
+ */
 export async function resolveLlmProviderModelProfile(
   ref: LlmProviderResolvedModelRef
 ): Promise<ResolvedLlmProviderModelProfile> {
@@ -323,6 +370,9 @@ export async function resolveLlmProviderModelProfile(
   }
 }
 
+/**
+ * Resolves raw API access for provider-specific helper paths.
+ */
 export async function resolveLlmProviderApiAccess(providerId: string): Promise<LlmProviderApiAccess> {
   const row = await requireLlmProviderRow(providerId)
   const apiKey = decryptApiKey(row)
@@ -396,6 +446,13 @@ function normalizeProviderOptions(value: unknown): NormalizedLlmProviderOptions 
   return stripUndefined(parsed) as NormalizedLlmProviderOptions
 }
 
+/**
+ * Rejects secret-bearing custom headers.
+ *
+ * API keys have a dedicated encrypted column. Keeping secrets out of
+ * `providerOptions.headers` prevents them from leaking through plaintext JSON
+ * projections used by setup and console screens.
+ */
 function assertNonSecretHeaders(headers: Record<string, string>): void {
   for (const name of Object.keys(headers)) {
     if (secretHeaderNames.has(name.trim().toLowerCase())) {
@@ -459,10 +516,19 @@ function decryptApiKey(row: LlmProviderRecord): string | null {
   }
 }
 
+/**
+ * Derives a per-provider database encryption key for API key material.
+ */
 function apiKeyEncryptionKey(providerId: string): string {
   return getSecretKey(SecretKeyPurpose.DATABASE_ENCRYPTION, `llm_providers:${providerId}:api_key`)
 }
 
+/**
+ * Applies operator-configured provider overrides to one catalog model.
+ *
+ * The returned object is cloned so runtime changes for one provider do not
+ * mutate the shared vendored catalog used by other providers.
+ */
 function cloneLlmModelWithProviderOverrides(
   model: Model<any>,
   row: LlmProviderRecord,
@@ -495,6 +561,9 @@ function cloneLlmModelWithProviderOverrides(
     : resolvedModel
 }
 
+/**
+ * Finds active agent model profiles that still point at a provider.
+ */
 async function listAgentModelReferences(providerId: string): Promise<string[]> {
   const agents = await DB.select({ uid: Agents.uid, metadata: Agents.metadata }).from(Agents)
   const references: string[] = []

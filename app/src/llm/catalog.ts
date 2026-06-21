@@ -103,14 +103,17 @@ const catalog: LlmProviderCatalogEntry[] = [
   compatibleProvider('together', 'Together AI', 'https://api.together.xyz/v1')
 ]
 
+/** Lists provider kinds that setup/console can offer before any tenant-specific provider row exists. */
 export function getProviders(): string[] {
   return catalog.map(entry => entry.id)
 }
 
+/** Returns cloned catalog models so callers can safely attach runtime provider fields. */
 export function getModels(llmProvider: string): Model[] {
   return getProviderEntry(llmProvider)?.models.map(cloneModel) ?? []
 }
 
+/** Resolves a known model or creates a synthetic model for compatible providers with arbitrary model ids. */
 export function getModel(llmProvider: string, modelId: string): Model | undefined {
   const entry = getProviderEntry(llmProvider)
   if (!entry) return undefined
@@ -118,10 +121,12 @@ export function getModel(llmProvider: string, modelId: string): Model | undefine
   return found ? cloneModel(found) : syntheticModel(entry, modelId)
 }
 
+/** Looks up one provider catalog entry by the stable provider kind stored in config. */
 export function getProviderEntry(llmProvider: string): LlmProviderCatalogEntry | undefined {
   return catalog.find(entry => entry.id === llmProvider)
 }
 
+/** Creates the concrete AI SDK language model used by BullX after DB provider config has been resolved. */
 export function createLanguageModel(input: CreateLanguageModelInput): LanguageModel {
   const baseUrl = input.baseUrl ?? input.model.baseUrl
   const headers = input.headers
@@ -161,10 +166,12 @@ export function createLanguageModel(input: CreateLanguageModelInput): LanguageMo
   }
 }
 
+/** Builds a first-class provider entry and stamps its default base URL onto every bundled model. */
 function provider(id: string, name: string, baseUrl: string, api: Api, models: Model[]): LlmProviderCatalogEntry {
   return { id, name, baseUrl, api, models: models.map(item => ({ ...item, baseUrl: item.baseUrl || baseUrl })) }
 }
 
+/** Builds an OpenAI-compatible provider whose model list may be empty because operators can enter custom ids. */
 function compatibleProvider(id: string, name: string, baseUrl: string, models: Model[] = []): LlmProviderCatalogEntry {
   return {
     id,
@@ -176,6 +183,7 @@ function compatibleProvider(id: string, name: string, baseUrl: string, models: M
   }
 }
 
+/** Defines the minimal model metadata BullX needs for routing, limits, and context-overflow decisions. */
 function model(
   id: string,
   name: string,
@@ -199,6 +207,7 @@ function model(
   }
 }
 
+/** Provides conservative defaults for custom compatible-provider model ids that are not in the catalog. */
 function syntheticModel(entry: LlmProviderCatalogEntry, id: string): Model {
   return {
     id,
@@ -214,6 +223,7 @@ function syntheticModel(entry: LlmProviderCatalogEntry, id: string): Model {
   }
 }
 
+/** Clones nested model metadata so provider resolution can merge headers/compat without mutating the catalog. */
 function cloneModel<TApi extends Api>(item: Model<TApi>): Model<TApi> {
   return {
     ...item,

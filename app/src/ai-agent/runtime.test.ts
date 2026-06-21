@@ -1,3 +1,12 @@
+// End-to-end tests for the AIAgent runtime against a real Postgres and Redis.
+// They drive the runtime the way a chat platform would — a fake IM adapter posts
+// inbound messages and records what the agent sends back — and a fake LLM provider
+// returns scripted responses, so the assertions can check behaviors that are hard
+// to reason about from the code alone: lease ownership/takeover across crashes,
+// follow-ups and /steer surviving a turn boundary, /stop fencing, stall-watchdog
+// recovery, idempotent provider redelivery, ambient (may_intervene) batching, and
+// the durable LLM-turn audit trail. The shared harness lives at the bottom of the
+// file (startAiAgent + helpers); read that first to follow any single test.
 import { redis } from 'bun'
 import { afterAll, afterEach, describe, expect, it } from 'bun:test'
 import posix from 'node:path/posix'
@@ -25,6 +34,9 @@ import type { AgentTool } from './core'
 
 await loadTestEnvFiles()
 
+// Everything below is imported dynamically, after the test env files load, so the
+// DB/Redis connection settings are in place before any module reads them at import
+// time. Static `import` would bind those modules before loadTestEnvFiles() runs.
 const { DB, jsonbParam } = await import('@/common/database')
 const {
   AiAgentConversations,
@@ -59,8 +71,14 @@ const { AiAgentAmbientBatcher } = await import('./ambient')
 const { externalGatewayOutbox } = await import('@/external-gateway/outbox')
 const { externalGatewayProjectionSink } = await import('@/external-gateway/core/projection')
 
+// Unique per test run. Every agent, room, and Redis member this file creates is
+// keyed by it so afterAll can delete exactly this run's rows and leave any other
+// data in the shared database untouched.
 const testPrefix = `ai_agent_${Date.now()}_${Math.random().toString(36).slice(2)}`.toLowerCase()
 const AMBIENT_REDIS_KEY = 'bullx-agent:ai-agent:ambient-wake'
+// Resources accumulated across tests, drained by the afterEach/afterAll hooks
+// below. Runtimes and provider registrations are torn down every test; DB rows and
+// Redis wake members are cleaned once at the end since they are keyed by agent uid.
 const agentUids = new Set<string>()
 const projectedRoomIds = new Set<string>()
 const runtimes = new Set<InstanceType<typeof ExternalGatewayRuntime>>()
@@ -598,6 +616,15 @@ describe('AIAgent AI SDK runtime', () => {
     ])
   })
 
+  // The anchor test for ambient (may_intervene) mode: a room message the agent is
+  // not @mentioned in first runs a cheap "should I jump in?" recognizer on the light
+  // model; only a positive decision spends the primary model on a real answer. The
+  // bulk of the assertions pin the recognizer's prompt/IO contract and one subtle
+  // continuity rule: the recognizer's decision is persisted as an `im_ambient`
+  // introspection message, and the addressed generation that follows must take that
+  // same message as input (inputMessageIds) so the visible reply is anchored to what
+  // the agent decided to act on. Raw user text like `<ticket-7>` must reach the model
+  // un-escaped (no `&lt;`), since HTML-escaping it would corrupt the content.
   it('batches ambient may_intervene inside AIAgent and routes recognizer through the light model profile', async () => {
     const setup = await startAiAgent(
       'ambient',
@@ -745,6 +772,11 @@ describe('AIAgent AI SDK runtime', () => {
     })
   })
 
+  // The next four tests are one family: small models often ignore the requested JSON
+  // schema and answer the intervene/skip question in broken JSON, fenced YAML, terse
+  // YAML, or XML-ish tags. Rather than waste the decision, the recognizer parser
+  // salvages a clear "intervene" out of each shape. Losing these would make the agent
+  // silently miss rooms that explicitly asked for help.
   it('recovers ambient intervention when recognizer JSON is malformed but the decision is clear', async () => {
     const setup = await startAiAgent(
       'ambient_malformed_json',
@@ -910,6 +942,9 @@ describe('AIAgent AI SDK runtime', () => {
   })
 
   it('caps in-flight conversations at maxConversationsPerAgent and frees the slot afterwards', async () => {
+    // The profile default is 16 lanes; override it to 2 via app config so a third
+    // concurrent room is forced to queue. Restored in the finally so it cannot leak
+    // into the next test (app config is shared global state).
     await appConfigService.set(AiAgentRuntimeConfigDefinition, { parallelism: { maxConversationsPerAgent: 2 } })
     try {
       const releases: Array<() => void> = []
@@ -977,6 +1012,12 @@ describe('AIAgent AI SDK runtime', () => {
     expect(types.at(-1)).toBe('stream.finished')
   })
 
+  // Ambient wake-ups are scheduled in Redis, not held in process memory, so a worker
+  // can pick up another worker's due batch. This and the next two tests fake "the
+  // worker that scheduled it is gone" by seeding the conversation/message and the
+  // Redis wake entry directly, then driving recovery from a freshly constructed
+  // batcher / a fresh runtime binding — proving the queued ambient batch survives the
+  // loss of all in-memory scheduler state.
   it('recovers due ambient batch from Redis after in-memory scheduler state is lost', async () => {
     const setup = await startAiAgent(
       'ambient_recovery',
@@ -1143,6 +1184,16 @@ describe('AIAgent AI SDK runtime', () => {
     })
   })
 
+  // The core "a second message arrives mid-run" case. While the first generation is
+  // parked (its provider call awaits a blocker the test controls), a second addressed
+  // message must not start its own run; it lands in generation.pending_followups,
+  // and only after the first answer commits does it become the trigger of the next
+  // generation. The final transcript proves strict ordering: answer, then follow-up.
+  //
+  // The blocker-promise idiom recurs throughout this file: a provider response that
+  // awaits a Promise the test resolves on cue, so a generation can be held "in
+  // flight" while later inputs are injected. The `setTimeout(release, 2_000)` lines
+  // are a safety net so a missed release fails as a timeout instead of hanging.
   it('queues addressed follow-up during active generation and materializes it after the current answer', async () => {
     let releaseProvider!: () => void
     let releaseFollowupProvider!: () => void
@@ -1454,6 +1505,8 @@ describe('AIAgent AI SDK runtime', () => {
     await dm.say({ id: 'm1', text: 'before reset' })
     await eventually(() => expect(setup.platform.outbound.some(event => event.text === 'old day')).toBe(true))
     const [firstConversation] = await conversationsFor(setup.agentUid)
+    // Backdate the conversation to a long-past day so the next message crosses the
+    // daily-reset boundary and is treated as a new day, without waiting real time.
     await DB.update(AiAgentConversations)
       .set({ createdAt: new Date('2000-01-01T00:00:00.000Z'), updatedAt: sql`now()` })
       .where(eq(AiAgentConversations.id, firstConversation!.id))
@@ -1466,6 +1519,11 @@ describe('AIAgent AI SDK runtime', () => {
     expect(conversations.some(row => row.endedAt !== null)).toBe(true)
   })
 
+  // Harder daily-reset case: the previous day's generation is still running (parked
+  // provider call) when the new day's message arrives. Rolling over must end the old
+  // conversation AND fence its in-flight run, so its late answer is dropped rather
+  // than posted into the now-stale conversation. (The idempotent release guards
+  // against the explicit release and the 2s safety timer both firing.)
   it('fences an active stale run when daily reset rolls over on the next input', async () => {
     let releaseProvider!: () => void
     let released = false
@@ -1511,6 +1569,12 @@ describe('AIAgent AI SDK runtime', () => {
     expect(oldRows.some(row => row.role === 'assistant' && textOf(row.content) === 'old late answer')).toBe(false)
   })
 
+  // Pins what /steer and /stop write to durable state, and — crucially — what they do
+  // NOT write. The user-facing "Stopped." reply is a command acknowledgement and must
+  // never enter the model transcript; steering/stop instead leave an `introspection`
+  // marker the model reads. Here the active run is manufactured directly (seed a user
+  // message, then acquireGenerationLease) so the commands have a live lease to act on
+  // without standing up a real, parked generation — a setup several tests below reuse.
   it('persists stop and steer command semantics without putting command feedback into transcript', async () => {
     const setup = await startAiAgent('commands', [fauxAssistantMessage('steered answer')])
     const dm = setup.platform.dm(setup.conversationOptions())
@@ -1659,6 +1723,9 @@ describe('AIAgent AI SDK runtime', () => {
     expect(textOf(steering?.content)).toContain('focus on error handling')
   })
 
+  // /steer issued while a tool is mid-execution must not interrupt the tool; it waits
+  // for the next tool boundary, then redirects. The tool is held open (toolBlocker)
+  // so the steer is guaranteed to arrive while a tool call is in flight.
   it('cuts over to pending steer at the next tool boundary', async () => {
     let releaseTool!: () => void
     const toolBlocker = new Promise<void>(resolve => {
@@ -1956,6 +2023,105 @@ describe('AIAgent AI SDK runtime', () => {
     })
     const [updated] = await conversationsFor(setup.agentUid)
     expect(updated!.generation.lease_id).toBeUndefined()
+  })
+
+  it('lease-fences pending follow-ups so a turn-boundary race never orphans a queued message', async () => {
+    const setup = await startAiAgent('followup_lease_fence', [fauxAssistantMessage('unused')])
+    const dm = setup.platform.dm(setup.conversationOptions())
+    const route = {
+      agentUid: setup.agentUid,
+      bindingName: setup.adapterName,
+      providerRealmId: null,
+      providerRoomId: dm.channelId
+    }
+    const conversation = await aiAgentConversationService.getOrCreateActiveConversation(route)
+    const followup = (eventId: string) => ({
+      created_at: new Date().toISOString(),
+      event_id: eventId,
+      event_source: 'test',
+      provider_refs: providerRefs({
+        providerMessageId: eventId,
+        providerRoomId: dm.channelId,
+        providerThreadId: dm.threadId
+      }) as JsonObject,
+      text: 'queued message'
+    })
+
+    // No live lease (the previous run already committed -> generation = {}): the
+    // append must refuse so the caller falls through and starts a fresh turn rather
+    // than orphaning the message on a dead envelope that nothing would ever drain.
+    expect(await aiAgentConversationService.appendPendingFollowup(conversation.id, followup('orphan-1'))).toBe(false)
+    const [afterRefused] = await conversationsFor(setup.agentUid)
+    expect((afterRefused!.generation.pending_followups ?? []) as JsonObject[]).toEqual([])
+
+    // Active lease: the append attaches so the running generation drains it.
+    const trigger = await aiAgentConversationService.appendMessage({
+      conversationId: conversation.id,
+      role: 'user',
+      kind: 'normal',
+      content: textContent('first'),
+      agentMessage: createUserMessage('first'),
+      eventSource: 'test',
+      eventId: 'fence-trigger'
+    })
+    const lease = await aiAgentConversationService.acquireGenerationLease({
+      conversationId: conversation.id,
+      triggerMessageId: trigger.id
+    })
+    expect(lease).toBeDefined()
+    expect(await aiAgentConversationService.appendPendingFollowup(conversation.id, followup('attached-1'))).toBe(true)
+    // A duplicate delivery is still "accounted for" (true) but must not add a
+    // second queue entry that would collide with the committer's drain insert.
+    expect(await aiAgentConversationService.appendPendingFollowup(conversation.id, followup('attached-1'))).toBe(true)
+    const [withLease] = await conversationsFor(setup.agentUid)
+    const queued = (withLease!.generation.pending_followups ?? []) as Array<{ event_id: string }>
+    expect(queued.map(item => item.event_id)).toEqual(['attached-1'])
+
+    // A cancelled lease (e.g. /stop landed) behaves like no lease.
+    await aiAgentConversationService.cancelGeneration(conversation.id, 'stop', null, lease!.leaseId)
+    expect(await aiAgentConversationService.appendPendingFollowup(conversation.id, followup('orphan-2'))).toBe(false)
+  })
+
+  it('lease-fences pending steering so a turn-boundary /steer is never orphaned', async () => {
+    const setup = await startAiAgent('steer_lease_fence', [fauxAssistantMessage('unused')])
+    const dm = setup.platform.dm(setup.conversationOptions())
+    const route = {
+      agentUid: setup.agentUid,
+      bindingName: setup.adapterName,
+      providerRealmId: null,
+      providerRoomId: dm.channelId
+    }
+    const conversation = await aiAgentConversationService.getOrCreateActiveConversation(route)
+    const steering = (commandEventId: string) => ({
+      command_event_id: commandEventId,
+      created_at: new Date().toISOString(),
+      text: 'change direction'
+    })
+
+    // No live lease -> refuse so /steer materializes and starts a fresh turn.
+    expect(await aiAgentConversationService.appendPendingSteering(conversation.id, steering('steer-orphan'))).toBe(
+      false
+    )
+
+    const trigger = await aiAgentConversationService.appendMessage({
+      conversationId: conversation.id,
+      role: 'user',
+      kind: 'normal',
+      content: textContent('first'),
+      agentMessage: createUserMessage('first'),
+      eventSource: 'test',
+      eventId: 'steer-trigger'
+    })
+    await aiAgentConversationService.acquireGenerationLease({
+      conversationId: conversation.id,
+      triggerMessageId: trigger.id
+    })
+    expect(await aiAgentConversationService.appendPendingSteering(conversation.id, steering('steer-attached'))).toBe(
+      true
+    )
+    const [withLease] = await conversationsFor(setup.agentUid)
+    const queued = (withLease!.generation.pending_steering ?? []) as Array<{ command_event_id: string }>
+    expect(queued.map(item => item.command_event_id)).toEqual(['steer-attached'])
   })
 
   it('recovers a lease that crashed mid-run by continuing its call_index sequence', async () => {
@@ -2267,6 +2433,10 @@ describe('AIAgent AI SDK runtime', () => {
     expect(turns.map(row => row.callIndex)).toEqual([0, 1])
   })
 
+  // check_back_later lets the agent park work and revisit it on a schedule. The
+  // re-check runs in its OWN conversation (isolated from the source thread), but its
+  // visible answer must route back to the original room/thread the user asked in.
+  // `at` is set in the past so the scheduler fires the wakeup immediately.
   it('schedules check_back_later as a one-shot isolated wakeup and routes visible output back to source', async () => {
     const setup = await startAiAgent('check_back_later', [
       fauxAssistantMessage([
@@ -2342,6 +2512,10 @@ describe('AIAgent AI SDK runtime', () => {
     const checkbackTurns = await llmTurnsFor(completedCheckback!.conversationId!)
     expect(checkbackTurns.map(row => row.kind)).toEqual(['checkback_generation'])
 
+    // Force the checkback back into a stale `running` claim (lease already expired) to
+    // mimic a worker that ran it but died before marking it done. A second scheduler
+    // must reclaim and finish it without re-running the work — the idempotency check
+    // below asserts exactly one routed output, one conversation, one turn.
     await DB.update(AiAgentCheckbacks)
       .set({
         status: 'running',
@@ -2658,6 +2832,10 @@ describe('AIAgent AI SDK runtime', () => {
     const setup = await startAiAgent('streaming_card_unconfirmed', [fauxAssistantMessage('final answer')], {
       enableStreaming: true
     })
+    // Wrap the adapter so the card reports delivered-but-not-confirmed: the platform
+    // accepted the card yet could not verify the final text actually rendered. The
+    // runtime must then post the answer as a plain message so it is never silently
+    // lost behind a card that may be blank.
     const originalBeginStreamingCard = setup.adapter.beginStreamingCard!.bind(setup.adapter)
     setup.adapter.beginStreamingCard = async input => {
       const handle = await originalBeginStreamingCard(input)
@@ -2792,6 +2970,26 @@ describe('AIAgent AI SDK runtime', () => {
   })
 })
 
+/**
+ * Stands up one fully wired agent for a single test and returns handles to drive it.
+ *
+ * It glues together the three fakes the whole file leans on:
+ * - a fake IM platform/adapter (`platform`) that delivers inbound messages and
+ *   records everything the agent posts back in `platform.outbound`;
+ * - a fake LLM provider seeded with `responses` — the scripted model replies the run
+ *   will consume in order (each may be a static message or a function that blocks /
+ *   inspects the abort signal, used to park or fail a generation on cue);
+ * - a real `AiAgentRuntime` + `ExternalGatewayRuntime` against the real Postgres and
+ *   Redis, so lease/recovery/audit behavior is exercised for real, not mocked.
+ *
+ * The returned object exposes `conversationOptions` (a room/thread builder that also
+ * registers the room for cleanup), `executionContext` (for directly invoking binding
+ * recovery), and the underlying `profile`, `adapter`, `aiRuntime`, and `runtime`.
+ *
+ * @param name - short label; namespaces the agent uid, adapter, and provider so
+ *   parallel tests never collide and cleanup can target exactly this test's rows.
+ * @param responses - scripted model turns, consumed in order by the fake provider.
+ */
 async function startAiAgent(
   name: string,
   responses: FauxResponseStep[],
@@ -2924,6 +3122,11 @@ async function computerFileContentBuffer(content: ComputerFile['content']): Prom
   return Buffer.from(content)
 }
 
+/**
+ * Simulates a process restart: brings up a brand-new runtime + binding on the same
+ * agent and platform, with no carried-over in-memory state. Used by recovery tests to
+ * prove that durable PG/Redis state alone is enough to resume the agent's work.
+ */
 async function restartAiAgentBinding(setup: Awaited<ReturnType<typeof startAiAgent>>): Promise<void> {
   const aiRuntime = new AiAgentRuntime({
     loadProfile: async () => setup.profile
@@ -2937,6 +3140,13 @@ async function restartAiAgentBinding(setup: Awaited<ReturnType<typeof startAiAge
   })
 }
 
+/**
+ * Builds the runtime profile (model tiers, timeouts, compression/ambient knobs) all
+ * tests run against. The three tiers — primary / light / heavy — are what assertions
+ * like "recognizer ran on `light`, generation on `primary`" key off. Most timeouts
+ * default high so they never fire by accident; a test that exercises a timeout passes
+ * a tiny override (e.g. `stallTimeoutMs`, `ambientBatchWindowMs`) to trigger it fast.
+ */
 function runtimeProfile(
   registration: FauxProviderRegistration,
   options: {
@@ -3002,6 +3212,8 @@ function runtimeProfile(
   }
 }
 
+// Reads this agent's conversations oldest-first; most tests take [0] as "the"
+// conversation, and multi-conversation tests (daily reset, /new) rely on this order.
 async function conversationsFor(agentUid: string) {
   return DB.select()
     .from(AiAgentConversations)
@@ -3009,6 +3221,8 @@ async function conversationsFor(agentUid: string) {
     .orderBy(AiAgentConversations.createdAt)
 }
 
+// Transcript in append order. The id tiebreaker keeps rows stable when several share
+// a createdAt timestamp, so the role:kind:text array assertions stay deterministic.
 async function messagesFor(conversationId: string) {
   return DB.select()
     .from(AiAgentMessages)
@@ -3016,6 +3230,8 @@ async function messagesFor(conversationId: string) {
     .orderBy(AiAgentMessages.createdAt, AiAgentMessages.id)
 }
 
+// LLM turns in call order, same id tiebreaker as messagesFor so kind/profile/status
+// sequences are deterministic.
 async function llmTurnsFor(conversationId: string) {
   return DB.select()
     .from(AiAgentLlmTurns)
@@ -3023,6 +3239,7 @@ async function llmTurnsFor(conversationId: string) {
     .orderBy(AiAgentLlmTurns.startedAt, AiAgentLlmTurns.id)
 }
 
+// Flattens a content-block array to its plain text, ignoring image/tool blocks.
 function textOf(content: unknown): string {
   if (!Array.isArray(content)) return ''
   return content
@@ -3034,6 +3251,9 @@ function textOf(content: unknown): string {
     .join('')
 }
 
+// The transcript_effect.state marker a message carries once it has been superseded,
+// recalled, etc. Recall/retry tests assert on these to confirm a row was tombstoned
+// rather than deleted. Undefined means the message still counts as live.
 function transcriptEffect(row: typeof AiAgentMessages.$inferSelect | undefined): string | undefined {
   const effect = row?.metadata.transcript_effect
   if (typeof effect !== 'object' || effect === null || Array.isArray(effect)) return undefined
@@ -3041,6 +3261,8 @@ function transcriptEffect(row: typeof AiAgentMessages.$inferSelect | undefined):
   return typeof state === 'string' ? state : undefined
 }
 
+// The provider message ids folded into one transcript row. A single row can batch
+// several inbound provider events, so tests match a message by "contains this id".
 function providerMessageIds(row: typeof AiAgentMessages.$inferSelect): string[] {
   const refs = row.metadata.provider_refs
   if (typeof refs !== 'object' || refs === null || Array.isArray(refs)) return []
@@ -3071,6 +3293,8 @@ async function ambientMemberAgents(members: string[]): Promise<Map<string, strin
   return new Map(rows.map(row => [row.id, row.agentUid]))
 }
 
+// The ambient wake set is a single Redis key shared by every agent, so a test reading
+// "is anything still scheduled for me?" must filter the members down to its own agent.
 async function ambientRedisMembersForAgent(agentUid: string): Promise<string[]> {
   const members = await redis.send('ZRANGE', [AMBIENT_REDIS_KEY, '0', '-1'])
   if (!Array.isArray(members)) return []
@@ -3086,6 +3310,13 @@ async function clearAmbientRedisMembersForTestPrefix(): Promise<void> {
   if (testMembers.length > 0) await redis.send('ZREM', [AMBIENT_REDIS_KEY, ...testMembers]).catch(() => undefined)
 }
 
+/**
+ * Retries an assertion until it passes or the deadline elapses. The agent runs work
+ * on background timers and outbox drains, so the row, outbound event, or lease state
+ * under test usually appears only after some asynchronous delay rather than the moment
+ * `say()` returns. On timeout it re-throws the LAST assertion failure (not a generic
+ * timeout) so the reported error points at the real expectation that never held.
+ */
 async function eventually<T>(assertion: () => T | Promise<T>, timeoutMs = ms('4s')): Promise<T> {
   const deadline = Date.now() + timeoutMs
   let lastError: unknown
@@ -3099,6 +3330,8 @@ async function eventually<T>(assertion: () => T | Promise<T>, timeoutMs = ms('4s
     }
   }
 
+  // One final attempt after the deadline so a just-missed result still passes, and so
+  // the thrown error is a real assertion failure rather than a bare timeout.
   return Promise.resolve(assertion()).catch((error: unknown) => {
     throw lastError ?? error
   })

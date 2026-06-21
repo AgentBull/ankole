@@ -24,16 +24,25 @@ export const SystemTimezoneConfig = defineAppConfig<string>({
 
 registerAppConfigDefinitions([SystemTimezoneConfig])
 
+/**
+ * Loads the installation timezone from dynamic config.
+ */
 export async function loadSystemTimezone(): Promise<string> {
   const timezone = await appConfigService.get(SystemTimezoneConfig)
   if (!timezone) throw new SystemConfigError('Unable to resolve system.timezone')
   return timezone
 }
 
+/**
+ * Throws when a string is not accepted by the platform IANA timezone database.
+ */
 export function assertValidIanaTimezone(timezone: string): void {
   if (!isValidIanaTimezone(timezone)) throw new SystemConfigError(`Invalid system timezone: ${timezone}`)
 }
 
+/**
+ * Checks whether a timezone name is usable by `Intl.DateTimeFormat`.
+ */
 export function isValidIanaTimezone(timezone: string): boolean {
   try {
     new Intl.DateTimeFormat('en-US', { timeZone: timezone }).format(new Date())
@@ -43,6 +52,9 @@ export function isValidIanaTimezone(timezone: string): boolean {
   }
 }
 
+/**
+ * Reads the host OS timezone for the first-run default.
+ */
 export function osTimezone(): string {
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
   if (!timezone || !isValidIanaTimezone(timezone)) {
@@ -51,6 +63,12 @@ export function osTimezone(): string {
   return timezone
 }
 
+/**
+ * Converts a local wall-clock time in one timezone to a UTC Date.
+ *
+ * The native helper uses chrono-tz so DST gaps and repeated local times are
+ * handled consistently with scheduler expectations.
+ */
 export function zonedLocalTimeToUtc(input: {
   day: number
   hour: number
@@ -75,6 +93,9 @@ export function zonedLocalTimeToUtc(input: {
   )
 }
 
+/**
+ * Breaks an instant into local calendar parts for one timezone.
+ */
 export function zonedParts(
   timezone: string,
   at: Date

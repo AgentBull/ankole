@@ -56,6 +56,7 @@ type JsonObject = PluginConfigJsonObject
 // the SDK plugin field type.
 type SetupField = BullXPluginSetupField
 
+/** Manages the operator-facing agent profile, model routing, and external chat-channel bindings. */
 export function AgentOperationsPage() {
   const { t } = useTranslation()
   const [selectedAgentUid, setSelectedAgentUid] = useState<string | null>(null)
@@ -139,6 +140,7 @@ const CACHE_RETENTION_OPTIONS = ['none', 'short', 'long'] as const satisfies rea
   AiAgentModelProfileConfig['cacheRetention']
 >[]
 
+/** Expands the sparse persisted model profile config into one editable form row per runtime profile. */
 function aiAgentModelsFormFromConfig(models: AiAgentModelsConfig | undefined): AiAgentModelsFormState {
   return {
     primary: aiAgentModelProfileFormFromConfig('primary', models?.primary),
@@ -147,6 +149,7 @@ function aiAgentModelsFormFromConfig(models: AiAgentModelsConfig | undefined): A
   }
 }
 
+/** Keeps disabled optional profiles editable without pretending they already exist in persisted config. */
 function aiAgentModelProfileFormFromConfig(
   profile: AiAgentModelProfileName,
   config: AiAgentModelProfileConfig | undefined
@@ -164,6 +167,7 @@ function aiAgentModelProfileFormFromConfig(
   }
 }
 
+/** Builds profile-specific defaults because light/heavy profiles intentionally use different reasoning budgets. */
 function emptyAiAgentModelProfileForm(profile: AiAgentModelProfileName): AiAgentModelProfileFormState {
   return {
     cacheRetention: '',
@@ -176,6 +180,7 @@ function emptyAiAgentModelProfileForm(profile: AiAgentModelProfileName): AiAgent
   }
 }
 
+/** Returns undefined when no override exists so the runtime can fall back to installation-wide model config. */
 function buildAiAgentModelsConfig(form: AiAgentModelsFormState): AiAgentModelsConfig | undefined {
   const hasPrimaryInput = Boolean(form.primary.providerId.trim() || form.primary.model.trim())
   if (!hasPrimaryInput && !form.light.enabled && !form.heavy.enabled) return undefined
@@ -191,6 +196,7 @@ function buildAiAgentModelsConfig(form: AiAgentModelsFormState): AiAgentModelsCo
   return models
 }
 
+/** Validates one model profile before it becomes part of the agent's runtime LLM routing config. */
 function aiAgentModelConfigFromForm(
   profile: AiAgentModelProfileName,
   form: AiAgentModelProfileFormState
@@ -213,6 +219,7 @@ function aiAgentModelConfigFromForm(
   return config
 }
 
+/** Blocks saves that would create a half-configured profile and fail only later during an agent turn. */
 function modelProfileInputIncomplete(form: AiAgentModelsFormState): boolean {
   const primaryHasInput = Boolean(form.primary.providerId.trim() || form.primary.model.trim())
   if (!primaryHasInput && (form.light.enabled || form.heavy.enabled)) return true
@@ -224,6 +231,7 @@ function modelProfileInputIncomplete(form: AiAgentModelsFormState): boolean {
   })
 }
 
+/** Owns agent creation/deletion and keeps the selected row state outside the detail editor. */
 function AgentListPanel({
   agents,
   loading,
@@ -369,6 +377,7 @@ function AgentListPanel({
   )
 }
 
+/** Edits the agent runtime profile while keeping channel bindings in the same operator workflow. */
 function AgentDetailPanel({
   agent,
   adapters,
@@ -600,6 +609,7 @@ function AgentDetailPanel({
   )
 }
 
+/** Renders all model profiles together so inheritance from primary to light/heavy is visible. */
 function AiAgentModelProfileForm({
   value,
   providers,
@@ -663,6 +673,7 @@ function AiAgentModelProfileForm({
   )
 }
 
+/** Edits one profile and preserves the primary-profile requirement enforced by the runtime. */
 function AiAgentModelProfileSection({
   profile,
   value,
@@ -856,6 +867,7 @@ function ModelMetadata({ model }: { model: LlmProviderModelProjection }) {
   )
 }
 
+/** Lists external gateway bindings for one agent and routes edits through the channel form. */
 function ChannelsTable({
   agent,
   onEdit,
@@ -949,6 +961,7 @@ function ChannelsTable({
   )
 }
 
+/** Creates or updates one external chat channel without bypassing plugin setup defaults and secret markers. */
 function ChannelForm({
   agent,
   adapters,
@@ -1134,6 +1147,7 @@ function ChannelForm({
   )
 }
 
+/** Renders plugin-declared setup fields while preserving encrypted secret placeholders. */
 function ConfigField({
   field,
   locale,
@@ -1202,6 +1216,7 @@ function ConfigField({
   )
 }
 
+/** Runs a plugin's interactive setup flow and patches its result into the unsaved channel form. */
 function useInteractiveConfig(
   adapter: ConsoleExternalGatewayAdapter | undefined,
   config: JsonObject,
@@ -1270,10 +1285,12 @@ function useInteractiveConfig(
   }
 }
 
+/** Resolves a localized adapter name but falls back to the stable adapter id used in persisted channels. */
 function adapterLabel(adapter: ConsoleExternalGatewayAdapter, locale: string): string {
   return resolveBullXPluginLocalizedText(adapter.setup?.displayName, locale, adapter.id) ?? adapter.id
 }
 
+/** Builds the initial channel config from plugin setup metadata before any operator edits it. */
 function defaultConfigForAdapter(adapter: ConsoleExternalGatewayAdapter | undefined): JsonObject {
   return defaultPluginConfigForSetup(adapter?.setup)
 }

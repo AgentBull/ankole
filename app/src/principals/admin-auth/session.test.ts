@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'bun:test'
 import { loadTestEnvFiles } from '../../common/tests/load-test-env'
 
+// Sealing uses a real KMS key, so the test env (which provides the key material)
+// must load before the session module is imported. The dynamic import below runs
+// after that, ensuring the codec is built against the loaded key.
 await loadTestEnvFiles()
 
 const {
@@ -34,6 +37,9 @@ describe('admin auth session cookies', () => {
     expect(header).toContain('SameSite=Lax')
   })
 
+  // The core security invariant: a sealed cookie round-trips, but any byte
+  // appended to it (or an undecodable value) fails the AEAD tag and reads as
+  // undefined rather than a forged payload.
   it('rejects tampered OIDC state cookies and clears cookies with Max-Age=0', () => {
     const sealed = createOidcStateCookie({
       providerId: 'lark-main',
@@ -54,6 +60,8 @@ describe('admin auth session cookies', () => {
     expect(expiredCookieHeader(ADMIN_OIDC_STATE_COOKIE, true)).toContain('Secure')
   })
 
+  // Open-redirect guard: absolute and protocol-relative URLs collapse to the
+  // console home so a crafted return_to cannot bounce a logged-in admin offsite.
   it('only allows same-site return targets', () => {
     expect(safeReturnTo('/console/settings')).toBe('/console/settings')
     expect(safeReturnTo('https://evil.example.com/admin')).toBe('/console')

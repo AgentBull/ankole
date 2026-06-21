@@ -37,6 +37,13 @@ export interface HeartbeatInput {
   load?: Record<string, JsonValue>
 }
 
+/**
+ * Upserts the latest worker process identity and capability snapshot.
+ *
+ * `workerId` is stable from deployment, while `instanceId` changes when the
+ * process restarts. Keeping both lets stale sticky bindings be released when a
+ * new worker instance takes over the same logical slot.
+ */
 export async function registerWorker(input: RegisterWorkerInput): Promise<void> {
   const shared = {
     instanceId: input.instanceId,
@@ -55,6 +62,13 @@ export async function registerWorker(input: RegisterWorkerInput): Promise<void> 
     })
 }
 
+/**
+ * Records liveness and lightweight load data from a worker heartbeat.
+ *
+ * The app does not try to infer worker health from request failures. Heartbeat
+ * recency is the single source of truth used by resolver SQL, which keeps
+ * routing behavior predictable across app replicas.
+ */
 export async function recordHeartbeat(input: HeartbeatInput): Promise<void> {
   const load: Record<string, JsonValue> = {
     ...input.load,
@@ -237,6 +251,13 @@ export interface SetPinInput {
   createdByPrincipalUid?: string | null
 }
 
+/**
+ * Stores an operator-selected worker pin for one agent.
+ *
+ * Pins are preferences rather than hard availability guarantees. Resolver logic
+ * still falls back to a healthy worker when the pinned worker is down, so an
+ * operator mistake does not strand the agent without computer access.
+ */
 export async function setAgentPin(input: SetPinInput): Promise<void> {
   const [worker] = await DB.select({ workerId: ComputerWorkers.workerId })
     .from(ComputerWorkers)
@@ -254,6 +275,10 @@ export async function setAgentPin(input: SetPinInput): Promise<void> {
     .onConflictDoUpdate({ target: ComputerAgentWorkerPins.agentUid, set: { ...shared, updatedAt: sql`now()` } })
 }
 
+/**
+ * Removes the explicit pin for an agent and lets future resolves use the normal
+ * sticky-binding policy.
+ */
 export async function removeAgentPin(agentUid: string): Promise<void> {
   await DB.delete(ComputerAgentWorkerPins).where(eq(ComputerAgentWorkerPins.agentUid, agentUid))
 }

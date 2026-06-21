@@ -49,6 +49,13 @@ export interface MaterializeRuntimeCredentialInput extends ResolveRuntimeCredent
   mode?: number
 }
 
+/**
+ * Stores or replaces a runtime credential for a consumer.
+ *
+ * Default-scoped credentials act as shared fallbacks, while agent-scoped
+ * credentials override them for one agent. The two conflict targets mirror the
+ * database partial indexes, so callers do not need to know that storage detail.
+ */
 export async function setRuntimeCredential(input: SetRuntimeCredentialInput): Promise<ResolvedRuntimeCredential> {
   const executor = input.executor ?? DB
   const ref = normalizeRef(input)
@@ -103,6 +110,9 @@ export async function setRuntimeCredential(input: SetRuntimeCredentialInput): Pr
   return rowToResolved(row)
 }
 
+/**
+ * Deletes one credential at its exact scope.
+ */
 export async function deleteRuntimeCredential(input: DeleteRuntimeCredentialInput): Promise<void> {
   const executor = input.executor ?? DB
   const ref = normalizeRef(input)
@@ -110,6 +120,13 @@ export async function deleteRuntimeCredential(input: DeleteRuntimeCredentialInpu
   await executor.delete(RuntimeCredentials).where(scopeWhere(ref, scope))
 }
 
+/**
+ * Resolves the credential an agent should use.
+ *
+ * Agent-specific material wins over default material. That lets operators give
+ * one agent a narrower secret without changing the shared fallback used by the
+ * rest of the installation.
+ */
 export async function resolveRuntimeCredential(
   input: ResolveRuntimeCredentialInput
 ): Promise<ResolvedRuntimeCredential | null> {
@@ -131,6 +148,13 @@ export async function resolveRuntimeCredential(
   return defaultRow ? rowToResolved(defaultRow) : null
 }
 
+/**
+ * Resolves a credential and writes it into the agent computer workspace.
+ *
+ * Materialization is intentionally limited to `/workspace/temp` paths. Secrets
+ * are runtime inputs, not durable user files, and keeping them under temp makes
+ * cleanup and accidental exposure easier to reason about.
+ */
 export async function materializeRuntimeCredential(
   input: MaterializeRuntimeCredentialInput
 ): Promise<ResolvedRuntimeCredential | null> {
@@ -194,6 +218,12 @@ function encryptionKey(ref: RuntimeCredentialRef, scope: RuntimeCredentialScope)
   )
 }
 
+/**
+ * Normalizes names into a stable low-entropy namespace before they reach the DB.
+ *
+ * This keeps plugin/tool authors from accidentally creating several rows for
+ * the same logical credential through case or separator differences.
+ */
 function normalizeRef(input: RuntimeCredentialRef): RuntimeCredentialRef {
   return {
     consumerKind: normalizeConsumerKind(input.consumerKind),
@@ -259,10 +289,15 @@ function normalizeMaterializationPath(value: string): string {
   return path
 }
 
+/** Produces the comparison hash stored next to encrypted payload bytes. */
 function stableHash(payload: string): string {
   return genericHash(payload)
 }
 
+/**
+ * Carries machine-readable credential errors across CLI, setup, and runtime
+ * callers without exposing secret payloads in messages.
+ */
 export class RuntimeCredentialError extends Error {
   constructor(
     readonly code: string,

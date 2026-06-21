@@ -1,8 +1,13 @@
+// Tests for the minimal USTAR writer. They verify the produced bytes against the
+// USTAR layout a real `tar` reader expects: header field offsets, the checksum
+// convention, gzip round-trip, and rejection of names too long for USTAR.
 import { describe, expect, it } from 'bun:test'
 import { createTar, createTarGz } from './tar'
 
 const NUL = String.fromCharCode(0)
 
+// Reads a fixed-width header field, stopping at the first NUL (USTAR fields are
+// NUL-padded, so the value is everything before the first NUL).
 function field(block: Uint8Array, offset: number, len: number): string {
   const text = new TextDecoder().decode(block.subarray(offset, offset + len))
   return text.split(NUL)[0] ?? text

@@ -4,6 +4,9 @@ import { loadTestEnvFiles } from '@/common/tests/load-test-env'
 
 await loadTestEnvFiles()
 
+// Point the plugin loader at the repo's real plugin tree so the test exercises
+// the actual lark adapter rather than a fixture. The original PLUGIN_DIR is saved
+// and restored in afterEach so this does not leak into other test files.
 const pluginRoot = path.resolve(import.meta.dir, '../../../../plugin')
 const originalPluginDir = Bun.env.PLUGIN_DIR
 const { appConfigService } = await import('@/config/app-configure')
@@ -22,6 +25,9 @@ afterEach(async () => {
 })
 
 describe('enabled identity provider adapters', () => {
+  // Pins the core invariant that adapter availability is derived live from plugin
+  // enablement: disabling the plugin via overrides must immediately hide its
+  // adapter and make direct resolution throw, with no caching in between.
   it('only exposes adapters from plugins that are currently enabled', async () => {
     await expect(listEnabledIdentityProviderAdapters()).resolves.toEqual([
       expect.objectContaining({

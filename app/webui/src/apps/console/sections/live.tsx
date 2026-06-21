@@ -73,6 +73,7 @@ function useLiveOutput(agentUid: string | undefined, stream: ConsoleAgentLiveStr
   return { text, status }
 }
 
+/** Combines visible assistant output and reasoning trace output for one active conversation stream. */
 function LiveStreamView({ agentUid, stream }: { agentUid: string; stream: ConsoleAgentLiveStream }) {
   const { t } = useTranslation()
   const { text, status } = useLiveOutput(agentUid, stream)
@@ -117,6 +118,7 @@ function LiveStreamView({ agentUid, stream }: { agentUid: string; stream: Consol
   )
 }
 
+/** Shows the operator view for recently active agent streams. */
 export function LivePage() {
   const { t } = useTranslation()
   const [selectedUid, setSelectedUid] = useState<string>('')

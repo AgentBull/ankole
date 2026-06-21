@@ -13,6 +13,11 @@ use crate::state::AppState;
 pub struct Authenticated;
 
 impl Authenticated {
+  /// Keeps handler code explicit about agent-scoped access checks.
+  ///
+  /// Today the worker trusts the app-level mTLS client certificate and the app
+  /// performs session-to-worker routing. The method remains as a narrow seam for
+  /// future per-agent claims without spreading that TODO across every handler.
   pub fn require_agent(&self, _agent_uid: &str) -> Result<(), crate::error::AppError> {
     Ok(())
   }

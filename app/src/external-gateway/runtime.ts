@@ -224,6 +224,14 @@ export class ExternalGatewayRuntime implements Runtime<ExternalGatewayRuntimeSta
     return adapter.handleWebhook(request)
   }
 
+  /**
+   * Authorizes a request to view an agent's reasoning trace, delegating the
+   * actual decision to the bound adapter.
+   *
+   * Fails closed: an unstarted runtime, an unparseable uid, an unknown
+   * agent/binding, or an adapter that does not implement the check all return
+   * false, so a misconfiguration never accidentally exposes traces.
+   */
   async authorizeReasoningTraceView(input: ExternalGatewayReasoningTraceViewAuthInput): Promise<boolean> {
     if (!this.started) return false
 
@@ -259,10 +267,25 @@ export class ExternalGatewayRuntime implements Runtime<ExternalGatewayRuntimeSta
     }
   }
 
+  /**
+   * Public hook for other components to ask a binding's outbox to drain (for
+   * example after they enqueue an outbound row out of band). `availableAt` lets
+   * the caller defer the drain until a row's backoff has elapsed.
+   */
   triggerOutboxDrain(agentUid: string, bindingName: string, availableAt?: Date): void {
     this.scheduleOutboxDrain(agentUid, bindingName, availableAt)
   }
 
+  /**
+   * Builds the runtime and turns it on, in an order chosen so failure is clean.
+   *
+   * Adapters are built into a temporary map first; only after every one
+   * succeeds is the live `instances` map swapped and `started` set. This way a
+   * failure halfway through leaves the previous runtime untouched (a startup
+   * failure, not a half-running service). Drains and per-binding recovery are
+   * kicked off last — they need the runtime already marked started so claim
+   * loops and outbox drains see the installed instances.
+   */
   private async doStart(options: ExternalGatewayRuntimeStartOptions): Promise<ExternalGatewayRuntimeStats> {
     const loadActiveAgents = options.loadActiveAgents ?? listActiveAgents
     const agents = await loadActiveAgents()
@@ -301,6 +324,14 @@ export class ExternalGatewayRuntime implements Runtime<ExternalGatewayRuntimeSta
     }
   }
 
+  /**
+   * Builds one agent's adapters from its binding metadata and initializes each.
+   *
+   * Returns undefined when the agent ends up with no usable binding — either it
+   * declared none, or every declared adapter is missing its factory. A missing
+   * factory is logged and skipped rather than thrown, so one unregistered
+   * adapter does not take down startup for every other agent.
+   */
   private async buildAgentChatInstance(
     agent: AgentResult,
     options: ExternalGatewayRuntimeStartOptions
@@ -382,6 +413,12 @@ export class ExternalGatewayRuntime implements Runtime<ExternalGatewayRuntimeSta
     }
   }
 
+  /**
+   * Arms a (possibly deferred) agent-event drain. `availableAt` in the future
+   * delays the wakeup until then — used to wait out a quiet batch window or a
+   * not-yet-ready row. Every timer is tracked in `drainTimers` so `stop` can
+   * cancel pending wakeups, and the timer removes itself once it fires.
+   */
   private scheduleAgentEventDrain(availableAt?: Date): void {
     const delayMs = Math.max(0, (availableAt?.getTime() ?? Date.now()) - Date.now())
     const timer = setTimeout(() => {
@@ -495,6 +532,14 @@ export class ExternalGatewayRuntime implements Runtime<ExternalGatewayRuntimeSta
     }
   }
 
+  /**
+   * Resolves the target instance/adapter for a claimed delivery and hands it to
+   * the agent executor.
+   *
+   * A delivery is a batch that shares one agent and binding (see the queue's
+   * batching), so the first event identifies the whole batch. Throwing when the
+   * instance or binding is gone routes the delivery to `markFailed` upstream.
+   */
   private async deliverAgentEvents(delivery: ExternalGatewayAgentDelivery): Promise<void> {
     const first = delivery.events[0]
     if (!first) return
@@ -528,6 +573,12 @@ export class ExternalGatewayRuntime implements Runtime<ExternalGatewayRuntimeSta
     await Promise.all(settledWork)
   }
 
+  /**
+   * Runs one-time startup recovery for a binding, letting the agent executor
+   * finish work that a previous process left mid-flight (for example draining an
+   * outbox row that was `send_attempt_started` when the process died). No-op
+   * when the executor does not implement recovery.
+   */
   private async recoverAgentBinding(instance: AgentChatRuntimeInstance, bindingName: string): Promise<void> {
     const adapter = instance.adapters[bindingName]
     if (!adapter || !this.agentExecutor.recoverExternalGatewayBinding) return
@@ -543,6 +594,11 @@ export class ExternalGatewayRuntime implements Runtime<ExternalGatewayRuntimeSta
     })
   }
 
+  /**
+   * Arms a (possibly deferred) outbox drain for one binding. Same tracked-timer
+   * pattern as `scheduleAgentEventDrain`; `availableAt` defers the wakeup until a
+   * row's backoff window has passed.
+   */
   private scheduleOutboxDrain(agentUid: string, bindingName: string, availableAt?: Date): void {
     const delayMs = Math.max(0, (availableAt?.getTime() ?? Date.now()) - Date.now())
     const timer = setTimeout(() => {
@@ -590,6 +646,11 @@ export class ExternalGatewayRuntime implements Runtime<ExternalGatewayRuntimeSta
     return state.promise
   }
 
+  /**
+   * Disconnects a set of partially-built instances when startup fails midway.
+   * Uses `allSettled` so one adapter that refuses to disconnect cannot block the
+   * rest of the rollback; each failure is logged and ignored.
+   */
   private async shutdownInstances(instances: AgentChatRuntimeInstance[]): Promise<void> {
     const results = await Promise.allSettled(
       instances.flatMap(instance => Object.values(instance.adapters).map(adapter => adapter.disconnect?.()))
@@ -602,6 +663,14 @@ export class ExternalGatewayRuntime implements Runtime<ExternalGatewayRuntimeSta
   }
 }
 
+/**
+ * Resolves how a binding treats non-addressed group messages.
+ *
+ * Precedence is binding metadata → channel app-config → the safe default of
+ * `observe_all` (mirror everything, act only when addressed). The default is
+ * deliberately the least surprising: a new binding records group context
+ * without replying to messages that were not aimed at it.
+ */
 function resolveGroupMessageMode(
   binding: AgentExternalBinding,
   config: AppConfigJsonValue | undefined
@@ -614,11 +683,17 @@ function resolveGroupMessageMode(
   return 'observe_all'
 }
 
+// Reads the mode from app-config, accepting both snake_case and camelCase keys
+// (config is authored by hand and arrives in either style) and ignoring any
+// value that is not a known mode.
 function groupMessageModeFromConfig(config: AppConfigJsonValue | undefined): GroupMessageMode | undefined {
   const mode = get(config, 'group_message_mode') ?? get(config, 'groupMessageMode')
   return isString(mode) && isBullXExternalGatewayGroupMessageMode(mode) ? mode : undefined
 }
 
+// Pulls the provider realm/tenant id out of the event payload so multi-tenant
+// adapters can scope work to the right tenant. `providerRealmId` is the current
+// name; `tenantKey` is accepted as an older alias.
 function providerRealmIdFromPayload(payload: unknown): string | undefined {
   const realm = get(payload, 'data.room.metadata.providerRealmId') ?? get(payload, 'data.room.metadata.tenantKey')
   return isNonEmptyString(realm) ? realm : undefined

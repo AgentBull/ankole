@@ -18,11 +18,15 @@ interface ReasoningContextValue {
   isStreaming: boolean
   isOpen: boolean
   setIsOpen: (open: boolean) => void
+  /** Total seconds the model spent thinking, once streaming has finished. */
   duration: number | undefined
 }
 
+// Streaming state, open state, and the measured think-duration are shared so the trigger can show
+// "Thinking..." vs "Thought for N seconds" and the content can reveal/hide in step with streaming.
 const ReasoningContext = createContext<ReasoningContextValue | null>(null)
 
+/** Reads the Reasoning context; throws if a Reasoning part is used outside a {@link Reasoning} root. */
 export const useReasoning = () => {
   const context = useContext(ReasoningContext)
   if (!context) {
@@ -32,16 +36,24 @@ export const useReasoning = () => {
 }
 
 export type ReasoningProps = ComponentProps<typeof Collapsible> & {
+  /** True while reasoning tokens are still arriving; drives auto-open, the timer, and the label. */
   isStreaming?: boolean
   open?: boolean
   defaultOpen?: boolean
   onOpenChange?: (open: boolean) => void
+  /** Externally supplied think-duration (seconds); when omitted it is measured from the stream. */
   duration?: number
 }
 
 const AUTO_CLOSE_DELAY = 1000
 const MS_IN_S = 1000
 
+/**
+ * Collapsible "chain of thought" panel for a model's reasoning tokens. Behaves like a live indicator:
+ * it pops open while the model is thinking, times how long that took, then collapses itself shortly
+ * after thinking ends so finished reasoning does not clutter the transcript. All three behaviours can
+ * be overridden by controlling `open`/`defaultOpen` or passing an explicit `duration`.
+ */
 export const Reasoning = memo(
   ({
     className,
@@ -53,8 +65,9 @@ export const Reasoning = memo(
     children,
     ...props
   }: ReasoningProps) => {
+    // With no explicit `defaultOpen`, start open exactly when the panel mounts mid-stream.
     const resolvedDefaultOpen = defaultOpen ?? isStreaming
-    // Track if defaultOpen was explicitly set to false (to prevent auto-open)
+    // A caller passing `defaultOpen={false}` is opting out of the auto-open below; remember that intent.
     const isExplicitlyClosed = defaultOpen === false
 
     const [isOpen, setIsOpen] = useControllableState<boolean>({
@@ -67,11 +80,15 @@ export const Reasoning = memo(
       prop: durationProp
     })
 
+    // Survives re-renders: whether this panel has *ever* streamed. The auto-close must not fire for a
+    // panel that mounted already-finished (e.g. when scrolling back through history).
     const hasEverStreamedRef = useRef(isStreaming)
     const [hasAutoClosed, setHasAutoClosed] = useState(false)
+    // Wall-clock mark for when the current think started; null while not timing.
     const startTimeRef = useRef<number | null>(null)
 
-    // Track when streaming starts and compute duration
+    // Measure think-duration: stamp the start on the streaming edge, and on the falling edge convert
+    // the elapsed time to whole seconds (rounded up so a sub-second think still reads as "1 second").
     useEffect(() => {
       if (isStreaming) {
         hasEverStreamedRef.current = true
@@ -84,14 +101,16 @@ export const Reasoning = memo(
       }
     }, [isStreaming, setDuration])
 
-    // Auto-open when streaming starts (unless explicitly closed)
+    // Reveal the panel as soon as streaming begins, unless the caller explicitly asked it to stay closed.
     useEffect(() => {
       if (isStreaming && !isOpen && !isExplicitlyClosed) {
         setIsOpen(true)
       }
     }, [isStreaming, isOpen, setIsOpen, isExplicitlyClosed])
 
-    // Auto-close when streaming ends (once only, and only if it ever streamed)
+    // Collapse shortly after streaming ends — but only once, and only for a panel that actually
+    // streamed. The short delay lets the reader see the final tokens land before it tucks away; the
+    // `hasAutoClosed` latch means a user who re-opens it afterwards is not fought by this effect.
     useEffect(() => {
       if (hasEverStreamedRef.current && !isStreaming && isOpen && !hasAutoClosed) {
         const timer = setTimeout(() => {
@@ -130,9 +149,14 @@ export const Reasoning = memo(
 )
 
 export type ReasoningTriggerProps = ComponentProps<typeof CollapsibleTrigger> & {
+  /** Overrides the default "Thinking..." / "Thought for N seconds" caption. */
   getThinkingMessage?: (isStreaming: boolean, duration?: number) => ReactNode
 }
 
+// Default caption logic:
+//  - still streaming (or a measured-as-zero duration) → animated "Thinking..." shimmer;
+//  - finished but duration unknown (e.g. mounted from history) → vague "a few seconds";
+//  - finished with a measured duration → the exact second count.
 const defaultGetThinkingMessage = (isStreaming: boolean, duration?: number) => {
   if (isStreaming || duration === 0) {
     return <Shimmer duration={1}>Thinking...</Shimmer>
@@ -143,6 +167,7 @@ const defaultGetThinkingMessage = (isStreaming: boolean, duration?: number) => {
   return <p>Thought for {duration} seconds</p>
 }
 
+/** Toggle row for the reasoning panel: brain icon, the thinking caption, and a chevron that flips when open. */
 export const ReasoningTrigger = memo(
   ({ className, children, getThinkingMessage = defaultGetThinkingMessage, ...props }: ReasoningTriggerProps) => {
     const { isStreaming, isOpen, duration } = useReasoning()
@@ -167,11 +192,15 @@ export const ReasoningTrigger = memo(
 )
 
 export type ReasoningContentProps = ComponentProps<typeof CollapsibleContent> & {
+  // `children` is the raw reasoning markdown string; it is rendered through Streamdown rather than
+  // placed as nodes so it can format incrementally as tokens stream in.
   children: string
 }
 
+// Streamdown plugins enabled for reasoning markdown: CJK handling, code highlighting, math, mermaid.
 const streamdownPlugins = { cjk, code, math, mermaid }
 
+/** Expandable body that renders the reasoning markdown (streaming-aware) with a slide animation. */
 export const ReasoningContent = memo(({ className, children, ...props }: ReasoningContentProps) => (
   <CollapsibleContent
     className={cn(

@@ -23,6 +23,14 @@ const TMUX_TIMEOUT: Duration = Duration::from_secs(10);
 const SERVER_READY_TIMEOUT: Duration = Duration::from_secs(10);
 const SERVER_READY_POLL: Duration = Duration::from_millis(100);
 
+/// Manages an agent's interactive tmux terminals over a workspace-local socket.
+///
+/// The point of routing TTY/TUI programs through tmux is recoverability: the
+/// session lives in the tmux server, not in any one HTTP request, so an agent can
+/// `start` a program in one tool call and `capture`/`send` to it in later calls
+/// even though each call is a separate short-lived tmux client. The socket sits
+/// on the shared `/workspace/temp` mount so every client (in its own sandbox)
+/// reaches the same server.
 #[derive(Clone)]
 pub struct TmuxManager {
   paths: WorkspacePaths,
@@ -64,6 +72,9 @@ impl TmuxManager {
     }
   }
 
+  /// List the agent's terminals. A server that is not running yet is reported as
+  /// "no terminals" rather than an error — the common cold-start case, not a
+  /// failure.
   pub async fn list(&self) -> AppResult<Vec<TerminalInfo>> {
     // Colon-separated with the name last: tmux sanitizes ':' (and '.') out of
     // session names, so the first two fields are unambiguous. A control-char
@@ -86,6 +97,12 @@ impl TmuxManager {
     Ok(stdout.lines().filter_map(parse_terminal_info).collect())
   }
 
+  /// Start a named terminal running `command` (default `bash`) at the given size.
+  ///
+  /// Idempotent on the name: if a terminal already exists it is returned as
+  /// "exists" rather than restarted, so a reconnecting agent that re-issues
+  /// `start` does not blow away a running program. The command runs under
+  /// `bash -lc` so a login shell sets up PATH and the runtime baseline.
   pub async fn start(
     &self,
     name: &str,
@@ -134,6 +151,11 @@ impl TmuxManager {
     })
   }
 
+  /// Type into a terminal. `input` is sent as literal text (via `send-keys -l`),
+  /// while `keys` and the `enter` flag are sent as tmux key names (`Enter`,
+  /// `C-c`, …). The two are separate send-keys calls on purpose: literal mode
+  /// would type the characters "Enter" instead of pressing the key. Sent in order
+  /// so callers can write text and then submit it with `enter` in one request.
   pub async fn send(
     &self,
     name: &str,
@@ -176,6 +198,9 @@ impl TmuxManager {
     })
   }
 
+  /// Capture the visible screen plus up to `lines` of scrollback as plain text.
+  /// `-J` joins wrapped lines so long output is not chopped at the pane width;
+  /// this is how an agent "reads" what a TUI program is currently showing.
   pub async fn capture(&self, name: &str, lines: u16) -> AppResult<TerminalCapture> {
     validate_name(name)?;
     let args = vec![
@@ -197,6 +222,9 @@ impl TmuxManager {
     })
   }
 
+  /// Kill one named terminal (and the program in it), leaving the server and the
+  /// agent's other terminals running. Contrast with `shutdown`, which kills the
+  /// whole server.
   pub async fn kill(&self, name: &str) -> AppResult<TerminalStatus> {
     validate_name(name)?;
     let output = self
@@ -304,6 +332,9 @@ impl TmuxManager {
     Ok(sessions.iter().any(|session| session.name == name))
   }
 
+  /// Run one tmux client command against this agent's socket and return its raw
+  /// output. Every call goes through here so the `-S <socket>` prefix, the
+  /// launcher wrapping, kill-on-drop, and the timeout are applied uniformly.
   async fn run_tmux(&self, args: &[String]) -> AppResult<std::process::Output> {
     tokio::fs::create_dir_all(&self.paths.temp).await?;
     let socket = self.socket_path();
@@ -332,6 +363,12 @@ impl TmuxManager {
     }
   }
 
+  /// Resolve the start directory for a new terminal, defaulting to `/workspace`.
+  ///
+  /// Mirrors the shell's cwd handling: in direct mode tmux runs on the host, so
+  /// the path is translated to its host location; in bwrap mode `/workspace` is
+  /// real inside the sandbox, so the computer-relative path is kept as-is.
+  /// `resolve` is still called in both modes to reject `..`/escape attempts.
   fn tmux_cwd(&self, cwd: Option<&str>) -> AppResult<String> {
     let raw = cwd
       .map(str::trim)
@@ -361,6 +398,8 @@ impl TmuxManager {
   }
 }
 
+/// Run a tmux command to completion under a hard timeout so a hung or
+/// unresponsive socket cannot block the request thread indefinitely.
 async fn output_with_timeout(mut command: Command) -> AppResult<std::process::Output> {
   match tokio::time::timeout(TMUX_TIMEOUT, command.output()).await {
     Ok(Ok(output)) => Ok(output),
@@ -396,6 +435,10 @@ fn validate_name(name: &str) -> AppResult<()> {
   ))
 }
 
+/// Recognize the various ways tmux says "there is no server here" so a cold
+/// start can be treated as an empty list instead of an error. Matched by message
+/// text because tmux has no distinct exit code for it; the set covers the
+/// known wordings across versions and the missing-socket case.
 fn is_missing_server(stderr: &str) -> bool {
   stderr.contains("no server running")
     || stderr.contains("failed to connect")

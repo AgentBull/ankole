@@ -19,6 +19,7 @@ import { ErrorAlert, SectionHeader, TableCard } from '../shared'
 type JsonValue = BullXPluginJsonValue
 type JsonObject = PluginConfigJsonObject
 
+/** Manages runtime LLM provider records that the agent lifecycle resolves by provider id. */
 export function LlmProvidersPage() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
@@ -101,6 +102,7 @@ export function LlmProvidersPage() {
     setProviderOptions(llmProviderOptionsFormFromValue(editingProvider.providerOptions ?? {}))
   }, [editingProvider])
 
+  /** Returns the editor to create mode without carrying provider-specific runtime options across records. */
   function resetForm() {
     setEditingProviderId(null)
     setProviderId('')
@@ -111,6 +113,7 @@ export function LlmProvidersPage() {
     setProviderOptions(llmProviderOptionsFormFromValue({}))
   }
 
+  /** Mirrors the provider id from the selected provider only while the user has not chosen a custom id. */
   function changeLlmProvider(nextLlmProvider: string | null) {
     const value = nextLlmProvider ?? ''
     if (!editingProviderId && (!providerId.trim() || providerId === llmProvider)) {
@@ -301,6 +304,7 @@ type LlmProviderOptionsFormState = {
   timeoutMs: string
 }
 
+/** Edits transport and compatibility knobs that are passed through to the provider adapter. */
 function LlmProviderOptionsForm({
   value,
   onChange
@@ -375,6 +379,7 @@ function LlmProviderOptionsForm({
   )
 }
 
+/** Provides a small object editor for options that are not stable enough to deserve first-class fields. */
 function LlmProviderKeyValueRows({
   title,
   description,
@@ -438,6 +443,7 @@ function LlmProviderKeyValueRows({
   )
 }
 
+/** Converts saved provider options into string rows so operators can edit unknown keys without schema loss. */
 function llmProviderOptionsFormFromValue(value: JsonObject): LlmProviderOptionsFormState {
   const headers = isJsonObject(value.headers) ? value.headers : {}
   const compat = isJsonObject(value.compat) ? value.compat : {}
@@ -451,6 +457,7 @@ function llmProviderOptionsFormFromValue(value: JsonObject): LlmProviderOptionsF
   }
 }
 
+/** Rebuilds the sparse provider options object and omits blank fields so defaults stay owned by the runtime. */
 function llmProviderOptionsFromForm(form: LlmProviderOptionsFormState): JsonObject {
   const options: JsonObject = {}
   const headers = jsonObjectFromKeyValueRows(form.headers, { forceString: true })
@@ -468,6 +475,7 @@ function llmProviderOptionsFromForm(form: LlmProviderOptionsFormState): JsonObje
   return options
 }
 
+/** Turns arbitrary object keys into stable editable rows for the generic option editor. */
 function keyValueRowsFromJsonObject(value: JsonObject, options: { forceString?: boolean } = {}): KeyValueDraftRow[] {
   return Object.entries(value).map(([key, item]) => ({
     key,
@@ -475,6 +483,7 @@ function keyValueRowsFromJsonObject(value: JsonObject, options: { forceString?: 
   }))
 }
 
+/** Drops incomplete draft rows instead of persisting empty option keys. */
 function jsonObjectFromKeyValueRows(rows: KeyValueDraftRow[], options: { forceString?: boolean } = {}): JsonObject {
   const result: JsonObject = {}
   for (const row of rows) {
@@ -486,6 +495,7 @@ function jsonObjectFromKeyValueRows(rows: KeyValueDraftRow[], options: { forceSt
   return result
 }
 
+/** Accepts JSON literals for compat values but preserves plain strings for providers with string-only knobs. */
 function parseLooseJsonValue(value: string): JsonValue {
   try {
     return JSON.parse(value) as JsonValue
@@ -494,11 +504,13 @@ function parseLooseJsonValue(value: string): JsonValue {
   }
 }
 
+/** Keeps string values unquoted in the form while still round-tripping structured JSON values. */
 function jsonInputValue(value: JsonValue): string {
   if (typeof value === 'string') return value
   return JSON.stringify(value)
 }
 
+/** Parses optional retry fields where zero is valid but negative values would change runtime semantics. */
 function optionalNonNegativeInteger(value: string, label: string): number | undefined {
   const trimmed = value.trim()
   if (!trimmed) return undefined

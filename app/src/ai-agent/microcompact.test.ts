@@ -1,3 +1,5 @@
+// Covers the no-LLM context-shrink tier: that it clears only OLD, re-derivable tool results, never
+// protected ones (clarify = user answers), and stays byte-stable across repeated runs.
 import { describe, expect, it } from 'bun:test'
 import type { AgentMessage } from './core'
 import { microcompact, MICROCOMPACT_CLEARED_TEXT } from './microcompact'
@@ -37,9 +39,11 @@ describe('microcompact', () => {
     expect(textOf(out[1]!)).toBe(MICROCOMPACT_CLEARED_TEXT)
     expect(textOf(out[2]!)).toBe(MICROCOMPACT_CLEARED_TEXT)
     expect(textOf(out[3]!)).toBe('search result 2')
+    // clarify is never compactable: the user's answer survives even though it sits among cleared results.
     expect(textOf(out[4]!)).toBe('user said yes')
     expect(textOf(out[5]!)).toBe('search result 3')
     expect(textOf(out[0]!)).toBe('q1')
+    // Source array is not mutated — the cleared content only exists in the returned copy.
     expect(textOf(messages[1]!)).toBe('search result 1')
   })
 

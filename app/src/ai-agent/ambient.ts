@@ -39,7 +39,12 @@ interface AmbientRecognizerResult {
   reason_summary?: string
 }
 
+// Wake members are conversation ids. The ZSET is shared infrastructure, so every
+// member read back from Redis is shape-checked against this before it is trusted
+// as a conversation id and used to touch PG.
 const UUID_MEMBER_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+// Per-message cap on text handed to the recognizer prompt, so one long paste
+// cannot blow up the decision-context token budget.
 const MAX_CHAT_SEGMENT_TEXT = 2_000
 const MAX_RECOGNIZER_CONTEXT_ROWS = 10
 
@@ -60,6 +65,16 @@ export class AiAgentAmbientBatcher {
 
   constructor(private readonly conversations: AiAgentConversationService = aiAgentConversationService) {}
 
+  /**
+   * Arms (or pushes back) the wake for a conversation after a new ambient message
+   * lands. The due time is a debounce: it slides to `now + batchWindowMs` on every
+   * fresh message so a flurry of chatter collapses into one recognizer call,
+   * capped so a never-quiet room still gets looked at — see below.
+   *
+   * A failed ZADD is logged, not thrown: the message row is already in PG, so a
+   * later `schedule` or a recovery drain re-arms the wake. Losing the timer only
+   * delays the look, it never drops the batch.
+   */
   async schedule(input: {
     agentUid: string
     bindingName?: string
@@ -84,6 +99,19 @@ export class AiAgentAmbientBatcher {
     }
   }
 
+  /**
+   * Drains every wake whose due time has passed, runs the recognizer for each,
+   * and returns the conversations it decided to speak in (the caller starts a
+   * generation for those).
+   *
+   * `drainingMembers` is an in-process guard against the same conversation being
+   * worked twice when two drains overlap (the per-message timer and a recovery
+   * pass can both fire). A member is removed from the ZSET before the recognizer
+   * runs, so a crash mid-recognize drops that wake rather than looping on it; the
+   * batch is not lost — the message rows stay in PG and a later `schedule`
+   * re-arms it. When a filter is given, a batch that does not match is skipped
+   * but left in the ledger for the owning agent's drain to claim.
+   */
   async drainDue(
     input: AiAgentRuntimeProfile | { agentUid?: string; bindingName?: string; profile: AiAgentRuntimeProfile }
   ): Promise<Array<{ conversationId: string; providerRoomId: string; providerThreadId: string }>> {
@@ -98,10 +126,17 @@ export class AiAgentAmbientBatcher {
       try {
         const batch = await this.loadBatch(member)
         if (!batch) {
+          // Nothing left to act on (conversation gone, or every ambient row
+          // already consumed by an intervention): retire the stale wake.
           await this.removeMember(member)
           continue
         }
+        // Belongs to another agent/binding — leave the wake in place so that
+        // agent's own drain handles it; only `continue`, do not remove.
         if (!this.matchesFilter(batch, filter)) continue
+        // Remove before recognizing: at-most-once intervention per wake. A crash
+        // during recognize forfeits this look rather than risking a double reply;
+        // the rows remain and a later schedule re-arms a fresh wake.
         await this.removeMember(member)
         const result = await this.recognize(batch.conversationId, profile)
         if (result?.intervene) {
@@ -118,6 +153,13 @@ export class AiAgentAmbientBatcher {
     return intervened
   }
 
+  /**
+   * Milliseconds until the soonest pending wake, so the runtime can arm one timer
+   * instead of polling. Returns `undefined` when nothing is pending (no timer
+   * needed) or when Redis is unreachable. Clamped at 0 so an already-overdue wake
+   * fires immediately. When a filter is given it only counts wakes for that
+   * agent/binding, which costs one PG lookup to resolve each member's route.
+   */
   async nextDueDelayMs(input: { agentUid?: string; bindingName?: string } = {}): Promise<number | undefined> {
     let redisEntries: unknown
     try {
@@ -193,7 +235,15 @@ export class AiAgentAmbientBatcher {
     return routes
   }
 
-  /** Oldest ambient message not yet consumed by an intervention (hard-cap anchor + thread source). */
+  /**
+   * Oldest ambient message not yet consumed by an intervention (hard-cap anchor +
+   * thread source). The last intervention acts as a watermark: only rows newer
+   * than it count as "pending", so once the agent has replied, earlier observed
+   * chatter no longer pulls a batch forward.
+   *
+   * `transcript_effect is null` excludes rows that were retracted/superseded
+   * (e.g. by a message recall) so a deleted line cannot resurrect a batch.
+   */
   private async oldestPendingAmbientRow(
     conversationId: string
   ): Promise<{ createdAt: Date; metadata: JsonObject } | undefined> {
@@ -214,6 +264,13 @@ export class AiAgentAmbientBatcher {
     return row
   }
 
+  /**
+   * Timestamp of the agent's last ambient intervention in this conversation, the
+   * watermark that bounds every "pending since last reply" query. An intervention
+   * is recorded as an `introspection` row tagged `control.type =
+   * ambient_intervention` (written by {@link recognize}), so the boundary is
+   * durable in PG and survives restarts.
+   */
   private async latestInterventionAt(conversationId: string): Promise<Date | undefined> {
     const [latestIntervention] = await DB.select({ createdAt: AiAgentMessages.createdAt })
       .from(AiAgentMessages)
@@ -238,6 +295,24 @@ export class AiAgentAmbientBatcher {
     }
   }
 
+  /**
+   * The intervention decision. Gathers the unanswered batch plus surrounding
+   * context, asks the cheap "light" model a single yes/no ("should the agent
+   * visibly reply now?"), records the call as an LLM turn for observability, and
+   * — only on yes — writes the synthetic introspection message that the runtime
+   * later picks up to actually generate a reply.
+   *
+   * The recognizer never speaks to the room itself. Its sole side effect on a
+   * yes is one `im_ambient`/`introspection` row whose body is the observed
+   * `<chat_segment>` and whose `think` block frames it as a runtime instruction
+   * (not a human request). That row is both the next turn's trigger and the
+   * intervention watermark; keeping the speak/decide split means a bad decision
+   * costs one cheap call, not a posted message.
+   *
+   * Returns the parsed decision, or `undefined` when there is nothing pending or
+   * the model call failed (failures are swallowed so one bad ambient look never
+   * breaks the drain loop).
+   */
   private async recognize(
     conversationId: string,
     profile: AiAgentRuntimeProfile
@@ -259,6 +334,9 @@ export class AiAgentAmbientBatcher {
       .limit(12)
     if (rows.length === 0) return undefined
 
+    // Queried newest-first to cap at the 12 most recent; reverse to chronological
+    // so the prompt reads in conversation order. `oldestCurrentRow` then anchors
+    // the "before this batch" context windows below.
     const currentBatch = rows.slice().reverse()
     const oldestCurrentRow = currentBatch[0]!
     const agentUid = rows[0]!.agentUid
@@ -426,6 +504,13 @@ export class AiAgentAmbientBatcher {
     }
   }
 
+  /**
+   * The visible back-and-forth before the current batch: real user messages,
+   * agent replies, and the agent's own past interventions. This is what the agent
+   * has actually said/seen "on stage", so the recognizer can judge whether a reply
+   * would be redundant or out of place. Newest-first query, reversed to read in
+   * order. (Distinct from {@link ambientRecall}, which is silent observed chatter.)
+   */
   private async recentSceneTranscript(conversationId: string, before: Date): Promise<AiAgentMessageRow[]> {
     const rows = await DB.select()
       .from(AiAgentMessages)
@@ -446,6 +531,13 @@ export class AiAgentAmbientBatcher {
     return rows.reverse()
   }
 
+  /**
+   * Observed-but-not-replied-to chatter from before the current batch, back to the
+   * last intervention. These are messages the agent saw silently; surfacing them
+   * lets the recognizer treat a slow-building thread as one situation instead of
+   * reacting to only the latest line. Bounded both by the intervention watermark
+   * and the row cap.
+   */
   private async ambientRecall(
     conversationId: string,
     before: Date,
@@ -511,6 +603,9 @@ async function resolveAgentDisplayName(agentUid: string): Promise<string> {
   return row?.displayName?.trim() || agentUid
 }
 
+// Loads the agent's soul/mission for the recognizer system prompt, falling back
+// to the default templates when an agent has none configured so the recognizer
+// always has a persona to reason from.
 async function loadAmbientAgentPrompt(agentUid: string): Promise<{ mission: string; soul: string }> {
   const [soul, mission] = await Promise.all([getSoul(agentUid), getMission(agentUid)])
   return {
@@ -519,6 +614,10 @@ async function loadAmbientAgentPrompt(agentUid: string): Promise<{ mission: stri
   }
 }
 
+// Serializes the whole decision context to YAML for the user prompt: the explicit
+// task, the agent identity, and the three message windows kept as separate keys
+// (current batch vs. visible transcript vs. silent recall) so the model can tell
+// what it must react to from what is only background.
 function renderAmbientDecisionInput(input: {
   agent: JsonObject
   ambientRecall: AiAgentMessageRow[]
@@ -539,6 +638,9 @@ function renderAmbientDecisionInput(input: {
   ).trim()
 }
 
+// Builds the `<chat_segment>` block embedded in the intervention message — the
+// observed conversation the agent is asked to reply to. Rows with no text are
+// dropped so empty/attachment-only lines do not clutter the segment.
 function renderChatSegment(rows: AiAgentMessageRow[]): string {
   const payload = {
     messages: rows.flatMap(row => {
@@ -556,6 +658,9 @@ function renderChatSegment(rows: AiAgentMessageRow[]): string {
   return ['<chat_segment format="yaml">', stringifyYaml(payload, { lineWidth: 0 }).trim(), '</chat_segment>'].join('\n')
 }
 
+// Derives the room/channel descriptor for the prompt and system header. Walks the
+// batch newest-first and takes the first row that actually carries room context,
+// since not every ambient row records it; returns undefined when none do.
 function ambientChannelContext(rows: AiAgentMessageRow[]): JsonObject | undefined {
   for (let index = rows.length - 1; index >= 0; index -= 1) {
     const context = toJsonObject(rows[index]!.metadata.message_context)
@@ -586,6 +691,10 @@ function promptRecord(row: AiAgentMessageRow, role?: string): JsonObject {
   })
 }
 
+// Translates the internal storage role into the label the recognizer prompt uses.
+// Notably an `im_ambient`/`introspection` row is a past self-intervention, shown
+// to the model as `runtime`, while a plain `im_ambient` row is observed human
+// chatter (`ambient_human`).
 function promptRole(row: AiAgentMessageRow): string {
   if (row.role === 'assistant') return 'agent'
   if (row.role === 'tool') return 'tool'
@@ -610,6 +719,10 @@ function chatMessageSentAt(row: AiAgentMessageRow): string {
   return stringFromPath(context, ['time', 'sent_at']) ?? row.createdAt.toISOString()
 }
 
+// Resolves a human-readable speaker name from whichever metadata shape recorded
+// it. The fallback chain spans both the normalized message_context and older
+// adapter-specific actor fields, so historical rows still render a name rather
+// than "unknown speaker".
 function chatMessageSpeaker(row: AiAgentMessageRow): string {
   const context = toJsonObject(row.metadata.message_context)
   return (
@@ -625,6 +738,11 @@ function rejectUndefined(value: Record<string, JsonValue | undefined>): JsonObje
   return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined)) as JsonObject
 }
 
+// Normalizes a `ZRANGE ... WITHSCORES` reply into [member, score] pairs. The two
+// RESP versions disagree on shape: RESP3 returns nested [member, score] arrays,
+// RESP2 returns one flat list (member, score, member, score, ...). Handles both so
+// the caller does not depend on which protocol the client negotiated. Non-finite
+// scores are dropped defensively.
 function scoreEntries(value: unknown[]): Array<[string, number]> {
   const entries: Array<[string, number]> = []
   for (let index = 0; index < value.length; index += 1) {
@@ -645,6 +763,11 @@ function scoreEntries(value: unknown[]): Array<[string, number]> {
   return entries
 }
 
+/**
+ * Normalizes the recognizer's raw output into the strict decision shape.
+ * `intervene` defaults to false on anything not explicitly true — when in doubt,
+ * the agent stays silent, which is the safe failure mode for an uninvited reply.
+ */
 function parseAmbientRecognizerResult(text: string): AmbientRecognizerResult {
   const parsed = parseAmbientRecognizerJson(text)
   return {
@@ -655,6 +778,15 @@ function parseAmbientRecognizerResult(text: string): AmbientRecognizerResult {
   }
 }
 
+/**
+ * Best-effort decode of the recognizer reply. The model is asked for JSON, but a
+ * cheap model under a structured-output prompt still occasionally answers in
+ * fenced YAML, XML-ish tags, or a loose `intervene: true` line. Rather than fail
+ * the whole ambient look on a formatting slip, this walks a recovery ladder —
+ * JSON (with repair) → YAML → XML → a bare boolean scan — and only rethrows the
+ * original JSON error when every rung misses. Ordered most-structured first so a
+ * clean JSON reply never pays for the looser parsers.
+ */
 function parseAmbientRecognizerJson(text: string): Partial<AmbientRecognizerResult> {
   try {
     return parseJsonWithRepair<Partial<AmbientRecognizerResult>>(extractJsonObjectText(text))
@@ -670,10 +802,15 @@ function parseAmbientRecognizerJson(text: string): Partial<AmbientRecognizerResu
         reason_summary: recoverAmbientRecognizerReason(text)
       }
     }
+    // Every rung missed: surface the JSON failure, the most informative one.
     throw error
   }
 }
 
+// Reads a fenced YAML reply. Accepts the decision either nested under a known
+// wrapper key (the prompt's example shape) or at the top level, and tolerates the
+// several field-name spellings the model drifts between (intervene /
+// should_intervene / decision). Returns undefined to fall through to the next rung.
 function recoverAmbientRecognizerYaml(text: string): Partial<AmbientRecognizerResult> | undefined {
   let parsed: unknown
   try {
@@ -700,6 +837,10 @@ function recoverAmbientRecognizerYaml(text: string): Partial<AmbientRecognizerRe
   }
 }
 
+// Reads an XML-ish reply (e.g. `<decision>intervene</decision>`). Pulls the first
+// recognized decision/reason tag and maps its text to a boolean via the same
+// phrase table as the other rungs. Returns undefined when the block has no tag
+// pair at all, so plain prose falls through to the boolean scan.
 function recoverAmbientRecognizerXml(text: string): Partial<AmbientRecognizerResult> | undefined {
   const candidate = extractFencedBlockText(text)
   if (!/<[a-z][\w:-]*\b[^>]*>[\s\S]*<\/[a-z][\w:-]*>/i.test(candidate)) return undefined
@@ -716,6 +857,9 @@ function recoverAmbientRecognizerXml(text: string): Partial<AmbientRecognizerRes
   }
 }
 
+// Last rung: scan anywhere in the reply for an `intervene`/`should_intervene`
+// assignment, even when the surrounding structure is unparseable. Deliberately
+// narrow (explicit true/false only) so stray prose cannot be misread as a yes.
 function recoverAmbientRecognizerBoolean(text: string): boolean | undefined {
   if (/(^|[,{;\s])["']?intervene["']?\s*[:=]\s*true\b/i.test(text)) return true
   if (/(^|[,{;\s])["']?intervene["']?\s*[:=]\s*false\b/i.test(text)) return false
@@ -731,6 +875,9 @@ function recoverAmbientRecognizerReason(text: string): string | undefined {
   return reason.length > 240 ? `${reason.slice(0, 240)}...` : reason
 }
 
+// Pulls the JSON object out of a reply that may be wrapped in a ```json fence or
+// padded with prose, by slicing from the first `{` to the last `}`. Lets the
+// model add chatter around the object without breaking the parse.
 function extractJsonObjectText(text: string): string {
   const trimmed = text.trim()
   const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i)
@@ -747,6 +894,10 @@ function extractFencedBlockText(text: string): string {
   return fenced?.[1]?.trim() ?? trimmed
 }
 
+// Maps a decision token to a boolean. The model phrases the verdict in words as
+// often as with true/false ("respond", "stay silent", "ignore"), so a fixed
+// synonym table covers the common spellings; anything off-table returns undefined
+// rather than guessing, keeping silence the default.
 function booleanDecisionValue(value: unknown): boolean | undefined {
   if (typeof value === 'boolean') return value
   if (typeof value !== 'string') return undefined
@@ -773,6 +924,8 @@ function booleanDecisionValue(value: unknown): boolean | undefined {
   return undefined
 }
 
+// Trims the reason text and caps it at 240 chars so a verbose model explanation
+// stays a one-line attribution, not a paragraph in the logs/control metadata.
 function stringDecisionValue(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined
   const text = value.trim()

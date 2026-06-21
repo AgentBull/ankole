@@ -1,3 +1,7 @@
+// Focused unit test for the mock IM fake itself: it checks that the fake models
+// inbound attachments the same way a real Lark adapter does — the message carries
+// only a descriptor (no inline bytes), and `parseMessage` turns that into a lazy
+// `fetchData`. This guards the fidelity the integration tests depend on.
 import { describe, expect, it } from 'bun:test'
 import { loadTestEnvFiles } from '@/common/tests/load-test-env'
 
@@ -28,6 +32,8 @@ describe('Mock IM adapter attachments', () => {
       mimeType: 'text/plain',
       resourceType: 'file'
     })
+    // The raw wire message must NOT leak the bytes — they live in resource
+    // storage and are fetched separately, like a real provider file reference.
     expect(raw.attachments?.[0]).not.toHaveProperty('data')
 
     const parsed = adapter.parseMessage(raw)

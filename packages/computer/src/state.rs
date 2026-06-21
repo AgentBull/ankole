@@ -9,6 +9,8 @@ use crate::isolation::Launcher;
 use crate::session::SessionManager;
 use crate::tigerfs::TigerFs;
 
+/// The handle every request handler receives. `Arc` fields make `Clone` cheap so
+/// axum can hand a copy to each connection without duplicating the session store.
 #[derive(Clone)]
 pub struct AppState {
   pub config: Arc<Config>,
@@ -16,6 +18,8 @@ pub struct AppState {
 }
 
 impl AppState {
+  /// Creates the shared state: pre-creates the workspace backing roots and wires
+  /// the launcher + TigerFS into a single `SessionManager`. Runs once at startup.
   pub async fn new(config: Arc<Config>) -> Result<Self> {
     tokio::fs::create_dir_all(&config.workspace_root).await?;
     tokio::fs::create_dir_all(&config.user_files_root).await?;

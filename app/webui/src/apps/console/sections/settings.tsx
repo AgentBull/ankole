@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Spinner } from '@/uikit/components/spinner'
 import { ErrorAlert, SectionHeader, SkeletonRows } from '../shared'
 
+/** Edits installation-wide defaults that affect rendered SPAs and runtime time handling. */
 export function SettingsPage() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()

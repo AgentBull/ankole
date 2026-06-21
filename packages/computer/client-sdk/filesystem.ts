@@ -25,11 +25,21 @@ export class FileSystem {
     await this.client.mkdir(path, opts.cwd, true, opts.signal)
   }
 
+  /**
+   * Uploads files to the computer. They are packed into one `tar.gz` and sent as a
+   * single request, so a batch is one round-trip and the worker extracts them
+   * atomically under `cwd`. `cwd` defaults to the workspace root.
+   */
   async writeFiles(files: ComputerFile[], opts: { cwd?: string; signal?: AbortSignal } = {}): Promise<void> {
     const tarGz = await FileWriter.pack(files)
     await this.client.writeFiles(tarGz, opts.cwd ?? WORKSPACE_ROOT, opts.signal)
   }
 
+  /**
+   * Opens a file for reading as a byte stream, or returns `null` when it does not
+   * exist (the worker answers 404). Streaming avoids buffering large files in
+   * memory; callers that want the whole content use {@link readFileToBuffer}.
+   */
   async readFile(file: ReadFileRef, opts: { signal?: AbortSignal } = {}): Promise<ReadableStream<Uint8Array> | null> {
     const response = await this.client.readFile(file.path, file.cwd, opts.signal)
     return response ? response.body : null
@@ -56,6 +66,9 @@ export class FileSystem {
   ): Promise<string | null> {
     const buffer = await this.readFileToBuffer(src, { signal: opts.signal })
     if (!buffer) return null
+    // Join the local base dir and path with exactly one slash: strip any trailing
+    // slashes from cwd so e.g. `cwd: '/out/'` + `path: 'a.txt'` does not become
+    // `/out//a.txt`. `createPath` makes missing parent dirs by default.
     const target = dst.cwd ? `${dst.cwd.replace(/\/+$/, '')}/${dst.path}` : dst.path
     await Bun.write(target, buffer, { createPath: opts.mkdirRecursive ?? true })
     return target

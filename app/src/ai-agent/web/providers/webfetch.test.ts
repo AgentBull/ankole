@@ -2,6 +2,8 @@ import { describe, expect, it } from 'bun:test'
 import { __webfetchInternals, webfetchProvider } from './webfetch'
 
 describe('webfetch UA sampling', () => {
+  // Pins both halves of the cache contract: same domain returns the same UA while
+  // the entry is live, and a forced-expired entry is replaced (not served stale).
   it('returns a stable UA per domain until the cache expires', () => {
     const { sampleUserAgent, uaCache } = __webfetchInternals
     uaCache.clear()
@@ -47,6 +49,9 @@ describe('webfetchProvider.extract', () => {
     }
   })
 
+  // The key contract: an HTTP error status is captured as a per-URL `error`, not
+  // thrown — so one failing URL never aborts a multi-URL extract. (A 500 here is
+  // terminal-as-result, distinct from a thrown network blip that would retry.)
   it('records a per-URL error on a failing status without throwing', async () => {
     const server = Bun.serve({ port: 0, fetch: () => new Response('nope', { status: 500 }) })
     try {

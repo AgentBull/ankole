@@ -27,6 +27,12 @@ export interface ExternalGatewayOutboundAdapter {
   getChannelVisibility?(threadId: string): string
 }
 
+/**
+ * Everything an executor needs to handle one claimed delivery: the outbound
+ * adapter, the agent and its identity, the outbox for provider-visible effects,
+ * the projection sink, and the hooks the gateway uses to keep the delivery lane
+ * occupied until the work settles.
+ */
 export interface ExternalGatewayAgentExecutionContext {
   adapter: ExternalGatewayOutboundAdapter
   agent: AgentResult
@@ -44,6 +50,11 @@ export interface ExternalGatewayAgentExecutionContext {
   trackSettled?(settled: Promise<void>): void
 }
 
+/**
+ * The executor's reply to a delivery. Acceptance is unconditional in V1 — the
+ * input row was already durably accepted at enqueue — so the only variable part
+ * is the optional `settled` promise that tells the lane how long to stay busy.
+ */
 export interface ExternalGatewayAgentAcceptance {
   status: 'accepted'
   /**
@@ -55,11 +66,28 @@ export interface ExternalGatewayAgentAcceptance {
   settled?: Promise<void>
 }
 
+/**
+ * The contract the gateway runtime drives to turn delivered input into agent
+ * work. The default production implementation is `AiAgentRuntime`; gateway tests
+ * use the mock below. The runtime owns claiming, lane scheduling, and outbox
+ * draining around this interface, so an executor only has to accept a delivery.
+ */
 export interface ExternalGatewayAgentExecutor {
+  /**
+   * Handles one claimed delivery — typically by feeding it into a generation
+   * and enqueuing the agent's output as outbox intents. The returned
+   * `settled` promise (when present) keeps the delivery lane and the pending
+   * input row occupied until the generation finishes, which is what makes a
+   * crash mid-generation re-deliver instead of being lost.
+   */
   acceptExternalGatewayDelivery(
     delivery: ExternalGatewayAgentDelivery,
     context: ExternalGatewayAgentExecutionContext
   ): Promise<ExternalGatewayAgentAcceptance>
+  /**
+   * Optional per-binding recovery run once at startup, before ingress resumes,
+   * so an interrupted generation or undrained output can be picked back up.
+   */
   recoverExternalGatewayBinding?(context: ExternalGatewayAgentExecutionContext): Promise<void>
   /**
    * True when this provider room has a pending clarify question. The inbound
@@ -79,6 +107,13 @@ export interface ExternalGatewayAgentExecutor {
  * dispatch without loading an LLM profile.
  */
 export class MockExternalGatewayAgentExecutor implements ExternalGatewayAgentExecutor {
+  /**
+   * Echoes the batch's joined text back through the outbox so tests can assert
+   * end-to-end ingress→outbox flow. Only addressed receives produce output;
+   * other delivery kinds are accepted and ignored. The `outboundKey` is derived
+   * from the event ids, so re-delivering the same batch upserts the same outbox
+   * row instead of double-posting.
+   */
   async acceptExternalGatewayDelivery(
     delivery: ExternalGatewayAgentDelivery,
     context: ExternalGatewayAgentExecutionContext
@@ -111,6 +146,7 @@ export class MockExternalGatewayAgentExecutor implements ExternalGatewayAgentExe
 
 export const mockExternalGatewayAgentExecutor = new MockExternalGatewayAgentExecutor()
 
+/** Safely reads `data.message.text` out of an envelope payload of unknown shape. */
 function messageTextFromPayload(payload: unknown): string | undefined {
   const text = get(payload, 'data.message.text')
   return isString(text) ? text : undefined

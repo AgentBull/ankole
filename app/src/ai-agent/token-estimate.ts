@@ -27,6 +27,12 @@ function jsonDensityCorrection(messages: AgentMessage[]): number {
   return correction
 }
 
+/**
+ * Companion to {@link jsonDensityCorrection} for CJK text. The base ~4-chars/token rule fits English but
+ * badly under-counts Chinese/Japanese/Korean, where a single character is often a whole token. The native
+ * `estimateStringChars` reweights CJK code points to an equivalent English-char count; this adds only the
+ * extra tokens that reweighting implies (it never subtracts), so a non-CJK string contributes zero.
+ */
 function cjkDensityCorrection(messages: AgentMessage[]): number {
   let correction = 0
   for (const message of messages) {
@@ -59,6 +65,8 @@ export function estimateContextTokensJsonAware(messages: AgentMessage[]): number
   )
 }
 
+// Narrows to the messages whose `content` is a block array. Some AgentMessage variants carry a string
+// content (or none), so this guards the per-block loop in cjkDensityCorrection against those shapes.
 function hasTextContentBlocks(
   message: AgentMessage
 ): message is AgentMessage & { content: Array<{ type: string; text?: string }> } {

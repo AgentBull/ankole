@@ -1,6 +1,17 @@
 import { normalizeUid, type Principal, PrincipalDomainError } from '../principals/service'
 import { isJsonObject } from '@/common/json'
 
+// Input normalization for the authorization vocabulary. A permission is a
+// `resource:action` pair: the *resource* is a colon-hierarchical key (e.g.
+// `ai_agent:default`) and the *action* is a single verb with no colon. Grants
+// may store glob *patterns* for resources, but a request always names one
+// concrete resource. Centralizing the rules here means the same normalization is
+// applied whether a caller passes a permission key, a resource+action pair, or a
+// stored grant's action.
+
+// Glob metacharacters allowed in grant resource patterns. A *request* resource
+// must contain none of these so a caller cannot probe "do I have any access
+// matching this pattern" — each check is about one concrete resource.
 const resourceGlobCharacters = /[*?[\]{}]/
 
 /**

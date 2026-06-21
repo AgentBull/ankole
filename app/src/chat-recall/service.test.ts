@@ -1,8 +1,14 @@
+// Tests the recall search service's pure orchestration: BM25 query
+// normalization and the degrade-vs-unavailable behavior of the multi-route
+// search. The database, embedding provider, reranker, and clock are all faked
+// through injected dependencies, so nothing here touches PostgreSQL or a provider.
 import { describe, expect, it } from 'bun:test'
 import { loadTestEnvFiles } from '@/common/tests/load-test-env'
 
 await loadTestEnvFiles()
 
+// Imported dynamically after env is loaded because the module graph reads config
+// at import time; a static import would evaluate before loadTestEnvFiles runs.
 const { formatChatHistorySearchResult, normalizeChatRecallBm25Query, searchChatHistoryWithDependencies } =
   await import('./service')
 
@@ -37,6 +43,9 @@ const baseInput = {
 }
 
 describe('normalizeChatRecallBm25Query', () => {
+  // Each case is a real failure mode: a stray pg_search operator that would parse-
+  // error (`(`, `:`, `"`, `*`), CJK that must survive tokenization, and a filename
+  // whose `.`/`?` split into separate terms. `*` alone has no word token, so null.
   it('keeps CJK and identifier tokens while stripping pg_search syntax characters', () => {
     expect(normalizeChatRecallBm25Query('(AgentBull')).toBe('AgentBull')
     expect(normalizeChatRecallBm25Query('AgentBull:测试')).toBe('AgentBull 测试')
@@ -48,6 +57,8 @@ describe('normalizeChatRecallBm25Query', () => {
 })
 
 describe('searchChatHistoryWithDependencies', () => {
+  // The degrade contract: one route failing still yields available results from the
+  // other, with the failure recorded in degradedReasons.
   it('returns vector-only results when BM25 search fails', async () => {
     const result = await runSearch({
       searchBm25: async () => {
@@ -77,6 +88,7 @@ describe('searchChatHistoryWithDependencies', () => {
     expect(result.results[0]?.routeRanks).toEqual({ bm25: 1 })
   })
 
+  // Only when every attempted route fails does the result flip to unavailable.
   it('returns unavailable when every attempted search route fails', async () => {
     const result = await runSearch({
       searchBm25: async () => {
@@ -95,6 +107,8 @@ describe('searchChatHistoryWithDependencies', () => {
     ])
   })
 
+  // A query that normalizes to null (here `*`) must not even call the BM25 route;
+  // the bm25Calls counter proves the route was skipped, not just emptied.
   it('skips BM25 when normalization produces no searchable token', async () => {
     let bm25Calls = 0
     const result = await runSearch(
@@ -114,6 +128,10 @@ describe('searchChatHistoryWithDependencies', () => {
   })
 })
 
+// Drives the service with a fully faked dependency set. The fake rerank stands in
+// for the native addon: it just truncates candidates to the limit and assigns
+// descending scores, which is enough to exercise the orchestration without the
+// real ranking logic. Per-test overrides replace individual collaborators.
 async function runSearch(dependencyOverrides: Record<string, unknown>, inputOverrides: Partial<typeof baseInput> = {}) {
   return searchChatHistoryWithDependencies(
     {

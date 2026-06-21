@@ -44,6 +44,13 @@ const manifest = {
 
 await writeFile(path.join(outdir, 'manifest.json'), JSON.stringify(manifest, null, 2))
 
+/**
+ * Builds the manifest entry consumed by server-side SPA HTML rendering.
+ *
+ * Bun emits CSS only for entries that import styles, so the CSS field is
+ * optional and falls back to the first emitted CSS chunk when Tailwind combines
+ * output across entries.
+ */
 function assetEntry(name: string) {
   const js = versioned(`/assets/${name}-entry.js`)
   const cssOutput =
@@ -56,6 +63,10 @@ function assetEntry(name: string) {
   }
 }
 
+/**
+ * Adds a build id query string so HTML can point at stable filenames while
+ * still breaking browser caches after each asset rebuild.
+ */
 function versioned(assetPath: string): string {
   return `${assetPath}?v=${buildId}`
 }

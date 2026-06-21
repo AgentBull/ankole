@@ -14,6 +14,13 @@ const pinBody = t.Object({
   reason: t.Optional(t.Union([t.String(), t.Null()]))
 })
 
+/**
+ * Mounts app-side computer APIs for worker resolution and console operations.
+ *
+ * The internal resolve endpoint uses the shared computer token because it is a
+ * service-to-service path. Console worker/pin routes use the human admin
+ * session path, so operational controls remain tied to principals.
+ */
 export function computerRoutes() {
   return new Elysia({ name: 'computer-routes' })
     .onError(({ code, error, set }) => {
@@ -68,6 +75,9 @@ function requireServiceAuth(request: Request): void {
   if (token !== expected) throw new DomainError(401, 'unauthorized', 'invalid computer service token')
 }
 
+/**
+ * Requires an active human admin session for console-only computer controls.
+ */
 async function requireConsoleAdmin(request: Request): Promise<{ principalUid: string }> {
   const session = readAdminSessionCookie(request.headers.get('cookie'))
   if (session && (await activeHumanAdmin(session.principalUid))) {

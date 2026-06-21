@@ -142,6 +142,7 @@ type AnthropicLanguageModelConfig = {
   supportsStrictTools?: boolean
 }
 
+/** Implements the Anthropic Messages adapter used by BullX's Claude model profiles. */
 export class AnthropicLanguageModel implements LanguageModelV4 {
   readonly specificationVersion = 'v4'
 
@@ -804,6 +805,7 @@ export class AnthropicLanguageModel implements LanguageModelV4 {
       })
   }
 
+  /** Sends one non-streaming Anthropic request and normalizes message blocks into AI SDK parts. */
   async doGenerate(options: LanguageModelV4CallOptions): Promise<LanguageModelV4GenerateResult> {
     const { args, warnings, betas, usesJsonResponseTool, toolNameMapping, providerOptionsName, usedCustomProviderKey } =
       await this.getArgs({
@@ -1324,6 +1326,7 @@ export class AnthropicLanguageModel implements LanguageModelV4 {
     }
   }
 
+  /** Streams Anthropic events while preserving thinking blocks, cache usage, and provider tool results. */
   async doStream(options: LanguageModelV4CallOptions): Promise<LanguageModelV4StreamResult> {
     'use step'
 
@@ -2364,6 +2367,7 @@ export class AnthropicLanguageModel implements LanguageModelV4 {
  * @see https://docs.claude.com/en/docs/about-claude/models/overview#model-comparison-table
  * @see https://platform.claude.com/docs/en/build-with-claude/structured-outputs
  */
+/** Returns model capability flags that decide reasoning, sampling, and structured-output behavior. */
 export function getModelCapabilities(modelId: string): {
   maxOutputTokens: number
   supportsStructuredOutput: boolean
@@ -2474,6 +2478,7 @@ function hasWebTool20260209WithoutCodeExecution(tools: AnthropicTool[] | undefin
   return hasWebTool20260209 && !hasCodeExecutionTool
 }
 
+/** Maps BullX/AI SDK reasoning levels onto Anthropic thinking modes or token budgets. */
 function resolveAnthropicReasoningConfig({
   reasoning,
   supportsAdaptiveThinking,
@@ -2522,6 +2527,7 @@ function resolveAnthropicReasoningConfig({
   return { thinking: { type: 'enabled', budgetTokens } }
 }
 
+/** Preserves Anthropic server-side context-management edits for diagnostics and future replay logic. */
 function mapAnthropicResponseContextManagement(
   contextManagement: AnthropicResponseContextManagement | null | undefined
 ): AnthropicMessageMetadata['contextManagement'] | null {
@@ -2557,6 +2563,7 @@ function mapAnthropicResponseContextManagement(
     : null
 }
 
+/** Keeps provider stop details separate from BullX's smaller cross-provider stop-reason enum. */
 function mapAnthropicStopDetails(
   stopDetails: AnthropicStopDetails | null | undefined
 ): AnthropicMessageMetadata['stopDetails'] | undefined {

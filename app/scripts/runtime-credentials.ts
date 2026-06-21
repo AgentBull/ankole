@@ -16,6 +16,12 @@ Usage:
   bun scripts/runtime-credentials.ts delete --consumer skill/codex --name auth_json --scope agent --agent-uid <uid>
 `
 
+/**
+ * Applies one runtime-credential CLI command.
+ *
+ * The script writes through the service layer instead of touching the table
+ * directly, so CLI behavior matches runtime encryption, naming, and scope rules.
+ */
 async function main(): Promise<void> {
   const [command, ...rest] = Bun.argv.slice(2)
   const args = parseArgs(rest)
@@ -41,6 +47,9 @@ async function main(): Promise<void> {
   })
 }
 
+/**
+ * Parses `--key value` and boolean flag arguments for this small maintenance CLI.
+ */
 function parseArgs(values: string[]): ParsedArgs {
   const out: ParsedArgs = {}
   for (let i = 0; i < values.length; i += 1) {
@@ -57,6 +66,9 @@ function parseArgs(values: string[]): ParsedArgs {
   return out
 }
 
+/**
+ * Parses the public `kind/name` consumer syntax into DB/service fields.
+ */
 function parseConsumer(value: string): { consumerKind: RuntimeCredentialConsumerKind; consumerName: string } {
   const [kind, name] = value.split('/')
   if (kind !== 'skill' && kind !== 'tool' && kind !== 'runtime') throw new Error(`invalid consumer kind: ${kind}`)
@@ -64,6 +76,9 @@ function parseConsumer(value: string): { consumerKind: RuntimeCredentialConsumer
   return { consumerKind: kind, consumerName: name }
 }
 
+/**
+ * Parses credential scope and requires `--agent-uid` only for agent overrides.
+ */
 function parseScope(args: ParsedArgs): RuntimeCredentialScope {
   const scope = requiredString(args, 'scope')
   if (scope === 'default') return { kind: 'default' }
@@ -82,6 +97,9 @@ function stringArg(args: ParsedArgs, key: string): string | undefined {
   return typeof value === 'string' ? value : undefined
 }
 
+/**
+ * Expands only leading `~` paths so shell users can pass quoted home-relative files.
+ */
 function expandHome(value: string): string {
   if (value === '~') return Bun.env.HOME ?? value
   if (value.startsWith('~/')) return `${Bun.env.HOME ?? '~'}${value.slice(1)}`

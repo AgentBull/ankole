@@ -30,6 +30,9 @@ pub struct SessionResponse {
   last_used_at: String,
 }
 
+/// The workspace paths reported to clients are the stable in-computer mount points, not
+/// the host backing paths. Callers address files by `/workspace/...`; how those map onto
+/// disk is the worker's concern (see paths.rs), so these are constant.
 fn workspace() -> Workspace {
   Workspace {
     library_containers: "/workspace/library-containers".to_string(),
@@ -50,6 +53,10 @@ fn describe(handle: &SessionHandle, worker_id: &str, created: bool) -> SessionRe
   }
 }
 
+/// Get-or-create the session for an agent. Idempotent: a repeat PUT returns the existing
+/// session (with `created: false`) instead of erroring, so the client can call it
+/// unconditionally before any other operation. The `created` flag lets the caller tell a
+/// fresh workspace from a resumed one.
 pub async fn put_session(
   State(state): State<AppState>,
   Path(agent_uid): Path<String>,
@@ -91,6 +98,9 @@ pub async fn stop_session(
   })))
 }
 
+/// Tear down the session's persistent shells without ending the session itself. Lets a
+/// client recover from a wedged or stuck shell (one per scope) while keeping the
+/// workspace, commands, and terminals intact; the next shell command starts a fresh bash.
 pub async fn reset_shell(
   State(state): State<AppState>,
   Path(agent_uid): Path<String>,

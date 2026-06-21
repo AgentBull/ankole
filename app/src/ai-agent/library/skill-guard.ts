@@ -34,6 +34,13 @@ const CRITICAL_PATTERNS: Array<[RegExp, string]> = [
   ]
 ]
 
+/**
+ * Looks for high-risk content in agent-owned AGENT_APPEND.md files.
+ *
+ * This is a narrow guardrail, not a full prompt-injection classifier. It blocks
+ * invisible-control tricks and obvious credential-exfiltration instructions
+ * before they become part of a reusable skill prompt.
+ */
 export function auditSkillAppendContent(content: string): SkillContentDiagnostic[] {
   const diagnostics: SkillContentDiagnostic[] = []
   for (const [pattern, label] of INVISIBLE_UNICODE) {

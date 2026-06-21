@@ -29,6 +29,9 @@ export function mapAnswer(reply: string, choices?: string[]): MappedAnswer {
   const trimmed = reply.trim()
   if (!choices || choices.length === 0) return { text: trimmed }
 
+  // A bare number is read as a 1-based pick, but only inside range — an
+  // out-of-range number ("9" against 3 options) falls through to be treated as
+  // free text rather than silently resolving to the wrong choice.
   if (/^\d+$/.test(trimmed)) {
     const n = Number.parseInt(trimmed, 10)
     if (n >= 1 && n <= choices.length) {

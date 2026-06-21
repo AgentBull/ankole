@@ -1,5 +1,7 @@
 import { ApiError } from './api-error'
 
+// Substring (not exact) match so a `content-type` with a charset or other
+// parameters — e.g. `application/json; charset=utf-8` — still counts.
 function contentTypeMatches(response: Response, expected: string): boolean {
   const header = response.headers.get('content-type') ?? ''
   return header.toLowerCase().includes(expected)
@@ -21,6 +23,7 @@ export function expectOctetStream(response: Response, method: string, url: strin
   }
 }
 
+/** True if the response is an NDJSON stream, accepting both the `x-ndjson` and `ndjson` spellings the worker may use. */
 export function isNdjson(response: Response): boolean {
   return contentTypeMatches(response, 'application/x-ndjson') || contentTypeMatches(response, 'application/ndjson')
 }

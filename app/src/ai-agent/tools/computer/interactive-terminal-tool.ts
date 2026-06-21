@@ -16,6 +16,10 @@ function scopedTmuxName(context: ComputerToolContext, name: string): string {
   return `${name}${SCOPE_SEPARATOR}${executionScopeTag(context)}`
 }
 
+/**
+ * Strips the scope suffix back off so every name returned to the model is the plain one it passed
+ * in. The scoping is an internal detail; the model should never see or have to reproduce the hash.
+ */
 function unscopedTmuxName(context: ComputerToolContext, name: string): string {
   const suffix = `${SCOPE_SEPARATOR}${executionScopeTag(context)}`
   return name.endsWith(suffix) ? name.slice(0, -suffix.length) : name
@@ -62,12 +66,28 @@ function jsonResult(value: unknown, details: InteractiveTerminalDetails): AgentT
   return { content: [{ type: 'text', text: JSON.stringify(value) }], details }
 }
 
+/**
+ * Validates a model-supplied session name before it becomes part of a worker-side tmux name.
+ * The character/length whitelist keeps the name shell-safe and prevents it from colliding with or
+ * injecting the scope separator.
+ */
 function requireSession(session: string | undefined): string {
   if (!session) throw new Error('session is required for this action')
   if (!SESSION_NAME.test(session)) throw new Error('session must match /^[A-Za-z0-9_.-]{1,64}$/')
   return session
 }
 
+/**
+ * The model's tool for *interactive* TTY/TUI programs — Claude, REPLs, full-screen CLIs,
+ * interactive installers — as opposed to the one-shot `command`/`terminal` tools.
+ *
+ * The difference that justifies a separate tool: these programs need a real terminal you can type
+ * keystrokes into and read a rendered screen back from, and they outlive a single call. They are
+ * backed by tmux on the worker so a session can be captured and resumed across turns; the model
+ * drives them through start/send/capture/kill/list rather than ever touching tmux directly. Every
+ * action maps to a tmux session whose name is scope-namespaced (see `scopedTmuxName`) and then
+ * un-namespaced on the way out, so the model works in plain names while conversations stay isolated.
+ */
 export function createInteractiveTerminalTool(
   context: ComputerToolContext
 ): AgentTool<typeof InteractiveTerminalParams, InteractiveTerminalDetails> {
@@ -83,6 +103,9 @@ export function createInteractiveTerminalTool(
       const computer = await context.getComputer(signal)
       switch (params.action) {
         case 'list': {
+          // The worker lists every tmux session it holds across all conversations of this agent;
+          // filter down to the ones tagged for the current scope so a conversation only ever sees
+          // its own terminals.
           const suffix = `${SCOPE_SEPARATOR}${executionScopeTag(context)}`
           const terminals = await computer.terminals.list({ signal })
           return jsonResult(

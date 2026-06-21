@@ -11,6 +11,10 @@ use serde::Serialize;
 use crate::error::{AppError, AppResult};
 use crate::paths::WorkspacePaths;
 
+// Upload guards against a hostile or runaway tar.gz ("tar bomb"): a cap on entry
+// count, on total extracted size, and on any single entry. They bound disk use even
+// though this is a trusted environment — a buggy client should not be able to fill the
+// volume with one request.
 const MAX_TAR_ENTRIES: usize = 50_000;
 const MAX_TAR_EXTRACTED_BYTES: u64 = 512 * 1024 * 1024;
 const MAX_TAR_ENTRY_BYTES: u64 = 256 * 1024 * 1024;
@@ -52,6 +56,10 @@ pub async fn mkdir(
   Ok(())
 }
 
+/// Report metadata for a path. Uses `symlink_metadata`, so the final component is NOT
+/// followed: a symlink is described as a symlink (kind `"symlink"`) rather than as its
+/// target. That lets callers see link structure; `open_read` below, by contrast, does
+/// follow links because it wants the bytes.
 pub async fn stat(ws: &WorkspacePaths, cwd: Option<&str>, path: &str) -> AppResult<FileStat> {
   let target = ws.resolve(cwd, path)?;
   let meta = tokio::fs::symlink_metadata(&target)
@@ -105,6 +113,10 @@ pub async fn open_read(
 }
 
 /// Unpack a gzipped tar into the workspace under `cwd`.
+///
+/// gzip inflate plus synchronous file writes are CPU/blocking work, so the whole unpack
+/// runs on `spawn_blocking` to keep it off the async runtime's worker threads. A join
+/// failure (panic in the blocking task) surfaces as a 500.
 pub async fn write_tar_gz(
   ws: &WorkspacePaths,
   cwd: Option<&str>,
@@ -117,6 +129,10 @@ pub async fn write_tar_gz(
     .map_err(|error| AppError::internal("join_error", error.to_string()))?
 }
 
+/// Stream the archive entry by entry, validating each against the path guard and the
+/// size/count caps before writing. Entries are read fully into memory one at a time
+/// (bounded by `MAX_TAR_ENTRY_BYTES`) rather than streamed to disk, which keeps the
+/// code simple at the cost of holding one entry's bytes transiently.
 fn unpack(ws: &WorkspacePaths, cwd: Option<&str>, body: &[u8]) -> AppResult<WriteResult> {
   let decoder = flate2::read::GzDecoder::new(body);
   let mut archive = tar::Archive::new(decoder);
@@ -145,12 +161,17 @@ fn unpack(ws: &WorkspacePaths, cwd: Option<&str>, body: &[u8]) -> AppResult<Writ
     let mode = entry.header().mode().unwrap_or(0o644);
     let entry_type = entry.header().entry_type();
     let is_dir = entry_type.is_dir();
+    // Each entry's path runs through the same lexical guard as every other file op, so a
+    // tar holding `../` or absolute paths cannot write outside the workspace.
     let target = ws.resolve(cwd, &relative)?;
 
     if is_dir {
       std::fs::create_dir_all(&target)?;
       continue;
     }
+    // Only directories and regular files are accepted. Symlink/hardlink/device entries
+    // are refused here: an archived symlink is the one way a tar could still smuggle an
+    // escape past the lexical check, so unpacking simply does not create them.
     if !entry_type.is_file() {
       return Err(AppError::bad_request(
         "unsafe_archive_entry",
@@ -170,6 +191,8 @@ fn unpack(ws: &WorkspacePaths, cwd: Option<&str>, body: &[u8]) -> AppResult<Writ
     entry
       .read_to_end(&mut data)
       .map_err(|error| AppError::bad_request("bad_archive", error.to_string()))?;
+    // `checked_add` guards the running total itself: a header claiming an absurd size
+    // cannot wrap the counter around and slip past the cap below.
     extracted_bytes = extracted_bytes
       .checked_add(data.len() as u64)
       .ok_or_else(|| {
@@ -221,6 +244,9 @@ fn mode_of(_meta: &std::fs::Metadata) -> u32 {
   0o644
 }
 
+/// Reapply the archive entry's stored permission bits after writing, so an executable
+/// packed by the client stays executable on disk. No-op off Unix, where mode bits do
+/// not carry the same meaning.
 #[cfg(unix)]
 fn set_mode(path: &std::path::Path, mode: u32) -> AppResult<()> {
   use std::os::unix::fs::PermissionsExt;

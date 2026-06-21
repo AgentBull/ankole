@@ -12,6 +12,7 @@ import { Spinner } from '@/uikit/components/spinner'
 import { TableCell, TableRow } from '@/uikit/components/table'
 import { ErrorAlert, SectionHeader, TableCard } from '../shared'
 
+/** Manages human principals that identity-provider setup and authorization checks refer to. */
 export function PeoplePage() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()

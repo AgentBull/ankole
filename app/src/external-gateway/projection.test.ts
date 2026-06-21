@@ -1,3 +1,9 @@
+// Direct tests for the latest-state projection sink (no runtime), against the
+// real database. They pin the mirror's contract: rooms and messages are keyed by
+// (room id, message id), repeated observations update in place (this is a
+// latest-state mirror, not an append/edit log), reactions survive a later message
+// re-projection, delete is a hard delete, a reaction on an unknown message is a
+// no-op, and the stored facts stay serializable JSON.
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test'
 import { and, eq, like } from 'drizzle-orm'
 import { loadTestEnvFiles } from '@/common/tests/load-test-env'
@@ -19,6 +25,9 @@ describe('DrizzleExternalGatewayProjectionSink', () => {
   it('dedupes rooms and messages by external room id and message id', async () => {
     const roomId = `${testPrefix}:feishu-group`
 
+    // Same room + message id observed twice via different threads/origins. Identity
+    // is (room, message) only, so these collapse to one row and the later text
+    // wins — the mirror holds latest-state, not one row per observation.
     await sink.projectMessage({
       room: room({ id: roomId, title: 'Feishu group' }),
       message: message({ id: 'shared-message', threadId: 'factory-a:thread-1', text: 'first observation' })
@@ -102,6 +111,8 @@ describe('DrizzleExternalGatewayProjectionSink', () => {
     expect(updated.updatedAt.getTime()).toBeGreaterThanOrEqual(inserted.updatedAt.getTime())
   })
 
+  // An empty-text message (e.g. an attachment-only or card-only post) is a real
+  // latest-state, so "" must be stored verbatim and not coerced to null/absent.
   it('preserves empty string text as a visible latest-state value', async () => {
     const threadId = 'external:empty:thread'
     const row = await sink.projectMessage({
@@ -135,6 +146,8 @@ describe('DrizzleExternalGatewayProjectionSink', () => {
     const roomId = `${testPrefix}:reaction-room`
     const threadId = 'external:reaction:thread'
 
+    // A reaction for a message that was never projected is a no-op (returns
+    // false): the sink will not conjure a placeholder row from a reaction alone.
     expect(await sink.projectReaction(reactionEvent({ roomId, threadId, messageId: 'missing-message' }))).toBe(false)
 
     await sink.projectMessage({
@@ -175,6 +188,9 @@ describe('DrizzleExternalGatewayProjectionSink', () => {
       }
     })
 
+    // Re-projecting the message (a fresh observation with new text) must refresh
+    // the message facts but NOT erase reactions — message updates and reaction
+    // events arrive through independent platform lifecycles for the same id.
     await sink.projectMessage({
       room: room({ id: roomId }),
       message: message({

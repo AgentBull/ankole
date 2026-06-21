@@ -18,7 +18,9 @@ const isUnderline = (fontStyle: number | undefined) =>
   // oxlint-disable-next-line eslint(no-bitwise)
   fontStyle && fontStyle & 4
 
-// Transform tokens to include pre-computed keys to avoid noArrayIndexKey lint
+// Tokens have no natural id, and the array index is the only stable identity here (token order is fixed
+// for a given snapshot). Precomputing the index-based key once keeps it out of the render JSX and
+// satisfies the noArrayIndexKey lint rule, which forbids passing a raw index as `key` inline.
 interface KeyedToken {
   token: ThemedToken
   key: string
@@ -37,7 +39,9 @@ const addKeysToTokens = (lines: ThemedToken[][]): KeyedLine[] =>
     }))
   }))
 
-// Token rendering component
+// Renders one highlighted token. Light-theme colors come from inline styles below; in dark mode the
+// className forces the CSS variables Shiki emits for its dark theme, so the same DOM serves both themes
+// without re-tokenizing. Bit-flag font styles are translated to real CSS here.
 const TokenSpan = ({ token }: { token: ThemedToken }) => (
   <span
     className="dark:!bg-[var(--shiki-dark-bg)] dark:!text-[var(--shiki-dark)]"
@@ -55,7 +59,9 @@ const TokenSpan = ({ token }: { token: ThemedToken }) => (
   </span>
 )
 
-// Line number styles using CSS counters
+// Line numbers are drawn entirely in CSS: a `line` counter incremented per row and rendered via a
+// `::before`. This keeps the numbers out of the DOM text, so selecting/copying the code does not also
+// copy the line numbers.
 const LINE_NUMBER_CLASSES = cn(
   'block',
   'before:content-[counter(line)]',
@@ -69,7 +75,8 @@ const LINE_NUMBER_CLASSES = cn(
   'before:select-none'
 )
 
-// Line rendering component
+// Renders one source line. An empty line carries no tokens, so a literal newline is emitted to give the
+// row height and to keep the CSS line counter advancing for blank lines.
 const LineSpan = ({ keyedLine, showLineNumbers }: { keyedLine: KeyedLine; showLineNumbers: boolean }) => (
   <span className={showLineNumbers ? LINE_NUMBER_CLASSES : 'block'}>
     {keyedLine.tokens.length === 0
@@ -100,21 +107,33 @@ const CodeBlockContext = createContext<CodeBlockContextType>({
   code: ''
 })
 
-// Highlighter cache (singleton per language)
+// All three caches are module-level (not per-component) on purpose: many code blocks render the same
+// snippets and languages across the app, and Shiki highlighters are expensive to create. Sharing them
+// process-wide means a given language is loaded once and a given snippet is tokenized once.
+
+// One in-flight/loaded highlighter promise per language. Keyed by language so the WASM + grammar load
+// happens a single time even if several blocks of that language mount together.
 const highlighterCache = new Map<string, Promise<HighlighterGeneric<BundledLanguage, BundledTheme>>>()
 
-// Token cache
+// Finished tokenization keyed by (language + content fingerprint); lets later renders of the same code
+// return synchronously with no flash.
 const tokensCache = new Map<string, TokenizedCode>()
 
-// Subscribers for async token updates
+// Components waiting on an async tokenization that is still running. When the highlight finishes, every
+// subscriber for that key is notified, so concurrent blocks of the same snippet share one highlight pass.
 const subscribers = new Map<string, Set<(result: TokenizedCode) => void>>()
 
+// Fingerprints the snippet without hashing the whole thing: length plus the first and last 100 chars.
+// Cheap to compute and collision-safe enough for cache identity here (a real collision would only reuse
+// highlighting for two snippets that share length and both ends, which is vanishingly unlikely).
 const getTokensCacheKey = (code: string, language: BundledLanguage) => {
   const start = code.slice(0, 100)
   const end = code.length > 100 ? code.slice(-100) : ''
   return `${language}:${code.length}:${start}:${end}`
 }
 
+// Returns the shared highlighter promise for a language, creating it on first request. The promise (not
+// the resolved highlighter) is cached so simultaneous callers all await the same single load.
 const getHighlighter = (language: BundledLanguage): Promise<HighlighterGeneric<BundledLanguage, BundledTheme>> => {
   const cached = highlighterCache.get(language)
   if (cached) {
@@ -130,7 +149,9 @@ const getHighlighter = (language: BundledLanguage): Promise<HighlighterGeneric<B
   return highlighterPromise
 }
 
-// Create raw tokens for immediate display while highlighting loads
+// Builds plain (uncolored) tokens straight from the text so the code shows instantly on first paint.
+// These are swapped for real Shiki tokens once the async highlight resolves, avoiding a blank gap while
+// the highlighter loads.
 const createRawTokens = (code: string): TokenizedCode => ({
   bg: 'transparent',
   fg: 'inherit',
@@ -146,7 +167,16 @@ const createRawTokens = (code: string): TokenizedCode => ({
   )
 })
 
-// Synchronous highlight with callback for async results
+/**
+ * Highlights a snippet with a deliberately hybrid sync/async contract:
+ * - If the result is already cached, it is returned immediately (synchronous fast path).
+ * - Otherwise `null` is returned now, the highlight is kicked off in the background, and the optional
+ *   `callback` is invoked with the tokens once they are ready.
+ *
+ * This shape lets the React component render cached snippets with no effect/setState round-trip while
+ * still updating uncached ones when highlighting finishes. The callback is intentionally used instead of
+ * returning a promise so the synchronous cache hit and the async path share one call site.
+ */
 export const highlightCode = (
   code: string,
   language: BundledLanguage,
@@ -155,13 +185,14 @@ export const highlightCode = (
 ): TokenizedCode | null => {
   const tokensCacheKey = getTokensCacheKey(code, language)
 
-  // Return cached result if available
+  // Fast path: already tokenized, hand it back synchronously.
   const cached = tokensCache.get(tokensCacheKey)
   if (cached) {
     return cached
   }
 
-  // Subscribe callback if provided
+  // Register this caller's callback against the key so it is notified when the in-flight (or about to
+  // start) highlight for the same snippet resolves. Multiple callers coalesce onto one highlight pass.
   if (callback) {
     if (!subscribers.has(tokensCacheKey)) {
       subscribers.set(tokensCacheKey, new Set())
@@ -169,10 +200,13 @@ export const highlightCode = (
     subscribers.get(tokensCacheKey)?.add(callback)
   }
 
-  // Start highlighting in background - fire-and-forget async pattern
+  // Fire-and-forget: the async highlight runs detached and reports back through subscribers, not through
+  // this call's return value (which is `null` here, signalling "not ready yet").
   getHighlighter(language)
     // oxlint-disable-next-line eslint-plugin-promise(prefer-await-to-then)
     .then(highlighter => {
+      // Guard against a language that failed to load (or an alias the grammar set does not expose): fall
+      // back to plain `text` so highlighting degrades to uncolored rather than throwing.
       const availableLangs = highlighter.getLoadedLanguages()
       const langToUse = availableLangs.includes(language) ? language : 'text'
 
@@ -190,10 +224,9 @@ export const highlightCode = (
         tokens: result.tokens
       }
 
-      // Cache the result
+      // Store for the next render, then flush and clear the waiting callbacks for this key in one pass.
       tokensCache.set(tokensCacheKey, tokenized)
 
-      // Notify all subscribers
       const subs = subscribers.get(tokensCacheKey)
       if (subs) {
         for (const sub of subs) {
@@ -204,6 +237,8 @@ export const highlightCode = (
     })
     // oxlint-disable-next-line eslint-plugin-promise(prefer-await-to-then), eslint-plugin-promise(prefer-await-to-callbacks)
     .catch(error => {
+      // On failure, drop the subscriber set so callers fall back to the raw tokens they already rendered;
+      // nothing is cached, so a later mount may retry the highlight.
       console.error('Failed to highlight code:', error)
       subscribers.delete(tokensCacheKey)
     })
@@ -211,6 +246,9 @@ export const highlightCode = (
   return null
 }
 
+// Renders the highlighted <pre>/<code>. Memoized with an explicit comparator (see below) because
+// tokenizing produces a fresh object only when the code actually changes; comparing by reference avoids
+// re-rendering every keystroke when a parent re-renders but the tokens are identical.
 const CodeBlockBody = memo(
   ({
     tokenized,
@@ -251,6 +289,8 @@ const CodeBlockBody = memo(
 
 CodeBlockBody.displayName = 'CodeBlockBody'
 
+/** Outer frame of a code block (border, background, language data attribute). Hosts the optional header
+ * via children and the highlighted content. */
 export const CodeBlockContainer = ({
   className,
   language,
@@ -260,6 +300,9 @@ export const CodeBlockContainer = ({
   <div
     className={cn('group relative w-full overflow-hidden rounded-md border bg-background text-foreground', className)}
     data-language={language}
+    // `content-visibility: auto` lets the browser skip layout/paint for off-screen blocks; the
+    // intrinsic-size hint reserves ~200px so scrollbars and scroll position stay stable before a block
+    // is rendered. Matters in long transcripts full of code blocks.
     style={{
       containIntrinsicSize: 'auto 200px',
       contentVisibility: 'auto',
@@ -269,6 +312,7 @@ export const CodeBlockContainer = ({
   />
 )
 
+/** Optional top bar of a code block, e.g. filename on the left and copy/language controls on the right. */
 export const CodeBlockHeader = ({ children, className, ...props }: HTMLAttributes<HTMLDivElement>) => (
   <div
     className={cn(
@@ -280,24 +324,32 @@ export const CodeBlockHeader = ({ children, className, ...props }: HTMLAttribute
   </div>
 )
 
+/** Left side of the header that groups the title/filename. */
 export const CodeBlockTitle = ({ children, className, ...props }: HTMLAttributes<HTMLDivElement>) => (
   <div className={cn('flex items-center gap-2', className)} {...props}>
     {children}
   </div>
 )
 
+/** Monospace filename label for the header. */
 export const CodeBlockFilename = ({ children, className, ...props }: HTMLAttributes<HTMLSpanElement>) => (
   <span className={cn('font-mono', className)} {...props}>
     {children}
   </span>
 )
 
+/** Right side of the header that groups action controls (copy button, language selector). */
 export const CodeBlockActions = ({ children, className, ...props }: HTMLAttributes<HTMLDivElement>) => (
   <div className={cn('-my-1 -mr-1 flex items-center gap-2', className)} {...props}>
     {children}
   </div>
 )
 
+/**
+ * Resolves the best available tokens for a snippet and renders them, upgrading from raw → cached →
+ * freshly-highlighted as each becomes available. Built so a cached snippet paints fully highlighted on
+ * the first render with no effect-driven flash, while an uncached one starts raw and fills in.
+ */
 export const CodeBlockContent = ({
   code,
   language,
@@ -307,23 +359,27 @@ export const CodeBlockContent = ({
   language: BundledLanguage
   showLineNumbers?: boolean
 }) => {
-  // Memoized raw tokens for immediate display
+  // Plain tokens, recomputed only when the code changes; the always-available baseline.
   const rawTokens = useMemo(() => createRawTokens(code), [code])
 
-  // Synchronous cache lookup — avoids setState in effect for cached results
+  // Synchronous cache hit (if any) on this very render; falls back to raw. Using the cache here instead
+  // of an effect means previously-seen snippets render highlighted immediately, not one frame later.
   const syncTokens = useMemo(() => highlightCode(code, language) ?? rawTokens, [code, language, rawTokens])
 
-  // Async highlighting result (populated after shiki loads)
+  // Highlight that arrives later, once Shiki has loaded for an uncached snippet.
   const [asyncTokens, setAsyncTokens] = useState<TokenizedCode | null>(null)
   const asyncKeyRef = useRef({ code, language })
 
-  // Invalidate stale async tokens synchronously during render
+  // When the code/language changes, the previous async result is stale. Clearing it during render (not in
+  // an effect) prevents a flash where the new code is briefly shown with the old snippet's colors.
   if (asyncKeyRef.current.code !== code || asyncKeyRef.current.language !== language) {
     asyncKeyRef.current = { code, language }
     setAsyncTokens(null)
   }
 
   useEffect(() => {
+    // `cancelled` drops a late callback that resolves after the code/language changed or the block
+    // unmounted, so we never setState with tokens for a snippet we no longer show.
     let cancelled = false
 
     highlightCode(code, language, result => {
@@ -337,6 +393,7 @@ export const CodeBlockContent = ({
     }
   }, [code, language])
 
+  // Prefer the freshly highlighted tokens; otherwise the synchronous (cached or raw) ones.
   const tokenized = asyncTokens ?? syncTokens
 
   return (
@@ -346,6 +403,8 @@ export const CodeBlockContent = ({
   )
 }
 
+/** Top-level code block: frame + highlighted content, with the raw `code` exposed through context so a
+ * nested copy button can read it without prop drilling. `children` slot in the optional header. */
 export const CodeBlock = ({
   code,
   language,
@@ -372,6 +431,8 @@ export type CodeBlockCopyButtonProps = ComponentProps<typeof Button> & {
   timeout?: number
 }
 
+/** Copy-to-clipboard button for the enclosing code block; reads the code from context and briefly shows a
+ * check icon after a successful copy. */
 export const CodeBlockCopyButton = ({
   onCopy,
   onError,
@@ -385,16 +446,20 @@ export const CodeBlockCopyButton = ({
   const { code } = useContext(CodeBlockContext)
 
   const copyToClipboard = useCallback(async () => {
+    // Bail out (and report) when there is no Clipboard API: SSR, or a non-secure context where
+    // `navigator.clipboard` is unavailable.
     if (typeof window === 'undefined' || !navigator?.clipboard?.writeText) {
       onError?.(new Error('Clipboard API not available'))
       return
     }
 
     try {
+      // Ignore repeat clicks while the "copied" state is still showing, so the reset timer is not stacked.
       if (!isCopied) {
         await navigator.clipboard.writeText(code)
         setIsCopied(true)
         onCopy?.()
+        // Flip the icon back to "copy" after the timeout.
         timeoutRef.current = window.setTimeout(() => setIsCopied(false), timeout)
       }
     } catch (error) {
@@ -402,6 +467,7 @@ export const CodeBlockCopyButton = ({
     }
   }, [code, onCopy, onError, timeout, isCopied])
 
+  // Clear a pending reset timer on unmount so it cannot fire setState on a gone component.
   useEffect(
     () => () => {
       window.clearTimeout(timeoutRef.current)
@@ -420,6 +486,8 @@ export const CodeBlockCopyButton = ({
 
 export type CodeBlockLanguageSelectorProps = ComponentProps<typeof Select>
 
+/** Dropdown for switching the highlighting language of a code block. The pieces below are thin
+ * presentational wrappers over the shared Select primitives. */
 export const CodeBlockLanguageSelector = (props: CodeBlockLanguageSelectorProps) => <Select {...props} />
 
 export type CodeBlockLanguageSelectorTriggerProps = ComponentProps<typeof SelectTrigger>

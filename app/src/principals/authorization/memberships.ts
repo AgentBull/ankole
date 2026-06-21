@@ -47,6 +47,14 @@ export async function removePrincipalFromGroup(
 
   if (group.kind === 'computed') throw new PrincipalDomainError('computed_group')
 
+  // Removing the last admin would lock the whole installation out of the
+  // console, so admin-group removal runs under row locks inside a transaction.
+  // Without the locks, two concurrent removals could each read "one other admin
+  // still remains" against the same pre-delete state and both proceed, leaving
+  // zero admins. Locking the principal and group rows first serializes competing
+  // removals so the safety checks see a stable snapshot. The two checks are
+  // layered on purpose: first that some other member exists at all, then the
+  // stronger requirement that some other *active human* member exists.
   if (group.builtIn && group.name === ADMIN_GROUP_NAME) {
     return db.transaction(async tx => {
       const lockedPrincipal = await lockPrincipal(principal.uid, tx)

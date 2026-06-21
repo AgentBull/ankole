@@ -9,6 +9,12 @@ export interface SetupBootstrapResult {
   activationCode?: string
 }
 
+/**
+ * Creates the one-time bootstrap code used before the first admin login exists.
+ *
+ * The code is reset on every unfinished app start. That keeps stale terminal
+ * output from authorizing setup after an operator has restarted the process.
+ */
 export async function initializeSetupBootstrap(): Promise<SetupBootstrapResult> {
   const completed = (await appConfigService.get(SetupCompletedConfig)) === true
   if (completed) {
@@ -26,6 +32,9 @@ export async function initializeSetupBootstrap(): Promise<SetupBootstrapResult> 
   }
 }
 
+/**
+ * Generates a short human-copyable activation code for first-run setup.
+ */
 export function randomActivationCode(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(8))
   let code = ''

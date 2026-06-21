@@ -27,6 +27,11 @@ export class DuplicateExternalGatewayAdapterFactoryError extends Error {
   }
 }
 
+/**
+ * Process-wide registry of adapter factories by id. Populated as a side effect
+ * of plugin activation at startup and read by the runtime when it builds each
+ * agent's bindings; there is one shared map for the whole installation.
+ */
 const factories = new Map<string, ExternalGatewayAdapterFactory>()
 
 /**

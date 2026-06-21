@@ -5,8 +5,12 @@ import { cn } from '@/uikit/lib/utils'
 import { ChevronDownIcon, SearchIcon } from 'lucide-react'
 import type { ComponentProps } from 'react'
 
+// The Task family renders a collapsible "what the agent did" disclosure (e.g. a search/look-up step),
+// with a one-line trigger and an indented body of {@link TaskItem} lines. Used in the message stream.
+
 export type TaskItemFileProps = ComponentProps<'div'>
 
+/** Inline file pill (filename in a bordered chip) used inside a {@link TaskItem} to reference a file. */
 export const TaskItemFile = ({ children, className, ...props }: TaskItemFileProps) => (
   <div
     className={cn(
@@ -20,6 +24,7 @@ export const TaskItemFile = ({ children, className, ...props }: TaskItemFileProp
 
 export type TaskItemProps = ComponentProps<'div'>
 
+/** One line in the task body — a single step or note. */
 export const TaskItem = ({ children, className, ...props }: TaskItemProps) => (
   <div className={cn('text-muted-foreground text-sm', className)} {...props}>
     {children}
@@ -28,6 +33,7 @@ export const TaskItem = ({ children, className, ...props }: TaskItemProps) => (
 
 export type TaskProps = ComponentProps<typeof Collapsible>
 
+/** Root collapsible for a task block. Open by default so the steps are visible without a click. */
 export const Task = ({ defaultOpen = true, className, ...props }: TaskProps) => (
   <Collapsible className={cn(className)} defaultOpen={defaultOpen} {...props} />
 )
@@ -36,6 +42,7 @@ export type TaskTriggerProps = ComponentProps<typeof CollapsibleTrigger> & {
   title: string
 }
 
+/** Clickable summary row showing the task `title`; falls back to a default search-icon layout. */
 export const TaskTrigger = ({ children, className, title, ...props }: TaskTriggerProps) => (
   <CollapsibleTrigger className={cn('group', className)} {...props}>
     {children ?? (
@@ -50,6 +57,7 @@ export const TaskTrigger = ({ children, className, title, ...props }: TaskTrigge
 
 export type TaskContentProps = ComponentProps<typeof CollapsibleContent>
 
+/** Animated, left-bordered body holding the task's {@link TaskItem} steps. */
 export const TaskContent = ({ children, className, ...props }: TaskContentProps) => (
   <CollapsibleContent
     className={cn(

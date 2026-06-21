@@ -16,6 +16,13 @@ export interface PluginCatalog {
   overrides: PluginEnabledOverrides
 }
 
+/**
+ * Loads the operator-facing plugin catalog with effective enablement state.
+ *
+ * This intentionally reuses runtime registry validation so setup/console show
+ * the same duplicate-id and adapter-collision failures that process startup
+ * would hit.
+ */
 export async function loadPluginCatalog(): Promise<PluginCatalog> {
   const { plugins, autoEnabledPluginIds } = await discoverLocalPluginsDetailed()
   const registry = buildPluginRegistry(plugins)

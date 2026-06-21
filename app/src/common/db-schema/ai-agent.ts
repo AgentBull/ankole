@@ -2,6 +2,13 @@ import { sql } from 'drizzle-orm'
 import { check, index, integer, jsonb, numeric, pgTable, text, timestamp, uniqueIndex, uuid } from 'drizzle-orm/pg-core'
 import { Agents, type JsonObject, type JsonValue } from './principals'
 
+/**
+ * Mutable generation lease state stored on the active conversation row.
+ *
+ * This is intentionally a compact JSON object instead of separate queue tables:
+ * the runtime needs one row-level lock that answers "is this conversation
+ * generating, cancelled, expired, or waiting on follow-up/steering input?"
+ */
 export type AiAgentConversationGeneration = JsonObject & {
   lease_id?: string
   trigger_message_id?: string
@@ -58,6 +65,15 @@ export type AiAgentMessageMetadata = JsonObject & {
   llm_turn_id?: string
 }
 
+/**
+ * Durable conversation identity and active generation state for one agent.
+ *
+ * `conversation_key` is the external/session key scoped by agent. Only one
+ * active row may exist for a key; ending a conversation closes that row and lets
+ * a later reset start a fresh conversation without rewriting old transcript
+ * history. The `generation` JSON column is the lifecycle lease the runtime uses
+ * to fence concurrent runs.
+ */
 export const AiAgentConversations = pgTable(
   'ai_agent_conversations',
   {
@@ -87,6 +103,14 @@ export const AiAgentConversations = pgTable(
   ]
 )
 
+/**
+ * Ordered transcript rows consumed by prompt rendering and lifecycle lookups.
+ *
+ * This table is more than chat history: lifecycle handlers use
+ * `metadata.provider_refs.message_ids` to find the user row affected by a
+ * provider recall/delete, summaries cover older message ranges, and assistant
+ * rows carry outbound/projection metadata needed by External Gateway.
+ */
 export const AiAgentMessages = pgTable(
   'ai_agent_messages',
   {
@@ -135,6 +159,14 @@ export const AiAgentMessages = pgTable(
   ]
 )
 
+/**
+ * Per-provider-call trace rows for replay, debugging, and branch accounting.
+ *
+ * A single assistant generation may make several provider calls because tools,
+ * retries, overflow recovery, or compression can split the work. `lease_id` plus
+ * `call_index` records that sequence without duplicating the full transcript in
+ * every row.
+ */
 export const AiAgentLlmTurns = pgTable(
   'ai_agent_llm_turns',
   {

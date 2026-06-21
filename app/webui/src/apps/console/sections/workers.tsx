@@ -13,6 +13,7 @@ import { TableCell, TableRow } from '@/uikit/components/table'
 import { formatDate, useAgentsQuery } from '../helpers'
 import { AgentSelector, ErrorAlert, SectionHeader, TableCard } from '../shared'
 
+/** Shows computer-worker liveness and lets operators pin an agent to a specific worker. */
 export function WorkersPage() {
   const { t } = useTranslation()
   const agents = useAgentsQuery()

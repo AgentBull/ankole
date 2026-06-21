@@ -16,6 +16,20 @@ export interface SealedCookieCodec {
   read<TPayload extends { expiresAt: number }>(value: string): TPayload | undefined
 }
 
+/**
+ * Builds a codec bound to one `(purpose, context)` key domain.
+ *
+ * Confidentiality and integrity come from the AEAD seal: the client never sees
+ * the plaintext and cannot forge or edit a cookie without the server key, so
+ * the payload is fully server-trusted on read. The only protections this layer
+ * adds on top are the `expiresAt` bound below and key-domain isolation (a cookie
+ * sealed for one surface fails to unseal for another, because the derived key
+ * differs).
+ *
+ * The key is fetched per call via `key()` rather than captured once, so a
+ * mid-process root-secret rotation takes effect for new operations without
+ * re-creating the codec.
+ */
 export function createSealedCookieCodec(purpose: SecretKeyPurpose, context: string): SealedCookieCodec {
   const key = () => getSecretKey(purpose, context)
   return {
@@ -25,10 +39,18 @@ export function createSealedCookieCodec(purpose: SecretKeyPurpose, context: stri
     read<TPayload extends { expiresAt: number }>(value: string): TPayload | undefined {
       try {
         const payload = unsealJson<TPayload>(value, key())
+        // Self-expiry: the seal proves authenticity but not freshness, so a
+        // valid-but-old cookie is still rejected. This is the only replay bound —
+        // there is no server-side nonce store, so a captured cookie remains
+        // usable until `expiresAt`. Kept short upstream to limit that window.
         if (payload.expiresAt < Date.now()) return undefined
 
         return payload
       } catch {
+        // Any failure — wrong key (e.g. after rotation or wrong purpose),
+        // malformed framing, or a failed auth tag — is treated as "no valid
+        // cookie" rather than an error, so a tampered or stale value just logs
+        // the user out instead of breaking the request.
         return undefined
       }
     }

@@ -10,12 +10,25 @@ import { resolveIdentityProviderPublicBaseUrl } from '@/principals/admin-auth/oi
 import { ActiveIdentityProvidersConfig, identityProviderConfigKey } from './config'
 import { createNoopIdentityProviderSyncSink } from './noop-sync-sink'
 
+/**
+ * A plugin-advertised identity-provider adapter that is currently usable.
+ *
+ * `pluginId` is kept alongside the adapter `id` so the admin UI can show which
+ * plugin an adapter came from, and so disabling a plugin removes its adapters.
+ */
 export interface IdentityProviderAdapterDescriptor {
   id: string
   pluginId: string
   setup?: BullXIdentityProviderAdapterSetup
 }
 
+/**
+ * Lists adapters contributed by plugins that are enabled right now.
+ *
+ * Adapters live inside plugins, so the effective set is "adapters of enabled
+ * plugins" rather than a static registry. A plugin that ships an adapter but is
+ * disabled contributes nothing here.
+ */
 export async function listEnabledIdentityProviderAdapters(): Promise<IdentityProviderAdapterDescriptor[]> {
   const catalog = await loadPluginCatalog()
   const enabled = new Set(catalog.enabledPluginIds)
@@ -36,6 +49,13 @@ export async function listEnabledIdentityProviderAdapters(): Promise<IdentityPro
   return adapters
 }
 
+/**
+ * Resolves the adapter factory for an id, but only across enabled plugins.
+ *
+ * Throws when the id belongs to a disabled or absent plugin. Enablement is
+ * re-checked here (not cached) so an adapter that was turned off after activation
+ * cannot still be instantiated.
+ */
 export async function getEnabledIdentityProviderAdapter(
   adapterId: string
 ): Promise<BullXIdentityProviderAdapterFactory> {
@@ -65,12 +85,19 @@ export async function createOidcLoginAdapter(providerId: string, request: Reques
 
   const factory = await getEnabledIdentityProviderAdapter(active.adapter)
   const config = await appConfigService.getByKey(identityProviderConfigKey(providerId))
+  // Derive the redirect base from the incoming request rather than a fixed
+  // setting so login works behind whatever host/proxy the admin reached.
   const publicBaseUrl = await resolveIdentityProviderPublicBaseUrl(request)
   const adapter = await factory.create({
     providerId,
+    // Hand the plugin its own copy so adapter code cannot mutate the cached,
+    // decrypted app-config value held by the host.
     config: clonePluginJsonValue(config),
     publicBaseUrl,
     isProduction: AppEnv.IS_PRODUCTION,
+    // This is a short-lived adapter built only to drive one OIDC exchange. The
+    // real sync transport belongs to the long-running runtime, so any sync
+    // callbacks fired during login are dropped instead of writing Principals.
     syncSink: createNoopIdentityProviderSyncSink()
   })
 

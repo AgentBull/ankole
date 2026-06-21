@@ -23,8 +23,12 @@ async function loadTestEnvFile(path: string): Promise<void> {
 
     const name = trimmed.slice(0, separatorIndex).trim()
     const rawValue = trimmed.slice(separatorIndex + 1).trim()
+    // Never clobber a value already in the environment: anything set by the shell
+    // or an earlier file in the list takes precedence over these dev defaults.
     if (!name || Bun.env[name] !== undefined) continue
 
+    // Strip a single matching pair of surrounding quotes (so `K="v"` yields `v`),
+    // leaving inner quotes untouched.
     Bun.env[name] = rawValue.replace(/^(['"])(.*)\1$/, '$2')
   }
 }

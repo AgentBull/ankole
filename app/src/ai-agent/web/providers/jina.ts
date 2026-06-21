@@ -9,6 +9,12 @@ interface JinaResponse {
   data?: { title?: string; url?: string; content?: string }
 }
 
+/**
+ * Extracts one URL via Jina Reader. The Bearer key is attached only when present
+ * so the keyless (lower-rate-limit) path still works. Catches any failure and
+ * returns it as the per-URL `error` field instead of throwing, so one bad URL in
+ * a batch does not fail the others (see `extract` fan-out below).
+ */
 async function fetchOne(url: string, key: string | undefined, signal?: AbortSignal): Promise<WebExtractResult> {
   const headers: Record<string, string> = { 'content-type': 'application/json', accept: 'application/json' }
   if (key) headers.authorization = `Bearer ${key}`
@@ -37,6 +43,10 @@ export const jinaProvider: WebProvider = {
   },
   async extract(args: WebExtractArgs, signal?: AbortSignal): Promise<WebExtractResult[]> {
     const key = await appConfigService.get(WebJinaApiKey)
+    // Unbounded fan-out is fine here (unlike webfetch): every request goes to
+    // Jina's own gateway, not to the target sites, so there is no third-party host
+    // to overwhelm — only Jina's own rate limit, which the key/keyless tier sets.
+    // The caller already caps `urls` at 5 (web_extract tool schema).
     return Promise.all(args.urls.map(url => fetchOne(url, key, signal)))
   }
 }

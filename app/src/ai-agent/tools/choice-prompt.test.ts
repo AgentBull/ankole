@@ -3,6 +3,8 @@ import { bullxInteractiveOutputActionValueVersion } from '@agentbull/bullx-sdk/p
 import { parseClarifyAnswerValue, renderClarifyChoicePrompt } from './choice-prompt'
 import { mapAnswer, renderClarifyPrompt } from './clarify-format'
 
+// The plain-text path (channels with no card): a numbered prompt out, and a
+// reply mapped by number / exact option text / free text.
 describe('plain-text clarify fallback', () => {
   it('renders choices for chat replies and maps number, option text, and free text answers', () => {
     const prompt = renderClarifyPrompt('Pick one', ['Apple', 'Banana'])
@@ -63,6 +65,9 @@ describe('renderClarifyChoicePrompt', () => {
   })
 })
 
+// The back-channel guard: only a well-formed clarify action (right version +
+// controlId) is accepted; junk, the wrong shape, and other controls are rejected
+// so a stray card click is never mistaken for a clarify answer.
 describe('parseClarifyAnswerValue', () => {
   it('accepts only BullX clarify action values from card buttons', () => {
     const value = JSON.stringify({

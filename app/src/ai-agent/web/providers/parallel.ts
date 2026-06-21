@@ -13,6 +13,11 @@ async function apiKey(): Promise<string | undefined> {
   return appConfigService.get(WebParallelApiKey)
 }
 
+/**
+ * Parallel.ai adapter — search only. Auth is the `x-api-key` header; with no key
+ * the provider reports unavailable so the registry skips it on fallback. Serves as
+ * the second-choice built-in search backend after exa.
+ */
 export const parallelProvider: WebProvider = {
   id: 'parallel',
   supports: ['search'],
@@ -28,12 +33,17 @@ export const parallelProvider: WebProvider = {
       throw new WebProviderError('parallel api key not configured', { retryable: false, providerId: 'parallel' })
     }
     const limit = args.limit ?? 5
+    // Parallel's API splits intent into a natural-language `objective` and a list of
+    // concrete `search_queries`. We have only the one query, so it fills both: the
+    // objective gives the ranker context, the queries array drives the actual search.
     const data = await requestJson<ParallelResponse>('parallel', SEARCH_URL, {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-api-key': key },
       body: JSON.stringify({ objective: args.query, search_queries: [args.query], max_results: limit }),
       signal
     })
+    // Join the per-hit `excerpts` into one snippet to fit the normalized shape;
+    // `slice(limit)` re-caps in case the API returns more than requested.
     return (data.results ?? []).slice(0, limit).map(result => ({
       title: result.title ?? '',
       url: result.url ?? '',

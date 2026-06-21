@@ -21,7 +21,14 @@ export function createUserMessage(
   }
 }
 
-/** Extract concatenated visible text from any agent message (used to derive outbound chat text). */
+/**
+ * Extract concatenated visible text from any agent message (used to derive outbound chat text).
+ *
+ * Pulls only `text` blocks and drops everything else: tool calls, images, and (for assistants)
+ * thinking blocks never reach the chat surface. Each role is handled separately because their content
+ * shapes differ — `user`/`custom` can hold a bare string, `compactionSummary` carries its text in a
+ * `summary` field. Unknown roles return '' so a new message type can never leak a raw object into chat.
+ */
 export function textFromAgentMessage(message: AgentMessage): string {
   switch (message.role) {
     case 'assistant':

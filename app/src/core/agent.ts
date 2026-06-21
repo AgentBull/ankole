@@ -170,6 +170,10 @@ function registerShutdownHandler(signal: NodeJS.Signals, state: ProcessShutdownS
   })
 }
 
+/**
+ * Stores shutdown state on `globalThis` so Bun hot reload does not register
+ * duplicate signal handlers in the same process.
+ */
 function getProcessShutdownState(): ProcessShutdownState {
   const globalScope = globalThis as typeof globalThis & {
     [processShutdownStateKey]?: ProcessShutdownState
@@ -181,6 +185,9 @@ function getProcessShutdownState(): ProcessShutdownState {
   })
 }
 
+/**
+ * Converts POSIX termination signals into conventional shell exit codes.
+ */
 function exitCodeForShutdown(signal: NodeJS.Signals | undefined): number {
   if (!signal) return 0
   const signalNumbers: Partial<Record<NodeJS.Signals, number>> = {
@@ -190,6 +197,9 @@ function exitCodeForShutdown(signal: NodeJS.Signals | undefined): number {
   return 128 + (signalNumbers[signal] ?? 0)
 }
 
+/**
+ * Captures low-cost process context for shutdown logs.
+ */
 function shutdownSnapshot() {
   return {
     pid: process.pid,

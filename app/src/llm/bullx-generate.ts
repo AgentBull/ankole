@@ -9,6 +9,7 @@ import {
   toBullXUsage
 } from './bullx-ai-sdk'
 
+/** Runs a non-streaming BullX LLM call through the AI SDK and returns the durable assistant message shape. */
 export async function generateBullXText(
   model: Model<any>,
   context: Context,

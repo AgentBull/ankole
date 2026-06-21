@@ -107,7 +107,10 @@ export interface OpenAICompatibleProviderSettings {
 }
 
 /**
- * Create an OpenAICompatible provider instance.
+ * Creates an OpenAI-compatible provider instance for configurable third-party LLM backends.
+ *
+ * BullX uses this for providers such as OpenRouter, xAI, Groq, and user-entered
+ * compatible endpoints, so this factory is part of the core model-routing path.
  */
 export function createOpenAICompatible<
   CHAT_MODEL_IDS extends string,

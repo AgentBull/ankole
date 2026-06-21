@@ -1,3 +1,7 @@
+// Covers the Agent run-failure path: when a lifecycle hook throws a wrapped Drizzle/Postgres error,
+// `handleRunFailure` must flatten the whole cause chain — including the PG constraint/detail fields that
+// never live on `.message` — into the surfaced assistant `errorMessage` so the failure is diagnosable.
+
 import { describe, expect, it } from 'bun:test'
 import type { Model } from '@/llm'
 import { Agent } from './agent'
@@ -23,6 +27,8 @@ describe('Agent', () => {
       detail: 'Key (conversation_id, lease_id, call_index) already exists.'
     })
     const error = Object.assign(new Error('Failed query: insert into "ai_agent_llm_turns" ...'), { cause })
+    // Throwing from beforeLlmCall is a convenient stand-in for any hook that breaks its no-throw
+    // contract: it drives the loop into runWithLifecycle's catch, which synthesizes the assistant below.
     const agent = new Agent({
       initialState: {
         model: TEST_MODEL,
@@ -36,6 +42,7 @@ describe('Agent', () => {
 
     await agent.continue()
 
+    // The last message is the failure assistant produced by handleRunFailure, not a model response.
     const assistant = agent.state.messages.at(-1)
     expect(assistant?.role).toBe('assistant')
     if (assistant?.role !== 'assistant') throw new Error('expected assistant message')

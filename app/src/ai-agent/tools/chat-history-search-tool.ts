@@ -9,6 +9,11 @@ const ChatHistorySearchParams = z.object({
   limit: z.number().int().min(1).max(20).describe('Maximum number of recalled anchors to return.').optional()
 })
 
+/**
+ * Structured echo of the recall query. `available` is false when the recall
+ * subsystem could not run at all; `degradedReasons` reports a partial answer
+ * (e.g. one source unreachable). Surfaced for logs/UI, not shown to the model.
+ */
 export interface ChatHistorySearchDetails {
   available: boolean
   degradedReasons?: string[]
@@ -16,6 +21,17 @@ export interface ChatHistorySearchDetails {
   unavailableReasons?: string[]
 }
 
+/**
+ * Builds the `chat_history_search` tool: lets the agent recall what was said in
+ * earlier external chats (DM or group) that this user and agent can both see.
+ *
+ * The long description is deliberately prescriptive — it steers routing: try
+ * chat recall first for "what did we say / agree / decide" questions, and when
+ * repeated searches turn up nothing, report that rather than escalating to web
+ * or workspace tools. That keeps the agent from leaking a private question to
+ * the open web. The `binding` scopes the search to the current
+ * requester/room/conversation so recall respects who is allowed to see what.
+ */
 export function createChatHistorySearchTool(
   binding: ClarifyRunBinding
 ): AgentTool<typeof ChatHistorySearchParams, ChatHistorySearchDetails> {
@@ -29,6 +45,8 @@ export function createChatHistorySearchTool(
     isReadOnly: true,
     isDestructive: false,
     async execute(_toolCallId, params): Promise<AgentToolResult<ChatHistorySearchDetails>> {
+      // The current conversation is excluded so recall surfaces *prior* context,
+      // not the live thread the agent is already reading.
       const result = await searchChatHistory({
         agentUid: binding.agentUid,
         currentRoomId: binding.providerRoomId,

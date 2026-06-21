@@ -10,13 +10,17 @@ export interface ApiErrorInit {
 
 export class ApiError extends Error {
   readonly status: number
+  /** Stable machine code callers branch on; defaults to `api_error` when the response gave none. */
   readonly code: string
   readonly method: string
   readonly url: string
+  /** Parsed error payload when available (JSON object or raw text); kept for diagnostics. */
   readonly body?: unknown
 
   constructor(init: ApiErrorInit) {
     super(init.message)
+    // Set explicitly because subclassing Error loses the constructor name through
+    // transpilation; callers and logs rely on `name === 'ApiError'`.
     this.name = 'ApiError'
     this.status = init.status
     this.code = init.code ?? 'api_error'

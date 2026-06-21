@@ -1,3 +1,20 @@
+/**
+ * The agent library: per-installation storage for souls, missions, and skills, and
+ * the logic that turns them into what a given agent actually sees at runtime.
+ *
+ * Two layers live here. Built-in skills are vendored on disk (app + the optional
+ * `internals` submodule) and synced into Postgres as the canonical catalog; this is
+ * a source-of-truth import, so a sync makes the database match the files exactly,
+ * archiving anything that disappeared. On top of that sit per-agent overlays —
+ * each agent can enable/disable individual catalog skills and attach an
+ * `AGENT_APPEND.md` that customizes a shared skill without forking it. "Effective"
+ * in the function names means the catalog *after* an agent's overlay is applied:
+ * that is the view the system prompt and the `skill_view` tool consume.
+ *
+ * Souls and missions are stored as agent library-container entries (versioned text
+ * rows) so they can be edited via API and projected onto the worker's virtual
+ * filesystem alongside skill files.
+ */
 import { genUUIDv7, genericHash } from '@agentbull/bullx-native-addons'
 import { and, asc, eq, inArray, isNull, notInArray, sql } from 'drizzle-orm'
 import { readdir } from 'node:fs/promises'
@@ -21,13 +38,19 @@ import {
 } from './default-soul'
 import { auditSkillAppendContent, type SkillContentDiagnostic } from './skill-guard'
 
+// Identifies this sync's row in LibraryBuiltinSyncState; the content hash under it
+// lets a sync short-circuit when nothing on disk changed.
 const SYNC_KEY = 'app+internals/library/skills'
+// Reserved filenames within the virtual library namespace.
 const SKILL_FILE = 'SKILL.md'
 const AGENT_APPEND_FILE = 'AGENT_APPEND.md'
 const SOUL_FILE = 'SOUL.md'
 const MISSION_FILE = 'MISSION.md'
 const SKILL_SYNC_IGNORE_FILE = '.skill-sync-ignore'
 
+// Source roots scanned for built-in skills, in precedence order: a later root with
+// the same skill name overrides an earlier one (see readBuiltinSkillSources). This
+// lets the private `internals` skills shadow the open-source app defaults.
 const BUILTIN_SKILL_ROOTS = [
   { label: 'app', root: APP_SKILLS_ROOT },
   { label: 'internals', root: INTERNALS_SKILLS_ROOT }
@@ -48,6 +71,12 @@ export interface LibrarySkillDiagnostic {
   severity: 'error' | 'warning'
 }
 
+/**
+ * A catalog skill as it applies to one agent. `defaultEnabled` is the catalog
+ * default; `enabled` is the value after the agent's per-skill override, and is the
+ * one callers should act on. `hasAgentAppend` flags that an `AGENT_APPEND.md`
+ * customization exists for this agent without loading its contents.
+ */
 export interface EffectiveSkillSummary {
   id: string
   name: string
@@ -62,6 +91,12 @@ export interface EffectiveSkillSummary {
   hasAgentAppend: boolean
 }
 
+/**
+ * A resolved skill file plus its summary. `content` is what the model should read:
+ * for SKILL.md it is the base body with the agent append merged in, while
+ * `baseContent`/`appendContent` expose the two parts separately for callers that
+ * need them unmerged.
+ */
 export interface EffectiveSkillContent extends EffectiveSkillSummary {
   filePath: string
   content: string
@@ -85,10 +120,21 @@ interface BuiltinSkillSource {
   files: Array<{ virtualPath: string; content: string; sha: string }>
 }
 
+/**
+ * Imports the on-disk built-in skills into the database so it becomes the canonical
+ * catalog. Idempotent: a whole-catalog content hash is compared against the last
+ * recorded sync, and unless `force` is set an unchanged catalog returns early
+ * without touching any rows — this runs on boot, so the no-op path must be cheap.
+ *
+ * @param options.force - Re-applies the sync even when the content hash matches,
+ *   e.g. after a schema change that the hash would not reflect.
+ */
 export async function syncBuiltinLibraryFromAppDirectory(
   options: { force?: boolean } = {}
 ): Promise<LibrarySyncResult> {
   const { sources, diagnostics } = await readBuiltinSkillSources()
+  // Fingerprint covers every skill name and every file's content hash, so any
+  // added/removed/edited file flips it and forces a re-sync.
   const contentHash = stableHash(
     sources.flatMap(skill => [
       skill.name,
@@ -112,6 +158,11 @@ export async function syncBuiltinLibraryFromAppDirectory(
   }
 
   await DB.transaction(async tx => {
+    // First, retire built-in skills that no longer exist on disk by marking them
+    // archived+disabled rather than deleting — agent assignments and history keep
+    // referencing the row. The empty-list branch is split out because
+    // `notInArray(..., [])` is not a reliable "match everything" in SQL, so when
+    // every built-in skill was removed it archives them all explicitly.
     const seenNames = sources.map(skill => skill.name)
     if (seenNames.length > 0) {
       await tx
@@ -125,6 +176,9 @@ export async function syncBuiltinLibraryFromAppDirectory(
         .where(eq(LibrarySkills.sourceKind, 'builtin'))
     }
 
+    // Then upsert each present skill by its unique name, un-archiving it if it had
+    // been retired before. Keying on name (not the generated id) is what lets a
+    // re-appearing skill reclaim its existing row and keep its agent assignments.
     for (const source of sources) {
       const skillId = genUUIDv7()
       const [skill] = await tx
@@ -158,6 +212,9 @@ export async function syncBuiltinLibraryFromAppDirectory(
         })
         .returning()
 
+      // Replace the skill's files wholesale (delete then insert) rather than
+      // diffing them: a skill is a small bundle, and a full swap is simpler and
+      // cannot leave a stale file behind that a per-file upsert might miss.
       await tx.delete(LibrarySkillFiles).where(eq(LibrarySkillFiles.skillId, skill.id))
       if (source.files.length > 0) {
         await tx.insert(LibrarySkillFiles).values(
@@ -207,6 +264,11 @@ export async function syncBuiltinLibraryFromAppDirectory(
   }
 }
 
+/**
+ * Writes the installation default soul into a new agent's library as its starting
+ * persona. `sourceRef` records that it came from the app template (versus a later
+ * API edit), which is useful when auditing where an agent's persona originated.
+ */
 export async function seedDefaultSoulForAgent(agentUid: string, executor: QueryExecutor = DB): Promise<void> {
   const content = await loadDefaultSoulTemplate()
   await upsertAgentTextEntry(executor, {
@@ -218,6 +280,7 @@ export async function seedDefaultSoulForAgent(agentUid: string, executor: QueryE
   })
 }
 
+/** Seeds a new agent with the installation default mission, tagged as template-sourced. */
 export async function seedDefaultMissionForAgent(agentUid: string, executor: QueryExecutor = DB): Promise<void> {
   const content = await loadDefaultMissionTemplate()
   await upsertAgentTextEntry(executor, {
@@ -229,6 +292,7 @@ export async function seedDefaultMissionForAgent(agentUid: string, executor: Que
   })
 }
 
+/** Returns the agent's current soul text, or null when it has none set. */
 export async function getSoul(agentUid: string, executor: QueryExecutor = DB): Promise<string | null> {
   const [row] = await executor
     .select({ contentText: AgentLibraryContainerEntries.contentText })
@@ -238,6 +302,7 @@ export async function getSoul(agentUid: string, executor: QueryExecutor = DB): P
   return row?.contentText ?? null
 }
 
+/** Overwrites the agent's soul (API-sourced), bumping its entry version. */
 export async function setSoul(agentUid: string, content: string, executor: QueryExecutor = DB): Promise<void> {
   await upsertAgentTextEntry(executor, {
     agentUid,

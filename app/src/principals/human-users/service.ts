@@ -66,6 +66,13 @@ export async function getHumanUser(principalUid: string): Promise<HumanUser | un
   return humanUser
 }
 
+/**
+ * Trims and lowercases an email, validating a basic shape.
+ *
+ * Lowercasing is what makes the unique email index behave case-insensitively.
+ * Absent input stays null (email is optional); a present but malformed value is a
+ * domain error.
+ */
 export function normalizeEmail(value: string | null | undefined): string | null {
   const email = trimOptionalText(value)
   if (email === null) return null
@@ -78,6 +85,12 @@ export function normalizeEmail(value: string | null | undefined): string | null 
   return normalized
 }
 
+/**
+ * Requires a present phone to already be E.164 (e.g. `+15551234567`).
+ *
+ * BullX does not guess country codes; callers must normalize upstream. This only
+ * gatekeeps the stored format so the unique phone index stays meaningful.
+ */
 export function normalizePhone(value: string | null | undefined): string | null {
   const phone = trimOptionalText(value)
   if (phone === null) return null
@@ -131,8 +144,12 @@ export async function upsertHumanProfile(input: CreateHumanInput, db: QueryExecu
     return { principal, humanUser }
   }
 
+  // A uid already taken by an agent must not be silently converted to a human.
   if (existing.type !== 'human') throw new PrincipalDomainError('not_human')
 
+  // `sql`${col}`` writes the column back to itself, i.e. leaves it unchanged.
+  // This is the "field not present in this observation" case: undefined preserves
+  // the existing value, whereas null (via trimOptionalText) actively clears it.
   const [principal] = await db
     .update(Principals)
     .set({
@@ -144,6 +161,9 @@ export async function upsertHumanProfile(input: CreateHumanInput, db: QueryExecu
     .where(eq(Principals.uid, existing.uid))
     .returning()
 
+  // Insert-or-update rather than a plain update: the Principal can exist without a
+  // human_users row (e.g. created through a path that only wrote the subject), so
+  // this backfills the profile row on first sight and updates it thereafter.
   const [humanUser] = await db
     .insert(HumanUsers)
     .values({

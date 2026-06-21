@@ -42,6 +42,11 @@ struct SealedIdentity {
   sealed: String,
 }
 
+/// Provisions the shared Git SSH identity when the app has created one.
+///
+/// Missing identity is not fatal because early deployments may not need GitHub
+/// SSH access yet. Decode or write failures are fatal because they mean the
+/// worker has a broken secret boundary, not simply an optional feature absence.
 pub async fn provision_if_available(database_url: &str, computer_token: &str) -> Result<bool> {
   let Some(identity) = load_identity(database_url, computer_token).await? else {
     tracing::warn!(
@@ -54,6 +59,11 @@ pub async fn provision_if_available(database_url: &str, computer_token: &str) ->
   Ok(true)
 }
 
+/// Loads and unseals the Git SSH identity from app_configure.
+///
+/// The plaintext envelope is only a carrier for sealed bytes. The public key is
+/// duplicated outside the sealed blob so operators can publish it without
+/// unsealing private material.
 async fn load_identity(
   database_url: &str,
   computer_token: &str,
@@ -105,6 +115,10 @@ async fn load_identity(
   Ok(Some(identity))
 }
 
+/// Writes the identity and SSH host config to the worker filesystem.
+///
+/// Commands see this through system-directory bind mounts, which avoids copying
+/// private key material into every agent workspace.
 async fn write_identity(identity: &ComputerGitSshIdentity) -> Result<()> {
   let ssh_dir = env_path("BULLX_COMPUTER_GIT_SSH_DIR", DEFAULT_SSH_DIR);
   let private_key_path = ssh_dir.join("id_ed25519");
@@ -133,6 +147,7 @@ async fn write_identity(identity: &ComputerGitSshIdentity) -> Result<()> {
   Ok(())
 }
 
+/// Writes one identity/config file and then applies the intended POSIX mode.
 async fn write_file(path: &Path, content: &str, mode: u32) -> Result<()> {
   tokio::fs::write(path, content)
     .await
@@ -156,6 +171,10 @@ async fn set_mode(_path: &Path, _mode: u32) -> Result<()> {
   Ok(())
 }
 
+/// Builds the GitHub-only SSH config that selects the provisioned identity.
+///
+/// `accept-new` avoids interactive prompts in headless workers while still
+/// pinning the first host key observed by the container image/runtime.
 fn ssh_config(private_key_path: &Path) -> String {
   let mut lines = vec![
     "Host github.com".to_string(),

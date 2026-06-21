@@ -12,6 +12,11 @@ import { CodeBlock } from './code-block'
 
 export type AgentProps = ComponentProps<'div'>
 
+/**
+ * Outer card that frames a single agent definition in the web console (header, instructions, tools,
+ * output schema). The pieces below are composed inside it. Memoized because an agent card sits in
+ * lists that re-render often while a run streams, and its own props rarely change.
+ */
 export const Agent = memo(({ className, ...props }: AgentProps) => (
   <div className={cn('not-prose w-full rounded-md border', className)} {...props} />
 ))
@@ -21,6 +26,7 @@ export type AgentHeaderProps = ComponentProps<'div'> & {
   model?: string
 }
 
+/** Top row of the agent card: the agent name, plus the backing model shown as a badge when known. */
 export const AgentHeader = memo(({ className, name, model, ...props }: AgentHeaderProps) => (
   <div className={cn('flex w-full items-center justify-between gap-4 p-3', className)} {...props}>
     <div className="flex items-center gap-2">
@@ -37,6 +43,7 @@ export const AgentHeader = memo(({ className, name, model, ...props }: AgentHead
 
 export type AgentContentProps = ComponentProps<'div'>
 
+/** Body region under the header; holds the instructions, tools, and output-schema sections. */
 export const AgentContent = memo(({ className, ...props }: AgentContentProps) => (
   <div className={cn('space-y-4 p-4 pt-0', className)} {...props} />
 ))
@@ -45,6 +52,7 @@ export type AgentInstructionsProps = ComponentProps<'div'> & {
   children: string
 }
 
+/** Shows the agent's system/instruction prompt as a labelled block of muted text. */
 export const AgentInstructions = memo(({ className, children, ...props }: AgentInstructionsProps) => (
   <div className={cn('space-y-2', className)} {...props}>
     <span className="font-medium text-muted-foreground text-sm">Instructions</span>
@@ -56,6 +64,7 @@ export const AgentInstructions = memo(({ className, children, ...props }: AgentI
 
 export type AgentToolsProps = ComponentProps<typeof Accordion>
 
+/** Wraps the list of tools the agent can call in a labelled accordion. */
 export const AgentTools = memo(({ className, ...props }: AgentToolsProps) => (
   <div className={cn('space-y-2', className)}>
     <span className="font-medium text-muted-foreground text-sm">Tools</span>
@@ -67,7 +76,10 @@ export type AgentToolProps = ComponentProps<typeof AccordionItem> & {
   tool: Tool
 }
 
+/** One expandable accordion row for a single tool: its description as the trigger, its input schema as the body. */
 export const AgentTool = memo(({ className, tool, value, ...props }: AgentToolProps) => {
+  // A tool may carry a hand-written `jsonSchema` or only the SDK-derived `inputSchema`; prefer the
+  // explicit one when present so the displayed schema matches what the author actually wrote.
   const schema = 'jsonSchema' in tool && tool.jsonSchema ? tool.jsonSchema : tool.inputSchema
 
   return (
@@ -88,6 +100,7 @@ export type AgentOutputProps = ComponentProps<'div'> & {
   schema: string
 }
 
+/** Renders the agent's structured-output schema as a TypeScript code block. */
 export const AgentOutput = memo(({ className, schema, ...props }: AgentOutputProps) => (
   <div className={cn('space-y-2', className)} {...props}>
     <span className="font-medium text-muted-foreground text-sm">Output Schema</span>

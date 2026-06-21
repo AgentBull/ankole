@@ -1,3 +1,7 @@
+// Unit tests for the schedule math: parsing "at" strings against the
+// installation timezone, the exactly-one-of after/at rule for check_back_later,
+// relative-delay resolution, and next-fire computation for both `every` and
+// timezone-aware `cron` schedules.
 import { describe, expect, it } from 'bun:test'
 import { loadTestEnvFiles } from '@/common/tests/load-test-env'
 

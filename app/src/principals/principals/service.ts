@@ -107,6 +107,10 @@ export async function updatePrincipalStatus(uid: string, status: PrincipalStatus
   const principalUid = normalizeUid(uid)
 
   return DB.transaction(async tx => {
+    // Lock the row for the duration of the transaction. Status changes can arrive
+    // concurrently from directory sync and an operator action; serializing them
+    // on the row keeps the final state deterministic rather than last-write-wins
+    // across an interleaved read.
     const [principal] = await tx
       .select()
       .from(Principals)

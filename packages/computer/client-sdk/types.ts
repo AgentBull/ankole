@@ -21,7 +21,11 @@ export interface WorkerTlsConfig {
   key: string
 }
 
-/** How the agent→worker binding was decided. */
+/**
+ * How the agent→worker binding was decided: an operator `explicit_pin`, an
+ * `implicit` binding the control plane picked (e.g. least-loaded), or a `fallback`
+ * when the preferred worker was unavailable. Mostly diagnostic — see `reason`.
+ */
 export type BindingKind = 'explicit_pin' | 'implicit' | 'fallback'
 
 export interface SessionBinding {
@@ -38,7 +42,11 @@ export interface ResolveSessionResponse {
   tls: WorkerTlsConfig
 }
 
-/** The three workspace mount points, as absolute paths inside the computer. */
+/**
+ * The three workspace mount points, as absolute paths inside the computer. They
+ * separate installed library data, the agent's persistent user files, and scratch
+ * space, so callers can place output where it belongs instead of guessing paths.
+ */
 export interface WorkspaceLayout {
   libraryContainers: string
   userFiles: string
@@ -75,7 +83,14 @@ export interface WorkerInfo {
   status: string
 }
 
-/** Vercel-compatible parameters for `runCommand`. */
+/**
+ * Vercel-compatible parameters for `runCommand`.
+ *
+ * `detached` returns a live handle immediately instead of waiting for completion.
+ * `stdout`/`stderr` opt into live streaming to caller sinks (omit to just collect
+ * output afterwards). `timeoutMs` is the worker-side kill budget; `signal` aborts
+ * from the client. `sudo` is accepted for shape-compatibility but rejected at call.
+ */
 export interface RunCommandParams {
   cmd: string
   args?: string[]
@@ -115,6 +130,11 @@ export interface CommandLog {
   data: string
 }
 
+/**
+ * Lifecycle of a command on the worker. `finished` ran to its own exit, `killed`
+ * was signalled (by timeout or an explicit kill), `error` failed to run at all.
+ * Only `running` is non-terminal.
+ */
 export type CommandStatus = 'running' | 'finished' | 'killed' | 'error'
 
 /** Worker view of a command (wire shape of the `command` NDJSON field). */
@@ -143,12 +163,14 @@ export interface DirEntry {
   size: number
 }
 
+/** Summary of a live tmux terminal: its window count and whether a client is attached. */
 export interface TerminalInfo {
   name: string
   windows: number
   attached: boolean
 }
 
+/** Options for starting a terminal: initial program, working dir, and pty size. */
 export interface StartTerminalParams {
   command?: string
   cwd?: string
@@ -156,6 +178,11 @@ export interface StartTerminalParams {
   rows?: number
 }
 
+/**
+ * One keystroke batch for a terminal. `input` is literal text; `keys` are named
+ * keys (e.g. control sequences) for things that have no literal character; `enter`
+ * appends a Return. They combine, so text plus a trailing Enter is one call.
+ */
 export interface SendTerminalParams {
   input?: string
   keys?: string[]
@@ -164,9 +191,12 @@ export interface SendTerminalParams {
 
 export interface TerminalStatus {
   name: string
+  // Open union: the listed values are the common outcomes, but `string` keeps the
+  // type forward-compatible with new worker statuses without an SDK change.
   status: 'started' | 'exists' | 'sent' | 'killed' | string
 }
 
+/** A rendered snapshot of a terminal: `screen` is the visible text grid, not raw bytes. */
 export interface TerminalCapture {
   name: string
   screen: string

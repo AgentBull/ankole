@@ -8,6 +8,7 @@ import { TableCell, TableRow } from '@/uikit/components/table'
 import { useAgentsQuery } from '../helpers'
 import { AgentSelector, SectionHeader, TableCard } from '../shared'
 
+/** Shows library skills and toggles each agent's effective skill enablement. */
 export function SkillsPage() {
   const { t } = useTranslation()
   const agents = useAgentsQuery()

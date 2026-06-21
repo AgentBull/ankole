@@ -7,6 +7,11 @@ import { cn } from '@/uikit/lib/utils'
 import { ChevronDownIcon, PaperclipIcon } from 'lucide-react'
 import type { ComponentProps } from 'react'
 
+// The Queue family renders the agent's pending-work panel: queued user messages and a to-do list,
+// grouped into collapsible sections. These components are the presentation layer only — the shapes
+// below describe the data the host feeds in.
+
+/** One content part of a queued message (text, or a file/image reference). Mirrors the SDK message part. */
 export interface QueueMessagePart {
   type: string
   text?: string
@@ -15,11 +20,13 @@ export interface QueueMessagePart {
   mediaType?: string
 }
 
+/** A message waiting in the send queue, identified for list keys. */
 export interface QueueMessage {
   id: string
   parts: QueueMessagePart[]
 }
 
+/** A single to-do entry; `status` drives the struck-through "completed" styling. */
 export interface QueueTodo {
   id: string
   title: string
@@ -29,6 +36,7 @@ export interface QueueTodo {
 
 export type QueueItemProps = ComponentProps<'li'>
 
+/** A row in the queue list; hover reveals its row actions (see {@link QueueItemAction}). */
 export const QueueItem = ({ className, ...props }: QueueItemProps) => (
   <li
     className={cn('group flex flex-col gap-1 rounded-md px-3 py-1 text-sm transition-colors hover:bg-muted', className)}
@@ -40,6 +48,7 @@ export type QueueItemIndicatorProps = ComponentProps<'span'> & {
   completed?: boolean
 }
 
+/** Small status dot at the start of a row; dimmed/filled when `completed`. */
 export const QueueItemIndicator = ({ completed = false, className, ...props }: QueueItemIndicatorProps) => (
   <span
     className={cn(
@@ -55,6 +64,7 @@ export type QueueItemContentProps = ComponentProps<'span'> & {
   completed?: boolean
 }
 
+/** Primary line of a row, clamped to one line; struck through when `completed`. */
 export const QueueItemContent = ({ completed = false, className, ...props }: QueueItemContentProps) => (
   <span
     className={cn(
@@ -70,6 +80,7 @@ export type QueueItemDescriptionProps = ComponentProps<'div'> & {
   completed?: boolean
 }
 
+/** Secondary line under the content, indented to align past the indicator. */
 export const QueueItemDescription = ({ completed = false, className, ...props }: QueueItemDescriptionProps) => (
   <div
     className={cn(
@@ -83,12 +94,14 @@ export const QueueItemDescription = ({ completed = false, className, ...props }:
 
 export type QueueItemActionsProps = ComponentProps<'div'>
 
+/** Container for a row's action buttons (e.g. remove/edit). */
 export const QueueItemActions = ({ className, ...props }: QueueItemActionsProps) => (
   <div className={cn('flex gap-1', className)} {...props} />
 )
 
 export type QueueItemActionProps = Omit<ComponentProps<typeof Button>, 'variant' | 'size'>
 
+/** A single row action button. Hidden until the row is hovered (`group-hover` reveals it) to keep rows clean. */
 export const QueueItemAction = ({ className, ...props }: QueueItemActionProps) => (
   <Button
     className={cn(
@@ -104,18 +117,21 @@ export const QueueItemAction = ({ className, ...props }: QueueItemActionProps) =
 
 export type QueueItemAttachmentProps = ComponentProps<'div'>
 
+/** Wrapping strip that holds a queued message's image thumbnails and file chips. */
 export const QueueItemAttachment = ({ className, ...props }: QueueItemAttachmentProps) => (
   <div className={cn('mt-1 flex flex-wrap gap-2', className)} {...props} />
 )
 
 export type QueueItemImageProps = ComponentProps<'img'>
 
+/** Thumbnail for an image attachment. `alt` is intentionally empty: it is decorative next to the filename. */
 export const QueueItemImage = ({ className, ...props }: QueueItemImageProps) => (
   <img alt="" className={cn('h-8 w-8 rounded border object-cover', className)} height={32} width={32} {...props} />
 )
 
 export type QueueItemFileProps = ComponentProps<'span'>
 
+/** Chip for a non-image file attachment: paperclip icon plus a truncated filename. */
 export const QueueItemFile = ({ children, className, ...props }: QueueItemFileProps) => (
   <span className={cn('flex items-center gap-1 rounded border bg-muted px-2 py-1 text-xs', className)} {...props}>
     <PaperclipIcon size={12} />
@@ -125,6 +141,7 @@ export const QueueItemFile = ({ children, className, ...props }: QueueItemFilePr
 
 export type QueueListProps = ComponentProps<typeof ScrollArea>
 
+/** Scrollable `<ul>` of queue rows, capped at a fixed height so a long queue scrolls rather than growing the panel. */
 export const QueueList = ({ children, className, ...props }: QueueListProps) => (
   <ScrollArea className={cn('mt-2 -mb-1', className)} {...props}>
     <div className="max-h-40 pr-4">
@@ -133,14 +150,14 @@ export const QueueList = ({ children, className, ...props }: QueueListProps) => 
   </ScrollArea>
 )
 
-// QueueSection - collapsible section container
+/** Collapsible section grouping related rows (e.g. "Queued" vs "Done"); open by default. */
 export type QueueSectionProps = ComponentProps<typeof Collapsible>
 
 export const QueueSection = ({ className, defaultOpen = true, ...props }: QueueSectionProps) => (
   <Collapsible className={cn(className)} defaultOpen={defaultOpen} {...props} />
 )
 
-// QueueSectionTrigger - section header/trigger
+/** Header button that toggles a {@link QueueSection}; the chevron in its label rotates with open state. */
 export type QueueSectionTriggerProps = ComponentProps<'button'>
 
 export const QueueSectionTrigger = ({ children, className, ...props }: QueueSectionTriggerProps) => (
@@ -159,7 +176,10 @@ export const QueueSectionTrigger = ({ children, className, ...props }: QueueSect
   </CollapsibleTrigger>
 )
 
-// QueueSectionLabel - label content with icon and count
+/**
+ * Label inside a section trigger: a disclosure chevron (rotates when the section is collapsed), an
+ * optional icon, and a "{count} {label}" caption such as "3 queued".
+ */
 export type QueueSectionLabelProps = ComponentProps<'span'> & {
   count?: number
   label: string
@@ -176,7 +196,7 @@ export const QueueSectionLabel = ({ count, label, icon, className, ...props }: Q
   </span>
 )
 
-// QueueSectionContent - collapsible content area
+/** Collapsible body of a {@link QueueSection}, holding its {@link QueueList}. */
 export type QueueSectionContentProps = ComponentProps<typeof CollapsibleContent>
 
 export const QueueSectionContent = ({ className, ...props }: QueueSectionContentProps) => (
@@ -185,6 +205,7 @@ export const QueueSectionContent = ({ className, ...props }: QueueSectionContent
 
 export type QueueProps = ComponentProps<'div'>
 
+/** Outermost card that frames the whole pending-work queue panel. */
 export const Queue = ({ className, ...props }: QueueProps) => (
   <div
     className={cn(

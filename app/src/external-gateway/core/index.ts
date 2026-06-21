@@ -1,4 +1,9 @@
 // External Gateway stable runtime surface.
+//
+// The single entry point host code imports from. Everything re-exported here is
+// considered stable for the rest of the app; the individual `core/*` modules
+// are implementation detail and should not be imported directly from outside
+// the gateway. Keeping the surface in one barrel makes the boundary explicit.
 
 export { adapterSupportsCapability, requireOutboundCapability } from './capabilities'
 export type {

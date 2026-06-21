@@ -24,6 +24,7 @@ type ScheduledTaskDeliveryInput = {
   thread_id?: string
 }
 
+/** Manages scheduled agent deliveries from the console, including manual runs and run history. */
 export function SchedulesPage() {
   const { t } = useTranslation()
   const agents = useAgentsQuery()
@@ -288,6 +289,7 @@ export function SchedulesPage() {
   )
 }
 
+/** Formats stored schedule payloads for compact table display even when an unexpected value leaks through. */
 function formatJson(value: unknown): string {
   try {
     return JSON.stringify(value)
@@ -296,16 +298,19 @@ function formatJson(value: unknown): string {
   }
 }
 
+/** Keeps the free-form JSON editor constrained to objects because the scheduler expects object-shaped contracts. */
 function parseJsonObject(value: string, label: string): JsonObject {
   const parsed = JSON.parse(value) as unknown
   if (!isJsonObject(parsed)) throw new Error(`${label} must be a JSON object`)
   return parsed
 }
 
+/** Parses the schedule JSON into the scheduler union type after the runtime object-shape guard passes. */
 function parseScheduleJson(value: string): ScheduledTaskSchedule {
   return parseJsonObject(value, 'schedule') as unknown as ScheduledTaskSchedule
 }
 
+/** Normalizes optional delivery fields so console JSON can round-trip values copied from API responses. */
 function parseDeliveryJson(value: string): ScheduledTaskDeliveryInput {
   const delivery = parseJsonObject(value, 'delivery') as unknown as ScheduledTaskDeliveryInput
   if (delivery.thread_id === null) delete (delivery as { thread_id?: unknown }).thread_id

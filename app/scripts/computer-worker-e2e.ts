@@ -50,6 +50,9 @@ let runtime: InstanceType<typeof ExternalGatewayRuntime> | undefined
 let aiRuntime: InstanceType<typeof AiAgentRuntime> | undefined
 let registration: FauxProviderRegistration | undefined
 
+/**
+ * Reads a required environment value with a script-specific setup hint.
+ */
 function requiredEnv(name: string, message: string): string {
   const value = Bun.env[name]?.trim()
   assert.ok(value, message)
@@ -257,6 +260,9 @@ try {
   await closeDatabase({ timeout: 5 }).catch(() => undefined)
 }
 
+/**
+ * Builds the mock IM conversation shape used to enter the real gateway path.
+ */
 function conversationOptions(
   currentRuntime: InstanceType<typeof ExternalGatewayRuntime>,
   currentAgentUid: string,
@@ -275,6 +281,9 @@ function conversationOptions(
   }
 }
 
+/**
+ * Creates a deterministic runtime profile backed by the faux provider.
+ */
 async function runtimeProfile(currentRegistration: FauxProviderRegistration): Promise<AiAgentRuntimeProfile> {
   const primary = currentRegistration.getModel('primary')!
   const light = currentRegistration.getModel('light')!
@@ -318,6 +327,9 @@ async function runtimeProfile(currentRegistration: FauxProviderRegistration): Pr
   }
 }
 
+/**
+ * Waits for the target worker to publish a fresh DB heartbeat.
+ */
 async function requireDevWorker(): Promise<void> {
   const deadline = Date.now() + 60_000
   while (Date.now() < deadline) {
@@ -339,6 +351,9 @@ async function requireDevWorker(): Promise<void> {
   )
 }
 
+/**
+ * Removes temporary DB rows created by this E2E run.
+ */
 async function cleanup(): Promise<void> {
   await DB.delete(ComputerAgentWorkerBindings).where(eq(ComputerAgentWorkerBindings.agentUid, agentUid))
   await DB.delete(ComputerAgentWorkerPins).where(eq(ComputerAgentWorkerPins.agentUid, agentUid))
@@ -352,6 +367,9 @@ async function cleanup(): Promise<void> {
   await DB.delete(Principals).where(eq(Principals.uid, agentUid))
 }
 
+/**
+ * Waits until the gateway has mirrored and materialized an inbound attachment.
+ */
 async function waitForMaterializedAttachment(roomId: string, messageId: string): Promise<Record<string, unknown>> {
   let row: typeof ExternalMessages.$inferSelect | undefined
   await eventually(async () => {
@@ -371,6 +389,9 @@ async function waitForMaterializedAttachment(roomId: string, messageId: string):
   return materialized
 }
 
+/**
+ * Extracts the materialized attachment metadata from the projected message row.
+ */
 function materializedAttachment(
   row: typeof ExternalMessages.$inferSelect | undefined
 ): Record<string, unknown> | undefined {
@@ -381,6 +402,9 @@ function materializedAttachment(
   return materialized
 }
 
+/**
+ * Deletes user-file artifacts written into the temporary computer workspace.
+ */
 async function cleanupMediaFiles(): Promise<void> {
   const { Computer } = await import('@agentbull/bullx-computer')
   const computer = await Computer.getOrCreate({
@@ -392,6 +416,9 @@ async function cleanupMediaFiles(): Promise<void> {
     .catch(() => undefined)
 }
 
+/**
+ * Retries an assertion while async gateway/worker side effects settle.
+ */
 async function eventually(assertion: () => void | Promise<void>, timeoutMs: number): Promise<void> {
   const deadline = Date.now() + timeoutMs
   let lastError: unknown

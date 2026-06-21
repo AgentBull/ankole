@@ -53,6 +53,12 @@ fn env_or(key: &str, default: &str) -> String {
 }
 
 impl Config {
+  /// Builds the worker configuration from process environment and sealed app
+  /// state.
+  ///
+  /// The worker intentionally fails fast on identity, database, token, and TLS
+  /// inputs. Those values define the trust boundary with the BullX app, so a
+  /// guessed fallback would make deployment mistakes look like runtime bugs.
   pub async fn from_env(port: u16) -> Result<Self> {
     load_dev_env_files();
     let worker_id = env_opt("BULLX_COMPUTER_WORKER_ID")
@@ -139,6 +145,12 @@ impl Config {
   }
 }
 
+/// Loads local `.env*` files only for developer runs.
+///
+/// Bun loads env files for the app, but the Rust worker can be started directly
+/// during smoke tests. This small loader keeps that path ergonomic while
+/// avoiding production surprises: it stops when `DATABASE_URL` is already set
+/// and is disabled under `NODE_ENV=production`.
 fn load_dev_env_files() {
   if env_opt("NODE_ENV").as_deref() == Some("production") || env_opt("DATABASE_URL").is_some() {
     return;
@@ -164,6 +176,11 @@ fn load_dev_env_files() {
   }
 }
 
+/// Applies one simple dotenv-style file without overriding real environment.
+///
+/// This is intentionally not a full dotenv parser. The worker only needs the
+/// local repo files used by BullX dev scripts, and a small parser keeps startup
+/// dependency-free.
 fn load_dev_env_file(path: &Path) {
   let Ok(content) = std::fs::read_to_string(path) else {
     return;

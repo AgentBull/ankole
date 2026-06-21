@@ -16,6 +16,12 @@ async function toBytes(content: ComputerFile['content']): Promise<Uint8Array> {
  * worker unpacks it under the request's `X-Cwd`.
  */
 export class FileWriter {
+  /**
+   * Buffers every file's content and packs them into one `tar.gz`. Paths are
+   * normalised to the worker's expected relative form, and a file without an
+   * explicit `mode` gets `0o644`. Rejects an empty set up front, since an empty
+   * archive would be a silent no-op upload.
+   */
   static async pack(files: ComputerFile[]): Promise<Uint8Array> {
     if (files.length === 0) throw new Error('writeFiles requires at least one file')
     const entries: TarEntry[] = []

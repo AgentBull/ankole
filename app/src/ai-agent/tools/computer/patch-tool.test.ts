@@ -2,6 +2,8 @@ import { describe, expect, it } from 'bun:test'
 import { createPatchTool } from './patch-tool'
 
 describe('patch tool', () => {
+  // Pins that `workdir` is honored as an alias for `cwd`, and that the SAME base dir is
+  // threaded through both the read and the write so an edit lands back where it was read.
   it('accepts workdir as a cwd alias for replace mode reads and writes', async () => {
     const reads: unknown[] = []
     const writes: unknown[] = []
@@ -41,6 +43,10 @@ describe('patch tool', () => {
     })
   })
 
+  // Pins the encoding-preservation rule: matching happens on a normalized (LF, no-BOM)
+  // copy, but the file is written back with its original BOM and CRLF endings intact, so
+  // the edit shows up as a content change and not a whole-file line-ending churn. The
+  // needle/replacement are given in LF form and still match the CRLF file.
   it('preserves UTF-8 BOM and CRLF line endings when replacing text', async () => {
     let written = ''
     const tool = createPatchTool({

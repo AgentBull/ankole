@@ -21,6 +21,13 @@ import { identityProviderAdapterRegistry, type IdentityProviderAdapterRegistry }
 
 const DEFAULT_RETRY_MS = ms('1m')
 
+/**
+ * Snapshot of what the runtime is doing, returned from {@link IdentityProviderRuntime.start}.
+ *
+ * `degradedProviders` is the operationally interesting field: a provider can be
+ * active and "started" yet degraded because its external transport or full sync
+ * is currently failing and being retried in the background.
+ */
 export interface IdentityProviderRuntimeStats {
   activeProviders: string[]
   startedProviders: string[]
@@ -33,6 +40,12 @@ interface RuntimeLogger {
   error(data: unknown, message: string): void
 }
 
+/**
+ * One live provider instance the runtime is managing.
+ *
+ * `retryTimers` tracks any pending background retries so they can all be
+ * cancelled on stop; leaking them would fire writes against a torn-down runtime.
+ */
 interface RuntimeProvider {
   providerId: string
   adapterId: string
@@ -73,6 +86,8 @@ export class IdentityProviderRuntime implements Runtime<IdentityProviderRuntimeS
    * in the background.
    */
   async start(options: IdentityProviderRuntimeStartOptions = {}): Promise<IdentityProviderRuntimeStats> {
+    // Idempotent start: a second call returns the first run's stats instead of
+    // spinning up duplicate transports for the same providers.
     if (this.startedStats) return this.startedStats
 
     const log = options.logger ?? logger
@@ -88,6 +103,9 @@ export class IdentityProviderRuntime implements Runtime<IdentityProviderRuntimeS
     const firstAttempts: Promise<void>[] = []
 
     for (const activation of activeProviders) {
+      // `registry.get` throws on an unknown adapter id, and this is intentionally
+      // not guarded: an activation pointing at a missing adapter is a local
+      // misconfiguration that should abort startup, not degrade silently.
       const factory = registry.get(activation.adapter) as BullXIdentityProviderAdapterFactory
       const config = await (options.getProviderConfig ?? defaultProviderConfig)(activation.providerId)
       const provider = await factory.create({
@@ -110,6 +128,11 @@ export class IdentityProviderRuntime implements Runtime<IdentityProviderRuntimeS
       // Attach realtime transport first, then run the startup full sync. The
       // transport catches new incremental events while the full sync reconciles
       // facts that changed before this process was ready.
+      //
+      // Both first attempts are pushed with their rejections swallowed here: a
+      // failing provider must mark itself degraded and schedule a retry, but it
+      // must not reject the shared `Promise.all` below and take down startup. The
+      // failure is still recorded via `logDegraded` inside each task.
       if (provider.start) {
         firstAttempts.push(this.startTransport(runtimeProvider, log, retryMs).catch(() => {}))
       }
@@ -119,6 +142,8 @@ export class IdentityProviderRuntime implements Runtime<IdentityProviderRuntimeS
       }
     }
 
+    // Wait for every provider's first attempt so the returned stats reflect a
+    // real degraded/healthy verdict rather than a still-pending state.
     await Promise.all(firstAttempts)
 
     this.startedStats = {
@@ -129,8 +154,15 @@ export class IdentityProviderRuntime implements Runtime<IdentityProviderRuntimeS
     return this.startedStats
   }
 
+  /**
+   * Tears every provider down: cancels pending retries, stops each adapter, and
+   * clears state so a later {@link start} can run cleanly. Resetting
+   * `startedStats` is what re-arms the idempotency guard for a fresh start.
+   */
   async stop(): Promise<void> {
     for (const provider of this.providers.values()) {
+      // Cancel scheduled retries before stopping the adapter so an in-flight
+      // timer cannot fire a sync against an adapter that is going away.
       for (const timer of provider.retryTimers) clearTimeout(timer)
       await provider.adapter.stop?.()
     }
@@ -144,6 +176,14 @@ export class IdentityProviderRuntime implements Runtime<IdentityProviderRuntimeS
     return this.providers.get(providerId)?.adapter
   }
 
+  /**
+   * Builds the host-owned write surface handed to one provider's adapter.
+   *
+   * The adapter speaks the external API and calls back through this sink; the
+   * sink is where provider facts become BullX Principal/group/identity writes via
+   * the service layer. The `providerId` is captured here so every callback is
+   * automatically scoped to the right provider namespace.
+   */
   private createSink(providerId: string): BullXIdentityProviderSyncSink {
     return {
       applyFullSync: async snapshot => {
@@ -170,9 +210,18 @@ export class IdentityProviderRuntime implements Runtime<IdentityProviderRuntimeS
     }
   }
 
+  /**
+   * Runs one authoritative reconciliation pass for a provider.
+   *
+   * On success it clears the `full_sync` degraded flag; on failure it records the
+   * degradation and schedules a background retry, then re-throws so the caller's
+   * first-attempt path can observe the failure (the startup path swallows it).
+   */
   private async runFullSync(provider: RuntimeProvider, log: RuntimeLogger, retryMs: number): Promise<void> {
     try {
       const snapshot = await provider.adapter.fullSync?.()
+      // An adapter may implement `fullSync` yet return nothing this round (e.g.
+      // it relies purely on incremental events); treat that as a no-op success.
       if (!snapshot) return
 
       const stats = await applyIdentityProviderFullSync(provider.providerId, snapshot)
@@ -193,6 +242,12 @@ export class IdentityProviderRuntime implements Runtime<IdentityProviderRuntimeS
     }
   }
 
+  /**
+   * Starts a provider's realtime/incremental transport (e.g. a Lark WebSocket).
+   *
+   * Mirrors {@link runFullSync}'s degrade-and-retry contract under the `websocket`
+   * stage so a transient connection failure leaves the rest of the runtime up.
+   */
   private async startTransport(provider: RuntimeProvider, log: RuntimeLogger, retryMs: number): Promise<void> {
     try {
       await provider.adapter.start?.()
@@ -212,6 +267,15 @@ export class IdentityProviderRuntime implements Runtime<IdentityProviderRuntimeS
     }
   }
 
+  /**
+   * Schedules a single background retry of a failed stage.
+   *
+   * The timer removes itself from `retryTimers` before running so the tracking
+   * list does not accumulate stale handles across many retries. A retry that
+   * fails again re-enters via the stage method, which schedules the next one;
+   * this is a self-perpetuating chain, not a fixed retry count, on purpose so a
+   * provider keeps trying to recover until it succeeds or the runtime stops.
+   */
   private scheduleRetry(provider: RuntimeProvider, fn: () => Promise<void>, retryMs: number): void {
     const timer = setTimeout(() => {
       provider.retryTimers = provider.retryTimers.filter(item => item !== timer)
@@ -220,6 +284,13 @@ export class IdentityProviderRuntime implements Runtime<IdentityProviderRuntimeS
     provider.retryTimers.push(timer)
   }
 
+  /**
+   * Marks one stage of a provider as failing and logs the scheduled retry.
+   *
+   * Degradation is tracked per stage (`full_sync`, `websocket`) so a provider
+   * whose transport is down but whose last full sync succeeded is still reported
+   * accurately, rather than as a single all-or-nothing health bit.
+   */
   private logDegraded(
     provider: RuntimeProvider,
     stage: string,
@@ -243,6 +314,10 @@ export class IdentityProviderRuntime implements Runtime<IdentityProviderRuntimeS
     )
   }
 
+  /**
+   * Clears one stage's degraded flag after it recovers. The provider drops out of
+   * the degraded set only once all of its stages are healthy again.
+   */
   private clearDegraded(provider: RuntimeProvider, stage: string): void {
     const stages = this.degradedStagesByProvider.get(provider.providerId)
     if (!stages) return
@@ -256,6 +331,14 @@ export class IdentityProviderRuntime implements Runtime<IdentityProviderRuntimeS
     return [...this.degradedStagesByProvider.keys()]
   }
 
+  /**
+   * Keeps the cached stats' `degradedProviders` in sync as stages fail and
+   * recover in the background.
+   *
+   * Bails out before startup has captured `startedStats` so a degrade/clear that
+   * races the very first attempts does not fabricate a stats object out of order;
+   * the initial `start` will publish the correct snapshot once its attempts land.
+   */
   private refreshStartedStats(): void {
     if (!this.startedStats) return
 

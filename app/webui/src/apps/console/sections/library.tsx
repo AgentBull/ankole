@@ -12,6 +12,7 @@ import { Textarea } from '@/uikit/components/textarea'
 import { formatDate, useAgentsQuery } from '../helpers'
 import { AgentSelector, ErrorAlert, SectionHeader, TableCard } from '../shared'
 
+/** Edits an agent's SOUL/MISSION files and shows the resulting effective library entries. */
 export function LibraryEntriesPage() {
   const { t } = useTranslation()
   const agents = useAgentsQuery()

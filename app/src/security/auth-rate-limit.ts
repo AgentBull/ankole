@@ -35,6 +35,14 @@ interface Entry {
   lockedUntil?: number
 }
 
+/**
+ * Creates an in-memory rate limiter for bootstrap/admin authentication flows.
+ *
+ * The limiter is intentionally process-local: it protects local setup and small
+ * operator surfaces from accidental/brute-force retries without introducing a
+ * database dependency before setup is complete. Production deployments should
+ * still rely on normal ingress-level controls for global enforcement.
+ */
 export function createAuthRateLimiter(config: RateLimitConfig = {}): AuthRateLimiter {
   const maxAttempts = config.maxAttempts ?? DEFAULT_MAX_ATTEMPTS
   const windowMs = config.windowMs ?? DEFAULT_WINDOW_MS
@@ -114,6 +122,12 @@ export function createAuthRateLimiter(config: RateLimitConfig = {}): AuthRateLim
   return { check, recordFailure, reset, size: () => entries.size, prune, dispose }
 }
 
+/**
+ * Extracts the best-effort client IP from common proxy headers.
+ *
+ * This function trusts the deployment's ingress to sanitize forwarding headers;
+ * it is not a general-purpose public internet IP attestation mechanism.
+ */
 export function clientIpFromRequest(request: Request): string | undefined {
   const forwarded = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
   return (
@@ -124,6 +138,9 @@ export function clientIpFromRequest(request: Request): string | undefined {
   )
 }
 
+/**
+ * Normalizes IP text before it is used as a rate-limit key.
+ */
 export function normalizeRateLimitClientIp(ip: string | undefined): string {
   if (!ip) return 'unknown'
   const trimmed = ip.trim()

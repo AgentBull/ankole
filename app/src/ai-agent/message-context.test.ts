@@ -1,3 +1,7 @@
+// Covers the sparse-injection rules: time appears only after a long enough gap, room/speaker only when
+// they change versus the prior message, and the frozen `injected` flags drive what the rendered
+// `<message_context>` block actually shows. Second test pins that trusted introspection trigger fields
+// are always rendered and that the prefix is woven into the user message without mutating the stored one.
 import { describe, expect, it } from 'bun:test'
 import { loadTestEnvFiles } from '@/common/tests/load-test-env'
 
@@ -40,6 +44,8 @@ describe('AIAgent message context', () => {
     expect((bob as any).actor.injected).toBe(true)
     appendMessageContextHistory(history as any, { message_context: bob } as any)
 
+    // >1h after the last timestamped message (01:40 → 02:45), so time is re-injected; speaker is back to
+    // Alice after Bob, so the actor is re-injected too.
     const later = buildMessageContextMetadata(
       { actor: alice, room, sentAt: new Date('2026-06-09T02:45:00.000Z'), timezone },
       history as any
@@ -47,6 +53,9 @@ describe('AIAgent message context', () => {
     expect((later as any).time.injected).toBe(true)
     expect((later as any).actor.injected).toBe(true)
 
+    // An actor-less turn (no `actor`, e.g. a system/ambient message) is appended to history. The next
+    // Alice turn still re-injects the actor: the prior message had no actor to match against, so the
+    // change-detection treats Alice as newly present rather than carrying forward the last named speaker.
     appendMessageContextHistory(
       history as any,
       {
@@ -82,6 +91,9 @@ describe('AIAgent message context', () => {
 
     const text = rendered.content[0]!.text ?? ''
     expect(text).toContain('<message_context>')
+    // No prior history was passed, so time stays un-injected (no gap to report) and there is no room —
+    // only the always-trusted introspection speaker/think fields render. These negatives guard against
+    // the renderer leaking the raw timestamp or a room line that was never marked injected.
     expect(text).not.toContain('sent_at: 2026-06-09 09:15:42 (Asia/Shanghai)')
     expect(text).not.toContain('2026-06-09T01:15:42.123Z')
     expect(text).not.toContain('room: group chat "Ops"')

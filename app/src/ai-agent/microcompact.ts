@@ -36,17 +36,25 @@ export function microcompact(messages: AgentMessage[], options: MicrocompactOpti
   const compactable = options.compactableTools ?? DEFAULT_COMPACTABLE_TOOLS
   const keepRecent = Math.max(0, options.keepRecent)
 
+  // Positions of every clearable tool result, oldest-first. Clearing is by age, so the slice below keeps
+  // the newest `keepRecent` and clears the rest — the recent results are the ones the model is most
+  // likely still reasoning over.
   const compactableIndices: number[] = []
   for (let i = 0; i < messages.length; i++) {
     const message = messages[i]!
     if (message.role === 'toolResult' && compactable.has(message.toolName)) compactableIndices.push(i)
   }
+  // Nothing old enough to clear — return the input array unchanged (referential identity preserved, see
+  // the callers that compare `result === input` to detect a no-op).
   if (compactableIndices.length <= keepRecent) return messages
 
   const clearIndices = new Set(compactableIndices.slice(0, compactableIndices.length - keepRecent))
   let changed = false
   const out = messages.map((message, index) => {
     if (!clearIndices.has(index) || message.role !== 'toolResult') return message
+    // Already the placeholder: leave the exact object in place. This is the idempotency guard that keeps
+    // re-rendering byte-stable — re-stamping it (even with identical text) would still be a new object,
+    // and `changed` must stay false when no real content was cleared so the original array is returned.
     if (
       message.content.length === 1 &&
       message.content[0]?.type === 'text' &&

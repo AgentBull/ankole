@@ -30,10 +30,22 @@ import type {
   ExternalGatewayWebhookOptions
 } from './core/events'
 
+/**
+ * A configured binding after the runtime has resolved its group-message mode.
+ *
+ * `groupMessageMode` is optional on the parsed metadata binding but always
+ * present here: startup fills it from metadata, then app-config, then the
+ * default, so the handlers below never have to re-derive it.
+ */
 export interface RuntimeExternalBinding extends AgentExternalBinding {
   groupMessageMode: GroupMessageMode
 }
 
+/**
+ * Everything one agent binding needs to turn normalized provider events into
+ * input-window rows and projection writes. The runtime builds one of these per
+ * (agent, channel) and hands it to the adapter as its context.
+ */
 export interface CreateExternalGatewayAdapterContextInput {
   adapter: ExternalGatewayAdapter
   agent: AgentResult
@@ -48,6 +60,15 @@ export interface CreateExternalGatewayAdapterContextInput {
   roomHasPendingClarify?(providerRoomId: string): boolean
 }
 
+/**
+ * Builds the adapter-facing context for one binding.
+ *
+ * The four `emit*` methods are the only ingress door: an adapter normalizes a
+ * provider event and calls one of them, and the matching handler below does the
+ * dedup, identity mapping, projection, and enqueue. `runWithWebhookOptions`
+ * wraps each call so an adapter can opt the work into background execution and
+ * return its webhook ack immediately.
+ */
 export function createExternalGatewayAdapterContext(
   input: CreateExternalGatewayAdapterContextInput
 ): ExternalGatewayAdapterContext {
@@ -66,6 +87,15 @@ export function createExternalGatewayAdapterContext(
   }
 }
 
+/**
+ * Adapts a plugin's loose console-style logging onto the structured host logger.
+ *
+ * Plugins are third-party code and call `info(msg)`, `info(obj, msg)`, or
+ * `info(err)` in whatever shape they like. The host logger wants
+ * `(data, message)`, so every call is funneled through `pluginLogEntry` to
+ * recover a sensible split. debug/warn are optional on the host logger and
+ * fall through silently when absent.
+ */
 function adapterLogger(logger: Logger, prefix?: string): ExternalGatewayAdapterLogger {
   const scoped = prefix ? (logger.child?.({ pluginLogger: prefix }) ?? logger) : logger
   return {
@@ -88,6 +118,15 @@ function adapterLogger(logger: Logger, prefix?: string): ExternalGatewayAdapterL
   }
 }
 
+/**
+ * Recovers a `(data, message)` pair from a plugin's variadic log arguments.
+ *
+ * Handles the three shapes plugins actually use: a leading message string, a
+ * leading data object followed by a message, or neither. A message string that
+ * already contains "[object Object]" means the plugin string-concatenated an
+ * object into its template; that mangled text is kept as `rawMessage` so the
+ * lost object is at least visible, and a generic message is substituted.
+ */
 function pluginLogEntry(args: readonly unknown[]): { data: Record<string, unknown>; message: string } {
   if (typeof args[0] === 'string') {
     if (args[0].includes('[object Object]')) {
@@ -140,6 +179,17 @@ function serializeLogError(error: Error): Record<string, unknown> {
   }
 }
 
+/**
+ * Turns one inbound provider message into a projection write and (when it is
+ * addressed to the agent) an input-window row.
+ *
+ * The order matters and is load-bearing: normalize text, decide delivery,
+ * drop tombstoned/ignored messages, materialize attachments, project to the
+ * durable mirror, then enqueue. Everything that is merely observed stops after
+ * projection so chat history stays complete without waking the agent. The
+ * tombstone is re-checked after the slow attachment/projection step because a
+ * recall can land in that window (see the inline note before the second check).
+ */
 async function handleInboundReceive(
   runtime: CreateExternalGatewayAdapterContextInput,
   message: ExternalGatewayMessageInput
@@ -218,6 +268,21 @@ async function handleInboundReceive(
   })
   if (delivery === 'observed') return
 
+  // Re-check the recall/delete tombstone before enqueuing. The check above ran
+  // before the (potentially slow) attachment materialization and projection, and
+  // a recall is a light handler that can land and complete during that window —
+  // its pending-receive neutralization finds nothing because this receive is not
+  // enqueued yet. Without this second check a just-recalled message would still be
+  // delivered to the agent with no compensating recall event. The message stays
+  // projected above so the recall handler can still mark it recalled in chat history.
+  const recalledDuringMaterialize = await runtime.eventQueue.hasInputTombstone({
+    agentUid: runtime.agent.agent.uid,
+    bindingName: runtime.binding.name,
+    providerMessageId: message.id,
+    providerRoomId: room.id
+  })
+  if (recalledDuringMaterialize) return
+
   const command = commandFromMessage(message)
   const providerRoomId = room.id
   const providerThreadId = message.threadId
@@ -230,9 +295,14 @@ async function handleInboundReceive(
     type: command ? 'slash_command' : 'message.received'
   })
 
+  // Three enqueue paths by delivery kind. Slash commands and ambient messages
+  // each become their own event (no batching) because they are not the "user is
+  // typing several messages at the agent" case. Only an addressed receive goes
+  // through `enqueueReceive`, which opens/extends the short batch window so a
+  // burst of replies coalesces into one agent turn keyed by room+thread.
   const event =
     command !== undefined
-      ? await runtime.eventQueue.enqueue({
+      ? await runtime.eventQueue.enqueueInboundMessage({
           agentUid: runtime.agent.agent.uid,
           actorKey: actorKeyFromMessage(message),
           bindingName: runtime.binding.name,
@@ -245,7 +315,7 @@ async function handleInboundReceive(
           type: 'slash_command'
         })
       : delivery === 'ambient'
-        ? await runtime.eventQueue.enqueue({
+        ? await runtime.eventQueue.enqueueInboundMessage({
             agentUid: runtime.agent.agent.uid,
             actorKey: actorKeyFromMessage(message),
             bindingName: runtime.binding.name,
@@ -275,9 +345,27 @@ async function handleInboundReceive(
             providerThreadId
           })
 
+  if (!event) return
   runtime.scheduleDrain(event.availableAt)
 }
 
+/**
+ * Handles a provider delete/recall and reconciles it against the matching
+ * receive, which may be in any of three states.
+ *
+ * Always: record a tombstone (so a receive that has not arrived yet is dropped)
+ * and hard-delete the projected message. Then, depending on the receive:
+ *  - still pending inside the batch window → remove it; the agent never saw it,
+ *    so emitting a separate recall event would be noise. Done.
+ *  - in-flight or already materialized into a delivered turn → the agent has
+ *    (or is about to) see the message, so a recall/delete event is enqueued to
+ *    compensate it.
+ *  - absent and not in-flight → nothing to reconcile. Done.
+ *
+ * The pending removal is fenced by `inFlightEvents`: a receive currently being
+ * delivered must not be deleted out from under the executor, so that case
+ * reports `in_flight` and falls through to the compensating enqueue instead.
+ */
 async function handleMessageDeleted(
   runtime: CreateExternalGatewayAdapterContextInput,
   event: ExternalGatewayMessageDeletedEvent
@@ -402,6 +490,13 @@ async function handleMessageDeleted(
   runtime.scheduleDrain(queued.availableAt)
 }
 
+/**
+ * Records a reaction into the projection mirror only.
+ *
+ * Reactions are observation, not addressed input, so this never enqueues an
+ * agent event — it just keeps the durable message mirror's reaction map current
+ * for later recall/memory.
+ */
 async function handleReaction(
   runtime: CreateExternalGatewayAdapterContextInput,
   event: ExternalGatewayReactionEvent
@@ -423,6 +518,14 @@ async function handleReaction(
   })
 }
 
+/**
+ * Turns an interactive action (a card button press) into an agent event.
+ *
+ * Unlike a reaction, an action is an explicit user request to the agent, so it
+ * is always enqueued. `actorKey` is the pressing user, which lets the executor
+ * attribute the action even when no message id is present (some actions carry
+ * only an `actionId`).
+ */
 async function handleAction(
   runtime: CreateExternalGatewayAdapterContextInput,
   event: ExternalGatewayActionEvent
@@ -458,6 +561,20 @@ async function handleAction(
   runtime.scheduleDrain(queued.availableAt)
 }
 
+/**
+ * Decides how a message relates to the agent, the first routing gate for every
+ * inbound message.
+ *
+ * A DM or an @mention is always `addressed` — the user is talking to the agent.
+ * Otherwise the room's group mode decides: `addressed_only` ignores it (no
+ * projection, no turn), `observe_all` keeps it as `observed` (projected for
+ * history only), and the remaining mode treats it as `ambient` (enqueued as
+ * background context, but not a direct request). The pending-clarify gate in
+ * the caller can still upgrade an otherwise non-addressed message.
+ *
+ * @returns `addressed` wakes the agent; `ambient` enqueues as context;
+ *   `observed` only projects to history; `ignored` drops the message entirely.
+ */
 export function deliveryForMessage(
   groupMessageMode: GroupMessageMode,
   room: Pick<ExternalGatewayRoomInput, 'isDM'>,
@@ -471,6 +588,15 @@ export function deliveryForMessage(
   return 'ambient'
 }
 
+/**
+ * Builds the CloudEvents-shaped envelope the executor consumes for a received
+ * message or slash command.
+ *
+ * `id` is the provider event id, which doubles as the enqueue idempotency key,
+ * so the same provider message can be redelivered without producing a second
+ * input row. `session.id` binds the envelope to the agent's per-room
+ * conversation so replies thread into the right context.
+ */
 function envelopeForMessage(input: {
   agentUid: string
   binding: RuntimeExternalBinding
@@ -504,6 +630,13 @@ function envelopeForMessage(input: {
   }
 }
 
+/**
+ * Builds the envelope for a delete/recall lifecycle event.
+ *
+ * The id mixes in a `revision` (the delete timestamp or provider event id) so a
+ * delete and a later recall of the same message do not collide on the
+ * idempotency key and silently dedup to one event.
+ */
 function envelopeForDelete(input: {
   agentUid: string
   binding: RuntimeExternalBinding
@@ -535,6 +668,13 @@ function envelopeForDelete(input: {
   }
 }
 
+/**
+ * Builds the envelope for an interactive action.
+ *
+ * `subject` points at the message the button lives on when there is one, and
+ * otherwise at the action itself, so a free-standing action (no host message)
+ * is still addressable. The action's id, value, and user are carried in `data`.
+ */
 function envelopeForAction(input: {
   agentUid: string
   binding: RuntimeExternalBinding
@@ -594,6 +734,15 @@ async function roomForLifecycle(
   return roomForThread(adapter, event.threadId, event.room ?? event.message?.room)
 }
 
+/**
+ * Resolves a full room shape from whatever the event carried, deriving the
+ * room id from the thread id when the event omitted it.
+ *
+ * Fields already on the event always win; only the gaps are filled. A network
+ * `fetchChannelInfo` is attempted only when something is still missing and the
+ * room is not already known to be a named DM, and any fetch failure falls back
+ * to the partial shape — room metadata is a nicety, not worth failing ingress.
+ */
 async function roomForThread(
   adapter: ExternalGatewayAdapter,
   threadId: string,
@@ -654,6 +803,13 @@ function actorKeyFromMessage(message: ExternalGatewayMessageInput): string {
   return message.userKey ?? message.author.userId ?? 'unknown'
 }
 
+/**
+ * Builds the stable provider event id used as the enqueue idempotency key.
+ *
+ * Shape is `type:room:message:revision`. Tying the key to (type, room, message)
+ * is what makes provider redelivery a no-op; the optional revision separates
+ * repeated lifecycle events on the same message (e.g. delete then recall).
+ */
 function providerEventId(
   type: ExternalGatewayCanonicalType,
   roomId: string,
@@ -664,6 +820,14 @@ function providerEventId(
   return `${type}:${roomId}:${messageId}:${suffix}`
 }
 
+/**
+ * Picks the value that distinguishes one deletion of a message from another.
+ *
+ * Prefers the explicit delete time; otherwise digs the provider event id out of
+ * the raw payload (Lark nests it under `header.event_id`). Returns undefined
+ * when neither exists, which collapses repeated identical deletes into one
+ * event — acceptable, since the compensating effect is the same.
+ */
 function deletionRevision(event: ExternalGatewayMessageDeletedEvent): unknown {
   if (event.deletedAt) return event.deletedAt
 
@@ -677,6 +841,11 @@ function deletionRevision(event: ExternalGatewayMessageDeletedEvent): unknown {
   return undefined
 }
 
+/**
+ * Synthesizes a minimal bot-mention entry when the adapter only told us "this
+ * mentions the bot" without a structured mentions list, so downstream code can
+ * treat mention presence uniformly.
+ */
 function mentionsFromMessage(message: Pick<ExternalGatewayMessageInput, 'isMention'>): JsonValue[] {
   if (!message.isMention) return []
 
@@ -688,14 +857,26 @@ function mentionsFromMessage(message: Pick<ExternalGatewayMessageInput, 'isMenti
   ]
 }
 
-function commandFromMessage(
+/**
+ * Detects whether a message is one of the supported control slash commands
+ * (`/new`, `/compress`, `/retry`, `/steer`, `/stop`) and parses it into a stub.
+ *
+ * Returns undefined for ordinary text. The stub is deliberately shallow
+ * (`status: 'stub'`): this is just classification at ingress, and the executor
+ * is what actually interprets the command. The command always takes precedence
+ * over treating the same text as a normal model message.
+ */
+export function commandFromMessage(
   message: Pick<ExternalGatewayMessageInput, 'isMention' | 'text'>
 ): ExternalGatewaySlashCommandStub | undefined {
   const text = message.text?.trim()
   if (!text) return undefined
 
   const commandText = normalizedCommandText(message, text)
-  const match = /^\/(new|compress|retry|steer|stop)(?:\s+(.*))?$/i.exec(commandText)
+  // `s` so the argument may span newlines: a multi-line `/steer <instruction>`
+  // (or `/new <multi-line message>`) must still classify as a slash command
+  // rather than leaking the literal command token into the model as normal text.
+  const match = /^\/(new|compress|retry|steer|stop)(?:\s+(.*))?$/is.exec(commandText)
   if (!match) return undefined
 
   return {
@@ -706,6 +887,13 @@ function commandFromMessage(
   }
 }
 
+/**
+ * Strips a leading @mention so "@bot /steer ..." still parses as a command.
+ *
+ * Only does this for mention messages whose text does not already start with a
+ * slash: in many platforms an @mention prefixes the visible text, and without
+ * this the command token would never reach `commandFromMessage`'s regex.
+ */
 function normalizedCommandText(message: Pick<ExternalGatewayMessageInput, 'isMention'>, text: string): string {
   if (text.startsWith('/')) return text
   if (message.isMention !== true) return text
@@ -714,6 +902,14 @@ function normalizedCommandText(message: Pick<ExternalGatewayMessageInput, 'isMen
   return match?.[1]?.trim() ?? text
 }
 
+/**
+ * Tells whether a receive for this message already left the batch window, i.e.
+ * its row is no longer `pending`.
+ *
+ * Used by the delete/recall handler to decide whether the agent has actually
+ * seen the message and therefore needs a compensating lifecycle event, versus a
+ * message that can still be quietly dropped from the pending window.
+ */
 async function hasDeliveredReceive(
   agentUid: string,
   bindingName: string,
@@ -737,6 +933,14 @@ async function hasDeliveredReceive(
   return rows.length > 0
 }
 
+/**
+ * Lets an adapter offload handler work to the background.
+ *
+ * When the adapter passes `runInBackground`, the handler promise is handed off
+ * and this resolves immediately, so the adapter can ack the provider webhook
+ * inside its tight timeout instead of waiting for projection/enqueue. Otherwise
+ * the caller awaits the handler directly.
+ */
 function runWithWebhookOptions(task: Promise<void>, options?: ExternalGatewayWebhookOptions): Promise<void> {
   if (!options?.runInBackground) return task
 

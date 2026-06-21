@@ -28,6 +28,9 @@ function sampleUserAgent(domain: string): string {
   return ua
 }
 
+// Decodes only the handful of HTML entities that actually show up in <title>
+// text. A full entity table is unnecessary here — titles are short and this keeps
+// the helper dependency-free; mdream handles entities in the body separately.
 function decodeEntities(value: string): string {
   return value
     .replace(/&amp;/g, '&')
@@ -44,6 +47,9 @@ function extractTitle(html: string): string {
   return raw ? decodeEntities(raw.replace(/\s+/g, ' ').trim()) : ''
 }
 
+// Sniffs whether a body is HTML when the server gave no content-type. Only the
+// first 512 bytes are inspected — the doctype/<html> tag is always near the top,
+// and scanning a multi-MB document for it would be wasteful.
 function looksLikeHtml(body: string): boolean {
   const head = body.slice(0, 512).toLowerCase()
   return head.includes('<!doctype html') || head.includes('<html')
@@ -64,6 +70,14 @@ async function fetchOnce(url: string, domain: string, signal?: AbortSignal): Pro
   try {
     let response: Response
     try {
+      // Redirects are followed transparently by the runtime's fetch.
+      // TODO: no SSRF guard here — neither the initial URL nor the redirect targets
+      // are checked against private/link-local ranges (e.g. 127.0.0.1, 10.x, the
+      // 169.254.169.254 cloud-metadata endpoint). Because the URL ultimately comes
+      // from the model (and the model can be steered by injected web content), the
+      // real fix is to resolve the host and reject private/loopback/link-local IPs
+      // on the first request AND on every redirect hop. Today this path trusts the
+      // caller-supplied URL.
       response = await fetch(url, {
         headers: { 'user-agent': sampleUserAgent(domain), accept: ACCEPT_HEADER },
         redirect: 'follow',
@@ -79,10 +93,16 @@ async function fetchOnce(url: string, domain: string, signal?: AbortSignal): Pro
       return { url, title: '', text: '', error: `HTTP ${response.status}` }
     }
     const contentType = response.headers.get('content-type') ?? ''
+    // First size gate: reject early on the declared Content-Length before reading
+    // the body, so an honestly-large response is dropped without downloading it.
     const declaredBytes = Number(response.headers.get('content-length') ?? '0')
     if (Number.isFinite(declaredBytes) && declaredBytes > MAX_RESPONSE_BYTES) {
       return { url, title: '', text: '', error: `response too large (${declaredBytes} bytes)` }
     }
+    // Only attempt textual formats. Binary types (pdf, images, archives) would
+    // decode to garbage, so reject them with a clear per-URL error rather than
+    // returning noise. An absent content-type ('') is allowed through and sniffed
+    // from the body below, since some servers omit the header on real HTML.
     const isHtml = contentType.includes('html')
     const isTextual =
       isHtml ||
@@ -94,6 +114,9 @@ async function fetchOnce(url: string, domain: string, signal?: AbortSignal): Pro
       return { url, title: '', text: '', error: `unsupported content type: ${contentType}` }
     }
     const body = await response.text()
+    // Second size gate: Content-Length can lie or be absent (chunked responses),
+    // so re-check the actual downloaded size. (Bound on chars, not bytes — close
+    // enough as a cap, and cheaper than measuring encoded length.)
     if (body.length > MAX_RESPONSE_BYTES) {
       return { url, title: '', text: '', error: 'response too large' }
     }
@@ -109,6 +132,14 @@ async function fetchOnce(url: string, domain: string, signal?: AbortSignal): Pro
   }
 }
 
+/**
+ * Extracts one URL with retry: validates the URL, resolves its host once (for UA
+ * sampling), then runs `fetchOnce` under `withRetry`. The retry only kicks in for
+ * the retryable network-blip errors `fetchOnce` raises; any other failure is
+ * caught and returned as a per-URL `error` so a bad URL never throws out of the
+ * batch. (Note the name: `fetchOne` is the retrying wrapper, `fetchOnce` is a
+ * single attempt.)
+ */
 async function fetchOne(url: string, signal?: AbortSignal): Promise<WebExtractResult> {
   let domain: string
   try {

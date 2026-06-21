@@ -3,6 +3,7 @@ import { TableCell, TableRow } from '@/uikit/components/table'
 import { useAdaptersQuery } from '../helpers'
 import { SectionHeader, TableCard } from '../shared'
 
+/** Lists discovered external-gateway adapters and whether they support interactive setup. */
 export function PluginsPage() {
   const { t } = useTranslation()
   const adapters = useAdaptersQuery()

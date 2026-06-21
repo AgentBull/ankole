@@ -82,6 +82,15 @@ export async function createExternalIdentity(input: CreateExternalIdentityInput)
   return identity
 }
 
+/**
+ * Inserts or updates an external identity, keyed by its natural identity tuple.
+ *
+ * Unlike {@link createExternalIdentity} (which always inserts and lets the unique
+ * index reject a duplicate), this resolves the existing row by kind-appropriate
+ * lookup and rewrites it, so re-observing the same subject is safe. It can
+ * re-point the binding to a different `principalUid`, which is how a subject gets
+ * reassigned.
+ */
 export async function upsertExternalIdentity(
   input: CreateExternalIdentityInput,
   db: QueryExecutor = DB
@@ -247,6 +256,10 @@ async function upsertPlatformSubjectHumanInExecutor(
     )
     .limit(1)
 
+  // Identity resolution: an existing binding's principal uid is authoritative, so
+  // a second observer of the same subject attaches to the same human. Only the
+  // first observer gets to pick the uid (falling back to the external id), which
+  // is what makes chat and directory sync converge on one Principal.
   const principalUid = existingIdentity?.principalUid ?? normalizeUid(input.uid ?? externalId)
   const { principal } = await upsertHumanProfile(
     {
@@ -258,6 +271,10 @@ async function upsertPlatformSubjectHumanInExecutor(
     },
     db
   )
+  // Merge new metadata over whatever the binding already held, so each observer
+  // contributes its own fields (a chat event's open_id, a directory sync's
+  // union_id) without clobbering the others. `provider`/`externalId` are pinned
+  // last so they can never be overwritten by caller-supplied metadata.
   const mergedMetadata = {
     ...metadataObject(existingIdentity?.metadata),
     ...metadata,
@@ -279,6 +296,14 @@ async function upsertPlatformSubjectHumanInExecutor(
   return { principal, identity }
 }
 
+/**
+ * Validates and canonicalizes external-identity input before it touches the DB.
+ *
+ * Enforces the per-kind shape the schema's partial indexes and check constraints
+ * expect: `channel_actor` needs adapter + channelId, while the provider-scoped
+ * kinds need a `provider`. Catching it here yields a domain error instead of a
+ * raw constraint violation from PostgreSQL.
+ */
 function normalizeExternalIdentityInput(
   input: CreateExternalIdentityInput
 ): Omit<typeof PrincipalExternalIdentities.$inferInsert, 'id'> {
@@ -314,6 +339,14 @@ function normalizeExternalIdentityInput(
   return attrs
 }
 
+/**
+ * Builds the lookup used to find an existing identity to upsert.
+ *
+ * The key differs by kind to mirror the unique indexes: a `channel_actor` is
+ * unique per `adapter + channelId + externalId`, while provider-scoped kinds are
+ * unique per `provider + externalId`. Matching the index shape is what keeps the
+ * upsert from inserting a duplicate the constraint would later reject.
+ */
 function identityLookupCondition(
   kind: PrincipalExternalIdentityKind,
   attrs: Omit<typeof PrincipalExternalIdentities.$inferInsert, 'id'>
@@ -341,6 +374,9 @@ function requiredText(value: string, field: string): string {
   return normalized
 }
 
+// Provider namespaces must match the shared external-identity contract (also
+// enforced by a DB check on the column), so a typo'd provider id fails as a
+// clean domain error rather than at insert time.
 function requiredProvider(value: string | null | undefined, field: string): string {
   const normalized = trimOptionalText(value)
   if (!normalized) throw new PrincipalDomainError('invalid_request', `${field} must not be empty`)

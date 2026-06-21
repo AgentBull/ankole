@@ -1,3 +1,12 @@
+// End-to-end tests for the External Gateway runtime against the real database,
+// driving a `FakeExternalAdapter` (defined below) that records outbound calls and
+// can be told to fail a send/edit on demand. They cover the full loop — binding
+// load, webhook → projection → agent delivery → outbox dispatch — and the
+// outbox's recovery semantics: which `recoveryState`s are safe to replay, when a
+// send is "unknown after send", permanent-vs-transient provider errors, edit→post
+// fallback, dead-lettering, and the ordering guard that holds a recall behind an
+// in-flight receive. The `eventually` helper at the bottom polls because delivery
+// and dispatch run asynchronously after the webhook returns.
 import { afterAll, describe, expect, it } from 'bun:test'
 import { and, eq } from 'drizzle-orm'
 import type {
@@ -322,6 +331,10 @@ describe('ExternalGatewayRuntime', () => {
       })
     )
 
+    // The split that this whole design rests on: agent acceptance and provider
+    // delivery are separate fates. The input row stays `done` (the agent did its
+    // work) even though the outbox row is `failed` (the provider rejected the
+    // send). A delivery failure must never reopen accepted input.
     await assertAgentEventDone(agentUid, 'message.received', 'addressed')
     await assertOutboxOperationStatus(agentUid, 'post', 'failed')
     expect(adapter.posts).toEqual([])
@@ -336,6 +349,10 @@ describe('ExternalGatewayRuntime', () => {
     await runtime.stop()
   })
 
+  // A row that started a send but never recorded the outcome (a crash mid-send).
+  // Without a way to check whether the message landed, replaying it risks a
+  // duplicate, so it is failed as `unknown_after_send` rather than retried — the
+  // default adapter here lacks the `outbound_idempotency` capability.
   it('does not replay unknown-after-send outbox rows when adapter cannot prove idempotency', async () => {
     const adapter = new FakeExternalAdapter('fake_unknown')
     const agentUid = `${testPrefix}-unknown-after-send-agent`.toLowerCase()
@@ -393,6 +410,9 @@ describe('ExternalGatewayRuntime', () => {
       operation: 'post',
       finalPayload: jsonbParam({ text: 'maybe already sent outside idempotency window' }),
       status: 'pending',
+      // Started 61 minutes ago — past the ~55m idempotency replay window. Even an
+      // idempotency-capable provider may have aged the key out, so a replay could
+      // double-send; the row is failed unknown instead of retried.
       platformSendStartedAt: new Date(Date.now() - 61 * 60 * 1000),
       recoveryState: 'send_attempt_started'
     })
@@ -454,6 +474,8 @@ describe('ExternalGatewayRuntime', () => {
         and(eq(ExternalGatewayOutbox.agentUid, agentUid), eq(ExternalGatewayOutbox.outboundKey, 'test-bad-request'))
       )
       .limit(1)
+    // A 400 is a permanent rejection: failed at once, with retryCount still 0 (no
+    // retry budget consumed) and recoveryState untouched, so it is never replayed.
     expect(row?.status).toBe('failed')
     expect(row?.recoveryState).toBe('not_started')
     expect(row?.retryCount).toBe(0)
@@ -509,6 +531,10 @@ describe('ExternalGatewayRuntime', () => {
         and(eq(ExternalGatewayOutbox.agentUid, agentUid), eq(ExternalGatewayOutbox.outboundKey, 'test-edit-fallback'))
       )
       .limit(1)
+    // When the provider's edit window has permanently closed (Lark code 230075)
+    // and the intent opted in with `editFallback: 'post'`, the failed edit becomes
+    // a fresh post so the user still sees the content. The row settles `sent` with
+    // the new post's id, not the dead target id.
     expect(row?.status).toBe('sent')
     expect(row?.providerMessageId).toBe('fake_edit_fallback-post-1')
     expect(adapter.posts).toEqual([{ threadId: `${roomId}:thread-1`, text: 'final status' }])
@@ -531,6 +557,8 @@ describe('ExternalGatewayRuntime', () => {
       operation: 'post',
       finalPayload: jsonbParam({ text: 'never sent' }),
       status: 'pending',
+      // Already at the max retry count, so the next dispatch dead-letters it
+      // (failed, `retry_exhausted`) instead of attempting the provider again.
       retryCount: 5,
       lastError: 'rate limited',
       recoveryState: 'not_started'
@@ -714,9 +742,14 @@ describe('ExternalGatewayRuntime', () => {
       })
     )
 
+    // While the receive is still being delivered (blocked above), the delete must
+    // be held back: the agent cannot be told "this was recalled" before it has
+    // seen the message. So only the receive has been delivered so far.
     await Bun.sleep(100)
     expect(deliveries).toEqual(['message.received'])
 
+    // Once the receive settles, the deferred delete becomes claimable and is
+    // delivered after it — never before.
     releaseReceive()
     await eventually(() => expect(deliveries).toEqual(['message.received', 'message.deleted']))
     await assertAgentEventDone(agentUid, 'message.received', 'addressed')
@@ -831,6 +864,11 @@ const defaultFakeCapabilities = {
   outbound: ['post_message', 'delete_message', 'add_reaction', 'remove_reaction', 'divider', 'card']
 } as const satisfies ExternalGatewayAdapter['capabilities']
 
+// A minimal in-file adapter: it records every outbound call into public arrays
+// the tests assert on, and `failNextPost`/`failNextEdit` arm one-shot provider
+// failures to exercise the outbox recovery paths. Unlike the mock IM platform it
+// keeps no visible-state model — these tests check the runtime/outbox, not the
+// provider's rendered output, so recording the calls is enough.
 class FakeExternalAdapter implements ExternalGatewayAdapter<FakeWebhookPayload> {
   readonly userName = 'Agent'
   readonly capabilities: ExternalGatewayAdapter['capabilities']

@@ -7,6 +7,9 @@ import { truncateOutput } from './format'
 import { materializeRuntimeCredential } from '@/runtime-credentials/service'
 import { CODEX_AUTH_PATH, CODEX_CONFIG_PATH, CODEX_HOME } from './runtime-credential-materialization'
 
+// Per-run scratch area for delegated Codex runs: the prompt is written here and the run's final
+// message is read back from here. Under `temp/` so it shares the throwaway run state, not the
+// durable workspace.
 const CODEX_RUNS_DIR = 'temp/codex-runs'
 
 const CodexDelegateParams = z.object({
@@ -43,6 +46,18 @@ interface CodexDelegateDetails {
   configMaterialized: boolean
 }
 
+/**
+ * Delegates a self-contained coding subtask to a nested Codex agent running inside this same
+ * computer.
+ *
+ * This is a delegation boundary: BullX defines the goal and hands Codex its own plan/edit/run/verify
+ * loop, then collects a single concise result. The contract is one-shot and stateless from BullX's
+ * side — the prompt must carry all context, constraints, success criteria, and where to put output,
+ * because BullX does not converse with Codex turn by turn. Codex runs with sandbox/approvals
+ * bypassed by default precisely because the BullX Computer is already the isolation boundary;
+ * re-sandboxing inside it would only get in the model's way (the param can still tighten it).
+ * `wait=false` starts it detached and tracked by the `process` tool for slow or parallel work.
+ */
 export function createCodexDelegateTool(
   context: ComputerToolContext
 ): AgentTool<typeof CodexDelegateParams, CodexDelegateDetails> {
@@ -56,6 +71,10 @@ export function createCodexDelegateTool(
     isDestructive: true,
     async execute(_toolCallId, params, signal): Promise<AgentToolResult<CodexDelegateDetails>> {
       const computer = await context.getComputer(signal)
+      // One uuid namespaces this run's prompt and last-message files, so parallel delegations (each
+      // its own run) never collide on disk. Both relative and absolute forms are kept because
+      // `writeFiles`/`readFileToBuffer` take workspace-relative paths while the Codex CLI flags need
+      // absolute ones.
       const runId = genUUIDv7()
       const promptPath = `${CODEX_RUNS_DIR}/${runId}/prompt.txt`
       const lastMessagePath = `${CODEX_RUNS_DIR}/${runId}/last-message.md`
@@ -63,6 +82,9 @@ export function createCodexDelegateTool(
       const absoluteLastMessagePath = `/workspace/${lastMessagePath}`
       const workdir = normalizeWorkdir(params.workdir)
 
+      // Materialize Codex's auth just in time for this run. The shared session-level materialization
+      // already wrote it, but re-resolving here means the tool also works when invoked outside that
+      // path and lets it fail fast with an actionable message if no credential is configured.
       const credential = await materializeRuntimeCredential({
         computer,
         agentUid: context.agentUid,
@@ -71,6 +93,8 @@ export function createCodexDelegateTool(
         credentialName: 'auth_json',
         path: CODEX_AUTH_PATH
       })
+      // No auth means Codex cannot run at all, so stop here and tell the model exactly what to
+      // configure rather than launching a command that would fail opaquely deep inside Codex.
       if (!credential) {
         return {
           content: [
@@ -90,6 +114,8 @@ export function createCodexDelegateTool(
           }
         }
       }
+      // Config is optional — a run is fine on Codex defaults — so its absence is not fatal; the
+      // result just records whether it was materialized.
       const codexConfig = await materializeRuntimeCredential({
         computer,
         agentUid: context.agentUid,
@@ -99,6 +125,9 @@ export function createCodexDelegateTool(
         path: CODEX_CONFIG_PATH
       })
 
+      // The prompt is passed via a file (read on Codex's stdin), not as a CLI argument. That keeps
+      // arbitrarily large prompts off the command line and out of any process listing, and the
+      // 0o600 mode keeps it owner-only like the credentials.
       await computer.writeFiles([{ path: promptPath, content: params.prompt, mode: 0o600 }], { signal })
       const command = buildCodexCommand({
         promptPath: absolutePromptPath,
@@ -110,6 +139,10 @@ export function createCodexDelegateTool(
         skipGitRepoCheck: params.skipGitRepoCheck ?? false
       })
 
+      // Background path: start Codex detached and hand the model a session id plus the path where
+      // its final message will appear, instead of blocking. `CODEX_HOME` points Codex at the
+      // just-materialized auth/config. Registering the id lets the `process` tool track it like any
+      // other background job.
       if (params.wait === false) {
         const started = await computer.runCommand({
           cmd: 'bash',
@@ -140,6 +173,9 @@ export function createCodexDelegateTool(
         }
       }
 
+      // Foreground path: block until Codex exits. Its final answer is read from the
+      // `--output-last-message` file (the clean result), while the raw log tail is also returned and
+      // truncated for context budget so the model can see what happened on failure.
       const result = await computer.runCommand({
         cmd: 'bash',
         args: ['-lc', command],
@@ -180,6 +216,14 @@ export function createCodexDelegateTool(
   })
 }
 
+/**
+ * Assembles the `codex exec` command line. `exec` is the non-interactive mode; `--json` gives a
+ * machine-readable log and `--output-last-message` writes Codex's final answer to a file we read
+ * back. `bypassApprovals` and `--sandbox` are mutually exclusive — bypass means "no internal
+ * sandbox" (the default, since the computer is already the boundary), otherwise the chosen sandbox
+ * mode is applied. The trailing `-` plus stdin redirect feeds the prompt file in as the task. Every
+ * argument is single-quoted so a prompt path or model name can never break out of the command.
+ */
 function buildCodexCommand(input: {
   promptPath: string
   lastMessagePath: string
@@ -198,6 +242,14 @@ function buildCodexCommand(input: {
   return `${args.map(shellQuote).join(' ')} < ${shellQuote(input.promptPath)}`
 }
 
+/**
+ * Resolves the requested workdir to an absolute path and confines it to `/workspace`.
+ *
+ * Backslashes are folded to forward slashes and repeated slashes collapsed so the prefix check
+ * cannot be fooled by `\` or `//`, and any path still containing a `..` segment is rejected outright
+ * rather than resolved — together these stop the delegated agent from being pointed at files outside
+ * the workspace. A relative input is anchored under `/workspace`.
+ */
 function normalizeWorkdir(value: string | undefined): string {
   const raw = (value?.trim() || '/workspace').replace(/\\/g, '/').replace(/\/+/g, '/')
   const absolute = raw.startsWith('/') ? raw : `/workspace/${raw}`
@@ -208,10 +260,17 @@ function normalizeWorkdir(value: string | undefined): string {
   return absolute
 }
 
+/** Wraps a value in single quotes for `bash -lc`, escaping embedded quotes, so model-supplied
+ * paths and names cannot inject extra shell words. */
 function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`
 }
 
+/**
+ * Reads Codex's final-answer file, returning null when it is absent. A run can exit without writing
+ * one (e.g. it failed early), so the caller treats null as "no clean answer" and falls back to the
+ * log tail rather than erroring. Typed to just `readFileToBuffer` so tests can pass a stub.
+ */
 async function readLastMessage(
   computer: Pick<Awaited<ReturnType<ComputerToolContext['getComputer']>>, 'readFileToBuffer'>,
   path: string,

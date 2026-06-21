@@ -7,6 +7,12 @@ function padSecretBytes(bytes: Buffer, length: number): Buffer {
   return padded
 }
 
+/**
+ * Compares two secrets without leaking timing differences for same-length input.
+ *
+ * Buffers are padded before `timingSafeEqual` because Node throws when lengths
+ * differ. The final length check preserves normal equality semantics.
+ */
 export function safeEqualSecret(provided: string | undefined | null, expected: string | undefined | null): boolean {
   if (typeof provided !== 'string' || typeof expected !== 'string') return false
   const providedBytes = Buffer.from(provided, 'utf8')

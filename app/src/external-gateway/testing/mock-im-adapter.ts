@@ -1,3 +1,17 @@
+// A full in-memory fake of an IM platform (Lark/Slack-shaped), used as the
+// outer world in External Gateway integration tests. It plays two roles at once:
+//   1. The platform the bot talks TO — adapter outbound methods (post/edit/
+//      delete/react/reconcile/streaming card) mutate its message store, so tests
+//      can assert what the user would actually see.
+//   2. The platform that pushes events IN — `MockImConversation` builds webhook
+//      payloads and feeds them through the real adapter + runtime, the same path
+//      a production webhook takes.
+// The design choice that makes the tests meaningful: state is modeled FIRST
+// (what the platform shows), then events are emitted from it. Failure injection
+// runs before any outbound mutation, so a "provider rejected the send" test
+// leaves the visible state untouched — exactly like the real provider. This lets
+// a test compare the gateway's projected mirror (`external_messages`) against the
+// platform's own visible latest-state and demand they match.
 import type { BullXExternalGatewayGroupMessageMode } from '@agentbull/bullx-sdk/plugins'
 import { parseMarkdown } from '../core/markdown'
 import {
@@ -16,8 +30,10 @@ import {
 
 export type MockImGroupMessageMode = BullXExternalGatewayGroupMessageMode
 
+/** Whether a conversation is a direct message or a group room; drives admission. */
 export type MockImSurface = 'dm' | 'group'
 
+/** Identifies one conversation (room + thread) a test drives messages through. */
 export interface MockImConversationOptions {
   adapterName: string
   agentUid: string
@@ -29,8 +45,12 @@ export interface MockImConversationOptions {
   threadId?: string
 }
 
+// The seam that connects the fake platform to the system under test: a test
+// passes `runtime.handleWebhook` (bound) here, so the fake "delivers" a webhook
+// exactly as the HTTP route would, agent + channel included.
 export type MockImDeliver = (agentUid: string, channelName: string, request: Request) => Promise<Response>
 
+/** Knobs for a single inbound message a test sends from a user/actor. */
 export interface MockImMessageOptions {
   attachments?: MockImAttachmentInput[]
   authorId?: string
@@ -72,6 +92,9 @@ export interface MockImReactionOptions {
   rawEmoji: string
 }
 
+// The outbound operations a test can make the fake provider reject once, to
+// exercise the outbox's retry/failure paths. Injected via `failNext` and burned
+// by `consumeFailure` at the start of the matching outbound method.
 export type MockImFailurePoint = 'post' | 'delete' | 'addReaction' | 'removeReaction'
 
 export interface MockImAdapterOptions {
@@ -110,6 +133,11 @@ export interface MockImRawMessage {
   threadId: string
 }
 
+// The fake's wire format: the JSON body of a simulated webhook. One discriminated
+// `event` covers every push the platform can make (new message, recall vs hard
+// delete, reaction add/remove, button click). `handleWebhook` branches on it.
+// Recall and delete are kept distinct because the gateway maps them to different
+// canonical event types downstream.
 export interface MockImWebhookPayload {
   event: 'receive' | 'recall' | 'delete' | 'reaction_add' | 'reaction_remove' | 'action'
   deletedAt?: string
@@ -128,6 +156,11 @@ export interface MockImWebhookPayload {
   }
 }
 
+// The platform's externally visible latest-state for one message — what a human
+// in the chat would see right now. This is the projection tests diff against the
+// gateway's own `external_messages` mirror to prove the two stayed in sync.
+// Deleted messages and unobserved inbound messages are filtered out before this
+// shape is produced (see `visibleMessages`).
 export interface MockImVisibleMessage {
   authorId: string
   channelId: string
@@ -140,6 +173,12 @@ export interface MockImVisibleMessage {
   threadId: string
 }
 
+// The full internal record kept in the message store. Extends the visible shape
+// with the bookkeeping the fake needs but never exposes: a soft-delete marker
+// (`deletedAt`, so a recall/delete can be filtered out yet still win against a
+// late out-of-order receive) and `revisionAt`, the per-message clock that makes
+// redelivery and out-of-order delivery idempotent — an update with an older
+// `revisionAt` is dropped.
 type StoredMessage = MockImVisibleMessage & {
   deletedAt: Date | null
   raw: unknown
@@ -173,11 +212,19 @@ const fullOutboundCapabilities = [
   'ephemeral'
 ] as const
 
+// The "maximal" provider: a fake that supports every gateway capability. Tests
+// start here and selectively remove capabilities (via `mockImCapabilitiesWithout`)
+// to assert the gateway degrades correctly on platforms that lack, say, edit or
+// idempotency support.
 export const fullMockImCapabilities = {
   inbound: fullInboundCapabilities,
   outbound: fullOutboundCapabilities
 } as const satisfies ExternalGatewayAdapterCapabilities
 
+/**
+ * Returns the full capability set with the named capabilities stripped from one
+ * section, so a test can model a provider that does not support them.
+ */
 export function mockImCapabilitiesWithout(
   section: keyof ExternalGatewayAdapterCapabilities,
   ...capabilities: string[]
@@ -199,8 +246,15 @@ export function mockImCapabilitiesWithout(
  * tests can compare IM visible latest-state with `external_messages`.
  */
 export class MockImPlatform {
+  // Adapters registered against this platform, keyed by channel name. One
+  // platform can host several bindings/agents at once (multi-binding tests).
   readonly adapters = new Map<string, MockImAdapter>()
+  // Every webhook payload the fake pushed, in delivery order — a test inspection
+  // log for "what events did the platform actually emit".
   readonly transcript: MockImWebhookPayload[] = []
+  // Every outbound op the bot performed (post/reply/edit/delete/reconcile/
+  // stream-card), in order. Tests assert on this to check what the bot sent and
+  // how many times, independent of the resulting visible state.
   readonly outbound: Array<{
     messageId?: string
     op: string
@@ -209,26 +263,45 @@ export class MockImPlatform {
     text?: string
     threadId: string
   }> = []
+  // Streaming-card lifecycles, one record per card, capturing each incremental
+  // update and the final text/status so streaming tests can replay the sequence.
   readonly streamingCards: MockImStreamingCardRecord[] = []
 
+  // The single source of truth for platform state, keyed by `channelId\0messageId`
+  // (see `messageKey`). Holds both user and bot messages; soft-deleted rows stay
+  // here so a recall can still beat a late receive.
   private readonly messages = new Map<string, StoredMessage>()
+  // Inbound messages the adapter actually admitted (passed the group-mode filter).
+  // `visibleMessages` only surfaces admitted inbound messages, so an ignored
+  // ambient message never shows up in the mirror comparison.
   private readonly observedInboundKeys = new Set<string>()
+  // Attachment bytes, keyed by fileKey, so `downloadResource` can serve what an
+  // inbound message referenced — the fake's stand-in for provider file storage.
   private readonly resources = new Map<string, Uint8Array>()
+  // Pending one-shot failures per outbound op, armed by `failNext`. A positive
+  // count makes the next matching send throw, modeling a provider rejection.
   private readonly failures: Record<MockImFailurePoint, number> = {
     post: 0,
     delete: 0,
     addReaction: 0,
     removeReaction: 0
   }
+  // Monotonic counters that make generated bot message / card ids and synthetic
+  // user ids stable and unique within one platform instance.
   private postSeq = 0
   private userSeq = 0
 
+  /** Registers a new adapter (one channel/binding) against this platform. */
   createAdapter(name: string, options: MockImAdapterOptions = {}): MockImAdapter {
     const adapter = new MockImAdapter(this, name, options)
     this.adapters.set(name, adapter)
     return adapter
   }
 
+  /**
+   * Opens a direct-message conversation. DMs are always `observe_all` and every
+   * message in them is addressed, so the mode/surface are fixed here.
+   */
   dm(options: Omit<MockImConversationOptions, 'surface' | 'mode'>): MockImConversation {
     const channelId = `${options.adapterName}:dm`
     return new MockImConversation(this, {
@@ -242,6 +315,10 @@ export class MockImPlatform {
     })
   }
 
+  /**
+   * Opens a group conversation. The caller chooses the group-message mode; the
+   * room and thread ids default to fresh unique values when not supplied.
+   */
   group(options: Omit<MockImConversationOptions, 'surface'>): MockImConversation {
     const channelId = options.channelId ?? `${options.adapterName}:group-${crypto.randomUUID()}`
     return new MockImConversation(this, {
@@ -252,10 +329,14 @@ export class MockImPlatform {
     })
   }
 
+  /** Arms the next `count` calls of one outbound op to fail (provider rejection). */
   failNext(point: MockImFailurePoint, count = 1): void {
     this.failures[point] += count
   }
 
+  // Burns one armed failure for `point` and throws if one was pending. Outbound
+  // methods call this FIRST, before mutating state, so a rejected send leaves the
+  // visible platform exactly as the real provider would: unchanged.
   consumeFailure(point: MockImFailurePoint): void {
     if (this.failures[point] <= 0) return
 
@@ -263,6 +344,16 @@ export class MockImPlatform {
     throw new Error(`mock im ${point} failure`)
   }
 
+  /**
+   * The platform's current visible state for a room (or all rooms).
+   *
+   * This is the gold the gateway's projection mirror is checked against, so its
+   * filter has to match what the gateway would ever record: deleted messages are
+   * gone, and an inbound message only counts once the adapter ADMITTED it
+   * (`observedInboundKeys`) — an ignored ambient message exists in the store for
+   * lookup but is not part of visible state. Bot messages are always visible.
+   * Sorted by send time then id so the comparison is order-stable.
+   */
   visibleMessages(channelId?: string): MockImVisibleMessage[] {
     return [...this.messages.values()]
       .filter(message => !message.deletedAt)
@@ -282,6 +373,9 @@ export class MockImPlatform {
       }))
   }
 
+  // Returns the wire-shaped snapshot of a live (non-deleted) message, or
+  // undefined. Used to fetch a message back the way an adapter's fetchMessage
+  // would, and to recover the original body when building a delete/recall payload.
   rawMessage(channelId: string, messageId: string): MockImRawMessage | undefined {
     const message = this.messages.get(messageKey(channelId, messageId))
     if (!message || message.deletedAt) return undefined
@@ -301,6 +395,14 @@ export class MockImPlatform {
     }
   }
 
+  /**
+   * Pushes one webhook payload into the system under test.
+   *
+   * Records it in `transcript`, then serializes it to JSON and hands it to the
+   * caller-supplied `deliver` (typically the runtime's HTTP webhook entrypoint)
+   * as a real `Request` — so the body crosses the same JSON boundary a live
+   * provider webhook would, not an in-process object shortcut.
+   */
   async deliver(
     payload: MockImWebhookPayload,
     deliver: MockImDeliver,
@@ -319,6 +421,11 @@ export class MockImPlatform {
     )
   }
 
+  // Fires a set of webhook deliveries together. The two helpers below are
+  // intentionally identical in body and differ only in name: the name documents
+  // the scenario a test is exercising (deliberately reordered vs concurrent
+  // arrival). The fake makes no real ordering guarantee — Promise.all races them
+  // — which is the point: it surfaces ordering bugs in the gateway, not the fake.
   async deliverOutOfOrder(events: Array<() => Promise<Response>>): Promise<Response[]> {
     return Promise.all(events.map(event => event()))
   }
@@ -327,16 +434,28 @@ export class MockImPlatform {
     return Promise.all(events.map(event => event()))
   }
 
+  // Applies an inbound user message to platform state (no webhook emitted). The
+  // conversation calls this before delivering the `receive` payload so the
+  // platform's visible state already reflects the new message.
   applyInboundReceive(message: MockImRawMessage): void {
     this.upsertInbound(message, message.dateSent)
   }
 
+  /** Serves stored attachment bytes; throws on an unknown fileKey. */
   downloadResource(fileKey: string): Buffer {
     const data = this.resources.get(fileKey)
     if (!data) throw new Error(`mock im resource not found: ${fileKey}`)
     return Buffer.from(data)
   }
 
+  /**
+   * Stores raw attachment bytes and returns provider-style descriptors.
+   *
+   * Splits the test-facing input (inline bytes) from the wire shape: bytes go
+   * into resource storage under a generated fileKey, and the message only carries
+   * the descriptor — mirroring real platforms, where a webhook references a file
+   * the bot must download separately.
+   */
   registerInboundAttachments(
     messageId: string,
     attachments: readonly MockImAttachmentInput[] | undefined
@@ -357,6 +476,15 @@ export class MockImPlatform {
     return descriptors
   }
 
+  /**
+   * Records a recall/delete in platform state, idempotently and order-safely.
+   *
+   * Three cases: a newer revision already won → ignore (a recall must not undo a
+   * later edit). The message exists → soft-delete it. The message has not been
+   * seen yet → insert a tombstone row, so when its out-of-order `receive` later
+   * lands, `upsertInbound` sees the deleted marker and refuses to resurrect it.
+   * That tombstone path is what defends "recall arrives before receive".
+   */
   applyInboundDelete(channelId: string, messageId: string, deletedAt: Date): void {
     const key = messageKey(channelId, messageId)
     const existing = this.messages.get(key)
@@ -385,10 +513,21 @@ export class MockImPlatform {
     })
   }
 
+  // Marks an inbound message as admitted by the adapter, so it counts toward
+  // visible state. Called by `handleWebhook` only after the group-mode filter
+  // passes, which is why an ignored ambient message never enters the mirror.
   markObserved(channelId: string, messageId: string): void {
     this.observedInboundKeys.add(messageKey(channelId, messageId))
   }
 
+  /**
+   * Sends a bot message: the outbound side of `postMessage`/`replyMessage`.
+   *
+   * Honors an armed `post` failure first (so a rejected send writes nothing),
+   * then stores the new bot message and appends an `outbound` record. The
+   * reply-vs-post distinction is recovered from `raw` so tests can tell the two
+   * apart in the outbound log.
+   */
   createBotMessage(
     threadId: string,
     text: string,
@@ -425,6 +564,16 @@ export class MockImPlatform {
     }
   }
 
+  /**
+   * Opens a streaming card and returns a live handle the runtime drives.
+   *
+   * Models a provider that shows one editable card whose visible text is
+   * recomputed on every `update`/`updateStatus`: the rendered body is the latest
+   * status line plus the latest content (see `render`), so a test sees the card
+   * mutate in place, not a stream of separate messages. `finish` collapses to the
+   * final text, clears the status, and records one `stream-card` outbound op. The
+   * `record` accumulates every increment for tests that assert the full sequence.
+   */
   createStreamingCard(threadId: string, traceUrl?: string): ExternalGatewayStreamingCardHandle {
     const n = ++this.postSeq
     const adapterName = threadId.split(':')[0] ?? 'mock'
@@ -481,6 +630,7 @@ export class MockImPlatform {
     }
   }
 
+  /** Deletes a bot message (outbound side of `deleteMessage`); honors a `delete` failure. */
   deleteBotMessage(threadId: string, messageId: string, options?: ExternalGatewayOutboundOptions): void {
     this.consumeFailure('delete')
     const channelId = threadId.split(':').slice(0, 2).join(':')
@@ -493,6 +643,14 @@ export class MockImPlatform {
     this.outbound.push({ op: 'delete', messageId, options, threadId })
   }
 
+  /**
+   * Edits a bot message in place (outbound side of `editMessage`).
+   *
+   * Updates text and bumps `revisionAt` only when the target still exists and is
+   * live. When the target is gone, it still records the `edit` op and returns a
+   * synthesized raw shape rather than throwing — the outbox owns edit-failure
+   * policy (e.g. fall back to a new post), so this fake just reflects the attempt.
+   */
   editBotMessage(
     threadId: string,
     messageId: string,
@@ -527,6 +685,14 @@ export class MockImPlatform {
     }
   }
 
+  /**
+   * Adds or removes one actor's reaction on a message.
+   *
+   * Reactions are modeled as a set of actors per emoji (not a raw counter), so
+   * `count` is always derived from the actor map and redelivery stays idempotent.
+   * When the last actor leaves, the emoji bucket is dropped entirely. This mirrors
+   * the gateway's own reaction-folding so the two latest-states can be compared.
+   */
   applyReaction(input: {
     added: boolean
     actorId: string
@@ -561,6 +727,11 @@ export class MockImPlatform {
     else message.reactions[input.rawEmoji] = current
   }
 
+  // Inserts/updates one inbound message with the same guards a real platform's
+  // latest-state would enforce: a soft-deleted row is never resurrected (defends
+  // recall-before-receive), and an update older than the stored revision is
+  // dropped (defends redelivery and out-of-order delivery). Existing reactions
+  // are carried forward so a re-received message keeps its reaction map.
   private upsertInbound(message: MockImRawMessage, revisionAtValue: string): void {
     const key = messageKey(message.channelId, message.id)
     const revisionAt = new Date(revisionAtValue)
@@ -600,6 +771,15 @@ export class MockImPlatform {
     }
   }
 
+  /**
+   * Answers "does this bot message still exist on the platform?" — the outbound
+   * side of `reconcileMessage`.
+   *
+   * The outbox uses this during recovery to decide whether a send that may have
+   * landed actually did, so a crash mid-send does not produce a duplicate. The
+   * fake reports existence plus the current snapshot, and always logs a
+   * `reconcile` op.
+   */
   reconcileBotMessage(
     threadId: string,
     messageId: string,
@@ -623,6 +803,14 @@ export class MockImPlatform {
   }
 }
 
+/**
+ * A test-facing handle for one room/thread that drives user actions.
+ *
+ * Each method (`say`, `recall`, `delete`, `react`, `clickButton`, …) mutates the
+ * platform's state to reflect what the user did, then delivers the matching
+ * webhook payload through `deliver`. Tests script a conversation by calling these
+ * in sequence; the heavy lifting lives on `MockImPlatform`.
+ */
 export class MockImConversation {
   readonly adapterName: string
   readonly agentUid: string
@@ -649,6 +837,7 @@ export class MockImConversation {
 
   private readonly deliver?: MockImDeliver
 
+  /** Sends a user message: applies it to platform state, then delivers a `receive`. */
   async say(options: MockImMessageOptions = {}): Promise<Response> {
     const message = this.message(options)
     this.platform.applyInboundReceive(message)
@@ -658,6 +847,9 @@ export class MockImConversation {
     })
   }
 
+  // Recall vs delete differ only in the event name; both soft-delete the message
+  // and deliver the payload. The gateway maps `recalled` and `deleted` to
+  // different canonical event types, which is why the distinction is preserved.
   async recall(id: string, options: Omit<MockImDeleteOptions, 'id'> = {}): Promise<Response> {
     return this.deleteOrRecall('recall', { ...options, id })
   }
@@ -666,6 +858,7 @@ export class MockImConversation {
     return this.deleteOrRecall('delete', { ...options, id })
   }
 
+  /** Simulates a user pressing a card button, delivering an `action` event. */
   async clickButton(options: {
     messageId: string
     value: string
@@ -684,14 +877,19 @@ export class MockImConversation {
     })
   }
 
+  /** A user adds a reaction, delivering a `reaction_add` event. */
   async react(options: MockImReactionOptions): Promise<Response> {
     return this.reactOrUnreact(true, options)
   }
 
+  /** A user removes a reaction, delivering a `reaction_remove` event. */
   async unreact(options: MockImReactionOptions): Promise<Response> {
     return this.reactOrUnreact(false, options)
   }
 
+  // Posts a divider as the bot by routing through the registered adapter's real
+  // `postMessage`, rather than poking platform state directly — so the divider
+  // travels the full outbound rendering path under test.
   async postDivider(): Promise<ExternalGatewayRawMessage<MockImRawMessage>> {
     const adapter = this.platform.adapters.get(this.adapterName)
     if (!adapter) throw new Error(`Mock IM adapter is not registered: ${this.adapterName}`)
@@ -699,10 +897,16 @@ export class MockImConversation {
     return adapter.postMessage(this.threadId, { type: 'divider' } as never)
   }
 
+  // Builds the wire-shaped message a `say` would send, WITHOUT delivering it, so
+  // a test can inspect the raw payload or hand it to `parseMessage` directly.
   payload(options: MockImMessageOptions = {}): MockImRawMessage {
     return this.message(options)
   }
 
+  // Shared recall/delete path. Captures the original body first (so the payload
+  // carries the recalled message's content), soft-deletes it, then delivers the
+  // event. Falls back to a synthetic empty message when the original is already
+  // gone — modeling a provider that recalls a message BullX never received.
   private async deleteOrRecall(event: 'delete' | 'recall', options: MockImDeleteOptions): Promise<Response> {
     const deletedAt = options.deletedAt ?? new Date()
     const base = this.platform.rawMessage(this.channelId, options.id)
@@ -775,6 +979,16 @@ export class MockImConversation {
   }
 }
 
+/**
+ * The fake's `ExternalGatewayAdapter` implementation — the real code under test.
+ *
+ * It is a genuine adapter (the runtime cannot tell it apart from a Lark/Slack
+ * one): inbound, it parses the fake's webhook payloads and calls the context's
+ * `emit*` doors; outbound, it forwards post/edit/delete/react to the platform's
+ * state model. The platform holds the state; this class holds the protocol
+ * translation. Capabilities are configurable so one fake can stand in for
+ * platforms of differing power.
+ */
 export class MockImAdapter implements ExternalGatewayAdapter<MockImRawMessage> {
   readonly capabilities: ExternalGatewayAdapterCapabilities
   readonly userName: string
@@ -806,6 +1020,15 @@ export class MockImAdapter implements ExternalGatewayAdapter<MockImRawMessage> {
 
   async disconnect(): Promise<void> {}
 
+  /**
+   * Translates one fake webhook into the matching context `emit*` call.
+   *
+   * Each `event` maps to a single canonical ingress door. The `receive` branch
+   * applies the group-mode admission filter first: a message that is not admitted
+   * is acked but dropped (no `emitMessage`, never marked observed), which is how
+   * ambient/unaddressed group chatter is kept out of the agent's input while
+   * still returning a successful webhook response.
+   */
   async handleWebhook(request: Request, options?: ExternalGatewayWebhookOptions): Promise<Response> {
     const payload = (await request.json()) as MockImWebhookPayload
     const message = payload.message
@@ -883,6 +1106,14 @@ export class MockImAdapter implements ExternalGatewayAdapter<MockImRawMessage> {
     return Response.json({ ok: true })
   }
 
+  /**
+   * Normalizes a fake raw message into the gateway's `ExternalGatewayMessageInput`.
+   *
+   * The attachment mapping is the interesting part: each descriptor becomes a
+   * lazy `fetchData` that pulls bytes from the platform's resource store on
+   * demand, exactly like a real adapter deferring a file download — so the
+   * gateway's materialization path is exercised, not short-circuited.
+   */
   parseMessage(raw: MockImRawMessage): ExternalGatewayMessageInput<MockImRawMessage> {
     const text = raw.text ?? ''
     return {
@@ -920,6 +1151,9 @@ export class MockImAdapter implements ExternalGatewayAdapter<MockImRawMessage> {
     }
   }
 
+  // The fake's id convention: a thread id is `adapter:room[:dm:...|:thread-...]`,
+  // and the room id is its first two colon segments. The whole fake (and several
+  // tests) rely on this shape, so changing it ripples widely.
   channelIdFromThreadId(threadId: string): string {
     return threadId.split(':').slice(0, 2).join(':')
   }
@@ -932,6 +1166,7 @@ export class MockImAdapter implements ExternalGatewayAdapter<MockImRawMessage> {
     return threadId
   }
 
+  // A DM thread is marked by a `:dm:` segment (set by `MockImPlatform.dm`).
   isDM(threadId: string): boolean {
     return threadId.includes(':dm:')
   }
@@ -953,6 +1188,10 @@ export class MockImAdapter implements ExternalGatewayAdapter<MockImRawMessage> {
     }
   }
 
+  // The outbound methods below forward to the platform's state model. They flatten
+  // the rich postable into plain text via `postableText`, because the fake stores
+  // only the visible text the user would see; the structured payload is kept in
+  // `raw` for tests that need it. A `targetMessageId` marks the post as a reply.
   async postMessage(
     threadId: string,
     message: unknown,
@@ -1013,6 +1252,12 @@ export class MockImAdapter implements ExternalGatewayAdapter<MockImRawMessage> {
     return ''
   }
 
+  // The platform-side admission gate (distinct from the gateway's own delivery
+  // decision). DMs and any non-`addressed_only` mode always reach the runtime; an
+  // explicit mention/reply does too. Under `addressed_only`, an unaddressed
+  // message is admitted only if it is ALREADY visible — i.e. a redelivery of a
+  // message the bot was previously told about — so redelivered events still flow
+  // while genuinely new ambient chatter is dropped before it leaves the platform.
   private shouldAdmit(message: MockImRawMessage): boolean {
     if (message.surface === 'dm') return true
     if (this.groupMessageMode !== 'addressed_only') return true
@@ -1052,6 +1297,9 @@ export class MockImAdapter implements ExternalGatewayAdapter<MockImRawMessage> {
   }
 }
 
+// Composite key for the message store. A NUL byte joins the parts because it
+// cannot appear in a channel or message id, so distinct (channel, message) pairs
+// can never collide into the same key.
 function messageKey(channelId: string, messageId: string): string {
   return `${channelId}\u0000${messageId}`
 }
@@ -1080,6 +1328,11 @@ function isMockResourceDescriptor(value: unknown): value is MockImResourceDescri
   )
 }
 
+// Flattens any outbound postable (string, markdown, card, divider, interactive
+// output, …) to the single line of text the fake stores as visible state. A real
+// adapter renders the rich object and shows a text fallback on plain surfaces;
+// the fake keeps only that fallback. The branch order matters and is noted inline
+// at the divider case.
 function postableText(value: unknown): string {
   if (typeof value === 'string') return value
   if (typeof value === 'object' && value !== null && 'markdown' in value && typeof value.markdown === 'string') {
@@ -1118,12 +1371,17 @@ function rawHasReply(raw: unknown): boolean {
   return Boolean((raw as { reply?: unknown }).reply)
 }
 
+// Maps the several aliases a platform might use for a thumbs-up onto one
+// normalized emoji object, so reaction tests do not depend on which alias the
+// payload happened to carry. Any other emoji passes through as its raw string.
 function normalizedEmoji(rawEmoji: string) {
   if (rawEmoji === '+1' || rawEmoji === 'thumbsup' || rawEmoji === '👍') return thumbsUpEmoji
 
   return rawEmoji as never
 }
 
+// A normalized thumbs-up that serializes to `:thumbs_up:` in both JSON and string
+// contexts, modeling an adapter emoji value that is an object, not a bare string.
 const thumbsUpEmoji = Object.freeze({
   name: 'thumbs_up',
   toJSON: () => ':thumbs_up:',

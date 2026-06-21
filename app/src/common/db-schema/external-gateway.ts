@@ -16,6 +16,9 @@ import {
 import type { JsonObject, JsonValue } from './principals'
 import { Agents, Principals } from './principals'
 
+// Drizzle has no built-in pgvector type, so this maps the `vector` column type
+// (from the pgvector extension) to a JS number array. driverData is the wire
+// string the driver moves; data is what callers see.
 const pgVector = customType<{ data: number[] | null; driverData: string | null }>({
   dataType() {
     return 'vector'
@@ -34,9 +37,14 @@ export const ExternalRooms = pgTable(
   {
     id: text('id').primaryKey().notNull(),
     isDM: boolean('is_dm').default(false).notNull(),
+    // Visibility starts 'unknown' because a room is often first observed via a
+    // single message before its true scope (public/private) is known; it is
+    // refined as the adapter learns more.
     roomVisibility: text('room_visibility').default('unknown').notNull(),
     name: text('name'),
     metadata: jsonb('metadata').$type<JsonObject>().default({}).notNull(),
+    // Untouched provider payload, kept as an escape hatch for fields the adapter
+    // has not normalized into first-class columns yet.
     raw: jsonb('raw').$type<JsonValue>(),
     createdAt: timestamp('created_at', { withTimezone: true })
       .default(sql`now()`)
@@ -68,6 +76,9 @@ export const ExternalRooms = pgTable(
 export const ExternalMessages = pgTable(
   'external_messages',
   {
+    // Stable surrogate key. The natural key is (room_id, message_id), but search
+    // and embedding rows need one opaque id to join on, so each message also gets
+    // a document_id that never changes even if provider ids are reformatted.
     documentId: uuid('document_id')
       .default(sql`gen_random_uuid()`)
       .notNull(),
@@ -86,9 +97,15 @@ export const ExternalMessages = pgTable(
     metadata: jsonb('metadata').$type<JsonObject>().default({}).notNull(),
     reactions: jsonb('reactions').$type<JsonObject>().default({}).notNull(),
     raw: jsonb('raw').$type<JsonValue>(),
+    // Derived, denormalized text used for full-text/keyword recall: search_text
+    // is the flattened message body, metadata_text the flattened side fields.
+    // Precomputed on write so recall queries do not re-flatten JSON at read time.
     searchText: text('search_text').default('').notNull(),
     metadataText: text('metadata_text').default('').notNull(),
+    // Hash of the recall-relevant content; lets re-embedding skip messages whose
+    // content did not actually change on an upsert.
     contentHash: text('content_hash').default('').notNull(),
+    // Provider-reported send time, distinct from created_at (when we mirrored it).
     sentAt: timestamp('sent_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true })
       .default(sql`now()`)
@@ -98,8 +115,11 @@ export const ExternalMessages = pgTable(
       .notNull()
   },
   t => [
+    // Natural identity is (room, provider message id); document_id is the
+    // surrogate other tables reference, so it gets its own unique index.
     primaryKey({ name: 'external_messages_pkey', columns: [t.roomId, t.messageId] }),
     uniqueIndex('external_messages_document_id_index').on(t.documentId),
+    // Serves room timeline reads ordered by send time.
     index('external_messages_room_id_sent_at_index').on(t.roomId, t.sentAt),
     check('external_messages_message_id_nonempty', sql`${t.messageId} <> ''`),
     check('external_messages_author_object', sql`jsonb_typeof(${t.author}) = 'object'`),
@@ -125,18 +145,29 @@ export const ChatRecallEmbeddings = pgTable(
     documentId: uuid('document_id')
       .notNull()
       .references(() => ExternalMessages.documentId, { onDelete: 'cascade' }),
+    // Embedding profile (one row per profile per message); switching models means
+    // a new profile_id and a fresh re-embed, leaving other profiles' rows intact.
     profileId: text('profile_id').notNull(),
     providerKind: text('provider_kind').notNull(),
     providerId: text('provider_id').notNull(),
     model: text('model').notNull(),
+    // Vector dimensionality, stored alongside the vector so a profile/dimension
+    // change is visible without inspecting the vector itself.
     dimensions: integer('dimensions').default(0).notNull(),
     embedding: pgVector('embedding'),
+    // Content hash this embedding was computed for; if the message's hash later
+    // differs, the embedding is stale and re-queued.
     contentHash: text('content_hash').notNull(),
+    // Worker state machine: pending -> processing -> synced | failed (see check).
     status: text('status').default('pending').notNull(),
+    // Retry bookkeeping: attempt_count drives backoff, next_retry_at gates when a
+    // pending/failed row becomes eligible again.
     attemptCount: integer('attempt_count').default(0).notNull(),
     nextRetryAt: timestamp('next_retry_at', { withTimezone: true })
       .default(sql`now()`)
       .notNull(),
+    // Soft lock taken while a worker holds the row, so two workers do not embed
+    // the same document concurrently.
     lockedAt: timestamp('locked_at', { withTimezone: true }),
     lastError: text('last_error'),
     createdAt: timestamp('created_at', { withTimezone: true })
@@ -148,7 +179,11 @@ export const ChatRecallEmbeddings = pgTable(
   },
   t => [
     primaryKey({ name: 'chat_recall_embeddings_pkey', columns: [t.documentId, t.profileId] }),
+    // Drives the embed worker's claim query: rows in a given status whose
+    // next_retry_at has passed, oldest first.
     index('chat_recall_embeddings_ready_idx').on(t.status, t.nextRetryAt, t.updatedAt),
+    // Supports per-profile health/coverage queries (e.g. how many synced at which
+    // dimension).
     index('chat_recall_embeddings_profile_status_idx').on(t.profileId, t.status, t.dimensions),
     check('chat_recall_embeddings_dimensions_check', sql`${t.dimensions} >= 0`),
     check('chat_recall_embeddings_status_check', sql`${t.status} in ('pending', 'processing', 'synced', 'failed')`)

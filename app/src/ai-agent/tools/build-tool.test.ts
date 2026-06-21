@@ -15,6 +15,8 @@ const minimalDef = {
   }
 }
 
+// Locks in the fail-closed contract: a tool that declares nothing is treated as
+// sequential + writing + destructive, and only an explicit opt-out loosens it.
 describe('buildTool fail-closed defaults', () => {
   it('fills conservative defaults while allowing explicit tool declarations to opt out', () => {
     const tool = buildTool(minimalDef)
@@ -33,6 +35,8 @@ describe('buildTool fail-closed defaults', () => {
     expect(explicitlySafe.isDestructive).toBe(false)
   })
 
+  // Confirms the declared zod schema is what actually validates incoming model
+  // arguments: good args pass through coerced, type-mismatched args throw.
   it('uses the zod schema as the single source of truth for tool arguments', () => {
     const tool = buildTool({
       name: 'validate',

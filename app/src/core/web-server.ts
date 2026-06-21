@@ -141,6 +141,13 @@ function unsafeMethod(method: string): boolean {
   return !['GET', 'HEAD', 'OPTIONS'].includes(method.toUpperCase())
 }
 
+/**
+ * Detects whether a request is trying to send a body to the JSON-only API guard.
+ *
+ * Some clients omit `content-length` for streaming bodies, so `content-type` is
+ * also treated as evidence of a body. That gives bad form posts a clear 415
+ * instead of letting them fall into route-specific parser errors.
+ */
 function requestHasBody(request: Request): boolean {
   const contentLength = request.headers.get('content-length')
   if (contentLength && contentLength !== '0') return true
@@ -148,6 +155,9 @@ function requestHasBody(request: Request): boolean {
   return request.headers.has('content-type')
 }
 
+/**
+ * Starts the production/development HTTP server on the configured port.
+ */
 export async function startWebServer() {
   const app = await createWebServer()
   app.listen({

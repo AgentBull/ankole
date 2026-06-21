@@ -1,3 +1,9 @@
+// Exercises the agent loop end-to-end against a fake streaming model (scriptedModel) instead of a real
+// provider. Each test scripts a sequence of assistant responses and asserts on the loop's behavior:
+// wire sanitization of orphan tool pairs / empty assistants, the maxTurns grace turn, the
+// empty-after-tools nudge, and transient-error retry. The fake re-emits a finished AssistantMessage as
+// SDK v4 stream parts (see streamParts), so the tests run the real streaming code path.
+
 import { describe, expect, it } from 'bun:test'
 import { z } from 'zod'
 import type { AssistantMessage, Message, Model } from '@/llm'
@@ -163,6 +169,9 @@ function v4Usage(usage: AssistantMessage['usage']) {
   }
 }
 
+// Builds a loop config that taps `beforeLlmCall` to snapshot the exact wire messages/tools each turn
+// (the only hook with the post-conversion, post-sanitization shape), then chains any override hook. The
+// captured contexts back the "what did the provider actually see" assertions.
 function makeConfig(
   model: Model<any>,
   capture: StreamCapture,

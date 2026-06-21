@@ -45,6 +45,7 @@ export async function unwrap<R extends { data: unknown; error: unknown }>(
   return data as Exclude<NonNullable<R['data']>, { error: unknown }>
 }
 
+/** Extracts the most useful user-facing message from Treaty, Elysia, or generic thrown errors. */
 export function apiErrorMessage(error: unknown): string {
   if (!error) return ''
   if (error instanceof ApiError) return errorBodyMessage(error.body) ?? error.message
@@ -53,6 +54,7 @@ export function apiErrorMessage(error: unknown): string {
   return errorBodyMessage(error) ?? String(error)
 }
 
+/** Reads common server error envelope shapes before falling back to formatted JSON. */
 function errorBodyMessage(body: unknown): string | undefined {
   if (body == null) return undefined
   if (typeof body === 'string') return body
@@ -66,6 +68,7 @@ function errorBodyMessage(body: unknown): string | undefined {
   return JSON.stringify(body, null, 2)
 }
 
+/** Narrows unknown error bodies without treating arrays as object envelopes. */
 function isJsonObject(value: unknown): value is { [key: string]: unknown } {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }

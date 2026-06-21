@@ -14,6 +14,10 @@ use uuid::Uuid;
 
 use crate::error::AppResult;
 
+/// Selects whether the library-containers tree is backed by PostgreSQL or is just a
+/// plain directory. The `Directory` variant is the dev/test fallback (and matches the
+/// README note that TigerFS degrades to a plain directory off the deployment); the
+/// `TigerFs` variant adds the PG export/import sync.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MountBackend {
   /// Plain host directory without DB sync. Only used when tests construct it directly.
@@ -56,6 +60,12 @@ impl TigerFs {
   }
 
   /// Import agent-owned writable files from the mounted tree back to PostgreSQL.
+  ///
+  /// Called after a worker file/command write so the agent's edits to its own writable
+  /// files (SOUL, per-skill AGENT_APPEND) become durable in PG. Only those two kinds of
+  /// file are synced back; everything else in the tree (read-only skill files) is
+  /// ignored, since PG, not the agent, owns it. This runs on the hot path of every write
+  /// that could touch library-containers, hence the early return for the non-PG backend.
   pub async fn sync_from_mount(&self, mountpoint: &Path, agent_uid: &str) -> AppResult<()> {
     if self.backend != MountBackend::TigerFs {
       return Ok(());
@@ -71,6 +81,9 @@ impl TigerFs {
       let source_kind = if virtual_path == "SOUL.md" {
         "soul"
       } else if let Some(skill_name) = append_skill_name(virtual_path) {
+        // An append whose skill no longer exists is dropped, not written: it would be an
+        // orphan row pointing at a missing skill. This can happen if a skill was deleted
+        // while the agent still had its append file on disk.
         if !skill_exists(&client, skill_name).await? {
           tracing::warn!(%agent_uid, %virtual_path, "ignoring append for unknown skill");
           continue;
@@ -83,6 +96,10 @@ impl TigerFs {
       upsert_agent_entry(&client, agent_uid, virtual_path, source_kind, content).await?;
     }
 
+    // Tombstone deletes: an append row that exists in PG but whose file is gone from the
+    // tree means the agent removed it. Soft-delete (enabled=false, deleted_at) rather
+    // than hard-delete so history is preserved and the unique constraint stays clean.
+    // SOUL is intentionally not tombstoned this way — only appends are reconciled here.
     for path in existing_append_paths(&client, agent_uid).await? {
       if !seen_appends.contains(&path) {
         client
@@ -97,6 +114,14 @@ impl TigerFs {
     Ok(())
   }
 
+  /// Materialize PostgreSQL state into the mount directory (the DB → filesystem half).
+  ///
+  /// The directory is wiped and rebuilt from scratch each time rather than diffed: PG is
+  /// the source of truth, so a clean rematerialization is simpler and cannot leave stale
+  /// files behind (e.g. a skill that was unassigned, or an append that was deleted). The
+  /// cost is rewriting unchanged files, which is acceptable for these small text trees.
+  /// Two queries feed it: agent-owned writable files (SOUL + per-skill appends) and the
+  /// read-only files of every skill currently enabled for this agent.
   async fn export_agent_library(&self, mountpoint: &Path, agent_uid: &str) -> AppResult<()> {
     let Some(database_url) = &self.database_url else {
       return Ok(());
@@ -138,6 +163,13 @@ impl TigerFs {
   }
 }
 
+/// Open a short-lived PostgreSQL connection for one sync pass.
+///
+/// `tokio_postgres` splits the client from its connection driver: the returned `Client`
+/// is useless unless the `connection` future is polled, so it is spawned as a detached
+/// task that lives as long as the client. A fresh connection per sync is fine here
+/// because syncs are infrequent and a pool would add complexity this worker does not
+/// need. `NoTls` is acceptable because the DB link is inside the trusted deployment.
 async fn connect(database_url: &str) -> AppResult<Client> {
   let (client, connection) = tokio_postgres::connect(database_url, NoTls).await?;
   tokio::spawn(async move {
@@ -222,6 +254,9 @@ fn scan_dir(root: &Path, dir: &Path, out: &mut Vec<(String, String)>) -> AppResu
   Ok(())
 }
 
+/// Convert a host-relative path into the slash-joined virtual path PG stores. Returns
+/// `None` for anything containing `..`, a root, or a drive prefix, so a stray symlink or
+/// odd entry in the tree can never produce a virtual path that escapes its namespace.
 fn path_to_virtual(path: &Path) -> Option<String> {
   let mut parts = Vec::new();
   for component in path.components() {
@@ -238,6 +273,9 @@ fn path_to_virtual(path: &Path) -> Option<String> {
   }
 }
 
+/// Recognize the one agent-writable per-skill path shape, `skills/<name>/AGENT_APPEND.md`,
+/// and pull out `<name>`. Used both to classify a file as a syncable append and to find
+/// the skill it belongs to. Anything else under `skills/` is read-only skill content.
 fn append_skill_name(virtual_path: &str) -> Option<&str> {
   let parts: Vec<&str> = virtual_path.split('/').collect();
   if parts.len() == 3 && parts[0] == "skills" && parts[2] == "AGENT_APPEND.md" {
@@ -256,6 +294,9 @@ async fn write_virtual_file(root: &Path, virtual_path: &str, content: &str) -> A
   Ok(())
 }
 
+/// Turn a PG virtual path back into a host path under `root` when materializing. Even
+/// though these paths come from the database, each segment is still checked for empty /
+/// `.` / `..`, so a malformed or hand-edited row cannot write outside the mount.
 fn resolve_virtual_path(root: &Path, virtual_path: &str) -> AppResult<PathBuf> {
   let mut out = root.to_path_buf();
   for part in virtual_path.split('/') {

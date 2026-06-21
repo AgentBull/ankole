@@ -1,3 +1,9 @@
+// Assembles the "run-static" tool set — the tools whose availability is fixed at
+// startup by provider config (web_search / web_extract), as opposed to the
+// run-bound tools (clarify, todo, browser, ...) the runtime builds per turn from
+// a binding. Splitting these out lets the runtime decide capability once instead
+// of per request.
+
 import type { AgentTool } from '../core'
 import { builtinWebProviders } from '../web/providers'
 import { webProviderRegistry } from '../web/registry'

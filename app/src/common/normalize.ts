@@ -11,5 +11,8 @@
  * all observe the same canonical text.
  */
 export function normalizeInboundText(text: string): string {
+  // Shift each full-width digit by the fixed offset from the full-width block
+  // (U+FF10) to ASCII '0' (U+0030); the ranges are contiguous so one subtraction
+  // maps every digit.
   return text.replace(/　/g, ' ').replace(/[０-９]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xff10 + 0x30))
 }

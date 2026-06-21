@@ -17,7 +17,18 @@ export interface ComputerToolContext {
   backgroundIds: Set<string>
 }
 
-/** Short stable tag for namespacing worker-side names by execution scope. */
+/**
+ * Derives a short, stable tag used to namespace worker-side names (shell names,
+ * tmux sessions, artifact dirs) by execution scope.
+ *
+ * The raw `executionScopeId` is an arbitrary conversation id — too long and not
+ * guaranteed safe for shell/tmux identifiers. Hashing makes it deterministic
+ * (the same scope yields the same tag across turns and process restarts, so a
+ * reconnecting worker re-targets the same shell), and clipping to 8 hex chars
+ * keeps it short. 8 chars is enough because this only namespaces state, it is
+ * not a security boundary: a collision would merely let two scopes share a
+ * shell, which is acceptable and vanishingly unlikely here.
+ */
 export function executionScopeTag(context: Pick<ComputerToolContext, 'executionScopeId'>): string {
   return genericHash(context.executionScopeId).slice(0, 8)
 }

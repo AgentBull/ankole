@@ -8,6 +8,11 @@ import type { AgentTool, AgentToolResult } from '../core'
 import { buildTool } from './build-tool'
 import type { ClarifyRunBinding } from './clarify-tool'
 
+// The schema is the model's contract. `after` (relative) and `at` (absolute)
+// are mutually exclusive — the .refine enforces exactly one, so the model
+// cannot send an ambiguous "in 1h, at 3pm". `check` and `context_summary` exist
+// because the wakeup runs in a fresh turn with no live memory of now: the future
+// agent only has what is captured here, so they steer that isolated check.
 const CheckBackLaterParams = z
   .object({
     after: CheckBackLaterAfterSchema.optional().describe('Relative delay before checking back.'),
@@ -21,6 +26,7 @@ const CheckBackLaterParams = z
     context_summary: z.string().min(1).optional().describe('Concise context needed for the isolated future check.')
   })
   .strict()
+  // XOR via boolean inequality: true when exactly one of the two is present.
   .refine(value => Boolean(value.after) !== Boolean(value.at), {
     message: 'Provide exactly one of after or at'
   })
@@ -31,6 +37,18 @@ export interface CheckBackLaterDetails {
   timezone: string
 }
 
+/**
+ * Builds the `check_back_later` tool: lets the agent schedule a single future
+ * self-wakeup when a decision is better made once time has passed (a deadline
+ * approaches, a build finishes, "ask again tomorrow"). It is deliberately scoped
+ * to a one-shot judgment call — recurring monitoring, cron, and dumb reminders
+ * are out of scope, which the description states so the model does not reach for
+ * it as a generic scheduler.
+ *
+ * The `binding` is what makes the future wake land back in the right place: the
+ * scheduled row records the conversation, room/thread, and trigger so the wakeup
+ * resumes the same agent in the same channel.
+ */
 export function createCheckBackLaterTool(
   binding: ClarifyRunBinding
 ): AgentTool<typeof CheckBackLaterParams, CheckBackLaterDetails> {
@@ -44,6 +62,8 @@ export function createCheckBackLaterTool(
     isReadOnly: false,
     isDestructive: false,
     async execute(toolCallId, params): Promise<AgentToolResult<CheckBackLaterDetails>> {
+      // Relative `after` and absolute `at` both resolve against the system
+      // timezone so a bare wall-clock time means the operator's local time.
       const timezone = await loadSystemTimezone()
       const dueAt = resolveCheckbackDueAt({ after: params.after, at: params.at, timezone })
       const wakeMessage = checkbackWakeMessage({
@@ -59,6 +79,9 @@ export function createCheckBackLaterTool(
         contextSummary: params.context_summary ?? null,
         dueAt,
         reason: params.reason,
+        // Provenance the scheduler replays to re-target the wake: which room,
+        // thread, and trigger message the original turn belonged to, plus the
+        // tool_call_id for traceability.
         source: {
           binding_name: binding.bindingName,
           conversation_id: binding.conversationId,
@@ -85,6 +108,13 @@ export function createCheckBackLaterTool(
   })
 }
 
+/**
+ * Builds the message the future agent wakes up to. It is written as an
+ * instruction block, not a user message, and works hard to prevent two
+ * misreads: treating the wake as a recurring heartbeat, and replaying stale
+ * tasks from old chat history. It also tells the agent to stay silent unless the
+ * user genuinely needs interrupting — a self-wake should not spam the channel.
+ */
 function checkbackWakeMessage(input: {
   check: string
   contextSummary?: string

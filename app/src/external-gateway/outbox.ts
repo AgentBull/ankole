@@ -62,9 +62,26 @@ type ExternalGatewayOutboxKey = Pick<
   'agentUid' | 'bindingName' | 'outboundKey'
 >
 
+// How long after a send started we still trust an idempotency key to suppress a
+// duplicate. Tuned just under the providers' own dedup horizon (≈1h): past this
+// window a retried send could create a second visible message, so a row stuck
+// "send started" beyond it is failed as unknown rather than retried blindly.
 const IDEMPOTENT_SEND_REPLAY_WINDOW_MS = ms('55m')
+// After this many failed attempts the row is dead-lettered instead of retried
+// forever; a human (or a later recovery) decides what to do with it.
 const MAX_OUTBOX_RETRY_COUNT = 5
+// Per-attempt backoff, indexed by retry count (see outboxBackoffSecondsSql).
+// 5s → 25s → 2m → 10m: fast first retries for transient blips, long tail so a
+// sustained provider outage does not hammer the API.
 const OUTBOX_BACKOFF_MS = [5_000, 25_000, 120_000, 600_000] as const
+// Errors that will never succeed on retry: the recipient/chat is gone, the bot
+// was removed, the payload is rejected. Matching on provider message text is
+// inherently brittle, but providers do not give stable machine codes for all of
+// these, so text classification is the pragmatic line between "retry" and "give
+// up". A row matching these is failed immediately instead of consuming retries.
+// TODO: provisional — prefer provider error codes over message regex wherever a
+// stable code exists; this list has to be revisited whenever a provider reworks
+// its error strings.
 const PERMANENT_DELIVERY_ERROR_PATTERNS = [
   /no conversation reference found/i,
   /chat not found/i,
@@ -79,6 +96,10 @@ const PERMANENT_DELIVERY_ERROR_PATTERNS = [
   /ambiguous .* recipient/i,
   /User .* not in room/i
 ] as const
+// Edit failures that mean the target message can no longer be edited (too old,
+// or gone). When the intent opted into post-fallback, these convert a failed
+// edit into a fresh post so the user still sees the content. `230075` is Lark's
+// "edit window exceeded" code.
 const PERMANENT_EDIT_FALLBACK_ERROR_PATTERNS = [
   /230075/,
   /exceeded the time that can be edited/i,
@@ -88,6 +109,10 @@ const PERMANENT_EDIT_FALLBACK_ERROR_PATTERNS = [
   /message.*withdrawn/i,
   /target.*not found/i
 ] as const
+// Edit failures that are temporary. These must NOT trigger post-fallback: the
+// edit will likely work on the next retry, and posting a new message instead
+// would leave a duplicate. Checked before the permanent list so an error that
+// matches both (e.g. a 5xx) is treated as transient and retried.
 const TRANSIENT_EDIT_FAILURE_PATTERNS = [
   /timeout/i,
   /timed out/i,
@@ -108,6 +133,14 @@ const TRANSIENT_EDIT_FAILURE_PATTERNS = [
  * event that produced the intent to be marked failed after the agent accepted it.
  */
 export class DrizzleExternalGatewayOutbox {
+  /**
+   * Persists an intent as a `pending` row without attempting delivery.
+   *
+   * This is the durable half of the transactional outbox: the agent records
+   * what it wants sent, commits, and a later drain delivers it. Persisting first
+   * is what lets delivery survive a crash between "agent decided" and "provider
+   * called".
+   */
   async enqueuePending(input: {
     agentUid: string
     bindingName: string
@@ -116,6 +149,7 @@ export class DrizzleExternalGatewayOutbox {
     return this.upsertPending(input.agentUid, input.bindingName, input.intent)
   }
 
+  /** Persists several intents as pending rows. Order of `intents` is the send order a drain follows. */
   async enqueuePendingMany(input: {
     agentUid: string
     bindingName: string
@@ -124,6 +158,13 @@ export class DrizzleExternalGatewayOutbox {
     for (const intent of input.intents) await this.enqueuePending({ ...input, intent })
   }
 
+  /**
+   * Persists the intent and delivers it in one call.
+   *
+   * Returns early when the row is already in a terminal state (`sent` /
+   * `unsupported` / `failed`): the upsert is idempotent on the outbound key, so
+   * a redelivered intent that already settled is not sent a second time.
+   */
   async dispatch(input: DispatchExternalGatewayOutboundInput): Promise<typeof ExternalGatewayOutbox.$inferSelect> {
     const row = await this.upsertPending(input.agent.agent.uid, input.bindingName, input.intent)
     if (row.status === 'sent' || row.status === 'unsupported' || row.status === 'failed') return row
@@ -131,6 +172,19 @@ export class DrizzleExternalGatewayOutbox {
     return this.dispatchRow(row, input)
   }
 
+  /**
+   * Delivers the binding's due `pending` rows, oldest first.
+   *
+   * Ordering by `createdAt` gives per-binding FIFO delivery so the user sees
+   * messages in the order the agent produced them. Only rows past their backoff
+   * window are selected (the SQL interval guard), and the batch is capped at 50
+   * so one drain pass cannot monopolize the loop. Retry-exhausted rows are
+   * dead-lettered up front so they leave the pending set before selection.
+   *
+   * Concurrency safety against two overlapping drains double-delivering the same
+   * rows is the caller's job (the runtime's per-binding drain mutex); this
+   * method does not lock.
+   */
   async dispatchPendingForBinding(input: Omit<DispatchExternalGatewayOutboundInput, 'intent'>): Promise<void> {
     await this.deadLetterRetryExhausted(input.agent.agent.uid, input.bindingName)
 
@@ -158,6 +212,13 @@ export class DrizzleExternalGatewayOutbox {
     }
   }
 
+  /**
+   * Moves rows that spent their retry budget to `failed` and logs each one.
+   *
+   * `lastError` is preserved with `coalesce` so the real provider error that
+   * caused the final failure is kept; only rows that somehow have no recorded
+   * error fall back to the generic `retry_exhausted` marker.
+   */
   private async deadLetterRetryExhausted(agentUid: string, bindingName: string): Promise<void> {
     const rows = await DB.update(ExternalGatewayOutbox)
       .set({
@@ -188,17 +249,39 @@ export class DrizzleExternalGatewayOutbox {
     }
   }
 
+  /**
+   * Delivers one row, first deciding whether a prior interrupted attempt is safe
+   * to repeat.
+   *
+   * The hard case is crash recovery: a row marked `send_attempt_started` means a
+   * previous process called the provider but never recorded the outcome — the
+   * send may or may not have landed. The guards below decide between reconcile,
+   * replay, and give-up so the system never double-posts:
+   *  - if a provider message id was captured, try to reconcile against it;
+   *  - else, if the adapter cannot prove idempotency, refuse to replay (a blind
+   *    retry could duplicate) and mark the outcome unknown;
+   *  - else, if the idempotency window has expired, also refuse — the key is no
+   *    longer trusted to dedupe.
+   * Only after passing these does it (re)mark the attempt started and dispatch by
+   * operation.
+   */
   private async dispatchRow(
     row: typeof ExternalGatewayOutbox.$inferSelect,
     input: DispatchExternalGatewayOutboundInput
   ): Promise<typeof ExternalGatewayOutbox.$inferSelect> {
     const key = outboxKeyFromRow(row)
 
+    // We have an id for the in-flight message: ask the provider whether it
+    // actually exists before resending, turning a maybe-duplicate into a
+    // confirmed send when it does.
     if (row.recoveryState === 'send_attempt_started' && row.providerMessageId) {
       const reconciled = await this.tryReconcileExisting(row, input)
       if (reconciled) return reconciled
     }
 
+    // No id captured, but the key may have aged out of the provider's dedup
+    // horizon. Replaying now risks a second visible message, so stop and mark it
+    // unknown for an operator instead of guessing.
     if (
       row.recoveryState === 'send_attempt_started' &&
       !row.providerMessageId &&
@@ -209,6 +292,8 @@ export class DrizzleExternalGatewayOutbox {
       return this.markUnknownAfterSend(key, 'Previous send attempt is outside the idempotency replay window')
     }
 
+    // Adapter has no idempotency guarantee at all: any replay of an
+    // already-started send could duplicate, so we never retry it blindly.
     if (
       row.recoveryState === 'send_attempt_started' &&
       !adapterSupportsCapability(input.adapter, 'outbound', 'outbound_idempotency')
@@ -216,6 +301,8 @@ export class DrizzleExternalGatewayOutbox {
       return this.markUnknownAfterSend(key, 'Previous send attempt started and adapter cannot prove idempotency')
     }
 
+    // Records "about to call the provider" before the call, so a crash mid-send
+    // leaves the row in the recoverable `send_attempt_started` state handled above.
     await this.markSendAttemptStarted(key)
 
     if (input.intent.operation === 'delete') return this.dispatchDelete(key, input)
@@ -232,6 +319,15 @@ export class DrizzleExternalGatewayOutbox {
     return this.dispatchPostLike(key, input, input.intent.operation)
   }
 
+  /**
+   * Delivers post / reply / divider / card — every operation that produces a new
+   * provider message through `postMessage`.
+   *
+   * On success it both marks the row sent and projects the message into the
+   * mirror, so the agent's own outbound shows up in chat history exactly like an
+   * inbound one. A missing capability is terminal (`unsupported`); any other
+   * error goes to `markProviderFailure`, which decides retry vs permanent.
+   */
   private async dispatchPostLike(
     key: ExternalGatewayOutboxKey,
     input: DispatchExternalGatewayOutboundInput,
@@ -242,6 +338,8 @@ export class DrizzleExternalGatewayOutbox {
     const text = fallbackTextFromFinalPayload(input.intent.finalPayload, operation)
 
     try {
+      // post/reply are distinct provider capabilities even though both go through
+      // `postMessage`; divider/card keep their own capability name unchanged.
       const postMessage = requireOutboundCapability(
         input.adapter,
         match(operation)
@@ -272,6 +370,14 @@ export class DrizzleExternalGatewayOutbox {
     }
   }
 
+  /**
+   * Inserts the pending row, or returns the existing one for this outbound key.
+   *
+   * `(agentUid, bindingName, outboundKey)` is the idempotency anchor: the same
+   * logical send always maps to one row. `onConflictDoNothing` plus a re-select
+   * means a redelivered intent returns the already-stored row (with whatever
+   * status it has reached) instead of creating a duplicate or resetting it.
+   */
   private async upsertPending(
     agentUid: string,
     bindingName: string,
@@ -311,6 +417,14 @@ export class DrizzleExternalGatewayOutbox {
     return existing
   }
 
+  /**
+   * Marks the row delivered and records the provider message id.
+   *
+   * Clears recovery state and any stored error so a row that succeeded on a
+   * retry does not keep a stale failure around. Also doubles as the success path
+   * for reconciliation, where the id came from the provider rather than a fresh
+   * send.
+   */
   private async markSent(
     key: ExternalGatewayOutboxKey,
     providerMessageId: string
@@ -331,6 +445,7 @@ export class DrizzleExternalGatewayOutbox {
     return row
   }
 
+  /** Terminal: the operation cannot be performed on this channel at all. Never retried. */
   private async markUnsupported(
     key: ExternalGatewayOutboxKey,
     reason: string
@@ -349,6 +464,18 @@ export class DrizzleExternalGatewayOutbox {
     return row
   }
 
+  /**
+   * Classifies a provider call failure into one of three outcomes.
+   *
+   * The error message is redacted first because it is stored and may contain
+   * recipient identifiers or tokens. Then:
+   *  - a permanent delivery error fails the row immediately (no retry);
+   *  - otherwise, if the adapter can prove idempotency, the row goes back to
+   *    `pending` with an incremented retry count for backoff-gated retry — safe
+   *    because a duplicate from the earlier attempt would be deduped;
+   *  - otherwise the outcome is genuinely unknown (the send may have landed but
+   *    we cannot retry safely), so it is parked as unknown-after-send.
+   */
   private async markProviderFailure(
     key: ExternalGatewayOutboxKey,
     adapter: ExternalGatewayAdapter,
@@ -389,6 +516,13 @@ export class DrizzleExternalGatewayOutbox {
     return this.markUnknownAfterSend(key, reason)
   }
 
+  /**
+   * Terminal-but-ambiguous: a send was started and we cannot prove whether it
+   * reached the user. Fails the row but tags `recoveryState` as
+   * `unknown_after_send` so it is distinguishable from a clean failure — the one
+   * case where at-least-once could have produced a visible message we did not
+   * record. Left for operator/monitoring follow-up rather than auto-retried.
+   */
   private async markUnknownAfterSend(
     key: ExternalGatewayOutboxKey,
     reason: string
@@ -408,6 +542,14 @@ export class DrizzleExternalGatewayOutbox {
     return row
   }
 
+  /**
+   * Write-ahead checkpoint taken just before calling the provider.
+   *
+   * Stamping `send_attempt_started` (and the wall-clock start) before the call
+   * is what makes a crash mid-send recoverable: on restart `dispatchRow` sees
+   * this state and decides reconcile/replay/give-up. `platformSendStartedAt`
+   * feeds the idempotency replay window.
+   */
   private async markSendAttemptStarted(key: ExternalGatewayOutboxKey): Promise<void> {
     await DB.update(ExternalGatewayOutbox)
       .set({
@@ -419,6 +561,14 @@ export class DrizzleExternalGatewayOutbox {
       .where(outboxKeyWhere(key))
   }
 
+  /**
+   * Deletes a target message, then projects the delete into the mirror.
+   *
+   * The target can be given directly (`targetMessageId`) or indirectly via the
+   * outbound key of an earlier send (`targetOutboundKey`), which lets a producer
+   * say "delete the thing I posted earlier" without knowing the provider id it
+   * received. A target that resolves to nothing is `unsupported`, not retried.
+   */
   private async dispatchDelete(
     key: ExternalGatewayOutboxKey,
     input: DispatchExternalGatewayOutboundInput
@@ -454,6 +604,17 @@ export class DrizzleExternalGatewayOutbox {
     }
   }
 
+  /**
+   * Edits a target message in place.
+   *
+   * Used heavily for streaming/progress messages that update as the agent works.
+   * The target is resolved from the payload, the intent's provider id, or an
+   * earlier send's outbound key. When the intent opts in (`editFallback: post`)
+   * and the edit fails for a permanent reason — the message is too old to edit
+   * or no longer exists — the content is posted as a fresh message instead, so
+   * the user still receives it. Transient failures deliberately do not fall
+   * back; they retry the edit to avoid leaving a duplicate.
+   */
   private async dispatchEdit(
     key: ExternalGatewayOutboxKey,
     input: DispatchExternalGatewayOutboundInput
@@ -501,6 +662,13 @@ export class DrizzleExternalGatewayOutbox {
     }
   }
 
+  /**
+   * Posts the edit's content as a new message after a permanent edit failure.
+   *
+   * Reached only from `dispatchEdit` once the failure is classified permanent
+   * and the intent allows fallback. The original edit error is logged (redacted)
+   * so the conversion is traceable, then this behaves like a normal post.
+   */
   private async dispatchEditFallbackPost(
     key: ExternalGatewayOutboxKey,
     input: DispatchExternalGatewayOutboundInput,
@@ -545,6 +713,12 @@ export class DrizzleExternalGatewayOutbox {
     }
   }
 
+  /**
+   * Looks up the provider message id that an earlier outbox row (named by
+   * `targetOutboundKey`) ended up with. This is how edit/delete target a message
+   * by the logical key the producer used, without the producer having to track
+   * the provider-assigned id itself.
+   */
   private async providerMessageIdFromTargetOutboundKey(
     key: ExternalGatewayOutboxKey,
     payload: JsonObject
@@ -564,6 +738,13 @@ export class DrizzleExternalGatewayOutbox {
     return row?.providerMessageId ?? undefined
   }
 
+  /**
+   * Adds or removes the bot's own reaction on a target message, then projects it.
+   *
+   * The reaction is attributed to a synthetic `self` user (isMe/isBot) so the
+   * mirror's reaction map shows the bot among the reactors, matching how an
+   * inbound reaction from a human would be recorded.
+   */
   private async dispatchReaction(
     key: ExternalGatewayOutboxKey,
     input: DispatchExternalGatewayOutboundInput
@@ -620,6 +801,15 @@ export class DrizzleExternalGatewayOutbox {
     }
   }
 
+  /**
+   * After a crash, asks the provider whether the in-flight message actually
+   * landed, and marks the row sent when it confirms a live message.
+   *
+   * Best-effort by design: if the adapter cannot reconcile, or the lookup
+   * throws, this returns undefined and the caller falls through to the normal
+   * replay/give-up path. A message that exists but was already deleted is not
+   * treated as sent — re-sending is the right move there.
+   */
   private async tryReconcileExisting(
     row: typeof ExternalGatewayOutbox.$inferSelect,
     input: DispatchExternalGatewayOutboundInput
@@ -672,6 +862,12 @@ function intentFromRow(row: typeof ExternalGatewayOutbox.$inferSelect): External
   }
 }
 
+/**
+ * Builds the per-call options handed to an adapter, carrying the idempotency
+ * key, the operation key, the resolved target id, and (when known) a
+ * reconciliation hint so the adapter can dedupe and, after a crash, find the
+ * message it may have already created.
+ */
 function outboundOptions(
   intent: ExternalGatewayOutboundIntent,
   targetMessageId?: string
@@ -684,11 +880,28 @@ function outboundOptions(
   }
 }
 
+/**
+ * Derives a deterministic idempotency key from an outbound key.
+ *
+ * The same outbound key always yields the same key, which is what makes a
+ * retried send dedupe at the provider. The hash is sliced into UUID-shaped
+ * 8-4-4-4-12 groups because some providers require the idempotency token to look
+ * like a UUID; the dashes are cosmetic formatting, not extra entropy.
+ */
 export function idempotencyKeyFromOutboundKey(outboundKey: string): string {
   const hash = genericHash(outboundKey).slice(0, 32)
   return `${hash.slice(0, 8)}-${hash.slice(8, 12)}-${hash.slice(12, 16)}-${hash.slice(16, 20)}-${hash.slice(20, 32)}`
 }
 
+/**
+ * Mirrors a just-sent outbound message into the projection as the bot's own
+ * message.
+ *
+ * Keeps chat history complete: without this, the agent's replies would be
+ * missing from the same mirror that long-term memory and recall read. The
+ * author is the synthetic `self` user and the text is re-parsed to the shared
+ * markdown AST so a bot message is shaped exactly like an inbound one.
+ */
 export async function projectVisibleOutbound(input: {
   adapter: { userName?: string }
   agent: AgentResult
@@ -723,6 +936,16 @@ export async function projectVisibleOutbound(input: {
   })
 }
 
+/**
+ * Turns a stored payload into the value the adapter's `postMessage` expects, or
+ * `undefined` when the payload carries nothing sendable (which the caller maps
+ * to `unsupported`).
+ *
+ * The shape returned is deliberately loose — a bare string for plain text, the
+ * payload object for markdown/AST/card, or a `{ markdown, files }` object when
+ * attachments are present — because each adapter knows how to consume these and
+ * the gateway does not render.
+ */
 function postableFromFinalPayload(
   payload: JsonObject,
   operation: Extract<ExternalGatewayOutboxOperation, 'post' | 'reply' | 'divider' | 'card'>
@@ -749,6 +972,8 @@ function postableFromFinalPayload(
   return undefined
 }
 
+// Edit's counterpart to postableFromFinalPayload. Edits never carry file
+// uploads, so the file branch is intentionally absent.
 function postableFromEditPayload(payload: JsonObject): unknown {
   if (isBullXExternalGatewayCardPayload(payload)) return payload
   if (typeof payload.text === 'string') return payload.text
@@ -761,12 +986,29 @@ function editFallbackMode(payload: JsonObject): 'post' | undefined {
   return payload.editFallback === 'post' ? 'post' : undefined
 }
 
+/**
+ * Decides whether an edit error is permanent enough to justify post-fallback.
+ *
+ * Transient patterns are checked first and win: an error that looks both
+ * transient and permanent (a flaky 5xx that also mentions "not found") is
+ * treated as transient and retried, never converted to a duplicate post.
+ */
 function isPermanentEditFailureForFallback(error: unknown): boolean {
   const text = errorText(error)
   if (TRANSIENT_EDIT_FAILURE_PATTERNS.some(pattern => pattern.test(text))) return false
   return PERMANENT_EDIT_FALLBACK_ERROR_PATTERNS.some(pattern => pattern.test(text))
 }
 
+/**
+ * Flattens an arbitrary thrown value into one searchable string for the
+ * permanent/transient classifiers.
+ *
+ * Provider SDKs bury the meaningful code/message inside nested `response.data`
+ * or a `cause` chain, and an Error's own fields are non-enumerable, so a plain
+ * `String(error)` or `JSON.stringify` would drop exactly the text the patterns
+ * match on. This pulls the known fields out explicitly and joins them, falling
+ * back to JSON/string only when nothing structured was found.
+ */
 function errorText(error: unknown): string {
   if (typeof error === 'string') return error
   const parts: string[] = []
@@ -780,6 +1022,9 @@ function errorText(error: unknown): string {
   }
 }
 
+// Walks the error itself, its HTTP `response`/`response.data`, and its `cause`
+// chain, collecting provider error fields from each level. The `cause !== error`
+// guard stops a self-referential cause from looping forever.
 function collectProviderErrorDetails(error: unknown, parts: string[]): void {
   if (!error || typeof error !== 'object') return
   const record = error as Record<string, unknown>
@@ -794,6 +1039,8 @@ function collectProviderErrorDetails(error: unknown, parts: string[]): void {
   if (cause && cause !== error) collectProviderErrorDetails(cause, parts)
 }
 
+// Appends the provider error fields the classifiers key on (numeric/string
+// codes, status, messages, Lark's `log_id`) as `key=value` tokens.
 function appendProviderErrorFields(value: unknown, parts: string[]): void {
   if (!value || typeof value !== 'object') return
   const record = value as Record<string, unknown>
@@ -803,6 +1050,15 @@ function appendProviderErrorFields(value: unknown, parts: string[]): void {
   }
 }
 
+/**
+ * Derives a plain-text representation of any payload.
+ *
+ * Used both as the text projected into chat history and as the notification/
+ * fallback text for surfaces that cannot render a card or files. Falls back
+ * through text → markdown → explicit fallbackText → raw, then to synthetic
+ * labels for dividers/cards/files, and finally to the JSON itself so something
+ * always shows rather than an empty message.
+ */
 function fallbackTextFromFinalPayload(
   payload: JsonObject,
   operation: Extract<ExternalGatewayOutboxOperation, 'post' | 'reply' | 'divider' | 'card'>
@@ -819,6 +1075,15 @@ function fallbackTextFromFinalPayload(
   return JSON.stringify(payload)
 }
 
+/**
+ * Decodes the JSON-safe file descriptors stored on a payload back into binary
+ * uploads.
+ *
+ * The outbox column is `jsonb`, so producers cannot store raw bytes; they store
+ * either base64 (`dataBase64`) or inline `text`, and this turns those into
+ * Buffers for the adapter. Descriptors without a usable filename or body are
+ * dropped rather than failing the whole send.
+ */
 function fileUploadsFromFinalPayload(payload: JsonObject): FileUpload[] {
   const files = Array.isArray(payload.files) ? payload.files : []
   return files.flatMap(file => {
@@ -859,6 +1124,12 @@ function targetMessageIdFromFinalPayload(payload: JsonObject): string | undefine
   return typeof value === 'string' && value.length > 0 ? value : undefined
 }
 
+/**
+ * Reconstructs a typed room input for projecting outbound, from the intent's
+ * room id plus whatever the loosely-typed `room` record carries. Where a field
+ * is missing it asks the adapter (is-DM, visibility) so the projected bot
+ * message lands in a room shaped the same as one built from an inbound event.
+ */
 function roomFromIntent(
   intent: ExternalGatewayOutboundIntent,
   room: Record<string, unknown>,
@@ -884,6 +1155,14 @@ function isPermanentDeliveryError(error: string): boolean {
   return PERMANENT_DELIVERY_ERROR_PATTERNS.some(pattern => pattern.test(error))
 }
 
+/**
+ * The backoff schedule as a SQL CASE on `retryCount`.
+ *
+ * The "is this row due yet?" test runs inside the drain's WHERE clause (compare
+ * `lastAttemptAt` to `now()` minus this many seconds), so the JS backoff table
+ * has to be mirrored in SQL rather than evaluated in app code. `retryCount <= 1`
+ * shares the first step so the very first retry waits the shortest delay.
+ */
 function outboxBackoffSecondsSql(retryCount: typeof ExternalGatewayOutbox.retryCount) {
   return sql`case
     when ${retryCount} <= 1 then ${Math.ceil(OUTBOX_BACKOFF_MS[0] / 1000)}

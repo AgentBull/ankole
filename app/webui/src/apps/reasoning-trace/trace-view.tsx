@@ -50,6 +50,13 @@ interface ReasoningTraceSnapshot {
   tools: ToolState[]
 }
 
+/**
+ * Polls the Redis-backed reasoning trace stream through the server API.
+ *
+ * The hook keeps only the last cursor locally; the server owns retention and
+ * authorization. When the API reports an expired trace, the UI switches to a
+ * terminal state instead of continuing to poll.
+ */
 export function useReasoningTraceOutput(
   fetchEvents: ReasoningTraceFetcher | undefined,
   resetKey: string
@@ -104,6 +111,9 @@ export function useReasoningTraceOutput(
   return snapshot
 }
 
+/**
+ * Renders a compact trace projection without exposing raw tool inputs/outputs.
+ */
 export function ReasoningTracePanel({ snapshot }: { snapshot: ReasoningTraceSnapshot }) {
   const terminal = snapshot.status !== 'streaming'
   const isStreaming = snapshot.status === 'streaming'
@@ -224,6 +234,13 @@ export function ReasoningTracePanel({ snapshot }: { snapshot: ReasoningTraceSnap
   )
 }
 
+/**
+ * Applies append-only trace events to the UI snapshot.
+ *
+ * Reasoning can arrive as deltas or as replacement text, while tool events are
+ * keyed by tool call id when available. This reducer mirrors the stream contract
+ * without persisting raw event payloads in component state.
+ */
 function applyReasoningTraceEvents(
   previous: ReasoningTraceSnapshot,
   events: ReasoningTraceOutputEvent[]

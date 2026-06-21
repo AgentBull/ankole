@@ -4,6 +4,12 @@ import { WebProviderError } from './provider'
 
 const DEFAULT_TIMEOUT_MS = ms('30s')
 
+/**
+ * Classifies an HTTP status as worth retrying. Covers the transient cases only:
+ * request timeout (408), too-early (425), rate-limit (429), and any 5xx server
+ * error. A 4xx other than these is a caller/contract problem (bad key, bad query)
+ * that a retry cannot fix, so it is treated as terminal.
+ */
 export function isRetryableStatus(status: number): boolean {
   return status === 408 || status === 425 || status === 429 || (status >= 500 && status <= 599)
 }
@@ -28,12 +34,18 @@ export async function requestJson<T>(
         try {
           response = await fetch(url, { ...rest, signal: combined.signal })
         } catch (error) {
+          // A thrown fetch is a connection-level failure (DNS, reset, timeout abort) —
+          // always transient, so mark retryable unconditionally. (Distinct from the
+          // status-based branch below, where retryability depends on the status code.)
           throw new WebProviderError(
             `${providerId} request failed: ${error instanceof Error ? error.message : String(error)}`,
             { retryable: true, providerId }
           )
         }
         if (!response.ok) {
+          // Best-effort read of the error body for diagnostics; swallow a read failure
+          // (empty string) so a broken body never masks the real HTTP status. Capped at
+          // 200 chars so a huge HTML error page does not bloat the message/logs.
           const body = await response.text().catch(() => '')
           throw new WebProviderError(`${providerId} HTTP ${response.status}: ${body.slice(0, 200)}`, {
             retryable: isRetryableStatus(response.status),
@@ -50,6 +62,11 @@ export async function requestJson<T>(
   )
 }
 
+/**
+ * Hostname of a URL, or `''` when the input is not a parseable URL. Returns the
+ * empty sentinel instead of throwing so callers can use it in best-effort string
+ * matching without each wrapping a try/catch.
+ */
 export function hostnameOf(url: string): string {
   try {
     return new URL(url).hostname

@@ -1,3 +1,16 @@
+/**
+ * Builds the base system prompt for an agent run: the stable, model-facing
+ * instructions plus the per-installation persona (soul), mission, runtime
+ * context, tool/skill catalog, and policy blocks.
+ *
+ * This is a prompt-engineering artifact. The literal strings here are the
+ * contract with the model; the surrounding code only decides which blocks are
+ * present and in what order. The ordering is chosen so the parts that rarely
+ * change (identity, soul, mission, tool descriptions) come first and the parts
+ * that vary per request (runtime time/channel, optional routing policy) come
+ * later — the longer the shared prefix, the more the upstream provider can reuse
+ * its prompt cache across turns of the same agent.
+ */
 import { match } from '@pleisto/active-support'
 import { eq } from 'drizzle-orm'
 import { DB, type QueryExecutor } from '@/common/database'
@@ -13,6 +26,14 @@ export interface BuildAgentSystemPromptOptions {
   currentChannel?: CurrentChannelContext
 }
 
+/**
+ * Describes where the conversation originated so the prompt can tell the model
+ * what kind of surface it is acting on. The three variants are deliberately
+ * distinct: an external IM channel (with a platform brand and optional name), a
+ * scheduled-task run, and a `check_back_later` self-wakeup. The wakeup case
+ * matters because the model must not mistake its own delayed reminder for a
+ * fresh user message.
+ */
 export type CurrentChannelContext =
   | {
       bindingName?: string
@@ -31,6 +52,17 @@ export type CurrentChannelContext =
       kind: 'checkback'
     }
 
+/**
+ * Assembles the full system prompt for {@link agentUid}.
+ *
+ * Falls back to the installation default soul/mission templates when the agent
+ * has none of its own, so a freshly created agent still gets a coherent persona.
+ * Blocks that resolve to an empty string are dropped (via `filter(Boolean)`)
+ * rather than emitted as blank sections.
+ *
+ * @param executor - Query executor, overridable so callers can run inside a
+ *   transaction or against a test database.
+ */
 export async function buildAgentSystemPrompt(
   agentUid: string,
   executor: QueryExecutor = DB,
@@ -43,6 +75,12 @@ export async function buildAgentSystemPrompt(
   const skillPrompt = formatSkillsForSystemPrompt(skills)
   const runtimeContext = await runtimeContextSection(agentUid, options)
 
+  // Section order is intentional and forms the cacheable prefix described in the
+  // file header: identity line first (tests assert the prompt starts with
+  // "You are <name>"), then the slow-changing soul/mission, then runtime context,
+  // policies, the tool catalog, and finally the skill index. The <tools> block is
+  // inlined here rather than factored out because the long terminal/workspace
+  // description is a single load-bearing string the model reads as one contract.
   return [
     `You are ${displayName}, an AI colleague powered by BullX.`,
     soul.trim(),
@@ -75,6 +113,11 @@ ${toolRoutingPolicySection({ chatRecallEnabled: options.chatRecallEnabled === tr
     .join('\n\n')
 }
 
+/**
+ * Resolves the agent's human-facing name from the principals table, falling back
+ * to the raw UID when no display name is set so the prompt never opens with an
+ * empty "You are , ...".
+ */
 async function resolveAgentDisplayName(agentUid: string, executor: QueryExecutor): Promise<string> {
   const [row] = await executor
     .select({ displayName: Principals.displayName })
@@ -84,6 +127,7 @@ async function resolveAgentDisplayName(agentUid: string, executor: QueryExecutor
   return row?.displayName?.trim() || agentUid
 }
 
+/** Wraps the mission text in its tagged block, or yields nothing when the agent has no mission. */
 function missionSection(mission: string): string {
   const content = mission.trim()
   if (!content) return ''
@@ -91,6 +135,13 @@ function missionSection(mission: string): string {
   return ['Your mission is:', '<mission>', content, '</mission>'].join('\n')
 }
 
+/**
+ * Emits the per-run runtime facts the model needs but cannot infer: its own UID
+ * (tools and skills ask for it by exact string), the installation timezone, and
+ * — when known — when and where the conversation started. Start date and channel
+ * are appended only when provided so the block stays minimal and the prompt
+ * prefix stays stable when they are absent.
+ */
 async function runtimeContextSection(agentUid: string, options: BuildAgentSystemPromptOptions): Promise<string> {
   const timezone = await loadSystemTimezone()
   const lines = [
@@ -110,6 +161,12 @@ async function runtimeContextSection(agentUid: string, options: BuildAgentSystem
   return lines.join('\n')
 }
 
+/**
+ * Renders {@link CurrentChannelContext} into a short human-readable label for the
+ * runtime block. The checkback variant gets an explicit explanation rather than a
+ * bare label so the model treats the wakeup as its own scheduled self-trigger, not
+ * a new inbound message.
+ */
 function formatCurrentChannel(channel: CurrentChannelContext): string {
   return match(channel)
     .with({ kind: 'scheduled_task' }, ({ name }) => {
@@ -134,6 +191,11 @@ function formatCurrentChannel(channel: CurrentChannelContext): string {
     .exhaustive()
 }
 
+/**
+ * Maps a platform id to its display brand (Feishu/Lark), passing any unknown
+ * platform through unchanged so a newly added channel still produces a sensible
+ * label without a code change here.
+ */
 function platformLabel(platform: string | undefined, noun: string): string {
   const brand = match(platform)
     .with('feishu', () => 'Feishu')
@@ -142,6 +204,13 @@ function platformLabel(platform: string | undefined, noun: string): string {
   return brand ? `${brand} ${noun}` : noun
 }
 
+/**
+ * States how the model should treat the `<message_context>` block that BullX may
+ * prepend to a user-role message. This is a security/trust boundary: that block
+ * is system-injected metadata, so the model is told to use it as context but not
+ * to echo it back as if a human wrote it, which would let injected metadata leak
+ * into visible replies.
+ */
 function messageContextPolicySection(): string {
   return [
     '<message_context_policy>',
@@ -150,6 +219,14 @@ function messageContextPolicySection(): string {
   ].join('\n')
 }
 
+/**
+ * Optional policy that constrains tool routing when chat-history recall is enabled
+ * for this request. Included only when the `chat_history_search` tool is actually
+ * present, so an agent without recall never sees instructions referencing a tool
+ * it cannot call. The rules pin recall as the primary evidence source for
+ * "what was said" questions and forbid treating web/file/runtime output as proof
+ * of past conversation — the model otherwise tends to reach for a web search.
+ */
 function toolRoutingPolicySection(options: { chatRecallEnabled: boolean }): string {
   if (!options.chatRecallEnabled) return ''
 
@@ -165,6 +242,12 @@ function toolRoutingPolicySection(options: { chatRecallEnabled: boolean }): stri
   ].join('\n')
 }
 
+/**
+ * Formats an instant as a plain `YYYY-MM-DD` date in the installation timezone.
+ * Pads each component because `zonedParts` returns numeric fields, and a year
+ * such as 999 must still render four digits so the date is unambiguous to the
+ * model.
+ */
 function formatZonedDate(timezone: string, at: Date): string {
   const parts = zonedParts(timezone, at)
   const padded = {

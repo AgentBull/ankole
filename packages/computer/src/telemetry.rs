@@ -3,6 +3,11 @@
 
 use tracing_subscriber::EnvFilter;
 
+/// Initializes tracing once for the worker process.
+///
+/// `BULLX_LOG_LEVEL` wins over generic `RUST_LOG` so app and worker deployment
+/// values can be named consistently, while local Rust tooling can still use the
+/// standard env var.
 pub fn init() {
   let filter = EnvFilter::try_from_env("BULLX_LOG_LEVEL")
     .or_else(|_| EnvFilter::try_from_default_env())

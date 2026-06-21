@@ -47,6 +47,9 @@ export const WebExtractProviderConfig = defineAppConfig<string>({
   schema: z.string().min(1)
 })
 
+// Side-effecting registration at import time: makes these keys known to the
+// app-config layer (validation, admin UI, encryption-at-rest) merely by importing
+// this module, so nothing else has to maintain a separate list of web-provider keys.
 registerAppConfigDefinitions([
   WebExaApiKey,
   WebParallelApiKey,

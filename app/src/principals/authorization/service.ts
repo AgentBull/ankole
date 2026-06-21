@@ -26,6 +26,24 @@ export {
 } from './groups'
 export { addPrincipalToGroup, ensureCanDisablePrincipal, removePrincipalFromGroup } from './memberships'
 
+// Authorization entrypoint and root bootstrap.
+//
+// The model: a Principal (subject) gains permissions through grants. A grant is
+// owned by either the Principal directly or by a group the Principal belongs to;
+// group membership is either an explicit row (static groups) or a CEL condition
+// evaluated against the Principal (computed groups, e.g. `all_humans`). A grant
+// allows an `action` on resources matching its `resourcePattern` when its CEL
+// `condition` passes. Grants are allow-only — there are no deny rows — so the
+// decision is "allow if any effective grant matches", and absence of a matching
+// grant is the default deny. There is no deny-overrides precedence to reason
+// about.
+//
+// Split of responsibility: this TS layer only *loads* the relevant database
+// state into a plain JSON snapshot; the native engine makes the actual decision.
+// Keeping CEL evaluation and resource-pattern matching in one native place stops
+// those semantics from drifting between callers, and lets TS stay a thin,
+// auditable data-gathering layer.
+
 /**
  * Native decision shape after NAPI serde conversion.
  */
@@ -231,11 +249,16 @@ async function loadAuthorizationSnapshot(
   const [principal] = await DB.select().from(Principals).where(eq(Principals.uid, principalUid)).limit(1)
   if (!principal) throw new PrincipalDomainError('not_found')
 
+  // Static membership is a fact already in the table, so it is resolved in SQL.
   const staticMemberships = await DB.select({ groupId: PrincipalGroupMemberships.groupId })
     .from(PrincipalGroupMemberships)
     .innerJoin(PrincipalGroups, eq(PrincipalGroups.id, PrincipalGroupMemberships.groupId))
     .where(and(eq(PrincipalGroupMemberships.principalUid, principal.uid), eq(PrincipalGroups.kind, 'static')))
 
+  // Computed membership is *not* resolved here: every computed group plus its
+  // condition is shipped to native, which decides membership from the principal
+  // snapshot. So all computed groups are loaded, not only ones this principal is
+  // in — TS does not evaluate CEL.
   const computedGroups = await DB.select({
     id: PrincipalGroups.id,
     condition: PrincipalGroups.computedCondition
@@ -245,6 +268,9 @@ async function loadAuthorizationSnapshot(
 
   const staticGroupIds = staticMemberships.map(membership => membership.groupId)
   const computedGroupIds = computedGroups.map(group => group.id)
+  // Owners whose grants could possibly apply: this principal, every static group
+  // it belongs to, and every computed group (membership decided later). Grants
+  // owned by anyone else cannot match and are left out of the snapshot.
   const candidateGroupIds = [...staticGroupIds, ...computedGroupIds]
 
   // Filtering by action in SQL keeps the snapshot small while still allowing
@@ -267,6 +293,10 @@ async function loadAuthorizationSnapshot(
       avatarUrl: principal.avatarUrl
     },
     staticGroupIds,
+    // A computed group with a null condition should never grant membership, so
+    // the snapshot substitutes `false` (fail closed) rather than letting native
+    // see a missing condition. The schema check makes this unreachable, but the
+    // default keeps the authorization path safe if that invariant ever breaks.
     computedGroups: computedGroups.map(group => ({
       id: group.id,
       condition: group.condition ?? 'false'

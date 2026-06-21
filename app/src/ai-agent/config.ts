@@ -38,10 +38,13 @@ export interface ResolvedAiAgentModelsConfig {
 
 export interface AiAgentRuntimePolicyConfig {
   ambient?: {
+    /** Debounce window: the ambient wake slides forward by this much on each new message, so a burst of chatter collapses into one recognizer look. */
     batchWindowMs?: number
+    /** Upper bound on how long the debounce can keep sliding, anchored at the oldest unprocessed message — a never-quiet room still gets looked at within this. */
     hardCapMs?: number
   }
   generation?: {
+    /** Hard ceiling on agent turns (LLM call + tool round) in one run, a backstop against an agent that loops without finishing. */
     maxTurns?: number
     /**
      * Abort (and retry) a run after this long with no agent events (stream
@@ -61,8 +64,11 @@ export interface AiAgentRuntimePolicyConfig {
   }
   compression?: {
     enabled?: boolean
+    /** Most-recent history (in tokens) kept verbatim below the compaction cut; older turns get summarized. */
     keepRecentTokens?: number
+    /** How many times to re-compact when the provider still reports context overflow after a pass. */
     maxOverflowRetries?: number
+    /** Headroom (in tokens) left free under the model's window so a compacted context still has room to generate. */
     reserveTokens?: number
     /** Render-time microcompact: clear old re-derivable tool results before full compaction. */
     microcompactEnabled?: boolean
@@ -70,7 +76,9 @@ export interface AiAgentRuntimePolicyConfig {
     microcompactKeepRecent?: number
   }
   dailyReset?: {
+    /** Whether each conversation rolls over to a fresh one once per day (clears accumulated context). */
     enabled?: boolean
+    /** Local wall-clock time the daily reset fires, `HH:MM`. */
     hour?: string
   }
   parallelism?: {
@@ -166,6 +174,9 @@ const AiAgentRuntimePolicyConfigSchema = z
 
 const AiAgentRuntimeConfigSchema = AiAgentRuntimePolicyConfigSchema
 
+// The installation-wide runtime policy, stored as one app-config row under this
+// key and overlaid on top of the per-agent model config. Persisted encrypted at
+// rest (consistent with the other ai-agent app-config rows).
 export const AiAgentRuntimeConfigDefinition = defineAppConfig<ConfigureJsonValue>({
   key: 'ai_agent.runtime',
   description: 'AIAgent runtime session policy',
@@ -191,6 +202,15 @@ export async function loadAiAgentParallelismConfig(): Promise<{ maxConversations
   }
 }
 
+/**
+ * Loads the full runtime profile for one agent: its three resolved model roles
+ * (read from the agent's own metadata) merged with the installation-wide policy
+ * (timeouts, ambient/compression/parallelism knobs read from app config).
+ *
+ * Throws when the agent is missing or not active, or has no `primary` model
+ * configured — there is no global model fallback, so an unconfigured agent cannot
+ * run rather than silently using someone else's model.
+ */
 export async function loadAiAgentRuntimeProfile(agentUid: string): Promise<AiAgentRuntimeProfile> {
   const [agentResult, runtimeConfigValue] = await Promise.all([
     getAgent(agentUid),
@@ -207,6 +227,11 @@ export async function loadAiAgentRuntimeProfile(agentUid: string): Promise<AiAge
   throw new AiAgentConfigError(`agents.metadata.ai_agent.models.primary is not configured for ${agentUid}`)
 }
 
+/**
+ * Resolves a runtime profile from explicit models + policy (no DB lookup), so
+ * tests and callers that already hold the config can build a profile directly.
+ * The three model roles resolve in parallel; the policy is filled with defaults.
+ */
 export async function resolveAiAgentRuntimeProfile(input: {
   models: AiAgentModelsConfig
   policy?: AiAgentRuntimePolicyConfig
@@ -227,9 +252,19 @@ export async function resolveAiAgentRuntimeProfile(input: {
   }
 }
 
+/**
+ * Materializes the three model roles from config. Only `primary` is required;
+ * `light` and `heavy` inherit primary's provider/model when omitted and differ
+ * only in their reasoning floor — light reasons less (cheap, fast paths like the
+ * ambient recognizer), heavy reasons more (hard work). The defaults (medium /
+ * low / high) apply only when a role does not set `reasoning` itself.
+ */
 export function resolveAiAgentModelsConfig(config: AiAgentModelsConfig): ResolvedAiAgentModelsConfig {
   const parsed = AiAgentModelsConfigSchema.parse(config)
   const primary = withDefaultReasoning(parsed.primary, 'medium')
+  // When a role is omitted, reuse primary's provider/model but pin the role's
+  // reasoning floor outright (not via withDefaultReasoning) — an inherited role
+  // ignores primary's own reasoning so light stays cheap and heavy stays deep.
   const light = parsed.light
     ? withDefaultReasoning(parsed.light, 'low')
     : { ...parsed.primary, reasoning: 'low' as const }
@@ -244,6 +279,12 @@ export function resolveAiAgentModelsConfig(config: AiAgentModelsConfig): Resolve
   }
 }
 
+/**
+ * Validates a models config before it is saved: resolves the roles, then checks
+ * every provider/model reference actually exists with the provider service.
+ * Throws on the first bad reference so a config that names a non-existent model
+ * never reaches storage.
+ */
 export async function validateAiAgentModelsConfig(config: AiAgentModelsConfig): Promise<void> {
   const models = resolveAiAgentModelsConfig(config)
   await Promise.all(
@@ -256,6 +297,7 @@ export async function validateAiAgentModelsConfig(config: AiAgentModelsConfig): 
   )
 }
 
+/** Reads `ai_agent.models` out of an agent's metadata blob. Returns undefined (not an error) when no primary model is set, so callers can treat "unconfigured" distinctly. */
 export function readAiAgentModelsConfig(metadata: JsonObject): AiAgentModelsConfig | undefined {
   const aiAgent = jsonObject(metadata.ai_agent)
   const models = jsonObject(aiAgent?.models)
@@ -264,6 +306,12 @@ export function readAiAgentModelsConfig(metadata: JsonObject): AiAgentModelsConf
   return AiAgentModelsConfigSchema.parse(models)
 }
 
+/**
+ * Writes the models config back into the metadata blob, returning a new object.
+ * Clones and merges rather than overwriting so sibling metadata (chat-channel
+ * adapters, owner, other `ai_agent.*` keys) is preserved — the config screen only
+ * owns the `models` sub-key, not the whole blob.
+ */
 export function writeAiAgentModelsConfig(metadata: JsonObject, models: AiAgentModelsConfig): JsonObject {
   const parsed = AiAgentModelsConfigSchema.parse(models)
   const next = cloneJsonObject(metadata)
@@ -290,6 +338,10 @@ export function defaultGenerationStallTimeoutMs(): number {
   return ms('10m')
 }
 
+// Fills every policy knob with its default so the rest of the runtime reads a
+// fully-resolved profile and never has to repeat `?? default`. The literals here
+// are the floor; each is overridable through the `ai_agent.runtime` app config.
+// See the field docs on AiAgentRuntimePolicyConfig for what each one governs.
 function resolveAiAgentRuntimePolicy(
   config: AiAgentRuntimePolicyConfig
 ): Pick<AiAgentRuntimeProfile, 'ambient' | 'compression' | 'dailyReset' | 'generation' | 'parallelism'> {

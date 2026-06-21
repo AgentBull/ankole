@@ -392,7 +392,11 @@ export interface AgentTool<TParameters extends z.ZodType = z.ZodType, TDetails =
    * Must return an object that matches `TParameters`.
    */
   prepareArguments?: (args: unknown) => z.output<TParameters>
-  /** Execute the tool call. Throw on failure instead of encoding errors in `content`. */
+  /**
+   * Execute the tool call. Throw on failure instead of encoding errors in `content`: the loop catches
+   * the throw, turns it into an error tool result, and feeds that back to the model. Honor `signal`;
+   * call `onUpdate` to stream partial progress for live UI.
+   */
   execute: (
     toolCallId: string,
     params: z.output<TParameters>,
@@ -450,7 +454,9 @@ export type AgentEvent =
   // Only emitted for assistant messages during streaming
   | { type: 'message_update'; message: AgentMessage; assistantMessageEvent: AssistantMessageEvent }
   | { type: 'message_end'; message: AgentMessage }
-  // Tool execution lifecycle
+  // Tool execution lifecycle. In parallel mode `tool_execution_end` fires in completion order (whichever
+  // tool finishes first), but the corresponding tool-result `message_start`/`message_end` are emitted
+  // afterward in assistant source order, so the transcript stays in the order the model issued the calls.
   | { type: 'tool_execution_start'; toolCallId: string; toolName: string; args: any }
   | { type: 'tool_execution_update'; toolCallId: string; toolName: string; args: any; partialResult: any }
   | { type: 'tool_execution_end'; toolCallId: string; toolName: string; args: any; result: any; isError: boolean }

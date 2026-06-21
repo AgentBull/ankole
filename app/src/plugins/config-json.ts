@@ -11,6 +11,12 @@ export interface PluginSetupConfigShape {
   }[]
 }
 
+/**
+ * Builds the initial setup form value for a plugin.
+ *
+ * Field defaults fill only missing paths so a plugin can provide a broad
+ * `defaultConfig` and override just the unset leaves from field metadata.
+ */
 export function defaultPluginConfigForSetup(setup: PluginSetupConfigShape | undefined): PluginConfigJsonObject {
   let config = isPluginConfigJsonObject(setup?.defaultConfig) ? clonePluginJsonObject(setup.defaultConfig) : {}
 
@@ -23,6 +29,10 @@ export function defaultPluginConfigForSetup(setup: PluginSetupConfigShape | unde
   return config
 }
 
+/**
+ * Reads a nested plugin config value without treating arrays or primitives as
+ * path containers.
+ */
 export function getPluginConfigPath(
   value: PluginConfigJsonObject,
   path: readonly string[]
@@ -36,6 +46,12 @@ export function getPluginConfigPath(
   return current
 }
 
+/**
+ * Returns a cloned config object with one nested path set.
+ *
+ * The source object is never mutated because setup screens may keep old config
+ * snapshots for diffing, validation, or undo-like UI state.
+ */
 export function setPluginConfigPath(
   source: PluginConfigJsonObject,
   path: readonly string[],
@@ -56,6 +72,12 @@ export function setPluginConfigPath(
   return target
 }
 
+/**
+ * Deep-merges plugin config objects while replacing arrays and scalar values.
+ *
+ * Plugin config is JSON data, not a class graph; cloning at each write boundary
+ * prevents runtime plugin code from mutating setup defaults by reference.
+ */
 export function mergePluginConfigObjects(
   base: PluginConfigJsonObject,
   override: PluginConfigJsonObject
@@ -74,10 +96,12 @@ export function mergePluginConfigObjects(
   return next
 }
 
+/** Clones a plugin JSON object while preserving JSON-compatible leaf values. */
 export function clonePluginJsonObject(value: PluginConfigJsonObject): PluginConfigJsonObject {
   return mapValues(value, item => clonePluginJsonValue(item)) as PluginConfigJsonObject
 }
 
+/** Clones any supported plugin JSON value. */
 export function clonePluginJsonValue<TValue extends BullXPluginJsonValue | undefined>(value: TValue): TValue {
   if (value === undefined) return value
   if (Array.isArray(value)) return value.map(item => clonePluginJsonValue(item)) as TValue
@@ -86,6 +110,7 @@ export function clonePluginJsonValue<TValue extends BullXPluginJsonValue | undef
   return value
 }
 
+/** Narrows unknown JSON to the object shape accepted for plugin config roots. */
 export function isPluginConfigJsonObject(value: unknown): value is PluginConfigJsonObject {
   return isPlainObject(value)
 }

@@ -56,6 +56,9 @@ afterAll(async () => {
 })
 
 describe('codex_delegate tool', () => {
+  // End-to-end of the foreground path against a fake computer: auth + config land at their fixed
+  // 0o600 paths, the prompt is written under temp/codex-runs, and codex runs with the bypass flag,
+  // the right --cd, and CODEX_HOME pointing at the materialized credentials.
   it('materializes Codex auth and runs codex with CODEX_HOME', async () => {
     const writes: Array<{ path: string; content: string; mode?: number }[]> = []
     const commands: unknown[] = []
@@ -121,6 +124,8 @@ describe('codex_delegate tool', () => {
     expect(result.details?.configMaterialized).toBe(true)
   })
 
+  // Covers the session-level seeding helper: all three secrets resolve true, library files are
+  // written, and secrets land at 0o600 while library files land at 0o644 (non-secret).
   it('materializes shared computer runtime credentials for command-oriented skills', async () => {
     const writes: Array<{ path: string; content: string; mode?: number }[]> = []
     const computer = {
@@ -158,6 +163,8 @@ describe('codex_delegate tool', () => {
     )
   })
 
+  // Background path (wait=false): the detached command's id is surfaced as session_id and recorded
+  // in backgroundIds so the process tool can later manage the run.
   it('registers detached Codex runs with process-compatible session ids', async () => {
     const backgroundIds = new Set<string>()
     const computer = {

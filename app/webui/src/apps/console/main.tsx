@@ -202,6 +202,9 @@ const NAV_GROUPS: NavGroup[] = [
 
 const NAV_ITEMS = NAV_GROUPS.flatMap(group => group.items)
 
+/**
+ * Renders the authenticated console shell after the server route has accepted the session.
+ */
 function ConsoleApp() {
   const { t } = useTranslation()
   const [section, setSection] = useConsoleSection()
@@ -251,6 +254,9 @@ function ConsoleApp() {
   )
 }
 
+/**
+ * Renders searchable console navigation without changing the URL until a section is selected.
+ */
 function ConsoleSidebar({
   section,
   onSectionChange
@@ -320,6 +326,9 @@ function ConsoleSidebar({
   )
 }
 
+/**
+ * Maps one URL/nav section to its operational console page.
+ */
 function ConsoleSectionView({ section }: { section: ConsoleSection }) {
   return match(section)
     .with('overview', () => <OverviewPage />)
@@ -340,6 +349,13 @@ function ConsoleSectionView({ section }: { section: ConsoleSection }) {
     .exhaustive()
 }
 
+/**
+ * Keeps the selected console section in sync with browser history.
+ *
+ * The console is one SPA entry guarded by the server. Section changes stay
+ * client-side, but direct deep links still work because the server routes every
+ * `/console/*` path back to this entry after auth.
+ */
 function useConsoleSection(): [ConsoleSection, (section: ConsoleSection) => void] {
   const [section, setSection] = useState<ConsoleSection>(() => sectionFromLocation())
 
@@ -359,6 +375,9 @@ function useConsoleSection(): [ConsoleSection, (section: ConsoleSection) => void
   ]
 }
 
+/**
+ * Parses the first path segment after `/console` into a known section.
+ */
 function sectionFromLocation(): ConsoleSection {
   const slug = window.location.pathname.replace(/^\/console\/?/, '').split('/')[0] || 'overview'
   return isConsoleSection(slug) ? slug : 'overview'
@@ -368,6 +387,9 @@ function isConsoleSection(value: string): value is ConsoleSection {
   return NAV_ITEMS.some(item => item.slug === value)
 }
 
+/**
+ * Filters navigation by localized title or description.
+ */
 function filterNavGroups(query: string, t: TFunction): NavGroup[] {
   const needle = query.trim().toLowerCase()
   if (!needle) return NAV_GROUPS
@@ -379,6 +401,9 @@ function filterNavGroups(query: string, t: TFunction): NavGroup[] {
   })).filter(group => group.items.length > 0)
 }
 
+/**
+ * Restores the sidebar open state written by the sidebar component.
+ */
 function readSidebarCookie(): boolean {
   const match = document.cookie.match(/(?:^|;\s*)sidebar_state=(true|false)/)
   return match ? match[1] === 'true' : true

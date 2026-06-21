@@ -13,6 +13,9 @@ export function markSetupCompletionRestartRecommended(): void {
   restartRecommendedAfterSetupCompletion = true
 }
 
+/**
+ * Reports whether the current process should show a post-setup restart banner.
+ */
 export function isSetupCompletionRestartRecommended(): boolean {
   return restartRecommendedAfterSetupCompletion
 }

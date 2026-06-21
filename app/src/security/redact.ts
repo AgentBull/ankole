@@ -40,6 +40,13 @@ const PATTERNS: RegExp[] = [
 const SENSITIVE_KEY_RE =
   /^(?:api[-_]?key|apiKey|token|secret|password|passwd|access[-_]?token|accessToken|refresh[-_]?token|refreshToken|id[-_]?token|idToken|auth[-_]?token|authToken|client[-_]?secret|clientSecret|app[-_]?secret|appSecret|authorization|cookie|set-cookie)$/i
 
+/**
+ * Masks likely secrets in free-form text before it reaches logs or UI echoes.
+ *
+ * The cheap prefilter keeps normal log lines fast. The regex list is purposely
+ * broad and may over-mask; leaking a credential is more expensive than hiding a
+ * suspicious-looking token fragment from diagnostics.
+ */
 export function redactSensitiveText(text: string): string {
   if (!text || !PREFILTER.test(text)) return text
   let output = text
@@ -56,6 +63,12 @@ export function redactSensitiveText(text: string): string {
   return output
 }
 
+/**
+ * Recursively redacts JSON-like data while preserving a serializable shape.
+ *
+ * Depth and circular-reference guards keep logging safe even when callers pass
+ * rich runtime objects instead of plain request bodies.
+ */
 export function redactJsonValue(value: unknown, depth = 0, seen = new WeakSet<object>()): JsonValue {
   if (value === null || value === undefined) return null
   if (typeof value === 'string') return redactSensitiveText(value)
@@ -76,6 +89,9 @@ export function redactJsonValue(value: unknown, depth = 0, seen = new WeakSet<ob
   return out
 }
 
+/**
+ * Redacts one logger argument without forcing primitive values through JSON.
+ */
 export function redactLogArg(value: unknown): unknown {
   if (typeof value === 'string') return redactSensitiveText(value)
   if (!value || typeof value !== 'object') return value

@@ -1,3 +1,11 @@
+// The headline integration suite: it wires the in-memory mock IM platform to a
+// real ExternalGatewayRuntime + database and drives whole user scenarios through
+// the webhook door. Its recurring invariant is `assertMirrorEqualsPlatform` — the
+// gateway's projected `external_messages` mirror must, after everything settles,
+// exactly equal the platform's own visible latest-state. On top of that it locks
+// the group-mode admission policy, same-actor batching, room-as-session scoping,
+// the recall/delete races, slash-command parsing (incl. IME full-width input),
+// reaction projection, and multi-binding / multi-agent fan-out.
 import { afterAll, afterEach, describe, expect, it } from 'bun:test'
 import { mapValues } from '@pleisto/active-support'
 import { and, eq } from 'drizzle-orm'
@@ -49,6 +57,12 @@ afterAll(async () => {
 })
 
 describe('External Gateway Mock IM adapter integration', () => {
+  // Table-driven matrix over the group-message modes. The three expectations are
+  // independent outcomes, not one scale: `expectObserved` = projected into the
+  // mirror (chat history); `expectDelivery` = an agent event was enqueued (the
+  // agent woke, addressed vs ambient); `expectOutbound` = the agent replied. A
+  // row can be observed yet never delivered (observe_all ambient), or delivered
+  // ambiently yet not replied to.
   const admissionCases: Array<{
     expectDelivery?: 'addressed' | 'ambient'
     expectObserved: boolean
@@ -162,6 +176,8 @@ describe('External Gateway Mock IM adapter integration', () => {
     await group.say({ authorId: 'alice', id: 'm1', isMention: true, text: '@Agent first' })
     await group.say({ authorId: 'alice', id: 'm2', isMention: true, text: '@Agent second' })
 
+    // Two messages from the same actor in one room/thread coalesce into a single
+    // agent turn (one reply), but both are still recorded as delivered events.
     await eventually(() => expect(setup.platform.outbound.filter(event => event.op === 'post')).toHaveLength(1))
     expect(setup.platform.outbound[0]!.text).toContain('@Agent first\n@Agent second')
     await assertAgentEventCount(setup.agentUid, 'message.received', 'addressed', 2)
@@ -171,6 +187,9 @@ describe('External Gateway Mock IM adapter integration', () => {
     const setup = await startMockRuntime('actor_boundary')
     const group = setup.platform.group(setup.conversationOptions({ channelId: `${setup.adapterName}:group` }))
 
+    // A second speaker breaks the batch: alice's two messages do NOT merge across
+    // bob's, so each of the three becomes its own turn. A turn is one user's
+    // burst, never a blend of two people talking.
     await group.say({ authorId: 'alice', id: 'a1', isMention: true, text: '@Agent alice one' })
     await group.say({ authorId: 'bob', id: 'b1', isMention: true, text: '@Agent bob' })
     await group.say({ authorId: 'alice', id: 'a2', isMention: true, text: '@Agent alice two' })
@@ -201,6 +220,9 @@ describe('External Gateway Mock IM adapter integration', () => {
     await secondThread.say({ id: 'same-room-thread-b', isMention: true, text: '@Agent second thread' })
     await otherRoom.say({ id: 'other-room-message', isMention: true, text: '@Agent other room' })
 
+    // Session is keyed by room, not thread: two different threads in the same room
+    // resolve to one conversation, while a separate room gets its own. So every
+    // exchange in a room threads into the same agent memory.
     const sessions = await agentEventSessionsByMessageId(setup.agentUid, [
       'same-room-thread-a',
       'same-room-thread-b',
@@ -225,6 +247,10 @@ describe('External Gateway Mock IM adapter integration', () => {
     await assertMirrorEqualsPlatform(setup.platform, group.channelId)
   })
 
+  // The out-of-order case: a recall lands BEFORE the receive it cancels (a
+  // provider can deliver events out of order). The recall leaves a tombstone, so
+  // when the late receive arrives it is dropped instead of waking the agent —
+  // neither projected nor delivered.
   it('does not resurrect a stale receive when recall arrives before receive', async () => {
     const setup = await startMockRuntime('recall_before_receive')
     const group = setup.platform.group(setup.conversationOptions({ channelId: `${setup.adapterName}:group` }))
@@ -244,6 +270,9 @@ describe('External Gateway Mock IM adapter integration', () => {
     const first = setup.platform.group(setup.conversationOptions({ channelId: `${setup.adapterName}:room-a` }))
     const second = setup.platform.group(setup.conversationOptions({ channelId: `${setup.adapterName}:room-b` }))
 
+    // Provider message ids are not globally unique, so a recall is scoped by room:
+    // recalling `same-provider-id` in room-a must not suppress a different message
+    // that reuses that id in room-b.
     await first.recall('same-provider-id')
     await second.say({ id: 'same-provider-id', isMention: true, text: '@Agent same id in another room' })
 
@@ -346,6 +375,9 @@ describe('External Gateway Mock IM adapter integration', () => {
     await group.say({ id: 'm1', isMention: false, text: 'ambient observed only' })
     await assertProjectedMessageText(group.channelId, 'm1', 'ambient observed only')
 
+    // The message was only observed (never an agent event), so its recall drops it
+    // from the mirror but raises nothing for the agent — there is no turn to
+    // compensate.
     await group.recall('m1')
 
     await assertNoProjectedMessage(group.channelId, 'm1')
@@ -452,6 +484,9 @@ describe('External Gateway Mock IM adapter integration', () => {
     await first.say({ id: 'm1', isMention: true, text: '@Agent shared group' })
     await second.say({ id: 'm1', isMention: true, text: '@Agent shared group' })
 
+    // Two agents share one room and both act (two replies), but the projection is
+    // keyed by (room, message), not by agent — so the shared message is mirrored
+    // exactly once, with no per-agent duplication of the chat fact.
     await eventually(() => expect(platform.outbound.filter(event => event.op === 'post')).toHaveLength(2))
     const projected = await DB.select()
       .from(ExternalMessages)
@@ -489,6 +524,10 @@ describe('External Gateway Mock IM adapter integration', () => {
     const botText = `[BullX Agent External Gateway mock:${setup.agentUid}]\n\n@Agent answer then user recalls`
     await assertProjectedMessageText(group.channelId, botMessageId, botText)
 
+    // Recalling the user's message after the agent already replied removes only
+    // the user message from the mirror and raises a compensating `recalled`
+    // lifecycle event. The bot's own output is left intact (still one `post`, text
+    // unchanged) — the gateway never retracts the agent's reply on the user's behalf.
     await group.recall('m1')
 
     await assertNoProjectedMessage(group.channelId, 'm1')
@@ -505,6 +544,10 @@ interface MockRuntimeSetupOptions {
   groupMessageMode?: MockImGroupMessageMode
 }
 
+// Shared harness: registers a mock-IM adapter factory, creates the agent with an
+// external binding, starts a real runtime against it, and returns helpers for
+// building conversations bound to that runtime's webhook entrypoint. Every started
+// runtime is tracked for afterEach teardown.
 async function startMockRuntime(
   name: string,
   options: MockRuntimeSetupOptions = {}
@@ -569,6 +612,16 @@ async function startMockRuntime(
   }
 }
 
+/**
+ * The suite's core invariant: the gateway's projected mirror for a room equals
+ * the platform's own visible latest-state.
+ *
+ * Both sides are reduced to the same comparable shape (author, mention, reactions
+ * as sorted actor sets, text) and sorted by id, so the assertion ignores
+ * incidental ordering and storage-format differences and checks only that the two
+ * latest-states agree. Polls via `eventually` because projection lands
+ * asynchronously after delivery.
+ */
 async function assertMirrorEqualsPlatform(platform: MockImPlatformInstance, roomId: string): Promise<void> {
   await eventually(async () => {
     const rows = await DB.select().from(ExternalMessages).where(eq(ExternalMessages.roomId, roomId))
@@ -738,6 +791,10 @@ async function assertCommandPayload(
   })
 }
 
+// Retries `assertion` until it passes or the deadline lapses, polling because
+// projection/delivery settle asynchronously. On timeout it runs the assertion one
+// last time and rethrows the most recent failure, so the test report shows the
+// real expectation mismatch rather than a bare timeout.
 async function eventually<T>(assertion: () => T | Promise<T>, timeoutMs = 3_000): Promise<T> {
   const deadline = Date.now() + timeoutMs
   let lastError: unknown

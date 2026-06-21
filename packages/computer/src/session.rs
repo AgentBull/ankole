@@ -20,6 +20,11 @@ use crate::shell::{PersistentShell, ShellResult};
 use crate::tigerfs::TigerFs;
 use crate::tmux::TmuxManager;
 
+/// Everything one agent owns on this worker: its workspace paths, tracked
+/// commands, tmux terminals, and the per-scope persistent shells. One of these is
+/// created on first access and lives until the session is explicitly stopped or
+/// the daemon shuts down — this is the "sticky session per agent_uid" the README
+/// describes.
 pub struct SessionHandle {
   pub agent_uid: String,
   pub session_id: Uuid,
@@ -38,6 +43,9 @@ impl SessionHandle {
     *self.last_used_at.lock().unwrap()
   }
 
+  /// Stamps the session as just-used. Currently this only feeds the value the
+  /// session-describe endpoint returns; there is no in-daemon idle evictor yet,
+  /// so nothing here reaps a session on staleness.
   pub fn touch(&self) {
     *self.last_used_at.lock().unwrap() = Utc::now();
   }
@@ -95,7 +103,13 @@ impl SessionHandle {
     result
   }
 
-  /// Shut down every scope's persistent shell.
+  /// Shut down every scope's persistent shell, dropping all cwd/env/alias state.
+  ///
+  /// The map is drained first so new calls immediately start fresh shells while
+  /// the old ones are torn down. A shell still held by an in-flight `shell_run`
+  /// (Arc not uniquely owned) is skipped rather than waited on: it will run its
+  /// command to completion and be dropped normally, so reset never blocks on a
+  /// busy command.
   pub async fn reset_shell(&self) -> AppResult<()> {
     let shells: Vec<_> = {
       let mut guard = self.shells.lock().await;
@@ -111,6 +125,10 @@ impl SessionHandle {
     Ok(())
   }
 
+  /// Spawn a one-shot process (not the persistent shell) in this session's
+  /// computer. Unlike `shell_run`, each call is an independent process and carries
+  /// no cwd/env state forward; the recorded cwd defaults to `/workspace` only for
+  /// the snapshot shown to callers.
   pub fn spawn_command(
     &self,
     program: &str,
@@ -128,6 +146,9 @@ impl SessionHandle {
     self.commands.spawn(command, resolved_cwd, detached)
   }
 
+  /// Tear the session down: kill tracked processes, stop every shell, then kill
+  /// the tmux keeper. Ordered so processes die before the shells and terminals
+  /// that may have parented them.
   async fn teardown(&self) {
     self.commands.kill_all();
     let _ = self.reset_shell().await;
@@ -135,6 +156,13 @@ impl SessionHandle {
   }
 }
 
+/// Prefix the user command with `cd` + `export` lines so per-call cwd/env take
+/// effect inside the persistent shell and persist for later calls in the scope.
+///
+/// `cd ... || true` deliberately does not abort the command on a bad directory —
+/// the command itself then runs from the previous cwd and reports its own error,
+/// which is friendlier than swallowing the request. Values are single-quoted so a
+/// path or env value with spaces or shell metacharacters cannot break out.
 fn build_shell_command(
   cd_target: Option<&str>,
   command: &str,
@@ -150,10 +178,15 @@ fn build_shell_command(
   format!("{prefix}{command}")
 }
 
+/// Wrap a value in single quotes for safe inclusion in a bash command, using the
+/// standard `'\''` trick to embed a literal single quote.
 fn shell_quote(value: &str) -> String {
   format!("'{}'", value.replace('\'', "'\\''"))
 }
 
+/// Owns every live session on this worker, keyed by `agent_uid`, and enforces the
+/// agent-capacity limit. The single source of truth for "which agents are active
+/// here"; the heartbeat reads its counts for load reporting.
 pub struct SessionManager {
   sessions: DashMap<String, Arc<SessionHandle>>,
   config: Arc<Config>,
@@ -187,11 +220,24 @@ impl SessionManager {
       .sum()
   }
 
+  /// Return the agent's session, creating and provisioning it on first access.
+  ///
+  /// The bool is true only when this call created the session. Creation does the
+  /// expensive one-time setup — making the workspace dirs, mounting TigerFS, and
+  /// laying down the `/workspace` symlink view — outside the map lock so two
+  /// concurrent first-access requests do not serialize on it. The final
+  /// `entry()` then resolves the race: if a rival inserted first, the freshly
+  /// built handle is dropped and the existing one wins, so an agent never ends up
+  /// with two sessions.
   pub async fn get_or_create(&self, agent_uid: &str) -> AppResult<(Arc<SessionHandle>, bool)> {
     if let Some(handle) = self.get(agent_uid) {
       handle.touch();
       return Ok((handle, false));
     }
+    // Capacity is checked before the costly provisioning below. This is a soft
+    // pre-check, not a reservation, so a burst of new agents can briefly overrun
+    // the limit; the worker's load reporting plus app-side placement keep this in
+    // check rather than a hard lock here.
     if self.sessions.len() >= self.config.max_agents {
       return Err(AppError::unavailable(
         "at_capacity",
@@ -238,6 +284,9 @@ impl SessionManager {
     }
   }
 
+  /// Remove and fully tear down an agent's session. Removed from the map first so
+  /// no new request can grab it mid-teardown; returns the handle (or `None` if
+  /// there was no session) for the caller to report on.
   pub async fn stop(&self, agent_uid: &str) -> Option<Arc<SessionHandle>> {
     let removed = self.sessions.remove(agent_uid).map(|(_, handle)| handle);
     if let Some(handle) = &removed {
@@ -247,6 +296,10 @@ impl SessionManager {
     removed
   }
 
+  /// Flush the agent's `library-containers` mount back to its PostgreSQL backing
+  /// store. Called after commands/shell runs so edits to skills/memory/settings
+  /// are durable. A missing session is a no-op: nothing ran, so there is nothing
+  /// to persist.
   pub async fn sync_library_containers(&self, agent_uid: &str) -> AppResult<()> {
     let Some(handle) = self.get(agent_uid) else {
       return Ok(());
@@ -257,6 +310,7 @@ impl SessionManager {
       .await
   }
 
+  /// Stop every session. Used on daemon shutdown after the server has drained.
   pub async fn shutdown_all(&self) {
     let agents: Vec<String> = self
       .sessions
@@ -269,6 +323,10 @@ impl SessionManager {
   }
 }
 
+/// Build the unified `/workspace/<agent>` view by symlinking the three backing
+/// roots into it. The backing roots can live on separate storage (PVC, tmpfs, DB
+/// projection), but the computer always sees one stable tree — this is what keeps
+/// the public `/workspace` shape constant while deployments vary the storage.
 async fn ensure_workspace_view(paths: &WorkspacePaths) -> AppResult<()> {
   ensure_workspace_entry(&paths.root.join("user-files"), &paths.user_files).await?;
   ensure_workspace_entry(&paths.root.join("temp"), &paths.temp).await?;
@@ -281,6 +339,11 @@ async fn ensure_workspace_view(paths: &WorkspacePaths) -> AppResult<()> {
   Ok(())
 }
 
+/// Expose `library-containers/skills` at `temp/.agents/skills` as well.
+///
+/// Codex-style agents look for skills under `$HOME/.agents/skills` (HOME is the
+/// temp dir), so this links the canonical skills directory there instead of
+/// duplicating its contents.
 async fn ensure_codex_agent_skills_mount(paths: &WorkspacePaths) -> AppResult<()> {
   let agents_dir = paths.temp.join(".agents");
   let library_skills = paths.library_containers.join("skills");
@@ -290,6 +353,16 @@ async fn ensure_codex_agent_skills_mount(paths: &WorkspacePaths) -> AppResult<()
   ensure_workspace_entry(&agent_skills, &library_skills).await
 }
 
+/// Idempotently make `link_path` a symlink to `target`, reconciling whatever is
+/// already there.
+///
+/// Runs on every session creation, so it must converge from any prior state: a
+/// correct symlink is left alone; a symlink to the wrong place, a stray file, or
+/// an empty directory is removed and recreated. A *non-empty* directory is the
+/// one case it refuses — that holds real data (likely a misconfigured backing
+/// root), and silently deleting it would lose the agent's files, so it errors
+/// out instead. When the backing root equals the view (single-root dev layout)
+/// the link would point at itself, so that case is skipped up front.
 async fn ensure_workspace_entry(
   link_path: &std::path::Path,
   target: &std::path::Path,
@@ -321,6 +394,8 @@ async fn ensure_workspace_entry(
     }
   }
 
+  // Non-unix has no symlinks here; fall back to a plain directory so the path at
+  // least exists. The split-root layout is a Linux/production concern anyway.
   #[cfg(unix)]
   {
     std::os::unix::fs::symlink(target, link_path)?;

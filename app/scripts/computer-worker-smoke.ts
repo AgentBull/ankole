@@ -20,6 +20,9 @@ const workerBaseUrl = (
 const suffix = `${Date.now()}_${Math.random().toString(36).slice(2)}`.toLowerCase()
 const agentUid = `computer_smoke_${suffix}`
 
+/**
+ * Reads a required environment value with a script-specific setup hint.
+ */
 function requiredEnv(name: string, message: string): string {
   const value = Bun.env[name]?.trim()
   if (!value) throw new Error(message)
@@ -147,6 +150,12 @@ try {
   await closeDatabase({ timeout: 5 }).catch(() => undefined)
 }
 
+/**
+ * Waits for the target worker to publish a fresh DB heartbeat.
+ *
+ * The smoke test checks the actual registered worker path, not just whether an
+ * HTTPS port is open, because resolver behavior depends on database liveness.
+ */
 async function requireDevWorker(): Promise<void> {
   const deadline = Date.now() + 60_000
   while (Date.now() < deadline) {
@@ -168,6 +177,9 @@ async function requireDevWorker(): Promise<void> {
   )
 }
 
+/**
+ * Removes the temporary agent and sticky worker records created by this run.
+ */
 async function cleanup(): Promise<void> {
   await DB.delete(ComputerAgentWorkerBindings).where(eq(ComputerAgentWorkerBindings.agentUid, agentUid))
   await DB.delete(ComputerAgentWorkerPins).where(eq(ComputerAgentWorkerPins.agentUid, agentUid))

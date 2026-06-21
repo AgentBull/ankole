@@ -50,7 +50,20 @@ export interface ShellRequest {
   timeout?: number
 }
 
-/** Client for a resolved worker daemon (`bullx-computerd`). All paths are agent-scoped. */
+/**
+ * Typed client for a resolved worker daemon (`bullx-computerd`), the Rust process
+ * that actually runs commands and holds the filesystem for one agent.
+ *
+ * The agent identity is not a header but part of the path: every session route is
+ * `/v1/sessions/{agentUid}/…` (see {@link sessionPath}), so one worker can host
+ * many agents and each call is scoped to exactly one. Filesystem and command
+ * working directories travel differently — as a JSON `cwd` field, except bulk
+ * uploads which use the `x-cwd` header (see {@link writeFiles}).
+ *
+ * Methods come in two shapes: `json()`-based calls that decode a typed body, and
+ * `request()`-based calls that hand back the raw streaming {@link Response} (command/
+ * shell/log NDJSON and file octet-streams), which the caller consumes itself.
+ */
 export class WorkerClient extends BaseClient {
   readonly agentUid: string
 
@@ -91,6 +104,12 @@ export class WorkerClient extends BaseClient {
     await this.request({ method: 'POST', path: this.sessionPath('/reset-shell'), signal })
   }
 
+  /**
+   * Starts a one-off command and returns the raw NDJSON {@link Response} stream
+   * (decoded by `consumeCommandResponse`), not a parsed result. The idle timeout is
+   * derived from the command's own budget for `wait:true` calls — see
+   * {@link commandIdleTimeoutMs} for why a fixed value would be wrong.
+   */
   openCommand(body: CommandRequest, signal?: AbortSignal): Promise<Response> {
     return this.request({
       method: 'POST',
@@ -103,6 +122,7 @@ export class WorkerClient extends BaseClient {
     })
   }
 
+  /** Like {@link openCommand} but targets the agent's persistent shell (`scope` picks a per-conversation one). */
   openShell(body: ShellRequest, signal?: AbortSignal): Promise<Response> {
     return this.request({
       method: 'POST',
@@ -128,6 +148,12 @@ export class WorkerClient extends BaseClient {
     return result.commands
   }
 
+  /**
+   * Opens the command's log stream (NDJSON {@link Response}). The worker tails a
+   * live command by default; `follow:false` is sent only to opt out, so that the
+   * stream ends once recorded output is drained. Other values are left implicit to
+   * keep the worker's default.
+   */
   openLogs(cmdId: string, opts: { signal?: AbortSignal; follow?: boolean } = {}): Promise<Response> {
     return this.request({
       method: 'GET',
@@ -138,6 +164,12 @@ export class WorkerClient extends BaseClient {
     })
   }
 
+  /**
+   * Signals a running command. `signal` is the process kill signal (name/number,
+   * null = worker default); `abortSignal` aborts the kill *request* — two unrelated
+   * "signal" notions kept as distinct params. Sent as JSON `null` when unspecified
+   * so the worker picks its default.
+   */
   async killCommand(cmdId: string, signal?: string | number, abortSignal?: AbortSignal): Promise<void> {
     await this.request({
       method: 'POST',
@@ -204,6 +236,12 @@ export class WorkerClient extends BaseClient {
     })
   }
 
+  /**
+   * Uploads a batch of files as a single gzipped tar (built by {@link FileWriter}).
+   * The destination directory rides as the `x-cwd` header rather than in the body,
+   * because the body is the opaque archive; the worker unpacks the tar relative to
+   * that cwd. One archive per call keeps it to a single request instead of N writes.
+   */
   async writeFiles(tarGz: Uint8Array, cwd: string, signal?: AbortSignal): Promise<void> {
     await this.request({
       method: 'POST',
@@ -215,7 +253,13 @@ export class WorkerClient extends BaseClient {
     })
   }
 
-  /** Returns the octet-stream Response on success, or `null` on 404 (file missing). */
+  /**
+   * Reads a file, returning the streaming octet-stream {@link Response} so large
+   * files are not buffered here. A missing file is a normal outcome (`null`), not an
+   * error, so `noThrow` lets the 404 through and the body is cancelled to free the
+   * connection. {@link expectOctetStream} then rejects the case where a non-404
+   * error came back as a JSON body instead of file content.
+   */
   async readFile(path: string, cwd: string | undefined, signal?: AbortSignal): Promise<Response | null> {
     const route = this.sessionPath('/fs/read')
     const response = await this.request({

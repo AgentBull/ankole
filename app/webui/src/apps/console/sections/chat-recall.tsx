@@ -47,6 +47,7 @@ const CHAT_RECALL_INDEX_STRATEGIES = [
   'exact_only'
 ] as const satisfies readonly ChatRecallIndexStrategy[]
 
+/** Shows and edits the recall embedding pipeline that feeds long-term chat retrieval. */
 export function ChatRecallPage() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
@@ -389,6 +390,7 @@ export function ChatRecallPage() {
   )
 }
 
+/** Hydrates the form with runtime defaults so unchanged optional fields stay visible to operators. */
 function chatRecallFormFromConfig(config: ConsoleChatRecall['config'] | undefined): ChatRecallFormState {
   return {
     vectorEnabled: config?.vector.enabled ?? false,
@@ -409,6 +411,7 @@ function chatRecallFormFromConfig(config: ConsoleChatRecall['config'] | undefine
   }
 }
 
+/** Converts console strings back into the persisted recall config while keeping unset optional ids undefined. */
 function chatRecallConfigFromForm(form: ChatRecallFormState): ChatRecallConfig {
   return {
     vector: {

@@ -40,6 +40,9 @@ type AdapterDescriptor = IdentityProviderAdapterDescriptor
 // the state shape is taken from its unwrapped return rather than raw `['data']`.
 type SetupState = Awaited<ReturnType<typeof unwrap<Awaited<ReturnType<typeof api.setup.state.get>>>>>
 
+/**
+ * Renders the first-run setup wizard after the server route has allowed setup access.
+ */
 export function SetupApp() {
   const queryClient = useQueryClient()
   const { t } = useTranslation()
@@ -93,6 +96,9 @@ export function SetupApp() {
   )
 }
 
+/**
+ * Exchanges the terminal bootstrap code for a temporary setup session cookie.
+ */
 function BootstrapGate({ setupState, onAuthenticated }: { setupState?: SetupState; onAuthenticated: () => void }) {
   const { i18n, t } = useTranslation()
   const currentLocale = setupState?.currentLocale ?? i18n.resolvedLanguage ?? i18n.language
@@ -163,6 +169,9 @@ function BootstrapGate({ setupState, onAuthenticated }: { setupState?: SetupStat
   )
 }
 
+/**
+ * Persists the operator's exact first-run plugin selection.
+ */
 function PluginsStep({ onContinue }: { onContinue: () => void }) {
   const { i18n, t } = useTranslation()
   const query = useQuery({
@@ -218,6 +227,9 @@ function PluginsStep({ onContinue }: { onContinue: () => void }) {
   )
 }
 
+/**
+ * Configures the first identity provider and redirects into its OIDC flow.
+ */
 function IdentityStep() {
   const { i18n, t } = useTranslation()
   const query = useQuery({
@@ -311,6 +323,9 @@ function IdentityStep() {
   )
 }
 
+/**
+ * Renders one plugin-owned setup field from SDK metadata.
+ */
 function SetupConfigField({
   field,
   locale,
@@ -410,6 +425,9 @@ function ErrorAlert({ error }: { error?: unknown }) {
   )
 }
 
+/**
+ * Builds adapter defaults from plugin setup metadata.
+ */
 function defaultConfigForAdapter(adapter: AdapterDescriptor | undefined): PluginConfigJsonObject {
   return defaultPluginConfigForSetup(adapter?.setup)
 }

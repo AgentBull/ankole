@@ -35,10 +35,20 @@ export class PluginDiscoveryError extends Error {
   }
 }
 
+/**
+ * Discovers loadable local plugins and returns only plugin objects.
+ */
 export async function discoverLocalPlugins(options: PluginDiscoveryOptions = {}): Promise<BullXPlugin[]> {
   return (await discoverLocalPluginsDetailed(options)).plugins
 }
 
+/**
+ * Discovers local plugins and remembers which ones came from auto-enabled roots.
+ *
+ * Entries are canonicalized before import so the same plugin reached through
+ * symlinks or overlapping roots is loaded once and classified by the first root
+ * that discovers it.
+ */
 export async function discoverLocalPluginsDetailed(options: PluginDiscoveryOptions = {}): Promise<DiscoveredPlugins> {
   const plugins: BullXPlugin[] = []
   const autoEnabledPluginIds: string[] = []
@@ -62,6 +72,9 @@ export async function discoverLocalPluginsDetailed(options: PluginDiscoveryOptio
   return { plugins, autoEnabledPluginIds }
 }
 
+/**
+ * Lists plugin entry files under the configured roots.
+ */
 export async function discoverPluginEntryPaths(pluginRoots: readonly string[]): Promise<string[]> {
   const entries = new Map<string, string>()
 
@@ -74,6 +87,9 @@ export async function discoverPluginEntryPaths(pluginRoots: readonly string[]): 
   return [...entries.values()]
 }
 
+/**
+ * Returns operator-configured plugin roots.
+ */
 export function defaultPluginRoots(): string[] {
   return uniquePaths(envPluginRoots())
 }

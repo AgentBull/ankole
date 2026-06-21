@@ -111,9 +111,21 @@ import {
   type ReasoningTraceRef
 } from './reasoning-trace'
 
+// Hard ceiling for inlining an image attachment straight into the model request.
+// Bigger images are skipped (left as a saved-file reference) rather than blowing
+// up the request size.
 const EXTERNAL_IMAGE_INLINE_LIMIT_BYTES = 8 * 1024 * 1024
+// Wait window for a message that arrives as media only (image, no text). A touch
+// wider than the normal receive batch window so the text part of the same human
+// message — which often lands a beat later — can join the same trigger instead
+// of starting a second run.
 const DEFAULT_ADDRESSED_MEDIA_BATCH_WINDOW_MS = Math.ceil(NORMAL_RECEIVE_BATCH_WINDOW_MS * 1.3)
+// Abort reason stamped by the stall watchdog. finishGenerationRun reads it back
+// off the AbortController to tell a watchdog-driven stall apart from a user /stop.
 const GENERATION_STALLED_ABORT_REASON = 'generation_stalled'
+// How often the run beats its lease liveness (and refreshes the reasoning-trace
+// stream). Well under the 5-minute lease expiry so a healthy run is never taken
+// over for a missed beat.
 const DEFAULT_GENERATION_LIVENESS_INTERVAL_MS = ms('60s')
 // First transient retry is immediate (a stall already waited out its budget,
 // and the provider call-level retry already backed off quick failures); later
@@ -122,6 +134,7 @@ const GENERATION_TRANSIENT_RETRY_DELAY_MS = ms('15s')
 // Long-run progress line cadence (the liveness interval checks this clock).
 const GENERATION_PROGRESS_LOG_INTERVAL_MS = ms('5m')
 
+/** Constructor overrides for {@link AiAgentRuntime}. Every field defaults to its module singleton; the overrides exist so tests can inject fakes and tune timing. */
 export interface AiAgentRuntimeOptions {
   addressedMediaBatchWindowMs?: number
   ambient?: AiAgentAmbientBatcher
@@ -139,6 +152,15 @@ export interface AiAgentRuntimeOptions {
 
 export type ComputerFileReader = (agentUid: string, path: string, signal?: AbortSignal) => Promise<Buffer | null>
 
+/**
+ * Everything one generation attempt needs to run. The same shape is reused for
+ * retries and the chained next-turn (follow-up / steer / overflow) generations:
+ * a retry/continuation copies this and overrides `leaseId`, `llmTurnKind`, the
+ * attempt counters, and the trigger. `leaseId` present means "resume/continue an
+ * existing lease" (crash recovery or a deliberate cutover); absent means "acquire
+ * a fresh lease". The `*Attempts` counters carry the retry budget across those
+ * chained re-spawns.
+ */
 type RunGenerationInput = {
   abortSignal?: AbortSignal
   ambientIntervention?: boolean
@@ -158,8 +180,10 @@ type RunGenerationInput = {
   triggerMessageId?: string
 }
 
+/** Live, in-process handles for one running attempt, threaded from {@link AiAgentRuntime.runGeneration} into the finish path. */
 interface GenerationRunContext {
   abortController: AbortController
+  /** Bridge that forwards the parent (caller) abort into this run's controller; unsubscribed on finish. */
   abortFromParent?: () => void
   input: RunGenerationInput
   leaseId: string
@@ -168,12 +192,14 @@ interface GenerationRunContext {
   triggerMessageId: string
 }
 
+/** A streaming card that successfully delivered the final answer as a live card message; carries the ids needed to record it as already-sent. */
 interface StreamedAssistantCard {
   cardId: string
   messageId: string
   outboundKey: string
 }
 
+/** A streaming-card delivery that still needs projecting into the visible-output store (the post-commit mirror for the webui / search). */
 interface StreamedCardProjection {
   messageId: string
   providerRoomId: string
@@ -182,6 +208,11 @@ interface StreamedCardProjection {
   text: string
 }
 
+/**
+ * The runtime's view of where in-progress output goes during one attempt: the
+ * live streaming card (if any), the weak Redis mirror, and the tool-progress
+ * status line. Built once per run by {@link AiAgentRuntime.buildGenerationStreamingSink}.
+ */
 interface GenerationStreamingSink {
   onStreamingText?: (fullText: string) => void
   updateStatus(statusText: string): boolean
@@ -196,6 +227,12 @@ interface PreparedReasoningTrace {
   traceUrl?: string
 }
 
+/**
+ * Tracks how the latest `todo` tool progress was shown so its follow-up update
+ * lands in the same place. `delivery` records whether progress went onto the
+ * live streaming card or as a standalone editable message (`outboundKey` is the
+ * edit target for the latter).
+ */
 interface TodoProgressState {
   args: unknown
   delivery: 'streaming-card' | 'message'
@@ -203,6 +240,7 @@ interface TodoProgressState {
   toolCallId: string
 }
 
+/** The hand-off to start the next generation after this one commits or cuts over (follow-up / steer / takeover). The new lease is already minted. */
 interface NextGeneration {
   leaseId: string
   providerRoomId?: string
@@ -221,11 +259,25 @@ type CommitAssistantResult =
 
 type GenerationResultStatus = 'succeeded' | 'failed' | 'cancelled' | 'fenced'
 
+/**
+ * The settled result of one generation, returned to the caller. `enqueuedOutput`
+ * says whether a visible answer was queued for delivery, so callers (e.g. the
+ * programmatic-turn API) can tell "answered the user" from "ran but said nothing".
+ * `fenced` means a newer lease took over and this attempt's output was discarded.
+ */
 interface GenerationResult {
   enqueuedOutput: boolean
   status: GenerationResultStatus
 }
 
+/**
+ * A turn started by the system rather than a human message — a scheduled task
+ * firing or a `check_back_later` waking up. The caller supplies the prompt text
+ * and an idempotency `eventId`/`eventSource` so a re-fired schedule does not
+ * answer twice. Output routing is decoupled from the conversation room
+ * (`outputProviderRoomId`) so a task can run in one conversation but post
+ * elsewhere, and may be silenced entirely with `suppressVisibleOutput`.
+ */
 export interface AiAgentProgrammaticTurnInput {
   conversationProviderRoomId: string
   disableInteractiveTools?: boolean
@@ -245,6 +297,17 @@ export interface AiAgentProgrammaticTurnResult extends GenerationResult {
   triggerMessageId: string
 }
 
+/**
+ * What the agent loop produced, classified for the finish path. The split lets
+ * {@link AiAgentRuntime.finishGenerationRun} pick exactly one terminal action:
+ * - `committed` — an assistant message to persist and deliver.
+ * - `overflow_retry` — the provider rejected the request as too long; compress
+ *   and rerun (bounded by the overflow budget).
+ * - `fenced` — a newer lease owns the conversation now; throw the output away.
+ * - `failed` — errored or aborted; `aborted` separates a user /stop from a real
+ *   failure so only the latter (and stalls) retry.
+ * - `no_assistant` — the provider returned nothing usable.
+ */
 type RunOutcome =
   | {
       kind: 'committed'
@@ -269,6 +332,7 @@ type RunOutcome =
       kind: 'no_assistant'
     }
 
+/** The fields written when closing out an `llm_turns` row, derived from the finished assistant message and the recorded provider observations. */
 interface LlmTurnFinish {
   providerMetadata?: JsonObject
   response?: JsonObject
@@ -277,6 +341,13 @@ interface LlmTurnFinish {
   usage?: JsonObject
 }
 
+/**
+ * Snapshot of the one in-flight LLM call for the progress log — the operator's
+ * "wedged or just long?" evidence. `providerResponse: null` means response
+ * headers never arrived (connect/accept side); non-null means the provider
+ * accepted the request and then went silent, with `headersAfterMs` and the
+ * upstream ids needed to chase it.
+ */
 interface OpenLlmTurnIntrospection {
   llmTurnId: string
   callIndex: number
@@ -290,13 +361,33 @@ interface OpenLlmTurnIntrospection {
   } | null
 }
 
+/**
+ * Records the durable trajectory of one run: one `llm_turns` row per LLM call,
+ * with its request snapshot, provider forensics, and tool results. It bridges
+ * the in-memory agent loop and the Postgres audit/replay trail.
+ *
+ * Two non-obvious responsibilities:
+ * - **Call-index continuation.** `callIndex` starts at `startCallIndex`, which
+ *   crash recovery / steer cutover seeds with the lease's next free index (see
+ *   {@link AiAgentConversationService.nextLlmTurnCallIndex}). Restarting at 0
+ *   would collide with the per-lease unique index and silently kill the resumed
+ *   run, so the sequence must continue, not reset.
+ * - **Stable message refs.** Each persisted message gets a compact reference
+ *   (its row id, or a turn-response/tool-result pointer) instead of being
+ *   inlined again. The `WeakMap` keyed on the live message object lets later
+ *   turns cite earlier ones by ref, keeping the trajectory linkable and small.
+ */
 class GenerationTrajectoryRecorder {
   private callIndex: number
   private readonly startCallIndex: number
   private openTurnId?: string
   private openTurnCallIndex?: number
   private openTurnStartedAtMs?: number
+  // Maps a live agent-message object to the compact ref under which it was
+  // already persisted, so a later turn cites it instead of re-inlining its body.
   private readonly messageRefs = new WeakMap<object, JsonValue>()
+  // Provider forensics accumulated per open turn id (status, generation id,
+  // cf-ray, …) — populated by the onPayload/onResponse observers below.
   private readonly providerObservations = new Map<string, JsonObject>()
   private previousToolsSnapshot?: string
   public lastFinishedTurnId?: string
@@ -311,12 +402,22 @@ class GenerationTrajectoryRecorder {
   ) {
     this.callIndex = startCallIndex
     this.startCallIndex = startCallIndex
+    // Pre-seed the ref map with the rendered context's existing message ids, so
+    // the first request cites the already-persisted history rows by ref rather
+    // than inlining them.
     rendered.messages.forEach((message, index) => {
       const ref = rendered.inputMessageRefs[index]
       if (ref && typeof message === 'object' && message !== null) this.messageRefs.set(message, ref)
     })
   }
 
+  /**
+   * Opens an `llm_turns` row just before each provider call and returns its id
+   * to the loop (stamped on the call's metadata). The request snapshot is stored
+   * as `requestPatches`: the model-view patches only on the first call, the tool
+   * definitions only when they changed since the last call (dedupe — tools rarely
+   * move within a run), and the full request body every call.
+   */
   async beforeLlmCall(context: BeforeLlmCallContext): Promise<BeforeLlmCallResult> {
     const callIndex = this.callIndex++
     const requestRefs = context.messages.map((message, index) => this.refForMessage(message, index))
@@ -374,20 +475,29 @@ class GenerationTrajectoryRecorder {
     return { metadata: { llm_turn_id: llmTurn.id } }
   }
 
+  /** Forensics accumulated for a given turn id (used when finishing the turn). */
   providerObservation(llmTurnId: unknown): JsonObject {
     return typeof llmTurnId === 'string' ? (this.providerObservations.get(llmTurnId) ?? {}) : {}
   }
 
+  /** Folds the outbound request payload's shape into the open turn's observation (key fingerprint only — see {@link observeProviderPayload}). */
   observeProviderPayload(payload: unknown): void {
     if (!this.openTurnId) return
     observeProviderPayload(this.providerObservations.get(this.openTurnId) ?? {}, payload)
   }
 
+  /** Captures HTTP status and the upstream id headers (generation id, cf-ray) the moment response headers arrive — the only point a stalled stream can record them. */
   observeProviderResponse(response: { status: number; headers: Record<string, string> }): void {
     if (!this.openTurnId) return
     observeProviderResponse(this.providerObservations.get(this.openTurnId) ?? {}, response)
   }
 
+  /**
+   * Closes the open turn after the loop emits `turn_end`: writes the assistant
+   * response, usage, provider metadata, and tool results, then records the
+   * compact refs that let later turns cite this one. A turn that ended without an
+   * assistant message is settled as failed rather than left open.
+   */
   async finishTurn(message: AgentMessage, toolResults: ToolResultMessage[]): Promise<void> {
     const llmTurnId = this.openTurnId
     if (!llmTurnId) return
@@ -427,6 +537,7 @@ class GenerationTrajectoryRecorder {
     this.openTurnStartedAtMs = undefined
   }
 
+  /** Settles the open turn (if any) with an explicit terminal status — the error/abort path, when no clean assistant message arrived. No-op when no turn is open. */
   async failOpenTurn(status: AiAgentLlmTurnStatus, response: JsonObject): Promise<void> {
     const llmTurnId = this.openTurnId
     if (!llmTurnId) return
@@ -484,6 +595,7 @@ class GenerationTrajectoryRecorder {
     }
   }
 
+  /** Compact reference for a message in a request: its known persisted ref if we have one, otherwise a self-contained inline copy (a message minted mid-run with no row yet). */
   private refForMessage(message: AgentMessage, index: number): JsonValue {
     if (message && typeof message === 'object') {
       const ref = this.messageRefs.get(message)
@@ -498,14 +610,22 @@ class GenerationTrajectoryRecorder {
   }
 }
 
+// Branch id for the trajectory tree: a post-compaction context hangs off its
+// summary ("summary:<id>"); an uncompacted one off the conversation root. Lets
+// the audit view show compaction as a branch point rather than a flat list.
 function branchIdForRendered(conversationId: string, rendered: RenderedAiAgentContext): string {
   return rendered.summaryMessageId ? `summary:${rendered.summaryMessageId}` : `conversation:${conversationId}:root`
 }
 
+// Parent of a summary branch is the conversation root it was compacted from; the
+// root branch itself has no parent.
 function parentBranchIdForRendered(conversationId: string, rendered: RenderedAiAgentContext): string | null {
   return rendered.summaryMessageId ? `conversation:${conversationId}:root` : null
 }
 
+// Pulls the persisted message-row ids out of the request refs, for the turn's
+// `inputMessageIds` link. Only refs that point at a real `ai_agent_message` row
+// qualify; inline copies (no row) are skipped.
 function inputMessageIdsFromRefs(refs: JsonValue[]): string[] {
   return refs.flatMap(ref => {
     if (typeof ref !== 'object' || ref === null || Array.isArray(ref)) return []
@@ -514,6 +634,10 @@ function inputMessageIdsFromRefs(refs: JsonValue[]): string[] {
   })
 }
 
+// Stamps a tool result with its owning turn id and a derived idempotency key
+// (`llm-turn:<turn>:tool-call:<call>`) before it is persisted. The key lets a
+// replayed/recovered run recognize an effect it already applied instead of
+// running the side effect twice.
 function trajectoryToolResult(result: ToolResultMessage, llmTurnId: string): JsonValue | null {
   const json = toJsonValue(result)
   if (!isJsonObject(json)) return json
@@ -535,6 +659,8 @@ function trajectoryToolResult(result: ToolResultMessage, llmTurnId: string): Jso
   }
 }
 
+// Newest todo-list snapshot in a turn's tool results, scanning back to front so
+// the most recent state wins. Used to rehydrate the todo store across runs.
 function latestTodoItemsFromToolResults(toolResults: JsonValue[]): unknown[] | undefined {
   for (let index = toolResults.length - 1; index >= 0; index--) {
     const result = toolResults[index]
@@ -550,6 +676,8 @@ function latestTodoItemsFromToolResults(toolResults: JsonValue[]): unknown[] | u
   return undefined
 }
 
+// Every task done or cancelled — the list is finished. Lets the stop heuristic
+// treat "marked everything complete, no other tool" as a real end of turn.
 function todoResultIsTerminal(result: ToolResultMessage): boolean {
   const todos = todoItemsFromToolDetails(result.details) ?? todoItemsFromToolContent(result.content)
   if (!todos || todos.length === 0) return false
@@ -559,12 +687,17 @@ function todoResultIsTerminal(result: ToolResultMessage): boolean {
   })
 }
 
+// All tasks merely in-progress — a bookkeeping update, not progress on the work.
+// The stop heuristic treats such a turn as "still nothing said", so a plan-only
+// turn does not end the run prematurely.
 function todoResultIsHousekeeping(result: ToolResultMessage): boolean {
   const todos = todoItemsFromToolDetails(result.details) ?? todoItemsFromToolContent(result.content)
   if (!todos || todos.length === 0) return false
   return todos.every(item => isJsonObject(item) && item.status === 'in_progress')
 }
 
+// Tool name from a result, tolerating both the camelCase loop shape and the
+// snake_case persisted/execution shape (results reach here from either source).
 function toolNameFromToolResult(result: JsonObject): string | undefined {
   if (typeof result.toolName === 'string') return result.toolName
   if (typeof result.tool_name === 'string') return result.tool_name
@@ -573,6 +706,9 @@ function toolNameFromToolResult(result: JsonObject): string | undefined {
   return typeof execution?.tool_name === 'string' ? execution.tool_name : undefined
 }
 
+// Fallback extractor: when a todo result has no structured `details`, dig the
+// items out of a JSON-encoded text content block instead. Non-JSON text is
+// ignored so unrelated tool output never throws here.
 function todoItemsFromToolContent(content: unknown): unknown[] | undefined {
   if (!Array.isArray(content)) return undefined
   for (const block of content) {
@@ -588,6 +724,7 @@ function todoItemsFromToolContent(content: unknown): unknown[] | undefined {
   return undefined
 }
 
+/** Status-line text shown when a `todo` tool call starts (the chat "thinking" line). */
 function formatTodoProgressStart(args: unknown): string {
   const todos = todoArgs(args)
   if (!todos) return '📋 todo: "reading task list"'
@@ -595,6 +732,7 @@ function formatTodoProgressStart(args: unknown): string {
   return `📋 todo: "${verb} ${todos.length} task(s)"`
 }
 
+/** Status-line text shown when a `todo` tool call finishes, summarizing completed/total when the result carries a summary. */
 function formatTodoProgressEnd(args: unknown, result: unknown, isError: boolean): string {
   if (isError) return '📋 plan failed'
   const summary = todoSummaryFromResult(result)
@@ -639,6 +777,9 @@ function numberValue(value: unknown): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : 0
 }
 
+// Serializable snapshot of the tool definitions sent on a call (name, schema,
+// execution flags), recorded on the turn so the audit trail shows exactly what
+// the model was offered. The JSON Schema is what the provider actually sees.
 function snapshotTools(tools: AgentTool<any>[] | undefined): JsonValue[] {
   return (tools ?? []).flatMap(tool => {
     const parameters = z.toJSONSchema(tool.schema)
@@ -654,6 +795,13 @@ function snapshotTools(tools: AgentTool<any>[] | undefined): JsonValue[] {
   })
 }
 
+/**
+ * Cheap pre-flight estimate of a request's token size (messages + system prompt
+ * + tool definitions), used only to decide whether to compress before calling
+ * the provider. System prompt and tools use the rough ~4-chars-per-token rule;
+ * messages use the JSON-aware estimator. An estimate is acceptable here because
+ * the provider's own context-overflow retry is the real safety net.
+ */
 function estimateGenerationContextTokens(
   messages: AgentMessage[],
   systemPrompt: string,
@@ -667,6 +815,14 @@ function estimateGenerationContextTokens(
   return messageTokens + systemTokens + Math.ceil(toolChars / 4)
 }
 
+/**
+ * Guards the threshold-compaction pre-flight: returns true only when compressing
+ * could actually fit the request. It is over the window AND there is enough
+ * reducible history (everything beyond the kept-recent tail) to cover the
+ * overage. Without this check a context dominated by recent, un-droppable
+ * messages would trigger a compress that cannot help and still overflows — a
+ * wasted LLM summary call. Trivially small contexts (≤2 messages) never compact.
+ */
 function hasUsefulThresholdCompaction(input: {
   contextWindow: number
   keepRecentTokens: number
@@ -691,6 +847,9 @@ function safeJsonStringify(value: unknown): string {
   }
 }
 
+// Maps the in-memory reasoning-trace ref to its snake_case persisted shape (on
+// the conversation generation and the assistant message), dropping absent
+// optional fields so the stored JSON stays minimal.
 function reasoningTraceStorageRef(ref: ReasoningTraceRef) {
   return {
     binding_name: ref.bindingName,
@@ -702,6 +861,10 @@ function reasoningTraceStorageRef(ref: ReasoningTraceRef) {
   }
 }
 
+// Backfills generation settings with safe defaults so a partial or stale stored
+// profile can never produce a zero/negative budget (e.g. a 0 maxTurns that would
+// stop every run instantly, or a missing stall timeout). These defaults are the
+// floor the runtime relies on downstream.
 function normalizeRuntimeProfile(profile: AiAgentRuntimeProfile): AiAgentRuntimeProfile {
   const generation = profile.generation as Partial<AiAgentRuntimeProfile['generation']> | undefined
   return {
@@ -723,6 +886,39 @@ function nonNegativeNumber(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined
 }
 
+/**
+ * Owns the full lifecycle of an agent run.
+ *
+ * Inbound external-gateway deliveries (a human message, a slash command, a card
+ * click, a lifecycle event) and system triggers (scheduled tasks, check-backs)
+ * all funnel through here. The runtime persists the inbound as a conversation
+ * message, then drives one or more *generations*: build the rendered context,
+ * acquire a lease, call the LLM in a loop, stream output, execute tools, record
+ * the trajectory, commit the assistant answer, and chain the next turn when
+ * follow-ups or steering are queued. It also owns crash recovery and expired-
+ * lease takeover.
+ *
+ * Two invariants run through almost every method and are the source of most of
+ * the apparent complexity:
+ *
+ * 1. **The lease is the ownership token, not the row.** After any `await`, the
+ *    process that started a run may no longer own it: a peer worker can take the
+ *    conversation over after a crash, or the user can /stop it. So every commit
+ *    and every queue mutation re-checks `generation.lease_id` (and `cancelled_at`)
+ *    under a row lock, and discards its work if the fence moved. This is what
+ *    stops a "zombie" worker from writing after takeover.
+ *
+ * 2. **Queued input must survive turn boundaries, fenced by that same lease.**
+ *    Follow-up messages and `/steer` instructions that arrive mid-run are parked
+ *    on the live lease and materialized into transcript rows at a safe boundary
+ *    (commit, tool boundary, or takeover). A `false` from an append means the
+ *    lease is gone, and the caller must fall through to start a fresh trigger so
+ *    the input is never silently dropped onto a dead generation envelope.
+ *
+ * State held on the instance is process-local scheduling only (ambient/media
+ * timers, the in-process run registry, live computer sessions). The durable
+ * truth lives in Postgres.
+ */
 export class AiAgentRuntime {
   private readonly ambient: AiAgentAmbientBatcher
   private readonly compression: AiAgentCompressionService
@@ -747,6 +943,7 @@ export class AiAgentRuntime {
   private readonly computerSessions = new Map<string, Promise<Computer>>()
   private chatRecallFactory?: (binding: ClarifyRunBinding) => AgentTool<any>
 
+  /** Every collaborator defaults to its module singleton; the options exist so tests can inject fakes (the singleton {@link aiAgentRuntime} is built with no options). */
   constructor(options: AiAgentRuntimeOptions = {}) {
     this.ambient = options.ambient ?? aiAgentAmbientBatcher
     this.compression = options.compression ?? aiAgentCompressionService
@@ -762,6 +959,7 @@ export class AiAgentRuntime {
     this.addressedMediaBatchWindowMs = options.addressedMediaBatchWindowMs ?? DEFAULT_ADDRESSED_MEDIA_BATCH_WINDOW_MS
   }
 
+  /** Cancels the process-local scheduling timers (ambient drains, deferred media triggers) on shutdown. In-flight runs are not aborted here — lease fencing handles a hard stop. */
   stop(): void {
     for (const timer of this.ambientTimers) clearTimeout(timer)
     this.ambientTimers.clear()
@@ -777,10 +975,17 @@ export class AiAgentRuntime {
     return [...this.tools.values()]
   }
 
+  /** Loads the agent's runtime profile and runs it through {@link normalizeRuntimeProfile} so every caller sees defaulted, sane generation budgets. */
   private async loadRuntimeProfile(agentUid: string): Promise<AiAgentRuntimeProfile> {
     return normalizeRuntimeProfile(await this.loadProfile(agentUid))
   }
 
+  /**
+   * Replaces the registered tool set. When `activeToolNames` is omitted the prior
+   * active selection is preserved minus any names the new set dropped, so swapping
+   * the registry never leaves an active name pointing at a tool that no longer
+   * exists. Both registry and active subset are validated before anything mutates.
+   */
   setTools(tools: AgentTool<any>[], activeToolNames?: string[]): void {
     validateUniqueNames(
       tools.map(tool => tool.name),
@@ -794,6 +999,7 @@ export class AiAgentRuntime {
     this.activeToolNames = nextActive
   }
 
+  /** The registered tools currently marked active, in active-list order. */
   getActiveTools(): AgentTool<any>[] {
     return this.activeToolNames.flatMap(name => {
       const tool = this.tools.get(name)
@@ -801,6 +1007,7 @@ export class AiAgentRuntime {
     })
   }
 
+  /** Sets the active subset by name; rejects unknown or duplicate names up front so a bad selection cannot reach a run. */
   setActiveTools(toolNames: string[]): void {
     validateToolNames(toolNames, this.tools)
     this.activeToolNames = [...toolNames]
@@ -832,11 +1039,18 @@ export class AiAgentRuntime {
     this.computerFileReader = reader
   }
 
+  /** Reads a file from the agent's computer worker, used to inline image attachments into a model request. */
   private async readComputerFile(agentUid: string, path: string, signal?: AbortSignal): Promise<Buffer | null> {
     const computer = await this.getComputerSession(agentUid, signal)
     return computer.readFileToBuffer({ path }, { signal })
   }
 
+  /**
+   * One shared computer session per agent, cached as a Promise so concurrent
+   * callers reuse the single in-flight connect instead of opening several. A
+   * failed connect is evicted from the cache (the `.catch`) so the next call
+   * retries with a clean slate rather than re-awaiting a rejected promise forever.
+   */
   private async getComputerSession(agentUid: string, signal?: AbortSignal): Promise<Computer> {
     if (!this.computerDeps) throw new Error('computer file reader is not configured')
     let promise = this.computerSessions.get(agentUid)
@@ -879,6 +1093,12 @@ export class AiAgentRuntime {
     return tools
   }
 
+  /**
+   * Per-turn context hook: appends a fresh snapshot of the active todo list to
+   * the model-bound messages so the model always sees the current plan, even
+   * after compaction dropped the original todo tool results. Not persisted — it
+   * is re-derived each turn from the live store.
+   */
   private async transformGenerationContext(
     messages: AgentMessage[],
     todoStore: TodoStore,
@@ -892,6 +1112,12 @@ export class AiAgentRuntime {
     ]
   }
 
+  /**
+   * Rebuilds the todo store from the trajectory at the start of a run: scans
+   * succeeded generation turns newest-first and hydrates from the first that
+   * carries a todo snapshot. Lets a plan made in earlier turns survive process
+   * restarts and compaction. Returns an empty store when none is found.
+   */
   private async loadTodoStore(conversationId: string): Promise<TodoStore> {
     const store = new TodoStore()
     const turns = await DB.select({ toolResults: AiAgentLlmTurns.toolResults })
@@ -916,6 +1142,17 @@ export class AiAgentRuntime {
     return store
   }
 
+  /**
+   * Decides whether the agent loop should stop after this turn instead of
+   * continuing to the next LLM call.
+   *
+   * The intent is "the model has said its piece to the user and is not still
+   * working a tool chain". So: stop after a clarify (the run pauses for the
+   * human's answer); otherwise only stop when there was visible answer text AND
+   * either no tools ran, or the only tool was a `todo` bookkeeping/terminal
+   * update (a plan tidy-up is not real ongoing work). A turn that produced text
+   * alongside a substantive tool call keeps going, because the model is mid-task.
+   */
   private shouldStopAfterGenerationTurn(context: ShouldStopAfterTurnContext): boolean {
     // A clarify ask ends the IM turn: the question is this turn's outbound, the
     // user's reply is the next turn's inbound. Never keep generating past it.
@@ -931,6 +1168,7 @@ export class AiAgentRuntime {
     )
   }
 
+  /** Bridges `todo` tool start/end events to the live progress line. Failures are swallowed at debug level — progress display is decorative and must never break a run. */
   private async handleTodoProgressEvent(
     input: RunGenerationInput,
     leaseId: string,
@@ -949,6 +1187,13 @@ export class AiAgentRuntime {
     }
   }
 
+  /**
+   * Shows that a `todo` call started. Prefers the live streaming card's status
+   * line; when no card is available it falls back to a standalone editable
+   * message (reusing the prior progress message's key so updates edit in place
+   * rather than spamming new posts). Suppressed when a /steer is already queued,
+   * since the run is about to be interrupted and a progress note would be noise.
+   */
   private async startTodoProgress(
     input: RunGenerationInput,
     leaseId: string,
@@ -1013,6 +1258,12 @@ export class AiAgentRuntime {
     input.context.scheduleOutboxDrain()
   }
 
+  /**
+   * Closes out a `todo` call's progress display, matched to how it was shown.
+   * If a /steer queued mid-call, the progress is withdrawn instead of finished
+   * (cleared status line, or a delete of the standalone message), so the
+   * interrupted plan does not leave a stale "done" note in the chat.
+   */
   private async finishTodoProgress(
     input: RunGenerationInput,
     leaseId: string,
@@ -1085,6 +1336,7 @@ export class AiAgentRuntime {
     )
   }
 
+  /** Pre-tool-call gate. Reserved extension point; currently always allows. */
   private async beforeToolCall(
     _context: BeforeToolCallContext,
     _signal?: AbortSignal
@@ -1094,6 +1346,12 @@ export class AiAgentRuntime {
     return undefined
   }
 
+  /**
+   * Post-tool-call hook used to honor a `/steer` that arrived mid-run: when one is
+   * queued it returns `terminate`, so the loop stops at this clean tool boundary.
+   * The finish path then materializes the steering note and starts a fresh
+   * generation, rather than letting the now-misdirected turn finish its answer.
+   */
   private async afterToolCall(
     _context: AfterToolCallContext,
     input: RunGenerationInput,
@@ -1107,6 +1365,14 @@ export class AiAgentRuntime {
     return undefined
   }
 
+  /**
+   * Main inbound entry point. Routes one external-gateway delivery to the handler
+   * for its delivery mode (a human message addressed to the agent, an ambient
+   * room observation, a slash command, a card-button action, or a message-recall
+   * lifecycle event). Always reports `accepted` — durability is the outbox/lease
+   * machinery's job, so the gateway is acknowledged regardless of downstream
+   * outcome. The mode is read from the first event; a batch is assumed uniform.
+   */
   async acceptExternalGatewayDelivery(
     delivery: ExternalGatewayAgentDelivery,
     context: ExternalGatewayAgentExecutionContext
@@ -1141,6 +1407,13 @@ export class AiAgentRuntime {
     return { status: 'accepted' }
   }
 
+  /**
+   * Runs a system-initiated turn (scheduled task or check-back) to completion and
+   * returns its result synchronously, unlike the fire-and-forget IM path. The
+   * inbound is persisted as a user message keyed by `eventId`; if an assistant
+   * answer already exists for that trigger, the prior result is returned without
+   * re-running — so a re-fired schedule is idempotent and never answers twice.
+   */
   async runProgrammaticTurn(
     context: ExternalGatewayAgentExecutionContext,
     input: AiAgentProgrammaticTurnInput
@@ -1207,6 +1480,7 @@ export class AiAgentRuntime {
     }
   }
 
+  /** The assistant answer already produced for a trigger message, if any — the idempotency lookup that lets {@link runProgrammaticTurn} skip a re-run. */
   private async existingAssistantForTrigger(
     conversationId: string,
     triggerMessageId: string
@@ -1288,7 +1562,7 @@ export class AiAgentRuntime {
     const providerThreadId = event.providerThreadId || entry.providerThreadId
     const text = answer.choiceValue
     if (isActiveGeneration(conversation.generation) && !isExpiredGeneration(conversation.generation)) {
-      await this.conversations.appendPendingFollowup(conversation.id, {
+      const queued = await this.conversations.appendPendingFollowup(conversation.id, {
         actor,
         agent_message: toJsonObject(createUserMessage(text, sentAt.getTime())),
         created_at: new Date().toISOString(),
@@ -1304,7 +1578,9 @@ export class AiAgentRuntime {
         sent_at: sentAt.toISOString(),
         text
       })
-      return
+      // The run committed/cancelled before the answer attached: fall through to
+      // start a fresh turn so the clarify answer is never silently dropped.
+      if (queued) return
     }
     const history = await loadMessageContextHistory(conversation.id)
     const timezone = await loadSystemTimezone()
@@ -1346,6 +1622,7 @@ export class AiAgentRuntime {
     })
   }
 
+  /** Re-renders the clarify card in its locked, answered state (buttons disabled, picked choice marked) so it cannot be answered twice once a choice is in. */
   private async enqueueClarifyCardLock(
     context: ExternalGatewayAgentExecutionContext,
     event: ExternalGatewayAgentDelivery['events'][number],
@@ -1378,6 +1655,15 @@ export class AiAgentRuntime {
     })
   }
 
+  /**
+   * Crash-recovery entry point, run when a binding (re)starts. Three jobs, in
+   * order: re-enqueue any committed assistant answers whose outbox row was lost
+   * before dispatch (so a persisted answer is still delivered); rerun each
+   * generation whose lease was still active when the previous process died,
+   * continuing under the same lease (call-index continuation) and cleaning up its
+   * orphaned streaming card; then drain any ambient work that came due while down.
+   * Reruns are safe because the lease is unchanged and every write re-checks it.
+   */
   async recoverExternalGatewayBinding(context: ExternalGatewayAgentExecutionContext): Promise<void> {
     const profile = await this.loadRuntimeProfile(context.agentUid)
     const rebuiltOutboxRows = await this.rebuildMissingAssistantOutbox(context)
@@ -1437,6 +1723,14 @@ export class AiAgentRuntime {
     await this.drainAmbientAndStartGeneration(context, profile)
   }
 
+  /**
+   * Re-enqueues delivery for committed assistant answers that have an outbound
+   * key but no matching outbox row — the gap left when a process died after
+   * persisting the message but before (or during) writing its outbox row. The
+   * `not exists` join finds exactly those, and the outbox idempotency key makes a
+   * re-enqueue a no-op if one slips through, so this never double-posts. Returns
+   * how many rows were rebuilt.
+   */
   private async rebuildMissingAssistantOutbox(context: ExternalGatewayAgentExecutionContext): Promise<number> {
     const rows = await DB.select({
       conversationMetadata: AiAgentConversations.metadata,
@@ -1487,6 +1781,23 @@ export class AiAgentRuntime {
     return rebuilt
   }
 
+  /**
+   * Handles a message addressed to the agent — the main human-conversation path.
+   *
+   * Decides between three states of the conversation:
+   * - A run is live and healthy → queue these messages as follow-ups on its
+   *   lease (the committing run drains them). If the queue append reports the
+   *   lease gone (committed/cancelled in the race window), fall through.
+   * - A run's lease has expired without a heartbeat → take the conversation over
+   *   (the old run is wedged or its process and recovery both died).
+   * - Otherwise → persist the messages and start a fresh generation.
+   *
+   * A media-only message (image, no text) does not trigger immediately; it is
+   * deferred via {@link scheduleAddressedMediaTrigger} so the text part of the
+   * same human message can join the same turn. A pending clarify on the room is
+   * answered first by locking its card, then the message flows down the normal
+   * path as the next trigger.
+   */
   private async acceptAddressed(
     delivery: ExternalGatewayAgentDelivery,
     context: ExternalGatewayAgentExecutionContext,
@@ -1513,6 +1824,7 @@ export class AiAgentRuntime {
 
     if (isActiveGeneration(conversation.generation)) {
       if (!isExpiredGeneration(conversation.generation)) {
+        let allQueued = true
         for (const event of delivery.events) {
           const envelope = payloadEnvelope(event)
           const sentAt = sentAtFromEnvelope(envelope, event)
@@ -1520,7 +1832,7 @@ export class AiAgentRuntime {
             agentUid: event.agentUid,
             readComputerFile: this.computerFileReader
           })
-          await this.conversations.appendPendingFollowup(conversation.id, {
+          const queued = await this.conversations.appendPendingFollowup(conversation.id, {
             actor: actorFromEnvelope(envelope),
             agent_message: toJsonObject(userMessage),
             created_at: new Date().toISOString(),
@@ -1536,13 +1848,22 @@ export class AiAgentRuntime {
             sent_at: sentAt.toISOString(),
             text: messageText(envelope)
           })
+          if (!queued) {
+            allQueued = false
+            break
+          }
         }
-        return
+        if (allQueued) return
+        // The run committed/cancelled between our snapshot and the append, so the
+        // follow-up did not attach to a live lease. Fall through to the normal
+        // trigger path so the message is not orphaned; appendMessage is idempotent
+        // on event_id, so any event the committing run already drained is deduped.
+      } else {
+        // The lease outlived its expiry without a heartbeat: the run is wedged (or
+        // its process died and recovery died with it). Take the conversation over
+        // instead of queueing behind a lease that will never commit.
+        await this.takeoverExpiredGeneration(context, conversation, delivery.events[0]?.providerEventId)
       }
-      // The lease outlived its expiry without a heartbeat: the run is wedged (or
-      // its process died and recovery died with it). Take the conversation over
-      // instead of queueing behind a lease that will never commit.
-      await this.takeoverExpiredGeneration(context, conversation, delivery.events[0]?.providerEventId)
     }
 
     let triggerMessageId: string | undefined
@@ -1611,6 +1932,13 @@ export class AiAgentRuntime {
     }
   }
 
+  /**
+   * Handles room chatter the agent was NOT addressed in. Each message is recorded
+   * as an `im_ambient` row (scene context, not a turn trigger) and handed to the
+   * ambient batcher, which decides later whether the room warrants an unprompted
+   * intervention. Batched on a short window so a burst of messages is judged
+   * together rather than one at a time.
+   */
   private async acceptAmbient(
     delivery: ExternalGatewayAgentDelivery,
     context: ExternalGatewayAgentExecutionContext,
@@ -1663,6 +1991,17 @@ export class AiAgentRuntime {
     }
   }
 
+  /**
+   * Dispatches a slash command: `/new` (roll the conversation over, optionally
+   * with a first message), `/stop` (cancel and answer the queued questions),
+   * `/steer` (inject a course correction into the running turn), `/compress`
+   * (summarize history), `/retry` (redo the last exchange).
+   *
+   * The mutating commands fence before they abort — cancelling the lease first,
+   * then aborting the in-process run — so a provider response in flight cannot
+   * commit after the user already asked to stop or redirect. `/steer` and `/stop`
+   * both rescue the questions queued behind the run instead of dropping them.
+   */
   private async acceptCommand(
     delivery: ExternalGatewayAgentDelivery,
     context: ExternalGatewayAgentExecutionContext,
@@ -1773,10 +2112,15 @@ export class AiAgentRuntime {
         created_at: new Date().toISOString(),
         text
       } satisfies PendingSteering
-      if (isActiveGeneration(conversation.generation)) {
-        await this.conversations.appendPendingSteering(conversation.id, steering)
+      if (
+        isActiveGeneration(conversation.generation) &&
+        (await this.conversations.appendPendingSteering(conversation.id, steering))
+      ) {
         await this.enqueueFeedback(context, event, 'Steering queued')
       } else {
+        // No live lease to attach to (idle, or the run committed/cancelled before
+        // the steer attached): materialize it and start a fresh generation so the
+        // instruction is not orphaned on a dead generation envelope.
         const row = await this.materializeSteering(conversation.id, steering, await loadSystemTimezone())
         await this.enqueueFeedback(context, event, 'Steering queued')
         this.startGeneration({
@@ -1821,6 +2165,12 @@ export class AiAgentRuntime {
     }
   }
 
+  /**
+   * Handles a message-recall / message-delete lifecycle event from the provider:
+   * when a user unsends a message the agent quoted or replied to, the lifecycle
+   * service decides what to retract, and any resulting delete intents are
+   * enqueued so the agent's downstream messages disappear too.
+   */
   private async acceptLifecycle(
     delivery: ExternalGatewayAgentDelivery,
     context: ExternalGatewayAgentExecutionContext,
@@ -1850,6 +2200,11 @@ export class AiAgentRuntime {
     }
   }
 
+  /**
+   * Fire-and-forget launch of a generation (the IM path does not await it).
+   * Failures are logged, never thrown; the settled promise is handed to
+   * `trackSettled` so a graceful shutdown can wait for in-flight runs.
+   */
   private startGeneration(input: RunGenerationInput): void {
     const settled = this.runGeneration(input).then(
       () => undefined,
@@ -1860,6 +2215,7 @@ export class AiAgentRuntime {
     input.context.trackSettled?.(settled)
   }
 
+  /** Arms (or re-arms) the deferred trigger for a media-only message, giving the matching text part a short window to arrive and merge into the same turn. */
   private scheduleAddressedMediaTrigger(input: RunGenerationInput): void {
     this.cancelAddressedMediaTrigger(input.conversationId)
     const timer = setTimeout(() => {
@@ -1869,6 +2225,7 @@ export class AiAgentRuntime {
     this.addressedMediaTimers.set(input.conversationId, timer)
   }
 
+  /** Cancels a pending media trigger — called when a real text trigger lands first and supersedes it. */
   private cancelAddressedMediaTrigger(conversationId: string): void {
     const timer = this.addressedMediaTimers.get(conversationId)
     if (!timer) return
@@ -1876,6 +2233,7 @@ export class AiAgentRuntime {
     this.addressedMediaTimers.delete(conversationId)
   }
 
+  /** Fires the deferred media trigger, but only if no run started in the meantime — a text message that arrived in the window already covers this media. */
   private async startDelayedAddressedMediaGeneration(input: RunGenerationInput): Promise<void> {
     const [conversation] = await DB.select()
       .from(AiAgentConversations)
@@ -1885,9 +2243,34 @@ export class AiAgentRuntime {
     this.startGeneration(input)
   }
 
+  /**
+   * Runs one generation attempt end to end. The long body is a single linear
+   * pipeline:
+   *
+   * 1. Resolve the trigger and the lease. A handed-in `leaseId` resumes an
+   *    existing lease (crash recovery / cutover); otherwise a fresh lease is
+   *    acquired, and failing to acquire means another worker owns the run, so we
+   *    return `fenced` rather than racing it.
+   * 2. Shrink context if needed: the cheap microcompact pass at render time, then
+   *    a threshold-compaction summary pre-flight so a doomed over-window call is
+   *    avoided up front (the provider overflow retry remains the backstop).
+   * 3. Build the {@link Agent}, register it, and arm two independent liveness
+   *    signals — the lease heartbeat (process alive) and the stall watchdog (the
+   *    in-flight LLM call alive). Their roles are kept strictly separate; see the
+   *    inline notes where each is wired.
+   * 4. Drive the loop, classify the outcome, and hand it to
+   *    {@link finishGenerationRun}, which performs the single terminal action
+   *    (commit / retry / fence / fail) and may chain the next turn.
+   *
+   * Everything in steps 3–4 runs under try/finally so the watchdog, timers, and
+   * subscriptions are always torn down and the reasoning trace is always closed.
+   */
   private async runGeneration(input: RunGenerationInput): Promise<GenerationResult> {
     const triggerMessageId = input.triggerMessageId ?? (await this.latestTriggerMessageId(input.conversationId))
     if (!triggerMessageId) return { status: 'failed', enqueuedOutput: false }
+    // A handed-in lease means "continue this existing lease" (recovery / cutover);
+    // otherwise acquire a fresh one. acquire returns nothing when another worker
+    // already holds the conversation — that is a fence, not an error.
     const lease = input.leaseId
       ? { leaseId: input.leaseId }
       : await this.conversations.acquireGenerationLease({
@@ -1986,6 +2369,9 @@ export class AiAgentRuntime {
         logger.error({ error, conversationId: input.conversationId }, 'AI agent threshold compaction failed')
       }
     }
+    // This run owns its own controller (the watchdog and /stop abort through it),
+    // bridged from the caller's signal so a parent cancellation propagates in.
+    // The bridge is unsubscribed in the finish path to avoid leaking listeners.
     const abortController = new AbortController()
     const abortFromParent = () => abortController.abort(input.abortSignal?.reason)
     if (input.abortSignal?.aborted) abortFromParent()
@@ -2175,6 +2561,15 @@ export class AiAgentRuntime {
     }
   }
 
+  /**
+   * Builds the per-run output sink: the live streaming card (provider-facing) and
+   * the weak Redis mirror (webui live view). Both are best-effort — a card or
+   * mirror failure degrades to a log line and never affects the run or the final
+   * committed answer. The closure captures the latest streamed text/status so a
+   * card that opens lazily can immediately catch up. See the inline notes for the
+   * per-attempt idempotency key (so a recovered rerun does not dedupe into the
+   * dead attempt's frozen card) and the durable card ref used for orphan cleanup.
+   */
   private buildGenerationStreamingSink(
     input: RunGenerationInput,
     leaseId: string,
@@ -2303,6 +2698,15 @@ export class AiAgentRuntime {
     }
   }
 
+  /**
+   * Wires up the {@link Agent} for one run: seeds it with the rendered context,
+   * system prompt, and model, and connects every runtime hook — trajectory
+   * recording (before each call / on each turn end), the stop heuristic, the
+   * steering tool gate, provider observability, the streaming-text mirror, and
+   * the todo progress line. The returned agent is started by
+   * {@link runGenerationAgent}; the watchdog/liveness subscriptions are attached
+   * separately in {@link runGeneration} so they can be torn down independently.
+   */
   private async buildGenerationAgent(input: {
     activeTools: AgentTool<any>[]
     input: RunGenerationInput
@@ -2396,6 +2800,14 @@ export class AiAgentRuntime {
     return agent
   }
 
+  /**
+   * Drives the agent loop to completion and classifies the result into a
+   * {@link RunOutcome}. Runs the loop, takes the last assistant message, then
+   * re-checks the lease before declaring the result committable — the loop ran
+   * across many `await`s during which the conversation may have been taken over,
+   * so a stale worker must not commit. Context-overflow errors become an
+   * `overflow_retry` until the budget is spent; everything else commits.
+   */
   private async runGenerationAgent(input: {
     abortController: AbortController
     agent: Agent
@@ -2411,6 +2823,10 @@ export class AiAgentRuntime {
       | undefined
     if (!assistant) return { kind: 'no_assistant' }
 
+    // Fence re-check: the whole loop above ran under the lease, but a peer worker
+    // could have taken the conversation over (or the user could have /stopped) in
+    // that time. If the lease is no longer ours, drop the output instead of
+    // committing a zombie answer.
     if (!(await this.conversations.generationCanCommit(input.input.conversationId, input.leaseId))) {
       return {
         kind: 'fenced',
@@ -2440,11 +2856,30 @@ export class AiAgentRuntime {
     }
   }
 
+  /**
+   * The terminal state machine for a run: takes the classified {@link RunOutcome}
+   * and performs exactly one ending, then optionally chains the next turn.
+   *
+   * Per outcome it decides three things: whether to clear the lease (so the
+   * conversation is free for the next trigger), whether to schedule a follow-on
+   * generation (a transient retry, an overflow-compaction retry, or the queued
+   * follow-up/steer turn from a successful commit), and what status to report.
+   *
+   * Key rules encoded here: only stalls and genuinely retryable transport errors
+   * retry — a user /stop (`aborted` without the stall reason) never does; the
+   * retry budget is carried in `transientAttempts` and the first retry is
+   * immediate while later ones back off; a successful commit that queued
+   * follow-ups/steering hands the new lease straight to the next generation; and
+   * the lease clear + registry delete happen in `finally` so they run on every
+   * path, including a thrown commit.
+   */
   private async finishGenerationRun(run: GenerationRunContext, outcome: RunOutcome): Promise<GenerationResult> {
     let clearLease = false
     let nextGenerationInput: RunGenerationInput | undefined
     let retryDelayMs = 0
     let result: GenerationResult = { status: 'failed', enqueuedOutput: false }
+    // The watchdog stamps this reason on abort; reading it back is how a stall is
+    // told apart from a user /stop, which must not retry.
     const stallAborted = run.abortController.signal.reason === GENERATION_STALLED_ABORT_REASON
     const scheduleTransientRetry = (cause: string): boolean => {
       if (run.input.ambientIntervention === true) return false
@@ -2645,6 +3080,13 @@ export class AiAgentRuntime {
     return result
   }
 
+  /**
+   * Sets up the per-run reasoning-trace recorder and its shareable view URL, when
+   * the run is visible and the adapter supports it. The trace id is the lease id,
+   * so a recovered rerun continues the same trace. Trace setup is best-effort: if
+   * the trace stream is unavailable the run proceeds without it (returns
+   * undefined) rather than failing the generation.
+   */
   private async prepareReasoningTrace(
     input: RunGenerationInput,
     leaseId: string
@@ -2707,6 +3149,7 @@ export class AiAgentRuntime {
     return { recorder, ref, traceUrl }
   }
 
+  /** True for visible, non-ambient runs on a streaming-capable adapter — the same gate as the streaming card, since the trace view rides alongside it. */
   private shouldCreateReasoningTrace(input: RunGenerationInput): boolean {
     return (
       Boolean(input.providerThreadId) &&
@@ -2717,6 +3160,13 @@ export class AiAgentRuntime {
     )
   }
 
+  /**
+   * Implements `/retry`: redoes the most recent exchange. The trigger that
+   * produced the last answer is found, every transcript row after it is marked
+   * `superseded` (so the rebuilt context excludes the old answer and anything
+   * that followed), the previous answer's delivered message is deleted from the
+   * chat, and a fresh generation is started from that same trigger.
+   */
   private async retryLastExchange(
     conversationId: string,
     context: ExternalGatewayAgentExecutionContext,
@@ -2779,6 +3229,13 @@ export class AiAgentRuntime {
     return conversation?.createdAt
   }
 
+  /**
+   * Describes "where am I and why am I running" for the system prompt. A
+   * scheduled-task or check-back trigger reports that origin (with its id/name);
+   * otherwise it resolves the chat channel — DM vs group, display name, platform —
+   * from the room row, falling back to the trigger metadata and adapter hints.
+   * Returns undefined when no room can be determined.
+   */
   private async currentChannelContext(
     input: RunGenerationInput,
     triggerMessageId: string
@@ -2850,6 +3307,7 @@ export class AiAgentRuntime {
     return stringFromMetadata(conversation?.metadata ?? {}, ['route', 'provider_room_id'])
   }
 
+  /** Platform label for the prompt. The Lark adapter serves both Feishu and Lark, so the configured domain disambiguates which one this binding is on. */
   private async currentChannelPlatform(context: ExternalGatewayAgentExecutionContext): Promise<string | undefined> {
     const adapter = bindingAdapter(context.agent.agent.metadata, context.bindingName)
     if (adapter === 'lark') {
@@ -2862,6 +3320,7 @@ export class AiAgentRuntime {
     return adapter
   }
 
+  /** Starts a generation for each ambient conversation the batcher has decided is now due to intervene, then re-arms the next drain. Runs marked `ambientIntervention` (no retries, lazy card). */
   private async drainAmbientAndStartGeneration(
     context: ExternalGatewayAgentExecutionContext,
     profile: AiAgentRuntimeProfile
@@ -2884,6 +3343,7 @@ export class AiAgentRuntime {
     await this.scheduleNextAmbientDrain(context, profile)
   }
 
+  /** Arms a one-shot timer to drain due ambient work after `delayMs`. The timer is tracked so {@link stop} can cancel it, and self-removes when it fires. */
   private scheduleAmbientDrain(
     context: ExternalGatewayAgentExecutionContext,
     profile: AiAgentRuntimeProfile,
@@ -2899,6 +3359,7 @@ export class AiAgentRuntime {
     this.ambientTimers.add(timer)
   }
 
+  /** Re-arms the drain for whenever the batcher says the next conversation comes due; no timer when nothing is pending. The small slack avoids firing a hair early. */
   private async scheduleNextAmbientDrain(
     context: ExternalGatewayAgentExecutionContext,
     profile: AiAgentRuntimeProfile
@@ -2911,6 +3372,7 @@ export class AiAgentRuntime {
     this.scheduleAmbientDrain(context, profile, delayMs + 5)
   }
 
+  /** Newest still-live trigger message (user or ambient, not superseded) for a conversation — the fallback trigger when a generation is started without an explicit one (e.g. crash recovery with a missing trigger). */
   private async latestTriggerMessageId(conversationId: string): Promise<string | undefined> {
     const [row] = await DB.select()
       .from(AiAgentMessages)
@@ -2927,6 +3389,14 @@ export class AiAgentRuntime {
     return row?.id
   }
 
+  /**
+   * Seals the live streaming card with the final answer. Returns the card's ids
+   * only when the card is the authoritative delivery — completed, non-empty, and
+   * the adapter confirmed the final text landed. Any shortfall (error/abort
+   * status, empty text, missing ids, or unconfirmed final text) returns
+   * undefined, which tells the commit path to fall back to a normal posted
+   * message so the answer is never lost to a half-finished card.
+   */
   private async finalizeStreamingCard(
     card: ExternalGatewayStreamingCardHandle,
     assistant: AssistantMessage,
@@ -2957,6 +3427,19 @@ export class AiAgentRuntime {
     return { messageId: card.messageId, cardId: card.cardId, outboundKey }
   }
 
+  /**
+   * Atomically commits a finished assistant turn: persists the assistant message,
+   * enqueues its delivery (or records the streaming card as already sent),
+   * materializes any follow-up/steer queued on the lease into transcript rows,
+   * and hands off the next lease when there is more to do.
+   *
+   * This is the single linearization point for "the run finished". Returning
+   * undefined means the lease was lost (taken over / cancelled) and nothing was
+   * written. A non-undefined result carries `nextGeneration` when queued input
+   * was drained, so the caller chains straight into the next turn under the new
+   * lease. The streaming-card branch records the outbox row as `sent` so the
+   * drain never re-posts a card the user already saw live.
+   */
   private async commitAssistantResult(input: {
     assistant: AssistantMessage
     bindingName: string
@@ -2973,6 +3456,13 @@ export class AiAgentRuntime {
     reasoningTrace?: ReasoningTraceRef
     streamedCard?: StreamedAssistantCard
   }): Promise<CommitAssistantResult> {
+    // The whole commit runs in one transaction under a `FOR UPDATE` lock on the
+    // conversation. That lock is the serialization point against
+    // appendPendingFollowup / appendPendingSteering: either a concurrent inbound
+    // append lands on the lease before we read it (and we drain it here) or it
+    // sees the lease replaced and reports it gone. The first three guards are the
+    // fence — bail unless this lease still owns an active, uncancelled, unended
+    // conversation, so a fenced-out worker writes nothing.
     return DB.transaction(async tx => {
       const [conversation] = await tx
         .select()
@@ -3081,6 +3571,10 @@ export class AiAgentRuntime {
           .onConflictDoNothing()
       }
 
+      // Drain queued input into transcript rows so the next turn sees it. Steering
+      // markers go in first, then follow-up messages; the LAST row inserted
+      // becomes the next trigger. Each followup also carries its own room/thread,
+      // so a follow-up from a different room re-targets the next turn's output.
       for (const steering of pendingSteering) {
         nextTriggerMessageId = await this.insertSteeringMarkerRow(tx, {
           agentUid: conversation.agentUid,
@@ -3132,6 +3626,11 @@ export class AiAgentRuntime {
         nextProviderThreadId = stringFromMetadata(followup.provider_refs, ['thread_id']) ?? nextProviderThreadId
       }
 
+      // Hand the conversation to the next turn or release it: mint a fresh lease
+      // in the same transaction when there is drained input to answer, otherwise
+      // clear the generation envelope to {} so the conversation goes idle. Doing
+      // this atomically with the drain is what makes "commit + chain next turn"
+      // a single fenced step that a concurrent inbound cannot interleave with.
       const nextLeaseId = nextTriggerMessageId ? genUUIDv7() : undefined
       await tx
         .update(AiAgentConversations)
@@ -3158,6 +3657,12 @@ export class AiAgentRuntime {
     })
   }
 
+  /**
+   * Mirrors a delivered streaming-card answer into the visible-output store (the
+   * post-commit projection the webui and search read). Best-effort: a failure is
+   * logged and swallowed, because the answer is already in the chat and in the
+   * trajectory — the projection is a secondary view, not the source of truth.
+   */
   private async projectStreamingCardOutbound(
     context: ExternalGatewayAgentExecutionContext,
     projection: StreamedCardProjection
@@ -3192,6 +3697,7 @@ export class AiAgentRuntime {
     }
   }
 
+  /** Posts a short control-notice back to the user (the "Stopped.", "Retrying", "Steering queued" acks) for a slash command. */
   private async enqueueFeedback(
     context: ExternalGatewayAgentExecutionContext,
     event: ExternalGatewayAgentDelivery['events'][number],
@@ -3219,6 +3725,7 @@ export class AiAgentRuntime {
     context.scheduleOutboxDrain()
   }
 
+  /** Whether a /steer is queued on this exact lease right now. Lease-scoped (returns false if the lease changed or was cancelled) so a stale check never interrupts the wrong run. Polled at tool boundaries and in the todo-progress path. */
   private async hasPendingSteering(conversationId: string, leaseId: string): Promise<boolean> {
     const [conversation] = await DB.select({ generation: AiAgentConversations.generation })
       .from(AiAgentConversations)
@@ -3230,6 +3737,14 @@ export class AiAgentRuntime {
     return normalizePendingArray<PendingSteering>(conversation.generation.pending_steering).length > 0
   }
 
+  /**
+   * Mid-run steering cutover: when a tool boundary terminated the loop because a
+   * /steer was queued, this drains that steering into transcript rows and mints a
+   * fresh lease for the redirected turn — all under a `FOR UPDATE` lock and fenced
+   * to the current lease. Returns the next-generation hand-off, or undefined if
+   * the lease moved or nothing was actually queued (so the caller commits the
+   * turn normally instead).
+   */
   private async materializePendingSteeringAtToolBoundary(input: {
     conversationId: string
     leaseId: string
@@ -3288,7 +3803,13 @@ export class AiAgentRuntime {
     })
   }
 
-  /** Insert one steering-marker introspection row inside the caller's transaction. */
+  /**
+   * Inserts one steering-marker introspection row inside the caller's transaction.
+   * This is the *mid-run* form: the text is wrapped in a `<human_steering_note>`
+   * (see {@link steeringMarker}) telling the model to drop the in-flight plan and
+   * follow the new instruction — contrast {@link materializeSteering}, the idle
+   * fallback that lands the steer as a plain user message.
+   */
   private async insertSteeringMarkerRow(
     tx: QueryExecutor,
     input: {
@@ -3334,6 +3855,12 @@ export class AiAgentRuntime {
     return messageId
   }
 
+  /**
+   * Idle fallback for `/steer`: when there was no live lease to queue the steer
+   * on, lands it as an ordinary user message that starts its own turn. No
+   * steering-marker wrapper here — there is no in-flight plan to override, so the
+   * instruction is just the next thing the user said.
+   */
   private async materializeSteering(conversationId: string, steering: PendingSteering, timezone: string) {
     const sentAt = dateFromString(steering.created_at) ?? new Date()
     const history = await loadMessageContextHistory(conversationId)
@@ -3542,6 +4069,11 @@ export class AiAgentRuntime {
     })
   }
 
+  /**
+   * Writes a `<task_cancellation>` introspection note after a /stop, so later
+   * turns know the interrupted task was abandoned on purpose and must not be
+   * silently resumed. Only added when a run was actually interrupted.
+   */
   private async materializeStop(
     conversationId: string,
     event: ExternalGatewayAgentDelivery['events'][number],
@@ -3581,6 +4113,7 @@ export class AiAgentRuntime {
   }
 }
 
+/** Process-wide runtime singleton, wired to the default service collaborators. */
 export const aiAgentRuntime = new AiAgentRuntime()
 
 function routeFromContext(
@@ -3604,12 +4137,18 @@ function messageText(envelope: ExternalGatewayAgentEnvelope): string {
   return typeof text === 'string' ? text : ''
 }
 
+// True when a message carries attachments but no real prose once the
+// attachment-reference scaffolding is stripped — i.e. "an image, nothing typed".
+// This is what makes acceptAddressed defer the trigger so the text part can join.
 function isAttachmentOnlyContextMessage(envelope: ExternalGatewayAgentEnvelope): boolean {
   const attachments = envelope.data.message?.attachments
   if (!Array.isArray(attachments) || attachments.length === 0) return false
   return stripAttachmentContextText(messageText(envelope)).length === 0
 }
 
+// Removes the machine-inserted attachment references (file tags, markdown image
+// links, "[image saved at: …]" notes) so what remains is only what the human
+// actually typed. Used to judge whether a message is media-only.
 function stripAttachmentContextText(text: string): string {
   return text
     .replace(/<file\b[^>]*\/>/gi, '')
@@ -3619,6 +4158,7 @@ function stripAttachmentContextText(text: string): string {
     .trim()
 }
 
+/** Builds the user message for the model from an inbound envelope, inlining any saved image attachments as image blocks (text-only message when there are none). */
 async function createUserMessageFromEnvelope(
   envelope: ExternalGatewayAgentEnvelope,
   sentAt: Date,
@@ -3635,6 +4175,9 @@ async function createUserMessageFromEnvelope(
   return createUserMessage(content, sentAt.getTime())
 }
 
+// Text that accompanies inlined image blocks: strip the now-redundant saved-image
+// references, and if nothing prose is left, substitute a short "[Image attached]"
+// placeholder so the model is never handed an image with an empty text part.
 function modelTextForInlineImages(text: string, imageCount: number): string {
   const cleaned = text
     .replace(/!\[[^\]]*]\([^)]*\)/g, '')
@@ -3646,6 +4189,12 @@ function modelTextForInlineImages(text: string, imageCount: number): string {
   return imageCount === 1 ? '[Image attached]' : `[${imageCount} images attached]`
 }
 
+/**
+ * Reads the message's saved image attachments off the agent's computer worker
+ * and returns them as base64 image blocks. Skips anything not a saved image, not
+ * actually an image MIME type, or over the inline byte limit (twice — by reported
+ * size and by actual bytes, since the reported size can be wrong or absent).
+ */
 async function imageContentBlocksFromEnvelope(
   envelope: ExternalGatewayAgentEnvelope,
   options: { agentUid: string; readComputerFile?: ComputerFileReader }
@@ -3678,6 +4227,8 @@ async function imageContentBlocksFromEnvelope(
   return blocks
 }
 
+// Looks up which adapter (lark, …) a named binding uses, from the agent's
+// external-adapters metadata. Drives the platform label in the system prompt.
 function bindingAdapter(metadata: JsonObject, bindingName: string): string | undefined {
   const external = toJsonObject(metadata.external)
   const adapters = external.adapters
@@ -3713,6 +4264,9 @@ function actorFromEnvelope(envelope: ExternalGatewayAgentEnvelope): JsonObject {
   return typeof author === 'object' && author !== null && !Array.isArray(author) ? (author as JsonObject) : {}
 }
 
+// The sender's external user id, tolerating the several casings/shapes different
+// providers use (userId / id / user_id / openId / open_id). Used to attribute a
+// turn to its requester and to scope clarify bindings.
 function externalIdFromActor(actor: JsonObject): string | undefined {
   return (
     stringFromMetadata(actor, ['userId']) ??
@@ -3723,6 +4277,10 @@ function externalIdFromActor(actor: JsonObject): string | undefined {
   )
 }
 
+// Best available send time, in falling order of trust: the provider's own
+// per-message timestamp, then the envelope time, then when the gateway saw the
+// event, and finally now. Keeps transcript ordering sane even when upstream
+// omits a timestamp.
 function sentAtFromEnvelope(
   envelope: ExternalGatewayAgentEnvelope,
   event?: ExternalGatewayAgentDelivery['events'][number]
@@ -3759,6 +4317,7 @@ function hasOutbound(metadata: JsonObject): boolean {
   return isJsonObject(outbound) && typeof outbound.outbound_key === 'string' && outbound.outbound_key.length > 0
 }
 
+/** Maps a finished assistant message to the turn's terminal fields (status, normalized response, usage, provider metadata) for the `llm_turns` row. */
 function assistantLlmTurnFinish(
   message: AssistantMessage,
   providerObservation: JsonObject,
@@ -3775,6 +4334,7 @@ function assistantLlmTurnFinish(
   }
 }
 
+/** Combines the configured provider info with the message's response ids and the captured transport observations into the turn's provider-metadata blob. */
 function assistantProviderMetadata(
   message: AssistantMessage,
   providerObservation: JsonObject,
@@ -3792,6 +4352,14 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
+/**
+ * Turns a failed/aborted assistant message into safe, plain Chinese text for the
+ * end user. Known failure classes (overflow, rate limit, timeout, server, auth)
+ * get a specific, actionable line; an internal DB error is reported as such
+ * without leaking the query; a raw JSON/HTML provider body is hidden behind a
+ * generic message. Only an already-human-readable error is passed through, capped
+ * in length. Returns undefined when the message did not actually fail.
+ */
 function userFacingAssistantErrorText(message: AssistantMessage): string | undefined {
   if (message.stopReason !== 'error' && message.stopReason !== 'aborted' && !message.errorMessage) return undefined
   if (message.stopReason === 'aborted') return '已停止'
@@ -3831,6 +4399,8 @@ function looksLikeRawProviderPayload(raw: string): boolean {
   )
 }
 
+// Plain JSON snapshot of the assistant message for the turn's `response` column.
+// The stringify/parse round-trip strips any non-JSON-safe values from content.
 function normalizedAssistantResponse(message: AssistantMessage): JsonObject {
   return {
     content: JSON.parse(JSON.stringify(message.content)) as JsonValue,
@@ -3845,6 +4415,14 @@ function normalizePendingArray<T>(value: unknown): T[] {
   return Array.isArray(value) ? (value as T[]) : []
 }
 
+/**
+ * Wraps a /steer instruction in the `<human_steering_note>` prompt block injected
+ * mid-run. The wording tells the model to treat the instruction as the new
+ * highest-priority directive and abandon the pre-steer plan. The user text and
+ * the event id are XML-escaped before interpolation so steer content (which may
+ * be multi-line and may contain `<`/`>`/`&`) cannot break out of or forge the
+ * surrounding tags.
+ */
 function steeringMarker(steering: PendingSteering): string {
   return [
     `<human_steering_note command_event_id="${escapeXmlAttribute(steering.command_event_id)}" effect="override_current_incomplete_task">`,
@@ -3899,6 +4477,8 @@ function observeProviderResponse(observation: JsonObject, response: unknown): vo
   observation.observed_at = new Date().toISOString()
 }
 
+// Reads one header by name, accepting either a `Headers` instance or a plain
+// object map (the SDK surfaces response headers in both forms depending on path).
 function headerValue(headers: unknown, key: string): string | undefined {
   if (!headers) return undefined
   if (typeof Headers !== 'undefined' && headers instanceof Headers) return headers.get(key) ?? undefined
@@ -3909,6 +4489,7 @@ function headerValue(headers: unknown, key: string): string | undefined {
   return undefined
 }
 
+/** Throws if any name repeats. The single guard behind both tool-registry and active-subset validation, so duplicate names fail loudly at configuration time. */
 function validateUniqueNames(names: string[], message: string): void {
   const seen = new Set<string>()
   const duplicates = new Set<string>()
@@ -3919,12 +4500,14 @@ function validateUniqueNames(names: string[], message: string): void {
   if (duplicates.size > 0) throw new AiAgentRuntimeError(`${message}: ${[...duplicates].join(', ')}`)
 }
 
+/** Validates an active-tool selection: no duplicates, and every name resolves to a registered tool. */
 function validateToolNames(names: string[], tools: Map<string, AgentTool<any>>): void {
   validateUniqueNames(names, 'Duplicate active tool name(s)')
   const missing = names.filter(name => !tools.has(name))
   if (missing.length > 0) throw new AiAgentRuntimeError(`Unknown tool(s): ${missing.join(', ')}`)
 }
 
+/** Error type for runtime misconfiguration (bad tool registry / active selection). */
 export class AiAgentRuntimeError extends Error {
   constructor(message: string) {
     super(message)
@@ -3932,6 +4515,9 @@ export class AiAgentRuntimeError extends Error {
   }
 }
 
+// Reinterprets a raw delivery event's payload as the typed agent envelope. The
+// cast is unchecked — the gateway guarantees the shape upstream, so this is the
+// single place that trust is asserted instead of repeating the cast everywhere.
 function payloadEnvelope(event: ExternalGatewayAgentDelivery['events'][number]): ExternalGatewayAgentEnvelope {
   return event.payload as unknown as ExternalGatewayAgentEnvelope
 }

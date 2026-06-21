@@ -7,6 +7,8 @@ import type { JsonValue } from './db-schema'
 import { logger } from './logger'
 import { seconds } from '@pleisto/active-support'
 
+// Set once during graceful shutdown so the `onclose` handler can tell an
+// intentional pool drain apart from an unexpected disconnect and stay quiet.
 let closingDatabase = false
 
 export const databaseRuntimeConfig = {
@@ -30,6 +32,9 @@ const sqlClient = (globalThis.__bullxSqlClient ??= new BunSQL(AppEnv.DATABASE_UR
   // as ERR_POSTGRES_CONNECTION_CLOSED storms.
   idleTimeout: seconds('10m'),
   connectionTimeout: seconds('20s'),
+  // 0 disables age-based connection recycling: idle reaping (above) already keeps
+  // connections fresh ahead of the NLB window, so there is no need to also churn
+  // healthy busy connections on a fixed lifetime.
   maxLifetime: 0,
   onconnect: () => {
     logger.trace('PostgreSQL connection opened')
@@ -81,11 +86,23 @@ export type QueryExecutor = AppDatabase | AppDbTransaction
 export function jsonbParam<TValue extends JsonValue>(value: TValue): DrizzleSQL<TValue> {
   if (Array.isArray(value)) return jsonbArrayParam(value) as DrizzleSQL<TValue>
 
+  // Numbers and booleans are bound as native parameters and wrapped with
+  // `to_jsonb`, which produces the correct JSON scalar. Strings and objects are
+  // sent as text and cast with `::jsonb`; routing scalars through the same cast
+  // would misparse (e.g. a bound number is not valid JSONB text on its own).
   if (typeof value === 'number' || typeof value === 'boolean') return sql<TValue>`to_jsonb(${value})`
 
   return sql<TValue>`${value}::jsonb`
 }
 
+/**
+ * Builds a JSONB array element-by-element via `jsonb_build_array`, recursing
+ * through {@link jsonbParam} so nested values follow the same encoding rules.
+ *
+ * The empty case is special-cased to a literal `'[]'::jsonb` because
+ * `jsonb_build_array()` with no arguments is awkward to emit and the literal is
+ * clearer.
+ */
 function jsonbArrayParam(value: JsonValue[]): DrizzleSQL<JsonValue[]> {
   if (value.length === 0) return sql<JsonValue[]>`'[]'::jsonb`
 
@@ -95,6 +112,11 @@ function jsonbArrayParam(value: JsonValue[]): DrizzleSQL<JsonValue[]> {
   )})`
 }
 
+/**
+ * Closes the shared pool, flipping {@link closingDatabase} first so the `onclose`
+ * handler treats the resulting disconnects as a planned drain. Idempotent: a
+ * second call (e.g. overlapping shutdown signals) returns without re-closing.
+ */
 export async function closeDatabase(options?: { timeout?: number }): Promise<void> {
   if (closingDatabase) return
 

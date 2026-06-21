@@ -1,3 +1,12 @@
+/**
+ * End-to-end live lifecycle harness for BullX Agent's main user stories.
+ *
+ * This is intentionally broader than a provider smoke test: it drives mock IM
+ * ingress, real External Gateway delivery, durable agent conversations, real
+ * OpenRouter calls, web tools, clarify, checkback, scheduler, and the real
+ * computer resolver. Scenario fixtures are local only where external services
+ * would make the test flaky or credential-heavy.
+ */
 import assert from 'node:assert/strict'
 import { mkdir } from 'node:fs/promises'
 import { redis } from 'bun'
@@ -95,6 +104,9 @@ let previousSearchProvider: string | undefined
 let previousExtractProvider: string | undefined
 let appConfigSnapshotLoaded = false
 
+/**
+ * Reads a required environment value with a harness-specific setup hint.
+ */
 function requiredEnv(name: string, message: string): string {
   const value = Bun.env[name]?.trim()
   assert.ok(value, message)
@@ -153,6 +165,14 @@ try {
   await closeDatabase({ timeout: 5 }).catch(() => undefined)
 }
 
+/**
+ * Starts the isolated app runtime used by every scenario in this harness.
+ *
+ * The setup creates a temporary LLM provider, mock IM binding, web-provider
+ * fixture, agent profile, AI runtime, and External Gateway runtime. Keeping all
+ * scenarios on one agent is deliberate: it catches cross-feature lifecycle
+ * interference that isolated unit tests miss.
+ */
 async function startRuntime() {
   previousSearchProvider = await appConfigService.get(WebSearchProviderConfig)
   previousExtractProvider = await appConfigService.get(WebExtractProviderConfig)
@@ -800,6 +820,9 @@ async function scenarioCronScheduledTask(setup: RuntimeSetup): Promise<void> {
   assert.ok(turns.some(row => row.kind === 'scheduled_task'))
 }
 
+/**
+ * Uses the same temporary provider for all runtime model profiles.
+ */
 function modelConfig(): AiAgentModelsConfig {
   const base = {
     model: MODEL_ID,
@@ -814,6 +837,9 @@ function modelConfig(): AiAgentModelsConfig {
   }
 }
 
+/**
+ * Provides deterministic web-search/extract fixtures while preserving tool flow.
+ */
 function testWebProvider(): WebProvider {
   return {
     id: webProviderId,
@@ -840,6 +866,9 @@ function testWebProvider(): WebProvider {
   }
 }
 
+/**
+ * Forces pending outbox delivery for scenarios that need synchronous assertions.
+ */
 async function dispatchPending(setup: RuntimeSetup): Promise<void> {
   await externalGatewayOutbox.dispatchPendingForBinding({
     adapter: setup.adapter,
@@ -869,6 +898,9 @@ async function waitForOutboundTextInThread(
   }, timeoutMs)
 }
 
+/**
+ * Prints compact per-scenario diagnostics when an expected outbound message is missing.
+ */
 async function printScenarioDebug(
   setup: RuntimeSetup,
   roomId: string,
@@ -929,6 +961,9 @@ async function waitForOutboundAfter(setup: RuntimeSetup, previousLength: number,
   }, timeoutMs)
 }
 
+/**
+ * Runs one named scenario, respecting `LLM_E2E_ONLY` for focused local debugging.
+ */
 async function step(key: string, name: string, fn: () => Promise<void>): Promise<void> {
   if (onlyScenarios.size > 0 && !onlyScenarios.has(key)) return
   const start = Date.now()
@@ -947,6 +982,9 @@ async function conversationsFor(uid: string) {
     .orderBy(AiAgentConversations.createdAt, AiAgentConversations.id)
 }
 
+/**
+ * Waits until every conversation for the test agent has released its generation lease.
+ */
 async function waitForAllGenerationsIdle(timeoutMs = 240_000): Promise<void> {
   await eventually(async () => {
     const active = (await conversationsFor(agentUid)).flatMap(row => {
@@ -957,6 +995,9 @@ async function waitForAllGenerationsIdle(timeoutMs = 240_000): Promise<void> {
   }, timeoutMs)
 }
 
+/**
+ * Waits for a tool result containing expected text after a scenario checkpoint.
+ */
 async function waitForToolResultText(
   conversationId: string,
   text: string,
@@ -1035,6 +1076,9 @@ async function llmTurnsFor(conversationId: string) {
     .orderBy(AiAgentLlmTurns.startedAt, AiAgentLlmTurns.id)
 }
 
+/**
+ * Dumps durable conversation/turn state for post-failure inspection.
+ */
 async function dumpTrajectoryArtifact(): Promise<void> {
   const conversations = await conversationsFor(agentUid)
   const conversationArtifacts = []
@@ -1108,6 +1152,9 @@ function toolNameFromToolResult(result: Record<string, unknown>): string[] {
   const execution = details && isPlainObject(details.bullx_execution) ? details.bullx_execution : undefined
   return typeof execution?.tool_name === 'string' ? [execution.tool_name] : []
 }
+/**
+ * Waits for the selected worker to be visible through the same DB heartbeat the resolver uses.
+ */
 async function requireDevWorker(): Promise<void> {
   const deadline = Date.now() + 60_000
   while (Date.now() < deadline) {
@@ -1129,6 +1176,9 @@ async function requireDevWorker(): Promise<void> {
   )
 }
 
+/**
+ * Retries an assertion until the asynchronous runtime path catches up.
+ */
 async function eventually(assertion: () => void | Promise<void>, timeoutMs: number): Promise<void> {
   const deadline = Date.now() + timeoutMs
   let lastError: unknown
@@ -1148,6 +1198,9 @@ async function eventually(assertion: () => void | Promise<void>, timeoutMs: numb
   }
 }
 
+/**
+ * Loads a dotenv-style file without overriding environment already supplied by the caller.
+ */
 async function loadEnvFile(url: URL): Promise<void> {
   const file = Bun.file(url)
   if (!(await file.exists())) return
@@ -1166,6 +1219,9 @@ async function loadEnvFile(url: URL): Promise<void> {
   }
 }
 
+/**
+ * Removes temporary runtime state created by the harness.
+ */
 async function cleanup(): Promise<void> {
   await clearAmbientRedisMembersForAgent()
 
@@ -1199,6 +1255,9 @@ async function cleanup(): Promise<void> {
   await DB.delete(LlmProviders).where(eq(LlmProviders.providerId, llmProviderId))
 }
 
+/**
+ * Clears ambient wake Redis members for this temporary agent.
+ */
 async function clearAmbientRedisMembersForAgent(): Promise<void> {
   const members = await redis.send('ZRANGE', [AMBIENT_REDIS_KEY, '0', '-1']).catch(() => [])
   if (!Array.isArray(members)) return

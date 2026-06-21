@@ -11,6 +11,9 @@ import {
 } from '@/config/app-configure'
 import { appConfigJsonRecordSchema } from '@/config/json-value-schema'
 
+// `active` is reserved because the list of active providers lives at the config
+// key `identity_providers.active`. Allowing a provider with that id would let a
+// per-provider config key collide with the activation list key itself.
 export const reservedIdentityProviderIds = new Set(['active'])
 export const identityProviderIdSchema = z
   .string()
@@ -19,6 +22,13 @@ export const identityProviderIdSchema = z
     message: 'reserved identity providerId'
   })
 
+/**
+ * One entry in the host's "which providers are active" list.
+ *
+ * Pairs an installation-local provider id with the plugin adapter that drives
+ * it, plus a soft `enabled` flag so an operator can pause a provider without
+ * deleting its (encrypted) configuration.
+ */
 export const identityProviderActivationSchema = z
   .object({
     /**
@@ -46,6 +56,10 @@ export const ActiveIdentityProvidersConfig = defineAppConfig({
    * and keyed only by the globally unique provider id.
    */
   schema: z.array(identityProviderActivationSchema).superRefine((activations, context) => {
+    // Provider ids must be unique across the list: each id maps to exactly one
+    // per-provider config key and one external-identity `provider` namespace, so
+    // a duplicate would make those bindings ambiguous. The issue is attached to
+    // the offending array index for a precise validation error.
     const seen = new Set<string>()
     activations.forEach((activation, index) => {
       if (!seen.has(activation.providerId)) {
@@ -64,6 +78,13 @@ export const ActiveIdentityProvidersConfig = defineAppConfig({
   description: 'Identity provider instances started by the BullX Agent host process'
 })
 
+/**
+ * Per-provider configuration stored at `identity_providers.<providerId>`.
+ *
+ * Encrypted because adapter config typically holds provider app secrets. The key
+ * pattern uses a `(?!active$)` lookahead so the activation list key is never
+ * matched as if it were a provider's own config.
+ */
 export const IdentityProviderConfigPattern = defineAppConfigPattern({
   id: 'identity_providers.provider_config',
   keyPattern: new RegExp(`^identity_providers\\.(?!active$)${bullxExternalIdentityNamespaceIdPatternSource}$`),
@@ -76,6 +97,13 @@ export const IdentityProviderConfigPattern = defineAppConfigPattern({
 registerAppConfigDefinitions([ActiveIdentityProvidersConfig])
 registerAppConfigPatterns([IdentityProviderConfigPattern])
 
+/**
+ * Builds the app-config key holding a provider's encrypted configuration.
+ *
+ * Re-validates the id through the schema so a caller cannot construct a key for a
+ * reserved or malformed provider id, which would otherwise read or write the
+ * wrong config row.
+ */
 export function identityProviderConfigKey(providerId: string): string {
   const normalizedProviderId = identityProviderIdSchema.parse(providerId)
   return `identity_providers.${normalizedProviderId}`

@@ -11,6 +11,8 @@ const { createComputerTools } = await import('.')
 describe('createCommandTool', () => {
   it('runs through stateless runCommand instead of the persistent shell', async () => {
     const calls: unknown[] = []
+    // `runShellCommand` throws so the test fails loudly if `command` ever routes through the
+    // persistent shell — statelessness is the contract that separates it from `terminal`.
     const computer = {
       async runCommand(params: unknown) {
         calls.push(params)
@@ -54,6 +56,8 @@ describe('createCommandTool', () => {
     ])
   })
 
+  // Pins the exact tool set and its order as wired in index.ts; a reorder or accidental
+  // add/drop of a tool should surface here.
   it('exposes command and terminal as separate computer tools', () => {
     const tools = createComputerTools(
       { agentUid: 'agent_123' },

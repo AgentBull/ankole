@@ -40,6 +40,13 @@ const gitSshIdentityMaterialSchema = z.object({
 export type ComputerGitSshIdentityMaterial = z.infer<typeof gitSshIdentityMaterialSchema>
 export type SealedComputerGitSshIdentity = z.infer<typeof sealedGitSshIdentitySchema>
 
+/**
+ * Returns the worker Git SSH identity, creating it once per BullX installation.
+ *
+ * The advisory lock matters because app replicas may start at the same time.
+ * Without one lock, two replicas could generate different private keys and race
+ * to publish different public keys for the same worker fleet.
+ */
 export async function ensureComputerGitSshIdentity(): Promise<ComputerGitSshIdentityMaterial> {
   return DB.transaction(async tx => {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext('computer-git-ssh-identity:v1'))`)
@@ -63,6 +70,13 @@ export async function ensureComputerGitSshIdentity(): Promise<ComputerGitSshIden
   })
 }
 
+/**
+ * Seals the worker Git SSH private key with the computer token.
+ *
+ * The app-config row itself is deliberately marked plaintext because the sealed
+ * payload must be readable by workers that only know `BULLX_COMPUTER_TOKEN`, not
+ * the app root secret. The private key still remains encrypted inside `sealed`.
+ */
 export function sealComputerGitSshIdentity(
   material: ComputerGitSshIdentityMaterial,
   token: string = AppEnv.BULLX_COMPUTER_TOKEN
@@ -76,6 +90,10 @@ export function sealComputerGitSshIdentity(
   }
 }
 
+/**
+ * Opens a sealed Git SSH identity and verifies that the stored public metadata
+ * still matches the private-key material.
+ */
 export function unsealComputerGitSshIdentity(
   value: SealedComputerGitSshIdentity,
   token: string = AppEnv.BULLX_COMPUTER_TOKEN
@@ -91,6 +109,12 @@ export function unsealComputerGitSshIdentity(
   }
 }
 
+/**
+ * Generates a fresh ed25519 SSH identity by delegating to `ssh-keygen`.
+ *
+ * Using the OpenSSH tool avoids subtle private-key encoding differences between
+ * JS libraries and the SSH clients that later consume this key inside workers.
+ */
 export async function generateComputerGitSshIdentityMaterial(): Promise<ComputerGitSshIdentityMaterial> {
   const dir = await mkdtemp(join(tmpdir(), 'bullx-computer-git-ssh-'))
   const privateKeyPath = join(dir, 'id_ed25519')

@@ -93,6 +93,7 @@ function extractApprovalRequestIdToToolCallIdMapping(prompt: LanguageModelV4Prom
   return mapping
 }
 
+/** Implements the OpenAI Responses API adapter that BullX uses for first-class OpenAI reasoning models. */
 export class OpenAIResponsesLanguageModel implements LanguageModelV4 {
   readonly specificationVersion = 'v4'
 
@@ -445,6 +446,7 @@ export class OpenAIResponsesLanguageModel implements LanguageModelV4 {
     }
   }
 
+  /** Sends one non-streaming Responses request and maps OpenAI output items back into AI SDK parts. */
   async doGenerate(options: LanguageModelV4CallOptions): Promise<LanguageModelV4GenerateResult> {
     const {
       args: body,
@@ -994,6 +996,7 @@ export class OpenAIResponsesLanguageModel implements LanguageModelV4 {
     }
   }
 
+  /** Streams Responses events while preserving tool-call ids, reasoning metadata, and provider-executed outputs. */
   async doStream(options: LanguageModelV4CallOptions): Promise<LanguageModelV4StreamResult> {
     const {
       args: body,

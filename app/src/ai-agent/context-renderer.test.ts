@@ -1,3 +1,7 @@
+// Verifies the renderer's central guarantee: every model-view shrink (microcompact, message-context
+// injection, media strip) changes only the returned context and the recorded `modelViewPatches` — the
+// source rows stay byte-for-byte intact — and that those same patches replay through `trajectory.ts` to
+// reproduce exactly what the model saw.
 import { describe, expect, it } from 'bun:test'
 import { loadTestEnvFiles } from '@/common/tests/load-test-env'
 import type { AiAgentConversationService } from './conversation-service'
@@ -76,6 +80,9 @@ describe('AiAgentContextRenderer + microcompact', () => {
     expect(firstPatch.ref).toEqual({ type: 'ai_agent_message', id: 's1', role: 'tool', kind: 'normal' })
     expect(firstPatch.message.content[0]!.text).toBe(MICROCOMPACT_CLEARED_TEXT)
 
+    // Round-trip: feed the renderer's own refs + patches back through the trajectory rebuilder and confirm
+    // the reconstructed request shows the SAME cleared content. This is what makes a microcompacted turn
+    // faithfully replayable from the raw rows alone.
     const [turn] = reconstructLlmTurnTrajectory({
       messages: rows as any,
       turns: [

@@ -6,6 +6,9 @@ await loadTestEnvFiles()
 const { readAiAgentModelsConfig, resolveAiAgentModelsConfig, writeAiAgentModelsConfig } = await import('./config')
 
 describe('AIAgent runtime model profile config', () => {
+  // Covers role inheritance: with only primary set, light/heavy reuse primary's
+  // model but take their own reasoning floor (low/high); an explicit role keeps
+  // its own provider/model/reasoning.
   it('materializes primary, light, and heavy model roles with reasoning defaults', () => {
     const inherited = resolveAiAgentModelsConfig({
       primary: {
@@ -45,6 +48,8 @@ describe('AIAgent runtime model profile config', () => {
     expect(explicit.heavy.reasoning).toBe('xhigh')
   })
 
+  // writeAiAgentModelsConfig owns only the models sub-key: it must merge, leaving
+  // sibling metadata (external adapters, other ai_agent.* keys) untouched.
   it('stores ai_agent.models without replacing external chat-channel metadata', () => {
     const metadata = writeAiAgentModelsConfig(
       {

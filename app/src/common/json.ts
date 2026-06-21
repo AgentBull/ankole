@@ -16,6 +16,10 @@ export function toJsonValue(value: unknown): JsonValue | null {
   if (value === undefined) return null
 
   try {
+    // The replacer strips everything `jsonb` cannot durably hold. Functions,
+    // `undefined`, `bigint`, `symbol`, and binary blobs are dropped (returning
+    // `undefined` removes the key or array slot); `Date` is frozen to an ISO
+    // string so it round-trips as a stable value rather than `{}`.
     const serialized = JSON.stringify(value, (_key, nestedValue) => {
       if (
         typeof nestedValue === 'function' ||
@@ -32,6 +36,9 @@ export function toJsonValue(value: unknown): JsonValue | null {
       return nestedValue
     })
 
+    // Re-parsing yields a plain detached value with no live references. The
+    // `catch` covers the one input `JSON.stringify` rejects outright — a circular
+    // structure — which becomes `null` rather than a thrown error here.
     return serialized === undefined ? null : (JSON.parse(serialized) as JsonValue)
   } catch {
     return null
@@ -85,6 +92,7 @@ export function cloneJsonObject<T extends JsonObject>(value: T): T {
   return structuredClone(value)
 }
 
+/** True for binary containers (ArrayBuffer, Blob, any TypedArray/DataView) that have no faithful JSON form and so are dropped. */
 function isBinaryLike(value: unknown): boolean {
   return value instanceof ArrayBuffer || value instanceof Blob || ArrayBuffer.isView(value)
 }

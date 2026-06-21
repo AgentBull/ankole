@@ -1,6 +1,9 @@
 import type { z } from 'zod'
 import type { AgentTool } from '../core'
 
+// A "definition" is just an `AgentTool` where the behavioral flags
+// (executionMode/isReadOnly/isDestructive) may be omitted; `buildTool` fills
+// them from the defaults. The alias names that intent at the call sites.
 type AgentToolDefinition<TParameters extends z.ZodType, TDetails> = AgentTool<TParameters, TDetails>
 
 /**

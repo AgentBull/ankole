@@ -18,6 +18,7 @@ pub enum AppError {
 }
 
 impl AppError {
+  /// Creates an HTTP-renderable worker error with a stable machine code.
   pub fn new(status: StatusCode, code: &'static str, message: impl Into<String>) -> Self {
     AppError::Status {
       status,
@@ -64,6 +65,10 @@ impl From<tokio_postgres::Error> for AppError {
 }
 
 impl IntoResponse for AppError {
+  /// Converts worker errors into the small JSON shape consumed by the TS SDK.
+  ///
+  /// Only server errors are logged here. Client errors already become structured
+  /// API responses, and logging every bad request would make operator logs noisy.
   fn into_response(self) -> Response {
     let (status, code, message) = match self {
       AppError::Status {

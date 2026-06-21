@@ -91,6 +91,14 @@ const oidcAuthorizationQuery = z.object({
  * clean (Eden-Treaty-friendly) shape instead of a `{ data } | { error }` union.
  */
 
+/**
+ * Exposes the pre-installation setup API.
+ *
+ * These routes are intentionally separate from console/admin routes because the
+ * installation may not have an identity provider or admin principal yet. After
+ * `setup.completed` is true, `requireActiveSetupSession` shuts this surface
+ * down even if an old setup cookie is still present.
+ */
 export function setupRoutes() {
   return new Elysia({ name: 'setup-routes' })
     .onError(({ error, set }) => {
@@ -324,6 +332,13 @@ async function requireActiveSetupSession(request: Request): Promise<void> {
   throw new DomainError(401, 'setup session required')
 }
 
+/**
+ * Adds or replaces one active identity-provider entry in runtime config.
+ *
+ * Setup writes provider config and active-provider metadata separately because
+ * adapter-owned config is dynamic, while the active list is the small projection
+ * used by login/runtime code.
+ */
 async function upsertActiveIdentityProvider(input: { providerId: string; adapter: string; enabled: boolean }) {
   const providers = [...((await appConfigService.get(ActiveIdentityProvidersConfig)) ?? [])]
   const existingIndex = providers.findIndex(provider => provider.providerId === input.providerId)

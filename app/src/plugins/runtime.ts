@@ -103,6 +103,13 @@ export class DuplicatePluginIdentityProviderAdapterError extends Error {
 export class PluginRuntime implements Runtime<PluginRuntimeStats> {
   private startedStats: PluginRuntimeStats | null = null
 
+  /**
+   * Discovers plugins, registers their host extensions, and returns activation stats.
+   *
+   * Plugin code is loaded once per process. The runtime therefore caches the
+   * first start result instead of trying to support hot reload or partial unload,
+   * which would require every plugin contribution to be reversible.
+   */
   async start(options: PluginRuntimeStartOptions = {}): Promise<PluginRuntimeStats> {
     if (this.startedStats) return this.startedStats
 
@@ -206,6 +213,9 @@ export class PluginRuntime implements Runtime<PluginRuntimeStats> {
   }
 }
 
+/**
+ * Validates plugin ids and checks that plugin-owned adapter ids do not collide.
+ */
 export function buildPluginRegistry(plugins: readonly BullXPlugin[]): PluginRegistry {
   const pluginsById = new Map<string, BullXPlugin>()
   const externalGatewayAdapterIds = new Set<string>()
@@ -236,6 +246,12 @@ export function buildPluginRegistry(plugins: readonly BullXPlugin[]): PluginRegi
   }
 }
 
+/**
+ * Applies explicit enable/disable overrides on top of the default-enabled set.
+ *
+ * The final order follows discovery order, not override order, so startup stays
+ * stable when the JSON override object is rewritten by setup or console tools.
+ */
 export function resolveEnabledPluginIds(input: {
   defaultEnabledPluginIds: readonly string[]
   overrides: PluginEnabledOverrides

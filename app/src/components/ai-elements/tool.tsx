@@ -12,6 +12,10 @@ import { CodeBlock } from './code-block'
 
 export type ToolProps = ComponentProps<typeof Collapsible>
 
+/**
+ * Collapsible card representing a single tool call in the message stream — header with the tool name
+ * and live status, expandable to show the JSON input and the result/error.
+ */
 export const Tool = ({ className, ...props }: ToolProps) => (
   <Collapsible className={cn('group not-prose mb-4 w-full rounded-md border', className)} {...props} />
 )
@@ -30,6 +34,9 @@ export type ToolHeaderProps = {
     }
 )
 
+// Maps each tool-call lifecycle state from the AI SDK to a human label. Note the states are the SDK's
+// internal stages, not user words: `input-streaming` (arguments still arriving) reads as "Pending",
+// `input-available` (args complete, tool executing) reads as "Running".
 const statusLabels: Record<ToolPart['state'], string> = {
   'approval-requested': 'Awaiting Approval',
   'approval-responded': 'Responded',
@@ -50,6 +57,10 @@ const statusIcons: Record<ToolPart['state'], ReactNode> = {
   'output-error': <XCircleIcon className="size-4 text-red-600" />
 }
 
+/**
+ * Renders the status pill (icon + label) for a tool state. Exported because sibling renderers such as
+ * {@link file://./sandbox.tsx} reuse the exact same badge so tool status looks identical everywhere.
+ */
 export const getStatusBadge = (status: ToolPart['state']) => (
   <Badge className="gap-1.5 rounded-full text-xs" variant="secondary">
     {statusIcons[status]}
@@ -57,7 +68,11 @@ export const getStatusBadge = (status: ToolPart['state']) => (
   </Badge>
 )
 
+/** Header row of a {@link Tool} card: wrench icon, tool name, status badge, and the expand chevron. */
 export const ToolHeader = ({ className, title, type, state, toolName, ...props }: ToolHeaderProps) => {
+  // Static tools carry their name encoded in `type` as `tool-<name>` (the SDK's part type), so the
+  // leading "tool" segment is stripped to recover the display name. Dynamic tools instead pass an
+  // explicit `toolName` because their name is only known at runtime.
   const derivedName = type === 'dynamic-tool' ? toolName : type.split('-').slice(1).join('-')
 
   return (
@@ -74,6 +89,7 @@ export const ToolHeader = ({ className, title, type, state, toolName, ...props }
 
 export type ToolContentProps = ComponentProps<typeof CollapsibleContent>
 
+/** Expandable body of the tool card; holds {@link ToolInput} and {@link ToolOutput}. */
 export const ToolContent = ({ className, ...props }: ToolContentProps) => (
   <CollapsibleContent
     className={cn(
@@ -88,6 +104,7 @@ export type ToolInputProps = ComponentProps<'div'> & {
   input: ToolPart['input']
 }
 
+/** "Parameters" section: pretty-prints the tool's call arguments as a JSON code block. */
 export const ToolInput = ({ className, input, ...props }: ToolInputProps) => (
   <div className={cn('space-y-2 overflow-hidden', className)} {...props}>
     <h4 className="font-medium text-muted-foreground text-xs uppercase tracking-wide">Parameters</h4>
@@ -102,11 +119,19 @@ export type ToolOutputProps = ComponentProps<'div'> & {
   errorText: ToolPart['errorText']
 }
 
+/**
+ * "Result" / "Error" section of a tool card. Renders nothing until the call produces either an output
+ * or an error, so a still-running tool shows just its parameters.
+ */
 export const ToolOutput = ({ className, output, errorText, ...props }: ToolOutputProps) => {
+  // Hide the whole section while there is nothing to show yet.
   if (!(output || errorText)) {
     return null
   }
 
+  // Pick a renderer by output shape: a ready React element is shown as-is; a plain object/array is
+  // serialised to a JSON code block; a string is also treated as JSON (tool results are usually JSON
+  // text). The element check guards against JSON-stringifying something already meant to be rendered.
   let Output = <div>{output as ReactNode}</div>
 
   if (typeof output === 'object' && !isValidElement(output)) {

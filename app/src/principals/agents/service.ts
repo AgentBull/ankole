@@ -12,6 +12,19 @@ import {
   updatePrincipalStatus
 } from '../principals/service'
 
+// Agent lifecycle within the Principal model.
+//
+// An agent is a first-class Principal (`principals.type = 'agent'`), the same
+// kind of authorization subject as a human: it owns a UID, can hold grants and
+// group memberships, and shares the lifecycle status field. What distinguishes
+// an agent is the subtype row in `agents` — its runtime `type` (only
+// `llm_agentic_loop` in V1), free-form `metadata`, and a `createdByPrincipalUid`
+// provenance link — plus that an agent never logs into the admin console (see
+// `activeHumanAdmin`, which is human-only). Because identity and profile live in
+// two tables, every create/update keeps the Principal row and the agent row in
+// one transaction, and reads return them as separate fields rather than a merged
+// object so callers do not have to track which column came from which table.
+
 export type Agent = typeof Agents.$inferSelect
 export type AgentType = Agent['type']
 
@@ -36,6 +49,14 @@ export interface AgentResult {
   agent: Agent
 }
 
+/**
+ * Loads an agent and its backing Principal by UID.
+ *
+ * A truly absent UID returns `undefined` (callers use this as an existence
+ * check). A UID that exists but resolves to a non-agent Principal is a different,
+ * worse situation — caller asked for an agent and got something else — so it
+ * throws rather than masquerading as "not found".
+ */
 export async function getAgent(uid: string): Promise<AgentResult | undefined> {
   const principalUid = normalizeUid(uid)
   const [row] = await DB.select({ principal: Principals, agent: Agents })
@@ -86,6 +107,9 @@ export async function createAgent(input: CreateAgentInput): Promise<AgentResult>
       })
       .returning()
 
+    // A new agent is seeded with a default soul and mission in the same
+    // transaction so it is never observable in a half-provisioned state: either
+    // the principal, agent row, soul, and mission all exist, or none do.
     await seedDefaultSoulForAgent(agent.uid, tx)
     await seedDefaultMissionForAgent(agent.uid, tx)
 
@@ -118,6 +142,9 @@ export async function updateAgent(uid: string, input: UpdateAgentInput): Promise
       updatedAt: sql`CURRENT_TIMESTAMP`
     }
 
+    // Profile fields use key presence (`'x' in input`), not value, so passing
+    // `null` explicitly clears the field while omitting the key leaves it
+    // untouched — the standard PATCH-vs-PUT distinction for nullable columns.
     if ('displayName' in input) principalPatch.displayName = trimOptionalText(input.displayName)
 
     if ('avatarUrl' in input) principalPatch.avatarUrl = trimOptionalText(input.avatarUrl)
@@ -143,6 +170,14 @@ export async function updateAgent(uid: string, input: UpdateAgentInput): Promise
   })
 }
 
+/**
+ * Soft-disables an agent by flipping its Principal status to `disabled`.
+ *
+ * Disabling is a status change, not a delete: the row and its UID stay so grants,
+ * history, and provenance links remain intact and the agent can be reasoned
+ * about (or re-enabled) later. No lockout guard is needed here — unlike humans,
+ * agents are not part of the admin-recovery path.
+ */
 export async function disableAgent(uid: string): Promise<AgentResult> {
   const existing = await getAgent(uid)
   if (!existing) throw new PrincipalDomainError('not_found')
@@ -173,6 +208,14 @@ export async function listActiveAgents(): Promise<AgentResult[]> {
   }))
 }
 
+/**
+ * Coerces missing metadata to an empty object and rejects non-object shapes.
+ *
+ * The `agents.metadata` column is constrained to a JSON object at the database
+ * level; validating here turns a would-be constraint violation into a clean
+ * domain error and guarantees the stored value is always an object, never an
+ * array or scalar.
+ */
 function normalizeMetadata(value: JsonObject | undefined): JsonObject {
   if (value === undefined) return {}
 

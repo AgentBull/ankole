@@ -5,6 +5,7 @@ import { Badge } from '@/uikit/components/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/uikit/components/card'
 import { ErrorAlert, MetricCard, SectionHeader, SkeletonRows } from '../shared'
 
+/** Summarizes the installation-level resources that operators usually inspect before drilling into sections. */
 export function OverviewPage() {
   const { t } = useTranslation()
   const overview = useQuery({

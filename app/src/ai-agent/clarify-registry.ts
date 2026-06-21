@@ -18,9 +18,11 @@ export interface ClarifyEntry {
   toolCallId: string
   question: string
   choices: string[]
+  /** Outbound key of the question post, so the answer side can target that exact card to lock it. */
   askedOutboundKey: string
   providerRoomId: string
   providerThreadId: string
+  /** Whether the question was sent as an interactive card (vs. plain text); decides if there is a card to lock on answer. */
   cardCapable: boolean
 }
 
@@ -44,6 +46,9 @@ export class AiAgentClarifyRegistry {
     this.clear(entry.conversationId)
     const expireTimer =
       ttlMs && ttlMs > 0 && Number.isFinite(ttlMs) ? setTimeout(() => this.clear(entry.conversationId), ttlMs) : null
+    // The expiry timer must not keep the process alive on shutdown — it only
+    // drops a nicety, so it is unref'd. Optional-chained because the test/runtime
+    // timer handle does not always expose `unref`.
     expireTimer?.unref?.()
     this.entries.set(entry.conversationId, { ...entry, expireTimer })
     if (entry.providerRoomId) this.roomGate.set(entry.providerRoomId, entry.conversationId)
@@ -67,6 +72,8 @@ export class AiAgentClarifyRegistry {
     const entry = this.entries.get(conversationId)
     if (!entry) return undefined
     this.clear(conversationId)
+    // clear() already disposed the timer; strip the handle so callers get the
+    // public ClarifyEntry shape without the internal field.
     const { expireTimer: _expireTimer, ...publicEntry } = entry
     return publicEntry
   }

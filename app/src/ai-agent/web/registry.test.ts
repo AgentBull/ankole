@@ -2,6 +2,9 @@ import { describe, expect, it } from 'bun:test'
 import type { WebProvider, WebProviderKind } from './provider'
 import { WebProviderRegistry } from './registry'
 
+// Minimal stub provider. Mirrors the real contract by wiring search/extract only
+// for the kinds listed in `supports`, so tests exercise the same capability check
+// the registry runs.
 function fakeProvider(
   id: string,
   supports: WebProviderKind[],
@@ -18,6 +21,9 @@ function fakeProvider(
 }
 
 describe('WebProviderRegistry.select', () => {
+  // Walks the full selection ladder in one test: each `clear()` resets to a fresh
+  // scenario that isolates one rung — explicit preferred, built-in priority order,
+  // skipping an unavailable built-in, and finally a plugin-only provider.
   it('uses preferred provider first, built-in priority next, and plugin providers as last resort', async () => {
     const registry = new WebProviderRegistry()
     registry.register(fakeProvider('exa', ['search']))
@@ -42,6 +48,9 @@ describe('WebProviderRegistry.select', () => {
     await expect(registry.select('search')).rejects.toThrow()
   })
 
+  // Pins the core policy difference: an explicitly configured-but-unavailable
+  // provider raises (carrying its `unavailableReason`) even though another
+  // available provider (parallel) is registered and would satisfy a fallback.
   it('fails fast for explicitly configured providers instead of falling back', async () => {
     const registry = new WebProviderRegistry()
     registry.register(

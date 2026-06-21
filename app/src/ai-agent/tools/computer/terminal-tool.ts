@@ -34,6 +34,16 @@ interface TerminalDetails {
   sessionId?: string
 }
 
+/**
+ * The model's tool for shell commands that need to remember state, plus tracked background jobs.
+ *
+ * Two paths. Foreground runs through the worker's *persistent* shell (`runShellCommand`), so a `cd`
+ * or `export` in one call is still in effect on the next — the opposite of the stateless `command`
+ * tool. Background (`background: true`) starts a detached process and hands back a `session_id`
+ * instead of waiting, for servers, watchers, and other long-runners; the id is recorded in
+ * `context.backgroundIds` so the `process` tool can later poll, tail, wait on, or kill it. The
+ * description steers the model to let BullX own the lifecycle rather than reaching for nohup/`&`.
+ */
 export function createTerminalTool(context: ComputerToolContext): AgentTool<typeof TerminalParams, TerminalDetails> {
   return buildTool({
     name: 'terminal',
@@ -48,6 +58,10 @@ export function createTerminalTool(context: ComputerToolContext): AgentTool<type
       const timeoutMs = (params.timeout ?? 60) * 1000
 
       if (params.background) {
+        // Background work runs through `runCommand` (detached), not the persistent shell: a
+        // long-lived job should be a tracked process the `process` tool can manage, not something
+        // tied to the shared shell's lifecycle. `timeoutMs` here caps how long the worker lets the
+        // detached process live overall.
         const command = await computer.runCommand({
           cmd: 'bash',
           args: ['-lc', params.command],
@@ -56,6 +70,8 @@ export function createTerminalTool(context: ComputerToolContext): AgentTool<type
           timeoutMs,
           signal
         })
+        // Record the id so `process(action='list')` shows it and the other process actions accept
+        // it; this is the handoff point between the two tools.
         context.backgroundIds.add(command.cmdId)
         return {
           content: [
@@ -68,6 +84,9 @@ export function createTerminalTool(context: ComputerToolContext): AgentTool<type
         }
       }
 
+      // Foreground: run in the persistent shell scoped to this conversation. `shellScope` keeps
+      // each conversation on its own shell, so concurrent conversations of one agent do not stomp
+      // on each other's cwd/env.
       const result = await computer.runShellCommand(params.command, {
         cwd: params.workdir,
         shellScope: context.executionScopeId,

@@ -38,6 +38,7 @@ export function webAppRoutes(options: WebAppRoutesOptions = {}) {
     .get('/console/*', context => consoleHtml(context, options))
 }
 
+/** Serves setup only before bootstrap finishes, then clears stale setup cookies before redirecting home. */
 async function setupHtml(
   { request, redirect }: { request: Request; redirect: Redirect },
   options: WebAppRoutesOptions
@@ -59,6 +60,7 @@ async function setupHtml(
   })
 }
 
+/** Serves anonymous sign-in after setup and redirects active admins straight to the console. */
 async function sessionsHtml(
   { request, redirect }: { request: Request; redirect: Redirect },
   options: WebAppRoutesOptions
@@ -84,6 +86,7 @@ async function sessionsHtml(
   })
 }
 
+/** Protects the admin console HTML route before the browser can download the console SPA bundle. */
 async function consoleHtml(
   { request, redirect }: { request: Request; redirect: Redirect },
   options: WebAppRoutesOptions
@@ -107,6 +110,7 @@ async function consoleHtml(
   })
 }
 
+/** Resolves the locale for HTML bootstrapping from config, falling back to the bundled default. */
 async function appLocale(): Promise<string> {
   return (await appConfigService.get(AppI18nDefaultLocaleConfig)) ?? DEFAULT_LOCALE
 }

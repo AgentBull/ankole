@@ -1,3 +1,5 @@
+// Scope: just the scratch-stripping helper — that the throwaway `<analysis>` block is removed (any case)
+// while a summary without one is left untouched. The DB-driven compression flow is exercised elsewhere.
 import { describe, expect, it } from 'bun:test'
 import { loadTestEnvFiles } from '@/common/tests/load-test-env'
 

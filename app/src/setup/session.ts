@@ -19,6 +19,12 @@ export interface SetupSessionPayload {
 
 export type SetupOidcStatePayload = OidcStateCookiePayload
 
+/**
+ * Creates a sealed setup-session cookie payload.
+ *
+ * This proves possession of the bootstrap activation code, not an admin login.
+ * Route guards must still check `setup.completed` before trusting it.
+ */
 export function createSetupSessionCookie(): string {
   const now = Date.now()
   return setupCookieCodec.seal({
@@ -28,6 +34,9 @@ export function createSetupSessionCookie(): string {
   })
 }
 
+/**
+ * Reads and validates the setup-session cookie from a request header.
+ */
 export function readSetupSessionCookie(header: string | null): SetupSessionPayload | undefined {
   const value = parseCookieHeader(header)?.[SETUP_SESSION_COOKIE]
   if (!value) return undefined
@@ -35,6 +44,9 @@ export function readSetupSessionCookie(header: string | null): SetupSessionPaylo
   return setupCookieCodec.read<SetupSessionPayload>(value)
 }
 
+/**
+ * Creates the short-lived OIDC state cookie used during setup-time provider tests.
+ */
 export function createSetupOidcStateCookie(input: Omit<SetupOidcStatePayload, 'issuedAt' | 'expiresAt'>): string {
   const now = Date.now()
   return setupCookieCodec.seal({
@@ -44,6 +56,9 @@ export function createSetupOidcStateCookie(input: Omit<SetupOidcStatePayload, 'i
   })
 }
 
+/**
+ * Reads the setup OIDC state cookie from a request header.
+ */
 export function readSetupOidcStateCookie(header: string | null): SetupOidcStatePayload | undefined {
   const value = parseCookieHeader(header)?.[SETUP_OIDC_STATE_COOKIE]
   if (!value) return undefined
@@ -51,6 +66,9 @@ export function readSetupOidcStateCookie(header: string | null): SetupOidcStateP
   return setupCookieCodec.read<SetupOidcStatePayload>(value)
 }
 
+/**
+ * Builds the HTTP `Set-Cookie` header for a new setup session.
+ */
 export function setupSessionSetCookie(secure: boolean): string {
   return cookieHeader(SETUP_SESSION_COOKIE, createSetupSessionCookie(), {
     secure,
@@ -58,6 +76,9 @@ export function setupSessionSetCookie(secure: boolean): string {
   })
 }
 
+/**
+ * Builds the HTTP `Set-Cookie` header that clears setup-session state.
+ */
 export function setupSessionExpiredCookie(secure: boolean): string {
   return expiredCookieHeader(SETUP_SESSION_COOKIE, secure)
 }

@@ -58,6 +58,12 @@ export async function upsertPermissionGrant(
     metadata: jsonbParam(attrs.metadata ?? {})
   }
 
+  // Principal-owned and group-owned grants have separate partial unique indexes
+  // (one filtered on principalUid not null, the other on groupId not null),
+  // because a single index over both nullable owners could not express the
+  // identity. The branch picks the matching index so the conflict target lines
+  // up with whichever owner this grant has. Ownership exclusivity was already
+  // enforced by normalization above.
   if (attrs.principalUid) {
     const [grant] = await db
       .insert(PermissionGrants)

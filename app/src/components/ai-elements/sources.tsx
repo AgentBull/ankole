@@ -7,6 +7,10 @@ import type { ComponentProps } from 'react'
 
 export type SourcesProps = ComponentProps<'div'>
 
+/**
+ * Collapsible "Used N sources" disclosure shown under an assistant message that cited references.
+ * Closed by default so citations stay out of the way until the reader wants to inspect them.
+ */
 export const Sources = ({ className, ...props }: SourcesProps) => (
   <Collapsible className={cn('not-prose mb-4 text-primary text-xs', className)} {...props} />
 )
@@ -15,6 +19,7 @@ export type SourcesTriggerProps = ComponentProps<typeof CollapsibleTrigger> & {
   count: number
 }
 
+/** Clickable header that toggles the source list; shows the citation count unless `children` overrides it. */
 export const SourcesTrigger = ({ className, count, children, ...props }: SourcesTriggerProps) => (
   <CollapsibleTrigger className={cn('flex items-center gap-2', className)} {...props}>
     {children ?? (
@@ -28,6 +33,7 @@ export const SourcesTrigger = ({ className, count, children, ...props }: Sources
 
 export type SourcesContentProps = ComponentProps<typeof CollapsibleContent>
 
+/** Animated reveal region holding the {@link Source} links; expands/collapses with the trigger. */
 export const SourcesContent = ({ className, ...props }: SourcesContentProps) => (
   <CollapsibleContent
     className={cn(
@@ -41,6 +47,7 @@ export const SourcesContent = ({ className, ...props }: SourcesContentProps) => 
 
 export type SourceProps = ComponentProps<'a'>
 
+/** A single cited source link inside {@link SourcesContent}; opens in a new tab with `rel="noreferrer"`. */
 export const Source = ({ href, title, children, ...props }: SourceProps) => (
   <a className="flex items-center gap-2" href={href} rel="noreferrer" target="_blank" {...props}>
     {children ?? (

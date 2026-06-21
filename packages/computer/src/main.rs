@@ -50,6 +50,11 @@ struct Cli {
   port: u16,
 }
 
+/// Process entry point. Brings the daemon up in a fixed order — config, SSH
+/// identity, shared state, background heartbeat, then the h2/mTLS server — and on
+/// the way down drains in-flight work before exiting. The order matters: the
+/// readiness file is only written once the listener is actually bound, so probes
+/// never see "ready" before the API can accept a connection.
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
   let cli = Cli::parse();
@@ -67,7 +72,11 @@ async fn main() -> anyhow::Result<()> {
     "starting bullx-computerd"
   );
 
+  // Clear any stale readiness file left by a previous crash, so a probe cannot
+  // observe a "ready" marker that predates this process actually listening.
   let _ = tokio::fs::remove_file(&config.ready_file).await;
+  // Best-effort: a missing Git SSH identity must not block the daemon from
+  // serving. Agents that do not push over SSH are unaffected.
   if let Err(error) =
     git_ssh_identity::provision_if_available(&config.database_url, &config.computer_token).await
   {
@@ -82,10 +91,14 @@ async fn main() -> anyhow::Result<()> {
   let handle = Handle::new();
   let shutdown_handle = handle.clone();
   let ready_file = config.ready_file.clone();
+  // Watch for SIGINT/SIGTERM out of band. On signal, ask axum to stop accepting
+  // and give in-flight requests up to 30s to finish before the bind future
+  // returns; this is the command-drain window on pod termination.
   tokio::spawn(async move {
     shutdown::signal().await;
     shutdown_handle.graceful_shutdown(Some(Duration::from_secs(30)));
   });
+  // Only now, with the listener bound, announce readiness to deployment probes.
   tokio::fs::write(&ready_file, b"ready\n").await?;
   tracing::info!(port = config.port, ready_file = %ready_file.display(), "listening with h2 mTLS");
 
@@ -94,6 +107,9 @@ async fn main() -> anyhow::Result<()> {
     .serve(app.into_make_service())
     .await?;
 
+  // Past this point the server has drained and stopped. Retract readiness, stop
+  // the heartbeat loop, then tear down every live session (kills tracked
+  // processes, shells, and the tmux keeper) before the process exits.
   let _ = tokio::fs::remove_file(&config.ready_file).await;
   worker_task.abort();
   state.sessions.shutdown_all().await;

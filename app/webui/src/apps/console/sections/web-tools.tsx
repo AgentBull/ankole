@@ -26,6 +26,7 @@ type WebToolFormState = {
   clearJinaApiKey: boolean
 }
 
+/** Shows the web-search/extract routing and the secret update controls used by runtime web tools. */
 export function WebToolsPage() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
@@ -218,6 +219,7 @@ export function WebToolsPage() {
   )
 }
 
+/** Keeps secret editing explicit because an empty password box means "keep current value", not "clear it". */
 function SecretField({
   label,
   configKey,
@@ -265,6 +267,7 @@ function SecretField({
   )
 }
 
+/** Renders provider readiness without hiding the backend reason operators need when a provider is disabled. */
 function ProviderAvailability({
   availability
 }: {
@@ -287,6 +290,7 @@ function ProviderAvailability({
   )
 }
 
+/** Builds an edit form that never hydrates secret values back into the browser. */
 function webToolFormFromData(data: ConsoleWebTools | undefined): WebToolFormState {
   return {
     searchProvider: data?.searchProvider ?? '',
@@ -300,6 +304,7 @@ function webToolFormFromData(data: ConsoleWebTools | undefined): WebToolFormStat
   }
 }
 
+/** Limits each combobox to providers that can serve that tool kind while still allowing custom provider ids. */
 function providerOptions(
   data: ConsoleWebTools | undefined,
   kind: 'search' | 'extract',
@@ -316,11 +321,13 @@ function providerOptions(
     }))
 }
 
+/** Converts a blank provider selection into the server-side default route. */
 function providerValueForSave(value: string): string | null {
   const trimmed = value.trim()
   return trimmed ? trimmed : null
 }
 
+/** Encodes the secret PATCH contract: null clears, undefined preserves, and a string replaces. */
 function secretValueForSave(value: string, clear: boolean): string | null | undefined {
   if (clear) return null
   const trimmed = value.trim()

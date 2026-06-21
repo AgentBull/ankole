@@ -26,6 +26,15 @@ interface CommandDetails {
   exitCode: number
 }
 
+/**
+ * The model's tool for one-shot, stateless shell commands (builds, installs, git, searches).
+ *
+ * Each call runs through the worker's isolated `runCommand`, not the persistent shell, so nothing
+ * a command does to cwd/env/aliases leaks into the next one. That isolation is the whole point of
+ * having `command` separate from `terminal`: callers who explicitly want carried-over shell state
+ * reach for `terminal` instead. The long `description` is what the model reads, and it deliberately
+ * steers the model away from cat/sed/heredoc tricks toward the dedicated read_file/patch tools.
+ */
 export function createCommandTool(context: ComputerToolContext): AgentTool<typeof CommandParams, CommandDetails> {
   return buildTool({
     name: 'command',
@@ -37,6 +46,9 @@ export function createCommandTool(context: ComputerToolContext): AgentTool<typeo
     isDestructive: true,
     async execute(_toolCallId, params, signal): Promise<AgentToolResult<CommandDetails>> {
       const computer = await context.getComputer(signal)
+      // `-lc` runs a login shell so PATH and profile-provided tooling are present, matching what a
+      // user typing the command would get. `timeout` is the worker-side execution budget in
+      // seconds (default 60), passed as ms; the worker kills the process when it elapses.
       const result = await computer.runCommand({
         cmd: 'bash',
         args: ['-lc', params.command],
@@ -45,6 +57,9 @@ export function createCommandTool(context: ComputerToolContext): AgentTool<typeo
         timeoutMs: (params.timeout ?? 60) * 1000,
         signal
       })
+      // stdout and stderr are merged and truncated before going back to the model, so a runaway
+      // command cannot blow the context window. The `exit_code=` prefix gives the model the result
+      // up front even when the tail of the output was dropped.
       const output = truncateOutput(await result.output('both', { signal }))
       return {
         content: [{ type: 'text', text: `exit_code=${result.exitCode}\n${output}` }],
