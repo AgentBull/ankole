@@ -1,0 +1,273 @@
+#ankole-app {
+  min-height: 100vh;
+}
+
+.ak-setup-page,
+.ak-auth-page {
+  min-height: 100vh;
+  padding: 32px;
+  background: linear-gradient(180deg, rgb(247 248 245 / 92%), rgb(247 248 245 / 98%)), url('./setup-workspace.jpg');
+  background-position: center;
+  background-size: cover;
+}
+
+.ak-setup-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  width: min(100%, 1120px);
+  margin: 0 auto 24px;
+  gap: 24px;
+}
+
+.ak-setup-header h1,
+.ak-auth-card h1 {
+  margin: 4px 0 8px;
+  font-size: 32px;
+  line-height: 1.12;
+  letter-spacing: 0;
+}
+
+.ak-setup-header p,
+.ak-auth-card p,
+.ak-muted {
+  margin: 0;
+  color: #52615a;
+  line-height: 1.55;
+}
+
+.ak-setup-grid {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: 18px;
+  width: min(100%, 1120px);
+  margin: 0 auto;
+}
+
+.ak-step-nav {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+}
+
+.ak-step-nav button {
+  display: flex;
+  align-items: center;
+  min-height: 42px;
+  gap: 10px;
+  padding: 0 12px;
+  border: 1px solid #d9ded8;
+  border-radius: 6px;
+  color: #52615a;
+  background: #ffffff;
+  cursor: pointer;
+}
+
+.ak-step-nav button[data-active] {
+  border-color: #24513f;
+  color: #ffffff;
+  background: #24513f;
+}
+
+.ak-step-nav button:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
+.ak-step-nav span {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+}
+
+.ak-flow-panel {
+  min-width: 0;
+}
+
+.ak-setup-card .ak-card-header,
+.ak-auth-card .ak-card-header {
+  display: block;
+}
+
+.ak-setup-card h2,
+.ak-dynamic-fields h2 {
+  margin: 0;
+  font-size: 18px;
+  line-height: 1.3;
+}
+
+.ak-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 18px;
+}
+
+.ak-form-stack {
+  display: grid;
+  gap: 22px;
+}
+
+.ak-field,
+.ak-check-field {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  color: #243129;
+  font-size: 14px;
+  font-weight: 620;
+}
+
+.ak-field input,
+.ak-field select,
+.ak-field textarea {
+  width: 100%;
+  min-height: 38px;
+  padding: 0 10px;
+  border: 1px solid #c8d0ca;
+  border-radius: 6px;
+  color: #17201b;
+  background: #ffffff;
+}
+
+.ak-field textarea {
+  min-height: 88px;
+  padding-top: 10px;
+  resize: vertical;
+}
+
+.ak-field small,
+.ak-check-field small {
+  color: #647269;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.45;
+}
+
+.ak-field-error {
+  color: #9b2f2f !important;
+}
+
+.ak-check-field {
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: start;
+  padding: 12px;
+  border: 1px solid #e2e7e1;
+  border-radius: 6px;
+  background: #fbfcfa;
+}
+
+.ak-check-field input,
+.ak-plugin-row input {
+  margin-top: 2px;
+}
+
+.ak-check-field span,
+.ak-plugin-row span {
+  display: grid;
+  gap: 4px;
+}
+
+.ak-dynamic-fields {
+  display: grid;
+  gap: 4px;
+}
+
+.ak-plugin-list,
+.ak-login-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.ak-plugin-row,
+.ak-login-provider {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid #e2e7e1;
+  border-radius: 6px;
+  background: #fbfcfa;
+}
+
+.ak-plugin-row strong,
+.ak-login-provider strong {
+  font-size: 14px;
+}
+
+.ak-plugin-row small,
+.ak-login-provider small {
+  color: #647269;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.ak-login-provider {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  color: #17201b;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ak-login-provider:hover {
+  border-color: #24513f;
+}
+
+.ak-form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.ak-error {
+  display: grid;
+  gap: 4px;
+  margin-top: 16px;
+  padding: 12px;
+  border: 1px solid #d68b8b;
+  border-radius: 6px;
+  color: #7b1f1f;
+  background: #fff4f4;
+  font-size: 13px;
+}
+
+.ak-auth-page {
+  display: grid;
+  place-items: center;
+}
+
+.ak-auth-card {
+  width: min(100%, 520px);
+}
+
+.ak-button:disabled,
+.ak-login-provider:disabled {
+  cursor: default;
+  opacity: 0.58;
+}
+
+@media (max-width: 760px) {
+  .ak-setup-page,
+  .ak-auth-page {
+    padding: 20px;
+  }
+
+  .ak-setup-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .ak-setup-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .ak-step-nav {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .ak-form-grid {
+    grid-template-columns: 1fr;
+  }
+}

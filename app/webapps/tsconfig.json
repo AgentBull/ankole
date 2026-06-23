@@ -1,0 +1,22 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "moduleResolution": "bundler",
+    "types": ["bun", "react", "react-dom"]
+  },
+  "include": [
+    "auth/**/*.ts",
+    "auth/**/*.tsx",
+    "common/**/*.ts",
+    "common/**/*.tsx",
+    "console/**/*.ts",
+    "console/**/*.tsx",
+    "entrypoints/**/*.ts",
+    "entrypoints/**/*.tsx",
+    "setup/**/*.ts",
+    "setup/**/*.tsx",
+    "vite.config.ts"
+  ]
+}

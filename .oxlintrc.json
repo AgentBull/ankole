@@ -1,0 +1,42 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "unicorn", "oxc", "import"],
+  "categories": {
+    "correctness": "error"
+  },
+  "env": {
+    "node": true,
+    "es2024": true
+  },
+  "globals": {
+    "Bun": "readonly"
+  },
+  "ignorePatterns": [
+    "**/db/meta/*.json",
+    "packages/native-addons/index.d.ts",
+    "packages/native-addons/index.js",
+    "packages/native-addons/main.js"
+  ],
+  "rules": {
+    "curly": ["error", "multi-line"],
+    "prefer-const": "error",
+    "prefer-template": "error",
+    "no-console": ["error", { "allow": ["warn", "error"] }],
+    "no-cond-assign": ["error", "always"],
+    "no-unused-expressions": ["error", { "allowTernary": true, "allowShortCircuit": true }],
+    "no-unused-vars": ["error", { "caughtErrors": "none", "argsIgnorePattern": "^_", "varsIgnorePattern": "^_" }],
+    "typescript/no-explicit-any": "off",
+    "typescript/no-non-null-assertion": "off",
+    "typescript/no-unnecessary-type-constraint": "warn",
+    "dot-notation": "off",
+    "unicorn/no-array-for-each": "off"
+  },
+  "overrides": [
+    {
+      "files": ["**/*.test.ts", "**/*.test.tsx", "**/*.spec.ts"],
+      "rules": {
+        "no-console": "off"
+      }
+    }
+  ]
+}

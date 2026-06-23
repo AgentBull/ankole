@@ -1,0 +1,25 @@
+{
+  "name": "@ankole/control-plane",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "setup": "mix setup",
+    "deps:get": "mix deps.get",
+    "dev": "mix phx.server",
+    "dev:iex": "iex -S mix phx.server",
+    "build": "mix assets.deploy",
+    "assets:build": "mix assets.build",
+    "compile": "mix compile --warnings-as-errors",
+    "type-check": "mix compile --warnings-as-errors",
+    "fmt": "mix format",
+    "fmt:check": "mix format --check-formatted",
+    "lint": "mix format --check-formatted && mix compile --warnings-as-errors",
+    "test": "mix test",
+    "precommit": "mix precommit",
+    "routes": "mix phx.routes",
+    "ecto:create": "mix ecto.create",
+    "ecto:migrate": "mix ecto.migrate",
+    "ecto:reset": "mix ecto.reset"
+  }
+}

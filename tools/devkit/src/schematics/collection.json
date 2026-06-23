@@ -1,0 +1,10 @@
+{
+  "$schema": "../../../../node_modules/@angular-devkit/schematics/collection-schema.json",
+  "schematics": {
+    "code-workspace": {
+      "description": "Create or update the VS Code workspace file for this repository.",
+      "factory": "./code-workspace/index#workspace",
+      "schema": "./code-workspace/schema.json"
+    }
+  }
+}

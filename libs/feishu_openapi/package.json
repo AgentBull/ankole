@@ -1,0 +1,16 @@
+{
+  "name": "@ankole/feishu-openapi",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "scripts": {
+    "deps:get": "mix deps.get",
+    "build": "mix compile --warnings-as-errors",
+    "compile": "mix compile --warnings-as-errors",
+    "type-check": "mix compile --warnings-as-errors",
+    "fmt": "mix format",
+    "fmt:check": "mix format --check-formatted",
+    "lint": "mix format --check-formatted && mix compile --warnings-as-errors",
+    "test": "mix test"
+  }
+}

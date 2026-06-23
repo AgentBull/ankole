@@ -1,0 +1,32 @@
+[__meta__]
+bcp47 = "zh-Hans-CN"
+fallback = "en-US"
+
+[examples]
+greeting = "你好，{$name}！"
+
+[errors]
+cant_be_blank = "不能为空"
+is_invalid = "无效"
+
+[errors.validation]
+required = "不能为空"
+format = "格式无效"
+number = "无效"
+acceptance = "必须接受"
+
+[errors.validation.length.string]
+min = "至少需要 {$count} 个字符"
+max = "最多只能有 {$count} 个字符"
+is = "必须是 {$count} 个字符"
+
+[errors.validation.length.binary]
+min = "至少需要 {$count} 个字节"
+max = "最多只能有 {$count} 个字节"
+is = "必须是 {$count} 个字节"
+
+[errors.validation.length.collection]
+min = "至少需要 {$count} 项"
+max = "最多只能有 {$count} 项"
+is = "必须是 {$count} 项"
+

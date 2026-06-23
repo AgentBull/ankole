@@ -1,0 +1,46 @@
+[__meta__]
+bcp47 = "en-US"
+
+[examples]
+greeting = "Hello, {$name}!"
+
+[errors]
+cant_be_blank = "can't be blank"
+is_invalid = "is invalid"
+
+[errors.validation]
+required = "can't be blank"
+format = "has invalid format"
+number = "is invalid"
+acceptance = "must be accepted"
+
+[errors.validation.length.string]
+min = """
+.input {$count :integer}
+.match $count
+  1 {{should be at least 1 character}}
+  * {{should be at least {$count} characters}}
+"""
+max = """
+.input {$count :integer}
+.match $count
+  1 {{should be at most 1 character}}
+  * {{should be at most {$count} characters}}
+"""
+is = """
+.input {$count :integer}
+.match $count
+  1 {{should be 1 character}}
+  * {{should be {$count} characters}}
+"""
+
+[errors.validation.length.binary]
+min = "should be at least {$count} byte(s)"
+max = "should be at most {$count} byte(s)"
+is = "should be {$count} byte(s)"
+
+[errors.validation.length.collection]
+min = "should have at least {$count} item(s)"
+max = "should have at most {$count} item(s)"
+is = "should have {$count} item(s)"
+

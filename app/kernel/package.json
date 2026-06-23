@@ -1,0 +1,35 @@
+{
+  "name": "@ankole/kernel",
+  "version": "0.1.0",
+  "private": true,
+  "type": "commonjs",
+  "license": "MIT",
+  "files": [
+    "README.md",
+    "index.js",
+    "main.js",
+    "index.d.ts"
+  ],
+  "main": "./main.js",
+  "types": "./index.d.ts",
+  "scripts": {
+    "build": "bun run build:bun",
+    "build:bun": "napi build --release --manifest-path Cargo.toml --output-dir . --no-default-features --features napi --dts index.d.ts",
+    "build:debug": "napi build --manifest-path Cargo.toml --output-dir . --no-default-features --features napi --dts index.d.ts",
+    "build:elixir": "mix deps.get && mix compile",
+    "fmt": "cargo fmt --manifest-path Cargo.toml && mix format",
+    "fmt:check": "cargo fmt --manifest-path Cargo.toml --check && mix format --check-formatted",
+    "lint": "cargo fmt --manifest-path Cargo.toml --check && cargo clippy --manifest-path Cargo.toml --no-default-features --all-targets -- -D warnings && cargo clippy --manifest-path Cargo.toml --no-default-features --features napi --all-targets -- -D warnings && cargo clippy --manifest-path Cargo.toml --no-default-features --features nif --all-targets -- -D warnings && mix format --check-formatted",
+    "test": "bun run test:rust && bun run test:bun && bun run test:elixir",
+    "test:bun": "bun run build:bun && bun test",
+    "test:elixir": "mix deps.get && mix test",
+    "test:rust": "cargo test --manifest-path Cargo.toml --no-default-features && cargo test --manifest-path Cargo.toml --no-default-features --features napi && cargo test --manifest-path Cargo.toml --no-default-features --features nif",
+    "type-check": "bun run build:bun"
+  },
+  "devDependencies": {
+    "@napi-rs/cli": "^3.7.2"
+  },
+  "napi": {
+    "binaryName": "ankole-kernel"
+  }
+}
