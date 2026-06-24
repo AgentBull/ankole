@@ -14,7 +14,7 @@ export function AuthApp() {
   const { t } = useTranslation()
   const providers = useQuery({
     queryKey: ['identity-providers'],
-    queryFn: () => apiGet<{ providers: LoginProvider[] }>('/api/identity-providers')
+    queryFn: () => apiGet<{ providers: LoginProvider[] }>('/.internal-apis/identity-providers')
   })
   const mutation = useMutation({
     mutationFn: (providerId: string) => {
@@ -22,7 +22,7 @@ export function AuthApp() {
       // The server validates and stores the OIDC state. The SPA only passes the
       // desired return path so the callback can land back in the correct screen.
       return apiPost<{ authorizationUrl: string }>(
-        `/api/identity-providers/${encodeURIComponent(providerId)}/oidc/authorizations?return_to=${encodeURIComponent(returnTo)}`
+        `/.internal-apis/identity-providers/${encodeURIComponent(providerId)}/oidc/authorizations?return_to=${encodeURIComponent(returnTo)}`
       )
     },
     onSuccess: result => window.location.assign(result.authorizationUrl)

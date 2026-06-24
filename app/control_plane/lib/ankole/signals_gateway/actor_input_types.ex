@@ -22,7 +22,7 @@ defmodule Ankole.SignalsGateway.ActorInputTypes do
   def consumption_path(_type), do: :direct
 
   @doc """
-  Computes mailbox readiness metadata for one ActorInput.
+  Computes readiness metadata for one ActorInput.
   """
   @spec readiness(String.t(), map(), DateTime.t()) :: map()
   def readiness("im.message.addressed", input, now) do

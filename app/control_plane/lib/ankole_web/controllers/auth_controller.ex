@@ -13,6 +13,7 @@ defmodule AnkoleWeb.AuthController do
   alias Ankole.AuthZ
   alias Ankole.IdentityProviders
   alias Ankole.Setup.Config, as: SetupConfig
+  alias AnkoleWeb.ConsoleTokens
   alias AnkoleWeb.Session, as: WebSession
 
   @doc """
@@ -41,6 +42,42 @@ defmodule AnkoleWeb.AuthController do
     conn
     |> WebSession.clear_admin_session()
     |> json(%{ok: true})
+  end
+
+  @doc """
+  Exchanges the browser admin session or refresh token for console bearer tokens.
+  """
+  def oauth_token(conn, %{"grant_type" => "urn:ankole:params:oauth:grant-type:browser-session"}) do
+    with {:ok, session} <- active_admin_session(conn),
+         {:ok, token_set} <- ConsoleTokens.mint_for_session(session) do
+      json(conn, token_set)
+    else
+      :error -> oauth_error(conn, 401, "invalid_grant", "active admin session required")
+      {:error, reason} -> oauth_error(conn, 400, "server_error", reason)
+    end
+  end
+
+  def oauth_token(conn, %{"grant_type" => "refresh_token", "refresh_token" => refresh_token})
+      when is_binary(refresh_token) do
+    with {:ok, session} <- active_admin_session(conn),
+         {:ok, token_set} <- ConsoleTokens.refresh_for_session(refresh_token, session) do
+      json(conn, token_set)
+    else
+      :error -> oauth_error(conn, 401, "invalid_grant", "active admin session required")
+      {:error, reason} -> oauth_error(conn, 400, "invalid_grant", reason)
+    end
+  end
+
+  def oauth_token(conn, %{"grant_type" => "refresh_token"}) do
+    oauth_error(conn, 400, "invalid_request", "refresh_token is required")
+  end
+
+  def oauth_token(conn, %{"grant_type" => _grant_type}) do
+    oauth_error(conn, 400, "unsupported_grant_type", "grant_type is not supported")
+  end
+
+  def oauth_token(conn, _params) do
+    oauth_error(conn, 400, "invalid_request", "grant_type is required")
   end
 
   @doc """
@@ -199,6 +236,12 @@ defmodule AnkoleWeb.AuthController do
     conn
     |> put_status(status)
     |> json(%{error: message(reason)})
+  end
+
+  defp oauth_error(conn, status, code, reason) do
+    conn
+    |> put_status(status)
+    |> json(%{error: code, error_description: message(reason)})
   end
 
   defp message(value) when is_binary(value), do: value

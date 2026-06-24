@@ -1,4 +1,4 @@
-import { mountSpa } from '../common/mount-spa'
-import { consoleSpa } from '../console/app'
+import { mountApp } from '../common/mount-spa'
+import { ConsoleApp } from '../console/app'
 
-void mountSpa(consoleSpa)
+mountApp(<ConsoleApp />)

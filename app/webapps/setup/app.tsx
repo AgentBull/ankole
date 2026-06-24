@@ -74,7 +74,7 @@ export function SetupApp() {
   const [step, setStep] = useState<'plugins' | 'identity'>('plugins')
   const state = useQuery({
     queryKey: ['setup-state'],
-    queryFn: () => apiGet<SetupState>('/api/setup/state')
+    queryFn: () => apiGet<SetupState>('/.internal-apis/setup/state')
   })
 
   useEffect(() => {
@@ -136,7 +136,8 @@ function BootstrapGate({ setupState, onAuthenticated }: { setupState?: SetupStat
     revalidate: 'input'
   })
   const mutation = useMutation({
-    mutationFn: (input: v.InferOutput<typeof BootstrapSchema>) => apiPost<{ ok: true }>('/api/setup/sessions', input),
+    mutationFn: (input: v.InferOutput<typeof BootstrapSchema>) =>
+      apiPost<{ ok: true }>('/.internal-apis/setup/sessions', input),
     onSuccess: onAuthenticated
   })
   const availableLocales = useMemo(
@@ -210,7 +211,7 @@ function PluginsStep({ onContinue }: { onContinue: () => void }) {
   const { i18n: i18next, t } = useTranslation()
   const query = useQuery({
     queryKey: ['setup-plugins'],
-    queryFn: () => apiGet<{ enabledPluginIds: string[]; plugins: Plugin[] }>('/api/setup/plugins')
+    queryFn: () => apiGet<{ enabledPluginIds: string[]; plugins: Plugin[] }>('/.internal-apis/setup/plugins')
   })
   const [selected, setSelected] = useState<Set<string> | null>(null)
   // `null` means the user has not touched the form yet. Until then, the server
@@ -218,7 +219,7 @@ function PluginsStep({ onContinue }: { onContinue: () => void }) {
   const selectedIds = selected ?? new Set(query.data?.enabledPluginIds ?? [])
   const mutation = useMutation({
     mutationFn: () =>
-      apiPut<{ enabledPluginIds: string[] }>('/api/setup/plugins/enabled', { pluginIds: [...selectedIds] }),
+      apiPut<{ enabledPluginIds: string[] }>('/.internal-apis/setup/plugins/enabled', { pluginIds: [...selectedIds] }),
     onSuccess: onContinue
   })
 
@@ -267,7 +268,7 @@ function PluginsStep({ onContinue }: { onContinue: () => void }) {
 function IdentityStep() {
   const query = useQuery({
     queryKey: ['setup-identity-provider-adapters'],
-    queryFn: () => apiGet<{ adapters: IdentityAdapter[] }>('/api/setup/identity-provider-adapters')
+    queryFn: () => apiGet<{ adapters: IdentityAdapter[] }>('/.internal-apis/setup/identity-provider-adapters')
   })
 
   if (query.isLoading) return <Panel title="">{i18n.t('common.loading')}</Panel>
@@ -294,13 +295,13 @@ function IdentityForm({ adapters }: { adapters: IdentityAdapter[] }) {
   const [config, setConfig] = useState<JsonObject>(() => defaultConfig(activeAdapter.fields))
   const mutation = useMutation({
     mutationFn: async (input: v.InferOutput<typeof IdentitySchema>) => {
-      await apiPut(`/api/setup/identity-providers/${encodeURIComponent(input.providerId)}`, {
+      await apiPut(`/.internal-apis/setup/identity-providers/${encodeURIComponent(input.providerId)}`, {
         adapter: input.adapterId,
         config,
         enabled: true
       })
       return apiPost<{ authorizationUrl: string }>(
-        `/api/setup/identity-providers/${encodeURIComponent(input.providerId)}/oidc/authorizations`
+        `/.internal-apis/setup/identity-providers/${encodeURIComponent(input.providerId)}/oidc/authorizations`
       )
     },
     onSuccess: result => window.location.assign(result.authorizationUrl)

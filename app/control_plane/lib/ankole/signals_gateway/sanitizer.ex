@@ -2,7 +2,7 @@ defmodule Ankole.SignalsGateway.Sanitizer do
   @moduledoc """
   Bounded redaction for error details and log previews.
 
-  This module is deliberately not a durable payload normalizer. Mailbox,
+  This module is deliberately not a durable payload normalizer. Actor input,
   outbox, and provider mirror payloads must pass `JsonPayload` instead of being
   repaired here.
   """

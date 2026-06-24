@@ -115,7 +115,7 @@ defmodule Ankole.IdentityProviders do
   """
   @spec oidc_callback_path(String.t()) :: String.t()
   def oidc_callback_path(provider_id) do
-    "/auth/oidc/#{URI.encode(provider_id)}/callback"
+    "/sessions/oidc/#{URI.encode(provider_id)}/callback"
   end
 
   @doc """

@@ -10,6 +10,9 @@ describe('@ankole/kernel', () => {
     for (const name of [
       'aeadDecrypt',
       'aeadEncrypt',
+      'actorBusDecodeEnvelope',
+      'actorBusEncodeEnvelope',
+      'ActorBusDealer',
       'authzAuthorize',
       'authzAuthorizeAll',
       'authzMatchResourcePattern',
@@ -27,6 +30,9 @@ describe('@ankole/kernel', () => {
       'genBase36UUID',
       'generateKey',
       'genericHash',
+      'jwtDecodeHeader',
+      'jwtSign',
+      'jwtVerify',
       'phoneNormalizeE164',
       'genShortUUID',
       'genUUID',
@@ -55,6 +61,104 @@ describe('@ankole/kernel', () => {
     expect(encrypted).not.toContain('=')
     expect(Buffer.from(kernel.aeadDecrypt(encrypted, aeadKey)).toString('utf8')).toBe('secret')
     expect(Buffer.from(kernel.aeadDecrypt(aeadCiphertext, aeadKey)).toString('utf8')).toBe('secret')
+  })
+
+  it('signs, verifies, and decodes JWT headers', () => {
+    const token = kernel.jwtSign(
+      {
+        iss: 'ankole.control_plane',
+        aud: 'ankole.web_console',
+        sub: 'human-1',
+        exp: 4102444800,
+        token_use: 'access',
+      },
+      'jwt-secret',
+      { algorithm: 'HS256', key_id: 'test-key' },
+    )
+
+    expect(
+      kernel.jwtVerify(token, 'jwt-secret', {
+        algorithms: ['HS256'],
+        iss: ['ankole.control_plane'],
+        aud: ['ankole.web_console'],
+        sub: 'human-1',
+      }),
+    ).toMatchObject({ sub: 'human-1', token_use: 'access' })
+    expect(kernel.jwtDecodeHeader(token)).toMatchObject({ algorithm: 'HS256', key_id: 'test-key' })
+  })
+
+  it('encodes and decodes Actor Bus protobuf envelopes', () => {
+    const envelope = {
+      protocol_version: 1,
+      message_id: 'turn-start-1',
+      correlation_id: 'corr-1',
+      seq: 1,
+      lane: 'LANE_TURN',
+      sent_at_unix_ms: 1782300000000,
+      durability: 'CONTROL_REPLAYABLE',
+      body: {
+        type: 'turn_start',
+        turn_start: {
+          turn: actorTurnRef(),
+          inputs: [
+            {
+              actor_input_id: 'input-1',
+              broker_sequence: 1,
+              type: 'im.message.addressed',
+              ingress_event_id: 'event-1',
+              provider_entry_id: 'message-1',
+              payload_json: { text: 'PING' },
+            },
+          ],
+        },
+      },
+    }
+
+    const encoded = kernel.actorBusEncodeEnvelope(envelope)
+    expect(Buffer.isBuffer(encoded)).toBe(true)
+
+    const decoded = kernel.actorBusDecodeEnvelope(encoded)
+    expect(decoded.body.type).toBe('turn_start')
+    expect(decoded.body.turn_start.inputs[0].payload_json.text).toBe('PING')
+  })
+
+  it('rejects inline steer payloads in Actor Bus turn_control', () => {
+    expect(() =>
+      kernel.actorBusEncodeEnvelope({
+        protocol_version: 1,
+        message_id: 'steer-1',
+        correlation_id: 'steer-1',
+        lane: 'LANE_CONTROL',
+        durability: 'CONTROL_DURABLE',
+        turn_control: {
+          turn: actorTurnRef(),
+          command: 'steer',
+          payload_json: { text: 'inline steer is not allowed' },
+        },
+      }),
+    ).toThrow(/steer payload must be empty/)
+  })
+
+  it('rejects Actor Bus bodies on the wrong lane or durability', () => {
+    expect(() =>
+      kernel.actorBusEncodeEnvelope({
+        protocol_version: 1,
+        message_id: 'turn-start-wrong-lane',
+        lane: 'LANE_CONTROL',
+        durability: 'CONTROL_EPHEMERAL',
+        turn_start: {
+          turn: actorTurnRef(),
+          inputs: [
+            {
+              actor_input_id: 'input-1',
+              broker_sequence: 1,
+              type: 'im.message.addressed',
+              ingress_event_id: 'event-1',
+            },
+          ],
+        },
+      }),
+    ).toThrow(/turn_start must use lane LANE_TURN/)
   })
 
   it('encodes and decodes base58 and base64url payloads', () => {
@@ -115,3 +219,16 @@ describe('@ankole/kernel', () => {
     expect(kernel.genShortUUID()).toMatch(/^[1-9A-HJ-NP-Za-km-z]+$/)
   })
 })
+
+function actorTurnRef() {
+  return {
+    actor: {
+      agent_uid: 'agent-1',
+      session_id: 'signal-channel:lark:dm:1',
+    },
+    activation_uid: 'activation-1',
+    actor_epoch: 1,
+    llm_turn_id: '11111111-1111-1111-1111-111111111111',
+    revision: 0,
+  }
+}

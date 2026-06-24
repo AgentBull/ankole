@@ -3,7 +3,10 @@
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 use serde_json::Value as JsonValue;
+use std::time::Duration;
 
+use crate::actor_bus;
+use crate::actor_bus::transport::{DealerEvent, DealerHandle};
 use crate::authz;
 use crate::core;
 
@@ -85,6 +88,90 @@ pub fn authz_validate_resource_pattern(pattern: String) -> Result<bool> {
 #[napi]
 pub fn authz_match_resource_pattern(pattern: String, resource: String) -> Result<bool> {
     authz::pattern_matches(&pattern, &resource).map_err(napi_error)
+}
+
+/// Encodes an Actor Bus v1 envelope into protobuf bytes.
+#[napi(js_name = "actorBusEncodeEnvelope", ts_args_type = "envelope: any")]
+pub fn js_actor_bus_encode_envelope(envelope: JsonValue) -> Result<Buffer> {
+    actor_bus::encode_envelope_json(envelope)
+        .map(Buffer::from)
+        .map_err(napi_error)
+}
+
+/// Decodes Actor Bus v1 protobuf bytes into a JSON-shaped envelope.
+#[napi(
+    js_name = "actorBusDecodeEnvelope",
+    ts_args_type = "bytes: Buffer",
+    ts_return_type = "any"
+)]
+pub fn js_actor_bus_decode_envelope(bytes: Buffer) -> Result<JsonValue> {
+    actor_bus::decode_envelope_json(bytes.as_ref()).map_err(napi_error)
+}
+
+/// Bun/Node DEALER-side Actor Bus client.
+#[napi(js_name = "ActorBusDealer")]
+pub struct JsActorBusDealer {
+    handle: DealerHandle,
+}
+
+#[napi]
+impl JsActorBusDealer {
+    #[napi(constructor)]
+    pub fn new(
+        endpoint: String,
+        identity: String,
+        username: String,
+        password: String,
+    ) -> Result<Self> {
+        let config = actor_bus::transport::DealerConfig {
+            endpoint,
+            identity,
+            username,
+            password,
+            sndhwm: None,
+            rcvhwm: None,
+            linger_ms: None,
+            sndtimeo_ms: None,
+            rcvtimeo_ms: None,
+            poll_interval_ms: None,
+            command_timeout_ms: None,
+        };
+
+        actor_bus::transport::start_dealer(config)
+            .map(|handle| Self { handle })
+            .map_err(napi_error)
+    }
+
+    #[napi(ts_args_type = "envelope: any")]
+    pub fn send_envelope(&self, envelope: JsonValue) -> Result<String> {
+        self.handle
+            .send_envelope(envelope)
+            .map(|_| "sent_or_queued".to_string())
+            .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))
+    }
+
+    #[napi]
+    pub fn recv(&self, timeout_ms: u32) -> Result<Option<Buffer>> {
+        match self
+            .handle
+            .recv(Duration::from_millis(u64::from(timeout_ms)))
+            .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))?
+        {
+            Some(DealerEvent::Received(payload)) => Ok(Some(Buffer::from(payload))),
+            Some(DealerEvent::DecodeFailed(reason)) | Some(DealerEvent::SocketError(reason)) => {
+                Err(Error::new(Status::GenericFailure, reason))
+            }
+            None => Ok(None),
+        }
+    }
+
+    #[napi]
+    pub fn stop(&self) -> Result<bool> {
+        self.handle
+            .stop()
+            .map(|_| true)
+            .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))
+    }
 }
 
 /// Converts Unicode text into a best-effort ASCII representation for JS callers.
@@ -191,6 +278,73 @@ pub fn generic_hash(data: Either<String, Buffer>, salt: Either<String, ()>) -> R
 #[napi(js_name = "phoneNormalizeE164")]
 pub fn js_phone_normalize_e164(phone: String) -> Result<String> {
     core::phone_normalize_e164(&phone).map_err(napi_error)
+}
+
+/// Decodes a JWT header without validating the token signature.
+#[napi(js_name = "jwtDecodeHeader", ts_return_type = "any")]
+pub fn js_jwt_decode_header(token: String) -> Result<JsonValue> {
+    core::jwt_decode_header_json(&token)
+        .and_then(|json| {
+            serde_json::from_str(&json)
+                .map_err(|error| core::KernelError::new(format!("invalid header JSON: {error}")))
+        })
+        .map_err(napi_error)
+}
+
+/// Signs JSON claims with a JSON JWT header and string-or-buffer key.
+#[napi(
+    js_name = "jwtSign",
+    ts_args_type = "claims: any, key: string | Buffer, header?: any"
+)]
+pub fn js_jwt_sign(
+    claims: JsonValue,
+    key: Either<String, Buffer>,
+    header: Option<JsonValue>,
+) -> Result<String> {
+    let claims_json = serde_json::to_string(&claims).map_err(|error| {
+        Error::new(
+            Status::InvalidArg,
+            format!("claims must be JSON serializable: {error}"),
+        )
+    })?;
+    let header_json =
+        serde_json::to_string(&header.unwrap_or_else(|| JsonValue::Object(Default::default())))
+            .map_err(|error| {
+                Error::new(
+                    Status::InvalidArg,
+                    format!("header must be JSON serializable: {error}"),
+                )
+            })?;
+
+    core::jwt_sign_json(&claims_json, &bytes_from_either(key), &header_json).map_err(napi_error)
+}
+
+/// Verifies a JWT with a string-or-buffer key and JSON validation options.
+#[napi(
+    js_name = "jwtVerify",
+    ts_args_type = "token: string, key: string | Buffer, validation?: any",
+    ts_return_type = "any"
+)]
+pub fn js_jwt_verify(
+    token: String,
+    key: Either<String, Buffer>,
+    validation: Option<JsonValue>,
+) -> Result<JsonValue> {
+    let validation_json =
+        serde_json::to_string(&validation.unwrap_or_else(|| JsonValue::Object(Default::default())))
+            .map_err(|error| {
+                Error::new(
+                    Status::InvalidArg,
+                    format!("validation must be JSON serializable: {error}"),
+                )
+            })?;
+
+    core::jwt_verify_json(&token, &bytes_from_either(key), &validation_json)
+        .and_then(|json| {
+            serde_json::from_str(&json)
+                .map_err(|error| core::KernelError::new(format!("invalid claims JSON: {error}")))
+        })
+        .map_err(napi_error)
 }
 
 /// Generates a random UUIDv4 encoded from raw UUID bytes as Base58.

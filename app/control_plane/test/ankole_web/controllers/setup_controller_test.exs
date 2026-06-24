@@ -19,7 +19,7 @@ defmodule AnkoleWeb.SetupControllerTest do
     :ok
   end
 
-  test "POST /api/setup/sessions clears old setup session and OIDC state on invalid activation code",
+  test "POST /.internal-apis/setup/sessions clears old setup session and OIDC state on invalid activation code",
        %{conn: conn} do
     assert {:ok, "ABCDEFGH"} = SetupConfig.put_bootstrap_activation_code("ABCDEFGH")
 
@@ -30,9 +30,9 @@ defmodule AnkoleWeb.SetupControllerTest do
       |> WebSession.put_setup_oidc_state(%{
         provider_id: "lark-main",
         state: "old-state",
-        redirect_uri: "http://localhost/auth/oidc/lark-main/callback"
+        redirect_uri: "http://localhost/sessions/oidc/lark-main/callback"
       })
-      |> post(~p"/api/setup/sessions", %{"activationCode" => "WRONG000"})
+      |> post(~p"/.internal-apis/setup/sessions", %{"activationCode" => "WRONG000"})
 
     assert json_response(conn, 401)["error"] == "invalid bootstrap activation code"
     assert get_session(conn, :setup_session) == nil

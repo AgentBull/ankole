@@ -35,3 +35,9 @@ config :phoenix,
   sort_verified_routes_query_params: true
 
 config :ankole, Oban, testing: :manual, plugins: false, queues: false
+
+config :ankole, :actor_runtime,
+  activation_manager: [enabled: false],
+  reconciler: [enabled: false],
+  watchdog: [enabled: false],
+  outbox_dispatcher: [enabled: false]

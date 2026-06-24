@@ -53,6 +53,31 @@ defmodule Ankole.AppConfigure.Registry do
     GenServer.call(__MODULE__, {:require_key, key})
   end
 
+  @doc """
+  Lists registered exact definitions in stable key order.
+  """
+  @spec list_definitions() :: [Definition.t()]
+  def list_definitions do
+    GenServer.call(__MODULE__, :list_definitions)
+  end
+
+  @doc """
+  Lists registered pattern definitions in stable id order.
+  """
+  @spec list_patterns() :: [PatternDefinition.t()]
+  def list_patterns do
+    GenServer.call(__MODULE__, :list_patterns)
+  end
+
+  @doc """
+  Classifies a concrete key as exact or pattern-backed.
+  """
+  @spec classify_key(String.t()) ::
+          {:ok, {:exact, Definition.t()} | {:pattern, PatternDefinition.t()}} | {:error, term()}
+  def classify_key(key) when is_binary(key) do
+    GenServer.call(__MODULE__, {:classify_key, key})
+  end
+
   @doc false
   @spec clear_for_test() :: :ok
   def clear_for_test do
@@ -88,6 +113,21 @@ defmodule Ankole.AppConfigure.Registry do
   @impl true
   def handle_call({:require_key, key}, _from, state) do
     {:reply, resolve_key(state, key), state}
+  end
+
+  @impl true
+  def handle_call(:list_definitions, _from, %{definitions: definitions} = state) do
+    {:reply, definitions |> Map.values() |> Enum.sort_by(& &1.key), state}
+  end
+
+  @impl true
+  def handle_call(:list_patterns, _from, %{patterns: patterns} = state) do
+    {:reply, patterns |> Map.values() |> Enum.sort_by(& &1.id), state}
+  end
+
+  @impl true
+  def handle_call({:classify_key, key}, _from, state) do
+    {:reply, classify_registered_key(state, key), state}
   end
 
   @impl true
@@ -142,6 +182,18 @@ defmodule Ankole.AppConfigure.Registry do
     case Map.fetch(definitions, key) do
       {:ok, definition} -> {:ok, definition}
       :error -> resolve_pattern(patterns, key)
+    end
+  end
+
+  defp classify_registered_key(%{definitions: definitions, patterns: patterns}, key) do
+    case Map.fetch(definitions, key) do
+      {:ok, definition} ->
+        {:ok, {:exact, definition}}
+
+      :error ->
+        with {:ok, pattern} <- resolve_pattern(patterns, key) do
+          {:ok, {:pattern, pattern}}
+        end
     end
   end
 

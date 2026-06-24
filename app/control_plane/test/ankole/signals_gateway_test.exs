@@ -3,8 +3,8 @@ defmodule Ankole.SignalsGatewayTest do
 
   alias Ecto.Adapters.SQL
   alias Ankole.Actors
-  alias Ankole.Actors.ConsumedInput
-  alias Ankole.Actors.MailboxInput
+  alias Ankole.Actors.ActorInputConsumption
+  alias Ankole.Actors.ActorInput
   alias Ankole.Repo
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.ActorInputTypes
@@ -30,6 +30,19 @@ defmodule Ankole.SignalsGatewayTest do
     def send(_outbox), do: {:ok, %{provider_entry_id: "module-adapter-msg"}}
   end
 
+  defp actor_commit_opts(opts) do
+    Keyword.merge(
+      [
+        llm_turn_id: Ecto.UUID.generate(),
+        activation_uid:
+          "test-activation-" <> Integer.to_string(System.unique_integer([:positive])),
+        actor_epoch: 1,
+        revision: 0
+      ],
+      opts
+    )
+  end
+
   describe "binding policy and actor handoff" do
     test "ignore skips unaddressed group entries without mirroring or waking" do
       %{principal: agent} = agent_fixture()
@@ -39,7 +52,7 @@ defmodule Ankole.SignalsGatewayTest do
                SignalsGateway.emit_entry(agent.uid, "lark-main", group_entry(), now: @base_time)
 
       assert Repo.aggregate(SignalEntry, :count) == 0
-      assert Repo.aggregate(MailboxInput, :count) == 0
+      assert Repo.aggregate(ActorInput, :count) == 0
     end
 
     test "record_only mirrors unaddressed group entries without actor input" do
@@ -52,7 +65,7 @@ defmodule Ankole.SignalsGatewayTest do
       assert entry.signal_channel_id == "lark:chat:group-a"
       assert entry.provider_entry_id == "msg-1"
       assert entry.search_text == "hello"
-      assert Repo.aggregate(MailboxInput, :count) == 0
+      assert Repo.aggregate(ActorInput, :count) == 0
     end
 
     test "may_intervene mirrors and appends a direct candidate actor input" do
@@ -117,7 +130,7 @@ defmodule Ankole.SignalsGatewayTest do
                )
 
       assert input.type == "im.message.addressed"
-      assert Repo.aggregate(MailboxInput, :count) == 1
+      assert Repo.aggregate(ActorInput, :count) == 1
     end
 
     test "non-IM entries need code-defined actor input type instead of addressed IM fallback" do
@@ -132,7 +145,7 @@ defmodule Ankole.SignalsGatewayTest do
                  now: @base_time
                )
 
-      assert Repo.aggregate(MailboxInput, :count) == 0
+      assert Repo.aggregate(ActorInput, :count) == 0
       assert Repo.aggregate(SignalEntry, :count) == 0
     end
 
@@ -144,7 +157,7 @@ defmodule Ankole.SignalsGatewayTest do
                SignalsGateway.emit_entry(agent.uid, "lark-main", group_entry(), now: @base_time)
     end
 
-    test "exact binding filters can admit or filter ingress before mirror and mailbox writes" do
+    test "exact binding filters can admit or filter ingress before mirror and actor input writes" do
       %{principal: agent} = agent_fixture()
 
       binding_fixture(agent.uid, "bot", :ignore,
@@ -157,7 +170,7 @@ defmodule Ankole.SignalsGatewayTest do
                )
 
       assert Repo.aggregate(SignalEntry, :count) == 0
-      assert Repo.aggregate(MailboxInput, :count) == 0
+      assert Repo.aggregate(ActorInput, :count) == 0
 
       assert {:ok, %{status: :accepted, actor_input: input}} =
                SignalsGateway.emit_entry(
@@ -174,7 +187,7 @@ defmodule Ankole.SignalsGatewayTest do
 
       assert input.signal_channel_id == "lark:chat:allowed"
       assert Repo.aggregate(SignalEntry, :count) == 1
-      assert Repo.aggregate(MailboxInput, :count) == 1
+      assert Repo.aggregate(ActorInput, :count) == 1
     end
 
     test "unsupported or non-scalar binding filters fail before durable writes" do
@@ -199,7 +212,7 @@ defmodule Ankole.SignalsGatewayTest do
                )
 
       assert Repo.aggregate(SignalEntry, :count) == 0
-      assert Repo.aggregate(MailboxInput, :count) == 0
+      assert Repo.aggregate(ActorInput, :count) == 0
     end
 
     test "adapter context exposes a host-owned platform subject bridge" do
@@ -229,7 +242,7 @@ defmodule Ankole.SignalsGatewayTest do
   end
 
   describe "mirror identity and route-scoped delivery" do
-    test "same physical channel and entry share one mirror row while mailbox delivery remains per binding" do
+    test "same physical channel and entry share one mirror row while actor input remains per binding" do
       %{principal: agent_a} = agent_fixture()
       %{principal: agent_b} = agent_fixture()
       binding_fixture(agent_a.uid, "bot-a", :ignore)
@@ -249,15 +262,15 @@ defmodule Ankole.SignalsGatewayTest do
                )
 
       assert Repo.aggregate(SignalEntry, :count) == 1
-      assert Repo.aggregate(MailboxInput, :count) == 2
+      assert Repo.aggregate(ActorInput, :count) == 2
 
       assert Repo.aggregate(
-               from(input in MailboxInput, where: input.agent_uid == ^agent_a.uid),
+               from(input in ActorInput, where: input.agent_uid == ^agent_a.uid),
                :count
              ) == 1
 
       assert Repo.aggregate(
-               from(input in MailboxInput, where: input.agent_uid == ^agent_b.uid),
+               from(input in ActorInput, where: input.agent_uid == ^agent_b.uid),
                :count
              ) == 1
     end
@@ -288,7 +301,7 @@ defmodule Ankole.SignalsGatewayTest do
   end
 
   describe "commands and micro-batch readiness" do
-    test "internal timer facts append mailbox input without provider mirror" do
+    test "internal timer facts append actor input without provider mirror" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "internal:timers", :ignore, adapter: "internal")
 
@@ -402,7 +415,7 @@ defmodule Ankole.SignalsGatewayTest do
       end
 
       rows =
-        MailboxInput
+        ActorInput
         |> order_by([input], asc: input.inserted_at)
         |> Repo.all()
 
@@ -440,7 +453,7 @@ defmodule Ankole.SignalsGatewayTest do
                )
 
       assert Repo.aggregate(SignalEntry, :count) == 0
-      assert Repo.aggregate(MailboxInput, :count) == 0
+      assert Repo.aggregate(ActorInput, :count) == 0
     end
 
     test "receive and delete use the same transaction-scoped advisory lock" do
@@ -474,7 +487,7 @@ defmodule Ankole.SignalsGatewayTest do
       assert {:ok, :released} = Task.await(task, 1_000)
     end
 
-    test "delete while mailbox is pending removes pending actor input without lifecycle wake" do
+    test "delete while actor input is pending removes pending actor input without lifecycle wake" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
 
@@ -483,9 +496,9 @@ defmodule Ankole.SignalsGatewayTest do
                  now: @base_time
                )
 
-      assert Repo.aggregate(MailboxInput, :count) == 1
+      assert Repo.aggregate(ActorInput, :count) == 1
 
-      assert {:ok, %{canceled_mailbox_inputs: 1, lifecycle_inputs: []}} =
+      assert {:ok, %{canceled_actor_inputs: 1, lifecycle_inputs: []}} =
                SignalsGateway.emit_entry_recalled(
                  agent.uid,
                  "bot",
@@ -494,7 +507,7 @@ defmodule Ankole.SignalsGatewayTest do
                )
 
       assert Repo.aggregate(SignalEntry, :count) == 0
-      assert Repo.aggregate(MailboxInput, :count) == 0
+      assert Repo.aggregate(ActorInput, :count) == 0
     end
 
     test "delete after actor commit appends deterministic lifecycle input" do
@@ -507,8 +520,11 @@ defmodule Ankole.SignalsGatewayTest do
                )
 
       assert {:ok, _consumed} =
-               Actors.consume_mailbox_input(agent.uid, "bot", original_input.ingress_event_id,
-                 consumed_at: DateTime.add(@base_time, 1, :second)
+               Actors.consume_actor_input(
+                 agent.uid,
+                 "bot",
+                 original_input.ingress_event_id,
+                 actor_commit_opts(consumed_at: DateTime.add(@base_time, 1, :second))
                )
 
       assert {:ok, %{lifecycle_inputs: [lifecycle_input]}} =
@@ -524,7 +540,7 @@ defmodule Ankole.SignalsGatewayTest do
       assert Repo.aggregate(SignalEntry, :count) == 0
     end
 
-    test "actor commit rejects a mailbox input after a committed tombstone" do
+    test "actor commit rejects a actor input after a committed tombstone" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
 
@@ -541,15 +557,18 @@ defmodule Ankole.SignalsGatewayTest do
                  now: DateTime.add(@base_time, 1, :second)
                )
 
-      assert {:error, :mailbox_input_not_found} =
-               Actors.consume_mailbox_input(agent.uid, "bot", original_input.ingress_event_id,
-                 consumed_at: DateTime.add(@base_time, 2, :second)
+      assert {:error, :actor_input_not_found} =
+               Actors.consume_actor_input(
+                 agent.uid,
+                 "bot",
+                 original_input.ingress_event_id,
+                 actor_commit_opts(consumed_at: DateTime.add(@base_time, 2, :second))
                )
 
-      assert Repo.aggregate(MailboxInput, :count) == 0
+      assert Repo.aggregate(ActorInput, :count) == 0
     end
 
-    test "actor commit rejects an existing mailbox row when tombstone already exists" do
+    test "actor commit rejects an existing actor input row when tombstone already exists" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
 
@@ -569,12 +588,15 @@ defmodule Ankole.SignalsGatewayTest do
                })
                |> Repo.insert()
 
-      assert {:error, :mailbox_input_canceled} =
-               Actors.consume_mailbox_input(agent.uid, "bot", original_input.ingress_event_id,
-                 consumed_at: DateTime.add(@base_time, 2, :second)
+      assert {:error, :actor_input_canceled} =
+               Actors.consume_actor_input(
+                 agent.uid,
+                 "bot",
+                 original_input.ingress_event_id,
+                 actor_commit_opts(consumed_at: DateTime.add(@base_time, 2, :second))
                )
 
-      assert Repo.aggregate(MailboxInput, :count) == 1
+      assert Repo.aggregate(ActorInput, :count) == 1
     end
 
     test "delete of record_only entry only updates mirror and tombstone" do
@@ -584,7 +606,7 @@ defmodule Ankole.SignalsGatewayTest do
       assert {:ok, %{status: :recorded}} =
                SignalsGateway.emit_entry(agent.uid, "bot", group_entry(), now: @base_time)
 
-      assert {:ok, %{canceled_mailbox_inputs: 0, lifecycle_inputs: []}} =
+      assert {:ok, %{canceled_actor_inputs: 0, lifecycle_inputs: []}} =
                SignalsGateway.emit_entry_deleted(
                  agent.uid,
                  "bot",
@@ -593,7 +615,7 @@ defmodule Ankole.SignalsGatewayTest do
                )
 
       assert Repo.aggregate(SignalEntry, :count) == 0
-      assert Repo.aggregate(MailboxInput, :count) == 0
+      assert Repo.aggregate(ActorInput, :count) == 0
     end
   end
 
@@ -756,7 +778,7 @@ defmodule Ankole.SignalsGatewayTest do
   end
 
   describe "durable JSON payload validation" do
-    test "entry ingress rejects runtime values before mirror or mailbox writes" do
+    test "entry ingress rejects runtime values before mirror or actor input writes" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
 
@@ -769,10 +791,10 @@ defmodule Ankole.SignalsGatewayTest do
                )
 
       assert Repo.aggregate(SignalEntry, :count) == 0
-      assert Repo.aggregate(MailboxInput, :count) == 0
+      assert Repo.aggregate(ActorInput, :count) == 0
     end
 
-    test "internal input rejects runtime values before mailbox write" do
+    test "internal input rejects runtime values before actor input write" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "internal:timers", :ignore, adapter: "internal")
 
@@ -789,7 +811,7 @@ defmodule Ankole.SignalsGatewayTest do
                  now: @base_time
                )
 
-      assert Repo.aggregate(MailboxInput, :count) == 0
+      assert Repo.aggregate(ActorInput, :count) == 0
     end
 
     test "outbox commit rejects non JSON-serializable payload without inserting a row" do
@@ -824,15 +846,20 @@ defmodule Ankole.SignalsGatewayTest do
                )
 
       assert {:ok, _consumed} =
-               Actors.consume_mailbox_input(agent.uid, "bot", input.ingress_event_id,
-                 consumed_at: DateTime.add(@base_time, 1, :second),
-                 outbox_intents: [
-                   %{
-                     outbound_key: "actor-post-1",
-                     operation: :post,
-                     fallback_visible_text: "from actor"
-                   }
-                 ]
+               Actors.consume_actor_input(
+                 agent.uid,
+                 "bot",
+                 input.ingress_event_id,
+                 actor_commit_opts(
+                   consumed_at: DateTime.add(@base_time, 1, :second),
+                   outbox_intents: [
+                     %{
+                       outbound_key: "actor-post-1",
+                       operation: :post,
+                       fallback_visible_text: "from actor"
+                     }
+                   ]
+                 )
                )
 
       outbox =
@@ -857,25 +884,30 @@ defmodule Ankole.SignalsGatewayTest do
                )
 
       assert {:error, :invalid_outbox_intent} =
-               Actors.consume_mailbox_input(agent.uid, "bot", input.ingress_event_id,
-                 consumed_at: DateTime.add(@base_time, 1, :second),
-                 outbox_intents: [
-                   %{
-                     outbound_key: "valid-before-invalid",
-                     operation: :post,
-                     fallback_visible_text: "must rollback"
-                   },
-                   :not_an_intent
-                 ]
+               Actors.consume_actor_input(
+                 agent.uid,
+                 "bot",
+                 input.ingress_event_id,
+                 actor_commit_opts(
+                   consumed_at: DateTime.add(@base_time, 1, :second),
+                   outbox_intents: [
+                     %{
+                       outbound_key: "valid-before-invalid",
+                       operation: :post,
+                       fallback_visible_text: "must rollback"
+                     },
+                     :not_an_intent
+                   ]
+                 )
                )
 
-      assert Repo.get_by!(MailboxInput,
+      assert Repo.get_by!(ActorInput,
                agent_uid: agent.uid,
                binding_name: "bot",
                ingress_event_id: input.ingress_event_id
              )
 
-      assert Repo.aggregate(ConsumedInput, :count) == 0
+      assert Repo.aggregate(ActorInputConsumption, :count) == 0
       assert Repo.aggregate(OutboxEntry, :count) == 0
     end
 
@@ -1602,11 +1634,11 @@ defmodule Ankole.SignalsGatewayTest do
              end)
 
       refute Enum.any?(columns, fn [table, column] ->
-               table == "actor_mailbox" and column == "canceled_at"
+               table == "actor_inputs" and column == "canceled_at"
              end)
 
       refute Enum.any?(columns, fn [table, column] ->
-               table == "actor_consumed_inputs" and column == "payload"
+               table == "actor_input_consumptions" and column == "payload"
              end)
 
       tables =

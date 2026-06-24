@@ -19,6 +19,7 @@ defmodule Ankole.AppConfigure do
 
   @type definition :: Definition.t() | PatternDefinition.t()
   @type stale_write :: {:persisted_but_stale, %{String.t() => term()}, term()}
+  @type console_item :: map()
 
   @doc """
   Builds an exact AppConfigure definition and raises on invalid declaration data.
@@ -234,6 +235,81 @@ defmodule Ankole.AppConfigure do
     end
   end
 
+  @doc """
+  Lists AppConfigure entries that the console may display.
+
+  Exact definitions are always listed. Pattern definitions are listed as
+  read-only policy rows, while concrete pattern keys are listed only when a
+  global row already exists and matches exactly one registered pattern.
+  """
+  @spec list_console_items() :: {:ok, [console_item()]} | {:error, term()}
+  def list_console_items do
+    rows_by_key = global_rows_by_key()
+    exact_keys = Registry.list_definitions() |> MapSet.new(& &1.key)
+
+    exact_items =
+      Registry.list_definitions()
+      |> Enum.map(&console_definition_item(&1, Map.get(rows_by_key, &1.key), :exact))
+
+    pattern_policy_items =
+      Registry.list_patterns()
+      |> Enum.map(&console_pattern_policy_item/1)
+
+    concrete_pattern_items =
+      rows_by_key
+      |> Enum.reject(fn {key, _row} -> MapSet.member?(exact_keys, key) end)
+      |> Enum.flat_map(&console_concrete_pattern_item/1)
+
+    {:ok, exact_items ++ pattern_policy_items ++ concrete_pattern_items}
+  end
+
+  @doc """
+  Returns one editable AppConfigure detail projection for the console.
+  """
+  @spec console_detail_by_key(String.t()) :: {:ok, console_item()} | {:error, term()}
+  def console_detail_by_key(key) when is_binary(key) do
+    with {:ok, {kind, definition}} <- editable_console_definition(key) do
+      {:ok, console_definition_item(definition, global_row(key), kind, key)}
+    end
+  end
+
+  @doc """
+  Stores one console-editable global value.
+  """
+  @spec console_put_global_by_key(String.t(), term()) :: {:ok, console_item()} | {:error, term()}
+  def console_put_global_by_key(key, value) when is_binary(key) do
+    with {:ok, {_kind, _definition}} <- editable_console_definition(key),
+         {:ok, _value} <- put_global_by_key(key, value) do
+      console_detail_by_key(key)
+    end
+  end
+
+  @doc """
+  Deletes one console-editable global value so normal resolution falls back.
+  """
+  @spec console_delete_global_by_key(String.t()) :: {:ok, console_item()} | {:error, term()}
+  def console_delete_global_by_key(key) when is_binary(key) do
+    with {:ok, {kind, definition}} <- editable_console_definition(key),
+         :ok <- delete_global_by_key(key) do
+      deleted_console_item(kind, definition, key)
+    end
+  end
+
+  @doc """
+  Reveals one encrypted console-editable value on demand.
+  """
+  @spec console_decrypt_by_key(String.t()) :: {:ok, term()} | {:error, term()}
+  def console_decrypt_by_key(key) when is_binary(key) do
+    with {:ok, {_kind, %{encrypted: true}}} <- editable_console_definition(key),
+         {:ok, value} <- get_by_key(key) do
+      {:ok, value}
+    else
+      {:ok, {_kind, %{encrypted: false}}} -> {:error, :not_encrypted}
+      :error -> {:error, :not_found}
+      {:error, _reason} = error -> error
+    end
+  end
+
   # Pattern definitions use their pattern id for default generation, but reads
   # and writes must validate the concrete runtime key selected by the caller.
   defp resolve_registered(definition, opts) do
@@ -422,6 +498,134 @@ defmodule Ankole.AppConfigure do
 
   defp definition_key(%Definition{key: key}), do: key
   defp definition_key(%PatternDefinition{id: id}), do: id
+
+  defp editable_console_definition(key) do
+    case Registry.classify_key(key) do
+      {:ok, {:exact, definition}} ->
+        {:ok, {:exact, definition}}
+
+      {:ok, {:pattern, pattern}} ->
+        case global_row(key) do
+          %AppConfig{} -> {:ok, {:pattern_concrete, pattern}}
+          nil -> {:error, {:pattern_key_not_editable, key}}
+        end
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp console_definition_item(definition, row, kind, runtime_key \\ nil)
+
+  defp console_definition_item(%Definition{} = definition, row, :exact, _runtime_key) do
+    key = definition.key
+
+    %{
+      key: key,
+      kind: "exact",
+      description: definition.description,
+      encrypted: definition.encrypted,
+      editable: true,
+      default_present: definition.default?,
+      overridden: not is_nil(row)
+    }
+    |> Map.merge(value_projection(definition, key, row))
+  end
+
+  defp console_definition_item(
+         %PatternDefinition{} = definition,
+         row,
+         :pattern_concrete,
+         runtime_key
+       ) do
+    key = runtime_key || definition.id
+
+    %{
+      key: key,
+      kind: "pattern_concrete",
+      pattern_id: definition.id,
+      description: definition.description,
+      encrypted: definition.encrypted,
+      editable: true,
+      default_present: definition.default?,
+      overridden: not is_nil(row)
+    }
+    |> Map.merge(value_projection(definition, key, row))
+  end
+
+  defp console_pattern_policy_item(%PatternDefinition{} = pattern) do
+    %{
+      key: pattern.id,
+      kind: "pattern",
+      pattern: Regex.source(pattern.key_pattern),
+      description: pattern.description,
+      encrypted: pattern.encrypted,
+      editable: false,
+      default_present: pattern.default?,
+      overridden: false,
+      present: pattern.default?,
+      source: "pattern"
+    }
+  end
+
+  defp console_concrete_pattern_item({key, %AppConfig{} = row}) do
+    case Registry.classify_key(key) do
+      {:ok, {:pattern, pattern}} ->
+        [console_definition_item(pattern, row, :pattern_concrete, key)]
+
+      _not_console_editable ->
+        []
+    end
+  end
+
+  defp deleted_console_item(:exact, _definition, key), do: console_detail_by_key(key)
+
+  defp deleted_console_item(:pattern_concrete, %PatternDefinition{} = definition, key) do
+    item =
+      definition
+      |> console_definition_item(nil, :pattern_concrete, key)
+      |> Map.put(:editable, false)
+      |> Map.put(:overridden, false)
+
+    {:ok, item}
+  end
+
+  defp value_projection(%{encrypted: true} = definition, _key, row) do
+    %{
+      present: not is_nil(row) or definition.default?,
+      source: encrypted_source(definition, row)
+    }
+  end
+
+  defp value_projection(%{encrypted: false}, key, _row) do
+    case resolve_by_key(key) do
+      {:ok, %Resolution{value: value, source: source}} ->
+        %{present: true, source: Atom.to_string(source), value: value}
+
+      :error ->
+        %{present: false, source: "missing", value: nil}
+
+      {:error, reason} ->
+        %{present: false, source: "error", error: inspect(reason), value: nil}
+    end
+  end
+
+  defp encrypted_source(_definition, %AppConfig{}), do: "global"
+  defp encrypted_source(%{default?: true}, nil), do: "default"
+  defp encrypted_source(_definition, nil), do: "missing"
+
+  defp global_rows_by_key do
+    AppConfig
+    |> where([row], row.scope == ^@global_scope)
+    |> Repo.all()
+    |> Map.new(&{&1.key, &1})
+  end
+
+  defp global_row(key) do
+    AppConfig
+    |> where([row], row.scope == ^@global_scope and row.key == ^key)
+    |> Repo.one()
+  end
 
   defp agent_scope(agent_id) when is_binary(agent_id) and agent_id != "" do
     {:ok, @agent_scope_prefix <> agent_id}

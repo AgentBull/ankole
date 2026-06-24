@@ -1,6 +1,7 @@
 defmodule Ankole.KernelTest do
   use ExUnit.Case, async: true
 
+  alias Ankole.Kernel.ActorBus
   alias Ankole.Kernel, as: NativeKernel
 
   @aead_key "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
@@ -27,6 +28,134 @@ defmodule Ankole.KernelTest do
     refute String.contains?(encrypted, "=")
     assert NativeKernel.aead_decrypt(encrypted, @aead_key) == "secret"
     assert NativeKernel.aead_decrypt(@aead_ciphertext, @aead_key) == "secret"
+  end
+
+  test "jwt helpers sign, verify, and decode headers" do
+    token =
+      NativeKernel.jwt_sign(
+        %{
+          iss: "ankole.control_plane",
+          aud: "ankole.web_console",
+          sub: "human-1",
+          exp: 4_102_444_800,
+          token_use: "access"
+        },
+        "jwt-secret",
+        %{algorithm: "HS256", key_id: "test-key"}
+      )
+
+    assert %{
+             "aud" => "ankole.web_console",
+             "sub" => "human-1",
+             "token_use" => "access"
+           } =
+             NativeKernel.jwt_verify(token, "jwt-secret", %{
+               algorithms: ["HS256"],
+               iss: ["ankole.control_plane"],
+               aud: ["ankole.web_console"],
+               sub: "human-1"
+             })
+
+    assert %{"algorithm" => "HS256", "key_id" => "test-key"} =
+             NativeKernel.jwt_decode_header(token)
+  end
+
+  test "actor bus helpers encode and decode protobuf envelopes" do
+    envelope = %{
+      protocol_version: 1,
+      message_id: "turn-start-1",
+      correlation_id: "corr-1",
+      seq: 1,
+      lane: "LANE_TURN",
+      sent_at_unix_ms: 1_782_300_000_000,
+      durability: "CONTROL_REPLAYABLE",
+      body: %{
+        type: "turn_start",
+        turn_start: %{
+          turn: actor_turn_ref(),
+          inputs: [
+            %{
+              actor_input_id: "input-1",
+              broker_sequence: 1,
+              type: "im.message.addressed",
+              ingress_event_id: "event-1",
+              provider_entry_id: "message-1",
+              payload_json: %{"text" => "PING"}
+            }
+          ]
+        }
+      }
+    }
+
+    encoded = NativeKernel.actor_bus_encode_envelope(envelope)
+
+    assert is_binary(encoded)
+
+    assert %{
+             "body" => %{
+               "type" => "turn_start",
+               "turn_start" => %{
+                 "inputs" => [%{"payload_json" => %{"text" => "PING"}}]
+               }
+             }
+           } = NativeKernel.actor_bus_decode_envelope(encoded)
+  end
+
+  test "actor bus turn_control steer payload must be journaled, not inline" do
+    assert {:error, reason} =
+             NativeKernel.actor_bus_encode_envelope(%{
+               protocol_version: 1,
+               message_id: "steer-1",
+               correlation_id: "steer-1",
+               lane: "LANE_CONTROL",
+               durability: "CONTROL_DURABLE",
+               turn_control: %{
+                 turn: actor_turn_ref(),
+                 command: "steer",
+                 payload_json: %{"text" => "inline steer is not allowed"}
+               }
+             })
+
+    assert reason =~ "steer payload must be empty"
+  end
+
+  test "actor bus body must use its declared lane and durability" do
+    assert {:error, reason} =
+             NativeKernel.actor_bus_encode_envelope(%{
+               protocol_version: 1,
+               message_id: "turn-start-wrong-lane",
+               lane: "LANE_CONTROL",
+               durability: "CONTROL_EPHEMERAL",
+               turn_start: %{
+                 turn: actor_turn_ref(),
+                 inputs: [
+                   %{
+                     actor_input_id: "input-1",
+                     broker_sequence: 1,
+                     type: "im.message.addressed",
+                     ingress_event_id: "event-1"
+                   }
+                 ]
+               }
+             })
+
+    assert reason =~ "turn_start must use lane LANE_TURN"
+  end
+
+  test "actor bus router maps mandatory unknown routes" do
+    assert {:ok, router} =
+             ActorBus.router_start("tcp://127.0.0.1:*", self(),
+               pre_auth_token: "test-token",
+               poll_interval_ms: 1
+             )
+
+    on_exit(fn -> ActorBus.router_stop(router) end)
+
+    assert endpoint = ActorBus.router_endpoint(router)
+    assert endpoint =~ "tcp://"
+
+    assert {:error, :unknown_route} =
+             ActorBus.router_send_mandatory(router, "missing-worker", turn_start_envelope())
   end
 
   test "encoding helpers preserve binary payloads" do
@@ -115,5 +244,44 @@ defmodule Ankole.KernelTest do
 
     assert NativeKernel.gen_base36_uuid() =~ ~r/\A[0-9a-z]+\z/
     assert NativeKernel.gen_short_uuid() =~ ~r/\A[1-9A-HJ-NP-Za-km-z]+\z/
+  end
+
+  defp actor_turn_ref do
+    %{
+      actor: %{
+        agent_uid: "agent-1",
+        session_id: "signal-channel:lark:dm:1"
+      },
+      activation_uid: "activation-1",
+      actor_epoch: 1,
+      llm_turn_id: "11111111-1111-1111-1111-111111111111",
+      revision: 0
+    }
+  end
+
+  defp turn_start_envelope do
+    %{
+      protocol_version: 1,
+      message_id: "turn-start-route-test",
+      correlation_id: "turn-start-route-test",
+      seq: 0,
+      lane: "LANE_TURN",
+      durability: "CONTROL_REPLAYABLE",
+      body: %{
+        type: "turn_start",
+        turn_start: %{
+          turn: actor_turn_ref(),
+          inputs: [
+            %{
+              actor_input_id: "input-1",
+              broker_sequence: 1,
+              type: "im.message.addressed",
+              ingress_event_id: "event-1",
+              payload_json: %{"text" => "PING"}
+            }
+          ]
+        }
+      }
+    }
   end
 end

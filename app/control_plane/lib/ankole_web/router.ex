@@ -20,6 +20,11 @@ defmodule AnkoleWeb.Router do
     plug :accepts, ["json"]
   end
 
+  pipeline :openapi do
+    plug :accepts, ["json"]
+    plug OpenApiSpex.Plug.PutApiSpec, module: AnkoleWeb.ApiSpec
+  end
+
   pipeline :session_api do
     # JSON endpoints that mutate setup or auth state still use the browser
     # session and CSRF protection. They are API-shaped, not public stateless APIs.
@@ -29,7 +34,13 @@ defmodule AnkoleWeb.Router do
     plug :put_secure_browser_headers
   end
 
-  scope "/api", AnkoleWeb do
+  pipeline :console_api do
+    plug :accepts, ["json"]
+    plug OpenApiSpex.Plug.PutApiSpec, module: AnkoleWeb.ApiSpec
+    plug AnkoleWeb.Plugs.RequireConsoleAccessToken
+  end
+
+  scope "/.internal-apis", AnkoleWeb do
     pipe_through :session_api
 
     get "/setup/state", SetupController, :state
@@ -46,6 +57,7 @@ defmodule AnkoleWeb.Router do
 
     get "/session", AuthController, :session
     delete "/session", AuthController, :delete_session
+    post "/oauth/token", AuthController, :oauth_token
     get "/identity-providers", AuthController, :identity_providers
 
     post "/identity-providers/:provider_id/oidc/authorizations",
@@ -53,21 +65,33 @@ defmodule AnkoleWeb.Router do
          :oidc_authorization
   end
 
+  scope "/api" do
+    pipe_through :openapi
+
+    get "/openapi.json", OpenApiSpex.Plug.RenderSpec, []
+  end
+
+  scope "/api", AnkoleWeb do
+    pipe_through :console_api
+
+    get "/app-configurations", AppConfigurationController, :index
+    get "/app-configurations/:key", AppConfigurationController, :show
+    put "/app-configurations/:key", AppConfigurationController, :update
+    delete "/app-configurations/:key", AppConfigurationController, :delete
+    post "/app-configurations/:key/decryptions", AppConfigurationController, :decrypt
+  end
+
   scope "/", AnkoleWeb do
     pipe_through :browser
 
     get "/", SpaController, :home
-    get "/auth/oidc/:provider_id/callback", AuthController, :oidc_callback
-    get "/auth", SpaController, :auth
-    get "/auth/*path", SpaController, :auth
+    get "/sessions/new", SpaController, :sessions_new
+    get "/sessions/oidc/:provider_id/callback", AuthController, :oidc_callback
+    get "/auth", SpaController, :auth_redirect
+    get "/auth/*path", SpaController, :auth_redirect
     get "/console", SpaController, :console
     get "/console/*path", SpaController, :console
     get "/setup", SpaController, :setup
     get "/setup/*path", SpaController, :setup
   end
-
-  # Other scopes may use custom stacks.
-  # scope "/api", AnkoleWeb do
-  #   pipe_through :api
-  # end
 end

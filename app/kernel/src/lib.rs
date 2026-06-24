@@ -17,6 +17,9 @@ mod core;
 #[cfg(any(test, feature = "napi", feature = "nif"))]
 mod authz;
 
+#[cfg(any(test, feature = "napi", feature = "nif"))]
+mod actor_bus;
+
 #[cfg(feature = "napi")]
 mod napi_exports;
 

@@ -27,9 +27,7 @@ function createTopologyFixture(files: { sdkPlugins: string; consumer: string }):
         strict: true,
         noEmit: true,
         baseUrl: '..',
-        paths: {
-          '@agentbull/bullx-sdk/*': ['packages/sdk/src/*']
-        }
+        paths: {}
       },
       include: ['src/**/*.ts']
     })

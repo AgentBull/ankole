@@ -1,0 +1,3 @@
+[submodule "internals"]
+	path = internals
+	url = ssh://git@code.yuma.host/agentbull/bullx_internals.git

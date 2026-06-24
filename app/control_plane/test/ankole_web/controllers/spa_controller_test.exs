@@ -19,12 +19,12 @@ defmodule AnkoleWeb.SpaControllerTest do
     assert redirected_to(conn) == ~p"/setup"
   end
 
-  test "GET / redirects to auth after setup completes", %{conn: conn} do
+  test "GET / redirects to sessions after setup completes", %{conn: conn} do
     {:ok, true} = SetupConfig.put_completed(true)
 
     conn = get(conn, ~p"/")
 
-    assert redirected_to(conn) == ~p"/auth"
+    assert redirected_to(conn) == ~p"/sessions/new"
   end
 
   test "GET /setup serves setup before completion", %{conn: conn} do
@@ -50,10 +50,18 @@ defmodule AnkoleWeb.SpaControllerTest do
     assert redirected_to(conn) == ~p"/setup"
   end
 
-  test "GET /auth serves auth after completion", %{conn: conn} do
+  test "GET /auth redirects to sessions after completion", %{conn: conn} do
     {:ok, true} = SetupConfig.put_completed(true)
 
     conn = get(conn, ~p"/auth")
+
+    assert redirected_to(conn) == ~p"/sessions/new"
+  end
+
+  test "GET /sessions/new serves auth after completion", %{conn: conn} do
+    {:ok, true} = SetupConfig.put_completed(true)
+
+    conn = get(conn, ~p"/sessions/new")
 
     assert html_response(conn, 200) =~ ~s(http://assets.test/@react-refresh)
     assert html_response(conn, 200) =~ ~s(__vite_plugin_react_preamble_installed__)
@@ -66,7 +74,7 @@ defmodule AnkoleWeb.SpaControllerTest do
 
     conn = get(conn, ~p"/console/settings")
 
-    assert redirected_to(conn) == ~p"/auth"
+    assert redirected_to(conn) == ~p"/sessions/new?return_to=%2Fconsole%2Fsettings"
   end
 
   defp allow_cache_database_access do

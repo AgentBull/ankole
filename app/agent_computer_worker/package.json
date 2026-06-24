@@ -1,0 +1,20 @@
+{
+  "name": "@ankole/agent-computer-worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/main.ts",
+  "scripts": {
+    "dev": "bun --watch src/main.ts",
+    "start": "bun src/main.ts",
+    "build": "bun build src/main.ts --target bun --outdir dist",
+    "type-check": "tsgo -p tsconfig.json --noEmit",
+    "fmt": "oxfmt",
+    "fmt:check": "oxfmt --check",
+    "lint": "bun run fmt:check && bun run type-check",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@ankole/kernel": "workspace:*"
+  }
+}

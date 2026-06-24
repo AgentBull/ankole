@@ -4,7 +4,7 @@ defmodule Ankole.SignalsGateway.IngressPipeline do
 
   This module keeps the high-level flow explicit without creating a stored plan
   or a second queue: construct fact, evaluate binding filters, then let the
-  caller execute the existing transactional mirror/mailbox work.
+  caller execute the existing transactional mirror / actor input work.
   """
 
   alias Ankole.SignalsGateway.BindingFilters

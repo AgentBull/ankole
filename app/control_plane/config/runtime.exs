@@ -1,5 +1,13 @@
 import Config
 
+actor_bus_bind_endpoint =
+  System.get_env("ANKOLE_ACTOR_BUS_BIND_ENDPOINT") ||
+    System.get_env("ANKOLE_ACTOR_BUS_ENDPOINT")
+
+if actor_bus_bind_endpoint do
+  config :ankole, :actor_runtime_router, bind_endpoint: actor_bus_bind_endpoint
+end
+
 # config/runtime.exs is executed for all environments, including
 # during releases. It is executed after compilation and before the
 # system starts, so it is typically used to load production configuration

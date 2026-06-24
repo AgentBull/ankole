@@ -1,13 +1,14 @@
 defmodule Ankole.SignalsGateway do
   @moduledoc """
-  Boundary between signal ingress, actor mailbox handoff, and provider outbox.
+  Boundary between signal ingress, actor input handoff, and provider outbox.
   """
 
   import Ecto.Query, warn: false
 
   alias Ecto.Adapters.SQL
+  alias Ankole.ActorRuntime.ActivationManager
   alias Ankole.Actors
-  alias Ankole.Actors.MailboxInput
+  alias Ankole.Actors.ActorInput
   alias Ankole.Repo
   alias Ankole.SignalsGateway.ActorInputTypes
   alias Ankole.SignalsGateway.Commands
@@ -73,7 +74,9 @@ defmodule Ankole.SignalsGateway do
          {:ok, fact} <-
            IngressPipeline.construct(:entry, binding, input, now, &normalize_entry_fact/3),
          :match <- IngressPipeline.filter(binding, fact) do
-      accept_entry(binding, fact, options, now)
+      binding
+      |> accept_entry(fact, options, now)
+      |> wake_actor_runtime()
     else
       :no_match -> {:ok, %{status: :filtered}}
       {:error, _reason} = error -> error
@@ -143,11 +146,12 @@ defmodule Ankole.SignalsGateway do
          :match <- IngressPipeline.filter(binding, fact) do
       Repo.transact(fn repo ->
         with {:ok, channel} <- maybe_upsert_channel(repo, fact, now),
-             {:ok, mailbox_input} <-
+             {:ok, actor_input} <-
                append_actor_input(binding, fact, fact.actor_input_type, channel, nil, now) do
-          {:ok, %{status: :accepted, actor_input: mailbox_input, signal_channel: channel}}
+          {:ok, %{status: :accepted, actor_input: actor_input, signal_channel: channel}}
         end
       end)
+      |> wake_actor_runtime()
     else
       :no_match -> {:ok, %{status: :filtered}}
       {:error, _reason} = error -> error
@@ -166,11 +170,12 @@ defmodule Ankole.SignalsGateway do
            IngressPipeline.construct(:internal, binding, input, now, &normalize_internal_fact/3),
          :match <- IngressPipeline.filter(binding, fact) do
       Repo.transact(fn _repo ->
-        with {:ok, mailbox_input} <-
+        with {:ok, actor_input} <-
                append_actor_input(binding, fact, fact.actor_input_type, nil, nil, now) do
-          {:ok, %{status: :accepted, actor_input: mailbox_input}}
+          {:ok, %{status: :accepted, actor_input: actor_input}}
         end
       end)
+      |> wake_actor_runtime()
     else
       :no_match -> {:ok, %{status: :filtered}}
       {:error, _reason} = error -> error
@@ -190,6 +195,27 @@ defmodule Ankole.SignalsGateway do
       returning: true
     )
     |> outbox_insert_result(attrs)
+  end
+
+  @doc """
+  Chooses the provider-visible reply operation for an actor input.
+  """
+  @spec outbox_operation_for_actor_input(ActorInput.t(), module()) :: atom()
+  def outbox_operation_for_actor_input(%ActorInput{} = actor_input, repo \\ Repo) do
+    with %SignalChannel{} = channel <- repo.get(SignalChannel, actor_input.signal_channel_id),
+         %SignalBinding{} = binding <-
+           repo.get_by(SignalBinding,
+             agent_uid: actor_input.agent_uid,
+             name: actor_input.binding_name
+           ) do
+      choose_outbox_operation(
+        channel,
+        adapter_outbound_capabilities(binding.adapter),
+        actor_input
+      )
+    else
+      _value -> fallback_outbox_operation(actor_input)
+    end
   end
 
   @doc """
@@ -299,6 +325,13 @@ defmodule Ankole.SignalsGateway do
   @spec signal_session_id(String.t()) :: String.t()
   def signal_session_id(signal_channel_id), do: "signal-channel:#{signal_channel_id}"
 
+  defp wake_actor_runtime({:ok, %{status: :accepted}} = result) do
+    ActivationManager.wake()
+    result
+  end
+
+  defp wake_actor_runtime(result), do: result
+
   defp emit_lifecycle(agent_uid, binding_name, input, kind, options) do
     now = Keyword.get(options, :now, DateTime.utc_now(:microsecond))
 
@@ -306,7 +339,9 @@ defmodule Ankole.SignalsGateway do
          constructor <- lifecycle_constructor(kind),
          {:ok, fact} <- IngressPipeline.construct(:lifecycle, binding, input, now, constructor),
          :match <- IngressPipeline.filter(binding, fact) do
-      accept_lifecycle(binding, fact, kind, now)
+      binding
+      |> accept_lifecycle(fact, kind, now)
+      |> wake_actor_runtime()
     else
       :no_match -> {:ok, %{status: :filtered}}
       {:error, _reason} = error -> error
@@ -361,7 +396,7 @@ defmodule Ankole.SignalsGateway do
            status: :accepted,
            tombstone: tombstone,
            deleted_mirror_entries: deleted_count,
-           canceled_mailbox_inputs: canceled_count,
+           canceled_actor_inputs: canceled_count,
            lifecycle_inputs: lifecycle_inputs
          }}
       end
@@ -627,14 +662,14 @@ defmodule Ankole.SignalsGateway do
 
     with {:ok, channel} <- upsert_channel(repo, fact, now),
          {:ok, entry} <- mirror_receive_entry(repo, fact, now),
-         {:ok, mailbox_input} <- append_actor_input(binding, fact, type, channel, entry, now),
-         :ok <- refresh_batch_readiness(type, fact, mailbox_input) do
+         {:ok, actor_input} <- append_actor_input(binding, fact, type, channel, entry, now),
+         :ok <- refresh_batch_readiness(type, fact, actor_input) do
       {:ok,
        %{
          status: :accepted,
          signal_channel: channel,
          signal_entry: entry,
-         actor_input: mailbox_input
+         actor_input: actor_input
        }}
     end
   end
@@ -758,9 +793,9 @@ defmodule Ankole.SignalsGateway do
 
   defp append_actor_input(binding, fact, type, channel, entry, now) do
     session_id = Map.get(fact, :session_id) || signal_session_id(fact.signal_channel_id)
-    readiness = ActorInputTypes.readiness(type, mailbox_readiness_input(binding, fact), now)
+    readiness = ActorInputTypes.readiness(type, actor_readiness_input(binding, fact), now)
 
-    Actors.append_mailbox_input(%{
+    Actors.append_actor_input(%{
       agent_uid: binding.agent_uid,
       binding_name: binding.name,
       session_id: session_id,
@@ -776,7 +811,7 @@ defmodule Ankole.SignalsGateway do
     })
   end
 
-  defp mailbox_readiness_input(binding, fact) do
+  defp actor_readiness_input(binding, fact) do
     %{
       binding_name: binding.name,
       signal_channel_id: fact.signal_channel_id,
@@ -785,19 +820,19 @@ defmodule Ankole.SignalsGateway do
     }
   end
 
-  defp refresh_batch_readiness("im.message.addressed", fact, %MailboxInput{} = mailbox_input) do
-    MailboxInput
+  defp refresh_batch_readiness("im.message.addressed", fact, %ActorInput{} = actor_input) do
+    ActorInput
     |> where([input], input.agent_uid == ^fact.agent_uid)
     |> where([input], input.binding_name == ^fact.binding_name)
     |> where([input], input.signal_channel_id == ^fact.signal_channel_id)
     |> where_provider_thread(fact.provider_thread_id)
     |> where([input], input.type == "im.message.addressed")
-    |> Repo.update_all(set: [available_at: mailbox_input.available_at])
+    |> Repo.update_all(set: [available_at: actor_input.available_at])
 
     :ok
   end
 
-  defp refresh_batch_readiness(_type, _fact, _mailbox_input), do: :ok
+  defp refresh_batch_readiness(_type, _fact, _actor_input), do: :ok
 
   defp actor_envelope(binding, fact, type, channel, entry, now) do
     data =
@@ -1085,6 +1120,65 @@ defmodule Ankole.SignalsGateway do
 
   defp outbox_insert_result({:ok, %OutboxEntry{} = entry}, _attrs), do: {:ok, entry}
   defp outbox_insert_result({:error, _changeset} = error, _attrs), do: error
+
+  defp choose_outbox_operation(
+         %SignalChannel{reply_mode: :entry},
+         capabilities,
+         %ActorInput{provider_entry_id: provider_entry_id}
+       )
+       when is_binary(provider_entry_id) do
+    case MapSet.member?(capabilities, "reply_entry") do
+      true -> :reply
+      false -> post_or_fallback(capabilities, :reply)
+    end
+  end
+
+  defp choose_outbox_operation(%SignalChannel{reply_mode: mode}, capabilities, actor_input)
+       when mode in [:channel, :entry] do
+    post_or_fallback(capabilities, fallback_outbox_operation(actor_input))
+  end
+
+  defp choose_outbox_operation(_channel, _capabilities, actor_input) do
+    fallback_outbox_operation(actor_input)
+  end
+
+  defp post_or_fallback(capabilities, fallback) do
+    case MapSet.member?(capabilities, "post_entry") do
+      true -> :post
+      false -> fallback
+    end
+  end
+
+  defp fallback_outbox_operation(%ActorInput{provider_entry_id: provider_entry_id})
+       when is_binary(provider_entry_id),
+       do: :reply
+
+  defp fallback_outbox_operation(_actor_input), do: :post
+
+  defp adapter_outbound_capabilities(adapter_id) when is_binary(adapter_id) do
+    case Process.whereis(Ankole.Plugins.Registry) do
+      nil ->
+        MapSet.new()
+
+      _pid ->
+        "signals_gateway.adapter"
+        |> Ankole.Plugins.adapter_declarations()
+        |> Enum.find(fn declaration ->
+          declaration[:id] == adapter_id or declaration["id"] == adapter_id
+        end)
+        |> case do
+          nil ->
+            MapSet.new()
+
+          declaration ->
+            MapSet.new(
+              declaration[:outbound_capabilities] || declaration["outbound_capabilities"] || []
+            )
+        end
+    end
+  end
+
+  defp adapter_outbound_capabilities(_adapter_id), do: MapSet.new()
 
   defp fetch_outbox_for_update(repo, agent_uid, binding_name, outbound_key) do
     OutboxEntry

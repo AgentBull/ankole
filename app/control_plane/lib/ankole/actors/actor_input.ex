@@ -1,6 +1,6 @@
-defmodule Ankole.Actors.ConsumedInput do
+defmodule Ankole.Actors.ActorInput do
   @moduledoc """
-  Actor-store marker that a mailbox input reached durable actor state.
+  Durable actor input accepted by SignalsGateway and consumed by ActorRuntime.
   """
 
   use Ecto.Schema
@@ -8,26 +8,33 @@ defmodule Ankole.Actors.ConsumedInput do
   import Ecto.Changeset
 
   alias Ankole.Principals.Principal
+  alias Ankole.SignalsGateway.JsonPayload
 
-  @primary_key false
+  @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :string
   @timestamps_opts [type: :utc_datetime_usec]
+  @states ~w(open dead_letter)
 
-  schema "actor_consumed_inputs" do
+  schema "actor_inputs" do
     belongs_to :agent, Principal,
       foreign_key: :agent_uid,
       references: :uid,
-      type: :string,
-      primary_key: true
+      type: :string
 
-    field :binding_name, :string, primary_key: true
-    field :ingress_event_id, :string, primary_key: true
+    field :binding_name, :string
     field :session_id, :string
+    field :ingress_event_id, :string
     field :signal_channel_id, :string
     field :provider_thread_id, :string
     field :provider_entry_id, :string
     field :type, :string
-    field :consumed_at, :utc_datetime_usec
+    field :available_at, :utc_datetime_usec
+    field :broker_sequence, :integer
+    field :input_state, :string, default: "open"
+    field :batch_scope, :map
+    field :sender_key, :string
+    field :payload, :map
+    field :dead_letter_at, :utc_datetime_usec
 
     timestamps()
   end
@@ -38,37 +45,55 @@ defmodule Ankole.Actors.ConsumedInput do
     |> cast(attrs, [
       :agent_uid,
       :binding_name,
-      :ingress_event_id,
       :session_id,
+      :ingress_event_id,
       :signal_channel_id,
       :provider_thread_id,
       :provider_entry_id,
       :type,
-      :consumed_at
+      :available_at,
+      :broker_sequence,
+      :input_state,
+      :batch_scope,
+      :sender_key,
+      :payload,
+      :dead_letter_at
     ])
     |> normalize_blank([
       :agent_uid,
       :binding_name,
-      :ingress_event_id,
       :session_id,
+      :ingress_event_id,
       :signal_channel_id,
       :provider_thread_id,
       :provider_entry_id,
-      :type
+      :type,
+      :input_state,
+      :sender_key
     ])
     |> normalize_uid(:agent_uid)
     |> validate_required([
       :agent_uid,
       :binding_name,
-      :ingress_event_id,
       :session_id,
+      :ingress_event_id,
       :type,
-      :consumed_at
+      :available_at,
+      :broker_sequence,
+      :input_state,
+      :payload
     ])
+    |> validate_inclusion(:input_state, @states)
+    |> JsonPayload.validate_map(:payload)
     |> foreign_key_constraint(:agent_uid)
     |> unique_constraint([:agent_uid, :binding_name, :ingress_event_id],
-      name: :actor_consumed_inputs_pkey
+      name: :actor_inputs_signal_idempotency_index
     )
+    |> unique_constraint([:agent_uid, :session_id, :broker_sequence],
+      name: :actor_inputs_actor_sequence_index
+    )
+    |> check_constraint(:payload, name: :actor_inputs_payload_object)
+    |> check_constraint(:input_state, name: :actor_inputs_input_state_check)
   end
 
   defp normalize_blank(changeset, fields) when is_list(fields) do

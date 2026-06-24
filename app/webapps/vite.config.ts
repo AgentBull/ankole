@@ -16,7 +16,8 @@ const entries = {
 
 function manualChunks(moduleId: string): string | undefined {
   if (!moduleId.includes('/node_modules/')) return undefined
-  if (moduleId.includes('/react/') || moduleId.includes('/react-dom/') || moduleId.includes('/scheduler/')) return 'vendor-react'
+  if (moduleId.includes('/react/') || moduleId.includes('/react-dom/') || moduleId.includes('/scheduler/'))
+    {return 'vendor-react'}
   if (moduleId.includes('/react-router/')) return 'vendor-router'
 
   if (
@@ -62,52 +63,54 @@ function phoenixShellPlugin(): Plugin {
   }
 }
 
-export default defineConfig(({ command }): UserConfig => ({
-  base: command === 'build' ? '/assets/' : '/',
-  plugins: [react(), phoenixShellPlugin()],
-  publicDir: false,
-  root: dirname,
-  server: {
-    cors: {
-      origin: ['http://localhost:4000', 'http://127.0.0.1:4000']
-    },
-    host: '127.0.0.1',
-    hmr: {
-      overlay: true
-    },
-    origin: devServerOrigin,
-    port: 3035,
-    strictPort: true,
-    ws: {
-      clientPort: 3035,
+export default defineConfig(
+  ({ command }): UserConfig => ({
+    base: command === 'build' ? '/assets/' : '/',
+    plugins: [react(), phoenixShellPlugin()],
+    publicDir: false,
+    root: dirname,
+    server: {
+      cors: {
+        origin: ['http://localhost:4000', 'http://127.0.0.1:4000']
+      },
       host: '127.0.0.1',
+      hmr: {
+        overlay: true
+      },
+      origin: devServerOrigin,
       port: 3035,
-      protocol: 'ws'
-    }
-  },
-  build: {
-    assetsDir: '.',
-    chunkSizeWarningLimit: 500,
-    cssCodeSplit: true,
-    emptyOutDir: true,
-    manifest: 'manifest.json',
-    outDir: outputPath,
-    sourcemap: true,
-    rolldownOptions: {
-      input: entries,
-      output: {
-        assetFileNames: info => {
-          const name = info.names[0] ?? ''
-          if (/\.(woff2?|ttf|otf)$/i.test(name)) return 'fonts/[name]-[hash][extname]'
-          if (/\.(png|jpe?g|gif|svg|webp|avif)$/i.test(name)) return 'media/[name]-[hash][extname]'
-          if (/\.css$/i.test(name)) return 'css/[name]-[hash][extname]'
-          return '[name]-[hash][extname]'
-        },
-        chunkFileNames: 'js/[name]-[hash].js',
-        entryFileNames: 'js/[name]-[hash].js',
-        manualChunks
+      strictPort: true,
+      ws: {
+        clientPort: 3035,
+        host: '127.0.0.1',
+        port: 3035,
+        protocol: 'ws'
       }
-    }
-  },
-  clearScreen: command === 'serve' ? false : true
-}))
+    },
+    build: {
+      assetsDir: '.',
+      chunkSizeWarningLimit: 500,
+      cssCodeSplit: true,
+      emptyOutDir: true,
+      manifest: 'manifest.json',
+      outDir: outputPath,
+      sourcemap: true,
+      rolldownOptions: {
+        input: entries,
+        output: {
+          assetFileNames: info => {
+            const name = info.names[0] ?? ''
+            if (/\.(woff2?|ttf|otf)$/i.test(name)) return 'fonts/[name]-[hash][extname]'
+            if (/\.(png|jpe?g|gif|svg|webp|avif)$/i.test(name)) return 'media/[name]-[hash][extname]'
+            if (/\.css$/i.test(name)) return 'css/[name]-[hash][extname]'
+            return '[name]-[hash][extname]'
+          },
+          chunkFileNames: 'js/[name]-[hash].js',
+          entryFileNames: 'js/[name]-[hash].js',
+          manualChunks
+        }
+      }
+    },
+    clearScreen: command === 'serve' ? false : true
+  })
+)

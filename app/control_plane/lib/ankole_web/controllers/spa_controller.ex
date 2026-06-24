@@ -14,8 +14,8 @@ defmodule AnkoleWeb.SpaController do
   alias AnkoleWeb.Assets
 
   @spas %{
-    auth: %{entry: "auth", title: "Ankole Sign In"},
     console: %{entry: "console", title: "Ankole Console"},
+    sessions: %{entry: "auth", title: "Ankole Sign In"},
     setup: %{entry: "setup", title: "Ankole Setup"}
   }
 
@@ -24,7 +24,7 @@ defmodule AnkoleWeb.SpaController do
   """
   def home(conn, _params) do
     case setup_completed?() do
-      true -> redirect(conn, to: ~p"/auth")
+      true -> redirect(conn, to: ~p"/sessions/new")
       false -> redirect(conn, to: ~p"/setup")
     end
   end
@@ -32,7 +32,7 @@ defmodule AnkoleWeb.SpaController do
   @doc """
   Serves the sign-in SPA only after setup is complete and no admin is signed in.
   """
-  def auth(conn, _params) do
+  def sessions_new(conn, _params) do
     cond do
       not setup_completed?() ->
         redirect(conn, to: ~p"/setup")
@@ -41,7 +41,17 @@ defmodule AnkoleWeb.SpaController do
         redirect(conn, to: ~p"/console")
 
       true ->
-        render_spa(conn, :auth)
+        render_spa(conn, :sessions)
+    end
+  end
+
+  @doc """
+  Keeps the older `/auth` URL as a browser redirect to the sessions SPA.
+  """
+  def auth_redirect(conn, params) do
+    case setup_completed?() do
+      true -> redirect(conn, to: sessions_new_path(params))
+      false -> redirect(conn, to: ~p"/setup")
     end
   end
 
@@ -54,7 +64,7 @@ defmodule AnkoleWeb.SpaController do
         redirect(conn, to: ~p"/setup")
 
       not active_admin_session?(conn) ->
-        redirect(conn, to: ~p"/auth")
+        redirect(conn, to: sessions_new_path(%{"return_to" => current_console_return_to(conn)}))
 
       true ->
         render_spa(conn, :console)
@@ -124,6 +134,18 @@ defmodule AnkoleWeb.SpaController do
       _session -> false
     end
   end
+
+  defp sessions_new_path(%{"return_to" => return_to}) do
+    safe_return_to = WebSession.safe_return_to(return_to)
+    ~p"/sessions/new?return_to=#{safe_return_to}"
+  end
+
+  defp sessions_new_path(_params), do: ~p"/sessions/new"
+
+  defp current_console_return_to(%Plug.Conn{query_string: ""} = conn), do: conn.request_path
+
+  defp current_console_return_to(%Plug.Conn{query_string: query_string} = conn),
+    do: conn.request_path <> "?" <> query_string
 
   defp app_locale do
     case Ankole.I18n.Config.default_locale() do

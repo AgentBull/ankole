@@ -1,7 +1,7 @@
 defmodule Ankole.Plugins.LarkAdapterTest do
   use Ankole.DataCase, async: false
 
-  alias Ankole.Actors.MailboxInput
+  alias Ankole.Actors.ActorInput
   alias Ankole.Plugins.LarkAdapter
   alias Ankole.Plugins.LarkAdapter.Config
   alias Ankole.Plugins.LarkAdapter.ConnectionSupervisor
@@ -147,7 +147,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
              ).text ==
                "@_user_1 /steer ship it"
 
-      assert Repo.aggregate(MailboxInput, :count) == 1
+      assert Repo.aggregate(ActorInput, :count) == 1
 
       assert {:ok, observed} =
                Ankole.Principals.resolve_platform_subject("lark-main", "ou_alice")
@@ -198,7 +198,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       assert {:ok, [%{status: :ignored_provider_self_sender, reason: :provider_self_sender}]} =
                Inbound.handle_message_receive("im.message.receive_v1", event, [consumer])
 
-      assert Repo.aggregate(MailboxInput, :count) == 0
+      assert Repo.aggregate(ActorInput, :count) == 0
       assert Repo.aggregate(SignalEntry, :count) == 0
     end
 
@@ -238,7 +238,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                  consumer
                ])
 
-      assert Repo.aggregate(MailboxInput, :count) == 0
+      assert Repo.aggregate(ActorInput, :count) == 0
       assert Repo.aggregate(SignalEntry, :count) == 0
     end
 
@@ -276,7 +276,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                }
              ] = entry.attachments
 
-      assert Repo.aggregate(MailboxInput, :count) == 0
+      assert Repo.aggregate(ActorInput, :count) == 0
     end
 
     test "user senders without provider-scoped user_id fail closed" do
@@ -293,7 +293,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       assert {:error, :missing_platform_subject} =
                Inbound.handle_message_receive("im.message.receive_v1", event, [consumer])
 
-      assert Repo.aggregate(MailboxInput, :count) == 0
+      assert Repo.aggregate(ActorInput, :count) == 0
       assert Repo.aggregate(SignalEntry, :count) == 0
     end
 

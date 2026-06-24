@@ -4,7 +4,7 @@ defmodule Ankole.SignalsGateway.IngressFact do
 
   Adapter-facing APIs accept concrete maps, but the gateway pipeline should not
   pass those maps through as durable intent. Each accepted ingress shape becomes
-  this struct before routing, mirroring, or mailbox planning.
+  this struct before routing, mirroring, or actor input planning.
   """
 
   alias Ankole.SignalsGateway.JsonPayload

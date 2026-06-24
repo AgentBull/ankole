@@ -36,6 +36,9 @@ defmodule Ankole.SignalsGateway.OutboxEntry do
     field :source_provider_entry_id, :string
     field :target_provider_entry_id, :string
     field :provider_entry_id, :string
+    field :source_actor_input_id, Ecto.UUID
+    field :llm_turn_id, Ecto.UUID
+    field :assistant_message_id, Ecto.UUID
     field :payload, :map, default: %{}
     field :fallback_visible_text, :string
     field :idempotency_key, :string
@@ -64,6 +67,9 @@ defmodule Ankole.SignalsGateway.OutboxEntry do
       :source_provider_entry_id,
       :target_provider_entry_id,
       :provider_entry_id,
+      :source_actor_input_id,
+      :llm_turn_id,
+      :assistant_message_id,
       :payload,
       :fallback_visible_text,
       :idempotency_key,

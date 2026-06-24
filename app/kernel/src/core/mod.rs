@@ -4,6 +4,7 @@ mod crypto;
 mod encoding;
 mod error;
 mod ids;
+mod jwt;
 mod phone;
 
 pub use crypto::{aead_decrypt, aead_encrypt, derive_key, generate_key};
@@ -13,6 +14,7 @@ pub use encoding::{
 };
 pub use error::{KernelError, KernelResult};
 pub use ids::{gen_base36_uuid, gen_short_uuid, gen_uuid, gen_uuid_v7};
+pub use jwt::{jwt_decode_header_json, jwt_sign_json, jwt_verify_json};
 pub use phone::phone_normalize_e164;
 
 #[cfg(test)]
@@ -80,5 +82,32 @@ mod tests {
                 .chars()
                 .all(|c| "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz".contains(c))
         );
+    }
+
+    #[test]
+    fn jwt_helpers_sign_verify_and_decode_header_json() {
+        let key = b"jwt-secret";
+        let token = jwt_sign_json(
+            r#"{"iss":"ankole.control_plane","aud":"ankole.web_console","sub":"human-1","exp":4102444800,"token_use":"access"}"#,
+            key,
+            r#"{"algorithm":"HS256","key_id":"test-key"}"#,
+        )
+        .unwrap();
+
+        let claims = jwt_verify_json(
+            &token,
+            key,
+            r#"{"algorithms":["HS256"],"iss":["ankole.control_plane"],"aud":["ankole.web_console"],"sub":"human-1"}"#,
+        )
+        .unwrap();
+        let claims: serde_json::Value = serde_json::from_str(&claims).unwrap();
+
+        assert_eq!(claims["sub"], "human-1");
+        assert_eq!(claims["token_use"], "access");
+
+        let header = jwt_decode_header_json(&token).unwrap();
+        let header: serde_json::Value = serde_json::from_str(&header).unwrap();
+        assert_eq!(header["algorithm"], "HS256");
+        assert_eq!(header["key_id"], "test-key");
     }
 }

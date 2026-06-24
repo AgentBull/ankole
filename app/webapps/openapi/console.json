@@ -1,0 +1,348 @@
+{
+  "components": {
+    "responses": {},
+    "schemas": {
+      "": {
+        "description": "Any JSON-compatible value. AppConfigure validates the concrete key schema.",
+        "nullable": true,
+        "x-struct": null,
+        "x-validate": null
+      },
+      "AppConfigurationDecryptionResponse": {
+        "additionalProperties": false,
+        "properties": { "data": { "$ref": "#/components/schemas/AppConfigurationDecryptionValue" } },
+        "required": ["data"],
+        "title": "AppConfigurationDecryptionResponse",
+        "type": "object",
+        "x-struct": null,
+        "x-validate": null
+      },
+      "AppConfigurationDecryptionValue": {
+        "additionalProperties": false,
+        "properties": {
+          "key": { "type": "string", "x-struct": null, "x-validate": null },
+          "value": { "$ref": "#/components/schemas/" }
+        },
+        "required": ["key", "value"],
+        "title": "AppConfigurationDecryptionValue",
+        "type": "object",
+        "x-struct": null,
+        "x-validate": null
+      },
+      "AppConfigurationItem": {
+        "additionalProperties": false,
+        "properties": {
+          "default_present": { "type": "boolean", "x-struct": null, "x-validate": null },
+          "description": { "nullable": true, "type": "string", "x-struct": null, "x-validate": null },
+          "editable": { "type": "boolean", "x-struct": null, "x-validate": null },
+          "encrypted": { "type": "boolean", "x-struct": null, "x-validate": null },
+          "error": { "nullable": true, "type": "string", "x-struct": null, "x-validate": null },
+          "key": { "type": "string", "x-struct": null, "x-validate": null },
+          "kind": {
+            "enum": ["exact", "pattern", "pattern_concrete"],
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "overridden": { "type": "boolean", "x-struct": null, "x-validate": null },
+          "pattern": { "nullable": true, "type": "string", "x-struct": null, "x-validate": null },
+          "pattern_id": { "nullable": true, "type": "string", "x-struct": null, "x-validate": null },
+          "present": { "type": "boolean", "x-struct": null, "x-validate": null },
+          "source": {
+            "enum": ["default", "global", "missing", "pattern", "error"],
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "value": { "$ref": "#/components/schemas/" }
+        },
+        "required": ["key", "kind", "encrypted", "editable", "default_present", "overridden", "present", "source"],
+        "title": "AppConfigurationItem",
+        "type": "object",
+        "x-struct": null,
+        "x-validate": null
+      },
+      "AppConfigurationListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "items": { "$ref": "#/components/schemas/AppConfigurationItem" },
+            "type": "array",
+            "x-struct": null,
+            "x-validate": null
+          }
+        },
+        "required": ["data"],
+        "title": "AppConfigurationListResponse",
+        "type": "object",
+        "x-struct": null,
+        "x-validate": null
+      },
+      "AppConfigurationResponse": {
+        "additionalProperties": false,
+        "properties": { "data": { "$ref": "#/components/schemas/AppConfigurationItem" } },
+        "required": ["data"],
+        "title": "AppConfigurationResponse",
+        "type": "object",
+        "x-struct": null,
+        "x-validate": null
+      },
+      "AppConfigurationUpdateRequest": {
+        "additionalProperties": false,
+        "properties": { "value": { "$ref": "#/components/schemas/" } },
+        "required": ["value"],
+        "title": "AppConfigurationUpdateRequest",
+        "type": "object",
+        "x-struct": null,
+        "x-validate": null
+      },
+      "ConsoleApiError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": { "type": "string", "x-struct": null, "x-validate": null },
+          "details": {
+            "items": { "$ref": "#/components/schemas/ConsoleApiErrorDetail" },
+            "nullable": true,
+            "type": "array",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "message": { "type": "string", "x-struct": null, "x-validate": null }
+        },
+        "required": ["code", "message"],
+        "title": "ConsoleApiError",
+        "type": "object",
+        "x-struct": null,
+        "x-validate": null
+      },
+      "ConsoleApiErrorDetail": {
+        "additionalProperties": true,
+        "properties": {
+          "message": { "type": "string", "x-struct": null, "x-validate": null },
+          "path": { "nullable": true, "type": "string", "x-struct": null, "x-validate": null }
+        },
+        "required": ["message"],
+        "title": "ConsoleApiErrorDetail",
+        "type": "object",
+        "x-struct": null,
+        "x-validate": null
+      },
+      "ConsoleApiErrorEnvelope": {
+        "additionalProperties": false,
+        "properties": { "error": { "$ref": "#/components/schemas/ConsoleApiError" } },
+        "required": ["error"],
+        "title": "ConsoleApiErrorEnvelope",
+        "type": "object",
+        "x-struct": null,
+        "x-validate": null
+      }
+    },
+    "securitySchemes": { "consoleBearer": { "bearerFormat": "JWT", "scheme": "bearer", "type": "http" } }
+  },
+  "info": { "title": "Ankole Console API", "version": "2026-06-24" },
+  "openapi": "3.0.0",
+  "paths": {
+    "/api/app-configurations": {
+      "get": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.AppConfigurationController.index",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/AppConfigurationListResponse" } }
+            },
+            "description": "AppConfigure entries"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "List console-visible AppConfigure entries",
+        "tags": ["AppConfigure"]
+      }
+    },
+    "/api/app-configurations/{key}": {
+      "delete": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.AppConfigurationController.delete",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": { "type": "string", "x-struct": null, "x-validate": null }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/AppConfigurationResponse" } }
+            },
+            "description": "AppConfigure entry"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Not found"
+          },
+          "422": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Not editable"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Reset one global AppConfigure value",
+        "tags": ["AppConfigure"]
+      },
+      "get": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.AppConfigurationController.show",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": { "type": "string", "x-struct": null, "x-validate": null }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/AppConfigurationResponse" } }
+            },
+            "description": "AppConfigure entry"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Not found"
+          },
+          "422": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Not editable"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Read one console-editable AppConfigure entry",
+        "tags": ["AppConfigure"]
+      },
+      "put": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.AppConfigurationController.update",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": { "type": "string", "x-struct": null, "x-validate": null }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/AppConfigurationUpdateRequest" } }
+          },
+          "description": "AppConfigure update",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/AppConfigurationResponse" } }
+            },
+            "description": "AppConfigure entry"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Not found"
+          },
+          "422": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Invalid value"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Store one global AppConfigure value",
+        "tags": ["AppConfigure"]
+      }
+    },
+    "/api/app-configurations/{key}/decryptions": {
+      "post": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.AppConfigurationController.decrypt",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": { "type": "string", "x-struct": null, "x-validate": null }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/AppConfigurationDecryptionResponse" } }
+            },
+            "description": "Decrypted value"
+          },
+          "401": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Not found"
+          },
+          "422": {
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "description": "Not encrypted"
+          }
+        },
+        "security": [{ "consoleBearer": [] }],
+        "summary": "Reveal one encrypted AppConfigure value on demand",
+        "tags": ["AppConfigure"]
+      }
+    }
+  },
+  "security": [],
+  "servers": [{ "url": "http://localhost:4000", "variables": {} }],
+  "tags": [
+    { "description": "Registry-backed runtime configuration exposed to the web console", "name": "AppConfigure" }
+  ]
+}

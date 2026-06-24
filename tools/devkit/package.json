@@ -14,10 +14,10 @@
     "fmt:check": "oxfmt --check"
   },
   "dependencies": {
-    "@angular-devkit/core": "^21.2.4",
-    "@angular-devkit/schematics": "^21.2.4",
-    "@angular-devkit/schematics-cli": "^21.2.4",
-    "@crustjs/core": "^0.0.18",
+    "@angular-devkit/core": "^22.0.4",
+    "@angular-devkit/schematics": "^22.0.4",
+    "@angular-devkit/schematics-cli": "^22.0.4",
+    "@crustjs/core": "^0.0.19",
     "@crustjs/plugins": "^0.1.0",
     "chalk": "^5.5.0",
     "jsonc": "^2.0.0"

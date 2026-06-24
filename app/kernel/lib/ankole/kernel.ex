@@ -17,6 +17,11 @@ defmodule Ankole.Kernel do
   @type initial_crc32_state :: non_neg_integer() | nil
   @type authz_snapshot :: map()
   @type authz_decision :: map()
+  @type actor_bus_envelope :: map()
+  @type jwt_claims :: map()
+  @type jwt_header :: map()
+  @type jwt_validation :: map()
+  @type actor_bus_router :: reference()
 
   @doc """
   Decrypts a compact AEAD token produced by `aead_encrypt/2`.
@@ -69,6 +74,57 @@ defmodule Ankole.Kernel do
   @doc false
   @spec authz_authorize_all_json(String.t()) :: result(String.t())
   def authz_authorize_all_json(_snapshot_json), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
+  Encodes an Actor Bus v1 envelope as protobuf bytes.
+
+  The public Elixir shape is a map. The native kernel validates protocol
+  version, lane, durability, body type, and boundary rules before returning
+  bytes that may be sent over the actor fabric.
+  """
+  @spec actor_bus_encode_envelope(actor_bus_envelope()) :: result(binary())
+  def actor_bus_encode_envelope(envelope) when is_map(envelope) do
+    envelope
+    |> Torque.encode!()
+    |> actor_bus_encode_envelope_json()
+  end
+
+  @doc false
+  @spec actor_bus_encode_envelope_json(String.t()) :: result(binary())
+  def actor_bus_encode_envelope_json(_envelope_json), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
+  Decodes Actor Bus v1 protobuf bytes into the public Elixir map shape.
+  """
+  @spec actor_bus_decode_envelope(binary()) :: result(actor_bus_envelope())
+  def actor_bus_decode_envelope(envelope_bytes) when is_binary(envelope_bytes) do
+    envelope_bytes
+    |> actor_bus_decode_envelope_json()
+    |> decode_json_result()
+  end
+
+  @doc false
+  @spec actor_bus_decode_envelope_json(binary()) :: result(String.t())
+  def actor_bus_decode_envelope_json(_envelope_bytes), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc false
+  @spec actor_bus_router_start(String.t(), pid(), String.t()) :: result(actor_bus_router())
+  def actor_bus_router_start(_endpoint, _owner_pid, _opts_json),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc false
+  @spec actor_bus_router_endpoint(actor_bus_router()) :: result(String.t())
+  def actor_bus_router_endpoint(_router), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc false
+  @spec actor_bus_router_send_mandatory(actor_bus_router(), String.t(), String.t()) ::
+          result(String.t())
+  def actor_bus_router_send_mandatory(_router, _transport_route, _envelope_json),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc false
+  @spec actor_bus_router_stop(actor_bus_router()) :: result(boolean())
+  def actor_bus_router_stop(_router), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """
   Returns `true` when a CEL authorization condition compiles.
@@ -159,6 +215,48 @@ defmodule Ankole.Kernel do
   def derive_key(_key_seed, _sub_key_id, _extra_context), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """
+  Decodes a JWT header without validating the token signature.
+  """
+  @spec jwt_decode_header(String.t()) :: result(jwt_header())
+  def jwt_decode_header(token) when is_binary(token) do
+    token
+    |> jwt_decode_header_json()
+    |> decode_json_result()
+  end
+
+  @doc false
+  @spec jwt_decode_header_json(String.t()) :: result(String.t())
+  def jwt_decode_header_json(_token), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
+  Signs JSON-compatible JWT claims with the provided key and header options.
+  """
+  @spec jwt_sign(jwt_claims(), binary(), jwt_header()) :: result(String.t())
+  def jwt_sign(claims, key, header \\ %{})
+      when is_map(claims) and is_binary(key) and is_map(header) do
+    jwt_sign_json(Torque.encode!(claims), key, Torque.encode!(header))
+  end
+
+  @doc false
+  @spec jwt_sign_json(String.t(), binary(), String.t()) :: result(String.t())
+  def jwt_sign_json(_claims_json, _key, _header_json), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
+  Verifies a JWT and returns its JSON-compatible claims.
+  """
+  @spec jwt_verify(String.t(), binary(), jwt_validation()) :: result(jwt_claims())
+  def jwt_verify(token, key, validation \\ %{})
+      when is_binary(token) and is_binary(key) and is_map(validation) do
+    token
+    |> jwt_verify_json(key, Torque.encode!(validation))
+    |> decode_json_result()
+  end
+
+  @doc false
+  @spec jwt_verify_json(String.t(), binary(), String.t()) :: result(String.t())
+  def jwt_verify_json(_token, _key, _validation_json), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
   Generates a random UUIDv4 encoded as lowercase Base36 text.
   """
   @spec gen_base36_uuid() :: String.t()
@@ -206,4 +304,7 @@ defmodule Ankole.Kernel do
   """
   @spec gen_uuid_v7() :: String.t()
   def gen_uuid_v7, do: :erlang.nif_error(:nif_not_loaded)
+
+  defp decode_json_result({:error, _reason} = error), do: error
+  defp decode_json_result(json) when is_binary(json), do: Torque.decode!(json)
 end

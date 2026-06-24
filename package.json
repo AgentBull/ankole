@@ -28,6 +28,9 @@
     "ai-proxy:dev": "bun run --filter @ankole/ai-proxy dev",
     "ai-proxy:start": "bun run --filter @ankole/ai-proxy start",
     "ai-proxy:test": "bun run --filter @ankole/ai-proxy test",
+    "agent-computer-worker": "bun run --filter @ankole/agent-computer-worker",
+    "agent-computer-worker:test": "bun run --filter @ankole/agent-computer-worker test",
+    "agent-computer-worker:e2e": "bun run --filter @ankole/control-plane e2e:actor-runtime-worker",
     "control-plane": "bun run --filter @ankole/control-plane",
     "control-plane:setup": "bun run --filter @ankole/control-plane setup",
     "control-plane:dev": "bun run --filter @ankole/control-plane dev",
@@ -49,12 +52,12 @@
     "analyze:topology": "bun run kit analyze topology"
   },
   "dependencies": {
-    "knip": "^6.18.0",
+    "knip": "^6.20.0",
     "turbo": "^2.9.18"
   },
   "devDependencies": {
     "@types/bun": "latest",
-    "@typescript/native-preview": "^7.0.0-dev.20260623.1",
+    "@typescript/native-preview": "^7.0.0-dev.20260624.1",
     "oxfmt": "^0.56.0",
     "oxlint": "^1.70.0",
     "pino-pretty": "^13.1.3",

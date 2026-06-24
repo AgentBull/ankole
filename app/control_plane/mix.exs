@@ -26,7 +26,10 @@ defmodule Ankole.MixProject do
 
   def cli do
     [
-      preferred_envs: [precommit: :test]
+      preferred_envs: [
+        precommit: :test,
+        "e2e.actor_runtime_worker": :test
+      ]
     ]
   end
 
@@ -60,6 +63,7 @@ defmodule Ankole.MixProject do
       {:telemetry_poller, "~> 1.3"},
       {:localize, "~> 0.41"},
       {:oban, "~> 2.23"},
+      {:open_api_spex, "~> 3.22"},
       {:toml_elixir, "~> 3.1"},
       {:torque, "~> 0.2.3"},
       {:ankole_kernel, path: "../kernel"},
@@ -80,6 +84,11 @@ defmodule Ankole.MixProject do
       setup: ["deps.get", "ecto.setup"],
       "ecto.setup": ["ecto.create", "ecto.migrate", "run priv/repo/seeds.exs"],
       "ecto.reset": ["ecto.drop", "ecto.setup"],
+      "e2e.actor_runtime_worker": [
+        "ecto.create --quiet",
+        "ecto.migrate --quiet",
+        "test e2e/actor_runtime_worker_e2e_test.exs --trace"
+      ],
       test: ["ecto.create --quiet", "ecto.migrate --quiet", "test"],
       "assets.build": ["cmd --cd ../webapps bun run build"],
       "assets.deploy": ["assets.build", "phx.digest"],

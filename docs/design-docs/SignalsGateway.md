@@ -1,10 +1,11 @@
 # SignalsGateway
 
-SignalsGateway is the boundary between provider ingress, actor mailbox handoff,
-and provider-visible outbound effects. It accepts normalized facts from
+SignalsGateway is the boundary between provider ingress, actor input journal
+handoff, and provider-visible outbound effects. It accepts normalized facts from
 adapters, applies binding policy, updates the provider mirror, appends durable
-actor input when needed, acks the provider after the durable transaction, and
-executes actor-committed visible side effects through the gateway outbox.
+`actor_inputs` rows when needed, acks the provider after the
+durable transaction, and executes actor-committed visible side effects through
+the gateway outbox.
 
 Only four concepts need to stay separate:
 
@@ -13,7 +14,7 @@ Only four concepts need to stay separate:
   the input came from a provider. It is an input shape, not necessarily a table.
 - Provider mirror: `signal_channels` and `signal_entries`, the current
   provider-visible or provider-delivered state Ankole has chosen to observe.
-- `ActorInput`: the semantic input appended to `actor_mailbox` for a session
+- `ActorInput`: the semantic input appended to `actor_inputs` for a session
   actor, such as `im.message.addressed`, `im.message.may_intervene`,
   `command.steer`, `timer.fired`, or `signal.entry.deleted`.
 - Outbox: the one durable table of actor-committed provider-visible side
@@ -37,11 +38,14 @@ byproduct here, not the design driver. Runtime behavior should remain
 explainable from these surfaces:
 
 - `signal_channels` and `signal_entries`: latest observed provider-visible or
-  provider-delivered mirror.
+  provider-delivered mirror. `signal_entries` is also the long-lived substrate
+  for recall/search and future long-term memory.
 - `signal_gateway_input_tombstones`: short-lived delete/recall guards before a
   matching receive is accepted.
-- `actor_mailbox`: durable-until-consumed accepted input for
-  `{agent_uid, session_id}` actors.
+- `actor_inputs`: durable-until-consumed actor inputs for `{agent_uid,
+  session_id}` actors.
+- `actor_input_consumptions`: recovery-window commit facts showing which
+  accepted inputs reached durable actor state.
 - `signal_gateway_outbox`: durable provider-visible side-effect execution
   state.
 - Redis visible-output streams: weak in-progress output visibility.
@@ -96,7 +100,7 @@ identities and indexes, not extra product concepts.
 | `signal_channel_key` | `(signal_channel_id)` | One `signal_channels` row |
 | `signal_entry_key` | `(signal_channel_id, provider_entry_id)` | One `signal_entries` row |
 | `outbox_key` | `(agent_uid, binding_name, outbound_key)` | One provider-visible side-effect intent |
-| `mailbox_idempotency_key` | `(agent_uid, binding_name, ingress_event_id)` | Durable actor handoff idempotency |
+| `actor_input_idempotency_key` | `(agent_uid, binding_name, ingress_event_id)` | Durable actor handoff idempotency |
 
 Consequences:
 
@@ -107,7 +111,7 @@ Consequences:
   keyed by the accepting route. If the provider gives different entry ids for
   the same physical item across bot/app views, the adapter should not invent a
   cross-app dedupe key.
-- Mailbox idempotency includes `agent_uid` and `binding_name`, so provider
+- ActorInput idempotency includes `agent_uid` and `binding_name`, so provider
   redelivery is de-duped for the binding route that accepted the ingress event.
 - Tombstones include `signal_channel_id`, so same-looking provider entry ids in
   different channels do not suppress each other.
@@ -169,7 +173,7 @@ adapter-owned and deterministic.
 Keep these axes separate:
 
 - `transport_ack`: whether the provider callback needs protocol acknowledgement.
-- `actor_delivery`: whether binding policy writes `actor_mailbox`.
+- `actor_delivery`: whether binding policy writes `actor_inputs`.
 - `visible_output`: whether the channel and adapter can perform provider-visible
   side effects.
 
@@ -218,9 +222,9 @@ timers provide their session id explicitly instead of creating synthetic signal
 channels.
 
 Rule-based delivery routing is intentionally not the v1 configuration surface.
-Future versions may add MailBox-style delivery rules below this layer, but v1
+Future versions may add actor-input delivery rules below this layer, but v1
 keeps the operator story as explicit `agent + binding` ingress followed by
-durable actor-mailbox handoff.
+durable actor input handoff.
 
 Adapter startup failure is scoped to the binding whenever possible. A missing
 or unavailable adapter for one binding should mark that binding unavailable and
@@ -265,7 +269,7 @@ SignalsGateway owns:
 - normalized provider ingress from signal adapters;
 - binding and command admission policy, including group-message admission;
 - latest-state provider mirror updates for signal channels and entries;
-- signal-to-session mapping and actor-mailbox event construction;
+- signal-to-session mapping and `actor_inputs` construction;
 - short-lived tombstones for delete/recall;
 - provider-visible outbox execution;
 - weak visible-output stream state for in-progress assistant output;
@@ -281,10 +285,10 @@ SignalsGateway does not own:
   can call with observed platform-subject facts;
 - plugin discovery, plugin activation, or provider setup persistence;
 - a universal audit log of every upstream provider payload;
-- a universal rule-routing engine or arbitrary MailBox-style delivery rules;
+- a universal rule-routing engine or arbitrary runtime delivery rules;
 - transport ack policy beyond whether ingress was accepted by the gateway;
-- ZeroMQ activation, actor leases, agent computer lifecycle, or final-proposal
-  commit.
+- ZeroMQ actor fabric, actor leases, agent computer lifecycle, worker-internal
+  AI SDK turn loop, or final-proposal commit.
 
 ## Adapter Contract
 
@@ -318,10 +322,10 @@ entry snapshot, and raw payload reference. Reaction and action facts are typed
 separately.
 
 When an inbound entry has attachments, materialization happens before mirroring
-and mailbox enqueue. Durable payloads must carry provider references,
+and actor input append. Durable payloads must carry provider references,
 blob/storage references, or file paths visible to the agent computer, not live
-adapter closures or host-only temp paths. The provider mirror row and mailbox
-snapshot should see the same normalized attachment view.
+adapter closures or host-only temp paths. The provider mirror row and actor
+input snapshot should see the same normalized attachment view.
 
 Core IngressFact kinds are intentionally small:
 
@@ -368,8 +372,9 @@ remain code-defined by SignalsGateway and the actor runtime.
 
 For a human IM message explicitly directed to an agent, SignalsGateway mirrors
 the visible entry, appends `im.message.addressed`, writes it to the channel's
-session actor mailbox, wakes that actor, and later sends only explicit
-`signal_gateway_outbox` rows committed by the actor runtime.
+session `actor_inputs`, and later sends only explicit `signal_gateway_outbox`
+rows committed by the actor runtime. ActorRuntime owns publish/replay of ready
+input through the actor fabric.
 
 For IM group traffic that is not explicitly directed to the agent,
 `unaddressed_group_message_policy` decides whether the entry is ignored,
@@ -382,10 +387,10 @@ channel id chooses the session actor. HTTP ack means the signal was durably
 accepted or explicitly rejected; it does not wait for the agent turn to finish
 and it is not a provider-visible reply.
 
-For delete or recall, the provider mirror is updated immediately. Pending mailbox input
-can be removed before the actor sees it; otherwise a lifecycle event is written
-to the same actor mailbox. SignalsGateway never infers deletion of prior
-assistant output.
+For delete or recall, the provider mirror is updated immediately. Pending actor
+input can be removed before the actor sees it; otherwise a lifecycle event is
+written to the same actor input journal. SignalsGateway never infers deletion of
+prior assistant output.
 
 For `/steer`, the adapter/shared parser recognizes a visible command entry. The
 gateway mirrors the visible entry and appends
@@ -410,17 +415,17 @@ adapter callback
   -> transaction:
        - tombstone check/update
        - mirror effect by signal_entry_key
-       - mailbox effect by session_key / mailbox_idempotency_key
+       - actor input effect by session_key / actor_input_idempotency_key
   -> return accepted, recorded, ignored, filtered, or error
   -> external layer may provider-ack after commit
-  -> external layer may best-effort actor wake; actor_mailbox is durable truth
+  -> ActorRuntime may publish/replay ready actor input from the journal
 ```
 
 Malformed payloads must fail before provider ack unless a future adapter first
-stages the raw input durably. In particular, mailbox payloads, outbox payloads,
-and provider mirror JSON fields must be JSON-serializable before insert. Runtime
-values such as processes, functions, references, tuples, arbitrary structs, and
-non-boolean atoms are not stringified into durable state.
+stages the raw input durably. In particular, actor input payloads, outbox
+payloads, and provider mirror JSON fields must be JSON-serializable before
+insert. Runtime values such as processes, functions, references, tuples,
+arbitrary structs, and non-boolean atoms are not stringified into durable state.
 
 Actor outbound path:
 
@@ -439,26 +444,34 @@ actor final proposal committed
 ```
 
 Gateway acceptance means the IngressFact has been durably processed by
-SignalsGateway. If the route writes actor mailbox, it also means the input has
-been durably accepted for the session actor. It does not mean the agent finished
-a turn. Provider send failure after final-proposal commit stays on
-`signal_gateway_outbox` and does not revoke the accepted mailbox input.
+SignalsGateway. If the route writes actor input, it also means the input has
+been durably accepted into `actor_inputs`. It does not mean the actor fabric
+delivered it, a worker accepted a turn, or the agent finished a turn. Provider
+send failure after final-proposal commit stays on `signal_gateway_outbox` and
+does not revoke the accepted actor input.
 
 SignalsGateway does not own execution scheduling. One-active-turn fencing, actor
 epochs, revision checks, agent computer crash recovery, and checkpoint
-consumption belong to the actor store and Elixir control plane. ZeroMQ carries
-live activation and progress only; it is not the durable queue.
+consumption belong to the actor store and Elixir control plane. ZeroMQ is the
+live actor fabric between the Elixir control plane and agent computer workers.
+It may carry journal-backed input delivery, nudge/progress, and final-proposal
+handoff, but durable signal recovery, fencing, and provider-visible side-effect
+truth remain in `actor_inputs`, `actor_input_deliveries`,
+`actor_input_consumptions`, ai-agent tables, and `signal_gateway_outbox`.
 
 ## Provider Mirror Contract
 
 `signal_channels` and `signal_entries` are provider mirror tables. They are the
 current provider-visible or provider-delivered mirror of accepted observable
-facts and confirmed provider-visible outbound effects. They are not routing
-state, an audit log, actor transcript, provider truth, or a durable queue.
+facts and confirmed provider-visible outbound effects. `signal_entries` is also
+long-lived input material for recall/search and future long-term memory. These
+tables are not routing state, actor transcript, provider truth, or a durable
+actor queue.
 
 The mirror does not record which binding saw which channel. Binding-specific
-handling is answered by the route that accepted the ingress event, the mailbox
-row written by that route, and the actor store's consumed-input record. A
+handling is answered by the route that accepted the ingress event, the
+`actor_inputs` row written by that route, and the actor store's consumption
+record. A
 mirror-only entry is simply a mirrored entry with no ActorInput for that ingress
 route.
 
@@ -513,7 +526,7 @@ actor input. Choose channel granularity from the user story:
 uses that pair as its primary key. `provider_entry_id` means the
 adapter-normalized entry id stored in the mirror; it is not necessarily the raw
 provider id. `thread_id` is not provider mirror identity; thread scope stays in
-the actor mailbox and outbox as `provider_thread_id`, where batching and provider
+`actor_inputs` and outbox as `provider_thread_id`, where batching and provider
 delivery need it.
 
 `signal_entries` also reserves recall/search fields. These fields are part of
@@ -532,6 +545,12 @@ Vector storage, embedding profiles, ranking, and re-embedding workers belong to
 the recall/search subsystem. SignalsGateway only reserves the stable entry-side
 fields that subsystem will need.
 
+`signal_entries` must not be treated as TTL runtime state. Memory/search
+retention, redaction, delete, and recall behavior are product/privacy policy,
+not actor-runtime cleanup. Actor-runtime recovery tables may be compacted; this
+provider observation surface is the durable source that memory systems can build
+from.
+
 For providers that do not expose a message-like entry id, the adapter must
 derive a `provider_entry_id` stable enough for provider redelivery. A webhook
 provider's event id is usually the right value. If a provider has no stable
@@ -542,8 +561,10 @@ Provider mirror behavior:
 
 - Receive upserts entry text, formatted content, attachments, links, author,
   mentions, metadata, raw payload, and provider time.
-- Deletes and recalls hard-delete the mirrored entry because the table
-  represents current visible or delivered state.
+- Deletes and recalls remove the entry from current visible/searchable state
+  according to product/privacy policy. The default long-lived memory substrate
+  shape should use tombstone or redaction; physical deletion is an explicit data
+  erasure policy, not ordinary TTL cleanup.
 - Reactions update the entry reaction map and preserve raw provider reaction
   keys when available.
 - Reaction changes for unknown or unmirrored entries are ignored in v1.
@@ -571,8 +592,8 @@ provider audit log.
 
 For each `IngressFact`, SignalsGateway applies binding policy and writes the
 needed effects in one transaction. One input can update the provider mirror,
-append or remove actor mailbox input, refresh a tombstone, and then accept or
-reject the provider callback.
+append or cancel `actor_inputs` rows, refresh a tombstone, and then accept
+or reject the provider callback.
 
 Common cases:
 
@@ -587,32 +608,36 @@ Common cases:
 | Recognized visible command such as `/steer` | Mirror visible command entry, append `command.steer` under command admission |
 | Timer fired | Append `timer.fired` with explicit `session_id` |
 | Delete/recall before receive | Write tombstone so a late receive is dropped |
-| Delete/recall while mailbox pending | Refresh tombstone, delete mirrored entry, cancel/remove pending mailbox input |
-| Delete/recall after actor commit | Refresh tombstone, delete mirrored entry, append `signal.entry.deleted` or `signal.entry.recalled` |
+| Delete/recall while actor input pending | Refresh tombstone, remove or redact current visible/searchable entry state, cancel/remove pending actor input |
+| Delete/recall after actor commit | Refresh tombstone, remove or redact current visible/searchable entry state, append `signal.entry.deleted` or `signal.entry.recalled` |
 
 This is the only place where binding policy turns ingress facts into actor
 input. `record_only` means mirror effect only; it is not an event type and it
 does not create an actor-side receipt.
+
+There is no separate `record_and_signal` gateway mode. The Ankole term for that
+path is accepted ActorInput path: the provider mirror is recorded and the same
+transaction appends `actor_inputs`.
 
 Gateway behavior uses existing facts instead of writing a separate per-entry
 lifecycle table:
 
 - `ignore` writes no mirror row and no ActorInput.
 - `record_only` and other mirror-only receives write the mirror row and stop.
-- any provider-backed receive that appends ActorInput writes the mailbox row
+- any provider-backed receive that appends ActorInput writes `actor_inputs`
   before ack.
-- actor commit records consumed input in actor store while writing actor
-  messages and any `signal_gateway_outbox` rows.
-- delete/recall refreshes the tombstone first, then checks mailbox and actor
-  store state to decide whether to remove pending input, append a lifecycle
+- actor commit records `actor_input_consumptions` in actor store while writing
+  actor messages and any `signal_gateway_outbox` rows.
+- delete/recall refreshes the tombstone first, then checks `actor_inputs` and
+  actor store state to decide whether to remove pending input, append a lifecycle
   ActorInput, or only update the mirror.
 
 `unaddressed_group_message_policy` is an IM-like group-channel binding policy,
 not a Feishu/Lark-specific rule. It only applies after the binding route has
 classified the message as not explicitly directed to the agent.
 
-`record_only` updates the mirror, then stops. It creates no ActorInput, no actor
-mailbox row, no resolver selection, no scheduling metadata, and no actor
+`record_only` updates the mirror, then stops. It creates no ActorInput, no
+`actor_inputs` row, no resolver selection, no scheduling metadata, and no actor
 transcript change.
 
 `record_only` still needs IngressFact idempotency. The mirror uses
@@ -646,12 +671,12 @@ explicitly carry a signal channel. They enter through a configured internal
 binding, use `ingress_event_id` for idempotency, and must provide an explicit
 `session_id`. v1 keeps the same key shape for provider-backed and internal
 inputs: an internal binding has a real `binding_name`, typically
-`internal:<source_name>`, and mailbox idempotency stays `(agent_uid,
+`internal:<source_name>`, and actor input idempotency stays `(agent_uid,
 binding_name, ingress_event_id)`.
 
 If the agent runtime has a pending clarify question for a provider channel, the
 gateway routes an otherwise unaddressed IM group reply with text as explicit
-mailbox input only when the actor-runtime clarify registry matches
+actor input only when the actor-runtime clarify registry matches
 `{agent_uid, session_id or signal_channel_id}` and any expected sender
 constraint. The clarify registry remains owned by the agent runtime;
 SignalsGateway only reads this boolean routing answer. If it does not match, the
@@ -659,9 +684,9 @@ entry follows normal unaddressed group policy.
 
 ## Actor Inputs
 
-SignalsGateway writes a small CloudEvents-style envelope into `actor_mailbox`.
-The envelope is a shape convention, not an external runtime dependency.
-`type` is the ActorInput semantic type chosen by binding policy and command
+SignalsGateway writes a small CloudEvents-style envelope into `actor_inputs`.
+The envelope is a shape convention, not an external runtime dependency. `type`
+is the ActorInput semantic type chosen by binding policy and command
 classification; it is not the IngressFact kind.
 
 Envelope fields:
@@ -684,7 +709,7 @@ Envelope fields:
 - optional `data.action`
 - optional `data.internal`
 
-SignalsGateway writes only actor-facing inputs to `actor_mailbox`:
+SignalsGateway writes only actor-facing inputs to `actor_inputs`:
 
 - `im.message.addressed`: explicit IM input, micro-batched by the default v1
   readiness policy.
@@ -717,12 +742,16 @@ Stored state:
 
 - provider mirror rows: `signal_channels` and `signal_entries`;
 - short-lived tombstones for delete/recall races;
-- `actor_mailbox` rows until the actor consumes them;
+- `actor_inputs` rows until the actor consumes or compacts them;
+- `actor_input_consumptions` rows during the actor recovery / compaction window;
 - `signal_gateway_outbox` rows until provider-visible side effects resolve;
 - route-level binding config such as adapter id, credential reference, filters,
-  and `unaddressed_group_message_policy`;
-- processed ingress-event keys when a route needs redelivery de-dupe beyond
-  mirror upsert idempotency.
+  and `unaddressed_group_message_policy`.
+
+SignalsGateway v1 does not store a separate processed-ingress-events table.
+Actor-input route redelivery is de-duped by `actor_inputs` while open and
+`actor_input_consumptions` during the recovery window. Mirror-only redelivery is
+de-duped by `signal_entries` using the adapter's stable provider entry key.
 
 Code contracts:
 
@@ -734,8 +763,8 @@ Code contracts:
   `/steer`, and `/stop`;
 - public adapter context methods such as `emitEntry` and `emitAction`;
 - internal constructors for accepted `IngressFact` and outbox adapter contracts;
-- the CloudEvents-style envelope shape written to `actor_mailbox`;
-- strict JSON normalization for durable mailbox, outbox, and mirror payloads;
+- the CloudEvents-style envelope shape written to `actor_inputs`;
+- strict JSON normalization for durable actor input, outbox, and mirror payloads;
 - source/event definitions that map webhook/action facts to ActorInput types.
 
 Do not store `resolver_key`, per-entry `observed_only` rows, binding-channel
@@ -752,25 +781,34 @@ TTL cleanup is one SignalsGateway use case of the broader control-plane
 background-job runtime. The background-job runtime is an Ankole-wide
 infrastructure choice, not a SignalsGateway submodule. SignalsGateway should say
 what periodic or deferred work it needs and what guarantees that work needs; it
-must not make the gateway tables or actor-mailbox semantics depend on the job
+must not make the gateway tables or actor input semantics depend on the job
 runtime.
 
 TTL-like storage needs a resident cleanup path:
 
 - `signal_gateway_input_tombstones`: delete rows after `tombstoned_until`.
-- processed ingress-event keys, if implemented as a separate table: delete after
-  their redelivery window.
-- consumed or archived `actor_mailbox` rows: cleaned by actor store policy, not
+- consumed or archived `actor_inputs` rows: cleaned by actor store policy, not
   by SignalsGateway.
 - Redis visible-output streams: use Redis expiry or stream trimming; final
   recovery must not depend on them.
+
+`signal_entries` is deliberately absent from this TTL list. It is long-lived
+provider observation and memory/search substrate. Delete/recall may remove or
+redact content through explicit product/privacy semantics, but background
+runtime cleanup must not treat it like actor delivery state.
+
+ActorRuntime tables such as `actor_input_deliveries`,
+`actor_session_activations`, worker heartbeat projections, and sticky placement
+rows are different: they are recovery-window runtime state. Their unlogged
+storage choice and row cleanup rules belong to the actor store/runtime design,
+not SignalsGateway.
 
 Oban is the default choice for that Ankole-wide background-job runtime because
 future work will need persisted enqueue, retries, uniqueness/idempotency,
 scheduled jobs, cron-like recurring jobs, operational visibility, and
 Postgres-backed coordination. This choice does not make Oban part of
 SignalsGateway's data model. Oban jobs may operate on SignalsGateway tables,
-but they do not replace `actor_mailbox`, `signal_gateway_outbox`, or provider
+but they do not replace `actor_inputs`, `signal_gateway_outbox`, or provider
 mirror rows.
 
 Use one Oban queue for v1 background work, including SignalsGateway jobs. Do not
@@ -811,7 +849,7 @@ batching, entry context, and provider delivery, but it does not define the
 session boundary and is not duplicated into `signal_entries`.
 
 Inputs without a signal channel, such as internal timer facts, must carry an
-explicit `session_id`. They can enqueue actor mailbox events without creating a
+explicit `session_id`. They can append `actor_inputs` rows without creating a
 `signal_channels` row or `signal_entries` mirror row. Unless they deliberately
 carry a channel, they do not enter the provider mirror.
 
@@ -857,7 +895,10 @@ the session actor runtime decides what the command means.
 resolver path is equivalent to `im.message.addressed`. If the session actor is
 running, the Elixir control plane may send a ZeroMQ `mailbox_updated` or
 `checkpoint_nudge`, and the agent computer may consume the event at a checkpoint.
-SignalsGateway must not model steering as a second control queue.
+Those control messages are nudges: any cross-boundary input delivery must
+reference an already journaled actor input and must not carry an undurable
+provider payload. SignalsGateway must not model steering as a second control
+queue.
 
 `/undo` is not a command. If a user wants to retract input, the provider
 recall/delete lifecycle event is the supported path.
@@ -866,33 +907,45 @@ Command parsing trims leading bot mentions for mentioned commands, allows
 multi-line arguments, and normalizes full-width spaces and digits before
 matching. A full-width slash remains user text.
 
-## Actor Mailbox Handoff
+## Actor Input Journal Handoff
 
-There is no durable gateway-to-agent queue separate from `actor_mailbox`.
-Accepted agent-relevant signals are written into `actor_mailbox` in the same
+There is no durable gateway-owned actor input queue separate from `actor_inputs`.
+Accepted agent-relevant signals are written into `actor_inputs` in the same
 transaction that updates the provider mirror and tombstone state. The row is
 durable-until-consumed: it covers the crash recovery gap after provider ack and
-before actor turn commit, but it is not permanent history.
+before actor fabric delivery, worker acceptance, and actor turn commit, but it
+is not permanent history.
 
 SignalsGateway does not lock a whole session while an actor turn is running. New
-mailbox rows for the same `session_id`, including follow-up messages and
+`actor_inputs` rows for the same `session_id`, including follow-up messages and
 `command.steer`, can still be appended durably. The actor runtime owns when to
-consume them, whether to checkpoint early, and how to fence overlapping turn
-commits.
+publish/replay them through the actor fabric, whether to checkpoint early, and
+how to fence overlapping turn commits.
 
-The actor store owns the physical mailbox schema; SignalsGateway owns the signal
-payload and idempotency contract it writes. Mailbox payloads should be minimal
-dispatch snapshots, not raw provider payload copies. Heavy raw data,
-attachments, and long-lived searchable content should stay in `signal_entries`,
-attachment/blob storage, or actor messages after commit.
+The actor store owns the physical `actor_inputs`, `actor_input_deliveries`, and
+`actor_input_consumptions` schema. SignalsGateway owns the signal payload and
+idempotency contract it writes. Actor input payloads should be minimal dispatch
+snapshots, not raw provider payload copies. Heavy raw data, attachments, and
+long-lived searchable content should stay in `signal_entries`, attachment/blob
+storage, or actor messages after commit.
 
-Consuming a mailbox input is the actor-side ack boundary. The actor store locks
-the mailbox row, rejects it if a delete/recall tombstone canceled the input,
-writes the consumed-input marker, inserts any actor-committed outbox intents,
-and removes the mailbox row in one transaction. There is no separate in-flight
-table and no second ack queue.
+Consuming an actor input is the actor commit boundary. Worker acceptance over
+the actor fabric is a separate delivery fact in `actor_input_deliveries`, not
+the final actor-side commit. The actor store locks the `actor_inputs` row,
+rejects it if a delete/recall tombstone canceled the input, verifies the current
+delivery was accepted by the committing activation/epoch/turn, writes the
+`actor_input_consumptions` marker, inserts any actor-committed outbox intents,
+and marks or compacts the input in one transaction. There is no separate
+gateway-owned queue for the same input.
 
-Required logical mailbox metadata:
+AI-agent user-message materialization may happen before that final commit so the
+worker can run an AI SDK turn against durable transcript rows. That
+materialization must be idempotent and must not write
+`actor_input_consumptions`, delete `actor_inputs`, or create provider-visible
+outbox rows. The final actor commit is still the boundary that records
+consumption, writes assistant output, and queues visible side effects.
+
+Required logical actor input metadata:
 
 - `agent_uid`, `binding_name`
 - `session_id`
@@ -900,7 +953,17 @@ Required logical mailbox metadata:
 - optional `signal_channel_id`, `provider_thread_id`, `provider_entry_id`
 - `type`
 - `available_at`
+- `broker_sequence` or equivalent per-session input sequence
+- `input_state`
+- optional `dead_letter_at`
 - `payload` as a minimal dispatch snapshot
+
+SignalsGateway must provide enough data for the actor store to assign
+`broker_sequence`, evaluate readiness, and later correlate delete/recall with
+the accepted input. It does not decide worker placement, actor epoch, ZeroMQ
+route, send outcome, worker acceptance, or final turn commit. Those facts belong
+to `actor_input_deliveries`, `actor_session_activations`,
+`ai_agent_llm_turns`, and `actor_input_consumptions`.
 
 Micro-batched inputs also carry readiness grouping metadata:
 
@@ -919,51 +982,56 @@ must not be used as sender identity. Direct inputs set `available_at = now` and
 do not need `batch_scope` or `sender_key`.
 
 After the session actor successfully commits the turn, messages, and any
-`signal_gateway_outbox` rows that consume a mailbox entry, that mailbox row can
-be deleted, archived, or compacted by TTL. It must not become a third long-lived
-copy beside `signal_entries` and actor messages.
+`signal_gateway_outbox` rows that consume an actor input, that `actor_inputs`
+row can be deleted, archived, or compacted by TTL after the matching
+`actor_input_consumptions` row exists and the committed `ai_agent_messages`
+carry the needed provider refs. It must not become a third long-lived copy
+beside `signal_entries` and actor messages.
 
-Before a consumed mailbox row is deleted, archived, or compacted, the actor
-store must durably expose whether that mailbox input reached actor state.
+Before a consumed actor input row is deleted, archived, or compacted, the actor
+store must durably expose whether that input reached actor state.
 Delete/recall handling depends on this distinction: pending input can be
 removed, consumed input produces a lifecycle ActorInput, and mirror-only input
 only updates the provider mirror. The gateway asks actor store for this answer;
-it does not maintain a separate entry-lifecycle store.
+it does not maintain a separate entry-lifecycle store. Long-term lifecycle
+queries should rely on `signal_entries` plus provider refs on `ai_agent_messages`,
+not indefinite retention of actor runtime delivery tables.
 
-The actor commit that consumes a signal-backed mailbox row must run in the same
-actor-store transaction as writing actor messages and any
+The actor commit that consumes a signal-backed actor input must run in the same
+actor-store transaction as writing assistant/final actor messages and any
 `signal_gateway_outbox` rows produced by that turn. That commit must verify the
-source mailbox input has not been canceled by delete/recall after the actor read
+source actor input has not been canceled by delete/recall after the actor read
 it. If the input was canceled, the commit is rejected as stale and must not write
-actor messages or outbox rows for that input.
+assistant/final actor messages or outbox rows for that input.
 
-Mailbox readiness is generic but code-defined. Each ActorInput type has a
+Actor input readiness is generic but code-defined. Each ActorInput type has a
 runtime event definition with a small readiness function. If the function says
-"batchable" for a specific input, the gateway appends a normal mailbox row,
-delays readiness through `available_at`, stores `batch_scope` and `sender_key`,
-and lets ready reads take a contiguous same-sender prefix. The default v1 event
-definitions make only `im.message.addressed` batchable. Webhook events,
-`im.message.may_intervene`, lifecycle events, command events, and action events
-are ready immediately by default.
+"batchable" for a specific input, the gateway appends a normal actor input
+row, delays readiness through `available_at`, stores `batch_scope` and
+`sender_key`, and lets ready reads take a contiguous same-sender prefix. The
+default v1 event definitions make only `im.message.addressed` batchable.
+Webhook events, `im.message.may_intervene`, lifecycle events, command events,
+and action events are ready immediately by default.
 
-Micro-batching is represented by mailbox readiness metadata, not by another
-durable queue. A micro-batched ActorInput row needs only three readiness fields:
+Micro-batching is represented by actor input readiness metadata, not by another
+durable queue. A micro-batched ActorInput row needs these readiness fields:
 
 - `available_at`;
 - `batch_scope = {binding_name, signal_channel_id, provider_thread_id}`;
 - `sender_key`.
 
-When a new micro-batched input is accepted, pending mailbox entries with the same
-readiness scope get the same later `available_at`. When the actor runtime reads
-ready rows, it reads only the contiguous same-sender prefix:
+When a new micro-batched input is accepted, pending actor input rows with the
+same readiness scope get the same later `available_at`. When the actor runtime
+reads ready rows for publish/replay, it reads only the contiguous same-sender
+prefix:
 
 - `Alice, Alice, Alice` can become one actor turn input group.
 - `Alice, Bob, Alice` becomes three actor turn input groups.
 
 The database may index ready rows by agent uid, binding name, signal channel id,
-and provider thread id. That index is only for mailbox reads; it is not a
-domain concept. The session boundary remains channel-level; thread scope only
-affects batching and provider delivery.
+and provider thread id. That index is only for actor input journal reads; it is
+not a domain concept. The session boundary remains channel-level; thread scope
+only affects batching and provider delivery.
 
 In other words, micro-batching is a processing-time window:
 
@@ -973,7 +1041,8 @@ ready read rule = contiguous same-sender prefix
 ```
 
 Delete/recall follows the facts already stored in `signal_entries`,
-`signal_gateway_input_tombstones`, `actor_mailbox`, and actor store. It must not
+`signal_gateway_input_tombstones`, `actor_inputs`, recovery-window
+`actor_input_consumptions`, and actor messages with provider refs. It must not
 create a separate entry-lifecycle table.
 
 Delete and recall share the same lifecycle logic. The only difference is the
@@ -988,11 +1057,11 @@ recreating a mirrored entry after the user deleted or recalled it.
 | --- | --- |
 | `unseen + delete/recall` | Write `tombstoned_until`; late receive is dropped |
 | `tombstoned_until + receive` | Drop receive, do not re-mirror, do not wake |
-| `accepted receive + mailbox row still pending` | Pending ActorInput exists in `actor_mailbox` |
+| `accepted receive + actor input still open` | Pending ActorInput exists in `actor_inputs` |
 | `accepted receive + actor store consumed input` | Original input reached actor state |
-| `mirror-only receive + delete/recall` | Refresh tombstone, delete mirrored entry only |
-| `pending mailbox + delete/recall` | Refresh tombstone, delete mirrored entry, cancel/remove pending mailbox row |
-| `consumed actor input + delete/recall` | Refresh tombstone, delete mirrored entry, append lifecycle ActorInput |
+| `mirror-only receive + delete/recall` | Refresh tombstone, remove or redact current visible/searchable entry state only |
+| `open actor input + delete/recall` | Refresh tombstone, remove or redact current visible/searchable entry state, cancel/remove open actor input |
+| `consumed actor input + delete/recall` | Refresh tombstone, remove or redact current visible/searchable entry state, append lifecycle ActorInput |
 
 `signal_gateway_input_tombstones` is the short-lived storage for the
 `tombstoned_until` state. Its primary key is `(agent_uid, binding_name,
@@ -1060,7 +1129,7 @@ Supported outbox behavior:
 - Unsupported operations are marked `unsupported` and do not change the provider
   mirror.
 - Provider failures do not fake visible state and do not revoke the already
-  accepted mailbox input.
+  accepted actor input.
 
 Rich card-like output should remain protocol-first. A portable interactive
 output payload and a provider-native escape hatch, such as a Lark-native card,
@@ -1087,7 +1156,7 @@ rule for whether a user recall/delete should also delete bot output.
 
 Redis visible-output streams are retained as weak progress only. They use agent,
 session, and stream identity, and are safe to lose. They may mirror ZeroMQ
-stream chunks for UI resume or provider streaming cards, but final output
+worker progress for UI resume or provider streaming cards, but final output
 recovery goes through the actor-store/outbox boundary, not Redis.
 
 ## Feishu/Lark Adapter Boundary
@@ -1121,8 +1190,8 @@ not add another WebSocket client for the same app id.
 
 The shared Lark consumer belongs to provider ingress, not to a per-session agent
 computer. It normalizes provider events into IngressFacts; SignalsGateway then
-applies binding policy, writes accepted ActorInputs into `actor_mailbox`, and
-lets the Elixir control plane wake the relevant session actor.
+applies binding policy, writes accepted ActorInputs into `actor_inputs`, and
+lets ActorRuntime publish or replay ready input through the actor fabric.
 
 The chat-channel config includes the same `domain` field as identity-provider
 config. A Feishu app and a Lark app with the same `app_id` are different
@@ -1150,8 +1219,9 @@ Provider-visible behavior:
 - Message receive uses `im.message.receive_v1`. The adapter/binding route maps
   normalized receive IngressFacts to `im.message.addressed`,
   `im.message.may_intervene`, or `record_only` mirroring as configured.
-- Message recall uses `im.message.recalled_v1`. SignalsGateway hard-deletes the
-  provider mirror row and writes lifecycle only if the receive reached the actor.
+- Message recall uses `im.message.recalled_v1`. SignalsGateway removes or
+  redacts current visible/searchable entry state according to product/privacy
+  policy and writes lifecycle only if the receive reached the actor.
 - Message edit has no official event as of June 6, 2026. Do not implement
   realtime handling; the generic contract has no inbound edit event.
 - Reactions use `im.message.reaction.created_v1` and
@@ -1167,10 +1237,10 @@ Because Feishu/Lark cannot notify message edits, a group entry mirrored through
 Feishu/Lark. This is a provider limitation, not a gateway queue failure.
 
 Provider-specific limitations belong in adapter design and tests, not in
-generic mirror semantics. `signal_entries` remains a latest-state mirror of
-observed facts; it is not expected to converge to provider state for lifecycle
-changes that the provider never emits and the adapter never fetches through an
-official API.
+generic mirror semantics. `signal_entries` remains the long-lived observed-fact
+surface and latest-state mirror Ankole can build from; it is not expected to
+converge to provider state for lifecycle changes that the provider never emits
+and the adapter never fetches through an official API.
 
 ## Edge Cases
 
@@ -1189,7 +1259,7 @@ The gateway user-story surface includes these contract cases:
 - Webhook entries update the mirror and append ActorInput by the source/event
   definition unless the binding or source event definition classifies them as
   mirror-only.
-- A channel with `reply_mode = none` can still wake the agent; it just cannot
+- A channel with `reply_mode = none` can still create actor input; it just cannot
   receive provider-visible outbox reply.
 - Pending clarify can route a group reply to the agent without a mention only
   through the actor-runtime clarify lookup contract.
@@ -1197,8 +1267,8 @@ The gateway user-story surface includes these contract cases:
 - A different sender breaks the batch.
 - Same channel with different provider threads keeps the same session actor.
 - Different channels produce different session actors.
-- Recall/delete while an explicit receive is pending removes the pending
-  mailbox input.
+- Recall/delete while an explicit receive is pending removes the pending actor
+  input.
 - Every recall/delete creates or refreshes a tombstone so stale receives are
   ignored.
 - Recall/delete tombstones are scoped by signal channel.
@@ -1211,17 +1281,17 @@ The gateway user-story surface includes these contract cases:
 - Provider entry ids are scoped by signal channel id, so same-looking ids in
   different channels do not collide.
 - Same physical provider channel and entry facts may share one mirror row when
-  the adapter has stable matching provider ids; mailbox idempotency remains
+  the adapter has stable matching provider ids; actor input idempotency remains
   route-scoped, so mirror dedupe does not suppress an accepted ActorInput.
-- A consumed mailbox row must leave a durable actor-store marker before
+- A consumed actor input row must leave a durable actor-store marker before
   compaction so later recall/delete can distinguish consumed input from pending
   input.
-- Actor commit must reject a mailbox input canceled by recall/delete after the
+- Actor commit must reject an actor input canceled by recall/delete after the
   actor read it.
 - GitHub-like webhook facts map to generic receive/delete shapes.
 - Final outbound posts are mirrored only after provider success.
-- Provider outbound failure marks the outbox row failed while the accepted
-  mailbox input remains durable.
+- Provider outbound failure marks the outbox row failed while the accepted actor
+  input remains durable.
 - Agent returned reaction, divider, and card intents execute only through
   declared adapter capabilities.
 - `/undo` is treated as normal text, not a typed command.
@@ -1241,24 +1311,26 @@ The gateway user-story surface includes these contract cases:
   not agent uid or binding name.
 - Binding-channel observation is not a gateway identity.
 - Entry lifecycle is not a gateway identity; delete/recall behavior is derived
-  from tombstones, provider mirror, actor mailbox, and actor store consumed-input
-  state.
-- Mailbox signal idempotency identity is agent uid, binding name, and
+  from tombstones, provider mirror, `actor_inputs`, and
+  `actor_input_consumptions`.
+- Actor input idempotency identity is agent uid, binding name, and
   ingress event id.
 - Tombstone identity includes signal channel id because provider entry ids are
   not globally unique.
-- Provider mirror dedupe and mailbox idempotency are separate; re-mirroring an
-  entry must not suppress the accepted mailbox write for the current binding.
+- Provider mirror dedupe and actor input idempotency are separate; re-mirroring
+  an entry must not suppress the accepted actor input write for the current
+  binding.
 - `ignore` does not mirror ignored IM group traffic.
 - Inbound edit events are not supported by the current gateway contract.
-- A provider delete/recall refreshes a tombstone and hard-deletes the provider
-  mirror row but does not recall agent output by itself.
+- A provider delete/recall refreshes a tombstone and removes or redacts current
+  visible/searchable entry state, but does not recall agent output by itself.
 - Only explicit actor-committed `signal_gateway_outbox` rows create
   provider-visible side effects.
 - Provider send failure after final-proposal commit belongs to the outbox row,
-  not to the accepted mailbox event.
+  not to the accepted actor input.
 - HTTP webhook ack is not a provider-visible reply.
-- ZeroMQ is a live activation and progress channel, not durable signal storage.
+- ZeroMQ is the live actor fabric between the Elixir control plane and agent
+  computer workers, not durable signal storage or provider-visible outbox truth.
 - Redis visible-output streams are progress hints, not final output truth.
 - Provider-specific gaps are adapter limitations, not reasons to widen generic
   gateway semantics.

@@ -4,12 +4,29 @@
 //! These functions stay thin on purpose: they validate BEAM terms, preserve
 //! binary-safe values, and forward all real behavior to `core`.
 
+use rustler::env::OwnedEnv;
 use rustler::types::binary::{Binary, OwnedBinary};
-use rustler::{Error, NifResult, Term};
+use rustler::{Encoder, Error, LocalPid, NifResult, ResourceArc, Term};
 use serde_json::Value as JsonValue;
+use std::sync::Arc;
 
+use crate::actor_bus;
+use crate::actor_bus::transport::{RouterEvent, RouterHandle};
 use crate::authz;
 use crate::core;
+
+mod atoms {
+    rustler::atoms! {
+        actor_bus_router_received,
+        actor_bus_router_decode_failed,
+        actor_bus_router_socket_error,
+    }
+}
+
+pub struct ActorBusRouterResource(pub RouterHandle);
+
+#[rustler::resource_impl]
+impl rustler::Resource for ActorBusRouterResource {}
 
 /// Decrypts an AEAD token for Elixir callers and returns a BEAM binary.
 ///
@@ -70,6 +87,76 @@ pub fn authz_validate_resource_pattern(pattern: Term<'_>) -> NifResult<bool> {
     authz::validate_pattern_source(&pattern)
         .map(|_| true)
         .map_err(error)
+}
+
+/// Encodes an Actor Bus v1 envelope JSON map as protobuf bytes.
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn actor_bus_encode_envelope_json(envelope_json: Term<'_>) -> NifResult<OwnedBinary> {
+    let envelope = decode_json(envelope_json, "envelope_json")?;
+
+    actor_bus::encode_envelope_json(envelope)
+        .map_err(error)
+        .and_then(binary_from_vec)
+}
+
+/// Decodes Actor Bus v1 protobuf bytes into the host JSON envelope shape.
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn actor_bus_decode_envelope_json(envelope_bytes: Term<'_>) -> NifResult<String> {
+    let envelope_bytes = decode_binary(envelope_bytes, "envelope_bytes")?;
+    let envelope = actor_bus::decode_envelope_json(envelope_bytes.as_slice()).map_err(error)?;
+
+    encode_json(envelope)
+}
+
+/// Starts a Rust-owned ZeroMQ ROUTER socket for Actor Bus traffic.
+#[rustler::nif(schedule = "DirtyIo")]
+pub fn actor_bus_router_start(
+    endpoint: Term<'_>,
+    owner_pid: LocalPid,
+    opts_json: Term<'_>,
+) -> NifResult<ResourceArc<ActorBusRouterResource>> {
+    let endpoint = decode_string(endpoint, "endpoint")?;
+    let opts_json = decode_string(opts_json, "opts_json")?;
+    let mut config = actor_bus::transport::RouterConfig::from_json(&opts_json).map_err(error)?;
+    config.endpoint = endpoint;
+
+    let sink = Arc::new(move |event| send_router_event(owner_pid, event));
+    let handle = actor_bus::transport::start_router(config, sink).map_err(error)?;
+
+    Ok(ResourceArc::new(ActorBusRouterResource(handle)))
+}
+
+/// Returns the bound ROUTER endpoint, after wildcard port expansion.
+#[rustler::nif]
+pub fn actor_bus_router_endpoint(router: ResourceArc<ActorBusRouterResource>) -> NifResult<String> {
+    Ok(router.0.endpoint().to_string())
+}
+
+/// Sends an Actor Bus envelope to one ROUTER identity with mandatory routing.
+#[rustler::nif(schedule = "DirtyIo")]
+pub fn actor_bus_router_send_mandatory(
+    router: ResourceArc<ActorBusRouterResource>,
+    transport_route: Term<'_>,
+    envelope_json: Term<'_>,
+) -> NifResult<String> {
+    let transport_route = decode_string(transport_route, "transport_route")?;
+    let envelope = decode_json(envelope_json, "envelope_json")?;
+
+    router
+        .0
+        .send_mandatory(transport_route, envelope)
+        .map(|_| "sent_or_queued".to_string())
+        .map_err(|error| error_message(error.to_string()))
+}
+
+/// Stops a ROUTER socket owner thread.
+#[rustler::nif(schedule = "DirtyIo")]
+pub fn actor_bus_router_stop(router: ResourceArc<ActorBusRouterResource>) -> NifResult<bool> {
+    router
+        .0
+        .stop()
+        .map(|_| true)
+        .map_err(|error| error_message(error.to_string()))
 }
 
 /// Returns whether a resource pattern matches a concrete resource key.
@@ -171,6 +258,42 @@ pub fn derive_key(
         &sub_key_id,
         extra_context.as_deref(),
     ))
+}
+
+/// Decodes a JWT header without validating the token signature.
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn jwt_decode_header_json(token: Term<'_>) -> NifResult<String> {
+    let token = decode_string(token, "token")?;
+
+    core::jwt_decode_header_json(&token).map_err(error)
+}
+
+/// Signs JSON claims with a JSON JWT header and binary key.
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn jwt_sign_json(
+    claims_json: Term<'_>,
+    key: Term<'_>,
+    header_json: Term<'_>,
+) -> NifResult<String> {
+    let claims_json = decode_string(claims_json, "claims_json")?;
+    let key = decode_binary(key, "key")?;
+    let header_json = decode_string(header_json, "header_json")?;
+
+    core::jwt_sign_json(&claims_json, key.as_slice(), &header_json).map_err(error)
+}
+
+/// Verifies a JWT with a binary key and JSON validation options.
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn jwt_verify_json(
+    token: Term<'_>,
+    key: Term<'_>,
+    validation_json: Term<'_>,
+) -> NifResult<String> {
+    let token = decode_string(token, "token")?;
+    let key = decode_binary(key, "key")?;
+    let validation_json = decode_string(validation_json, "validation_json")?;
+
+    core::jwt_verify_json(&token, key.as_slice(), &validation_json).map_err(error)
 }
 
 /// Generates a random UUIDv4 encoded as lowercase Base36.
@@ -285,6 +408,34 @@ fn error(error: core::KernelError) -> Error {
 /// Builds a Rustler term error from a message intended for Elixir callers.
 fn error_message(message: impl Into<String>) -> Error {
     Error::Term(Box::new(message.into()))
+}
+
+fn send_router_event(owner_pid: LocalPid, event: RouterEvent) {
+    let mut env = OwnedEnv::new();
+
+    let _ = env.send_and_clear(&owner_pid, |env| match event {
+        RouterEvent::Received {
+            transport_route,
+            envelope_json,
+        } => (
+            atoms::actor_bus_router_received(),
+            transport_route,
+            envelope_json,
+        )
+            .encode(env),
+        RouterEvent::DecodeFailed {
+            transport_route,
+            reason,
+        } => (
+            atoms::actor_bus_router_decode_failed(),
+            transport_route,
+            reason,
+        )
+            .encode(env),
+        RouterEvent::SocketError { reason } => {
+            (atoms::actor_bus_router_socket_error(), reason).encode(env)
+        }
+    });
 }
 
 rustler::init!("Elixir.Ankole.Kernel");
