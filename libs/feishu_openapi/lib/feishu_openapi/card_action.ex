@@ -143,6 +143,9 @@ defmodule FeishuOpenAPI.CardAction do
 
   defp verify_challenge_token(%{verification_token: nil}, _decoded), do: :ok
 
+  # For the (unsigned) challenge handshake, the only thing to authenticate is the
+  # token embedded in the body. Non-challenge requests are authenticated later by
+  # the signature instead, so they pass this step.
   defp verify_challenge_token(%{verification_token: token}, decoded) do
     if challenge?(decoded) do
       if Map.get(decoded, "token") == token, do: :ok, else: {:error, :bad_verification_token}
@@ -151,17 +154,22 @@ defmodule FeishuOpenAPI.CardAction do
     end
   end
 
+  # Card-action signing keys on the verification_token (not the encrypt_key that
+  # event webhooks use); with no token configured there's nothing to verify.
   defp verify_signature(%{skip_sign_verify: true}, _body, _headers, _decoded), do: :ok
   defp verify_signature(%{verification_token: nil}, _body, _headers, _decoded), do: :ok
 
   defp verify_signature(%{verification_token: token}, body, headers, decoded) do
     if challenge?(decoded) do
+      # Challenge already authenticated via the body token above; it's unsigned.
       :ok
     else
       ts = header(headers, "x-lark-request-timestamp")
       nonce = header(headers, "x-lark-request-nonce")
       signature = header(headers, "x-lark-signature")
 
+      # Unlike event webhooks, a non-challenge card callback must carry all signing
+      # headers — there's no exemption here.
       cond do
         is_nil(ts) or is_nil(nonce) or is_nil(signature) ->
           {:error, :missing_signature_headers}

@@ -46,6 +46,10 @@ defmodule FeishuOpenAPI.CardAction.Handler do
 
   @new_opts [:verification_token, :encrypt_key, :skip_sign_verify, :handler]
 
+  @doc """
+  Build a card-action handler from options (verification token, encrypt key,
+  and the 1-arity `:handler` callback). Validates option shapes up front.
+  """
   @spec new(keyword()) :: t()
   def new(opts) do
     opts = validate_new_opts!(opts)
@@ -58,6 +62,11 @@ defmodule FeishuOpenAPI.CardAction.Handler do
     }
   end
 
+  @doc """
+  Verify, decode, and run the handler for a card-action callback. Accepts a raw
+  HTTP body (`{:raw, body, headers}`) or an already-decoded payload
+  (`{:decoded, map}`); the latter skips body-signature verification.
+  """
   @spec dispatch(t(), {:raw, binary(), map() | list()} | {:decoded, map()}) ::
           {:ok, term()} | {:challenge, String.t()} | {:error, term()}
   def dispatch(%__MODULE__{} = handler, {:raw, body, headers}) when is_binary(body) do
@@ -80,6 +89,9 @@ defmodule FeishuOpenAPI.CardAction.Handler do
 
   defp invoke_handler(nil, _action), do: {:error, :handler_not_configured}
 
+  # The user callback runs inside the request process, so a raise/throw here would
+  # take down the web handler. Convert it to a tagged error (and a telemetry event)
+  # so the Plug can still send a controlled response.
   defp invoke_handler(handler, %CardAction{} = action) when is_function(handler, 1) do
     try do
       {:ok, handler.(action)}

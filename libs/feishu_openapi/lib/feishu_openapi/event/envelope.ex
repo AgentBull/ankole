@@ -55,6 +55,9 @@ defmodule FeishuOpenAPI.Event.Envelope do
 
   def event_type(%{"type" => t}) when is_binary(t), do: t
 
+  # Card-action callbacks carry no `event_type`/`type`; they're identified by an
+  # `action` map plus message/chat context. Synthesize a stable type so they can
+  # be routed like any other event.
   def event_type(%{"action" => action} = payload) when is_map(action) do
     case card_action_payload?(payload) do
       true -> "card.action.trigger"
@@ -64,6 +67,8 @@ defmodule FeishuOpenAPI.Event.Envelope do
 
   def event_type(_), do: nil
 
+  # Require a non-empty message or chat id so an unrelated payload that merely has
+  # an "action" key isn't misclassified as a card action.
   defp card_action_payload?(%{"open_message_id" => id}) when is_binary(id) and id != "",
     do: true
 

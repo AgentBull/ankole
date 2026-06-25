@@ -168,6 +168,8 @@ defmodule FeishuOpenAPI.Event do
     }
   end
 
+  # Signature checking is skipped when explicitly disabled (tests) or when no
+  # encrypt_key is configured (the app simply isn't using signed webhooks).
   defp verify_signature(%{skip_sign_verify: true}, _body, _headers, _decoded), do: :ok
   defp verify_signature(%{encrypt_key: nil}, _body, _headers, _decoded), do: :ok
 
@@ -177,6 +179,8 @@ defmodule FeishuOpenAPI.Event do
     signature = header(headers, "x-lark-signature")
 
     cond do
+      # URL-verification challenges are sent unsigned during webhook setup, so a
+      # missing signature is allowed *only* for a challenge; otherwise reject.
       is_nil(ts) or is_nil(nonce) or is_nil(signature) ->
         if Envelope.challenge?(decoded), do: :ok, else: {:error, :missing_signature_headers}
 
@@ -185,6 +189,8 @@ defmodule FeishuOpenAPI.Event do
     end
   end
 
+  # Replay-window check, gated the same way as signature verification (an unsigned
+  # request has no trustworthy timestamp to check anyway).
   defp verify_timestamp(%{skip_sign_verify: true}, _headers, _decoded), do: :ok
   defp verify_timestamp(%{skip_timestamp_check: true}, _headers, _decoded), do: :ok
   defp verify_timestamp(%{encrypt_key: nil}, _headers, _decoded), do: :ok
@@ -215,6 +221,10 @@ defmodule FeishuOpenAPI.Event do
     end
   end
 
+  # Replay defense: reject events whose timestamp is more than `max_skew_seconds`
+  # from now in either direction. `abs/1` also rejects far-future timestamps, not
+  # just stale replays. This runs on top of (not instead of) signature checking —
+  # a captured valid request replayed past the window still fails here.
   defp check_timestamp_skew(ts_binary, max_skew_seconds) do
     case Integer.parse(ts_binary) do
       {ts_seconds, _} ->
