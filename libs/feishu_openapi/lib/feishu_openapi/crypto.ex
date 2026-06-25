@@ -115,6 +115,9 @@ defmodule FeishuOpenAPI.Crypto do
         stripped_size = byte_size(bin) - pad
         <<stripped::binary-size(^stripped_size), padding::binary-size(^pad)>> = bin
 
+        # Verify every padding byte, not just the last one. A garbled key/IV or
+        # tampered ciphertext usually yields plausible-looking trailing bytes;
+        # checking the whole padding block rejects those as :invalid_padding.
         if padding == :binary.copy(<<pad>>, pad) do
           {:ok, stripped}
         else

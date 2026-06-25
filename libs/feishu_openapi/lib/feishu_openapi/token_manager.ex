@@ -48,8 +48,15 @@ defmodule FeishuOpenAPI.TokenManager do
 
   alias FeishuOpenAPI.{Client, Error, TokenStore}
 
+  # Treat a token as expired this long before its nominal expiry, so a token is
+  # never used right as it lapses (clock skew between hosts, server-side early
+  # expiry, in-flight request latency).
   @expiry_delta_ms :timer.minutes(3)
+  # Fire the proactive refresh this far ahead of the (already shortened) expiry,
+  # so a fresh token is usually warm in ETS before any caller needs it.
   @refresh_lead_ms :timer.seconds(30)
+  # Caller-side bound on a token fetch. Must exceed Req's receive timeout so a
+  # slow-but-succeeding upstream fetch isn't cut off by the GenServer.call.
   @call_timeout :timer.seconds(15)
 
   @type key ::
@@ -65,6 +72,10 @@ defmodule FeishuOpenAPI.TokenManager do
 
   @doc false
   def child_spec(%Client{} = client) do
+    # `:transient` because these processes are started lazily on first cache miss
+    # and hold no durable state of their own (tokens live in shared ETS). A clean
+    # exit should not be restarted; a crash will be, and the next miss simply
+    # refetches. The cache-namespace id keeps one manager per credential set.
     %{
       id: {__MODULE__, Client.cache_namespace(client)},
       start: {__MODULE__, :start_link, [client]},
@@ -235,6 +246,12 @@ defmodule FeishuOpenAPI.TokenManager do
     {waiters, fetches} = Map.pop(state.fetches, key, [])
     state = %{state | fetches: fetches}
 
+    # A single in-flight fetch serves everyone queued on this key. Real callers
+    # are stored as `{:waiter, from}` and get GenServer.reply'd — this is what
+    # deduplicates a concurrent burst into one upstream request. A proactive
+    # refresh enqueues an empty waiter list, so this loop just warms the cache
+    # without replying to anyone. (`:refresh` is a defensive no-op clause; the
+    # bare atom is never actually placed in the waiter list.)
     Enum.each(waiters, fn
       {:waiter, from} -> GenServer.reply(from, client_result(result))
       :refresh -> :ok
@@ -419,6 +436,9 @@ defmodule FeishuOpenAPI.TokenManager do
     state = cancel_refresh_timer(state, key)
     delay = expires_at_ms - System.monotonic_time(:millisecond) - @refresh_lead_ms
 
+    # Skip proactive refresh when the lead time already overshoots expiry (very
+    # short-lived token). No timer is armed; the next caller takes the reactive
+    # miss-and-refetch path instead.
     if delay > 0 do
       timer = Process.send_after(self(), {:refresh, key}, delay)
       %{state | refresh_timers: Map.put(state.refresh_timers, key, timer)}

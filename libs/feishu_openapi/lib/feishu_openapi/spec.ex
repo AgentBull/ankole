@@ -132,6 +132,10 @@ defmodule FeishuOpenAPI.Spec do
     end
   end
 
+  # Substitutes `:name` placeholders from `path_params`. Each value is percent-
+  # encoded down to URI-unreserved characters so an id containing `/`, spaces, or
+  # other reserved bytes stays within a single path segment instead of altering
+  # the URL structure. A missing param is a programmer error and aborts the build.
   defp render_path(path, params) do
     try do
       rendered =
@@ -153,6 +157,9 @@ defmodule FeishuOpenAPI.Spec do
     end
   end
 
+  # A present-but-nil value counts as missing: rendering "nil" into a URL is
+  # never intended, so it falls through to the missing-param error. Atom keys are
+  # also accepted, hence the fallback to the enum scan when the string lookup misses.
   defp fetch_param(params, name) when is_map(params) and is_binary(name) do
     case Map.fetch(params, name) do
       {:ok, nil} -> :error

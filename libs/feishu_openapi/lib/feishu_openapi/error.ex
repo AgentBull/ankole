@@ -48,6 +48,9 @@ defmodule FeishuOpenAPI.Error do
   def from_response(%{"code" => code} = body, %Req.Response{} = resp) do
     error_details = Map.get(body, "error")
 
+    # Some Feishu endpoints put the human-readable message and a log id only
+    # inside a nested `"error"` object rather than top-level `"msg"` / the
+    # response header. Fall back to those so errors stay attributable.
     %__MODULE__{
       code: code,
       msg: Map.get(body, "msg") || nested_message(error_details),

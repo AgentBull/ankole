@@ -37,6 +37,9 @@ defmodule FeishuOpenAPI.Client do
           headers: list()
         }
 
+  # Only non-sensitive fields are inspectable. Combined with `app_secret_fn`
+  # being a closure (never the raw secret), this keeps credentials out of logs,
+  # crash dumps, and `:sys.get_state/1`.
   @derive {Inspect, only: [:app_id, :app_type, :domain, :base_url]}
   defstruct app_id: nil,
             app_secret_fn: nil,
@@ -262,6 +265,11 @@ defmodule FeishuOpenAPI.Client do
     raise ArgumentError, "req_options must be a keyword list, got: #{inspect(req_options)}"
   end
 
+  # Token caches are keyed by this namespace, so two clients must share cached
+  # tokens iff they would authenticate identically. Every input that can change
+  # which credential/endpoint a token is valid against is folded into the hash;
+  # changing the secret (or domain, base_url, headers, ...) yields a new
+  # namespace and prevents a token from one credential set leaking to another.
   defp build_cache_namespace(app_id, app_secret, app_type, domain, base_url, headers, req_options) do
     fingerprint =
       :erlang.term_to_binary(%{
@@ -279,6 +287,11 @@ defmodule FeishuOpenAPI.Client do
     |> Base.encode16(case: :lower)
   end
 
+  # The secret only contributes its hash to the namespace — never its plaintext.
+  # A closure secret is fingerprinted by function identity (`phash2`) rather than
+  # by invoking it: avoids reading the secret here, but means two closures that
+  # return the same secret get distinct namespaces (separate caches, still
+  # correct). Pass a string if you want closures to share a token cache.
   defp secret_fingerprint(secret) when is_binary(secret),
     do: {:binary, :crypto.hash(:sha256, secret)}
 
