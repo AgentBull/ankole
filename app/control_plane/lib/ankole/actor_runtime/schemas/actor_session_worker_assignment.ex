@@ -74,6 +74,8 @@ defmodule Ankole.ActorRuntime.Schemas.ActorSessionWorkerAssignment do
     |> validate_inclusion(:status, @statuses)
     |> JsonPayload.validate_map(:metadata, allow_datetime: true)
     |> foreign_key_constraint(:agent_uid)
+    # Partial index (in the migration) keeps one live assignment per actor key, so
+    # the sticky placement hint cannot fork into two workers for one session.
     |> unique_constraint([:agent_uid, :session_id],
       name: :actor_session_worker_assignments_live_actor_index
     )

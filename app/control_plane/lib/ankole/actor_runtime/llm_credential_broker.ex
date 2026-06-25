@@ -14,10 +14,20 @@ defmodule Ankole.ActorRuntime.LlmCredentialBroker do
   alias Ankole.ActorRuntime.Schemas.AgentComputerWorker
   alias Ankole.Repo
 
+  # Allowed credential request purposes. `ai_turn`/`codex_subagent` are real
+  # in-session work and must prove the route is assigned to the actor;
+  # `live_check` is a connectivity probe that is allowed without an assignment.
   @purposes ~w(ai_turn codex_subagent live_check)
 
   @doc """
-  Returns an RPC response envelope for one request payload.
+  Resolves and returns LLM provider credentials for a worker's RPC request.
+
+  Always returns `{:ok, envelope}` for a well-formed request: failures (bad
+  purpose, unauthorized route, missing provider) are encoded as a `rejected`
+  envelope rather than an error tuple, so the worker always gets a reply it can
+  act on. The plaintext credential is decrypted here and handed to the worker
+  over the (ephemeral) RPC lane; the control plane re-resolves the model profile
+  itself rather than trusting the worker's requested profile as the lookup key.
   """
   @spec handle_request(map(), String.t()) :: {:ok, map()} | {:error, term()}
   def handle_request(request, route) when is_map(request) and is_binary(route) do
@@ -57,8 +67,13 @@ defmodule Ankole.ActorRuntime.LlmCredentialBroker do
 
   def handle_request(_request, _route), do: {:error, :invalid_credential_request}
 
+  # Connectivity probes are not tied to a session, so they skip the
+  # worker-assignment check. Real turn purposes fall through to the clause below.
   defp authorize_route(_agent_uid, _session_id, _route, "live_check"), do: :ok
 
+  # Authorizes a credential request by proving the requesting route currently
+  # owns a live assignment for this actor. A worker cannot fetch credentials for
+  # a session it was never assigned, even if it knows the agent/session ids.
   defp authorize_route(agent_uid, session_id, route, _purpose) do
     case Repo.transact(fn repo ->
            with %AgentComputerWorker{} = worker <- worker_by_route(repo, route),

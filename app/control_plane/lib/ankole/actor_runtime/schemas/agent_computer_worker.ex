@@ -15,6 +15,9 @@ defmodule Ankole.ActorRuntime.Schemas.AgentComputerWorker do
 
   @primary_key {:id, :binary_id, autogenerate: true}
   @timestamps_opts [type: :utc_datetime_usec]
+  # `ready` workers can be assigned turns. `stale` is set by the watchdog when
+  # heartbeats stop; the worker is no longer scheduled but its row lingers until a
+  # TTL sweep deletes it, so the same worker_id re-announcing can reuse the row.
   @statuses ~w(ready stale draining stopped)
 
   schema "agent_computer_workers" do
@@ -73,6 +76,10 @@ defmodule Ankole.ActorRuntime.Schemas.AgentComputerWorker do
     |> JsonPayload.validate_map(:capacity, allow_datetime: true)
     |> JsonPayload.validate_map(:load, allow_datetime: true)
     |> JsonPayload.validate_map(:metadata, allow_datetime: true)
+    # worker_id, worker_instance_id, and transport_route are each a distinct
+    # globally-unique routing identity: worker_id is the stable logical worker,
+    # worker_instance_id changes per (re)boot, and transport_route is the live
+    # ZeroMQ address. Uniqueness stops two rows claiming the same route to send to.
     |> unique_constraint([:worker_id], name: :agent_computer_workers_worker_id_index)
     |> unique_constraint([:worker_instance_id], name: :agent_computer_workers_instance_id_index)
     |> unique_constraint([:transport_route], name: :agent_computer_workers_transport_route_index)

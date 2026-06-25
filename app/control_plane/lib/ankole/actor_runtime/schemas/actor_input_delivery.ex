@@ -18,7 +18,12 @@ defmodule Ankole.ActorRuntime.Schemas.ActorInputDelivery do
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :string
   @timestamps_opts [type: :utc_datetime_usec]
+  # Delivery lifecycle. `created/sent/accepted` are the "live" set (a worker may
+  # still act on the turn); `send_failed/superseded` are terminal and ignorable.
+  # The runtime treats the live set as the fence that blocks re-sending an input.
   @states ~w(created sent send_failed accepted superseded)
+  # Transport-level outcome of the ZeroMQ send, kept separate from `state` so an
+  # operator can tell *why* a send failed (route gone, backpressure, timeout, …).
   @send_outcomes ~w(sent_or_queued unknown_route backpressure timeout socket_closed)
 
   schema "actor_input_deliveries" do
@@ -31,10 +36,18 @@ defmodule Ankole.ActorRuntime.Schemas.ActorInputDelivery do
 
     field :session_id, :string
     field :broker_sequence, :integer
+    # Monotonic per-input attempt counter. A retry of the same actor input gets a
+    # higher attempt_no, which keeps the per-input unique index from colliding.
     field :attempt_no, :integer
     field :delivery_batch_id, Ecto.UUID
     field :actor_bus_message_id, :string
     field :correlation_id, :string
+    # The fence quintet copied from the activation onto each delivery row:
+    # activation_uid + actor_epoch + llm_turn_id + revision (+ actor_key). A worker
+    # reply must echo all of these or it is rejected as stale (see
+    # ActorRuntime.delivery_matches_turn_ref/2). Storing them redundantly here lets
+    # stale-reply checks run as plain equality against the DB, with no in-memory
+    # session state required.
     field :activation_uid, :string
     field :actor_epoch, :integer
     field :llm_turn_id, Ecto.UUID
@@ -119,6 +132,9 @@ defmodule Ankole.ActorRuntime.Schemas.ActorInputDelivery do
     |> unique_constraint([:actor_input_id, :attempt_no],
       name: :actor_input_deliveries_actor_input_attempt_index
     )
+    # Partial index (in the migration) enforces at most one *live* delivery per
+    # actor input. This is the DB-level guarantee that one queued input maps to at
+    # most one in-flight worker turn, so two workers never answer the same input.
     |> unique_constraint([:actor_input_id], name: :actor_input_deliveries_live_actor_input_index)
   end
 
