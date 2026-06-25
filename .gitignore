@@ -99,6 +99,7 @@ logs/
 .turbo
 
 .playwright-mcp
+/internals/
 packages/native-addons/*.node
 app/kernel/*.node
 app/kernel/**/*.node

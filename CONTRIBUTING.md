@@ -103,7 +103,7 @@ A significant or cross-subsystem change should come with a design doc (new or up
 - `plugin/` — first-party plugins (e.g. `lark-adapter`).
 - `tools/devkit/` — the `kit` repository toolkit.
 - `docs/design-docs/` — design intent documents.
-- `internals/` — private submodule for the AgentBull team, used to test Ankole against real-world scenarios. It is not checked out in CI; you can safely ignore it.
+- `internals/` — private ignored tree for the AgentBull team, used to test Ankole against real-world scenarios. It is not tracked in this repository; you can safely ignore it.
 
 ## Submitting a pull request
 
