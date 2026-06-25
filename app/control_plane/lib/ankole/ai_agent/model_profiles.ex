@@ -15,6 +15,10 @@ defmodule Ankole.AIAgent.ModelProfiles do
   alias Ankole.Principals.Agent
   alias Ankole.Repo
 
+  # Fixed slots an agent can bind a model to. `primary`/`light`/`heavy` are the
+  # everyday tiers and must be configured for the agent to run real turns;
+  # `codex` is optional and only meaningful on Codex-compatible provider sources,
+  # so a missing `codex` returns a typed error rather than blocking startup.
   @profiles ~w(primary light heavy codex)
   @required_profiles ~w(primary light heavy)
 

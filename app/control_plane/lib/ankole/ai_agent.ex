@@ -310,6 +310,11 @@ defmodule Ankole.AIAgent do
       metadata: metadata_for_input(actor_input, history)
     }
 
+    # The conflict target must spell out the partial unique index's WHERE clause
+    # verbatim (only inbound normal user/ambient rows with a real event are
+    # deduplicated), so Postgres matches this insert to that exact index. On
+    # conflict we keep the existing row; `message_insert_result/3` then refetches
+    # it because `on_conflict: :nothing` returns a row with a nil id.
     %Message{}
     |> Message.changeset(attrs)
     |> repo.insert(

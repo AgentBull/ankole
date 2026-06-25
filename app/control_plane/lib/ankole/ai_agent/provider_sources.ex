@@ -7,6 +7,10 @@ defmodule Ankole.AIAgent.ProviderSources do
   the worker.
   """
 
+  # Header names an operator is forbidden from setting in `connection_options`.
+  # Credentials must flow through the sealed `encrypted_credential` column, not
+  # plaintext connection headers, so any header that could smuggle a secret is
+  # rejected at validation time.
   @secret_header_names MapSet.new([
                          "authorization",
                          "proxy-authorization",
@@ -68,6 +72,11 @@ defmodule Ankole.AIAgent.ProviderSources do
           }
   end
 
+  # One static entry per supported source. The two key-list fields are
+  # allowlists used to reject unknown options: `connection_option_keys` gates
+  # what an operator may store on a provider row, `runtime_provider_option_keys`
+  # gates the per-call options an agent profile may carry. `model_catalog_policy`
+  # records how much the source constrains model names (known list vs. anything).
   @source_attrs [
     %{
       source: "openrouter",

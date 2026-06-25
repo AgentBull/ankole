@@ -13,6 +13,10 @@ defmodule Ankole.AIAgent.Library.Schemas.AgentLibraryContainerEntry do
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :string
   @timestamps_opts [type: :utc_datetime_usec]
+  # What kind of agent-owned file this row backs. `soul`/`mission` are the
+  # persona docs seeded per agent, `skill_append` is the per-agent override
+  # spliced into a shared skill; the rest are other writable surfaces the agent
+  # accumulates over its lifetime.
   @source_kinds ~w(soul mission skill_append setting memory system user computer)
 
   schema "agent_library_container_entries" do
@@ -50,6 +54,10 @@ defmodule Ankole.AIAgent.Library.Schemas.AgentLibraryContainerEntry do
     |> validate_inclusion(:source_kind, @source_kinds)
     |> JsonPayload.validate_map(:metadata, allow_datetime: true)
     |> foreign_key_constraint(:agent_uid)
+    # Uniqueness is over *live* rows only (the backing index is partial on
+    # `deleted_at IS NULL`). Deletes are soft, so a previously deleted path can be
+    # re-created, and `Library.upsert_agent_text_entry_in_tx/2` un-deletes via the
+    # same partial-index conflict target.
     |> unique_constraint([:agent_uid, :path],
       name: :agent_library_container_entries_active_path_index
     )

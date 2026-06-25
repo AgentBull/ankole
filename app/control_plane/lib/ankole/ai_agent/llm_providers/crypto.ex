@@ -43,6 +43,10 @@ defmodule Ankole.AIAgent.LlmProviders.Crypto do
     end
   end
 
+  # Roots the per-row key derivation in the endpoint's `secret_key_base` rather
+  # than a separate KMS: one operator-managed secret already gates the
+  # installation, so provider credentials are bound to it. Rotating it
+  # invalidates all stored ciphertexts.
   defp root_secret do
     :ankole
     |> Application.get_env(AnkoleWeb.Endpoint, [])

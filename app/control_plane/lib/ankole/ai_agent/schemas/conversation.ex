@@ -41,6 +41,12 @@ defmodule Ankole.AIAgent.Schemas.Conversation do
     |> JsonPayload.validate_map(:generation, allow_datetime: true)
     |> JsonPayload.validate_map(:metadata, allow_datetime: true)
     |> foreign_key_constraint(:agent_uid)
+    # Only one *active* (not yet `ended_at`) conversation may exist per
+    # (agent, conversation_key). The backing index is partial on `ended_at IS
+    # NULL`, so an ended session can be superseded by a new one under the same
+    # key. This collision is what `AIAgent.ensure_conversation_in_tx/3` relies on
+    # to make concurrent first-input safe: it inserts, and on conflict refetches
+    # the row the racing writer created.
     |> unique_constraint([:agent_uid, :conversation_key],
       name: :ai_agent_conversations_active_key_index
     )

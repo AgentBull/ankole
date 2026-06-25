@@ -18,7 +18,21 @@ defmodule Ankole.AIAgent.Schemas.LlmTurn do
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :string
   @timestamps_opts [type: :utc_datetime_usec]
+  # Why a turn exists, for transcript readability and retry accounting:
+  #   generation          - normal turn triggered by new actor input
+  #   retry_generation    - re-run of inputs whose prior turn failed (same work,
+  #                         labelled so repeated attempts are explainable)
+  #   scheduled_task      - turn driven by a scheduler, not live chat
+  #   checkback_generation- turn that follows up on earlier deferred work
+  #   compression         - turn whose job is to condense older history into a
+  #                         summary while preserving concrete facts (file paths,
+  #                         IDs, decisions) so later turns lose context, not state
+  #   overflow_retry      - re-run after a context-window overflow
   @kinds ~w(generation retry_generation scheduled_task checkback_generation compression overflow_retry)
+  # Turn lifecycle. A turn is created `started` (before the worker is even told
+  # to run) and moves to exactly one terminal state. `failed` is recoverable:
+  # `AIAgent.mark_turn_failed/3` records the error and releases the generation
+  # lease so the inputs can be retried.
   @statuses ~w(started succeeded failed cancelled)
   @profiles ~w(primary light heavy codex)
 
@@ -126,6 +140,10 @@ defmodule Ankole.AIAgent.Schemas.LlmTurn do
     |> JsonPayload.validate_map(:provider_metadata, allow_datetime: true)
     |> foreign_key_constraint(:agent_uid)
     |> foreign_key_constraint(:conversation_id)
+    # A generation lease can drive several provider calls in one local loop, each
+    # numbered by `call_index`. Uniqueness over (conversation, lease, call_index)
+    # makes each call insert-once: a retried delivery for the same lease and step
+    # collides instead of recording a duplicate turn.
     |> unique_constraint([:conversation_id, :lease_id, :call_index],
       name: :ai_agent_llm_turns_generation_call_index
     )
