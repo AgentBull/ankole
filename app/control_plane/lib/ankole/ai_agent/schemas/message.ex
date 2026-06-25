@@ -18,8 +18,21 @@ defmodule Ankole.AIAgent.Schemas.Message do
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :string
   @timestamps_opts [type: :utc_datetime_usec]
+  # Roles map an inbound transcript row to where it belongs in the LLM
+  # conversation. `im_ambient` is Ankole-specific: a chat message the agent saw
+  # but was not directly addressed to it (a "may intervene" signal). Only
+  # inbound roles (`user`, `tool`, `im_ambient`) are materialized here and fed
+  # into runtime proposals; `assistant` rows are the model's own output, written
+  # back by a different path and never re-proposed as new input.
   @roles ~w(user assistant tool im_ambient)
+  # `kind` separates ordinary turns from transcript-shaping rows: `summary` rows
+  # stand in for compacted history, `introspection` is internal reasoning the
+  # agent recorded, `error` marks a surfaced failure. The idempotency and
+  # history paths only treat `normal` (and sometimes `introspection`) rows as
+  # real inbound scene facts.
   @kinds ~w(normal summary introspection error)
+  # A message is `generating` while its content is still being streamed in and
+  # `complete` once final; inbound user/ambient rows are written `complete`.
   @statuses ~w(generating complete)
 
   schema "ai_agent_messages" do
@@ -79,6 +92,12 @@ defmodule Ankole.AIAgent.Schemas.Message do
     |> JsonPayload.validate_map(:metadata, allow_datetime: true)
     |> foreign_key_constraint(:agent_uid)
     |> foreign_key_constraint(:conversation_id)
+    # Backstops inbound idempotency: one ingress event (`event_source` +
+    # `event_id`) yields at most one transcript row per conversation, so a
+    # provider redelivery or a retried turn cannot duplicate the same user/
+    # ambient message. The matching DB index is partial (only inbound rows),
+    # which is why `AIAgent.materialize_user_message/4` uses an unsafe-fragment
+    # conflict target instead of these plain columns.
     |> unique_constraint([:conversation_id, :event_source, :event_id],
       name: :ai_agent_messages_inbound_event_index
     )

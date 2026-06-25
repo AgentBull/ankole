@@ -13,7 +13,13 @@ defmodule Ankole.AIAgent.MessageContext do
   alias Ankole.AIAgent.Schemas.Message
 
   @metadata_key "message_context"
+  # "Sparse injection": scene facts (time, room, actor) are rendered into the
+  # prompt only when they have changed since the model last saw them, to avoid
+  # repeating a timestamp/room banner on every message. Time re-injects only
+  # after a 1h gap; below that the previous time line is still considered fresh.
   @time_context_gap_ms 60 * 60 * 1_000
+  # Hard cap on any single injected context line (speaker, room, think). Bounds
+  # how much untrusted chat metadata can bloat the frozen prompt prefix.
   @max_context_line_text 800
 
   @type history_item :: %{metadata: map()}
@@ -113,6 +119,9 @@ defmodule Ankole.AIAgent.MessageContext do
         %{
           "actor_key" => actor.key,
           "display_name" => actor.display_name,
+          # Only worth telling the model "who is speaking" in a group chat, and
+          # only when the speaker changed. In a DM the counterpart is implicit,
+          # so the actor banner is never injected.
           "injected" => not is_nil(room) and !room.is_dm and should_inject_actor?(actor, history)
         }
         |> reject_nil()

@@ -25,7 +25,12 @@ defmodule Ankole.AIAgent.Library do
   @agent_append_file "AGENT_APPEND.md"
   @soul_file "SOUL.md"
   @mission_file "MISSION.md"
+  # Explicit allowlist of first-party skill directories that sync into Postgres.
+  # Intentionally narrow: only vetted bundles become part of the canonical
+  # catalog, even if more skill folders exist on disk.
   @builtin_skill_names ~w(jupyter-live-kernel nano-pdf powerpoint)
+  # Used only if the bundled SOUL/MISSION templates are unreadable, so a fresh
+  # agent still gets a usable (if minimal) persona rather than failing to seed.
   @fallback_soul "You are an Ankole AI colleague. Reply in plain text."
   @fallback_mission ""
 
@@ -46,6 +51,9 @@ defmodule Ankole.AIAgent.Library do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
     with {:ok, sources} <- read_builtin_skill_sources() do
+      # The whole on-disk catalog is hashed and compared to the stored cursor so
+      # this (boot-time) sync is a cheap no-op when nothing changed. `force?`
+      # exists for tests and manual re-syncs that want to write regardless.
       content_hash = catalog_hash(sources)
       current_state = repo.get(LibraryBuiltinSyncState, @sync_name)
 
@@ -425,6 +433,10 @@ defmodule Ankole.AIAgent.Library do
         assignment =
           repo.get_by(AgentSkillAssignment, agent_uid: agent_uid, skill_name: skill_name)
 
+        # An explicit per-agent assignment always wins over the catalog default:
+        # an `enabled: false` override disables a default-on skill, and an
+        # `enabled: true` override enables a default-off one. With no assignment,
+        # the catalog's `default_enabled` decides.
         cond do
           match?(%AgentSkillAssignment{enabled: false}, assignment) ->
             {:error, :skill_not_enabled}
@@ -460,6 +472,10 @@ defmodule Ankole.AIAgent.Library do
 
   defp do_skill_view(repo, agent_uid, %LibrarySkill{} = skill, file_path) do
     case repo.get_by(LibrarySkillFile, skill_name: skill.skill_name, path: file_path) do
+      # Reading the skill's main `SKILL.md` returns the canonical body with this
+      # agent's `AGENT_APPEND.md` (if any) spliced on under a divider. That is how
+      # an agent personalizes a shared first-party skill without forking it: the
+      # catalog row stays canonical, the per-agent delta lives in a writable entry.
       %LibrarySkillFile{} = file when file_path == @skill_file ->
         base_content = skill_body(file.content)
         append_content = agent_append_content(repo, agent_uid, skill.skill_name)
@@ -626,6 +642,9 @@ defmodule Ankole.AIAgent.Library do
       |> Kernel.||(directory_name)
 
     with {:ok, name} <- normalize_skill_name(name),
+         # The skill's declared `name` must equal its directory name; the
+         # directory name is the catalog primary key, so a mismatch would let a
+         # bundle masquerade under the wrong key. Reject rather than guess.
          true <-
            name == directory_name ||
              {:error, {:skill_name_directory_mismatch, name, directory_name}},
@@ -800,6 +819,10 @@ defmodule Ankole.AIAgent.Library do
     end
   end
 
+  # Path-traversal guard for writing library files to a real host directory.
+  # Virtual paths come from DB rows and skill bundles, so even after
+  # normalization we re-check the expanded path is still inside the mount root
+  # before touching the filesystem; anything escaping it is a hard error.
   defp safe_join!(root, virtual_path) do
     root = Path.expand(root)
     path = Path.expand(normalize_virtual_path!(virtual_path), root)

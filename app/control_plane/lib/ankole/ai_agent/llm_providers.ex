@@ -1,6 +1,12 @@
 defmodule Ankole.AIAgent.LlmProviders do
   @moduledoc """
   CRUD and projection service for operator-configured LLM providers.
+
+  A provider row holds an endpoint plus an encrypted credential. Plaintext
+  credentials only ever leave through `plaintext_credential/1` (for the broker)
+  and the live-check path; every console/API shape goes through `projection/1`,
+  which masks the secret. "Deleting" a provider is a soft disable that is refused
+  while any agent model profile still references it.
   """
 
   import Ecto.Query, warn: false
@@ -11,7 +17,12 @@ defmodule Ankole.AIAgent.LlmProviders do
   alias Ankole.Principals.Agent
   alias Ankole.Repo
 
+  # Sentinel distinguishing "caller did not mention the credential" (preserve it)
+  # from "caller passed nil/blank" (clear it). A plain nil cannot express that
+  # difference, so writes use this marker as the default.
   @credential_omitted :__ankole_credential_omitted__
+  # Operator live-checks hit a third-party endpoint; cap both connect and read so
+  # a slow or hanging provider cannot stall the Console request.
   @live_check_timeout_ms 15_000
 
   @type provider_result :: {:ok, Provider.t()} | {:error, term()}
@@ -308,6 +319,11 @@ defmodule Ankole.AIAgent.LlmProviders do
     |> repo.one()
   end
 
+  # Finds every agent model profile still pointing at this provider, returned as
+  # "agent_uid:profile" labels. A non-empty list blocks the disable so an
+  # operator cannot silently break agents that depend on the provider; profiles
+  # live inside each agent's `options` JSON, so this scans agents rather than a
+  # dedicated join table.
   defp provider_references(repo, provider_id) do
     Agent
     |> select([agent], {agent.uid, agent.options})
