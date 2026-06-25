@@ -1,9 +1,11 @@
 defmodule Ankole do
   @moduledoc """
-  Ankole keeps the contexts that define your domain
-  and business logic.
+  Namespace root for the control-plane domain contexts.
 
-  Contexts are also responsible for managing your data, regardless
-  if it comes from the database, an external API or others.
+  Ankole is an AgentOS: this control plane owns Principals/AuthZ, AppConfigure,
+  the plugin registry, SignalsGateway ingress, the actor runtime, and the
+  operator web shell. Each concern lives in its own context module
+  (`Ankole.Principals`, `Ankole.Plugins`, `Ankole.Actors`, ...); this bare
+  module only anchors the namespace and carries no behavior.
   """
 end

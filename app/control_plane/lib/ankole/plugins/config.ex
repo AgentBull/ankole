@@ -1,6 +1,13 @@
 defmodule Ankole.Plugins.Config do
   @moduledoc """
-  Core AppConfigure definitions owned by the plugin subsystem.
+  AppConfigure storage for the global plugin disable list.
+
+  Plugins are installation-global and default-on, so the only operator knob is a
+  durable list of disabled plugin ids. It lives in AppConfigure (Postgres) rather
+  than in process state because the registry reads it once at startup; a change
+  therefore takes effect on the next Ankole process start, not immediately. This
+  is deliberate — activating/deactivating a plugin can add or remove supervised
+  children and config keys, which is a boot-time concern, not a hot-swap.
   """
 
   alias Ankole.AppConfigure
@@ -57,6 +64,10 @@ defmodule Ankole.Plugins.Config do
     end
   end
 
+  # Validate at write time so a malformed disable list is rejected when an
+  # operator sets it, not silently mishandled at boot. The value must be an array
+  # of well-formed, unique plugin ids; ids need not correspond to a plugin that
+  # currently exists, so disabling an id ahead of installing its plugin is fine.
   defp disabled_ids_schema do
     Schema.new(fn
       values when is_list(values) -> normalize_disabled_ids(values)

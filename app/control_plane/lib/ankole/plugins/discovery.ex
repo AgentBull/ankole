@@ -1,10 +1,21 @@
 defmodule Ankole.Plugins.Discovery do
   @moduledoc """
-  Discovers compiled first-party plugin modules from local plugin roots.
+  Finds first-party plugin modules under the repo's plugin source roots.
+
+  Discovery reads `.ex` source files and extracts every `defmodule` name from the
+  AST, then loads each candidate to check whether it implements the
+  `Ankole.Plugins.Plugin` behaviour. We scan source rather than reflecting over
+  all loaded modules so discovery only sees modules that actually live in a
+  plugin root — code in `app/control_plane` that happens to implement the
+  behaviour is not swept in. Any unparseable plugin source fails discovery loudly
+  instead of silently shrinking the plugin set.
   """
 
   alias Ankole.Plugins.Spec
 
+  # `__DIR__` is .../app/control_plane/lib/ankole/plugins, so five `..` hops reach
+  # the repo root. The two roots are the open-source `plugins/` tree and the
+  # optional private `internals/plugins/` tree; a missing root is simply skipped.
   @repo_root Path.expand("../../../../../", __DIR__)
   @default_roots [
     Path.join(@repo_root, "plugins"),
@@ -20,7 +31,12 @@ defmodule Ankole.Plugins.Discovery do
   def default_roots, do: @default_roots
 
   @doc """
-  Discovers plugin specs from source roots and explicit modules.
+  Discovers and normalizes plugin specs, sorted by plugin id.
+
+  `:roots` overrides the scanned directories and `:modules` injects extra plugin
+  modules directly; both exist so tests can exercise fixture plugins without
+  placing them in a real plugin root. Returns `{:error, reason}` on the first
+  unparseable source, unloadable module, or invalid spec rather than dropping it.
   """
   @spec discover(opts()) :: {:ok, [Spec.t()]} | {:error, term()}
   def discover(opts \\ []) do
@@ -67,6 +83,9 @@ defmodule Ankole.Plugins.Discovery do
     end
   end
 
+  # Collects fully-qualified names of every `defmodule` in the file, including
+  # nested ones, by walking the quoted AST. This is name extraction only; whether
+  # a name is actually a plugin is decided later by the behaviour check.
   defp defmodules(ast) do
     {_ast, modules} =
       Macro.prewalk(ast, [], fn
@@ -100,6 +119,9 @@ defmodule Ankole.Plugins.Discovery do
     end
   end
 
+  # A discovered name only becomes a plugin if its module declares the
+  # `Ankole.Plugins.Plugin` behaviour. A name parsed from source that cannot be
+  # loaded is an error (a real compiled plugin should always load), not a skip.
   defp root_plugin_module?(module) do
     case Code.ensure_loaded(module) do
       {:module, ^module} ->

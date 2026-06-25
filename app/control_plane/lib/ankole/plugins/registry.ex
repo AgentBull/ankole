@@ -1,6 +1,14 @@
 defmodule Ankole.Plugins.Registry do
   @moduledoc """
-  Process-local registry of discovered and active Ankole plugins.
+  GenServer holding the boot-time snapshot of discovered and active plugins.
+
+  The whole plugin set is resolved once in `init/1`: discover specs, reject the
+  globally disabled ids to get the active set, then register the active plugins'
+  AppConfigure keys. State is immutable for the lifetime of the process, so
+  enabling or disabling a plugin requires an Ankole restart — there is no live
+  reload. If discovery, a uniqueness invariant, or config registration fails,
+  `init/1` returns `:stop`, which fails application boot rather than starting up
+  with a half-registered plugin set.
   """
 
   use GenServer
@@ -54,7 +62,7 @@ defmodule Ankole.Plugins.Registry do
   end
 
   @doc """
-  Returns whether a discovered plugin id is active.
+  Returns whether a plugin id is currently active (discovered and not disabled).
   """
   @spec active?(String.t(), GenServer.server()) :: boolean()
   def active?(id, server \\ __MODULE__) when is_binary(id) do
@@ -62,7 +70,10 @@ defmodule Ankole.Plugins.Registry do
   end
 
   @doc """
-  Lists active adapter declarations for one subsystem contract id.
+  Returns adapter declarations from active plugins for one contract id.
+
+  Subsystems (SignalsGateway, Principals identity, ...) call this with their own
+  contract id to find which plugins plug into them, e.g. "signals_gateway.adapter".
   """
   @spec adapter_declarations(String.t(), GenServer.server()) :: [map()]
   def adapter_declarations(contract_id, server \\ __MODULE__) when is_binary(contract_id) do
@@ -89,6 +100,10 @@ defmodule Ankole.Plugins.Registry do
   def init(opts) do
     discovery_opts = Keyword.get(opts, :discovery, [])
 
+    # Resolve everything up front. Note the disable list is read from durable
+    # AppConfigure exactly once here, which is why a disable/enable change only
+    # lands on the next boot. Adapter-uniqueness and config registration run over
+    # the *active* set only, so a disabled plugin can never collide or register.
     with {:ok, specs} <- Discovery.discover(discovery_opts),
          :ok <- ensure_unique_ids(specs),
          :ok <- Config.ensure_registered(),
@@ -166,6 +181,10 @@ defmodule Ankole.Plugins.Registry do
     Enum.reject(specs, &MapSet.member?(disabled, &1.id))
   end
 
+  # Two active plugins must not claim the same `{contract_id, adapter_id}` slot,
+  # or a subsystem lookup would be ambiguous about which adapter to use.
+  # Declarations missing either key are skipped here; `Spec` already rejected
+  # truly malformed ones, and partial maps simply cannot collide.
   defp ensure_unique_adapter_declarations(specs) do
     specs
     |> Enum.flat_map(fn spec ->
@@ -213,6 +232,8 @@ defmodule Ankole.Plugins.Registry do
     }
   end
 
+  # Adapter declarations are plain maps authored by plugins, so a key may arrive
+  # as either an atom or a string. These helpers accept both forms.
   defp adapter_contract?(%{contract_id: contract_id}, contract_id), do: true
   defp adapter_contract?(%{"contract_id" => contract_id}, contract_id), do: true
   defp adapter_contract?(_declaration, _contract_id), do: false
