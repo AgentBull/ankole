@@ -11,6 +11,10 @@ defmodule AnkoleWeb.OpenApiValidationErrorRenderer do
   def init(errors), do: errors
 
   @impl Plug
+  # Reshapes OpenApiSpex's validation errors into the same `%{error: %{code,
+  # message, details}}` envelope the controllers emit by hand, so clients get one
+  # consistent error shape whether a request fails schema validation or business
+  # logic. Always responds 422.
   def call(conn, errors) do
     details =
       errors

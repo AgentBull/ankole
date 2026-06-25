@@ -119,6 +119,9 @@ defmodule AnkoleWeb.ConsoleTokens do
     end
   end
 
+  # `expires_at` is already capped to the session expiry by the callers, so a
+  # non-positive ttl means the underlying browser session has lapsed — refuse to
+  # mint rather than issue an already-dead token.
   defp sign_token(token_use, principal_uid, sid_hash, now, expires_at) do
     ttl = expires_at - now
 
@@ -151,6 +154,9 @@ defmodule AnkoleWeb.ConsoleTokens do
     end
   end
 
+  # Access and refresh tokens are signed under different derived keys, so a
+  # refresh token can never be presented (or mistaken) as an access token even
+  # though both are HS256 over the same root secret.
   defp signing_key(@access_token_use), do: signing_key(:access)
   defp signing_key(@refresh_token_use), do: signing_key(:refresh)
 
@@ -179,6 +185,11 @@ defmodule AnkoleWeb.ConsoleTokens do
     }
   end
 
+  # Binds a token to the exact admin session that produced it. The hash covers the
+  # session's identifying fields; on refresh we recompute it and require a match,
+  # so a token stops working the moment the session is renewed or replaced (e.g.
+  # after a re-login), even if the principal is the same. Keys are sorted so the
+  # hash is stable regardless of map ordering.
   defp sid_hash(session) do
     payload =
       session
@@ -203,6 +214,8 @@ defmodule AnkoleWeb.ConsoleTokens do
     end
   end
 
+  # Token lifetime is the lesser of its own TTL and the remaining browser session
+  # — a console token can never outlive the cookie session it was derived from.
   defp access_expires_at(now, session_exp), do: min(now + @access_ttl_seconds, session_exp)
   defp refresh_expires_at(now, session_exp), do: min(now + @refresh_ttl_seconds, session_exp)
 
@@ -212,6 +225,9 @@ defmodule AnkoleWeb.ConsoleTokens do
 
   defp session_expires_at(_session), do: {:error, :invalid_admin_session_expiry}
 
+  # Reads the endpoint secret straight from config (not from a conn) because
+  # signing/verifying tokens is not always inside a request. All JWT keys derive
+  # from this one root secret via distinct sub-key ids.
   defp root_secret do
     :ankole
     |> Application.get_env(AnkoleWeb.Endpoint, [])

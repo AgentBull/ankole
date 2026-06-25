@@ -12,6 +12,9 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
 
     @behaviour OpenApiSpex.Schema
 
+    # Deliberately untyped: each AppConfigure key has its own value schema, which
+    # the context enforces. Constraining the type here would force a single shape
+    # across every key, so the wire schema stays open and validation lives downstream.
     @impl OpenApiSpex.Schema
     def schema do
       %Schema{
@@ -86,6 +89,11 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
 
     require OpenApiSpex
 
+    # One AppConfigure entry as the console sees it. The shape reflects the
+    # registry model: `kind` distinguishes exact keys from pattern keys and their
+    # materialized instances; `source`/`overridden`/`default_present` describe
+    # whether the effective value comes from the compiled default or a global
+    # override; `encrypted`/`editable` drive what the UI may show or change.
     OpenApiSpex.schema(
       %{
         title: "AppConfigurationItem",

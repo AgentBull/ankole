@@ -46,6 +46,12 @@ defmodule AnkoleWeb.AuthController do
 
   @doc """
   Exchanges the browser admin session or refresh token for console bearer tokens.
+
+  This is the bridge from the cookie world to the stateless console API. The
+  custom `browser-session` grant lets the already-authenticated SPA trade its
+  session cookie for short-lived JWTs (see `AnkoleWeb.ConsoleTokens`), so console
+  XHRs can use Bearer auth without re-running OIDC. Multiple `oauth_token/2`
+  clauses below dispatch on `grant_type`, mirroring the OAuth token endpoint shape.
   """
   def oauth_token(conn, %{"grant_type" => "urn:ankole:params:oauth:grant-type:browser-session"}) do
     with {:ok, session} <- active_admin_session(conn),
@@ -57,6 +63,8 @@ defmodule AnkoleWeb.AuthController do
     end
   end
 
+  # Refresh still requires a live browser session: console tokens are leashed to
+  # the cookie session, so signing out of the browser also kills token refresh.
   def oauth_token(conn, %{"grant_type" => "refresh_token", "refresh_token" => refresh_token})
       when is_binary(refresh_token) do
     with {:ok, session} <- active_admin_session(conn),
@@ -131,6 +139,12 @@ defmodule AnkoleWeb.AuthController do
 
   @doc """
   Completes setup or normal admin OIDC login depending on the session state.
+
+  One callback URL serves both flows. We don't trust the URL to say which flow it
+  is; instead the `state` param must match a `state` we previously stashed in the
+  session (setup vs admin namespace). That match is the CSRF/replay defense — a
+  forged or stale `state`, or one bound to the wrong flow, falls through to the
+  final clause and is rejected.
   """
   def oidc_callback(conn, %{"provider_id" => provider_id} = params) do
     code = params["code"]
@@ -178,6 +192,9 @@ defmodule AnkoleWeb.AuthController do
     end
   end
 
+  # Unlike setup, this flow never provisions an admin. The OIDC identity must
+  # already resolve to an active human admin, otherwise login is refused (403) —
+  # a valid external login is not by itself authorization to reach the console.
   defp complete_admin_oidc(conn, provider_id, code, _state) do
     oidc_state = WebSession.admin_oidc_state(conn)
 
@@ -213,6 +230,8 @@ defmodule AnkoleWeb.AuthController do
     end
   end
 
+  # Both the provider and the opaque state must match what we stored, pinned — the
+  # callback is only honored for the exact provider/state pair this session began.
   defp setup_state_matches?(conn, provider_id, state) do
     case WebSession.setup_oidc_state(conn) do
       %{"provider_id" => ^provider_id, "state" => ^state} -> true
@@ -227,6 +246,9 @@ defmodule AnkoleWeb.AuthController do
     end
   end
 
+  # OIDC redirect URIs must be absolute, so we rebuild this request's origin from
+  # the conn. This trusts the incoming scheme/host/port — fine because the
+  # endpoint sits behind a trusted proxy that normalizes them.
   defp public_base_url(conn) do
     uri = %URI{scheme: Atom.to_string(conn.scheme), host: conn.host, port: conn.port}
     URI.to_string(uri)

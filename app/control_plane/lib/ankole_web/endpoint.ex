@@ -11,6 +11,10 @@ defmodule AnkoleWeb.Endpoint do
 
   # The session payload is stored in the cookie and sealed with Ankole Kernel
   # AEAD. The browser carries the payload but cannot read or tamper with it.
+  # `key_context` is threaded down to SessionCookieStore so the cookie's key is
+  # derived under a named context, isolating it from other Kernel-derived keys.
+  # `secure` is a compile-time flag (off by default for local HTTP dev, on in
+  # production behind TLS) — it must be a literal here, so it cannot be runtime-tuned.
   @session_options [
     store: AnkoleWeb.SessionCookieStore,
     key: "_ankole_key",

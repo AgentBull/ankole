@@ -15,6 +15,9 @@ defmodule AnkoleWeb.ApiSpec do
 
   @impl OpenApiSpex.OpenApi
   def spec do
+    # Paths are derived from the router's `operation/2` specs, so the document
+    # always tracks the actual console routes. `version` is date-stamped rather
+    # than semver — the console API is versioned by calendar date.
     %OpenApi{
       servers: [Server.from_endpoint(AnkoleWeb.Endpoint)],
       info: %Info{
@@ -22,6 +25,8 @@ defmodule AnkoleWeb.ApiSpec do
         version: "2026-06-24"
       },
       paths: Paths.from_router(AnkoleWeb.Router),
+      # The documented `consoleBearer` scheme is the spec-side mirror of
+      # RequireConsoleAccessToken; controllers reference it via `security/1`.
       components: %Components{
         securitySchemes: %{
           "consoleBearer" => %SecurityScheme{
