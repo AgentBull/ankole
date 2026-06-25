@@ -1,6 +1,16 @@
 defmodule AnkoleWeb.AppConfigurationController do
   @moduledoc """
   Console REST API for registry-backed AppConfigure values.
+
+  AppConfigure is Ankole's runtime settings registry: a known set of keys, each
+  with its own schema, default, and whether it is encrypted or console-editable.
+  This controller is the bearer-token surface the console UI uses to list, read,
+  set, reset, and (for secrets) reveal those values.
+
+  Every action follows the same shape: authorize the principal for this exact
+  resource/action via `ConsolePolicy`, then call the AppConfigure context, then
+  map any domain error onto the console error envelope. The `with` chains keep
+  authorization first so a forbidden caller never touches the value.
   """
 
   use AnkoleWeb, :controller
@@ -17,6 +27,9 @@ defmodule AnkoleWeb.AppConfigurationController do
   tags(["AppConfigure"])
   security([%{"consoleBearer" => []}])
 
+  # Casts and validates params/body against the `operation/2` specs below before
+  # any action runs; on a schema mismatch it short-circuits with a 422 rendered in
+  # our console error envelope instead of the OpenApiSpex default JSON.
   plug OpenApiSpex.Plug.CastAndValidate,
     render_error: AnkoleWeb.OpenApiValidationErrorRenderer
 
@@ -79,6 +92,12 @@ defmodule AnkoleWeb.AppConfigurationController do
     ]
   )
 
+  @doc """
+  Lists every AppConfigure entry the console is allowed to surface.
+
+  Only console-visible entries are returned (the context filters internal-only
+  keys), and encrypted values come back masked — `decrypt/2` reveals them.
+  """
   def index(conn, _params) do
     with :ok <- ConsolePolicy.authorize(conn, "app_configurations", "read"),
          {:ok, items} <- AppConfigure.list_console_items() do
@@ -88,6 +107,9 @@ defmodule AnkoleWeb.AppConfigurationController do
     end
   end
 
+  @doc """
+  Reads one entry by key. Authorization is scoped to that specific key.
+  """
   def show(conn, params) do
     with {:ok, key} <- key_param(params),
          :ok <- ConsolePolicy.authorize(conn, "app_configuration:#{key}", "read"),
@@ -98,6 +120,12 @@ defmodule AnkoleWeb.AppConfigurationController do
     end
   end
 
+  @doc """
+  Sets the global value for one key (the installation-wide override).
+
+  Writes the "global" layer of AppConfigure, on top of the compiled-in default.
+  The value is validated against the key's own schema downstream in the context.
+  """
   def update(conn, params) do
     with {:ok, key} <- key_param(params),
          :ok <- ConsolePolicy.authorize(conn, "app_configuration:#{key}", "update"),
@@ -109,6 +137,12 @@ defmodule AnkoleWeb.AppConfigurationController do
     end
   end
 
+  @doc """
+  Resets one key by removing its global override, falling back to the default.
+
+  This deletes the override layer, not the key — the entry remains and reverts to
+  its compiled-in default. Authorized under the distinct `"reset"` action.
+  """
   def delete(conn, params) do
     with {:ok, key} <- key_param(params),
          :ok <- ConsolePolicy.authorize(conn, "app_configuration:#{key}", "reset"),
@@ -119,6 +153,13 @@ defmodule AnkoleWeb.AppConfigurationController do
     end
   end
 
+  @doc """
+  Reveals an encrypted value on demand.
+
+  Decryption is a separate, separately-authorized action (`"decrypt"`) precisely
+  so that listing/reading config does not expose secrets — a principal can browse
+  config without being able to read the secret material behind it.
+  """
   def decrypt(conn, params) do
     with {:ok, key} <- key_param(params),
          :ok <- ConsolePolicy.authorize(conn, "app_configuration:#{key}", "decrypt"),
@@ -137,6 +178,10 @@ defmodule AnkoleWeb.AppConfigurationController do
   defp request_value(%{value: value}), do: {:ok, value}
   defp request_value(_body), do: {:error, :missing_value}
 
+  # Translates AppConfigure context errors into the console error envelope with a
+  # stable machine `code`. The `ambiguous_key`/`pattern_key_not_editable` cases
+  # come from AppConfigure's pattern keys (e.g. wildcard keys that must be
+  # materialized globally before they can be edited per-instance).
   defp error(conn, :forbidden), do: error(conn, 403, "forbidden", "access denied")
 
   defp error(conn, {:unknown_key, _key}) do

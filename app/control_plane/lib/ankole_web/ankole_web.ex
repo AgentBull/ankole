@@ -17,6 +17,10 @@ defmodule AnkoleWeb do
   those modules here.
   """
 
+  # The only top-level paths served straight from priv/static. Used both by the
+  # endpoint's Plug.Static and by verified routes (so `~p` knows these are static
+  # files, not router paths). Note there are no LiveView/layout helpers in this
+  # module: Phoenix here only renders the thin SPA shell, so the surface is small.
   def static_paths, do: ~w(assets fonts images favicon.ico robots.txt)
 
   def router do
@@ -62,6 +66,8 @@ defmodule AnkoleWeb do
     quote do
       # HTML escaping functionality
       import Phoenix.HTML
+      # Makes `t/1..3`, `lang/0`, `dir/0` available in shells without Gettext —
+      # Ankole renders server HTML in the installation default locale.
       import AnkoleWeb.I18n.HTML
 
       # Routes generation with the ~p sigil

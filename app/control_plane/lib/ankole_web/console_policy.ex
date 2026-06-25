@@ -24,5 +24,7 @@ defmodule AnkoleWeb.ConsolePolicy do
     end
   end
 
+  # Fail closed: without a `current_principal_uid` assign (set only by the bearer
+  # plug on success) there is no authenticated principal, so deny.
   def authorize(_conn, _resource, _action), do: {:error, :forbidden}
 end

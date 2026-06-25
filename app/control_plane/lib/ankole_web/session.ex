@@ -1,6 +1,20 @@
 defmodule AnkoleWeb.Session do
   @moduledoc """
   Cookie-session helpers for setup, OIDC state, and admin login.
+
+  Four independent namespaces share the one sealed session cookie, kept apart on
+  purpose:
+
+    * `setup_session` / `setup_oidc_state` — the one-time bootstrap flow.
+    * `admin_session` / `admin_oidc_state` — normal admin login.
+
+  Keeping the bootstrap and admin OIDC states under different keys is a security
+  boundary: a setup-time OIDC round-trip can never be replayed to satisfy a later
+  admin login (and vice versa).
+
+  Every entry stamps its own `issued_at`/`expires_at` into the payload, so expiry
+  is enforced on read here rather than relying solely on the cookie `max_age` —
+  short-lived OIDC state can expire well before the 24h cookie does.
   """
 
   import Plug.Conn
@@ -12,6 +26,7 @@ defmodule AnkoleWeb.Session do
 
   @setup_ttl_seconds 24 * 60 * 60
   @admin_ttl_seconds 24 * 60 * 60
+  # OIDC state lives only long enough to complete one provider round-trip.
   @oidc_state_ttl_seconds 10 * 60
 
   @doc """
@@ -77,6 +92,10 @@ defmodule AnkoleWeb.Session do
 
   @doc """
   Stores an admin session and renews the cookie session id.
+
+  Dropping the CSRF token and renewing the session on login is the standard
+  fixation defense: any token or session id an attacker primed before login is
+  discarded, so the post-login session can't be one they planted.
   """
   @spec put_admin_session(Plug.Conn.t(), map()) :: Plug.Conn.t()
   def put_admin_session(conn, attrs) do
@@ -116,6 +135,11 @@ defmodule AnkoleWeb.Session do
 
   @doc """
   Keeps post-login redirects inside this installation.
+
+  Open-redirect guard for the `return_to` parameter: only same-origin absolute
+  paths pass. `//host` and `/\\host` are rejected because browsers treat them as
+  protocol-relative/scheme links to another origin; anything else falls back to
+  the console.
   """
   @spec safe_return_to(term()) :: String.t()
   def safe_return_to(value) when is_binary(value) do
@@ -128,6 +152,9 @@ defmodule AnkoleWeb.Session do
 
   def safe_return_to(_value), do: "/console"
 
+  # Keys are stringified before storage because the payload survives a
+  # serialize/deserialize round-trip through the cookie, where atom keys would
+  # not safely come back. The TTL is baked into the payload so reads can expire it.
   defp put_expiring_session(conn, key, attrs, ttl_seconds) do
     now = now_seconds()
 
@@ -142,6 +169,8 @@ defmodule AnkoleWeb.Session do
 
   defp active_session?(payload), do: not is_nil(active_payload(payload))
 
+  # An expired or malformed payload reads as absent (`nil`), so a stale cookie is
+  # treated exactly like no session.
   defp active_payload(%{"expires_at" => expires_at} = payload) when is_integer(expires_at) do
     case expires_at > now_seconds() do
       true -> payload

@@ -13,6 +13,9 @@ defmodule AnkoleWeb.SpaController do
   alias AnkoleWeb.Session, as: WebSession
   alias AnkoleWeb.Assets
 
+  # Maps each logical screen to its Vite entry bundle and document <title>. Note
+  # the `:sessions` screen mounts the `auth` bundle — the route name and the
+  # frontend entry name differ.
   @spas %{
     console: %{entry: "console", title: "Ankole Console"},
     sessions: %{entry: "auth", title: "Ankole Sign In"},
@@ -21,6 +24,9 @@ defmodule AnkoleWeb.SpaController do
 
   @doc """
   Sends the operator to the only valid first screen for the installation state.
+
+  Before setup completes the only legitimate destination is `/setup`; afterwards
+  it is the sign-in screen. `/` itself never renders a shell — it only redirects.
   """
   def home(conn, _params) do
     case setup_completed?() do
@@ -31,6 +37,10 @@ defmodule AnkoleWeb.SpaController do
 
   @doc """
   Serves the sign-in SPA only after setup is complete and no admin is signed in.
+
+  The `cond` clauses are an ordered server-side gate: un-setup installs go to
+  setup, already-signed-in admins skip straight to the console, and only the
+  remaining case (setup done, not signed in) actually renders the sign-in shell.
   """
   def sessions_new(conn, _params) do
     cond do
@@ -57,6 +67,11 @@ defmodule AnkoleWeb.SpaController do
 
   @doc """
   Serves the console SPA only for active human admins.
+
+  This is the server-side authentication gate for the console — it is enforced
+  on the shell request itself, so the React app is never even delivered to an
+  unauthenticated visitor. When not signed in, redirect to sign-in carrying a
+  `return_to` so the operator lands back on the page they wanted post-login.
   """
   def console(conn, _params) do
     cond do
@@ -95,7 +110,9 @@ defmodule AnkoleWeb.SpaController do
 
     # The shell is built as iodata so Phoenix can send it without a separate
     # template layer. That keeps Phoenix as a thin HTML boundary while Vite
-    # still owns the SPA assets.
+    # still owns the SPA assets. The `csrf-token` <meta> is how the SPA picks up
+    # the token to send back to the session_api endpoints; `<div id="ankole-app">`
+    # is the mount point every entry bundle expects.
     [
       "<!DOCTYPE html>\n",
       "<html lang=\"",
@@ -128,6 +145,10 @@ defmodule AnkoleWeb.SpaController do
     end
   end
 
+  # A cookie session is necessary but not sufficient: the principal it names must
+  # still be an active human admin right now. Re-checking against AdminAuth means
+  # a revoked/disabled admin loses console access immediately, without waiting
+  # for the session cookie to expire.
   defp active_admin_session?(conn) do
     case WebSession.admin_session(conn) do
       %{"principal_uid" => principal_uid} -> AdminAuth.active_human_admin?(principal_uid)
@@ -147,6 +168,9 @@ defmodule AnkoleWeb.SpaController do
   defp current_console_return_to(%Plug.Conn{query_string: query_string} = conn),
     do: conn.request_path <> "?" <> query_string
 
+  # Sets the shell's `<html lang>`. If the installation locale can't be read we
+  # still must emit a valid document, so fall back to a sane default rather than
+  # failing the whole shell render over a presentation attribute.
   defp app_locale do
     case Ankole.I18n.Config.default_locale() do
       {:ok, locale} -> locale

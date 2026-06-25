@@ -1,8 +1,19 @@
 defmodule AnkoleWeb.Assets do
   @moduledoc """
   Resolves Vite-managed SPA entry assets for Phoenix-rendered shells.
+
+  Two modes, decided by the `:dev_server` config key:
+
+    * Dev — point `<script>` tags straight at the running Vite dev server so HMR
+      and React Fast Refresh work.
+    * Prod — read the build manifest written by `vite build` and emit the
+      hashed, cache-busted asset URLs (plus their CSS and preloads).
+
+  The shell HTML never hardcodes asset paths; it always asks here.
   """
 
+  # The three SPA bundles the shell can mount. `entry` is a build identity, not
+  # user input, so an unknown value is a programmer error (it raises below).
   @valid_entries ~w(auth console setup)
 
   @doc "Returns stylesheet and script tags for a named webapp entry."
@@ -17,6 +28,9 @@ defmodule AnkoleWeb.Assets do
   defp dev_entry_tags(base_url, entry) do
     base_url = String.trim_trailing(base_url, "/")
 
+    # Order is load-bearing: React Fast Refresh requires the refresh runtime
+    # preamble to install its global hooks BEFORE the Vite client and the entry
+    # module load. Reordering these breaks Fast Refresh (or crashes the entry).
     [
       react_refresh_preamble_tag(base_url),
       module_script_tag("#{base_url}/@vite/client"),
@@ -27,6 +41,9 @@ defmodule AnkoleWeb.Assets do
   defp manifest_entry_tags(entry) do
     manifest = read_manifest()
 
+    # A production entry needs its own hashed JS plus the CSS and shared chunks
+    # Vite split out of it. We walk the manifest's `imports` graph to gather both
+    # so the first paint isn't missing styles or blocked on lazily-discovered chunks.
     case manifest_entry(manifest, entry) do
       %{"file" => file} = chunk ->
         [
@@ -35,6 +52,8 @@ defmodule AnkoleWeb.Assets do
           module_script_tag(asset_path(file))
         ]
 
+      # A missing entry means the JS build is stale or never ran — fail loudly at
+      # render time rather than serving a blank shell.
       _ ->
         raise ArgumentError, "Vite manifest does not contain entry #{inspect(entry)}"
     end
@@ -52,6 +71,9 @@ defmodule AnkoleWeb.Assets do
     end
   end
 
+  # Vite keys entries by source path, but that path can vary across Vite versions
+  # and configs. Try the well-known keys first, then fall back to scanning for the
+  # entry chunk whose `name` matches — so the lookup survives manifest layout drift.
   defp manifest_entry(manifest, entry) do
     direct_keys = [entry, "entrypoints/#{entry}.tsx"]
 
@@ -74,6 +96,9 @@ defmodule AnkoleWeb.Assets do
     Enum.map(files, &asset_path/1)
   end
 
+  # Recurse the import graph collecting every chunk's CSS. `seen` guards against
+  # the cycles Vite chunk graphs can contain (A imports B imports A) so this
+  # terminates; results are de-duped at the end.
   defp collect_manifest_css(chunk, manifest, seen) do
     chunk
     |> Map.get("imports", [])
@@ -90,6 +115,8 @@ defmodule AnkoleWeb.Assets do
     |> then(fn {css, seen} -> {Enum.uniq(css), seen} end)
   end
 
+  # Same cycle-guarded walk, but collecting the JS files of imported chunks so
+  # they can be `modulepreload`-ed alongside the entry.
   defp collect_manifest_import_files(chunk, manifest, seen) do
     chunk
     |> Map.get("imports", [])
@@ -125,6 +152,9 @@ defmodule AnkoleWeb.Assets do
 
   defp asset_path(path), do: ["/assets/", path]
 
+  # Hand-rolled copy of the preamble `@vitejs/plugin-react` normally injects into
+  # the HTML. Because Phoenix renders the shell (not Vite's index.html), we must
+  # emit it ourselves; without it React Fast Refresh has no global hooks to call.
   defp react_refresh_preamble_tag(base_url) do
     [
       ~s(<script type="module">\n),

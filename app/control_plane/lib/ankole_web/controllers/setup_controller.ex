@@ -21,6 +21,9 @@ defmodule AnkoleWeb.SetupController do
   def state(conn, _params) do
     with {:ok, completed?} <- SetupConfig.completed?(),
          {:ok, current_locale} <- Ankole.I18n.Config.default_locale() do
+      # `authenticated` is meaningful only while setup is incomplete: once setup is
+      # done there is no setup session to hold, so it collapses to false and the
+      # SPA stops offering setup steps.
       json(conn, %{
         completed: completed?,
         authenticated: not completed? and WebSession.setup_session_active?(conn),
@@ -34,6 +37,11 @@ defmodule AnkoleWeb.SetupController do
 
   @doc """
   Exchanges the bootstrap activation code for a 24-hour setup session.
+
+  The activation code is the only credential that exists before the first admin —
+  it gates who may run setup. A successful constant-time match opens a setup
+  session; a wrong code also clears any partial setup session so a failed attempt
+  can't leave a usable one behind.
   """
   def create_session(conn, params) do
     with {:ok, false} <- SetupConfig.completed?(),
@@ -171,6 +179,10 @@ defmodule AnkoleWeb.SetupController do
     end
   end
 
+  # Shared gate for every setup-mutating endpoint. Two conditions, both required:
+  # setup must not already be complete (409 if it is — bootstrap can't run twice),
+  # and the caller must hold an active setup session (401 otherwise). Returns a
+  # `{:error, status, reason}` triple the actions render directly.
   defp require_setup_session(conn) do
     with {:ok, false} <- SetupConfig.completed?() do
       case WebSession.setup_session_active?(conn) do
@@ -259,6 +271,8 @@ defmodule AnkoleWeb.SetupController do
     }
   end
 
+  # Rebuilds this request's origin so the OIDC redirect URI is absolute (same
+  # approach as AuthController; trusts the proxy-normalized scheme/host/port).
   defp public_base_url(conn) do
     uri = %URI{scheme: Atom.to_string(conn.scheme), host: conn.host, port: conn.port}
     URI.to_string(uri)
