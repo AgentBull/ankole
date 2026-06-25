@@ -227,6 +227,10 @@ defmodule FeishuOpenAPI.UserTokenManager do
      }}
   end
 
+  # A refresh response may or may not include a new refresh_token. When it omits
+  # one, keep using the existing refresh_token (and its existing expiry) rather
+  # than losing the ability to refresh again. Other fields (token_type, scope)
+  # are likewise carried forward when the response leaves them out.
   defp merge_refresh(existing, token_resp) do
     refresh_token = Map.get(token_resp, :refresh_token) || existing.refresh_token
 
@@ -241,6 +245,11 @@ defmodule FeishuOpenAPI.UserTokenManager do
     }
   end
 
+  # Decide the refresh_token's expiry after a refresh:
+  #   * a fresh `refresh_expires_in` always wins;
+  #   * otherwise, if the refresh_token was NOT rotated, keep its old expiry;
+  #   * if it WAS rotated but came without an expiry, we don't know — leave nil
+  #     (treated as "no known refresh window").
   defp refresh_expires_at(existing, token_resp, refresh_token) do
     case Map.get(token_resp, :refresh_expires_in) do
       expires_in when is_integer(expires_in) ->
@@ -296,10 +305,14 @@ defmodule FeishuOpenAPI.UserTokenManager do
 
   defp fresh?(expires_at), do: System.monotonic_time(:millisecond) < expires_at
 
+  # Same early-expiry margin as the app/tenant manager (see @expiry_delta_ms):
+  # a token is considered stale a few minutes before its nominal lifetime.
   defp expires_at(expires_in) when is_integer(expires_in) do
     System.monotonic_time(:millisecond) + :timer.seconds(expires_in) - @expiry_delta_ms
   end
 
+  # No lifetime given by the provider: place expiry in the past so the token is
+  # treated as already-stale and a refresh is attempted on next use.
   defp expires_at(_), do: System.monotonic_time(:millisecond) - @expiry_delta_ms
 
   defp task_supervisor do

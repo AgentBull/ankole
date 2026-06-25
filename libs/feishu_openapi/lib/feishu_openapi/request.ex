@@ -19,6 +19,11 @@ defmodule FeishuOpenAPI.Request do
       headers = auth_headers ++ client.headers ++ spec.headers
       url = build_url(client.base_url, spec.path)
 
+      # Layering is deliberate: per-request overrides win over client defaults,
+      # but `decode_body: false` is forced last and cannot be overridden. The
+      # SDK decodes JSON itself (in FeishuOpenAPI.decode_json_body/1) so it can
+      # tell a Feishu envelope / rate-limit body apart from a raw binary download
+      # before interpreting it. Letting Req auto-decode would erase that signal.
       req_opts =
         [method: spec.method, url: url, headers: headers]
         |> maybe_put(:params, normalize_query(spec.query))
@@ -91,6 +96,9 @@ defmodule FeishuOpenAPI.Request do
     Keyword.put(req_opts, :form_multipart, fm)
   end
 
+  # `:unset` is the sentinel for "no `:body` option was passed" — send no body
+  # at all (e.g. GET/DELETE). An explicit `false`/`nil` body is different: the
+  # caller asked to send that literal JSON value, so it is encoded and sent.
   defp put_body(req_opts, %Spec{body: :unset}), do: req_opts
 
   defp put_body(req_opts, %Spec{body: body}) when body in [false, nil] do

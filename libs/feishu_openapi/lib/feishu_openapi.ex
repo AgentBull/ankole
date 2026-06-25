@@ -35,13 +35,27 @@ defmodule FeishuOpenAPI do
 
   alias FeishuOpenAPI.{Client, Error, Request, Spec, TokenManager}
 
+  # Feishu business codes the SDK reacts to (everything else is surfaced as-is):
+  #   * @token_invalid_codes — the access token went stale; drop it and retry once.
+  #   * @app_ticket_invalid_code (10012) — a marketplace app_ticket expired; re-push it.
+  #   * @rate_limit_code (99991400) — throttled; the code can ride on HTTP 429/400/200.
   @token_invalid_codes [99_991_663, 99_991_664, 99_991_671]
   @app_ticket_invalid_code 10_012
   @rate_limit_code 99_991_400
+  # Retries are intentionally capped at one for both stale-token and rate-limit
+  # recovery: a single retry covers the common "token just expired" / "brief
+  # throttle" cases without turning a real outage into a long retry storm that
+  # hides the failure from the caller.
   @max_token_invalid_retries 1
   @max_retry_after_retries 1
+  # Wait bounds for rate-limit backoff when the provider's hint is missing or
+  # absurd: default to 1s, never sleep more than 30s inside a single call so a
+  # GenServer.call timeout upstream stays predictable.
   @default_retry_after_ms :timer.seconds(1)
   @max_retry_after_ms :timer.seconds(30)
+  # Allowlist of multipart field names Feishu upload endpoints accept as binary
+  # keys, mapped to the atoms Req wants. See `build_multipart_field/1` for why
+  # binary keys are not turned into atoms dynamically.
   @multipart_field_names %{
     "file_type" => :file_type,
     "file_name" => :file_name,
@@ -132,6 +146,10 @@ defmodule FeishuOpenAPI do
 
       result
     catch
+      # Emit an :exception telemetry span on the way out, then re-raise the
+      # original crash unchanged. The SDK does not turn unexpected crashes into
+      # error tuples here — only instrumented request/response failures become
+      # `{:error, %Error{}}`. Genuine bugs/exits keep propagating.
       kind, reason ->
         duration = System.monotonic_time() - start_time
 
@@ -305,6 +323,10 @@ defmodule FeishuOpenAPI do
   defp maybe_decode_json_body(resp, %Spec{raw: true}), do: resp
   defp maybe_decode_json_body(resp, %Spec{}), do: decode_json_body(resp)
 
+  # The client requests bodies undecoded (`decode_body: false` in Request), so
+  # this is where JSON is parsed before any envelope/rate-limit interpretation.
+  # A decode failure is not an error: non-JSON 2xx bodies (binary downloads,
+  # odd endpoints) are left as raw bytes and handled later as a raw response.
   defp decode_json_body(%Req.Response{body: body} = resp) when is_binary(body) do
     case Torque.decode(body) do
       {:ok, decoded} -> %{resp | body: decoded}
@@ -482,6 +504,9 @@ defmodule FeishuOpenAPI do
 
   defp maybe_recover_app_ticket(_client), do: :ok
 
+  # Drop exactly the cached credential that just failed, so the retry refetches
+  # it. User tokens (explicit bearer or :user_access_token mode) are not owned by
+  # the app/tenant token cache, so there is nothing here to invalidate for them.
   defp invalidate_for_retry(client, %Spec{} = spec) do
     cond do
       is_binary(spec.user_access_token) ->
@@ -517,6 +542,8 @@ defmodule FeishuOpenAPI do
       {:ok, %File.Stat{type: :regular, size: size}} ->
         # Req can stream regular files with a known size. Rejecting directories
         # and special files avoids hanging uploads or provider-side body errors.
+        # 64KB chunks keep large uploads off the heap; `size:` lets Req set a
+        # correct Content-Length instead of falling back to chunked encoding.
         {:ok, {:file, {File.stream!(path, 64_000, []), filename: name, size: size}}}
 
       {:ok, %File.Stat{type: type}} ->

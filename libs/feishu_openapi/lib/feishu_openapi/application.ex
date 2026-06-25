@@ -5,6 +5,10 @@ defmodule FeishuOpenAPI.Application do
 
   @impl true
   def start(_type, _args) do
+    # Order matters: the ETS token store and the Registry must be up before the
+    # DynamicSupervisor that starts per-app TokenManagers (they register in the
+    # Registry and read/write the store). The shared EventTaskSupervisor backs
+    # async token fetches, refreshes, and app_ticket resends.
     children = [
       FeishuOpenAPI.TokenStore,
       {Registry, keys: :unique, name: FeishuOpenAPI.TokenRegistry},
