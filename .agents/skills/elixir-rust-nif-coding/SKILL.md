@@ -2,10 +2,7 @@
 name: rust-nif
 description: >
   Rust NIFs with Rustler for Elixir — safe native code, BEAM/OTP integration,
-  error handling, scheduler management, and process communication.
-  ALWAYS use when writing Rust NIFs or Rustler code.
-  ALWAYS use when integrating native Rust code with Elixir/BEAM.
-  ALWAYS use when debugging NIF performance, crashes, or type conversion issues.
+  error handling, scheduler management, and process communication. Use when writing Rust NIFs or Rustler code.
 ---
 
 # Rust NIFs with Rustler

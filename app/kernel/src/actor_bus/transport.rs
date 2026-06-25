@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::fmt;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, mpsc};
@@ -20,12 +20,20 @@ const DEFAULT_IO_TIMEOUT_MS: i32 = 1_000;
 const DEFAULT_HWM: i32 = 1_000;
 const DEFAULT_LINGER_MS: i32 = 0;
 
+/// Configuration for the control-plane ROUTER socket.
+///
+/// The router owns worker routes and uses mandatory send so unknown routes can
+/// become retry signals instead of silent message loss.
 #[derive(Clone, Debug, Deserialize)]
 pub struct RouterConfig {
     #[serde(default)]
     pub endpoint: String,
     #[serde(default)]
     pub pre_auth_token: Option<String>,
+    #[serde(default)]
+    pub pre_auth_keys: Option<HashMap<String, WorkerAuthKeyConfig>>,
+    #[serde(default)]
+    pub worker_auth_database_url: Option<String>,
     #[serde(default)]
     pub zap_domain: Option<String>,
     #[serde(default)]
@@ -44,6 +52,9 @@ pub struct RouterConfig {
     pub command_timeout_ms: Option<u64>,
 }
 
+/// Configuration for one computer-worker DEALER socket.
+///
+/// The DEALER identity is the worker instance route seen by the control plane.
 #[derive(Clone, Debug, Deserialize)]
 pub struct DealerConfig {
     pub endpoint: String,
@@ -70,6 +81,8 @@ pub struct DealerConfig {
 pub enum RouterEvent {
     Received {
         transport_route: String,
+        authenticated_worker_id: Option<String>,
+        authenticated_key_revision: Option<i64>,
         envelope_json: String,
     },
     DecodeFailed {
@@ -80,6 +93,31 @@ pub enum RouterEvent {
         reason: String,
     },
 }
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(untagged)]
+pub enum WorkerAuthKeyConfig {
+    Secret(String),
+    Versioned {
+        pre_auth_key: String,
+        #[serde(default)]
+        key_revision: Option<i64>,
+    },
+}
+
+#[derive(Clone, Debug)]
+struct AuthenticatedWorker {
+    worker_id: String,
+    key_revision: i64,
+}
+
+#[derive(Debug, Default)]
+struct AuthenticatedRouteState {
+    routes: HashMap<String, AuthenticatedWorker>,
+    pending: VecDeque<AuthenticatedWorker>,
+}
+
+type AuthenticatedRoutes = Arc<Mutex<AuthenticatedRouteState>>;
 
 #[derive(Debug)]
 pub enum DealerEvent {
@@ -155,10 +193,15 @@ pub struct RouterHandle {
 }
 
 impl RouterHandle {
+    /// Returns the endpoint actually bound by the ROUTER socket.
     pub fn endpoint(&self) -> &str {
         &self.endpoint
     }
 
+    /// Sends an envelope to one worker route and reports mandatory-send errors.
+    ///
+    /// The payload is encoded through the Actor Bus codec before it reaches the
+    /// socket thread, so transport code never sees partially valid envelopes.
     pub fn send_mandatory(
         &self,
         transport_route: impl Into<String>,
@@ -181,6 +224,7 @@ impl RouterHandle {
             .map_err(|_| TransportError::Timeout)?
     }
 
+    /// Stops the router thread and waits for the socket loop to acknowledge it.
     pub fn stop(&self) -> Result<(), TransportError> {
         let (reply_tx, reply_rx) = mpsc::channel();
 
@@ -253,6 +297,7 @@ impl DealerInbox {
 }
 
 impl DealerHandle {
+    /// Sends a JSON-shaped Actor Bus envelope from the worker to the control plane.
     pub fn send_envelope(
         &self,
         envelope_json: serde_json::Value,
@@ -262,6 +307,7 @@ impl DealerHandle {
         self.send_payload(payload)
     }
 
+    /// Sends already encoded protobuf bytes from the worker socket.
     pub fn send_payload(&self, payload: Vec<u8>) -> Result<SendOutcome, TransportError> {
         let (reply_tx, reply_rx) = mpsc::channel();
 
@@ -277,10 +323,15 @@ impl DealerHandle {
             .map_err(|_| TransportError::Timeout)?
     }
 
+    /// Receives the next control-plane event for the worker.
+    ///
+    /// A timeout returns `Ok(None)` so the worker loop can also send heartbeats
+    /// and observe shutdown signals.
     pub fn recv(&self, timeout: Duration) -> Result<Option<DealerEvent>, TransportError> {
         self.inbox.recv(timeout)
     }
 
+    /// Stops the dealer thread and closes the worker transport.
     pub fn stop(&self) -> Result<(), TransportError> {
         let (reply_tx, reply_rx) = mpsc::channel();
 
@@ -303,6 +354,7 @@ impl Drop for DealerHandle {
 }
 
 impl RouterConfig {
+    /// Parses router config from a JSON string passed through a host binding.
     pub fn from_json(json: &str) -> KernelResult<Self> {
         serde_json::from_str(json)
             .map_err(|error| KernelError::new(format!("invalid router config JSON: {error}")))
@@ -310,6 +362,26 @@ impl RouterConfig {
 
     fn validate(&self) -> Result<(), TransportError> {
         validate_non_empty("endpoint", &self.endpoint)?;
+        if let Some(url) = &self.worker_auth_database_url {
+            validate_non_empty("worker_auth_database_url", url)?;
+        }
+        if let Some(keys) = &self.pre_auth_keys {
+            if keys.is_empty() {
+                return Err(TransportError::InvalidFrame(
+                    "pre_auth_keys must not be empty".into(),
+                ));
+            }
+
+            for (worker_id, key) in keys {
+                validate_non_empty("pre_auth_keys worker_id", worker_id)?;
+                validate_non_empty("pre_auth_keys pre_auth_key", key.pre_auth_key())?;
+                if key.key_revision() <= 0 {
+                    return Err(TransportError::InvalidFrame(
+                        "pre_auth_keys key_revision must be positive".into(),
+                    ));
+                }
+            }
+        }
         validate_optional_positive("sndhwm", self.sndhwm)?;
         validate_optional_positive("rcvhwm", self.rcvhwm)?;
         Ok(())
@@ -334,6 +406,7 @@ impl RouterConfig {
 }
 
 impl DealerConfig {
+    /// Parses dealer config from a JSON string passed through a host binding.
     pub fn from_json(json: &str) -> KernelResult<Self> {
         serde_json::from_str(json)
             .map_err(|error| KernelError::new(format!("invalid dealer config JSON: {error}")))
@@ -361,6 +434,56 @@ impl DealerConfig {
     }
 }
 
+impl WorkerAuthKeyConfig {
+    fn pre_auth_key(&self) -> &str {
+        match self {
+            Self::Secret(secret) => secret,
+            Self::Versioned { pre_auth_key, .. } => pre_auth_key,
+        }
+    }
+
+    fn key_revision(&self) -> i64 {
+        match self {
+            Self::Secret(_) => 1,
+            Self::Versioned { key_revision, .. } => key_revision.unwrap_or(1),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+enum ZapAuthConfig {
+    SharedSecret {
+        pre_auth_token: String,
+    },
+    StaticWorkerKeys {
+        keys: HashMap<String, WorkerAuthKeyConfig>,
+    },
+    Database {
+        database_url: String,
+    },
+}
+
+fn zap_auth_config(config: &RouterConfig) -> Option<ZapAuthConfig> {
+    if let Some(database_url) = &config.worker_auth_database_url {
+        return Some(ZapAuthConfig::Database {
+            database_url: database_url.clone(),
+        });
+    }
+
+    if let Some(keys) = &config.pre_auth_keys {
+        return Some(ZapAuthConfig::StaticWorkerKeys { keys: keys.clone() });
+    }
+
+    config
+        .pre_auth_token
+        .clone()
+        .map(|pre_auth_token| ZapAuthConfig::SharedSecret { pre_auth_token })
+}
+
+/// Starts the control-plane ROUTER socket on its own thread.
+///
+/// ZeroMQ sockets are thread-affine. Commands cross into the socket thread over
+/// channels, while received envelopes return to the host through the sink.
 pub fn start_router(config: RouterConfig, sink: RouterEventSink) -> KernelResult<RouterHandle> {
     config.validate().map_err(KernelError::from)?;
 
@@ -388,6 +511,10 @@ pub fn start_router(config: RouterConfig, sink: RouterEventSink) -> KernelResult
     })
 }
 
+/// Starts a computer-worker DEALER socket on its own thread.
+///
+/// The handle exposes a blocking inbox so the Bun worker can run a simple loop
+/// without knowing about ZeroMQ polling.
 pub fn start_dealer(config: DealerConfig) -> KernelResult<DealerHandle> {
     config.validate().map_err(KernelError::from)?;
 
@@ -417,6 +544,8 @@ pub fn start_dealer(config: DealerConfig) -> KernelResult<DealerHandle> {
     })
 }
 
+// Runs the ROUTER loop. It drains control-plane commands first so sends and
+// stops are not delayed behind an idle receive poll.
 fn run_router(
     config: RouterConfig,
     commands: mpsc::Receiver<RouterCommand>,
@@ -426,17 +555,29 @@ fn run_router(
 ) {
     let context = zmq::Context::new();
     let zap_stop = Arc::clone(&stop);
-    let zap_guard = match &config.pre_auth_token {
-        Some(token) => start_zap_server(&context, config.zap_domain(), token.clone(), zap_stop),
+    let auth_routes = Arc::new(Mutex::new(AuthenticatedRouteState::default()));
+    let zap_auth = zap_auth_config(&config);
+    let requires_auth = zap_auth.is_some();
+    let zap_guard = match zap_auth {
+        Some(auth) => start_zap_server(
+            &context,
+            config.zap_domain(),
+            auth,
+            Arc::clone(&auth_routes),
+            zap_stop,
+        ),
         None => Ok(None),
     };
 
     let socket_result = zap_guard.and_then(|zap| {
         let socket = context.socket(zmq::ROUTER).map_err(transport_error)?;
         configure_common_socket(&socket, &config)?;
+        // Mandatory routing is the transport-level signal that a worker route
+        // is gone. ActorRuntime turns that into stale worker state and
+        // retryable delivery projections.
         socket.set_router_mandatory(true).map_err(transport_error)?;
 
-        if config.pre_auth_token.is_some() {
+        if requires_auth {
             socket.set_plain_server(true).map_err(transport_error)?;
             socket
                 .set_zap_domain(&config.zap_domain())
@@ -470,7 +611,7 @@ fn run_router(
         }
 
         match socket.recv_multipart(zmq::DONTWAIT) {
-            Ok(frames) => emit_router_frames(&sink, frames),
+            Ok(frames) => emit_router_frames(&sink, requires_auth, &auth_routes, frames),
             Err(zmq::Error::EAGAIN) => thread::sleep(poll_interval),
             Err(zmq::Error::ETERM) => break,
             Err(error) => {
@@ -483,6 +624,8 @@ fn run_router(
     }
 }
 
+// Runs the worker DEALER loop. The DEALER identity is the transport route used
+// by the control plane after worker admission.
 fn run_dealer(
     config: DealerConfig,
     commands: mpsc::Receiver<DealerCommand>,
@@ -579,6 +722,8 @@ fn drain_dealer_commands(socket: &zmq::Socket, commands: &mpsc::Receiver<DealerC
     true
 }
 
+// Sends the ROUTER multipart frame shape: worker route identity followed by the
+// protobuf envelope payload.
 fn send_router_payload(
     socket: &zmq::Socket,
     route: String,
@@ -590,18 +735,44 @@ fn send_router_payload(
         .map_err(map_send_error)
 }
 
-fn emit_router_frames(sink: &RouterEventSink, frames: Vec<Vec<u8>>) {
+// Decodes inbound worker frames before crossing back into Elixir. Bad protobuf
+// never reaches ActorRuntime handlers as a normal envelope.
+fn emit_router_frames(
+    sink: &RouterEventSink,
+    requires_auth: bool,
+    auth_routes: &AuthenticatedRoutes,
+    frames: Vec<Vec<u8>>,
+) {
     match parse_router_frames(frames) {
-        Ok((route, payload)) => match actor_bus::decode_envelope_json(&payload) {
-            Ok(envelope_json) => sink(RouterEvent::Received {
-                transport_route: route,
-                envelope_json: envelope_json.to_string(),
-            }),
-            Err(error) => sink(RouterEvent::DecodeFailed {
-                transport_route: route,
-                reason: error.to_string(),
-            }),
-        },
+        Ok((route, payload)) => {
+            let auth = if requires_auth {
+                match authenticated_route(auth_routes, &route) {
+                    Some(auth) => Some(auth),
+                    None => {
+                        sink(RouterEvent::DecodeFailed {
+                            transport_route: route,
+                            reason: "unauthenticated_route".to_string(),
+                        });
+                        return;
+                    }
+                }
+            } else {
+                None
+            };
+
+            match actor_bus::decode_envelope_json(&payload) {
+                Ok(envelope_json) => sink(RouterEvent::Received {
+                    transport_route: route,
+                    authenticated_worker_id: auth.as_ref().map(|auth| auth.worker_id.clone()),
+                    authenticated_key_revision: auth.as_ref().map(|auth| auth.key_revision),
+                    envelope_json: envelope_json.to_string(),
+                }),
+                Err(error) => sink(RouterEvent::DecodeFailed {
+                    transport_route: route,
+                    reason: error.to_string(),
+                }),
+            }
+        }
         Err((route, error)) => sink(RouterEvent::DecodeFailed {
             transport_route: route.unwrap_or_default(),
             reason: error.to_string(),
@@ -609,6 +780,25 @@ fn emit_router_frames(sink: &RouterEventSink, frames: Vec<Vec<u8>>) {
     }
 }
 
+fn authenticated_route(
+    auth_routes: &AuthenticatedRoutes,
+    route: &str,
+) -> Option<AuthenticatedWorker> {
+    let mut state = auth_routes.lock().ok()?;
+
+    if let Some(authenticated) = state.routes.get(route) {
+        return Some(authenticated.clone());
+    }
+
+    let authenticated = state.pending.pop_front()?;
+    state
+        .routes
+        .insert(route.to_string(), authenticated.clone());
+    Some(authenticated)
+}
+
+// Stores inbound control-plane frames for the worker loop. Decode errors stay
+// visible so the worker can log them or fail tests deterministically.
 fn emit_dealer_frames(inbox: &DealerInbox, frames: Vec<Vec<u8>>) {
     match parse_dealer_frames(frames) {
         Ok(payload) => inbox.push(DealerEvent::Received(payload)),
@@ -616,6 +806,8 @@ fn emit_dealer_frames(inbox: &DealerInbox, frames: Vec<Vec<u8>>) {
     }
 }
 
+// Parses ROUTER frames from DEALER workers. A leading empty delimiter is
+// tolerated so tests and proxies can use common multipart conventions.
 fn parse_router_frames(
     frames: Vec<Vec<u8>>,
 ) -> Result<(String, Vec<u8>), (Option<String>, TransportError)> {
@@ -641,6 +833,8 @@ fn parse_router_frames(
     Ok((route, frames[payload_index].clone()))
 }
 
+// Parses worker-side frames. ROUTER sends usually arrive as one payload frame,
+// but delimiter and extra identity frames are tolerated for interoperability.
 fn parse_dealer_frames(frames: Vec<Vec<u8>>) -> Result<Vec<u8>, TransportError> {
     match frames.as_slice() {
         [payload] => Ok(payload.clone()),
@@ -652,21 +846,23 @@ fn parse_dealer_frames(frames: Vec<Vec<u8>>) -> Result<Vec<u8>, TransportError> 
     }
 }
 
+// Starts the inproc ZAP server used by ZeroMQ PLAIN auth. This is a pre-auth
+// token gate for worker bootstrap, not a user authorization system.
 fn start_zap_server(
     context: &zmq::Context,
     domain: String,
-    password: String,
+    auth: ZapAuthConfig,
+    auth_routes: AuthenticatedRoutes,
     stop: Arc<AtomicBool>,
 ) -> Result<Option<ZapGuard>, TransportError> {
     validate_non_empty("zap_domain", &domain)?;
-    validate_non_empty("pre_auth_token", &password)?;
 
     let context = context.clone();
     let (init_tx, init_rx) = mpsc::sync_channel(1);
 
     let handle = thread::Builder::new()
         .name("ankole-actor-bus-zap".to_string())
-        .spawn(move || run_zap_server(context, domain, password, stop, init_tx))
+        .spawn(move || run_zap_server(context, domain, auth, auth_routes, stop, init_tx))
         .map_err(|error| TransportError::Zmq(format!("failed to spawn ZAP thread: {error}")))?;
 
     init_rx
@@ -697,7 +893,8 @@ impl Drop for ZapGuard {
 fn run_zap_server(
     context: zmq::Context,
     domain: String,
-    password: String,
+    auth: ZapAuthConfig,
+    auth_routes: AuthenticatedRoutes,
     stop: Arc<AtomicBool>,
     init: mpsc::SyncSender<Result<(), TransportError>>,
 ) {
@@ -724,7 +921,7 @@ fn run_zap_server(
     while !stop.load(Ordering::SeqCst) {
         match socket.recv_multipart(0) {
             Ok(frames) => {
-                let response = zap_response(&domain, &password, &frames);
+                let response = zap_response(&domain, &auth, &auth_routes, &frames);
                 let _ = socket.send_multipart(response, 0);
             }
             Err(zmq::Error::EAGAIN) => {}
@@ -734,30 +931,53 @@ fn run_zap_server(
     }
 }
 
-fn zap_response(domain: &str, expected_password: &str, frames: &[Vec<u8>]) -> Vec<Vec<u8>> {
+// Implements the small ZAP response needed for PLAIN worker authentication.
+// In the database-backed mode the PLAIN username is the stable worker_id and
+// the password must match the active worker-scoped key row.
+fn zap_response(
+    domain: &str,
+    auth: &ZapAuthConfig,
+    auth_routes: &AuthenticatedRoutes,
+    frames: &[Vec<u8>],
+) -> Vec<Vec<u8>> {
     let sequence = frames.get(1).cloned().unwrap_or_default();
     let request_domain = frame_string(frames.get(2));
+    let route_identity = frame_string(frames.get(4));
     let mechanism = frame_string(frames.get(5));
     let username = frame_string(frames.get(6));
     let password = frame_string(frames.get(7));
 
-    let accepted = request_domain.as_deref() == Some(domain)
+    let accepted_auth = if request_domain.as_deref() == Some(domain)
         && mechanism.as_deref() == Some("PLAIN")
-        && username.as_deref().is_some_and(|value| !value.is_empty())
-        && password.as_deref() == Some(expected_password);
+    {
+        match (username.as_deref(), password.as_deref()) {
+            (Some(username), Some(password)) => verify_zap_credentials(auth, username, password),
+            _ => None,
+        }
+    } else {
+        None
+    };
 
-    if accepted {
+    if let Some(authenticated) = accepted_auth {
+        record_authenticated_route(
+            auth_routes,
+            route_identity.as_deref().unwrap_or_default(),
+            authenticated.clone(),
+        );
+
         vec![
             b"1.0".to_vec(),
             sequence,
             b"200".to_vec(),
             b"OK".to_vec(),
-            username
-                .unwrap_or_else(|| "worker".to_string())
-                .into_bytes(),
+            authenticated.worker_id.into_bytes(),
             Vec::new(),
         ]
     } else {
+        if let Some(route_identity) = route_identity.as_deref().filter(|value| !value.is_empty()) {
+            forget_authenticated_route(auth_routes, route_identity);
+        }
+
         vec![
             b"1.0".to_vec(),
             sequence,
@@ -766,6 +986,89 @@ fn zap_response(domain: &str, expected_password: &str, frames: &[Vec<u8>]) -> Ve
             Vec::new(),
             Vec::new(),
         ]
+    }
+}
+
+fn verify_zap_credentials(
+    auth: &ZapAuthConfig,
+    username: &str,
+    password: &str,
+) -> Option<AuthenticatedWorker> {
+    if username.is_empty() || password.is_empty() {
+        return None;
+    }
+
+    match auth {
+        ZapAuthConfig::SharedSecret { pre_auth_token } => {
+            (password == pre_auth_token).then(|| AuthenticatedWorker {
+                worker_id: username.to_string(),
+                key_revision: 1,
+            })
+        }
+        ZapAuthConfig::StaticWorkerKeys { keys } => keys.get(username).and_then(|key| {
+            (password == key.pre_auth_key()).then(|| AuthenticatedWorker {
+                worker_id: username.to_string(),
+                key_revision: key.key_revision(),
+            })
+        }),
+        ZapAuthConfig::Database { database_url } => {
+            verify_database_worker_key(database_url, username, password).ok()
+        }
+    }
+}
+
+fn verify_database_worker_key(
+    database_url: &str,
+    worker_id: &str,
+    password: &str,
+) -> Result<AuthenticatedWorker, TransportError> {
+    let mut client = postgres::Client::connect(database_url, postgres::NoTls).map_err(|error| {
+        TransportError::Zmq(format!("worker auth database connect failed: {error}"))
+    })?;
+
+    let row = client
+        .query_opt(
+            "select pre_auth_key, key_revision from agent_computer_worker_auth_keys where worker_id = $1 and disabled_at is null",
+            &[&worker_id],
+        )
+        .map_err(|error| TransportError::Zmq(format!("worker auth database query failed: {error}")))?;
+
+    match row {
+        Some(row) => {
+            let expected: String = row.get(0);
+            let key_revision: i64 = row.get(1);
+
+            if expected == password {
+                Ok(AuthenticatedWorker {
+                    worker_id: worker_id.to_string(),
+                    key_revision,
+                })
+            } else {
+                Err(TransportError::Zmq("invalid worker auth key".to_string()))
+            }
+        }
+        None => Err(TransportError::Zmq("worker auth key not found".to_string())),
+    }
+}
+
+fn record_authenticated_route(
+    auth_routes: &AuthenticatedRoutes,
+    route: &str,
+    authenticated: AuthenticatedWorker,
+) {
+    if let Ok(mut state) = auth_routes.lock() {
+        if !route.is_empty() {
+            state
+                .routes
+                .insert(route.to_string(), authenticated.clone());
+        }
+        state.pending.push_back(authenticated);
+    }
+}
+
+fn forget_authenticated_route(auth_routes: &AuthenticatedRoutes, route: &str) {
+    if let Ok(mut state) = auth_routes.lock() {
+        state.routes.remove(route);
     }
 }
 
@@ -825,6 +1128,8 @@ impl CommonSocketConfig for DealerConfig {
     }
 }
 
+// Applies bounded queues and timeouts to both socket roles. Defaults favor
+// predictable shutdown and backpressure over unbounded buffering.
 fn configure_common_socket<T: CommonSocketConfig>(
     socket: &zmq::Socket,
     config: &T,
@@ -866,6 +1171,7 @@ fn validate_optional_positive(field: &str, value: Option<i32>) -> Result<(), Tra
     }
 }
 
+// Maps ZeroMQ send failures into actor-runtime scheduling language.
 fn map_send_error(error: zmq::Error) -> TransportError {
     match error {
         zmq::Error::EHOSTUNREACH => TransportError::UnknownRoute,
@@ -905,6 +1211,8 @@ mod tests {
             RouterConfig {
                 endpoint: "tcp://127.0.0.1:*".to_string(),
                 pre_auth_token: Some("test-token".to_string()),
+                pre_auth_keys: None,
+                worker_auth_database_url: None,
                 zap_domain: None,
                 sndhwm: None,
                 rcvhwm: None,
@@ -941,11 +1249,15 @@ mod tests {
         match ready {
             RouterEvent::Received {
                 transport_route,
+                authenticated_worker_id,
+                authenticated_key_revision,
                 envelope_json,
             } => {
                 let envelope: serde_json::Value =
                     serde_json::from_str(&envelope_json).expect("decoded JSON");
                 assert_eq!(transport_route, "worker-instance-a");
+                assert_eq!(authenticated_worker_id.as_deref(), Some("worker-a"));
+                assert_eq!(authenticated_key_revision, Some(1));
                 assert_eq!(envelope["body"]["type"], "worker_ready");
             }
             other => panic!("unexpected router event: {other:?}"),

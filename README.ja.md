@@ -56,7 +56,7 @@ Runtime は 5 つの technical bets に基づきます。
 
 - `app/control_plane` - Principal/AuthZ、AppConfigure、plugins、SignalsGateway、setup、console、web shell のための Phoenix control plane。
 - `app/kernel` - crypto、hashing、identifier、policy helper など runtime-neutral mechanism のための shared native foundation。
-- `app/ai_proxy` - LLM-provider-adjacent runtime work のための Bun/Elysia surface。
+- `app/agent_computer` - local LLM loop、tools、files、terminal state、worker daemon を担う Bun + TypeScript Agent Computer runtime。
 - `app/webapps` - Phoenix shell から mount される Rspack-powered frontend applications。
 - `libs/uikit` - Ankole webapps で共有する UI primitives。
 - `libs/feishu_openapi` - local Lark/Feishu OpenAPI client library。
@@ -83,8 +83,8 @@ bun run control-plane:dev
 bun run control-plane:test
 
 # Bun packages
-bun run ai-proxy:dev
-bun run ai-proxy:test
+bun run agent-computer:dev
+bun run agent-computer:test
 bun run webapps:build
 bun run feishu-openapi:test
 ```
@@ -93,7 +93,8 @@ Workspace が速く動いている間は、package-local validation を優先し
 
 ```shell
 bun run --filter @ankole/control-plane test
-bun run --filter @ankole/ai-proxy test
+bun run --filter @ankole/agent-computer test
+bun run --filter @ankole/agent-computer type-check
 bun run --filter @ankole/webapps type-check
 bun run --filter @ankole/feishu-openapi test
 ```

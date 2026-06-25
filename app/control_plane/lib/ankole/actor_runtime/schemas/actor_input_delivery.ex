@@ -1,6 +1,10 @@
 defmodule Ankole.ActorRuntime.Schemas.ActorInputDelivery do
   @moduledoc """
   Runtime projection of an actor input delivery attempt.
+
+  Delivery rows fence the gap between queued actor input and worker acceptance.
+  They are intentionally lighter than AI-agent transcript rows and can be
+  superseded or deleted after the durable commit path finishes.
   """
 
   use Ecto.Schema

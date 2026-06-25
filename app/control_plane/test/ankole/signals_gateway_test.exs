@@ -68,7 +68,7 @@ defmodule Ankole.SignalsGatewayTest do
       assert Repo.aggregate(ActorInput, :count) == 0
     end
 
-    test "may_intervene mirrors and appends a direct candidate actor input" do
+    test "may_intervene mirrors and appends a delayed ambient observation input" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "lark-main", :may_intervene)
 
@@ -76,8 +76,76 @@ defmodule Ankole.SignalsGatewayTest do
                SignalsGateway.emit_entry(agent.uid, "lark-main", group_entry(), now: @base_time)
 
       assert input.type == "im.message.may_intervene"
-      assert input.available_at == @base_time
-      assert input.batch_scope == nil
+      assert input.available_at == DateTime.add(@base_time, 1_500, :millisecond)
+
+      assert [%{"speaker" => "Alice", "sent_at" => sent_at, "text" => "hello"}] =
+               input.payload["data"]["observed_messages"]
+
+      assert sent_at == DateTime.to_iso8601(@base_time)
+
+      assert input.batch_scope == %{
+               "binding_name" => "lark-main",
+               "signal_channel_id" => "lark:chat:group-a",
+               "provider_thread_id" => "thread-1"
+             }
+
+      assert input.sender_key == "ambient:lark-main:lark:chat:group-a:thread-1"
+    end
+
+    test "may_intervene inputs in the same room and thread debounce as one ambient batch" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "lark-main", :may_intervene)
+
+      assert {:ok, %{actor_input: first}} =
+               SignalsGateway.emit_entry(
+                 agent.uid,
+                 "lark-main",
+                 group_entry(%{
+                   ingress_event_id: "evt-ambient-first",
+                   provider_entry_id: "msg-ambient-first",
+                   text: "first"
+                 }),
+                 now: @base_time
+               )
+
+      second_at = DateTime.add(@base_time, 500, :millisecond)
+
+      assert {:ok, %{actor_input: second}} =
+               SignalsGateway.emit_entry(
+                 agent.uid,
+                 "lark-main",
+                 group_entry(%{
+                   ingress_event_id: "evt-ambient-second",
+                   provider_entry_id: "msg-ambient-second",
+                   text: "second"
+                 }),
+                 now: second_at
+               )
+
+      due_at = DateTime.add(second_at, 1_500, :millisecond)
+      merged = Repo.get!(ActorInput, first.id)
+
+      assert first.id == second.id
+      assert Repo.aggregate(ActorInput, :count) == 1
+      assert merged.available_at == due_at
+
+      assert [
+               %{"provider_entry_id" => "msg-ambient-first", "text" => "first"},
+               %{"provider_entry_id" => "msg-ambient-second", "text" => "second"}
+             ] = merged.payload["data"]["entries"]
+
+      assert [
+               %{"speaker" => "Alice", "text" => "first"},
+               %{"speaker" => "Alice", "text" => "second"}
+             ] = merged.payload["data"]["observed_messages"]
+
+      assert Actors.list_ready_inputs(
+               agent.uid,
+               SignalsGateway.signal_session_id("lark:chat:group-a"),
+               due_at
+             )
+             |> Actors.contiguous_same_sender_prefix()
+             |> Enum.map(& &1.id) == [first.id]
     end
 
     test "DM and structured mentions are explicit even when group policy is ignore" do

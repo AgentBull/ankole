@@ -1,6 +1,9 @@
 defmodule Ankole.ActorRuntime.Schemas.ActorSessionActivation do
   @moduledoc """
   Live activation and lease projection for one actor session.
+
+  Activations give worker replies a durable fence: actor key, activation uid,
+  actor epoch, turn id, and revision must all match before a proposal can commit.
   """
 
   use Ecto.Schema

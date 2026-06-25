@@ -56,7 +56,7 @@ Runtime 建立在五个技术判断上：
 
 - `app/control_plane` - Phoenix control plane，包含 Principal/AuthZ、AppConfigure、plugins、SignalsGateway、setup、console 和 web shell。
 - `app/kernel` - 共享 native foundation，承载 crypto、hashing、identifier、policy helper 等 runtime-neutral 机制。
-- `app/ai_proxy` - 面向 LLM-provider-adjacent runtime work 的 Bun/Elysia 表面。
+- `app/agent_computer` - Bun + TypeScript Agent Computer runtime，承载本地 LLM loop、tools、文件、terminal state 和 worker daemon。
 - `app/webapps` - 由 Phoenix shell 挂载的 Rspack frontend applications。
 - `libs/uikit` - Ankole webapps 共用的 UI primitives。
 - `libs/feishu_openapi` - 本地 Lark/Feishu OpenAPI client library。
@@ -83,8 +83,8 @@ bun run control-plane:dev
 bun run control-plane:test
 
 # Bun packages
-bun run ai-proxy:dev
-bun run ai-proxy:test
+bun run agent-computer:dev
+bun run agent-computer:test
 bun run webapps:build
 bun run feishu-openapi:test
 ```
@@ -93,7 +93,8 @@ bun run feishu-openapi:test
 
 ```shell
 bun run --filter @ankole/control-plane test
-bun run --filter @ankole/ai-proxy test
+bun run --filter @ankole/agent-computer test
+bun run --filter @ankole/agent-computer type-check
 bun run --filter @ankole/webapps type-check
 bun run --filter @ankole/feishu-openapi test
 ```

@@ -12,6 +12,7 @@ defmodule Ankole.ActorRuntime do
   alias Ankole.Actors
   alias Ankole.Actors.ActorInput
   alias Ankole.ActorRuntime.CommitCoordinator
+  alias Ankole.ActorRuntime.OutboxDispatcher
   alias Ankole.ActorRuntime.Schemas.ActorInputDelivery
   alias Ankole.ActorRuntime.Schemas.ActorSessionActivation
   alias Ankole.ActorRuntime.Schemas.ActorSessionWorkerAssignment
@@ -19,7 +20,10 @@ defmodule Ankole.ActorRuntime do
   alias Ankole.ActorRuntime.Transport.Broker
   alias Ankole.ActorRuntime.WorkerAdmission
   alias Ankole.ActorRuntime.WorkerPool
+  alias Ankole.Principals.Agent, as: PrincipalAgent
+  alias Ankole.Principals.Principal
   alias Ankole.Repo
+  alias Ankole.SignalsGateway
 
   @live_delivery_states ~w(created sent accepted)
   @live_activation_statuses ~w(starting active draining)
@@ -69,11 +73,15 @@ defmodule Ankole.ActorRuntime do
   defdelegate assign_worker(actor_key), to: WorkerPool
 
   @doc """
-  Starts a placeholder PING/PONG turn for a ready actor input set.
+  Starts a worker-backed LLM turn for a ready actor input set.
+
+  This is the control-plane side of the new local actor loop. It creates the
+  durable AI-agent turn first, then creates delivery projections that fence the
+  worker by actor epoch, activation, and LLM turn.
   """
-  @spec start_placeholder_llm_turn(actor_key(), [ActorInput.t()], keyword()) ::
+  @spec start_llm_turn(actor_key(), [ActorInput.t()], keyword()) ::
           {:ok, map()} | {:error, term()}
-  def start_placeholder_llm_turn(actor_key, actor_inputs, opts \\ [])
+  def start_llm_turn(actor_key, actor_inputs, opts \\ [])
       when is_list(actor_inputs) do
     actor_key = normalize_actor_key(actor_key)
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
@@ -85,7 +93,7 @@ defmodule Ankole.ActorRuntime do
                AIAgent.ensure_conversation_in_tx(repo, actor_key.agent_uid, actor_key.session_id),
              %Conversation{} = conversation <- AIAgent.lock_conversation(repo, conversation.id),
              {:ok, turn_result} <-
-               start_or_reuse_placeholder_turn_in_tx(
+               start_or_reuse_llm_turn_in_tx(
                  repo,
                  conversation,
                  actor_inputs,
@@ -102,8 +110,8 @@ defmodule Ankole.ActorRuntime do
                  assignment,
                  now
                ) do
-          turn_ref = turn_ref(actor_key, activation, turn_result.llm_turn)
-          envelope = turn_start_envelope(turn_ref, actor_inputs, deliveries)
+          turn_ref = turn_ref(repo, actor_key, activation, turn_result.llm_turn)
+          envelope = turn_start_envelope(turn_ref, actor_inputs, deliveries, turn_result.llm_turn)
 
           {:ok,
            Map.merge(turn_result, %{
@@ -124,6 +132,10 @@ defmodule Ankole.ActorRuntime do
 
   @doc """
   Creates a delivery attempt for one actor input.
+
+  This public helper is used by tests and recovery paths that already know the
+  turn reference. The normal runtime path creates a whole batch before sending
+  one `turn_start` envelope.
   """
   @spec create_input_delivery(Ecto.UUID.t(), map(), String.t() | nil) ::
           {:ok, ActorInputDelivery.t()} | {:error, term()}
@@ -228,6 +240,10 @@ defmodule Ankole.ActorRuntime do
 
   @doc """
   Handles an Actor Bus turn.accepted envelope.
+
+  Acceptance is separate from final commit so the control plane can tell the
+  difference between "worker received the turn" and "worker produced a durable
+  proposal".
   """
   @spec handle_turn_accepted(map()) :: {:ok, [ActorInputDelivery.t()]} | {:error, term()}
   def handle_turn_accepted(envelope) when is_map(envelope) do
@@ -318,6 +334,9 @@ defmodule Ankole.ActorRuntime do
 
   @doc """
   Starts the ready input prefix for one actor key.
+
+  The prefix rule keeps one actor turn aligned with the user-visible message
+  stream. Later senders stay queued until the current same-sender run is handled.
   """
   @spec process_ready_inputs_for_actor(actor_key(), keyword()) :: {:ok, map()} | {:error, term()}
   def process_ready_inputs_for_actor(actor_key, opts \\ []) do
@@ -331,8 +350,21 @@ defmodule Ankole.ActorRuntime do
       [] ->
         {:ok, %{status: :idle}}
 
+      [%ActorInput{type: "command.new"} = input | _inputs] ->
+        process_new_command(actor_key, input, opts)
+
+      [%ActorInput{type: "command.compress"} = input | _inputs] ->
+        process_compress_command(actor_key, input, opts)
+
+      [%ActorInput{type: type} = input | _inputs]
+      when type in ["command.stop", "command.retry"] ->
+        process_runtime_command(actor_key, input, opts)
+
+      [%ActorInput{type: "command.steer"} = input | _inputs] ->
+        process_steer_command(actor_key, input, opts)
+
       inputs ->
-        start_placeholder_llm_turn(actor_key, inputs, opts)
+        start_llm_turn(actor_key, inputs, opts)
     end
   end
 
@@ -365,6 +397,9 @@ defmodule Ankole.ActorRuntime do
     end)
   end
 
+  # Sends the already persisted turn-start envelope after the transaction has
+  # committed. A failed send invalidates the route and leaves delivery rows as
+  # retryable runtime projections instead of rolling back the durable turn.
   defp send_turn_start(
          {:ok,
           %{assignment: assignment, envelope: envelope, deliveries: deliveries} =
@@ -386,6 +421,597 @@ defmodule Ankole.ActorRuntime do
 
   defp send_turn_start({:error, _reason} = error), do: error
 
+  defp send_mailbox_updated(
+         %{
+           assignment: assignment,
+           delivery: delivery,
+           turn_ref: turn_ref
+         } = result
+       ) do
+    route = assignment.transport_route || assignment.worker_instance_id || assignment.worker_id
+    envelope = mailbox_updated_envelope(turn_ref)
+
+    case Broker.send_mandatory(route, envelope) do
+      {:ok, :sent_or_queued} ->
+        {:ok, Map.put(result, :send_outcome, "sent_or_queued")}
+
+      {:error, reason} ->
+        mark_delivery_failed(delivery.id, reason, reason)
+        WorkerAdmission.mark_route_unusable(route, reason)
+        {:ok, Map.put(result, :send_outcome, Atom.to_string(reason))}
+    end
+  end
+
+  defp process_new_command(actor_key, %ActorInput{} = input, opts) do
+    now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
+
+    case command_args(input) do
+      "" ->
+        process_runtime_command(actor_key, input, opts)
+
+      _args ->
+        with {:ok, _result} <-
+               Repo.transact(fn repo ->
+                 with :ok <- end_active_conversation(repo, actor_key, input, now) do
+                   {:ok, %{status: :conversation_rolled_over}}
+                 end
+               end) do
+          start_llm_turn(actor_key, [input], opts)
+        end
+    end
+  end
+
+  defp process_runtime_command(actor_key, %ActorInput{} = input, opts) do
+    now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
+
+    Repo.transact(fn repo ->
+      with %ActorInput{} = input <- lock_actor_input(repo, input.id),
+           {:ok, result} <- apply_runtime_command(repo, actor_key, input, now) do
+        {:ok, result}
+      else
+        nil -> {:ok, %{status: :idle}}
+        {:error, _reason} = error -> error
+      end
+    end)
+    |> tap(fn
+      {:ok, %{status: :command_consumed}} -> OutboxDispatcher.wake()
+      _result -> :ok
+    end)
+  end
+
+  defp process_compress_command(actor_key, %ActorInput{} = input, opts) do
+    now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
+
+    Repo.transact(fn repo ->
+      with %ActorInput{} = input <- lock_actor_input(repo, input.id),
+           {:ok, result} <- prepare_compress_command(repo, actor_key, input, now) do
+        {:ok, result}
+      else
+        nil -> {:ok, %{status: :idle}}
+        {:error, _reason} = error -> error
+      end
+    end)
+    |> case do
+      {:ok, %{status: :start_compression} = result} ->
+        start_llm_turn(
+          actor_key,
+          [input],
+          Keyword.merge(opts,
+            kind: "compression",
+            profile: "light",
+            input_messages: {:existing, result.messages},
+            request_context: result.request_context
+          )
+        )
+
+      {:ok, %{status: :command_consumed}} = result ->
+        OutboxDispatcher.wake()
+        result
+
+      other ->
+        other
+    end
+  end
+
+  defp apply_runtime_command(repo, actor_key, %ActorInput{type: "command.stop"} = input, now) do
+    with :ok <- cancel_active_generation(repo, actor_key, input, now, "command.stop") do
+      consume_command_feedback(repo, input, "Stopped.", now)
+    end
+  end
+
+  defp apply_runtime_command(repo, actor_key, %ActorInput{type: "command.new"} = input, now) do
+    with :ok <- end_active_conversation(repo, actor_key, input, now) do
+      consume_command_feedback(repo, input, "Started a new conversation.", now)
+    end
+  end
+
+  defp apply_runtime_command(repo, actor_key, %ActorInput{type: "command.retry"} = input, now) do
+    with {:ok, retry_input} <- append_retry_input(repo, actor_key, input, now),
+         {:ok, consumption} <- consume_command_without_feedback(repo, input, now) do
+      {:ok,
+       %{
+         status: :command_consumed,
+         command: input.type,
+         retry_actor_input: retry_input,
+         consumption: consumption
+       }}
+    end
+  end
+
+  defp apply_runtime_command(repo, _actor_key, %ActorInput{type: "command.steer"} = input, now) do
+    consume_command_feedback(repo, input, "Steer requires instructions.", now)
+  end
+
+  defp prepare_compress_command(repo, actor_key, %ActorInput{} = input, now) do
+    cond do
+      active_generation?(repo, actor_key) ->
+        consume_command_feedback(
+          repo,
+          input,
+          "A response is still running; stop it before compressing.",
+          now
+        )
+
+      true ->
+        prepare_idle_compression(repo, actor_key, input, now)
+    end
+  end
+
+  defp process_steer_command(actor_key, %ActorInput{} = input, opts) do
+    now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
+
+    case command_args(input) do
+      "" ->
+        process_runtime_command(actor_key, input, opts)
+
+      _args ->
+        Repo.transact(fn repo ->
+          with %ActorInput{} = input <- lock_actor_input(repo, input.id) do
+            case active_generation?(repo, actor_key) do
+              true ->
+                prepare_active_steer(repo, actor_key, input, now)
+
+              false ->
+                {:ok, %{status: :steer_as_generation}}
+            end
+          else
+            nil -> {:ok, %{status: :idle}}
+            {:error, _reason} = error -> error
+          end
+        end)
+        |> case do
+          {:ok, %{status: :steer_as_generation}} ->
+            start_llm_turn(actor_key, [input], opts)
+
+          {:ok, %{status: :active_steer_nudged} = result} ->
+            send_mailbox_updated(result)
+
+          other ->
+            other
+        end
+    end
+  end
+
+  defp prepare_active_steer(repo, actor_key, %ActorInput{} = input, now) do
+    case live_delivery_for_input?(repo, input.id) do
+      true ->
+        {:ok, %{status: :waiting_for_generation, command: input.type}}
+
+      false ->
+        with %Conversation{} = conversation <- active_conversation_for_update(repo, actor_key),
+             true <- conversation_has_active_generation?(conversation),
+             %ActorSessionActivation{} = activation <- live_activation(repo, actor_key),
+             true <- activation_lease_alive?(activation, now),
+             %LlmTurn{} = llm_turn <- AIAgent.lock_turn(repo, activation.current_llm_turn_id),
+             %ActorSessionWorkerAssignment{} = assignment <- live_assignment(repo, actor_key),
+             {:ok, activation} <- bump_activation_revision(repo, activation, now),
+             {:ok, _message} <-
+               insert_command_introspection(
+                 repo,
+                 conversation,
+                 input,
+                 now,
+                 "Steering note received: #{command_args(input)}"
+               ),
+             {:ok, delivery} <-
+               create_input_delivery_in_tx(
+                 repo,
+                 input,
+                 activation,
+                 llm_turn,
+                 assignment.transport_route || assignment.worker_instance_id,
+                 assignment,
+                 now
+               ),
+             {:ok, delivery} <- mark_delivery_sent_in_tx(repo, delivery, now, "sent_or_queued") do
+          {:ok,
+           %{
+             status: :active_steer_nudged,
+             command: input.type,
+             activation: activation,
+             assignment: assignment,
+             delivery: delivery,
+             turn_ref: turn_ref(repo, actor_key, activation, llm_turn)
+           }}
+        else
+          false -> {:ok, %{status: :waiting_for_generation, command: input.type}}
+          nil -> {:error, :active_turn_not_found}
+          {:error, _reason} = error -> error
+        end
+    end
+  end
+
+  defp consume_command_feedback(repo, %ActorInput{} = input, text, now) do
+    outbox_intents = command_feedback_outbox_intents(repo, input, text)
+
+    with {:ok, consumption} <-
+           Actors.consume_command_input_in_tx(repo, input,
+             consumed_at: now,
+             outbox_intents: outbox_intents
+           ) do
+      {:ok,
+       %{
+         status: :command_consumed,
+         command: input.type,
+         feedback: text,
+         consumption: consumption
+       }}
+    end
+  end
+
+  defp consume_command_without_feedback(repo, %ActorInput{} = input, now) do
+    Actors.consume_command_input_in_tx(repo, input,
+      consumed_at: now,
+      outbox_intents: []
+    )
+  end
+
+  defp command_feedback_outbox_intents(_repo, %ActorInput{signal_channel_id: nil}, _text), do: []
+  defp command_feedback_outbox_intents(_repo, %ActorInput{provider_entry_id: nil}, _text), do: []
+
+  defp command_feedback_outbox_intents(repo, %ActorInput{} = input, text) do
+    operation = SignalsGateway.outbox_operation_for_actor_input(input, repo)
+    command_name = String.replace_prefix(input.type, "command.", "")
+
+    [
+      %{
+        outbound_key: "command:#{input.id}:#{command_name}",
+        operation: operation,
+        target_provider_entry_id: input.provider_entry_id,
+        provider_thread_id: input.provider_thread_id,
+        payload: %{"text" => text},
+        fallback_visible_text: text,
+        idempotency_key: "command:#{input.id}:#{command_name}"
+      }
+    ]
+  end
+
+  defp append_retry_input(repo, actor_key, %ActorInput{} = command_input, now) do
+    with %Conversation{} = conversation <- active_conversation_for_update(repo, actor_key),
+         {:ok, retry_source} <- retry_source(repo, conversation) do
+      Actors.append_actor_input_in_tx(repo, %{
+        agent_uid: command_input.agent_uid,
+        binding_name: command_input.binding_name,
+        session_id: command_input.session_id,
+        ingress_event_id: "retry:#{command_input.id}",
+        signal_channel_id: command_input.signal_channel_id,
+        provider_thread_id: command_input.provider_thread_id,
+        provider_entry_id: command_input.provider_entry_id,
+        type: "im.message.receive",
+        available_at: now,
+        batch_scope: command_input.batch_scope || %{},
+        sender_key: command_input.sender_key,
+        payload: %{
+          "type" => "im.message.receive",
+          "data" => %{
+            "entry" => %{
+              "text" => retry_source.text,
+              "retry_of_llm_turn_id" => retry_source.llm_turn_id,
+              "retry_of_message_id" => retry_source.message_id
+            }
+          }
+        }
+      })
+    else
+      nil -> {:error, :conversation_not_found}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp retry_source(repo, %Conversation{} = conversation) do
+    last_turn =
+      LlmTurn
+      |> where([turn], turn.conversation_id == ^conversation.id)
+      |> where([turn], turn.kind in ["generation", "retry_generation"])
+      |> where([turn], turn.status in ["succeeded", "failed", "cancelled"])
+      |> order_by([turn], desc: turn.started_at, desc: turn.inserted_at)
+      |> repo.one()
+
+    case last_turn do
+      %LlmTurn{input_message_ids: [message_id | _]} = turn ->
+        case repo.get(Message, message_id) do
+          %Message{} = message ->
+            {:ok,
+             %{
+               llm_turn_id: turn.id,
+               message_id: message.id,
+               text: message_text(message)
+             }}
+
+          nil ->
+            {:error, :retry_source_message_not_found}
+        end
+
+      %LlmTurn{} ->
+        {:error, :retry_source_message_not_found}
+
+      nil ->
+        {:error, :retry_source_not_found}
+    end
+  end
+
+  defp prepare_idle_compression(repo, actor_key, %ActorInput{} = input, now) do
+    case active_conversation_for_update(repo, actor_key) do
+      %Conversation{} = conversation ->
+        case compressible_messages(repo, conversation) do
+          [] ->
+            consume_command_feedback(
+              repo,
+              input,
+              "Conversation already fits in the active context.",
+              now
+            )
+
+          [_single] ->
+            consume_command_feedback(
+              repo,
+              input,
+              "Conversation already fits in the active context.",
+              now
+            )
+
+          messages ->
+            {:ok,
+             %{
+               status: :start_compression,
+               messages: messages,
+               request_context: compression_request_context(messages)
+             }}
+        end
+
+      nil ->
+        consume_command_feedback(
+          repo,
+          input,
+          "Conversation already fits in the active context.",
+          now
+        )
+    end
+  end
+
+  defp compressible_messages(repo, %Conversation{} = conversation) do
+    Message
+    |> where([message], message.conversation_id == ^conversation.id)
+    |> where([message], message.kind == "normal")
+    |> where([message], message.status == "complete")
+    |> order_by([message], asc: message.inserted_at)
+    |> repo.all()
+  end
+
+  defp compression_request_context(messages) do
+    first_message = List.first(messages)
+    last_message = List.last(messages)
+
+    %{
+      "compression" => %{
+        "trigger" => "manual_command",
+        "prompt" => compression_prompt(messages),
+        "message_ids" => Enum.map(messages, & &1.id),
+        "first_message_id" => first_message && first_message.id,
+        "last_message_id" => last_message && last_message.id,
+        "first_kept_message_id" => last_message && last_message.id,
+        "tokens_before" => nil
+      }
+    }
+  end
+
+  defp compression_prompt(messages) do
+    transcript =
+      messages
+      |> Enum.map(fn message ->
+        "<#{message.role} id=\"#{message.id}\">\n#{message_text(message)}\n</#{message.role}>"
+      end)
+      |> Enum.join("\n\n")
+
+    """
+    Summarize the conversation transcript below into a compact checkpoint for a future assistant turn.
+
+    Rules:
+    - Output only the summary text.
+    - Preserve concrete facts, file paths, IDs, decisions, user preferences, tool results, and unresolved work.
+    - Do not call tools.
+    - Do not answer the old conversation as a new user request.
+
+    <conversation>
+    #{transcript}
+    </conversation>
+    """
+  end
+
+  defp message_text(%Message{content: content}) when is_list(content) do
+    content
+    |> Enum.map(fn
+      %{"text" => text} when is_binary(text) -> text
+      %{"type" => "text", "text" => text} when is_binary(text) -> text
+      text when is_binary(text) -> text
+      _part -> nil
+    end)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join("\n")
+  end
+
+  defp message_text(_message), do: ""
+
+  defp cancel_active_generation(repo, actor_key, %ActorInput{} = input, now, reason) do
+    case active_conversation_for_update(repo, actor_key) do
+      %Conversation{} = conversation ->
+        generation = cancel_generation(conversation.generation || %{}, now, reason)
+
+        with {:ok, conversation} <-
+               conversation
+               |> Conversation.changeset(%{generation: generation})
+               |> repo.update(),
+             {:ok, _message} <-
+               insert_command_introspection(repo, conversation, input, now, "Generation stopped.") do
+          :ok
+        end
+
+      nil ->
+        :ok
+    end
+  end
+
+  defp end_active_conversation(repo, actor_key, %ActorInput{} = input, now) do
+    case active_conversation_for_update(repo, actor_key) do
+      %Conversation{} = conversation ->
+        generation = cancel_generation(conversation.generation || %{}, now, "command.new")
+
+        with {:ok, conversation} <-
+               conversation
+               |> Conversation.changeset(%{generation: generation, ended_at: now})
+               |> repo.update(),
+             {:ok, _message} <-
+               insert_command_introspection(
+                 repo,
+                 conversation,
+                 input,
+                 now,
+                 "Conversation window closed."
+               ) do
+          :ok
+        end
+
+      nil ->
+        :ok
+    end
+  end
+
+  defp active_generation?(repo, actor_key) do
+    case active_conversation_for_update(repo, actor_key) do
+      %Conversation{generation: generation} when is_map(generation) ->
+        conversation_has_active_generation?(generation)
+
+      _conversation ->
+        false
+    end
+  end
+
+  defp conversation_has_active_generation?(%Conversation{generation: generation})
+       when is_map(generation),
+       do: conversation_has_active_generation?(generation)
+
+  defp conversation_has_active_generation?(generation) when is_map(generation),
+    do: is_binary(generation["lease_id"]) and is_nil(generation["cancelled_at"])
+
+  defp conversation_has_active_generation?(_generation), do: false
+
+  defp active_conversation_for_update(repo, actor_key) do
+    Conversation
+    |> where([conversation], conversation.agent_uid == ^actor_key.agent_uid)
+    |> where([conversation], conversation.conversation_key == ^actor_key.session_id)
+    |> where([conversation], is_nil(conversation.ended_at))
+    |> lock("FOR UPDATE")
+    |> repo.one()
+  end
+
+  defp live_assignment(repo, actor_key) do
+    ActorSessionWorkerAssignment
+    |> where([assignment], assignment.agent_uid == ^actor_key.agent_uid)
+    |> where([assignment], assignment.session_id == ^actor_key.session_id)
+    |> where([assignment], assignment.status in ["assigned", "draining"])
+    |> lock("FOR UPDATE")
+    |> repo.one()
+  end
+
+  defp live_delivery_for_input?(repo, actor_input_id) do
+    ActorInputDelivery
+    |> where([delivery], delivery.actor_input_id == ^actor_input_id)
+    |> where([delivery], delivery.state in ^@live_delivery_states)
+    |> repo.exists?()
+  end
+
+  defp bump_activation_revision(repo, %ActorSessionActivation{} = activation, now) do
+    activation
+    |> ActorSessionActivation.changeset(%{
+      revision: activation.revision + 1,
+      last_actor_heartbeat_at: now
+    })
+    |> repo.update()
+  end
+
+  defp mark_delivery_sent_in_tx(repo, %ActorInputDelivery{} = delivery, now, send_outcome) do
+    delivery
+    |> ActorInputDelivery.changeset(%{
+      state: "sent",
+      send_outcome: send_outcome,
+      sent_at: now
+    })
+    |> repo.update()
+  end
+
+  defp cancel_generation(generation, now, reason) when is_map(generation) do
+    case blank?(generation["lease_id"]) do
+      true ->
+        generation
+
+      false ->
+        generation
+        |> Map.put("cancelled_at", DateTime.to_iso8601(now))
+        |> Map.put("cancel_reason", reason)
+    end
+  end
+
+  defp insert_command_introspection(
+         repo,
+         %Conversation{} = conversation,
+         %ActorInput{} = input,
+         now,
+         text
+       ) do
+    %Message{}
+    |> Message.changeset(%{
+      agent_uid: conversation.agent_uid,
+      conversation_id: conversation.id,
+      role: "assistant",
+      kind: "introspection",
+      status: "complete",
+      content: [%{"type" => "text", "text" => text}],
+      event_source: "ai_agent.#{input.type}",
+      event_id: input.ingress_event_id,
+      metadata: %{
+        "actor_input_id" => input.id,
+        "command" => input.type,
+        "command_args" => command_args(input),
+        "inserted_at" => DateTime.to_iso8601(now)
+      }
+    })
+    |> repo.insert()
+  end
+
+  defp command_args(%ActorInput{payload: payload}) when is_map(payload) do
+    payload
+    |> get_in(["data", "command", "argsText"])
+    |> case do
+      value when is_binary(value) -> String.trim(value)
+      _value -> ""
+    end
+  end
+
+  defp command_args(_input), do: ""
+
+  # Reuses a live activation when its lease is valid, otherwise fails the old
+  # activation before creating a new actor epoch. The epoch is the cheap fence
+  # that makes late worker replies harmless.
   defp ensure_activation(repo, actor_key, assignment, now, opts) do
     case live_activation(repo, actor_key) do
       %ActorSessionActivation{} = activation ->
@@ -408,6 +1034,9 @@ defmodule Ankole.ActorRuntime do
     DateTime.compare(lease_expires_at, now) == :gt
   end
 
+  # Creates the control-plane projection that binds one actor session to a
+  # worker route. The worker itself is homogeneous, so there is no feature
+  # negotiation here.
   defp insert_activation(repo, actor_key, assignment, now, opts) do
     lease_seconds = Keyword.get(opts, :lease_seconds, 300)
     actor_epoch = next_actor_epoch(repo, actor_key)
@@ -431,6 +1060,9 @@ defmodule Ankole.ActorRuntime do
     |> repo.insert()
   end
 
+  # Keeps a live activation attached to the current worker assignment without
+  # changing the actor epoch. Reassignment only needs a new epoch after a lease
+  # failure, not after every scheduling pass.
   defp refresh_activation_assignment(repo, activation, assignment, now) do
     case activation.assigned_worker_id == assignment.worker_id and
            activation.assigned_worker_instance_id == assignment.worker_instance_id do
@@ -448,6 +1080,8 @@ defmodule Ankole.ActorRuntime do
     end
   end
 
+  # Marks the activation as the owner of the started LLM turn so later worker
+  # replies can be checked against a single durable fence.
   defp bind_activation_turn(repo, activation, llm_turn_id, now) do
     activation
     |> ActorSessionActivation.changeset(%{
@@ -458,6 +1092,9 @@ defmodule Ankole.ActorRuntime do
     |> repo.update()
   end
 
+  # Creates one delivery projection per actor input while sharing a message and
+  # correlation id for the batch. The worker receives one `turn_start`, but the
+  # control plane still tracks each input independently for retry and cleanup.
   defp create_input_deliveries_in_tx(repo, actor_inputs, activation, llm_turn, assignment, now) do
     batch = %{
       delivery_batch_id: Ecto.UUID.generate(),
@@ -480,6 +1117,9 @@ defmodule Ankole.ActorRuntime do
     |> collect_results()
   end
 
+  # Records a concrete attempt to deliver an actor input to a worker turn. Older
+  # failed/superseded rows for the same input are compacted after the new fence
+  # exists so watchdog scans do not see a gap.
   defp create_input_delivery_in_tx(
          repo,
          actor_input,
@@ -534,8 +1174,11 @@ defmodule Ankole.ActorRuntime do
     end
   end
 
-  defp start_or_reuse_placeholder_turn_in_tx(repo, conversation, actor_inputs, opts) do
-    case AIAgent.start_placeholder_llm_turn_in_tx(repo, conversation, actor_inputs, opts) do
+  # Bridges the AI-agent lease model with the actor delivery model. If a prior
+  # turn exists but lost its delivery projection before send, the runtime can
+  # reuse it instead of creating a duplicate user-visible turn.
+  defp start_or_reuse_llm_turn_in_tx(repo, conversation, actor_inputs, opts) do
+    case AIAgent.start_llm_turn_in_tx(repo, conversation, actor_inputs, opts) do
       {:ok, result} ->
         {:ok, result}
 
@@ -547,6 +1190,9 @@ defmodule Ankole.ActorRuntime do
     end
   end
 
+  # Reuses only a started turn that has no live delivery. A live delivery means
+  # a worker may still be acting on the turn, so a second send would create two
+  # workers for one user-visible response.
   defp reuse_started_turn_in_tx(repo, %Conversation{generation: generation} = conversation)
        when is_map(generation) do
     lease_id = generation["lease_id"]
@@ -597,6 +1243,8 @@ defmodule Ankole.ActorRuntime do
 
   defp messages_for_turn(_repo, _llm_turn), do: []
 
+  # Locks the live activation for this actor key so activation reuse, expiry,
+  # and replacement stay serialized.
   defp live_activation(repo, actor_key) do
     ActorSessionActivation
     |> where([activation], activation.agent_uid == ^actor_key.agent_uid)
@@ -606,6 +1254,8 @@ defmodule Ankole.ActorRuntime do
     |> repo.one()
   end
 
+  # Resolves the activation named by a worker turn reference. The turn_ref is
+  # trusted only after matching the locked row, not because it came from a route.
   defp activation_for_turn_ref(repo, turn_ref) do
     ActorSessionActivation
     |> where([activation], activation.agent_uid == ^fetch_actor_agent_uid(turn_ref))
@@ -630,6 +1280,8 @@ defmodule Ankole.ActorRuntime do
     |> repo.one()
   end
 
+  # Deletes old terminal projections for one input after a new attempt exists.
+  # This keeps the table small without deleting live evidence needed by fences.
   defp delete_stale_delivery_projections(repo, actor_input_id, current_delivery_id) do
     ActorInputDelivery
     |> where([delivery], delivery.actor_input_id == ^actor_input_id)
@@ -652,6 +1304,9 @@ defmodule Ankole.ActorRuntime do
     |> repo.one()
   end
 
+  # Converts expired activation leases into explicit failures. The grace window
+  # is an operator tradeoff: tests can set it to zero, while production can allow
+  # small clock or scheduling delays before retrying a turn.
   defp fail_expired_activations(repo, now, lease_grace_seconds) do
     cutoff = DateTime.add(now, -lease_grace_seconds, :second)
 
@@ -671,6 +1326,8 @@ defmodule Ankole.ActorRuntime do
     end
   end
 
+  # Fails an activation that never reached a current turn. There is no LLM turn
+  # lease to clear, so only the activation projection is stopped.
   defp fail_expired_activation(
          repo,
          %ActorSessionActivation{current_llm_turn_id: nil} = activation,
@@ -679,6 +1336,8 @@ defmodule Ankole.ActorRuntime do
     fail_activation(repo, activation, :activation_lease_expired, now)
   end
 
+  # Fails an activation with a current turn and clears all related live fences.
+  # This lets the same open actor input be selected again on the next pass.
   defp fail_expired_activation(repo, %ActorSessionActivation{} = activation, now) do
     case AIAgent.lock_turn(repo, activation.current_llm_turn_id) do
       %LlmTurn{status: "started"} = turn ->
@@ -715,6 +1374,10 @@ defmodule Ankole.ActorRuntime do
     |> repo.update()
   end
 
+  # Repairs the only intentionally weak guarantee in this path: AI-agent turns
+  # are durable, while actor-runtime projections are retry-oriented. A started
+  # turn without activation and delivery fences is failed so the user story can
+  # retry from the actor input instead of waiting forever.
   defp reconcile_projection_lost_started_turns_in_tx(repo, now) do
     started_turns =
       LlmTurn
@@ -751,6 +1414,8 @@ defmodule Ankole.ActorRuntime do
     end)
   end
 
+  # Marks live delivery projections obsolete without deleting them. Keeping the
+  # row records why a worker reply should no longer be accepted.
   defp supersede_turn_deliveries_by_id(llm_turn_id, repo, now, reason) do
     ActorInputDelivery
     |> where([delivery], delivery.llm_turn_id == ^llm_turn_id)
@@ -765,6 +1430,8 @@ defmodule Ankole.ActorRuntime do
     )
   end
 
+  # Treats a started turn as runnable only when both sides of the runtime fence
+  # exist: the activation names the turn, and at least one delivery names it.
   defp live_projection_exists?(repo, %LlmTurn{id: llm_turn_id}) do
     activation_exists =
       ActorSessionActivation
@@ -780,12 +1447,12 @@ defmodule Ankole.ActorRuntime do
     activation_exists and delivery_exists
   end
 
-  defp turn_ref(actor_key, activation, llm_turn) do
+  # Builds the compact fence that every worker reply must echo. The fields are
+  # deliberately redundant with database rows so stale replies fail by equality
+  # checks instead of requiring session-local memory.
+  defp turn_ref(repo, actor_key, activation, llm_turn) do
     %{
-      "actor" => %{
-        "agent_uid" => actor_key.agent_uid,
-        "session_id" => actor_key.session_id
-      },
+      "actor" => actor_ref(repo, actor_key),
       "activation_uid" => activation.activation_uid,
       "actor_epoch" => activation.actor_epoch,
       "llm_turn_id" => llm_turn.id,
@@ -793,7 +1460,39 @@ defmodule Ankole.ActorRuntime do
     }
   end
 
-  defp turn_start_envelope(turn_ref, actor_inputs, deliveries) do
+  # Adds human-readable agent identity to the already-required actor fence. The
+  # worker can prompt with the display name, while stale-reply validation still
+  # relies only on the immutable agent/session identifiers.
+  defp actor_ref(repo, actor_key) do
+    %{
+      "agent_uid" => actor_key.agent_uid,
+      "session_id" => actor_key.session_id
+    }
+    |> put_optional_actor_field("display_name", agent_display_name(repo, actor_key.agent_uid))
+    |> put_optional_actor_field("role", agent_role(repo, actor_key.agent_uid))
+  end
+
+  defp put_optional_actor_field(actor, _key, nil), do: actor
+  defp put_optional_actor_field(actor, key, value), do: Map.put(actor, key, value)
+
+  defp agent_display_name(repo, agent_uid) do
+    case repo.get(Principal, agent_uid) do
+      %Principal{display_name: display_name} when is_binary(display_name) -> display_name
+      _principal -> nil
+    end
+  end
+
+  defp agent_role(repo, agent_uid) do
+    case repo.get(PrincipalAgent, agent_uid) do
+      %PrincipalAgent{role: role} when is_binary(role) -> role
+      _agent -> nil
+    end
+  end
+
+  # Builds the Actor Bus envelope sent to the computer worker. Inputs are kept
+  # as actor-input envelopes rather than AI-agent messages because the worker is
+  # the owner of the local AI loop in the full runtime.
+  defp turn_start_envelope(turn_ref, actor_inputs, deliveries, llm_turn) do
     message_id =
       deliveries
       |> List.first()
@@ -814,11 +1513,51 @@ defmodule Ankole.ActorRuntime do
         "type" => "turn_start",
         "turn_start" => %{
           "turn" => turn_ref,
-          "inputs" => Enum.map(actor_inputs, &actor_input_envelope/1)
+          "inputs" => Enum.map(actor_inputs, &actor_input_envelope(&1, llm_turn)),
+          "model_ref" => turn_model_ref(llm_turn)
         }
       }
     }
   end
+
+  defp mailbox_updated_envelope(turn_ref) do
+    %{
+      "protocol_version" => 1,
+      "message_id" => "mailbox-updated-" <> Ecto.UUID.generate(),
+      "correlation_id" => "mailbox-updated-" <> Ecto.UUID.generate(),
+      "seq" => 0,
+      "lane" => "LANE_TURN",
+      "sent_at_unix_ms" => System.system_time(:millisecond),
+      "durability" => "CONTROL_REPLAYABLE",
+      "body" => %{
+        "type" => "mailbox_updated",
+        "mailbox_updated" => %{
+          "actor" => turn_ref["actor"],
+          "activation_uid" => turn_ref["activation_uid"],
+          "actor_epoch" => turn_ref["actor_epoch"],
+          "reason" => "command.steer"
+        }
+      }
+    }
+  end
+
+  defp turn_model_ref(%LlmTurn{} = llm_turn) do
+    %{
+      "profile" => llm_turn.profile,
+      "provider_id" =>
+        get_in(llm_turn.provider_metadata || %{}, ["provider_id"]) || llm_turn.provider,
+      "model" => llm_turn.model
+    }
+  end
+
+  defp actor_input_envelope(%ActorInput{} = actor_input, %LlmTurn{kind: "compression"} = llm_turn) do
+    actor_input
+    |> actor_input_envelope()
+    |> Map.put("payload_json", compression_actor_input_payload(actor_input, llm_turn))
+  end
+
+  defp actor_input_envelope(%ActorInput{} = actor_input, %LlmTurn{}),
+    do: actor_input_envelope(actor_input)
 
   defp actor_input_envelope(%ActorInput{} = actor_input) do
     %{
@@ -833,6 +1572,25 @@ defmodule Ankole.ActorRuntime do
     |> Map.new()
   end
 
+  defp compression_actor_input_payload(%ActorInput{} = actor_input, %LlmTurn{} = llm_turn) do
+    prompt = get_in(llm_turn.request_context || %{}, ["compression", "prompt"])
+
+    %{
+      "type" => actor_input.type,
+      "data" => %{
+        "command" => %{
+          "name" => "compress",
+          "argsText" => ""
+        },
+        "internal" => %{
+          "text" => prompt || "Summarize the current conversation."
+        }
+      }
+    }
+  end
+
+  # Requires the worker to accept exactly the sent input set. Partial acceptance
+  # would make the durable transcript and actor-input consumption disagree.
   defp require_all_sent_inputs_accepted([], _accepted_ids), do: {:error, :sent_delivery_not_found}
 
   defp require_all_sent_inputs_accepted(deliveries, accepted_ids) do
@@ -844,6 +1602,7 @@ defmodule Ankole.ActorRuntime do
     end
   end
 
+  # Checks every accepted delivery against the same turn fence before commit.
   defp validate_deliveries_turn_ref(deliveries, turn_ref) do
     Enum.reduce_while(deliveries, :ok, fn
       delivery, :ok ->
@@ -857,6 +1616,8 @@ defmodule Ankole.ActorRuntime do
     end)
   end
 
+  # Rejects late replies from an old activation, old actor epoch, or old turn.
+  # The route alone is not a durable identity, because workers reconnect.
   defp delivery_matches_turn_ref(%ActorInputDelivery{} = delivery, turn_ref) do
     cond do
       delivery.agent_uid != fetch_actor_agent_uid(turn_ref) ->
@@ -898,6 +1659,10 @@ defmodule Ankole.ActorRuntime do
   end
 
   defp normalize_uid(value) when is_binary(value), do: String.downcase(value)
+
+  defp blank?(nil), do: true
+  defp blank?(""), do: true
+  defp blank?(_value), do: false
 
   defp fetch_actor_agent_uid(turn_ref),
     do: turn_ref |> fetch_map!("actor") |> fetch_text!("agent_uid") |> normalize_uid()

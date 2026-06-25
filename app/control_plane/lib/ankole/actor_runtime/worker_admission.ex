@@ -15,18 +15,27 @@ defmodule Ankole.ActorRuntime.WorkerAdmission do
 
   @doc """
   Admits an authenticated worker-ready message.
+
+  Worker readiness is accepted only from the route that the transport already
+  authenticated. The worker payload names the instance; the route proves where
+  replies should be sent.
   """
   @spec admit_worker_ready(map(), String.t() | map()) ::
           {:ok, AgentComputerWorker.t()} | {:error, term()}
   def admit_worker_ready(worker_ready, authenticated_route) when is_map(worker_ready) do
-    with {:ok, route} <- authenticated_route(authenticated_route),
-         {:ok, attrs} <- worker_ready_attrs(worker_ready, route) do
-      record_worker_ready(attrs, route)
+    with {:ok, auth} <- authenticated_route(authenticated_route),
+         {:ok, attrs} <- worker_ready_attrs(worker_ready, auth.route),
+         :ok <- authenticated_worker_matches(auth, attrs.worker_id) do
+      record_worker_ready(attrs, auth.route)
     end
   end
 
   @doc """
   Records a worker-ready projection.
+
+  Workers are homogeneous because they boot from the same image. The projection
+  therefore records liveness, route, version, capacity, and load, but it does
+  not negotiate per-worker features.
   """
   @spec record_worker_ready(map(), String.t() | nil) ::
           {:ok, AgentComputerWorker.t()} | {:error, term()}
@@ -79,10 +88,11 @@ defmodule Ankole.ActorRuntime.WorkerAdmission do
           {:ok, AgentComputerWorker.t()} | {:error, term()}
   def handle_worker_heartbeat(worker_heartbeat, authenticated_route)
       when is_map(worker_heartbeat) do
-    with {:ok, route} <- authenticated_route(authenticated_route),
+    with {:ok, auth} <- authenticated_route(authenticated_route),
          {:ok, worker_id} <- fetch_required_text(worker_heartbeat, "worker_id"),
+         :ok <- authenticated_worker_matches(auth, worker_id),
          {:ok, worker_instance_id} <- fetch_required_text(worker_heartbeat, "worker_instance_id") do
-      update_worker_projection(worker_id, worker_instance_id, route, %{
+      update_worker_projection(worker_id, worker_instance_id, auth.route, %{
         last_worker_heartbeat_at: DateTime.utc_now(:microsecond),
         load: fetch_map(worker_heartbeat, "load_json") || %{}
       })
@@ -95,8 +105,9 @@ defmodule Ankole.ActorRuntime.WorkerAdmission do
   @spec handle_worker_capacity(map(), String.t() | map()) ::
           {:ok, AgentComputerWorker.t()} | {:error, term()}
   def handle_worker_capacity(worker_capacity, authenticated_route) when is_map(worker_capacity) do
-    with {:ok, route} <- authenticated_route(authenticated_route),
+    with {:ok, auth} <- authenticated_route(authenticated_route),
          {:ok, worker_id} <- fetch_required_text(worker_capacity, "worker_id"),
+         :ok <- authenticated_worker_matches(auth, worker_id),
          {:ok, worker_instance_id} <- fetch_required_text(worker_capacity, "worker_instance_id") do
       capacity =
         worker_capacity
@@ -109,7 +120,7 @@ defmodule Ankole.ActorRuntime.WorkerAdmission do
             %{"available_turn_slots" => fetch_int(worker_capacity, "available_turn_slots") || 0}
         end
 
-      update_worker_projection(worker_id, worker_instance_id, route, %{
+      update_worker_projection(worker_id, worker_instance_id, auth.route, %{
         capacity: capacity,
         load: fetch_map(worker_capacity, "load_json") || %{},
         last_worker_heartbeat_at: DateTime.utc_now(:microsecond)
@@ -190,6 +201,9 @@ defmodule Ankole.ActorRuntime.WorkerAdmission do
     |> repo.delete_all()
   end
 
+  # Updates heartbeat and capacity only when the worker still owns both the
+  # instance id and transport route. This prevents an old connection from
+  # refreshing a projection after the worker has restarted.
   defp update_worker_projection(worker_id, worker_instance_id, route, attrs) do
     Repo.transact(fn repo ->
       case repo.get_by(AgentComputerWorker, worker_id: worker_id) do
@@ -206,6 +220,9 @@ defmodule Ankole.ActorRuntime.WorkerAdmission do
     end)
   end
 
+  # Ensures one live instance id cannot be claimed by two worker ids. A repeated
+  # ready from the same worker id is an update; a different worker id is stale or
+  # misconfigured.
   defp worker_instance_available(repo, %{worker_id: worker_id, worker_instance_id: instance_id})
        when is_binary(instance_id) do
     AgentComputerWorker
@@ -221,6 +238,9 @@ defmodule Ankole.ActorRuntime.WorkerAdmission do
 
   defp worker_instance_available(_repo, _attrs), do: :ok
 
+  # Ensures a live transport route belongs to one worker projection. ROUTER
+  # identities are the address used by delivery, so sharing them would break
+  # mandatory-send failure handling.
   defp worker_route_available(repo, %{worker_id: worker_id, transport_route: route})
        when is_binary(route) do
     AgentComputerWorker
@@ -236,6 +256,8 @@ defmodule Ankole.ActorRuntime.WorkerAdmission do
 
   defp worker_route_available(_repo, _attrs), do: :ok
 
+  # Verifies that a lifecycle message still belongs to the admitted worker
+  # instance. Heartbeats from a previous process must not keep new work alive.
   defp worker_route_matches(%AgentComputerWorker{} = worker, worker_instance_id, route) do
     cond do
       worker.worker_instance_id != worker_instance_id ->
@@ -256,6 +278,9 @@ defmodule Ankole.ActorRuntime.WorkerAdmission do
     |> repo.one()
   end
 
+  # Moves a worker out of service and releases every runtime fence that points
+  # at it. The actor input rows stay open, so the next scheduler pass can retry
+  # without changing the user-visible work.
   defp stale_worker_transition(repo, %AgentComputerWorker{} = worker, now, reason) do
     with {:ok, worker} <- mark_worker_stale(repo, worker, now, reason),
          {_delivery_count, _rows} <-
@@ -275,6 +300,9 @@ defmodule Ankole.ActorRuntime.WorkerAdmission do
     |> repo.update()
   end
 
+  # Supersedes only created/sent deliveries. Accepted deliveries are already in
+  # the commit path and must be resolved by turn fencing rather than worker
+  # staleness alone.
   defp supersede_unaccepted_deliveries_for_worker(
          repo,
          %AgentComputerWorker{} = worker,
@@ -295,18 +323,46 @@ defmodule Ankole.ActorRuntime.WorkerAdmission do
     )
   end
 
-  defp authenticated_route(route) when is_binary(route) and route != "", do: {:ok, route}
+  # Normalizes the transport boundary into a plain route string. Tests may pass
+  # the route directly; production passes a small authenticated route map.
+  defp authenticated_route(route) when is_binary(route) and route != "",
+    do: {:ok, %{route: route, worker_id: nil, key_revision: nil}}
+
+  defp authenticated_route(
+         %{authenticated?: true, transport_route: route, worker_id: worker_id} = auth
+       )
+       when is_binary(route) and route != "" and is_binary(worker_id) and worker_id != "",
+       do:
+         {:ok, %{route: route, worker_id: worker_id, key_revision: Map.get(auth, :key_revision)}}
 
   defp authenticated_route(%{authenticated?: true, transport_route: route})
        when is_binary(route) and route != "",
-       do: {:ok, route}
+       do: {:ok, %{route: route, worker_id: nil, key_revision: nil}}
+
+  defp authenticated_route(
+         %{"authenticated" => true, "transport_route" => route, "worker_id" => worker_id} = auth
+       )
+       when is_binary(route) and route != "" and is_binary(worker_id) and worker_id != "",
+       do:
+         {:ok, %{route: route, worker_id: worker_id, key_revision: Map.get(auth, "key_revision")}}
 
   defp authenticated_route(%{"authenticated" => true, "transport_route" => route})
        when is_binary(route) and route != "",
-       do: {:ok, route}
+       do: {:ok, %{route: route, worker_id: nil, key_revision: nil}}
 
   defp authenticated_route(_route), do: {:error, :unauthenticated_worker_route}
 
+  defp authenticated_worker_matches(%{worker_id: nil}, _worker_id), do: :ok
+
+  defp authenticated_worker_matches(%{worker_id: authenticated_worker_id}, worker_id)
+       when authenticated_worker_id == worker_id,
+       do: :ok
+
+  defp authenticated_worker_matches(_auth, _worker_id),
+    do: {:error, :worker_auth_identity_mismatch}
+
+  # Extracts only the data needed to place homogeneous workers. Runtime and
+  # version stay as observability metadata instead of becoming scheduling axes.
   defp worker_ready_attrs(worker_ready, route) do
     with {:ok, worker_id} <- fetch_required_text(worker_ready, "worker_id"),
          {:ok, worker_instance_id} <- fetch_required_text(worker_ready, "worker_instance_id"),

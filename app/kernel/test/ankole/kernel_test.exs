@@ -95,6 +95,12 @@ defmodule Ankole.KernelTest do
              "body" => %{
                "type" => "turn_start",
                "turn_start" => %{
+                 "turn" => %{
+                   "actor" => %{
+                     "display_name" => "ReleaseBot",
+                     "role" => "Research Analyst"
+                   }
+                 },
                  "inputs" => [%{"payload_json" => %{"text" => "PING"}}]
                }
              }
@@ -250,6 +256,8 @@ defmodule Ankole.KernelTest do
     %{
       actor: %{
         agent_uid: "agent-1",
+        display_name: "ReleaseBot",
+        role: "Research Analyst",
         session_id: "signal-channel:lark:dm:1"
       },
       activation_uid: "activation-1",

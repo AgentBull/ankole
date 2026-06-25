@@ -33,6 +33,9 @@ defmodule Ankole.ActorRuntime.OutboxDispatcher do
 
   @doc """
   Best-effort wakeup after a final proposal commits an outbox row.
+
+  Periodic dispatch remains the recovery path. Waking only reduces latency after
+  the commit transaction creates provider-visible work.
   """
   @spec wake() :: :ok
   def wake do
@@ -73,6 +76,8 @@ defmodule Ankole.ActorRuntime.OutboxDispatcher do
     {:noreply, state}
   end
 
+  # Dispatch failures are logged and retried by the next tick because outbox
+  # rows are already durable and carry their own retry metadata.
   defp dispatch(state) do
     run_once(limit: state.limit, adapter_resolver: state.adapter_resolver)
     :ok
@@ -85,6 +90,8 @@ defmodule Ankole.ActorRuntime.OutboxDispatcher do
     Process.send_after(self(), :dispatch, state.interval_ms)
   end
 
+  # Resolves the signal adapter at dispatch time. ActorRuntime stores the intent;
+  # SignalsGateway and plugin registration decide how to perform it.
   defp resolve_adapter(outbox) do
     with {:ok, binding} <- SignalsGateway.get_binding(outbox.agent_uid, outbox.binding_name),
          {:ok, module} <- outbox_module_for_adapter(binding.adapter) do

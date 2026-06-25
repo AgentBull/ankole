@@ -1,6 +1,10 @@
 defmodule Ankole.Actors.ActorInputConsumption do
   @moduledoc """
   Recovery-window marker that an actor input reached durable actor state.
+
+  The original actor input row is deleted after commit. This marker preserves
+  the link from provider ingress to the committed turn and prevents duplicate
+  consumption during crash recovery.
   """
 
   use Ecto.Schema
@@ -71,7 +75,32 @@ defmodule Ankole.Actors.ActorInputConsumption do
       :activation_uid
     ])
     |> normalize_uid(:agent_uid)
-    |> validate_required([
+    |> validate_required_for_type()
+    |> foreign_key_constraint(:agent_uid)
+    |> unique_constraint([:actor_input_id], name: :actor_input_consumptions_actor_input_id_index)
+    |> unique_constraint([:agent_uid, :binding_name, :ingress_event_id],
+      name: :actor_input_consumptions_signal_idempotency_index
+    )
+  end
+
+  defp validate_required_for_type(changeset) do
+    validate_required(changeset, required_fields(get_field(changeset, :type)))
+  end
+
+  defp required_fields("command." <> _name) do
+    [
+      :actor_input_id,
+      :agent_uid,
+      :binding_name,
+      :ingress_event_id,
+      :session_id,
+      :type,
+      :consumed_at
+    ]
+  end
+
+  defp required_fields(_type) do
+    [
       :actor_input_id,
       :agent_uid,
       :binding_name,
@@ -83,12 +112,7 @@ defmodule Ankole.Actors.ActorInputConsumption do
       :actor_epoch,
       :revision,
       :consumed_at
-    ])
-    |> foreign_key_constraint(:agent_uid)
-    |> unique_constraint([:actor_input_id], name: :actor_input_consumptions_actor_input_id_index)
-    |> unique_constraint([:agent_uid, :binding_name, :ingress_event_id],
-      name: :actor_input_consumptions_signal_idempotency_index
-    )
+    ]
   end
 
   defp normalize_blank(changeset, fields) when is_list(fields) do

@@ -16,8 +16,9 @@ const entries = {
 
 function manualChunks(moduleId: string): string | undefined {
   if (!moduleId.includes('/node_modules/')) return undefined
-  if (moduleId.includes('/react/') || moduleId.includes('/react-dom/') || moduleId.includes('/scheduler/'))
-    {return 'vendor-react'}
+  if (moduleId.includes('/react/') || moduleId.includes('/react-dom/') || moduleId.includes('/scheduler/')) {
+    return 'vendor-react'
+  }
   if (moduleId.includes('/react-router/')) return 'vendor-router'
 
   if (

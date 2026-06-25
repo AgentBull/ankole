@@ -8,6 +8,8 @@ defmodule Ankole.AIAgent do
   alias Ankole.AIAgent.Schemas.Conversation
   alias Ankole.AIAgent.Schemas.LlmTurn
   alias Ankole.AIAgent.Schemas.Message
+  alias Ankole.AIAgent.MessageContext
+  alias Ankole.AIAgent.ModelProfiles
   alias Ankole.Actors.ActorInput
   alias Ankole.Repo
 
@@ -18,6 +20,10 @@ defmodule Ankole.AIAgent do
 
   @doc """
   Creates or reuses the active conversation for one actor session.
+
+  The conversation is the durable transcript owner. ActorRuntime owns worker
+  delivery and activation fences, but it should not create a separate transcript
+  model for the same user story.
   """
   @spec ensure_conversation(String.t(), String.t(), keyword()) ::
           {:ok, Conversation.t()} | {:error, term()}
@@ -29,6 +35,8 @@ defmodule Ankole.AIAgent do
   @doc false
   @spec ensure_conversation_in_tx(module(), String.t(), String.t()) ::
           {:ok, Conversation.t()} | {:error, term()}
+  # Uses insert-then-refetch to tolerate concurrent first input for the same
+  # actor session without exposing unique-constraint details to callers.
   def ensure_conversation_in_tx(repo, agent_uid, session_id) do
     agent_uid = normalize_uid(agent_uid)
 
@@ -53,11 +61,16 @@ defmodule Ankole.AIAgent do
   end
 
   @doc """
-  Starts a placeholder LLM turn for the actor inputs.
+  Starts a durable LLM turn for the actor inputs.
+
+  The turn is created before worker delivery so retries, stale replies, and
+  provider-visible side effects all share one database-owned generation fence.
+  If no runtime model profile exists, the turn deliberately falls back to the
+  `ankole-placeholder` provider used by smoke tests.
   """
-  @spec start_placeholder_llm_turn(actor_key(), [ActorInput.t()], keyword()) ::
+  @spec start_llm_turn(actor_key(), [ActorInput.t()], keyword()) ::
           {:ok, map()} | {:error, term()}
-  def start_placeholder_llm_turn(actor_key, actor_inputs, opts \\ [])
+  def start_llm_turn(actor_key, actor_inputs, opts \\ [])
       when is_list(actor_inputs) do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
@@ -66,7 +79,7 @@ defmodule Ankole.AIAgent do
              ensure_conversation_in_tx(repo, actor_key.agent_uid, actor_key.session_id),
            %Conversation{} = conversation <- lock_conversation(repo, conversation.id),
            {:ok, result} <-
-             start_placeholder_llm_turn_in_tx(
+             start_llm_turn_in_tx(
                repo,
                conversation,
                actor_inputs,
@@ -81,16 +94,19 @@ defmodule Ankole.AIAgent do
   end
 
   @doc false
-  @spec start_placeholder_llm_turn_in_tx(module(), Conversation.t(), [ActorInput.t()], keyword()) ::
+  @spec start_llm_turn_in_tx(module(), Conversation.t(), [ActorInput.t()], keyword()) ::
           {:ok, map()} | {:error, term()}
-  def start_placeholder_llm_turn_in_tx(repo, %Conversation{} = conversation, actor_inputs, opts)
+  # Starts the AI-agent side before ActorRuntime sends anything to the worker.
+  # This makes delivery retry recoverable from the database instead of relying
+  # on an in-memory worker-start event.
+  def start_llm_turn_in_tx(repo, %Conversation{} = conversation, actor_inputs, opts)
       when is_list(actor_inputs) do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
     lease_seconds = Keyword.get(opts, :lease_seconds, 300)
     lease_id = Keyword.get_lazy(opts, :lease_id, fn -> "lease-" <> Ecto.UUID.generate() end)
 
     with :ok <- reject_live_generation(conversation, now),
-         {:ok, user_messages} <- materialize_user_messages(repo, conversation, actor_inputs),
+         {:ok, user_messages} <- turn_input_messages(repo, conversation, actor_inputs, opts),
          {:ok, conversation} <-
            put_generation(
              repo,
@@ -102,7 +118,7 @@ defmodule Ankole.AIAgent do
              lease_seconds
            ),
          {:ok, llm_turn} <-
-           insert_placeholder_turn(
+           insert_llm_turn(
              repo,
              conversation,
              actor_inputs,
@@ -143,6 +159,8 @@ defmodule Ankole.AIAgent do
   end
 
   @doc false
+  # Failing a turn keeps the error on the durable turn response so watchdog and
+  # operator views can explain why the actor input became retryable.
   def fail_turn_in_tx(repo, %LlmTurn{} = turn, reason, now) do
     response =
       turn.response
@@ -155,6 +173,8 @@ defmodule Ankole.AIAgent do
   end
 
   @doc false
+  # Clears only the matching active generation lease. If a newer lease has been
+  # installed, this older turn must not erase it.
   def clear_generation_in_tx(repo, %Conversation{} = conversation, lease_id) do
     generation = conversation.generation || %{}
 
@@ -200,6 +220,9 @@ defmodule Ankole.AIAgent do
     end
   end
 
+  # Allows a new turn only when the conversation has no live generation lease.
+  # Expired or cancelled leases are treated as recoverable gaps, not as hard
+  # blockers for the user story.
   defp reject_live_generation(%Conversation{generation: generation}, now)
        when is_map(generation) do
     cond do
@@ -219,6 +242,8 @@ defmodule Ankole.AIAgent do
 
   defp reject_live_generation(_conversation, _now), do: :ok
 
+  # Treats malformed expiry timestamps as not expired. That is conservative:
+  # unknown lease state should not silently start a second generation.
   defp generation_expired?(%{"expires_at" => expires_at}, now) when is_binary(expires_at) do
     with {:ok, expires_at, _offset} <- DateTime.from_iso8601(expires_at) do
       DateTime.compare(expires_at, now) != :gt
@@ -229,13 +254,50 @@ defmodule Ankole.AIAgent do
 
   defp generation_expired?(_generation, _now), do: false
 
-  defp materialize_user_messages(repo, conversation, actor_inputs) do
-    actor_inputs
-    |> Enum.map(&materialize_user_message(repo, conversation, &1))
-    |> collect_results()
+  # Materializes actor inputs into transcript messages before the worker turn is
+  # started. The local computer can then reason from transcript history while
+  # ActorRuntime still owns delivery state separately.
+  defp turn_input_messages(repo, conversation, actor_inputs, opts) do
+    case Keyword.get(opts, :input_messages, :materialize) do
+      :materialize ->
+        materialize_user_messages(repo, conversation, actor_inputs)
+
+      {:existing, messages} when is_list(messages) ->
+        {:ok, messages}
+
+      _value ->
+        {:error, :invalid_turn_input_messages}
+    end
   end
 
-  defp materialize_user_message(repo, %Conversation{} = conversation, %ActorInput{} = actor_input) do
+  defp materialize_user_messages(repo, conversation, actor_inputs) do
+    history = MessageContext.load_history(repo, conversation.id)
+
+    Enum.reduce_while(actor_inputs, {:ok, [], history}, fn actor_input,
+                                                           {:ok, messages, history} ->
+      case materialize_user_message(repo, conversation, actor_input, history) do
+        {:ok, %Message{} = message} ->
+          {:cont,
+           {:ok, [message | messages], MessageContext.append_history(history, message.metadata)}}
+
+        {:error, _reason} = error ->
+          {:halt, error}
+      end
+    end)
+    |> case do
+      {:ok, messages, _history} -> {:ok, Enum.reverse(messages)}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  # Inserts user or ambient messages idempotently by ingress event. Provider
+  # retries should not create duplicate transcript messages.
+  defp materialize_user_message(
+         repo,
+         %Conversation{} = conversation,
+         %ActorInput{} = actor_input,
+         history
+       ) do
     attrs = %{
       agent_uid: conversation.agent_uid,
       conversation_id: conversation.id,
@@ -245,7 +307,7 @@ defmodule Ankole.AIAgent do
       content: content_for_input(actor_input),
       event_source: "signals_gateway:#{actor_input.binding_name}",
       event_id: actor_input.ingress_event_id,
-      metadata: metadata_for_input(actor_input)
+      metadata: metadata_for_input(actor_input, history)
     }
 
     %Message{}
@@ -274,6 +336,8 @@ defmodule Ankole.AIAgent do
   defp message_insert_result({:ok, %Message{} = message}, _repo, _attrs), do: {:ok, message}
   defp message_insert_result({:error, _changeset} = error, _repo, _attrs), do: error
 
+  # Stores the active generation lease on the conversation. This is the durable
+  # mutex between the AI-agent transcript and actor-runtime delivery work.
   defp put_generation(
          repo,
          conversation,
@@ -302,7 +366,10 @@ defmodule Ankole.AIAgent do
     |> repo.update()
   end
 
-  defp insert_placeholder_turn(
+  # Creates the durable turn shell consumed by Agent Computer. Provider/model
+  # come from the current runtime profile; the placeholder provider remains a
+  # deliberate smoke-test fallback, not the production LLM path.
+  defp insert_llm_turn(
          repo,
          conversation,
          actor_inputs,
@@ -311,33 +378,31 @@ defmodule Ankole.AIAgent do
          now,
          opts
        ) do
-    kind = Keyword.get(opts, :kind) || placeholder_turn_kind(repo, conversation, actor_inputs)
+    kind = Keyword.get(opts, :kind) || generation_turn_kind(repo, conversation, actor_inputs)
+
+    model_ref = turn_model_ref(conversation.agent_uid, Keyword.get(opts, :profile, "primary"))
 
     attrs = %{
       agent_uid: conversation.agent_uid,
       conversation_id: conversation.id,
       kind: kind,
       status: "started",
-      profile: "light",
-      provider: @placeholder_provider,
-      model: @placeholder_model,
+      profile: model_ref.profile,
+      provider: model_ref.provider,
+      model: model_ref.model,
       lease_id: lease_id,
       call_index: 0,
       trigger_message_id: user_messages |> List.first() |> maybe_id(),
       trigger_event_id: actor_inputs |> List.first() |> maybe_ingress_event_id(),
       input_message_ids: Enum.map(user_messages, & &1.id),
-      request_context: %{
-        "actor_key" => %{
-          "agent_uid" => conversation.agent_uid,
-          "session_id" => conversation.conversation_key
-        }
-      },
+      request_context:
+        request_context(conversation, model_ref, Keyword.get(opts, :request_context, %{})),
       request_refs: Enum.map(actor_inputs, &actor_input_ref/1),
       request_patches: [],
       response: %{},
       tool_results: [],
       usage: %{},
-      provider_metadata: %{},
+      provider_metadata: model_ref.provider_metadata,
       started_at: now
     }
 
@@ -346,7 +411,56 @@ defmodule Ankole.AIAgent do
     |> repo.insert()
   end
 
-  defp placeholder_turn_kind(repo, %Conversation{} = conversation, actor_inputs) do
+  defp request_context(%Conversation{} = conversation, model_ref, extra_context)
+       when is_map(extra_context) do
+    %{
+      "actor_key" => %{
+        "agent_uid" => conversation.agent_uid,
+        "session_id" => conversation.conversation_key
+      },
+      "model_ref" => %{
+        "profile" => model_ref.profile,
+        "provider_id" => model_ref.provider_id,
+        "model" => model_ref.model
+      }
+    }
+    |> Map.merge(extra_context)
+  end
+
+  defp request_context(%Conversation{} = conversation, model_ref, _extra_context) do
+    request_context(conversation, model_ref, %{})
+  end
+
+  defp turn_model_ref(agent_uid, profile) do
+    case ModelProfiles.resolve_runtime_profile(agent_uid, profile) do
+      {:ok, runtime_profile} ->
+        %{
+          profile: runtime_profile["profile"],
+          provider: runtime_profile["provider_source"],
+          provider_id: runtime_profile["provider_id"],
+          model: runtime_profile["model"],
+          provider_metadata: %{
+            "provider_id" => runtime_profile["provider_id"],
+            "provider_source" => runtime_profile["provider_source"],
+            "adapter" => get_in(runtime_profile, ["source_metadata", "adapter"]),
+            "adapter_strategy" => get_in(runtime_profile, ["source_metadata", "adapter_strategy"])
+          }
+        }
+
+      {:error, _reason} ->
+        %{
+          profile: profile,
+          provider: @placeholder_provider,
+          provider_id: @placeholder_provider,
+          model: @placeholder_model,
+          provider_metadata: %{"provider_id" => @placeholder_provider, "placeholder" => true}
+        }
+    end
+  end
+
+  # Labels a turn as retry when it is started for inputs that previously failed.
+  # The behavior is the same, but the transcript can explain repeated attempts.
+  defp generation_turn_kind(repo, %Conversation{} = conversation, actor_inputs) do
     case retry_generation?(repo, conversation, actor_inputs) do
       true -> "retry_generation"
       false -> "generation"
@@ -354,6 +468,25 @@ defmodule Ankole.AIAgent do
   end
 
   defp retry_generation?(repo, %Conversation{} = conversation, actor_inputs) do
+    if explicit_retry_input?(actor_inputs) do
+      true
+    else
+      failed_turn_retry?(repo, conversation, actor_inputs)
+    end
+  end
+
+  defp explicit_retry_input?(actor_inputs) do
+    Enum.any?(actor_inputs, fn
+      %ActorInput{payload: %{"data" => %{"entry" => %{"retry_of_llm_turn_id" => retry_turn_id}}}}
+      when is_binary(retry_turn_id) ->
+        true
+
+      _input ->
+        false
+    end)
+  end
+
+  defp failed_turn_retry?(repo, %Conversation{} = conversation, actor_inputs) do
     actor_input_ids = actor_inputs |> Enum.map(& &1.id) |> MapSet.new()
 
     LlmTurn
@@ -375,6 +508,7 @@ defmodule Ankole.AIAgent do
 
   defp turn_refs_actor_input?(_request_refs, _actor_input_ids), do: false
 
+  # Ambient IM events are materialized but not treated as direct user commands.
   defp role_for_input(%ActorInput{type: "im.message.may_intervene"}), do: "im_ambient"
   defp role_for_input(_input), do: "user"
 
@@ -383,19 +517,84 @@ defmodule Ankole.AIAgent do
     [%{"type" => "text", "text" => text}]
   end
 
-  defp metadata_for_input(%ActorInput{} = actor_input) do
-    %{
-      "actor_input_id" => actor_input.id,
-      "actor_input_type" => actor_input.type,
-      "binding_name" => actor_input.binding_name,
-      "session_id" => actor_input.session_id,
-      "signal_channel_id" => actor_input.signal_channel_id,
-      "provider_thread_id" => actor_input.provider_thread_id,
-      "provider_entry_id" => actor_input.provider_entry_id,
-      "broker_sequence" => actor_input.broker_sequence
-    }
+  defp metadata_for_input(%ActorInput{} = actor_input, history) do
+    actor = input_actor(actor_input)
+    room = input_room(actor_input)
+    sent_at = input_sent_at(actor_input)
+
+    metadata =
+      %{
+        "actor_input_id" => actor_input.id,
+        "actor_input_type" => actor_input.type,
+        "binding_name" => actor_input.binding_name,
+        "session_id" => actor_input.session_id,
+        "signal_channel_id" => actor_input.signal_channel_id,
+        "provider_thread_id" => actor_input.provider_thread_id,
+        "provider_entry_id" => actor_input.provider_entry_id,
+        "broker_sequence" => actor_input.broker_sequence,
+        "actor" => empty_to_nil(actor),
+        "provider_refs" =>
+          empty_to_nil(%{
+            "event_id" => actor_input.ingress_event_id,
+            "provider_message_id" => actor_input.provider_entry_id,
+            "room_id" => actor_input.signal_channel_id,
+            "thread_id" => actor_input.provider_thread_id || actor_input.signal_channel_id
+          }),
+        "route" =>
+          empty_to_nil(%{
+            "binding_name" => actor_input.binding_name,
+            "provider_room_id" => actor_input.signal_channel_id,
+            "provider_thread_id" =>
+              actor_input.provider_thread_id || actor_input.signal_channel_id
+          })
+      }
+      |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+      |> Map.new()
+
+    MessageContext.merge(
+      metadata,
+      MessageContext.build(
+        %{
+          actor: actor,
+          room: room,
+          sent_at: sent_at,
+          timezone: system_timezone()
+        },
+        history
+      )
+    )
+  end
+
+  defp input_actor(%ActorInput{payload: payload}) when is_map(payload) do
+    get_in(payload, ["data", "entry", "author"]) || %{}
+  end
+
+  defp input_actor(_input), do: %{}
+
+  defp input_room(%ActorInput{payload: payload}) when is_map(payload) do
+    get_in(payload, ["data", "channel"]) || %{}
+  end
+
+  defp input_room(_input), do: %{}
+
+  defp input_sent_at(%ActorInput{payload: %{"time" => time}}) when is_binary(time), do: time
+  defp input_sent_at(%ActorInput{available_at: %DateTime{} = available_at}), do: available_at
+  defp input_sent_at(_input), do: DateTime.utc_now(:microsecond)
+
+  defp empty_to_nil(map) when is_map(map) do
+    map
     |> Enum.reject(fn {_key, value} -> is_nil(value) end)
     |> Map.new()
+    |> case do
+      empty when map_size(empty) == 0 -> nil
+      value -> value
+    end
+  end
+
+  defp system_timezone do
+    Application.get_env(:ankole, :system_timezone) ||
+      System.get_env("ANKOLE_SYSTEM_TIMEZONE") ||
+      "UTC"
   end
 
   defp actor_input_ref(%ActorInput{} = input) do
@@ -408,6 +607,17 @@ defmodule Ankole.AIAgent do
     }
     |> Enum.reject(fn {_key, value} -> is_nil(value) end)
     |> Map.new()
+  end
+
+  # Reads text from the few ingress shapes currently produced by
+  # SignalsGateway. This is intentionally narrow; richer provider parsing
+  # belongs at the signal adapter boundary.
+  defp input_text(%ActorInput{type: "command." <> _name, payload: payload})
+       when is_map(payload) do
+    get_in(payload, ["data", "command", "argsText"]) ||
+      get_in(payload, ["data", "entry", "text"]) ||
+      get_in(payload, ["data", "internal", "text"]) ||
+      payload["subject"]
   end
 
   defp input_text(%ActorInput{payload: payload}) when is_map(payload) do
@@ -424,17 +634,6 @@ defmodule Ankole.AIAgent do
 
   defp maybe_ingress_event_id(nil), do: nil
   defp maybe_ingress_event_id(%ActorInput{ingress_event_id: id}), do: id
-
-  defp collect_results(results) do
-    Enum.reduce_while(results, {:ok, []}, fn
-      {:ok, value}, {:ok, acc} -> {:cont, {:ok, [value | acc]}}
-      {:error, _reason} = error, _acc -> {:halt, error}
-    end)
-    |> case do
-      {:ok, values} -> {:ok, Enum.reverse(values)}
-      {:error, _reason} = error -> error
-    end
-  end
 
   defp error_code(reason) when is_atom(reason), do: Atom.to_string(reason)
   defp error_code({reason, _details}) when is_atom(reason), do: Atom.to_string(reason)

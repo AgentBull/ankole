@@ -11,6 +11,7 @@ defmodule Ankole.Principals do
   alias Ankole.Principals.ExternalIdentity
   alias Ankole.Principals.HumanUser
   alias Ankole.Principals.Principal
+  alias Ankole.AIAgent.Library
   alias Ankole.Repo
 
   @principal_profile_fields [:display_name, :avatar_url]
@@ -86,7 +87,8 @@ defmodule Ankole.Principals do
   def create_agent(attrs) when is_map(attrs) do
     Repo.transact(fn repo ->
       with {:ok, principal} <- insert_principal(repo, agent_principal_attrs(attrs)),
-           {:ok, agent} <- insert_agent(repo, principal.uid, take_attrs(attrs, @agent_fields)) do
+           {:ok, agent} <- insert_agent(repo, principal.uid, take_attrs(attrs, @agent_fields)),
+           :ok <- Library.seed_agent_library_in_tx(repo, principal.uid) do
         {:ok, %{principal: principal, agent: agent}}
       end
     end)

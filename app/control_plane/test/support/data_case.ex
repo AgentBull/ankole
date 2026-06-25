@@ -38,9 +38,18 @@ defmodule Ankole.DataCase do
   Sets up the sandbox based on the test tags.
   """
   def setup_sandbox(tags) do
-    pid = Ecto.Adapters.SQL.Sandbox.start_owner!(Ankole.Repo, shared: not tags[:async])
+    opts =
+      [shared: not tags[:async]]
+      |> maybe_put_ownership_timeout(tags[:ownership_timeout])
+
+    pid = Ecto.Adapters.SQL.Sandbox.start_owner!(Ankole.Repo, opts)
     on_exit(fn -> Ecto.Adapters.SQL.Sandbox.stop_owner(pid) end)
   end
+
+  defp maybe_put_ownership_timeout(opts, timeout) when is_integer(timeout) and timeout > 0,
+    do: Keyword.put(opts, :ownership_timeout, timeout)
+
+  defp maybe_put_ownership_timeout(opts, _timeout), do: opts
 
   @doc """
   A helper that transforms changeset errors into a map of messages.

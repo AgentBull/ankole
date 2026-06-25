@@ -16,6 +16,13 @@ defmodule Ankole.SignalsGateway.AdapterContext do
           user_name: String.t()
         }
 
+  @doc """
+  Builds the adapter-facing context for one configured signal binding.
+
+  The context carries only binding identity and lightweight helper access. It
+  does not expose database handles, so adapters must enter ingress through the
+  explicit emit functions below.
+  """
   @spec new(keyword() | map()) :: t()
   def new(attrs) do
     %__MODULE__{
@@ -26,37 +33,76 @@ defmodule Ankole.SignalsGateway.AdapterContext do
     }
   end
 
+  @doc """
+  Emits a provider entry as actor-visible input for this binding.
+  """
   @spec emit_entry(t(), map(), keyword()) :: SignalsGateway.ingress_result()
   def emit_entry(%__MODULE__{} = context, input, options \\ []) do
     SignalsGateway.emit_entry(context.agent_uid, context.binding_name, input, options)
   end
 
+  @doc """
+  Emits a provider-entry deletion for this binding.
+
+  Deletions can cancel pending actor input or schedule visible cleanup depending
+  on whether the actor already consumed the original entry.
+  """
   @spec emit_entry_deleted(t(), map(), keyword()) :: SignalsGateway.ingress_result()
   def emit_entry_deleted(%__MODULE__{} = context, input, options \\ []) do
     SignalsGateway.emit_entry_deleted(context.agent_uid, context.binding_name, input, options)
   end
 
+  @doc """
+  Emits a provider-entry recall for this binding.
+
+  Recall is separate from deletion because some providers expose it as a
+  user-visible correction rather than a hard remove.
+  """
   @spec emit_entry_recalled(t(), map(), keyword()) :: SignalsGateway.ingress_result()
   def emit_entry_recalled(%__MODULE__{} = context, input, options \\ []) do
     SignalsGateway.emit_entry_recalled(context.agent_uid, context.binding_name, input, options)
   end
 
+  @doc """
+  Emits a provider reaction event for this binding.
+  """
   @spec emit_reaction(t(), map(), keyword()) :: SignalsGateway.ingress_result()
   def emit_reaction(%__MODULE__{} = context, input, options \\ []) do
     SignalsGateway.emit_reaction(context.agent_uid, context.binding_name, input, options)
   end
 
+  @doc """
+  Emits a provider action event for this binding.
+
+  Actions represent explicit UI or command callbacks that should enter the same
+  ordered actor-input journal as messages.
+  """
   @spec emit_action(t(), map(), keyword()) :: SignalsGateway.ingress_result()
   def emit_action(%__MODULE__{} = context, input, options \\ []) do
     SignalsGateway.emit_action(context.agent_uid, context.binding_name, input, options)
   end
 
+  @doc """
+  Returns the logger module available to adapters.
+
+  The prefix argument is accepted for adapter ergonomics but currently does not
+  create a separate logger namespace.
+  """
   @spec get_logger(t(), String.t() | nil) :: module()
   def get_logger(%__MODULE__{}, _prefix \\ nil), do: Logger
 
+  @doc """
+  Returns the display name associated with this adapter context.
+  """
   @spec get_user_name(t()) :: String.t()
   def get_user_name(%__MODULE__{user_name: user_name}), do: user_name
 
+  @doc """
+  Observes a provider-side subject and links it to a human principal.
+
+  The binding name becomes the default provider so adapters do not have to repeat
+  it for every subject observation.
+  """
   @spec observe_platform_subject(t(), map()) :: {:ok, map()} | {:error, term()}
   def observe_platform_subject(%__MODULE__{} = context, attrs) when is_map(attrs) do
     attrs

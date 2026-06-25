@@ -56,7 +56,7 @@ This repository is the early Ankole control-plane and runtime foundation. It is 
 
 - `app/control_plane` - Phoenix control plane for Principal/AuthZ, AppConfigure, plugins, SignalsGateway, setup, console, and web shell.
 - `app/kernel` - shared native foundation for runtime-neutral mechanisms such as crypto, hashing, identifiers, and policy helpers.
-- `app/ai_proxy` - Bun/Elysia surface for LLM-provider-adjacent runtime work.
+- `app/agent_computer` - Bun + TypeScript Agent Computer runtime for the local LLM loop, tools, files, terminal state, and worker daemon.
 - `app/webapps` - Vite-powered frontend applications mounted by the Phoenix shell.
 - `libs/uikit` - shared UI primitives for Ankole webapps.
 - `libs/feishu_openapi` - local Lark/Feishu OpenAPI client library.
@@ -83,8 +83,8 @@ bun run control-plane:dev
 bun run control-plane:test
 
 # Bun packages
-bun run ai-proxy:dev
-bun run ai-proxy:test
+bun run agent-computer:dev
+bun run agent-computer:test
 bun run webapps:build
 bun run feishu-openapi:test
 ```
@@ -93,7 +93,8 @@ Package-local validation is preferred while the workspace is moving quickly:
 
 ```shell
 bun run --filter @ankole/control-plane test
-bun run --filter @ankole/ai-proxy test
+bun run --filter @ankole/agent-computer test
+bun run --filter @ankole/agent-computer type-check
 bun run --filter @ankole/webapps type-check
 bun run --filter @ankole/feishu-openapi test
 ```

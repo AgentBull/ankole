@@ -4,6 +4,7 @@ defmodule Ankole.SignalsGateway.ActorInputTypes do
   """
 
   @batch_window_ms 800
+  @ambient_batch_window_ms 1_500
 
   @doc """
   Returns the actor consumption path for an ActorInput type.
@@ -36,6 +37,29 @@ defmodule Ankole.SignalsGateway.ActorInputTypes do
         "provider_thread_id" => fetch_input(input, :provider_thread_id)
       },
       sender_key: fetch_input(input, :sender_key)
+    }
+  end
+
+  def readiness("im.message.may_intervene", input, now) do
+    available_at = DateTime.add(now, @ambient_batch_window_ms, :millisecond)
+
+    %{
+      available_at: available_at,
+      batch_scope: %{
+        "binding_name" => fetch_input(input, :binding_name),
+        "signal_channel_id" => fetch_input(input, :signal_channel_id),
+        "provider_thread_id" => fetch_input(input, :provider_thread_id)
+      },
+      sender_key:
+        "ambient:" <>
+          Enum.join(
+            [
+              fetch_input(input, :binding_name),
+              fetch_input(input, :signal_channel_id),
+              fetch_input(input, :provider_thread_id)
+            ],
+            ":"
+          )
     }
   end
 

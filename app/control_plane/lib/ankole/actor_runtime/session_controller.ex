@@ -22,6 +22,10 @@ defmodule Ankole.ActorRuntime.SessionController do
 
   @doc """
   Ensures the controller exists and asks it to process ready input.
+
+  One controller serializes scheduling for one actor key. Database fences still
+  protect correctness, but this keeps common-path concurrency easy to reason
+  about.
   """
   @spec process_ready(map(), keyword()) :: {:ok, map()} | {:error, term()}
   def process_ready(actor_key, opts \\ []) do

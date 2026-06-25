@@ -1,6 +1,10 @@
 defmodule Ankole.AIAgent.Schemas.Message do
   @moduledoc """
   Durable AI agent transcript message.
+
+  Messages are the conversation history that the computer-side AI loop will read
+  through the file/runtime view. Runtime delivery state is intentionally kept in
+  ActorRuntime tables instead of being embedded here.
   """
 
   use Ecto.Schema
@@ -85,6 +89,8 @@ defmodule Ankole.AIAgent.Schemas.Message do
     |> check_constraint(:metadata, name: :ai_agent_messages_metadata_object)
   end
 
+  # Allows OpenAI-style multi-part content while rejecting structs or atom-keyed
+  # maps that would not round-trip through JSON cleanly.
   defp validate_json_array(changeset, field) do
     validate_change(changeset, field, fn ^field, value ->
       case is_list(value) and Enum.all?(value, &json_value?/1) do

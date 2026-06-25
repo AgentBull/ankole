@@ -1,6 +1,9 @@
 defmodule Ankole.AIAgent.Schemas.Conversation do
   @moduledoc """
   Durable conversation spine for one agent session.
+
+  `generation` is the active-turn lease shared with ActorRuntime. The transcript
+  remains in AI-agent tables while the computer owns the local AI loop execution.
   """
 
   use Ecto.Schema

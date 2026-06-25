@@ -23,6 +23,10 @@ mod atoms {
     }
 }
 
+/// Owns the native Actor Bus ROUTER handle across BEAM calls.
+///
+/// Rustler stores this in a `ResourceArc` so Elixir can pass the router between
+/// start, send, endpoint, and stop calls without exposing the ZeroMQ socket.
 pub struct ActorBusRouterResource(pub RouterHandle);
 
 #[rustler::resource_impl]
@@ -416,13 +420,22 @@ fn send_router_event(owner_pid: LocalPid, event: RouterEvent) {
     let _ = env.send_and_clear(&owner_pid, |env| match event {
         RouterEvent::Received {
             transport_route,
+            authenticated_worker_id,
+            authenticated_key_revision,
             envelope_json,
-        } => (
-            atoms::actor_bus_router_received(),
-            transport_route,
-            envelope_json,
-        )
-            .encode(env),
+        } => {
+            let worker_id = authenticated_worker_id.unwrap_or_default();
+            let key_revision = authenticated_key_revision.unwrap_or_default();
+
+            (
+                atoms::actor_bus_router_received(),
+                transport_route,
+                worker_id,
+                key_revision,
+                envelope_json,
+            )
+                .encode(env)
+        }
         RouterEvent::DecodeFailed {
             transport_route,
             reason,

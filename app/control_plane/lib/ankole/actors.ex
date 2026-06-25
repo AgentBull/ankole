@@ -17,21 +17,30 @@ defmodule Ankole.Actors do
 
   @doc """
   Appends an actor input, preserving route-scoped idempotency.
+
+  SignalsGateway may retry ingress delivery. The unique ingress key and broker
+  sequence let the actor runtime see one ordered input stream per actor session.
   """
   @spec append_actor_input(map()) :: {:ok, ActorInput.t()} | {:error, term()}
   def append_actor_input(attrs) when is_map(attrs) do
     Repo.transact(fn repo ->
-      attrs = put_broker_sequence(repo, attrs)
-
-      %ActorInput{}
-      |> ActorInput.changeset(attrs)
-      |> repo.insert(
-        on_conflict: :nothing,
-        conflict_target: [:agent_uid, :binding_name, :ingress_event_id],
-        returning: true
-      )
-      |> inserted_or_existing(attrs)
+      append_actor_input_in_tx(repo, attrs)
     end)
+  end
+
+  @doc false
+  @spec append_actor_input_in_tx(module(), map()) :: {:ok, ActorInput.t()} | {:error, term()}
+  def append_actor_input_in_tx(repo, attrs) when is_map(attrs) do
+    attrs = put_broker_sequence(repo, attrs)
+
+    %ActorInput{}
+    |> ActorInput.changeset(attrs)
+    |> repo.insert(
+      on_conflict: :nothing,
+      conflict_target: [:agent_uid, :binding_name, :ingress_event_id],
+      returning: true
+    )
+    |> inserted_or_existing(attrs)
   end
 
   @doc """
@@ -81,7 +90,35 @@ defmodule Ankole.Actors do
   end
 
   @doc """
+  Consumes a durable command input without requiring an LLM turn fence.
+
+  Command feedback is a provider-visible control response, not transcript or
+  model output, so it deliberately has no `llm_turn_id`.
+  """
+  @spec consume_command_input_in_tx(module(), ActorInput.t(), keyword()) ::
+          actor_commit_result()
+  def consume_command_input_in_tx(
+        repo,
+        %ActorInput{type: "command." <> _name} = actor_input,
+        opts
+      ) do
+    consume_actor_input_in_tx(
+      repo,
+      actor_input,
+      opts
+      |> Keyword.put_new(:llm_turn_id, nil)
+      |> Keyword.put_new(:activation_uid, nil)
+      |> Keyword.put_new(:actor_epoch, nil)
+      |> Keyword.put_new(:revision, nil)
+    )
+  end
+
+  @doc """
   Removes pending actor input rows for a provider entry.
+
+  This is used when a provider entry is deleted or tombstoned before the actor
+  consumes it. Runtime delivery projections are removed with the input so the
+  scheduler does not keep waiting on work that no longer exists.
   """
   @spec cancel_pending_inputs(String.t(), String.t(), String.t(), String.t()) :: non_neg_integer()
   def cancel_pending_inputs(agent_uid, binding_name, signal_channel_id, provider_entry_id) do
@@ -128,17 +165,27 @@ defmodule Ankole.Actors do
   """
   @spec list_ready_inputs(String.t(), String.t(), DateTime.t()) :: [ActorInput.t()]
   def list_ready_inputs(agent_uid, session_id, now \\ DateTime.utc_now(:microsecond)) do
+    delivery_states = ["created", "sent", "accepted"]
+
     ActorInput
     |> where([input], input.agent_uid == ^agent_uid)
     |> where([input], input.session_id == ^session_id)
     |> where([input], input.input_state == "open")
     |> where([input], input.available_at <= ^now)
+    |> join(:left, [input], delivery in "actor_input_deliveries",
+      on: delivery.actor_input_id == input.id and delivery.state in ^delivery_states
+    )
+    |> where([_input, delivery], is_nil(delivery.id))
     |> order_by([input], asc: input.broker_sequence)
     |> Repo.all()
   end
 
   @doc """
   Reads ready actors that currently have no live input delivery.
+
+  The delivery anti-join is the backpressure point between queued input and
+  in-flight worker turns. Open inputs with live delivery projections should not
+  start another turn.
   """
   @spec list_ready_actor_keys(DateTime.t(), pos_integer()) :: [
           %{agent_uid: String.t(), session_id: String.t()}
@@ -163,6 +210,9 @@ defmodule Ankole.Actors do
 
   @doc """
   Takes the contiguous same-sender prefix from already ordered ready rows.
+
+  This keeps a single turn aligned with one sender run. It preserves ordering
+  without forcing unrelated senders into the same local AI loop invocation.
   """
   @spec contiguous_same_sender_prefix([ActorInput.t()]) :: [ActorInput.t()]
   def contiguous_same_sender_prefix([]), do: []
@@ -176,10 +226,15 @@ defmodule Ankole.Actors do
     end)
   end
 
+  # Accepts an explicit broker sequence for fixtures and replay tools. Normal
+  # ingress lets the database assign the next per-actor sequence.
   defp put_broker_sequence(_repo, %{broker_sequence: broker_sequence} = attrs)
        when is_integer(broker_sequence),
        do: attrs
 
+  # Serializes sequence allocation per actor session using a transaction-scoped
+  # advisory lock. This avoids a separate sequence table while preserving stable
+  # user-message order under concurrent ingress.
   defp put_broker_sequence(repo, attrs) do
     agent_uid = Map.fetch!(attrs, :agent_uid)
     session_id = Map.fetch!(attrs, :session_id)
@@ -200,6 +255,8 @@ defmodule Ankole.Actors do
     Map.put(attrs, :broker_sequence, next)
   end
 
+  # Ecto returns an empty struct when `on_conflict: :nothing` skipped insert, so
+  # the existing input is fetched to make append idempotent for callers.
   defp inserted_or_existing({:ok, %ActorInput{id: nil}}, attrs), do: fetch_actor_input(attrs)
   defp inserted_or_existing({:ok, %ActorInput{} = input}, _attrs), do: {:ok, input}
   defp inserted_or_existing({:error, _changeset} = error, _attrs), do: error
@@ -228,6 +285,8 @@ defmodule Ankole.Actors do
     |> repo.one()
   end
 
+  # Inputs without provider entry identity cannot be matched to a deletion
+  # tombstone, so they remain consumable.
   defp reject_tombstoned_input(
          _repo,
          %ActorInput{signal_channel_id: nil},
@@ -242,6 +301,9 @@ defmodule Ankole.Actors do
        ),
        do: :ok
 
+  # Rejects consumption if the source provider entry was tombstoned after the
+  # actor input was queued. This keeps local generation from replying to content
+  # that has already been withdrawn.
   defp reject_tombstoned_input(repo, %ActorInput{} = input, now) do
     InputTombstone
     |> where([tombstone], tombstone.agent_uid == ^input.agent_uid)
@@ -256,6 +318,8 @@ defmodule Ankole.Actors do
     end
   end
 
+  # Copies the actor runtime fence into the consumption row. After the input row
+  # is deleted, this row is the durable link from input to committed turn.
   defp consumed_attrs(%ActorInput{} = input, consumed_at, opts) do
     %{
       actor_input_id: input.id,
@@ -277,6 +341,8 @@ defmodule Ankole.Actors do
     }
   end
 
+  # Inserts the consumption row idempotently because commit may be retried after
+  # a process crash around the database boundary.
   defp insert_consumed(repo, attrs) do
     %ActorInputConsumption{}
     |> ActorInputConsumption.changeset(attrs)
@@ -302,6 +368,8 @@ defmodule Ankole.Actors do
 
   defp insert_outbox_intents(_repo, _actor_input, []), do: {:ok, []}
 
+  # Writes provider outbox intents in the same transaction as input consumption.
+  # That makes "message committed" and "reply scheduled" one durable decision.
   defp insert_outbox_intents(repo, actor_input, outbox_intents) when is_list(outbox_intents) do
     outbox_intents
     |> Enum.map(&insert_outbox_intent(repo, actor_input, &1))
@@ -338,6 +406,8 @@ defmodule Ankole.Actors do
 
   defp insert_outbox_intent(_repo, _actor_input, _attrs), do: {:error, :invalid_outbox_intent}
 
+  # Deletes pending runtime projections when their source input is canceled.
+  # These rows are not the durable AI-agent transcript; they only fence delivery.
   defp delete_delivery_projections([]), do: :ok
 
   defp delete_delivery_projections(actor_input_ids) do

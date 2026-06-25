@@ -1,6 +1,10 @@
 defmodule Ankole.ActorRuntime.Schemas.ActorSessionWorkerAssignment do
   @moduledoc """
   Sticky placement hint from an actor session to a worker.
+
+  Assignment improves locality and avoids unnecessary worker churn. It is not
+  durable truth for a turn; delivery and activation rows still fence each
+  in-flight actor input.
   """
 
   use Ecto.Schema

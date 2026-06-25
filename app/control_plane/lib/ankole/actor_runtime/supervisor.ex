@@ -5,7 +5,7 @@ defmodule Ankole.ActorRuntime.Supervisor do
 
   use Supervisor
 
-  alias Ankole.ActorRuntime.Config
+  alias Ankole.ActorRuntime.WorkerAuthKeys
 
   @doc """
   Starts actor-runtime services.
@@ -17,9 +17,11 @@ defmodule Ankole.ActorRuntime.Supervisor do
 
   @impl true
   def init(opts) do
-    :ok = Config.ensure_registered()
     runtime_opts = runtime_opts(opts)
 
+    # The transport broker, directory, and dynamic supervisor are the core path.
+    # Reconciler, polling, watchdog, and outbox dispatch are repeatable recovery
+    # loops that can be disabled in focused tests.
     children =
       [
         broker_child(opts),
@@ -125,14 +127,28 @@ defmodule Ankole.ActorRuntime.Supervisor do
   defp normalize_router_opts(_value), do: {:error, :invalid_router_config}
 
   defp router_opts_with_token(endpoint, opts) do
-    case Keyword.fetch(opts, :pre_auth_token) do
-      {:ok, token} when is_binary(token) and token != "" ->
-        {:ok, Keyword.put(opts, :endpoint, endpoint)}
+    opts =
+      cond do
+        valid_text?(Keyword.get(opts, :pre_auth_token)) ->
+          opts
 
-      _value ->
-        with {:ok, token} <- Config.ensure_pre_auth_token() do
-          {:ok, opts |> Keyword.put(:endpoint, endpoint) |> Keyword.put(:pre_auth_token, token)}
-        end
-    end
+        Keyword.has_key?(opts, :pre_auth_keys) ->
+          opts
+
+        valid_text?(Keyword.get(opts, :worker_auth_database_url)) ->
+          opts
+
+        Keyword.get(opts, :worker_auth, :database) == false ->
+          Keyword.delete(opts, :worker_auth)
+
+        true ->
+          opts
+          |> Keyword.delete(:worker_auth)
+          |> Keyword.put(:worker_auth_database_url, WorkerAuthKeys.database_url!())
+      end
+
+    {:ok, Keyword.put(opts, :endpoint, endpoint)}
   end
+
+  defp valid_text?(value), do: is_binary(value) and value != ""
 end

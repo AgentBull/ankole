@@ -231,7 +231,7 @@ defmodule Ankole.Repo.Migrations.CreateActorRuntimePingPong do
 
     create constraint(:ai_agent_llm_turns, :ai_agent_llm_turns_kind_check,
              check:
-               "kind IN ('generation', 'retry_generation', 'scheduled_task', 'checkback_generation', 'compression', 'ambient_recognizer', 'overflow_retry')"
+               "kind IN ('generation', 'retry_generation', 'scheduled_task', 'checkback_generation', 'compression', 'overflow_retry')"
            )
 
     create constraint(:ai_agent_llm_turns, :ai_agent_llm_turns_status_check,

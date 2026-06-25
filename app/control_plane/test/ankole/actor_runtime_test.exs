@@ -4,13 +4,15 @@ defmodule Ankole.ActorRuntimeTest do
   import Ecto.Query
   import Ankole.PrincipalsFixtures
 
+  alias Ankole.AIAgent.LlmProviders
+  alias Ankole.AIAgent.ModelProfiles
+  alias Ankole.AIAgent.Schemas.Conversation
   alias Ankole.AIAgent.Schemas.LlmTurn
   alias Ankole.AIAgent.Schemas.Message
   alias Ankole.Actors.ActorInput
   alias Ankole.Actors.ActorInputConsumption
   alias Ankole.ActorRuntime
   alias Ankole.ActorRuntime.ActivationManager
-  alias Ankole.ActorRuntime.Config
   alias Ankole.ActorRuntime.OutboxDispatcher
   alias Ankole.ActorRuntime.Reconciler
   alias Ankole.ActorRuntime.WorkerBootstrap
@@ -18,12 +20,12 @@ defmodule Ankole.ActorRuntimeTest do
   alias Ankole.ActorRuntime.Schemas.AgentComputerWorker
   alias Ankole.ActorRuntime.Schemas.ActorInputDelivery
   alias Ankole.ActorRuntime.Transport.Broker
-  alias Ankole.AppConfigure.Cache, as: AppConfigureCache
   alias Ankole.Repo
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.OutboxEntry
 
   @base_time ~U[2026-06-24 08:00:00.000000Z]
+  @long_lease_seconds 604_800
 
   describe "PING/PONG actor runtime path" do
     test "supervised runtime owners automatically dispatch PING to a worker and send PONG outbox" do
@@ -67,6 +69,9 @@ defmodule Ankole.ActorRuntimeTest do
       turn_start = envelope["body"]["turn_start"]
       turn_ref = turn_start["turn"]
       input_ids = Enum.map(turn_start["inputs"], & &1["actor_input_id"])
+
+      assert turn_ref["actor"]["display_name"] == agent.display_name
+      assert turn_ref["actor"]["role"] == "Research Analyst"
 
       assert %ActorInputDelivery{state: "sent"} = wait_for_delivery_state(input.id, "sent")
 
@@ -127,7 +132,7 @@ defmodule Ankole.ActorRuntimeTest do
       assert {:ok, %{send_outcome: "sent_or_queued", llm_turn: llm_turn}} =
                ActorRuntime.process_ready_inputs_once(
                  now: DateTime.add(@base_time, 1, :second),
-                 lease_seconds: 86_400
+                 lease_seconds: @long_lease_seconds
                )
 
       assert_receive {:actor_bus, envelope}
@@ -189,6 +194,798 @@ defmodule Ankole.ActorRuntimeTest do
       assert_receive {:pong_outbox_sent, %{"text" => "PONG"}}
       assert sent_outbox.status == :succeeded
       assert sent_outbox.provider_entry_id == "provider-pong-1"
+    end
+
+    test "real provider final proposal must include visible reply text" do
+      %{principal: agent} = agent_fixture()
+
+      assert {:ok, _provider} =
+               LlmProviders.create_provider(%{
+                 provider_id: "openrouter-commit-guard",
+                 provider_source: "openrouter",
+                 credential: "sk-test",
+                 connection_options: %{"base_url" => "https://openrouter.ai/api/v1"}
+               })
+
+      assert {:ok, _profile} =
+               ModelProfiles.put_model_profile(agent.uid, "primary", %{
+                 provider_id: "openrouter-commit-guard",
+                 model: "google/gemini-3.5-flash"
+               })
+
+      binding_fixture(agent.uid, "bot", :ignore)
+      route = unique_route()
+
+      :ok = Broker.register_local_worker(route, self())
+      on_exit(fn -> Broker.unregister_local_worker(route) end)
+
+      assert {:ok, _worker} = admit_worker(route)
+
+      assert {:ok, %{actor_input: input}} =
+               SignalsGateway.emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{text: "Call a tool and answer", explicit: true}),
+                 now: @base_time
+               )
+
+      assert {:ok, %{llm_turn: llm_turn}} =
+               ActorRuntime.process_ready_inputs_once(
+                 now: DateTime.add(@base_time, 1, :second),
+                 lease_seconds: @long_lease_seconds
+               )
+
+      assert %LlmTurn{
+               provider: "openrouter",
+               provider_metadata: %{"provider_id" => "openrouter-commit-guard"}
+             } = Repo.get!(LlmTurn, llm_turn.id)
+
+      assert_receive {:actor_bus, envelope}
+
+      turn_start = envelope["body"]["turn_start"]
+      turn_ref = turn_start["turn"]
+      input_ids = Enum.map(turn_start["inputs"], & &1["actor_input_id"])
+
+      assert {:ok, [%ActorInputDelivery{state: "accepted"}]} =
+               ActorRuntime.handle_turn_accepted(%{
+                 "turn_accepted" => %{
+                   "turn" => turn_ref,
+                   "accepted_actor_input_ids" => input_ids
+                 }
+               })
+
+      assert {:error, :proposal_reply_missing} =
+               ActorRuntime.commit_final_proposal(%{
+                 "turn_final_proposal" => %{
+                   "turn" => turn_ref,
+                   "messages" => []
+                 }
+               })
+
+      assert Repo.get!(ActorInput, input.id).input_state == "open"
+      assert Repo.get!(LlmTurn, llm_turn.id).status == "started"
+
+      assert Repo.aggregate(from(message in Message, where: message.role == "assistant"), :count) ==
+               0
+
+      assert Repo.aggregate(OutboxEntry, :count) == 0
+    end
+
+    test "ambient silence consumes merged observation without visible output" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :may_intervene)
+      route = unique_route()
+
+      :ok = Broker.register_local_worker(route, self())
+      on_exit(fn -> Broker.unregister_local_worker(route) end)
+
+      assert {:ok, _worker} = admit_worker(route)
+
+      assert {:ok, %{actor_input: input}} =
+               SignalsGateway.emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{text: "The deploy finished.", explicit: false}),
+                 now: @base_time
+               )
+
+      assert {:ok, %{status: :idle}} =
+               ActorRuntime.process_ready_inputs_once(now: DateTime.add(@base_time, 1, :second))
+
+      assert {:ok, %{send_outcome: "sent_or_queued", llm_turn: recognizer_turn}} =
+               ActorRuntime.process_ready_inputs_once(
+                 now: DateTime.add(@base_time, 2, :second),
+                 lease_seconds: @long_lease_seconds
+               )
+
+      assert %LlmTurn{kind: "generation", profile: "primary", status: "started"} =
+               Repo.get!(LlmTurn, recognizer_turn.id)
+
+      assert %Message{role: "im_ambient", kind: "normal", metadata: metadata} =
+               Repo.one!(
+                 from(message in Message,
+                   where: message.metadata["actor_input_id"] == ^input.id
+                 )
+               )
+
+      assert get_in(metadata, ["message_context", "room", "label"]) == "group chat \"Ops\""
+
+      assert_receive {:actor_bus, envelope}
+      turn_start = envelope["body"]["turn_start"]
+      turn_ref = turn_start["turn"]
+      input_ids = Enum.map(turn_start["inputs"], & &1["actor_input_id"])
+
+      refute Map.has_key?(turn_start, "turn_kind")
+      assert turn_start["model_ref"]["profile"] == "primary"
+      assert input_ids == [input.id]
+
+      assert {:ok, [_delivery]} =
+               ActorRuntime.handle_turn_accepted(%{
+                 "turn_accepted" => %{
+                   "turn" => turn_ref,
+                   "accepted_actor_input_ids" => input_ids
+                 }
+               })
+
+      assert {:ok, %{status: :ambient_silent}} =
+               ActorRuntime.commit_final_proposal(%{
+                 "turn_final_proposal" => %{
+                   "turn" => turn_ref,
+                   "messages" => [],
+                   "reply" => nil
+                 }
+               })
+
+      refute Repo.get(ActorInput, input.id)
+      assert Repo.aggregate(ActorInputDelivery, :count) == 0
+      assert Repo.aggregate(OutboxEntry, :count) == 0
+
+      refute Repo.exists?(
+               from(message in Message,
+                 where: message.role == "assistant"
+               )
+             )
+    end
+
+    test "ambient intervention proposal writes runtime watermark and visible output" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :may_intervene)
+      route = unique_route()
+
+      :ok = Broker.register_local_worker(route, self())
+      on_exit(fn -> Broker.unregister_local_worker(route) end)
+
+      assert {:ok, _worker} = admit_worker(route)
+
+      assert {:ok, %{actor_input: input}} =
+               SignalsGateway.emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{
+                   text: "Can someone ask agent for the release summary?",
+                   explicit: false
+                 }),
+                 now: @base_time
+               )
+
+      assert {:ok, %{send_outcome: "sent_or_queued", llm_turn: ambient_turn}} =
+               ActorRuntime.process_ready_inputs_once(
+                 now: DateTime.add(@base_time, 2, :second),
+                 lease_seconds: @long_lease_seconds
+               )
+
+      assert_receive {:actor_bus, ambient_envelope}
+      ambient_start = ambient_envelope["body"]["turn_start"]
+      ambient_ref = ambient_start["turn"]
+      ambient_input_ids = Enum.map(ambient_start["inputs"], & &1["actor_input_id"])
+
+      assert Repo.get!(LlmTurn, ambient_turn.id).kind == "generation"
+      refute Map.has_key?(ambient_start, "turn_kind")
+
+      assert [%{"type" => "im.message.may_intervene", "payload_json" => payload}] =
+               ambient_start["inputs"]
+
+      assert [%{"speaker" => "Alice", "text" => text}] =
+               get_in(payload, ["data", "observed_messages"])
+
+      assert text =~ "release summary"
+
+      assert {:ok, [_delivery]} =
+               ActorRuntime.handle_turn_accepted(%{
+                 "turn_accepted" => %{
+                   "turn" => ambient_ref,
+                   "accepted_actor_input_ids" => ambient_input_ids
+                 }
+               })
+
+      assert {:ok, %{status: :committed, assistant_message: assistant_message}} =
+               ActorRuntime.commit_final_proposal(%{
+                 "turn_final_proposal" => %{
+                   "turn" => ambient_ref,
+                   "messages" => [
+                     %{
+                       "role" => "im_ambient",
+                       "content_json" => [
+                         %{
+                           "type" => "text",
+                           "text" =>
+                             "<chat_segment format=\"yaml\">\nmessages:\n  - speaker: Alice\n    text: release summary\n</chat_segment>"
+                         }
+                       ],
+                       "metadata_json" => %{
+                         "kind" => "introspection",
+                         "event_source" => "agent_computer.ambient",
+                         "event_id" => "ambient-intervention:#{ambient_turn.id}",
+                         "control" => %{
+                           "type" => "ambient_intervention",
+                           "reason" => "The group is implicitly asking the agent to answer."
+                         },
+                         "message_context" => %{
+                           "speaker" => %{
+                             "injected" => true,
+                             "display_name" => agent.uid,
+                             "role" => "agent",
+                             "trigger" => "introspection"
+                           }
+                         }
+                       }
+                     }
+                   ],
+                   "reply" => %{
+                     "text" => "Here is the release summary.",
+                     "content_json" => [
+                       %{"type" => "text", "text" => "Here is the release summary."}
+                     ]
+                   }
+                 }
+               })
+
+      assert %LlmTurn{kind: "generation", status: "succeeded"} =
+               Repo.get!(LlmTurn, ambient_turn.id)
+
+      assert %Message{
+               role: "im_ambient",
+               kind: "introspection",
+               content: content,
+               metadata: metadata
+             } =
+               Repo.one!(
+                 from(message in Message,
+                   where: message.kind == "introspection",
+                   where: message.role == "im_ambient"
+                 )
+               )
+
+      assert [%{"text" => text}] = content
+      assert text =~ "<chat_segment"
+      assert text =~ "release summary"
+      assert get_in(metadata, ["control", "type"]) == "ambient_intervention"
+      assert get_in(metadata, ["message_context", "speaker", "trigger"]) == "introspection"
+
+      assert Repo.get!(Message, assistant_message.id).content == [
+               %{"type" => "text", "text" => "Here is the release summary."}
+             ]
+
+      refute Repo.get(ActorInput, input.id)
+      assert Repo.aggregate(OutboxEntry, :count) == 1
+    end
+
+    test "idle compress command is consumed as command feedback without transcript message" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :ignore)
+
+      assert {:ok, %{actor_input: input}} =
+               SignalsGateway.emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{text: "/compress", explicit: true}),
+                 now: @base_time
+               )
+
+      assert input.type == "command.compress"
+
+      assert {:ok,
+              %{
+                status: :command_consumed,
+                feedback: "Conversation already fits in the active context."
+              }} =
+               ActorRuntime.process_ready_inputs_once(now: DateTime.add(@base_time, 1, :second))
+
+      refute Repo.get(ActorInput, input.id)
+
+      assert %ActorInputConsumption{type: "command.compress", llm_turn_id: nil} =
+               Repo.one!(ActorInputConsumption)
+
+      assert %OutboxEntry{
+               payload: %{"text" => "Conversation already fits in the active context."}
+             } =
+               Repo.one!(OutboxEntry)
+
+      assert Repo.aggregate(Message, :count) == 0
+    end
+
+    test "new command with args rolls over the window and starts a generation from the args" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :ignore)
+      route = unique_route()
+
+      :ok = Broker.register_local_worker(route, self())
+      on_exit(fn -> Broker.unregister_local_worker(route) end)
+
+      assert {:ok, _worker} = admit_worker(route)
+
+      assert {:ok, %{actor_input: _first_input}} =
+               SignalsGateway.emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{text: "old task", explicit: true}),
+                 now: @base_time
+               )
+
+      assert {:ok, %{llm_turn: first_turn}} =
+               ActorRuntime.process_ready_inputs_once(
+                 now: DateTime.add(@base_time, 1, :second),
+                 lease_seconds: @long_lease_seconds
+               )
+
+      assert_receive {:actor_bus, first_envelope}
+      first_turn_ref = first_envelope["body"]["turn_start"]["turn"]
+
+      first_input_ids =
+        Enum.map(first_envelope["body"]["turn_start"]["inputs"], & &1["actor_input_id"])
+
+      assert {:ok, [_delivery]} =
+               ActorRuntime.handle_turn_accepted(%{
+                 "turn_accepted" => %{
+                   "turn" => first_turn_ref,
+                   "accepted_actor_input_ids" => first_input_ids
+                 }
+               })
+
+      assert {:ok, %{status: :committed}} =
+               ActorRuntime.commit_final_proposal(%{
+                 "turn_final_proposal" => %{
+                   "turn" => first_turn_ref,
+                   "messages" => [],
+                   "reply" => %{"text" => "old answer"}
+                 }
+               })
+
+      assert {:ok, %{actor_input: new_input}} =
+               SignalsGateway.emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{text: "/new fresh task\nwith context", explicit: true}),
+                 now: DateTime.add(@base_time, 2, :second)
+               )
+
+      assert {:ok, %{send_outcome: "sent_or_queued", llm_turn: next_turn}} =
+               ActorRuntime.process_ready_inputs_once(now: DateTime.add(@base_time, 3, :second))
+
+      assert next_turn.conversation_id != first_turn.conversation_id
+      assert Repo.get!(Conversation, first_turn.conversation_id).ended_at
+
+      assert %Message{role: "user", content: [%{"text" => "fresh task\nwith context"}]} =
+               Repo.one!(
+                 from(message in Message,
+                   where: message.metadata["actor_input_id"] == ^new_input.id,
+                   where: message.role == "user"
+                 )
+               )
+
+      assert_receive {:actor_bus, next_envelope}
+      assert [%{"payload_json" => payload}] = next_envelope["body"]["turn_start"]["inputs"]
+      assert get_in(payload, ["data", "command", "argsText"]) == "fresh task\nwith context"
+    end
+
+    test "idle compress with history starts light compression turn and commits summary feedback" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :ignore)
+      route = unique_route()
+
+      :ok = Broker.register_local_worker(route, self())
+      on_exit(fn -> Broker.unregister_local_worker(route) end)
+
+      assert {:ok, _worker} = admit_worker(route)
+
+      assert {:ok, %{actor_input: _input}} =
+               SignalsGateway.emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{text: "PING", explicit: true}),
+                 now: @base_time
+               )
+
+      assert {:ok, %{llm_turn: generation_turn}} =
+               ActorRuntime.process_ready_inputs_once(
+                 now: DateTime.add(@base_time, 1, :second),
+                 lease_seconds: @long_lease_seconds
+               )
+
+      assert_receive {:actor_bus, envelope}
+      turn_start = envelope["body"]["turn_start"]
+      turn_ref = turn_start["turn"]
+      input_ids = Enum.map(turn_start["inputs"], & &1["actor_input_id"])
+
+      assert {:ok, [_delivery]} =
+               ActorRuntime.handle_turn_accepted(%{
+                 "turn_accepted" => %{
+                   "turn" => turn_ref,
+                   "accepted_actor_input_ids" => input_ids
+                 }
+               })
+
+      assert {:ok, %{status: :committed}} =
+               ActorRuntime.commit_final_proposal(%{
+                 "turn_final_proposal" => %{
+                   "turn" => turn_ref,
+                   "messages" => [],
+                   "reply" => %{"text" => "PONG"}
+                 }
+               })
+
+      assert {:ok, %{actor_input: compress_input}} =
+               SignalsGateway.emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{text: "/compress", explicit: true}),
+                 now: DateTime.add(@base_time, 2, :second)
+               )
+
+      assert {:ok, %{send_outcome: "sent_or_queued", llm_turn: compression_turn}} =
+               ActorRuntime.process_ready_inputs_once(now: DateTime.add(@base_time, 3, :second))
+
+      assert %LlmTurn{kind: "compression", status: "started", profile: "light"} =
+               Repo.get!(LlmTurn, compression_turn.id)
+
+      assert_receive {:actor_bus, compression_envelope}
+      compression_start = compression_envelope["body"]["turn_start"]
+      compression_ref = compression_start["turn"]
+      compression_input_ids = Enum.map(compression_start["inputs"], & &1["actor_input_id"])
+
+      assert compression_ref["llm_turn_id"] == compression_turn.id
+      assert compression_start["model_ref"]["profile"] == "light"
+      assert [%{"payload_json" => compression_payload}] = compression_start["inputs"]
+      prompt = get_in(compression_payload, ["data", "internal", "text"])
+      assert prompt =~ "Summarize the conversation transcript"
+      assert prompt =~ "PING"
+      assert prompt =~ "PONG"
+
+      assert {:ok, [_delivery]} =
+               ActorRuntime.handle_turn_accepted(%{
+                 "turn_accepted" => %{
+                   "turn" => compression_ref,
+                   "accepted_actor_input_ids" => compression_input_ids
+                 }
+               })
+
+      assert {:ok, %{status: :committed, assistant_message: summary_message}} =
+               ActorRuntime.commit_final_proposal(%{
+                 "turn_final_proposal" => %{
+                   "turn" => compression_ref,
+                   "messages" => [],
+                   "reply" => %{"text" => "Compressed summary for PING and PONG."}
+                 }
+               })
+
+      assert %Message{kind: "summary", content: [%{"text" => summary_text}]} =
+               Repo.get!(Message, summary_message.id)
+
+      assert summary_text == "Compressed summary for PING and PONG."
+      assert Repo.get!(LlmTurn, compression_turn.id).status == "succeeded"
+      assert Repo.get!(LlmTurn, generation_turn.id).status == "succeeded"
+
+      assert %ActorInputConsumption{type: "command.compress", llm_turn_id: compression_turn_id} =
+               Repo.one!(
+                 from(consumption in ActorInputConsumption,
+                   where: consumption.actor_input_id == ^compress_input.id
+                 )
+               )
+
+      assert compression_turn_id == compression_turn.id
+
+      assert %OutboxEntry{payload: %{"text" => "Conversation compressed."}} =
+               Repo.one!(
+                 from(outbox in OutboxEntry,
+                   where: outbox.source_actor_input_id == ^compress_input.id
+                 )
+               )
+    end
+
+    test "retry command queues a retry generation without command feedback" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :ignore)
+      route = unique_route()
+
+      :ok = Broker.register_local_worker(route, self())
+      on_exit(fn -> Broker.unregister_local_worker(route) end)
+
+      assert {:ok, _worker} = admit_worker(route)
+
+      assert {:ok, %{actor_input: _input}} =
+               SignalsGateway.emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{text: "PING", explicit: true}),
+                 now: @base_time
+               )
+
+      assert {:ok, %{llm_turn: first_turn}} =
+               ActorRuntime.process_ready_inputs_once(
+                 now: DateTime.add(@base_time, 1, :second),
+                 lease_seconds: @long_lease_seconds
+               )
+
+      assert_receive {:actor_bus, envelope}
+      turn_start = envelope["body"]["turn_start"]
+      turn_ref = turn_start["turn"]
+      input_ids = Enum.map(turn_start["inputs"], & &1["actor_input_id"])
+
+      assert {:ok, [_delivery]} =
+               ActorRuntime.handle_turn_accepted(%{
+                 "turn_accepted" => %{
+                   "turn" => turn_ref,
+                   "accepted_actor_input_ids" => input_ids
+                 }
+               })
+
+      assert {:ok, %{status: :committed}} =
+               ActorRuntime.commit_final_proposal(%{
+                 "turn_final_proposal" => %{
+                   "turn" => turn_ref,
+                   "messages" => [],
+                   "reply" => %{"text" => "PONG"}
+                 }
+               })
+
+      assert {:ok, %{actor_input: retry_command}} =
+               SignalsGateway.emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{text: "/retry", explicit: true}),
+                 now: DateTime.add(@base_time, 2, :second)
+               )
+
+      assert {:ok, %{status: :command_consumed, retry_actor_input: retry_input}} =
+               ActorRuntime.process_ready_inputs_once(now: DateTime.add(@base_time, 3, :second))
+
+      refute Repo.get(ActorInput, retry_command.id)
+      assert Repo.get!(ActorInput, retry_input.id).payload["data"]["entry"]["text"] == "PING"
+
+      assert Repo.get!(ActorInput, retry_input.id).payload["data"]["entry"][
+               "retry_of_llm_turn_id"
+             ] == first_turn.id
+
+      refute Repo.exists?(
+               from(outbox in OutboxEntry,
+                 where: outbox.source_actor_input_id == ^retry_command.id
+               )
+             )
+
+      assert {:ok, %{send_outcome: "sent_or_queued", llm_turn: retry_turn}} =
+               ActorRuntime.process_ready_inputs_once(now: DateTime.add(@base_time, 4, :second))
+
+      assert retry_turn.kind == "retry_generation"
+      assert_receive {:actor_bus, retry_envelope}
+      assert retry_envelope["body"]["turn_start"]["turn"]["llm_turn_id"] == retry_turn.id
+    end
+
+    test "inactive steer command starts a generation with the steer args" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :ignore)
+      route = unique_route()
+
+      :ok = Broker.register_local_worker(route, self())
+      on_exit(fn -> Broker.unregister_local_worker(route) end)
+
+      assert {:ok, _worker} = admit_worker(route)
+
+      assert {:ok, %{actor_input: steer_input}} =
+               SignalsGateway.emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{text: "/steer focus on risk", explicit: true}),
+                 now: @base_time
+               )
+
+      assert {:ok, %{send_outcome: "sent_or_queued", llm_turn: turn}} =
+               ActorRuntime.process_ready_inputs_once(now: DateTime.add(@base_time, 1, :second))
+
+      assert Repo.get!(LlmTurn, turn.id).kind == "generation"
+
+      assert %Message{content: [%{"text" => "focus on risk"}]} =
+               Repo.one!(
+                 from(message in Message,
+                   where: message.metadata["actor_input_id"] == ^steer_input.id
+                 )
+               )
+
+      assert_receive {:actor_bus, envelope}
+      assert [%{"payload_json" => payload}] = envelope["body"]["turn_start"]["inputs"]
+      assert get_in(payload, ["data", "command", "argsText"]) == "focus on risk"
+    end
+
+    test "active steer is delivered to the active generation and fences stale final proposal" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :ignore)
+      route = unique_route()
+
+      :ok = Broker.register_local_worker(route, self())
+      on_exit(fn -> Broker.unregister_local_worker(route) end)
+
+      assert {:ok, _worker} = admit_worker(route)
+
+      assert {:ok, %{actor_input: input}} =
+               SignalsGateway.emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{text: "PING", explicit: true}),
+                 now: @base_time
+               )
+
+      assert {:ok, %{send_outcome: "sent_or_queued"}} =
+               ActorRuntime.process_ready_inputs_once(
+                 now: DateTime.add(@base_time, 1, :second),
+                 lease_seconds: @long_lease_seconds
+               )
+
+      assert_receive {:actor_bus, envelope}
+      turn_start = envelope["body"]["turn_start"]
+      turn_ref = turn_start["turn"]
+      input_ids = Enum.map(turn_start["inputs"], & &1["actor_input_id"])
+      assert input_ids == [input.id]
+
+      assert {:ok, [_delivery]} =
+               ActorRuntime.handle_turn_accepted(%{
+                 "turn_accepted" => %{
+                   "turn" => turn_ref,
+                   "accepted_actor_input_ids" => input_ids
+                 }
+               })
+
+      assert {:ok, %{actor_input: steer_input}} =
+               SignalsGateway.emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{text: "/steer change course", explicit: true}),
+                 now: DateTime.add(@base_time, 2, :second)
+               )
+
+      assert {:ok,
+              %{
+                status: :active_steer_nudged,
+                send_outcome: "sent_or_queued",
+                turn_ref: steered_turn_ref,
+                delivery: steer_delivery
+              }} =
+               ActorRuntime.process_ready_inputs_once(now: DateTime.add(@base_time, 3, :second))
+
+      assert Repo.get!(ActorInput, steer_input.id).input_state == "open"
+      assert Repo.get!(ActorInputDelivery, steer_delivery.id).state == "sent"
+      assert steered_turn_ref["llm_turn_id"] == turn_ref["llm_turn_id"]
+      assert steered_turn_ref["revision"] == turn_ref["revision"] + 1
+
+      assert_receive {:actor_bus, mailbox_envelope}
+      assert mailbox_envelope["body"]["type"] == "mailbox_updated"
+      assert mailbox_envelope["body"]["mailbox_updated"]["reason"] == "command.steer"
+
+      assert {:ok, [_delivery]} =
+               ActorRuntime.handle_turn_accepted(%{
+                 "turn_accepted" => %{
+                   "turn" => steered_turn_ref,
+                   "accepted_actor_input_ids" => [steer_input.id]
+                 }
+               })
+
+      assert Repo.get!(ActorInputDelivery, steer_delivery.id).state == "accepted"
+
+      assert {:error, :stale_revision} =
+               ActorRuntime.commit_final_proposal(%{
+                 "turn_final_proposal" => %{
+                   "turn" => turn_ref,
+                   "messages" => [],
+                   "reply" => %{"text" => "PONG"}
+                 }
+               })
+
+      assert {:ok, %{status: :committed}} =
+               ActorRuntime.commit_final_proposal(%{
+                 "turn_final_proposal" => %{
+                   "turn" => steered_turn_ref,
+                   "messages" => [],
+                   "reply" => %{"text" => "PONG"}
+                 }
+               })
+
+      refute Repo.get(ActorInput, input.id)
+      refute Repo.get(ActorInput, steer_input.id)
+      assert Repo.aggregate(ActorInputConsumption, :count) == 2
+      assert Repo.aggregate(ActorInputDelivery, :count) == 0
+
+      assert Repo.one!(
+               from(message in Message,
+                 where: message.kind == "introspection",
+                 select: message.event_source
+               )
+             ) == "ai_agent.command.steer"
+
+      assert Repo.aggregate(LlmTurn, :count) == 1
+    end
+
+    test "stop command cancels active generation and rejects late final proposal" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :ignore)
+      route = unique_route()
+
+      :ok = Broker.register_local_worker(route, self())
+      on_exit(fn -> Broker.unregister_local_worker(route) end)
+
+      assert {:ok, _worker} = admit_worker(route)
+
+      assert {:ok, %{actor_input: input}} =
+               SignalsGateway.emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{text: "PING", explicit: true}),
+                 now: @base_time
+               )
+
+      assert {:ok, %{send_outcome: "sent_or_queued", llm_turn: llm_turn}} =
+               ActorRuntime.process_ready_inputs_once(
+                 now: DateTime.add(@base_time, 1, :second),
+                 lease_seconds: @long_lease_seconds
+               )
+
+      assert_receive {:actor_bus, envelope}
+
+      turn_start = envelope["body"]["turn_start"]
+      turn_ref = turn_start["turn"]
+      input_ids = Enum.map(turn_start["inputs"], & &1["actor_input_id"])
+
+      assert input_ids == [input.id]
+
+      assert {:ok, [%ActorInputDelivery{state: "accepted"}]} =
+               ActorRuntime.handle_turn_accepted(%{
+                 "turn_accepted" => %{
+                   "turn" => turn_ref,
+                   "accepted_actor_input_ids" => input_ids
+                 }
+               })
+
+      assert {:ok, %{actor_input: stop_input}} =
+               SignalsGateway.emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{text: "/stop", explicit: true}),
+                 now: DateTime.add(@base_time, 2, :second)
+               )
+
+      assert stop_input.type == "command.stop"
+
+      assert {:ok, %{status: :command_consumed, feedback: "Stopped."}} =
+               ActorRuntime.process_ready_inputs_once(now: DateTime.add(@base_time, 3, :second))
+
+      refute Repo.get(ActorInput, stop_input.id)
+      assert Repo.get!(LlmTurn, llm_turn.id).status == "started"
+
+      conversation = Repo.get!(Ankole.AIAgent.Schemas.Conversation, llm_turn.conversation_id)
+      assert conversation.generation["cancelled_at"]
+
+      assert {:error, :generation_lease_mismatch} =
+               ActorRuntime.commit_final_proposal(%{
+                 "turn_final_proposal" => %{
+                   "turn" => turn_ref,
+                   "messages" => [],
+                   "reply" => %{"text" => "TOO LATE"}
+                 }
+               })
+
+      assert %OutboxEntry{payload: %{"text" => "Stopped."}} =
+               Repo.one!(
+                 from(outbox in OutboxEntry,
+                   where: outbox.source_actor_input_id == ^stop_input.id
+                 )
+               )
     end
 
     test "record_only input does not start an actor turn or emit PONG" do
@@ -368,7 +1165,7 @@ defmodule Ankole.ActorRuntimeTest do
       assert {:ok, %{send_outcome: "sent_or_queued", llm_turn: second_turn}} =
                ActorRuntime.process_ready_inputs_once(
                  now: DateTime.add(@base_time, 3, :second),
-                 lease_seconds: 86_400
+                 lease_seconds: @long_lease_seconds
                )
 
       assert second_turn.id != first_turn.id
@@ -500,7 +1297,7 @@ defmodule Ankole.ActorRuntimeTest do
       assert {:ok, %{llm_turn: llm_turn}} =
                ActorRuntime.process_ready_inputs_once(
                  now: DateTime.add(@base_time, 1, :second),
-                 lease_seconds: 86_400
+                 lease_seconds: @long_lease_seconds
                )
 
       assert_receive {:actor_bus, envelope}
@@ -562,7 +1359,7 @@ defmodule Ankole.ActorRuntimeTest do
       assert {:ok, %{llm_turn: llm_turn}} =
                ActorRuntime.process_ready_inputs_once(
                  now: DateTime.add(@base_time, 1, :second),
-                 lease_seconds: 86_400
+                 lease_seconds: @long_lease_seconds
                )
 
       assert_receive {:actor_bus, envelope}
@@ -824,7 +1621,7 @@ defmodule Ankole.ActorRuntimeTest do
       assert {:ok, %{llm_turn: llm_turn}} =
                ActorRuntime.process_ready_inputs_once(
                  now: DateTime.add(@base_time, 1, :second),
-                 lease_seconds: 86_400
+                 lease_seconds: @long_lease_seconds
                )
 
       assert_receive {:actor_bus, envelope}
@@ -997,7 +1794,7 @@ defmodule Ankole.ActorRuntimeTest do
 
       assert command =~ "docker run --rm"
       assert command =~ "ANKOLE_ACTOR_BUS_ENDPOINT"
-      assert command =~ "ANKOLE_AGENT_COMPUTER_WORKER_PRE_AUTH_TOKEN"
+      assert command =~ "DATABASE_URL"
       assert command =~ "ANKOLE_AGENT_COMPUTER_WORKER_ID"
       assert command =~ "ANKOLE_AGENT_COMPUTER_WORKER_INSTANCE_ID"
       assert command =~ "ANKOLE_WORKSPACE_ROOT=/workspace"
@@ -1008,11 +1805,7 @@ defmodule Ankole.ActorRuntimeTest do
       refute command =~ "--agent-uid"
     end
 
-    test "pre-auth token read does not generate and bootstrap explicitly persists it" do
-      AppConfigureCache.clear_for_test()
-
-      assert :error = Config.pre_auth_token()
-
+    test "worker bootstrap does not generate legacy pre-auth token or expose worker key" do
       assert {:ok, command} =
                WorkerBootstrap.docker_run_command(
                  endpoint: "tcp://127.0.0.1:6010",
@@ -1020,10 +1813,12 @@ defmodule Ankole.ActorRuntimeTest do
                  worker_instance_id: "worker-token-1"
                )
 
-      assert {:ok, token} = Config.pre_auth_token()
-      assert is_binary(token)
-      assert token != ""
-      assert command =~ "ANKOLE_AGENT_COMPUTER_WORKER_PRE_AUTH_TOKEN='#{token}'"
+      refute command =~ "ANKOLE_AGENT_COMPUTER_WORKER_PRE_AUTH_TOKEN"
+      refute command =~ "pre_auth"
+      assert command =~ "DATABASE_URL"
+
+      assert Repo.get(Ankole.ActorRuntime.Schemas.AgentComputerWorkerAuthKey, "worker-token") ==
+               nil
     end
   end
 

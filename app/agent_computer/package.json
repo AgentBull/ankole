@@ -1,0 +1,32 @@
+{
+  "name": "@ankole/agent-computer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/main.ts",
+  "scripts": {
+    "dev": "bun --watch src/main.ts",
+    "start": "bun src/main.ts",
+    "build": "bun build src/main.ts --target bun --outdir dist",
+    "type-check": "tsgo -p tsconfig.json --noEmit",
+    "fmt": "oxfmt",
+    "fmt:check": "oxfmt --check",
+    "lint": "bun run fmt:check && bun run type-check",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@ankole/kernel": "workspace:*",
+    "@pleisto/active-support": "^1.5.9",
+    "@smithy/eventstream-codec": "^4.4.1",
+    "@smithy/util-utf8": "^4.4.1",
+    "@standard-schema/spec": "^1.0.0",
+    "@vercel/oidc": "^3.6.2",
+    "@workflow/serde": "4.1.2",
+    "aws4fetch": "^1.0.20",
+    "eventsource-parser": "^3.0.6",
+    "google-auth-library": "^10.5.0",
+    "json-schema": "^0.4.0",
+    "yaml": "2.9.0",
+    "zod": "^4.4.3"
+  }
+}

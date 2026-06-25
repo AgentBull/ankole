@@ -1,6 +1,6 @@
 ---
 name: phoenix
-description: Phoenix Framework guidance including architecture, Plug, contexts, router, channels, PubSub, security, forms, Ecto patterns, configuration, Tailwind, and deployment. ALWAYS use for Phoenix web development and best practices. ALWAYS use when writing controllers, plugs, contexts, router config, or Phoenix templates.
+description: Phoenix Framework guidance including architecture, Plug, contexts, router, channels, PubSub, security, forms, Ecto patterns, configuration, Tailwind, and deployment. ALWAYS use for Phoenix web development.
 ---
 
 # Phoenix Framework Skill

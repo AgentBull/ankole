@@ -11,6 +11,10 @@ defmodule Ankole.ActorRuntime.Reconciler do
 
   @doc """
   Starts the reconciler and runs a startup pass.
+
+  Startup reconciliation handles the case where the BEAM restarted after
+  writing a durable AI-agent turn but before rebuilding the actor-runtime
+  activation or delivery projections.
   """
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts) do

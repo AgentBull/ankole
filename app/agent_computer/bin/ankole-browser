@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+APP_DIR="${ANKOLE_AGENT_COMPUTER_BUN_WORKDIR:-}"
+if [[ -z "$APP_DIR" || ! -f "$APP_DIR/src/browser_cli.ts" ]]; then
+  SOURCE="${BASH_SOURCE[0]}"
+  while [[ -L "$SOURCE" ]]; do
+    DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+    SOURCE="$(readlink "$SOURCE")"
+    [[ "$SOURCE" != /* ]] && SOURCE="$DIR/$SOURCE"
+  done
+  APP_DIR="$(cd -P "$(dirname "$SOURCE")/.." && pwd)"
+fi
+
+exec bun "$APP_DIR/src/browser_cli.ts" "$@"

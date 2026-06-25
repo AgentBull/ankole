@@ -15,6 +15,9 @@ defmodule Ankole.ActorRuntime.WorkerPool do
 
   @doc """
   Assigns one homogeneous ready worker to an actor session.
+
+  Placement only needs liveness and capacity because all workers run the same
+  image. A future heterogeneous pool is not a requirement of this runtime path.
   """
   @spec assign_worker(actor_key() | map()) ::
           {:ok, ActorSessionWorkerAssignment.t()} | {:error, term()}
@@ -38,6 +41,9 @@ defmodule Ankole.ActorRuntime.WorkerPool do
     |> repo.update_all(set: [status: "released", updated_at: DateTime.utc_now(:microsecond)])
   end
 
+  # Keeps actor-to-worker affinity while the assigned worker is still usable.
+  # This lowers churn without making the worker part of the durable user story:
+  # stale workers release the assignment and the actor input can be retried.
   defp assign_worker_in_tx(repo, actor_key, now) do
     case live_assignment(repo, actor_key) do
       %ActorSessionWorkerAssignment{} = assignment ->
@@ -57,6 +63,8 @@ defmodule Ankole.ActorRuntime.WorkerPool do
     end
   end
 
+  # Locks one live assignment for the actor key so concurrent wakeups do not
+  # create multiple worker routes for the same ready input prefix.
   defp live_assignment(repo, actor_key) do
     ActorSessionWorkerAssignment
     |> where([assignment], assignment.agent_uid == ^actor_key.agent_uid)
@@ -66,6 +74,8 @@ defmodule Ankole.ActorRuntime.WorkerPool do
     |> repo.one()
   end
 
+  # Picks the first currently ready worker with capacity. The policy is simple
+  # on purpose: fairness can improve later without changing turn semantics.
   defp assign_new_worker(repo, actor_key, now) do
     with %AgentComputerWorker{} = worker <- choose_worker(repo),
          {:ok, assignment} <- insert_assignment(repo, actor_key, worker, now) do
@@ -76,6 +86,8 @@ defmodule Ankole.ActorRuntime.WorkerPool do
     end
   end
 
+  # Revalidates the worker projection behind an existing assignment. Assignment
+  # rows are hints; the worker table remains the liveness source.
   defp assignment_worker_available(repo, assignment) do
     AgentComputerWorker
     |> where([worker], worker.worker_id == ^assignment.worker_id)
@@ -106,6 +118,9 @@ defmodule Ankole.ActorRuntime.WorkerPool do
     |> repo.update()
   end
 
+  # Chooses from ready workers after reading their current capacity projection.
+  # Missing capacity means "usable" so early workers can participate before they
+  # implement richer load reporting.
   defp choose_worker(repo) do
     AgentComputerWorker
     |> where([worker], worker.status == ^@ready_worker_status)
@@ -114,6 +129,9 @@ defmodule Ankole.ActorRuntime.WorkerPool do
     |> Enum.find(&worker_has_capacity?/1)
   end
 
+  # Accepts either explicit available slots or max-minus-active reporting. This
+  # keeps the worker protocol small while allowing older and newer workers to
+  # share the same homogeneous pool.
   defp worker_has_capacity?(%AgentComputerWorker{capacity: capacity, load: load}) do
     available_slots =
       integer_from_map(capacity, "available_turn_slots") ||
@@ -131,6 +149,9 @@ defmodule Ankole.ActorRuntime.WorkerPool do
     end
   end
 
+  # Captures the route chosen for this actor session. Later delivery still
+  # fences on worker instance id so a reconnected worker cannot inherit old work
+  # just because it has the same logical worker id.
   defp insert_assignment(repo, actor_key, worker, now) do
     %ActorSessionWorkerAssignment{}
     |> ActorSessionWorkerAssignment.changeset(%{

@@ -39,6 +39,9 @@ defmodule Ankole.ActorRuntime.ActivationManager do
 
   @doc """
   Best-effort wakeup after ingress commits actor input.
+
+  The periodic poll is still the source of recovery. The wake call only lowers
+  latency after a signal adapter commits new actor input.
   """
   @spec wake() :: :ok
   def wake do
@@ -78,6 +81,8 @@ defmodule Ankole.ActorRuntime.ActivationManager do
     {:noreply, state}
   end
 
+  # Polling fans out to per-actor session controllers so one slow actor does not
+  # serialize all ready input behind this manager process.
   defp poll(state) do
     {:ok, _results} = run_once(limit: state.limit)
     :ok

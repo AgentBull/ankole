@@ -1,6 +1,10 @@
 defmodule Ankole.ActorRuntime.Schemas.AgentComputerWorker do
   @moduledoc """
   Live registry projection for one external agent computer worker.
+
+  This table is scheduling state, not a feature catalog. Workers are expected
+  to be equivalent because they boot from the same image; capacity and load only
+  decide whether a ready worker can accept another turn.
   """
 
   use Ecto.Schema
@@ -91,6 +95,8 @@ defmodule Ankole.ActorRuntime.Schemas.AgentComputerWorker do
     end)
   end
 
+  # Runtime metadata is required so operators can distinguish worker families
+  # while keeping placement independent from per-worker feature negotiation.
   defp validate_runtime_metadata(changeset) do
     validate_change(changeset, :metadata, fn :metadata, metadata ->
       case metadata do

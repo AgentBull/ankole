@@ -7,6 +7,7 @@ defmodule Ankole.SignalsGateway.Jobs.CleanupExpiredState do
 
   alias Ankole.SignalsGateway
 
+  @doc false
   @impl Oban.Worker
   def perform(%Oban.Job{}) do
     _counts = SignalsGateway.cleanup_expired_state()

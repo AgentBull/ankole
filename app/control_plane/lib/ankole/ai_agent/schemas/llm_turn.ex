@@ -1,6 +1,10 @@
 defmodule Ankole.AIAgent.Schemas.LlmTurn do
   @moduledoc """
   Durable projection of one AI agent generation turn.
+
+  A turn records the user-visible AI work, even when the current ping-pong path
+  uses a placeholder provider. ActorRuntime references turns, but it does not
+  replace this durable AI-agent boundary.
   """
 
   use Ecto.Schema
@@ -14,9 +18,9 @@ defmodule Ankole.AIAgent.Schemas.LlmTurn do
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :string
   @timestamps_opts [type: :utc_datetime_usec]
-  @kinds ~w(generation retry_generation scheduled_task checkback_generation compression ambient_recognizer overflow_retry)
+  @kinds ~w(generation retry_generation scheduled_task checkback_generation compression overflow_retry)
   @statuses ~w(started succeeded failed cancelled)
-  @profiles ~w(primary light heavy)
+  @profiles ~w(primary light heavy codex)
 
   schema "ai_agent_llm_turns" do
     belongs_to :agent, Principal,
@@ -130,6 +134,9 @@ defmodule Ankole.AIAgent.Schemas.LlmTurn do
     |> check_constraint(:profile, name: :ai_agent_llm_turns_profile_check)
   end
 
+  # Keeps JSON-array fields portable across the Elixir database boundary. These
+  # fields may be filled later by the real computer AI loop, so validation stays
+  # structural instead of provider-specific.
   defp validate_json_array(changeset, field) do
     validate_change(changeset, field, fn ^field, value ->
       case is_list(value) and Enum.all?(value, &json_value?/1) do

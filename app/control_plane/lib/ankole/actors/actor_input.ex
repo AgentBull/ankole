@@ -1,6 +1,10 @@
 defmodule Ankole.Actors.ActorInput do
   @moduledoc """
   Durable actor input accepted by SignalsGateway and consumed by ActorRuntime.
+
+  Actor input is the retryable work queue for one agent session. It stays open
+  until a committed AI-agent turn consumes it, even if worker delivery attempts
+  fail and are superseded.
   """
 
   use Ecto.Schema

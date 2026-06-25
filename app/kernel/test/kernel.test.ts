@@ -119,6 +119,8 @@ describe('@ankole/kernel', () => {
 
     const decoded = kernel.actorBusDecodeEnvelope(encoded)
     expect(decoded.body.type).toBe('turn_start')
+    expect(decoded.body.turn_start.turn.actor.display_name).toBe('ReleaseBot')
+    expect(decoded.body.turn_start.turn.actor.role).toBe('Research Analyst')
     expect(decoded.body.turn_start.inputs[0].payload_json.text).toBe('PING')
   })
 
@@ -224,6 +226,8 @@ function actorTurnRef() {
   return {
     actor: {
       agent_uid: 'agent-1',
+      display_name: 'ReleaseBot',
+      role: 'Research Analyst',
       session_id: 'signal-channel:lark:dm:1',
     },
     activation_uid: 'activation-1',

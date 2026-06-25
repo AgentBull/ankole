@@ -18,6 +18,10 @@ pub mod transport;
 const PROTOCOL_VERSION: u32 = 1;
 
 /// Encodes a JSON-shaped Actor Bus envelope as protobuf bytes.
+///
+/// Hosts use JSON maps because both Elixir and Bun can build them cheaply. The
+/// kernel still owns protobuf encoding and semantic validation so all hosts see
+/// the same protocol errors.
 pub fn encode_envelope_json(envelope: Value) -> KernelResult<Vec<u8>> {
     let envelope = envelope_from_json(&envelope)?;
     validate_envelope(&envelope)?;
@@ -31,6 +35,10 @@ pub fn encode_envelope_json(envelope: Value) -> KernelResult<Vec<u8>> {
 }
 
 /// Decodes protobuf bytes into the stable JSON-shaped host representation.
+///
+/// The returned JSON shape matches the control-plane envelope contract, not the
+/// generated prost structs. That keeps native bindings thin and avoids leaking
+/// Rust-specific protobuf details into Elixir or Bun code.
 pub fn decode_envelope_json(bytes: &[u8]) -> KernelResult<Value> {
     let envelope = proto::Envelope::decode(bytes).map_err(|error| {
         KernelError::new(format!("failed to decode actor bus envelope: {error}"))
@@ -56,6 +64,9 @@ fn envelope_from_json(value: &Value) -> KernelResult<proto::Envelope> {
     })
 }
 
+// Accepts both the typed host shape (`body.type + body[type]`) and the older
+// top-level body shape used by focused codec tests. Both paths still collapse
+// to exactly one protobuf oneof.
 fn body_from_json(object: &Map<String, Value>) -> KernelResult<proto::envelope::Body> {
     match object.get("body") {
         Some(Value::Object(body)) => typed_body_from_json(body),
@@ -71,6 +82,8 @@ fn typed_body_from_json(body: &Map<String, Value>) -> KernelResult<proto::envelo
     named_body_from_json(&body_type, payload)
 }
 
+// Finds the single protobuf body when callers pass a top-level payload. This is
+// compatibility for host ergonomics, not a second wire format.
 fn top_level_body_from_json(object: &Map<String, Value>) -> KernelResult<proto::envelope::Body> {
     let matches: Vec<(&str, &Value)> = [
         "worker_ready",
@@ -86,6 +99,9 @@ fn top_level_body_from_json(object: &Map<String, Value>) -> KernelResult<proto::
         "control_shutdown",
         "ack",
         "nack",
+        "llm_provider_credential_request",
+        "llm_provider_credential_response",
+        "llm_provider_credential_rejected",
     ]
     .into_iter()
     .filter_map(|key| object.get(key).map(|value| (key, value)))
@@ -135,12 +151,29 @@ fn named_body_from_json(name: &str, payload: &Value) -> KernelResult<proto::enve
         )),
         "ack" => Ok(proto::envelope::Body::Ack(ack_from_json(payload)?)),
         "nack" => Ok(proto::envelope::Body::Nack(nack_from_json(payload)?)),
+        "llm_provider_credential_request" => {
+            Ok(proto::envelope::Body::LlmProviderCredentialRequest(
+                llm_provider_credential_request_from_json(payload)?,
+            ))
+        }
+        "llm_provider_credential_response" => {
+            Ok(proto::envelope::Body::LlmProviderCredentialResponse(
+                llm_provider_credential_response_from_json(payload)?,
+            ))
+        }
+        "llm_provider_credential_rejected" => {
+            Ok(proto::envelope::Body::LlmProviderCredentialRejected(
+                llm_provider_credential_rejected_from_json(payload)?,
+            ))
+        }
         other => Err(KernelError::new(format!(
             "unsupported actor bus body: {other}"
         ))),
     }
 }
 
+// Worker ready records runtime identity and capacity only. Per-worker feature
+// negotiation is not part of the protocol because workers are homogeneous by image.
 fn worker_ready_from_json(value: &Value) -> KernelResult<proto::AgentComputerWorkerReady> {
     let object = object(value, "worker_ready")?;
 
@@ -176,12 +209,15 @@ fn worker_capacity_from_json(value: &Value) -> KernelResult<proto::AgentComputer
     })
 }
 
+// Turn start carries actor inputs to the computer worker. It does not carry
+// pre-rendered LLM requests because the complete computer owns the local AI loop.
 fn turn_start_from_json(value: &Value) -> KernelResult<proto::TurnStart> {
     let object = object(value, "turn_start")?;
 
     Ok(proto::TurnStart {
         turn: Some(turn_ref_from_json(required_value(object, "turn")?)?),
         inputs: actor_inputs_from_json(object.get("inputs"))?,
+        model_ref: optional_message(object.get("model_ref"), turn_model_ref_from_json)?,
     })
 }
 
@@ -226,6 +262,8 @@ fn worker_progress_from_json(value: &Value) -> KernelResult<proto::WorkerProgres
     })
 }
 
+// A final proposal is still only a proposal. The control plane must validate
+// the turn fence and commit it before it becomes durable transcript state.
 fn turn_final_proposal_from_json(value: &Value) -> KernelResult<proto::TurnFinalProposal> {
     let object = object(value, "turn_final_proposal")?;
 
@@ -273,6 +311,60 @@ fn nack_from_json(value: &Value) -> KernelResult<proto::Nack> {
     })
 }
 
+fn llm_provider_credential_request_from_json(
+    value: &Value,
+) -> KernelResult<proto::LlmProviderCredentialRequest> {
+    let object = object(value, "llm_provider_credential_request")?;
+
+    Ok(proto::LlmProviderCredentialRequest {
+        request_id: required_string(object, "request_id")?,
+        agent_uid: required_string(object, "agent_uid")?,
+        session_id: required_string(object, "session_id")?,
+        profile: required_string(object, "profile")?,
+        purpose: optional_string(object, "purpose")?.unwrap_or_default(),
+    })
+}
+
+fn llm_provider_credential_response_from_json(
+    value: &Value,
+) -> KernelResult<proto::LlmProviderCredentialResponse> {
+    let object = object(value, "llm_provider_credential_response")?;
+
+    Ok(proto::LlmProviderCredentialResponse {
+        request_id: required_string(object, "request_id")?,
+        agent_uid: required_string(object, "agent_uid")?,
+        session_id: required_string(object, "session_id")?,
+        profile: required_string(object, "profile")?,
+        provider_id: required_string(object, "provider_id")?,
+        provider_source: required_string(object, "provider_source")?,
+        model: required_string(object, "model")?,
+        base_url: optional_string(object, "base_url")?.unwrap_or_default(),
+        connection_options_json: json_bytes(object.get("connection_options_json"))?
+            .unwrap_or_default(),
+        provider_options_json: json_bytes(object.get("provider_options_json"))?.unwrap_or_default(),
+        credential: required_string(object, "credential")?,
+        credential_mode: required_string(object, "credential_mode")?,
+        source_metadata_json: json_bytes(object.get("source_metadata_json"))?.unwrap_or_default(),
+    })
+}
+
+fn llm_provider_credential_rejected_from_json(
+    value: &Value,
+) -> KernelResult<proto::LlmProviderCredentialRejected> {
+    let object = object(value, "llm_provider_credential_rejected")?;
+
+    Ok(proto::LlmProviderCredentialRejected {
+        request_id: required_string(object, "request_id")?,
+        agent_uid: required_string(object, "agent_uid")?,
+        session_id: required_string(object, "session_id")?,
+        profile: required_string(object, "profile")?,
+        code: required_string(object, "code")?,
+        message: optional_string(object, "message")?.unwrap_or_default(),
+    })
+}
+
+// Parses the durable turn fence echoed by worker replies. Every field is
+// required so stale replies fail by equality checks in the control plane.
 fn turn_ref_from_json(value: &Value) -> KernelResult<proto::ActorTurnRef> {
     let object = object(value, "turn")?;
 
@@ -291,6 +383,18 @@ fn actor_key_from_json(value: &Value) -> KernelResult<proto::ActorKey> {
     Ok(proto::ActorKey {
         agent_uid: required_string(object, "agent_uid")?,
         session_id: required_string(object, "session_id")?,
+        display_name: optional_string(object, "display_name")?.unwrap_or_default(),
+        role: optional_string(object, "role")?.unwrap_or_default(),
+    })
+}
+
+fn turn_model_ref_from_json(value: &Value) -> KernelResult<proto::TurnModelRef> {
+    let object = object(value, "model_ref")?;
+
+    Ok(proto::TurnModelRef {
+        profile: required_string(object, "profile")?,
+        provider_id: required_string(object, "provider_id")?,
+        model: required_string(object, "model")?,
     })
 }
 
@@ -340,6 +444,9 @@ fn proposed_reply_from_json(value: &Value) -> KernelResult<proto::ProposedReply>
     })
 }
 
+// Validates protocol invariants that must be identical for Elixir and Bun
+// callers. Host code should not need to duplicate lane, durability, or
+// correlation rules.
 fn validate_envelope(envelope: &proto::Envelope) -> KernelResult<()> {
     if envelope.protocol_version != PROTOCOL_VERSION {
         return Err(KernelError::new(format!(
@@ -382,6 +489,8 @@ fn validate_envelope(envelope: &proto::Envelope) -> KernelResult<()> {
     }
 }
 
+// Requires correlation ids only for envelopes that belong to a specific turn or
+// request/reply chain. Worker lifecycle envelopes are intentionally ephemeral.
 fn validate_correlation_id(
     envelope: &proto::Envelope,
     body: &proto::envelope::Body,
@@ -412,9 +521,15 @@ fn body_requires_correlation_id(body: &proto::envelope::Body) -> bool {
             | proto::envelope::Body::TurnError(_)
             | proto::envelope::Body::Ack(_)
             | proto::envelope::Body::Nack(_)
+            | proto::envelope::Body::LlmProviderCredentialRequest(_)
+            | proto::envelope::Body::LlmProviderCredentialResponse(_)
+            | proto::envelope::Body::LlmProviderCredentialRejected(_)
     )
 }
 
+// Keeps lane and durability tied to the body type. This prevents callers from
+// accidentally making a retryable turn-start look like an ephemeral control
+// message, or making worker progress durable when it is only observational.
 fn validate_body_semantics(
     body: &proto::envelope::Body,
     lane: proto::Lane,
@@ -486,6 +601,21 @@ fn validate_body_semantics(
             proto::Lane::Control,
             proto::DurabilityClass::ControlEphemeral,
         ),
+        proto::envelope::Body::LlmProviderCredentialRequest(_) => (
+            "llm_provider_credential_request",
+            proto::Lane::Rpc,
+            proto::DurabilityClass::ControlEphemeral,
+        ),
+        proto::envelope::Body::LlmProviderCredentialResponse(_) => (
+            "llm_provider_credential_response",
+            proto::Lane::Rpc,
+            proto::DurabilityClass::ControlEphemeral,
+        ),
+        proto::envelope::Body::LlmProviderCredentialRejected(_) => (
+            "llm_provider_credential_rejected",
+            proto::Lane::Rpc,
+            proto::DurabilityClass::ControlEphemeral,
+        ),
     };
 
     if lane != expected_lane {
@@ -520,9 +650,18 @@ fn body_name(body: &proto::envelope::Body) -> &'static str {
         proto::envelope::Body::ControlShutdown(_) => "control_shutdown",
         proto::envelope::Body::Ack(_) => "ack",
         proto::envelope::Body::Nack(_) => "nack",
+        proto::envelope::Body::LlmProviderCredentialRequest(_) => "llm_provider_credential_request",
+        proto::envelope::Body::LlmProviderCredentialResponse(_) => {
+            "llm_provider_credential_response"
+        }
+        proto::envelope::Body::LlmProviderCredentialRejected(_) => {
+            "llm_provider_credential_rejected"
+        }
     }
 }
 
+// Steering must be journaled as actor input instead of hidden in a turn-control
+// payload. That preserves the user-visible input stream as the replay source.
 fn validate_turn_control(control: &proto::TurnControl) -> KernelResult<()> {
     if control.command == "steer" && !empty_json_payload(&control.payload_json) {
         return Err(KernelError::new(
@@ -533,6 +672,8 @@ fn validate_turn_control(control: &proto::TurnControl) -> KernelResult<()> {
     Ok(())
 }
 
+// Allows only progress classes that the control plane can surface without
+// changing durable actor state.
 fn validate_worker_progress(progress: &proto::WorkerProgress) -> KernelResult<()> {
     match normalized_name(&progress.kind).as_str() {
         "summary"
@@ -570,6 +711,8 @@ fn durability_name(durability: proto::DurabilityClass) -> &'static str {
     }
 }
 
+// Converts prost structs back to the canonical host JSON shape. The nested
+// `body.type` form keeps dispatch simple in Elixir and TypeScript.
 fn envelope_to_json(envelope: &proto::Envelope) -> KernelResult<Value> {
     let mut object = Map::new();
     object.insert(
@@ -636,6 +779,18 @@ fn body_to_json(body: Option<&proto::envelope::Body>) -> KernelResult<Value> {
         }
         Some(proto::envelope::Body::Ack(payload)) => ("ack", ack_to_json(payload)),
         Some(proto::envelope::Body::Nack(payload)) => ("nack", nack_to_json(payload)),
+        Some(proto::envelope::Body::LlmProviderCredentialRequest(payload)) => (
+            "llm_provider_credential_request",
+            llm_provider_credential_request_to_json(payload),
+        ),
+        Some(proto::envelope::Body::LlmProviderCredentialResponse(payload)) => (
+            "llm_provider_credential_response",
+            llm_provider_credential_response_to_json(payload),
+        ),
+        Some(proto::envelope::Body::LlmProviderCredentialRejected(payload)) => (
+            "llm_provider_credential_rejected",
+            llm_provider_credential_rejected_to_json(payload),
+        ),
         None => return Err(KernelError::new("envelope body is required")),
     };
 
@@ -699,6 +854,10 @@ fn turn_start_to_json(payload: &proto::TurnStart) -> KernelResult<Value> {
                     .map(actor_input_to_json)
                     .collect::<KernelResult<Vec<_>>>()?,
             ),
+        ),
+        (
+            "model_ref",
+            turn_model_ref_to_json(payload.model_ref.as_ref())?,
         ),
     ]))
 }
@@ -793,6 +952,66 @@ fn nack_to_json(payload: &proto::Nack) -> KernelResult<Value> {
     ]))
 }
 
+fn llm_provider_credential_request_to_json(
+    payload: &proto::LlmProviderCredentialRequest,
+) -> KernelResult<Value> {
+    Ok(json_object([
+        ("request_id", Value::from(payload.request_id.clone())),
+        ("agent_uid", Value::from(payload.agent_uid.clone())),
+        ("session_id", Value::from(payload.session_id.clone())),
+        ("profile", Value::from(payload.profile.clone())),
+        ("purpose", Value::from(payload.purpose.clone())),
+    ]))
+}
+
+fn llm_provider_credential_response_to_json(
+    payload: &proto::LlmProviderCredentialResponse,
+) -> KernelResult<Value> {
+    Ok(json_object([
+        ("request_id", Value::from(payload.request_id.clone())),
+        ("agent_uid", Value::from(payload.agent_uid.clone())),
+        ("session_id", Value::from(payload.session_id.clone())),
+        ("profile", Value::from(payload.profile.clone())),
+        ("provider_id", Value::from(payload.provider_id.clone())),
+        (
+            "provider_source",
+            Value::from(payload.provider_source.clone()),
+        ),
+        ("model", Value::from(payload.model.clone())),
+        ("base_url", Value::from(payload.base_url.clone())),
+        (
+            "connection_options_json",
+            bytes_to_json(&payload.connection_options_json)?,
+        ),
+        (
+            "provider_options_json",
+            bytes_to_json(&payload.provider_options_json)?,
+        ),
+        ("credential", Value::from(payload.credential.clone())),
+        (
+            "credential_mode",
+            Value::from(payload.credential_mode.clone()),
+        ),
+        (
+            "source_metadata_json",
+            bytes_to_json(&payload.source_metadata_json)?,
+        ),
+    ]))
+}
+
+fn llm_provider_credential_rejected_to_json(
+    payload: &proto::LlmProviderCredentialRejected,
+) -> KernelResult<Value> {
+    Ok(json_object([
+        ("request_id", Value::from(payload.request_id.clone())),
+        ("agent_uid", Value::from(payload.agent_uid.clone())),
+        ("session_id", Value::from(payload.session_id.clone())),
+        ("profile", Value::from(payload.profile.clone())),
+        ("code", Value::from(payload.code.clone())),
+        ("message", Value::from(payload.message.clone())),
+    ]))
+}
+
 fn turn_ref_to_json(turn: Option<&proto::ActorTurnRef>) -> KernelResult<Value> {
     let turn = turn.ok_or_else(|| KernelError::new("turn ref is required"))?;
 
@@ -808,10 +1027,35 @@ fn turn_ref_to_json(turn: Option<&proto::ActorTurnRef>) -> KernelResult<Value> {
 fn actor_key_to_json(actor: Option<&proto::ActorKey>) -> KernelResult<Value> {
     let actor = actor.ok_or_else(|| KernelError::new("actor key is required"))?;
 
-    Ok(json_object([
-        ("agent_uid", Value::from(actor.agent_uid.clone())),
-        ("session_id", Value::from(actor.session_id.clone())),
-    ]))
+    let mut object = Map::new();
+    object.insert(
+        "agent_uid".to_string(),
+        Value::from(actor.agent_uid.clone()),
+    );
+    object.insert(
+        "session_id".to_string(),
+        Value::from(actor.session_id.clone()),
+    );
+    put_non_empty_string(&mut object, "display_name", &actor.display_name);
+    put_non_empty_string(&mut object, "role", &actor.role);
+    Ok(Value::Object(object))
+}
+
+fn put_non_empty_string(object: &mut Map<String, Value>, key: &str, value: &str) {
+    if !value.is_empty() {
+        object.insert(key.to_string(), Value::from(value.to_string()));
+    }
+}
+
+fn turn_model_ref_to_json(model_ref: Option<&proto::TurnModelRef>) -> KernelResult<Value> {
+    match model_ref {
+        Some(model_ref) => Ok(json_object([
+            ("profile", Value::from(model_ref.profile.clone())),
+            ("provider_id", Value::from(model_ref.provider_id.clone())),
+            ("model", Value::from(model_ref.model.clone())),
+        ])),
+        None => Ok(Value::Null),
+    }
 }
 
 fn actor_input_to_json(input: &proto::ActorInputEnvelope) -> KernelResult<Value> {
@@ -1024,6 +1268,9 @@ fn optional_message<T>(
     }
 }
 
+// Stores arbitrary JSON payload fields as bytes inside protobuf messages. This
+// keeps the protocol typed where it matters and flexible for provider-specific
+// payloads that the kernel should not understand.
 fn json_bytes(value: Option<&Value>) -> KernelResult<Option<Vec<u8>>> {
     match value {
         Some(Value::Null) | None => Ok(None),
@@ -1034,6 +1281,8 @@ fn json_bytes(value: Option<&Value>) -> KernelResult<Option<Vec<u8>>> {
     }
 }
 
+// Decodes JSON payload bytes when possible and falls back to a string for
+// legacy or debugging payloads that are not valid JSON.
 fn bytes_to_json(bytes: &[u8]) -> KernelResult<Value> {
     if bytes.is_empty() {
         return Ok(Value::Null);
@@ -1052,6 +1301,8 @@ fn normalized_enum(value: &Value) -> KernelResult<String> {
     }
 }
 
+// Normalizes enum-like input from both generated names and human-friendly names
+// without accepting arbitrary body types.
 fn normalized_name(value: &str) -> String {
     value.trim().to_ascii_lowercase().replace('-', "_")
 }

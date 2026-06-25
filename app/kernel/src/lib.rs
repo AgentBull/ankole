@@ -11,14 +11,14 @@ use mimalloc::MiMalloc;
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
-#[cfg(any(test, feature = "napi", feature = "nif"))]
-mod core;
+#[cfg(any(test, feature = "embed", feature = "napi", feature = "nif"))]
+pub mod core;
 
-#[cfg(any(test, feature = "napi", feature = "nif"))]
-mod authz;
+#[cfg(any(test, feature = "embed", feature = "napi", feature = "nif"))]
+pub mod authz;
 
-#[cfg(any(test, feature = "napi", feature = "nif"))]
-mod actor_bus;
+#[cfg(any(test, feature = "embed", feature = "napi", feature = "nif"))]
+pub mod actor_bus;
 
 #[cfg(feature = "napi")]
 mod napi_exports;
