@@ -1,6 +1,13 @@
 defmodule Ankole.ActorRuntime.SessionController do
   @moduledoc """
   Serial process for one `{agent_uid, session_id}` actor key.
+
+  This GenServer is the in-memory serialization point for one actor: by funneling
+  that actor's scheduling work through a single process, the common path never
+  has two turns racing for the same actor key. It is an optimization for
+  reasoning, not the correctness boundary — durable database fences (turn and
+  delivery rows) remain the real guard, so a controller crash or restart cannot
+  corrupt an actor's state.
   """
 
   use GenServer
@@ -9,6 +16,9 @@ defmodule Ankole.ActorRuntime.SessionController do
   alias Ankole.ActorRuntime.ActorDirectory
   alias Ankole.ActorRuntime.SessionSupervisor
 
+  # Processing one ready batch can drive an LLM turn end to end, so the
+  # caller-side call timeout is generous (30s) to avoid spurious exits while the
+  # actor does real work. The DB fences still bound correctness if it does run long.
   @call_timeout 30_000
 
   @doc """
@@ -44,6 +54,10 @@ defmodule Ankole.ActorRuntime.SessionController do
     {:reply, ActorRuntime.process_ready_inputs_for_actor(state.actor_key, opts), state}
   end
 
+  # Accept both atom-keyed (internal) and string-keyed (decoded JSON) actor keys,
+  # and downcase the agent uid so a single actor always maps to one Registry name
+  # and one controller — case differences in the uid must not fork the actor into
+  # two serial processes. Must match ActorDirectory.key/1's normalization exactly.
   defp normalize_actor_key(%{agent_uid: agent_uid, session_id: session_id}) do
     %{agent_uid: normalize_uid(agent_uid), session_id: session_id}
   end

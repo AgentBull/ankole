@@ -1,6 +1,14 @@
 defmodule Ankole.ActorRuntime.Supervisor do
   @moduledoc """
   Supervision root for control-plane actor-runtime services.
+
+  This supervisor is the failure domain for the actor runtime. It uses
+  `:one_for_one`: each child is an independent concern (transport, naming,
+  per-actor controllers, and several recovery loops), so one crashing does not
+  invalidate the others' state. Durable correctness lives in Postgres, not in
+  these processes, so a single child restart is always safe to recover from
+  cold — the recovery loops below simply re-derive runtime state from the
+  ledger on their next tick.
   """
 
   use Supervisor
@@ -19,9 +27,12 @@ defmodule Ankole.ActorRuntime.Supervisor do
   def init(opts) do
     runtime_opts = runtime_opts(opts)
 
-    # The transport broker, directory, and dynamic supervisor are the core path.
-    # Reconciler, polling, watchdog, and outbox dispatch are repeatable recovery
-    # loops that can be disabled in focused tests.
+    # The transport broker, directory, and dynamic supervisor are the core path:
+    # without them no actor turn can be sent or routed. The reconciler,
+    # activation manager, watchdog, and outbox dispatcher are repeatable recovery
+    # loops — each one re-reads the durable ledger and is idempotent, so tests
+    # that want to drive recovery by hand (or isolate one concern) switch them
+    # off via opts without breaking the core path.
     children =
       [
         broker_child(opts),
@@ -86,6 +97,12 @@ defmodule Ankole.ActorRuntime.Supervisor do
     end
   end
 
+  # Decides whether the broker boots with a real ZeroMQ ROUTER or stays in
+  # local-route-only mode. No endpoint configured (the test default) -> start the
+  # broker bare so local route handlers can stand in for workers. An endpoint
+  # configured -> hand the broker router opts so it binds the production socket.
+  # A malformed config is an operator error at boot, so we crash startup loudly
+  # rather than silently come up with no transport.
   defp broker_child(opts) do
     case router_opts(opts) do
       {:ok, nil} ->
@@ -126,6 +143,13 @@ defmodule Ankole.ActorRuntime.Supervisor do
 
   defp normalize_router_opts(_value), do: {:error, :invalid_router_config}
 
+  # Resolves how the native ROUTER will authenticate workers (ZAP). Caller-given
+  # credentials win in priority order: a pre-shared token, an explicit key list,
+  # or an explicit auth database URL. `worker_auth: false` disables ZAP entirely
+  # (test/dev only). The default — and the production path — is to point the
+  # router at the Repo's own database so it can verify worker pre-auth keys
+  # against the live `agent_computer_worker_auth_keys` table. The `:worker_auth`
+  # marker is internal and never forwarded to the native layer, so we drop it.
   defp router_opts_with_token(endpoint, opts) do
     opts =
       cond do
