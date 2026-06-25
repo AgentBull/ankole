@@ -1,11 +1,33 @@
+// Last-line secret scrubber for anything that leaves the agent computer toward a human or a log: tool
+// output, error text, request/response payloads, logger arguments. It is best-effort pattern matching,
+// not a guarantee — the goal is to keep API keys, bearer tokens, cookies, and private keys out of logs
+// and UI echoes, accepting that a secret in a novel format may slip through. The whole module leans
+// deliberately toward over-masking: hiding a suspicious-looking token fragment from diagnostics is far
+// cheaper than leaking a live credential.
 import type { JsonValue } from '@/common/db-schema'
 
+// A masked token keeps its first 6 and last 4 chars (enough to recognise *which* key it was when
+// debugging) and hides the middle. Anything shorter than 18 chars is replaced wholesale with `***`,
+// because keeping head+tail of a short secret would reveal most of it.
 const MIN_TOKEN_LENGTH = 18
 const KEEP_START = 6
 const KEEP_END = 4
+// Cheap gate run on every string before the expensive pattern list below: if none of these tell-tale
+// substrings are present, the text cannot contain a secret we recognise and is returned untouched, which
+// keeps ordinary log lines fast. The list is the union of generic secret words and the distinctive fixed
+// prefixes of common token formats — OpenAI `sk-`, GitHub `ghp_`/`github_pat_`, Slack `xox*`/`xapp-`,
+// Groq `gsk_`, Google `AIza`/`ya29.`/`1//0`, JWT `eyJ`, Perplexity `pplx-`, npm `npm_`, AWS `AKID`,
+// Alibaba `LTAI`, HuggingFace `hf_`, Replicate `r8_`, and Telegram bot tokens.
 const PREFILTER =
   /(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|AUTH|COOKIE|SIGNATURE|PRIVATE KEY|\bBearer\s+|sk-|ghp_|github_pat_|xox[baprs]-|xapp-|gsk_|AIza|ya29\.|1\/\/0|eyJ|pplx-|npm_|AKID|LTAI|hf_|r8_|\bbot\d{6,}:|\b\d{6,}:[A-Za-z0-9_-]{20,})/i
 
+// The actual scrub patterns, applied in order. They fall into two families. The first group is
+// CONTEXTUAL — a secret-ish key paired with a value (`KEY=...`, `?token=...`, `"apiKey":"..."`,
+// `Authorization: Bearer ...`, CLI `--token ...`); these capture the value in a group so only the value
+// is masked, not the surrounding key/syntax. The second group is FORMAT-SHAPED — values recognisable on
+// their own by a known prefix and length (the same vendor token formats the PREFILTER lists, plus PEM
+// private-key blocks). Order matters only loosely: each pattern masks its own matches, and the value
+// group is always the LAST capture group (see how redactSensitiveText picks `groups.at(-1)`).
 const PATTERNS: RegExp[] = [
   /\b[A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD)\b\s*[=:]\s*(["']?)([^\s"'\\]+)\1/g,
   /[?&](?:access[-_]?token|auth[-_]?token|hook[-_]?token|refresh[-_]?token|api[-_]?key|client[-_]?secret|token|key|secret|password|pass|passwd|auth|signature)=([^&\s"'<>]+)/gi,
@@ -37,6 +59,10 @@ const PATTERNS: RegExp[] = [
   /\b(\d{6,}:[A-Za-z0-9_-]{20,})\b/g
 ]
 
+// Names of object keys whose string value is masked outright by redactJsonValue, regardless of what the
+// value looks like. This complements the text patterns above: a secret stored under an obvious key
+// (`{ token: "abc" }`) may not match any value-shape pattern, but the KEY itself betrays it. Anchored
+// (`^...$`) so it matches the whole key, not a substring like `tokenCount`.
 const SENSITIVE_KEY_RE =
   /^(?:api[-_]?key|apiKey|token|secret|password|passwd|access[-_]?token|accessToken|refresh[-_]?token|refreshToken|id[-_]?token|idToken|auth[-_]?token|authToken|client[-_]?secret|clientSecret|app[-_]?secret|appSecret|authorization|cookie|set-cookie)$/i
 
@@ -53,10 +79,17 @@ export function redactSensitiveText(text: string): string {
   for (const pattern of PATTERNS) {
     output = output.replace(pattern, (...args: string[]) => {
       const match = args[0]!
+      // PEM blocks span many lines; mask the body but keep the BEGIN/END markers so the text stays legible.
       if (match.includes('PRIVATE KEY-----')) return redactPemBlock(match)
+      // String.replace passes (fullMatch, ...captureGroups, offset, fullString); slicing off the first
+      // (the match) and the last two (offset + full string) leaves just the capture groups. By
+      // convention every pattern puts the secret VALUE in its last group, so `groups.at(-1)` is the token
+      // to mask; falling back to the whole match covers format-shaped patterns with no inner group.
       const groups = args.slice(1, -2).filter(Boolean)
       const token = groups.at(-1) ?? match
       const masked = maskToken(token)
+      // When the token is the whole match, replace it directly; otherwise splice the masked value back
+      // into the match so the surrounding key/quotes/`=` are preserved and only the secret is hidden.
       return token === match ? masked : match.replace(token, masked)
     })
   }
@@ -103,6 +136,9 @@ function maskToken(token: string): string {
   return `${token.slice(0, KEEP_START)}...${token.slice(-KEEP_END)}`
 }
 
+// Collapses a multi-line PEM private key into its first and last lines (the `-----BEGIN/END-----`
+// markers) with the key material between them replaced. A degenerate block with fewer than two lines has
+// no safe markers to keep, so it is masked entirely.
 function redactPemBlock(block: string): string {
   const lines = block.split(/\r?\n/).filter(Boolean)
   if (lines.length < 2) return '***'
