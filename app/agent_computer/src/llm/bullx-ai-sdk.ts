@@ -9,7 +9,19 @@ import {
   type SimpleStreamOptions
 } from './bullx'
 
-/** Converts BullX's durable transcript format into the AI SDK wire format used by provider calls. */
+// The seam between Ankole's durable BullX shapes (bullx.ts) and the vendored AI SDK's
+// per-call wire shapes. Everything here is pure translation, in BOTH directions:
+//  - outbound: BullX transcript -> AI SDK request (messages, provider options, reasoning)
+//  - inbound:  AI SDK result    -> BullX assistant message (stop reason, usage, cost)
+
+/**
+ * Maps a BullX transcript onto the AI SDK request shape. The non-obvious renames:
+ *  - BullX block `thinking` -> AI SDK `reasoning` content part.
+ *  - BullX `toolCall` (fields id/name/arguments) -> AI SDK `tool-call` (toolCallId/toolName/input).
+ *  - BullX role `toolResult` -> AI SDK role `tool`.
+ * Tool results are flattened to text: image blocks become an `[image:...]` placeholder because
+ * the tool-result wire slot only carries text, and `isError` selects the SDK's error-text variant.
+ */
 export function convertBullXMessagesToModelMessages(messages: Message[]): ModelMessage[] {
   return messages.map(message => {
     if (message.role === 'user') {
@@ -21,7 +33,9 @@ export function convertBullXMessagesToModelMessages(messages: Message[]): ModelM
             : message.content.map(block =>
                 block.type === 'text'
                   ? { type: 'text' as const, text: block.text }
-                  : { type: 'image' as const, image: block.data, mediaType: block.mimeType }
+                  : // BullX stores image bytes inline (base64) in `data`; the SDK image part wants
+                    // them under `image` with the mime type as `mediaType`.
+                    { type: 'image' as const, image: block.data, mediaType: block.mimeType }
               )
       }
     }
@@ -31,6 +45,7 @@ export function convertBullXMessagesToModelMessages(messages: Message[]): ModelM
         role: 'assistant',
         content: message.content.map(block => {
           if (block.type === 'text') return { type: 'text' as const, text: block.text }
+          // Replaying our own prior reasoning back to the provider as a 'reasoning' part.
           if (block.type === 'thinking') return { type: 'reasoning' as const, text: block.thinking }
           return {
             type: 'tool-call' as const,
@@ -42,6 +57,7 @@ export function convertBullXMessagesToModelMessages(messages: Message[]): ModelM
       }
     }
 
+    // toolResult: join all content blocks into a single text payload (images degraded to a tag).
     const text = message.content
       .map(block => (block.type === 'text' ? block.text : `[image:${block.mimeType}]`))
       .join('\n')
@@ -61,7 +77,12 @@ export function convertBullXMessagesToModelMessages(messages: Message[]): ModelM
   })
 }
 
-/** Builds a BullX assistant message with stable defaults for error paths and provider calls without usage data. */
+/**
+ * Stamps a BullX assistant message with model provenance and safe defaults. Used both for
+ * the success path (with `extra` carrying real usage/responseId) and for error/abort paths
+ * where there is no provider response at all. Usage defaults to a fresh copy of ZERO_USAGE
+ * (cost included) so callers never alias the shared constant; `extra` can override any field.
+ */
 export function createBullXAssistantMessage(
   model: Model<any>,
   stopReason: AssistantMessage['stopReason'],
@@ -86,10 +107,22 @@ export function toBullXStopReason(reason: string): AssistantMessage['stopReason'
   if (reason === 'length') return 'length'
   if (reason === 'tool-calls') return 'toolUse'
   if (reason === 'error') return 'error'
+  // Everything else (including the SDK's 'stop', 'content-filter', 'other', 'unknown')
+  // folds into 'stop'; 'aborted' is not produced here — callers set it from the abort signal.
   return 'stop'
 }
 
-/** Normalizes provider usage into BullX token buckets and computes cost in the same pass. */
+/**
+ * Folds the AI SDK's nested usage report into BullX's four flat token buckets and prices it.
+ *
+ * Cache tokens come from `inputTokenDetails` (Anthropic cache-read/write, OpenAI cached input);
+ * each missing field defaults to 0 because not every provider reports them. NOTE: `input` here
+ * is the SDK's reported input count, which on cache-aware providers may already include cached
+ * tokens — BullX records cacheRead/cacheWrite as separate line items and lets the per-bucket
+ * prices in the model sort out the billing, rather than trying to subtract them. `totalTokens`
+ * falls back to input+output when the provider omits a grand total. Cost is computed in the same
+ * pass via calculateCost so usage and cost are always consistent.
+ */
 export function toBullXUsage(usage: LanguageModelUsage | undefined, model: Model<any>): AssistantMessage['usage'] {
   const input = usage?.inputTokens ?? 0
   const output = usage?.outputTokens ?? 0
@@ -118,7 +151,13 @@ export function resolveBullXReasoning(
   return options.reasoning
 }
 
-/** Builds provider-specific cache controls from BullX's provider-neutral cache retention option. */
+/**
+ * Translates BullX's provider-neutral `cacheRetention` ('short'|'long') into each provider's
+ * own prompt-cache controls. Only OpenAI and Anthropic have explicit knobs here; every other
+ * provider falls through and just keeps the caller's explicit options (caching, if any, is
+ * implicit). Returns `explicitOptions` untouched when caching is off so we never fabricate a
+ * provider-options object the caller didn't ask for.
+ */
 export function createBullXProviderOptions(
   model: Model<any>,
   options: SimpleStreamOptions
@@ -128,17 +167,22 @@ export function createBullXProviderOptions(
   if (!cacheRetention || cacheRetention === 'none') return explicitOptions
 
   if (model.provider === 'openai') {
+    // OpenAI prompt caching keys on a caller-supplied string. Without a stable key we can't
+    // safely opt in (an empty/shared key would risk cross-conversation reuse), so bail.
     const promptCacheKey = promptCacheKeyFromOptions(model, options)
     if (!promptCacheKey) return explicitOptions
     return mergeProviderOptions(explicitOptions, {
       openai: {
         promptCacheKey,
+        // 'long' -> persisted 24h cache; 'short' -> in-memory (lives only for the burst).
         promptCacheRetention: cacheRetention === 'long' ? '24h' : 'in_memory'
       }
     })
   }
 
   if (model.provider === 'anthropic') {
+    // Anthropic caches via an ephemeral cache-control breakpoint; we pick the TTL.
+    // 'long' -> 1h, 'short' -> 5m (Anthropic's two supported ephemeral TTLs).
     return mergeProviderOptions(explicitOptions, {
       anthropic: {
         cacheControl: {
@@ -152,7 +196,12 @@ export function createBullXProviderOptions(
   return explicitOptions
 }
 
-/** Merges control-plane provider options with BullX-local cache controls without dropping either side. */
+/**
+ * Deep-merges two provider-options maps one level into each provider's sub-object so
+ * BullX's cache controls (`right`) and the caller's explicit options (`left`) coexist.
+ * Precedence: `right` wins on key collisions, but only within the same provider — other
+ * providers' settings are preserved untouched.
+ */
 function mergeProviderOptions(
   left: ProviderOptions | undefined,
   right: ProviderOptions | undefined
@@ -170,7 +219,12 @@ function mergeProviderOptions(
   return merged
 }
 
-/** Names OpenAI prompt-cache entries by installation conversation so cache reuse never crosses conversations. */
+/**
+ * Derives a stable OpenAI prompt-cache key scoped to one conversation. Including provider +
+ * model id in the key means a cache entry is never reused across a different model, and the
+ * conversation id means it never bleeds between conversations (privacy + correctness). Returns
+ * undefined when no conversation id is in metadata, which disables caching for that call.
+ */
 function promptCacheKeyFromOptions(model: Model<any>, options: SimpleStreamOptions): string | undefined {
   const conversationId =
     stringMetadata(options.metadata, 'conversation_id') ?? stringMetadata(options.metadata, 'cache_key')
@@ -186,5 +240,7 @@ function stringMetadata(metadata: Record<string, unknown> | undefined, key: stri
 
 /** Keeps cache-key parts inside provider-safe characters and bounded length. */
 function sanitizeCacheKeyPart(value: string): string {
+  // Replace anything outside a conservative whitelist, then cap at 128 chars to stay under
+  // provider key-length limits (a long conversation id won't blow the budget).
   return value.replace(/[^a-zA-Z0-9_.:-]/g, '_').slice(0, 128)
 }

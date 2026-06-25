@@ -8,6 +8,13 @@ import { createOpenAICompatible } from './providers/openai-compatible'
 import type { LanguageModel } from './types'
 import type { Api, Model } from './bullx'
 
+// Static catalog of the LLM providers/models Ankole ships with, plus the resolution helpers
+// the control plane uses to turn a (provider, modelId) pair from DB config into a callable
+// Model. Two provider classes live here: "first-class" providers with a fixed model list and
+// their own AI SDK adapter, and "compatible" (OpenAI-compatible) providers where an operator
+// may type ANY model id — for those, unknown ids are resolved to a synthetic Model.
+
+/** Provider kinds Ankole knows how to build an AI SDK adapter for. The string is what's stored in installation config. */
 export type LlmProviderKind =
   | 'openai'
   | 'anthropic'
@@ -25,6 +32,7 @@ export type LlmProviderKind =
   | 'fireworks'
   | 'together'
 
+/** One row in the static catalog. `compatible: true` marks an OpenAI-compatible provider that accepts arbitrary model ids. */
 export interface LlmProviderCatalogEntry {
   id: string
   name: string
@@ -34,6 +42,7 @@ export interface LlmProviderCatalogEntry {
   compatible?: boolean
 }
 
+/** Everything createLanguageModel needs from resolved DB config; `baseUrl` null/absent falls back to the model's default. */
 export interface CreateLanguageModelInput {
   llmProvider: string
   model: Model
@@ -43,8 +52,14 @@ export interface CreateLanguageModelInput {
   providerOptions?: Record<string, unknown>
 }
 
+// Default pricing for catalog models is ZERO across all buckets. Real per-token prices are
+// expected to be supplied out-of-band (e.g. from operator config), so calculateCost on a
+// raw catalog model reports 0 cost rather than a stale hardcoded number that would drift.
 const zeroCost = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }
 
+// The shipped provider list. `model(...)` args after the names are: reasoning?, contextWindow,
+// maxTokens — see the `model` factory below. Compatible providers may ship a seed model list
+// (e.g. OpenRouter) or none at all (the operator enters ids by hand).
 const catalog: LlmProviderCatalogEntry[] = [
   provider('openai', 'OpenAI', 'https://api.openai.com/v1', 'openai-responses', [
     model('gpt-5', 'GPT-5', 'openai', 'openai-responses', true, 400000, 128000),
@@ -113,7 +128,12 @@ export function getModels(llmProvider: string): Model[] {
   return getProviderEntry(llmProvider)?.models.map(cloneModel) ?? []
 }
 
-/** Resolves a known model or creates a synthetic model for compatible providers with arbitrary model ids. */
+/**
+ * Resolves a (provider, modelId) pair to a Model. If the id is in the catalog, returns a clone
+ * of that entry. If not, falls back to a synthetic model — this is how compatible providers
+ * support model ids Ankole has never heard of. Returns undefined only when the PROVIDER is
+ * unknown; an unknown model under a known provider always resolves (via the synthetic fallback).
+ */
 export function getModel(llmProvider: string, modelId: string): Model | undefined {
   const entry = getProviderEntry(llmProvider)
   if (!entry) return undefined
@@ -126,8 +146,15 @@ export function getProviderEntry(llmProvider: string): LlmProviderCatalogEntry |
   return catalog.find(entry => entry.id === llmProvider)
 }
 
-/** Creates the concrete AI SDK language model used by BullX after DB provider config has been resolved. */
+/**
+ * Instantiates the concrete AI SDK LanguageModel for a resolved provider/model. The result is
+ * what gets attached to Model.sdkModel so generate/stream can actually call out. First-class
+ * providers each get their dedicated adapter; every other provider id falls through to the
+ * OpenAI-compatible adapter (the `default` case), which is why new compatible providers need
+ * no code change here beyond a catalog entry.
+ */
 export function createLanguageModel(input: CreateLanguageModelInput): LanguageModel {
+  // Operator-provided base URL wins; otherwise use the model's catalog default endpoint.
   const baseUrl = input.baseUrl ?? input.model.baseUrl
   const headers = input.headers
   const providerOptions = input.providerOptions ?? {}
@@ -155,6 +182,9 @@ export function createLanguageModel(input: CreateLanguageModelInput): LanguageMo
         ...(providerOptions as Record<string, never>)
       })(input.model.id as never)
     default:
+      // All compatible providers (openrouter, xai, groq, deepseek, custom, …) share this path.
+      // includeUsage asks the endpoint to return token usage so cost accounting works;
+      // supportsStructuredOutputs assumes JSON-schema response support (most OpenAI clones have it).
       return createOpenAICompatible({
         name: input.llmProvider,
         apiKey: input.apiKey,
@@ -168,6 +198,8 @@ export function createLanguageModel(input: CreateLanguageModelInput): LanguageMo
 
 /** Builds a first-class provider entry and stamps its default base URL onto every bundled model. */
 function provider(id: string, name: string, baseUrl: string, api: Api, models: Model[]): LlmProviderCatalogEntry {
+  // `item.baseUrl || baseUrl`: model() leaves baseUrl '' so each model inherits the provider's
+  // endpoint here, while still allowing a per-model override to win if one is ever set.
   return { id, name, baseUrl, api, models: models.map(item => ({ ...item, baseUrl: item.baseUrl || baseUrl })) }
 }
 
@@ -177,13 +209,19 @@ function compatibleProvider(id: string, name: string, baseUrl: string, models: M
     id,
     name,
     baseUrl,
+    // Compatible providers always speak the OpenAI completions dialect regardless of vendor.
     api: 'openai-completions',
     models: models.map(item => ({ ...item, baseUrl: item.baseUrl || baseUrl })),
     compatible: true
   }
 }
 
-/** Defines the minimal model metadata BullX needs for routing, limits, and context-overflow decisions. */
+/**
+ * Factory for a catalog model. baseUrl is intentionally '' so the provider/compatibleProvider
+ * wrappers fill it in; cost defaults to zero (see zeroCost). The two numbers are contextWindow
+ * (total prompt budget, feeds isContextOverflow) and maxTokens (output cap). `input` is fixed to
+ * text+image for every catalog model.
+ */
 function model(
   id: string,
   name: string,
@@ -207,7 +245,12 @@ function model(
   }
 }
 
-/** Provides conservative defaults for custom compatible-provider model ids that are not in the catalog. */
+/**
+ * Fallback Model for a custom id under a compatible provider. Defaults are deliberately
+ * conservative because we know nothing about the model: reasoning is assumed true (callers can
+ * still opt out per-call), text+image input, zero cost, and a modest 128k window / 8k output cap
+ * so context-overflow handling has a sane bound to work against.
+ */
 function syntheticModel(entry: LlmProviderCatalogEntry, id: string): Model {
   return {
     id,
@@ -223,7 +266,11 @@ function syntheticModel(entry: LlmProviderCatalogEntry, id: string): Model {
   }
 }
 
-/** Clones nested model metadata so provider resolution can merge headers/compat without mutating the catalog. */
+/**
+ * Deep-ish clone of a catalog model so callers can mutate runtime fields (headers, compat,
+ * cost, sdkModel) without corrupting the shared catalog singleton. Nested objects/arrays are
+ * copied; the rest are primitives that copy by value via the spread.
+ */
 function cloneModel<TApi extends Api>(item: Model<TApi>): Model<TApi> {
   return {
     ...item,
