@@ -55,6 +55,8 @@ if Code.ensure_loaded?(Plug) do
 
     defp reply({:ok, _}, conn), do: respond(conn, 200, %{"msg" => "success"})
 
+    # Handler reached but failed/crashed → 5xx so Feishu retries delivery, and the
+    # reason is kept off the wire to avoid leaking internals.
     defp reply({:error, {:handler_failed, _reason}}, conn) do
       respond(conn, 500, %{"msg" => "handler failed"})
     end
@@ -63,6 +65,8 @@ if Code.ensure_loaded?(Plug) do
       respond(conn, 500, %{"msg" => "handler failed"})
     end
 
+    # Verification/decode failures are client-side (bad signature, malformed body)
+    # → 400; retrying won't help, so we don't ask Feishu to.
     defp reply({:error, reason}, conn) do
       respond(conn, 400, %{"msg" => "invalid webhook: #{inspect(reason)}"})
     end
@@ -77,6 +81,9 @@ if Code.ensure_loaded?(Plug) do
     defp resolve(fun) when is_function(fun, 0), do: fun.()
     defp resolve(%Dispatcher{} = d), do: d
 
+    # Read the whole body ourselves (chunks prepended for O(1), reversed at the
+    # end) rather than trusting an upstream parser: signature verification needs
+    # the exact raw bytes, byte-for-byte. The 8 MB read length bounds buffering.
     defp read_all_body(conn, acc \\ []) do
       case Plug.Conn.read_body(conn, length: 8_000_000) do
         {:ok, body, conn} ->

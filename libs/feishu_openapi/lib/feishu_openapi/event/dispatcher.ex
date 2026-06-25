@@ -150,13 +150,19 @@ defmodule FeishuOpenAPI.Event.Dispatcher do
 
   # --- internals -----------------------------------------------------------
 
+  # verify_*/2 already separated the outcomes; forward challenge/error untouched
+  # and only routing a verified event needs handler lookup.
   defp route_result({:ok, %Event{} = event}, %__MODULE__{} = d), do: route(d, event)
   defp route_result({:challenge, _} = challenge, _d), do: challenge
   defp route_result({:error, _} = err, _d), do: err
 
+  # No type means we couldn't classify the envelope — distinct from "classified but
+  # no handler registered" so callers can tell the two apart.
   defp route(_d, %Event{type: nil}), do: {:ok, :unknown_event}
 
   defp route(%__MODULE__{} = d, %Event{type: event_type} = event) do
+    # Normal event handlers take precedence over callback handlers; both are keyed
+    # by event type. A type with neither registered is an explicit no_handler ack.
     cond do
       handler = Map.get(d.handlers, event_type) ->
         invoke_handler(handler, event_type, event)
@@ -210,6 +216,10 @@ defmodule FeishuOpenAPI.Event.Dispatcher do
     end
   end
 
+  # Normalize a handler's return so the transport can serialize it consistently:
+  #   {:error, _}    → tagged handler_failed (becomes a 500-class ack)
+  #   {:ok, _}       → collapsed to :ok (the inner value isn't part of the contract)
+  #   anything else  → passed through as the response body (e.g. a card update map)
   defp handler_result({:error, reason}), do: {:error, {:handler_failed, reason}}
   defp handler_result({:ok, _result}), do: {:ok, :ok}
   defp handler_result(result), do: {:ok, result}
@@ -232,6 +242,8 @@ defmodule FeishuOpenAPI.Event.Dispatcher do
     end)
   end
 
+  # The ticket lives under `event` in P2 but at the top level in some P1 shapes,
+  # so check the normalized content first, then fall back to the raw envelope.
   defp extract_app_ticket(%Event{content: content, raw: raw}) do
     with :error <- fetch_string(content || %{}, "app_ticket"),
          :error <- fetch_string(raw, "app_ticket") do

@@ -66,6 +66,9 @@ if Code.ensure_loaded?(Plug) do
     defp resolve(fun) when is_function(fun, 0), do: fun.()
     defp resolve(%Handler{} = handler), do: handler
 
+    # Read the full body here (not via a parser) because card-action signature
+    # verification hashes the exact raw bytes. Chunks are prepended then reversed;
+    # the 8 MB read length bounds buffering.
     defp read_all_body(conn, acc \\ []) do
       case Plug.Conn.read_body(conn, length: 8_000_000) do
         {:ok, body, conn} ->
