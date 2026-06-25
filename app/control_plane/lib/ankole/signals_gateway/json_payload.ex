@@ -39,6 +39,10 @@ defmodule Ankole.SignalsGateway.JsonPayload do
       when is_binary(value) or is_number(value) or is_boolean(value) or is_nil(value),
       do: {:ok, value}
 
+  # Reject non-nil/boolean atoms instead of stringifying them: an atom round-trips
+  # out of JSONB as a string, so silently accepting one would let durable state
+  # disagree with what was written. Callers must convert atoms to strings before
+  # they reach durable payloads. (true/false/nil matched above are valid JSON.)
   def normalize(value, _opts) when is_atom(value), do: {:error, :unsupported_atom}
 
   def normalize(value, opts) when is_list(value) do
@@ -118,6 +122,10 @@ defmodule Ankole.SignalsGateway.JsonPayload do
     end)
   end
 
+  # In a changeset, normalization is best-effort: rewrite the value when it can
+  # be made JSON-safe, but on failure leave the original in place so the paired
+  # `validate_change` produces a real validation error (rather than this step
+  # swallowing the bad value).
   defp normalize_change(value, opts) do
     case normalize(value, opts) do
       {:ok, normalized} -> normalized

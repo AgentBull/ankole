@@ -1,6 +1,14 @@
 defmodule Ankole.SignalsGateway.SignalChannel do
   @moduledoc """
   Latest observed provider channel mirror.
+
+  A "channel" is the provider-side container an entry lives in (an IM DM/group, a
+  webhook endpoint, an issue, an alert stream). This row is a pure external-fact
+  mirror: it records what the provider currently looks like, separate from any
+  agent execution. `reply_mode` (how the agent is allowed to respond — channel
+  post vs. threaded entry reply) is read by the outbox to choose a send
+  operation. Keyed by the provider-native channel id, so writes upsert rather
+  than insert per event.
   """
 
   use Ecto.Schema

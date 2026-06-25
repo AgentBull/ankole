@@ -9,6 +9,10 @@ defmodule Ankole.SignalsGateway.IngressFact do
 
   alias Ankole.SignalsGateway.JsonPayload
 
+  # Every accepted signal shape (entry / lifecycle / reaction / action /
+  # internal) is represented by this one struct. Only the routing identity that
+  # all shapes share is enforced; the rest of the fields are populated per-kind
+  # by the constructors below, so most are nil for any given fact.
   @enforce_keys [:kind, :agent_uid, :binding_name, :adapter, :ingress_event_id]
   defstruct [
     :kind,
@@ -86,6 +90,10 @@ defmodule Ankole.SignalsGateway.IngressFact do
   @spec internal(map()) :: {:ok, t()} | {:error, term()}
   def internal(attrs), do: new(:internal, attrs)
 
+  # Durability check runs before struct construction: if any map/list field
+  # can't be made JSON-safe, the fact never forms and the signal is rejected
+  # before any mirror or actor input is written (see JsonPayload's "fail before
+  # provider ack" rule).
   defp new(kind, attrs) when is_map(attrs) do
     with {:ok, normalized_attrs} <- normalize_durable_fields(kind, attrs),
          {:ok, fact} <- build(kind, normalized_attrs) do
@@ -95,6 +103,9 @@ defmodule Ankole.SignalsGateway.IngressFact do
 
   defp new(_kind, _attrs), do: {:error, :invalid_ingress_fact_attrs}
 
+  # `struct!` raises on unknown keys; a KeyError here means the constructor
+  # supplied a field this struct doesn't declare (a gateway bug), so it surfaces
+  # as an invalid-attrs error rather than crashing the ingress request.
   defp build(kind, attrs) do
     attrs =
       attrs
@@ -106,6 +117,9 @@ defmodule Ankole.SignalsGateway.IngressFact do
     KeyError -> {:error, :invalid_ingress_fact_attrs}
   end
 
+  # Normalize only the free-form JSON-bearing fields (the structured scalars are
+  # already safe). `:action` is special-cased so it is only normalized for action
+  # facts, where it actually carries a payload.
   defp normalize_durable_fields(kind, attrs) do
     attrs
     |> normalize_map_field(:channel_metadata)

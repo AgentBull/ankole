@@ -29,6 +29,8 @@ defmodule Ankole.SignalsGateway.AdapterContext do
       agent_uid: fetch!(attrs, :agent_uid),
       binding_name: fetch!(attrs, :binding_name),
       adapter: fetch!(attrs, :adapter),
+      # user_name is the human-facing display label; default it to the adapter id
+      # so an adapter that doesn't supply one still has something to show.
       user_name: fetch(attrs, :user_name) || fetch!(attrs, :adapter)
     }
   end
