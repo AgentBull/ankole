@@ -1,8 +1,18 @@
 defmodule Ankole.SignalsGateway.Commands do
   @moduledoc """
   Visible text command parser for signal entries.
+
+  Recognizes the small set of `/slash` commands a human can type into a chat to
+  control the agent. Parsing runs on the *visible* message text (after any
+  structured @-mention is stripped) so that "@agent /stop" works the same as
+  "/stop". The classifier is deliberately strict: unknown leading slashes are
+  `:not_command`, so an unrelated message starting with "/" is treated as plain
+  text.
   """
 
+  # The only recognized commands. `steer` and `stop` reach a running actor;
+  # `new`/`compress`/`retry` manage the session. Output is currently a "stub" —
+  # the parser identifies intent; execution is wired up elsewhere.
   @commands MapSet.new(["new", "compress", "retry", "steer", "stop"])
 
   @doc """
@@ -37,6 +47,11 @@ defmodule Ankole.SignalsGateway.Commands do
     end)
   end
 
+  # CJK keyboards commonly emit full-width punctuation: a full-width space
+  # (U+3000) and full-width digits. Normalizing them to ASCII lets a command
+  # typed on an IME ("\uff0fstop" spacing, "retry \uff11") parse the same as one typed on
+  # a Latin keyboard. Only the leading whitespace is trimmed; argsText keeps its
+  # original spacing.
   defp normalize_command_text(text) do
     text
     |> String.trim_leading()
@@ -63,6 +78,10 @@ defmodule Ankole.SignalsGateway.Commands do
   defp normalize_full_width_digit("９"), do: "9"
   defp normalize_full_width_digit(grapheme), do: grapheme
 
+  # `raw` (the original, un-normalized text) is preserved in the result so a
+  # command handler can recover exactly what the human typed; `name`/`argsText`
+  # are the parsed form. Split on the first whitespace run: head is the command,
+  # tail is the free-form argument string.
   defp parse_normalized("/" <> rest, raw) do
     {name, args_text} =
       rest

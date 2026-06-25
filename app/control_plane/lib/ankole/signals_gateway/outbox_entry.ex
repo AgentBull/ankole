@@ -1,6 +1,21 @@
 defmodule Ankole.SignalsGateway.OutboxEntry do
   @moduledoc """
   Durable provider-visible side-effect intent committed by an actor.
+
+  The README's split is "streaming is progress; committed work is truth" — this
+  row is the truth side for anything the agent does to the outside world (post a
+  reply, edit, delete, react, render a card). The actor runtime commits the
+  *intent* here transactionally; a separate dispatch pass actually calls the
+  provider and drives the row through its status machine:
+
+      created → sending → succeeded
+                       ↘ failed (retried with backoff until max_attempts)
+                       ↘ unknown_after_send (sent flag set but no confirmation)
+      created → unsupported (channel/adapter can't perform this operation)
+
+  Keyed by `{agent_uid, binding_name, outbound_key}`; `commit_outbox` upserts
+  `on_conflict: :nothing`, so the same `outbound_key` committed twice produces
+  exactly one provider side effect (the idempotency contract).
   """
 
   use Ecto.Schema
@@ -24,6 +39,10 @@ defmodule Ankole.SignalsGateway.OutboxEntry do
     field :binding_name, :string, primary_key: true
     field :outbound_key, :string, primary_key: true
 
+    # The provider-visible action this row represents. `source_provider_entry_id`
+    # is the entry being replied to; `target_provider_entry_id` is the entry an
+    # edit/delete/reaction acts on; `provider_entry_id` is filled in after a
+    # successful post with the id the provider assigned to the new entry.
     field :operation, Ecto.Enum,
       values: [:post, :reply, :edit, :delete, :reaction_add, :reaction_remove, :divider, :card]
 
@@ -36,18 +55,32 @@ defmodule Ankole.SignalsGateway.OutboxEntry do
     field :source_provider_entry_id, :string
     field :target_provider_entry_id, :string
     field :provider_entry_id, :string
+    # Back-references to where this side effect originated, for audit/recovery.
     field :source_actor_input_id, Ecto.UUID
     field :llm_turn_id, Ecto.UUID
     field :assistant_message_id, Ecto.UUID
     field :payload, :map, default: %{}
+    # Plain-text rendering used both as the search/mirror text and as the
+    # fallback when a rich operation (card/divider) needs a text representation.
     field :fallback_visible_text, :string
     field :idempotency_key, :string
     field :attempt_count, :integer, default: 0
+    # Retry ceiling for the backoff loop. Default 10 attempts, paired with the
+    # gateway's 5s-base / 5m-cap exponential schedule, bounds a stuck send to
+    # roughly the cap times a handful of attempts before it stops retrying.
     field :max_attempts, :integer, default: 10
     field :last_attempted_at, :utc_datetime_usec
     field :last_error, :map, default: %{}
+    # Set the moment dispatch tells the adapter to send. If the node restarts
+    # while still in `:sending`, this timestamp is the signal that a provider
+    # call may already be in flight, triggering reconcile-or-mark-unknown
+    # recovery instead of a blind resend (see in_flight_recovery_action/2).
     field :platform_send_started_at, :utc_datetime_usec
+    # When a `:failed` row becomes eligible for its next attempt; nil once
+    # attempts are exhausted.
     field :next_attempt_at, :utc_datetime_usec
+    # Adapter-supplied breadcrumb carried across a reconcile (e.g. a provider
+    # idempotency token) so recovery can confirm a prior send.
     field :recovery_state, :map, default: %{}
 
     timestamps()

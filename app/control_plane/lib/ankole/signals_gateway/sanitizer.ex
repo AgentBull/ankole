@@ -7,6 +7,11 @@ defmodule Ankole.SignalsGateway.Sanitizer do
   repaired here.
   """
 
+  # Bounds so a hostile or pathological provider payload can't blow up an error
+  # log or the `last_error` JSON column: stop recursing past 6 levels, keep at
+  # most 50 entries of any map/list, and clip any string to 1000 chars. These
+  # are previews for humans, not lossless captures — truncation is expected and
+  # marked with `__truncated__`.
   @default_max_depth 6
   @default_max_items 50
   @default_max_string 1_000
@@ -135,6 +140,10 @@ defmodule Ankole.SignalsGateway.Sanitizer do
 
   defp key_to_string(key, limits), do: bounded_inspect(key, limits.max_string)
 
+  # Redaction is by key name, not value content. Normalize separators so
+  # "Set-Cookie", "set.cookie", and "set_cookie" all match, and use suffix rules
+  # (`*_token`, `*_secret`, …) to catch provider-prefixed variants like
+  # "lark_app_secret" without enumerating every provider.
   defp sensitive_key?(key) do
     normalized =
       key

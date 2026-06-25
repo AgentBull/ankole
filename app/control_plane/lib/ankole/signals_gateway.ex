@@ -1,6 +1,32 @@
 defmodule Ankole.SignalsGateway do
   @moduledoc """
   Boundary between signal ingress, actor input handoff, and provider outbox.
+
+  This is the provider-ingress layer described in the README: external chats,
+  webhooks, and provider events arrive through the `emit_*` functions, become
+  normalized "signal" facts, and turn into actor input — while the channel/entry
+  mirror preserves the external source fact separately from agent execution.
+  LLM-committed side effects flow back out as outbox entries.
+
+  Three responsibilities live here, each with its own contract:
+
+    * Ingress (`emit_entry`/`emit_reaction`/`emit_action`/`emit_internal`/the
+      delete & recall lifecycle): construct a fact, apply binding filters, then
+      do the channel/entry mirror + actor-input append inside ONE Repo
+      transaction. There is deliberately no stored ingress plan and no second
+      queue — admission and effect happen in the request that received the
+      signal, so a signal either fully lands or leaves no trace.
+
+    * Tombstones: a short-lived guard (`InputTombstone`) so a late re-delivered
+      receive can't resurrect a message the human already deleted/recalled.
+
+    * Outbox (`commit_outbox`/`dispatch_outbox`/`dispatch_due_outbox`): the
+      durable, idempotent, retried path that actually performs provider-visible
+      operations and mirrors the result back into the entry table.
+
+  Most functions take an explicit `now` (via `options[:now]`) so timing-sensitive
+  behavior — batch windows, tombstone expiry, retry schedules — is testable
+  without a clock.
   """
 
   import Ecto.Query, warn: false
@@ -24,12 +50,35 @@ defmodule Ankole.SignalsGateway do
   alias Ankole.SignalsGateway.SignalChannel
   alias Ankole.SignalsGateway.SignalEntry
 
+  # How long a delete/recall blocks a re-delivered receive for the same entry.
+  # 24h comfortably outlives any provider's redelivery/retry window while keeping
+  # the guard transient — long enough that a straggler receive is caught, short
+  # enough that the cleanup job keeps the table from growing without bound. It is
+  # an ordering guard, not a permanent record of the deletion.
   @tombstone_ttl_seconds 24 * 60 * 60
+
+  # Absolute ceiling on how long an ambient ("may_intervene") batch may keep
+  # sliding before the worker is forced to look. The 1.5s batch window slides
+  # forward on every new room message (see ambient_due_at/2); without a cap a
+  # continuously busy room could postpone recognition forever. 60s bounds the
+  # worst case: the agent will react to an active conversation within a minute
+  # even if people never stop typing. Paired with the AIAgent message-context
+  # budget, which is what consumes the observed-messages snapshot.
   @ambient_hard_cap_ms 60_000
+
+  # Cap on how many observed messages are pulled into one ambient batch snapshot.
+  # The snapshot is meant to give the agent the recent room scene, not the whole
+  # history; 80 rows is enough scene for a useful decision while bounding both the
+  # recall queries and the size of the payload handed to the worker.
   @ambient_recall_max_rows 80
 
   @type ingress_result :: {:ok, map()} | {:error, term()}
 
+  # Exponential backoff bounds for outbox retries: first retry ~5s out, doubling
+  # each failed attempt, never waiting more than 5 minutes between tries. Small
+  # base so a transient provider blip recovers quickly; 5m cap so a hard outage
+  # doesn't hammer the provider while still retrying often enough to recover
+  # promptly once it heals.
   @outbox_base_retry_seconds 5
   @outbox_max_retry_seconds 5 * 60
 
@@ -49,6 +98,12 @@ defmodule Ankole.SignalsGateway do
 
   @doc """
   Loads an enabled binding by route key.
+
+  Distinguishes three failure modes an adapter cares about: a binding that
+  exists but is operator-flagged unavailable (`{:binding_unavailable, reason}`),
+  one that is explicitly disabled, and one that simply isn't configured. Every
+  `emit_*` call starts here, so an unconfigured/disabled route is rejected before
+  any fact is constructed.
   """
   @spec get_binding(String.t(), String.t()) :: {:ok, SignalBinding.t()} | {:error, term()}
   def get_binding(agent_uid, binding_name) do
@@ -69,6 +124,11 @@ defmodule Ankole.SignalsGateway do
 
   @doc """
   Concrete adapter API for a provider entry receive.
+
+  The main ingress path for an inbound message. Follows the fixed pipeline:
+  resolve binding → construct fact → filter → accept. A filtered signal returns
+  `{:ok, %{status: :filtered}}` (a successful no-op, not an error), and the actor
+  runtime is woken only when the signal actually produced new actor input.
   """
   @spec emit_entry(String.t(), String.t(), map(), keyword()) :: ingress_result()
   def emit_entry(agent_uid, binding_name, input, options \\ []) when is_map(input) do
@@ -105,6 +165,12 @@ defmodule Ankole.SignalsGateway do
 
   @doc """
   Concrete adapter API for reaction changes.
+
+  Reactions only update the mirror — they never create actor input — so this
+  path stays self-contained: lock the entry, fold the add/remove into its
+  reaction map, done. A reaction on an entry we never mirrored is ignored
+  (`:ignored_unknown_entry`) rather than treated as an error, since the gateway
+  has no entry to attach it to.
   """
   @spec emit_reaction(String.t(), String.t(), map(), keyword()) :: ingress_result()
   def emit_reaction(agent_uid, binding_name, input, options \\ []) when is_map(input) do
@@ -115,6 +181,9 @@ defmodule Ankole.SignalsGateway do
            IngressPipeline.construct(:reaction, binding, input, now, &normalize_reaction_fact/3),
          :match <- IngressPipeline.filter(binding, fact) do
       Repo.transact(fn repo ->
+        # Advisory lock on the entry key serializes concurrent reaction folds for
+        # the same message so two simultaneous add/removes can't clobber the
+        # reactions map.
         with :ok <- lock_entry(repo, fact) do
           case repo.get_by(SignalEntry,
                  signal_channel_id: fact.signal_channel_id,
@@ -164,6 +233,11 @@ defmodule Ankole.SignalsGateway do
 
   @doc """
   Appends an internal ActorInput, such as a timer fire, without provider mirroring.
+
+  Internal sources (timers, system-generated events) have no provider channel or
+  entry to mirror, so this path skips the channel/entry write entirely and goes
+  straight to actor input. It is how Ankole feeds itself — e.g. a fired reminder
+  becomes input to the session that scheduled it.
   """
   @spec emit_internal(String.t(), String.t(), map(), keyword()) :: ingress_result()
   def emit_internal(agent_uid, binding_name, input, options \\ []) when is_map(input) do
@@ -188,6 +262,13 @@ defmodule Ankole.SignalsGateway do
 
   @doc """
   Records a provider-visible outbox intent committed by the actor runtime.
+
+  This is the "commit" half of the outbox: the actor declares it wants to do
+  something to the provider, transactionally, without performing it yet. The
+  `on_conflict: :nothing` upsert on `{agent_uid, binding_name, outbound_key}` is
+  the idempotency contract — committing the same `outbound_key` twice yields the
+  same single row (and therefore at most one provider side effect). Actual
+  delivery happens later via `dispatch_outbox`/`dispatch_due_outbox`.
   """
   @spec commit_outbox(map()) :: {:ok, OutboxEntry.t()} | {:error, term()}
   def commit_outbox(attrs) when is_map(attrs) do
@@ -203,6 +284,11 @@ defmodule Ankole.SignalsGateway do
 
   @doc """
   Chooses the provider-visible reply operation for an actor input.
+
+  Decides whether the agent's reply should be a threaded `:reply` to the
+  triggering entry or a top-level `:post`, based on the channel's reply_mode and
+  the adapter's declared capabilities. Falls back to a safe operation when the
+  channel/binding can't be resolved, so a reply is never silently dropped.
   """
   @spec outbox_operation_for_actor_input(ActorInput.t(), module()) :: atom()
   def outbox_operation_for_actor_input(%ActorInput{} = actor_input, repo \\ Repo) do
@@ -224,6 +310,14 @@ defmodule Ankole.SignalsGateway do
 
   @doc """
   Dispatches one outbox row through a concrete adapter runtime.
+
+  The "perform" half of the outbox. `prepare_outbox_dispatch` runs first under a
+  row lock to claim the work and decide the route — a normal `:send`, a
+  `:reconcile` for a row that was mid-send when the node restarted, or an
+  already-terminal row that needs no action — and only then is the adapter
+  called outside any held resources. Splitting prepare (locked, mutates status
+  to `:sending`) from the adapter call avoids holding a DB lock across a network
+  round-trip.
   """
   @spec dispatch_outbox(String.t(), String.t(), String.t(), map(), keyword()) ::
           {:ok, OutboxEntry.t()} | {:error, term()}
@@ -251,6 +345,12 @@ defmodule Ankole.SignalsGateway do
 
   @doc """
   Lists outbox rows that are ready for a dispatch attempt.
+
+  "Due" means either freshly `:created` or `:failed` and past its
+  `next_attempt_at` with retries remaining. Oldest-first and capped by `limit`
+  so a periodic dispatcher drains a bounded, fair batch each tick. Rows in
+  `:sending`/`:succeeded`/`:unsupported`/`:unknown_after_send` are intentionally
+  excluded — they are either in progress or terminal.
   """
   @spec list_due_outbox(DateTime.t(), pos_integer()) :: [OutboxEntry.t()]
   def list_due_outbox(now \\ DateTime.utc_now(:microsecond), limit \\ 50)
@@ -312,6 +412,9 @@ defmodule Ankole.SignalsGateway do
 
   @doc """
   Removes expired SignalsGateway TTL state.
+
+  Deletes tombstones whose guard window has passed. Driven by the cleanup Oban
+  job; safe to run anytime since an expired tombstone no longer affects ingress.
   """
   @spec cleanup_expired_state(DateTime.t()) :: %{tombstones: non_neg_integer()}
   def cleanup_expired_state(now \\ DateTime.utc_now(:microsecond)) do
@@ -329,6 +432,10 @@ defmodule Ankole.SignalsGateway do
   @spec signal_session_id(String.t()) :: String.t()
   def signal_session_id(signal_channel_id), do: "signal-channel:#{signal_channel_id}"
 
+  # Only a result that actually produced new actor input (:accepted) wakes the
+  # runtime. Filtered / recorded / ignored / mirror-only outcomes wrote nothing
+  # the actor needs to run on, so they must NOT cost a wake-up — this is the hook
+  # that keeps ambient mirroring from constantly poking the scheduler.
   defp wake_actor_runtime({:ok, %{status: :accepted}} = result) do
     ActivationManager.wake()
     result
@@ -352,6 +459,11 @@ defmodule Ankole.SignalsGateway do
     end
   end
 
+  # Whole acceptance runs in one transaction behind the per-entry advisory lock,
+  # so concurrent receives for the same message serialize and the
+  # tombstone-check → mirror → actor-input sequence is atomic. The tombstone
+  # check comes first: if the human already deleted/recalled this entry, drop the
+  # late receive before writing anything.
   defp accept_entry(binding, fact, options, now) do
     Repo.transact(fn repo ->
       with :ok <- lock_entry(repo, fact) do
@@ -373,6 +485,13 @@ defmodule Ankole.SignalsGateway do
     fn binding, input, now -> normalize_lifecycle_fact(binding, input, kind, now) end
   end
 
+  # Delete/recall is the inverse of accept and does several things atomically:
+  # 1) drop a tombstone so a re-delivered receive can't resurrect the entry,
+  # 2) remove the mirror row, 3) cancel any still-pending actor input for that
+  # entry (the agent shouldn't act on a retracted message), and 4) for input the
+  # agent ALREADY consumed, append a lifecycle "deleted/recalled" input so the
+  # running session learns the message went away. Steps 3 and 4 are mutually
+  # exclusive per input: cancel what hasn't run, notify about what has.
   defp accept_lifecycle(binding, fact, kind, now) do
     Repo.transact(fn repo ->
       with {:ok, channel} <- upsert_channel(repo, fact, now),
@@ -587,6 +706,17 @@ defmodule Ankole.SignalsGateway do
     end
   end
 
+  # The routing decision: given an accepted entry fact, what should it become?
+  # Order matters — these are tried top to bottom and the first match wins:
+  #   1. mirror_only: caller asked to only record, never wake the agent.
+  #   2. a recognized /slash command in addressed text → command.* input.
+  #   3. an adapter-supplied explicit actor_input_type (non-IM sources).
+  #   4. a DM, or a group message that explicitly @-addresses the agent → a
+  #      normal addressed message.
+  #   5. a group reply to one of the agent's own clarifying questions → also
+  #      treated as addressed (the human is answering us).
+  #   6. an unaddressed group message → defer to the binding's group policy.
+  #   7. otherwise there is no rule that turns this into input → error.
   defp entry_policy(%SignalBinding{} = binding, fact, options) do
     cond do
       fact.mirror_only? ->
@@ -616,10 +746,19 @@ defmodule Ankole.SignalsGateway do
   defp group_policy(:record_only), do: {:ok, :record_only}
   defp group_policy(:may_intervene), do: {:ok, {:actor_input, "im.message.may_intervene", nil}}
 
+  # "Explicit" = the agent is unambiguously being talked to: every DM qualifies,
+  # and a group message qualifies only if it @-mentions the agent. This gates
+  # both command parsing and the default addressed-message path.
   defp explicit_im_entry?(%{channel_kind: :im_dm}), do: true
   defp explicit_im_entry?(%{channel_kind: :im_group, explicit?: true}), do: true
   defp explicit_im_entry?(_fact), do: false
 
+  # Lets a human answer the agent's clarifying question in a group without having
+  # to re-@-mention it. Only relevant for group text messages; the actual "did
+  # the agent recently ask something here" check is injected by the caller as
+  # `clarify_lookup` (kept out of the gateway so this module stays free of
+  # conversation-history queries). Accepts a 1- or 2-arity lookup for caller
+  # convenience.
   defp clarify_reply?(_binding, %{channel_kind: channel_kind}, _options)
        when channel_kind != :im_group,
        do: false
@@ -634,6 +773,9 @@ defmodule Ankole.SignalsGateway do
     end
   end
 
+  # Commands are only honored when the agent is explicitly addressed, so a "/stop"
+  # overheard in an unaddressed group line is not treated as a command. The
+  # leading @-mention is stripped before classification so "@agent /stop" parses.
   defp command_payload(fact) do
     case explicit_im_entry?(fact) do
       true ->
@@ -661,6 +803,10 @@ defmodule Ankole.SignalsGateway do
     end
   end
 
+  # The full accept path: mirror the external fact (channel + entry) AND create
+  # actor input, then refresh batch readiness so this input coalesces with any
+  # sibling messages in the same debounce window. Mirror-before-input ordering
+  # means the actor input can reference a row that already exists.
   defp apply_entry_policy(repo, binding, fact, {:actor_input, type, command_payload}, now) do
     fact = Map.put(fact, :command_payload, command_payload)
 
@@ -708,6 +854,11 @@ defmodule Ankole.SignalsGateway do
     end
   end
 
+  # Different providers send different subsets of channel detail per event, so a
+  # later sparse event must not erase richer data from an earlier one. The merge
+  # rule is "don't overwrite with nothing": a sparse enum (:unknown/:none), a nil
+  # text field, or an empty map all keep the previously stored value.
+  # `first_seen_at` is always preserved since it records the first observation.
   defp merge_channel_attrs(%SignalChannel{} = channel, attrs) do
     %{
       attrs
@@ -722,12 +873,19 @@ defmodule Ankole.SignalsGateway do
     }
   end
 
+  # `sparse_value` is the enum's "no info" member (:unknown / :none); receiving it
+  # means the event carried no channel kind / reply mode, so keep what we had.
   defp preserve_enum(incoming, sparse_value, existing) when incoming == sparse_value, do: existing
   defp preserve_enum(incoming, _sparse_value, _existing), do: incoming
 
   defp preserve_empty_map(map, existing) when map == %{}, do: existing || %{}
   defp preserve_empty_map(map, _existing), do: map
 
+  # Upsert the entry mirror, but never let an out-of-order (older) provider event
+  # overwrite a newer stored state: if the incoming provider_time predates what's
+  # stored, keep the existing row untouched. On a real update, reactions and
+  # raw_reaction_keys are preserved because those are folded in by the reaction
+  # path, not carried on a plain receive.
   defp mirror_receive_entry(repo, fact, now) do
     with :ok <- lock_entry(repo, fact) do
       attrs = receive_entry_attrs(fact, now)
@@ -820,12 +978,21 @@ defmodule Ankole.SignalsGateway do
 
     attrs = Map.put(attrs, :payload, payload)
 
+    # Ambient observation is special: instead of appending a new input per
+    # observed message, fold consecutive observations into a single open batch
+    # input so the agent gets one "here is what's happening in the room" wake-up,
+    # not one per message. Everything else appends a discrete input.
     case type do
       "im.message.may_intervene" -> append_or_merge_ambient_input(attrs, payload, now)
       _type -> Actors.append_actor_input(attrs)
     end
   end
 
+  # Three cases, in order:
+  #   1. We already created an input for this exact ingress_event_id → return it
+  #      (idempotent against duplicate delivery of the same event).
+  #   2. There is an OPEN ambient batch for this room → merge this observation in.
+  #   3. No open batch → start a new one.
   defp append_or_merge_ambient_input(attrs, event_payload, now) do
     case Repo.get_by(ActorInput,
            agent_uid: attrs.agent_uid,
@@ -1304,6 +1471,10 @@ defmodule Ankole.SignalsGateway do
     }
   end
 
+  # When a new addressed message lands, push the whole open batch in this
+  # channel/thread to the latest message's `available_at`. That way a burst of
+  # rapid messages is consumed as one turn keyed to the LAST message, instead of
+  # the agent replying to the first and then again to each follow-up.
   defp refresh_batch_readiness("im.message.addressed", fact, %ActorInput{} = actor_input) do
     ActorInput
     |> where([input], input.agent_uid == ^fact.agent_uid)
@@ -1333,9 +1504,12 @@ defmodule Ankole.SignalsGateway do
 
   defp refresh_batch_readiness(_type, _fact, _actor_input), do: :ok
 
-  # Mirrors BullX's ambient debounce without introducing Redis: every new room
-  # observation slides the PG queue wake forward by the batch window, bounded by
-  # the oldest unprocessed row so a busy room cannot postpone recognition forever.
+  # Ambient debounce implemented entirely in Postgres (no Redis): each new room
+  # observation pushes the wake-up forward by the batch window (sliding), but the
+  # result is clamped so it can never be later than `oldest open input + 60s hard
+  # cap`. Net effect: a quiet room reacts ~1.5s after the last message, a room
+  # that never goes quiet still reacts within 60s of the first unprocessed
+  # message. The hard cap is what stops a busy room from starving recognition.
   defp ambient_due_at(fact, %ActorInput{} = actor_input) do
     oldest_inserted_at =
       ActorInput
@@ -1366,6 +1540,10 @@ defmodule Ankole.SignalsGateway do
     end
   end
 
+  # The payload stored on the ActorInput is a CloudEvents 1.0 envelope so the
+  # worker sees a uniform shape regardless of which provider/source produced it.
+  # `data` is assembled from whichever fact fields are present (nils dropped);
+  # `source`/`subject` encode provenance (see envelope_source/2, envelope_subject/1).
   defp actor_envelope(binding, fact, type, channel, entry, now) do
     data =
       %{
@@ -1463,6 +1641,10 @@ defmodule Ankole.SignalsGateway do
   defp datetime_iso8601(%DateTime{} = datetime), do: DateTime.to_iso8601(datetime)
   defp datetime_iso8601(_value), do: nil
 
+  # `_kind` (deleted vs recalled) does not change the guard — both block late
+  # redelivery identically — so it's ignored here; the distinction only matters
+  # for the lifecycle actor input. Re-tombstoning an entry simply refreshes the
+  # 24h window from `now`.
   defp upsert_tombstone(repo, fact, _kind, now) do
     attrs = %{
       agent_uid: fact.agent_uid,
@@ -1515,6 +1697,12 @@ defmodule Ankole.SignalsGateway do
     |> repo.delete_all()
   end
 
+  # Notify each session that already CONSUMED the now-deleted entry. We can't undo
+  # what the agent did, but it should know the source message is gone, so we
+  # append a "deleted/recalled" input per affected session, stripped of the
+  # original content (no text/mentions/command) — it's a tombstone notice, not a
+  # re-delivery. Sessions that never consumed the entry had their pending input
+  # cancelled instead (see accept_lifecycle), so there's nothing to notify there.
   defp append_lifecycle_inputs(_binding, _fact, [], _channel, _now), do: {:ok, []}
 
   defp append_lifecycle_inputs(binding, fact, consumed_inputs, channel, now) do
@@ -1620,6 +1808,13 @@ defmodule Ankole.SignalsGateway do
 
   defp stale_provider_time?(_stored_time, _incoming_time), do: false
 
+  # Serialize all gateway work for a single entry without a row to lock (the entry
+  # row may not exist yet on first receive). A transaction-scoped Postgres
+  # advisory lock keyed by hash of `channel|entry` makes concurrent
+  # receive/reaction/lifecycle handlers for the same message take turns, and it
+  # releases automatically at commit/rollback. `hashtext` is acceptable here:
+  # rare collisions only cause two unrelated entries to briefly serialize, which
+  # is harmless.
   defp lock_entry(repo, fact) do
     key =
       Enum.join(
@@ -1631,6 +1826,9 @@ defmodule Ankole.SignalsGateway do
     :ok
   end
 
+  # Fill the status-machine defaults a freshly committed intent needs: starts
+  # :created with zero attempts and a 10-attempt ceiling. `put_new` so a caller
+  # may override (e.g. a custom max_attempts) but normally doesn't have to.
   defp default_outbox_attrs(attrs) do
     attrs
     |> Map.put_new(:status, :created)
@@ -1642,6 +1840,10 @@ defmodule Ankole.SignalsGateway do
     |> normalize_agent_uid_attr()
   end
 
+  # `on_conflict: :nothing` returns a struct with nil fields when the row already
+  # existed (the commit was a duplicate). That's success for an idempotent
+  # commit, so re-read the existing row by its key and return it instead of the
+  # empty conflict struct.
   defp outbox_insert_result({:ok, %OutboxEntry{agent_uid: nil}}, attrs) do
     attrs = default_outbox_attrs(attrs)
 
@@ -1658,6 +1860,10 @@ defmodule Ankole.SignalsGateway do
   defp outbox_insert_result({:ok, %OutboxEntry{} = entry}, _attrs), do: {:ok, entry}
   defp outbox_insert_result({:error, _changeset} = error, _attrs), do: error
 
+  # Channel wants threaded replies and we have an entry to thread under: reply if
+  # the adapter supports threaded replies, otherwise degrade to a top-level post
+  # so the message still gets out. The capability key is the string form because
+  # it comes from plugin declarations.
   defp choose_outbox_operation(
          %SignalChannel{reply_mode: :entry},
          capabilities,
@@ -1752,6 +1958,10 @@ defmodule Ankole.SignalsGateway do
     end
   end
 
+  # Claim a row for a fresh send: confirm it's due, confirm the channel+adapter
+  # can perform the operation, then flip it to :sending (which also stamps
+  # platform_send_started_at and bumps attempt_count). All under the row lock
+  # held by the caller, so two dispatchers can't both claim the same row.
   defp prepare_fresh_outbox_dispatch(repo, outbox, channel, adapter, now) do
     with :ok <- dispatchable_outbox?(outbox, now),
          :ok <- outbox_supported?(outbox, channel, adapter),
@@ -1763,6 +1973,10 @@ defmodule Ankole.SignalsGateway do
     end
   end
 
+  # Guard clauses encode the status machine's "may I attempt this now?" rules:
+  # fresh rows go; failed rows go only if retries remain and the backoff time has
+  # passed; a row already :sending is refused (another dispatcher owns it);
+  # anything terminal is not dispatchable.
   defp dispatchable_outbox?(%OutboxEntry{status: :created}, _now), do: :ok
 
   defp dispatchable_outbox?(
@@ -1868,6 +2082,15 @@ defmodule Ankole.SignalsGateway do
 
   defp require_fallback_text(outbox), do: {:unsupported, outbox}
 
+  # Recovery for a row found in :sending — meaning a previous dispatch told the
+  # adapter to send and the node died before recording the outcome. A blind
+  # resend risks a duplicate provider post, so:
+  #   - if the adapter can reconcile AND we already captured a provider_entry_id,
+  #     reconcile to learn whether the send actually landed;
+  #   - otherwise we cannot safely tell, so park the row as unknown_after_send
+  #     for an operator rather than guess.
+  # (This is the durable counterpart to "streaming is progress; committed work is
+  # truth" — an unconfirmed send is neither, so it is never silently retried.)
   defp in_flight_recovery_action(
          %OutboxEntry{
            status: :sending,
@@ -1885,6 +2108,8 @@ defmodule Ankole.SignalsGateway do
     end
   end
 
+  # Same situation but no provider_entry_id was captured, so even a
+  # reconciliation-capable adapter has nothing to look up → mark unknown.
   defp in_flight_recovery_action(
          %OutboxEntry{status: :sending, platform_send_started_at: %DateTime{}} = outbox,
          _adapter
@@ -1895,6 +2120,7 @@ defmodule Ankole.SignalsGateway do
             "reason" => "provider send started without provider entry id"
           }}
 
+  # Not mid-send → proceed with a normal fresh dispatch.
   defp in_flight_recovery_action(_outbox, _adapter), do: :continue
 
   defp mark_outbox_sending(repo, outbox, now) do
@@ -1919,6 +2145,11 @@ defmodule Ankole.SignalsGateway do
 
   defp call_adapter_reconcile(adapter, outbox), do: OutboxAdapter.reconcile(adapter, outbox)
 
+  # Runs after the adapter call returns (outside the prepare transaction). Re-open
+  # a transaction and re-lock the row before recording the outcome, because the
+  # network call happened with no lock held and the row could have changed.
+  # Outcome → status: ok ⇒ succeeded (+ mirror the posted entry), error ⇒ failed
+  # (schedule retry), :unknown ⇒ unknown_after_send (never auto-retried).
   defp finalize_outbox_send(send_result, outbox, channel, now) do
     Repo.transact(fn repo ->
       with %OutboxEntry{} = current_outbox <- fetch_outbox_for_update(repo, outbox) do
@@ -2011,12 +2242,18 @@ defmodule Ankole.SignalsGateway do
     |> repo.update()
   end
 
+  # Prefer the id the provider returned; fall back to one already on the row.
+  # If the provider gave us nothing (some adapters don't return an id), synthesize
+  # a stable local id so the mirror still has a primary key — only for operations
+  # that create a new entry, since edit/delete/reaction target an existing id.
   defp provider_entry_id_after_success(%OutboxEntry{} = outbox, result) do
     optional_text(result, :provider_entry_id) ||
       outbox.provider_entry_id ||
       stable_local_provider_entry_id(outbox)
   end
 
+  # Derived from the idempotency/outbound key so the same committed intent always
+  # maps to the same local id, keeping the mirror upsert idempotent.
   defp stable_local_provider_entry_id(%OutboxEntry{operation: operation} = outbox)
        when operation in [:post, :reply, :divider, :card] do
     "local-outbox:#{outbox.idempotency_key || outbox.outbound_key}"
@@ -2024,6 +2261,10 @@ defmodule Ankole.SignalsGateway do
 
   defp stable_local_provider_entry_id(%OutboxEntry{}), do: nil
 
+  # Exponential backoff: delay = 5s * 2^(attempt-1), clamped to the 5m ceiling
+  # (so 5s, 10s, 20s, 40s, … capped at 300s). Returning nil once attempts are
+  # exhausted is what makes list_due_outbox stop selecting the row — the retry
+  # loop ends without a separate "give up" flag.
   defp next_outbox_attempt_at(%OutboxEntry{attempt_count: attempts, max_attempts: max}, _now)
        when attempts >= max,
        do: nil
@@ -2038,6 +2279,12 @@ defmodule Ankole.SignalsGateway do
     DateTime.add(now, delay_seconds, :second)
   end
 
+  # After a successful send, write the agent's own output into the SAME entry
+  # mirror humans' messages land in, so the channel history is unified and the
+  # agent can later see what it said. Each operation maps to the matching mirror
+  # mutation: post/reply/card/divider create a row, edit rewrites text, delete
+  # removes the row, reactions fold into the reaction map. Constructs a synthetic
+  # fact authored by the agent and reuses mirror_receive_entry.
   defp mirror_outbox_success(
          repo,
          %OutboxEntry{operation: operation} = outbox,
@@ -2179,6 +2426,10 @@ defmodule Ankole.SignalsGateway do
     end)
   end
 
+  # A "structured" mention is a real provider @-mention entity (not the literal
+  # text "@bot"), which is what makes a group message count as explicitly
+  # addressed. It must target THIS agent: either it names this agent_uid, or it
+  # carries no specific uid (a generic bot mention the binding owns).
   defp structured_mention?(mention, agent_uid) when is_map(mention) do
     structured? =
       truthy?(fetch_value(mention, :structured)) ||
@@ -2237,6 +2488,11 @@ defmodule Ankole.SignalsGateway do
   defp normalize_attachment(attachment),
     do: {:error, {:invalid_attachment_payload, Sanitizer.transport(attachment)}}
 
+  # An attachment is only accepted into durable state once it points at something
+  # that will still resolve later: a provider/blob/storage reference, or a file
+  # already materialized on the Agent Computer workspace. A raw in-memory or
+  # transient attachment is rejected (see normalize_attachment/1) so the mirror
+  # never stores a dangling pointer the agent can't re-fetch.
   defp durable_attachment?(attachment) do
     Enum.any?(
       [
@@ -2288,12 +2544,18 @@ defmodule Ankole.SignalsGateway do
   defp metadata_text_part(value) when is_number(value), do: to_string(value)
   defp metadata_text_part(_value), do: ""
 
+  # Stable, opaque per-entry id derived from its identity (channel + provider
+  # entry). `content_hash` instead digests the entry's *content* so a re-receive
+  # with unchanged content produces the same hash (cheap change detection).
   defp document_id(signal_channel_id, provider_entry_id) do
     "signal-entry:" <> digest([signal_channel_id, provider_entry_id])
   end
 
   defp content_hash(parts), do: digest(parts)
 
+  # term_to_binary → SHA-256 → url-safe base64. Hashing the BEAM term (not a
+  # string) avoids having to define a canonical serialization for the mixed
+  # list of text/maps/lists passed in.
   defp digest(parts) do
     parts
     |> :erlang.term_to_binary()
@@ -2392,15 +2654,21 @@ defmodule Ankole.SignalsGateway do
 
   defp normalize_reaction_action(_value), do: :add
 
+  # A nil thread must match rows where the column IS NULL (not `= NULL`, which is
+  # never true in SQL), so the two clauses generate different WHERE fragments.
   defp where_provider_thread(query, nil),
     do: where(query, [input], is_nil(input.provider_thread_id))
 
   defp where_provider_thread(query, provider_thread_id),
     do: where(query, [input], input.provider_thread_id == ^provider_thread_id)
 
+  # Provider/JSON booleans arrive as strings or ints, so accept the common truthy
+  # encodings rather than only the literal `true`.
   defp truthy?(value) when value in [true, "true", 1, "1"], do: true
   defp truthy?(_value), do: false
 
+  # agent_uid is matched case-insensitively across the gateway, so every lookup
+  # and write funnels through this same trim+downcase to keep keys consistent.
   defp normalize_uid(uid) when is_binary(uid), do: uid |> String.trim() |> String.downcase()
   defp normalize_uid(uid), do: uid
 end

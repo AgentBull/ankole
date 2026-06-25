@@ -1,6 +1,18 @@
 defmodule Ankole.SignalsGateway.SignalEntry do
   @moduledoc """
   Latest observed provider entry mirror keyed by channel and provider entry id.
+
+  An "entry" is a single provider message/post. This row mirrors the latest
+  observed state of that external fact (text, attachments, reactions, author) so
+  Ankole can render context and reconcile edits/deletes — it is NOT the agent's
+  actor input or conversation turn, which live elsewhere. The gateway also writes
+  this mirror for its own outbound posts after a successful send, so an entry the
+  agent produced and an entry a human produced share one shape.
+
+  `search_text` / `metadata_text` / `content_hash` are denormalized for search
+  and change detection; `document_id` is a stable per-entry digest. The
+  composite `{signal_channel_id, provider_entry_id}` primary key is what makes
+  re-delivery idempotent (upsert the same entry instead of duplicating it).
   """
 
   use Ecto.Schema

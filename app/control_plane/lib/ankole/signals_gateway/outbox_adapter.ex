@@ -12,6 +12,10 @@ defmodule Ankole.SignalsGateway.OutboxAdapter do
 
   alias Ankole.SignalsGateway.Sanitizer
 
+  # The closed universe of capabilities an adapter may advertise. The gateway
+  # checks an operation against these before dispatching (e.g. `:reply` needs
+  # `:reply_entry`). `:outbound_reconciliation` is the one that decides whether a
+  # send interrupted mid-flight can be recovered vs. marked unknown.
   @capabilities MapSet.new([
                   :post_entry,
                   :reply_entry,
@@ -24,6 +28,9 @@ defmodule Ankole.SignalsGateway.OutboxAdapter do
                   :outbound_reconciliation
                 ])
 
+  # Precomputed string→atom lookup so capabilities declared as strings (from
+  # plugin manifests / JSON) resolve to the known atoms without ever calling
+  # `String.to_atom` on external input.
   @capability_names Map.new(@capabilities, fn capability ->
                       {Atom.to_string(capability), capability}
                     end)
@@ -99,6 +106,12 @@ defmodule Ankole.SignalsGateway.OutboxAdapter do
 
   def reconcile(%__MODULE__{}, _outbox), do: {:error, :adapter_reconcile_missing}
 
+  # Coerce whatever the adapter returned into the three outcomes dispatch
+  # understands. `:unknown` is a first-class result, not an error: it means the
+  # adapter sent something but cannot confirm it landed, which the gateway turns
+  # into `unknown_after_send` rather than retrying (a retry could double-post).
+  # Any other shape is an adapter contract violation, sanitized before it is
+  # stored in the error column.
   defp normalize_adapter_result({:ok, %{} = result}), do: {:ok, result}
   defp normalize_adapter_result({:error, reason}), do: {:error, reason}
   defp normalize_adapter_result(:unknown), do: :unknown
