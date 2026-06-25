@@ -4,16 +4,24 @@ import { z } from 'zod'
 import type { AgentTool, AgentToolResult } from '../../core'
 import { buildTool } from '../build-tool'
 
+// `name` is the directory name under library-containers/skills; "enabled" means the
+// control plane already projected that skill into this workspace. `filePath` lets the
+// model follow references out of SKILL.md (e.g. a `reference.md` the skill links to)
+// without a second tool — but it is always resolved *inside* the skill's own directory.
 const SkillViewParams = z.object({
   name: z.string().min(1).describe('Enabled skill name to read.'),
   filePath: z.string().optional().describe('Skill-relative file path. Defaults to SKILL.md.')
 })
 
+// `content` is a *full replacement* of the overlay, not an append despite the tool name:
+// the model resends the entire desired AGENT_APPEND.md each time, so a write is
+// idempotent and there is no read-modify-write step that could race or drift.
 const SkillAppendParams = z.object({
   name: z.string().min(1).describe('Enabled skill name whose agent overlay should be replaced.'),
   content: z.string().describe('Full replacement content for AGENT_APPEND.md.')
 })
 
+/** Structured echo for logs/UI: which skill, which file, and (for append) whether it wrote. */
 interface SkillToolDetails {
   name: string
   path?: string
@@ -32,6 +40,16 @@ export function createSkillTools(workspaceRoot: string): AgentTool<any>[] {
   return [createSkillViewTool(workspaceRoot), createSkillAppendTool(workspaceRoot)]
 }
 
+/**
+ * `skill_view`: loads a skill's instructions on demand. The system prompt only lists
+ * skills as an index (name + one-line description); when the model decides a listed
+ * skill covers the task it is about to do, it calls this to pull in the full SOP.
+ *
+ * Read-only and `parallel` because it only reads projected files — several skills can
+ * be loaded at once. It deliberately cannot enable a skill: a missing skill directory
+ * surfaces as a thrown read error (which the loop relays back to the model), since
+ * enabling/assigning skills is a control-plane decision, not something the model does.
+ */
 function createSkillViewTool(workspaceRoot: string): AgentTool<typeof SkillViewParams, SkillToolDetails> {
   return buildTool({
     name: 'skill_view',
@@ -46,6 +64,9 @@ function createSkillViewTool(workspaceRoot: string): AgentTool<typeof SkillViewP
       const filePath = params.filePath ?? 'SKILL.md'
       const absolute = safeSkillPath(workspaceRoot, params.name, filePath)
       const content = readFileSync(absolute, 'utf8')
+      // Reading the skill's entry file (SKILL.md) returns the *effective* skill: base
+      // instructions with the agent's overlay merged in. Any other referenced file is
+      // returned verbatim — only the entry point carries the per-agent additions.
       const rendered =
         filePath === 'SKILL.md'
           ? renderEffectiveSkill(workspaceRoot, params.name, content)
@@ -58,6 +79,19 @@ function createSkillViewTool(workspaceRoot: string): AgentTool<typeof SkillViewP
   })
 }
 
+/**
+ * `skill_append`: lets the agent persist its own durable notes onto a skill by writing
+ * the skill's `AGENT_APPEND.md` overlay. This is how an agent customizes a shared,
+ * control-plane-owned skill without editing the skill itself — the base SKILL.md stays
+ * pristine while the overlay is per-agent and survives across conversations.
+ *
+ * The filename is hardcoded to `AGENT_APPEND.md` (the model picks the skill, never the
+ * filename), so within a skill dir it can only write the overlay, not other skill files —
+ * though see `safeSkillPath` for the `name`-traversal caveat on *which* dir that is.
+ * Destructive/sequential because it overwrites that file. `mkdirSync` is defensive: a
+ * projected skill dir should exist, but the overlay's parent is ensured before the first
+ * write either way.
+ */
 function createSkillAppendTool(workspaceRoot: string): AgentTool<typeof SkillAppendParams, SkillToolDetails> {
   return buildTool({
     name: 'skill_append',
@@ -80,6 +114,12 @@ function createSkillAppendTool(workspaceRoot: string): AgentTool<typeof SkillApp
   })
 }
 
+/**
+ * Composes the skill the model actually sees: the base SKILL.md body (frontmatter
+ * dropped — see {@link stripSkillFrontmatter}) followed by this agent's overlay, under a
+ * labeled `Agent-specific additions` separator so the model can tell base SOP from the
+ * agent's own notes. When no overlay exists the base is returned as-is.
+ */
 function renderEffectiveSkill(workspaceRoot: string, name: string, content: string): string {
   const baseContent = stripSkillFrontmatter(content)
   const appendPath = safeSkillPath(workspaceRoot, name, 'AGENT_APPEND.md')
@@ -90,6 +130,20 @@ function renderEffectiveSkill(workspaceRoot: string, name: string, content: stri
   return wrapSkillContent(name, `/workspace/library-containers/skills/${name}/SKILL.md`, effectiveContent)
 }
 
+/**
+ * Resolves a skill-relative path to an absolute one and confines `filePath` to the
+ * skill's own directory. The `escapes skill root` guard only covers `filePath`: it builds
+ * `skillRoot` from `name`, resolves `filePath` against it, and rejects the result if it
+ * climbs back out — so a `filePath` like `../../etc/passwd` is blocked.
+ *
+ * It does NOT confine `name`. Since the boundary is derived from `name`, a `name`
+ * containing `../` relocates `skillRoot` instead of tripping the check, and `name` is
+ * unvalidated model input (the schema is only `z.string().min(1)`). So this function
+ * hardens the file path but not the skill id — treat it as a filePath guard, not a full
+ * traversal guard.
+ * TODO: also confine `name` (or validate it against the enabled-skill set) so a crafted
+ * skill name cannot read/write outside the skills container.
+ */
 function safeSkillPath(workspaceRoot: string, name: string, filePath: string): string {
   const root = resolve(workspaceRoot)
   const skillRoot = resolve(root, 'library-containers/skills', name)
@@ -100,12 +154,24 @@ function safeSkillPath(workspaceRoot: string, name: string, filePath: string): s
   return resolved
 }
 
+/**
+ * Drops the YAML frontmatter block from a SKILL.md body. The frontmatter (name,
+ * description, category) is catalog metadata already surfaced in the prompt index, so
+ * it is noise once the model is reading the full skill. A file with no leading `---` is
+ * returned trimmed and unchanged.
+ */
 function stripSkillFrontmatter(content: string): string {
   if (!content.startsWith('---')) return content.trim()
   const match = /^---\r?\n[\s\S]*?\r?\n---\r?\n?([\s\S]*)$/.exec(content)
   return (match?.[1] ?? content).trim()
 }
 
+/**
+ * Wraps skill text in `<skill><external_content>` tags before handing it to the model.
+ * The `external_content` marker tells the model this is reference material it loaded, not
+ * its own instructions or the user's words; `name`/`location` are attribute-escaped since
+ * a skill name could otherwise break out of the tag.
+ */
 function wrapSkillContent(name: string, location: string, content: string): string {
   return [
     `<skill name="${escapeAttribute(name)}" location="${escapeAttribute(location)}">`,
