@@ -7,6 +7,18 @@ defmodule Ankole.Application do
 
   @impl true
   def start(_type, _args) do
+    # Child order is load-bearing, not cosmetic. `:one_for_one` restarts a single
+    # failed child in place, but the initial boot still proceeds top to bottom, so
+    # anything later may assume earlier children are already up.
+    #
+    #   - Repo before AppConfigure: durable config is read from Postgres.
+    #   - AppConfigure.Registry + Cache before Plugins/I18n: those subsystems read
+    #     and register AppConfigure definitions during their own `init/1`.
+    #   - Plugins.Registry before Plugins.Supervisor: the registry discovers and
+    #     activates plugins, then the supervisor reads that active set to know
+    #     which plugin-contributed children to start (snapshot taken once at boot).
+    #   - Endpoint last: accept web traffic only after every subsystem it serves
+    #     (auth, config, plugins, actors, i18n) is ready.
     children = [
       AnkoleWeb.Telemetry,
       Ankole.Repo,

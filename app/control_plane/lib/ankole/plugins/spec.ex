@@ -1,12 +1,23 @@
 defmodule Ankole.Plugins.Spec do
   @moduledoc """
-  Normalized declaration for one discovered Ankole plugin.
+  Validates a plugin module's callbacks into a normalized `Spec` struct.
+
+  This is the gate that turns a discovered module into a usable plugin. It runs
+  at boot (via the registry), so validation is strict and fail-fast: every
+  callback value is checked, and for known subsystem contracts the declared
+  adapter modules are checked to actually export the callbacks that contract
+  requires. A plugin that mis-declares an adapter fails Ankole startup here
+  rather than crashing later when a subsystem first tries to invoke it.
   """
 
   alias Ankole.AppConfigure.Definition
   alias Ankole.AppConfigure.PatternDefinition
 
+  # Only api_version 1 exists today; a plugin declaring anything else is rejected
+  # so an incompatible future plugin cannot load against an old runtime.
   @api_version 1
+  # Plugin/adapter ids are lowercase slugs. Contract ids additionally allow dots
+  # so subsystem contracts can be namespaced, e.g. "signals_gateway.adapter".
   @id_pattern ~r/\A[a-z][a-z0-9_-]*\z/
   @contract_id_pattern ~r/\A[a-z][a-z0-9_.-]*\z/
 
@@ -40,6 +51,10 @@ defmodule Ankole.Plugins.Spec do
 
   @doc """
   Builds a normalized plugin spec from a loaded plugin module.
+
+  Required identity callbacks must be present and valid; every optional callback
+  defaults to empty/`nil` when the module does not export it. Errors are wrapped
+  with the offending module so a boot failure points at the responsible plugin.
   """
   @spec from_module(module()) :: {:ok, t()} | {:error, term()}
   def from_module(module) when is_atom(module) do
@@ -199,6 +214,11 @@ defmodule Ankole.Plugins.Spec do
     end
   end
 
+  # Per-contract structural checks. A declaration names which contract it plugs
+  # into; for the contracts Ankole ships, we verify the declared adapter modules
+  # actually export the callbacks that contract will call at runtime. Unknown
+  # contract ids pass through (last clause) so plugins can declare adapters for
+  # contracts this validator does not yet know about.
   defp validate_known_adapter_contract("signals_gateway.adapter", declaration) do
     with :ok <- validate_signals_ingress(declaration),
          :ok <- validate_signals_outbox(declaration),
@@ -217,6 +237,10 @@ defmodule Ankole.Plugins.Spec do
 
   defp validate_known_adapter_contract(_contract_id, _declaration), do: :ok
 
+  # A plugin opts into ingress by listing inbound capabilities; each capability
+  # name maps to one required callback on its ingress module (see the
+  # `validate_signals_inbound_capability/2` clauses). Declaring no inbound
+  # capabilities is valid for an outbound-only adapter.
   defp validate_signals_ingress(declaration) do
     capabilities = declaration_list(declaration, :inbound_capabilities)
 
@@ -369,6 +393,8 @@ defmodule Ankole.Plugins.Spec do
     end
   end
 
+  # Plugins may author declaration maps with atom or string keys, so every read
+  # tries the atom key first and falls back to its string form.
   defp declaration_value(declaration, key) do
     case Map.fetch(declaration, key) do
       {:ok, value} -> {:ok, value}

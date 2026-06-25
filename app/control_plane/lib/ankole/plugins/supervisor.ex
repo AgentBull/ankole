@@ -1,6 +1,12 @@
 defmodule Ankole.Plugins.Supervisor do
   @moduledoc """
-  Starts supervised children contributed by active plugins.
+  Static supervisor for the children active plugins contribute.
+
+  It asks the registry for the active plugins' child specs once at startup and
+  supervises them under `:one_for_one`. Because that list is read in `init/1`,
+  the set of plugin children is fixed for the process lifetime — the same boot
+  snapshot the registry uses (see `Ankole.Plugins.Registry`). This is why it
+  starts after the registry in the application boot order.
   """
 
   use Supervisor

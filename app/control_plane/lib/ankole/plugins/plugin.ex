@@ -1,6 +1,14 @@
 defmodule Ankole.Plugins.Plugin do
   @moduledoc """
-  Behaviour implemented by first-party Ankole plugin modules.
+  Contract a first-party plugin module declares to the registry.
+
+  A plugin advertises an identity (`plugin_id/0`, `api_version/0`) and may
+  contribute any of: AppConfigure keys, setup wizard steps, adapter declarations
+  (the data that lets a plugin plug into a subsystem contract such as
+  `signals_gateway.adapter` or `principals.identity_provider`), and supervised
+  children. Everything except identity is optional, so a minimal plugin only
+  implements the two required callbacks. `Ankole.Plugins.Spec.from_module/1`
+  reads these callbacks and normalizes the result into a `Spec`.
   """
 
   alias Ankole.AppConfigure.Definition

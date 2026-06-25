@@ -1,6 +1,25 @@
 defmodule Ankole.Actors do
   @moduledoc """
-  Actor input store boundary shared by SignalsGateway and ActorRuntime.
+  The actor input journal: durable inbox shared by SignalsGateway and ActorRuntime.
+
+  SignalsGateway *appends* normalized inputs for an actor session; ActorRuntime
+  *consumes* them when a turn commits. The model is deliberately "queue + audit
+  marker", not a log:
+
+    - Append is idempotent on the ingress key, and a per-session `broker_sequence`
+      (allocated under a Postgres advisory lock) gives the runtime one stable
+      ordered stream per actor session.
+    - On consume, the input row is *deleted* and an `ActorInputConsumption` marker
+      is written in the same transaction. The marker is the durable link from
+      provider ingress to the committed turn and the recovery-time guard against
+      double consumption; the deletion keeps the live queue small (compaction).
+    - That consume transaction is the single commit point: marking the input
+      consumed and scheduling any provider reply (outbox intents) succeed or fail
+      together, so "message handled" and "reply will be sent" are one decision.
+
+  Several `*_in_tx` functions take a `repo` and run inside a caller-owned
+  transaction because the AI-agent message/turn writes that fence a consumption
+  belong to the caller, not to this boundary.
   """
 
   import Ecto.Query, warn: false
