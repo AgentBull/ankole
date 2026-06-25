@@ -1,6 +1,11 @@
 defmodule Ankole.ActorRuntime.Schemas.AgentComputerWorkerAuthKey do
   @moduledoc """
-  Logged worker-scoped pre-auth key material.
+  Durable per-worker pre-shared key used to authenticate a booting worker.
+
+  A worker presents its `worker_id` + `pre_auth_key` on first contact; the
+  control plane resolves this row to admit the worker onto the transport. Unlike
+  the runtime worker registry, this key material is long-lived, so it lives in
+  its own table keyed by `worker_id` (the logical worker, not a boot instance).
   """
 
   use Ecto.Schema
@@ -9,13 +14,22 @@ defmodule Ankole.ActorRuntime.Schemas.AgentComputerWorkerAuthKey do
 
   @primary_key false
   @timestamps_opts [type: :utc_datetime_usec]
+  # worker_id doubles as a routing/identity token, so it is constrained to a safe
+  # slug shape (lowercase start, then up to 62 of [a-z0-9_-]). Keeping it
+  # DNS/path-safe avoids escaping it everywhere it is used as an identity.
   @worker_id_format ~r/\A[a-z][a-z0-9_-]{0,62}\z/
 
   schema "agent_computer_worker_auth_keys" do
     field :worker_id, :string, primary_key: true
     field :pre_auth_key, :string
+    # Incremented on key rotation. The transport carries the authenticated
+    # revision alongside the worker id, so the control plane can tell which key
+    # generation a connected worker actually authenticated with.
     field :key_revision, :integer, default: 1
+    # Soft-disable timestamp: a key with disabled_at set must be refused even
+    # though the row is kept for audit.
     field :disabled_at, :utc_datetime_usec
+    # Last successful bootstrap, for operator visibility into which keys are live.
     field :last_bootstrap_at, :utc_datetime_usec
 
     timestamps()

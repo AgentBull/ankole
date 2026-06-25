@@ -10,7 +10,10 @@ defmodule Ankole.ActorRuntime.ActivationManager do
   alias Ankole.Actors
   alias Ankole.ActorRuntime.SessionController
 
+  # 500ms poll keeps recovery latency low without hammering the journal; the
+  # `wake/0` cast handles the hot path, so this is mainly a safety net.
   @default_interval_ms 500
+  # Cap on actors started per pass, to bound work and DB load in one tick.
   @default_limit 25
 
   @doc """

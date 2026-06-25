@@ -1,6 +1,21 @@
 defmodule Ankole.ActorRuntime do
   @moduledoc """
   Control-plane API for the Actor Runtime PING/PONG main path.
+
+  This is the durable turn/commit/fence core. It owns the boundary between two
+  layers with deliberately different guarantees:
+
+    * AI-agent state (conversations, turns, messages) is *durable truth*.
+    * Actor-runtime projections (activations, deliveries, assignments) are
+      cheaper *runtime hints* that fence in-flight work and can be rebuilt.
+
+  Every worker reply must echo a `turn_ref` whose fields are checked by equality
+  against database rows (the "triple fence": activation, actor epoch, and the
+  delivery rows that name a turn). This makes a late or cross-session worker
+  reply fail harmlessly instead of corrupting the durable transcript, and it
+  needs no in-memory session state to do so. The one intentionally weak spot —
+  a durable started turn whose runtime fences were lost on a restart — is
+  repaired by `reconcile_projection_lost_started_turns/1`.
   """
 
   import Ecto.Query, warn: false
@@ -25,7 +40,13 @@ defmodule Ankole.ActorRuntime do
   alias Ankole.Repo
   alias Ankole.SignalsGateway
 
+  # The "live" delivery set: a worker may still be acting on a turn while any of
+  # its deliveries is in one of these states, so a live delivery blocks creating
+  # a second delivery for the same input. `send_failed`/`superseded` are not live.
+  # Mirrors the WHERE clause of the partial unique index in the migration.
   @live_delivery_states ~w(created sent accepted)
+  # The "live" activation set: an activation owns its actor session while in one
+  # of these statuses. `stopped`/`failed` are terminal and free the session.
   @live_activation_statuses ~w(starting active draining)
 
   @type actor_key :: %{agent_uid: String.t(), session_id: String.t()}
@@ -1635,6 +1656,10 @@ defmodule Ankole.ActorRuntime do
       delivery.llm_turn_id != fetch_turn_id(turn_ref) ->
         {:error, :stale_llm_turn_id}
 
+      # Acceptance demands an exact revision match (strict `!=`), unlike the
+      # commit path which tolerates a newer delivery revision. Acceptance happens
+      # right after send, before any steer can bump the revision, so the worker
+      # must echo exactly what it was sent.
       delivery.revision != fetch_int!(turn_ref, "revision") ->
         {:error, :stale_revision}
 
@@ -1658,6 +1683,8 @@ defmodule Ankole.ActorRuntime do
     %{agent_uid: normalize_uid(agent_uid), session_id: session_id}
   end
 
+  # agent_uid is case-insensitive identity. Both stored rows and incoming
+  # turn_refs are downcased so fence equality checks never fail on letter case.
   defp normalize_uid(value) when is_binary(value), do: String.downcase(value)
 
   defp blank?(nil), do: true
@@ -1679,6 +1706,10 @@ defmodule Ankole.ActorRuntime do
     end
   end
 
+  # Reads a field whether the turn_ref arrived JSON-decoded (string keys, the
+  # common transport case) or as an internal atom-keyed map (tests, recovery).
+  # `String.to_atom/1` is safe here only because every `key` is a hardcoded
+  # literal, never untrusted input, so the atom table stays bounded.
   defp fetch_text(map, key) when is_map(map) do
     Map.get(map, key) || Map.get(map, String.to_atom(key))
   end

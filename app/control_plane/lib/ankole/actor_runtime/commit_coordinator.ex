@@ -18,6 +18,9 @@ defmodule Ankole.ActorRuntime.CommitCoordinator do
   alias Ankole.SignalsGateway
 
   @live_delivery_states ~w(created sent accepted)
+  # Roles a worker may write as extra transcript rows in its proposal. Notably
+  # `assistant` is excluded: the one visible answer must come only from the
+  # proposal's `reply`, so there is a single source of truth for the response.
   @runtime_proposal_roles ~w(user tool im_ambient)
 
   @doc """
@@ -734,6 +737,13 @@ defmodule Ankole.ActorRuntime.CommitCoordinator do
       delivery.llm_turn_id != fetch_turn_id(turn_ref) ->
         {:error, :stale_llm_turn_id}
 
+      # Revision uses `>` here, not strict `!=` as the activation/epoch fences do.
+      # A worker echoes the revision it started the turn with; a steer can bump
+      # the delivery's revision while the turn is still running. Rejecting only
+      # when the stored revision is *newer* than the reply lets a valid final
+      # proposal still commit across a concurrent steer, while a genuinely stale
+      # reply (built after a newer turn took over) is still rejected by the
+      # activation_uid/epoch/turn_id checks above.
       delivery.revision > fetch_int!(turn_ref, "revision") ->
         {:error, :stale_revision}
 
