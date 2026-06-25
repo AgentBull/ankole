@@ -47,6 +47,9 @@ defmodule Ankole.ActorRuntime.WorkerBootstrap do
     end
   end
 
+  # Pre-creates the three host directories the worker bind-mounts below. Docker
+  # would create missing mount sources as root-owned dirs; making them up front
+  # (and `&&`-chaining before `docker run`) keeps them owned by the operator.
   defp workspace_setup_command(workspace_root) do
     Enum.join(
       [
@@ -90,6 +93,10 @@ defmodule Ankole.ActorRuntime.WorkerBootstrap do
     end
   end
 
+  # Single-quotes the value for safe inclusion in the rendered shell command
+  # (endpoint, secret, ids may contain shell metacharacters). The `'\"'\"'`
+  # sequence is the standard POSIX idiom for embedding a literal single quote
+  # inside a single-quoted string: close-quote, escaped-quote, reopen-quote.
   defp shell_escape(value) do
     "'" <> String.replace(value, "'", "'\"'\"'") <> "'"
   end

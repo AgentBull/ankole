@@ -1,6 +1,13 @@
 defmodule Ankole.ActorRuntime.OutboxDispatcher do
   @moduledoc """
   Periodically dispatches provider-visible outbox rows through SignalsGateway.
+
+  When a turn commits a side effect (a message to send, etc.) it records a
+  durable outbox row inside the same transaction; this loop is what actually
+  performs those effects against external providers. Polling is the source of
+  truth for delivery — `wake/0` only shaves latency. The outbox row stays the
+  durable record and carries its own retry metadata, so a crash or a missed tick
+  just means the effect goes out on a later pass, never that it is lost.
   """
 
   use GenServer
@@ -9,7 +16,12 @@ defmodule Ankole.ActorRuntime.OutboxDispatcher do
 
   alias Ankole.SignalsGateway
 
+  # Poll every 500ms: low enough that a freshly committed side effect reaches its
+  # provider promptly even if the wake/0 nudge is missed, cheap enough to run
+  # continuously.
   @default_interval_ms 500
+  # Cap rows per pass so one busy tick can't monopolize provider calls or the DB;
+  # leftover due rows are simply picked up on the next tick.
   @default_limit 25
 
   @doc """

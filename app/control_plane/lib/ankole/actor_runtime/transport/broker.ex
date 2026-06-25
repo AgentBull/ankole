@@ -4,6 +4,26 @@ defmodule Ankole.ActorRuntime.Transport.Broker do
 
   The production transport route is ZeroMQ; this GenServer keeps the Elixir API
   stable and provides a local route handler for deterministic smoke tests.
+
+  There are two transport routes behind one identical API:
+
+    * Production: a single ZeroMQ ROUTER socket (owned by the native Actor Bus)
+      reaches every connected worker. A "transport route" is the worker's ROUTER
+      identity — the address ZeroMQ uses to deliver an envelope to that worker.
+    * Local (test only): an in-process handler (function or pid) registered
+      under a route string. This exercises the same envelope decode/dispatch
+      code without spinning up a ZeroMQ worker, so smoke tests stay fast and
+      deterministic.
+
+  `send_mandatory/2` resolves a route to whichever transport owns it: a local
+  route if one is registered, otherwise the production ROUTER. Inbound traffic
+  arrives the other way — the native ROUTER forwards decoded envelopes here as
+  `:actor_bus_router_received` messages, already tagged with the worker identity
+  the transport authenticated.
+
+  Keeping the single ROUTER socket behind this one GenServer means every route
+  failure surfaces in one place, where it can be turned into a scheduling signal
+  instead of a lost actor turn.
   """
 
   use GenServer
@@ -47,6 +67,10 @@ defmodule Ankole.ActorRuntime.Transport.Broker do
 
   @doc """
   Starts the ZeroMQ ROUTER transport owned by this broker.
+
+  Binding the native socket is a synchronous NIF call, so we cap the GenServer
+  call at 5s: long enough for a normal `bind()` plus ZAP setup, short enough that
+  a wedged native layer fails the caller instead of blocking the broker forever.
   """
   @spec start_router(String.t(), keyword()) :: {:ok, String.t()} | {:error, term()}
   def start_router(endpoint, opts \\ []) when is_binary(endpoint) and is_list(opts) do
@@ -55,6 +79,9 @@ defmodule Ankole.ActorRuntime.Transport.Broker do
 
   @doc """
   Stops the ZeroMQ ROUTER transport if it is running.
+
+  Same 5s bound as `start_router/2` — closing the native socket is a blocking
+  NIF call and should not be able to hang the broker indefinitely.
   """
   @spec stop_router() :: :ok | {:error, term()}
   def stop_router do
@@ -86,6 +113,10 @@ defmodule Ankole.ActorRuntime.Transport.Broker do
   def init(opts) do
     state = %{local_routes: %{}, router: nil, router_endpoint: nil}
 
+    # Bind the ROUTER in a continuation, not inline in init/1: binding is a
+    # blocking NIF call, and deferring it keeps the supervisor's start_link fast
+    # and lets a bind failure be logged (see handle_continue) instead of
+    # crash-looping the whole actor-runtime supervisor at boot.
     case Keyword.get(opts, :router) do
       nil -> {:ok, state}
       false -> {:ok, state}
@@ -132,6 +163,9 @@ defmodule Ankole.ActorRuntime.Transport.Broker do
 
   @impl true
   def handle_call({:send_mandatory, route, envelope}, _from, state) do
+    # Local routes win over the production ROUTER so a test handler can shadow a
+    # route. A locally dispatched envelope is always "sent": the handler runs
+    # in-process and cannot be lost on the wire.
     case Map.fetch(state.local_routes, route) do
       {:ok, handler} ->
         dispatch(handler, envelope)
@@ -147,6 +181,11 @@ defmodule Ankole.ActorRuntime.Transport.Broker do
     endpoint = Keyword.fetch!(router_opts, :endpoint)
     opts = Keyword.delete(router_opts, :endpoint)
 
+    # A failed bind at boot logs and leaves the broker running with no router:
+    # the process stays up so operators can retry via start_router/2 (e.g. after
+    # freeing the port), rather than crash-looping the whole runtime supervisor.
+    # With no router, send_mandatory/2 reports :unknown_route, which the caller
+    # treats as worker staleness — outbound turns stay durable and retryable.
     case start_router_in_state(endpoint, opts, state) do
       {:ok, state} ->
         {:noreply, state}
@@ -158,6 +197,11 @@ defmodule Ankole.ActorRuntime.Transport.Broker do
   end
 
   @impl true
+  # The native ROUTER forwards inbound frames in two shapes. The 3-tuple is the
+  # unauthenticated form (ZAP disabled, e.g. in tests): route + raw JSON only.
+  # The 5-tuple is the production form: the transport has already verified the
+  # worker's pre-auth key and tells us which worker_id / key_revision the route
+  # belongs to, so lifecycle messages can be bound to a proven identity below.
   def handle_info({:actor_bus_router_received, route, envelope_json}, state) do
     handle_router_received(route, nil, nil, envelope_json, state)
   end
@@ -186,6 +230,12 @@ defmodule Ankole.ActorRuntime.Transport.Broker do
     {:noreply, state}
   end
 
+  # Entry point for every inbound envelope. The LLM-credential request is the one
+  # request/response RPC on this socket: a worker asks the control plane to mint
+  # provider credentials and waits for the reply on the same route, so it is
+  # answered inline and the response is sent straight back. Everything else is
+  # one-way (lifecycle projections, turn results) and goes through
+  # dispatch_router_envelope/2, which never replies on the socket.
   defp handle_router_received(
          route,
          authenticated_worker_id,
@@ -209,6 +259,9 @@ defmodule Ankole.ActorRuntime.Transport.Broker do
     {:noreply, state}
   end
 
+  # Delivers to a local (test) route handler. A handler may be a 1-arity function
+  # (called synchronously) or a pid (gets an `{:actor_bus, envelope}` message),
+  # so tests can assert on either a return value or a received message.
   defp dispatch(handler, envelope) when is_function(handler, 1), do: handler.(envelope)
   defp dispatch(handler, envelope) when is_pid(handler), do: send(handler, {:actor_bus, envelope})
 
@@ -339,6 +392,11 @@ defmodule Ankole.ActorRuntime.Transport.Broker do
     )
   end
 
+  # Same ZAP-auth defaulting as the supervisor, applied here for callers that
+  # start the router directly via start_router/2 (e.g. tests) without going
+  # through the supervisor's config path. Unless the caller supplies its own
+  # credentials, point the native router at the Repo database so it can verify
+  # worker pre-auth keys.
   defp maybe_database_worker_auth(opts) do
     cond do
       Keyword.has_key?(opts, :pre_auth_token) ->
@@ -368,6 +426,10 @@ defmodule Ankole.ActorRuntime.Transport.Broker do
     }
   end
 
+  # Collapse "no identity" sentinels from the native layer to nil so downstream
+  # auth checks see a clean optional. A blank worker id or a non-positive key
+  # revision means the transport did not authenticate this frame (ZAP disabled),
+  # not "authenticated as the empty worker".
   defp normalize_auth_worker_id(value) when is_binary(value) do
     case String.trim(value) do
       "" -> nil

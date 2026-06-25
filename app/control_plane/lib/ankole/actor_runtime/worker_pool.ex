@@ -1,6 +1,16 @@
 defmodule Ankole.ActorRuntime.WorkerPool do
   @moduledoc """
   Worker placement boundary for actor sessions.
+
+  Maps an actor key to a ready worker. Assignments are sticky (an actor reuses
+  the same worker while it stays usable, to cut churn) but they are only hints:
+  the `agent_computer_worker` table remains the liveness source, and every
+  placement revalidates the worker behind the assignment. If the assigned worker
+  is gone, the assignment is released and re-placed. Crucially, an assignment is
+  not part of the durable user story — losing one only means the actor input is
+  retried onto another worker, never that work is dropped. Placement deliberately
+  considers only liveness and free capacity because all workers run one image; a
+  heterogeneous pool is out of scope for this path.
   """
 
   import Ecto.Query, warn: false
@@ -30,6 +40,12 @@ defmodule Ankole.ActorRuntime.WorkerPool do
 
   @doc """
   Releases live assignments for a worker that is no longer usable.
+
+  Called inside the worker-staleness transition (see `WorkerAdmission`) so that
+  marking a worker stale and detaching its actor sessions commit together. Fences
+  on `worker_instance_id` as well as `worker_id`, so a worker that has since
+  reconnected under a new instance keeps its current assignments. Returns the
+  Ecto `update_all` count tuple.
   """
   @spec release_assignments_for_worker(module(), AgentComputerWorker.t()) ::
           {non_neg_integer(), nil | [term()]}

@@ -1,6 +1,20 @@
 defmodule Ankole.ActorRuntime.WorkerAdmission do
   @moduledoc """
   Worker admission boundary for authenticated Actor Bus lifecycle messages.
+
+  Every worker lifecycle message (ready / heartbeat / capacity) lands here after
+  the transport has authenticated the route, and gets projected into the durable
+  `agent_computer_worker` table — the scheduler's single source of worker
+  liveness. Two invariants drive most of the logic in this module:
+
+    * Identity fencing: the message must come from the route+instance the worker
+      currently owns. A reconnected worker gets a fresh `worker_instance_id`, so
+      a stale connection (or an old process) can never refresh or keep alive a
+      projection that has moved on.
+    * Safe staleness: when a worker dies or its route breaks, its created/sent
+      deliveries are superseded and its assignments released, but the underlying
+      actor input rows stay open so the scheduler can simply retry them — worker
+      death never loses user-visible work.
   """
 
   import Ecto.Query, warn: false
@@ -11,6 +25,8 @@ defmodule Ankole.ActorRuntime.WorkerAdmission do
   alias Ankole.Repo
 
   @ready_worker_status "ready"
+  # Only "ready"/"draining" workers can be made stale or block a duplicate claim;
+  # already-stale/stopped rows are inert and handled by the TTL reaper instead.
   @stale_worker_statuses ~w(ready draining)
 
   @doc """
@@ -52,6 +68,10 @@ defmodule Ankole.ActorRuntime.WorkerAdmission do
       |> Map.put(:last_worker_heartbeat_at, now)
       |> maybe_put(:transport_route, route)
 
+    # Upsert keyed on worker_id: a worker restarting under the same stable id
+    # overwrites its prior projection (new instance id, route, capacity, fresh
+    # lease) in one statement, rather than racing an insert against a delete of
+    # the old row. The replace list is every field a re-ready should refresh.
     Repo.transact(fn repo ->
       with :ok <- worker_instance_available(repo, attrs),
            :ok <- worker_route_available(repo, attrs) do
@@ -83,6 +103,11 @@ defmodule Ankole.ActorRuntime.WorkerAdmission do
 
   @doc """
   Records an authenticated worker heartbeat projection.
+
+  A heartbeat renews the worker's lease (its `last_worker_heartbeat_at`), which is
+  the clock the watchdog reads to decide staleness. It is accepted only if the
+  authenticated identity matches and the worker still owns its instance+route, so
+  heartbeats from a previous process cannot keep a superseded worker alive.
   """
   @spec handle_worker_heartbeat(map(), String.t() | map()) ::
           {:ok, AgentComputerWorker.t()} | {:error, term()}
@@ -101,6 +126,10 @@ defmodule Ankole.ActorRuntime.WorkerAdmission do
 
   @doc """
   Records an authenticated worker capacity projection.
+
+  Capacity updates feed `WorkerPool` placement decisions (free turn slots). Like
+  heartbeats, this also refreshes the lease and is identity/route fenced so a
+  stale connection cannot rewrite a live worker's capacity.
   """
   @spec handle_worker_capacity(map(), String.t() | map()) ::
           {:ok, AgentComputerWorker.t()} | {:error, term()}
@@ -109,6 +138,8 @@ defmodule Ankole.ActorRuntime.WorkerAdmission do
          {:ok, worker_id} <- fetch_required_text(worker_capacity, "worker_id"),
          :ok <- authenticated_worker_matches(auth, worker_id),
          {:ok, worker_instance_id} <- fetch_required_text(worker_capacity, "worker_instance_id") do
+      # Prefer the structured capacity map; fall back to the scalar
+      # available_turn_slots field for older workers that don't send capacity_json.
       capacity =
         worker_capacity
         |> fetch_map("capacity_json")
@@ -352,6 +383,10 @@ defmodule Ankole.ActorRuntime.WorkerAdmission do
 
   defp authenticated_route(_route), do: {:error, :unauthenticated_worker_route}
 
+  # When the transport did not authenticate an identity (ZAP-disabled test path,
+  # worker_id == nil) there is nothing to cross-check, so accept. When it did,
+  # the payload's worker_id must equal the proven one — otherwise a worker is
+  # claiming to be someone else and the message is rejected.
   defp authenticated_worker_matches(%{worker_id: nil}, _worker_id), do: :ok
 
   defp authenticated_worker_matches(%{worker_id: authenticated_worker_id}, worker_id)
