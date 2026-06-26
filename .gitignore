@@ -106,3 +106,4 @@ app/kernel/**/*.node
 app/kernel/_build/
 app/kernel/deps/
 app/kernel/priv/native/
+/.claude/
