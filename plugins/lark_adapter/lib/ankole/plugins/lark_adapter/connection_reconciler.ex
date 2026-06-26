@@ -189,6 +189,9 @@ defmodule Ankole.Plugins.LarkAdapter.ConnectionReconciler do
          secret_fingerprint: Config.secret_fingerprint(config),
          consumers: [Inbound.chat_consumer(context, config, materialize_attachments: true)]
        }}
+    else
+      :error -> {:error, :chat_config_not_found}
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -204,6 +207,10 @@ defmodule Ankole.Plugins.LarkAdapter.ConnectionReconciler do
          secret_fingerprint: Config.secret_fingerprint(config),
          consumers: [IdentityProvider.identity_consumer(provider_id, config)]
        }}
+    else
+      :skip -> :skip
+      :error -> {:error, :identity_config_not_found}
+      {:error, reason} -> {:error, reason}
     end
   end
 

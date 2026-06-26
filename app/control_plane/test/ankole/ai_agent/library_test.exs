@@ -37,7 +37,7 @@ defmodule Ankole.AIAgent.LibraryTest do
     %{principal: agent} = agent_fixture()
 
     assert {:ok, skill} = Library.skill_view(agent.uid, "nano-pdf")
-    assert skill["file_path"] == "/workspace/library-containers/skills/nano-pdf/SKILL.md"
+    assert skill["skill_uri"] == "skill://enabled/nano-pdf/SKILL.md"
     assert skill["content"] =~ "# nano-pdf"
     refute skill["content"] =~ "name: nano-pdf"
     refute skill["has_agent_overlay"]

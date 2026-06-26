@@ -16,7 +16,8 @@ Only four concepts need to stay separate:
   provider-visible or provider-delivered state Ankole has chosen to observe.
 - `ActorInput`: the semantic input appended to `actor_inputs` for a session
   actor, such as `im.message.addressed`, `im.message.may_intervene`,
-  `command.steer`, `timer.fired`, or `signal.entry.deleted`.
+  `command.steer`, `timer.fired`, `session.reset_due`, or
+  `signal.entry.deleted`.
 - Outbox: the one durable table of actor-committed provider-visible side
   effects. Gateway execution reads this same table, uses adapter capabilities,
   and mirrors only after provider success.
@@ -334,7 +335,8 @@ Core IngressFact kinds are intentionally small:
 - `entry.recalled`
 - `reaction.changed`
 - `action.invoked`
-- registered internal facts such as `timer.fired`
+- registered internal facts such as `timer.fired` and session lifecycle facts
+  such as `session.reset_due`
 
 Visible text commands are command semantics carried by text-bearing
 `entry.received` IngressFacts. The visible entry is still mirrored and still
@@ -389,8 +391,15 @@ and it is not a provider-visible reply.
 
 For delete or recall, the provider mirror is updated immediately. Pending actor
 input can be removed before the actor sees it; otherwise a lifecycle event is
-written to the same actor input journal. SignalsGateway never infers deletion of
-prior assistant output.
+written to the same actor input journal. The lifecycle event is a runtime note
+for future model context, not a new user request. The actor transcript may store
+that fact as an introspection row, but the worker must render it into the
+leading `<agent_environment_info>` block of the current or latest user message;
+it must not append the dynamic recall/delete fact to the system prompt.
+Historical transcript rows stay intact: a recalled older message explains why
+prior turns happened, and the recall/delete fact only tells later turns that the
+provider environment changed. SignalsGateway never infers deletion of prior
+assistant output.
 
 For `/steer`, the adapter/shared parser recognizes a visible command entry. The
 gateway mirrors the visible entry and appends
@@ -400,6 +409,19 @@ path used for `im.message.addressed`; that resolver mapping is static runtime
 code keyed by `ActorInput.type`, not database state or user configuration.
 Checkpoint consumption, revision fencing, and final commit belong to the session
 actor runtime and Elixir control plane.
+
+For daily session reset, the control plane enqueues `session.reset_due` for due
+active sessions at the installation's AppConfigure timezone boundary. The
+default boundary is 04:30 local time in `system.timezone`. This is a session
+lifecycle ActorInput, not a visible text command and not worker-owned timer
+behavior. It is deliberately queued in the same `{agent_uid, session_id}` actor
+input journal so earlier work for that session finishes first. When the actor
+runtime reaches the reset input, it closes the current active session state,
+creates the successor active session state, consumes the reset input, and
+prevents stale session-local system-event rows from crossing into the successor
+session. Real channel observations are different: an open ambient
+`im.message.may_intervene` batch may straddle the reset boundary because it is
+room context, not old session-local background work.
 
 ## End-To-End Flow
 
@@ -561,10 +583,11 @@ Provider mirror behavior:
 
 - Receive upserts entry text, formatted content, attachments, links, author,
   mentions, metadata, raw payload, and provider time.
-- Deletes and recalls remove the entry from current visible/searchable state
+- Deletes and recalls update the current provider mirror/search projection
   according to product/privacy policy. The default long-lived memory substrate
   shape should use tombstone or redaction; physical deletion is an explicit data
-  erasure policy, not ordinary TTL cleanup.
+  erasure policy, not ordinary TTL cleanup, and does not imply rewriting actor
+  transcript history.
 - Reactions update the entry reaction map and preserve raw provider reaction
   keys when available.
 - Reaction changes for unknown or unmirrored entries are ignored in v1.
@@ -609,7 +632,7 @@ Common cases:
 | Timer fired | Append `timer.fired` with explicit `session_id` |
 | Delete/recall before receive | Write tombstone so a late receive is dropped |
 | Delete/recall while actor input pending | Refresh tombstone, remove or redact current visible/searchable entry state, cancel/remove pending actor input |
-| Delete/recall after actor commit | Refresh tombstone, remove or redact current visible/searchable entry state, append `signal.entry.deleted` or `signal.entry.recalled` |
+| Delete/recall after actor commit | Refresh tombstone, update current provider mirror/search projection, append `signal.entry.deleted` or `signal.entry.recalled` for a runtime introspection note; do not rewrite historical transcript |
 
 This is the only place where binding policy turns ingress facts into actor
 input. `record_only` means mirror effect only; it is not an event type and it
@@ -652,8 +675,10 @@ application command, or provider-native bot invocation. Plain text containing
 `@` is not enough unless the adapter normalized it into a structured fact that
 the binding route treats as explicit.
 
-`may_intervene` is direct in the default v1 event definitions. It appends
-`ActorInput(type = im.message.may_intervene)` without batching.
+`may_intervene` appends or merges `ActorInput(type =
+im.message.may_intervene)`. The gateway may fold consecutive unaddressed
+observations for the same channel/thread into one open ambient batch so the
+actor judges a room scene instead of one isolated message.
 
 The same phrase appears at three levels with different meanings:
 `unaddressed_group_message_policy = may_intervene` is the binding policy;
@@ -714,18 +739,30 @@ SignalsGateway writes only actor-facing inputs to `actor_inputs`:
 - `im.message.addressed`: explicit IM input, micro-batched by the default v1
   readiness policy.
 - `im.message.may_intervene`: unaddressed IM group input that the binding lets
-  the agent inspect, direct by default.
+  the agent inspect; consecutive observations for the same channel/thread may be
+  folded into one ambient batch.
 - webhook and action inputs: type is chosen by source/event definition code;
   binding policy decides whether that input is admitted, ignored, or mirror-only.
 - `command.*`: visible text command events. Individual command types choose their
   consumption path through code keyed by `ActorInput.type`; `command.steer` may
   use the same path as `im.message.addressed`.
+- `session.reset_due`: control-plane session lifecycle barrier. It is enqueued
+  by scheduler/workflow code for a specific session and waits behind earlier
+  actor work instead of interrupting it.
 - `signal.entry.deleted` / `signal.entry.recalled`: written only when the
-  original input already reached actor state.
+  original input already reached actor state. ActorRuntime consumes it locally by
+  appending an introspection/runtime note to the transcript and marking the
+  lifecycle input consumed. It must not start a normal LLM turn, treat the event
+  as a human command, rewrite older transcript rows, or delete prior assistant
+  output by itself.
 
-Lifecycle ActorInputs use a deterministic code path. They update actor
-transcript or actor state to reflect the provider deletion/recall and must not
-invoke an LLM prompt or function-calling tool just to synchronize that state.
+Lifecycle ActorInputs are deterministic only at the state-transition boundary:
+the runtime decides whether to cancel pending work or write a lifecycle note.
+The note is how later LLM turns learn that a previously visible provider entry
+was deleted or recalled. When sent to a model, that note is message-local
+environment information on the current/latest user message, not a system-prompt extension.
+`session.reset_due` is stricter session lifecycle: it does not materialize any
+user transcript message and does not invoke the LLM.
 
 Provider reactions, `record_only` entries, ignored entries, streaming deltas,
 and agent outbound effects are not ActorInputs. GitHub issues, pull requests,
@@ -858,9 +895,32 @@ recovery. Its runtime state may include binding name and provider realm id, but
 SignalsGateway should not create a separate session for provider thread or
 ActorInput type.
 
-Daily Reset and `/new` are actor-runtime conversation-window semantics.
-SignalsGateway may deliver the triggering internal input or command event, but it
-does not change `actor_id` or provider mirror identity.
+Daily reset is represented as `ActorInput(type = session.reset_due)`. The event
+is queued against the current `session_key` because its ordering relative to
+already accepted work matters. The control-plane scheduler uses AppConfigure
+`system.timezone` to decide when local 04:30 has arrived and writes the boundary
+time into the event payload for idempotency and diagnostics. Runtime execution of
+the event does not re-interpret freshness: when `session.reset_due` reaches the
+head of the session queue, ActorRuntime rolls the current active session. It does
+not change provider mirror identity and it does not require a gateway-owned queue
+separate from `actor_inputs`. The current default actor identity remains:
+
+```text
+actor_id = {agent_uid, session_id}
+```
+
+Daily reset does not make the channel forget what is happening in the room.
+`im.message.may_intervene` is a real provider observation, not a heartbeat,
+cron, exec, or other stale system-event notice. An open ambient batch is allowed
+to keep collecting room observations across the reset boundary and later
+materialize into the successor active session. That continuity is intentional:
+it gives the agent a better scene for intervention after the reset instead of
+cutting a live group conversation at an arbitrary clock edge.
+
+Visible `/new` remains a `command.new` input because it is a user-facing command.
+Daily reset should not reuse `command.new`: current commands may have
+interrupt/nudge semantics, while `session.reset_due` is a barrier that waits
+until prior work is finished before applying the reset.
 
 ## Commands
 
@@ -889,6 +949,12 @@ SignalsGateway does not execute undo, steering, retry, stop, or
 assistant-output recall semantics. ActorInput classifies the semantic ingress;
 the session actor runtime decides what the command means and records execution
 state in actor-runtime rows, not in the parsed command payload.
+
+`/compress` asks the actor runtime to replace an older slice of chat history
+with a compressed transcript summary. That summary is previous chat history,
+not an environment fact and not a system-prompt rule. When later worker turns
+send it to a model, they render the latest compressed summary as
+`<previous_chat_history>` prepended to the current/latest user message.
 
 `/steer` is a typed command event like `/new`, `/compress`, `/retry`, and
 `/stop`. The command remains `ActorInput(type = command.steer)` even when its
@@ -1009,9 +1075,20 @@ runtime event definition with a small readiness function. If the function says
 "batchable" for a specific input, the gateway appends a normal actor input
 row, delays readiness through `available_at`, stores `batch_scope` and
 `sender_key`, and lets ready reads take a contiguous same-sender prefix. The
-default v1 event definitions make only `im.message.addressed` batchable.
-Webhook events, `im.message.may_intervene`, lifecycle events, command events,
-and action events are ready immediately by default.
+default v1 event definitions micro-batch `im.message.addressed` and
+ambient-batch `im.message.may_intervene`. Webhook events, lifecycle events,
+command events, and action events are ready immediately by default.
+
+The reset barrier is part of the `session.reset_due` runtime contract. If the
+session still has a live generation or live delivery when this input reaches the
+head of the ready set, ActorRuntime should leave the reset input open and report
+that it is waiting for the running work to finish. Later inputs for the same
+session must not pass the barrier.
+
+That barrier is about actor input row execution order. It must discard stale
+session-local system work such as timer, cron, and exec notices when the reset
+rolls the session, but it should not discard or split ambient room observations
+solely because their batch spans the clock boundary.
 
 Micro-batching is represented by actor input readiness metadata, not by another
 durable queue. A micro-batched ActorInput row needs these readiness fields:
@@ -1059,9 +1136,19 @@ recreating a mirrored entry after the user deleted or recalled it.
 | `tombstoned_until + receive` | Drop receive, do not re-mirror, do not wake |
 | `accepted receive + actor input still open` | Pending ActorInput exists in `actor_inputs` |
 | `accepted receive + actor store consumed input` | Original input reached actor state |
-| `mirror-only receive + delete/recall` | Refresh tombstone, remove or redact current visible/searchable entry state only |
-| `open actor input + delete/recall` | Refresh tombstone, remove or redact current visible/searchable entry state, cancel/remove open actor input |
-| `consumed actor input + delete/recall` | Refresh tombstone, remove or redact current visible/searchable entry state, append lifecycle ActorInput |
+| `mirror-only receive + delete/recall` | Refresh tombstone and update current provider mirror/search projection only |
+| `open actor input + delete/recall` | Refresh tombstone, update current provider mirror/search projection, cancel/remove open actor input |
+| `consumed actor input + delete/recall` | Refresh tombstone, update current provider mirror/search projection, append lifecycle ActorInput that becomes an introspection note |
+
+This distinction matters most for historical recall. If the original input is
+still pending or is the trigger for an unfinished generation, cancellation can
+prevent new output from being based on withdrawn content. If the original input
+was already consumed in an older turn, the system must preserve transcript
+causality: keep the old user and assistant rows, append a lifecycle note for
+future LLM context, render that note in the latest user message
+`<agent_environment_info>` block instead of the system prompt, and require an
+explicit later actor output intent before any provider-visible assistant message
+is recalled or deleted.
 
 `signal_gateway_input_tombstones` is the short-lived storage for the
 `tombstoned_until` state. Its primary key is `(agent_uid, binding_name,
@@ -1219,9 +1306,9 @@ Provider-visible behavior:
 - Message receive uses `im.message.receive_v1`. The adapter/binding route maps
   normalized receive IngressFacts to `im.message.addressed`,
   `im.message.may_intervene`, or `record_only` mirroring as configured.
-- Message recall uses `im.message.recalled_v1`. SignalsGateway removes or
-  redacts current visible/searchable entry state according to product/privacy
-  policy and writes lifecycle only if the receive reached the actor.
+- Message recall uses `im.message.recalled_v1`. SignalsGateway updates current
+  provider mirror/search projection according to product/privacy policy and
+  writes lifecycle only if the receive reached the actor.
 - Message edit has no official event as of June 6, 2026. Do not implement
   realtime handling; the generic contract has no inbound edit event.
 - Reactions use `im.message.reaction.created_v1` and
@@ -1275,7 +1362,8 @@ The gateway user-story surface includes these contract cases:
 - Recall/delete of a `record_only` entry updates the provider mirror but does not wake
   the agent.
 - Recall/delete of an entry already committed into actor state writes lifecycle
-  input to the actor but does not delete agent output unless the actor commits a
+  input that ActorRuntime consumes into an introspection note; it does not start
+  a normal LLM turn and does not delete agent output unless the actor commits a
   delete intent.
 - Raw reaction keys survive mirroring and re-mirroring.
 - Provider entry ids are scoped by signal channel id, so same-looking ids in
@@ -1322,8 +1410,9 @@ The gateway user-story surface includes these contract cases:
   binding.
 - `ignore` does not mirror ignored IM group traffic.
 - Inbound edit events are not supported by the current gateway contract.
-- A provider delete/recall refreshes a tombstone and removes or redacts current
-  visible/searchable entry state, but does not recall agent output by itself.
+- A provider delete/recall refreshes a tombstone and updates current provider
+  mirror/search projection, but does not rewrite actor transcript history or
+  recall agent output by itself.
 - Only explicit actor-committed `signal_gateway_outbox` rows create
   provider-visible side effects.
 - Provider send failure after final-proposal commit belongs to the outbox row,

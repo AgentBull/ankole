@@ -46,8 +46,8 @@ describe('@ankole/agent-computer prompts', () => {
 
       expect(prompt.indexOf('You are ReleaseBot')).toBeLessThan(prompt.indexOf('Use restrained'))
       expect(prompt.indexOf('Use restrained')).toBeLessThan(prompt.indexOf('Your mission is:'))
-      expect(prompt.indexOf('<runtime_context>')).toBeLessThan(prompt.indexOf('<message_context_policy>'))
-      expect(prompt.indexOf('<message_context_policy>')).toBeLessThan(prompt.indexOf('<tools>'))
+      expect(prompt.indexOf('<runtime_context>')).toBeLessThan(prompt.indexOf('<agent_environment_info_policy>'))
+      expect(prompt.indexOf('<agent_environment_info_policy>')).toBeLessThan(prompt.indexOf('<tools>'))
       expect(prompt.indexOf('<tools>')).toBeLessThan(prompt.indexOf('## Skills'))
       expect(prompt).toContain('Agent UID: agent-1')
       expect(prompt).toContain('Agent display name: ReleaseBot')
@@ -56,6 +56,7 @@ describe('@ankole/agent-computer prompts', () => {
       expect(prompt).toContain('nano-pdf')
       expect(prompt).toContain('interactive_terminal')
       expect(prompt).not.toContain('TigerFS')
+      expect(prompt).not.toContain('library-containers')
       expect(prompt).not.toContain('AGENT_APPEND.md')
       expect(prompt).not.toContain('PostgreSQL client')
       expect(prompt).not.toContain('codex_delegate')
@@ -74,13 +75,13 @@ describe('@ankole/agent-computer prompts', () => {
     const prompt = buildCompactionHistoryUserPrompt({
       conversationText: '[User]: fix /compress\n\n[Assistant]: working on it',
       customInstructions: COMPACTION_FOCUS_INSTRUCTIONS,
-      previousSummary: 'Existing checkpoint.'
+      previousChatHistory: 'Existing compressed chat history.'
     })
 
     expect(SUMMARIZATION_SYSTEM_PROMPT).toContain('Do NOT continue the conversation')
     expect(prompt).toContain('<conversation>')
-    expect(prompt).toContain('<previous-summary>')
-    expect(prompt).toContain('Existing checkpoint.')
+    expect(prompt).toContain('<previous_chat_history>')
+    expect(prompt).toContain('Existing compressed chat history.')
     expect(prompt).toContain('## Active Task')
     expect(prompt).toContain('## Constraints & Preferences')
     expect(prompt).toContain('## Completed Actions')

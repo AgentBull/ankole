@@ -54,7 +54,7 @@ export type RuntimeSkillSummary = {
   metadata?: JsonObject
   category?: string
   tags?: unknown[]
-  file_path?: string
+  skill_uri?: string
   has_agent_overlay?: boolean
 }
 

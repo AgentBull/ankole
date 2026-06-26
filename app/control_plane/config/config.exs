@@ -29,6 +29,9 @@ config :logger, :default_formatter,
 # Use the local Torque adapter for JSON parsing in Phoenix
 config :phoenix, :json_library, Ankole.JSON
 
+config :elixir, :time_zone_database, Tzdata.TimeZoneDatabase
+config :tzdata, :autoupdate, :disabled
+
 config :ankole, Oban,
   repo: Ankole.Repo,
   queues: [default: 10],
@@ -36,6 +39,7 @@ config :ankole, Oban,
     Oban.Plugins.Pruner,
     {Oban.Plugins.Cron,
      crontab: [
+       {"* * * * *", Ankole.ActorRuntime.Jobs.EnqueueDailySessionResets},
        {"*/15 * * * *", Ankole.SignalsGateway.Jobs.CleanupExpiredState}
      ]}
   ]

@@ -59,7 +59,7 @@ defmodule Ankole.Actors do
       conflict_target: [:agent_uid, :binding_name, :ingress_event_id],
       returning: true
     )
-    |> inserted_or_existing(attrs)
+    |> inserted_or_existing(repo, attrs)
   end
 
   @doc """
@@ -99,13 +99,38 @@ defmodule Ankole.Actors do
     consumed_at = Keyword.get(opts, :consumed_at, DateTime.utc_now(:microsecond))
 
     with :ok <- reject_tombstoned_input(repo, actor_input, consumed_at),
-         attrs <- consumed_attrs(actor_input, consumed_at, opts),
-         {:ok, consumed_input} <- insert_consumed(repo, attrs),
-         {:ok, _outbox_entries} <-
-           insert_outbox_intents(repo, actor_input, Keyword.get(opts, :outbox_intents, [])),
-         {:ok, _deleted} <- delete_actor_input(repo, actor_input) do
+         {:ok, consumed_input} <-
+           persist_actor_input_consumption_in_tx(
+             repo,
+             actor_input,
+             Keyword.put(opts, :consumed_at, consumed_at)
+           ) do
       {:ok, consumed_input}
     end
+  end
+
+  @doc """
+  Consumes a provider-entry lifecycle input without treating its tombstone as cancelation.
+
+  `signal.entry.deleted/recalled` rows exist because the provider entry was
+  tombstoned after earlier actor state already consumed it. Re-applying the
+  source-entry tombstone guard here would cancel the lifecycle notice itself.
+  """
+  @spec consume_entry_lifecycle_input_in_tx(module(), ActorInput.t(), keyword()) ::
+          actor_commit_result()
+  def consume_entry_lifecycle_input_in_tx(
+        repo,
+        %ActorInput{type: "signal.entry." <> _name} = actor_input,
+        opts
+      ) do
+    opts =
+      opts
+      |> Keyword.put_new(:llm_turn_id, nil)
+      |> Keyword.put_new(:activation_uid, nil)
+      |> Keyword.put_new(:actor_epoch, nil)
+      |> Keyword.put_new(:revision, nil)
+
+    persist_actor_input_consumption_in_tx(repo, actor_input, opts)
   end
 
   @doc """
@@ -130,6 +155,39 @@ defmodule Ankole.Actors do
       |> Keyword.put_new(:actor_epoch, nil)
       |> Keyword.put_new(:revision, nil)
     )
+  end
+
+  @doc """
+  Consumes a session-lifecycle input without requiring an LLM turn fence.
+  """
+  @spec consume_session_lifecycle_input_in_tx(module(), ActorInput.t(), keyword()) ::
+          actor_commit_result()
+  def consume_session_lifecycle_input_in_tx(
+        repo,
+        %ActorInput{type: "session." <> _name} = actor_input,
+        opts
+      ) do
+    consume_actor_input_in_tx(
+      repo,
+      actor_input,
+      opts
+      |> Keyword.put_new(:llm_turn_id, nil)
+      |> Keyword.put_new(:activation_uid, nil)
+      |> Keyword.put_new(:actor_epoch, nil)
+      |> Keyword.put_new(:revision, nil)
+    )
+  end
+
+  defp persist_actor_input_consumption_in_tx(repo, %ActorInput{} = actor_input, opts) do
+    consumed_at = Keyword.get(opts, :consumed_at, DateTime.utc_now(:microsecond))
+
+    with attrs <- consumed_attrs(actor_input, consumed_at, opts),
+         {:ok, consumed_input} <- insert_consumed(repo, attrs),
+         {:ok, _outbox_entries} <-
+           insert_outbox_intents(repo, actor_input, Keyword.get(opts, :outbox_intents, [])),
+         {:ok, _deleted} <- delete_actor_input(repo, actor_input) do
+      {:ok, consumed_input}
+    end
   end
 
   @doc """
@@ -274,18 +332,18 @@ defmodule Ankole.Actors do
     Map.put(attrs, :broker_sequence, next)
   end
 
-  # Ecto returns an empty struct when `on_conflict: :nothing` skipped insert, so
-  # the existing input is fetched to make append idempotent for callers.
-  defp inserted_or_existing({:ok, %ActorInput{id: nil}}, attrs), do: fetch_actor_input(attrs)
-  defp inserted_or_existing({:ok, %ActorInput{} = input}, _attrs), do: {:ok, input}
-  defp inserted_or_existing({:error, _changeset} = error, _attrs), do: error
+  # The primary key is generated before insert, so an `on_conflict: :nothing`
+  # placeholder can still have an id. Always re-read the unique key; callers need
+  # the durable row, not a client-side insert attempt.
+  defp inserted_or_existing({:ok, %ActorInput{}}, repo, attrs), do: fetch_actor_input(repo, attrs)
+  defp inserted_or_existing({:error, _changeset} = error, _repo, _attrs), do: error
 
-  defp fetch_actor_input(%{
+  defp fetch_actor_input(repo, %{
          agent_uid: agent_uid,
          binding_name: binding_name,
          ingress_event_id: ingress_event_id
        }) do
-    case Repo.get_by(ActorInput,
+    case repo.get_by(ActorInput,
            agent_uid: agent_uid,
            binding_name: binding_name,
            ingress_event_id: ingress_event_id

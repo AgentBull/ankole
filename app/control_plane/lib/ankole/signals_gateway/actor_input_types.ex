@@ -34,6 +34,7 @@ defmodule Ankole.SignalsGateway.ActorInputTypes do
   def consumption_path("im.message.addressed"), do: :addressed_im
   def consumption_path("command.steer"), do: :addressed_im
   def consumption_path("im.message.may_intervene"), do: :may_intervene
+  def consumption_path("session.reset_due"), do: :session_lifecycle
   def consumption_path("signal.entry.deleted"), do: :lifecycle
   def consumption_path("signal.entry.recalled"), do: :lifecycle
   def consumption_path("timer.fired"), do: :internal
@@ -91,6 +92,19 @@ defmodule Ankole.SignalsGateway.ActorInputTypes do
   def readiness(_type, _input, now) do
     %{available_at: now, batch_scope: nil, sender_key: nil}
   end
+
+  @doc """
+  Whether a still-open input belongs to old session-local system work after reset.
+  """
+  @spec stale_after_session_reset?(String.t() | map()) :: boolean()
+  def stale_after_session_reset?(%{type: type}), do: stale_after_session_reset?(type)
+  def stale_after_session_reset?("timer.fired"), do: true
+
+  def stale_after_session_reset?(type) when is_binary(type) do
+    String.starts_with?(type, "cron.") or String.starts_with?(type, "exec.")
+  end
+
+  def stale_after_session_reset?(_type), do: false
 
   defp fetch_input(input, key) do
     Map.get(input, key) || Map.get(input, Atom.to_string(key))

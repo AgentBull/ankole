@@ -104,8 +104,11 @@ to a narrower code-defined type.
 A user recalls a message. The adapter emits a recall fact. SignalsGateway
 deletes the mirrored entry, refreshes the tombstone, removes pending actor input
 when possible, and writes lifecycle input only if the original input already
-reached actor state. The adapter must not infer that prior assistant output
-should also be deleted.
+reached actor state. That lifecycle input becomes a runtime note for later LLM
+context. The worker renders that note inside the current/latest user message
+`<agent_environment_info>` block, not as a system-prompt extension. It does not
+rewrite historical transcript rows. The adapter must not infer that prior
+assistant output should also be deleted.
 
 An admin also enables Lark login and directory sync. That uses the
 identity-provider adapter and Principals. It converges on the same
@@ -512,8 +515,8 @@ The adapter submits the fact through `emit_entry_recalled`. It does not create
 the tombstone or lifecycle ActorInput itself.
 
 SignalsGateway hard-deletes the mirrored entry because `signal_entries` is the
-current provider-visible mirror. The tombstone prevents a late receive from
-recreating the entry.
+current provider-visible mirror, not actor transcript history. The tombstone
+prevents a late receive from recreating the entry.
 
 Feishu/Lark recall is not the same as agent-output recall. The actor may later
 commit an explicit outbox delete, but the adapter and gateway must not infer it.
@@ -777,7 +780,8 @@ provider. That is a provider limitation, not a SignalsGateway queue failure.
   human Principal key.
 - Card actions are action inputs, not fake text messages.
 - Reactions update mirror state only.
-- Recalls hard-delete provider mirror entries and refresh tombstones.
+- Recalls hard-delete provider mirror entries and refresh tombstones without
+  rewriting actor transcript history.
 - Provider recall does not imply assistant-output delete.
 - Commands are typed ActorInputs, including `command.steer`.
 - Feishu/Lark OIDC is AuthN input to Principals and AuthZ, not a SignalsGateway

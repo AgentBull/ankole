@@ -65,6 +65,7 @@ defmodule Ankole.MixProject do
       {:oban, "~> 2.23"},
       {:open_api_spex, "~> 3.22"},
       {:toml_elixir, "~> 3.1"},
+      {:tzdata, "~> 1.1"},
       {:torque, "~> 0.2.3"},
       {:ankole_kernel, path: "../kernel"},
       {:feishu_openapi, path: "../../libs/feishu_openapi"},

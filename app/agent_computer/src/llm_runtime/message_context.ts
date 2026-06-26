@@ -3,30 +3,36 @@ import type { TextContent } from '../llm'
 import type { JsonObject } from '../actor_lane'
 
 const MESSAGE_CONTEXT_METADATA_KEY = 'message_context'
+const AGENT_ENVIRONMENT_INFO_OPEN = '<agent_environment_info>'
+const AGENT_ENVIRONMENT_INFO_CLOSE = '</agent_environment_info>'
+const PREVIOUS_CHAT_HISTORY_OPEN = '<previous_chat_history>'
+const PREVIOUS_CHAT_HISTORY_CLOSE = '</previous_chat_history>'
 
 /**
- * Prepends persisted Ankole `<message_context>` metadata to the first user text
- * block. The sparse-injection decisions were frozen when the control plane wrote
+ * Prepends persisted Ankole `<agent_environment_info>` as its own user text
+ * part. The sparse-injection decisions were frozen when the control plane wrote
  * the message; this renderer only projects those decisions into the model view.
  */
 export function renderMessageWithContext(message: AgentMessage, metadata: JsonObject): AgentMessage {
   if (message.role !== 'user') return message
-  const prefix = renderMessageContextPrefix(metadata)
-  if (!prefix) return message
+  const lines = renderMessageContextLines(metadata)
+  return prependEnvironmentInfoLinesToUserMessage(message, lines)
+}
 
-  if (typeof message.content === 'string') {
-    return { ...message, content: `${prefix}\n\n${message.content}` }
-  }
+export function prependEnvironmentInfoLinesToUserMessage(message: AgentMessage, lines: string[]): AgentMessage {
+  if (message.role !== 'user') return message
+  const infoLines = lines.map(line => line.trim()).filter(line => line.length > 0)
+  if (infoLines.length === 0) return message
 
-  const content = [...message.content]
-  const firstTextIndex = content.findIndex(block => block.type === 'text')
-  if (firstTextIndex < 0) {
-    return { ...message, content: [{ type: 'text', text: prefix }, ...content] }
-  }
+  return upsertEnvironmentInfoPart(message, infoLines)
+}
 
-  const firstText = content[firstTextIndex] as TextContent
-  content[firstTextIndex] = { ...firstText, text: `${prefix}\n\n${firstText.text}` }
-  return { ...message, content }
+export function prependPreviousChatHistoryToUserMessage(message: AgentMessage, history: string | undefined): AgentMessage {
+  if (message.role !== 'user') return message
+  const previousHistory = history?.trim()
+  if (!previousHistory) return message
+
+  return prependTextPartToUserMessage(message, renderPreviousChatHistoryBlock(previousHistory))
 }
 
 /**
@@ -34,6 +40,11 @@ export function renderMessageWithContext(message: AgentMessage, metadata: JsonOb
  * undefined means this message should remain unprefixed.
  */
 export function renderMessageContextPrefix(metadata: JsonObject): string | undefined {
+  const lines = renderMessageContextLines(metadata)
+  return lines.length > 0 ? renderAgentEnvironmentInfoBlock(lines) : undefined
+}
+
+export function renderMessageContextLines(metadata: JsonObject): string[] {
   const context = objectValue(metadata[MESSAGE_CONTEXT_METADATA_KEY])
   const lines: string[] = []
 
@@ -58,7 +69,59 @@ export function renderMessageContextPrefix(metadata: JsonObject): string | undef
   const think = objectValue(context.think)
   if (think.injected === true && typeof think.text === 'string') lines.push(`think: ${think.text}`)
 
-  return lines.length > 0 ? `<message_context>\n${lines.join('\n')}\n</message_context>` : undefined
+  return lines
+}
+
+function renderAgentEnvironmentInfoBlock(lines: string[]): string {
+  return `${AGENT_ENVIRONMENT_INFO_OPEN}\n${lines.join('\n')}\n${AGENT_ENVIRONMENT_INFO_CLOSE}`
+}
+
+function renderPreviousChatHistoryBlock(history: string): string {
+  return `${PREVIOUS_CHAT_HISTORY_OPEN}\n${history}\n${PREVIOUS_CHAT_HISTORY_CLOSE}`
+}
+
+function prependTextPartToUserMessage(message: AgentMessage, text: string): AgentMessage {
+  if (message.role !== 'user') return message
+  const part: TextContent = { type: 'text', text }
+  if (typeof message.content === 'string') {
+    return { ...message, content: [part, { type: 'text', text: message.content }] }
+  }
+  return { ...message, content: [part, ...message.content] }
+}
+
+function upsertEnvironmentInfoPart(message: AgentMessage, lines: string[]): AgentMessage {
+  const part: TextContent = { type: 'text', text: renderAgentEnvironmentInfoBlock(lines) }
+  if (typeof message.content === 'string') {
+    return { ...message, content: [part, { type: 'text', text: message.content }] }
+  }
+
+  const content = [...message.content]
+  const existingIndex = content.findIndex(block => block.type === 'text' && isAgentEnvironmentInfoBlock(block.text))
+  if (existingIndex >= 0) {
+    const existing = content[existingIndex] as TextContent
+    content[existingIndex] = { ...existing, text: mergeEnvironmentInfoBlock(existing.text, lines) }
+    return { ...message, content }
+  }
+
+  const insertIndex =
+    content[0]?.type === 'text' && isPreviousChatHistoryBlock(content[0].text) ? 1 : 0
+  content.splice(insertIndex, 0, part)
+  return { ...message, content }
+}
+
+function mergeEnvironmentInfoBlock(existing: string, lines: string[]): string {
+  const body = existing.trim().slice(AGENT_ENVIRONMENT_INFO_OPEN.length, -AGENT_ENVIRONMENT_INFO_CLOSE.length).trim()
+  return renderAgentEnvironmentInfoBlock(body ? [...body.split('\n'), ...lines] : lines)
+}
+
+function isAgentEnvironmentInfoBlock(text: string): boolean {
+  const trimmed = text.trim()
+  return trimmed.startsWith(`${AGENT_ENVIRONMENT_INFO_OPEN}\n`) && trimmed.endsWith(`\n${AGENT_ENVIRONMENT_INFO_CLOSE}`)
+}
+
+function isPreviousChatHistoryBlock(text: string): boolean {
+  const trimmed = text.trim()
+  return trimmed.startsWith(`${PREVIOUS_CHAT_HISTORY_OPEN}\n`) && trimmed.endsWith(`\n${PREVIOUS_CHAT_HISTORY_CLOSE}`)
 }
 
 function formatTimestamp(value: string, timezone?: string): string {

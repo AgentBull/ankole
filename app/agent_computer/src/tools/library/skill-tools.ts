@@ -1,5 +1,5 @@
-import { existsSync, readdirSync, readFileSync } from 'node:fs'
-import { normalize, resolve } from 'node:path'
+import { readFileSync } from 'node:fs'
+import { join, normalize, resolve } from 'node:path'
 import { z } from 'zod'
 import type { ActorTurnRef } from '../../actor_lane'
 import type { AgentTool, AgentToolResult } from '../../core'
@@ -11,10 +11,9 @@ import type {
 } from '../../rpc_lane'
 import { buildTool } from '../build-tool'
 
-// `name` is the directory name under library-containers/skills; "enabled" means the
-// control plane already projected that skill into this workspace. `filePath` lets the
-// model follow references out of SKILL.md (e.g. a `reference.md` the skill links to)
-// without a second tool — but it is always resolved *inside* the skill's own directory.
+// `name` is the enabled skill name from RuntimeFabric. `filePath` lets the model
+// follow references out of SKILL.md without a second tool, but resolution always
+// stays inside the skill's source directory.
 const SkillViewParams = z.object({
   name: z.string().min(1).describe('Enabled skill name to read.'),
   filePath: z.string().optional().describe('Skill-relative file path. Defaults to SKILL.md.')
@@ -37,9 +36,15 @@ interface SkillToolDetails {
 export type SkillOverlayRequester = (request: SkillOverlayRequest) => Promise<SkillOverlayResponse>
 export type SkillOverlayReplaceRequester = (request: SkillOverlayReplaceRequest) => Promise<SkillOverlayResponse>
 
+export interface SkillFileRoots {
+  builtinSkillsRoot: string
+  agentInstalledSkillsRoot: string
+}
+
 export interface CreateSkillToolsOptions {
   turn?: ActorTurnRef
   enabledSkills?: Array<RuntimeSkillSummary | string>
+  skillRoots?: SkillFileRoots
   requestSkillOverlay?: SkillOverlayRequester
   replaceSkillOverlay?: SkillOverlayReplaceRequester
   clearSkillOverlay?: SkillOverlayRequester
@@ -48,13 +53,13 @@ export interface CreateSkillToolsOptions {
 /**
  * Creates the skill tools available to the model.
  *
- * `skill_view` reads base skill files from the projected library container and
- * resolves the per-agent overlay over RuntimeFabric only for SKILL.md.
+ * `skill_view` reads base skill files from their real source roots and resolves
+ * the per-agent overlay over RuntimeFabric only for SKILL.md.
  * `skill_append` replaces that DB overlay over RuntimeFabric and does not write
  * any workspace file. Assignment remains a control-plane concern.
  */
-export function createSkillTools(workspaceRoot: string, opts: CreateSkillToolsOptions = {}): AgentTool<any>[] {
-  return [createSkillViewTool(workspaceRoot, opts), createSkillAppendTool(workspaceRoot, opts)]
+export function createSkillTools(_workspaceRoot: string, opts: CreateSkillToolsOptions = {}): AgentTool<any>[] {
+  return [createSkillViewTool(opts), createSkillAppendTool(opts)]
 }
 
 /**
@@ -62,36 +67,33 @@ export function createSkillTools(workspaceRoot: string, opts: CreateSkillToolsOp
  * skills as an index (name + one-line description); when the model decides a listed
  * skill covers the task it is about to do, it calls this to pull in the full SOP.
  *
- * Read-only and `parallel` because it only reads projected files — several skills can
- * be loaded at once. It deliberately cannot enable a skill: a missing skill directory
- * surfaces as a thrown read error (which the loop relays back to the model), since
+ * Read-only and `parallel` because it only reads immutable or managed skill source
+ * files — several skills can be loaded at once. It deliberately cannot enable a
+ * skill: a missing skill source surfaces as a thrown read error, since
  * enabling/assigning skills is a control-plane decision, not something the model does.
  */
-function createSkillViewTool(
-  workspaceRoot: string,
-  opts: CreateSkillToolsOptions
-): AgentTool<typeof SkillViewParams, SkillToolDetails> {
+function createSkillViewTool(opts: CreateSkillToolsOptions): AgentTool<typeof SkillViewParams, SkillToolDetails> {
   return buildTool({
     name: 'skill_view',
     label: 'Skill View',
     description:
-      'Read an enabled skill file from /workspace/library-containers/skills. Use SKILL.md first; read referenced files only when needed. This tool cannot enable disabled skills.',
+      'Read an enabled skill file. Use SKILL.md first; read referenced files only when needed. This tool cannot enable disabled skills.',
     schema: SkillViewParams,
     executionMode: 'parallel',
     isReadOnly: true,
     isDestructive: false,
     async execute(_toolCallId, params): Promise<AgentToolResult<SkillToolDetails>> {
       const filePath = normalizeSkillFilePath(params.filePath ?? 'SKILL.md')
-      assertSkillEnabled(workspaceRoot, params.name, opts)
+      const skill = enabledSkill(params.name, opts)
       if (filePath === 'AGENT_APPEND.md') {
         throw new Error('skill overlays are DB-backed semantic data, not AGENT_APPEND.md files')
       }
-      const absolute = safeSkillPath(workspaceRoot, params.name, filePath)
+      const absolute = safeSkillPath(skillFilesystemRoot(skill, opts), filePath)
       const content = readFileSync(absolute, 'utf8')
       const rendered =
         filePath === 'SKILL.md'
           ? await renderEffectiveSkill(params.name, content, opts)
-          : wrapSkillContent(params.name, `/workspace/library-containers/skills/${params.name}/${filePath}`, content)
+          : wrapSkillContent(params.name, skillLocation(params.name, filePath), content)
       return {
         content: [{ type: 'text', text: rendered }],
         details: { name: params.name, path: filePath }
@@ -105,10 +107,7 @@ function createSkillViewTool(
  * DB-backed overlay for that enabled skill. The base skill file stays first-party or
  * agent-installed filesystem content; only the overlay is mutable here.
  */
-function createSkillAppendTool(
-  workspaceRoot: string,
-  opts: CreateSkillToolsOptions
-): AgentTool<typeof SkillAppendParams, SkillToolDetails> {
+function createSkillAppendTool(opts: CreateSkillToolsOptions): AgentTool<typeof SkillAppendParams, SkillToolDetails> {
   return buildTool({
     name: 'skill_append',
     label: 'Skill Append',
@@ -119,7 +118,7 @@ function createSkillAppendTool(
     isReadOnly: false,
     isDestructive: true,
     async execute(_toolCallId, params): Promise<AgentToolResult<SkillToolDetails>> {
-      assertSkillEnabled(workspaceRoot, params.name, opts)
+      enabledSkill(params.name, opts)
       if (!opts.turn || !opts.replaceSkillOverlay) {
         throw new Error('skill_append requires RuntimeFabric skill overlay RPC')
       }
@@ -157,49 +156,62 @@ async function renderEffectiveSkill(name: string, content: string, opts: CreateS
   const effectiveContent = overlayContent
     ? `${baseContent}\n\n---\nAgent-specific additions:\n\n${overlayContent}`
     : baseContent
-  return wrapSkillContent(name, `/workspace/library-containers/skills/${name}/SKILL.md`, effectiveContent)
+  return wrapSkillContent(name, skillLocation(name, 'SKILL.md'), effectiveContent)
 }
 
 /**
- * Resolves a skill-relative path to an absolute one and confines both the skill
- * name and file path to the projected skills view.
+ * Resolves a skill-relative path to an absolute one and confines the file path
+ * to the selected skill source directory.
  */
-function safeSkillPath(workspaceRoot: string, name: string, filePath: string): string {
-  assertValidSkillName(name)
+function safeSkillPath(skillRoot: string, filePath: string): string {
   const normalizedFilePath = normalizeSkillFilePath(filePath)
-  const root = resolve(workspaceRoot)
-  const skillRoot = resolve(root, 'library-containers/skills', name)
-  const resolved = resolve(skillRoot, normalizedFilePath)
-  if (resolved !== skillRoot && !resolved.startsWith(`${skillRoot}/`)) {
+  const root = resolve(skillRoot)
+  const resolved = resolve(root, normalizedFilePath)
+  if (resolved !== root && !resolved.startsWith(`${root}/`)) {
     throw new Error('skill path escapes skill root')
   }
   return resolved
 }
 
-function assertSkillEnabled(workspaceRoot: string, name: string, opts: CreateSkillToolsOptions): void {
+function enabledSkill(name: string, opts: CreateSkillToolsOptions): RuntimeSkillSummary {
   assertValidSkillName(name)
-  const enabled = enabledSkillNames(workspaceRoot, opts)
-  if (!enabled.has(name)) {
+  if (!opts.enabledSkills) {
+    throw new Error('skill tools require RuntimeFabric enabled skill metadata')
+  }
+
+  const skill = opts.enabledSkills.map(normalizeEnabledSkill).find(candidate => candidate?.skill_name === name)
+
+  if (!skill) {
     throw new Error(`skill is not enabled for this turn: ${name}`)
   }
+
+  return skill
 }
 
-function enabledSkillNames(workspaceRoot: string, opts: CreateSkillToolsOptions): Set<string> {
-  if (opts.enabledSkills) {
-    return new Set(
-      opts.enabledSkills
-        .map(skill => (typeof skill === 'string' ? skill : skill.skill_name))
-        .filter((name): name is string => typeof name === 'string' && name.length > 0)
-    )
+function normalizeEnabledSkill(skill: RuntimeSkillSummary | string): RuntimeSkillSummary | undefined {
+  if (typeof skill === 'string') {
+    return isValidSkillName(skill) ? { skill_name: skill, source_kind: 'builtin', relative_path: skill } : undefined
   }
 
-  const skillsRoot = resolve(workspaceRoot, 'library-containers/skills')
-  if (!existsSync(skillsRoot)) return new Set()
-  return new Set(
-    readdirSync(skillsRoot, { withFileTypes: true })
-      .filter(entry => entry.isDirectory() && isValidSkillName(entry.name))
-      .map(entry => entry.name)
-  )
+  return typeof skill.skill_name === 'string' && isValidSkillName(skill.skill_name) ? skill : undefined
+}
+
+function skillFilesystemRoot(skill: RuntimeSkillSummary, opts: CreateSkillToolsOptions): string {
+  if (!opts.skillRoots) {
+    throw new Error('skill_view requires worker skill source roots')
+  }
+
+  const relativePath = normalizeSkillRelativePath(skill.relative_path || skill.skill_name)
+  const sourceKind = skill.source_kind || 'builtin'
+  if (sourceKind === 'builtin') {
+    return join(opts.skillRoots.builtinSkillsRoot, relativePath)
+  }
+  if (sourceKind === 'installed') {
+    if (!opts.turn) throw new Error('installed skill_view requires an actor turn')
+    return join(opts.skillRoots.agentInstalledSkillsRoot, opts.turn.actor.agent_uid, relativePath)
+  }
+
+  throw new Error(`unsupported skill source_kind: ${sourceKind}`)
 }
 
 function assertValidSkillName(name: string): void {
@@ -228,6 +240,23 @@ function normalizeSkillFilePath(filePath: string): string {
     throw new Error('invalid skill file path')
   }
   return normalized
+}
+
+function normalizeSkillRelativePath(relativePath: string): string {
+  const normalized = relativePath.replaceAll('\\', '/').replace(/^\/+/, '').replace(/\/+/g, '/')
+  if (
+    normalized.length === 0 ||
+    normalized === '.' ||
+    normalized === '..' ||
+    normalized.split('/').some(segment => segment === '' || segment === '.' || segment === '..')
+  ) {
+    throw new Error(`invalid skill relative_path: ${relativePath}`)
+  }
+  return normalized
+}
+
+function skillLocation(name: string, filePath: string): string {
+  return `skill://enabled/${name}/${filePath}`
 }
 
 async function overlayText(name: string, opts: CreateSkillToolsOptions): Promise<string> {

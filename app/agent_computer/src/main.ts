@@ -298,13 +298,15 @@ async function runActiveTurn(
   logWorkerEvent('worker.turn_context_resolved', {
     llm_turn_id: turnStart.turn.llm_turn_id
   })
-  const workspaceRoot = prepareTurnWorkspace(config, turnStart, runtimeContext)
+  const workspaceRoot = prepareTurnWorkspace(config, turnStart)
   logWorkerEvent('worker.llm_turn_started', {
     llm_turn_id: turnStart.turn.llm_turn_id
   })
 
   const proposal = await runLlmTurnHandlers(turnStart, {
     workspaceRoot,
+    builtinSkillsRoot: config.builtinSkillsRoot,
+    agentInstalledSkillsRoot: config.agentInstalledSkillsRoot,
     runtimeContext,
     requestCredential: request => requestCredential(rpcClient, request),
     requestAgentProfile: request => requestAgentProfile(rpcClient, request),

@@ -11,7 +11,7 @@ import type { Api, Model } from './bullx'
 // the control plane uses to turn a (provider, modelId) pair from DB config into a callable
 // Model. Two provider classes live here: "first-class" providers with a fixed model list and
 // their own AI SDK adapter, and "compatible" (OpenAI-compatible) providers where an operator
-// may type ANY model id — for those, unknown ids are resolved to a synthetic Model.
+// may type any model id. Only compatible providers synthesize metadata for unknown ids.
 
 /** Provider kinds Ankole knows how to build an AI SDK adapter for. The string is what's stored in installation config. */
 export type LlmProviderKind =
@@ -123,16 +123,16 @@ export function getModels(llmProvider: string): Model[] {
 }
 
 /**
- * Resolves a (provider, modelId) pair to a Model. If the id is in the catalog, returns a clone
- * of that entry. If not, falls back to a synthetic model — this is how compatible providers
- * support model ids Ankole has never heard of. Returns undefined only when the PROVIDER is
- * unknown; an unknown model under a known provider always resolves (via the synthetic fallback).
+ * Resolves a (provider, modelId) pair to a Model. If the id is in the catalog,
+ * returns a clone of that entry. Compatible providers synthesize metadata for
+ * operator-entered custom ids; first-class providers fail closed on unknown ids.
  */
 export function getModel(llmProvider: string, modelId: string): Model | undefined {
   const entry = getProviderEntry(llmProvider)
   if (!entry) return undefined
   const found = entry.models.find(item => item.id === modelId)
-  return found ? cloneModel(found) : syntheticModel(entry, modelId)
+  if (found) return cloneModel(found)
+  return entry.compatible ? syntheticModel(entry, modelId) : undefined
 }
 
 /** Looks up one provider catalog entry by the stable provider kind stored in config. */

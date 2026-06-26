@@ -55,27 +55,15 @@ const EMPTY_AFTER_TOOL_NUDGE_TEXT =
   'You just executed tool calls but returned an empty response. ' +
   'Process the tool results above and either continue with the task or give your final answer.'
 
-// Filler content used only by sanitizeToolPairs at the wire boundary (see below). A stub keeps an
-// otherwise-unanswered tool_use valid; the placeholder keeps an empty assistant turn valid.
-const ORPHAN_TOOL_RESULT_STUB = '[Tool result unavailable - the matching tool call was removed from the model view.]'
-const EMPTY_ASSISTANT_PLACEHOLDER = '(no content)'
 /**
- * Repairs the provider-bound message list at the send boundary.
+ * Validates the provider-bound message list at the send boundary.
  *
- * Compaction (rendering from a kept-prefix anchor) and session truncation can sever
- * a tool call from its result — or leave a result whose call was dropped — and the
- * empty-after-tools nudge keeps an empty assistant in history. Anthropic / Responses
- * reject all three with a 400. This pass:
- *  - drops tool results whose originating tool call no longer survives,
- *  - injects a stub result for any surviving tool call that lost its result (placed
- *    immediately after its assistant turn so every `tool_use` is answered), and
- *  - backfills empty assistant content with a placeholder.
- *
- * Pure and idempotent: a well-formed transcript passes through unchanged. Applied
- * only here (the live wire), so trajectory reconstruction and compaction token
- * counting keep seeing the faithful, unmodified conversion.
+ * The transcript owner must keep tool calls paired with tool results and must not
+ * emit empty assistant turns. Fixing those cases here would turn real upstream
+ * transcript defects into plausible provider traffic, so this boundary fails the
+ * turn visibly instead.
  */
-function sanitizeToolPairs(messages: Message[]): Message[] {
+function validateProviderTranscript(messages: Message[]): Message[] {
   const toolCallIds = new Set<string>()
   const resultIds = new Set<string>()
   for (const message of messages) {
@@ -88,45 +76,30 @@ function sanitizeToolPairs(messages: Message[]): Message[] {
     }
   }
 
-  const sanitized: Message[] = []
-  const stubbed = new Set<string>()
   for (const message of messages) {
     if (message.role === 'toolResult') {
-      // Drop orphan results whose tool call was compacted away.
-      if (toolCallIds.has(message.toolCallId)) sanitized.push(message)
-      continue
-    }
-    if (message.role === 'assistant') {
-      sanitized.push(ensureNonEmptyAssistant(message))
-      if (message.stopReason === 'error' || message.stopReason === 'aborted') continue
-      for (const block of message.content) {
-        if (block.type === 'toolCall' && !resultIds.has(block.id) && !stubbed.has(block.id)) {
-          stubbed.add(block.id)
-          sanitized.push(stubToolResult(block.id, block.name, message.timestamp))
-        }
+      if (!toolCallIds.has(message.toolCallId)) {
+        throw new Error(`provider transcript has orphan tool result: ${message.toolCallId}`)
       }
       continue
     }
-    sanitized.push(message)
+    if (message.role === 'assistant') {
+      assertNonEmptyAssistant(message)
+      for (const block of message.content) {
+        if (block.type === 'toolCall' && !resultIds.has(block.id)) {
+          throw new Error(`provider transcript has tool call without result: ${block.id}`)
+        }
+      }
+    }
   }
-  return sanitized
+  return messages
 }
 
-function ensureNonEmptyAssistant(message: AssistantMessage): AssistantMessage {
+function assertNonEmptyAssistant(message: AssistantMessage): void {
   const hasToolCall = message.content.some(block => block.type === 'toolCall')
   const hasText = message.content.some(block => block.type === 'text' && block.text.trim().length > 0)
-  if (hasToolCall || hasText) return message
-  return { ...message, content: [...message.content, { type: 'text' as const, text: EMPTY_ASSISTANT_PLACEHOLDER }] }
-}
-
-function stubToolResult(toolCallId: string, toolName: string, timestamp: number): ToolResultMessage {
-  return {
-    role: 'toolResult',
-    toolCallId,
-    toolName,
-    content: [{ type: 'text' as const, text: ORPHAN_TOOL_RESULT_STUB }],
-    isError: false,
-    timestamp
+  if (!hasToolCall && !hasText) {
+    throw new Error('provider transcript has empty assistant message')
   }
 }
 
@@ -234,8 +207,9 @@ async function runLoop(
         pendingMessages = []
       }
 
-      // Stream one assistant turn. streamAssistantResponse never throws; it returns a message whose
-      // stopReason encodes success/error/aborted.
+      // Stream one assistant turn. Provider/stream failures come back in-band on
+      // stopReason; preflight transcript invariant violations are allowed to throw
+      // so the worker records an explicit turn_error instead of hiding bad history.
       const contextLengthBeforeAssistant = currentContext.messages.length
       const message = await streamAssistantResponse(currentContext, config, signal, emit)
       // First-turn transient-failure recovery: if the very first turn comes back as a retryable error
@@ -272,8 +246,7 @@ async function runLoop(
 
       // An empty assistant reply right after tool results is almost always a model
       // hiccup, not task completion. Nudge it to continue exactly once instead of
-      // ending the run silently. The empty assistant stays in history; `convertToLlm`
-      // backfills a placeholder so it remains a valid wire message.
+      // ending the run silently.
       if (
         config.nudgeOnEmptyAfterTools &&
         !nudgedAfterEmpty &&
@@ -449,10 +422,12 @@ async function runGraceSummaryTurn(
  * partial assistant message and emitting `message_update` on each delta so the UI can render live, then
  * finalizes stop reason and usage.
  *
- * Crucially it does not throw. Stream-creation failures, mid-stream `error`/`abort` parts, a missing SDK
- * model, and thrown exceptions are all folded into the returned message's `stopReason`
- * (`error`/`aborted`) and `errorMessage`. The caller (runLoop) branches on stopReason, so keeping all
- * failure in-band means the loop never has to wrap this in try/catch.
+ * Provider failures stay in-band: stream-creation failures, mid-stream
+ * `error`/`abort` parts, and a missing SDK model are folded into the returned
+ * message's `stopReason` (`error`/`aborted`) and `errorMessage`. Preflight
+ * transcript invariant failures are allowed to throw before a provider request
+ * exists, because synthesizing a repaired transcript here would hide the real
+ * owner bug.
  */
 async function streamAssistantResponse(
   context: AgentContext,
@@ -466,10 +441,10 @@ async function streamAssistantResponse(
     messages = await config.transformContext(messages, signal)
   }
 
-  // Convert to LLM-compatible messages (AgentMessage[] → Message[]), then repair
-  // tool-call/result pairing and empty assistant content at the wire boundary so the
-  // provider never sees an orphaned tool_use/result or an empty assistant turn.
-  const llmMessages = sanitizeToolPairs(await config.convertToLlm(messages))
+  // Convert to LLM-compatible messages (AgentMessage[] → Message[]), then validate
+  // provider transcript invariants at the wire boundary. Upstream transcript defects
+  // must surface as failed turns instead of being repaired into synthetic traffic.
+  const llmMessages = validateProviderTranscript(await config.convertToLlm(messages))
 
   // Build LLM context
   const llmContext: Context = {

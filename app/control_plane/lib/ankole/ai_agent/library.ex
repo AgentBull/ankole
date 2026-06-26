@@ -332,7 +332,7 @@ defmodule Ankole.AIAgent.Library do
            "category" => skill["category"],
            "source_kind" => skill["source_kind"],
            "relative_path" => skill["relative_path"],
-           "file_path" => "/workspace/library-containers/skills/#{skill["skill_name"]}/SKILL.md",
+           "skill_uri" => skill_uri(skill["skill_name"], @skill_file),
            "disable_model_invocation" =>
              get_in(skill, ["metadata", "disable_model_invocation"]) == true
          }
@@ -543,7 +543,7 @@ defmodule Ankole.AIAgent.Library do
            "skill_name" => skill.skill_name,
            "source_kind" => skill.source_kind,
            "relative_path" => skill.relative_path,
-           "file_path" => "/workspace/library-containers/skills/#{skill.skill_name}/#{file_path}",
+           "skill_uri" => skill_uri(skill.skill_name, file_path),
            "content" => content,
            "base_content" => base_content,
            "overlay_json" => overlay_json(overlay),
@@ -556,7 +556,7 @@ defmodule Ankole.AIAgent.Library do
            "skill_name" => skill.skill_name,
            "source_kind" => skill.source_kind,
            "relative_path" => skill.relative_path,
-           "file_path" => "/workspace/library-containers/skills/#{skill.skill_name}/#{file_path}",
+           "skill_uri" => skill_uri(skill.skill_name, file_path),
            "content" => content,
            "has_agent_overlay" =>
              is_binary(
@@ -771,8 +771,10 @@ defmodule Ankole.AIAgent.Library do
       "metadata" => metadata,
       "category" => metadata["category"],
       "tags" => metadata["tags"] || [],
-      "file_path" => "/workspace/library-containers/skills/#{skill.skill_name}/#{@skill_file}",
+      "skill_uri" => skill_uri(skill.skill_name, @skill_file),
       "has_agent_overlay" => MapSet.member?(overlay_skills, skill.skill_name)
     }
   end
+
+  defp skill_uri(skill_name, file_path), do: "skill://enabled/#{skill_name}/#{file_path}"
 end

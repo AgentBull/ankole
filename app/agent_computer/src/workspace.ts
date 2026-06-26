@@ -4,7 +4,6 @@ import {
   existsSync,
   lstatSync,
   mkdirSync,
-  readdirSync,
   readFileSync,
   rmSync,
   symlinkSync,
@@ -13,7 +12,6 @@ import {
 import { spawnSync } from 'node:child_process'
 import { dirname, join, resolve } from 'node:path'
 import type { TurnStart } from './actor_lane'
-import type { RuntimeSkillSummary, TurnRuntimeContext } from './rpc_lane'
 import type { WorkerConfig } from './runtime'
 
 export function verifyWorkerFilesystem(config: WorkerConfig): void {
@@ -25,11 +23,7 @@ export function verifyWorkerFilesystem(config: WorkerConfig): void {
   assertExecutable('zstd')
 }
 
-export function prepareTurnWorkspace(
-  config: WorkerConfig,
-  turnStart: TurnStart,
-  runtimeContext: TurnRuntimeContext
-): string {
+export function prepareTurnWorkspace(config: WorkerConfig, turnStart: TurnStart): string {
   const sessionRoot = join(
     config.workspaceSessionsRoot,
     encodePathSegment(turnStart.turn.actor.agent_uid),
@@ -40,38 +34,7 @@ export function prepareTurnWorkspace(
   mkdirSync(join(sessionRoot, 'temp'), { recursive: true })
   replacePathWithSymlink(join(sessionRoot, 'user-files'), config.userFilesRoot)
 
-  const libraryRoot = join(sessionRoot, 'library-containers')
-  const skillsRoot = join(libraryRoot, 'skills')
-  mkdirSync(libraryRoot, { recursive: true })
-  resetDirectory(skillsRoot)
-
-  for (const skill of runtimeContext.skills ?? []) {
-    linkEnabledSkill(config, turnStart.turn.actor.agent_uid, skillsRoot, skill)
-  }
-
   return sessionRoot
-}
-
-function linkEnabledSkill(
-  config: WorkerConfig,
-  agentUid: string,
-  skillsRoot: string,
-  skill: RuntimeSkillSummary
-): void {
-  const name = skill.skill_name
-  if (!/^[a-z][a-z0-9_-]{0,63}$/.test(name)) {
-    throw new Error(`invalid enabled skill name from turn context: ${name}`)
-  }
-
-  const relativePath = normalizeRelativePath(skill.relative_path || name)
-  const sourceKind = skill.source_kind || 'builtin'
-  const target =
-    sourceKind === 'installed'
-      ? join(config.agentInstalledSkillsRoot, agentUid, relativePath)
-      : join(config.builtinSkillsRoot, relativePath)
-
-  assertDirectory(target, `skill ${name}`, false)
-  replacePathWithSymlink(join(skillsRoot, name), target)
 }
 
 function assertDirectory(path: string, label: string, writable: boolean): void {
@@ -95,13 +58,6 @@ function assertExecutable(command: string): void {
   const result = spawnSync(command, ['--version'], { encoding: 'utf8' })
   if (result.status !== 0) {
     throw new Error(`${command} is required by the worker runtime`)
-  }
-}
-
-function resetDirectory(path: string): void {
-  mkdirSync(path, { recursive: true })
-  for (const entry of readdirSync(path)) {
-    rmSync(join(path, entry), { recursive: true, force: true })
   }
 }
 
@@ -130,17 +86,4 @@ function pathIsBrokenSymlink(path: string): boolean {
 
 function encodePathSegment(value: string): string {
   return encodeURIComponent(value).replaceAll('%', '_')
-}
-
-function normalizeRelativePath(value: string): string {
-  const normalized = value.replaceAll('\\', '/').replace(/^\/+/, '').replace(/\/+/g, '/')
-  if (
-    normalized.length === 0 ||
-    normalized === '.' ||
-    normalized === '..' ||
-    normalized.split('/').some(segment => segment === '' || segment === '.' || segment === '..')
-  ) {
-    throw new Error(`invalid skill relative_path: ${value}`)
-  }
-  return normalized
 }

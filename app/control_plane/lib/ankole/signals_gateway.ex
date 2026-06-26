@@ -31,6 +31,8 @@ defmodule Ankole.SignalsGateway do
 
   import Ecto.Query, warn: false
 
+  require Logger
+
   alias Ecto.Adapters.SQL
   alias Ankole.ActorRuntime.ActivationManager
   alias Ankole.Actors
@@ -491,8 +493,8 @@ defmodule Ankole.SignalsGateway do
   # 1) drop a tombstone so a re-delivered receive can't resurrect the entry,
   # 2) remove the mirror row, 3) cancel any still-pending actor input for that
   # entry (the agent shouldn't act on a retracted message), and 4) for input the
-  # agent ALREADY consumed, append a lifecycle "deleted/recalled" input so the
-  # running session learns the message went away. Steps 3 and 4 are mutually
+  # agent ALREADY consumed, append a lifecycle "deleted/recalled" input that
+  # ActorRuntime consumes into an introspection note. Steps 3 and 4 are mutually
   # exclusive per input: cancel what hasn't run, notify about what has.
   defp accept_lifecycle(binding, fact, kind, now) do
     Repo.transact(fn repo ->
@@ -853,7 +855,29 @@ defmodule Ankole.SignalsGateway do
       nil ->
         %SignalChannel{}
         |> SignalChannel.changeset(attrs)
-        |> repo.insert()
+        |> repo.insert(on_conflict: :nothing, conflict_target: :id, returning: true)
+        |> case do
+          {:ok, %SignalChannel{id: id} = channel} when is_binary(id) ->
+            {:ok, channel}
+
+          {:ok, %SignalChannel{id: nil}} ->
+            update_existing_channel(repo, fact.signal_channel_id, attrs)
+
+          {:error, _reason} = error ->
+            error
+        end
+    end
+  end
+
+  defp update_existing_channel(repo, signal_channel_id, attrs) do
+    case repo.get(SignalChannel, signal_channel_id) do
+      %SignalChannel{} = channel ->
+        channel
+        |> SignalChannel.changeset(merge_channel_attrs(channel, attrs))
+        |> repo.update()
+
+      nil ->
+        {:error, :signal_channel_conflict_not_visible}
     end
   end
 
@@ -1342,12 +1366,13 @@ defmodule Ankole.SignalsGateway do
     |> repo.delete_all()
   end
 
-  # Notify each session that already CONSUMED the now-deleted entry. We can't undo
-  # what the agent did, but it should know the source message is gone, so we
-  # append a "deleted/recalled" input per affected session, stripped of the
-  # original content (no text/mentions/command) — it's a tombstone notice, not a
-  # re-delivery. Sessions that never consumed the entry had their pending input
-  # cancelled instead (see accept_lifecycle), so there's nothing to notify there.
+  # Notify each session that already CONSUMED the now-deleted/recalled entry. We
+  # can't undo what the agent did, but it should know the source message is gone,
+  # so we append a "deleted/recalled" input per affected session, stripped of the
+  # original content (no text/mentions/command). It is a tombstone notice, not a
+  # re-delivery or user command. Sessions that never consumed the entry had their
+  # pending input cancelled instead (see accept_lifecycle), so there's nothing to
+  # notify there.
   defp append_lifecycle_inputs(_binding, _fact, [], _channel, _now), do: {:ok, []}
 
   defp append_lifecycle_inputs(binding, fact, consumed_inputs, channel, now) do
@@ -1800,10 +1825,7 @@ defmodule Ankole.SignalsGateway do
       with %OutboxEntry{} = current_outbox <- fetch_outbox_for_update(repo, outbox) do
         case send_result do
           {:ok, result} ->
-            with {:ok, mirrored_outbox} <- mark_outbox_succeeded(repo, current_outbox, result),
-                 :ok <- mirror_outbox_success(repo, mirrored_outbox, channel, result, now) do
-              {:ok, mirrored_outbox}
-            end
+            finalize_successful_outbox(repo, current_outbox, channel, result, now)
 
           {:error, reason} ->
             mark_outbox_failed(repo, current_outbox, reason, now)
@@ -1824,10 +1846,7 @@ defmodule Ankole.SignalsGateway do
       with %OutboxEntry{} = current_outbox <- fetch_outbox_for_update(repo, outbox) do
         case reconcile_result do
           {:ok, result} ->
-            with {:ok, recovered_outbox} <- mark_outbox_succeeded(repo, current_outbox, result),
-                 :ok <- mirror_outbox_success(repo, recovered_outbox, channel, result, now) do
-              {:ok, recovered_outbox}
-            end
+            finalize_successful_outbox(repo, current_outbox, channel, result, now)
 
           {:error, reason} ->
             mark_outbox_unknown(repo, current_outbox, %{
@@ -1844,6 +1863,22 @@ defmodule Ankole.SignalsGateway do
         nil -> {:error, :outbox_not_found}
       end
     end)
+  end
+
+  defp finalize_successful_outbox(repo, outbox, channel, result, now) do
+    with {:ok, succeeded_outbox} <- mark_outbox_succeeded(repo, outbox, result) do
+      case mirror_outbox_success(repo, succeeded_outbox, channel, result, now) do
+        :ok ->
+          {:ok, succeeded_outbox}
+
+        {:error, reason} ->
+          Logger.warning(
+            "signals_gateway outbox mirror failed after provider send agent_uid=#{outbox.agent_uid} binding_name=#{outbox.binding_name} outbound_key=#{outbox.outbound_key} reason=#{inspect(Sanitizer.transport(reason), limit: 20)}"
+          )
+
+          {:ok, succeeded_outbox}
+      end
+    end
   end
 
   defp fetch_outbox_for_update(repo, %OutboxEntry{} = outbox) do

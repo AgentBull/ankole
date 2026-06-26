@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { validateToolArguments } from '../src/llm'
@@ -492,12 +492,16 @@ describe('@ankole/agent-computer migrated tool semantics', () => {
   })
 
   it('skill_view renders effective skills with frontmatter stripped and DB overlay merged', async () => {
-    const root = withLibraryWorkspace()
+    const roots = withSkillRoots()
 
     try {
-      const view = createSkillTools(root, {
+      const view = createSkillTools(roots.workspaceRoot, {
         turn: testTurnRef(),
-        enabledSkills: ['nano-pdf'],
+        enabledSkills: [{ skill_name: 'nano-pdf', source_kind: 'builtin', relative_path: 'nano-pdf' }],
+        skillRoots: {
+          builtinSkillsRoot: roots.builtinSkillsRoot,
+          agentInstalledSkillsRoot: roots.agentInstalledSkillsRoot
+        },
         async requestSkillOverlay(request) {
           return {
             request_id: request.request_id,
@@ -513,9 +517,7 @@ describe('@ankole/agent-computer migrated tool semantics', () => {
       const result = await view.execute('skill-view-1', { name: 'nano-pdf' })
       const text = result.content[0]!.type === 'text' ? result.content[0]!.text : ''
 
-      expect(text).toContain(
-        '<skill name="nano-pdf" location="/workspace/library-containers/skills/nano-pdf/SKILL.md">'
-      )
+      expect(text).toContain('<skill name="nano-pdf" location="skill://enabled/nano-pdf/SKILL.md">')
       expect(text).toContain('<external_content source="skill">')
       expect(text).toContain('# nano-pdf')
       expect(text).toContain('Use OCR carefully.')
@@ -528,24 +530,31 @@ describe('@ankole/agent-computer migrated tool semantics', () => {
         filePath: 'references/api.md'
       })
       expect(reference.content[0]!.type === 'text' ? reference.content[0]!.text : '').toContain('API reference')
+      expect(reference.content[0]!.type === 'text' ? reference.content[0]!.text : '').toContain(
+        'skill://enabled/nano-pdf/references/api.md'
+      )
       expect(reference.details).toEqual({
         name: 'nano-pdf',
         path: 'references/api.md'
       })
     } finally {
-      rmSync(root, { recursive: true, force: true })
+      rmSync(roots.root, { recursive: true, force: true })
     }
   })
 
   it('skill_append replaces DB overlay and rejects skill path traversal', async () => {
-    const root = withLibraryWorkspace()
+    const roots = withSkillRoots()
 
     try {
       const turn = testTurnRef()
       let replacedContent = ''
-      const [view, append] = createSkillTools(root, {
+      const [view, append] = createSkillTools(roots.workspaceRoot, {
         turn,
-        enabledSkills: ['nano-pdf'],
+        enabledSkills: [{ skill_name: 'nano-pdf', source_kind: 'builtin', relative_path: 'nano-pdf' }],
+        skillRoots: {
+          builtinSkillsRoot: roots.builtinSkillsRoot,
+          agentInstalledSkillsRoot: roots.agentInstalledSkillsRoot
+        },
         async replaceSkillOverlay(request) {
           replacedContent = request.content
           return {
@@ -566,9 +575,8 @@ describe('@ankole/agent-computer migrated tool semantics', () => {
 
       expect(result.details).toEqual({ name: 'nano-pdf', changed: true })
       expect(replacedContent).toBe('New durable overlay.')
-      expect(readFileSync(join(root, 'library-containers/skills/nano-pdf/SKILL.md'), 'utf8')).toContain(
-        'Use OCR carefully.'
-      )
+      expect(readFileSync(join(roots.builtinSkillsRoot, 'nano-pdf/SKILL.md'), 'utf8')).toContain('Use OCR carefully.')
+      expect(existsSync(join(roots.workspaceRoot, 'library-containers'))).toBe(false)
 
       await expect(
         view!.execute('skill-view-escape', {
@@ -583,7 +591,7 @@ describe('@ankole/agent-computer migrated tool semantics', () => {
         })
       ).rejects.toThrow('invalid skill name')
     } finally {
-      rmSync(root, { recursive: true, force: true })
+      rmSync(roots.root, { recursive: true, force: true })
     }
   })
 })
@@ -665,16 +673,26 @@ function backgroundSnapshot(
   }
 }
 
-function withLibraryWorkspace(): string {
+function withSkillRoots(): {
+  root: string
+  workspaceRoot: string
+  builtinSkillsRoot: string
+  agentInstalledSkillsRoot: string
+} {
   const root = mkdtempSync(join(tmpdir(), 'ankole-tools-'))
-  const skillRoot = join(root, 'library-containers/skills/nano-pdf')
+  const workspaceRoot = join(root, 'workspace')
+  const builtinSkillsRoot = join(root, 'builtin-skills')
+  const agentInstalledSkillsRoot = join(root, 'shared/skills/agents')
+  const skillRoot = join(builtinSkillsRoot, 'nano-pdf')
+  mkdirSync(workspaceRoot, { recursive: true })
+  mkdirSync(agentInstalledSkillsRoot, { recursive: true })
   mkdirSync(join(skillRoot, 'references'), { recursive: true })
   writeFileSync(
     join(skillRoot, 'SKILL.md'),
     ['---', 'name: nano-pdf', 'description: PDF analysis', '---', '# nano-pdf', '', 'Use OCR carefully.'].join('\n')
   )
   writeFileSync(join(skillRoot, 'references/api.md'), 'API reference')
-  return root
+  return { root, workspaceRoot, builtinSkillsRoot, agentInstalledSkillsRoot }
 }
 
 function testTurnRef() {

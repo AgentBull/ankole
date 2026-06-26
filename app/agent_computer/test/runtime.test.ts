@@ -10,6 +10,7 @@ import { encodeEnvelope } from '../src/runtime_fabric'
 import { parseWorkerEnv, workerCapacityEnvelope, workerHeartbeatEnvelope, workerReadyEnvelope } from '../src/runtime'
 import { isRuntimeFabricBackpressure, reliableEnvelopeSender } from '../src/runtime_fabric_sender'
 import type { WorkerConfig } from '../src/runtime'
+import { prepareTurnWorkspace } from '../src/workspace'
 
 describe('@ankole/agent-computer runtime', () => {
   it('parses worker env without actor-specific startup args', () => {
@@ -92,6 +93,32 @@ describe('@ankole/agent-computer runtime', () => {
     expect(encodeEnvelope(ready)).toBeInstanceOf(Buffer)
     expect(encodeEnvelope(heartbeat)).toBeInstanceOf(Buffer)
     expect(encodeEnvelope(capacity)).toBeInstanceOf(Buffer)
+  })
+
+  it('prepares session workspace without projecting enabled skills', () => {
+    const root = mkdtempSync(join(tmpdir(), 'ankole-workspace-'))
+    try {
+      const config = workerConfigForRoot(root)
+      mkdirSync(config.userFilesRoot, { recursive: true })
+
+      const workspaceRoot = prepareTurnWorkspace(config, {
+        turn: {
+          actor: { agent_uid: 'agent-1', session_id: 'session-1' },
+          activation_uid: 'activation-1',
+          actor_epoch: 1,
+          llm_turn_id: 'turn-1',
+          revision: 0
+        },
+        inputs: [],
+        model_ref: { profile: 'primary', provider_id: 'openrouter-main', model: 'z-ai/glm-5.2' }
+      })
+
+      expect(existsSync(join(workspaceRoot, 'temp'))).toBe(true)
+      expect(existsSync(join(workspaceRoot, 'user-files'))).toBe(true)
+      expect(existsSync(join(workspaceRoot, 'library-containers'))).toBe(false)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 
   it('retries transient RuntimeFabric backpressure without hiding permanent send errors', async () => {

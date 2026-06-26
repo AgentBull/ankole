@@ -21,7 +21,11 @@ import { createReplyAttachmentStore, type ReplyAttachmentStore } from '../tools/
 import { createSkillTools } from '../tools/library/skill-tools'
 import { createTodoTool, TodoStore } from '../tools/todo-tool'
 import { runAmbientRecognizer } from './ambient_recognizer'
-import { renderMessageWithContext } from './message_context'
+import {
+  prependEnvironmentInfoLinesToUserMessage,
+  prependPreviousChatHistoryToUserMessage,
+  renderMessageWithContext
+} from './message_context'
 import type {
   AgentProfile,
   AgentProfileRequest,
@@ -46,6 +50,8 @@ export type SkillOverlayReplaceRequester = (request: SkillOverlayReplaceRequest)
 
 export type TextTurnLoopOptions = {
   workspaceRoot: string
+  builtinSkillsRoot?: string
+  agentInstalledSkillsRoot?: string
   requestCredential: CredentialRequester
   requestAgentProfile?: AgentProfileRequester
   requestTurnContext?: TurnContextRequester
@@ -62,8 +68,8 @@ export type TextTurnLoopOptions = {
 type ConversationContext = {
   messages: AgentMessage[]
   materializedInputIds: Set<string>
-  systemNotes: string[]
-  summaryCheckpoints: string[]
+  pendingUserEnvironmentInfoLines: string[]
+  previousChatHistorySummaries: string[]
 }
 
 type TurnTelemetry = {
@@ -71,6 +77,16 @@ type TurnTelemetry = {
   stopReason?: string
   providerMetadata: JsonObject
   toolResults: unknown[]
+}
+
+function skillRootsFromOptions(
+  opts: TextTurnLoopOptions
+): { builtinSkillsRoot: string; agentInstalledSkillsRoot: string } | undefined {
+  if (!opts.builtinSkillsRoot || !opts.agentInstalledSkillsRoot) return undefined
+  return {
+    builtinSkillsRoot: opts.builtinSkillsRoot,
+    agentInstalledSkillsRoot: opts.agentInstalledSkillsRoot
+  }
 }
 
 const TOOL_RESULT_MAX_CHARS = 12_000
@@ -134,22 +150,27 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
   const conversation = conversationContextFromRuntimeContext(runtimeContext, model)
   const todoStore = new TodoStore()
   const replyAttachmentStore = createReplyAttachmentStore()
-  const prompts = turnStart.inputs
+  const rawPrompts = turnStart.inputs
     .filter(input => !inputAlreadyMaterialized(input, conversation))
     .map(input => userMessage(inputText(input.payload_json, input.type)))
+  const withEnvironmentInfo = attachPendingEnvironmentInfoToUserMessage(
+    conversation.messages,
+    rawPrompts,
+    conversation.pendingUserEnvironmentInfoLines
+  )
+  const { messages, prompts } = attachPreviousChatHistoryToUserMessage(
+    withEnvironmentInfo.messages,
+    withEnvironmentInfo.prompts,
+    lastNonEmpty(conversation.previousChatHistorySummaries)
+  )
 
-  const systemPrompt = [
-    buildAgentSystemPrompt({
-      workspaceRoot: opts.workspaceRoot,
-      turnStart,
-      agentProfile,
-      runtimeContext,
-      currentChannel: currentChannelFromTurnStart(turnStart)
-    }),
-    ...conversation.systemNotes
-  ]
-    .filter(note => note.trim().length > 0)
-    .join('\n\n')
+  const systemPrompt = buildAgentSystemPrompt({
+    workspaceRoot: opts.workspaceRoot,
+    turnStart,
+    agentProfile,
+    runtimeContext,
+    currentChannel: currentChannelFromTurnStart(turnStart)
+  })
 
   const turnTimeout = createCombinedAbortSignal(undefined, TEXT_TURN_TIMEOUT_MS)
   try {
@@ -157,7 +178,7 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
       prompts,
       {
         systemPrompt,
-        messages: [...conversation.messages, ...(opts.extraMessages ?? [])],
+        messages: [...messages, ...(opts.extraMessages ?? [])],
         tools: [
           createTodoTool(todoStore),
           ...createComputerTools({
@@ -169,6 +190,7 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
           ...createSkillTools(opts.workspaceRoot, {
             turn: turnStart.turn,
             enabledSkills: runtimeContext?.skills ?? [],
+            skillRoots: skillRootsFromOptions(opts),
             requestSkillOverlay: opts.requestSkillOverlay,
             replaceSkillOverlay: opts.replaceSkillOverlay,
             clearSkillOverlay: opts.clearSkillOverlay
@@ -304,7 +326,7 @@ async function runCompressionTurn(turnStart: TurnStart, opts: TextTurnLoopOption
   const prompt = buildCompactionHistoryUserPrompt({
     conversationText: serializeConversationForCompression(conversation.messages),
     customInstructions: COMPACTION_FOCUS_INSTRUCTIONS,
-    previousSummary: lastNonEmpty(conversation.summaryCheckpoints)
+    previousChatHistory: lastNonEmpty(conversation.previousChatHistorySummaries)
   })
 
   const turnTimeout = createCombinedAbortSignal(undefined, COMPRESSION_TURN_TIMEOUT_MS)
@@ -359,25 +381,21 @@ async function runCompressionTurn(turnStart: TurnStart, opts: TextTurnLoopOption
 }
 
 async function resolveAgentProfile(turnStart: TurnStart, opts: TextTurnLoopOptions): Promise<AgentProfile> {
-  const fallback: AgentProfile = {
-    request_id: '',
-    agent_uid: turnStart.turn.actor.agent_uid,
-    display_name: turnStart.turn.actor.agent_uid,
-    role: undefined
-  }
-
-  if (!opts.requestAgentProfile) return fallback
-
-  try {
-    return await opts.requestAgentProfile({
-      request_id: `agent-profile-${crypto.randomUUID()}`,
-      turn: turnStart.turn,
+  if (!opts.requestAgentProfile) {
+    return {
+      request_id: '',
       agent_uid: turnStart.turn.actor.agent_uid,
-      session_id: turnStart.turn.actor.session_id
-    })
-  } catch {
-    return fallback
+      display_name: turnStart.turn.actor.agent_uid,
+      role: undefined
+    }
   }
+
+  return await opts.requestAgentProfile({
+    request_id: `agent-profile-${crypto.randomUUID()}`,
+    turn: turnStart.turn,
+    agent_uid: turnStart.turn.actor.agent_uid,
+    session_id: turnStart.turn.actor.session_id
+  })
 }
 
 async function resolveTurnRuntimeContext(turnStart: TurnStart, opts: TextTurnLoopOptions): Promise<TurnRuntimeContext> {
@@ -434,7 +452,10 @@ function assertCredentialMatchesTurn(
  */
 function runtimeModelFromCredential(credential: LlmProviderCredentialResponse): Model {
   const providerKind = providerKindFromSource(credential.provider_source)
-  const catalogModel = getModel(providerKind, credential.model) ?? fallbackModel(providerKind, credential.model)
+  const catalogModel = getModel(providerKind, credential.model)
+  if (!catalogModel) {
+    throw new Error(`LLM model ${providerKind}/${credential.model} is not in the runtime catalog`)
+  }
   const connection = credential.connection_options_json ?? {}
   const baseUrl = credential.base_url || stringArg(connection, 'base_url') || catalogModel.baseUrl
   const headers = runtimeHeaders(credential)
@@ -505,29 +526,17 @@ function providerKindFromSource(source: string): string {
       return 'google'
     case 'openrouter':
     case 'openai':
+    case 'openai-compatible':
+    case 'xai':
+    case 'groq':
+    case 'cerebras':
+    case 'deepseek':
+    case 'moonshotai':
+    case 'fireworks':
+    case 'together':
       return source
     default:
-      return 'openai-compatible'
-  }
-}
-
-function fallbackModel(providerKind: string, modelId: string): Model {
-  return {
-    id: modelId,
-    name: modelId,
-    api:
-      providerKind === 'anthropic'
-        ? 'anthropic-messages'
-        : providerKind === 'google'
-          ? 'google-generative-ai'
-          : 'openai-completions',
-    provider: providerKind,
-    baseUrl: '',
-    reasoning: false,
-    input: ['text', 'image'],
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: 128000,
-    maxTokens: 8192
+      throw new Error(`unsupported LLM provider_source: ${source}`)
   }
 }
 
@@ -575,8 +584,8 @@ function providerOptionsFromCredential(
 function conversationContextFromRuntimeContext(context: TurnRuntimeContext, model: Model): ConversationContext {
   const materializedInputIds = new Set<string>()
   const messages: AgentMessage[] = []
-  const systemNotes: string[] = []
-  const summaryCheckpoints: string[] = []
+  const pendingUserEnvironmentInfoLines: string[] = []
+  const previousChatHistorySummaries: string[] = []
 
   for (const row of context.conversation?.messages ?? []) {
     const metadata = isRecord(row.metadata) ? (row.metadata as JsonObject) : {}
@@ -588,12 +597,11 @@ function conversationContextFromRuntimeContext(context: TurnRuntimeContext, mode
     if (!text) continue
 
     if (kind === 'summary') {
-      summaryCheckpoints.push(text)
-      systemNotes.push(`Conversation summary checkpoint:\n${text}`)
+      previousChatHistorySummaries.push(text)
       continue
     }
     if (kind === 'introspection' && row.role !== 'im_ambient') {
-      systemNotes.push(`Runtime note:\n${text}`)
+      pendingUserEnvironmentInfoLines.push(runtimeNoteEnvironmentInfoLine(text))
       continue
     }
 
@@ -610,7 +618,7 @@ function conversationContextFromRuntimeContext(context: TurnRuntimeContext, mode
     if (message) messages.push(message)
   }
 
-  return { messages, materializedInputIds, systemNotes, summaryCheckpoints }
+  return { messages, materializedInputIds, pendingUserEnvironmentInfoLines, previousChatHistorySummaries }
 }
 
 function storedConversationMessage(line: JsonObject, text: string, model: Model): AgentMessage | undefined {
@@ -635,6 +643,72 @@ function inputAlreadyMaterialized(input: ActorInputEnvelope, conversation: Conve
     conversation.materializedInputIds.has(input.actor_input_id) ||
     Boolean(deepString(input.payload_json, ['data', 'internal', 'trigger_message_id']))
   )
+}
+
+function attachPendingEnvironmentInfoToUserMessage(
+  messages: AgentMessage[],
+  prompts: Message[],
+  lines: string[]
+): { messages: AgentMessage[]; prompts: Message[] } {
+  const environmentInfoLines = lines.filter(line => line.trim().length > 0)
+  if (environmentInfoLines.length === 0) return { messages, prompts }
+
+  const promptIndex = prompts.findIndex(message => message.role === 'user')
+  if (promptIndex >= 0) {
+    const nextPrompts = [...prompts]
+    nextPrompts[promptIndex] = prependEnvironmentInfoLinesToUserMessage(
+      nextPrompts[promptIndex]!,
+      environmentInfoLines
+    ) as Message
+    return { messages, prompts: nextPrompts }
+  }
+
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index]?.role !== 'user') continue
+    const nextMessages = [...messages]
+    nextMessages[index] = prependEnvironmentInfoLinesToUserMessage(nextMessages[index]!, environmentInfoLines)
+    return { messages: nextMessages, prompts }
+  }
+
+  return {
+    messages,
+    prompts: [prependEnvironmentInfoLinesToUserMessage(userMessage(''), environmentInfoLines) as Message, ...prompts]
+  }
+}
+
+function attachPreviousChatHistoryToUserMessage(
+  messages: AgentMessage[],
+  prompts: Message[],
+  history: string | undefined
+): { messages: AgentMessage[]; prompts: Message[] } {
+  const previousHistory = history?.trim()
+  if (!previousHistory) return { messages, prompts }
+
+  const promptIndex = prompts.findIndex(message => message.role === 'user')
+  if (promptIndex >= 0) {
+    const nextPrompts = [...prompts]
+    nextPrompts[promptIndex] = prependPreviousChatHistoryToUserMessage(
+      nextPrompts[promptIndex]!,
+      previousHistory
+    ) as Message
+    return { messages, prompts: nextPrompts }
+  }
+
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index]?.role !== 'user') continue
+    const nextMessages = [...messages]
+    nextMessages[index] = prependPreviousChatHistoryToUserMessage(nextMessages[index]!, previousHistory)
+    return { messages: nextMessages, prompts }
+  }
+
+  return {
+    messages,
+    prompts: [prependPreviousChatHistoryToUserMessage(userMessage(''), previousHistory) as Message, ...prompts]
+  }
+}
+
+function runtimeNoteEnvironmentInfoLine(text: string): string {
+  return `runtime_note: ${text.replace(/\s+/g, ' ').trim()}`
 }
 
 function currentChannelFromTurnStart(turnStart: TurnStart): CurrentChannelContext | undefined {

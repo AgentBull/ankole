@@ -1,14 +1,14 @@
 /**
  * Prompts that drive history compaction: when a conversation grows past the model's
  * context budget, the harness asks an LLM to summarize older turns into a compact
- * checkpoint that later turns read as background.
+ * previous-chat-history replacement that later turns read as background.
  *
  * The hard constraint these prompts impose is that a summary is *reference state*,
- * not a command to resume old work — the latest user message after the checkpoint
- * decides what happens next, and reverse signals (stop/undo/never mind) must mark
- * stale work cancelled rather than carry it forward. The rigid section format and
- * the "preserve verbatim" rules exist so identifiers, paths, and unfinished
- * instructions survive the lossy summarization without drift.
+ * not a command to resume old work — the latest user message after the compressed
+ * history decides what happens next, and reverse signals (stop/undo/never mind)
+ * must mark stale work cancelled rather than carry it forward. The rigid section
+ * format and the "preserve verbatim" rules exist so identifiers, paths, and
+ * unfinished instructions survive the lossy summarization without drift.
  */
 
 /**
@@ -23,18 +23,18 @@ export const COMPACTION_FOCUS_INSTRUCTIONS =
  * System prompt for the summarizer model. The explicit "do NOT continue the
  * conversation / do NOT answer questions" guard exists because the summarizer is
  * fed a real transcript that often ends mid-task; without it the model tends to
- * keep working instead of only emitting the checkpoint.
+ * keep working instead of only emitting the compressed history replacement.
  */
 export const SUMMARIZATION_SYSTEM_PROMPT = `You are a context summarization assistant. Your task is to read a conversation between a user and an AI coding assistant, then produce a structured summary following the exact format specified.
 
 Do NOT continue the conversation. Do NOT respond to any questions in the conversation. ONLY output the structured summary.`
 
 /**
- * First-time summarization prompt: used when there is no prior checkpoint to build
+ * First-time summarization prompt: used when there is no prior compressed history to build
  * on. Defines the exact section layout the downstream consumer parses and reiterates
- * that the checkpoint is background, not a standing instruction to resume.
+ * that the summary is background, not a standing instruction to resume.
  */
-export const SUMMARIZATION_PROMPT = `The messages above are a conversation to summarize. Create a structured context checkpoint summary that another LLM will use as reference background.
+export const SUMMARIZATION_PROMPT = `The messages above are a conversation to summarize. Create a structured compressed previous chat history summary that another LLM will use as reference background.
 
 The summary is not an instruction to continue old work by itself. The latest user message after the summary decides what to do now. If later messages include reverse signals such as stop, undo, rollback, never mind, just verify, or a topic change, mark the stale work as cancelled or superseded instead of preserving it as active.
 
@@ -86,16 +86,16 @@ Use this EXACT format:
 Keep each section concise. Preserve exact file paths, function names, and error messages.`
 
 /**
- * Incremental summarization prompt: used when a checkpoint already exists and only
+ * Incremental summarization prompt: used when compressed history already exists and only
  * the newer messages need folding in. Re-summarizing the whole history every time
  * would be wasteful and risks dropping detail, so this variant preserves the prior
  * summary and merges deltas (advancing the progress sections, dropping resolved
  * blockers) using the same fixed format as the first-time prompt.
  */
-export const UPDATE_SUMMARIZATION_PROMPT = `The messages above are NEW conversation messages to incorporate into the existing summary provided in <previous-summary> tags.
+export const UPDATE_SUMMARIZATION_PROMPT = `The messages above are NEW conversation messages to incorporate into the existing compressed previous chat history provided in <previous_chat_history> tags.
 
-Update the existing structured summary with new information. RULES:
-- PRESERVE all existing information from the previous summary
+Update the existing structured compressed previous chat history with new information. RULES:
+- PRESERVE all existing information from the previous compressed history
 - ADD new progress, decisions, and context from the new messages
 - UPDATE "Completed Actions", "In Progress", and "Remaining Work" based on what was accomplished
 - PRESERVE exact file paths, function names, and error messages
@@ -172,8 +172,8 @@ Be concise. Focus on what's needed to understand the kept suffix.`
 /**
  * Assembles the user turn for whole-history compaction.
  *
- * Picks the update prompt when a `previousSummary` is supplied and the first-time
- * prompt otherwise, then lays out the transcript, the prior summary (if any), and
+ * Picks the update prompt when `previousChatHistory` is supplied and the first-time
+ * prompt otherwise, then lays out the transcript, the prior compressed history (if any), and
  * the instructions in that order. The instructions are placed *last*, after the
  * data, so the model reads the material before the formatting rules — a common
  * recency trick that improves adherence to the required section layout.
@@ -181,15 +181,15 @@ Be concise. Focus on what's needed to understand the kept suffix.`
 export function buildCompactionHistoryUserPrompt(input: {
   conversationText: string
   customInstructions?: string
-  previousSummary?: string
+  previousChatHistory?: string
 }): string {
   const basePrompt = withCompactionFocus(
-    input.previousSummary ? UPDATE_SUMMARIZATION_PROMPT : SUMMARIZATION_PROMPT,
+    input.previousChatHistory ? UPDATE_SUMMARIZATION_PROMPT : SUMMARIZATION_PROMPT,
     input.customInstructions
   )
   const sections = [`<conversation>\n${input.conversationText}\n</conversation>`]
-  if (input.previousSummary) {
-    sections.push(`<previous-summary>\n${input.previousSummary}\n</previous-summary>`)
+  if (input.previousChatHistory) {
+    sections.push(`<previous_chat_history>\n${input.previousChatHistory}\n</previous_chat_history>`)
   }
   sections.push(basePrompt)
   return sections.join('\n\n')

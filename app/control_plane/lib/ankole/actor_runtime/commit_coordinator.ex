@@ -345,9 +345,9 @@ defmodule Ankole.ActorRuntime.CommitCoordinator do
     collect_results(results)
   end
 
-  # Materializes a compression proposal as a conversation-local summary
-  # checkpoint. The provider-visible side effect for the command is a fixed
-  # command feedback row, not the summary body.
+  # Materializes a compression proposal as a conversation-local compressed
+  # previous-chat-history replacement. The provider-visible side effect for the
+  # command is a fixed command feedback row, not the summary body.
   defp insert_assistant_message(
          repo,
          conversation,
@@ -514,6 +514,12 @@ defmodule Ankole.ActorRuntime.CommitCoordinator do
        ) do
     ambient_post_input_id = ambient_post_input_id(actor_inputs, assistant_message)
 
+    outbox_scope = %{
+      ambient_post_input_id: ambient_post_input_id,
+      visible_reply_input_id:
+        visible_reply_input_id(actor_inputs, assistant_message, ambient_post_input_id)
+    }
+
     actor_inputs
     |> Enum.map(fn actor_input ->
       Actors.consume_actor_input_in_tx(repo, actor_input,
@@ -524,7 +530,7 @@ defmodule Ankole.ActorRuntime.CommitCoordinator do
         revision: activation.revision,
         consumed_at: now,
         outbox_intents:
-          outbox_intents(repo, actor_input, llm_turn, assistant_message, ambient_post_input_id)
+          outbox_intents(repo, actor_input, llm_turn, assistant_message, outbox_scope)
       )
     end)
     |> collect_results()
@@ -539,16 +545,75 @@ defmodule Ankole.ActorRuntime.CommitCoordinator do
 
   defp ambient_post_input_id(_actor_inputs, _assistant_message), do: nil
 
+  defp visible_reply_input_id(_actor_inputs, nil, _ambient_post_input_id), do: nil
+
+  defp visible_reply_input_id(_actor_inputs, %Message{}, ambient_post_input_id)
+       when is_binary(ambient_post_input_id),
+       do: nil
+
+  defp visible_reply_input_id(actor_inputs, %Message{}, nil) do
+    actor_inputs
+    |> Enum.filter(&provider_visible_reply_input?/1)
+    |> Enum.max_by(&reply_target_sort_key/1, fn -> nil end)
+    |> case do
+      %ActorInput{id: id} -> id
+      nil -> nil
+    end
+  end
+
+  defp provider_visible_reply_input?(%ActorInput{
+         type: "im.message.may_intervene"
+       }),
+       do: false
+
+  defp provider_visible_reply_input?(%ActorInput{
+         signal_channel_id: signal_channel_id,
+         provider_entry_id: provider_entry_id
+       })
+       when is_binary(signal_channel_id) and is_binary(provider_entry_id),
+       do: true
+
+  defp provider_visible_reply_input?(_actor_input), do: false
+
+  defp reply_target_sort_key(%ActorInput{} = actor_input) do
+    {
+      provider_time_sort_value(actor_input),
+      datetime_sort_value(actor_input.available_at),
+      actor_input.broker_sequence || 0,
+      actor_input.provider_entry_id || ""
+    }
+  end
+
+  defp provider_time_sort_value(%ActorInput{payload: payload}) when is_map(payload) do
+    payload
+    |> get_in(["data", "entry", "provider_time"])
+    |> datetime_iso8601_sort_value()
+  end
+
+  defp provider_time_sort_value(_actor_input), do: 0
+
+  defp datetime_iso8601_sort_value(value) when is_binary(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, datetime, _offset} -> datetime_sort_value(datetime)
+      _error -> 0
+    end
+  end
+
+  defp datetime_iso8601_sort_value(_value), do: 0
+
+  defp datetime_sort_value(%DateTime{} = datetime), do: DateTime.to_unix(datetime, :microsecond)
+  defp datetime_sort_value(_value), do: 0
+
   # Inputs without a provider-visible source cannot produce reply/update outbox
   # rows, but they can still be consumed by the durable AI-agent turn.
-  defp outbox_intents(_repo, _actor_input, _llm_turn, nil, _ambient_post_input_id), do: []
+  defp outbox_intents(_repo, _actor_input, _llm_turn, nil, _outbox_scope), do: []
 
   defp outbox_intents(
          _repo,
          %ActorInput{signal_channel_id: nil},
          _llm_turn,
          _assistant_message,
-         _ambient_post_input_id
+         _outbox_scope
        ),
        do: []
 
@@ -557,7 +622,7 @@ defmodule Ankole.ActorRuntime.CommitCoordinator do
          %ActorInput{type: "im.message.may_intervene", id: id} = actor_input,
          %LlmTurn{} = llm_turn,
          %Message{} = assistant_message,
-         id
+         %{ambient_post_input_id: id}
        ) do
     [
       %{
@@ -579,7 +644,7 @@ defmodule Ankole.ActorRuntime.CommitCoordinator do
          %ActorInput{type: "im.message.may_intervene"},
          _llm_turn,
          _assistant_message,
-         _ambient_post_input_id
+         _outbox_scope
        ),
        do: []
 
@@ -588,7 +653,7 @@ defmodule Ankole.ActorRuntime.CommitCoordinator do
          %ActorInput{provider_entry_id: nil},
          _llm_turn,
          _assistant_message,
-         _ambient_post_input_id
+         _outbox_scope
        ),
        do: []
 
@@ -597,7 +662,7 @@ defmodule Ankole.ActorRuntime.CommitCoordinator do
          %ActorInput{type: "command.compress"} = actor_input,
          %LlmTurn{kind: "compression"} = llm_turn,
          %Message{} = assistant_message,
-         _ambient_post_input_id
+         _outbox_scope
        ) do
     command_feedback_outbox_intents(
       repo,
@@ -613,8 +678,18 @@ defmodule Ankole.ActorRuntime.CommitCoordinator do
          %ActorInput{type: "command.steer"},
          _llm_turn,
          _assistant_message,
-         _ambient_post_input_id
+         _outbox_scope
        ),
+       do: []
+
+  defp outbox_intents(
+         _repo,
+         %ActorInput{id: id},
+         _llm_turn,
+         _assistant_message,
+         %{visible_reply_input_id: visible_reply_input_id}
+       )
+       when id != visible_reply_input_id,
        do: []
 
   # Builds a provider outbox row from the committed assistant message. The
@@ -625,7 +700,7 @@ defmodule Ankole.ActorRuntime.CommitCoordinator do
          %ActorInput{} = actor_input,
          %LlmTurn{} = llm_turn,
          %Message{} = assistant_message,
-         _ambient_post_input_id
+         _outbox_scope
        ) do
     operation = SignalsGateway.outbox_operation_for_actor_input(actor_input, repo)
     operation_key = Atom.to_string(operation)

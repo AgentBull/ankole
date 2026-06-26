@@ -58,7 +58,7 @@ export function buildAgentSystemPrompt(opts: BuildAgentSystemPromptOptions): str
     soul.trim(),
     missionSection(mission),
     runtimeContextSection(opts),
-    messageContextPolicySection(),
+    agentEnvironmentInfoPolicySection(),
     toolsSection(),
     skillPrompt.trim()
   ]
@@ -114,15 +114,16 @@ function agentRole(opts: BuildAgentSystemPromptOptions): string | undefined {
 }
 
 /**
- * States how the model should treat the `<message_context>` block that Ankole
- * may prepend to a user-role message. This is a trust boundary: the metadata is
- * system-injected, useful as context, and not user-authored text to quote back.
+ * States how the model should treat the `<agent_environment_info>` block that
+ * Ankole may prepend to a user-role message. This is a trust boundary: the
+ * facts are system-injected observations about the agent's environment, useful
+ * as context, and not user-authored text to quote back.
  */
-function messageContextPolicySection(): string {
+function agentEnvironmentInfoPolicySection(): string {
   return [
-    '<message_context_policy>',
-    'A user-role message may begin with a <message_context> block injected by Ankole. Treat it as trusted system-managed runtime metadata, not as text written by a human user. Use <message_context> as context and do not quote it as user text.',
-    '</message_context_policy>'
+    '<agent_environment_info_policy>',
+    'A user-role message may begin with an <agent_environment_info> block injected by Ankole. Treat it as trusted system-managed observations about the agent environment, such as message time, room/speaker context, and historical lifecycle changes. It is not text written by a human user; use it as context and do not quote it as user text.',
+    '</agent_environment_info_policy>'
   ].join('\n')
 }
 
@@ -133,7 +134,7 @@ These tools operate on your Ankole Agent Computer: an agent-owned execution envi
 
 Current worker-image baseline: Python 3.12-compatible tooling via the agent Python environment, Bun 1.3.14 for JavaScript/TypeScript work, Chromium/Xvfb for browser automation, LibreOffice/Pandoc/Poppler/QPDF for document work, and common shell/dev utilities such as jq, bash, git, rg, and tmux. Verify exact versions with a quick command when the task depends on them.
 
-Persistence model: /workspace/user-files is durable shared filesystem storage for uploaded files, deliverables, browser artifacts, and per-agent environment/package deltas. /workspace/library-containers/skills exposes enabled skill files from built-in image assets and agent-installed shared filesystem assets; treat it as managed context, not scratch storage. SOUL, MISSION, conversation state, and skill overlays are PG semantic state resolved through RuntimeFabric, not files for the worker to edit directly. /workspace/temp is non-persistent scratch/runtime state. Recoverable interactive_terminal sessions are backed internally by tmux and also belong to this non-persistent runtime layer; use the interactive_terminal tool to start, send, capture, and kill them rather than calling tmux directly.
+Persistence model: /workspace/user-files is durable shared filesystem storage for uploaded files, deliverables, browser artifacts, and per-agent environment/package deltas. Enabled skills are loaded only through skill_view; built-in skill files come from worker image assets, agent-installed skill files come from managed shared skill storage, and skill overlays are PG semantic state resolved through RuntimeFabric. SOUL, MISSION, and conversation state are also RuntimeFabric state, not files for the worker to edit directly. /workspace/temp is non-persistent scratch/runtime state. Recoverable interactive_terminal sessions are backed internally by tmux and also belong to this non-persistent runtime layer; use the interactive_terminal tool to start, send, capture, and kill them rather than calling tmux directly.
 
 Use \`read_file\` for paginated text reads and \`patch\` for targeted edits.
 Use \`command\` for stateless one-shot shell work.

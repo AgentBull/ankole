@@ -1,6 +1,8 @@
 defmodule Ankole.SignalsGatewayTest do
   use Ankole.DataCase, async: false
 
+  import ExUnit.CaptureLog
+
   alias Ecto.Adapters.SQL
   alias Ankole.Actors
   alias Ankole.Actors.ActorInputConsumption
@@ -1340,6 +1342,68 @@ defmodule Ankole.SignalsGatewayTest do
                signal_channel_id: "lark:chat:group-a",
                provider_entry_id: "local-outbox:post-without-provider-id"
              ).text == "visible"
+    end
+
+    test "confirmed provider send stays succeeded when local mirror write fails" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :ignore)
+
+      assert {:ok, %{status: :accepted}} =
+               SignalsGateway.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
+                 now: @base_time
+               )
+
+      assert {:ok, _created} =
+               SignalsGateway.commit_outbox(%{
+                 agent_uid: agent.uid,
+                 binding_name: "bot",
+                 outbound_key: "post-mirror-fails-after-send",
+                 operation: :post,
+                 signal_channel_id: "lark:chat:group-a",
+                 fallback_visible_text: "visible"
+               })
+
+      test_pid = self()
+
+      log =
+        capture_log(fn ->
+          assert {:ok, succeeded} =
+                   SignalsGateway.dispatch_outbox(
+                     agent.uid,
+                     "bot",
+                     "post-mirror-fails-after-send",
+                     %{
+                       capabilities: [:post_entry],
+                       send: fn _outbox ->
+                         {:ok,
+                          %{
+                            provider_entry_id: "mirror-fails-after-send",
+                            raw_payload: %{"pid" => test_pid}
+                          }}
+                       end
+                     },
+                     now: @base_time
+                   )
+
+          send(test_pid, {:succeeded_outbox, succeeded})
+        end)
+
+      assert_receive {:succeeded_outbox, succeeded}
+      assert succeeded.status == :succeeded
+      assert succeeded.provider_entry_id == "mirror-fails-after-send"
+
+      assert Repo.get_by!(OutboxEntry,
+               agent_uid: agent.uid,
+               binding_name: "bot",
+               outbound_key: "post-mirror-fails-after-send"
+             ).status == :succeeded
+
+      refute Repo.get_by(SignalEntry,
+               signal_channel_id: "lark:chat:group-a",
+               provider_entry_id: "mirror-fails-after-send"
+             )
+
+      assert log =~ "signals_gateway outbox mirror failed after provider send"
     end
 
     test "outbox reply edit delete reaction divider and card mirror only after success" do

@@ -88,15 +88,15 @@ defmodule Ankole.Actors.ActorInputConsumption do
   end
 
   defp required_fields("command." <> _name) do
-    [
-      :actor_input_id,
-      :agent_uid,
-      :binding_name,
-      :ingress_event_id,
-      :session_id,
-      :type,
-      :consumed_at
-    ]
+    deterministic_consumption_fields()
+  end
+
+  defp required_fields("session." <> _name) do
+    deterministic_consumption_fields()
+  end
+
+  defp required_fields("signal.entry." <> _name) do
+    deterministic_consumption_fields()
   end
 
   defp required_fields(_type) do
@@ -111,6 +111,18 @@ defmodule Ankole.Actors.ActorInputConsumption do
       :activation_uid,
       :actor_epoch,
       :revision,
+      :consumed_at
+    ]
+  end
+
+  defp deterministic_consumption_fields do
+    [
+      :actor_input_id,
+      :agent_uid,
+      :binding_name,
+      :ingress_event_id,
+      :session_id,
+      :type,
       :consumed_at
     ]
   end

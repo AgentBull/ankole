@@ -121,7 +121,7 @@ struct AuthenticatedWorker {
 #[derive(Debug, Default)]
 struct AuthenticatedRouteState {
     routes: HashMap<String, AuthenticatedWorker>,
-    pending: VecDeque<AuthenticatedWorker>,
+    pending_by_worker_id: HashMap<String, VecDeque<AuthenticatedWorker>>,
 }
 
 type AuthenticatedRoutes = Arc<Mutex<AuthenticatedRouteState>>;
@@ -305,44 +305,67 @@ struct DealerHandleInner {
 }
 
 struct DealerInbox {
-    queue: Mutex<VecDeque<DealerEvent>>,
+    state: Mutex<DealerInboxState>,
     available: Condvar,
+}
+
+struct DealerInboxState {
+    queue: VecDeque<DealerEvent>,
+    closed: bool,
 }
 
 impl DealerInbox {
     fn new() -> Self {
         Self {
-            queue: Mutex::new(VecDeque::new()),
+            state: Mutex::new(DealerInboxState {
+                queue: VecDeque::new(),
+                closed: false,
+            }),
             available: Condvar::new(),
         }
     }
 
     fn push(&self, event: DealerEvent) {
-        if let Ok(mut queue) = self.queue.lock() {
-            queue.push_back(event);
-            self.available.notify_one();
+        if let Ok(mut state) = self.state.lock() {
+            if !state.closed {
+                state.queue.push_back(event);
+                self.available.notify_one();
+            }
+        }
+    }
+
+    fn close(&self) {
+        if let Ok(mut state) = self.state.lock() {
+            state.closed = true;
+            self.available.notify_all();
         }
     }
 
     fn recv(&self, timeout: Duration) -> Result<Option<DealerEvent>, TransportError> {
-        let mut queue = self
-            .queue
+        let mut state = self
+            .state
             .lock()
             .map_err(|_| TransportError::SocketClosed)?;
 
-        if let Some(event) = queue.pop_front() {
-            return Ok(Some(event));
-        }
+        loop {
+            if let Some(event) = state.queue.pop_front() {
+                return Ok(Some(event));
+            }
 
-        let (mut queue, wait_result) = self
-            .available
-            .wait_timeout(queue, timeout)
-            .map_err(|_| TransportError::SocketClosed)?;
+            if state.closed {
+                return Err(TransportError::SocketClosed);
+            }
 
-        if wait_result.timed_out() {
-            Ok(None)
-        } else {
-            Ok(queue.pop_front())
+            let (next_state, wait_result) = self
+                .available
+                .wait_timeout(state, timeout)
+                .map_err(|_| TransportError::SocketClosed)?;
+
+            state = next_state;
+
+            if wait_result.timed_out() {
+                return Ok(None);
+            }
         }
     }
 }
@@ -405,14 +428,19 @@ impl DealerHandle {
     pub fn stop(&self) -> Result<(), TransportError> {
         let (reply_tx, reply_rx) = mpsc::channel();
 
-        self.inner
+        let command_result = self
+            .inner
             .commands
             .send(DealerCommand::Stop { reply: reply_tx })
-            .map_err(|_| TransportError::SocketClosed)?;
+            .map_err(|_| TransportError::SocketClosed)
+            .and_then(|_| {
+                reply_rx
+                    .recv_timeout(self.inner.command_timeout)
+                    .map_err(|_| TransportError::Timeout)?
+            });
 
-        reply_rx
-            .recv_timeout(self.inner.command_timeout)
-            .map_err(|_| TransportError::Timeout)?
+        self.inner.inbox.close();
+        command_result
     }
 }
 
@@ -421,6 +449,7 @@ impl Drop for DealerHandleInner {
         self.stop.store(true, Ordering::SeqCst);
         let (reply_tx, _reply_rx) = mpsc::channel();
         let _ = self.commands.send(DealerCommand::Stop { reply: reply_tx });
+        self.inbox.close();
     }
 }
 
@@ -859,28 +888,30 @@ fn emit_router_frames(
 ) {
     match parse_router_frames(frames) {
         Ok(RouterInbound::Envelope { route, payload }) => {
-            let auth = if requires_auth {
-                match authenticated_route(auth_routes, &route) {
-                    Some(auth) => Some(auth),
-                    None => {
-                        sink(RouterEvent::DecodeFailed {
-                            transport_route: route,
-                            reason: "unauthenticated_route".to_string(),
-                        });
-                        return;
-                    }
-                }
-            } else {
-                None
-            };
-
             match runtime_fabric::decode_envelope_json(&payload) {
-                Ok(envelope_json) => sink(RouterEvent::Received {
-                    transport_route: route,
-                    authenticated_worker_id: auth.as_ref().map(|auth| auth.worker_id.clone()),
-                    authenticated_key_revision: auth.as_ref().map(|auth| auth.key_revision),
-                    envelope_json: envelope_json.to_string(),
-                }),
+                Ok(envelope_json) => {
+                    let auth = if requires_auth {
+                        match authenticated_envelope_route(auth_routes, &route, &envelope_json) {
+                            Some(auth) => Some(auth),
+                            None => {
+                                sink(RouterEvent::DecodeFailed {
+                                    transport_route: route,
+                                    reason: "unauthenticated_route".to_string(),
+                                });
+                                return;
+                            }
+                        }
+                    } else {
+                        None
+                    };
+
+                    sink(RouterEvent::Received {
+                        transport_route: route,
+                        authenticated_worker_id: auth.as_ref().map(|auth| auth.worker_id.clone()),
+                        authenticated_key_revision: auth.as_ref().map(|auth| auth.key_revision),
+                        envelope_json: envelope_json.to_string(),
+                    });
+                }
                 Err(error) => sink(RouterEvent::DecodeFailed {
                     transport_route: route,
                     reason: error.to_string(),
@@ -921,13 +952,64 @@ fn authenticated_route(
     auth_routes: &AuthenticatedRoutes,
     route: &str,
 ) -> Option<AuthenticatedWorker> {
+    let state = auth_routes.lock().ok()?;
+
+    state.routes.get(route).cloned()
+}
+
+fn authenticated_envelope_route(
+    auth_routes: &AuthenticatedRoutes,
+    route: &str,
+    envelope_json: &serde_json::Value,
+) -> Option<AuthenticatedWorker> {
+    if let Some(authenticated) = authenticated_route(auth_routes, route) {
+        if let Some(worker_id) = worker_ready_id(envelope_json) {
+            return (authenticated.worker_id == worker_id).then_some(authenticated);
+        }
+
+        return Some(authenticated);
+    }
+
+    let worker_id = worker_ready_id(envelope_json)?;
+    bind_authenticated_ready_route(auth_routes, route, worker_id)
+}
+
+fn worker_ready_id(envelope_json: &serde_json::Value) -> Option<&str> {
+    let body = envelope_json.get("body")?;
+
+    if body.get("type")?.as_str()? != "worker_ready" {
+        return None;
+    }
+
+    body.get("worker_ready")?.get("worker_id")?.as_str()
+}
+
+fn bind_authenticated_ready_route(
+    auth_routes: &AuthenticatedRoutes,
+    route: &str,
+    worker_id: &str,
+) -> Option<AuthenticatedWorker> {
     let mut state = auth_routes.lock().ok()?;
 
     if let Some(authenticated) = state.routes.get(route) {
-        return Some(authenticated.clone());
+        return (authenticated.worker_id == worker_id).then(|| authenticated.clone());
     }
 
-    let authenticated = state.pending.pop_front()?;
+    let (authenticated, remove_pending_key) = {
+        let pending = state.pending_by_worker_id.get_mut(worker_id)?;
+        let authenticated = pending.pop_front()?;
+
+        if authenticated.worker_id != worker_id {
+            return None;
+        }
+
+        (authenticated, pending.is_empty())
+    };
+
+    if remove_pending_key {
+        state.pending_by_worker_id.remove(worker_id);
+    }
+
     state
         .routes
         .insert(route.to_string(), authenticated.clone());
@@ -1237,7 +1319,11 @@ fn record_authenticated_route(
                 .routes
                 .insert(route.to_string(), authenticated.clone());
         }
-        state.pending.push_back(authenticated);
+        state
+            .pending_by_worker_id
+            .entry(authenticated.worker_id.clone())
+            .or_default()
+            .push_back(authenticated);
     }
 }
 

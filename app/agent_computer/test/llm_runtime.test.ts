@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { runAgentLoop } from '../src/core'
 import type { TurnStart } from '../src/actor_lane'
-import type { Model } from '../src/llm/bullx'
+import type { Message, Model } from '../src/llm/bullx'
 import type { LanguageModelV4, LanguageModelV4StreamPart } from '../src/llm/provider'
 import { runLlmTurnHandlers, runTextTurnLoop } from '../src/llm_runtime/text_turn_loop'
 import type { LlmProviderCredentialResponse, RuntimeConversationMessage, TurnRuntimeContext } from '../src/rpc_lane'
@@ -31,7 +31,16 @@ describe('@ankole/agent-computer LLM turn loop', () => {
         role: 'user',
         kind: 'normal',
         content: [{ type: 'text', text: 'Use one tool, then reply with OK.' }],
-        metadata: { actor_input_id: 'input-1' }
+        metadata: {
+          actor_input_id: 'input-1',
+          message_context: {
+            time: {
+              injected: true,
+              sent_at: '2026-06-24T00:00:00.000000Z',
+              timezone: 'Asia/Shanghai'
+            }
+          }
+        }
       },
       {
         id: 'msg-assistant',
@@ -41,10 +50,29 @@ describe('@ankole/agent-computer LLM turn loop', () => {
         metadata: {}
       },
       {
-        id: 'msg-summary',
+        id: 'msg-summary-old',
         role: 'assistant',
         kind: 'summary',
-        content: [{ type: 'text', text: 'Old summary checkpoint.' }],
+        content: [{ type: 'text', text: 'Outdated compressed previous chat history.' }],
+        metadata: {}
+      },
+      {
+        id: 'msg-summary-latest',
+        role: 'assistant',
+        kind: 'summary',
+        content: [{ type: 'text', text: 'Latest compressed previous chat history.' }],
+        metadata: {}
+      },
+      {
+        id: 'msg-runtime-note',
+        role: 'user',
+        kind: 'introspection',
+        content: [
+          {
+            type: 'text',
+            text: 'The provider reported that a previously visible user entry was recalled.'
+          }
+        ],
         metadata: {}
       }
     ]
@@ -61,7 +89,32 @@ describe('@ankole/agent-computer LLM turn loop', () => {
     const serializedMessages = JSON.stringify(body.messages)
     expect(serializedMessages.match(/Use one tool, then reply with OK\./g)).toHaveLength(1)
     expect(serializedMessages).toContain('Previous answer from durable transcript.')
-    expect(JSON.stringify(body)).toContain('Old summary checkpoint.')
+    expect(serializedMessages).toContain('<previous_chat_history>')
+    expect(serializedMessages).toContain('Latest compressed previous chat history.')
+    expect(serializedMessages).not.toContain('Outdated compressed previous chat history.')
+    expect(serializedMessages).toContain('<agent_environment_info>')
+    expect(serializedMessages).toContain('sent_at: 2026-06-24 08:00:00 (Asia/Shanghai)')
+    expect(serializedMessages).toContain(
+      'runtime_note: The provider reported that a previously visible user entry was recalled.'
+    )
+    const userMessages = JSON.stringify(body.messages.filter((message: any) => message.role === 'user'))
+    expect(userMessages.match(/<previous_chat_history>/g)).toHaveLength(1)
+    expect(userMessages.match(/<agent_environment_info>/g)).toHaveLength(1)
+    expect(userMessages.indexOf('<previous_chat_history>')).toBeLessThan(userMessages.indexOf('<agent_environment_info>'))
+    const providerUserMessage = body.messages.find(
+      (message: any) => message.role === 'user' && JSON.stringify(message).includes('Use one tool, then reply with OK.')
+    )
+    expect(Array.isArray(providerUserMessage?.content)).toBe(true)
+    const userTextParts = providerUserMessage.content
+      .filter((part: any) => part.type === 'text')
+      .map((part: any) => part.text)
+    expect(userTextParts).toHaveLength(3)
+    expect(userTextParts[0]).toContain('<previous_chat_history>')
+    expect(userTextParts[1]).toContain('<agent_environment_info>')
+    expect(userTextParts[2]).toBe('Use one tool, then reply with OK.')
+    const systemMessages = JSON.stringify(body.messages.filter((message: any) => message.role === 'system'))
+    expect(systemMessages).not.toContain('previously visible user entry')
+    expect(systemMessages).not.toContain('Latest compressed previous chat history.')
   })
 
   it('passes OpenRouter reasoning provider options through the streaming request', async () => {
@@ -183,7 +236,7 @@ describe('@ankole/agent-computer LLM turn loop', () => {
         id: 'msg-summary',
         role: 'assistant',
         kind: 'summary',
-        content: [{ type: 'text', text: 'Previous stable checkpoint.' }],
+        content: [{ type: 'text', text: 'Previous compressed chat history.' }],
         metadata: {}
       }
     ]
@@ -207,8 +260,8 @@ describe('@ankole/agent-computer LLM turn loop', () => {
     const userPrompt = body.messages.find((message: any) => message.role === 'user')?.content ?? ''
     expect(requestText).toContain('You are a context summarization assistant')
     expect(userPrompt).toContain('UPDATE "Completed Actions"')
-    expect(userPrompt).toContain('<previous-summary>')
-    expect(userPrompt).toContain('Previous stable checkpoint.')
+    expect(userPrompt).toContain('<previous_chat_history>')
+    expect(userPrompt).toContain('Previous compressed chat history.')
     expect(userPrompt).toContain('[User]: PING from /Users/ding/Projects/ankole')
     expect(userPrompt).toContain('[Assistant]: PONG with function_name and error_id=abc-123')
     expect(userPrompt).toContain('<analysis>')
@@ -310,7 +363,7 @@ describe('@ankole/agent-computer LLM turn loop', () => {
 
     expect(reply.reply?.text).toBe('AMBIENT_REPLY_OK')
     const serializedMessages = JSON.stringify(calls[0].body.messages)
-    expect(serializedMessages).toContain('<message_context>')
+    expect(serializedMessages).toContain('<agent_environment_info>')
     expect(serializedMessages).toContain('Runtime intervention, not human-authored text.')
     expect(serializedMessages).toContain('release summary request')
     expect(serializedMessages).not.toContain('This background chat must not enter normal generation.')
@@ -511,6 +564,86 @@ describe('@ankole/agent-computer LLM turn loop', () => {
     expect(latestAssistant?.errorMessage).toContain('provider stream test timeout')
   })
 
+  for (const scenario of [
+    {
+      name: 'tool call without result',
+      messages: [
+        assistantTranscriptMessage({
+          content: [{ type: 'toolCall', id: 'call-missing-result', name: 'command', arguments: {} }],
+          stopReason: 'toolUse'
+        })
+      ],
+      error: 'tool call without result'
+    },
+    {
+      name: 'orphan tool result',
+      messages: [
+        {
+          role: 'toolResult',
+          toolCallId: 'call-orphan',
+          toolName: 'command',
+          content: [{ type: 'text', text: 'orphaned' }],
+          isError: false,
+          timestamp: Date.now()
+        } satisfies Message
+      ],
+      error: 'orphan tool result'
+    },
+    {
+      name: 'empty assistant',
+      messages: [assistantTranscriptMessage({ content: [] })],
+      error: 'empty assistant message'
+    }
+  ]) {
+    it(`fails provider transcript validation for ${scenario.name}`, async () => {
+      await expect(
+        runAgentLoop(
+          [{ role: 'user', content: [{ type: 'text', text: 'continue' }], timestamp: Date.now() }],
+          {
+            systemPrompt: 'Return a short answer.',
+            messages: [],
+            tools: []
+          },
+          {
+            model: hangingStreamModel(),
+            convertToLlm: () => scenario.messages,
+            maxTurns: 1
+          },
+          () => {}
+        )
+      ).rejects.toThrow(scenario.error)
+    })
+  }
+
+  it('does not hide agent profile RPC failures behind a UID fallback', async () => {
+    const start = turnStart('openrouter-main', 'z-ai/glm-5.2')
+
+    await expect(
+      runTextTurnLoop(start, {
+        workspaceRoot: tempWorkspace(),
+        runtimeContext: runtimeContext(start, []),
+        requestCredential: async request =>
+          credential(request.request_id, 'openrouter', 'openrouter-main', 'z-ai/glm-5.2'),
+        requestAgentProfile: async () => {
+          throw new Error('agent profile RPC down')
+        }
+      })
+    ).rejects.toThrow('agent profile RPC down')
+  })
+
+  it('fails closed for unknown models under first-class providers', async () => {
+    const start = turnStart('openai-main', 'not-a-catalog-model')
+
+    await expect(
+      runTextTurnLoop(start, {
+        workspaceRoot: tempWorkspace(),
+        runtimeContext: runtimeContext(start, []),
+        requestCredential: async request =>
+          credential(request.request_id, 'openai', 'openai-main', 'not-a-catalog-model')
+      })
+    ).rejects.toThrow('LLM model openai/not-a-catalog-model is not in the runtime catalog')
+  })
+
   it('rejects credentials that do not match the turn model ref', async () => {
     const start = turnStart('openrouter-main', 'z-ai/glm-5.2')
     await expect(
@@ -523,6 +656,29 @@ describe('@ankole/agent-computer LLM turn loop', () => {
     ).rejects.toThrow('credential response does not match turn model_ref')
   })
 })
+
+function assistantTranscriptMessage(
+  overrides: Partial<Extract<Message, { role: 'assistant' }>>
+): Extract<Message, { role: 'assistant' }> {
+  return {
+    role: 'assistant',
+    content: [{ type: 'text', text: 'assistant text' }],
+    api: 'openai-completions',
+    provider: 'openrouter',
+    model: 'z-ai/glm-5.2',
+    usage: {
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 0,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }
+    },
+    stopReason: 'stop',
+    timestamp: Date.now(),
+    ...overrides
+  }
+}
 
 function tempWorkspace(): string {
   return mkdtempSync(join(tmpdir(), 'ankole-agent-computer-'))
