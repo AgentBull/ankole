@@ -1,31 +1,48 @@
 import { describe, expect, it } from 'bun:test'
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import type { TurnStart } from '../src/actor_bus'
+import type { TurnStart } from '../src/actor_lane'
+import {
+  buildCompactionHistoryUserPrompt,
+  COMPACTION_FOCUS_INSTRUCTIONS,
+  SUMMARIZATION_SYSTEM_PROMPT
+} from '../src/prompts/compression-prompt'
 import { buildAgentSystemPrompt } from '../src/prompts/system_prompt'
 
 describe('@ankole/agent-computer prompts', () => {
   it('builds identity, soul, mission, runtime, tools, and skills in order', () => {
     const root = join(tmpdir(), `ankole-prompt-test-${Date.now()}-${Math.random()}`)
     try {
-      mkdirSync(join(root, 'library-containers/skills/nano-pdf'), { recursive: true })
-      writeFileSync(join(root, 'library-containers/SOUL.md'), 'Use restrained, factual judgment.')
-      writeFileSync(join(root, 'library-containers/MISSION.md'), 'Handle document work end to end.')
-      writeFileSync(
-        join(root, 'library-containers/skills/nano-pdf/SKILL.md'),
-        [
-          '---',
-          'name: nano-pdf',
-          'description: "Edit PDF text/typos/titles via nano-pdf CLI (NL prompts)."',
-          'default_enabled: true',
-          'category: productivity',
-          '---',
-          '# nano-pdf'
-        ].join('\n')
-      )
+      const start = turnStart()
 
-      const prompt = buildAgentSystemPrompt({ workspaceRoot: root, turnStart: turnStart() })
+      const prompt = buildAgentSystemPrompt({
+        workspaceRoot: root,
+        turnStart: start,
+        agentProfile: {
+          request_id: 'agent-profile-1',
+          agent_uid: 'agent-1',
+          display_name: 'ReleaseBot',
+          role: 'Research Analyst'
+        },
+        runtimeContext: {
+          request_id: 'turn-context-1',
+          agent_uid: 'agent-1',
+          session_id: 'signal-channel:mock',
+          turn: start.turn,
+          soul: 'Use restrained, factual judgment.',
+          mission: 'Handle document work end to end.',
+          skills: [
+            {
+              skill_name: 'nano-pdf',
+              description: 'Edit PDF text/typos/titles via nano-pdf CLI (NL prompts).',
+              category: 'productivity',
+              metadata: {}
+            }
+          ],
+          conversation: { messages: [] }
+        }
+      })
 
       expect(prompt.indexOf('You are ReleaseBot')).toBeLessThan(prompt.indexOf('Use restrained'))
       expect(prompt.indexOf('Use restrained')).toBeLessThan(prompt.indexOf('Your mission is:'))
@@ -38,6 +55,9 @@ describe('@ankole/agent-computer prompts', () => {
       expect(prompt).toContain('skill_view(name)')
       expect(prompt).toContain('nano-pdf')
       expect(prompt).toContain('interactive_terminal')
+      expect(prompt).not.toContain('TigerFS')
+      expect(prompt).not.toContain('AGENT_APPEND.md')
+      expect(prompt).not.toContain('PostgreSQL client')
       expect(prompt).not.toContain('codex_delegate')
       expect(prompt).not.toContain('send_file')
       expect(prompt).not.toContain('check_back_later')
@@ -49,6 +69,32 @@ describe('@ankole/agent-computer prompts', () => {
       rmSync(root, { recursive: true, force: true })
     }
   })
+
+  it('keeps compression prompt sections and analysis focus in the worker prompt builder', () => {
+    const prompt = buildCompactionHistoryUserPrompt({
+      conversationText: '[User]: fix /compress\n\n[Assistant]: working on it',
+      customInstructions: COMPACTION_FOCUS_INSTRUCTIONS,
+      previousSummary: 'Existing checkpoint.'
+    })
+
+    expect(SUMMARIZATION_SYSTEM_PROMPT).toContain('Do NOT continue the conversation')
+    expect(prompt).toContain('<conversation>')
+    expect(prompt).toContain('<previous-summary>')
+    expect(prompt).toContain('Existing checkpoint.')
+    expect(prompt).toContain('## Active Task')
+    expect(prompt).toContain('## Constraints & Preferences')
+    expect(prompt).toContain('## Completed Actions')
+    expect(prompt).toContain('## Active State')
+    expect(prompt).toContain('## In Progress')
+    expect(prompt).toContain('## Blocked')
+    expect(prompt).toContain('## Key Decisions')
+    expect(prompt).toContain('## Resolved Questions')
+    expect(prompt).toContain('## Pending User Asks')
+    expect(prompt).toContain('## Remaining Work')
+    expect(prompt).toContain('## Critical Context')
+    expect(prompt).toContain('<analysis>')
+    expect(prompt).toContain('Preserve verbatim')
+  })
 })
 
 function turnStart(): TurnStart {
@@ -56,8 +102,6 @@ function turnStart(): TurnStart {
     turn: {
       actor: {
         agent_uid: 'agent-1',
-        display_name: 'ReleaseBot',
-        role: 'Research Analyst',
         session_id: 'signal-channel:mock'
       },
       activation_uid: 'activation-1',

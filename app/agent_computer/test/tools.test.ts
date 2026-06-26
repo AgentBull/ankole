@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { validateToolArguments } from '../src/llm'
@@ -7,10 +7,18 @@ import { z } from 'zod'
 import type { AgentTool } from '../src/core'
 import { buildTool } from '../src/tools/build-tool'
 import { createBrowserTools } from '../src/tools/browser/browser-tools'
+import { createComputerTools } from '../src/tools/computer'
 import { createCommandTool } from '../src/tools/computer/command-tool'
-import type { CommandFinished, ComputerToolContext, LocalComputer } from '../src/tools/computer/context'
+import {
+  type BackgroundCommandSnapshot,
+  createLocalComputer,
+  type CommandFinished,
+  type ComputerToolContext,
+  type LocalComputer
+} from '../src/tools/computer/context'
 import { createPatchTool } from '../src/tools/computer/patch-tool'
 import { createReadFileTool } from '../src/tools/computer/read-file-tool'
+import { createReplyAttachmentStore, createReplyAttachmentTool } from '../src/tools/computer/reply-attachment-tool'
 import { createSkillTools } from '../src/tools/library/skill-tools'
 import { TodoStore, createTodoTool } from '../src/tools/todo-tool'
 
@@ -139,6 +147,158 @@ describe('@ankole/agent-computer migrated tool semantics', () => {
     ])
   })
 
+  it('starts, polls, and kills background commands through the command tool', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'ankole-computer-'))
+    const previousSandbox = process.env.ANKOLE_AGENT_COMPUTER_COMMAND_SANDBOX
+
+    try {
+      process.env.ANKOLE_AGENT_COMPUTER_COMMAND_SANDBOX = 'none'
+      const computer = createLocalComputer(root)
+      const context: ComputerToolContext = {
+        agentUid: 'agent-1',
+        workspaceRoot: root,
+        executionScopeId: 'signal-channel:test',
+        getComputer: async () => computer,
+        backgroundIds: new Set()
+      }
+      const tool = createCommandTool(context)
+
+      const started = await tool.execute('command-bg-start', {
+        command: 'printf READY; sleep 30',
+        background: true,
+        timeout: 30
+      })
+      const backgroundId = started.details.backgroundId!
+
+      expect(backgroundId.startsWith('bg-')).toBe(true)
+      expect(started.content[0]!.type === 'text' ? started.content[0]!.text : '').toContain('status=running')
+      expect(context.backgroundIds.has(backgroundId)).toBe(true)
+
+      let statusText = ''
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        const status = await tool.execute('command-bg-status', {
+          action: 'status',
+          backgroundId
+        })
+        statusText = status.content[0]!.type === 'text' ? status.content[0]!.text : ''
+        if (statusText.includes('READY')) break
+        await Bun.sleep(25)
+      }
+
+      expect(statusText).toContain(`background_id=${backgroundId}`)
+      expect(statusText).toContain('status=running')
+      expect(statusText).toContain('READY')
+
+      const killed = await tool.execute('command-bg-kill', {
+        action: 'kill',
+        backgroundId
+      })
+      const killedText = killed.content[0]!.type === 'text' ? killed.content[0]!.text : ''
+      expect(killedText).toContain(`background_id=${backgroundId}`)
+      expect(killedText).toContain('status=killed')
+      expect(context.backgroundIds.has(backgroundId)).toBe(false)
+    } finally {
+      if (previousSandbox === undefined) {
+        delete process.env.ANKOLE_AGENT_COMPUTER_COMMAND_SANDBOX
+      } else {
+        process.env.ANKOLE_AGENT_COMPUTER_COMMAND_SANDBOX = previousSandbox
+      }
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('runs local commands asynchronously with scoped env and abort handling', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'ankole-computer-'))
+    const previousSecret = process.env.ANKOLE_AGENT_COMPUTER_WORKER_PRE_AUTH_TOKEN
+
+    try {
+      process.env.ANKOLE_AGENT_COMPUTER_WORKER_PRE_AUTH_TOKEN = 'secret-token'
+
+      const computer = createLocalComputer(root)
+      const result = await computer.runCommand({
+        cmd: 'bash',
+        args: ['-lc', 'printf "%s|%s" "${ANKOLE_AGENT_COMPUTER_WORKER_PRE_AUTH_TOKEN-unset}" "$FOO"'],
+        env: { FOO: 'visible' }
+      })
+
+      expect(result.exitCode).toBe(0)
+      expect(await result.output('stdout')).toBe('unset|visible')
+
+      const controller = new AbortController()
+      controller.abort()
+      const aborted = await computer.runCommand({
+        cmd: 'bash',
+        args: ['-lc', 'sleep 5'],
+        signal: controller.signal
+      })
+
+      expect(aborted.exitCode).toBe(130)
+      expect(await aborted.output('stderr')).toBe('command aborted')
+    } finally {
+      if (previousSecret === undefined) {
+        delete process.env.ANKOLE_AGENT_COMPUTER_WORKER_PRE_AUTH_TOKEN
+      } else {
+        process.env.ANKOLE_AGENT_COMPUTER_WORKER_PRE_AUTH_TOKEN = previousSecret
+      }
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('wraps local stateless commands in bubblewrap when sandboxing is enabled', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'ankole-computer-'))
+    const bin = join(root, 'bin')
+    const argsFile = join(root, 'bwrap-args.txt')
+    const previousSandbox = process.env.ANKOLE_AGENT_COMPUTER_COMMAND_SANDBOX
+    const previousSecret = process.env.ANKOLE_AGENT_COMPUTER_WORKER_PRE_AUTH_TOKEN
+
+    try {
+      mkdirSync(bin, { recursive: true })
+      mkdirSync(join(root, 'sub'), { recursive: true })
+      writeFileSync(join(bin, 'bwrap'), '#!/bin/sh\nprintf "%s\\n" "$@" > "$BWRAP_ARGS_FILE"\nexit 0\n')
+      chmodSync(join(bin, 'bwrap'), 0o755)
+
+      process.env.ANKOLE_AGENT_COMPUTER_COMMAND_SANDBOX = 'force'
+      process.env.ANKOLE_AGENT_COMPUTER_WORKER_PRE_AUTH_TOKEN = 'secret-token'
+
+      const result = await createLocalComputer(root).runCommand({
+        cmd: 'bash',
+        args: ['-lc', 'printf ok'],
+        cwd: '/workspace/sub',
+        env: {
+          BWRAP_ARGS_FILE: argsFile,
+          PATH: `${bin}:${process.env.PATH ?? ''}`
+        }
+      })
+
+      expect(result.exitCode).toBe(0)
+
+      const args = readFileSync(argsFile, 'utf8').trim().split('\n')
+      expect(args).toContain('--unshare-all')
+      expect(args).toContain('--share-net')
+      expect(args).toContain('--clearenv')
+      expect(args.slice(args.indexOf('--bind'), args.indexOf('--bind') + 3)).toEqual(['--bind', root, '/workspace'])
+      expect(args.slice(args.indexOf('--chdir'), args.indexOf('--chdir') + 2)).toEqual(['--chdir', '/workspace/sub'])
+      expect(args).not.toContain('ANKOLE_AGENT_COMPUTER_WORKER_PRE_AUTH_TOKEN')
+
+      const commandIndex = args.indexOf('timeout')
+      expect(args.slice(commandIndex, commandIndex + 5)).toEqual(['timeout', '60s', 'bash', '-lc', 'printf ok'])
+    } finally {
+      if (previousSandbox === undefined) {
+        delete process.env.ANKOLE_AGENT_COMPUTER_COMMAND_SANDBOX
+      } else {
+        process.env.ANKOLE_AGENT_COMPUTER_COMMAND_SANDBOX = previousSandbox
+      }
+
+      if (previousSecret === undefined) {
+        delete process.env.ANKOLE_AGENT_COMPUTER_WORKER_PRE_AUTH_TOKEN
+      } else {
+        process.env.ANKOLE_AGENT_COMPUTER_WORKER_PRE_AUTH_TOKEN = previousSecret
+      }
+
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   it('read_file returns numbered text and does not throw for missing files', async () => {
     const reads: unknown[] = []
     const context = contextWithComputer({
@@ -156,14 +316,24 @@ describe('@ankole/agent-computer migrated tool semantics', () => {
       offset: 2,
       limit: 1
     })
-    expect(reads[0]).toEqual({ path: 'notes.txt', cwd: '/workspace/user-files/repo' })
+    expect(reads[0]).toEqual({
+      path: 'notes.txt',
+      cwd: '/workspace/user-files/repo'
+    })
     expect(read.content[0]).toMatchObject({ type: 'text' })
     expect(read.content[0]!.type === 'text' ? read.content[0]!.text : '').toContain('2|second')
     expect(read.content[0]!.type === 'text' ? read.content[0]!.text : '').toContain('use offset')
-    expect(read.details).toMatchObject({ found: true, totalLines: 3, truncated: true })
+    expect(read.details).toMatchObject({
+      found: true,
+      totalLines: 3,
+      truncated: true
+    })
 
     const missing = await tool.execute('read-2', { path: 'missing.txt' })
-    expect(missing.content[0]).toEqual({ type: 'text', text: 'File not found: missing.txt' })
+    expect(missing.content[0]).toEqual({
+      type: 'text',
+      text: 'File not found: missing.txt'
+    })
     expect(missing.details.found).toBe(false)
   })
 
@@ -216,7 +386,10 @@ describe('@ankole/agent-computer migrated tool semantics', () => {
       profileMode: 'persistent'
     })
 
-    expect(result.details).toEqual({ exitCode: 0, result: { ok: true, title: 'Example Domain' } })
+    expect(result.details).toEqual({
+      exitCode: 0,
+      result: { ok: true, title: 'Example Domain' }
+    })
     expect(calls[0].cmd).toBe('ankole-browser')
     expect(calls[0].args).toContain('--json')
     expect(calls[0].args).toContain('open')
@@ -224,7 +397,10 @@ describe('@ankole/agent-computer migrated tool semantics', () => {
     expect(calls[0].args).toContain('persistent')
 
     const run = tools.find(tool => tool.name === 'browser_run')!
-    await run.execute('browser-run-1', { script: "print('ok')", taskId: 'run one' })
+    await run.execute('browser-run-1', {
+      script: "print('ok')",
+      taskId: 'run one'
+    })
     expect(writes[0]).toMatchObject({
       path: expect.stringContaining('/input_script.py'),
       content: "print('ok')"
@@ -232,35 +408,102 @@ describe('@ankole/agent-computer migrated tool semantics', () => {
   })
 
   it('model-facing computer tool list is exactly the first-phase allowlist', () => {
-    const names = createBrowserTools(contextWithComputer({}))
-      .map(tool => tool.name)
-      .concat(['command', 'interactive_terminal', 'read_file', 'patch'])
+    const root = mkdtempSync(join(tmpdir(), 'ankole-computer-tools-'))
 
-    expect(names).toEqual([
-      'browser_doctor',
-      'browser_open',
-      'browser_extract',
-      'browser_run',
-      'command',
-      'interactive_terminal',
-      'read_file',
-      'patch'
-    ])
+    try {
+      const names = createComputerTools({
+        agentUid: 'agent-1',
+        conversationId: 'signal-channel:test',
+        workspaceRoot: root,
+        replyAttachmentStore: createReplyAttachmentStore()
+      }).map(tool => tool.name)
 
-    expect(names).not.toContain('terminal')
-    expect(names).not.toContain('process')
-    expect(names).not.toContain('send_file')
-    expect(names).not.toContain('codex_delegate')
-    expect(names).not.toContain('check_back_later')
-    expect(names).not.toContain('web_search')
-    expect(names).not.toContain('web_extract')
+      expect(names).toEqual([
+        'browser_doctor',
+        'browser_open',
+        'browser_extract',
+        'browser_run',
+        'command',
+        'interactive_terminal',
+        'read_file',
+        'patch',
+        'reply_attachment'
+      ])
+
+      expect(names).not.toContain('terminal')
+      expect(names).not.toContain('process')
+      expect(names).not.toContain('send_file')
+      expect(names).not.toContain('codex_delegate')
+      expect(names).not.toContain('check_back_later')
+      expect(names).not.toContain('web_search')
+      expect(names).not.toContain('web_extract')
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 
-  it('skill_view renders effective skills with frontmatter stripped and agent append merged', async () => {
+  it('reply_attachment records final reply files from /workspace/user-files only', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'ankole-reply-attachment-'))
+
+    try {
+      mkdirSync(join(root, 'user-files/reports'), { recursive: true })
+      mkdirSync(join(root, 'temp'), { recursive: true })
+      writeFileSync(join(root, 'user-files/reports/a.txt'), 'hello attachment')
+      writeFileSync(join(root, 'temp/a.txt'), 'scratch')
+
+      const store = createReplyAttachmentStore()
+      const tool = createReplyAttachmentTool(contextWithComputer({}, root), store)
+      const result = await tool.execute('reply-attachment-1', {
+        path: '/workspace/user-files/reports/a.txt',
+        name: 'report.txt',
+        mimeType: 'text/plain'
+      })
+
+      expect(result.details).toMatchObject({
+        registered: true,
+        agent_computer_path: '/workspace/user-files/reports/a.txt',
+        user_files_relative_path: 'reports/a.txt',
+        name: 'report.txt',
+        mime_type: 'text/plain',
+        size: 16
+      })
+      expect(store.attachments).toEqual([
+        {
+          agent_computer_path: '/workspace/user-files/reports/a.txt',
+          user_files_relative_path: 'reports/a.txt',
+          name: 'report.txt',
+          mime_type: 'text/plain',
+          size: 16
+        }
+      ])
+
+      await expect(tool.execute('reply-attachment-escape', { path: '/workspace/temp/a.txt' })).rejects.toThrow(
+        '/workspace/user-files'
+      )
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('skill_view renders effective skills with frontmatter stripped and DB overlay merged', async () => {
     const root = withLibraryWorkspace()
 
     try {
-      const view = createSkillTools(root).find(tool => tool.name === 'skill_view')!
+      const view = createSkillTools(root, {
+        turn: testTurnRef(),
+        enabledSkills: ['nano-pdf'],
+        async requestSkillOverlay(request) {
+          return {
+            request_id: request.request_id,
+            agent_uid: request.turn.actor.agent_uid,
+            session_id: request.turn.actor.session_id,
+            skill_name: request.skill_name,
+            has_overlay: true,
+            overlay_json: { text: 'Prefer page-by-page verification.' },
+            content_hash: 'hash'
+          }
+        }
+      }).find(tool => tool.name === 'skill_view')!
       const result = await view.execute('skill-view-1', { name: 'nano-pdf' })
       const text = result.content[0]!.type === 'text' ? result.content[0]!.text : ''
 
@@ -274,42 +517,86 @@ describe('@ankole/agent-computer migrated tool semantics', () => {
       expect(text).toContain('Prefer page-by-page verification.')
       expect(text).not.toContain('name: nano-pdf')
 
-      const reference = await view.execute('skill-view-2', { name: 'nano-pdf', filePath: 'references/api.md' })
+      const reference = await view.execute('skill-view-2', {
+        name: 'nano-pdf',
+        filePath: 'references/api.md'
+      })
       expect(reference.content[0]!.type === 'text' ? reference.content[0]!.text : '').toContain('API reference')
-      expect(reference.details).toEqual({ name: 'nano-pdf', path: 'references/api.md' })
+      expect(reference.details).toEqual({
+        name: 'nano-pdf',
+        path: 'references/api.md'
+      })
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
   })
 
-  it('skill_append replaces only AGENT_APPEND.md and rejects skill path traversal', async () => {
+  it('skill_append replaces DB overlay and rejects skill path traversal', async () => {
     const root = withLibraryWorkspace()
 
     try {
-      const [view, append] = createSkillTools(root)
-      const result = await append!.execute('skill-append-1', { name: 'nano-pdf', content: 'New durable overlay.' })
+      const turn = testTurnRef()
+      let replacedContent = ''
+      const [view, append] = createSkillTools(root, {
+        turn,
+        enabledSkills: ['nano-pdf'],
+        async replaceSkillOverlay(request) {
+          replacedContent = request.content
+          return {
+            request_id: request.request_id,
+            agent_uid: request.turn.actor.agent_uid,
+            session_id: request.turn.actor.session_id,
+            skill_name: request.skill_name,
+            has_overlay: true,
+            overlay_json: { text: request.content },
+            content_hash: 'hash'
+          }
+        }
+      })
+      const result = await append!.execute('skill-append-1', {
+        name: 'nano-pdf',
+        content: 'New durable overlay.'
+      })
 
-      expect(result.details).toEqual({ name: 'nano-pdf', path: 'AGENT_APPEND.md', changed: true })
-      expect(readFileSync(join(root, 'library-containers/skills/nano-pdf/AGENT_APPEND.md'), 'utf8')).toBe(
-        'New durable overlay.'
-      )
+      expect(result.details).toEqual({ name: 'nano-pdf', changed: true })
+      expect(replacedContent).toBe('New durable overlay.')
       expect(readFileSync(join(root, 'library-containers/skills/nano-pdf/SKILL.md'), 'utf8')).toContain(
         'Use OCR carefully.'
       )
 
-      await expect(view!.execute('skill-view-escape', { name: 'nano-pdf', filePath: '../SOUL.md' })).rejects.toThrow(
-        'skill path escapes skill root'
-      )
+      await expect(
+        view!.execute('skill-view-escape', {
+          name: 'nano-pdf',
+          filePath: '../SOUL.md'
+        })
+      ).rejects.toThrow('invalid skill file path')
+      await expect(
+        append!.execute('skill-append-escape', {
+          name: '../nano-pdf',
+          content: 'x'
+        })
+      ).rejects.toThrow('invalid skill name')
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
   })
 })
 
-function contextWithComputer(overrides: Partial<LocalComputer>): ComputerToolContext {
+function contextWithComputer(overrides: Partial<LocalComputer>, workspaceRoot?: string): ComputerToolContext {
   const computer: LocalComputer = {
     runCommand() {
       return Promise.resolve(commandResult(0, ''))
+    },
+    backgroundCommands: {
+      start() {
+        return Promise.resolve(backgroundSnapshot('bg-test', 'running', ''))
+      },
+      status(id) {
+        return Promise.resolve(id === 'missing' ? null : backgroundSnapshot(id, 'running', ''))
+      },
+      kill(id) {
+        return Promise.resolve(id === 'missing' ? null : backgroundSnapshot(id, 'killed', ''))
+      }
     },
     readFileToBuffer() {
       return Promise.resolve(Buffer.from(''))
@@ -339,6 +626,7 @@ function contextWithComputer(overrides: Partial<LocalComputer>): ComputerToolCon
 
   return {
     agentUid: 'agent-1',
+    workspaceRoot: workspaceRoot ?? '/workspace',
     executionScopeId: 'signal-channel:test',
     getComputer: async () => computer,
     backgroundIds: new Set()
@@ -354,6 +642,23 @@ function commandResult(exitCode: number, output: string): CommandFinished {
   }
 }
 
+function backgroundSnapshot(
+  id: string,
+  status: BackgroundCommandSnapshot['status'],
+  output: string
+): BackgroundCommandSnapshot {
+  return {
+    id,
+    command: 'bash -lc test',
+    cwd: '/workspace',
+    status,
+    startedAtUnixMs: Date.now(),
+    async output() {
+      return output
+    }
+  }
+}
+
 function withLibraryWorkspace(): string {
   const root = mkdtempSync(join(tmpdir(), 'ankole-tools-'))
   const skillRoot = join(root, 'library-containers/skills/nano-pdf')
@@ -362,7 +667,19 @@ function withLibraryWorkspace(): string {
     join(skillRoot, 'SKILL.md'),
     ['---', 'name: nano-pdf', 'description: PDF analysis', '---', '# nano-pdf', '', 'Use OCR carefully.'].join('\n')
   )
-  writeFileSync(join(skillRoot, 'AGENT_APPEND.md'), 'Prefer page-by-page verification.')
   writeFileSync(join(skillRoot, 'references/api.md'), 'API reference')
   return root
+}
+
+function testTurnRef() {
+  return {
+    actor: {
+      agent_uid: 'agent-1',
+      session_id: 'session-1'
+    },
+    activation_uid: 'activation-1',
+    actor_epoch: 1,
+    llm_turn_id: 'turn-1',
+    revision: 0
+  }
 }

@@ -13,7 +13,6 @@ import {
   isAbortError,
   type Arrayable,
   type Context,
-  type Experimental_SandboxSession as SandboxSession,
   type IdGenerator,
   type InferToolSetContext,
   type ModelMessage,
@@ -41,7 +40,6 @@ import {
   type TimeoutConfiguration
 } from '../prompt/request-options'
 import { standardizePrompt } from '../prompt/standardize-prompt'
-import { wrapGatewayError } from '../prompt/wrap-gateway-error'
 import type { TelemetryDispatcher } from '../telemetry/telemetry'
 import type { TelemetryOptions } from '../telemetry/telemetry-options'
 import { createTextStreamResponse } from '../text-stream/create-text-stream-response'
@@ -263,7 +261,6 @@ export type StreamTextOnAbortCallback<TOOLS extends ToolSet, RUNTIME_CONTEXT ext
  * @param timeout - An optional timeout in milliseconds. The call will be aborted if it takes longer than the specified timeout.
  * @param headers - Additional HTTP headers to be sent with the request. Only applicable for HTTP-based providers.
  *
- * @param experimental_sandbox - The sandbox environment that is passed through to tool execution.
  * @param runtimeContext - User-defined runtime context that flows through the entire generation lifecycle.
  * @param experimental_refineToolInput - Optional mapping of tool names to functions that refine parsed tool inputs before tools are executed and before outputs, callbacks, and telemetry are recorded.
  *
@@ -307,7 +304,6 @@ export function streamText<
   timeout,
   headers,
   stopWhen = isStepCount(1),
-  experimental_sandbox: sandbox,
   output,
   toolApproval,
   experimental_toolApprovalSecret,
@@ -389,11 +385,6 @@ export function streamText<
      * functionality that can be fully encapsulated in the provider.
      */
     providerOptions?: ProviderOptions
-
-    /**
-     * The sandbox environment that is passed through to tool execution.
-     */
-    experimental_sandbox?: SandboxSession
 
     /**
      * Runtime context. Treat runtime context as immutable.
@@ -670,7 +661,6 @@ export function streamText<
     prompt,
     messages,
     allowSystemInMessages,
-    experimental_sandbox: sandbox,
     tools,
     toolsContext,
     runtimeContext,
@@ -843,7 +833,6 @@ class DefaultStreamTextResult<
     prompt,
     messages,
     allowSystemInMessages,
-    experimental_sandbox: sandbox,
     tools,
     toolChoice,
     transforms,
@@ -894,7 +883,6 @@ class DefaultStreamTextResult<
     prompt: Prompt['prompt']
     messages: Prompt['messages']
     allowSystemInMessages: Prompt['allowSystemInMessages']
-    experimental_sandbox: SandboxSession | undefined
     tools: TOOLS | undefined
     toolChoice: ToolChoice<TOOLS> | undefined
     transforms: Array<StreamTextTransform<TOOLS>>
@@ -930,6 +918,18 @@ class DefaultStreamTextResult<
   }) {
     this.outputSpecification = output
     this.tools = tools
+
+    const totalUsageResult = this._totalUsage
+    const finishReasonResult = this._finishReason
+    const rawFinishReasonResult = this._rawFinishReason
+    const stepsResult = this._steps
+    const initialResponseMessagesResult = this._initialResponseMessages
+    const addStream = (stream: ReadableStream<TextStreamPart<TOOLS>>) => {
+      this.addStream(stream)
+    }
+    const closeStream = () => {
+      this.closeStream()
+    }
 
     const telemetryDispatcher = createRestrictedTelemetryDispatcher<TOOLS, RUNTIME_CONTEXT, OUTPUT>({
       telemetry,
@@ -990,7 +990,7 @@ class DefaultStreamTextResult<
         await onChunk?.({ chunk: part })
 
         if (part.type === 'error') {
-          const error = wrapGatewayError(part.error)
+          const error = part.error
 
           if (NoOutputGeneratedError.isInstance(error)) {
             recordedNoOutputError = error
@@ -1195,11 +1195,11 @@ class DefaultStreamTextResult<
                   message: 'No output generated. Check the stream for errors.'
                 }))
 
-            self._finishReason.reject(error)
-            self._rawFinishReason.reject(error)
-            self._totalUsage.reject(error)
-            self._steps.reject(error)
-            self._initialResponseMessages.reject(error)
+            finishReasonResult.reject(error)
+            rawFinishReasonResult.reject(error)
+            totalUsageResult.reject(error)
+            stepsResult.reject(error)
+            initialResponseMessagesResult.reject(error)
 
             return // no steps recorded (e.g. in error scenario)
           }
@@ -1209,12 +1209,12 @@ class DefaultStreamTextResult<
           const totalUsage = recordedTotalUsage ?? createNullLanguageModelUsage()
 
           // from finish:
-          self._finishReason.resolve(finishReason)
-          self._rawFinishReason.resolve(recordedRawFinishReason)
-          self._totalUsage.resolve(totalUsage)
+          finishReasonResult.resolve(finishReason)
+          rawFinishReasonResult.resolve(recordedRawFinishReason)
+          totalUsageResult.resolve(totalUsage)
 
           // aggregate results:
-          self._steps.resolve(recordedSteps)
+          stepsResult.resolve(recordedSteps)
 
           // call onEnd callback:
           const finalStep = recordedSteps[recordedSteps.length - 1]
@@ -1409,7 +1409,7 @@ class DefaultStreamTextResult<
       const streamTextTracingChannelContext = telemetryDispatcher.startTracingChannelContext?.({
         type: 'streamText',
         event: startEvent,
-        completion: self._totalUsage.promise.then(() => undefined)
+        completion: totalUsageResult.promise.then(() => undefined)
       })
       // Re-enter the streamText tracing context after stream setup returns.
       const runInStreamTextTracingChannelContext = <T>(execute: () => T): T =>
@@ -1456,7 +1456,7 @@ class DefaultStreamTextResult<
           }
         })
 
-        self.addStream(toolExecutionStepStream)
+        addStream(toolExecutionStepStream)
 
         try {
           for (const toolApproval of [...localDeniedToolApprovals, ...deniedProviderExecutedToolApprovals]) {
@@ -1478,7 +1478,6 @@ class DefaultStreamTextResult<
                 messages: initialMessages,
                 abortSignal,
                 timeout,
-                experimental_sandbox: sandbox,
                 toolsContext,
                 onToolExecutionStart: filterNullable(onToolExecutionStart, telemetryDispatcher.onToolExecutionStart),
                 onToolExecutionEnd: filterNullable(onToolExecutionEnd, telemetryDispatcher.onToolExecutionEnd),
@@ -1539,7 +1538,7 @@ class DefaultStreamTextResult<
         }
       }
 
-      self._initialResponseMessages.resolve(initialResponseMessages)
+      initialResponseMessagesResult.resolve(initialResponseMessages)
 
       async function streamStep({ currentStep, usage }: { currentStep: number; usage: LanguageModelUsage }) {
         // Set up step timeout if configured
@@ -1609,11 +1608,8 @@ class DefaultStreamTextResult<
             initialMessages,
             responseMessages: accumulatedResponseMessages,
             toolsContext,
-            runtimeContext,
-            experimental_sandbox: sandbox
+            runtimeContext
           })
-
-          const stepSandbox = prepareStepResult?.experimental_sandbox ?? sandbox
 
           runtimeContext = prepareStepResult?.runtimeContext ?? runtimeContext
           toolsContext = prepareStepResult?.toolsContext ?? toolsContext
@@ -1632,8 +1628,7 @@ class DefaultStreamTextResult<
             // active tools context is a subset of the tools context, so we can cast to the unknown type
             toolsContext: toolsContext as unknown as InferToolSetContext<
               ActiveToolSubset<TOOLS, ActiveTools<NoInfer<TOOLS>>>
-            >,
-            experimental_sandbox: stepSandbox
+            >
           })
 
           const stepToolChoice = prepareToolChoice({
@@ -1677,7 +1672,6 @@ class DefaultStreamTextResult<
                 callId,
                 executeLanguageModelCallInTelemetryContext: telemetryDispatcher.executeLanguageModelCall,
                 toolsContext,
-                experimental_sandbox: stepSandbox,
                 onLanguageModelCallStart: filterNullable(
                   onLanguageModelCallStart,
                   telemetryDispatcher.onLanguageModelCallStart as undefined | OnLanguageModelCallStartCallback
@@ -1744,7 +1738,6 @@ class DefaultStreamTextResult<
             messages: stepMessages,
             abortSignal,
             timeout,
-            experimental_sandbox: stepSandbox,
             toolsContext,
             toolApproval,
             runtimeContext,
@@ -1804,7 +1797,7 @@ class DefaultStreamTextResult<
             modelId: model.modelId
           }
 
-          self.addStream(
+          addStream(
             streamWithToolResults.pipeThrough(
               new TransformStream<ExecuteToolsStreamPart<TOOLS>, TextStreamPart<TOOLS>>({
                 async transform(chunk, controller): Promise<void> {
@@ -1950,7 +1943,7 @@ class DefaultStreamTextResult<
 
                     clearStepTimeout()
                     clearChunkTimeout()
-                    self.closeStream()
+                    closeStream()
                     return
                   }
 
@@ -2046,7 +2039,7 @@ class DefaultStreamTextResult<
                         error
                       })
 
-                      self.closeStream()
+                      closeStream()
                     }
                   } else {
                     controller.enqueue({
@@ -2056,7 +2049,7 @@ class DefaultStreamTextResult<
                       totalUsage: combinedUsage
                     })
 
-                    self.closeStream() // close the stitchable stream
+                    closeStream() // close the stitchable stream
                   }
                 }
               })
@@ -2080,10 +2073,10 @@ class DefaultStreamTextResult<
       )
     })().catch(async error => {
       await telemetryDispatcher.onError?.({ callId, error })
-      self._initialResponseMessages.reject(error)
+      initialResponseMessagesResult.reject(error)
 
       // add an error stream part and close the streams:
-      self.addStream(
+      addStream(
         new ReadableStream({
           start(controller) {
             controller.enqueue({ type: 'error', error })
@@ -2091,7 +2084,7 @@ class DefaultStreamTextResult<
           }
         })
       )
-      self.closeStream()
+      closeStream()
     })
   }
 

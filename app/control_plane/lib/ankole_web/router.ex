@@ -97,6 +97,17 @@ defmodule AnkoleWeb.Router do
     put "/app-configurations/:key", AppConfigurationController, :update
     delete "/app-configurations/:key", AppConfigurationController, :delete
     post "/app-configurations/:key/decryptions", AppConfigurationController, :decrypt
+
+    get "/llm-provider-sources", LlmProviderController, :sources
+    get "/llm-providers", LlmProviderController, :index
+    put "/llm-providers/:provider_id", LlmProviderController, :put_provider
+    delete "/llm-providers/:provider_id", LlmProviderController, :delete_provider
+    get "/agents/:agent_uid/model-profiles", LlmProviderController, :index_model_profiles
+    put "/agents/:agent_uid/model-profiles/:profile", LlmProviderController, :put_model_profile
+
+    delete "/agents/:agent_uid/model-profiles/:profile",
+           LlmProviderController,
+           :delete_model_profile
   end
 
   # Browser-facing HTML. The `*path` catch-alls let each SPA own its own

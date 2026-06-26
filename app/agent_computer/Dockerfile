@@ -7,7 +7,6 @@ RUN apt-get update \
     build-essential \
     ca-certificates \
     curl \
-    libpq-dev \
     libzmq3-dev \
     pkg-config \
     protobuf-compiler \
@@ -32,13 +31,11 @@ WORKDIR /repo/app/kernel
 
 RUN bun run build:bun
 
-WORKDIR /repo/app/agent_computer/native
-
-RUN cargo build --release
-
 FROM oven/bun:1.3.14
 
 WORKDIR /repo
+
+ENV PATH="/root/.local/bin:${PATH}"
 
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
@@ -86,7 +83,6 @@ RUN apt-get update \
     pandoc \
     pkg-config \
     poppler-utils \
-    postgresql-client \
     procps \
     python3 \
     python3-dev \
@@ -99,11 +95,12 @@ RUN apt-get update \
     tmux \
     tree \
     unzip \
+    util-linux \
     xvfb \
     xz-utils \
     zip \
     zstd \
-  && mkdir -p /workspace/user-files /workspace/temp /workspace/library-containers \
+  && mkdir -p /workspace/shared/user-files /workspace/shared/skills/agents /workspace/.sessions \
   && chmod -R 0775 /workspace \
   && rm -rf /var/lib/apt/lists/*
 
@@ -147,8 +144,8 @@ COPY --from=build /repo/app/kernel/main.js ./app/kernel/main.js
 COPY --from=build /repo/app/kernel/index.d.ts ./app/kernel/index.d.ts
 COPY --from=build /repo/app/kernel/ankole-kernel.node ./app/kernel/ankole-kernel.node
 COPY --from=build /repo/app/kernel/package.json ./app/kernel/package.json
-COPY --from=build /repo/app/agent_computer/native/target/release/ankole-agent-computerd /usr/local/bin/ankole-agent-computerd
 COPY --from=build /repo/node_modules ./node_modules
+COPY app/library ./app/library
 COPY app/agent_computer ./app/agent_computer
 COPY --from=build /repo/app/agent_computer/node_modules ./app/agent_computer/node_modules
 RUN chmod +x ./app/agent_computer/bin/ankole-browser \
@@ -158,8 +155,13 @@ WORKDIR /repo/app/agent_computer
 
 ENV NODE_ENV=production
 ENV ANKOLE_WORKSPACE_ROOT=/workspace
+ENV ANKOLE_SHARED_FS_ROOT=/workspace/shared
+ENV ANKOLE_USER_FILES_ROOT=/workspace/shared/user-files
+ENV ANKOLE_AGENT_INSTALLED_SKILLS_ROOT=/workspace/shared/skills/agents
+ENV ANKOLE_BUILTIN_SKILLS_ROOT=/repo/app/library/skills
+ENV ANKOLE_WORKSPACE_SESSIONS_ROOT=/workspace/.sessions
 ENV ANKOLE_AGENT_COMPUTER_BUN_WORKDIR=/repo/app/agent_computer
 ENV PATH="/opt/ankole-python/bin:/root/.local/bin:${PATH}"
 
 ENTRYPOINT ["tini", "--"]
-CMD ["ankole-agent-computerd"]
+CMD ["bun", "src/main.ts"]

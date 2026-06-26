@@ -1,6 +1,6 @@
 import type { AgentMessage } from '../core'
 import type { TextContent } from '../llm'
-import type { JsonObject } from '../actor_bus'
+import type { JsonObject } from '../actor_lane'
 
 const MESSAGE_CONTEXT_METADATA_KEY = 'message_context'
 

@@ -17,6 +17,8 @@ defmodule Ankole.Plugins.LarkAdapter.ConnectionOwner do
     :key,
     :secret_fingerprint,
     :consumer_fingerprint,
+    :consumer_count,
+    :consumer_kinds,
     :client,
     :dispatcher,
     :ws_pid,
@@ -80,6 +82,8 @@ defmodule Ankole.Plugins.LarkAdapter.ConnectionOwner do
       key: Config.connection_key(config),
       secret_fingerprint: Config.secret_fingerprint(config),
       consumer_fingerprint: consumer_fingerprint(consumers),
+      consumer_count: length(consumers),
+      consumer_kinds: consumer_kinds(consumers),
       client: client,
       dispatcher: dispatcher,
       ws_client_module: ws_client_module,
@@ -115,6 +119,8 @@ defmodule Ankole.Plugins.LarkAdapter.ConnectionOwner do
     {:reply,
      %{
        key: state.key,
+       consumer_count: state.consumer_count,
+       consumer_kinds: state.consumer_kinds,
        ws_pid: state.ws_pid,
        running?: is_pid(state.ws_pid) and Process.alive?(state.ws_pid),
        start_client?: state.start_client?
@@ -123,7 +129,10 @@ defmodule Ankole.Plugins.LarkAdapter.ConnectionOwner do
 
   @impl true
   def handle_info({:EXIT, pid, reason}, %{ws_pid: pid} = state) do
-    Logger.error("lark adapter long-connection client exited key=#{inspect(state.key)} reason=#{inspect(reason)}")
+    Logger.error(
+      "lark adapter long-connection client exited key=#{inspect(state.key)} reason=#{inspect(reason)}"
+    )
+
     {:stop, reason, %{state | ws_pid: nil}}
   end
 
@@ -144,6 +153,12 @@ defmodule Ankole.Plugins.LarkAdapter.ConnectionOwner do
     :sha256
     |> :crypto.hash(:erlang.term_to_binary(consumers))
     |> Base.encode16(case: :lower)
+  end
+
+  defp consumer_kinds(consumers) do
+    consumers
+    |> Enum.map(&Map.get(&1, :kind))
+    |> Enum.sort()
   end
 
   defp from_pid_or_self(pid, self_pid) when pid == self_pid, do: self_pid

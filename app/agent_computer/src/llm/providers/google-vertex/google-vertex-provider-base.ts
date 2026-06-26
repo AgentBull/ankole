@@ -1,13 +1,6 @@
 // @ts-nocheck
-import { GoogleLanguageModel, GoogleSpeechModel } from '@/llm/providers/google/internal'
-import type {
-  Experimental_VideoModelV4,
-  ImageModelV4,
-  LanguageModelV4,
-  ProviderV4,
-  SpeechModelV4,
-  TranscriptionModelV4
-} from '@/llm/provider'
+import { GoogleLanguageModel } from '@/llm/providers/google/internal'
+import type { ImageModelV4, LanguageModelV4, ProviderV4, TranscriptionModelV4 } from '@/llm/provider'
 import {
   generateId,
   loadOptionalSetting,
@@ -29,9 +22,6 @@ import type { GoogleVertexModelId } from './google-vertex-options'
 import { googleVertexTools } from './google-vertex-tools'
 import { GoogleVertexTranscriptionModel } from './google-vertex-transcription-model'
 import type { GoogleVertexTranscriptionModelId } from './google-vertex-transcription-model-options'
-import { GoogleVertexVideoModel } from './google-vertex-video-model'
-import type { GoogleVertexVideoModelId } from './google-vertex-video-settings'
-import type { GoogleVertexSpeechModelId } from './google-vertex-speech-model-options'
 
 const EXPRESS_MODE_BASE_URL = 'https://aiplatform.googleapis.com/v1/publishers/google'
 
@@ -73,26 +63,6 @@ export interface GoogleVertexProvider extends ProviderV4 {
    * @deprecated Use `embeddingModel` instead.
    */
   textEmbeddingModel(modelId: GoogleVertexEmbeddingModelId): GoogleVertexEmbeddingModel
-
-  /**
-   * Creates a model for video generation.
-   */
-  video(modelId: GoogleVertexVideoModelId): Experimental_VideoModelV4
-
-  /**
-   * Creates a model for video generation.
-   */
-  videoModel(modelId: GoogleVertexVideoModelId): Experimental_VideoModelV4
-
-  /**
-   * Creates a model for speech generation (text-to-speech).
-   */
-  speech(modelId: GoogleVertexSpeechModelId): SpeechModelV4
-
-  /**
-   * Creates a model for speech generation (text-to-speech).
-   */
-  speechModel(modelId: GoogleVertexSpeechModelId): SpeechModelV4
 
   /**
    * Creates a model for transcription (speech-to-text).
@@ -234,15 +204,6 @@ export function createGoogleVertex(options: GoogleVertexProviderSettings = {}): 
       generateId: options.generateId ?? generateId
     })
 
-  const createVideoModel = (modelId: GoogleVertexVideoModelId) =>
-    new GoogleVertexVideoModel(modelId, {
-      ...createConfig('video'),
-      generateId: options.generateId ?? generateId
-    })
-
-  const createSpeechModel = (modelId: GoogleVertexSpeechModelId) =>
-    new GoogleSpeechModel(modelId, createConfig('speech'))
-
   // Cloud Speech-to-Text reuses the Vertex auth headers from createConfig, but
   // targets the Speech-to-Text API.
   const createTranscriptionModel = (modelId: GoogleVertexTranscriptionModelId) => {
@@ -276,10 +237,6 @@ export function createGoogleVertex(options: GoogleVertexProviderSettings = {}): 
   provider.textEmbeddingModel = createEmbeddingModel
   provider.image = createImageModel
   provider.imageModel = createImageModel
-  provider.video = createVideoModel
-  provider.videoModel = createVideoModel
-  provider.speech = createSpeechModel
-  provider.speechModel = createSpeechModel
   provider.transcription = createTranscriptionModel
   provider.transcriptionModel = createTranscriptionModel
   provider.tools = googleVertexTools

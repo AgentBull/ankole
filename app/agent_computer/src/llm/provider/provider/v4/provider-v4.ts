@@ -4,7 +4,6 @@ import type { FilesV4 } from '../../files/v4/files-v4'
 import type { ImageModelV4 } from '../../image-model/v4/image-model-v4'
 import type { LanguageModelV4 } from '../../language-model/v4/language-model-v4'
 import type { RerankingModelV4 } from '../../reranking-model/v4/reranking-model-v4'
-import type { SpeechModelV4 } from '../../speech-model/v4/speech-model-v4'
 import type { TranscriptionModelV4 } from '../../transcription-model/v4/transcription-model-v4'
 import type { SkillsV4 } from '../../skills/v4/skills-v4'
 
@@ -57,16 +56,6 @@ export interface ProviderV4 {
    * @returns {TranscriptionModelV4} The transcription model associated with the id
    */
   transcriptionModel?(modelId: string): TranscriptionModelV4
-
-  /**
-   * Returns the speech model with the given id.
-   * The model id is then passed to the provider function to get the model.
-   *
-   * @param {string} modelId - The id of the model to return.
-   *
-   * @returns {SpeechModelV4} The speech model associated with the id
-   */
-  speechModel?(modelId: string): SpeechModelV4
 
   /**
    * Returns the reranking model with the given id.

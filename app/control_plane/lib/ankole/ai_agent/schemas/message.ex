@@ -47,7 +47,6 @@ defmodule Ankole.AIAgent.Schemas.Message do
     field :kind, :string
     field :status, :string
     field :content, Ankole.Types.JsonValue, default: []
-    field :agent_message, :map
     field :covers_range, :map
     field :event_source, :string
     field :event_id, :string
@@ -66,7 +65,6 @@ defmodule Ankole.AIAgent.Schemas.Message do
       :kind,
       :status,
       :content,
-      :agent_message,
       :covers_range,
       :event_source,
       :event_id,
@@ -87,7 +85,6 @@ defmodule Ankole.AIAgent.Schemas.Message do
     |> validate_inclusion(:kind, @kinds)
     |> validate_inclusion(:status, @statuses)
     |> validate_json_array(:content)
-    |> validate_optional_map(:agent_message)
     |> validate_optional_map(:covers_range)
     |> JsonPayload.validate_map(:metadata, allow_datetime: true)
     |> foreign_key_constraint(:agent_uid)

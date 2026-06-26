@@ -3,7 +3,6 @@ import type { EmbeddingModelV3 } from '../../embedding-model/v3/embedding-model-
 import type { ImageModelV3 } from '../../image-model/v3/image-model-v3'
 import type { LanguageModelV3 } from '../../language-model/v3/language-model-v3'
 import type { RerankingModelV3 } from '../../reranking-model/v3/reranking-model-v3'
-import type { SpeechModelV3 } from '../../speech-model/v3/speech-model-v3'
 import type { TranscriptionModelV3 } from '../../transcription-model/v3/transcription-model-v3'
 
 /**
@@ -69,16 +68,6 @@ export interface ProviderV3 {
    * @returns {TranscriptionModel} The transcription model associated with the id
    */
   transcriptionModel?(modelId: string): TranscriptionModelV3
-
-  /**
-   * Returns the speech model with the given id.
-   * The model id is then passed to the provider function to get the model.
-   *
-   * @param {string} modelId - The id of the model to return.
-   *
-   * @returns {SpeechModel} The speech model associated with the id
-   */
-  speechModel?(modelId: string): SpeechModelV3
 
   /**
    * Returns the reranking model with the given id.

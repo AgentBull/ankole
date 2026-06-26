@@ -307,6 +307,39 @@ defmodule Ankole.SignalsGatewayTest do
       assert observed.identity.provider == "lark-main"
       assert observed.identity.external_id == "ou_alice"
     end
+
+    test "entry ingress enriches known platform subject authors with principal uid" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :ignore)
+
+      platform_subject_fixture(
+        provider: "bot",
+        external_id: "ou_alice",
+        uid: "Alice",
+        display_name: "Alice"
+      )
+
+      assert {:ok, %{status: :accepted, actor_input: input}} =
+               SignalsGateway.emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{
+                   ingress_event_id: "evt-known-author",
+                   provider_entry_id: "msg-known-author",
+                   explicit: true,
+                   author: %{platform_subject: "ou_alice", display_name: "Alice"}
+                 }),
+                 now: @base_time
+               )
+
+      assert input.sender_key == "alice"
+
+      assert %SignalEntry{author: %{"principal_uid" => "alice", "platform_subject" => "ou_alice"}} =
+               Repo.get_by!(SignalEntry,
+                 signal_channel_id: "lark:chat:group-a",
+                 provider_entry_id: "msg-known-author"
+               )
+    end
   end
 
   describe "mirror identity and route-scoped delivery" do
@@ -1597,6 +1630,80 @@ defmodule Ankole.SignalsGatewayTest do
       assert unknown.status == :unknown_after_send
       assert unknown.last_error["reason"] == "reconciliation adapter error"
       assert unknown.last_error["error"]["items"] |> hd() == "invalid_adapter_result"
+    end
+
+    test "due outbox dispatch picks up stale in-flight sends for reconciliation" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :ignore)
+
+      assert {:ok, %{status: :accepted}} =
+               SignalsGateway.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
+                 now: @base_time
+               )
+
+      assert {:ok, stale_seed} =
+               SignalsGateway.commit_outbox(%{
+                 agent_uid: agent.uid,
+                 binding_name: "bot",
+                 outbound_key: "stale-sending",
+                 operation: :post,
+                 signal_channel_id: "lark:chat:group-a",
+                 fallback_visible_text: "confirmed by reconcile",
+                 provider_entry_id: "stale-provider-id"
+               })
+
+      due_now = DateTime.add(@base_time, 61, :second)
+
+      {:ok, _sending} =
+        stale_seed
+        |> OutboxEntry.changeset(%{
+          status: :sending,
+          platform_send_started_at: @base_time
+        })
+        |> Repo.update()
+
+      assert {:ok, fresh_seed} =
+               SignalsGateway.commit_outbox(%{
+                 agent_uid: agent.uid,
+                 binding_name: "bot",
+                 outbound_key: "fresh-sending",
+                 operation: :post,
+                 signal_channel_id: "lark:chat:group-a",
+                 fallback_visible_text: "still in flight",
+                 provider_entry_id: "fresh-provider-id"
+               })
+
+      {:ok, _fresh} =
+        fresh_seed
+        |> OutboxEntry.changeset(%{
+          status: :sending,
+          platform_send_started_at: DateTime.add(due_now, -30, :second)
+        })
+        |> Repo.update()
+
+      assert [%OutboxEntry{outbound_key: "stale-sending"}] =
+               SignalsGateway.list_due_outbox(due_now, 10)
+
+      assert [{:ok, %OutboxEntry{status: :succeeded}}] =
+               SignalsGateway.dispatch_due_outbox(
+                 fn %OutboxEntry{binding_name: "bot"} ->
+                   {:ok,
+                    %{
+                      capabilities: [:post_entry, :outbound_reconciliation],
+                      reconcile: fn _outbox ->
+                        {:ok, %{provider_entry_id: "stale-provider-id"}}
+                      end
+                    }}
+                 end,
+                 now: due_now,
+                 limit: 10
+               )
+
+      assert Repo.get_by!(
+               SignalEntry,
+               signal_channel_id: "lark:chat:group-a",
+               provider_entry_id: "stale-provider-id"
+             ).text == "confirmed by reconcile"
     end
 
     test "due outbox dispatch honors retry backoff through a code resolver" do

@@ -4,6 +4,9 @@ defmodule Ankole.AIAgent.LibraryTest do
   import Ankole.PrincipalsFixtures
 
   alias Ankole.AIAgent.Library
+  alias Ankole.AIAgent.Library.Schemas.AgentSkill
+  alias Ankole.AIAgent.Library.Schemas.AgentSkillOverlay
+  alias Ankole.Repo
 
   setup do
     assert {:ok, %{skills: 3, changed: _changed}} = Library.sync_builtin_skills(force: true)
@@ -30,43 +33,84 @@ defmodule Ankole.AIAgent.LibraryTest do
     assert mission == File.read!(Path.expand("../../../../library/templates/MISSION.md", __DIR__))
   end
 
-  test "skill_view merges canonical skill body with agent append" do
+  test "skill_view merges canonical skill body with agent DB overlay" do
     %{principal: agent} = agent_fixture()
 
     assert {:ok, skill} = Library.skill_view(agent.uid, "nano-pdf")
     assert skill["file_path"] == "/workspace/library-containers/skills/nano-pdf/SKILL.md"
     assert skill["content"] =~ "# nano-pdf"
     refute skill["content"] =~ "name: nano-pdf"
-    refute skill["has_agent_append"]
+    refute skill["has_agent_overlay"]
 
-    assert {:ok, _entry} =
+    assert {:ok, overlay} =
              Library.skill_append(agent.uid, "nano-pdf", "Prefer page-by-page verification.")
 
+    assert %AgentSkillOverlay{overlay_json: %{"text" => "Prefer page-by-page verification."}} =
+             Repo.get!(AgentSkillOverlay, overlay.id)
+
     assert {:ok, skill} = Library.skill_view(agent.uid, "nano-pdf")
-    assert skill["has_agent_append"]
+    assert skill["has_agent_overlay"]
     assert skill["content"] =~ "Agent-specific additions"
     assert skill["content"] =~ "Prefer page-by-page verification."
 
-    assert {:ok, append} = Library.skill_view(agent.uid, "nano-pdf", "AGENT_APPEND.md")
-    assert append["content"] == "Prefer page-by-page verification."
+    assert {:error, :skill_file_not_found} =
+             Library.skill_view(agent.uid, "nano-pdf", "AGENT_APPEND.md")
   end
 
-  test "materializes effective library-container files to a workspace path" do
+  test "agent-installed skills are recorded from worker file observations" do
     %{principal: agent} = agent_fixture()
 
-    assert {:ok, _entry} =
-             Library.skill_append(agent.uid, "powerpoint", "Use the corporate title slide.")
+    assert {:ok, %{skills: 4}} =
+             Library.replace_installed_skill_observations(agent.uid, [
+               %{
+                 skill_name: "agent-notes",
+                 relative_path: "agent-notes",
+                 description: "Agent-installed note-taking skill.",
+                 default_enabled: true,
+                 metadata: %{"category" => "custom"},
+                 xxh3_128: "7b16fe7c3e492b87d9615265f0856cec",
+                 file_count: 1
+               }
+             ])
 
-    root =
-      Path.join(System.tmp_dir!(), "ankole-library-test-#{System.unique_integer([:positive])}")
+    assert {:ok, skills} = Library.enabled_skills_for_agent(agent.uid)
 
-    on_exit(fn -> File.rm_rf(root) end)
+    installed = Enum.find(skills, &(&1["skill_name"] == "agent-notes"))
+    assert installed["source_kind"] == "installed"
+    assert installed["relative_path"] == "agent-notes"
+    assert installed["category"] == "custom"
 
-    assert {:ok, paths} = Library.materialize_effective_library(agent.uid, root)
+    assert {:error, :skill_file_not_found} = Library.skill_view(agent.uid, "agent-notes")
 
-    assert Path.join(root, "SOUL.md") in paths
-    assert File.exists?(Path.join(root, "MISSION.md"))
-    assert File.exists?(Path.join(root, "skills/powerpoint/SKILL.md"))
-    assert File.read!(Path.join(root, "skills/powerpoint/AGENT_APPEND.md")) =~ "corporate title"
+    assert {:ok, %{skills: 3}} = Library.replace_installed_skill_observations(agent.uid, [])
+    assert {:error, :skill_not_found} = Library.skill_view(agent.uid, "agent-notes")
+  end
+
+  test "agent-installed registry rows survive builtin sync until new worker observations arrive" do
+    %{principal: agent} = agent_fixture()
+
+    assert {:ok, %{skills: 4}} =
+             Library.replace_installed_skill_observations(agent.uid, [
+               %{
+                 "skill_name" => "agent-notes",
+                 "relative_path" => "agent-notes",
+                 "description" => "Agent-installed note-taking skill.",
+                 "default_enabled" => true,
+                 "metadata" => %{"category" => "custom"},
+                 "content_hash" => "7b16fe7c3e492b87d9615265f0856cec",
+                 "file_count" => 1
+               }
+             ])
+
+    assert %AgentSkill{source_kind: "installed"} =
+             Repo.get_by!(AgentSkill, agent_uid: agent.uid, skill_name: "agent-notes")
+
+    assert {:ok, %{skills: 3}} = Library.sync_agent_skills(agent.uid)
+
+    assert %AgentSkill{source_kind: "installed"} =
+             Repo.get_by!(AgentSkill, agent_uid: agent.uid, skill_name: "agent-notes")
+
+    assert {:ok, skills} = Library.enabled_skills_for_agent(agent.uid)
+    assert Enum.any?(skills, &(&1["skill_name"] == "agent-notes"))
   end
 end

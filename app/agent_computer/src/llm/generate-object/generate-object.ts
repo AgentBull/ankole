@@ -18,7 +18,6 @@ import { prepareLanguageModelCallOptions } from '../prompt/prepare-language-mode
 import type { Prompt } from '../prompt/prompt'
 import type { RequestOptions } from '../prompt/request-options'
 import { standardizePrompt } from '../prompt/standardize-prompt'
-import { wrapGatewayError } from '../prompt/wrap-gateway-error'
 import { createTelemetryDispatcher } from '../telemetry/create-telemetry-dispatcher'
 import type { TelemetryOptions } from '../telemetry/telemetry-options'
 import type { LanguageModel } from '../types/language-model'
@@ -477,7 +476,7 @@ export async function generateObject<
     })
   } catch (error) {
     await telemetryDispatcher.onError?.({ callId, error })
-    throw wrapGatewayError(error)
+    throw error
   }
 }
 

@@ -9,7 +9,8 @@ declare global {
    * The default provider to use for the AI SDK.
    * String model ids are resolved to the default provider and model id.
    *
-   * If not set, the default provider is the Vercel AI gateway provider.
+   * If not set, string model ids are rejected; pass a concrete provider model
+   * object instead.
    *
    * @see https://ai-sdk.dev/docs/ai-sdk-core/provider-management#global-provider-configuration
    */

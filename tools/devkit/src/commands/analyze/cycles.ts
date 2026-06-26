@@ -1,10 +1,9 @@
 // `analyze cycles` — runtime-value import-cycle gate (target = 0).
 //
-// Glue rewritten for bullx around the verbatim Tarjan lib (./lib/import-cycle-graph).
-// The one real adaptation vs OpenClaw's check-import-cycles.ts: the resolver is
-// alias-aware. bullx uses `@/*` / `@locales/*` path aliases heavily (~210 in
-// app/src alone); resolving only relative specifiers — as the upstream script
-// does — would miss the bulk of app's edges and make the check meaningless.
+// Glue rewritten for Ankole around the verbatim Tarjan lib
+// (./lib/import-cycle-graph). The resolver is alias-aware so package-local
+// `@/*` imports participate in the graph instead of being treated as opaque
+// bare package edges.
 
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
@@ -24,7 +23,7 @@ interface AliasEntry {
   packageRoot: string
   /** Specifier prefix, e.g. '@/' or '@locales/'. */
   aliasPrefix: string
-  /** Repo-relative target roots, e.g. ['app/src/', 'app/webui/src/']. */
+  /** Repo-relative target roots, e.g. ['app/agent_computer/src/']. */
   targetRoots: string[]
 }
 

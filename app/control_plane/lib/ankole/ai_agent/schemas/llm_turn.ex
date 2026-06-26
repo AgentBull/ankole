@@ -2,9 +2,8 @@ defmodule Ankole.AIAgent.Schemas.LlmTurn do
   @moduledoc """
   Durable projection of one AI agent generation turn.
 
-  A turn records the user-visible AI work, even when the current ping-pong path
-  uses a placeholder provider. ActorRuntime references turns, but it does not
-  replace this durable AI-agent boundary.
+  A turn records the user-visible AI work. ActorRuntime references turns, but it
+  does not replace this durable AI-agent boundary.
   """
 
   use Ecto.Schema

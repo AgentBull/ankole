@@ -1,12 +1,5 @@
 // @ts-nocheck
-import type {
-  Context,
-  Experimental_SandboxSession as SandboxSession,
-  InferToolSetContext,
-  ModelMessage,
-  ProviderOptions,
-  ToolSet
-} from '@/llm/provider-utils'
+import type { Context, InferToolSetContext, ModelMessage, ProviderOptions, ToolSet } from '@/llm/provider-utils'
 import type { Instructions } from '../prompt'
 import type { LanguageModel, ToolChoice } from '../types/language-model'
 import type { ActiveTools } from './active-tools'
@@ -82,11 +75,6 @@ export type PrepareStepFunction<TOOLS extends ToolSet, RUNTIME_CONTEXT extends C
    * User-defined runtime context.
    */
   runtimeContext: RUNTIME_CONTEXT
-
-  /**
-   * The sandbox environment that the step is operating in.
-   */
-  experimental_sandbox?: SandboxSession
 }) => PromiseLike<PrepareStepResult<TOOLS, RUNTIME_CONTEXT>> | PrepareStepResult<TOOLS, RUNTIME_CONTEXT>
 
 /**
@@ -153,13 +141,6 @@ export type PrepareStepResult<TOOLS extends ToolSet, RUNTIME_CONTEXT extends Con
        * and all subsequent steps.
        */
       runtimeContext?: RUNTIME_CONTEXT
-
-      /**
-       * The sandbox environment that the step is operating in.
-       *
-       * Changing the sandbox will affect tool execution in this step only.
-       */
-      experimental_sandbox?: SandboxSession
 
       /**
        * Additional provider-specific options for this step.

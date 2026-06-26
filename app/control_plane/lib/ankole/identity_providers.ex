@@ -5,6 +5,7 @@ defmodule Ankole.IdentityProviders do
 
   alias Ankole.AppConfigure
   alias Ankole.IdentityProviders.Config
+  alias Ankole.IdentityProviders.Jobs.SyncProvider
   alias Ankole.Plugins
 
   @setup_contract_id "principals.identity_provider.setup"
@@ -58,7 +59,8 @@ defmodule Ankole.IdentityProviders do
              "plugin_id" => adapter.plugin_id,
              "config_key" => config_key,
              "enabled" => enabled
-           }) do
+           }),
+         {:ok, _job} <- maybe_enqueue_initial_sync(provider_id, persisted_config, enabled) do
       {:ok,
        %{
          "provider_id" => provider_id,
@@ -67,6 +69,42 @@ defmodule Ankole.IdentityProviders do
          "config_key" => config_key,
          "enabled" => enabled,
          "config" => persisted_config
+       }}
+    end
+  end
+
+  @doc """
+  Enqueues a full directory sync for one active identity provider.
+  """
+  @spec enqueue_sync(String.t(), keyword()) :: {:ok, Oban.Job.t()} | {:error, term()}
+  def enqueue_sync(provider_id, opts \\ []) when is_binary(provider_id) and is_list(opts) do
+    with {:ok, provider} <- fetch_active_provider(provider_id) do
+      %{
+        "provider_id" => provider["provider_id"],
+        "reason" => sync_reason(Keyword.get(opts, :reason, "manual")),
+        "source" => sync_reason(Keyword.get(opts, :source, "manual"))
+      }
+      |> SyncProvider.new()
+      |> Oban.insert()
+    end
+  end
+
+  @doc """
+  Runs one full directory sync for an active identity provider.
+  """
+  @spec sync_provider(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def sync_provider(provider_id, opts \\ []) when is_binary(provider_id) and is_list(opts) do
+    with {:ok, provider} <- fetch_active_provider(provider_id),
+         {:ok, adapter} <- fetch_adapter(provider["adapter_id"]),
+         {:ok, config} <- AppConfigure.get_by_key(provider["config_key"]),
+         {:ok, module} <- adapter_module(adapter),
+         {:ok, user_result} <- maybe_sync_users(module, provider_id, config, opts),
+         {:ok, department_result} <- maybe_sync_departments(module, provider_id, config, opts) do
+      {:ok,
+       %{
+         provider_id: provider_id,
+         users: user_result,
+         departments: department_result
        }}
     end
   end
@@ -218,6 +256,47 @@ defmodule Ankole.IdentityProviders do
       false -> {:error, {:unsupported_identity_provider_operation, module, function, arity}}
     end
   end
+
+  defp maybe_enqueue_initial_sync(_provider_id, _config, false), do: {:ok, :disabled}
+
+  defp maybe_enqueue_initial_sync(provider_id, config, true) do
+    case sync_enabled?(config) do
+      true -> enqueue_sync(provider_id, reason: "provider_saved", source: "setup")
+      false -> {:ok, :sync_disabled}
+    end
+  end
+
+  defp maybe_sync_users(module, provider_id, config, opts) do
+    case get_in(config, ["sync", "users"]) != false do
+      true ->
+        with :ok <- ensure_exported(module, :sync_users, 3) do
+          module.sync_users(provider_id, config, opts)
+        end
+
+      false ->
+        {:ok, :skipped}
+    end
+  end
+
+  defp maybe_sync_departments(module, provider_id, config, opts) do
+    case get_in(config, ["sync", "departments"]) != false do
+      true ->
+        with :ok <- ensure_exported(module, :sync_departments, 3) do
+          module.sync_departments(provider_id, config, opts)
+        end
+
+      false ->
+        {:ok, :skipped}
+    end
+  end
+
+  defp sync_enabled?(config) when is_map(config) do
+    get_in(config, ["sync", "users"]) != false or get_in(config, ["sync", "departments"]) != false
+  end
+
+  defp sync_reason(value) when is_atom(value), do: Atom.to_string(value)
+  defp sync_reason(value) when is_binary(value), do: value
+  defp sync_reason(value), do: inspect(value)
 
   defp contract?(map, contract_id), do: value(map, :contract_id) == contract_id
 

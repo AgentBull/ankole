@@ -6,6 +6,7 @@ defmodule Ankole.Plugins.LarkAdapter do
   @behaviour Ankole.Plugins.Plugin
 
   alias Ankole.Plugins.LarkAdapter.Config
+  alias Ankole.Plugins.LarkAdapter.ConnectionReconciler
   alias Ankole.Plugins.LarkAdapter.ConnectionSupervisor
   alias Ankole.Plugins.LarkAdapter.IdentityProvider
   alias Ankole.Plugins.LarkAdapter.Inbound
@@ -124,7 +125,8 @@ defmodule Ankole.Plugins.LarkAdapter do
     [
       {Registry, keys: :unique, name: Ankole.Plugins.LarkAdapter.ConnectionRegistry},
       {DynamicSupervisor,
-       name: Ankole.Plugins.LarkAdapter.ConnectionDynamicSupervisor, strategy: :one_for_one}
+       name: Ankole.Plugins.LarkAdapter.ConnectionDynamicSupervisor, strategy: :one_for_one},
+      ConnectionReconciler
     ]
   end
 

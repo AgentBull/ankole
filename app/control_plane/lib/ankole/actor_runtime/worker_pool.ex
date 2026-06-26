@@ -39,6 +39,25 @@ defmodule Ankole.ActorRuntime.WorkerPool do
   end
 
   @doc """
+  Returns a live worker route for filesystem operations.
+
+  Worker-file operations are not actor turns and do not consume turn capacity.
+  They only need one ready worker that can reach the shared filesystem.
+  """
+  @spec file_worker_route() :: {:ok, String.t()} | {:error, :no_worker_available}
+  def file_worker_route do
+    AgentComputerWorker
+    |> where([worker], worker.status == ^@ready_worker_status)
+    |> order_by([worker], asc: worker.inserted_at)
+    |> Repo.all()
+    |> Enum.find_value(&worker_route/1)
+    |> case do
+      route when is_binary(route) and route != "" -> {:ok, route}
+      _missing -> {:error, :no_worker_available}
+    end
+  end
+
+  @doc """
   Releases live assignments for a worker that is no longer usable.
 
   Called inside the worker-staleness transition (see `WorkerAdmission`) so that
@@ -182,6 +201,10 @@ defmodule Ankole.ActorRuntime.WorkerPool do
       metadata: %{}
     })
     |> repo.insert()
+  end
+
+  defp worker_route(%AgentComputerWorker{} = worker) do
+    worker.transport_route || worker.worker_instance_id || worker.worker_id
   end
 
   defp normalize_actor_key(%{agent_uid: agent_uid, session_id: session_id}) do

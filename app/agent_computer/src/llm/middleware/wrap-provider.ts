@@ -46,7 +46,6 @@ export function wrapProvider({
       return model
     },
     transcriptionModel: providerV4.transcriptionModel,
-    speechModel: providerV4.speechModel,
     rerankingModel: providerV4.rerankingModel
   }
 }

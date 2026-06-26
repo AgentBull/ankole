@@ -1,5 +1,9 @@
 use base64_simd::URL_SAFE_NO_PAD;
 use crc32fast::Hasher;
+use std::fs::File;
+use std::io::Read;
+use std::path::Path;
+use xxhash_rust::xxh3::{Xxh3, xxh3_128};
 
 use crate::core::crypto::parse_hex_32;
 use crate::core::{KernelError, KernelResult};
@@ -68,6 +72,33 @@ pub fn crc32(input: &[u8], initial_state: Option<u32>) -> u32 {
 pub fn crc32_hex(input: &[u8], initial_state: Option<u32>) -> String {
     let hash = crc32(input, initial_state);
     format!("{hash:x}")
+}
+
+/// Computes the non-cryptographic XXH3 128-bit observation fingerprint.
+///
+/// This is for change detection and file observations. It is intentionally not
+/// a security digest or provenance checksum.
+pub fn xxh3_128_hex(input: &[u8]) -> String {
+    format!("{:032x}", xxh3_128(input))
+}
+
+/// Streams one file through XXH3 128-bit without materializing it in JS/Elixir.
+pub fn xxh3_128_file_hex(path: &Path) -> KernelResult<String> {
+    let mut file = File::open(path).map_err(|error| KernelError::new(error.to_string()))?;
+    let mut hasher = Xxh3::new();
+    let mut buffer = [0_u8; 1024 * 1024];
+
+    loop {
+        let read = file
+            .read(&mut buffer)
+            .map_err(|error| KernelError::new(error.to_string()))?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+
+    Ok(format!("{:032x}", hasher.digest128()))
 }
 
 /// Hashes data with BLAKE3 and returns the digest as lowercase hexadecimal text.

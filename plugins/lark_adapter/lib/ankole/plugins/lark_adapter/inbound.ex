@@ -7,7 +7,9 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
 
   require Logger
 
+  alias Ankole.ActorRuntime
   alias Ankole.JSON
+  alias Ankole.Plugins.LarkAdapter.Config
   alias Ankole.Plugins.LarkAdapter.Emoji
   alias Ankole.Repo
   alias Ankole.SignalsGateway.AdapterContext
@@ -30,7 +32,10 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
       recent_attachment_window_seconds:
         Keyword.get(opts, :recent_attachment_window_seconds, @recent_attachment_window_seconds),
       max_backfilled_attachments:
-        Keyword.get(opts, :max_backfilled_attachments, @max_backfilled_attachments)
+        Keyword.get(opts, :max_backfilled_attachments, @max_backfilled_attachments),
+      materialize_attachments: Keyword.get(opts, :materialize_attachments, false),
+      attachment_materializer:
+        Keyword.get(opts, :attachment_materializer, &materialize_lark_attachments/3)
     }
   end
 
@@ -45,7 +50,8 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
   @doc """
   Handles a provider message-recall event for all chat consumers.
   """
-  @spec handle_message_recalled(String.t(), Event.t(), [map()]) :: {:ok, list()} | {:error, term()}
+  @spec handle_message_recalled(String.t(), Event.t(), [map()]) ::
+          {:ok, list()} | {:error, term()}
   def handle_message_recalled(_event_type, %Event{} = event, consumers) do
     dispatch_chat(consumers, &emit_message_recalled(&1, event))
   end
@@ -53,7 +59,8 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
   @doc """
   Handles a provider reaction-add event for all chat consumers.
   """
-  @spec handle_reaction_created(String.t(), Event.t(), [map()]) :: {:ok, list()} | {:error, term()}
+  @spec handle_reaction_created(String.t(), Event.t(), [map()]) ::
+          {:ok, list()} | {:error, term()}
   def handle_reaction_created(_event_type, %Event{} = event, consumers) do
     dispatch_chat(consumers, &emit_reaction(&1, event, :add))
   end
@@ -61,7 +68,8 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
   @doc """
   Handles a provider reaction-remove event for all chat consumers.
   """
-  @spec handle_reaction_deleted(String.t(), Event.t(), [map()]) :: {:ok, list()} | {:error, term()}
+  @spec handle_reaction_deleted(String.t(), Event.t(), [map()]) ::
+          {:ok, list()} | {:error, term()}
   def handle_reaction_deleted(_event_type, %Event{} = event, consumers) do
     dispatch_chat(consumers, &emit_reaction(&1, event, :remove))
   end
@@ -80,7 +88,10 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
   """
   @spec normalize_message_receive(Event.t(), map()) ::
           {:ok, map()} | {:ignore, atom()} | {:error, term()}
-  def normalize_message_receive(%Event{} = event, %{context: %AdapterContext{}, config: config} = consumer) do
+  def normalize_message_receive(
+        %Event{} = event,
+        %{context: %AdapterContext{}, config: config} = consumer
+      ) do
     content = event.content || %{}
     message = fetch_map(content, "message", content)
     sender = fetch_map(content, "sender", %{})
@@ -101,9 +112,19 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
              provider_time <- provider_time(message, event),
              channel_kind <- channel_kind(message),
              signal_channel_id <- signal_channel_id(chat_id),
-             provider_thread_id <- provider_thread_id(chat_id, root_id(message, provider_entry_id)),
+             provider_thread_id <-
+               provider_thread_id(chat_id, root_id(message, provider_entry_id)),
              attachments <-
-               maybe_backfill_attachments(attachments, text, mentions, author, signal_channel_id, provider_time, consumer) do
+               maybe_backfill_attachments(
+                 attachments,
+                 text,
+                 mentions,
+                 author,
+                 signal_channel_id,
+                 provider_time,
+                 consumer
+               ),
+             {:ok, attachments} <- maybe_materialize_attachments(attachments, message, consumer) do
           {:ok,
            %{
              ingress_event_id: event.id || provider_entry_id,
@@ -175,7 +196,11 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
         signal_channel_id: signal_channel_id(chat_id),
         provider_entry_id: provider_entry_id,
         provider_thread_id: provider_thread_id(chat_id, root_id(message, provider_entry_id)),
-        channel: %{kind: channel_kind(message), reply_mode: :entry, raw_payload: compact_map(message)},
+        channel: %{
+          kind: channel_kind(message),
+          reply_mode: :entry,
+          raw_payload: compact_map(message)
+        },
         metadata: %{"provider" => "lark", "event_type" => event.type},
         raw_payload: compact_map(event.raw),
         provider_time: provider_time(message, event)
@@ -218,7 +243,11 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
     end
   end
 
-  defp emit_card_action(%{context: %AdapterContext{}} = consumer, %CardAction{} = action, %Event{} = event) do
+  defp emit_card_action(
+         %{context: %AdapterContext{}} = consumer,
+         %CardAction{} = action,
+         %Event{} = event
+       ) do
     with {:ok, operator_id} <- operator_actor_key(action.user_id),
          {:ok, chat_id} <- required_text(action, "open_chat_id"),
          {:ok, action_id} <- card_action_id(action, event) do
@@ -256,7 +285,9 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
     |> collect_results()
   end
 
-  defp observe_author(%{context: context, config: config}, %{author: %{"platform_subject" => user_id} = author})
+  defp observe_author(%{context: context, config: config}, %{
+         author: %{"platform_subject" => user_id} = author
+       })
        when is_binary(user_id) do
     attrs = %{
       provider: Map.get(config, "platformSubjectNamespace", "lark-main"),
@@ -424,17 +455,116 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
 
   defp normalize_mention(_mention), do: %{"kind" => "bot", "structured" => true}
 
-  defp maybe_backfill_attachments([_ | _] = attachments, _text, _mentions, _author, _channel, _time, _consumer),
-    do: attachments
+  defp maybe_backfill_attachments(
+         [_ | _] = attachments,
+         _text,
+         _mentions,
+         _author,
+         _channel,
+         _time,
+         _consumer
+       ),
+       do: attachments
 
-  defp maybe_backfill_attachments([], text, [_ | _], author, signal_channel_id, %DateTime{} = provider_time, consumer) do
+  defp maybe_backfill_attachments(
+         [],
+         text,
+         [_ | _],
+         author,
+         signal_channel_id,
+         %DateTime{} = provider_time,
+         consumer
+       ) do
     case recent_attachment_intent?(text) do
       true -> recent_attachments(signal_channel_id, author, provider_time, consumer)
       false -> []
     end
   end
 
-  defp maybe_backfill_attachments([], _text, _mentions, _author, _channel, _time, _consumer), do: []
+  defp maybe_backfill_attachments([], _text, _mentions, _author, _channel, _time, _consumer),
+    do: []
+
+  defp maybe_materialize_attachments(attachments, _message, %{materialize_attachments: false}),
+    do: {:ok, attachments}
+
+  defp maybe_materialize_attachments(
+         attachments,
+         message,
+         %{
+           materialize_attachments: true,
+           attachment_materializer: materializer
+         } = consumer
+       )
+       when is_function(materializer, 3) do
+    materializer.(attachments, message, consumer)
+  end
+
+  defp materialize_lark_attachments(attachments, _message, %{config: config}) do
+    client = Config.client(config)
+
+    {:ok, Enum.map(attachments, &materialize_lark_attachment(&1, client))}
+  end
+
+  defp materialize_lark_attachment(%{} = attachment, client) do
+    with source_message_id when is_binary(source_message_id) <- attachment["source_message_id"],
+         file_key when is_binary(file_key) <- attachment["file_key"],
+         download_type when is_binary(download_type) <- attachment["download_type"],
+         {:ok, download} <-
+           FeishuOpenAPI.download(client, "im/v1/messages/:message_id/resources/:file_key",
+             path_params: %{message_id: source_message_id, file_key: file_key},
+             query: [type: download_type]
+           ),
+         relative_path <- materialized_relative_path(source_message_id, attachment, download),
+         {:ok, result} <- ActorRuntime.put_worker_file("user_files", relative_path, download.body) do
+      attachment
+      |> Map.put("agent_computer_path", "/workspace/user-files/#{relative_path}")
+      |> Map.put("user_files_relative_path", relative_path)
+      |> maybe_put("xxh3_128", result["xxh3_128"])
+      |> maybe_put("size", result["size"])
+    else
+      reason ->
+        Logger.warning(
+          "lark attachment materialization skipped provider_ref=#{inspect(attachment["provider_ref"])} reason=#{inspect(reason)}"
+        )
+
+        attachment
+    end
+  rescue
+    error ->
+      Logger.warning(
+        "lark attachment materialization failed provider_ref=#{inspect(attachment["provider_ref"])} error=#{Exception.message(error)}"
+      )
+
+      attachment
+  end
+
+  defp materialized_relative_path(source_message_id, attachment, download) do
+    filename =
+      download.filename ||
+        attachment["name"] ||
+        attachment["file_key"] ||
+        "attachment"
+
+    Path.join([
+      "inbox",
+      "lark",
+      sanitize_path_segment(source_message_id),
+      sanitize_path_segment(attachment["file_key"]),
+      sanitize_path_segment(filename)
+    ])
+  end
+
+  defp sanitize_path_segment(value) when is_binary(value) do
+    value
+    |> String.replace(~r/[^A-Za-z0-9._-]+/, "_")
+    |> String.trim("_")
+    |> case do
+      "" -> "unnamed"
+      segment -> String.slice(segment, 0, 160)
+    end
+  end
+
+  defp sanitize_path_segment(_value), do: "unnamed"
 
   defp recent_attachment_intent?(text) when is_binary(text) do
     Regex.match?(~r/(上面|前面|文件|图片|附件|above|previous|file|image|attachment)/i, text)
@@ -443,7 +573,13 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
   defp recent_attachment_intent?(_text), do: false
 
   defp recent_attachments(signal_channel_id, author, provider_time, consumer) do
-    since = DateTime.add(provider_time, -Map.fetch!(consumer, :recent_attachment_window_seconds), :second)
+    since =
+      DateTime.add(
+        provider_time,
+        -Map.fetch!(consumer, :recent_attachment_window_seconds),
+        :second
+      )
+
     max = Map.fetch!(consumer, :max_backfilled_attachments)
     author_id = author["id"]
 
@@ -479,7 +615,9 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
   end
 
   defp signal_channel_id(chat_id), do: "lark:#{encode_id(chat_id)}"
-  defp provider_thread_id(chat_id, root_id), do: "lark:#{encode_id(chat_id)}:#{encode_id(root_id)}"
+
+  defp provider_thread_id(chat_id, root_id),
+    do: "lark:#{encode_id(chat_id)}:#{encode_id(root_id)}"
 
   defp encode_id(id), do: URI.encode(id, &URI.char_unreserved?/1)
 
@@ -637,6 +775,10 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
     |> Enum.reject(fn {_key, value} -> is_nil(value) end)
     |> Map.new()
   end
+
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, _key, ""), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
   defp blank_to_nil(""), do: nil
   defp blank_to_nil(value), do: value

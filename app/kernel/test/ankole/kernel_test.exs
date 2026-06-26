@@ -1,7 +1,7 @@
 defmodule Ankole.KernelTest do
   use ExUnit.Case, async: true
 
-  alias Ankole.Kernel.ActorBus
+  alias Ankole.Kernel.RuntimeFabric
   alias Ankole.Kernel, as: NativeKernel
 
   @aead_key "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
@@ -60,7 +60,7 @@ defmodule Ankole.KernelTest do
              NativeKernel.jwt_decode_header(token)
   end
 
-  test "actor bus helpers encode and decode protobuf envelopes" do
+  test "runtime fabric helpers encode and decode protobuf envelopes" do
     envelope = %{
       protocol_version: 1,
       message_id: "turn-start-1",
@@ -87,7 +87,7 @@ defmodule Ankole.KernelTest do
       }
     }
 
-    encoded = NativeKernel.actor_bus_encode_envelope(envelope)
+    encoded = RuntimeFabric.encode_envelope(envelope)
 
     assert is_binary(encoded)
 
@@ -97,19 +97,63 @@ defmodule Ankole.KernelTest do
                "turn_start" => %{
                  "turn" => %{
                    "actor" => %{
-                     "display_name" => "ReleaseBot",
-                     "role" => "Research Analyst"
+                     "agent_uid" => "agent-1",
+                     "session_id" => "signal-channel:lark:dm:1"
                    }
                  },
                  "inputs" => [%{"payload_json" => %{"text" => "PING"}}]
                }
              }
-           } = NativeKernel.actor_bus_decode_envelope(encoded)
+           } = RuntimeFabric.decode_envelope(encoded)
   end
 
-  test "actor bus turn_control steer payload must be journaled, not inline" do
+  test "runtime fabric rejects profile fields on ActorKey" do
     assert {:error, reason} =
-             NativeKernel.actor_bus_encode_envelope(%{
+             RuntimeFabric.encode_envelope(%{
+               protocol_version: 1,
+               message_id: "turn-start-profile",
+               correlation_id: "turn-start-profile",
+               lane: "LANE_TURN",
+               durability: "CONTROL_REPLAYABLE",
+               turn_start: %{
+                 turn: put_in(actor_turn_ref(), [:actor, :display_name], "ReleaseBot"),
+                 inputs: []
+               }
+             })
+
+    assert reason =~ "ActorKey must not carry display_name"
+  end
+
+  test "runtime fabric encodes and decodes generic RPC envelopes" do
+    encoded =
+      RuntimeFabric.encode_envelope(%{
+        protocol_version: 1,
+        message_id: "rpc-agent-profile",
+        correlation_id: "rpc-agent-profile",
+        lane: "LANE_RPC",
+        durability: "CONTROL_EPHEMERAL",
+        body: %{
+          type: "rpc_request",
+          rpc_request: %{
+            request_id: "rpc-agent-profile",
+            method: "agent_profile.resolve",
+            payload_json: %{agent_uid: "agent-1", session_id: "signal-channel:lark:dm:1"}
+          }
+        }
+      })
+
+    assert %{
+             "body" => %{
+               "type" => "rpc_request",
+               "rpc_request" => %{"method" => "agent_profile.resolve"}
+             }
+           } =
+             RuntimeFabric.decode_envelope(encoded)
+  end
+
+  test "runtime fabric turn_control steer payload must be journaled, not inline" do
+    assert {:error, reason} =
+             NativeKernel.runtime_fabric_encode_envelope(%{
                protocol_version: 1,
                message_id: "steer-1",
                correlation_id: "steer-1",
@@ -125,9 +169,9 @@ defmodule Ankole.KernelTest do
     assert reason =~ "steer payload must be empty"
   end
 
-  test "actor bus body must use its declared lane and durability" do
+  test "runtime fabric body must use its declared lane and durability" do
     assert {:error, reason} =
-             NativeKernel.actor_bus_encode_envelope(%{
+             NativeKernel.runtime_fabric_encode_envelope(%{
                protocol_version: 1,
                message_id: "turn-start-wrong-lane",
                lane: "LANE_CONTROL",
@@ -148,20 +192,20 @@ defmodule Ankole.KernelTest do
     assert reason =~ "turn_start must use lane LANE_TURN"
   end
 
-  test "actor bus router maps mandatory unknown routes" do
+  test "runtime fabric router maps mandatory unknown routes" do
     assert {:ok, router} =
-             ActorBus.router_start("tcp://127.0.0.1:*", self(),
+             RuntimeFabric.router_start("tcp://127.0.0.1:*", self(),
                pre_auth_token: "test-token",
                poll_interval_ms: 1
              )
 
-    on_exit(fn -> ActorBus.router_stop(router) end)
+    on_exit(fn -> RuntimeFabric.router_stop(router) end)
 
-    assert endpoint = ActorBus.router_endpoint(router)
+    assert endpoint = RuntimeFabric.router_endpoint(router)
     assert endpoint =~ "tcp://"
 
     assert {:error, :unknown_route} =
-             ActorBus.router_send_mandatory(router, "missing-worker", turn_start_envelope())
+             RuntimeFabric.router_send_mandatory(router, "missing-worker", turn_start_envelope())
   end
 
   test "encoding helpers preserve binary payloads" do
@@ -237,6 +281,7 @@ defmodule Ankole.KernelTest do
     assert NativeKernel.any_ascii("Björk") == "Bjork"
     assert NativeKernel.crc32("TestCase😊") == 1_198_634_863
     assert NativeKernel.crc32_hex("TestCase😊") == "4771b76f"
+    assert NativeKernel.xxh3_128_hex("TestCase") == "7b16fe7c3e492b87d9615265f0856cec"
     assert NativeKernel.phone_normalize_e164("+1 415 555 2671") == "+14155552671"
     assert {:error, _reason} = NativeKernel.phone_normalize_e164("13800000000")
   end
@@ -256,8 +301,6 @@ defmodule Ankole.KernelTest do
     %{
       actor: %{
         agent_uid: "agent-1",
-        display_name: "ReleaseBot",
-        role: "Research Analyst",
         session_id: "signal-channel:lark:dm:1"
       },
       activation_uid: "activation-1",

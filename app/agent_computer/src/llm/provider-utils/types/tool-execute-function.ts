@@ -1,7 +1,6 @@
 // @ts-nocheck
 import type { Context } from './context'
 import type { ModelMessage } from './model-message'
-import type { SandboxSession } from './sandbox'
 
 /**
  * Additional options that are sent into each tool execution.
@@ -35,11 +34,6 @@ export interface ToolExecutionOptions<CONTEXT extends Context | unknown | never>
    * in `prepareStep` and update it there.
    */
   context: CONTEXT
-
-  /**
-   * The sandbox environment that the tool is operating in.
-   */
-  experimental_sandbox?: SandboxSession
 }
 
 /**

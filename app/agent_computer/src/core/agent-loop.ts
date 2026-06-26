@@ -1,8 +1,8 @@
 /**
  * The reusable agent loop: assemble context → stream one assistant turn from the model → run any tool
  * calls it asked for → feed the results back → repeat until a stop condition. It is provider-agnostic
- * and stateless; the stateful {@link Agent} wrapper and the higher BullX runtime drive it through the
- * hooks on {@link AgentLoopConfig} (steering, follow-ups, per-turn updates, tool gating).
+ * and stateless; the Actor Runtime worker drives it through the hooks on {@link AgentLoopConfig}
+ * (steering, follow-ups, per-turn updates, tool gating).
  *
  * Key design choice: the loop carries the richer `AgentMessage[]` (which can include custom/UI-only
  * rows) the whole way through, and converts down to provider `Message[]` only at the wire boundary
@@ -163,38 +163,7 @@ export async function runAgentLoop(
 }
 
 /**
- * Resumes a run from an existing transcript without adding a new prompt.
- *
- * Unlike {@link runAgentLoop}, nothing is appended up front, so `newMessages` starts empty and holds
- * only what this continuation generates. The last message must be a user or tool-result turn — a
- * transcript ending on an assistant has nothing for the model to respond to, so continuing is rejected.
- */
-export async function runAgentLoopContinue(
-  context: AgentContext,
-  config: AgentLoopConfig,
-  emit: AgentEventSink,
-  signal?: AbortSignal
-): Promise<AgentMessage[]> {
-  if (context.messages.length === 0) {
-    throw new Error('Cannot continue: no messages in context')
-  }
-
-  if (context.messages[context.messages.length - 1].role === 'assistant') {
-    throw new Error('Cannot continue from message role: assistant')
-  }
-
-  const newMessages: AgentMessage[] = []
-  const currentContext: AgentContext = { ...context }
-
-  await emit({ type: 'agent_start' })
-  await emit({ type: 'turn_start' })
-
-  await runLoop(currentContext, newMessages, config, signal, emit)
-  return newMessages
-}
-
-/**
- * The core turn loop shared by both entry points.
+ * The core turn loop behind the worker-facing `runAgentLoop` entry point.
  *
  * Two nested loops. The inner loop drives turns while the model keeps calling tools or queued
  * steering messages keep arriving; the outer loop exists only to re-enter the inner loop when a

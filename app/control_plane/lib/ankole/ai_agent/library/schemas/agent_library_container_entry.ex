@@ -14,23 +14,23 @@ defmodule Ankole.AIAgent.Library.Schemas.AgentLibraryContainerEntry do
   @foreign_key_type :string
   @timestamps_opts [type: :utc_datetime_usec]
   # What kind of agent-owned file this row backs. `soul`/`mission` are the
-  # persona docs seeded per agent, `skill_append` is the per-agent override
-  # spliced into a shared skill; the rest are other writable surfaces the agent
-  # accumulates over its lifetime.
-  @source_kinds ~w(soul mission skill_append setting memory system user computer)
+  # persona docs seeded per agent; skill overlays are semantic rows in
+  # `agent_skill_overlays`, not files in this table.
+  @source_kinds ~w(soul mission setting memory system user computer)
 
   schema "agent_library_container_entries" do
-    belongs_to :agent, Principal,
+    belongs_to(:agent, Principal,
       foreign_key: :agent_uid,
       references: :uid,
       type: :string
+    )
 
-    field :path, :string
-    field :source_kind, :string
-    field :content, :string
-    field :content_hash, :string
-    field :metadata, :map, default: %{}
-    field :deleted_at, :utc_datetime_usec
+    field(:path, :string)
+    field(:source_kind, :string)
+    field(:content, :string)
+    field(:content_hash, :string)
+    field(:metadata, :map, default: %{})
+    field(:deleted_at, :utc_datetime_usec)
 
     timestamps()
   end

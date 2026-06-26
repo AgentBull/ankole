@@ -23,7 +23,6 @@ import type { RequestOptions } from '../prompt/request-options'
 import { convertToLanguageModelPrompt } from '../prompt/convert-to-language-model-prompt'
 import type { Prompt } from '../prompt/prompt'
 import { standardizePrompt } from '../prompt/standardize-prompt'
-import { wrapGatewayError } from '../prompt/wrap-gateway-error'
 import { createTelemetryDispatcher } from '../telemetry/create-telemetry-dispatcher'
 import type { TelemetryOptions } from '../telemetry/telemetry-options'
 import { createTextStreamResponse } from '../text-stream/create-text-stream-response'
@@ -476,7 +475,7 @@ class DefaultStreamObjectResult<PARTIAL, RESULT, ELEMENT_STREAM> implements Stre
         controller.enqueue(chunk)
 
         if (chunk.type === 'error') {
-          onError({ error: wrapGatewayError(chunk.error) })
+          onError({ error: chunk.error })
         }
       }
     })

@@ -211,27 +211,11 @@ export async function generateImage({
     }
 
     if (result.providerMetadata) {
-      for (const [providerName, metadata] of Object.entries<{
-        images: unknown
-      }>(result.providerMetadata)) {
-        if (providerName === 'gateway') {
-          const currentEntry = providerMetadata[providerName]
-          if (currentEntry != null && typeof currentEntry === 'object') {
-            providerMetadata[providerName] = {
-              ...(currentEntry as object),
-              ...metadata
-            } as ImageModelV4ProviderMetadata[string]
-          } else {
-            providerMetadata[providerName] = metadata as ImageModelV4ProviderMetadata[string]
-          }
-          const imagesValue = (providerMetadata[providerName] as { images?: unknown }).images
-          if (Array.isArray(imagesValue) && imagesValue.length === 0) {
-            delete (providerMetadata[providerName] as { images?: unknown }).images
-          }
-        } else {
-          providerMetadata[providerName] ??= { images: [] }
-          providerMetadata[providerName].images.push(...result.providerMetadata[providerName].images)
-        }
+      for (const [providerName, metadata] of Object.entries<ImageModelV4ProviderMetadata[string]>(
+        result.providerMetadata
+      )) {
+        providerMetadata[providerName] ??= { images: [] }
+        providerMetadata[providerName].images.push(...metadata.images)
       }
     }
 

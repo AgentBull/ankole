@@ -1,11 +1,11 @@
 import Config
 
-actor_bus_bind_endpoint =
-  System.get_env("ANKOLE_ACTOR_BUS_BIND_ENDPOINT") ||
-    System.get_env("ANKOLE_ACTOR_BUS_ENDPOINT")
+runtime_fabric_bind_endpoint =
+  System.get_env("ANKOLE_RUNTIME_FABRIC_BIND_ENDPOINT") ||
+    System.get_env("ANKOLE_RUNTIME_FABRIC_ENDPOINT")
 
-if actor_bus_bind_endpoint do
-  config :ankole, :actor_runtime_router, bind_endpoint: actor_bus_bind_endpoint
+if runtime_fabric_bind_endpoint do
+  config :ankole, :actor_runtime_router, bind_endpoint: runtime_fabric_bind_endpoint
 end
 
 # config/runtime.exs is executed for all environments, including

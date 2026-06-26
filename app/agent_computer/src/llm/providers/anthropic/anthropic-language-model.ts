@@ -349,8 +349,6 @@ export class AnthropicLanguageModel implements LanguageModelV4 {
         'anthropic.text_editor_20250124': 'str_replace_editor',
         'anthropic.text_editor_20250429': 'str_replace_based_edit_tool',
         'anthropic.text_editor_20250728': 'str_replace_based_edit_tool',
-        'anthropic.bash_20241022': 'bash',
-        'anthropic.bash_20250124': 'bash',
         'anthropic.memory_20250818': 'memory',
         'anthropic.web_search_20250305': 'web_search',
         'anthropic.web_search_20260209': 'web_search',

@@ -134,6 +134,18 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
   def load_chat_config_ref(_config_ref), do: {:error, :invalid_config_ref}
 
   @doc """
+  Loads an identity-provider config by its AppConfigure key.
+  """
+  @spec load_identity_config_key(String.t()) :: {:ok, identity_config()} | {:error, term()}
+  def load_identity_config_key(key) when is_binary(key) do
+    with {:ok, value} <- AppConfigure.get_by_key(key) do
+      validate_identity_config(value)
+    end
+  end
+
+  def load_identity_config_key(_key), do: {:error, :invalid_config_key}
+
+  @doc """
   Builds a FeishuOpenAPI client without exposing the secret in inspect output.
   """
   @spec client(chat_config() | identity_config(), keyword()) :: Client.t()

@@ -7,7 +7,6 @@
 import './global'
 
 // re-exports:
-export { createGateway, gateway, type GatewayModelId } from '@/llm/gateway'
 export {
   asSchema,
   createIdGenerator,
@@ -22,8 +21,6 @@ export {
   type InferSchema,
   type InferToolInput,
   type InferToolOutput,
-  type Experimental_SandboxSession,
-  type Experimental_SandboxProcess,
   type Schema,
   type Tool,
   type ToolApprovalRequest,
@@ -39,13 +36,10 @@ export * from './embed'
 export * from './error'
 export * from './generate-image'
 export * from './generate-object'
-export * from './generate-speech'
 export * from './generate-text'
-export * from './generate-video'
 export * from './logger'
 export * from './middleware'
 export * from './prompt'
-export * from './realtime'
 export * from './registry'
 export * from './rerank'
 export * from './telemetry'

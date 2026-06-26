@@ -1,8 +1,7 @@
 // Topology program context. The symbol-analysis helpers are verbatim from
-// openclaw; `createProgramContext` is rewritten for bullx so the Program spans
-// the whole monorepo (app + sdk + plugin) using the app tsconfig's compiler
-// options (which carry the `@/*` path aliases). This lets the checker resolve
-// `@/...` consumers natively and see cross-package consumers of the SDK.
+// openclaw; `createProgramContext` is rewritten for Ankole so the Program spans
+// the current TS workspaces while using Agent Computer's tsconfig for the
+// package-local `@/*` path aliases.
 
 import { execFileSync } from 'node:child_process'
 import { readdirSync, statSync } from 'node:fs'
@@ -10,9 +9,9 @@ import path from 'node:path'
 import ts from 'typescript'
 import type { CanonicalSymbol, ProgramContext, SymbolKind } from './types'
 
-// Extra source roots merged into the Program beyond the app tsconfig's own
-// includes, so SDK/plugin entrypoints and consumers are analyzable.
-const EXTRA_PROGRAM_ROOTS = ['packages/sdk/src', 'plugin/lark-adapter/src']
+// Extra source roots merged into the Program beyond Agent Computer's own
+// includes, so frontend, UI kit, and devkit consumers are analyzable.
+const EXTRA_PROGRAM_ROOTS = ['app/webapps', 'libs/uikit/src', 'tools/devkit/src']
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) {
@@ -42,7 +41,10 @@ function collectTsSourceFiles(root: string): string[] {
   )
 }
 
-export function createProgramContext(repoRoot: string, tsconfigName = 'app/tsconfig.json'): ProgramContext {
+export function createProgramContext(
+  repoRoot: string,
+  tsconfigName = 'app/agent_computer/tsconfig.json'
+): ProgramContext {
   const configPath = path.join(repoRoot, tsconfigName)
   const host: ts.ParseConfigFileHost = {
     ...ts.sys,

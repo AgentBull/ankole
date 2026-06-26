@@ -20,11 +20,15 @@ defmodule Ankole.Repo.Migrations.CreateLlmProviderRuntime do
 
     create constraint(
              :agent_computer_worker_auth_keys,
-             :agent_computer_worker_auth_keys_pre_auth_key_present, check: "pre_auth_key <> ''")
+             :agent_computer_worker_auth_keys_pre_auth_key_present,
+             check: "pre_auth_key <> ''"
+           )
 
     create constraint(
              :agent_computer_worker_auth_keys,
-             :agent_computer_worker_auth_keys_revision_positive, check: "key_revision > 0")
+             :agent_computer_worker_auth_keys_revision_positive,
+             check: "key_revision > 0"
+           )
 
     create table(:llm_providers, primary_key: false) do
       add :provider_id, :text, primary_key: true

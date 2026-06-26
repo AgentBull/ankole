@@ -221,24 +221,6 @@ export async function prepareTools({
             })
             break
           }
-          case 'anthropic.bash_20250124': {
-            betas.add('computer-use-2025-01-24')
-            anthropicTools.push({
-              name: 'bash',
-              type: 'bash_20250124',
-              cache_control: undefined
-            })
-            break
-          }
-          case 'anthropic.bash_20241022': {
-            betas.add('computer-use-2024-10-22')
-            anthropicTools.push({
-              name: 'bash',
-              type: 'bash_20241022',
-              cache_control: undefined
-            })
-            break
-          }
           case 'anthropic.memory_20250818': {
             betas.add('context-management-2025-06-27')
             anthropicTools.push({

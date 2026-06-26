@@ -1,7 +1,6 @@
 import { join } from 'node:path'
 import { chdir } from 'node:process'
 
-import { main } from '@angular-devkit/schematics-cli/bin/schematics'
 import { Crust } from '@crustjs/core'
 import chalk from 'chalk'
 
@@ -41,7 +40,7 @@ export async function runGenerate(args: string[]): Promise<void> {
   // Schematics writes relative to cwd. Pinning the repo root avoids generating
   // files under tools/devkit when the command is launched from a package script.
   chdir(repoRootPath)
-  await main({ args: schematicsArgs })
+  await runSchematics(schematicsArgs)
 }
 
 function showUsage(): void {
@@ -58,7 +57,7 @@ Common Options:
 
 Available schematics in ${defaultCollection} collection:\n`)
 
-  void main({ args: [`${collectionPath}:`, '--list-schematics'] })
+  void runSchematics([`${collectionPath}:`, '--list-schematics'])
   process.stdout.write(`
 By default, if the collection name is not specified, use the internal collection provided by ${defaultCollection}.
 e.g. "${chalk.bold('bun run kit g code-workspace')}" equals "${chalk.bold(`bun run kit g ${defaultCollection}:code-workspace`)}".
@@ -67,4 +66,9 @@ e.g. "${chalk.bold('bun run kit g code-workspace')}" equals "${chalk.bold(`bun r
 
 function hasOption(args: string[], name: string): boolean {
   return args.some(arg => arg === `--${name}` || arg === `--no-${name}` || arg.startsWith(`--${name}=`))
+}
+
+async function runSchematics(args: string[]): Promise<void> {
+  const { main } = await import('@angular-devkit/schematics-cli/bin/schematics')
+  await main({ args })
 }

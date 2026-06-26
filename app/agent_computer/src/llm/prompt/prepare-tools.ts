@@ -1,25 +1,17 @@
 // @ts-nocheck
 import type { LanguageModelV4FunctionTool, LanguageModelV4ProviderTool } from '@/llm/provider'
-import {
-  asSchema,
-  type Experimental_SandboxSession as SandboxSession,
-  type InferToolSetContext,
-  type Tool,
-  type ToolSet
-} from '@/llm/provider-utils'
+import { asSchema, type InferToolSetContext, type Tool, type ToolSet } from '@/llm/provider-utils'
 import type { ToolOrder } from '../generate-text/tool-order'
 import { isNonEmptyObject } from '../util/is-non-empty-object'
 
 export async function prepareTools<TOOLS extends ToolSet>({
   tools,
   toolOrder,
-  toolsContext = {} as InferToolSetContext<TOOLS>,
-  experimental_sandbox: sandbox
+  toolsContext = {} as InferToolSetContext<TOOLS>
 }: {
   tools: TOOLS | undefined
   toolOrder?: ToolOrder<TOOLS>
   toolsContext?: InferToolSetContext<TOOLS>
-  experimental_sandbox?: SandboxSession
 }): Promise<Array<LanguageModelV4FunctionTool | LanguageModelV4ProviderTool> | undefined> {
   if (!isNonEmptyObject(tools)) {
     return undefined
@@ -36,8 +28,7 @@ export async function prepareTools<TOOLS extends ToolSet>({
         const description = resolveToolDescription({
           tool,
           toolName: name,
-          toolsContext,
-          experimental_sandbox: sandbox
+          toolsContext
         })
         const providerOptions = tool.providerOptions
         const inputExamples = tool.inputExamples
@@ -100,20 +91,17 @@ function orderToolEntries<TOOLS extends ToolSet>({
 function resolveToolDescription<TOOLS extends ToolSet>({
   tool,
   toolName,
-  toolsContext,
-  experimental_sandbox: sandbox
+  toolsContext
 }: {
   tool: Tool
   toolName: string
   toolsContext: InferToolSetContext<TOOLS>
-  experimental_sandbox?: SandboxSession
 }): string | undefined {
   return tool.description === undefined
     ? undefined
     : typeof tool.description === 'string'
       ? tool.description
       : tool.description({
-          context: toolsContext[toolName as keyof InferToolSetContext<TOOLS>],
-          experimental_sandbox: sandbox
+          context: toolsContext[toolName as keyof InferToolSetContext<TOOLS>]
         })
 }

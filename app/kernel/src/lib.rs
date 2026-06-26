@@ -18,7 +18,7 @@ pub mod core;
 pub mod authz;
 
 #[cfg(any(test, feature = "embed", feature = "napi", feature = "nif"))]
-pub mod actor_bus;
+pub mod runtime_fabric;
 
 #[cfg(feature = "napi")]
 mod napi_exports;

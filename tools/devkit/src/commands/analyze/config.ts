@@ -8,17 +8,43 @@
 
 /** Source roots scanned for import cycles (repo-root-relative, POSIX). */
 export const CYCLE_SCAN_ROOTS = [
-  'app/src',
-  'app/webui/src',
-  'packages/sdk/src',
-  'plugin/lark-adapter/src',
+  'app/agent_computer/src/actor_bus.ts',
+  'app/agent_computer/src/browser_cli.ts',
+  'app/agent_computer/src/common',
+  'app/agent_computer/src/core',
+  'app/agent_computer/src/llm_runtime',
+  'app/agent_computer/src/main.ts',
+  'app/agent_computer/src/turn_envelopes.ts',
+  'app/agent_computer/src/prompts',
+  'app/agent_computer/src/runtime.ts',
+  'app/agent_computer/src/security',
+  'app/agent_computer/src/tools',
+  'app/agent_computer/src/turn_child.ts',
+  'app/webapps',
+  'libs/uikit/src',
   'tools/devkit/src'
 ] as const
-// NOTE: packages/native-addons is intentionally absent (Rust/napi; only a
-// generated index.d.ts, which is skipped anyway).
+// NOTE: app/agent_computer/src/llm is the vendored AI SDK and is intentionally
+// absent from current structure gates.
 
 /** Roots where the boundary/smell rules apply. */
-export const SMELL_SCAN_ROOTS = ['app/src', 'packages/sdk/src', 'plugin/lark-adapter/src'] as const
+export const SMELL_SCAN_ROOTS = [
+  'app/agent_computer/src/actor_bus.ts',
+  'app/agent_computer/src/browser_cli.ts',
+  'app/agent_computer/src/common',
+  'app/agent_computer/src/core',
+  'app/agent_computer/src/llm_runtime',
+  'app/agent_computer/src/main.ts',
+  'app/agent_computer/src/turn_envelopes.ts',
+  'app/agent_computer/src/prompts',
+  'app/agent_computer/src/runtime.ts',
+  'app/agent_computer/src/security',
+  'app/agent_computer/src/tools',
+  'app/agent_computer/src/turn_child.ts',
+  'app/webapps',
+  'libs/uikit/src',
+  'tools/devkit/src'
+] as const
 
 export const CYCLE_SOURCE_EXTENSIONS = ['.ts', '.tsx', '.mts', '.cts', '.js', '.mjs', '.cjs'] as const
 
@@ -26,12 +52,11 @@ export const SMELL_SOURCE_EXTENSIONS = ['.ts', '.tsx'] as const
 
 /**
  * Per-package tsconfigs whose `compilerOptions.paths` are read to resolve `@/*`
- * / `@locales/*` aliases in the cycle graph. Only packages that actually define
- * path aliases need listing (lark-adapter & devkit define none).
+ * aliases in the cycle graph. Only packages that actually define path aliases
+ * need listing.
  */
 export const ALIAS_TSCONFIGS = [
-  { packageRoot: 'app', tsconfig: 'app/tsconfig.json' },
-  { packageRoot: 'packages/sdk', tsconfig: 'packages/sdk/tsconfig.json' }
+  { packageRoot: 'app/agent_computer', tsconfig: 'app/agent_computer/tsconfig.json' }
 ] as const
 
 // ---------------------------------------------------------------------------
@@ -53,30 +78,26 @@ export interface BoundaryRule {
 }
 
 export const BOUNDARY_RULES: BoundaryRule[] = [
-  // ① SDK must not re-export app/plugin internal implementation.
   {
-    category: 'sdk-internal-reexport',
-    appliesTo: /^packages\/sdk\/src\//,
-    forbidResolvedPrefixes: ['app/', 'plugin/'],
-    forbidBareSpecifiers: [/^@agentbull\/bullx-agent(\/|$)/, /^@agentbull\/plugin-/],
-    reason: 'sdk public surface must not re-export app/plugin internal implementation'
-  },
-  // ② plugin/** must not import app internals.
-  {
-    category: 'plugin-imports-app',
-    appliesTo: /^plugin\/[^/]+\/src\//,
+    category: 'uikit-imports-app',
+    appliesTo: /^libs\/uikit\/src\//,
     forbidResolvedPrefixes: ['app/'],
-    forbidBareSpecifiers: [/^@agentbull\/bullx-agent(\/|$)/, /^@\//],
-    reason: 'plugin must not import app internals; depend on @agentbull/bullx-sdk only'
+    forbidBareSpecifiers: [/^@ankole\/(?:agent-computer|webapps|control-plane|kernel)(\/|$)/],
+    reason: 'uikit must remain app-agnostic and must not import application internals'
   },
-  // ③ app core must not reverse-import plugin implementation (discovery exempt).
   {
-    category: 'app-imports-plugin-impl',
-    appliesTo: /^app\/src\//,
-    exemptImporters: [/^app\/src\/plugins\//],
-    forbidResolvedPrefixes: ['plugin/'],
-    forbidBareSpecifiers: [/^@agentbull\/plugin-/],
-    reason: 'app core must not import plugin implementation (discovery is filesystem/dynamic)'
+    category: 'webapps-imports-agent-computer',
+    appliesTo: /^app\/webapps\//,
+    forbidResolvedPrefixes: ['app/agent_computer/'],
+    forbidBareSpecifiers: [/^@ankole\/agent-computer(\/|$)/],
+    reason: 'webapps must communicate through control-plane APIs, not import worker internals'
+  },
+  {
+    category: 'agent-computer-imports-frontend',
+    appliesTo: /^app\/agent_computer\/src\//,
+    forbidResolvedPrefixes: ['app/webapps/', 'libs/uikit/'],
+    forbidBareSpecifiers: [/^@ankole\/(?:webapps|uikit)(\/|$)/],
+    reason: 'agent-computer is a worker runtime and must not import frontend packages'
   }
 ]
 
@@ -89,26 +110,7 @@ export interface BarrelAllowlist {
   note: string
 }
 
-export const BARREL_ALLOWLIST: Record<string, BarrelAllowlist> = {
-  'app/src/external-gateway/core/index.ts': {
-    allowed: ['./capabilities', './events', './projection', './visible-output-stream', './errors'],
-    note: 'External Gateway stable runtime surface. Adding a module here is a deliberate public-surface widening.'
-  },
-  'app/src/ai-agent/core/index.ts': {
-    allowed: [
-      './agent',
-      './agent-loop',
-      './harness/compaction/compaction',
-      './harness/messages',
-      './harness/session/session',
-      './harness/skills',
-      './harness/types',
-      './types',
-      './bullx'
-    ],
-    note: 'AIAgent core surface. Every entry is consumed by the current runtime.'
-  }
-}
+export const BARREL_ALLOWLIST: Record<string, BarrelAllowlist> = {}
 
 export const BARREL_EXPORT_CATEGORY = 'barrel-export-out-of-allowlist'
 
@@ -117,7 +119,7 @@ export const BARREL_EXPORT_CATEGORY = 'barrel-export-out-of-allowlist'
 // ---------------------------------------------------------------------------
 
 /** Top-level dirs whose paths are real repo files in Knip's compact output. */
-export const UNUSED_REPO_PATH_PREFIX = /^(app|packages|plugin|tools)\//
+export const UNUSED_REPO_PATH_PREFIX = /^(app|libs|plugins|tools)\//
 
 export const UNUSED_KNIP_ARGS = ['--no-progress', '--reporter', 'compact', '--files', '--no-config-hints'] as const
 
@@ -133,7 +135,13 @@ export interface UnusedAllowEntry {
  * db-migrate, package exports) are declared as `entry` in knip.config.ts so
  * Knip treats them as used — they do NOT belong here (that would be stale).
  */
-export const UNUSED_ALLOWLIST: UnusedAllowEntry[] = []
+export const UNUSED_ALLOWLIST: UnusedAllowEntry[] = [
+  {
+    file: 'app/webapps/console/api/generated/index.ts',
+    owner: 'webapps-console-api',
+    reason: 'Generated OpenAPI barrel; current consumers import generated query/types modules directly.'
+  }
+]
 
 // ---------------------------------------------------------------------------
 // duplicates: jscpd v5
@@ -153,12 +161,12 @@ export const DUP_IGNORE_PATTERNS = [
   '**/.artifacts/**',
   '**/*.test.ts',
   '**/*.test.tsx',
+  '**/*.d.ts',
   '**/migrations/**',
-  'app/webui/src/uikit/**',
-  'packages/native-addons/**',
-  // Contract type definitions: their shape repetition is intentional, not a
-  // clone to merge.
-  'packages/sdk/src/plugins.ts'
+  'app/agent_computer/src/llm/**',
+  '**/llm/**',
+  'llm/**',
+  'libs/uikit/src/stories/**'
 ] as const
 
 export interface DupScan {
@@ -166,8 +174,29 @@ export interface DupScan {
   paths: string[]
 }
 
-/** jscpd scan groups. One cross-module production scan is enough for bullx. */
-export const DUP_SCANS: DupScan[] = [{ name: 'cross-module', paths: ['app/src', 'plugin', 'packages'] }]
+/** jscpd scan groups. One cross-module production scan is enough for Ankole. */
+export const DUP_SCANS: DupScan[] = [
+  {
+    name: 'cross-module',
+    paths: [
+      'app/agent_computer/src/actor_bus.ts',
+      'app/agent_computer/src/browser_cli.ts',
+      'app/agent_computer/src/common',
+      'app/agent_computer/src/core',
+      'app/agent_computer/src/llm_runtime',
+      'app/agent_computer/src/main.ts',
+      'app/agent_computer/src/turn_envelopes.ts',
+      'app/agent_computer/src/prompts',
+      'app/agent_computer/src/runtime.ts',
+      'app/agent_computer/src/security',
+      'app/agent_computer/src/tools',
+      'app/agent_computer/src/turn_child.ts',
+      'app/webapps',
+      'libs/uikit/src',
+      'tools/devkit/src'
+    ]
+  }
+]
 
 /** Tracked source extensions used by the --coverage-only assertion. */
 export const DUP_SOURCE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.mjs', '.cjs'])
@@ -178,10 +207,14 @@ export const DUP_SOURCE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.mjs', '.cj
  * or under one of these prefixes.
  */
 export const DUP_INTENTIONALLY_UNSCANNED = [
-  'app/webui/',
-  'app/scripts/',
-  'app/drizzle.config.ts',
-  'tools/',
+  'app/agent_computer/src/llm/',
+  'app/agent_computer/test/',
+  'app/kernel/',
+  'app/control_plane/',
+  'libs/feishu_openapi/',
+  'libs/uikit/src/stories/',
+  'plugins/',
+  'internals/',
   'knip.config.ts'
 ] as const
 
@@ -196,34 +229,26 @@ export interface TopologyScopeConfig {
 }
 
 export const TOPOLOGY_SCOPES: Record<string, TopologyScopeConfig> = {
-  // Real consumers of the SDK plugin contract.
-  'sdk-plugins': {
-    entrypointRoot: 'packages/sdk/src',
-    importPrefix: '@agentbull/bullx-sdk',
-    description: 'Ankole SDK public plugin surface'
+  'agent-computer-core': {
+    entrypointRoot: 'app/agent_computer/src/core',
+    importPrefix: '@/core',
+    description: 'Agent Computer core public surface'
   },
-  // External Gateway core public-surface usage.
-  'eg-core': {
-    entrypointRoot: 'app/src/external-gateway/core',
-    importPrefix: '@/external-gateway/core',
-    description: 'External Gateway core public surface'
-  },
-  // AIAgent core surface usage.
-  'ai-agent-core': {
-    entrypointRoot: 'app/src/ai-agent/core',
-    importPrefix: '@/ai-agent/core',
-    description: 'AIAgent core surface'
+  'agent-computer-tools': {
+    entrypointRoot: 'app/agent_computer/src/tools/computer',
+    importPrefix: '@/tools/computer',
+    description: 'Agent Computer computer-tool surface'
   }
 } as const
 
-export const DEFAULT_TOPOLOGY_SCOPE = 'sdk-plugins'
+export const DEFAULT_TOPOLOGY_SCOPE = 'agent-computer-core'
 
 /**
- * Scopes where `unused-public-surface` is a CI gate: an internal module surface
- * must not export what nothing consumes. `sdk-plugins` stays report-only — a
- * public contract may legitimately export ahead of external consumers.
+ * Scopes where `unused-public-surface` is a CI gate. Keep this empty while
+ * topology is report-only; add scopes here only when a public surface is stable
+ * enough for unused exports to fail CI.
  */
-export const TOPOLOGY_GATED_SCOPES = ['eg-core', 'ai-agent-core'] as const
+export const TOPOLOGY_GATED_SCOPES = [] as const
 
 export interface TopologyUnusedAllowEntry {
   scope: string

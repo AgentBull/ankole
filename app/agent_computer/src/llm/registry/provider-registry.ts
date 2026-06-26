@@ -1,8 +1,6 @@
 // @ts-nocheck
 import {
   type EmbeddingModelV4,
-  type Experimental_VideoModelV3,
-  type Experimental_VideoModelV4,
   type FilesV4,
   type ImageModelV4,
   type LanguageModelV4,
@@ -11,35 +9,16 @@ import {
   type ProviderV4,
   type RerankingModelV4,
   type SkillsV4,
-  type SpeechModelV4,
   type TranscriptionModelV4
 } from '@/llm/provider'
 import { wrapImageModel } from '../middleware/wrap-image-model'
 import { wrapLanguageModel } from '../middleware/wrap-language-model'
 import { asProviderV4 } from '../model/as-provider-v4'
-import { asVideoModelV4 } from '../model/as-video-model-v4'
 import type { ImageModelMiddleware, LanguageModelMiddleware } from '../types'
 import type { ExtractLiteralUnion } from '../util/extract-literal-union'
 import { NoSuchProviderError } from './no-such-provider-error'
 
-type ProviderWithOptionalVideoModel = {
-  videoModel?: (modelId: string) => Experimental_VideoModelV3 | Experimental_VideoModelV4
-}
-
-type RegistryModelType =
-  | 'languageModel'
-  | 'embeddingModel'
-  | 'imageModel'
-  | 'transcriptionModel'
-  | 'speechModel'
-  | 'rerankingModel'
-  | 'videoModel'
-
-type ProviderVideoModelIdentifier<PROVIDER> = PROVIDER extends {
-  videoModel: (...args: infer ARGS) => unknown
-}
-  ? ExtractLiteralUnion<ARGS[0]>
-  : never
+type RegistryModelType = 'languageModel' | 'embeddingModel' | 'imageModel' | 'transcriptionModel' | 'rerankingModel'
 
 export interface ProviderRegistryProvider<
   PROVIDERS extends Record<string, ProviderV4 | ProviderV3> = Record<string, ProviderV4 | ProviderV3>,
@@ -81,15 +60,6 @@ export interface ProviderRegistryProvider<
     id: KEY extends string ? `${KEY & string}${SEPARATOR}${string}` : never
   ): TranscriptionModelV4
 
-  speechModel<KEY extends keyof PROVIDERS>(
-    id: KEY extends string
-      ? `${KEY & string}${SEPARATOR}${ExtractLiteralUnion<Parameters<NonNullable<PROVIDERS[KEY]['speechModel']>>[0]>}`
-      : never
-  ): SpeechModelV4
-  speechModel<KEY extends keyof PROVIDERS>(
-    id: KEY extends string ? `${KEY & string}${SEPARATOR}${string}` : never
-  ): SpeechModelV4
-
   rerankingModel<KEY extends keyof PROVIDERS>(
     id: KEY extends string
       ? `${KEY & string}${SEPARATOR}${ExtractLiteralUnion<Parameters<NonNullable<PROVIDERS[KEY]['rerankingModel']>>[0]>}`
@@ -98,13 +68,6 @@ export interface ProviderRegistryProvider<
   rerankingModel<KEY extends keyof PROVIDERS>(
     id: KEY extends string ? `${KEY & string}${SEPARATOR}${string}` : never
   ): RerankingModelV4
-
-  videoModel<KEY extends keyof PROVIDERS>(
-    id: KEY extends string ? `${KEY & string}${SEPARATOR}${ProviderVideoModelIdentifier<PROVIDERS[KEY]>}` : never
-  ): Experimental_VideoModelV4
-  videoModel<KEY extends keyof PROVIDERS>(
-    id: KEY extends string ? `${KEY & string}${SEPARATOR}${string}` : never
-  ): Experimental_VideoModelV4
 
   files<KEY extends keyof PROVIDERS>(id: KEY extends string ? KEY & string : never): FilesV4
 
@@ -164,7 +127,7 @@ class DefaultProviderRegistry<
   PROVIDERS extends Record<string, ProviderV4 | ProviderV3>,
   SEPARATOR extends string
 > implements ProviderRegistryProvider<PROVIDERS, SEPARATOR> {
-  private providers: Partial<Record<keyof PROVIDERS, ProviderV4 & ProviderWithOptionalVideoModel>> = {}
+  private providers: Partial<Record<keyof PROVIDERS, ProviderV4>> = {}
   private separator: SEPARATOR
   private languageModelMiddleware?: LanguageModelMiddleware | LanguageModelMiddleware[]
   private imageModelMiddleware?: ImageModelMiddleware | ImageModelMiddleware[]
@@ -184,19 +147,10 @@ class DefaultProviderRegistry<
   }
 
   registerProvider<K extends keyof PROVIDERS>({ id, provider }: { id: K; provider: PROVIDERS[K] }): void {
-    const providerV4 = asProviderV4(provider)
-    const videoModel = (provider as ProviderWithOptionalVideoModel).videoModel?.bind(provider)
-
-    this.providers[id] =
-      videoModel == null
-        ? providerV4
-        : Object.assign(Object.create(Object.getPrototypeOf(providerV4)), {
-            ...providerV4,
-            videoModel: (modelId: string) => asVideoModelV4(videoModel(modelId))
-          })
+    this.providers[id] = asProviderV4(provider)
   }
 
-  private getProvider(id: string, modelType: RegistryModelType): ProviderV4 & ProviderWithOptionalVideoModel {
+  private getProvider(id: string, modelType: RegistryModelType): ProviderV4 {
     const provider = this.providers[id as keyof PROVIDERS]
 
     if (provider == null) {
@@ -297,19 +251,6 @@ class DefaultProviderRegistry<
     return model
   }
 
-  speechModel<KEY extends keyof PROVIDERS>(id: `${KEY & string}${SEPARATOR}${string}`): SpeechModelV4 {
-    const [providerId, modelId] = this.splitId(id, 'speechModel')
-    const provider = this.getProvider(providerId, 'speechModel')
-
-    const model = provider.speechModel?.(modelId)
-
-    if (model == null) {
-      throw new NoSuchModelError({ modelId: id, modelType: 'speechModel' })
-    }
-
-    return model
-  }
-
   rerankingModel<KEY extends keyof PROVIDERS>(id: `${KEY & string}${SEPARATOR}${string}`): RerankingModelV4 {
     const [providerId, modelId] = this.splitId(id, 'rerankingModel')
     const provider = this.getProvider(providerId, 'rerankingModel')
@@ -321,19 +262,6 @@ class DefaultProviderRegistry<
     }
 
     return model
-  }
-
-  videoModel<KEY extends keyof PROVIDERS>(id: `${KEY & string}${SEPARATOR}${string}`): Experimental_VideoModelV4 {
-    const [providerId, modelId] = this.splitId(id, 'videoModel')
-    const provider = this.getProvider(providerId, 'videoModel')
-
-    const model = provider.videoModel?.(modelId)
-
-    if (model == null) {
-      throw new NoSuchModelError({ modelId: id, modelType: 'videoModel' })
-    }
-
-    return asVideoModelV4(model)
   }
 
   files<KEY extends keyof PROVIDERS>(id: KEY & string): FilesV4 {

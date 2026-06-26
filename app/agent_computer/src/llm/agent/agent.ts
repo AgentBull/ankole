@@ -1,11 +1,5 @@
 // @ts-nocheck
-import type {
-  Arrayable,
-  Context,
-  Experimental_SandboxSession as SandboxSession,
-  ModelMessage,
-  ToolSet
-} from '@/llm/provider-utils'
+import type { Arrayable, Context, ModelMessage, ToolSet } from '@/llm/provider-utils'
 import type {
   GenerateTextOnEndCallback,
   GenerateTextOnStartCallback,
@@ -127,11 +121,6 @@ export type AgentCallParameters<
      * @deprecated Use `onEnd` instead.
      */
     onFinish?: GenerateTextOnEndCallback<TOOLS, RUNTIME_CONTEXT>
-
-    /**
-     * The sandbox environment that is passed through to tool execution.
-     */
-    experimental_sandbox?: SandboxSession
   }
 
 /**

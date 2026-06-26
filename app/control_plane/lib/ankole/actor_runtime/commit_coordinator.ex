@@ -384,18 +384,18 @@ defmodule Ankole.ActorRuntime.CommitCoordinator do
 
   # Materializes the worker proposal as the assistant transcript message.
   defp insert_assistant_message(repo, conversation, llm_turn, proposal, actor_inputs, now) do
-    with {:ok, text} <- proposal_reply_text(proposal, llm_turn) do
+    with {:ok, text} <- proposal_reply_text(proposal, llm_turn),
+         {:ok, attachments} <- proposal_reply_attachments(proposal) do
       attrs = %{
         agent_uid: conversation.agent_uid,
         conversation_id: conversation.id,
         role: "assistant",
         kind: "normal",
         status: "complete",
-        content: [%{"type" => "text", "text" => text}],
+        content: assistant_content(text, attachments),
         metadata: %{
           "actor_input_ids" => Enum.map(actor_inputs, & &1.id),
-          "committed_at" => DateTime.to_iso8601(now),
-          "placeholder" => llm_turn.provider == "ankole-placeholder"
+          "committed_at" => DateTime.to_iso8601(now)
         }
       }
 
@@ -461,10 +461,21 @@ defmodule Ankole.ActorRuntime.CommitCoordinator do
         "proposal" => proposal_summary(proposal),
         "proposed_message_ids" => Enum.map(proposed_messages, & &1.id)
       }
+      |> maybe_put_stop_reason(proposal)
       |> maybe_put_assistant_message_id(assistant_message)
 
+    attrs =
+      %{
+        status: "succeeded",
+        response: response,
+        completed_at: now,
+        usage: proposal_usage(proposal, llm_turn),
+        tool_results: proposal_tool_results(proposal),
+        provider_metadata: proposal_provider_metadata(proposal, llm_turn)
+      }
+
     llm_turn
-    |> LlmTurn.changeset(%{status: "succeeded", response: response, completed_at: now})
+    |> LlmTurn.changeset(attrs)
     |> repo.update()
   end
 
@@ -472,6 +483,13 @@ defmodule Ankole.ActorRuntime.CommitCoordinator do
     do: Map.put(response, "assistant_message_id", id)
 
   defp maybe_put_assistant_message_id(response, nil), do: response
+
+  defp maybe_put_stop_reason(response, proposal) do
+    case fetch_text(proposal, "stop_reason") do
+      value when is_binary(value) and value != "" -> Map.put(response, "stop_reason", value)
+      _value -> response
+    end
+  end
 
   defp commit_status(actor_inputs, nil) do
     case ambient_silence_allowed?(actor_inputs) do
@@ -547,7 +565,7 @@ defmodule Ankole.ActorRuntime.CommitCoordinator do
         operation: :post,
         target_provider_entry_id: nil,
         provider_thread_id: actor_input.provider_thread_id,
-        payload: %{"text" => assistant_text(assistant_message)},
+        payload: assistant_outbox_payload(assistant_message),
         fallback_visible_text: assistant_text(assistant_message),
         idempotency_key: "post:ambient:#{llm_turn.id}:#{actor_input.signal_channel_id}",
         llm_turn_id: llm_turn.id,
@@ -618,7 +636,7 @@ defmodule Ankole.ActorRuntime.CommitCoordinator do
         operation: operation,
         target_provider_entry_id: actor_input.provider_entry_id,
         provider_thread_id: actor_input.provider_thread_id,
-        payload: %{"text" => assistant_text(assistant_message)},
+        payload: assistant_outbox_payload(assistant_message),
         fallback_visible_text: assistant_text(assistant_message),
         idempotency_key: "#{operation_key}:#{llm_turn.id}:#{actor_input.id}",
         llm_turn_id: llm_turn.id,
@@ -752,15 +770,6 @@ defmodule Ankole.ActorRuntime.CommitCoordinator do
     end
   end
 
-  # Real provider turns must not be silently rewritten into PONG. The fallback is
-  # restricted to the placeholder provider used by actor-bus smoke tests.
-  defp proposal_reply_text(proposal, %LlmTurn{provider: "ankole-placeholder"}) do
-    case fetch_map(proposal, "reply") do
-      %{} = reply -> {:ok, fetch_text(reply, "text") || "PONG"}
-      nil -> {:ok, "PONG"}
-    end
-  end
-
   defp proposal_reply_text(proposal, %LlmTurn{}) do
     case fetch_map(proposal, "reply") do
       %{} = reply ->
@@ -780,11 +789,139 @@ defmodule Ankole.ActorRuntime.CommitCoordinator do
     end
   end
 
+  defp proposal_reply_attachments(proposal) do
+    proposal
+    |> fetch_map("reply")
+    |> case do
+      %{} = reply ->
+        reply
+        |> fetch_list("attachments")
+        |> Enum.map(&normalize_reply_attachment/1)
+        |> collect_results()
+
+      _value ->
+        {:ok, []}
+    end
+  end
+
+  defp normalize_reply_attachment(%{} = attachment) do
+    with {:ok, relative_path} <- attachment_user_files_relative_path(attachment) do
+      {:ok,
+       %{
+         "agent_computer_path" => "/workspace/user-files/#{relative_path}",
+         "user_files_relative_path" => relative_path
+       }
+       |> maybe_put("name", optional_text_field(attachment, "name"))
+       |> maybe_put("mime_type", optional_text_field(attachment, "mime_type"))
+       |> maybe_put("xxh3_128", optional_text_field(attachment, "xxh3_128"))
+       |> maybe_put("size", optional_non_negative_integer(attachment, "size"))}
+    end
+  end
+
+  defp normalize_reply_attachment(_attachment), do: {:error, :invalid_reply_attachment}
+
+  defp attachment_user_files_relative_path(attachment) do
+    path =
+      optional_text_field(attachment, "user_files_relative_path") ||
+        optional_text_field(attachment, "agent_computer_path") ||
+        optional_text_field(attachment, "path")
+
+    cond do
+      is_binary(path) and String.starts_with?(path, "/workspace/user-files/") ->
+        normalize_user_files_relative_path(
+          String.replace_prefix(path, "/workspace/user-files/", "")
+        )
+
+      is_binary(path) ->
+        normalize_user_files_relative_path(path)
+
+      true ->
+        {:error, :reply_attachment_path_missing}
+    end
+  end
+
+  defp normalize_user_files_relative_path(path) do
+    normalized =
+      path
+      |> String.replace("\\", "/")
+      |> String.replace(~r{/+}, "/")
+      |> String.trim_leading("/")
+
+    segments = String.split(normalized, "/", trim: true)
+
+    case segments != [] and Enum.all?(segments, &valid_relative_segment?/1) do
+      true -> {:ok, Enum.join(segments, "/")}
+      false -> {:error, :invalid_reply_attachment_path}
+    end
+  end
+
+  defp valid_relative_segment?(segment), do: segment not in ["", ".", ".."]
+
+  defp optional_text_field(map, key) do
+    case fetch_text(map, key) do
+      value when is_binary(value) ->
+        case String.trim(value) do
+          "" -> nil
+          text -> text
+        end
+
+      _value ->
+        nil
+    end
+  end
+
+  defp optional_non_negative_integer(map, key) do
+    case fetch_value(map, key) do
+      value when is_integer(value) and value >= 0 -> value
+      _value -> nil
+    end
+  end
+
+  defp assistant_content(text, attachments) do
+    [%{"type" => "text", "text" => text}] ++
+      Enum.map(attachments, &Map.put(&1, "type", "attachment"))
+  end
+
+  defp assistant_outbox_payload(%Message{} = message) do
+    %{"text" => assistant_text(message)}
+    |> maybe_put("attachments", assistant_attachments(message))
+  end
+
+  defp assistant_attachments(%Message{content: content}) when is_list(content) do
+    content
+    |> Enum.flat_map(fn
+      %{"type" => "attachment"} = attachment -> [Map.delete(attachment, "type")]
+      _part -> []
+    end)
+  end
+
+  defp assistant_attachments(_message), do: []
+
   defp proposal_summary(proposal) do
     %{
       "reply" => fetch_map(proposal, "reply") || %{},
       "messages" => fetch_list(proposal, "messages")
     }
+  end
+
+  defp proposal_usage(proposal, %LlmTurn{usage: usage}) do
+    case fetch_map(proposal, "usage_json") do
+      %{} = usage -> usage
+      _value -> usage || %{}
+    end
+  end
+
+  defp proposal_tool_results(proposal) do
+    fetch_list(proposal, "tool_results_json")
+  end
+
+  defp proposal_provider_metadata(proposal, %LlmTurn{provider_metadata: provider_metadata}) do
+    provider_metadata = provider_metadata || %{}
+
+    case fetch_map(proposal, "provider_metadata_json") do
+      %{} = proposal_metadata -> Map.merge(provider_metadata, proposal_metadata)
+      _value -> provider_metadata
+    end
   end
 
   defp compression_covers_range(%LlmTurn{input_message_ids: [first_id | _] = message_ids}) do
@@ -822,6 +959,10 @@ defmodule Ankole.ActorRuntime.CommitCoordinator do
 
   defp assistant_text(%Message{content: [%{"text" => text} | _]}) when is_binary(text), do: text
   defp assistant_text(_message), do: ""
+
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, _key, []), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
   defp unwrap_body(%{"body" => %{"type" => type} = body}, type), do: fetch_map!(body, type)
   defp unwrap_body(%{body: %{"type" => type} = body}, type), do: fetch_map!(body, type)

@@ -24,6 +24,8 @@ defmodule Ankole.AuthZ do
   @admin_group_name "admin"
   @all_humans_group_name "all_humans"
   @all_humans_condition ~s(principal.type == "human" && principal.status == "active")
+  @console_admin_resource_pattern "**"
+  @console_admin_actions ~w(read update delete reset decrypt)
   @resource_glob_metacharacters ~r/[\*\?\[\]\{\}]/
   @max_json_integer 9_223_372_036_854_775_807
   @min_json_integer -9_223_372_036_854_775_808
@@ -202,17 +204,7 @@ defmodule Ankole.AuthZ do
   """
   @spec upsert_permission_grant(map()) :: {:ok, Grant.t()} | {:error, term()}
   def upsert_permission_grant(attrs) when is_map(attrs) do
-    Repo.transact(fn repo ->
-      with {:ok, attrs} <- grant_attrs(repo, attrs),
-           changeset <- Grant.changeset(%Grant{}, attrs),
-           {:ok, normalized} <- Changeset.apply_action(changeset, :insert) do
-        repo.insert(changeset,
-          on_conflict: permission_grant_upsert_update(normalized),
-          conflict_target: permission_grant_upsert_target(normalized),
-          returning: true
-        )
-      end
-    end)
+    Repo.transact(fn repo -> upsert_permission_grant(repo, attrs) end)
   end
 
   @doc """
@@ -354,6 +346,29 @@ defmodule Ankole.AuthZ do
   end
 
   @doc """
+  Ensures the built-in admin group has the coarse console grants.
+  """
+  @spec ensure_console_admin_grants() :: :ok | {:error, term()}
+  def ensure_console_admin_grants do
+    case Repo.transact(fn repo ->
+           with {:ok, built_ins} <- ensure_builtin_groups(repo) do
+             case console_admin_grants_ready?(repo, built_ins.admin_group.id) do
+               true ->
+                 {:ok, :ready}
+
+               false ->
+                 with {:ok, _grants} <- upsert_console_admin_grants(repo, built_ins.admin_group) do
+                   {:ok, :created}
+                 end
+             end
+           end
+         end) do
+      {:ok, _status} -> :ok
+      {:error, _reason} = error -> error
+    end
+  end
+
+  @doc """
   Returns `:ok` while the first root admin claim is still open.
   """
   @spec ensure_root_init_open() :: :ok | {:error, :root_init_closed}
@@ -372,11 +387,13 @@ defmodule Ankole.AuthZ do
            {:ok, built_ins} <- ensure_builtin_groups(repo),
            {:ok, admin_group} <- lock_group(repo, built_ins.admin_group.id),
            :ok <- ensure_root_init_open(repo, admin_group.id),
-           {:ok, membership} <- insert_membership(repo, admin_group.id, principal.uid) do
+           {:ok, membership} <- insert_membership(repo, admin_group.id, principal.uid),
+           {:ok, console_grants} <- upsert_console_admin_grants(repo, admin_group) do
         {:ok,
          %{
            admin_group: admin_group,
            all_humans_group: built_ins.all_humans_group,
+           console_grants: console_grants,
            membership: membership
          }}
       end
@@ -502,6 +519,53 @@ defmodule Ankole.AuthZ do
   defp kernel_decision(%{} = decision), do: {:ok, decision}
   defp kernel_decision({:error, reason}), do: {:error, reason}
   defp kernel_decision(_decision), do: {:error, :invalid_decision}
+
+  defp upsert_permission_grant(repo, attrs) do
+    with {:ok, attrs} <- grant_attrs(repo, attrs),
+         changeset <- Grant.changeset(%Grant{}, attrs),
+         {:ok, normalized} <- Changeset.apply_action(changeset, :insert) do
+      repo.insert(changeset,
+        on_conflict: permission_grant_upsert_update(normalized),
+        conflict_target: permission_grant_upsert_target(normalized),
+        returning: true
+      )
+    end
+  end
+
+  defp upsert_console_admin_grants(repo, %Group{} = admin_group) do
+    Enum.reduce_while(@console_admin_actions, {:ok, []}, fn action, {:ok, acc} ->
+      case upsert_permission_grant(repo, %{
+             group_id: admin_group.id,
+             resource_pattern: @console_admin_resource_pattern,
+             action: action,
+             description: "Built-in console administrator grant",
+             metadata: %{"built_in" => "console_admin"}
+           }) do
+        {:ok, grant} -> {:cont, {:ok, [grant | acc]}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+    |> case do
+      {:ok, grants} -> {:ok, Enum.reverse(grants)}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp console_admin_grants_ready?(repo, admin_group_id) do
+    actions =
+      Grant
+      |> where(
+        [grant],
+        grant.group_id == ^admin_group_id and
+          grant.resource_pattern == ^@console_admin_resource_pattern and
+          grant.action in ^@console_admin_actions and grant.condition == "true"
+      )
+      |> select([grant], grant.action)
+      |> repo.all()
+      |> MapSet.new()
+
+    Enum.all?(@console_admin_actions, &MapSet.member?(actions, &1))
+  end
 
   defp binding_attrs(repo, attrs) do
     attrs = take_attrs(attrs, [:group_name | @binding_fields])

@@ -2,7 +2,6 @@
 import type { EmbeddingModelV2 } from '../../embedding-model/v2/embedding-model-v2'
 import type { ImageModelV2 } from '../../image-model/v2/image-model-v2'
 import type { LanguageModelV2 } from '../../language-model/v2/language-model-v2'
-import type { SpeechModelV2 } from '../../speech-model/v2/speech-model-v2'
 import type { TranscriptionModelV2 } from '../../transcription-model/v2/transcription-model-v2'
 
 /**
@@ -52,14 +51,4 @@ export interface ProviderV2 {
    * @returns {TranscriptionModel} The transcription model associated with the id
    */
   transcriptionModel?(modelId: string): TranscriptionModelV2
-
-  /**
-   * Returns the speech model with the given id.
-   * The model id is then passed to the provider function to get the model.
-   *
-   * @param {string} modelId - The id of the model to return.
-   *
-   * @returns {SpeechModel} The speech model associated with the id
-   */
-  speechModel?(modelId: string): SpeechModelV2
 }

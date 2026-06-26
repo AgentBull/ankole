@@ -1,13 +1,13 @@
 defmodule Ankole.ActorRuntime.Transport.Broker do
   @moduledoc """
-  Owner-facing actor transport broker.
+  Owner-facing RuntimeFabric transport broker.
 
   The production transport route is ZeroMQ; this GenServer keeps the Elixir API
   stable and provides a local route handler for deterministic smoke tests.
 
   There are two transport routes behind one identical API:
 
-    * Production: a single ZeroMQ ROUTER socket (owned by the native Actor Bus)
+    * Production: a single ZeroMQ ROUTER socket (owned by the native RuntimeFabric)
       reaches every connected worker. A "transport route" is the worker's ROUTER
       identity — the address ZeroMQ uses to deliver an envelope to that worker.
     * Local (test only): an in-process handler (function or pid) registered
@@ -18,8 +18,8 @@ defmodule Ankole.ActorRuntime.Transport.Broker do
   `send_mandatory/2` resolves a route to whichever transport owns it: a local
   route if one is registered, otherwise the production ROUTER. Inbound traffic
   arrives the other way — the native ROUTER forwards decoded envelopes here as
-  `:actor_bus_router_received` messages, already tagged with the worker identity
-  the transport authenticated.
+  `:runtime_fabric_router_received` messages, already tagged with the worker
+  identity the transport authenticated.
 
   Keeping the single ROUTER socket behind this one GenServer means every route
   failure surfaces in one place, where it can be turned into a scheduling signal
@@ -31,10 +31,12 @@ defmodule Ankole.ActorRuntime.Transport.Broker do
   require Logger
 
   alias Ankole.ActorRuntime.CommitCoordinator
-  alias Ankole.ActorRuntime.LlmCredentialBroker
+  alias Ankole.ActorRuntime.FileTransferLane
+  alias Ankole.ActorRuntime.RPCLane
   alias Ankole.ActorRuntime.WorkerAdmission
   alias Ankole.ActorRuntime.WorkerAuthKeys
-  alias Ankole.Kernel.ActorBus
+  alias Ankole.ActorRuntime.WorkerRouteAuth
+  alias Ankole.Kernel.RuntimeFabric
 
   @type handler :: (map() -> term()) | pid()
 
@@ -109,6 +111,19 @@ defmodule Ankole.ActorRuntime.Transport.Broker do
     GenServer.call(__MODULE__, {:send_mandatory, transport_route, envelope})
   end
 
+  @doc """
+  Sends one raw worker-file frame set to a transport route.
+
+  This is intentionally separate from `send_mandatory/2`: actor/rpc envelopes
+  are protobuf control traffic, while worker-file frames carry binary chunks.
+  """
+  @spec send_file_frame(String.t(), [binary()]) ::
+          {:ok, :sent_or_queued} | {:error, :unknown_route | term()}
+  def send_file_frame(transport_route, frames)
+      when is_binary(transport_route) and is_list(frames) do
+    GenServer.call(__MODULE__, {:send_file_frame, transport_route, frames})
+  end
+
   @impl true
   def init(opts) do
     state = %{local_routes: %{}, router: nil, router_endpoint: nil}
@@ -148,7 +163,7 @@ defmodule Ankole.ActorRuntime.Transport.Broker do
   end
 
   def handle_call(:stop_router, _from, %{router: router} = state) do
-    reply = ActorBus.router_stop(router)
+    reply = RuntimeFabric.router_stop(router)
     {:reply, reply, %{state | router: nil, router_endpoint: nil}}
   end
 
@@ -177,6 +192,18 @@ defmodule Ankole.ActorRuntime.Transport.Broker do
   end
 
   @impl true
+  def handle_call({:send_file_frame, route, frames}, _from, state) do
+    case Map.fetch(state.local_routes, route) do
+      {:ok, handler} ->
+        dispatch_file_frame(handler, frames)
+        {:reply, {:ok, :sent_or_queued}, state}
+
+      :error ->
+        {:reply, router_send_file_frame(state.router, route, frames), state}
+    end
+  end
+
+  @impl true
   def handle_continue({:start_router, router_opts}, state) do
     endpoint = Keyword.fetch!(router_opts, :endpoint)
     opts = Keyword.delete(router_opts, :endpoint)
@@ -191,7 +218,7 @@ defmodule Ankole.ActorRuntime.Transport.Broker do
         {:noreply, state}
 
       {:error, reason} ->
-        Logger.error("failed to start actor bus router: #{inspect(reason)}")
+        Logger.error("failed to start runtime fabric router: #{inspect(reason)}")
         {:noreply, state}
     end
   end
@@ -202,13 +229,13 @@ defmodule Ankole.ActorRuntime.Transport.Broker do
   # The 5-tuple is the production form: the transport has already verified the
   # worker's pre-auth key and tells us which worker_id / key_revision the route
   # belongs to, so lifecycle messages can be bound to a proven identity below.
-  def handle_info({:actor_bus_router_received, route, envelope_json}, state) do
+  def handle_info({:runtime_fabric_router_received, route, envelope_json}, state) do
     handle_router_received(route, nil, nil, envelope_json, state)
   end
 
   def handle_info(
-        {:actor_bus_router_received, route, authenticated_worker_id, authenticated_key_revision,
-         envelope_json},
+        {:runtime_fabric_router_received, route, authenticated_worker_id,
+         authenticated_key_revision, envelope_json},
         state
       ) do
     handle_router_received(
@@ -220,22 +247,38 @@ defmodule Ankole.ActorRuntime.Transport.Broker do
     )
   end
 
-  def handle_info({:actor_bus_router_decode_failed, route, reason}, state) do
-    Logger.warning("actor bus decode failed route=#{inspect(route)} reason=#{inspect(reason)}")
+  def handle_info(
+        {:runtime_fabric_router_file_frame, route, authenticated_worker_id,
+         authenticated_key_revision, frames},
+        state
+      ) do
+    route_auth =
+      authenticated_route(
+        route,
+        normalize_auth_worker_id(authenticated_worker_id),
+        normalize_auth_key_revision(authenticated_key_revision)
+      )
+
+    FileTransferLane.handle_worker_frame(route_auth, frames)
     {:noreply, state}
   end
 
-  def handle_info({:actor_bus_router_socket_error, reason}, state) do
-    Logger.warning("actor bus router socket error: #{inspect(reason)}")
+  def handle_info({:runtime_fabric_router_decode_failed, route, reason}, state) do
+    Logger.warning(
+      "runtime fabric decode failed route=#{inspect(route)} reason=#{inspect(reason)}"
+    )
+
     {:noreply, state}
   end
 
-  # Entry point for every inbound envelope. The LLM-credential request is the one
-  # request/response RPC on this socket: a worker asks the control plane to mint
-  # provider credentials and waits for the reply on the same route, so it is
-  # answered inline and the response is sent straight back. Everything else is
-  # one-way (lifecycle projections, turn results) and goes through
-  # dispatch_router_envelope/2, which never replies on the socket.
+  def handle_info({:runtime_fabric_router_socket_error, reason}, state) do
+    Logger.warning("runtime fabric router socket error: #{inspect(reason)}")
+    {:noreply, state}
+  end
+
+  # Entry point for every inbound envelope. RuntimeFabric owns the shared ROUTER
+  # route; the body type decides whether this is a bidirectional RPC request or
+  # an actor lane fact/event.
   defp handle_router_received(
          route,
          authenticated_worker_id,
@@ -247,9 +290,9 @@ defmodule Ankole.ActorRuntime.Transport.Broker do
       authenticated_route(route, authenticated_worker_id, authenticated_key_revision)
 
     case decode_router_envelope(route, envelope_json) do
-      {:ok, route, %{"body" => %{"type" => "llm_provider_credential_request"} = body}} ->
-        body["llm_provider_credential_request"]
-        |> LlmCredentialBroker.handle_request(route)
+      {:ok, route, %{"body" => %{"type" => "rpc_request"} = body}} ->
+        body["rpc_request"]
+        |> RPCLane.handle_request(route)
         |> send_rpc_response(state.router, route)
 
       decoded ->
@@ -260,18 +303,26 @@ defmodule Ankole.ActorRuntime.Transport.Broker do
   end
 
   # Delivers to a local (test) route handler. A handler may be a 1-arity function
-  # (called synchronously) or a pid (gets an `{:actor_bus, envelope}` message),
+  # (called synchronously) or a pid (gets an `{:actor_lane, envelope}` message),
   # so tests can assert on either a return value or a received message.
   defp dispatch(handler, envelope) when is_function(handler, 1), do: handler.(envelope)
-  defp dispatch(handler, envelope) when is_pid(handler), do: send(handler, {:actor_bus, envelope})
+
+  defp dispatch(handler, envelope) when is_pid(handler),
+    do: send(handler, {:actor_lane, envelope})
+
+  defp dispatch_file_frame(handler, frames) when is_function(handler, 1),
+    do: handler.({:file_transfer_lane, frames})
+
+  defp dispatch_file_frame(handler, frames) when is_pid(handler),
+    do: send(handler, {:file_transfer_lane, frames})
 
   # Starts the single production ROUTER owned by this broker. Keeping the socket
   # behind one GenServer makes route failure handling visible to ActorRuntime.
   defp start_router_in_state(endpoint, opts, %{router: nil} = state) do
     opts = maybe_database_worker_auth(opts)
 
-    with {:ok, router} <- ActorBus.router_start(endpoint, self(), opts),
-         endpoint when is_binary(endpoint) <- ActorBus.router_endpoint(router) do
+    with {:ok, router} <- RuntimeFabric.router_start(endpoint, self(), opts),
+         endpoint when is_binary(endpoint) <- RuntimeFabric.router_endpoint(router) do
       {:ok, %{state | router: router, router_endpoint: endpoint}}
     else
       {:error, _reason} = error -> error
@@ -286,22 +337,28 @@ defmodule Ankole.ActorRuntime.Transport.Broker do
   defp router_send_mandatory(nil, _route, _envelope), do: {:error, :unknown_route}
 
   defp router_send_mandatory(router, route, envelope) do
-    ActorBus.router_send_mandatory(router, route, envelope)
+    RuntimeFabric.router_send_mandatory(router, route, envelope)
+  end
+
+  defp router_send_file_frame(nil, _route, _frames), do: {:error, :unknown_route}
+
+  defp router_send_file_frame(router, route, frames) do
+    RuntimeFabric.router_send_file_frame(router, route, frames)
   end
 
   defp send_rpc_response({:ok, response}, router, route) do
     router
     |> router_send_mandatory(route, response)
-    |> log_router_result("llm_provider_credential_response", route)
+    |> log_router_result("rpc_response", route)
   end
 
   defp send_rpc_response({:error, reason}, _router, route) do
     Logger.warning(
-      "actor bus llm_provider_credential_request handling failed route=#{inspect(route)} reason=#{inspect(reason)}"
+      "runtime fabric rpc_request handling failed route=#{inspect(route)} reason=#{inspect(reason)}"
     )
   end
 
-  # Decodes the JSON host representation emitted by the native Actor Bus
+  # Decodes the JSON host representation emitted by the native RuntimeFabric
   # transport. Protocol validation already happened in kernel encode/decode.
   defp decode_router_envelope(route, envelope_json) do
     {:ok, route, Torque.decode!(envelope_json)}
@@ -357,8 +414,19 @@ defmodule Ankole.ActorRuntime.Transport.Broker do
          _authenticated_route
        ) do
     envelope
-    |> Ankole.ActorRuntime.handle_turn_accepted()
+    |> authorize_actor_lane_turn(route, :write)
+    |> with_authorized_envelope(&Ankole.ActorRuntime.handle_turn_accepted/1)
     |> log_router_result("turn_accepted", route)
+  end
+
+  defp dispatch_router_envelope(
+         {:ok, route, %{"body" => %{"type" => "worker_progress"}} = envelope},
+         _authenticated_route
+       ) do
+    envelope
+    |> authorize_actor_lane_turn(route, :write)
+    |> with_authorized_envelope(&Ankole.ActorRuntime.handle_worker_progress/1)
+    |> log_router_result("worker_progress", route)
   end
 
   defp dispatch_router_envelope(
@@ -366,7 +434,8 @@ defmodule Ankole.ActorRuntime.Transport.Broker do
          _authenticated_route
        ) do
     envelope
-    |> CommitCoordinator.commit_final_proposal()
+    |> authorize_actor_lane_turn(route, :write)
+    |> with_authorized_envelope(&CommitCoordinator.commit_final_proposal/1)
     |> log_router_result("turn_final_proposal", route)
   end
 
@@ -375,7 +444,8 @@ defmodule Ankole.ActorRuntime.Transport.Broker do
          _authenticated_route
        ) do
     envelope
-    |> CommitCoordinator.handle_turn_error()
+    |> authorize_actor_lane_turn(route, :write)
+    |> with_authorized_envelope(&CommitCoordinator.handle_turn_error/1)
     |> log_router_result("turn_error", route)
   end
 
@@ -383,14 +453,30 @@ defmodule Ankole.ActorRuntime.Transport.Broker do
          {:ok, route, %{"body" => %{"type" => type}}},
          _authenticated_route
        ) do
-    Logger.debug("ignored actor bus envelope type=#{type} route=#{inspect(route)}")
+    Logger.debug("ignored actor lane envelope type=#{type} route=#{inspect(route)}")
   end
 
   defp dispatch_router_envelope({:error, route, reason}, _authenticated_route) do
     Logger.warning(
-      "failed to decode actor bus envelope route=#{inspect(route)} reason=#{inspect(reason)}"
+      "failed to decode actor lane envelope route=#{inspect(route)} reason=#{inspect(reason)}"
     )
   end
+
+  defp authorize_actor_lane_turn(%{"body" => %{"type" => type} = body} = envelope, route, effect) do
+    with %{} = payload <- Map.get(body, type),
+         %{} = turn <- Map.get(payload, "turn"),
+         :ok <- WorkerRouteAuth.authorize_turn_route(turn, route, effect) do
+      {:ok, envelope}
+    else
+      nil -> {:error, :missing_turn_ref}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp authorize_actor_lane_turn(_envelope, _route, _effect), do: {:error, :missing_turn_ref}
+
+  defp with_authorized_envelope({:ok, envelope}, handler), do: handler.(envelope)
+  defp with_authorized_envelope({:error, _reason} = error, _handler), do: error
 
   # Same ZAP-auth defaulting as the supervisor, applied here for callers that
   # start the router directly via start_router/2 (e.g. tests) without going
@@ -446,7 +532,7 @@ defmodule Ankole.ActorRuntime.Transport.Broker do
 
   defp log_router_result({:error, reason}, type, route) do
     Logger.warning(
-      "actor bus #{type} handling failed route=#{inspect(route)} reason=#{inspect(reason)}"
+      "actor lane #{type} handling failed route=#{inspect(route)} reason=#{inspect(reason)}"
     )
   end
 end

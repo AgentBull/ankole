@@ -1,12 +1,11 @@
-import { existsSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
 import { stringify as stringifyYaml } from 'yaml'
 import { z } from 'zod/v4'
-import type { TurnStart, JsonObject } from '../actor_bus'
+import type { TurnStart, JsonObject } from '../actor_lane'
 import { generateText, Output, zodSchema, type Message, type Model } from '../llm'
 import { convertBullXMessagesToModelMessages } from '../llm/bullx-ai-sdk'
 import type { ProviderOptions } from '../llm/provider-utils'
 import { buildAmbientRecognizerSystemPrompt, buildAmbientRecognizerUserPrompt } from '../prompts/ambient_prompt'
+import type { AgentProfile, RuntimeConversationMessage, TurnRuntimeContext } from '../rpc_lane'
 
 type ConversationRow = {
   id: string
@@ -68,6 +67,8 @@ export async function runAmbientRecognizer(input: {
   headers: Record<string, string>
   model: Model
   providerOptions?: ProviderOptions
+  agentProfile?: AgentProfile
+  runtimeContext?: TurnRuntimeContext
   turnStart: TurnStart
   workspaceRoot: string
 }): Promise<AmbientRecognition> {
@@ -75,10 +76,12 @@ export async function runAmbientRecognizer(input: {
     throw new Error(`LLM model ${input.model.provider}/${input.model.id} is missing an AI SDK model instance`)
   }
 
-  const rows = loadConversationRows(input.workspaceRoot, input.turnStart)
+  const rows = loadConversationRows(input.workspaceRoot, input.turnStart, input.runtimeContext)
   const currentBatch = currentAmbientBatch(rows, input.turnStart)
   if (currentBatch.length === 0) {
-    return { decision: { intervene: false, reason: 'No pending ambient messages.' } }
+    return {
+      decision: { intervene: false, reason: 'No pending ambient messages.' }
+    }
   }
 
   const currentScene = currentObservedScene(input.turnStart, currentBatch)
@@ -93,7 +96,7 @@ export async function runAmbientRecognizer(input: {
     .filter(row => row.role === 'im_ambient' && row.kind === 'normal')
     .slice(-MAX_RECOGNIZER_CONTEXT_ROWS)
 
-  const displayName = agentDisplayName(input.turnStart)
+  const displayName = agentDisplayName(input.turnStart, input.agentProfile)
   const timezone = batchTimezone(currentBatch) ?? 'UTC'
   const channelContext = ambientChannelContext(currentBatch)
   const decisionInput = stringifyYaml(
@@ -120,8 +123,8 @@ export async function runAmbientRecognizer(input: {
     channelLabel: stringPath(channelContext, ['label']),
     conversationId: input.turnStart.turn.actor.session_id,
     displayName,
-    mission: readLibraryText(input.workspaceRoot, 'MISSION.md'),
-    soul: readLibraryText(input.workspaceRoot, 'SOUL.md') || fallbackSoul(),
+    mission: input.runtimeContext?.mission || '',
+    soul: input.runtimeContext?.soul || fallbackSoul(),
     timezone
   })
   const messages: Message[] = [
@@ -173,32 +176,32 @@ function normalizeAmbientRecognizerDecision(
   }
 }
 
-function agentDisplayName(turnStart: TurnStart): string {
-  const displayName = turnStart.turn.actor.display_name?.trim()
+function agentDisplayName(turnStart: TurnStart, agentProfile?: AgentProfile): string {
+  const displayName = agentProfile?.display_name?.trim()
   return displayName || turnStart.turn.actor.agent_uid
 }
 
-function loadConversationRows(workspaceRoot: string, turnStart: TurnStart): ConversationRow[] {
-  const path = join(
-    workspaceRoot,
-    'actors',
-    encodeURIComponent(turnStart.turn.actor.agent_uid),
-    encodeURIComponent(turnStart.turn.actor.session_id),
-    'conversation',
-    'messages.jsonl'
-  )
-  if (!existsSync(path)) return []
-  return readFileSync(path, 'utf8')
-    .split(/\r?\n/)
-    .flatMap(line => {
-      if (!line.trim()) return []
-      try {
-        const parsed = JSON.parse(line)
-        return [parsed as ConversationRow]
-      } catch {
-        return []
-      }
-    })
+function loadConversationRows(
+  _workspaceRoot: string,
+  _turnStart: TurnStart,
+  runtimeContext?: TurnRuntimeContext
+): ConversationRow[] {
+  if (runtimeContext?.conversation?.messages) {
+    return runtimeContext.conversation.messages.map(conversationRowFromRuntime)
+  }
+
+  throw new Error('ambient recognizer requires RuntimeFabric conversation context')
+}
+
+function conversationRowFromRuntime(row: RuntimeConversationMessage): ConversationRow {
+  return {
+    id: row.id ?? '',
+    role: row.role ?? 'user',
+    kind: row.kind ?? 'normal',
+    content: row.content,
+    metadata: isRecord(row.metadata) ? row.metadata : {},
+    inserted_at: row.inserted_at ?? undefined
+  }
 }
 
 function currentAmbientBatch(rows: ConversationRow[], turnStart: TurnStart): ConversationRow[] {
@@ -554,12 +557,6 @@ function stringDecisionValue(value: unknown): string | undefined {
   const text = value.trim()
   if (!text) return undefined
   return text.length > 240 ? `${text.slice(0, 240)}...` : text
-}
-
-function readLibraryText(workspaceRoot: string, path: string): string | undefined {
-  const fullPath = join(workspaceRoot, 'library-containers', path)
-  if (!existsSync(fullPath)) return undefined
-  return readFileSync(fullPath, 'utf8')
 }
 
 function fallbackSoul(): string {

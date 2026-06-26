@@ -5,11 +5,13 @@ import { createLocalComputer, type ComputerToolContext } from './context'
 import { createInteractiveTerminalTool } from './interactive-terminal-tool'
 import { createPatchTool } from './patch-tool'
 import { createReadFileTool } from './read-file-tool'
+import { createReplyAttachmentTool, type ReplyAttachmentStore } from './reply-attachment-tool'
 
 export interface ComputerToolsBinding {
   agentUid: string
   conversationId?: string
   workspaceRoot: string
+  replyAttachmentStore?: ReplyAttachmentStore
 }
 
 /**
@@ -23,6 +25,7 @@ export function createComputerTools(binding: ComputerToolsBinding): AgentTool<an
   const computer = createLocalComputer(binding.workspaceRoot)
   const context: ComputerToolContext = {
     agentUid: binding.agentUid,
+    workspaceRoot: binding.workspaceRoot,
     executionScopeId: binding.conversationId ?? binding.agentUid,
     getComputer: async () => computer,
     backgroundIds: new Set()
@@ -33,6 +36,7 @@ export function createComputerTools(binding: ComputerToolsBinding): AgentTool<an
     createCommandTool(context),
     createInteractiveTerminalTool(context),
     createReadFileTool(context),
-    createPatchTool(context)
+    createPatchTool(context),
+    ...(binding.replyAttachmentStore ? [createReplyAttachmentTool(context, binding.replyAttachmentStore)] : [])
   ]
 }

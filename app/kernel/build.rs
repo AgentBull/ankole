@@ -1,9 +1,12 @@
 /// Configures build hooks that only matter for the N-API flavor of the crate.
 fn main() {
-    println!("cargo:rerun-if-changed=proto/ankole/actor_bus/v1/envelope.proto");
+    println!("cargo:rerun-if-changed=proto/ankole/runtime_fabric/v1/envelope.proto");
 
-    prost_build::compile_protos(&["proto/ankole/actor_bus/v1/envelope.proto"], &["proto"])
-        .expect("failed to compile actor bus protobuf definitions");
+    prost_build::compile_protos(
+        &["proto/ankole/runtime_fabric/v1/envelope.proto"],
+        &["proto"],
+    )
+    .expect("failed to compile runtime fabric protobuf definitions");
 
     #[cfg(feature = "napi")]
     {

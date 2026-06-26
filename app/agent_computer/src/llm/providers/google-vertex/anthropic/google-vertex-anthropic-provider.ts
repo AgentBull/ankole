@@ -6,8 +6,6 @@ import type { GoogleVertexAnthropicModelId } from './google-vertex-anthropic-opt
 
 type GoogleVertexAnthropicTools = Pick<
   typeof anthropicTools,
-  | 'bash_20241022'
-  | 'bash_20250124'
   | 'textEditor_20241022'
   | 'textEditor_20250124'
   | 'textEditor_20250429'
@@ -23,22 +21,6 @@ type GoogleVertexAnthropicTools = Pick<
  * This is a subset of the full Anthropic tools - only these are recognized by the Vertex API.
  */
 export const googleVertexAnthropicTools: GoogleVertexAnthropicTools = {
-  /**
-   * The bash tool enables Claude to execute shell commands in a persistent bash session,
-   * allowing system operations, script execution, and command-line automation.
-   *
-   * Image results are supported.
-   */
-  bash_20241022: anthropicTools.bash_20241022,
-
-  /**
-   * The bash tool enables Claude to execute shell commands in a persistent bash session,
-   * allowing system operations, script execution, and command-line automation.
-   *
-   * Image results are supported.
-   */
-  bash_20250124: anthropicTools.bash_20250124,
-
   /**
    * Claude can use an Anthropic-defined text editor tool to view and modify text files,
    * helping you debug, fix, and improve your code or other text documents.
@@ -118,10 +100,9 @@ export interface GoogleVertexAnthropicProvider extends ProviderV4 {
   /**
    * Anthropic tools supported by Google Vertex.
    * Note: Only a subset of Anthropic tools are available on Vertex.
-   * Supported tools: bash_20241022, bash_20250124, textEditor_20241022,
-   * textEditor_20250124, textEditor_20250429, textEditor_20250728,
-   * computer_20241022, webSearch_20250305, toolSearchRegex_20251119,
-   * toolSearchBm25_20251119
+   * Supported tools: textEditor_20241022, textEditor_20250124,
+   * textEditor_20250429, textEditor_20250728, computer_20241022,
+   * webSearch_20250305, toolSearchRegex_20251119, toolSearchBm25_20251119
    */
   tools: typeof googleVertexAnthropicTools
 

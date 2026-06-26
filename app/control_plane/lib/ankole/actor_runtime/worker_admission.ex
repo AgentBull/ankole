@@ -1,6 +1,6 @@
 defmodule Ankole.ActorRuntime.WorkerAdmission do
   @moduledoc """
-  Worker admission boundary for authenticated Actor Bus lifecycle messages.
+  Worker admission boundary for authenticated actor lane lifecycle messages.
 
   Every worker lifecycle message (ready / heartbeat / capacity) lands here after
   the transport has authenticated the route, and gets projected into the durable

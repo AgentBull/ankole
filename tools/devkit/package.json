@@ -19,13 +19,23 @@
     "@angular-devkit/schematics-cli": "^22.0.4",
     "@crustjs/core": "^0.0.19",
     "@crustjs/plugins": "^0.1.0",
+    "@crustjs/style": "0.2.0",
+    "@crustjs/utils": "0.0.3",
     "chalk": "^5.5.0",
     "jsonc": "^2.0.0"
   },
   "devDependencies": {
-    "jscpd": "^5.0.4",
+    "jscpd": "5.0.11",
     "knip": "^6.16.1",
     "typescript": "^6.0.3"
+  },
+  "optionalDependencies": {
+    "cpd-darwin-arm64": "5.0.11",
+    "cpd-darwin-x64": "5.0.11",
+    "cpd-linux-arm64-gnu": "5.0.11",
+    "cpd-linux-x64-gnu": "5.0.11",
+    "cpd-linux-x64-musl": "5.0.11",
+    "cpd-windows-x64-msvc": "5.0.11"
   },
   "schematics": "./src/schematics/collection.json"
 }

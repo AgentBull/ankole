@@ -7,6 +7,7 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
 
   import Ecto.Query, warn: false
 
+  alias Ankole.ActorRuntime
   alias Ankole.Plugins.LarkAdapter.Card
   alias Ankole.Plugins.LarkAdapter.Config
   alias Ankole.Plugins.LarkAdapter.Emoji
@@ -34,6 +35,7 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
   def send(%OutboxEntry{} = outbox) do
     with {:ok, config} <- config_for_outbox(outbox),
          client <- Config.client(config),
+         {:ok, outbox} <- materialize_outbound_attachments(outbox, client),
          {:ok, request} <- request_for_outbox(outbox) do
       request
       |> perform(client)
@@ -72,14 +74,18 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
   """
   @spec request_for_outbox(OutboxEntry.t()) :: {:ok, map()} | {:error, term()}
   def request_for_outbox(%OutboxEntry{operation: :post} = outbox) do
-    {:ok, message_request(:post, "im/v1/messages", outbox, text_body(outbox))}
+    with {:ok, body} <- message_body(outbox) do
+      {:ok, message_request(:post, "im/v1/messages", outbox, body)}
+    end
   end
 
   def request_for_outbox(%OutboxEntry{operation: :reply} = outbox) do
-    {:ok,
-     message_request(:post, "im/v1/messages", outbox, text_body(outbox),
-       reply_to: outbox.source_provider_entry_id
-     )}
+    with {:ok, body} <- message_body(outbox) do
+      {:ok,
+       message_request(:post, "im/v1/messages", outbox, body,
+         reply_to: outbox.source_provider_entry_id
+       )}
+    end
   end
 
   def request_for_outbox(%OutboxEntry{operation: :edit} = outbox) do
@@ -196,7 +202,8 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
   @spec target_gone_error?(Error.t()) :: boolean()
   def target_gone_error?(%Error{code: code, msg: msg}) do
     code in [23_000, 23_002, 23_006] or
-      (is_binary(msg) and String.contains?(String.downcase(msg), ["withdraw", "not exist", "not found"]))
+      (is_binary(msg) and
+         String.contains?(String.downcase(msg), ["withdraw", "not exist", "not found"]))
   end
 
   defp normalize_send_response({:ok, %{"data" => data} = body}) when is_map(data) do
@@ -216,7 +223,9 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
     reply_to = Keyword.get(opts, :reply_to)
     path = if is_binary(reply_to), do: "im/v1/messages/:message_id/reply", else: path
     path_params = Keyword.get(opts, :path_params, %{})
-    path_params = if is_binary(reply_to), do: Map.put(path_params, :message_id, reply_to), else: path_params
+
+    path_params =
+      if is_binary(reply_to), do: Map.put(path_params, :message_id, reply_to), else: path_params
 
     base_body = maybe_put(body, :uuid, outbox.idempotency_key)
 
@@ -249,6 +258,85 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
   end
 
   defp text_body(_outbox), do: %{msg_type: "text", content: Card.text_content("")}
+
+  defp message_body(%OutboxEntry{} = outbox) do
+    case fetch_list(outbox.payload, "attachments") do
+      [] -> {:ok, text_body(outbox)}
+      [attachment] -> attachment_body(attachment)
+      _attachments -> {:error, :multiple_outbound_attachments_not_supported}
+    end
+  end
+
+  defp attachment_body(%{} = attachment) do
+    case optional_text(attachment, "provider_file_key") || optional_text(attachment, "file_key") do
+      file_key when is_binary(file_key) ->
+        {:ok, %{msg_type: "file", content: Ankole.JSON.encode!(%{file_key: file_key})}}
+
+      _missing ->
+        {:error, :outbound_attachment_not_uploaded}
+    end
+  end
+
+  defp materialize_outbound_attachments(%OutboxEntry{payload: payload} = outbox, client) do
+    case fetch_list(payload, "attachments") do
+      [] ->
+        {:ok, outbox}
+
+      [attachment] ->
+        with {:ok, attachment} <- ensure_provider_file_key(attachment, client) do
+          {:ok, %OutboxEntry{outbox | payload: Map.put(payload, "attachments", [attachment])}}
+        end
+
+      _attachments ->
+        {:error, :multiple_outbound_attachments_not_supported}
+    end
+  end
+
+  defp ensure_provider_file_key(%{} = attachment, client) do
+    case optional_text(attachment, "provider_file_key") || optional_text(attachment, "file_key") do
+      file_key when is_binary(file_key) ->
+        {:ok, Map.put(attachment, "provider_file_key", file_key)}
+
+      _missing ->
+        upload_worker_file_attachment(attachment, client)
+    end
+  end
+
+  defp upload_worker_file_attachment(attachment, client) do
+    with relative_path when is_binary(relative_path) <- attachment_relative_path(attachment),
+         {:ok, %{"content" => content}} <-
+           ActorRuntime.get_worker_file("user_files", relative_path),
+         name <- attachment_name(attachment, relative_path),
+         {:ok, %{"data" => data}} <-
+           FeishuOpenAPI.upload(client, "im/v1/files",
+             fields: [file_type: "stream", file_name: name],
+             file: {:iodata, content, name}
+           ),
+         file_key when is_binary(file_key) <- data["file_key"] do
+      {:ok,
+       attachment
+       |> Map.put("provider_file_key", file_key)
+       |> Map.put_new("name", name)}
+    else
+      nil -> {:error, :outbound_attachment_path_missing}
+      {:error, _reason} = error -> error
+      _value -> {:error, :outbound_attachment_upload_failed}
+    end
+  end
+
+  defp attachment_relative_path(attachment) do
+    case optional_text(attachment, "user_files_relative_path") ||
+           optional_text(attachment, "agent_computer_path") ||
+           optional_text(attachment, "path") do
+      "/workspace/user-files/" <> relative -> relative
+      relative when is_binary(relative) -> String.trim_leading(relative, "/")
+      _missing -> nil
+    end
+  end
+
+  defp attachment_name(attachment, relative_path) do
+    optional_text(attachment, "name") || Path.basename(relative_path)
+  end
 
   defp divider_i18n(%{"i18n" => i18n}) when is_map(i18n) do
     i18n
@@ -298,10 +386,31 @@ defmodule Ankole.Plugins.LarkAdapter.Outbox do
     cond do
       Map.has_key?(map, key) -> Map.fetch!(map, key)
       not is_nil(atom_key) and Map.has_key?(map, atom_key) -> Map.fetch!(map, atom_key)
-
       true -> nil
     end
   end
+
+  defp optional_text(map, key) do
+    case fetch_value(map, key) do
+      value when is_binary(value) ->
+        case String.trim(value) do
+          "" -> nil
+          text -> text
+        end
+
+      _value ->
+        nil
+    end
+  end
+
+  defp fetch_list(map, key) when is_map(map) do
+    case fetch_value(map, key) do
+      value when is_list(value) -> value
+      _value -> []
+    end
+  end
+
+  defp fetch_list(_map, _key), do: []
 
   defp atom_key(key) when is_binary(key) do
     String.to_existing_atom(key)

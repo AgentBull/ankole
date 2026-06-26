@@ -1,5 +1,5 @@
 // @ts-nocheck
-import type { Arrayable, Context, Experimental_SandboxSession as SandboxSession, ToolSet } from '@/llm/provider-utils'
+import type { Arrayable, Context, ToolSet } from '@/llm/provider-utils'
 import type {
   GenerateTextOnStepEndCallback,
   GenerateTextOnStepFinishCallback
@@ -21,7 +21,6 @@ import { createAgentUIStream } from './create-agent-ui-stream'
  * @param uiMessages - The input UI messages.
  * @param abortSignal - Abort signal. Optional.
  * @param timeout - Timeout in milliseconds. Optional.
- * @param experimental_sandbox - The sandbox environment that is passed through to tool execution. Optional.
  * @param options - The options for the agent. Optional.
  * @param experimental_transform - Stream transformations. Optional.
  * @param onStepEnd - Callback that is called when each step ends. Optional.
@@ -50,7 +49,6 @@ export async function createAgentUIStreamResponse<
   uiMessages: unknown[]
   abortSignal?: AbortSignal
   timeout?: TimeoutConfiguration<TOOLS>
-  experimental_sandbox?: SandboxSession
   options?: CALL_OPTIONS
   experimental_transform?: Arrayable<StreamTextTransform<TOOLS>>
   onStepEnd?: GenerateTextOnStepEndCallback<TOOLS>

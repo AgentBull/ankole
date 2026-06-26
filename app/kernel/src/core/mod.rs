@@ -10,7 +10,7 @@ mod phone;
 pub use crypto::{aead_decrypt, aead_encrypt, derive_key, generate_key};
 pub use encoding::{
     any_ascii, base58_decode, base58_encode, base64_url_safe_decode, base64_url_safe_encode,
-    bs58_hash, crc32, crc32_hex, generic_hash,
+    bs58_hash, crc32, crc32_hex, generic_hash, xxh3_128_file_hex, xxh3_128_hex,
 };
 pub use error::{KernelError, KernelResult};
 pub use ids::{gen_base36_uuid, gen_short_uuid, gen_uuid, gen_uuid_v7};
@@ -64,6 +64,10 @@ mod tests {
         assert_eq!(any_ascii("Björk"), "Bjork");
         assert_eq!(crc32("TestCase😊".as_bytes(), None), 1_198_634_863);
         assert_eq!(crc32_hex("TestCase😊".as_bytes(), None), "4771b76f");
+        assert_eq!(
+            xxh3_128_hex(b"TestCase"),
+            "7b16fe7c3e492b87d9615265f0856cec"
+        );
         assert_eq!(
             phone_normalize_e164("+1 415 555 2671").unwrap(),
             "+14155552671"

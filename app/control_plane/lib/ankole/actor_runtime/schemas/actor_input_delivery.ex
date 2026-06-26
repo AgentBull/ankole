@@ -40,7 +40,7 @@ defmodule Ankole.ActorRuntime.Schemas.ActorInputDelivery do
     # higher attempt_no, which keeps the per-input unique index from colliding.
     field :attempt_no, :integer
     field :delivery_batch_id, Ecto.UUID
-    field :actor_bus_message_id, :string
+    field :actor_lane_message_id, :string
     field :correlation_id, :string
     # The fence quintet copied from the activation onto each delivery row:
     # activation_uid + actor_epoch + llm_turn_id + revision (+ actor_key). A worker
@@ -76,7 +76,7 @@ defmodule Ankole.ActorRuntime.Schemas.ActorInputDelivery do
       :broker_sequence,
       :attempt_no,
       :delivery_batch_id,
-      :actor_bus_message_id,
+      :actor_lane_message_id,
       :correlation_id,
       :activation_uid,
       :actor_epoch,
@@ -96,7 +96,7 @@ defmodule Ankole.ActorRuntime.Schemas.ActorInputDelivery do
     |> normalize_blank([
       :agent_uid,
       :session_id,
-      :actor_bus_message_id,
+      :actor_lane_message_id,
       :correlation_id,
       :activation_uid,
       :worker_id,
@@ -113,7 +113,7 @@ defmodule Ankole.ActorRuntime.Schemas.ActorInputDelivery do
       :broker_sequence,
       :attempt_no,
       :delivery_batch_id,
-      :actor_bus_message_id,
+      :actor_lane_message_id,
       :activation_uid,
       :actor_epoch,
       :llm_turn_id,

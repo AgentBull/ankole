@@ -1,12 +1,4 @@
-import type {
-  ActorBusEnvelope,
-  LlmProviderCredentialRejected,
-  LlmProviderCredentialRequest,
-  LlmProviderCredentialResponse
-} from './actor_bus'
-import { turnStartFromEnvelope } from './actor_bus'
-import { finalProposalEnvelope, handlePingPongTurnStart, turnAcceptedEnvelope } from './ping_pong_handler'
-import { runLlmTurnHandlers, type CredentialRequester } from './llm_runtime/text_turn_loop'
+import type { ActorLaneEnvelope } from './actor_lane'
 
 export type WorkerConfig = {
   endpoint: string
@@ -14,10 +6,19 @@ export type WorkerConfig = {
   workerId: string
   workerInstanceId: string
   workspaceRoot: string
+  workspaceSessionsRoot: string
+  sharedFsRoot: string
+  userFilesRoot: string
+  agentInstalledSkillsRoot: string
+  builtinSkillsRoot: string
 }
 
 const defaultWorkspaceRoot = '/workspace'
-
+const defaultWorkspaceSessionsRoot = '/workspace/.sessions'
+const defaultSharedFsRoot = '/workspace/shared'
+const defaultUserFilesRoot = '/workspace/shared/user-files'
+const defaultAgentInstalledSkillsRoot = '/workspace/shared/skills/agents'
+const defaultBuiltinSkillsRoot = '/repo/app/library/skills'
 const actorSpecificEnv = ['ANKOLE_AGENT_UID', 'ANKOLE_SESSION_ID', 'ANKOLE_ACTOR_EPOCH', 'ANKOLE_LLM_TURN_ID']
 
 /**
@@ -27,6 +28,10 @@ const actorSpecificEnv = ['ANKOLE_AGENT_UID', 'ANKOLE_SESSION_ID', 'ANKOLE_ACTOR
  * each `turn_start` envelope so the same image can serve any actor in the pool.
  */
 export function parseWorkerEnv(env: Record<string, string | undefined> = Bun.env): WorkerConfig {
+  if (env.DATABASE_URL) {
+    throw new Error('DATABASE_URL must not be set on an agent computer worker')
+  }
+
   for (const key of actorSpecificEnv) {
     if (env[key]) {
       throw new Error(`${key} must not be set on an agent computer worker`)
@@ -34,11 +39,16 @@ export function parseWorkerEnv(env: Record<string, string | undefined> = Bun.env
   }
 
   return {
-    endpoint: requiredEnv(env, 'ANKOLE_ACTOR_BUS_ENDPOINT'),
+    endpoint: requiredEnv(env, 'ANKOLE_RUNTIME_FABRIC_ENDPOINT'),
     preAuthToken: requiredEnv(env, 'ANKOLE_AGENT_COMPUTER_WORKER_PRE_AUTH_TOKEN'),
     workerId: requiredEnv(env, 'ANKOLE_AGENT_COMPUTER_WORKER_ID'),
     workerInstanceId: requiredEnv(env, 'ANKOLE_AGENT_COMPUTER_WORKER_INSTANCE_ID'),
-    workspaceRoot: optionalEnv(env, 'ANKOLE_WORKSPACE_ROOT') ?? defaultWorkspaceRoot
+    workspaceRoot: optionalEnv(env, 'ANKOLE_WORKSPACE_ROOT') ?? defaultWorkspaceRoot,
+    workspaceSessionsRoot: optionalEnv(env, 'ANKOLE_WORKSPACE_SESSIONS_ROOT') ?? defaultWorkspaceSessionsRoot,
+    sharedFsRoot: optionalEnv(env, 'ANKOLE_SHARED_FS_ROOT') ?? defaultSharedFsRoot,
+    userFilesRoot: optionalEnv(env, 'ANKOLE_USER_FILES_ROOT') ?? defaultUserFilesRoot,
+    agentInstalledSkillsRoot: optionalEnv(env, 'ANKOLE_AGENT_INSTALLED_SKILLS_ROOT') ?? defaultAgentInstalledSkillsRoot,
+    builtinSkillsRoot: optionalEnv(env, 'ANKOLE_BUILTIN_SKILLS_ROOT') ?? defaultBuiltinSkillsRoot
   }
 }
 
@@ -48,7 +58,7 @@ export function parseWorkerEnv(env: Record<string, string | undefined> = Bun.env
  * Runtime and version are observability metadata. They are not used as
  * feature negotiation because the worker pool is homogeneous by image.
  */
-export function workerReadyEnvelope(config: WorkerConfig): ActorBusEnvelope {
+export function workerReadyEnvelope(config: WorkerConfig, availableTurnSlots = 1): ActorLaneEnvelope {
   return {
     protocol_version: 1,
     message_id: `worker-ready-${crypto.randomUUID()}`,
@@ -62,7 +72,7 @@ export function workerReadyEnvelope(config: WorkerConfig): ActorBusEnvelope {
         runtime: 'bun',
         version: '0.1.0',
         capacity_json: {
-          available_turn_slots: 4
+          available_turn_slots: availableTurnSlots
         }
       }
     }
@@ -77,8 +87,9 @@ export function workerReadyEnvelope(config: WorkerConfig): ActorBusEnvelope {
  */
 export function workerHeartbeatEnvelope(
   config: WorkerConfig,
-  monotonicMs = Math.floor(performance.now())
-): ActorBusEnvelope {
+  monotonicMs = Math.floor(performance.now()),
+  activeTurns = 0
+): ActorLaneEnvelope {
   return {
     protocol_version: 1,
     message_id: `worker-heartbeat-${crypto.randomUUID()}`,
@@ -91,7 +102,7 @@ export function workerHeartbeatEnvelope(
         worker_instance_id: config.workerInstanceId,
         monotonic_ms: monotonicMs,
         load_json: {
-          active_turns: 0
+          active_turns: activeTurns
         }
       }
     }
@@ -104,7 +115,11 @@ export function workerHeartbeatEnvelope(
  * Capacity is intentionally small here: it answers whether the worker can take
  * more turns, not which actor or tool classes it supports.
  */
-export function workerCapacityEnvelope(config: WorkerConfig): ActorBusEnvelope {
+export function workerCapacityEnvelope(
+  config: WorkerConfig,
+  availableTurnSlots = 1,
+  activeTurns = 0
+): ActorLaneEnvelope {
   return {
     protocol_version: 1,
     message_id: `worker-capacity-${crypto.randomUUID()}`,
@@ -115,94 +130,15 @@ export function workerCapacityEnvelope(config: WorkerConfig): ActorBusEnvelope {
       worker_capacity: {
         worker_id: config.workerId,
         worker_instance_id: config.workerInstanceId,
-        available_turn_slots: 4,
+        available_turn_slots: availableTurnSlots,
         capacity_json: {
-          available_turn_slots: 4
+          available_turn_slots: availableTurnSlots
         },
         load_json: {
-          active_turns: 0
+          active_turns: activeTurns
         }
       }
     }
-  }
-}
-
-/**
- * Handles one control-plane envelope and returns zero or more worker replies.
- *
- * Real turns run the LLM/tool loop inside Agent Computer after resolving the
- * model credential over the parent protocol. The ping/pong branch is kept only
- * for protocol smoke tests that intentionally omit a real `model_ref`.
- */
-export async function handleActorBusEnvelope(
-  envelope: ActorBusEnvelope,
-  config?: Pick<WorkerConfig, 'workspaceRoot'>,
-  deps: { requestCredential?: CredentialRequester } = {}
-): Promise<ActorBusEnvelope[]> {
-  switch (envelope.body.type) {
-    case 'turn_start': {
-      const turnStart = turnStartFromEnvelope(envelope)
-      const correlationId = envelope.message_id
-
-      if (!turnStart.model_ref || turnStart.model_ref.provider_id === 'ankole-placeholder') {
-        const result = handlePingPongTurnStart(turnStart, {
-          correlationId
-        })
-        return [result.accepted, result.finalProposal]
-      }
-
-      if (!deps.requestCredential || !config) {
-        throw new Error('real LLM turn requires workspace config and credential requester')
-      }
-
-      const accepted = turnAcceptedEnvelope(
-        turnStart.turn,
-        turnStart.inputs.map(input => input.actor_input_id),
-        correlationId
-      )
-      const proposal = await runLlmTurnHandlers(turnStart, {
-        workspaceRoot: config.workspaceRoot,
-        requestCredential: deps.requestCredential
-      })
-      const finalProposal = finalProposalEnvelope(turnStart.turn, proposal, correlationId)
-
-      return [accepted, finalProposal]
-    }
-
-    default:
-      return []
-  }
-}
-
-export function credentialRequestEnvelope(request: LlmProviderCredentialRequest): ActorBusEnvelope {
-  return {
-    protocol_version: 1,
-    message_id: request.request_id,
-    correlation_id: request.request_id,
-    lane: 'LANE_RPC',
-    durability: 'CONTROL_EPHEMERAL',
-    body: {
-      type: 'llm_provider_credential_request',
-      llm_provider_credential_request: request
-    }
-  }
-}
-
-export function credentialResponseFromEnvelope(
-  envelope: ActorBusEnvelope,
-  requestId: string
-): LlmProviderCredentialResponse | LlmProviderCredentialRejected | undefined {
-  if (envelope.correlation_id !== requestId) {
-    return undefined
-  }
-
-  switch (envelope.body.type) {
-    case 'llm_provider_credential_response':
-      return envelope.body.llm_provider_credential_response as LlmProviderCredentialResponse
-    case 'llm_provider_credential_rejected':
-      return envelope.body.llm_provider_credential_rejected as LlmProviderCredentialRejected
-    default:
-      return undefined
   }
 }
 

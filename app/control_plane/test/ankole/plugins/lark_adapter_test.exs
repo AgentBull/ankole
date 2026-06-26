@@ -1,9 +1,16 @@
 defmodule Ankole.Plugins.LarkAdapterTest do
   use Ankole.DataCase, async: false
 
+  alias Ankole.AppConfigure
+  alias Ankole.AppConfigure.Cache, as: AppConfigureCache
+  alias Ankole.AppConfigure.Registry, as: AppConfigureRegistry
   alias Ankole.Actors.ActorInput
   alias Ankole.Plugins.LarkAdapter
   alias Ankole.Plugins.LarkAdapter.Config
+  alias Ankole.IdentityProviders
+  alias Ankole.IdentityProviders.Jobs.SyncProvider
+  alias Ankole.Plugins.LarkAdapter.ConnectionOwner
+  alias Ankole.Plugins.LarkAdapter.ConnectionReconciler
   alias Ankole.Plugins.LarkAdapter.ConnectionSupervisor
   alias Ankole.Plugins.LarkAdapter.IdentityProvider
   alias Ankole.Plugins.LarkAdapter.Inbound
@@ -20,6 +27,12 @@ defmodule Ankole.Plugins.LarkAdapterTest do
 
   @base_time ~U[2026-06-24 08:00:00.000000Z]
   @base_ms DateTime.to_unix(@base_time, :millisecond)
+
+  setup do
+    AppConfigureRegistry.clear_for_test()
+    AppConfigureCache.clear_for_test()
+    :ok = AppConfigure.register_patterns(LarkAdapter.app_config_patterns())
+  end
 
   describe "plugin declaration" do
     test "declares the stable Lark adapter contracts and encrypted config patterns" do
@@ -72,6 +85,82 @@ defmodule Ankole.Plugins.LarkAdapterTest do
   end
 
   describe "connection ownership" do
+    test "reconciler starts enabled chat bindings through the connection supervisor" do
+      registry = unique_module("LarkConnectionRegistry")
+      supervisor = unique_module("LarkConnectionSupervisor")
+
+      start_supervised!({Registry, keys: :unique, name: registry})
+      start_supervised!({DynamicSupervisor, name: supervisor, strategy: :one_for_one})
+
+      %{principal: first_agent} = agent_fixture()
+      %{principal: second_agent} = agent_fixture()
+
+      assert {:ok, _} =
+               AppConfigure.put_global_by_key(
+                 Config.chat_config_key("lark-first"),
+                 %{
+                   "appId" => "cli_reconciler",
+                   "appSecret" => "secret",
+                   "platformSubjectNamespace" => "lark-main",
+                   "userName" => "Lark Bot"
+                 }
+               )
+
+      assert {:ok, _} =
+               AppConfigure.put_global_by_key(
+                 Config.chat_config_key("lark-second"),
+                 %{
+                   "appId" => "cli_reconciler",
+                   "appSecret" => "secret",
+                   "platformSubjectNamespace" => "lark-main",
+                   "userName" => "Lark Bot"
+                 }
+               )
+
+      binding_fixture(first_agent.uid, "lark-first", :ignore)
+      binding_fixture(second_agent.uid, "lark-second", :may_intervene)
+
+      assert %{started: 1, errors: []} =
+               ConnectionReconciler.reconcile_once(
+                 registry: registry,
+                 supervisor: supervisor,
+                 start_client?: false
+               )
+
+      assert [{"feishu", "cli_reconciler"}] =
+               ConnectionSupervisor.registered_keys(registry: registry)
+    end
+
+    test "reconciler starts enabled identity provider consumers" do
+      registry = unique_module("LarkIdentityConnectionRegistry")
+      supervisor = unique_module("LarkIdentityConnectionSupervisor")
+
+      start_supervised!({Registry, keys: :unique, name: registry})
+      start_supervised!({DynamicSupervisor, name: supervisor, strategy: :one_for_one})
+
+      assert {:ok, _provider} =
+               IdentityProviders.save_provider(
+                 "lark-main",
+                 "lark",
+                 %{"appId" => "cli_identity_reconciler", "appSecret" => "secret"},
+                 true
+               )
+
+      assert %{started: 1, errors: []} =
+               ConnectionReconciler.reconcile_once(
+                 registry: registry,
+                 supervisor: supervisor,
+                 start_client?: false
+               )
+
+      assert [{pid, _value}] = Registry.lookup(registry, {"feishu", "cli_identity_reconciler"})
+
+      assert %{
+               consumer_count: 1,
+               consumer_kinds: [:identity_provider]
+             } = ConnectionOwner.status(pid)
+    end
+
     test "keeps one owner per domain and app id and rejects secret conflicts" do
       registry = unique_module("LarkConnectionRegistry")
       supervisor = unique_module("LarkConnectionSupervisor")
@@ -279,6 +368,51 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       assert Repo.aggregate(ActorInput, :count) == 0
     end
 
+    test "enabled materializer adds worker file paths to provider attachments" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "lark", :record_only)
+
+      materializer = fn attachments, _message, _consumer ->
+        {:ok,
+         Enum.map(attachments, fn attachment ->
+           attachment
+           |> Map.put("agent_computer_path", "/workspace/user-files/inbox/lark/om_file/deck.pdf")
+           |> Map.put("user_files_relative_path", "inbox/lark/om_file/deck.pdf")
+           |> Map.put("xxh3_128", "8db84f6b892cfa6bdad930c907ecb808")
+         end)}
+      end
+
+      consumer =
+        Inbound.chat_consumer(adapter_context(agent.uid), chat_config(),
+          materialize_attachments: true,
+          attachment_materializer: materializer
+        )
+
+      event =
+        receive_event()
+        |> update_message(fn message ->
+          %{
+            message
+            | "message_id" => "om_file",
+              "message_type" => "file",
+              "content" => ~s({"file_key":"file_1","file_name":"deck.pdf"}),
+              "mentions" => []
+          }
+        end)
+
+      assert {:ok, [%{status: :recorded, signal_entry: entry}]} =
+               Inbound.handle_message_receive("im.message.receive_v1", event, [consumer])
+
+      assert [
+               %{
+                 "provider_ref" => "lark:file:file_1",
+                 "agent_computer_path" => "/workspace/user-files/inbox/lark/om_file/deck.pdf",
+                 "user_files_relative_path" => "inbox/lark/om_file/deck.pdf",
+                 "xxh3_128" => "8db84f6b892cfa6bdad930c907ecb808"
+               }
+             ] = entry.attachments
+    end
+
     test "user senders without provider-scoped user_id fail closed" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "lark", :ignore)
@@ -367,6 +501,23 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       assert reply.path == "im/v1/messages/:message_id/reply"
       assert reply.path_params == %{message_id: "om_1"}
       refute Map.has_key?(reply.body, :receive_id)
+
+      assert {:ok, file_reply} =
+               Outbox.request_for_outbox(%OutboxEntry{
+                 operation: :reply,
+                 signal_channel_id: "lark:oc_group",
+                 source_provider_entry_id: "om_1",
+                 payload: %{
+                   "attachments" => [
+                     %{"provider_file_key" => "file_uploaded_1", "name" => "report.txt"}
+                   ]
+                 },
+                 fallback_visible_text: "report attached"
+               })
+
+      assert file_reply.body.msg_type == "file"
+      assert {:ok, file_content} = Ankole.JSON.decode(file_reply.body.content)
+      assert file_content == %{"file_key" => "file_uploaded_1"}
 
       assert {:ok, edit} =
                Outbox.request_for_outbox(%OutboxEntry{
@@ -503,6 +654,40 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                  "open_id" => "ou_open_only",
                  "union_id" => "on_union"
                })
+    end
+
+    test "contact events enqueue full sync when incremental identity is incomplete" do
+      assert {:ok, _provider} =
+               IdentityProviders.save_provider(
+                 "lark-main",
+                 "lark",
+                 %{"appId" => "cli_identity", "appSecret" => "secret"},
+                 true
+               )
+
+      event = %Event{
+        id: "evt_contact",
+        type: "contact.user.updated_v3",
+        tenant_key: "tenant-a",
+        app_id: "cli_identity",
+        created_at: @base_time,
+        content: %{"user" => %{"open_id" => "ou_open_only"}},
+        raw: %{}
+      }
+
+      assert {:ok, [%{status: :full_sync_enqueued, reason: :missing_user_id}]} =
+               IdentityProvider.handle_contact_event("contact.user.updated_v3", event, [
+                 IdentityProvider.identity_consumer("lark-main", identity_config())
+               ])
+
+      assert_enqueued(
+        worker: SyncProvider,
+        args: %{
+          "provider_id" => "lark-main",
+          "reason" => "missing_user_id",
+          "source" => "lark_contact_event"
+        }
+      )
     end
   end
 

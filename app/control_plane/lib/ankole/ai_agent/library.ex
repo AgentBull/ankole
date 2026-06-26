@@ -1,38 +1,27 @@
 defmodule Ankole.AIAgent.Library do
   @moduledoc """
-  DB-backed library-containers surface for AI agents.
+  Agent library state for AI agents.
 
-  Builtin skills are first-party files under `app/library/skills`. They sync
-  into a canonical catalog, while `SOUL.md`, `MISSION.md`, and
-  `skills/<name>/AGENT_APPEND.md` remain agent-owned writable entries.
+  Persona docs and overlays are PG semantic state. Skills themselves are
+  filesystem bundles: builtin skills ship with the app image, and agent-installed
+  skills live under worker-visible storage. `agent_skills` records enablement,
+  registry semantics, and file observations; it is not a file content table.
   """
 
   import Ecto.Query, warn: false
 
   alias Ankole.AIAgent.Library.Schemas.AgentLibraryContainerEntry
-  alias Ankole.AIAgent.Library.Schemas.AgentSkillAssignment
+  alias Ankole.AIAgent.Library.Schemas.AgentSkill
+  alias Ankole.AIAgent.Library.Schemas.AgentSkillOverlay
   alias Ankole.AIAgent.Library.Schemas.LibraryBuiltinSyncState
-  alias Ankole.AIAgent.Library.Schemas.LibrarySkill
-  alias Ankole.AIAgent.Library.Schemas.LibrarySkillFile
+  alias Ankole.AIAgent.Library.SourceReader
   alias Ankole.Principals
   alias Ankole.Repo
 
-  @library_root Path.expand("../../../../library", __DIR__)
-  @skills_root Path.join(@library_root, "skills")
-  @templates_root Path.join(@library_root, "templates")
   @sync_name "app/library/skills"
   @skill_file "SKILL.md"
-  @agent_append_file "AGENT_APPEND.md"
   @soul_file "SOUL.md"
   @mission_file "MISSION.md"
-  # Explicit allowlist of first-party skill directories that sync into Postgres.
-  # Intentionally narrow: only vetted bundles become part of the canonical
-  # catalog, even if more skill folders exist on disk.
-  @builtin_skill_names ~w(jupyter-live-kernel nano-pdf powerpoint)
-  # Used only if the bundled SOUL/MISSION templates are unreadable, so a fresh
-  # agent still gets a usable (if minimal) persona rather than failing to seed.
-  @fallback_soul "You are an Ankole AI colleague. Reply in plain text."
-  @fallback_mission ""
 
   @type sync_result :: %{
           changed: boolean(),
@@ -41,8 +30,22 @@ defmodule Ankole.AIAgent.Library do
           files: non_neg_integer()
         }
 
+  @type installed_skill_observation :: %{
+          required(:skill_name) => String.t(),
+          optional(:relative_path) => String.t(),
+          optional(:description) => String.t(),
+          optional(:default_enabled) => boolean(),
+          optional(:metadata) => map(),
+          optional(:content_hash) => String.t(),
+          optional(:xxh3_128) => String.t(),
+          optional(:file_count) => non_neg_integer()
+        }
+
   @doc """
-  Syncs the first-party builtin skills into Postgres.
+  Scans first-party builtin skill files and updates the global sync cursor.
+
+  Per-agent registry rows are created by `sync_agent_skills/2`, because builtin
+  skill enablement is now agent-local state.
   """
   @spec sync_builtin_skills(keyword()) :: {:ok, sync_result()} | {:error, term()}
   def sync_builtin_skills(opts \\ []) do
@@ -50,11 +53,8 @@ defmodule Ankole.AIAgent.Library do
     force? = Keyword.get(opts, :force, false)
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
-    with {:ok, sources} <- read_builtin_skill_sources() do
-      # The whole on-disk catalog is hashed and compared to the stored cursor so
-      # this (boot-time) sync is a cheap no-op when nothing changed. `force?`
-      # exists for tests and manual re-syncs that want to write regardless.
-      content_hash = catalog_hash(sources)
+    with {:ok, sources} <- SourceReader.read_builtin_skill_sources() do
+      content_hash = SourceReader.catalog_hash(sources)
       current_state = repo.get(LibraryBuiltinSyncState, @sync_name)
 
       result = %{
@@ -69,11 +69,11 @@ defmodule Ankole.AIAgent.Library do
           {:ok, result}
 
         true ->
-          Repo.transact(fn repo ->
-            with :ok <- upsert_builtin_sources(repo, sources, now),
-                 {:ok, _state} <-
-                   upsert_sync_state(repo, content_hash, result, now) do
-              {:ok, result}
+          repo.transact(fn repo ->
+            upsert_sync_state(repo, content_hash, result, now)
+            |> case do
+              {:ok, _state} -> {:ok, result}
+              {:error, _reason} = error -> error
             end
           end)
       end
@@ -81,7 +81,65 @@ defmodule Ankole.AIAgent.Library do
   end
 
   @doc """
-  Seeds writable library files for a newly-created agent.
+  Synchronizes builtin skill registry rows for one agent.
+
+  Agent-installed rows are preserved. They are refreshed only from explicit
+  worker file observations, not by scanning a control-plane filesystem path.
+  """
+  @spec sync_agent_skills(String.t(), keyword()) :: {:ok, sync_result()} | {:error, term()}
+  def sync_agent_skills(agent_uid, opts \\ []) do
+    repo = Keyword.get(opts, :repo, Repo)
+    now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
+
+    with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
+         {:ok, sources} <- agent_skill_sources(agent_uid, opts) do
+      repo.transact(fn repo -> sync_agent_skills_in_tx(repo, agent_uid, sources, now) end)
+    end
+  end
+
+  @doc """
+  Replaces the agent-installed skill registry from worker file observations.
+
+  The caller is expected to obtain these observations through RuntimeFabric File
+  Lane LIST/GET/STAT work. This function deliberately accepts data, not a
+  filesystem root, so the control plane cannot silently become an NFS scanner.
+  """
+  @spec replace_installed_skill_observations(
+          String.t(),
+          [installed_skill_observation()],
+          keyword()
+        ) ::
+          {:ok, sync_result()} | {:error, term()}
+  def replace_installed_skill_observations(agent_uid, observations, opts \\ [])
+
+  def replace_installed_skill_observations(agent_uid, observations, opts)
+      when is_list(observations) do
+    repo = Keyword.get(opts, :repo, Repo)
+    now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
+
+    with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
+         {:ok, builtin_sources} <- SourceReader.read_builtin_skill_sources(),
+         {:ok, installed_sources} <- installed_sources_from_observations(observations) do
+      repo.transact(fn repo ->
+        sync_agent_skills_in_tx(
+          repo,
+          agent_uid,
+          %{
+            builtin: builtin_sources,
+            installed: installed_sources,
+            installed_authoritative?: true
+          },
+          now
+        )
+      end)
+    end
+  end
+
+  def replace_installed_skill_observations(_agent_uid, _observations, _opts),
+    do: {:error, :invalid_skill_observations}
+
+  @doc """
+  Seeds writable library state for a newly-created agent.
   """
   @spec seed_agent_library(String.t()) :: :ok | {:error, term()}
   def seed_agent_library(agent_uid) do
@@ -91,13 +149,16 @@ defmodule Ankole.AIAgent.Library do
   @doc false
   @spec seed_agent_library_in_tx(module(), String.t()) :: :ok | {:error, term()}
   def seed_agent_library_in_tx(repo, agent_uid) do
+    now = DateTime.utc_now(:microsecond)
+
     with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
+         {:ok, sources} <- agent_skill_sources(agent_uid, []),
          {:ok, _soul} <-
            upsert_agent_text_entry_in_tx(repo, %{
              agent_uid: agent_uid,
              path: @soul_file,
              source_kind: "soul",
-             content: load_default_soul_template(),
+             content: SourceReader.load_default_soul_template(),
              metadata: %{"source" => "app_template"}
            }),
          {:ok, _mission} <-
@@ -105,53 +166,40 @@ defmodule Ankole.AIAgent.Library do
              agent_uid: agent_uid,
              path: @mission_file,
              source_kind: "mission",
-             content: load_default_mission_template(),
+             content: SourceReader.load_default_mission_template(),
              metadata: %{"source" => "app_template"}
            }),
-         :ok <- seed_default_skill_assignments_in_tx(repo, agent_uid) do
+         {:ok, _result} <- sync_agent_skills_in_tx(repo, agent_uid, sources, now) do
       :ok
     end
   end
 
   @doc """
-  Lists the skills currently enabled for an agent after assignment overrides.
+  Lists the skills currently enabled for an agent.
   """
   @spec enabled_skills_for_agent(String.t(), keyword()) :: {:ok, [map()]} | {:error, term()}
   def enabled_skills_for_agent(agent_uid, opts \\ []) do
     repo = Keyword.get(opts, :repo, Repo)
 
-    with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid) do
-      skills =
-        LibrarySkill
-        |> order_by([skill], asc: skill.skill_name)
-        |> repo.all()
-
-      assignments =
-        AgentSkillAssignment
-        |> where([assignment], assignment.agent_uid == ^agent_uid)
-        |> repo.all()
-        |> Map.new(&{&1.skill_name, &1})
-
-      append_paths =
-        AgentLibraryContainerEntry
-        |> where([entry], entry.agent_uid == ^agent_uid)
-        |> where([entry], entry.source_kind == "skill_append")
-        |> where([entry], is_nil(entry.deleted_at))
-        |> select([entry], entry.path)
+    with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
+         {:ok, _result} <- sync_agent_skills(agent_uid, opts) do
+      overlay_skills =
+        AgentSkillOverlay
+        |> where([overlay], overlay.agent_uid == ^agent_uid)
+        |> where([overlay], is_nil(overlay.deleted_at))
+        |> select([overlay], overlay.skill_name)
         |> repo.all()
         |> MapSet.new()
 
-      enabled =
-        skills
-        |> Enum.filter(fn skill ->
-          case Map.get(assignments, skill.skill_name) do
-            %AgentSkillAssignment{enabled: enabled?} -> enabled?
-            nil -> skill.default_enabled
-          end
-        end)
-        |> Enum.map(&skill_summary(&1, append_paths))
+      skills =
+        AgentSkill
+        |> where([skill], skill.agent_uid == ^agent_uid)
+        |> where([skill], skill.enabled == true)
+        |> order_by([skill], asc: skill.skill_name)
+        |> repo.all()
+        |> Enum.map(&skill_summary(&1, overlay_skills))
 
-      {:ok, enabled}
+      {:ok, skills}
     end
   end
 
@@ -164,116 +212,110 @@ defmodule Ankole.AIAgent.Library do
     repo = Keyword.get(opts, :repo, Repo)
 
     with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
-         {:ok, skill_name} <- normalize_skill_name(skill_name),
-         {:ok, file_path} <- normalize_virtual_path(file_path || @skill_file),
+         {:ok, _result} <- sync_agent_skills(agent_uid, opts),
+         {:ok, skill_name} <- SourceReader.normalize_skill_name(skill_name),
+         {:ok, file_path} <- SourceReader.normalize_virtual_path(file_path || @skill_file),
+         :ok <- reject_agent_append_file(file_path),
          {:ok, skill} <- enabled_skill(repo, agent_uid, skill_name) do
-      do_skill_view(repo, agent_uid, skill, file_path)
+      do_skill_view(repo, agent_uid, skill, file_path, opts)
     end
   end
 
   @doc """
-  Replaces an agent-specific `AGENT_APPEND.md` for an enabled skill.
+  Replaces an agent-specific skill overlay for an enabled skill.
   """
-  @spec skill_append(String.t(), String.t(), String.t(), keyword()) ::
-          {:ok, AgentLibraryContainerEntry.t()} | {:error, term()}
-  def skill_append(agent_uid, skill_name, content, opts \\ [])
+  @spec replace_skill_overlay(String.t(), String.t(), map(), keyword()) ::
+          {:ok, AgentSkillOverlay.t()} | {:error, term()}
+  def replace_skill_overlay(agent_uid, skill_name, overlay_json, opts \\ [])
 
-  def skill_append(agent_uid, skill_name, content, _opts)
-      when is_binary(content) do
-    Repo.transact(fn repo ->
+  def replace_skill_overlay(agent_uid, skill_name, overlay_json, opts)
+      when is_map(overlay_json) do
+    repo = Keyword.get(opts, :repo, Repo)
+
+    repo.transact(fn repo ->
       with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
-           {:ok, skill_name} <- normalize_skill_name(skill_name),
+           {:ok, sources} <- agent_skill_sources(agent_uid, opts),
+           {:ok, _result} <-
+             sync_agent_skills_in_tx(repo, agent_uid, sources, DateTime.utc_now(:microsecond)),
+           {:ok, skill_name} <- SourceReader.normalize_skill_name(skill_name),
            {:ok, _skill} <- enabled_skill(repo, agent_uid, skill_name) do
-        upsert_agent_text_entry_in_tx(repo, %{
-          agent_uid: agent_uid,
-          path: agent_append_path(skill_name),
-          source_kind: "skill_append",
-          content: content,
-          metadata: %{"skill_name" => skill_name}
-        })
+        replace_skill_overlay_in_tx(repo, agent_uid, skill_name, overlay_json)
       end
     end)
   end
 
+  def replace_skill_overlay(_agent_uid, _skill_name, _overlay_json, _opts),
+    do: {:error, :invalid_overlay}
+
+  @doc """
+  Backward-compatible tool entry: replaces the DB overlay text.
+  """
+  @spec skill_append(String.t(), String.t(), String.t(), keyword()) ::
+          {:ok, AgentSkillOverlay.t()} | {:error, term()}
+  def skill_append(agent_uid, skill_name, content, opts \\ [])
+
+  def skill_append(agent_uid, skill_name, content, opts) when is_binary(content),
+    do: replace_skill_overlay(agent_uid, skill_name, %{"text" => content}, opts)
+
   def skill_append(_agent_uid, _skill_name, _content, _opts), do: {:error, :invalid_content}
+
+  @doc """
+  Returns the active DB overlay for an enabled skill.
+  """
+  @spec skill_overlay(String.t(), String.t(), keyword()) :: {:ok, map() | nil} | {:error, term()}
+  def skill_overlay(agent_uid, skill_name, opts \\ []) do
+    repo = Keyword.get(opts, :repo, Repo)
+
+    with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
+         {:ok, _result} <- sync_agent_skills(agent_uid, opts),
+         {:ok, skill_name} <- SourceReader.normalize_skill_name(skill_name),
+         {:ok, _skill} <- enabled_skill(repo, agent_uid, skill_name) do
+      {:ok, active_skill_overlay(repo, agent_uid, skill_name)}
+    end
+  end
+
+  @doc """
+  Clears the active DB overlay for an enabled skill.
+  """
+  @spec clear_skill_overlay(String.t(), String.t(), keyword()) ::
+          {:ok, AgentSkillOverlay.t() | nil} | {:error, term()}
+  def clear_skill_overlay(agent_uid, skill_name, opts \\ []) do
+    repo = Keyword.get(opts, :repo, Repo)
+    now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
+
+    repo.transact(fn repo ->
+      with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
+           {:ok, sources} <- agent_skill_sources(agent_uid, opts),
+           {:ok, _result} <- sync_agent_skills_in_tx(repo, agent_uid, sources, now),
+           {:ok, skill_name} <- SourceReader.normalize_skill_name(skill_name),
+           {:ok, _skill} <- enabled_skill(repo, agent_uid, skill_name) do
+        case active_skill_overlay(repo, agent_uid, skill_name) do
+          %AgentSkillOverlay{} = overlay ->
+            overlay
+            |> AgentSkillOverlay.changeset(%{deleted_at: now})
+            |> repo.update()
+
+          nil ->
+            {:ok, nil}
+        end
+      end
+    end)
+  end
 
   @doc """
   Returns the current agent soul text, falling back to the bundled template.
   """
   @spec get_soul(String.t(), keyword()) :: {:ok, String.t()} | {:error, term()}
   def get_soul(agent_uid, opts \\ []),
-    do: get_agent_text(agent_uid, @soul_file, load_default_soul_template(), opts)
+    do: get_agent_text(agent_uid, @soul_file, SourceReader.load_default_soul_template(), opts)
 
   @doc """
   Returns the current agent mission text, falling back to the bundled template.
   """
   @spec get_mission(String.t(), keyword()) :: {:ok, String.t()} | {:error, term()}
   def get_mission(agent_uid, opts \\ []),
-    do: get_agent_text(agent_uid, @mission_file, load_default_mission_template(), opts)
-
-  @doc """
-  Projects all files that should appear under `/workspace/library-containers`.
-  """
-  @spec list_effective_library_container_files(String.t(), keyword()) ::
-          {:ok, [%{path: String.t(), content: String.t()}]} | {:error, term()}
-  def list_effective_library_container_files(agent_uid, opts \\ []) do
-    repo = Keyword.get(opts, :repo, Repo)
-
-    with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
-         {:ok, summaries} <- enabled_skills_for_agent(agent_uid, repo: repo) do
-      agent_files =
-        AgentLibraryContainerEntry
-        |> where([entry], entry.agent_uid == ^agent_uid)
-        |> where([entry], is_nil(entry.deleted_at))
-        |> where(
-          [entry],
-          entry.path in [@soul_file, @mission_file] or
-            like(entry.path, "skills/%/AGENT_APPEND.md")
-        )
-        |> order_by([entry], asc: entry.path)
-        |> repo.all()
-        |> Enum.flat_map(fn
-          %AgentLibraryContainerEntry{content: content, path: path} when is_binary(content) ->
-            [%{path: path, content: content}]
-
-          _entry ->
-            []
-        end)
-
-      skill_files =
-        summaries
-        |> Enum.flat_map(fn %{"skill_name" => skill_name} ->
-          LibrarySkillFile
-          |> where([file], file.skill_name == ^skill_name)
-          |> order_by([file], asc: file.path)
-          |> repo.all()
-          |> Enum.map(fn file ->
-            %{path: "skills/#{skill_name}/#{file.path}", content: file.content}
-          end)
-        end)
-
-      {:ok, agent_files ++ skill_files}
-    end
-  end
-
-  @doc """
-  Writes the effective library tree to a host directory.
-  """
-  @spec materialize_effective_library(String.t(), Path.t(), keyword()) ::
-          {:ok, [Path.t()]} | {:error, term()}
-  def materialize_effective_library(agent_uid, mount_root, opts \\ []) do
-    with {:ok, files} <- list_effective_library_container_files(agent_uid, opts) do
-      paths =
-        Enum.map(files, fn %{path: path, content: content} ->
-          full_path = safe_join!(mount_root, path)
-          File.mkdir_p!(Path.dirname(full_path))
-          File.write!(full_path, content)
-          full_path
-        end)
-
-      {:ok, paths}
-    end
-  end
+    do:
+      get_agent_text(agent_uid, @mission_file, SourceReader.load_default_mission_template(), opts)
 
   @doc """
   Returns the compact skill index used by prompt builders.
@@ -284,9 +326,12 @@ defmodule Ankole.AIAgent.Library do
       {:ok,
        Enum.map(skills, fn skill ->
          %{
+           "skill_name" => skill["skill_name"],
            "name" => skill["skill_name"],
            "description" => skill["description"],
            "category" => skill["category"],
+           "source_kind" => skill["source_kind"],
+           "relative_path" => skill["relative_path"],
            "file_path" => "/workspace/library-containers/skills/#{skill["skill_name"]}/SKILL.md",
            "disable_model_invocation" =>
              get_in(skill, ["metadata", "disable_model_invocation"]) == true
@@ -295,61 +340,123 @@ defmodule Ankole.AIAgent.Library do
     end
   end
 
-  defp upsert_builtin_sources(repo, sources, now) do
-    Enum.reduce_while(sources, :ok, fn source, :ok ->
-      attrs = %{
-        skill_name: source.name,
-        description: source.description,
-        default_enabled: source.default_enabled,
-        metadata: source.metadata,
-        content_hash: source.source_hash,
-        synced_at: now
-      }
-
-      case upsert_skill(repo, attrs) do
-        {:ok, _skill} ->
-          repo.delete_all(from(file in LibrarySkillFile, where: file.skill_name == ^source.name))
-
-          case insert_skill_files(repo, source) do
-            :ok -> {:cont, :ok}
-            {:error, _reason} = error -> {:halt, error}
-          end
-
-        {:error, _reason} = error ->
-          {:halt, error}
-      end
-    end)
+  defp agent_skill_sources(_agent_uid, _opts) do
+    with {:ok, builtin_sources} <- SourceReader.read_builtin_skill_sources() do
+      {:ok, %{builtin: builtin_sources, installed: [], installed_authoritative?: false}}
+    end
   end
 
-  defp upsert_skill(repo, attrs) do
-    %LibrarySkill{}
-    |> LibrarySkill.changeset(attrs)
-    |> repo.insert(
-      on_conflict:
-        {:replace,
-         [:description, :default_enabled, :metadata, :content_hash, :synced_at, :updated_at]},
-      conflict_target: :skill_name
-    )
+  defp sync_agent_skills_in_tx(repo, agent_uid, sources, now) do
+    source_rows =
+      Enum.map(sources.builtin, &source_attrs(&1, "builtin", now)) ++
+        Enum.map(sources.installed, &source_attrs(&1, "installed", now))
+
+    source_names = MapSet.new(source_rows, & &1.skill_name)
+
+    existing =
+      AgentSkill
+      |> where([skill], skill.agent_uid == ^agent_uid)
+      |> repo.all()
+      |> Map.new(&{&1.skill_name, &1})
+
+    with :ok <- upsert_agent_skill_rows(repo, agent_uid, source_rows, existing),
+         {_count, _rows} <-
+           stale_agent_skills_query(agent_uid, source_names, sources.installed_authoritative?)
+           |> repo.delete_all() do
+      {:ok,
+       %{
+         changed: true,
+         content_hash: agent_skill_hash(source_rows),
+         skills: length(source_rows),
+         files: Enum.reduce(source_rows, 0, fn row, count -> count + row.file_count end)
+       }}
+    end
   end
 
-  defp insert_skill_files(repo, source) do
-    Enum.reduce_while(source.files, :ok, fn file, :ok ->
-      attrs = %{
-        skill_name: source.name,
-        path: file.path,
-        content: file.content,
-        content_hash: file.content_hash,
-        metadata: %{"media_type" => media_type_for_path(file.path)}
-      }
+  defp stale_agent_skills_query(agent_uid, source_names, true) do
+    AgentSkill
+    |> where([skill], skill.agent_uid == ^agent_uid)
+    |> where([skill], skill.skill_name not in ^MapSet.to_list(source_names))
+  end
 
-      %LibrarySkillFile{}
-      |> LibrarySkillFile.changeset(attrs)
-      |> repo.insert()
+  defp stale_agent_skills_query(agent_uid, source_names, false) do
+    AgentSkill
+    |> where([skill], skill.agent_uid == ^agent_uid)
+    |> where([skill], skill.source_kind == "builtin")
+    |> where([skill], skill.skill_name not in ^MapSet.to_list(source_names))
+  end
+
+  defp source_attrs(source, source_kind, now) do
+    %{
+      skill_name: source.name,
+      source_kind: source_kind,
+      relative_path: source.relative_path,
+      enabled: source.default_enabled,
+      default_enabled: source.default_enabled,
+      description: source.description,
+      metadata:
+        source.metadata
+        |> Map.put("source_kind", source_kind)
+        |> Map.put("relative_path", source.relative_path),
+      content_hash: source.source_hash,
+      synced_at: now,
+      file_count: length(source.files)
+    }
+  end
+
+  defp upsert_agent_skill_rows(repo, agent_uid, source_rows, existing) do
+    Enum.reduce_while(source_rows, :ok, fn row, :ok ->
+      enabled =
+        case Map.get(existing, row.skill_name) do
+          %AgentSkill{enabled: enabled?} -> enabled?
+          nil -> row.enabled
+        end
+
+      attrs =
+        row
+        |> Map.take([
+          :skill_name,
+          :source_kind,
+          :relative_path,
+          :default_enabled,
+          :description,
+          :metadata,
+          :content_hash,
+          :synced_at
+        ])
+        |> Map.put(:agent_uid, agent_uid)
+        |> Map.put(:enabled, enabled)
+
+      %AgentSkill{}
+      |> AgentSkill.changeset(attrs)
+      |> repo.insert(
+        on_conflict:
+          {:replace,
+           [
+             :source_kind,
+             :relative_path,
+             :enabled,
+             :default_enabled,
+             :description,
+             :metadata,
+             :content_hash,
+             :synced_at,
+             :updated_at
+           ]},
+        conflict_target: [:agent_uid, :skill_name]
+      )
       |> case do
-        {:ok, _file} -> {:cont, :ok}
+        {:ok, _skill} -> {:cont, :ok}
         {:error, _reason} = error -> {:halt, error}
       end
     end)
+  end
+
+  defp agent_skill_hash(rows) do
+    rows
+    |> Enum.flat_map(&[&1.skill_name, &1.source_kind, &1.relative_path, &1.content_hash])
+    |> Enum.join(<<0>>)
+    |> SourceReader.hash()
   end
 
   defp upsert_sync_state(repo, content_hash, result, now) do
@@ -368,35 +475,11 @@ defmodule Ankole.AIAgent.Library do
     )
   end
 
-  defp seed_default_skill_assignments_in_tx(repo, agent_uid) do
-    LibrarySkill
-    |> repo.all()
-    |> Enum.reduce_while(:ok, fn skill, :ok ->
-      attrs = %{
-        agent_uid: agent_uid,
-        skill_name: skill.skill_name,
-        enabled: skill.default_enabled,
-        metadata: %{"source" => "agent_seed"}
-      }
-
-      %AgentSkillAssignment{}
-      |> AgentSkillAssignment.changeset(attrs)
-      |> repo.insert(
-        on_conflict: {:replace, [:enabled, :metadata, :updated_at]},
-        conflict_target: [:agent_uid, :skill_name]
-      )
-      |> case do
-        {:ok, _assignment} -> {:cont, :ok}
-        {:error, _reason} = error -> {:halt, error}
-      end
-    end)
-  end
-
   defp upsert_agent_text_entry_in_tx(repo, attrs) do
     attrs =
       attrs
-      |> Map.put(:path, normalize_virtual_path!(attrs.path))
-      |> Map.put(:content_hash, hash(attrs.content || ""))
+      |> Map.put(:path, SourceReader.normalize_virtual_path!(attrs.path))
+      |> Map.put(:content_hash, SourceReader.hash(attrs.content || ""))
       |> Map.put_new(:metadata, %{})
 
     %AgentLibraryContainerEntry{}
@@ -427,61 +510,26 @@ defmodule Ankole.AIAgent.Library do
     end
   end
 
+  defp reject_agent_append_file("AGENT_APPEND.md"), do: {:error, :skill_file_not_found}
+  defp reject_agent_append_file(_file_path), do: :ok
+
   defp enabled_skill(repo, agent_uid, skill_name) do
-    case repo.get(LibrarySkill, skill_name) do
-      %LibrarySkill{} = skill ->
-        assignment =
-          repo.get_by(AgentSkillAssignment, agent_uid: agent_uid, skill_name: skill_name)
-
-        # An explicit per-agent assignment always wins over the catalog default:
-        # an `enabled: false` override disables a default-on skill, and an
-        # `enabled: true` override enables a default-off one. With no assignment,
-        # the catalog's `default_enabled` decides.
-        cond do
-          match?(%AgentSkillAssignment{enabled: false}, assignment) ->
-            {:error, :skill_not_enabled}
-
-          skill.default_enabled or match?(%AgentSkillAssignment{enabled: true}, assignment) ->
-            {:ok, skill}
-
-          true ->
-            {:error, :skill_not_enabled}
-        end
-
-      nil ->
-        {:error, :skill_not_found}
+    case repo.get_by(AgentSkill, agent_uid: agent_uid, skill_name: skill_name) do
+      %AgentSkill{enabled: true} = skill -> {:ok, skill}
+      %AgentSkill{} -> {:error, :skill_not_enabled}
+      nil -> {:error, :skill_not_found}
     end
   end
 
-  defp do_skill_view(repo, agent_uid, %LibrarySkill{} = skill, @agent_append_file) do
-    case active_agent_entry(repo, agent_uid, agent_append_path(skill.skill_name)) do
-      %AgentLibraryContainerEntry{content: content} when is_binary(content) ->
-        {:ok,
-         %{
-           "skill_name" => skill.skill_name,
-           "file_path" =>
-             "/workspace/library-containers/skills/#{skill.skill_name}/#{@agent_append_file}",
-           "content" => content,
-           "has_agent_append" => true
-         }}
-
-      _entry ->
-        {:error, :skill_file_not_found}
-    end
-  end
-
-  defp do_skill_view(repo, agent_uid, %LibrarySkill{} = skill, file_path) do
-    case repo.get_by(LibrarySkillFile, skill_name: skill.skill_name, path: file_path) do
-      # Reading the skill's main `SKILL.md` returns the canonical body with this
-      # agent's `AGENT_APPEND.md` (if any) spliced on under a divider. That is how
-      # an agent personalizes a shared first-party skill without forking it: the
-      # catalog row stays canonical, the per-agent delta lives in a writable entry.
-      %LibrarySkillFile{} = file when file_path == @skill_file ->
-        base_content = skill_body(file.content)
-        append_content = agent_append_content(repo, agent_uid, skill.skill_name)
+  defp do_skill_view(repo, agent_uid, %AgentSkill{} = skill, file_path, opts) do
+    case read_skill_file(skill, file_path, opts) do
+      {:ok, raw_content} when file_path == @skill_file ->
+        base_content = SourceReader.skill_body(raw_content)
+        overlay = active_skill_overlay(repo, agent_uid, skill.skill_name)
+        overlay_text = skill_overlay_text(overlay)
 
         content =
-          case append_content do
+          case overlay_text do
             nil ->
               base_content
 
@@ -493,394 +541,160 @@ defmodule Ankole.AIAgent.Library do
         {:ok,
          %{
            "skill_name" => skill.skill_name,
+           "source_kind" => skill.source_kind,
+           "relative_path" => skill.relative_path,
            "file_path" => "/workspace/library-containers/skills/#{skill.skill_name}/#{file_path}",
            "content" => content,
            "base_content" => base_content,
-           "append_content" => append_content,
-           "has_agent_append" => is_binary(append_content)
+           "overlay_json" => overlay_json(overlay),
+           "has_agent_overlay" => is_binary(overlay_text)
          }}
 
-      %LibrarySkillFile{} = file ->
+      {:ok, content} ->
         {:ok,
          %{
            "skill_name" => skill.skill_name,
+           "source_kind" => skill.source_kind,
+           "relative_path" => skill.relative_path,
            "file_path" => "/workspace/library-containers/skills/#{skill.skill_name}/#{file_path}",
-           "content" => file.content,
-           "has_agent_append" =>
-             is_binary(agent_append_content(repo, agent_uid, skill.skill_name))
+           "content" => content,
+           "has_agent_overlay" =>
+             is_binary(
+               skill_overlay_text(active_skill_overlay(repo, agent_uid, skill.skill_name))
+             )
          }}
 
-      nil ->
+      {:error, _reason} ->
         {:error, :skill_file_not_found}
     end
   end
 
-  defp agent_append_content(repo, agent_uid, skill_name) do
-    case active_agent_entry(repo, agent_uid, agent_append_path(skill_name)) do
-      %AgentLibraryContainerEntry{content: content} when is_binary(content) ->
-        case String.trim(content) do
-          "" -> nil
-          content -> content
-        end
-
-      _entry ->
-        nil
-    end
+  defp read_skill_file(%AgentSkill{source_kind: "builtin"} = skill, file_path, _opts) do
+    SourceReader.read_builtin_skill_file(skill.relative_path, file_path)
   end
 
-  defp active_agent_entry(repo, agent_uid, path) do
-    AgentLibraryContainerEntry
-    |> where([entry], entry.agent_uid == ^agent_uid)
-    |> where([entry], entry.path == ^normalize_virtual_path!(path))
-    |> where([entry], is_nil(entry.deleted_at))
-    |> repo.one()
+  defp read_skill_file(%AgentSkill{source_kind: "installed"} = skill, file_path, opts) do
+    _skill = skill
+    _file_path = file_path
+    _opts = opts
+
+    {:error, :skill_file_not_available_in_control_plane}
   end
 
-  defp skill_summary(%LibrarySkill{} = skill, append_paths) do
-    metadata = skill.metadata || %{}
-
-    %{
-      "skill_name" => skill.skill_name,
-      "description" => skill.description,
-      "default_enabled" => skill.default_enabled,
-      "metadata" => metadata,
-      "category" => metadata["category"],
-      "tags" => metadata["tags"] || [],
-      "file_path" => "/workspace/library-containers/skills/#{skill.skill_name}/#{@skill_file}",
-      "has_agent_append" => MapSet.member?(append_paths, agent_append_path(skill.skill_name))
-    }
-  end
-
-  defp read_builtin_skill_sources do
-    sources =
-      @builtin_skill_names
-      |> Enum.map(&read_builtin_skill_source/1)
-      |> collect_results()
-
-    case sources do
-      {:ok, sources} -> {:ok, Enum.sort_by(sources, & &1.name)}
+  defp installed_sources_from_observations(observations) do
+    observations
+    |> Enum.map(&installed_source_from_observation/1)
+    |> collect_results()
+    |> case do
+      {:ok, sources} -> sources |> Enum.reverse() |> reject_duplicate_observations()
       {:error, _reason} = error -> error
     end
   end
 
-  defp read_builtin_skill_source(skill_name) do
-    root = Path.join(@skills_root, skill_name)
-    skill_path = Path.join(root, @skill_file)
-
-    with true <- File.dir?(root) || {:error, {:missing_skill_dir, skill_name}},
-         {:ok, raw_skill} <- File.read(skill_path),
-         {:ok, files} <- read_text_files_recursive(root),
-         {:ok, metadata} <- parse_skill_metadata(raw_skill, skill_name) do
-      source_hash =
-        files
-        |> Enum.flat_map(fn file -> [file.path, file.content_hash] end)
-        |> stable_hash()
-
-      {:ok,
-       %{
-         name: metadata.name,
-         description: metadata.description,
-         default_enabled: metadata.default_enabled,
-         metadata:
-           %{
-             "name" => metadata.name,
-             "description" => metadata.description,
-             "default_enabled" => metadata.default_enabled,
-             "tags" => metadata.tags,
-             "disable_model_invocation" => metadata.disable_model_invocation
-           }
-           |> maybe_put("category", metadata.category),
-         source_hash: source_hash,
-         files: files
-       }}
-    else
-      false -> {:error, {:missing_skill_dir, skill_name}}
-      {:error, _reason} = error -> error
-    end
-  end
-
-  defp read_text_files_recursive(root, relative \\ "") do
-    dir = Path.join(root, relative)
-
-    with {:ok, entries} <- File.ls(dir) do
-      entries
-      |> Enum.sort()
-      |> Enum.reject(&String.starts_with?(&1, "."))
-      |> Enum.reduce_while({:ok, []}, fn entry, {:ok, acc} ->
-        child_relative = if relative == "", do: entry, else: relative <> "/" <> entry
-        child = Path.join(root, child_relative)
-
-        cond do
-          File.dir?(child) ->
-            case read_text_files_recursive(root, child_relative) do
-              {:ok, files} -> {:cont, {:ok, acc ++ files}}
-              {:error, _reason} = error -> {:halt, error}
-            end
-
-          File.regular?(child) ->
-            with {:ok, content} <- File.read(child),
-                 {:ok, path} <- normalize_virtual_path(child_relative) do
-              {:cont,
-               {:ok, acc ++ [%{path: path, content: content, content_hash: hash(content)}]}}
-            else
-              {:error, _reason} = error -> {:halt, error}
-            end
-
-          true ->
-            {:cont, {:ok, acc}}
+  defp installed_source_from_observation(observation) when is_map(observation) do
+    with {:ok, name} <- SourceReader.normalize_skill_name(map_text(observation, :skill_name)),
+         {:ok, relative_path} <-
+           SourceReader.normalize_virtual_path(map_text(observation, :relative_path) || name),
+         {:ok, content_hash} <- observation_hash(observation),
+         {:ok, description} <- observation_description(observation),
+         {:ok, default_enabled} <- observation_boolean(observation, :default_enabled, true),
+         {:ok, file_count} <- observation_file_count(observation) do
+      metadata =
+        observation
+        |> map_value(:metadata)
+        |> case do
+          metadata when is_map(metadata) -> metadata
+          _value -> %{}
         end
-      end)
-    end
-  end
+        |> Map.put("name", name)
+        |> Map.put("description", description)
+        |> Map.put("default_enabled", default_enabled)
+        |> Map.put("relative_path", relative_path)
+        |> Map.put("fingerprint_algorithm", "xxh3_128")
 
-  defp parse_skill_metadata(raw_skill, directory_name) do
-    frontmatter = skill_frontmatter(raw_skill)
-
-    name =
-      frontmatter
-      |> yaml_scalar("name")
-      |> Kernel.||(directory_name)
-
-    with {:ok, name} <- normalize_skill_name(name),
-         # The skill's declared `name` must equal its directory name; the
-         # directory name is the catalog primary key, so a mismatch would let a
-         # bundle masquerade under the wrong key. Reject rather than guess.
-         true <-
-           name == directory_name ||
-             {:error, {:skill_name_directory_mismatch, name, directory_name}},
-         {:ok, description} <- skill_description(frontmatter),
-         {:ok, default_enabled} <- yaml_boolean(frontmatter, "default_enabled", true) do
       {:ok,
        %{
          name: name,
          description: description,
          default_enabled: default_enabled,
-         tags: yaml_tags(frontmatter),
-         category: yaml_scalar(frontmatter, "category"),
-         disable_model_invocation:
-           yaml_boolean(frontmatter, "disable-model-invocation", false) |> elem(1)
+         metadata: metadata,
+         source_hash: content_hash,
+         relative_path: relative_path,
+         files: List.duplicate(%{path: "SKILL.md", content_hash: content_hash}, file_count)
        }}
-    else
-      {:error, _reason} = error -> error
     end
   end
 
-  defp skill_frontmatter(raw_skill) do
-    case Regex.run(~r/\A---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)\z/, raw_skill) do
-      [_, frontmatter, _body] -> frontmatter
-      _no_frontmatter -> ""
-    end
-  end
+  defp installed_source_from_observation(_observation), do: {:error, :invalid_skill_observation}
 
-  defp skill_body(raw_skill) do
-    case Regex.run(~r/\A---\r?\n[\s\S]*?\r?\n---\r?\n?([\s\S]*)\z/, raw_skill) do
-      [_, body] ->
-        body
-        |> String.trim()
-        |> case do
-          "" -> String.trim(raw_skill)
-          body -> body
+  defp observation_hash(observation) do
+    case map_text(observation, :xxh3_128) || map_text(observation, :content_hash) do
+      hash when is_binary(hash) ->
+        if Regex.match?(~r/\A[a-f0-9]{32}\z/, hash) do
+          {:ok, hash}
+        else
+          {:error, :invalid_skill_fingerprint}
         end
 
-      _no_frontmatter ->
-        String.trim(raw_skill)
+      _value ->
+        {:error, :missing_skill_fingerprint}
     end
   end
 
-  defp skill_description(frontmatter) do
-    case yaml_scalar(frontmatter, "description") do
-      value when is_binary(value) and value != "" -> {:ok, String.slice(value, 0, 1024)}
-      _value -> {:error, :skill_description_missing}
+  defp observation_description(observation) do
+    case map_text(observation, :description) do
+      description when is_binary(description) and byte_size(description) > 0 ->
+        {:ok, String.slice(description, 0, 1024)}
+
+      _value ->
+        {:error, :skill_description_missing}
     end
   end
 
-  defp yaml_scalar(frontmatter, key) do
-    pattern = Regex.compile!("^#{Regex.escape(key)}:\\s*(.*?)\\s*$", "m")
-
-    case Regex.run(pattern, frontmatter) do
-      [_, value] ->
-        value
-        |> String.trim()
-        |> strip_quotes()
-        |> case do
-          "" -> nil
-          value -> value
-        end
-
-      _no_match ->
-        nil
-    end
-  end
-
-  defp yaml_boolean(frontmatter, key, default) do
-    case yaml_scalar(frontmatter, key) do
+  defp observation_boolean(observation, key, default) do
+    case map_value(observation, key) do
+      value when is_boolean(value) -> {:ok, value}
       nil -> {:ok, default}
-      "true" -> {:ok, true}
-      "false" -> {:ok, false}
-      "TRUE" -> {:ok, true}
-      "FALSE" -> {:ok, false}
       _value -> {:error, {:invalid_boolean, key}}
     end
   end
 
-  defp yaml_tags(frontmatter) do
-    case yaml_scalar(frontmatter, "tags") do
-      "[" <> _rest = inline ->
-        inline
-        |> String.trim_leading("[")
-        |> String.trim_trailing("]")
-        |> String.split(",", trim: true)
-        |> Enum.map(&strip_quotes(String.trim(&1)))
+  defp observation_file_count(observation) do
+    case map_value(observation, :file_count) do
+      nil -> {:ok, 1}
+      count when is_integer(count) and count >= 1 -> {:ok, count}
+      _value -> {:error, :invalid_file_count}
+    end
+  end
+
+  defp reject_duplicate_observations(sources) do
+    duplicates =
+      sources
+      |> Enum.frequencies_by(& &1.name)
+      |> Enum.filter(fn {_name, count} -> count > 1 end)
+      |> Enum.map(fn {name, _count} -> name end)
+
+    case duplicates do
+      [] -> {:ok, sources}
+      _duplicates -> {:error, {:duplicate_skill_name, duplicates}}
+    end
+  end
+
+  defp map_text(map, key) do
+    case map_value(map, key) do
+      value when is_binary(value) ->
+        case String.trim(value) do
+          "" -> nil
+          text -> text
+        end
 
       _value ->
-        frontmatter
-        |> String.split(~r/\r?\n/)
-        |> collect_yaml_block_list("tags")
+        nil
     end
   end
 
-  defp collect_yaml_block_list(lines, key) do
-    {_state, values} =
-      Enum.reduce(lines, {:before, []}, fn line, {state, acc} ->
-        cond do
-          state == :before and String.match?(line, ~r/^#{Regex.escape(key)}:\s*$/) ->
-            {:inside, acc}
-
-          state == :inside and String.match?(line, ~r/^\s+-\s+(.+)\s*$/) ->
-            [_, value] = Regex.run(~r/^\s+-\s+(.+)\s*$/, line)
-            {:inside, acc ++ [strip_quotes(String.trim(value))]}
-
-          state == :inside and String.match?(line, ~r/^\S/) ->
-            {:after, acc}
-
-          true ->
-            {state, acc}
-        end
-      end)
-
-    values
-  end
-
-  defp strip_quotes(value) do
-    value = String.trim(value)
-
-    cond do
-      String.starts_with?(value, "\"") and String.ends_with?(value, "\"") ->
-        value |> String.trim_leading("\"") |> String.trim_trailing("\"")
-
-      String.starts_with?(value, "'") and String.ends_with?(value, "'") ->
-        value |> String.trim_leading("'") |> String.trim_trailing("'")
-
-      true ->
-        value
-    end
-  end
-
-  defp normalize_skill_name(name) when is_binary(name) do
-    name =
-      name
-      |> String.trim()
-      |> String.downcase()
-      |> String.replace(~r/[^a-z0-9_-]+/, "-")
-
-    case Regex.match?(~r/\A[a-z][a-z0-9_-]{0,63}\z/, name) do
-      true -> {:ok, name}
-      false -> {:error, :invalid_skill_name}
-    end
-  end
-
-  defp normalize_skill_name(_name), do: {:error, :invalid_skill_name}
-
-  defp normalize_virtual_path(value) when is_binary(value) do
-    normalized =
-      value
-      |> String.replace("\\", "/")
-      |> String.replace(~r/\A\/+/, "")
-      |> String.replace(~r/\/+/, "/")
-
-    parts = String.split(normalized, "/", trim: false)
-
-    cond do
-      normalized == "" -> {:error, :invalid_library_path}
-      Enum.any?(parts, &(&1 in ["", ".", ".."])) -> {:error, :invalid_library_path}
-      true -> {:ok, normalized}
-    end
-  end
-
-  defp normalize_virtual_path(_value), do: {:error, :invalid_library_path}
-
-  defp normalize_virtual_path!(value) do
-    case normalize_virtual_path(value) do
-      {:ok, normalized} ->
-        normalized
-
-      {:error, reason} ->
-        raise ArgumentError, "invalid library path #{inspect(value)}: #{inspect(reason)}"
-    end
-  end
-
-  # Path-traversal guard for writing library files to a real host directory.
-  # Virtual paths come from DB rows and skill bundles, so even after
-  # normalization we re-check the expanded path is still inside the mount root
-  # before touching the filesystem; anything escaping it is a hard error.
-  defp safe_join!(root, virtual_path) do
-    root = Path.expand(root)
-    path = Path.expand(normalize_virtual_path!(virtual_path), root)
-
-    if path == root or String.starts_with?(path, root <> "/") do
-      path
-    else
-      raise ArgumentError, "library path escapes mount root"
-    end
-  end
-
-  defp agent_append_path(skill_name), do: "skills/#{skill_name}/#{@agent_append_file}"
-
-  defp load_default_soul_template do
-    @templates_root
-    |> Path.join(@soul_file)
-    |> File.read()
-    |> case do
-      {:ok, content} -> content
-      {:error, _reason} -> @fallback_soul
-    end
-  end
-
-  defp load_default_mission_template do
-    @templates_root
-    |> Path.join(@mission_file)
-    |> File.read()
-    |> case do
-      {:ok, content} -> content
-      {:error, _reason} -> @fallback_mission
-    end
-  end
-
-  defp media_type_for_path(path) do
-    cond do
-      String.ends_with?(path, ".md") -> "text/markdown"
-      String.ends_with?(path, ".json") -> "application/json"
-      String.ends_with?(path, [".yaml", ".yml"]) -> "application/yaml"
-      true -> "text/plain"
-    end
-  end
-
-  defp maybe_put(map, _key, nil), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
-
-  defp catalog_hash(sources) do
-    sources
-    |> Enum.flat_map(fn source ->
-      [source.name, source.source_hash | Enum.flat_map(source.files, &[&1.path, &1.content_hash])]
-    end)
-    |> stable_hash()
-  end
-
-  defp stable_hash(parts) when is_list(parts), do: hash(Enum.join(parts, <<0>>))
-
-  defp hash(value) when is_binary(value) do
-    :crypto.hash(:sha256, value)
-    |> Base.encode16(case: :lower)
+  defp map_value(map, key) when is_atom(key) do
+    Map.get(map, key) || Map.get(map, Atom.to_string(key))
   end
 
   defp collect_results(results) do
@@ -888,9 +702,77 @@ defmodule Ankole.AIAgent.Library do
       {:ok, value}, {:ok, acc} -> {:cont, {:ok, [value | acc]}}
       {:error, _reason} = error, _acc -> {:halt, error}
     end)
-    |> case do
-      {:ok, values} -> {:ok, Enum.reverse(values)}
-      {:error, _reason} = error -> error
+  end
+
+  defp active_agent_entry(repo, agent_uid, path) do
+    AgentLibraryContainerEntry
+    |> where([entry], entry.agent_uid == ^agent_uid)
+    |> where([entry], entry.path == ^SourceReader.normalize_virtual_path!(path))
+    |> where([entry], is_nil(entry.deleted_at))
+    |> repo.one()
+  end
+
+  defp active_skill_overlay(repo, agent_uid, skill_name) do
+    AgentSkillOverlay
+    |> where([overlay], overlay.agent_uid == ^agent_uid)
+    |> where([overlay], overlay.skill_name == ^skill_name)
+    |> where([overlay], is_nil(overlay.deleted_at))
+    |> repo.one()
+  end
+
+  defp replace_skill_overlay_in_tx(repo, agent_uid, skill_name, overlay_json) do
+    attrs = %{
+      agent_uid: agent_uid,
+      skill_name: skill_name,
+      overlay_json: overlay_json,
+      content_hash: SourceReader.hash(Torque.encode!(overlay_json))
+    }
+
+    %AgentSkillOverlay{}
+    |> AgentSkillOverlay.changeset(attrs)
+    |> repo.insert(
+      on_conflict: [
+        set: [
+          overlay_json: attrs.overlay_json,
+          content_hash: attrs.content_hash,
+          deleted_at: nil,
+          updated_at: DateTime.utc_now(:microsecond)
+        ]
+      ],
+      conflict_target: {:unsafe_fragment, "(agent_uid, skill_name) WHERE deleted_at IS NULL"}
+    )
+  end
+
+  defp skill_overlay_text(%AgentSkillOverlay{overlay_json: %{"text" => text}})
+       when is_binary(text) do
+    case String.trim(text) do
+      "" -> nil
+      text -> text
     end
+  end
+
+  defp skill_overlay_text(_overlay), do: nil
+
+  defp overlay_json(%AgentSkillOverlay{overlay_json: overlay_json}) when is_map(overlay_json),
+    do: overlay_json
+
+  defp overlay_json(_overlay), do: %{}
+
+  defp skill_summary(%AgentSkill{} = skill, overlay_skills) do
+    metadata = skill.metadata || %{}
+
+    %{
+      "skill_name" => skill.skill_name,
+      "description" => skill.description,
+      "source_kind" => skill.source_kind,
+      "relative_path" => skill.relative_path,
+      "default_enabled" => skill.default_enabled,
+      "enabled" => skill.enabled,
+      "metadata" => metadata,
+      "category" => metadata["category"],
+      "tags" => metadata["tags"] || [],
+      "file_path" => "/workspace/library-containers/skills/#{skill.skill_name}/#{@skill_file}",
+      "has_agent_overlay" => MapSet.member?(overlay_skills, skill.skill_name)
+    }
   end
 end

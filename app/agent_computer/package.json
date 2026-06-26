@@ -20,7 +20,6 @@
     "@smithy/eventstream-codec": "^4.4.1",
     "@smithy/util-utf8": "^4.4.1",
     "@standard-schema/spec": "^1.0.0",
-    "@vercel/oidc": "^3.6.2",
     "@workflow/serde": "4.1.2",
     "aws4fetch": "^1.0.20",
     "eventsource-parser": "^3.0.6",

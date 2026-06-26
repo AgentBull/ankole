@@ -10,9 +10,9 @@ describe('@ankole/kernel', () => {
     for (const name of [
       'aeadDecrypt',
       'aeadEncrypt',
-      'actorBusDecodeEnvelope',
-      'actorBusEncodeEnvelope',
-      'ActorBusDealer',
+      'runtimeFabricDecodeEnvelope',
+      'runtimeFabricEncodeEnvelope',
+      'RuntimeFabricDealer',
       'authzAuthorize',
       'authzAuthorizeAll',
       'authzMatchResourcePattern',
@@ -37,6 +37,8 @@ describe('@ankole/kernel', () => {
       'genShortUUID',
       'genUUID',
       'genUUIDv7',
+      'xxh3_128_hex',
+      'xxh3File128Hex',
     ]) {
       expect(kernel[name as keyof typeof kernel]).toBeFunction()
     }
@@ -44,6 +46,11 @@ describe('@ankole/kernel', () => {
 
   it('generates TypeScript declarations during build', async () => {
     expect(await Bun.file(new URL('../index.d.ts', import.meta.url)).exists()).toBe(true)
+  })
+
+  it('declares RuntimeFabric raw file-transfer methods', () => {
+    expect(kernel.RuntimeFabricDealer.prototype.sendFileFrame).toBeFunction()
+    expect(kernel.RuntimeFabricDealer.prototype.recvRaw).toBeFunction()
   })
 
   it('hashes and derives keys with shared BLAKE3 vectors', () => {
@@ -87,7 +94,7 @@ describe('@ankole/kernel', () => {
     expect(kernel.jwtDecodeHeader(token)).toMatchObject({ algorithm: 'HS256', key_id: 'test-key' })
   })
 
-  it('encodes and decodes Actor Bus protobuf envelopes', () => {
+  it('encodes and decodes RuntimeFabric protobuf envelopes', () => {
     const envelope = {
       protocol_version: 1,
       message_id: 'turn-start-1',
@@ -114,19 +121,98 @@ describe('@ankole/kernel', () => {
       },
     }
 
-    const encoded = kernel.actorBusEncodeEnvelope(envelope)
+    const encoded = kernel.runtimeFabricEncodeEnvelope(envelope)
     expect(Buffer.isBuffer(encoded)).toBe(true)
 
-    const decoded = kernel.actorBusDecodeEnvelope(encoded)
+    const decoded = kernel.runtimeFabricDecodeEnvelope(encoded)
     expect(decoded.body.type).toBe('turn_start')
-    expect(decoded.body.turn_start.turn.actor.display_name).toBe('ReleaseBot')
-    expect(decoded.body.turn_start.turn.actor.role).toBe('Research Analyst')
+    expect(decoded.body.turn_start.turn.actor).toEqual({
+      agent_uid: 'agent-1',
+      session_id: 'signal-channel:lark:dm:1',
+    })
     expect(decoded.body.turn_start.inputs[0].payload_json.text).toBe('PING')
   })
 
-  it('rejects inline steer payloads in Actor Bus turn_control', () => {
+  it('encodes and decodes RuntimeFabric mailbox updates with turn inputs', () => {
+    const envelope = {
+      protocol_version: 1,
+      message_id: 'mailbox-updated-1',
+      correlation_id: 'mailbox-updated-1',
+      lane: 'LANE_TURN',
+      durability: 'CONTROL_EPHEMERAL',
+      body: {
+        type: 'mailbox_updated',
+        mailbox_updated: {
+          turn: actorTurnRef(),
+          reason: 'command.steer',
+          inputs: [
+            {
+              actor_input_id: 'steer-1',
+              broker_sequence: 2,
+              type: 'command.steer',
+              ingress_event_id: 'event-steer-1',
+              payload_json: { data: { command: { argsText: 'change course' } } },
+            },
+          ],
+        },
+      },
+    }
+
+    const decoded = kernel.runtimeFabricDecodeEnvelope(kernel.runtimeFabricEncodeEnvelope(envelope))
+
+    expect(decoded.body.type).toBe('mailbox_updated')
+    expect(decoded.body.mailbox_updated.turn.llm_turn_id).toBe('11111111-1111-1111-1111-111111111111')
+    expect(decoded.body.mailbox_updated.inputs[0].payload_json.data.command.argsText).toBe('change course')
+  })
+
+  it('rejects profile fields on ActorKey', () => {
     expect(() =>
-      kernel.actorBusEncodeEnvelope({
+      kernel.runtimeFabricEncodeEnvelope({
+        protocol_version: 1,
+        message_id: 'turn-start-profile',
+        correlation_id: 'turn-start-profile',
+        lane: 'LANE_TURN',
+        durability: 'CONTROL_REPLAYABLE',
+        turn_start: {
+          turn: {
+            ...actorTurnRef(),
+            actor: {
+              ...actorTurnRef().actor,
+              display_name: 'ReleaseBot',
+            },
+          },
+          inputs: [],
+        },
+      }),
+    ).toThrow(/ActorKey must not carry display_name/)
+  })
+
+  it('encodes and decodes RuntimeFabric RPC envelopes', () => {
+    const encoded = kernel.runtimeFabricEncodeEnvelope({
+      protocol_version: 1,
+      message_id: 'rpc-agent-profile-1',
+      correlation_id: 'rpc-agent-profile-1',
+      lane: 'LANE_RPC',
+      durability: 'CONTROL_EPHEMERAL',
+      body: {
+        type: 'rpc_request',
+        rpc_request: {
+          request_id: 'rpc-agent-profile-1',
+          method: 'agent_profile.resolve',
+          payload_json: {
+            agent_uid: 'agent-1',
+            session_id: 'signal-channel:lark:dm:1',
+          },
+        },
+      },
+    })
+
+    expect(kernel.runtimeFabricDecodeEnvelope(encoded).body.rpc_request.method).toBe('agent_profile.resolve')
+  })
+
+  it('rejects inline steer payloads in actor lane turn_control', () => {
+    expect(() =>
+      kernel.runtimeFabricEncodeEnvelope({
         protocol_version: 1,
         message_id: 'steer-1',
         correlation_id: 'steer-1',
@@ -141,9 +227,9 @@ describe('@ankole/kernel', () => {
     ).toThrow(/steer payload must be empty/)
   })
 
-  it('rejects Actor Bus bodies on the wrong lane or durability', () => {
+  it('rejects actor lane bodies on the wrong lane or durability', () => {
     expect(() =>
-      kernel.actorBusEncodeEnvelope({
+      kernel.runtimeFabricEncodeEnvelope({
         protocol_version: 1,
         message_id: 'turn-start-wrong-lane',
         lane: 'LANE_CONTROL',
@@ -209,6 +295,7 @@ describe('@ankole/kernel', () => {
     expect(kernel.anyAscii('Björk')).toBe('Bjork')
     expect(kernel.crc32('TestCase😊')).toBe(1198634863)
     expect(kernel.crc32Hex(Buffer.from('TestCase😊'))).toBe('4771b76f')
+    expect(kernel.xxh3_128_hex('TestCase')).toBe('7b16fe7c3e492b87d9615265f0856cec')
     expect(kernel.phoneNormalizeE164('+1 415 555 2671')).toBe('+14155552671')
     expect(() => kernel.phoneNormalizeE164('13800000000')).toThrow()
   })
@@ -226,8 +313,6 @@ function actorTurnRef() {
   return {
     actor: {
       agent_uid: 'agent-1',
-      display_name: 'ReleaseBot',
-      role: 'Research Analyst',
       session_id: 'signal-channel:lark:dm:1',
     },
     activation_uid: 'activation-1',

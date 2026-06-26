@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it } from 'bun:test'
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdtempSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import type { LlmProviderCredentialResponse, TurnStart } from '../src/actor_bus'
+import type { TurnStart } from '../src/actor_lane'
 import { runLlmTurnHandlers, runTextTurnLoop } from '../src/llm_runtime/text_turn_loop'
+import type { LlmProviderCredentialResponse, RuntimeConversationMessage, TurnRuntimeContext } from '../src/rpc_lane'
 
 const originalFetch = globalThis.fetch
 
@@ -12,7 +13,7 @@ afterEach(() => {
 })
 
 describe('@ankole/agent-computer LLM turn loop', () => {
-  it('loads session conversation history from the semantic workspace store', async () => {
+  it('loads session conversation history from RuntimeFabric turn context', async () => {
     const calls: Array<{ body: any }> = []
     globalThis.fetch = (async (_url, init) => {
       calls.push({ body: JSON.parse(String(init?.body)) })
@@ -20,7 +21,8 @@ describe('@ankole/agent-computer LLM turn loop', () => {
     }) as typeof fetch
 
     const workspaceRoot = tempWorkspace()
-    writeConversationStore(workspaceRoot, [
+    const start = turnStart('openrouter-main', 'z-ai/glm-5.2')
+    const rows = [
       {
         id: 'msg-current',
         role: 'user',
@@ -42,20 +44,148 @@ describe('@ankole/agent-computer LLM turn loop', () => {
         content: [{ type: 'text', text: 'Old summary checkpoint.' }],
         metadata: {}
       }
-    ])
+    ]
 
-    const reply = await runTextTurnLoop(turnStart('openrouter-main', 'z-ai/glm-5.2'), {
+    const reply = await runTextTurnLoop(start, {
       workspaceRoot,
+      runtimeContext: runtimeContext(start, rows),
       requestCredential: async request =>
         credential(request.request_id, 'openrouter', 'openrouter-main', 'z-ai/glm-5.2')
     })
 
-    expect(reply).toBe('HISTORY_OK')
+    expect(reply.reply?.text).toBe('HISTORY_OK')
     const body = calls[0].body
     const serializedMessages = JSON.stringify(body.messages)
     expect(serializedMessages.match(/Use one tool, then reply with OK\./g)).toHaveLength(1)
     expect(serializedMessages).toContain('Previous answer from durable transcript.')
     expect(JSON.stringify(body)).toContain('Old summary checkpoint.')
+  })
+
+  it('renders actor input attachments into the model prompt', async () => {
+    const calls: Array<{ body: any }> = []
+    globalThis.fetch = (async (_url, init) => {
+      calls.push({ body: JSON.parse(String(init?.body)) })
+      return openAIStream([{ text: 'ATTACHMENT_OK' }])
+    }) as typeof fetch
+
+    const workspaceRoot = tempWorkspace()
+    const start = turnStart('openrouter-main', 'z-ai/glm-5.2', {
+      inputs: [
+        {
+          actor_input_id: 'input-with-attachments',
+          broker_sequence: 1,
+          type: 'im.message.created',
+          ingress_event_id: 'event-with-attachments',
+          payload_json: {
+            data: {
+              entry: {
+                text: 'Please inspect the attached files.',
+                attachments: [
+                  {
+                    name: 'invoice.pdf',
+                    resource_type: 'file',
+                    size: 2048,
+                    agent_computer_path: '/workspace/user-files/inbox/message-1/invoice.pdf'
+                  },
+                  {
+                    name: 'screenshot.png',
+                    resource_type: 'image',
+                    provider_ref: 'lark:image:img_v3_abc'
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    })
+
+    const reply = await runTextTurnLoop(start, {
+      workspaceRoot,
+      runtimeContext: runtimeContext(start, []),
+      requestCredential: async request =>
+        credential(request.request_id, 'openrouter', 'openrouter-main', 'z-ai/glm-5.2')
+    })
+
+    expect(reply.reply?.text).toBe('ATTACHMENT_OK')
+    const serializedMessages = JSON.stringify(calls[0].body.messages)
+    expect(serializedMessages).toContain('Please inspect the attached files.')
+    expect(serializedMessages).toContain('/workspace/user-files/inbox/message-1/invoice.pdf')
+    expect(serializedMessages).toContain('lark:image:img_v3_abc')
+    expect(serializedMessages).toContain('not_materialized_in_workspace=true')
+    expect(serializedMessages).not.toContain('[object Object]')
+  })
+
+  it('runs command.compress as a worker-owned summarization turn', async () => {
+    const calls: Array<{ body: any }> = []
+    globalThis.fetch = (async (_url, init) => {
+      calls.push({ body: JSON.parse(String(init?.body)) })
+      return openAIJson('<analysis>scratch notes</analysis>\n\n## Active Task\n- compress the current context')
+    }) as typeof fetch
+
+    const workspaceRoot = tempWorkspace()
+    const start = turnStart('openrouter-light', 'openai/gpt-5.4-nano', {
+      inputs: [
+        {
+          actor_input_id: 'compress-1',
+          broker_sequence: 2,
+          type: 'command.compress',
+          ingress_event_id: 'event-compress',
+          payload_json: { data: { command: { name: 'compress', argsText: '' } } }
+        }
+      ],
+      model_ref: { profile: 'light', provider_id: 'openrouter-light', model: 'openai/gpt-5.4-nano' }
+    })
+    const rows = [
+      {
+        id: 'msg-user',
+        role: 'user',
+        kind: 'normal',
+        content: [{ type: 'text', text: 'PING from /Users/ding/Projects/ankole' }],
+        metadata: { actor_input_id: 'input-ping' }
+      },
+      {
+        id: 'msg-assistant',
+        role: 'assistant',
+        kind: 'normal',
+        content: [{ type: 'text', text: 'PONG with function_name and error_id=abc-123' }],
+        metadata: {}
+      },
+      {
+        id: 'msg-summary',
+        role: 'assistant',
+        kind: 'summary',
+        content: [{ type: 'text', text: 'Previous stable checkpoint.' }],
+        metadata: {}
+      }
+    ]
+
+    const proposal = await runLlmTurnHandlers(start, {
+      workspaceRoot,
+      runtimeContext: runtimeContext(start, rows),
+      requestCredential: async request =>
+        credential(request.request_id, 'openrouter', 'openrouter-light', 'openai/gpt-5.4-nano', 'light')
+    })
+
+    expect(proposal.reply?.text).toBe('## Active Task\n- compress the current context')
+    expect(proposal.reply?.text).not.toContain('<analysis>')
+    expect(proposal.tool_results_json).toEqual([])
+    const body = calls[0].body
+    const requestText = JSON.stringify(body)
+    expect(body.model).toBe('openai/gpt-5.4-nano')
+    expect(body.tools).toBeUndefined()
+    expect(body.messages.some((message: any) => message.role === 'system')).toBe(true)
+    expect(body.messages.some((message: any) => message.role === 'user')).toBe(true)
+    const userPrompt = body.messages.find((message: any) => message.role === 'user')?.content ?? ''
+    expect(requestText).toContain('You are a context summarization assistant')
+    expect(userPrompt).toContain('UPDATE "Completed Actions"')
+    expect(userPrompt).toContain('<previous-summary>')
+    expect(userPrompt).toContain('Previous stable checkpoint.')
+    expect(userPrompt).toContain('[User]: PING from /Users/ding/Projects/ankole')
+    expect(userPrompt).toContain('[Assistant]: PONG with function_name and error_id=abc-123')
+    expect(userPrompt).toContain('<analysis>')
+    expect(requestText).not.toContain('Agent UID:')
+    expect(requestText).not.toContain('skill_view(name)')
   })
 
   it('injects active steer updates after a tool boundary and advances the turn revision', async () => {
@@ -82,6 +212,7 @@ describe('@ankole/agent-computer LLM turn loop', () => {
     let delivered = false
     const reply = await runTextTurnLoop(start, {
       workspaceRoot: tempWorkspace(),
+      runtimeContext: runtimeContext(start, []),
       requestCredential: async request =>
         credential(request.request_id, 'openrouter', 'openrouter-main', 'z-ai/glm-5.2'),
       pollSteering: () => {
@@ -104,7 +235,7 @@ describe('@ankole/agent-computer LLM turn loop', () => {
       }
     })
 
-    expect(reply).toBe('STEER_OK')
+    expect(reply.reply?.text).toBe('STEER_OK')
     expect(start.turn.revision).toBe(1)
     const secondBody = JSON.stringify(calls[1].body)
     expect(secondBody).toContain('Runtime note')
@@ -119,7 +250,8 @@ describe('@ankole/agent-computer LLM turn loop', () => {
     }) as typeof fetch
 
     const workspaceRoot = tempWorkspace()
-    writeConversationStore(workspaceRoot, [
+    const start = turnStart('openrouter-main', 'z-ai/glm-5.2')
+    const rows = [
       {
         id: 'ambient-observed',
         role: 'im_ambient',
@@ -139,15 +271,16 @@ describe('@ankole/agent-computer LLM turn loop', () => {
           }
         }
       }
-    ])
+    ]
 
-    const reply = await runTextTurnLoop(turnStart('openrouter-main', 'z-ai/glm-5.2'), {
+    const reply = await runTextTurnLoop(start, {
       workspaceRoot,
+      runtimeContext: runtimeContext(start, rows),
       requestCredential: async request =>
         credential(request.request_id, 'openrouter', 'openrouter-main', 'z-ai/glm-5.2')
     })
 
-    expect(reply).toBe('AMBIENT_REPLY_OK')
+    expect(reply.reply?.text).toBe('AMBIENT_REPLY_OK')
     const serializedMessages = JSON.stringify(calls[0].body.messages)
     expect(serializedMessages).toContain('<message_context>')
     expect(serializedMessages).toContain('Runtime intervention, not human-authored text.')
@@ -166,7 +299,55 @@ describe('@ankole/agent-computer LLM turn loop', () => {
     }) as typeof fetch
 
     const workspaceRoot = tempWorkspace()
-    writeConversationStore(workspaceRoot, [
+    const start = turnStart('openrouter-main', 'z-ai/glm-5.2', {
+      inputs: [
+        {
+          actor_input_id: 'ambient-input-1',
+          broker_sequence: 1,
+          type: 'im.message.may_intervene',
+          ingress_event_id: 'evt-ambient-1',
+          payload_json: {
+            data: {
+              entry: { text: 'Can agent summarize the release?' },
+              observed_messages: [
+                {
+                  id: 'signal:msg-ambient-1',
+                  role: 'ambient_human',
+                  kind: 'normal',
+                  speaker: 'Alice',
+                  sent_at: '2026-06-24T08:00:00.000000Z',
+                  text: 'Can agent summarize the release?',
+                  signal_channel_id: 'lark:chat:group-a',
+                  provider_entry_id: 'msg-ambient-1'
+                },
+                {
+                  id: 'signal:msg-agent-middle',
+                  role: 'agent',
+                  kind: 'normal',
+                  speaker: 'ReleaseBot',
+                  sent_at: '2026-06-24T08:01:00.000000Z',
+                  text: 'The release notes are almost ready.',
+                  signal_channel_id: 'lark:chat:group-a',
+                  provider_entry_id: 'msg-agent-middle'
+                },
+                {
+                  id: 'signal:msg-ambient-2',
+                  role: 'ambient_human',
+                  kind: 'normal',
+                  speaker: 'Bob',
+                  sent_at: '2026-06-24T08:03:00.000000Z',
+                  text: 'Please ask agent-1 for the short summary.',
+                  signal_channel_id: 'lark:chat:group-a',
+                  provider_entry_id: 'msg-ambient-2'
+                }
+              ]
+            }
+          }
+        }
+      ],
+      model_ref: { profile: 'primary', provider_id: 'openrouter-main', model: 'z-ai/glm-5.2' }
+    })
+    const rows = [
       {
         id: 'ambient-current',
         role: 'im_ambient',
@@ -185,67 +366,18 @@ describe('@ankole/agent-computer LLM turn loop', () => {
         },
         inserted_at: '2026-06-24T08:00:00.000000Z'
       }
-    ])
+    ]
 
-    const proposal = await runLlmTurnHandlers(
-      turnStart('openrouter-main', 'z-ai/glm-5.2', {
-        inputs: [
-          {
-            actor_input_id: 'ambient-input-1',
-            broker_sequence: 1,
-            type: 'im.message.may_intervene',
-            ingress_event_id: 'evt-ambient-1',
-            payload_json: {
-              data: {
-                entry: { text: 'Can agent summarize the release?' },
-                observed_messages: [
-                  {
-                    id: 'signal:msg-ambient-1',
-                    role: 'ambient_human',
-                    kind: 'normal',
-                    speaker: 'Alice',
-                    sent_at: '2026-06-24T08:00:00.000000Z',
-                    text: 'Can agent summarize the release?',
-                    signal_channel_id: 'lark:chat:group-a',
-                    provider_entry_id: 'msg-ambient-1'
-                  },
-                  {
-                    id: 'signal:msg-agent-middle',
-                    role: 'agent',
-                    kind: 'normal',
-                    speaker: 'ReleaseBot',
-                    sent_at: '2026-06-24T08:01:00.000000Z',
-                    text: 'The release notes are almost ready.',
-                    signal_channel_id: 'lark:chat:group-a',
-                    provider_entry_id: 'msg-agent-middle'
-                  },
-                  {
-                    id: 'signal:msg-ambient-2',
-                    role: 'ambient_human',
-                    kind: 'normal',
-                    speaker: 'Bob',
-                    sent_at: '2026-06-24T08:03:00.000000Z',
-                    text: 'Please ask agent-1 for the short summary.',
-                    signal_channel_id: 'lark:chat:group-a',
-                    provider_entry_id: 'msg-ambient-2'
-                  }
-                ]
-              }
-            }
-          }
-        ],
-        model_ref: { profile: 'primary', provider_id: 'openrouter-main', model: 'z-ai/glm-5.2' }
-      }),
-      {
-        workspaceRoot,
-        requestCredential: async request => {
-          if (request.profile === 'light') {
-            return credential(request.request_id, 'openrouter', 'openrouter-light', 'openai/gpt-5.4-nano', 'light')
-          }
-          return credential(request.request_id, 'openrouter', 'openrouter-main', 'z-ai/glm-5.2')
+    const proposal = await runLlmTurnHandlers(start, {
+      workspaceRoot,
+      runtimeContext: runtimeContext(start, rows),
+      requestCredential: async request => {
+        if (request.profile === 'light') {
+          return credential(request.request_id, 'openrouter', 'openrouter-light', 'openai/gpt-5.4-nano', 'light')
         }
+        return credential(request.request_id, 'openrouter', 'openrouter-main', 'z-ai/glm-5.2')
       }
-    )
+    })
 
     expect(proposal.reply?.text).toBe('AMBIENT_REPLY_OK')
     const proposedMessage = proposal.messages?.[0]
@@ -278,7 +410,18 @@ describe('@ankole/agent-computer LLM turn loop', () => {
     }) as typeof fetch
 
     const workspaceRoot = tempWorkspace()
-    writeConversationStore(workspaceRoot, [
+    const start = turnStart('openrouter-main', 'z-ai/glm-5.2', {
+      inputs: [
+        {
+          actor_input_id: 'ambient-input-1',
+          broker_sequence: 1,
+          type: 'im.message.may_intervene',
+          ingress_event_id: 'evt-ambient-1',
+          payload_json: { data: { entry: { text: 'Can agent summarize the release?' } } }
+        }
+      ]
+    })
+    const rows = [
       {
         id: 'ambient-current',
         role: 'im_ambient',
@@ -294,40 +437,30 @@ describe('@ankole/agent-computer LLM turn loop', () => {
         },
         inserted_at: '2026-06-24T08:00:00.000000Z'
       }
-    ])
+    ]
 
     await expect(
-      runLlmTurnHandlers(
-        turnStart('openrouter-main', 'z-ai/glm-5.2', {
-          inputs: [
-            {
-              actor_input_id: 'ambient-input-1',
-              broker_sequence: 1,
-              type: 'im.message.may_intervene',
-              ingress_event_id: 'evt-ambient-1',
-              payload_json: { data: { entry: { text: 'Can agent summarize the release?' } } }
-            }
-          ]
-        }),
-        {
-          workspaceRoot,
-          requestCredential: async request => {
-            if (request.profile === 'light') {
-              return credential(request.request_id, 'openrouter', 'openrouter-light', 'openai/gpt-5.4-nano', 'light')
-            }
-            return credential(request.request_id, 'openrouter', 'openrouter-main', 'z-ai/glm-5.2')
+      runLlmTurnHandlers(start, {
+        workspaceRoot,
+        runtimeContext: runtimeContext(start, rows),
+        requestCredential: async request => {
+          if (request.profile === 'light') {
+            return credential(request.request_id, 'openrouter', 'openrouter-light', 'openai/gpt-5.4-nano', 'light')
           }
+          return credential(request.request_id, 'openrouter', 'openrouter-main', 'z-ai/glm-5.2')
         }
-      )
+      })
     ).rejects.toThrow(/No object generated|schema/i)
 
     expect(calls).toHaveLength(1)
   })
 
   it('rejects credentials that do not match the turn model ref', async () => {
+    const start = turnStart('openrouter-main', 'z-ai/glm-5.2')
     await expect(
-      runTextTurnLoop(turnStart('openrouter-main', 'z-ai/glm-5.2'), {
+      runTextTurnLoop(start, {
         workspaceRoot: tempWorkspace(),
+        runtimeContext: runtimeContext(start, []),
         requestCredential: async request =>
           credential(request.request_id, 'openrouter', 'other-provider', 'z-ai/glm-5.2')
       })
@@ -337,18 +470,6 @@ describe('@ankole/agent-computer LLM turn loop', () => {
 
 function tempWorkspace(): string {
   return mkdtempSync(join(tmpdir(), 'ankole-agent-computer-'))
-}
-
-function writeConversationStore(workspaceRoot: string, rows: any[]): void {
-  const dir = join(
-    workspaceRoot,
-    'actors',
-    encodeURIComponent('agent-1'),
-    encodeURIComponent('signal-channel:test'),
-    'conversation'
-  )
-  mkdirSync(dir, { recursive: true })
-  writeFileSync(join(dir, 'messages.jsonl'), rows.map(row => JSON.stringify(row)).join('\n'))
 }
 
 function turnStart(providerId: string, model: string, overrides: Partial<TurnStart> = {}): TurnStart {
@@ -372,6 +493,19 @@ function turnStart(providerId: string, model: string, overrides: Partial<TurnSta
     model_ref: { profile: 'primary', provider_id: providerId, model }
   }
   return { ...base, ...overrides }
+}
+
+function runtimeContext(start: TurnStart, rows: RuntimeConversationMessage[]): TurnRuntimeContext {
+  return {
+    request_id: `turn-context-${start.turn.llm_turn_id}`,
+    agent_uid: start.turn.actor.agent_uid,
+    session_id: start.turn.actor.session_id,
+    turn: start.turn,
+    soul: 'Use restrained, factual judgment.',
+    mission: '',
+    skills: [],
+    conversation: { messages: rows }
+  }
 }
 
 function credential(

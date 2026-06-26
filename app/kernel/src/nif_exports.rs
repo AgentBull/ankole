@@ -6,31 +6,32 @@
 
 use rustler::env::OwnedEnv;
 use rustler::types::binary::{Binary, OwnedBinary};
-use rustler::{Encoder, Error, LocalPid, NifResult, ResourceArc, Term};
+use rustler::{Encoder, Env, Error, LocalPid, NifResult, ResourceArc, Term};
 use serde_json::Value as JsonValue;
 use std::sync::Arc;
 
-use crate::actor_bus;
-use crate::actor_bus::transport::{RouterEvent, RouterHandle};
 use crate::authz;
 use crate::core;
+use crate::runtime_fabric;
+use crate::runtime_fabric::transport::{RouterEvent, RouterHandle};
 
 mod atoms {
     rustler::atoms! {
-        actor_bus_router_received,
-        actor_bus_router_decode_failed,
-        actor_bus_router_socket_error,
+        runtime_fabric_router_received,
+        runtime_fabric_router_file_frame,
+        runtime_fabric_router_decode_failed,
+        runtime_fabric_router_socket_error,
     }
 }
 
-/// Owns the native Actor Bus ROUTER handle across BEAM calls.
+/// Owns the native RuntimeFabric ROUTER handle across BEAM calls.
 ///
 /// Rustler stores this in a `ResourceArc` so Elixir can pass the router between
 /// start, send, endpoint, and stop calls without exposing the ZeroMQ socket.
-pub struct ActorBusRouterResource(pub RouterHandle);
+pub struct RuntimeFabricRouterResource(pub RouterHandle);
 
 #[rustler::resource_impl]
-impl rustler::Resource for ActorBusRouterResource {}
+impl rustler::Resource for RuntimeFabricRouterResource {}
 
 /// Decrypts an AEAD token for Elixir callers and returns a BEAM binary.
 ///
@@ -93,53 +94,57 @@ pub fn authz_validate_resource_pattern(pattern: Term<'_>) -> NifResult<bool> {
         .map_err(error)
 }
 
-/// Encodes an Actor Bus v1 envelope JSON map as protobuf bytes.
+/// Encodes a RuntimeFabric v1 envelope JSON map as protobuf bytes.
 #[rustler::nif(schedule = "DirtyCpu")]
-pub fn actor_bus_encode_envelope_json(envelope_json: Term<'_>) -> NifResult<OwnedBinary> {
+pub fn runtime_fabric_encode_envelope_json(envelope_json: Term<'_>) -> NifResult<OwnedBinary> {
     let envelope = decode_json(envelope_json, "envelope_json")?;
 
-    actor_bus::encode_envelope_json(envelope)
+    runtime_fabric::encode_envelope_json(envelope)
         .map_err(error)
         .and_then(binary_from_vec)
 }
 
-/// Decodes Actor Bus v1 protobuf bytes into the host JSON envelope shape.
+/// Decodes RuntimeFabric v1 protobuf bytes into the host JSON envelope shape.
 #[rustler::nif(schedule = "DirtyCpu")]
-pub fn actor_bus_decode_envelope_json(envelope_bytes: Term<'_>) -> NifResult<String> {
+pub fn runtime_fabric_decode_envelope_json(envelope_bytes: Term<'_>) -> NifResult<String> {
     let envelope_bytes = decode_binary(envelope_bytes, "envelope_bytes")?;
-    let envelope = actor_bus::decode_envelope_json(envelope_bytes.as_slice()).map_err(error)?;
+    let envelope =
+        runtime_fabric::decode_envelope_json(envelope_bytes.as_slice()).map_err(error)?;
 
     encode_json(envelope)
 }
 
-/// Starts a Rust-owned ZeroMQ ROUTER socket for Actor Bus traffic.
+/// Starts a Rust-owned ZeroMQ ROUTER socket for RuntimeFabric traffic.
 #[rustler::nif(schedule = "DirtyIo")]
-pub fn actor_bus_router_start(
+pub fn runtime_fabric_router_start(
     endpoint: Term<'_>,
     owner_pid: LocalPid,
     opts_json: Term<'_>,
-) -> NifResult<ResourceArc<ActorBusRouterResource>> {
+) -> NifResult<ResourceArc<RuntimeFabricRouterResource>> {
     let endpoint = decode_string(endpoint, "endpoint")?;
     let opts_json = decode_string(opts_json, "opts_json")?;
-    let mut config = actor_bus::transport::RouterConfig::from_json(&opts_json).map_err(error)?;
+    let mut config =
+        runtime_fabric::transport::RouterConfig::from_json(&opts_json).map_err(error)?;
     config.endpoint = endpoint;
 
     let sink = Arc::new(move |event| send_router_event(owner_pid, event));
-    let handle = actor_bus::transport::start_router(config, sink).map_err(error)?;
+    let handle = runtime_fabric::transport::start_router(config, sink).map_err(error)?;
 
-    Ok(ResourceArc::new(ActorBusRouterResource(handle)))
+    Ok(ResourceArc::new(RuntimeFabricRouterResource(handle)))
 }
 
 /// Returns the bound ROUTER endpoint, after wildcard port expansion.
 #[rustler::nif]
-pub fn actor_bus_router_endpoint(router: ResourceArc<ActorBusRouterResource>) -> NifResult<String> {
+pub fn runtime_fabric_router_endpoint(
+    router: ResourceArc<RuntimeFabricRouterResource>,
+) -> NifResult<String> {
     Ok(router.0.endpoint().to_string())
 }
 
-/// Sends an Actor Bus envelope to one ROUTER identity with mandatory routing.
+/// Sends a RuntimeFabric envelope to one ROUTER identity with mandatory routing.
 #[rustler::nif(schedule = "DirtyIo")]
-pub fn actor_bus_router_send_mandatory(
-    router: ResourceArc<ActorBusRouterResource>,
+pub fn runtime_fabric_router_send_mandatory(
+    router: ResourceArc<RuntimeFabricRouterResource>,
     transport_route: Term<'_>,
     envelope_json: Term<'_>,
 ) -> NifResult<String> {
@@ -153,9 +158,28 @@ pub fn actor_bus_router_send_mandatory(
         .map_err(|error| error_message(error.to_string()))
 }
 
+/// Sends raw RuntimeFabric worker-file multipart frames to one ROUTER identity.
+#[rustler::nif(schedule = "DirtyIo")]
+pub fn runtime_fabric_router_send_file_frame(
+    router: ResourceArc<RuntimeFabricRouterResource>,
+    transport_route: Term<'_>,
+    frames: Term<'_>,
+) -> NifResult<String> {
+    let transport_route = decode_string(transport_route, "transport_route")?;
+    let frames = decode_binary_frames(frames, "frames")?;
+
+    router
+        .0
+        .send_file_frame(transport_route, frames)
+        .map(|_| "sent_or_queued".to_string())
+        .map_err(|error| error_message(error.to_string()))
+}
+
 /// Stops a ROUTER socket owner thread.
 #[rustler::nif(schedule = "DirtyIo")]
-pub fn actor_bus_router_stop(router: ResourceArc<ActorBusRouterResource>) -> NifResult<bool> {
+pub fn runtime_fabric_router_stop(
+    router: ResourceArc<RuntimeFabricRouterResource>,
+) -> NifResult<bool> {
     router
         .0
         .stop()
@@ -241,6 +265,14 @@ pub fn crc32_hex(input: Term<'_>, initial_state: Term<'_>) -> NifResult<String> 
     let initial_state = decode_optional_u32(initial_state, "initial_state")?;
 
     Ok(core::crc32_hex(input.as_slice(), initial_state))
+}
+
+/// Computes the non-cryptographic XXH3 128-bit observation fingerprint.
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn xxh3_128_hex(input: Term<'_>) -> NifResult<String> {
+    let input = decode_binary(input, "input")?;
+
+    Ok(core::xxh3_128_hex(input.as_slice()))
 }
 
 /// Derives a deterministic BLAKE3 sub-key for Elixir callers.
@@ -372,6 +404,18 @@ fn decode_binary<'a>(term: Term<'a>, field: &str) -> NifResult<Binary<'a>> {
     Binary::from_term(term).map_err(|_| error_message(format!("{field} must be a binary")))
 }
 
+/// Decodes a BEAM list of binaries into owned frame bytes.
+fn decode_binary_frames(term: Term<'_>, field: &str) -> NifResult<Vec<Vec<u8>>> {
+    let frames: Vec<Binary<'_>> = term
+        .decode()
+        .map_err(|_| error_message(format!("{field} must be a list of binaries")))?;
+
+    Ok(frames
+        .into_iter()
+        .map(|frame| frame.as_slice().to_vec())
+        .collect())
+}
+
 /// Decodes a JSON string into the host-neutral serde value used by AuthZ.
 fn decode_json(term: Term<'_>, field: &str) -> NifResult<JsonValue> {
     let json = decode_string(term, field)?;
@@ -428,7 +472,7 @@ fn send_router_event(owner_pid: LocalPid, event: RouterEvent) {
             let key_revision = authenticated_key_revision.unwrap_or_default();
 
             (
-                atoms::actor_bus_router_received(),
+                atoms::runtime_fabric_router_received(),
                 transport_route,
                 worker_id,
                 key_revision,
@@ -436,19 +480,51 @@ fn send_router_event(owner_pid: LocalPid, event: RouterEvent) {
             )
                 .encode(env)
         }
+        RouterEvent::FileFrame {
+            transport_route,
+            authenticated_worker_id,
+            authenticated_key_revision,
+            frames,
+        } => {
+            let worker_id = authenticated_worker_id.unwrap_or_default();
+            let key_revision = authenticated_key_revision.unwrap_or_default();
+            let frame_terms = encode_binary_frame_list(env, frames);
+
+            (
+                atoms::runtime_fabric_router_file_frame(),
+                transport_route,
+                worker_id,
+                key_revision,
+                frame_terms,
+            )
+                .encode(env)
+        }
         RouterEvent::DecodeFailed {
             transport_route,
             reason,
         } => (
-            atoms::actor_bus_router_decode_failed(),
+            atoms::runtime_fabric_router_decode_failed(),
             transport_route,
             reason,
         )
             .encode(env),
         RouterEvent::SocketError { reason } => {
-            (atoms::actor_bus_router_socket_error(), reason).encode(env)
+            (atoms::runtime_fabric_router_socket_error(), reason).encode(env)
         }
     });
+}
+
+fn encode_binary_frame_list<'a>(env: Env<'a>, frames: Vec<Vec<u8>>) -> Term<'a> {
+    let terms: Vec<Term<'a>> = frames
+        .into_iter()
+        .filter_map(|frame| {
+            let mut binary = OwnedBinary::new(frame.len())?;
+            binary.as_mut_slice().copy_from_slice(&frame);
+            Some(binary.release(env).encode(env))
+        })
+        .collect();
+
+    terms.encode(env)
 }
 
 rustler::init!("Elixir.Ankole.Kernel");

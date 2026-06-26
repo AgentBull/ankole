@@ -1,5 +1,5 @@
 import { Crust } from '@crustjs/core'
-import { TOPOLOGY_GATED_SCOPES } from './config'
+import { DEFAULT_TOPOLOGY_SCOPE, TOPOLOGY_GATED_SCOPES, TOPOLOGY_SCOPES } from './config'
 import { runCycles } from './cycles'
 import { runDuplicates } from './duplicates'
 import { runSmells } from './smells'
@@ -155,8 +155,8 @@ export function analyzeCommand(): Crust {
           ...jsonFlag,
           scope: {
             type: 'string',
-            description: 'Named scope: sdk-plugins | eg-core | ai-agent-core.',
-            default: 'sdk-plugins'
+            description: `Named scope: ${Object.keys(TOPOLOGY_SCOPES).join(' | ')}.`,
+            default: DEFAULT_TOPOLOGY_SCOPE
           },
           report: {
             type: 'string',

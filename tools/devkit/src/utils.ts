@@ -1,5 +1,5 @@
 import { spawn, type SpawnOptions } from 'node:child_process'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import chalk from 'chalk'
@@ -71,16 +71,32 @@ export async function runChildCaptured(
 }
 
 /**
- * Resolve a locally-installed binary (knip, jscpd, ...). Prefers the devkit
- * package's own node_modules/.bin, then the repo root. Returns null if absent
- * so callers can emit an infra error (exit 2) instead of a violation (exit 1).
+ * Resolve a locally-installed binary (knip, jscpd, ...). Prefer the repo-root
+ * workspace install so analyze uses the same versions pinned by the root
+ * lockfile; fall back to devkit-local bins for standalone development.
+ * Returns null if absent so callers can emit an infra error (exit 2) instead
+ * of a violation (exit 1).
  */
 export function resolveLocalBin(name: string): string | null {
   const candidates = [
-    join(packageRootPath, 'node_modules', '.bin', name),
-    join(repoRootPath, 'node_modules', '.bin', name)
+    join(repoRootPath, 'node_modules', '.bin', name),
+    ...resolveBunStoreBins(name),
+    join(packageRootPath, 'node_modules', '.bin', name)
   ]
   return candidates.find(candidate => existsSync(candidate)) ?? null
+}
+
+function resolveBunStoreBins(name: string): string[] {
+  const storePath = join(repoRootPath, 'node_modules', '.bun')
+
+  try {
+    return readdirSync(storePath)
+      .filter(entry => entry.startsWith(`${name}@`))
+      .toSorted((left, right) => right.localeCompare(left))
+      .map(entry => join(storePath, entry, 'node_modules', '.bin', name))
+  } catch {
+    return []
+  }
 }
 
 /** Builds Docker Compose arguments pinned to devkit's shared Compose file. */

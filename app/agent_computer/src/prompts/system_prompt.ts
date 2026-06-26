@@ -9,14 +9,15 @@
  * identity/persona/mission first, then runtime facts, policies, tool routing,
  * and finally the skill index.
  */
-import { existsSync, readdirSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
-import type { TurnStart } from '../actor_bus'
+import type { TurnStart } from '../actor_lane'
+import type { AgentProfile, RuntimeSkillSummary, TurnRuntimeContext } from '../rpc_lane'
 import { formatSkillsForSystemPrompt, type SkillPromptEntry } from './skills_prompt'
 
 export type BuildAgentSystemPromptOptions = {
   workspaceRoot: string
   turnStart: TurnStart
+  agentProfile?: AgentProfile
+  runtimeContext?: TurnRuntimeContext
   timezone?: string
   conversationStartedAt?: Date
   currentChannel?: CurrentChannelContext
@@ -38,16 +39,18 @@ export type CurrentChannelContext = {
 /**
  * Assembles the full system prompt for the delivered turn.
  *
- * In BullX this function reads agent rows from the control-plane DB. In Ankole
- * the LLM loop already runs inside Agent Computer, so the Rust daemon has
- * materialized the DB-backed library projection under `/workspace/library-
- * containers`; this builder reads only that projected workspace state.
+ * RuntimeFabric returns PG-backed SOUL/MISSION and the enabled skill index at
+ * turn start.
  */
 export function buildAgentSystemPrompt(opts: BuildAgentSystemPromptOptions): string {
-  const displayName = agentDisplayName(opts.turnStart)
-  const soul = readLibraryText(opts.workspaceRoot, 'SOUL.md') || fallbackSoul()
-  const mission = readLibraryText(opts.workspaceRoot, 'MISSION.md') || ''
-  const skills = readSkillsForSystemPrompt(opts.workspaceRoot)
+  if (!opts.runtimeContext) {
+    throw new Error('runtime context is required to build the agent system prompt')
+  }
+
+  const displayName = agentDisplayName(opts)
+  const soul = opts.runtimeContext.soul || fallbackSoul()
+  const mission = opts.runtimeContext.mission || ''
+  const skills = skillsForSystemPrompt(opts)
   const skillPrompt = formatSkillsForSystemPrompt(skills)
 
   return [
@@ -80,13 +83,13 @@ function runtimeContextSection(opts: BuildAgentSystemPromptOptions): string {
   const lines = [
     '<runtime_context>',
     `Agent UID: ${opts.turnStart.turn.actor.agent_uid}`,
-    `Agent display name: ${agentDisplayName(opts.turnStart)}`,
+    `Agent display name: ${agentDisplayName(opts)}`,
     'Use this exact Agent UID when a tool or skill asks for the current agent identity.',
     `Session ID: ${opts.turnStart.turn.actor.session_id}`,
     `LLM turn ID: ${opts.turnStart.turn.llm_turn_id}`,
     `Current timezone: ${timezone}`
   ]
-  const role = agentRole(opts.turnStart)
+  const role = agentRole(opts)
   if (role) lines.push(`Agent role: ${role}`)
 
   if (opts.conversationStartedAt) {
@@ -100,13 +103,13 @@ function runtimeContextSection(opts: BuildAgentSystemPromptOptions): string {
   return lines.join('\n')
 }
 
-function agentDisplayName(turnStart: TurnStart): string {
-  const displayName = turnStart.turn.actor.display_name?.trim()
-  return displayName || turnStart.turn.actor.agent_uid
+function agentDisplayName(opts: BuildAgentSystemPromptOptions): string {
+  const displayName = opts.agentProfile?.display_name?.trim()
+  return displayName || opts.turnStart.turn.actor.agent_uid
 }
 
-function agentRole(turnStart: TurnStart): string | undefined {
-  const role = turnStart.turn.actor.role?.trim()
+function agentRole(opts: BuildAgentSystemPromptOptions): string | undefined {
+  const role = opts.agentProfile?.role?.trim()
   return role || undefined
 }
 
@@ -128,15 +131,16 @@ function toolsSection(): string {
 <about_computer>
 These tools operate on your Ankole Agent Computer: an agent-owned execution environment backed by a container. It exposes a stable /workspace view and is your place for files, commands, browser automation, skill overlays, and generated artifacts. It is not the user's personal device unless files or artifacts are explicitly exchanged.
 
-Current worker-image baseline: Python 3.12-compatible tooling via the agent Python environment, Bun 1.3.14 for JavaScript/TypeScript work, Chromium/Xvfb for browser automation, LibreOffice/Pandoc/Poppler/QPDF for document work, and common shell/dev utilities such as jq, bash, git, rg, tmux, and PostgreSQL client tools. Verify exact versions with a quick command when the task depends on them.
+Current worker-image baseline: Python 3.12-compatible tooling via the agent Python environment, Bun 1.3.14 for JavaScript/TypeScript work, Chromium/Xvfb for browser automation, LibreOffice/Pandoc/Poppler/QPDF for document work, and common shell/dev utilities such as jq, bash, git, rg, and tmux. Verify exact versions with a quick command when the task depends on them.
 
-Persistence model: /workspace/user-files is durable storage for uploaded files, deliverables, browser artifacts, and per-agent environment/package deltas. /workspace/library-containers is Ankole-managed library state projected from the control plane; treat it as managed context, not scratch storage. /workspace/temp is non-persistent scratch/runtime state. Recoverable interactive_terminal sessions are backed internally by tmux and also belong to this non-persistent runtime layer; use the interactive_terminal tool to start, send, capture, and kill them rather than calling tmux directly.
+Persistence model: /workspace/user-files is durable shared filesystem storage for uploaded files, deliverables, browser artifacts, and per-agent environment/package deltas. /workspace/library-containers/skills exposes enabled skill files from built-in image assets and agent-installed shared filesystem assets; treat it as managed context, not scratch storage. SOUL, MISSION, conversation state, and skill overlays are PG semantic state resolved through RuntimeFabric, not files for the worker to edit directly. /workspace/temp is non-persistent scratch/runtime state. Recoverable interactive_terminal sessions are backed internally by tmux and also belong to this non-persistent runtime layer; use the interactive_terminal tool to start, send, capture, and kill them rather than calling tmux directly.
 
 Use \`read_file\` for paginated text reads and \`patch\` for targeted edits.
 Use \`command\` for stateless one-shot shell work.
 Use \`interactive_terminal\` for TTY/TUI programs, REPLs, and long-running interactive processes.
 Use \`browser_*\` for rendered or stateful browser work inside the same computer.
-Use \`skill_view\` to load enabled skills and \`skill_append\` to replace this agent's AGENT_APPEND.md overlay for an enabled skill.
+Use \`reply_attachment\` when a file under /workspace/user-files should be sent as a native attachment in your final external reply.
+Use \`skill_view\` to load enabled skills and \`skill_append\` to replace this agent's DB-backed overlay for an enabled skill.
 Treat the computer as a trusted Ankole work environment with useful isolation boundaries, not as a hardened security sandbox.
 </about_computer>
 
@@ -148,68 +152,26 @@ Do not invent tools that are not present in the tool list for this run.
 </tools>`
 }
 
-function readSkillsForSystemPrompt(workspaceRoot: string): SkillPromptEntry[] {
-  const skillsRoot = workspacePath(workspaceRoot, 'library-containers/skills')
-  if (!existsSync(skillsRoot)) return []
-
-  return readdirSync(skillsRoot, { withFileTypes: true })
-    .filter(entry => entry.isDirectory() && !entry.name.startsWith('.'))
-    .map(entry => skillFromDirectory(skillsRoot, entry.name))
-    .filter((skill): skill is SkillPromptEntry => skill !== null)
+function skillsForSystemPrompt(opts: BuildAgentSystemPromptOptions): SkillPromptEntry[] {
+  return (opts.runtimeContext?.skills ?? []).map(skillPromptEntryFromRuntime).filter(isSkillPromptEntry)
 }
 
-function skillFromDirectory(skillsRoot: string, directoryName: string): SkillPromptEntry | null {
-  const skillPath = join(skillsRoot, directoryName, 'SKILL.md')
-  if (!existsSync(skillPath)) return null
-
-  const raw = readFileSync(skillPath, 'utf8')
-  const frontmatter = skillFrontmatter(raw)
-  const name = yamlScalar(frontmatter, 'name') || directoryName
-  const description = yamlScalar(frontmatter, 'description')
-  if (!description) return null
+function skillPromptEntryFromRuntime(skill: RuntimeSkillSummary): SkillPromptEntry | null {
+  if (!skill.skill_name || !skill.description) return null
+  const metadata = skill.metadata ?? {}
+  const disableModelInvocation =
+    metadata['disable_model_invocation'] === true || metadata['disable-model-invocation'] === true
 
   return {
-    name,
-    description,
-    category: yamlScalar(frontmatter, 'category'),
-    disableModelInvocation: yamlBoolean(frontmatter, 'disable-model-invocation', false)
+    name: skill.skill_name,
+    description: skill.description,
+    category: typeof skill.category === 'string' ? skill.category : undefined,
+    disableModelInvocation
   }
 }
 
-function readLibraryText(workspaceRoot: string, path: string): string | undefined {
-  const fullPath = workspacePath(workspaceRoot, `library-containers/${path}`)
-  if (!existsSync(fullPath)) return undefined
-  return readFileSync(fullPath, 'utf8')
-}
-
-function workspacePath(workspaceRoot: string, relativePath: string): string {
-  return join(workspaceRoot, relativePath)
-}
-
-function skillFrontmatter(raw: string): string {
-  if (!raw.startsWith('---')) return ''
-  const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(raw)
-  return match?.[1] ?? ''
-}
-
-function yamlScalar(frontmatter: string, key: string): string | undefined {
-  const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const match = new RegExp(`^${escapedKey}:\\s*(.*?)\\s*$`, 'm').exec(frontmatter)
-  const value = stripQuotes(match?.[1]?.trim() ?? '')
-  return value || undefined
-}
-
-function yamlBoolean(frontmatter: string, key: string, fallback: boolean): boolean {
-  const value = yamlScalar(frontmatter, key)
-  if (value === undefined) return fallback
-  return value.toLowerCase() === 'true'
-}
-
-function stripQuotes(value: string): string {
-  if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
-    return value.slice(1, -1)
-  }
-  return value
+function isSkillPromptEntry(skill: SkillPromptEntry | null): skill is SkillPromptEntry {
+  return skill !== null
 }
 
 function formatCurrentChannel(channel: CurrentChannelContext): string {

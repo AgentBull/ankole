@@ -8,7 +8,6 @@ import {
 import {
   createIdGenerator,
   type Arrayable,
-  type Experimental_SandboxSession as SandboxSession,
   type IdGenerator,
   type InferToolSetContext,
   type ModelMessage,
@@ -193,7 +192,6 @@ export async function streamLanguageModelCall<TOOLS extends ToolSet, OUTPUT exte
   executeLanguageModelCallInTelemetryContext = async ({ execute }) => await execute(),
   callId,
   toolsContext,
-  experimental_sandbox: sandbox,
   _internal: { generateId = originalGenerateId, generateCallId = originalGenerateCallId, now = originalNow } = {},
   onStart,
   onLanguageModelCallStart,
@@ -219,10 +217,6 @@ export async function streamLanguageModelCall<TOOLS extends ToolSet, OUTPUT exte
    * descriptions before sending tools to the model.
    */
   toolsContext?: InferToolSetContext<TOOLS>
-  /**
-   * Sandbox session passed through for resolving tool descriptions that depend on it.
-   */
-  experimental_sandbox?: SandboxSession
   _internal?: {
     generateId?: IdGenerator
     generateCallId?: IdGenerator
@@ -280,8 +274,7 @@ export async function streamLanguageModelCall<TOOLS extends ToolSet, OUTPUT exte
   const stepTools = await prepareTools({
     tools,
     toolOrder,
-    toolsContext,
-    experimental_sandbox: sandbox
+    toolsContext
   })
 
   const stepToolChoice = prepareToolChoice({

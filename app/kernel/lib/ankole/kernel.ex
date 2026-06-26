@@ -17,11 +17,11 @@ defmodule Ankole.Kernel do
   @type initial_crc32_state :: non_neg_integer() | nil
   @type authz_snapshot :: map()
   @type authz_decision :: map()
-  @type actor_bus_envelope :: map()
+  @type runtime_fabric_envelope :: map()
   @type jwt_claims :: map()
   @type jwt_header :: map()
   @type jwt_validation :: map()
-  @type actor_bus_router :: reference()
+  @type runtime_fabric_router :: reference()
 
   @doc """
   Decrypts a compact AEAD token produced by `aead_encrypt/2`.
@@ -76,55 +76,64 @@ defmodule Ankole.Kernel do
   def authz_authorize_all_json(_snapshot_json), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """
-  Encodes an Actor Bus v1 envelope as protobuf bytes.
+  Encodes a RuntimeFabric v1 envelope as protobuf bytes.
 
   The public Elixir shape is a map. The native kernel validates protocol
   version, lane, durability, body type, and boundary rules before returning
-  bytes that may be sent over the actor fabric.
+  bytes that may be sent over the runtime fabric.
   """
-  @spec actor_bus_encode_envelope(actor_bus_envelope()) :: result(binary())
-  def actor_bus_encode_envelope(envelope) when is_map(envelope) do
+  @spec runtime_fabric_encode_envelope(runtime_fabric_envelope()) :: result(binary())
+  def runtime_fabric_encode_envelope(envelope) when is_map(envelope) do
     envelope
     |> Torque.encode!()
-    |> actor_bus_encode_envelope_json()
+    |> runtime_fabric_encode_envelope_json()
   end
 
   @doc false
-  @spec actor_bus_encode_envelope_json(String.t()) :: result(binary())
-  def actor_bus_encode_envelope_json(_envelope_json), do: :erlang.nif_error(:nif_not_loaded)
+  @spec runtime_fabric_encode_envelope_json(String.t()) :: result(binary())
+  def runtime_fabric_encode_envelope_json(_envelope_json),
+    do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """
-  Decodes Actor Bus v1 protobuf bytes into the public Elixir map shape.
+  Decodes RuntimeFabric v1 protobuf bytes into the public Elixir map shape.
   """
-  @spec actor_bus_decode_envelope(binary()) :: result(actor_bus_envelope())
-  def actor_bus_decode_envelope(envelope_bytes) when is_binary(envelope_bytes) do
+  @spec runtime_fabric_decode_envelope(binary()) :: result(runtime_fabric_envelope())
+  def runtime_fabric_decode_envelope(envelope_bytes) when is_binary(envelope_bytes) do
     envelope_bytes
-    |> actor_bus_decode_envelope_json()
+    |> runtime_fabric_decode_envelope_json()
     |> decode_json_result()
   end
 
   @doc false
-  @spec actor_bus_decode_envelope_json(binary()) :: result(String.t())
-  def actor_bus_decode_envelope_json(_envelope_bytes), do: :erlang.nif_error(:nif_not_loaded)
-
-  @doc false
-  @spec actor_bus_router_start(String.t(), pid(), String.t()) :: result(actor_bus_router())
-  def actor_bus_router_start(_endpoint, _owner_pid, _opts_json),
+  @spec runtime_fabric_decode_envelope_json(binary()) :: result(String.t())
+  def runtime_fabric_decode_envelope_json(_envelope_bytes),
     do: :erlang.nif_error(:nif_not_loaded)
 
   @doc false
-  @spec actor_bus_router_endpoint(actor_bus_router()) :: result(String.t())
-  def actor_bus_router_endpoint(_router), do: :erlang.nif_error(:nif_not_loaded)
+  @spec runtime_fabric_router_start(String.t(), pid(), String.t()) ::
+          result(runtime_fabric_router())
+  def runtime_fabric_router_start(_endpoint, _owner_pid, _opts_json),
+    do: :erlang.nif_error(:nif_not_loaded)
 
   @doc false
-  @spec actor_bus_router_send_mandatory(actor_bus_router(), String.t(), String.t()) ::
+  @spec runtime_fabric_router_endpoint(runtime_fabric_router()) :: result(String.t())
+  def runtime_fabric_router_endpoint(_router), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc false
+  @spec runtime_fabric_router_send_mandatory(runtime_fabric_router(), String.t(), String.t()) ::
           result(String.t())
-  def actor_bus_router_send_mandatory(_router, _transport_route, _envelope_json),
+  def runtime_fabric_router_send_mandatory(_router, _transport_route, _envelope_json),
     do: :erlang.nif_error(:nif_not_loaded)
 
   @doc false
-  @spec actor_bus_router_stop(actor_bus_router()) :: result(boolean())
-  def actor_bus_router_stop(_router), do: :erlang.nif_error(:nif_not_loaded)
+  @spec runtime_fabric_router_send_file_frame(runtime_fabric_router(), String.t(), [binary()]) ::
+          result(String.t())
+  def runtime_fabric_router_send_file_frame(_router, _transport_route, _frames),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc false
+  @spec runtime_fabric_router_stop(runtime_fabric_router()) :: result(boolean())
+  def runtime_fabric_router_stop(_router), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """
   Returns `true` when a CEL authorization condition compiles.
@@ -203,6 +212,15 @@ defmodule Ankole.Kernel do
   @spec crc32_hex(binary(), initial_crc32_state()) :: result(String.t())
   def crc32_hex(input, initial_state \\ nil)
   def crc32_hex(_input, _initial_state), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
+  Computes a non-cryptographic XXH3 128-bit observation fingerprint.
+
+  This is for file observations and change detection. It is not a security
+  digest and must not be used for provenance or signature checks.
+  """
+  @spec xxh3_128_hex(binary()) :: result(String.t())
+  def xxh3_128_hex(_input), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """
   Derives a deterministic BLAKE3 sub-key from a seed and labeled context.

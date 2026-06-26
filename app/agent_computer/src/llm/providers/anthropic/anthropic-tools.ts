@@ -1,7 +1,5 @@
 // @ts-nocheck
 import { advisor_20260301 } from './tool/advisor_20260301'
-import { bash_20241022 } from './tool/bash_20241022'
-import { bash_20250124 } from './tool/bash_20250124'
 import { codeExecution_20250522 } from './tool/code-execution_20250522'
 import { codeExecution_20250825 } from './tool/code-execution_20250825'
 import { codeExecution_20260120 } from './tool/code-execution_20260120'
@@ -50,22 +48,6 @@ export const anthropicTools = {
    * per conversation.
    */
   advisor_20260301,
-
-  /**
-   * The bash tool enables Claude to execute shell commands in a persistent bash session,
-   * allowing system operations, script execution, and command-line automation.
-   *
-   * Image results are supported.
-   */
-  bash_20241022,
-
-  /**
-   * The bash tool enables Claude to execute shell commands in a persistent bash session,
-   * allowing system operations, script execution, and command-line automation.
-   *
-   * Image results are supported.
-   */
-  bash_20250124,
 
   /**
    * Claude can analyze data, create visualizations, perform complex calculations,

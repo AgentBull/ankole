@@ -7,7 +7,6 @@ import {
   withUserAgentSuffix,
   type Arrayable,
   type Context,
-  type Experimental_SandboxSession as SandboxSession,
   type IdGenerator,
   type InferToolSetContext,
   type ProviderOptions,
@@ -33,7 +32,6 @@ import {
   type TimeoutConfiguration
 } from '../prompt/request-options'
 import { standardizePrompt } from '../prompt/standardize-prompt'
-import { wrapGatewayError } from '../prompt/wrap-gateway-error'
 import type { Telemetry, TelemetryDispatcher } from '../telemetry/telemetry'
 import type { TelemetryOptions } from '../telemetry/telemetry-options'
 import type { LanguageModel, LanguageModelRequestMetadata, ToolChoice } from '../types'
@@ -166,7 +164,6 @@ export type GenerateTextInclude = {
  * @param timeout - An optional timeout in milliseconds. The call will be aborted if it takes longer than the specified timeout.
  * @param headers - Additional HTTP headers to be sent with the request. Only applicable for HTTP-based providers.
  *
- * @param experimental_sandbox - The sandbox environment that is passed through to tool execution.
  * @param runtimeContext - User-defined runtime context that flows through the entire generation lifecycle.
  * @param experimental_refineToolInput - Optional mapping of tool names to functions that refine parsed tool inputs before tools are executed and before outputs, callbacks, and telemetry are recorded.
  * @param onStart - Callback invoked when generation begins, before any LLM calls.
@@ -209,7 +206,6 @@ export async function generateText<
   timeout,
   headers,
   stopWhen = isStepCount(1),
-  experimental_sandbox: sandbox,
   output,
   toolApproval,
   experimental_toolApprovalSecret,
@@ -284,11 +280,6 @@ export async function generateText<
      * functionality that can be fully encapsulated in the provider.
      */
     providerOptions?: ProviderOptions
-
-    /**
-     * The sandbox environment that is passed through to tool execution.
-     */
-    experimental_sandbox?: SandboxSession
 
     /**
      * Runtime context. Treat runtime context as immutable.
@@ -604,7 +595,6 @@ export async function generateText<
           messages: initialMessages,
           abortSignal: mergedAbortSignal,
           timeout,
-          experimental_sandbox: sandbox,
           toolsContext,
           onToolExecutionStart: event =>
             notify({
@@ -716,11 +706,8 @@ export async function generateText<
                 initialMessages,
                 responseMessages: accumulatedResponseMessages,
                 runtimeContext,
-                toolsContext,
-                experimental_sandbox: sandbox
+                toolsContext
               })
-
-              const stepSandbox = prepareStepResult?.experimental_sandbox ?? sandbox
 
               const stepModel = resolveLanguageModel(prepareStepResult?.model ?? model)
 
@@ -752,8 +739,7 @@ export async function generateText<
                 // active tools context is a subset of the tools context, so we can cast to the unknown type
                 toolsContext: toolsContext as unknown as InferToolSetContext<
                   ActiveToolSubset<TOOLS, ActiveTools<NoInfer<TOOLS>>>
-                >,
-                experimental_sandbox: stepSandbox
+                >
               })
 
               const stepToolChoice = prepareToolChoice({
@@ -1039,7 +1025,6 @@ export async function generateText<
                   messages: stepMessages,
                   abortSignal: mergedAbortSignal,
                   timeout,
-                  experimental_sandbox: stepSandbox,
                   toolsContext,
                   onToolExecutionStart: event =>
                     notify({
@@ -1280,7 +1265,7 @@ export async function generateText<
       })
     } catch (error) {
       await telemetryDispatcher.onError?.({ callId, error })
-      throw wrapGatewayError(error)
+      throw error
     }
   }
 
@@ -1298,7 +1283,6 @@ async function executeTools<TOOLS extends ToolSet>({
   messages,
   abortSignal,
   timeout,
-  experimental_sandbox: sandbox,
   toolsContext,
   onToolExecutionStart,
   onToolExecutionEnd,
@@ -1311,7 +1295,6 @@ async function executeTools<TOOLS extends ToolSet>({
   messages: ModelMessage[]
   abortSignal: AbortSignal | undefined
   timeout?: TimeoutConfiguration<TOOLS>
-  experimental_sandbox?: SandboxSession
   toolsContext: InferToolSetContext<TOOLS>
   onToolExecutionStart?: OnToolExecutionStartCallback<TOOLS>
   onToolExecutionEnd?: OnToolExecutionEndCallback<TOOLS>
@@ -1333,7 +1316,6 @@ async function executeTools<TOOLS extends ToolSet>({
           messages,
           abortSignal,
           timeout,
-          experimental_sandbox: sandbox,
           toolsContext,
           onToolExecutionStart,
           onToolExecutionEnd,

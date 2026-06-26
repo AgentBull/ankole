@@ -1,4 +1,4 @@
-// Knip configuration for the Ankole Agent bun-workspaces monorepo.
+// Knip configuration for the Ankole bun-workspaces monorepo.
 // Consumed by `bun run kit analyze unused` (devkit tools/devkit/src/commands/analyze).
 //
 // Entry points declared here are treated as USED, so the unused-files gate only
@@ -8,33 +8,37 @@
 import type { KnipConfig } from 'knip'
 
 const config: KnipConfig = {
-  // Rust/napi package: no TS graph to analyze.
-  ignoreWorkspaces: ['packages/native-addons'],
+  // Mix-only packages have package.json files for workspace scripts, but no TS
+  // graph for Knip to analyze.
+  ignoreWorkspaces: ['app/control_plane', 'libs/feishu_openapi'],
   workspaces: {
-    app: {
-      entry: [
-        'src/main.ts',
-        'webui/src/entries/*.tsx', // Bun build entrypoints (app/scripts/build-web-assets.ts)
-        'drizzle.config.ts', // drizzle-kit
-        'src/common/db-migrate.ts', // migrate:local script
-        'scripts/build-web-assets.ts'
-      ],
-      project: ['src/**/*.{ts,tsx}', 'webui/src/**/*.{ts,tsx}'],
-      // uikit is a vendored design-system (base-ui/shadcn); unused components are
-      // expected library surface, not dead app code.
-      ignore: ['webui/src/uikit/**']
+    'app/agent_computer': {
+      entry: ['src/browser_cli.ts', 'src/main.ts', 'src/turn_child.ts', 'test/**/*.ts'],
+      project: ['src/**/*.ts', 'test/**/*.ts'],
+      // The vendored AI SDK is intentionally excluded from current unused-file
+      // gates. Its slimming is tracked separately and should not mask app-owned
+      // dead code.
+      ignore: ['src/llm/**']
     },
-    'packages/sdk': {
-      entry: ['src/index.ts', 'src/plugins.ts'], // package "." and "./plugins" exports
-      project: ['src/**/*.ts']
+    'app/kernel': {
+      entry: ['test/**/*.ts'],
+      project: ['test/**/*.ts']
     },
-    'packages/computer': {
-      entry: ['client-sdk/index.ts'], // package "." export; src/ is Rust
-      project: ['client-sdk/**/*.ts']
+    'app/webapps': {
+      entry: ['entrypoints/*.tsx', 'openapi-ts.config.ts', 'vite.config.ts'],
+      project: [
+        'auth/**/*.{ts,tsx}',
+        'common/**/*.{ts,tsx}',
+        'console/**/*.{ts,tsx}',
+        'entrypoints/**/*.{ts,tsx}',
+        'setup/**/*.{ts,tsx}',
+        '*.ts'
+      ]
     },
-    'plugin/lark-adapter': {
+    'libs/uikit': {
       entry: ['src/index.ts'],
-      project: ['src/**/*.ts']
+      project: ['src/**/*.{ts,tsx}'],
+      ignore: ['src/stories/**']
     },
     'tools/devkit': {
       entry: ['src/main.ts', 'src/schematics/**/index.ts'],
@@ -42,7 +46,7 @@ const config: KnipConfig = {
     }
   },
   // var/ holds dev-worker runtime volumes (browser caches etc.), not source.
-  ignore: ['**/*.d.ts', 'var/**', 'internals/skills/**'],
+  ignore: ['**/*.d.ts', 'var/**', 'internals/skills/**', 'app/agent_computer/src/llm/**'],
   ignoreBinaries: ['cargo', 'napi']
 }
 

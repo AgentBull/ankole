@@ -35,6 +35,7 @@ defmodule Ankole.ActorRuntime.Supervisor do
     # off via opts without breaking the core path.
     children =
       [
+        Ankole.ActorRuntime.FileTransferLane,
         broker_child(opts),
         Ankole.ActorRuntime.ActorDirectory,
         Ankole.ActorRuntime.SessionSupervisor

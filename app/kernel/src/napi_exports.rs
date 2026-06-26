@@ -3,12 +3,13 @@
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 use serde_json::Value as JsonValue;
+use std::path::Path;
 use std::time::Duration;
 
-use crate::actor_bus;
-use crate::actor_bus::transport::{DealerEvent, DealerHandle};
 use crate::authz;
 use crate::core;
+use crate::runtime_fabric;
+use crate::runtime_fabric::transport::{DealerEvent, DealerHandle};
 
 /// Converts a core error into the generic N-API error shape.
 ///
@@ -90,32 +91,35 @@ pub fn authz_match_resource_pattern(pattern: String, resource: String) -> Result
     authz::pattern_matches(&pattern, &resource).map_err(napi_error)
 }
 
-/// Encodes an Actor Bus v1 envelope into protobuf bytes.
-#[napi(js_name = "actorBusEncodeEnvelope", ts_args_type = "envelope: any")]
-pub fn js_actor_bus_encode_envelope(envelope: JsonValue) -> Result<Buffer> {
-    actor_bus::encode_envelope_json(envelope)
+/// Encodes a RuntimeFabric v1 envelope into protobuf bytes.
+#[napi(
+    js_name = "runtimeFabricEncodeEnvelope",
+    ts_args_type = "envelope: any"
+)]
+pub fn js_runtime_fabric_encode_envelope(envelope: JsonValue) -> Result<Buffer> {
+    runtime_fabric::encode_envelope_json(envelope)
         .map(Buffer::from)
         .map_err(napi_error)
 }
 
-/// Decodes Actor Bus v1 protobuf bytes into a JSON-shaped envelope.
+/// Decodes RuntimeFabric v1 protobuf bytes into a JSON-shaped envelope.
 #[napi(
-    js_name = "actorBusDecodeEnvelope",
+    js_name = "runtimeFabricDecodeEnvelope",
     ts_args_type = "bytes: Buffer",
     ts_return_type = "any"
 )]
-pub fn js_actor_bus_decode_envelope(bytes: Buffer) -> Result<JsonValue> {
-    actor_bus::decode_envelope_json(bytes.as_ref()).map_err(napi_error)
+pub fn js_runtime_fabric_decode_envelope(bytes: Buffer) -> Result<JsonValue> {
+    runtime_fabric::decode_envelope_json(bytes.as_ref()).map_err(napi_error)
 }
 
-/// Bun/Node DEALER-side Actor Bus client.
-#[napi(js_name = "ActorBusDealer")]
-pub struct JsActorBusDealer {
+/// Bun/Node DEALER-side RuntimeFabric client.
+#[napi(js_name = "RuntimeFabricDealer")]
+pub struct JsRuntimeFabricDealer {
     handle: DealerHandle,
 }
 
 #[napi]
-impl JsActorBusDealer {
+impl JsRuntimeFabricDealer {
     #[napi(constructor)]
     pub fn new(
         endpoint: String,
@@ -123,7 +127,7 @@ impl JsActorBusDealer {
         username: String,
         password: String,
     ) -> Result<Self> {
-        let config = actor_bus::transport::DealerConfig {
+        let config = runtime_fabric::transport::DealerConfig {
             endpoint,
             identity,
             username,
@@ -137,7 +141,7 @@ impl JsActorBusDealer {
             command_timeout_ms: None,
         };
 
-        actor_bus::transport::start_dealer(config)
+        runtime_fabric::transport::start_dealer(config)
             .map(|handle| Self { handle })
             .map_err(napi_error)
     }
@@ -150,6 +154,16 @@ impl JsActorBusDealer {
             .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))
     }
 
+    #[napi(ts_args_type = "frames: Buffer[]")]
+    pub fn send_file_frame(&self, frames: Vec<Buffer>) -> Result<String> {
+        let frames = frames.into_iter().map(|frame| frame.to_vec()).collect();
+
+        self.handle
+            .send_file_frame(frames)
+            .map(|_| "sent_or_queued".to_string())
+            .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))
+    }
+
     #[napi]
     pub fn recv(&self, timeout_ms: u32) -> Result<Option<Buffer>> {
         match self
@@ -158,6 +172,31 @@ impl JsActorBusDealer {
             .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))?
         {
             Some(DealerEvent::Received(payload)) => Ok(Some(Buffer::from(payload))),
+            Some(DealerEvent::FileFrame(_frames)) => Err(Error::new(
+                Status::GenericFailure,
+                "received worker file lane frame; use recvRaw".to_string(),
+            )),
+            Some(DealerEvent::DecodeFailed(reason)) | Some(DealerEvent::SocketError(reason)) => {
+                Err(Error::new(Status::GenericFailure, reason))
+            }
+            None => Ok(None),
+        }
+    }
+
+    #[napi(ts_return_type = "Buffer[] | null")]
+    pub fn recv_raw(&self, timeout_ms: u32) -> Result<Option<Vec<Buffer>>> {
+        match self
+            .handle
+            .recv(Duration::from_millis(u64::from(timeout_ms)))
+            .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))?
+        {
+            Some(DealerEvent::Received(payload)) => Ok(Some(vec![Buffer::from(payload)])),
+            Some(DealerEvent::FileFrame(frames)) => Ok(Some(
+                frames
+                    .into_iter()
+                    .map(Buffer::from)
+                    .collect::<Vec<Buffer>>(),
+            )),
             Some(DealerEvent::DecodeFailed(reason)) | Some(DealerEvent::SocketError(reason)) => {
                 Err(Error::new(Status::GenericFailure, reason))
             }
@@ -233,6 +272,18 @@ pub fn crc32(input: Either<&[u8], String>, initial_state: Option<u32>) -> u32 {
 #[napi]
 pub fn crc32_hex(input: Either<&[u8], String>, initial_state: Option<u32>) -> String {
     core::crc32_hex(input.as_ref(), initial_state)
+}
+
+/// Computes the non-cryptographic XXH3 128-bit observation fingerprint.
+#[napi(js_name = "xxh3File128Hex")]
+pub fn js_xxh3_file_128_hex(path: String) -> Result<String> {
+    core::xxh3_128_file_hex(Path::new(&path)).map_err(napi_error)
+}
+
+/// Computes XXH3 128-bit over a JS string or Buffer.
+#[napi(js_name = "xxh3_128_hex", ts_args_type = "data: string | Buffer")]
+pub fn js_xxh3_128_hex(data: Either<String, Buffer>) -> String {
+    core::xxh3_128_hex(&bytes_from_either(data))
 }
 
 /// Derives a deterministic BLAKE3 sub-key for JS callers.

@@ -27,16 +27,16 @@ defmodule Ankole.ActorRuntime do
   alias Ankole.Actors
   alias Ankole.Actors.ActorInput
   alias Ankole.ActorRuntime.CommitCoordinator
+  alias Ankole.ActorRuntime.FileTransferLane
   alias Ankole.ActorRuntime.OutboxDispatcher
   alias Ankole.ActorRuntime.Schemas.ActorInputDelivery
   alias Ankole.ActorRuntime.Schemas.ActorSessionActivation
   alias Ankole.ActorRuntime.Schemas.ActorSessionWorkerAssignment
   alias Ankole.ActorRuntime.Schemas.AgentComputerWorker
+  alias Ankole.ActorRuntime.TurnEnvelope
   alias Ankole.ActorRuntime.Transport.Broker
   alias Ankole.ActorRuntime.WorkerAdmission
   alias Ankole.ActorRuntime.WorkerPool
-  alias Ankole.Principals.Agent, as: PrincipalAgent
-  alias Ankole.Principals.Principal
   alias Ankole.Repo
   alias Ankole.SignalsGateway
 
@@ -48,6 +48,7 @@ defmodule Ankole.ActorRuntime do
   # The "live" activation set: an activation owns its actor session while in one
   # of these statuses. `stopped`/`failed` are terminal and free the session.
   @live_activation_statuses ~w(starting active draining)
+  @activation_progress_lease_seconds 300
 
   @type actor_key :: %{agent_uid: String.t(), session_id: String.t()}
 
@@ -94,6 +95,37 @@ defmodule Ankole.ActorRuntime do
   defdelegate assign_worker(actor_key), to: WorkerPool
 
   @doc """
+  Writes bytes into a worker-owned filesystem root through RuntimeFabric.
+
+  This is for file materialization outside actor turns, for example inbound
+  provider attachments. The control plane owns the request; the worker owns the
+  filesystem mutation.
+  """
+  @spec put_worker_file(String.t(), String.t(), iodata(), keyword()) ::
+          FileTransferLane.operation_result()
+  def put_worker_file(root, relative_path, content, opts \\ [])
+      when is_binary(root) and is_binary(relative_path) do
+    with {:ok, route} <- WorkerPool.file_worker_route() do
+      FileTransferLane.put(route, root, relative_path, content, opts)
+    end
+  end
+
+  @doc """
+  Reads bytes from a worker-owned filesystem root through RuntimeFabric.
+
+  Provider adapters use this for outbound native attachments. The control plane
+  never mounts the shared filesystem; it asks a ready worker to stream the file
+  over the file lane.
+  """
+  @spec get_worker_file(String.t(), String.t(), keyword()) :: FileTransferLane.get_result()
+  def get_worker_file(root, relative_path, opts \\ [])
+      when is_binary(root) and is_binary(relative_path) do
+    with {:ok, route} <- WorkerPool.file_worker_route() do
+      FileTransferLane.get(route, root, relative_path, opts)
+    end
+  end
+
+  @doc """
   Starts a worker-backed LLM turn for a ready actor input set.
 
   This is the control-plane side of the new local actor loop. It creates the
@@ -131,8 +163,10 @@ defmodule Ankole.ActorRuntime do
                  assignment,
                  now
                ) do
-          turn_ref = turn_ref(repo, actor_key, activation, turn_result.llm_turn)
-          envelope = turn_start_envelope(turn_ref, actor_inputs, deliveries, turn_result.llm_turn)
+          turn_ref = TurnEnvelope.turn_ref(repo, actor_key, activation, turn_result.llm_turn)
+
+          envelope =
+            TurnEnvelope.turn_start(turn_ref, actor_inputs, deliveries, turn_result.llm_turn)
 
           {:ok,
            Map.merge(turn_result, %{
@@ -260,7 +294,7 @@ defmodule Ankole.ActorRuntime do
   end
 
   @doc """
-  Handles an Actor Bus turn.accepted envelope.
+  Handles an actor lane turn.accepted envelope.
 
   Acceptance is separate from final commit so the control plane can tell the
   difference between "worker received the turn" and "worker produced a durable
@@ -290,6 +324,33 @@ defmodule Ankole.ActorRuntime do
           |> repo.update()
         end)
         |> collect_results()
+      end
+    end)
+  end
+
+  @doc """
+  Extends the live activation lease for a matching in-flight worker turn.
+
+  `worker_progress` is deliberately fenced by the full turn reference. It is a
+  lease keepalive, not durable output, so it never changes the activation
+  revision or commits transcript state.
+  """
+  @spec handle_worker_progress(map(), keyword()) ::
+          {:ok, ActorSessionActivation.t()} | {:error, term()}
+  def handle_worker_progress(envelope, opts \\ []) when is_map(envelope) do
+    payload = unwrap_body(envelope, "worker_progress")
+    turn_ref = fetch_map!(payload, "turn")
+    now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
+    lease_seconds = Keyword.get(opts, :lease_seconds, @activation_progress_lease_seconds)
+
+    Repo.transact(fn repo ->
+      with %ActorSessionActivation{} = activation <- activation_for_turn_ref(repo, turn_ref),
+           %LlmTurn{} = llm_turn <- AIAgent.lock_turn(repo, fetch_turn_id(turn_ref)),
+           :ok <- activation_accepts_progress(activation, turn_ref, llm_turn, now) do
+        renew_activation_lease(repo, activation, now, lease_seconds)
+      else
+        nil -> {:error, :actor_runtime_fence_not_found}
+        {:error, _reason} = error -> error
       end
     end)
   end
@@ -446,11 +507,12 @@ defmodule Ankole.ActorRuntime do
          %{
            assignment: assignment,
            delivery: delivery,
+           input: input,
            turn_ref: turn_ref
          } = result
        ) do
     route = assignment.transport_route || assignment.worker_instance_id || assignment.worker_id
-    envelope = mailbox_updated_envelope(turn_ref)
+    envelope = TurnEnvelope.mailbox_updated(turn_ref, [input])
 
     case Broker.send_mandatory(route, envelope) do
       {:ok, :sent_or_queued} ->
@@ -513,15 +575,14 @@ defmodule Ankole.ActorRuntime do
       end
     end)
     |> case do
-      {:ok, %{status: :start_compression} = result} ->
+      {:ok, %{status: :start_compression}} ->
         start_llm_turn(
           actor_key,
           [input],
           Keyword.merge(opts,
             kind: "compression",
             profile: "light",
-            input_messages: {:existing, result.messages},
-            request_context: result.request_context
+            input_messages: {:existing, []}
           )
         )
 
@@ -652,7 +713,8 @@ defmodule Ankole.ActorRuntime do
              activation: activation,
              assignment: assignment,
              delivery: delivery,
-             turn_ref: turn_ref(repo, actor_key, activation, llm_turn)
+             input: input,
+             turn_ref: TurnEnvelope.turn_ref(repo, actor_key, activation, llm_turn)
            }}
         else
           false -> {:ok, %{status: :waiting_for_generation, command: input.type}}
@@ -773,32 +835,8 @@ defmodule Ankole.ActorRuntime do
 
   defp prepare_idle_compression(repo, actor_key, %ActorInput{} = input, now) do
     case active_conversation_for_update(repo, actor_key) do
-      %Conversation{} = conversation ->
-        case compressible_messages(repo, conversation) do
-          [] ->
-            consume_command_feedback(
-              repo,
-              input,
-              "Conversation already fits in the active context.",
-              now
-            )
-
-          [_single] ->
-            consume_command_feedback(
-              repo,
-              input,
-              "Conversation already fits in the active context.",
-              now
-            )
-
-          messages ->
-            {:ok,
-             %{
-               status: :start_compression,
-               messages: messages,
-               request_context: compression_request_context(messages)
-             }}
-        end
+      %Conversation{} ->
+        {:ok, %{status: :start_compression}}
 
       nil ->
         consume_command_feedback(
@@ -808,55 +846,6 @@ defmodule Ankole.ActorRuntime do
           now
         )
     end
-  end
-
-  defp compressible_messages(repo, %Conversation{} = conversation) do
-    Message
-    |> where([message], message.conversation_id == ^conversation.id)
-    |> where([message], message.kind == "normal")
-    |> where([message], message.status == "complete")
-    |> order_by([message], asc: message.inserted_at)
-    |> repo.all()
-  end
-
-  defp compression_request_context(messages) do
-    first_message = List.first(messages)
-    last_message = List.last(messages)
-
-    %{
-      "compression" => %{
-        "trigger" => "manual_command",
-        "prompt" => compression_prompt(messages),
-        "message_ids" => Enum.map(messages, & &1.id),
-        "first_message_id" => first_message && first_message.id,
-        "last_message_id" => last_message && last_message.id,
-        "first_kept_message_id" => last_message && last_message.id,
-        "tokens_before" => nil
-      }
-    }
-  end
-
-  defp compression_prompt(messages) do
-    transcript =
-      messages
-      |> Enum.map(fn message ->
-        "<#{message.role} id=\"#{message.id}\">\n#{message_text(message)}\n</#{message.role}>"
-      end)
-      |> Enum.join("\n\n")
-
-    """
-    Summarize the conversation transcript below into a compact checkpoint for a future assistant turn.
-
-    Rules:
-    - Output only the summary text.
-    - Preserve concrete facts, file paths, IDs, decisions, user preferences, tool results, and unresolved work.
-    - Do not call tools.
-    - Do not answer the old conversation as a new user request.
-
-    <conversation>
-    #{transcript}
-    </conversation>
-    """
   end
 
   defp message_text(%Message{content: content}) when is_list(content) do
@@ -876,12 +865,15 @@ defmodule Ankole.ActorRuntime do
   defp cancel_active_generation(repo, actor_key, %ActorInput{} = input, now, reason) do
     case active_conversation_for_update(repo, actor_key) do
       %Conversation{} = conversation ->
+        lease_id = generation_lease_id(conversation.generation || %{})
         generation = cancel_generation(conversation.generation || %{}, now, reason)
 
         with {:ok, conversation} <-
                conversation
                |> Conversation.changeset(%{generation: generation})
                |> repo.update(),
+             {:ok, _cancelled_turn} <-
+               cancel_started_turn_for_lease(repo, conversation, lease_id, now, reason),
              {:ok, _message} <-
                insert_command_introspection(repo, conversation, input, now, "Generation stopped.") do
           :ok
@@ -895,12 +887,15 @@ defmodule Ankole.ActorRuntime do
   defp end_active_conversation(repo, actor_key, %ActorInput{} = input, now) do
     case active_conversation_for_update(repo, actor_key) do
       %Conversation{} = conversation ->
+        lease_id = generation_lease_id(conversation.generation || %{})
         generation = cancel_generation(conversation.generation || %{}, now, "command.new")
 
         with {:ok, conversation} <-
                conversation
                |> Conversation.changeset(%{generation: generation, ended_at: now})
                |> repo.update(),
+             {:ok, _cancelled_turn} <-
+               cancel_started_turn_for_lease(repo, conversation, lease_id, now, "command.new"),
              {:ok, _message} <-
                insert_command_introspection(
                  repo,
@@ -992,6 +987,28 @@ defmodule Ankole.ActorRuntime do
     end
   end
 
+  defp generation_lease_id(generation) when is_map(generation) do
+    case generation["lease_id"] do
+      lease_id when is_binary(lease_id) and lease_id != "" -> lease_id
+      _value -> nil
+    end
+  end
+
+  defp cancel_started_turn_for_lease(_repo, _conversation, nil, _now, _reason), do: {:ok, nil}
+
+  defp cancel_started_turn_for_lease(repo, %Conversation{} = conversation, lease_id, now, reason) do
+    case started_turn_for_lease(repo, conversation, lease_id) do
+      %LlmTurn{} = turn ->
+        with {:ok, cancelled_turn} <- AIAgent.cancel_turn_in_tx(repo, turn, reason, now),
+             {_count, _rows} <- supersede_turn_deliveries_by_id(turn.id, repo, now, reason) do
+          {:ok, cancelled_turn}
+        end
+
+      nil ->
+        {:ok, nil}
+    end
+  end
+
   defp insert_command_introspection(
          repo,
          %Conversation{} = conversation,
@@ -1053,6 +1070,63 @@ defmodule Ankole.ActorRuntime do
 
   defp activation_lease_alive?(%ActorSessionActivation{lease_expires_at: lease_expires_at}, now) do
     DateTime.compare(lease_expires_at, now) == :gt
+  end
+
+  defp activation_accepts_progress(
+         %ActorSessionActivation{} = activation,
+         turn_ref,
+         %LlmTurn{} = llm_turn,
+         now
+       ) do
+    cond do
+      activation.status not in @live_activation_statuses ->
+        {:error, :activation_not_live}
+
+      not activation_lease_alive?(activation, now) ->
+        {:error, :activation_lease_expired}
+
+      activation.agent_uid != fetch_actor_agent_uid(turn_ref) ->
+        {:error, :stale_actor_key}
+
+      activation.session_id != fetch_actor_session_id(turn_ref) ->
+        {:error, :stale_actor_key}
+
+      activation.activation_uid != fetch_text!(turn_ref, "activation_uid") ->
+        {:error, :stale_activation_uid}
+
+      activation.actor_epoch != fetch_int!(turn_ref, "actor_epoch") ->
+        {:error, :stale_actor_epoch}
+
+      activation.revision != fetch_int!(turn_ref, "revision") ->
+        {:error, :stale_revision}
+
+      activation.current_llm_turn_id != llm_turn.id ->
+        {:error, :stale_llm_turn}
+
+      llm_turn.status != "started" ->
+        {:error, :llm_turn_not_started}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp renew_activation_lease(repo, activation, now, lease_seconds) do
+    next_lease_expires_at = DateTime.add(now, lease_seconds, :second)
+
+    activation
+    |> ActorSessionActivation.changeset(%{
+      lease_expires_at: later_datetime(activation.lease_expires_at, next_lease_expires_at),
+      last_actor_heartbeat_at: now
+    })
+    |> repo.update()
+  end
+
+  defp later_datetime(left, right) do
+    case DateTime.compare(left, right) do
+      :gt -> left
+      _comparison -> right
+    end
   end
 
   # Creates the control-plane projection that binds one actor session to a
@@ -1119,7 +1193,7 @@ defmodule Ankole.ActorRuntime do
   defp create_input_deliveries_in_tx(repo, actor_inputs, activation, llm_turn, assignment, now) do
     batch = %{
       delivery_batch_id: Ecto.UUID.generate(),
-      actor_bus_message_id: "turn-start-" <> Ecto.UUID.generate()
+      actor_lane_message_id: "turn-start-" <> Ecto.UUID.generate()
     }
 
     actor_inputs
@@ -1157,7 +1231,7 @@ defmodule Ankole.ActorRuntime do
       batch ||
         %{
           delivery_batch_id: Ecto.UUID.generate(),
-          actor_bus_message_id: "turn-start-" <> Ecto.UUID.generate()
+          actor_lane_message_id: "turn-start-" <> Ecto.UUID.generate()
         }
 
     attrs = %{
@@ -1167,8 +1241,8 @@ defmodule Ankole.ActorRuntime do
       broker_sequence: actor_input.broker_sequence,
       attempt_no: attempt_no,
       delivery_batch_id: batch.delivery_batch_id,
-      actor_bus_message_id: batch.actor_bus_message_id,
-      correlation_id: batch.actor_bus_message_id,
+      actor_lane_message_id: batch.actor_lane_message_id,
+      correlation_id: batch.actor_lane_message_id,
       activation_uid: activation.activation_uid,
       actor_epoch: activation.actor_epoch,
       llm_turn_id: llm_turn.id,
@@ -1466,148 +1540,6 @@ defmodule Ankole.ActorRuntime do
       |> repo.exists?()
 
     activation_exists and delivery_exists
-  end
-
-  # Builds the compact fence that every worker reply must echo. The fields are
-  # deliberately redundant with database rows so stale replies fail by equality
-  # checks instead of requiring session-local memory.
-  defp turn_ref(repo, actor_key, activation, llm_turn) do
-    %{
-      "actor" => actor_ref(repo, actor_key),
-      "activation_uid" => activation.activation_uid,
-      "actor_epoch" => activation.actor_epoch,
-      "llm_turn_id" => llm_turn.id,
-      "revision" => activation.revision
-    }
-  end
-
-  # Adds human-readable agent identity to the already-required actor fence. The
-  # worker can prompt with the display name, while stale-reply validation still
-  # relies only on the immutable agent/session identifiers.
-  defp actor_ref(repo, actor_key) do
-    %{
-      "agent_uid" => actor_key.agent_uid,
-      "session_id" => actor_key.session_id
-    }
-    |> put_optional_actor_field("display_name", agent_display_name(repo, actor_key.agent_uid))
-    |> put_optional_actor_field("role", agent_role(repo, actor_key.agent_uid))
-  end
-
-  defp put_optional_actor_field(actor, _key, nil), do: actor
-  defp put_optional_actor_field(actor, key, value), do: Map.put(actor, key, value)
-
-  defp agent_display_name(repo, agent_uid) do
-    case repo.get(Principal, agent_uid) do
-      %Principal{display_name: display_name} when is_binary(display_name) -> display_name
-      _principal -> nil
-    end
-  end
-
-  defp agent_role(repo, agent_uid) do
-    case repo.get(PrincipalAgent, agent_uid) do
-      %PrincipalAgent{role: role} when is_binary(role) -> role
-      _agent -> nil
-    end
-  end
-
-  # Builds the Actor Bus envelope sent to the computer worker. Inputs are kept
-  # as actor-input envelopes rather than AI-agent messages because the worker is
-  # the owner of the local AI loop in the full runtime.
-  defp turn_start_envelope(turn_ref, actor_inputs, deliveries, llm_turn) do
-    message_id =
-      deliveries
-      |> List.first()
-      |> case do
-        %ActorInputDelivery{actor_bus_message_id: message_id} -> message_id
-        _delivery -> "turn-start-" <> Ecto.UUID.generate()
-      end
-
-    %{
-      "protocol_version" => 1,
-      "message_id" => message_id,
-      "correlation_id" => message_id,
-      "seq" => 0,
-      "lane" => "LANE_TURN",
-      "sent_at_unix_ms" => System.system_time(:millisecond),
-      "durability" => "CONTROL_REPLAYABLE",
-      "body" => %{
-        "type" => "turn_start",
-        "turn_start" => %{
-          "turn" => turn_ref,
-          "inputs" => Enum.map(actor_inputs, &actor_input_envelope(&1, llm_turn)),
-          "model_ref" => turn_model_ref(llm_turn)
-        }
-      }
-    }
-  end
-
-  defp mailbox_updated_envelope(turn_ref) do
-    %{
-      "protocol_version" => 1,
-      "message_id" => "mailbox-updated-" <> Ecto.UUID.generate(),
-      "correlation_id" => "mailbox-updated-" <> Ecto.UUID.generate(),
-      "seq" => 0,
-      "lane" => "LANE_TURN",
-      "sent_at_unix_ms" => System.system_time(:millisecond),
-      "durability" => "CONTROL_REPLAYABLE",
-      "body" => %{
-        "type" => "mailbox_updated",
-        "mailbox_updated" => %{
-          "actor" => turn_ref["actor"],
-          "activation_uid" => turn_ref["activation_uid"],
-          "actor_epoch" => turn_ref["actor_epoch"],
-          "reason" => "command.steer"
-        }
-      }
-    }
-  end
-
-  defp turn_model_ref(%LlmTurn{} = llm_turn) do
-    %{
-      "profile" => llm_turn.profile,
-      "provider_id" =>
-        get_in(llm_turn.provider_metadata || %{}, ["provider_id"]) || llm_turn.provider,
-      "model" => llm_turn.model
-    }
-  end
-
-  defp actor_input_envelope(%ActorInput{} = actor_input, %LlmTurn{kind: "compression"} = llm_turn) do
-    actor_input
-    |> actor_input_envelope()
-    |> Map.put("payload_json", compression_actor_input_payload(actor_input, llm_turn))
-  end
-
-  defp actor_input_envelope(%ActorInput{} = actor_input, %LlmTurn{}),
-    do: actor_input_envelope(actor_input)
-
-  defp actor_input_envelope(%ActorInput{} = actor_input) do
-    %{
-      "actor_input_id" => actor_input.id,
-      "broker_sequence" => actor_input.broker_sequence,
-      "type" => actor_input.type,
-      "ingress_event_id" => actor_input.ingress_event_id,
-      "provider_entry_id" => actor_input.provider_entry_id,
-      "payload_json" => actor_input.payload
-    }
-    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
-    |> Map.new()
-  end
-
-  defp compression_actor_input_payload(%ActorInput{} = actor_input, %LlmTurn{} = llm_turn) do
-    prompt = get_in(llm_turn.request_context || %{}, ["compression", "prompt"])
-
-    %{
-      "type" => actor_input.type,
-      "data" => %{
-        "command" => %{
-          "name" => "compress",
-          "argsText" => ""
-        },
-        "internal" => %{
-          "text" => prompt || "Summarize the current conversation."
-        }
-      }
-    }
   end
 
   # Requires the worker to accept exactly the sent input set. Partial acceptance

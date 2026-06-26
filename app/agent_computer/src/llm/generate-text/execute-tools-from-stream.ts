@@ -1,13 +1,5 @@
 // @ts-nocheck
-import type {
-  Arrayable,
-  Context,
-  IdGenerator,
-  InferToolSetContext,
-  ModelMessage,
-  Experimental_SandboxSession as SandboxSession,
-  ToolSet
-} from '@/llm/provider-utils'
+import type { Arrayable, Context, IdGenerator, InferToolSetContext, ModelMessage, ToolSet } from '@/llm/provider-utils'
 import type { TimeoutConfiguration } from '../prompt/request-options'
 import type { Telemetry, TelemetryDispatcher } from '../telemetry/telemetry'
 import { executeToolCall } from './execute-tool-call'
@@ -35,7 +27,6 @@ export function executeToolsFromStream<TOOLS extends ToolSet, RUNTIME_CONTEXT ex
   messages,
   abortSignal,
   timeout,
-  experimental_sandbox: sandbox,
   toolsContext,
   toolApproval,
   runtimeContext,
@@ -52,7 +43,6 @@ export function executeToolsFromStream<TOOLS extends ToolSet, RUNTIME_CONTEXT ex
   messages: ModelMessage[]
   abortSignal: AbortSignal | undefined
   timeout?: TimeoutConfiguration<TOOLS>
-  experimental_sandbox?: SandboxSession
   toolsContext: InferToolSetContext<TOOLS>
   toolApproval?: ToolApprovalConfiguration<TOOLS, RUNTIME_CONTEXT>
   runtimeContext: RUNTIME_CONTEXT
@@ -197,7 +187,6 @@ export function executeToolsFromStream<TOOLS extends ToolSet, RUNTIME_CONTEXT ex
                     messages,
                     abortSignal,
                     timeout,
-                    experimental_sandbox: sandbox,
                     toolsContext,
                     onToolExecutionStart,
                     onToolExecutionEnd,

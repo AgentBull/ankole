@@ -40,6 +40,10 @@ defmodule AnkoleWeb.ApiSpec do
         %Tag{
           name: "AppConfigure",
           description: "Registry-backed runtime configuration exposed to the web console"
+        },
+        %Tag{
+          name: "LLM Runtime",
+          description: "Operator-managed LLM provider and agent model profile configuration"
         }
       ]
     }

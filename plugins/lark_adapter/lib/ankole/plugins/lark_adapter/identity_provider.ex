@@ -6,6 +6,7 @@ defmodule Ankole.Plugins.LarkAdapter.IdentityProvider do
   require Logger
 
   alias Ankole.Plugins.LarkAdapter.Config
+  alias Ankole.IdentityProviders
   alias Ankole.Kernel, as: NativeKernel
   alias Ankole.Principals
   alias FeishuOpenAPI.Auth
@@ -37,7 +38,8 @@ defmodule Ankole.Plugins.LarkAdapter.IdentityProvider do
         ]
         |> URI.encode_query()
 
-      {:ok, "#{Config.domain_base_url(Map.fetch!(config, "domain"))}/open-apis/authen/v1/authorize?#{query}"}
+      {:ok,
+       "#{Config.domain_base_url(Map.fetch!(config, "domain"))}/open-apis/authen/v1/authorize?#{query}"}
     end
   end
 
@@ -48,7 +50,8 @@ defmodule Ankole.Plugins.LarkAdapter.IdentityProvider do
   def exchange_code(config, code, opts \\ []) when is_map(config) and is_binary(code) do
     client = Config.client(config, Keyword.get(opts, :client_opts, []))
 
-    with {:ok, token} <- Auth.user_access_token(client, code, redirect_uri: Keyword.get(opts, :redirect_uri)),
+    with {:ok, token} <-
+           Auth.user_access_token(client, code, redirect_uri: Keyword.get(opts, :redirect_uri)),
          {:ok, user_info} <- user_info(client, token.access_token),
          {:ok, hydrated} <- hydrate_contact_user(client, user_info) do
       {:ok, %{token: token, user: hydrated}}
@@ -85,8 +88,10 @@ defmodule Ankole.Plugins.LarkAdapter.IdentityProvider do
   @doc """
   Runs a full user sync and stops on the first write or provider error.
   """
-  @spec sync_users(String.t(), map(), keyword()) :: {:ok, %{users: non_neg_integer()}} | {:error, term()}
-  def sync_users(provider_id, config, opts \\ []) when is_binary(provider_id) and is_map(config) do
+  @spec sync_users(String.t(), map(), keyword()) ::
+          {:ok, %{users: non_neg_integer()}} | {:error, term()}
+  def sync_users(provider_id, config, opts \\ [])
+      when is_binary(provider_id) and is_map(config) do
     client = Config.client(config, Keyword.get(opts, :client_opts, []))
     page_size = get_in(config, ["sync", "pageSize"]) || 50
 
@@ -146,7 +151,11 @@ defmodule Ankole.Plugins.LarkAdapter.IdentityProvider do
     |> collect_results()
   end
 
-  defp handle_contact_event_for_consumer(%{provider_id: provider_id}, event_type, %Event{} = event) do
+  defp handle_contact_event_for_consumer(
+         %{provider_id: provider_id},
+         event_type,
+         %Event{} = event
+       ) do
     content = event.content || %{}
 
     cond do
@@ -158,14 +167,14 @@ defmodule Ankole.Plugins.LarkAdapter.IdentityProvider do
           # Some contact events omit enough user fields that an incremental merge
           # would risk writing a low-quality Principal. Asking for a full sync is
           # safer than guessing which identifier the event meant.
-          {:error, _reason} -> {:ok, %{status: :full_sync_needed, reason: :missing_user_id}}
+          {:error, _reason} -> enqueue_full_sync(provider_id, :missing_user_id)
         end
 
       String.starts_with?(event_type, "contact.department.") ->
         {:ok, %{status: :observed_department_event, event_type: event_type}}
 
       event_type == "contact.scope.updated_v3" ->
-        {:ok, %{status: :full_sync_needed, reason: :contact_scope_updated}}
+        enqueue_full_sync(provider_id, :contact_scope_updated)
 
       true ->
         {:ok, %{status: :ignored_unknown_contact_event}}
@@ -174,6 +183,16 @@ defmodule Ankole.Plugins.LarkAdapter.IdentityProvider do
 
   defp user_info(client, access_token) do
     FeishuOpenAPI.get(client, "/open-apis/authen/v1/user_info", user_access_token: access_token)
+  end
+
+  defp enqueue_full_sync(provider_id, reason) do
+    case IdentityProviders.enqueue_sync(provider_id,
+           reason: reason,
+           source: "lark_contact_event"
+         ) do
+      {:ok, _job} -> {:ok, %{status: :full_sync_enqueued, reason: reason}}
+      {:error, error} -> {:error, {:full_sync_enqueue_failed, reason, error}}
+    end
   end
 
   defp hydrate_contact_user(client, user_info) when is_map(user_info) do

@@ -451,11 +451,6 @@ export type AnthropicTool =
     }
   | {
       name: string
-      type: 'bash_20250124' | 'bash_20241022'
-      cache_control: AnthropicCacheControl | undefined
-    }
-  | {
-      name: string
       type: 'memory_20250818'
     }
   | {

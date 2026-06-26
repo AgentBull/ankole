@@ -8,7 +8,6 @@ import type { NeverOptional } from './never-optional'
 import type { ProviderOptions } from './provider-options'
 import type { ToolExecuteFunction, ToolExecutionOptions } from './tool-execute-function'
 import type { ToolNeedsApprovalFunction } from './tool-needs-approval-function'
-import type { SandboxSession } from './sandbox'
 
 /**
  * Helper type to determine the outputSchema and execute function properties of a tool.
@@ -164,10 +163,9 @@ type BaseFunctionTool<
    * decide when and how to call the tool.
    *
    * Provide a string for a fixed description, or a function that returns a
-   * string from the current `context` (and optional `experimental_sandbox`) when the
-   * description should vary per call.
+   * string from the current `context` when the description should vary per call.
    */
-  description?: string | ((options: { context: NoInfer<CONTEXT>; experimental_sandbox?: SandboxSession }) => string)
+  description?: string | ((options: { context: NoInfer<CONTEXT> }) => string)
 
   /**
    * Strict mode setting for the tool.

@@ -20,17 +20,6 @@ export type {
   /** @deprecated Use `GoogleEmbeddingModelOptions` instead. */
   GoogleEmbeddingModelOptions as GoogleGenerativeAIEmbeddingProviderOptions
 } from './google-embedding-model-options'
-export type {
-  GoogleVideoModelOptions,
-  /** @deprecated Use `GoogleVideoModelOptions` instead. */
-  GoogleVideoModelOptions as GoogleGenerativeAIVideoProviderOptions
-} from './google-video-model-options'
-export type {
-  GoogleVideoModelId,
-  /** @deprecated Use `GoogleVideoModelId` instead. */
-  GoogleVideoModelId as GoogleGenerativeAIVideoModelId
-} from './google-video-settings'
-export type { GoogleSpeechModelOptions, GoogleSpeechModelId } from './google-speech-model-options'
 export type { GoogleFilesUploadOptions } from './google-files'
 export type {
   GoogleLanguageModelInteractionsOptions,
@@ -52,7 +41,5 @@ export type {
   /** @deprecated Use `GoogleProviderSettings` instead. */
   GoogleProviderSettings as GoogleGenerativeAIProviderSettings
 } from './google-provider'
-export { GoogleRealtimeModel as Experimental_GoogleRealtimeModel } from './realtime/google-realtime-model'
-export type { GoogleRealtimeModelConfig as Experimental_GoogleRealtimeModelConfig } from './realtime/google-realtime-model'
 
 export { VERSION } from './version'

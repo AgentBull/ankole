@@ -2,7 +2,6 @@ import { createAmazonBedrock } from './providers/amazon-bedrock'
 import { createAnthropic } from './providers/anthropic'
 import { createGoogle } from './providers/google'
 import { createGoogleVertex } from './providers/google-vertex'
-import { createMistral } from './providers/mistral'
 import { createOpenAI } from './providers/openai'
 import { createOpenAICompatible } from './providers/openai-compatible'
 import type { LanguageModel } from './types'
@@ -20,7 +19,6 @@ export type LlmProviderKind =
   | 'anthropic'
   | 'google'
   | 'google-vertex'
-  | 'mistral'
   | 'amazon-bedrock'
   | 'openai-compatible'
   | 'openrouter'
@@ -80,10 +78,6 @@ const catalog: LlmProviderCatalogEntry[] = [
   provider('google-vertex', 'Google Vertex AI', 'https://aiplatform.googleapis.com', 'google-vertex', [
     model('gemini-2.5-pro', 'Gemini 2.5 Pro', 'google-vertex', 'google-vertex', true, 1048576, 65536),
     model('gemini-2.5-flash', 'Gemini 2.5 Flash', 'google-vertex', 'google-vertex', true, 1048576, 65536)
-  ]),
-  provider('mistral', 'Mistral AI', 'https://api.mistral.ai/v1', 'mistral-conversations', [
-    model('mistral-large-latest', 'Mistral Large', 'mistral', 'mistral-conversations', false, 128000, 8192),
-    model('codestral-latest', 'Codestral', 'mistral', 'mistral-conversations', false, 256000, 8192)
   ]),
   provider(
     'amazon-bedrock',
@@ -172,8 +166,6 @@ export function createLanguageModel(input: CreateLanguageModelInput): LanguageMo
         headers,
         ...(providerOptions as Record<string, never>)
       })(input.model.id as never)
-    case 'mistral':
-      return createMistral({ apiKey: input.apiKey, baseURL: baseUrl, headers })(input.model.id as never)
     case 'amazon-bedrock':
       return createAmazonBedrock({
         apiKey: input.apiKey,

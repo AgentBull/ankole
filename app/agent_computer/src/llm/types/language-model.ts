@@ -1,5 +1,4 @@
 // @ts-nocheck
-import type { GatewayModelId } from '@/llm/gateway'
 import type {
   LanguageModelV2,
   LanguageModelV3,
@@ -42,12 +41,12 @@ declare global {
 }
 
 /**
- * Global provider model ID type that defaults to GatewayModelId but can be augmented
- * by third-party packages via declaration merging.
+ * Global provider model ID type that can be augmented by third-party packages
+ * via declaration merging.
  */
-export type GlobalProviderModelId = [keyof RegisteredProviderModels] extends [never]
-  ? GatewayModelId
-  : keyof RegisteredProviderModels | RegisteredProviderModels[keyof RegisteredProviderModels]
+export type GlobalProviderModelId =
+  | keyof RegisteredProviderModels
+  | RegisteredProviderModels[keyof RegisteredProviderModels]
 
 /**
  * Language model that is used by the AI SDK.

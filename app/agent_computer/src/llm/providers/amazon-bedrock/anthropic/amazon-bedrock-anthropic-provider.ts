@@ -21,7 +21,6 @@ import { VERSION } from '../version'
 
 // Bedrock requires newer tool versions than the default Anthropic SDK versions
 const BEDROCK_TOOL_VERSION_MAP = {
-  bash_20241022: 'bash_20250124',
   text_editor_20241022: 'text_editor_20250728',
   computer_20241022: 'computer_20250124'
 } as const
@@ -33,8 +32,6 @@ const BEDROCK_TOOL_NAME_MAP: Record<string, string> = {
 
 // Map tool types to required anthropic_beta values for Bedrock
 const BEDROCK_TOOL_BETA_MAP: Record<string, string> = {
-  bash_20250124: 'computer-use-2025-01-24',
-  bash_20241022: 'computer-use-2024-10-22',
   text_editor_20250124: 'computer-use-2025-01-24',
   text_editor_20241022: 'computer-use-2024-10-22',
   text_editor_20250429: 'computer-use-2025-01-24',

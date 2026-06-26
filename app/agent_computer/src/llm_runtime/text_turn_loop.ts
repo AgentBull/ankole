@@ -1,14 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs'
-import { normalize, resolve } from 'node:path'
-import type {
-  ActorInputEnvelope,
-  JsonObject,
-  LlmProviderCredentialRejected,
-  LlmProviderCredentialRequest,
-  LlmProviderCredentialResponse,
-  TurnStart,
-  TurnSteerUpdate
-} from '../actor_bus'
+import type { ActorInputEnvelope, JsonObject, TurnStart, TurnSteerUpdate } from '../actor_lane'
 import { runAgentLoop, type AgentEvent, type AgentMessage } from '../core'
 import { createAnthropic } from '../llm/providers/anthropic'
 import { createGoogle } from '../llm/providers/google'
@@ -16,23 +6,54 @@ import { createOpenAI } from '../llm/providers/openai'
 import { createOpenAICompatible } from '../llm/providers/openai-compatible'
 import { getModel } from '../llm/catalog'
 import type { AssistantMessage, Message, Model } from '../llm/bullx'
+import { generateBullXText } from '../llm/bullx-generate'
 import type { ProviderOptions } from '../llm/provider-utils'
 import type { LanguageModel } from '../llm/types'
+import {
+  buildCompactionHistoryUserPrompt,
+  COMPACTION_FOCUS_INSTRUCTIONS,
+  SUMMARIZATION_SYSTEM_PROMPT
+} from '../prompts/compression-prompt'
 import { buildAgentSystemPrompt, type CurrentChannelContext } from '../prompts/system_prompt'
-import { visibleReplyProposal, type FinalProposalBody } from '../ping_pong_handler'
+import { visibleReplyProposal, type FinalProposalBody } from '../turn_envelopes'
 import { createComputerTools } from '../tools/computer'
+import { createReplyAttachmentStore, type ReplyAttachmentStore } from '../tools/computer/reply-attachment-tool'
 import { createSkillTools } from '../tools/library/skill-tools'
 import { createTodoTool, TodoStore } from '../tools/todo-tool'
 import { runAmbientRecognizer } from './ambient_recognizer'
 import { renderMessageWithContext } from './message_context'
+import type {
+  AgentProfile,
+  AgentProfileRequest,
+  LlmProviderCredentialRejected,
+  LlmProviderCredentialRequest,
+  LlmProviderCredentialResponse,
+  SkillOverlayReplaceRequest,
+  SkillOverlayRequest,
+  SkillOverlayResponse,
+  TurnContextRequest,
+  TurnRuntimeContext
+} from '../rpc_lane'
 
 export type CredentialRequester = (
   request: LlmProviderCredentialRequest
 ) => Promise<LlmProviderCredentialResponse | LlmProviderCredentialRejected>
 
+export type AgentProfileRequester = (request: AgentProfileRequest) => Promise<AgentProfile>
+export type TurnContextRequester = (request: TurnContextRequest) => Promise<TurnRuntimeContext>
+export type SkillOverlayRequester = (request: SkillOverlayRequest) => Promise<SkillOverlayResponse>
+export type SkillOverlayReplaceRequester = (request: SkillOverlayReplaceRequest) => Promise<SkillOverlayResponse>
+
 export type TextTurnLoopOptions = {
   workspaceRoot: string
   requestCredential: CredentialRequester
+  requestAgentProfile?: AgentProfileRequester
+  requestTurnContext?: TurnContextRequester
+  requestSkillOverlay?: SkillOverlayRequester
+  replaceSkillOverlay?: SkillOverlayReplaceRequester
+  clearSkillOverlay?: SkillOverlayRequester
+  runtimeContext?: TurnRuntimeContext
+  agentProfile?: AgentProfile
   pollSteering?: () => TurnSteerUpdate[]
   maxSteps?: number
   extraMessages?: AgentMessage[]
@@ -42,7 +63,17 @@ type ConversationContext = {
   messages: AgentMessage[]
   materializedInputIds: Set<string>
   systemNotes: string[]
+  summaryCheckpoints: string[]
 }
+
+type TurnTelemetry = {
+  usage?: JsonObject
+  stopReason?: string
+  providerMetadata: JsonObject
+  toolResults: unknown[]
+}
+
+const TOOL_RESULT_MAX_CHARS = 12_000
 
 /**
  * Dispatches one worker turn by ActorInput type. These are internal Agent
@@ -54,7 +85,11 @@ export async function runLlmTurnHandlers(turnStart: TurnStart, opts: TextTurnLoo
     return runAmbientMayInterveneHandler(turnStart, opts)
   }
 
-  return visibleReplyProposal(await runTextTurnLoop(turnStart, opts))
+  if (isCompressionTurn(turnStart)) {
+    return runCompressionTurn(turnStart, opts)
+  }
+
+  return runTextTurnLoop(turnStart, opts)
 }
 
 /**
@@ -66,14 +101,15 @@ export async function runLlmTurnHandlers(turnStart: TurnStart, opts: TextTurnLoo
  * This keeps credentials memory-only and keeps provider-specific behavior inside
  * the copied BullX LLM fork instead of hand-writing per-provider HTTP payloads.
  */
-export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOptions): Promise<string> {
+export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOptions): Promise<FinalProposalBody> {
   const modelRef = turnStart.model_ref
-  if (!modelRef || modelRef.provider_id === 'ankole-placeholder') {
-    return 'PONG'
+  if (!modelRef) {
+    throw new Error('LLM turn is missing a real model_ref')
   }
 
   const credential = await opts.requestCredential({
     request_id: `llm-credential-${crypto.randomUUID()}`,
+    turn: turnStart.turn,
     agent_uid: turnStart.turn.actor.agent_uid,
     session_id: turnStart.turn.actor.session_id,
     profile: modelRef.profile,
@@ -88,9 +124,13 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
 
   const model = runtimeModelFromCredential(credential)
   const providerOptions = providerOptionsFromCredential(credential, model.provider)
+  const telemetry = createTurnTelemetry(credential, model)
+  const agentProfile = opts.agentProfile ?? (await resolveAgentProfile(turnStart, opts))
+  const runtimeContext = await resolveTurnRuntimeContext(turnStart, opts)
 
-  const conversation = loadConversationContext(opts.workspaceRoot, turnStart, model)
+  const conversation = conversationContextFromRuntimeContext(runtimeContext, model)
   const todoStore = new TodoStore()
+  const replyAttachmentStore = createReplyAttachmentStore()
   const prompts = turnStart.inputs
     .filter(input => !inputAlreadyMaterialized(input, conversation))
     .map(input => userMessage(inputText(input.payload_json, input.type)))
@@ -99,6 +139,8 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
     buildAgentSystemPrompt({
       workspaceRoot: opts.workspaceRoot,
       turnStart,
+      agentProfile,
+      runtimeContext,
       currentChannel: currentChannelFromTurnStart(turnStart)
     }),
     ...conversation.systemNotes
@@ -116,9 +158,16 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
         ...createComputerTools({
           agentUid: turnStart.turn.actor.agent_uid,
           conversationId: turnStart.turn.actor.session_id,
-          workspaceRoot: opts.workspaceRoot
+          workspaceRoot: opts.workspaceRoot,
+          replyAttachmentStore
         }),
-        ...createSkillTools(opts.workspaceRoot)
+        ...createSkillTools(opts.workspaceRoot, {
+          turn: turnStart.turn,
+          enabledSkills: runtimeContext?.skills ?? [],
+          requestSkillOverlay: opts.requestSkillOverlay,
+          replaceSkillOverlay: opts.replaceSkillOverlay,
+          clearSkillOverlay: opts.clearSkillOverlay
+        })
       ]
     },
     {
@@ -142,7 +191,7 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
       maxRetries: 2,
       maxRetryDelayMs: 2_000
     },
-    observeAgentEvent
+    observeAgentEvent(telemetry)
   )
 
   const latest = latestAssistantMessage(newMessages)
@@ -153,7 +202,7 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
   if (!replyText) {
     throw new Error(`LLM turn completed without visible assistant text: ${summarizeAgentMessages(newMessages)}`)
   }
-  return replyText
+  return finalProposalWithTelemetry(replyText, telemetry, replyAttachmentStore)
 }
 
 async function runAmbientMayInterveneHandler(
@@ -162,6 +211,7 @@ async function runAmbientMayInterveneHandler(
 ): Promise<FinalProposalBody> {
   const lightCredential = await opts.requestCredential({
     request_id: `llm-credential-${crypto.randomUUID()}`,
+    turn: turnStart.turn,
     agent_uid: turnStart.turn.actor.agent_uid,
     session_id: turnStart.turn.actor.session_id,
     profile: 'light',
@@ -173,11 +223,15 @@ async function runAmbientMayInterveneHandler(
   }
 
   const lightModel = runtimeModelFromCredential(lightCredential)
+  const agentProfile = opts.agentProfile ?? (await resolveAgentProfile(turnStart, opts))
+  const runtimeContext = await resolveTurnRuntimeContext(turnStart, opts)
   const recognition = await runAmbientRecognizer({
     headers: lightModel.headers ?? {},
     model: lightModel,
     providerOptions: providerOptionsFromCredential(lightCredential, lightModel.provider),
+    agentProfile,
     turnStart,
+    runtimeContext,
     workspaceRoot: opts.workspaceRoot
   })
 
@@ -189,22 +243,126 @@ async function runAmbientMayInterveneHandler(
     userMessage(recognition.intervention.text),
     recognition.intervention.metadata
   )
-  const replyText = await runTextTurnLoop(turnStart, {
+  const replyProposal = await runTextTurnLoop(turnStart, {
     ...opts,
+    agentProfile,
+    runtimeContext,
     extraMessages: [...(opts.extraMessages ?? []), interventionPrompt]
   })
+  const replyText = replyProposal.reply?.text ?? ''
 
   return {
+    ...replyProposal,
     messages: [recognition.intervention.proposedMessage],
     reply: {
       text: replyText,
-      content_json: [{ type: 'text', text: replyText }]
+      content_json: [{ type: 'text', text: replyText }],
+      ...(replyProposal.reply?.attachments?.length ? { attachments: replyProposal.reply.attachments } : {})
     }
   }
 }
 
+async function runCompressionTurn(turnStart: TurnStart, opts: TextTurnLoopOptions): Promise<FinalProposalBody> {
+  const modelRef = turnStart.model_ref
+  if (!modelRef) {
+    throw new Error('Compression turn is missing a real model_ref')
+  }
+
+  const credential = await opts.requestCredential({
+    request_id: `llm-credential-${crypto.randomUUID()}`,
+    turn: turnStart.turn,
+    agent_uid: turnStart.turn.actor.agent_uid,
+    session_id: turnStart.turn.actor.session_id,
+    profile: modelRef.profile,
+    purpose: 'ai_turn'
+  })
+
+  if ('code' in credential) {
+    throw new Error(`credential rejected: ${credential.code} ${credential.message ?? ''}`.trim())
+  }
+
+  assertCredentialMatchesTurn(modelRef, credential)
+
+  const model = runtimeModelFromCredential(credential)
+  const providerOptions = providerOptionsFromCredential(credential, model.provider)
+  const telemetry = createTurnTelemetry(credential, model)
+  const runtimeContext = await resolveTurnRuntimeContext(turnStart, opts)
+  const conversation = conversationContextFromRuntimeContext(runtimeContext, model)
+  const prompt = buildCompactionHistoryUserPrompt({
+    conversationText: serializeConversationForCompression(conversation.messages),
+    customInstructions: COMPACTION_FOCUS_INSTRUCTIONS,
+    previousSummary: lastNonEmpty(conversation.summaryCheckpoints)
+  })
+
+  const response = await generateBullXText(
+    model,
+    {
+      systemPrompt: SUMMARIZATION_SYSTEM_PROMPT,
+      messages: [userMessage(prompt)]
+    },
+    {
+      headers: model.headers,
+      providerOptions,
+      maxTokens: model.maxTokens > 0 ? model.maxTokens : undefined,
+      maxRetries: 2,
+      maxRetryDelayMs: 2_000,
+      signal: undefined
+    }
+  )
+
+  applyAssistantTelemetry(telemetry, response)
+  if (response.stopReason === 'error') {
+    throw new Error(response.errorMessage || 'LLM provider returned an error')
+  }
+
+  const summaryText = stripCompactionScratch(assistantText(response))
+  if (!summaryText) {
+    throw new Error(`Compression turn completed without summary text: ${summarizeAgentMessages([response])}`)
+  }
+
+  return finalProposalWithTelemetry(summaryText, telemetry)
+}
+
+async function resolveAgentProfile(turnStart: TurnStart, opts: TextTurnLoopOptions): Promise<AgentProfile> {
+  const fallback: AgentProfile = {
+    request_id: '',
+    agent_uid: turnStart.turn.actor.agent_uid,
+    display_name: turnStart.turn.actor.agent_uid,
+    role: undefined
+  }
+
+  if (!opts.requestAgentProfile) return fallback
+
+  try {
+    return await opts.requestAgentProfile({
+      request_id: `agent-profile-${crypto.randomUUID()}`,
+      turn: turnStart.turn,
+      agent_uid: turnStart.turn.actor.agent_uid,
+      session_id: turnStart.turn.actor.session_id
+    })
+  } catch {
+    return fallback
+  }
+}
+
+async function resolveTurnRuntimeContext(turnStart: TurnStart, opts: TextTurnLoopOptions): Promise<TurnRuntimeContext> {
+  if (opts.runtimeContext) return opts.runtimeContext
+  if (!opts.requestTurnContext) {
+    throw new Error('turn runtime context RPC is required')
+  }
+
+  return await opts.requestTurnContext({
+    request_id: `turn-context-${crypto.randomUUID()}`,
+    turn: turnStart.turn
+  })
+}
+
 function isAmbientMayInterveneTurn(turnStart: TurnStart): boolean {
   return turnStart.inputs.length > 0 && turnStart.inputs.every(input => input.type === 'im.message.may_intervene')
+}
+
+function isCompressionTurn(turnStart: TurnStart): boolean {
+  return turnStart.inputs.length > 0 && turnStart.inputs.every(input => input.type === 'command.compress')
 }
 
 function assertCredentialMatchesTurn(
@@ -366,46 +524,45 @@ function providerOptionsFromCredential(
   } as ProviderOptions
 }
 
-function loadConversationContext(workspaceRoot: string, turnStart: TurnStart, model: Model): ConversationContext {
-  const path = safePath(
-    workspaceRoot,
-    `/workspace/actors/${encodeURIComponent(turnStart.turn.actor.agent_uid)}/${encodeURIComponent(
-      turnStart.turn.actor.session_id
-    )}/conversation/messages.jsonl`
-  )
-  if (!existsSync(path)) {
-    return { messages: [], materializedInputIds: new Set(), systemNotes: [] }
-  }
-
+function conversationContextFromRuntimeContext(context: TurnRuntimeContext, model: Model): ConversationContext {
   const materializedInputIds = new Set<string>()
   const messages: AgentMessage[] = []
   const systemNotes: string[] = []
+  const summaryCheckpoints: string[] = []
 
-  for (const line of readFileSync(path, 'utf8').split(/\r?\n/)) {
-    const parsed = parseConversationLine(line)
-    if (!parsed) continue
-
-    const actorInputId = deepString(parsed, ['metadata', 'actor_input_id'])
+  for (const row of context.conversation?.messages ?? []) {
+    const metadata = isRecord(row.metadata) ? (row.metadata as JsonObject) : {}
+    const actorInputId = deepString(metadata, ['actor_input_id'])
     if (actorInputId) materializedInputIds.add(actorInputId)
 
-    const kind = typeof parsed.kind === 'string' ? parsed.kind : 'normal'
-    const text = storedContentText(parsed.content)
+    const kind = typeof row.kind === 'string' ? row.kind : 'normal'
+    const text = storedContentText(row.content)
     if (!text) continue
 
     if (kind === 'summary') {
+      summaryCheckpoints.push(text)
       systemNotes.push(`Conversation summary checkpoint:\n${text}`)
       continue
     }
-    if (kind === 'introspection' && parsed.role !== 'im_ambient') {
+    if (kind === 'introspection' && row.role !== 'im_ambient') {
       systemNotes.push(`Runtime note:\n${text}`)
       continue
     }
 
-    const message = storedConversationMessage(parsed, text, model)
+    const message = storedConversationMessage(
+      {
+        role: row.role,
+        kind,
+        content: row.content,
+        metadata
+      },
+      text,
+      model
+    )
     if (message) messages.push(message)
   }
 
-  return { messages, materializedInputIds, systemNotes }
+  return { messages, materializedInputIds, systemNotes, summaryCheckpoints }
 }
 
 function storedConversationMessage(line: JsonObject, text: string, model: Model): AgentMessage | undefined {
@@ -447,7 +604,9 @@ function currentChannelFromTurnStart(turnStart: TurnStart): CurrentChannelContex
       ...(id ? { id } : {}),
       ...(platform ? { platform } : {}),
       ...(deepString(input.payload_json, ['data', 'session', 'binding_name'])
-        ? { bindingName: deepString(input.payload_json, ['data', 'session', 'binding_name']) }
+        ? {
+            bindingName: deepString(input.payload_json, ['data', 'session', 'binding_name'])
+          }
         : {}),
       kind: kind ?? 'external_room'
     }
@@ -555,7 +714,169 @@ function assistantText(message: AssistantMessage | undefined): string {
     .trim()
 }
 
-function observeAgentEvent(_event: AgentEvent): void {}
+function stripCompactionScratch(summary: string): string {
+  return summary.replace(/<analysis>[\s\S]*?<\/analysis>/gi, '').trim()
+}
+
+function serializeConversationForCompression(messages: AgentMessage[]): string {
+  const parts: string[] = []
+
+  for (const message of messages) {
+    if (!isLlmMessage(message)) continue
+
+    if (message.role === 'user') {
+      const content = messageContentText(message.content)
+      if (content) parts.push(`[User]: ${content}`)
+      continue
+    }
+
+    if (message.role === 'assistant') {
+      const textParts: string[] = []
+      const thinkingParts: string[] = []
+      const toolCalls: string[] = []
+
+      for (const block of message.content) {
+        if (block.type === 'text') {
+          textParts.push(block.text)
+        } else if (block.type === 'thinking') {
+          thinkingParts.push(block.thinking)
+        } else if (block.type === 'toolCall') {
+          const args = Object.entries(block.arguments as Record<string, unknown>)
+            .map(([key, value]) => `${key}=${safeJsonStringify(value)}`)
+            .join(', ')
+          toolCalls.push(`${block.name}(${args})`)
+        }
+      }
+
+      if (thinkingParts.length > 0) parts.push(`[Assistant thinking]: ${thinkingParts.join('\n')}`)
+      if (textParts.length > 0) parts.push(`[Assistant]: ${textParts.join('\n')}`)
+      if (toolCalls.length > 0) parts.push(`[Assistant tool calls]: ${toolCalls.join('; ')}`)
+      continue
+    }
+
+    if (message.role === 'toolResult') {
+      const content = messageContentText(message.content)
+      if (content) parts.push(`[Tool result]: ${truncateForSummary(content, TOOL_RESULT_MAX_CHARS)}`)
+    }
+  }
+
+  return parts.join('\n\n')
+}
+
+function messageContentText(content: Message['content']): string {
+  if (typeof content === 'string') return content
+  return content
+    .map(block => (block.type === 'text' ? block.text : undefined))
+    .filter((text): text is string => typeof text === 'string')
+    .join('')
+}
+
+function truncateForSummary(text: string, maxChars: number): string {
+  if (text.length <= maxChars) return text
+  const truncatedChars = text.length - maxChars
+  return `${text.slice(0, maxChars)}\n\n[... ${truncatedChars} more characters truncated]`
+}
+
+function safeJsonStringify(value: unknown): string {
+  try {
+    return JSON.stringify(value)
+  } catch {
+    return String(value)
+  }
+}
+
+function lastNonEmpty(values: string[]): string | undefined {
+  for (let index = values.length - 1; index >= 0; index -= 1) {
+    const value = values[index]?.trim()
+    if (value) return value
+  }
+}
+
+function createTurnTelemetry(credential: LlmProviderCredentialResponse, model: Model): TurnTelemetry {
+  return {
+    providerMetadata: {
+      provider_id: credential.provider_id,
+      provider_source: credential.provider_source,
+      model: credential.model,
+      runtime_provider: model.provider
+    },
+    toolResults: []
+  }
+}
+
+function observeAgentEvent(telemetry: TurnTelemetry): (event: AgentEvent) => void {
+  return event => {
+    switch (event.type) {
+      case 'turn_end':
+        if (isAssistantMessage(event.message)) {
+          applyAssistantTelemetry(telemetry, event.message)
+        }
+        break
+
+      case 'tool_execution_end':
+        telemetry.toolResults.push({
+          tool_call_id: event.toolCallId,
+          tool_name: event.toolName,
+          args: jsonValue(event.args),
+          result: jsonValue(event.result),
+          is_error: event.isError
+        })
+        break
+    }
+  }
+}
+
+function applyAssistantTelemetry(telemetry: TurnTelemetry, message: AssistantMessage): void {
+  telemetry.usage = jsonObject(message.usage)
+  telemetry.stopReason = message.stopReason
+  telemetry.providerMetadata = {
+    ...telemetry.providerMetadata,
+    ...(message.responseId ? { response_id: message.responseId } : {}),
+    ...(message.responseModel ? { response_model: message.responseModel } : {})
+  }
+}
+
+function finalProposalWithTelemetry(
+  text: string,
+  telemetry: TurnTelemetry,
+  replyAttachmentStore?: ReplyAttachmentStore
+): FinalProposalBody {
+  const attachments = replyAttachmentStore?.attachments ?? []
+
+  return {
+    ...visibleReplyProposal(text),
+    ...(attachments.length > 0
+      ? {
+          reply: {
+            text,
+            content_json: [{ type: 'text', text }],
+            attachments
+          }
+        }
+      : {}),
+    ...(telemetry.usage ? { usage_json: telemetry.usage } : {}),
+    provider_metadata_json: telemetry.providerMetadata,
+    ...(telemetry.stopReason ? { stop_reason: telemetry.stopReason } : {}),
+    tool_results_json: telemetry.toolResults
+  }
+}
+
+function isAssistantMessage(message: AgentMessage): message is AssistantMessage {
+  return isRecord(message) && message.role === 'assistant'
+}
+
+function jsonObject(value: unknown): JsonObject {
+  const normalized = jsonValue(value)
+  return isRecord(normalized) ? normalized : {}
+}
+
+function jsonValue(value: unknown): unknown {
+  if (value === null || value === undefined) return null
+  if (Array.isArray(value)) return value.map(jsonValue)
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return value
+  if (isRecord(value)) return Object.fromEntries(Object.entries(value).map(([key, value]) => [key, jsonValue(value)]))
+  return String(value)
+}
 
 function summarizeAgentMessages(messages: AgentMessage[]): string {
   return messages
@@ -585,17 +906,6 @@ function summarizeAgentMessages(messages: AgentMessage[]): string {
     .join(' -> ')
 }
 
-function parseConversationLine(line: string): JsonObject | undefined {
-  const trimmed = line.trim()
-  if (!trimmed) return undefined
-  try {
-    const parsed = JSON.parse(trimmed)
-    return isRecord(parsed) ? parsed : undefined
-  } catch {
-    return undefined
-  }
-}
-
 function storedContentText(content: unknown): string {
   if (typeof content === 'string') return content
   if (Array.isArray(content)) {
@@ -612,21 +922,17 @@ function storedContentText(content: unknown): string {
 }
 
 function inputText(payload: JsonObject | undefined, fallbackType: string): string {
-  if (fallbackType.startsWith('command.')) {
-    return (
-      deepString(payload, ['data', 'command', 'argsText']) ||
+  const text = fallbackType.startsWith('command.')
+    ? deepString(payload, ['data', 'command', 'argsText']) ||
       deepString(payload, ['data', 'entry', 'text']) ||
-      deepString(payload, ['data', 'internal', 'text']) ||
-      `Handle actor input of type ${fallbackType}.`
-    )
-  }
+      deepString(payload, ['data', 'internal', 'text'])
+    : deepString(payload, ['data', 'entry', 'text']) ||
+      deepString(payload, ['data', 'command', 'argsText']) ||
+      deepString(payload, ['data', 'internal', 'text'])
 
-  return (
-    deepString(payload, ['data', 'entry', 'text']) ||
-    deepString(payload, ['data', 'command', 'argsText']) ||
-    deepString(payload, ['data', 'internal', 'text']) ||
-    `Handle actor input of type ${fallbackType}.`
-  )
+  const attachments = attachmentText(payload)
+  const base = text || `Handle actor input of type ${fallbackType}.`
+  return attachments ? `${base}\n\nAttachments:\n${attachments}` : base
 }
 
 function deepString(value: unknown, path: string[]): string | undefined {
@@ -638,21 +944,62 @@ function deepString(value: unknown, path: string[]): string | undefined {
   return typeof current === 'string' ? current : undefined
 }
 
-function safePath(workspaceRoot: string, path: string): string {
-  const normalized = normalize(path)
-  const relative = normalized.startsWith('/workspace')
-    ? normalized.slice('/workspace'.length)
-    : normalized.startsWith('/')
-      ? normalized
-      : `/${normalized}`
-  const resolved = resolve(workspaceRoot, `.${relative}`)
-  const root = resolve(workspaceRoot)
+function attachmentText(payload: JsonObject | undefined): string | undefined {
+  const attachments = arrayPath(payload, ['data', 'entry', 'attachments'])
+  if (attachments.length === 0) return undefined
 
-  if (resolved !== root && !resolved.startsWith(`${root}/`)) {
-    throw new Error('path escapes workspace root')
+  return (
+    attachments
+      .map((attachment, index) => attachmentLine(attachment, index))
+      .filter((line): line is string => line !== undefined)
+      .join('\n') || undefined
+  )
+}
+
+function attachmentLine(value: unknown, index: number): string | undefined {
+  if (!isRecord(value)) return undefined
+
+  const name = firstString(value, ['name', 'filename', 'file_name', 'title'])
+  const type = firstString(value, ['resource_type', 'mime_type', 'content_type', 'download_type'])
+  const path = firstString(value, ['agent_computer_path', 'file_path', 'path'])
+  const reference = firstString(value, ['provider_ref', 'provider_file_id', 'provider_uri', 'blob_ref', 'storage_ref'])
+  const size = firstNumber(value, ['size', 'size_bytes', 'bytes'])
+  const details: string[] = []
+
+  if (type) details.push(`type=${type}`)
+  if (size !== undefined) details.push(`size=${size}`)
+  if (path) {
+    details.push(`path=${path}`)
+  } else if (reference) {
+    details.push(`provider_ref=${reference}`)
+    details.push('not_materialized_in_workspace=true')
   }
 
-  return resolved
+  if (details.length === 0 && !name) return undefined
+  return `- ${name || `attachment ${index + 1}`}: ${details.join(', ')}`
+}
+
+function arrayPath(value: unknown, path: string[]): unknown[] {
+  let current = value
+  for (const key of path) {
+    if (!isRecord(current)) return []
+    current = current[key]
+  }
+  return Array.isArray(current) ? current : []
+}
+
+function firstString(record: JsonObject, keys: string[]): string | undefined {
+  for (const key of keys) {
+    const value = record[key]
+    if (typeof value === 'string' && value.length > 0) return value
+  }
+}
+
+function firstNumber(record: JsonObject, keys: string[]): number | undefined {
+  for (const key of keys) {
+    const value = record[key]
+    if (typeof value === 'number' && Number.isFinite(value)) return value
+  }
 }
 
 function openAIAccountHeaders(options: JsonObject | undefined): Record<string, string> {

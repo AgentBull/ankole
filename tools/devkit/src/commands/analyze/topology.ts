@@ -2,8 +2,8 @@
 // report is a CI gate for the scopes in TOPOLOGY_GATED_SCOPES (internal module
 // surfaces must not export what nothing consumes); every other scope/report
 // combination is report-only (exitCode 0 unless the analyzer itself fails).
-// Glue rewritten for bullx around the ported ts-topology lib; named scopes come
-// from config.
+// Glue rewritten for Ankole around the ported ts-topology lib; named scopes
+// come from config.
 
 import { repoRootPath } from '../../utils'
 import { DEFAULT_TOPOLOGY_SCOPE, TOPOLOGY_GATED_SCOPES, TOPOLOGY_SCOPES, TOPOLOGY_UNUSED_ALLOWLIST } from './config'
@@ -70,7 +70,7 @@ export function runTopology(options: TopologyOptions = {}): CheckResult {
       includeTests: !options.excludeTests,
       intentionalUnusedPublicExportNames,
       limit,
-      tsconfigName: 'app/tsconfig.json'
+      tsconfigName: 'app/agent_computer/tsconfig.json'
     })
     const unusedSummary =
       envelope.totals.allowlistedUnused > 0

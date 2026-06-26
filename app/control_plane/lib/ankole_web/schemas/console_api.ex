@@ -230,4 +230,233 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
       struct?: false
     )
   end
+
+  defmodule LlmProviderCredentialProjection do
+    @moduledoc false
+
+    require OpenApiSpex
+
+    OpenApiSpex.schema(
+      %{
+        title: "LlmProviderCredentialProjection",
+        type: :object,
+        properties: %{
+          present: %Schema{type: :boolean},
+          masked: %Schema{type: :string, nullable: true}
+        },
+        required: [:present],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule LlmProviderItem do
+    @moduledoc false
+
+    require OpenApiSpex
+
+    OpenApiSpex.schema(
+      %{
+        title: "LlmProviderItem",
+        type: :object,
+        properties: %{
+          provider_id: %Schema{type: :string},
+          provider_source: %Schema{type: :string},
+          base_url: %Schema{type: :string, nullable: true},
+          connection_options: %Schema{type: :object, additionalProperties: true},
+          credential_mode: %Schema{type: :string},
+          disabled_at: %Schema{type: :string, nullable: true},
+          credential: LlmProviderCredentialProjection,
+          source_metadata: %Schema{type: :object, additionalProperties: true}
+        },
+        required: [
+          :provider_id,
+          :provider_source,
+          :connection_options,
+          :credential_mode,
+          :credential,
+          :source_metadata
+        ],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule LlmProviderListResponse do
+    @moduledoc false
+
+    require OpenApiSpex
+
+    OpenApiSpex.schema(
+      %{
+        title: "LlmProviderListResponse",
+        type: :object,
+        properties: %{
+          data: %Schema{type: :array, items: LlmProviderItem}
+        },
+        required: [:data],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule LlmProviderResponse do
+    @moduledoc false
+
+    require OpenApiSpex
+
+    OpenApiSpex.schema(
+      %{
+        title: "LlmProviderResponse",
+        type: :object,
+        properties: %{
+          data: LlmProviderItem
+        },
+        required: [:data],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule LlmProviderWriteRequest do
+    @moduledoc false
+
+    require OpenApiSpex
+
+    OpenApiSpex.schema(
+      %{
+        title: "LlmProviderWriteRequest",
+        type: :object,
+        properties: %{
+          provider_id: %Schema{type: :string},
+          provider_source: %Schema{type: :string},
+          base_url: %Schema{type: :string, nullable: true},
+          credential: %Schema{type: :string, nullable: true},
+          credential_mode: %Schema{type: :string},
+          connection_options: %Schema{type: :object, additionalProperties: true}
+        },
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule LlmProviderSourceItem do
+    @moduledoc false
+
+    require OpenApiSpex
+
+    OpenApiSpex.schema(
+      %{
+        title: "LlmProviderSourceItem",
+        type: :object,
+        properties: %{
+          provider_source: %Schema{type: :string},
+          label: %Schema{type: :string},
+          codex_compatible: %Schema{type: :boolean},
+          adapter_strategy: %Schema{type: :string},
+          default_base_url: %Schema{type: :string},
+          credential_modes: %Schema{type: :array, items: %Schema{type: :string}},
+          connection_options: %Schema{type: :array, items: %Schema{type: :string}},
+          runtime_provider_options: %Schema{type: :array, items: %Schema{type: :string}},
+          model_catalog_policy: %Schema{type: :string}
+        },
+        required: [
+          :provider_source,
+          :label,
+          :codex_compatible,
+          :adapter_strategy,
+          :default_base_url,
+          :credential_modes,
+          :connection_options,
+          :runtime_provider_options,
+          :model_catalog_policy
+        ],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule LlmProviderSourceListResponse do
+    @moduledoc false
+
+    require OpenApiSpex
+
+    OpenApiSpex.schema(
+      %{
+        title: "LlmProviderSourceListResponse",
+        type: :object,
+        properties: %{
+          data: %Schema{type: :array, items: LlmProviderSourceItem}
+        },
+        required: [:data],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule ModelProfilesResponse do
+    @moduledoc false
+
+    require OpenApiSpex
+
+    OpenApiSpex.schema(
+      %{
+        title: "ModelProfilesResponse",
+        type: :object,
+        properties: %{
+          data: %Schema{type: :object, additionalProperties: true}
+        },
+        required: [:data],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule ModelProfileResponse do
+    @moduledoc false
+
+    require OpenApiSpex
+
+    OpenApiSpex.schema(
+      %{
+        title: "ModelProfileResponse",
+        type: :object,
+        properties: %{
+          data: %Schema{type: :object, additionalProperties: true}
+        },
+        required: [:data],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule ModelProfileWriteRequest do
+    @moduledoc false
+
+    require OpenApiSpex
+
+    OpenApiSpex.schema(
+      %{
+        title: "ModelProfileWriteRequest",
+        type: :object,
+        properties: %{
+          provider_id: %Schema{type: :string},
+          model: %Schema{type: :string},
+          provider_options: %Schema{type: :object, additionalProperties: true}
+        },
+        required: [:provider_id, :model],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
 end

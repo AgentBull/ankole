@@ -13,9 +13,6 @@ defmodule Ankole.AIAgent do
   alias Ankole.Actors.ActorInput
   alias Ankole.Repo
 
-  @placeholder_provider "ankole-placeholder"
-  @placeholder_model "ping-pong-stub"
-
   @type actor_key :: %{agent_uid: String.t(), session_id: String.t()}
 
   @doc """
@@ -65,8 +62,7 @@ defmodule Ankole.AIAgent do
 
   The turn is created before worker delivery so retries, stale replies, and
   provider-visible side effects all share one database-owned generation fence.
-  If no runtime model profile exists, the turn deliberately falls back to the
-  `ankole-placeholder` provider used by smoke tests.
+  If no runtime model profile exists, no turn is started.
   """
   @spec start_llm_turn(actor_key(), [ActorInput.t()], keyword()) ::
           {:ok, map()} | {:error, term()}
@@ -169,6 +165,21 @@ defmodule Ankole.AIAgent do
 
     turn
     |> LlmTurn.changeset(%{status: "failed", response: response, completed_at: now})
+    |> repo.update()
+  end
+
+  @doc false
+  # A user-initiated cancellation is terminal but not an execution failure. Keep
+  # the durable reason on the turn so retry/history views do not see an orphaned
+  # `started` row after `/stop` or `/new` has fenced off the old generation lease.
+  def cancel_turn_in_tx(repo, %LlmTurn{} = turn, reason, now) do
+    response =
+      turn.response
+      |> Map.put("cancel_code", cancel_code(reason))
+      |> Map.put("cancel_reason", inspect(reason))
+
+    turn
+    |> LlmTurn.changeset(%{status: "cancelled", response: response, completed_at: now})
     |> repo.update()
   end
 
@@ -372,8 +383,8 @@ defmodule Ankole.AIAgent do
   end
 
   # Creates the durable turn shell consumed by Agent Computer. Provider/model
-  # come from the current runtime profile; the placeholder provider remains a
-  # deliberate smoke-test fallback, not the production LLM path.
+  # come from the current runtime profile; missing profiles are configuration
+  # errors rather than synthetic turns.
   defp insert_llm_turn(
          repo,
          conversation,
@@ -385,35 +396,36 @@ defmodule Ankole.AIAgent do
        ) do
     kind = Keyword.get(opts, :kind) || generation_turn_kind(repo, conversation, actor_inputs)
 
-    model_ref = turn_model_ref(conversation.agent_uid, Keyword.get(opts, :profile, "primary"))
+    with {:ok, model_ref} <-
+           turn_model_ref(conversation.agent_uid, Keyword.get(opts, :profile, "primary")) do
+      attrs = %{
+        agent_uid: conversation.agent_uid,
+        conversation_id: conversation.id,
+        kind: kind,
+        status: "started",
+        profile: model_ref.profile,
+        provider: model_ref.provider,
+        model: model_ref.model,
+        lease_id: lease_id,
+        call_index: 0,
+        trigger_message_id: user_messages |> List.first() |> maybe_id(),
+        trigger_event_id: actor_inputs |> List.first() |> maybe_ingress_event_id(),
+        input_message_ids: Enum.map(user_messages, & &1.id),
+        request_context:
+          request_context(conversation, model_ref, Keyword.get(opts, :request_context, %{})),
+        request_refs: Enum.map(actor_inputs, &actor_input_ref/1),
+        request_patches: [],
+        response: %{},
+        tool_results: [],
+        usage: %{},
+        provider_metadata: model_ref.provider_metadata,
+        started_at: now
+      }
 
-    attrs = %{
-      agent_uid: conversation.agent_uid,
-      conversation_id: conversation.id,
-      kind: kind,
-      status: "started",
-      profile: model_ref.profile,
-      provider: model_ref.provider,
-      model: model_ref.model,
-      lease_id: lease_id,
-      call_index: 0,
-      trigger_message_id: user_messages |> List.first() |> maybe_id(),
-      trigger_event_id: actor_inputs |> List.first() |> maybe_ingress_event_id(),
-      input_message_ids: Enum.map(user_messages, & &1.id),
-      request_context:
-        request_context(conversation, model_ref, Keyword.get(opts, :request_context, %{})),
-      request_refs: Enum.map(actor_inputs, &actor_input_ref/1),
-      request_patches: [],
-      response: %{},
-      tool_results: [],
-      usage: %{},
-      provider_metadata: model_ref.provider_metadata,
-      started_at: now
-    }
-
-    %LlmTurn{}
-    |> LlmTurn.changeset(attrs)
-    |> repo.insert()
+      %LlmTurn{}
+      |> LlmTurn.changeset(attrs)
+      |> repo.insert()
+    end
   end
 
   defp request_context(%Conversation{} = conversation, model_ref, extra_context)
@@ -439,27 +451,23 @@ defmodule Ankole.AIAgent do
   defp turn_model_ref(agent_uid, profile) do
     case ModelProfiles.resolve_runtime_profile(agent_uid, profile) do
       {:ok, runtime_profile} ->
-        %{
-          profile: runtime_profile["profile"],
-          provider: runtime_profile["provider_source"],
-          provider_id: runtime_profile["provider_id"],
-          model: runtime_profile["model"],
-          provider_metadata: %{
-            "provider_id" => runtime_profile["provider_id"],
-            "provider_source" => runtime_profile["provider_source"],
-            "adapter" => get_in(runtime_profile, ["source_metadata", "adapter"]),
-            "adapter_strategy" => get_in(runtime_profile, ["source_metadata", "adapter_strategy"])
-          }
-        }
+        {:ok,
+         %{
+           profile: runtime_profile["profile"],
+           provider: runtime_profile["provider_source"],
+           provider_id: runtime_profile["provider_id"],
+           model: runtime_profile["model"],
+           provider_metadata: %{
+             "provider_id" => runtime_profile["provider_id"],
+             "provider_source" => runtime_profile["provider_source"],
+             "adapter" => get_in(runtime_profile, ["source_metadata", "adapter"]),
+             "adapter_strategy" =>
+               get_in(runtime_profile, ["source_metadata", "adapter_strategy"])
+           }
+         }}
 
-      {:error, _reason} ->
-        %{
-          profile: profile,
-          provider: @placeholder_provider,
-          provider_id: @placeholder_provider,
-          model: @placeholder_model,
-          provider_metadata: %{"provider_id" => @placeholder_provider, "placeholder" => true}
-        }
+      {:error, reason} ->
+        {:error, {:model_profile_unavailable, profile, reason}}
     end
   end
 
@@ -643,6 +651,11 @@ defmodule Ankole.AIAgent do
   defp error_code(reason) when is_atom(reason), do: Atom.to_string(reason)
   defp error_code({reason, _details}) when is_atom(reason), do: Atom.to_string(reason)
   defp error_code(_reason), do: "turn_failed"
+
+  defp cancel_code(reason) when is_atom(reason), do: Atom.to_string(reason)
+  defp cancel_code(reason) when is_binary(reason), do: reason
+  defp cancel_code({reason, _details}) when is_atom(reason), do: Atom.to_string(reason)
+  defp cancel_code(_reason), do: "turn_cancelled"
 
   defp blank?(nil), do: true
   defp blank?(""), do: true

@@ -52,7 +52,7 @@
   },
   "dependencies": {
     "knip": "^6.20.0",
-    "turbo": "^2.9.18"
+    "turbo": "^2.10.0"
   },
   "devDependencies": {
     "@types/bun": "latest",

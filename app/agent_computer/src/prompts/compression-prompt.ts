@@ -188,7 +188,9 @@ export function buildCompactionHistoryUserPrompt(input: {
     input.customInstructions
   )
   const sections = [`<conversation>\n${input.conversationText}\n</conversation>`]
-  if (input.previousSummary) sections.push(`<previous-summary>\n${input.previousSummary}\n</previous-summary>`)
+  if (input.previousSummary) {
+    sections.push(`<previous-summary>\n${input.previousSummary}\n</previous-summary>`)
+  }
   sections.push(basePrompt)
   return sections.join('\n\n')
 }

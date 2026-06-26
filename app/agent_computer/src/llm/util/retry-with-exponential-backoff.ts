@@ -1,6 +1,5 @@
 // @ts-nocheck
 import { APICallError } from '@/llm/provider'
-import { GatewayError } from '@/llm/gateway'
 import { delay, getErrorMessage, isAbortError } from '@/llm/provider-utils'
 import { RetryError } from './retry-error'
 
@@ -10,7 +9,7 @@ function getRetryDelayInMs({
   error,
   exponentialBackoffDelay
 }: {
-  error: APICallError | GatewayError
+  error: APICallError
   exponentialBackoffDelay: number
 }): number {
   const headers = APICallError.isInstance(error)
@@ -116,13 +115,13 @@ async function _retryWithExponentialBackoff<OUTPUT>(
 
     if (
       error instanceof Error &&
-      ((APICallError.isInstance(error) && error.isRetryable === true) ||
-        (GatewayError.isInstance(error) && error.isRetryable === true)) &&
+      APICallError.isInstance(error) &&
+      error.isRetryable === true &&
       tryNumber <= maxRetries
     ) {
       await delay(
         getRetryDelayInMs({
-          error: error as APICallError | GatewayError,
+          error,
           exponentialBackoffDelay: delayInMs
         }),
         { abortSignal }

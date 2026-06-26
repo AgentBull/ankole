@@ -1,7 +1,5 @@
-// Topology scope construction. Ported from openclaw with bullx retargeting:
-// the openclaw plugin-sdk scope (and its bundled-plugin-paths / plugin-sdk-entries
-// imports) is dropped; classifiers map bullx top-level dirs (app/, packages/,
-// plugin/, tools/, app/webui/). "extension" maps to bullx "plugin".
+// Topology scope construction. Ported from openclaw with Ankole retargeting:
+// classifiers map the current top-level dirs (app/, libs/, plugins/, tools/).
 
 import fs from 'node:fs'
 import path from 'node:path'
@@ -23,16 +21,16 @@ function isTestFile(relPath: string): boolean {
 }
 
 function classifyScope(relPath: string): ConsumerScope {
-  if (relPath.startsWith('app/webui/')) {
+  if (relPath.startsWith('app/webapps/')) {
     return 'webui'
   }
   if (relPath.startsWith('app/')) {
     return 'app'
   }
-  if (relPath.startsWith('packages/')) {
+  if (relPath.startsWith('libs/')) {
     return 'package'
   }
-  if (relPath.startsWith('plugin/')) {
+  if (relPath.startsWith('plugins/')) {
     return 'plugin'
   }
   if (relPath.startsWith('tools/')) {
@@ -58,10 +56,9 @@ function extractOwner(relPath: string): string | null {
     case 'webui':
       return 'webui'
     case 'app':
-      // app/src/<subsystem>/... -> the subsystem owns it.
-      return parts[1] === 'src' ? (parts[2] ?? 'app') : (parts[1] ?? 'app')
+      return parts[1] ? `app:${parts[1]}` : 'app'
     case 'package':
-      return parts[1] ? `package:${parts[1]}` : 'package'
+      return parts[1] ? `lib:${parts[1]}` : 'lib'
     case 'plugin':
       return parts[1] ? `plugin:${parts[1]}` : 'plugin'
     case 'tool':
@@ -74,9 +71,9 @@ function extractOwner(relPath: string): string | null {
   throw new Error('Unsupported topology scope')
 }
 
-/** Owner-as-plugin (openclaw "extension" id) when the consumer lives in plugin/. */
+/** Owner-as-plugin (openclaw "extension" id) when the consumer lives in plugins/. */
 function extractExtensionId(relPath: string): string | null {
-  if (!relPath.startsWith('plugin/')) {
+  if (!relPath.startsWith('plugins/')) {
     return null
   }
   const parts = relPath.split('/')

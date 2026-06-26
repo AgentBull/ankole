@@ -147,7 +147,6 @@ defmodule Ankole.Repo.Migrations.CreateActorRuntimePingPong do
       add :kind, :text, null: false
       add :status, :text, null: false
       add :content, :map, null: false, default: fragment("'[]'::jsonb")
-      add :agent_message, :map
       add :covers_range, :map
       add :event_source, :text
       add :event_id, :text
@@ -377,7 +376,7 @@ defmodule Ankole.Repo.Migrations.CreateActorRuntimePingPong do
       broker_sequence bigint NOT NULL,
       attempt_no integer NOT NULL,
       delivery_batch_id uuid NOT NULL,
-      actor_bus_message_id text NOT NULL,
+      actor_lane_message_id text NOT NULL,
       correlation_id text,
       activation_uid text NOT NULL,
       actor_epoch bigint NOT NULL,
