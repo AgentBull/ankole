@@ -17,7 +17,7 @@
 import { z } from 'zod'
 import type { AgentTool, AgentToolResult } from '../../core'
 import { buildTool } from '../build-tool'
-import type { ComputerToolContext, LocalComputer } from './context'
+import type { ComputerToolContext, ContainerComputer } from './context'
 import { unifiedDiff } from './diff'
 import { splitWritePath } from './format'
 import { findUniqueFuzzyMatch } from './fuzzy-match'
@@ -139,7 +139,7 @@ function replaceRange(source: string, start: number, end: number, replacement: s
  * safe without line numbers.
  */
 async function applyReplace(
-  computer: LocalComputer,
+  computer: ContainerComputer,
   params: PatchInput,
   signal: AbortSignal | undefined
 ): Promise<AgentToolResult<PatchDetails>> {
@@ -226,7 +226,7 @@ interface PlannedWrite {
  * design than staging a real rollback.
  */
 async function applyV4A(
-  computer: LocalComputer,
+  computer: ContainerComputer,
   params: PatchInput,
   signal: AbortSignal | undefined
 ): Promise<AgentToolResult<PatchDetails>> {

@@ -82,18 +82,31 @@ bun run control-plane:setup
 bun run control-plane:dev
 bun run control-plane:test
 
-# Bun packages
-bun run agent-computer:dev
+# Agent Computer container image and tests
+docker build -f app/agent_computer/Dockerfile -t ankole-agent-computer:0.1.0 .
 bun run agent-computer:test
+bun run agent-computer:type-check
+
+# Other Bun packages
 bun run webapps:build
 bun run feishu-openapi:test
 ```
+
+Agent Computer is a Linux container runtime. Strong bubblewrap command isolation
+requires Docker `--cap-add SYS_ADMIN`, `--security-opt seccomp=unconfined`, and
+`--security-opt systempaths=unconfined` unless you provide an equivalent custom
+seccomp/profile setup. In Kubernetes, put the equivalent
+`capabilities.add: ["SYS_ADMIN"]`, `seccompProfile`, and `procMount: Unmasked`
+on the Agent Computer container `securityContext`. If strong bubblewrap is
+unavailable, the worker may downgrade to weak bubblewrap by bind-mounting the
+container `/proc` into bwrap and emits a startup warning. It does not run
+model-facing commands without sandboxing.
 
 Workspace が速く動いている間は、package-local validation を優先します。
 
 ```shell
 bun run --filter @ankole/control-plane test
-bun run --filter @ankole/agent-computer test
+bun run agent-computer:test
 bun run --filter @ankole/agent-computer type-check
 bun run --filter @ankole/webapps type-check
 bun run --filter @ankole/feishu-openapi test

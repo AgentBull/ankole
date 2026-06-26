@@ -1,4 +1,5 @@
 import type { ActorLaneEnvelope } from './actor_lane'
+import { existsSync } from 'node:fs'
 
 export type WorkerConfig = {
   endpoint: string
@@ -20,6 +21,8 @@ const defaultUserFilesRoot = '/workspace/shared/user-files'
 const defaultAgentInstalledSkillsRoot = '/workspace/shared/skills/agents'
 const defaultBuiltinSkillsRoot = '/repo/app/library/skills'
 const actorSpecificEnv = ['ANKOLE_AGENT_UID', 'ANKOLE_SESSION_ID', 'ANKOLE_ACTOR_EPOCH', 'ANKOLE_LLM_TURN_ID']
+const containerMarkerPath = '/etc/ankole-agent-computer-container'
+const containerMarkerEnv = 'ANKOLE_AGENT_COMPUTER_CONTAINER'
 
 /**
  * Parses the worker process environment into the stable computer-worker config.
@@ -28,6 +31,8 @@ const actorSpecificEnv = ['ANKOLE_AGENT_UID', 'ANKOLE_SESSION_ID', 'ANKOLE_ACTOR
  * each `turn_start` envelope so the same image can serve any actor in the pool.
  */
 export function parseWorkerEnv(env: Record<string, string | undefined> = Bun.env): WorkerConfig {
+  assertContainerRuntime(env)
+
   if (env.DATABASE_URL) {
     throw new Error('DATABASE_URL must not be set on an agent computer worker')
   }
@@ -49,6 +54,25 @@ export function parseWorkerEnv(env: Record<string, string | undefined> = Bun.env
     userFilesRoot: optionalEnv(env, 'ANKOLE_USER_FILES_ROOT') ?? defaultUserFilesRoot,
     agentInstalledSkillsRoot: optionalEnv(env, 'ANKOLE_AGENT_INSTALLED_SKILLS_ROOT') ?? defaultAgentInstalledSkillsRoot,
     builtinSkillsRoot: optionalEnv(env, 'ANKOLE_BUILTIN_SKILLS_ROOT') ?? defaultBuiltinSkillsRoot
+  }
+}
+
+/**
+ * Enforces the Agent Computer deployment invariant at process startup.
+ *
+ * Mounting TS source into the image is allowed, but the worker itself must run
+ * in the Linux Docker image that provides bubblewrap, browser/Python tools, the
+ * native kernel, and the `/workspace` filesystem contract. This turns
+ * host-Bun/non-Linux execution from an accidental partial mode into a startup
+ * error.
+ */
+function assertContainerRuntime(env: Record<string, string | undefined>): void {
+  if (process.platform !== 'linux') {
+    throw new Error('Agent Computer worker must run inside the Linux Docker image')
+  }
+
+  if (env[containerMarkerEnv] !== '1' || !existsSync(containerMarkerPath)) {
+    throw new Error('Agent Computer worker must run inside the Ankole Agent Computer Docker image')
   }
 }
 

@@ -84,5 +84,4 @@ export {
 } from './bullx'
 export * from './bullx-ai-sdk'
 export * from './catalog'
-export * from './bullx-generate'
 export * from './testing'

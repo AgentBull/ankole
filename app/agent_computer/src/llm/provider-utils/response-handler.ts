@@ -9,6 +9,7 @@ export type ResponseHandler<RETURN_TYPE> = (options: {
   url: string
   requestBodyValues: unknown
   response: Response
+  abortSignal?: AbortSignal
 }) => PromiseLike<{
   value: RETURN_TYPE
   rawValue?: unknown
@@ -83,7 +84,7 @@ export const createJsonErrorResponseHandler =
 
 export const createEventSourceResponseHandler =
   <T>(chunkSchema: FlexibleSchema<T>): ResponseHandler<ReadableStream<ParseResult<T>>> =>
-  async ({ response }: { response: Response }) => {
+  async ({ response, abortSignal }: { response: Response; abortSignal?: AbortSignal }) => {
     const responseHeaders = extractResponseHeaders(response)
 
     if (response.body == null) {
@@ -94,7 +95,8 @@ export const createEventSourceResponseHandler =
       responseHeaders,
       value: parseJsonEventStream({
         stream: response.body,
-        schema: chunkSchema
+        schema: chunkSchema,
+        abortSignal
       })
     }
   }

@@ -11,11 +11,12 @@ import { createComputerTools } from '../src/tools/computer'
 import { createCommandTool } from '../src/tools/computer/command-tool'
 import {
   type BackgroundCommandSnapshot,
-  createLocalComputer,
+  createContainerComputer,
   type CommandFinished,
   type ComputerToolContext,
-  type LocalComputer
+  type ContainerComputer
 } from '../src/tools/computer/context'
+import { bubblewrapArgv } from '../src/tools/computer/bubblewrap'
 import { createPatchTool } from '../src/tools/computer/patch-tool'
 import { createReadFileTool } from '../src/tools/computer/read-file-tool'
 import { createReplyAttachmentStore, createReplyAttachmentTool } from '../src/tools/computer/reply-attachment-tool'
@@ -149,11 +150,9 @@ describe('@ankole/agent-computer migrated tool semantics', () => {
 
   it('starts, polls, and kills background commands through the command tool', async () => {
     const root = mkdtempSync(join(tmpdir(), 'ankole-computer-'))
-    const previousSandbox = process.env.ANKOLE_AGENT_COMPUTER_COMMAND_SANDBOX
 
     try {
-      process.env.ANKOLE_AGENT_COMPUTER_COMMAND_SANDBOX = 'none'
-      const computer = createLocalComputer(root)
+      const computer = createContainerComputer(root)
       const context: ComputerToolContext = {
         agentUid: 'agent-1',
         workspaceRoot: root,
@@ -198,23 +197,18 @@ describe('@ankole/agent-computer migrated tool semantics', () => {
       expect(killedText).toContain('status=killed')
       expect(context.backgroundIds.has(backgroundId)).toBe(false)
     } finally {
-      if (previousSandbox === undefined) {
-        delete process.env.ANKOLE_AGENT_COMPUTER_COMMAND_SANDBOX
-      } else {
-        process.env.ANKOLE_AGENT_COMPUTER_COMMAND_SANDBOX = previousSandbox
-      }
       rmSync(root, { recursive: true, force: true })
     }
   })
 
-  it('runs local commands asynchronously with scoped env and abort handling', async () => {
+  it('runs container commands asynchronously with scoped env and abort handling', async () => {
     const root = mkdtempSync(join(tmpdir(), 'ankole-computer-'))
     const previousSecret = process.env.ANKOLE_AGENT_COMPUTER_WORKER_PRE_AUTH_TOKEN
 
     try {
       process.env.ANKOLE_AGENT_COMPUTER_WORKER_PRE_AUTH_TOKEN = 'secret-token'
 
-      const computer = createLocalComputer(root)
+      const computer = createContainerComputer(root)
       const result = await computer.runCommand({
         cmd: 'bash',
         args: ['-lc', 'printf "%s|%s" "${ANKOLE_AGENT_COMPUTER_WORKER_PRE_AUTH_TOKEN-unset}" "$FOO"'],
@@ -244,11 +238,10 @@ describe('@ankole/agent-computer migrated tool semantics', () => {
     }
   })
 
-  it('wraps local stateless commands in bubblewrap when sandboxing is enabled', async () => {
+  it('wraps stateless commands in bubblewrap', async () => {
     const root = mkdtempSync(join(tmpdir(), 'ankole-computer-'))
     const bin = join(root, 'bin')
     const argsFile = join(root, 'bwrap-args.txt')
-    const previousSandbox = process.env.ANKOLE_AGENT_COMPUTER_COMMAND_SANDBOX
     const previousSecret = process.env.ANKOLE_AGENT_COMPUTER_WORKER_PRE_AUTH_TOKEN
 
     try {
@@ -257,10 +250,9 @@ describe('@ankole/agent-computer migrated tool semantics', () => {
       writeFileSync(join(bin, 'bwrap'), '#!/bin/sh\nprintf "%s\\n" "$@" > "$BWRAP_ARGS_FILE"\nexit 0\n')
       chmodSync(join(bin, 'bwrap'), 0o755)
 
-      process.env.ANKOLE_AGENT_COMPUTER_COMMAND_SANDBOX = 'force'
       process.env.ANKOLE_AGENT_COMPUTER_WORKER_PRE_AUTH_TOKEN = 'secret-token'
 
-      const result = await createLocalComputer(root).runCommand({
+      const result = await createContainerComputer(root).runCommand({
         cmd: 'bash',
         args: ['-lc', 'printf ok'],
         cwd: '/workspace/sub',
@@ -283,12 +275,6 @@ describe('@ankole/agent-computer migrated tool semantics', () => {
       const commandIndex = args.indexOf('timeout')
       expect(args.slice(commandIndex, commandIndex + 5)).toEqual(['timeout', '60s', 'bash', '-lc', 'printf ok'])
     } finally {
-      if (previousSandbox === undefined) {
-        delete process.env.ANKOLE_AGENT_COMPUTER_COMMAND_SANDBOX
-      } else {
-        process.env.ANKOLE_AGENT_COMPUTER_COMMAND_SANDBOX = previousSandbox
-      }
-
       if (previousSecret === undefined) {
         delete process.env.ANKOLE_AGENT_COMPUTER_WORKER_PRE_AUTH_TOKEN
       } else {
@@ -297,6 +283,26 @@ describe('@ankole/agent-computer migrated tool semantics', () => {
 
       rmSync(root, { recursive: true, force: true })
     }
+  })
+
+  it('keeps weak bubblewrap as bwrap with container procfs instead of an unsandboxed fallback', () => {
+    const base = {
+      workspaceRoot: '/workspace',
+      cwd: '/workspace/project',
+      env: { PATH: '/usr/bin', HOME: '/workspace' },
+      commandArgv: ['true']
+    }
+
+    const strong = bubblewrapArgv(base, 'strong')
+    expect(strong[0]).toBe('bwrap')
+    expect(strong.slice(strong.indexOf('--proc'), strong.indexOf('--proc') + 2)).toEqual(['--proc', '/proc'])
+
+    const weak = bubblewrapArgv(base, 'weak')
+    expect(weak[0]).toBe('bwrap')
+    expect(weak).not.toContain('--proc')
+    expect(weak.slice(weak.indexOf('--dir'), weak.indexOf('--dir') + 2)).toEqual(['--dir', '/proc'])
+    const procBindIndex = weak.findIndex((arg, index) => arg === '--ro-bind' && weak[index + 1] === '/proc')
+    expect(weak.slice(procBindIndex, procBindIndex + 3)).toEqual(['--ro-bind', '/proc', '/proc'])
   })
 
   it('read_file returns numbered text and does not throw for missing files', async () => {
@@ -582,8 +588,8 @@ describe('@ankole/agent-computer migrated tool semantics', () => {
   })
 })
 
-function contextWithComputer(overrides: Partial<LocalComputer>, workspaceRoot?: string): ComputerToolContext {
-  const computer: LocalComputer = {
+function contextWithComputer(overrides: Partial<ContainerComputer>, workspaceRoot?: string): ComputerToolContext {
+  const computer: ContainerComputer = {
     runCommand() {
       return Promise.resolve(commandResult(0, ''))
     },

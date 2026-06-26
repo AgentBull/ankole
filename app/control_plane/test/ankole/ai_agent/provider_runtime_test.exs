@@ -114,10 +114,14 @@ defmodule Ankole.AIAgent.ProviderRuntimeTest do
              ModelProfiles.put_model_profile(agent.uid, "primary", %{
                provider_id: "openrouter-main",
                model: "z-ai/glm-5.2",
-               provider_options: %{"reasoningEffort" => "medium"}
+               provider_options: %{
+                 "reasoning" => %{"effort" => "minimal", "exclude" => true},
+                 "reasoningEffort" => "medium"
+               }
              })
 
     assert profile["provider_id"] == "openrouter-main"
+    assert profile["provider_options"]["reasoning"] == %{"effort" => "minimal", "exclude" => true}
 
     assert {:error, :codex_incompatible_provider_source} =
              ModelProfiles.put_model_profile(agent.uid, "codex", %{

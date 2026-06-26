@@ -1,7 +1,8 @@
 import { stringify as stringifyYaml } from 'yaml'
 import { z } from 'zod/v4'
 import type { TurnStart, JsonObject } from '../actor_lane'
-import { generateText, Output, zodSchema, type Message, type Model } from '../llm'
+import { createCombinedAbortSignal } from '../common/async'
+import { streamObject, zodSchema, type Message, type Model } from '../llm'
 import { convertBullXMessagesToModelMessages } from '../llm/bullx-ai-sdk'
 import type { ProviderOptions } from '../llm/provider-utils'
 import { buildAmbientRecognizerSystemPrompt, buildAmbientRecognizerUserPrompt } from '../prompts/ambient_prompt'
@@ -56,6 +57,7 @@ export type AmbientRecognition = {
 const MAX_CHAT_SEGMENT_TEXT = 2_000
 const MAX_RECOGNIZER_CONTEXT_ROWS = 10
 const COMPACT_TIME_GAP_MS = 5 * 60 * 1000
+const DEFAULT_AMBIENT_RECOGNIZER_TIMEOUT_MS = 45_000
 
 /**
  * Runs the light-model ambient recognizer inside Agent Computer. ZMQ delivers
@@ -71,6 +73,7 @@ export async function runAmbientRecognizer(input: {
   runtimeContext?: TurnRuntimeContext
   turnStart: TurnStart
   workspaceRoot: string
+  timeoutMs?: number
 }): Promise<AmbientRecognition> {
   if (!input.model.sdkModel) {
     throw new Error(`LLM model ${input.model.provider}/${input.model.id} is missing an AI SDK model instance`)
@@ -134,36 +137,47 @@ export async function runAmbientRecognizer(input: {
       content: [{ type: 'text', text: buildAmbientRecognizerUserPrompt(decisionInput) }]
     }
   ]
-  const response = await generateText({
-    model: input.model.sdkModel,
-    system: systemPrompt,
-    messages: convertBullXMessagesToModelMessages(messages),
-    output: Output.object({
+  const turnTimeout = createCombinedAbortSignal(undefined, input.timeoutMs ?? DEFAULT_AMBIENT_RECOGNIZER_TIMEOUT_MS)
+  try {
+    const response = streamObject({
+      model: input.model.sdkModel,
+      system: systemPrompt,
+      messages: convertBullXMessagesToModelMessages(messages),
       schema: zodSchema(AmbientRecognizerDecisionSchema),
-      name: 'ambient_intervention_decision',
-      description: 'Decision on whether the agent should proactively speak in the observed IM room.'
-    }),
-    headers: input.headers,
-    providerOptions: input.providerOptions,
-    maxOutputTokens: 512,
-    maxRetries: 2
-  })
+      schemaName: 'ambient_intervention_decision',
+      schemaDescription: 'Decision on whether the agent should proactively speak in the observed IM room.',
+      headers: input.headers,
+      providerOptions: input.providerOptions,
+      maxOutputTokens: 512,
+      maxRetries: 2,
+      abortSignal: turnTimeout.signal
+    })
 
-  const decision = normalizeAmbientRecognizerDecision(response.output)
-  return {
-    decision,
-    ...(decision.intervene
-      ? {
-          intervention: ambientIntervention(
-            input.turnStart,
-            currentBatch,
-            currentScene,
-            decision,
-            displayName,
-            timezone
-          )
-        }
-      : {})
+    // streamObject is pull-driven: drain the stream so the final schema-validated
+    // object promise resolves. The recognizer only needs the final decision today,
+    // but the provider call itself must remain streaming.
+    for await (const _part of response.fullStream) {
+      // Intentionally empty.
+    }
+
+    const decision = normalizeAmbientRecognizerDecision(await response.object)
+    return {
+      decision,
+      ...(decision.intervene
+        ? {
+            intervention: ambientIntervention(
+              input.turnStart,
+              currentBatch,
+              currentScene,
+              decision,
+              displayName,
+              timezone
+            )
+          }
+        : {})
+    }
+  } finally {
+    turnTimeout.cleanup()
   }
 }
 

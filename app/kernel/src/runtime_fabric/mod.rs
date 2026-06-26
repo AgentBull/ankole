@@ -1361,7 +1361,7 @@ mod tests {
                     "stop_reason": "stop",
                     "tool_results_json": [{
                         "tool_call_id": "call_1",
-                        "tool_name": "run_local_command",
+                        "tool_name": "command",
                         "is_error": false
                     }]
                 }
@@ -1380,10 +1380,7 @@ mod tests {
             "resp_123"
         );
         assert_eq!(proposal["stop_reason"], "stop");
-        assert_eq!(
-            proposal["tool_results_json"][0]["tool_name"],
-            "run_local_command"
-        );
+        assert_eq!(proposal["tool_results_json"][0]["tool_name"], "command");
     }
 
     #[test]

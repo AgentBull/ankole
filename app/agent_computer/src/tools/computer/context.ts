@@ -1,6 +1,7 @@
-import { accessSync, constants, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { dirname, normalize, relative, resolve } from 'node:path'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { dirname, normalize, resolve } from 'node:path'
 import { createHash } from 'node:crypto'
+import { bubblewrapArgv } from './bubblewrap'
 
 export type CommandOutputMode = 'stdout' | 'stderr' | 'both'
 
@@ -22,7 +23,7 @@ export interface BackgroundCommandSnapshot {
   output(mode?: CommandOutputMode, opts?: { signal?: AbortSignal }): Promise<string>
 }
 
-export interface LocalComputer {
+export interface ContainerComputer {
   runCommand(input: {
     cmd: string
     args?: string[]
@@ -83,8 +84,8 @@ export interface ComputerToolContext {
    * conversations of one agent do not share execution state.
    */
   executionScopeId: string
-  /** Resolve-or-create the agent's local computer facade (memoized for the run). */
-  getComputer: (signal?: AbortSignal) => Promise<LocalComputer>
+  /** Resolve-or-create the agent's container computer facade (memoized for the run). */
+  getComputer: (signal?: AbortSignal) => Promise<ContainerComputer>
   /** Command ids started by command(background=true) during this run. */
   backgroundIds: Set<string>
 }
@@ -106,13 +107,13 @@ const BACKGROUND_OUTPUT_MAX_CHARS = 200_000
 const backgroundCommands = new Map<string, MutableBackgroundCommand>()
 
 /**
- * Builds the local Computer facade over the mounted Ankole workspace.
+ * Builds the container Computer facade over the mounted Ankole workspace.
  *
  * The migrated tools were written for a remote `Computer` session. In Ankole the AI SDK loop
  * already runs inside Agent Computer, so the same tool contract is satisfied by
- * local filesystem/process/tmux operations rooted at `workspaceRoot`.
+ * container filesystem/process/tmux operations rooted at `workspaceRoot`.
  */
-export function createLocalComputer(workspaceRoot: string): LocalComputer {
+export function createContainerComputer(workspaceRoot: string): ContainerComputer {
   const root = resolve(workspaceRoot)
 
   const safePath = (path: string, cwd?: string): string => {
@@ -130,13 +131,12 @@ export function createLocalComputer(workspaceRoot: string): LocalComputer {
     return resolved
   }
 
-  const runTmux = async (args: string[], opts?: { signal?: AbortSignal }): Promise<CommandFinished> => {
-    return runLocalCommand({ cmd: 'tmux', args, signal: opts?.signal, sandbox: false }, root)
-  }
+  const runTmux = async (args: string[], opts?: { signal?: AbortSignal }): Promise<CommandFinished> =>
+    runContainerControlCommand({ cmd: 'tmux', args, signal: opts?.signal }, root)
 
   return {
     runCommand(input) {
-      return runLocalCommand(input, root)
+      return runBubblewrappedCommand(input, root)
     },
     backgroundCommands: {
       start(input) {
@@ -251,7 +251,7 @@ function workspacePath(root: string, path: string): string {
   return resolved
 }
 
-async function runLocalCommand(
+async function runBubblewrappedCommand(
   input: {
     cmd: string
     args?: string[]
@@ -259,7 +259,6 @@ async function runLocalCommand(
     env?: Record<string, string>
     timeoutMs?: number
     signal?: AbortSignal
-    sandbox?: boolean
   },
   workspaceRoot: string
 ): Promise<CommandFinished> {
@@ -271,11 +270,66 @@ async function runLocalCommand(
   const timeoutSeconds = Math.max(1, Math.ceil((input.timeoutMs ?? 60_000) / 1000))
   const env = commandEnv(input.env)
   const commandArgv = ['timeout', `${timeoutSeconds}s`, input.cmd, ...(input.args ?? [])]
-  const sandboxed = input.sandbox !== false && shouldUseBubblewrap(env)
-  const argv = sandboxed ? bubblewrapArgv(workspaceRoot, cwd, env, commandArgv) : commandArgv
+  const argv = bubblewrapArgv({ workspaceRoot, cwd, env, commandArgv })
 
   const proc = Bun.spawn(argv, {
-    cwd: sandboxed ? workspaceRoot : cwd,
+    cwd: workspaceRoot,
+    env,
+    stdout: 'pipe',
+    stderr: 'pipe'
+  })
+
+  let aborted = false
+  const abort = () => {
+    aborted = true
+    proc.kill()
+  }
+
+  input.signal?.addEventListener('abort', abort, { once: true })
+
+  try {
+    const [exitCode, stdout, stderr] = await Promise.all([
+      proc.exited,
+      readableToUtf8(proc.stdout),
+      readableToUtf8(proc.stderr)
+    ])
+
+    return finishedCommand(exitCode ?? 124, stdout, aborted && stderr.length === 0 ? 'command aborted' : stderr)
+  } finally {
+    input.signal?.removeEventListener('abort', abort)
+  }
+}
+
+/**
+ * Runs Agent Computer control processes that must share container runtime state.
+ *
+ * This is intentionally not exposed through the model-facing `command` tool.
+ * `interactive_terminal` is backed by a tmux server, and wrapping every tmux
+ * control command in a fresh bubblewrap `/tmp` would make the session socket
+ * disappear between `start`, `send`, `capture`, and `kill`.
+ */
+async function runContainerControlCommand(
+  input: {
+    cmd: string
+    args?: string[]
+    cwd?: string
+    env?: Record<string, string>
+    timeoutMs?: number
+    signal?: AbortSignal
+  },
+  workspaceRoot: string
+): Promise<CommandFinished> {
+  if (input.signal?.aborted) {
+    return finishedCommand(130, '', 'command aborted')
+  }
+
+  const cwd = input.cwd ? workspacePath(workspaceRoot, input.cwd) : workspaceRoot
+  const timeoutSeconds = Math.max(1, Math.ceil((input.timeoutMs ?? 60_000) / 1000))
+  const env = commandEnv(input.env)
+  const argv = ['timeout', `${timeoutSeconds}s`, input.cmd, ...(input.args ?? [])]
+
+  const proc = Bun.spawn(argv, {
+    cwd,
     env,
     stdout: 'pipe',
     stderr: 'pipe'
@@ -321,13 +375,12 @@ async function startBackgroundCommand(
   const timeoutSeconds = Math.max(1, Math.ceil((input.timeoutMs ?? 1_800_000) / 1000))
   const env = commandEnv(input.env)
   const commandArgv = ['timeout', `${timeoutSeconds}s`, input.cmd, ...(input.args ?? [])]
-  const sandboxed = shouldUseBubblewrap(env)
-  const argv = sandboxed ? bubblewrapArgv(workspaceRoot, cwd, env, commandArgv) : commandArgv
+  const argv = bubblewrapArgv({ workspaceRoot, cwd, env, commandArgv })
   const id = `bg-${crypto.randomUUID()}`
   const commandText = [input.cmd, ...(input.args ?? [])].join(' ')
 
   const proc = Bun.spawn(argv, {
-    cwd: sandboxed ? workspaceRoot : cwd,
+    cwd: workspaceRoot,
     env,
     stdout: 'pipe',
     stderr: 'pipe'
@@ -424,110 +477,6 @@ function commandEnv(inputEnv: Record<string, string> | undefined): Record<string
   }
 
   return env
-}
-
-function shouldUseBubblewrap(env: Record<string, string>): boolean {
-  switch (process.env.ANKOLE_AGENT_COMPUTER_COMMAND_SANDBOX) {
-    case 'none':
-      return false
-    case 'force':
-      return true
-  }
-
-  return process.platform === 'linux' && executableInPath('bwrap', env.PATH)
-}
-
-function executableInPath(name: string, path: string | undefined): boolean {
-  for (const dir of (path ?? '').split(':')) {
-    if (!dir) continue
-
-    try {
-      accessSync(resolve(dir, name), constants.X_OK)
-      return true
-    } catch {
-      continue
-    }
-  }
-
-  return false
-}
-
-function bubblewrapArgv(
-  workspaceRoot: string,
-  cwd: string,
-  env: Record<string, string>,
-  commandArgv: string[]
-): string[] {
-  return [
-    'bwrap',
-    '--unshare-all',
-    '--share-net',
-    '--die-with-parent',
-    '--new-session',
-    '--proc',
-    '/proc',
-    '--dev',
-    '/dev',
-    '--tmpfs',
-    '/tmp',
-    ...readOnlySystemBinds(),
-    '--bind',
-    workspaceRoot,
-    '/workspace',
-    ...runtimeWorkspaceBinds(),
-    '--chdir',
-    sandboxWorkspacePath(workspaceRoot, cwd),
-    '--clearenv',
-    ...Object.entries(env).flatMap(([key, value]) => ['--setenv', key, value]),
-    ...commandArgv
-  ]
-}
-
-function runtimeWorkspaceBinds(): string[] {
-  const binds: string[] = []
-  const userFilesRoot = process.env.ANKOLE_USER_FILES_ROOT
-  if (userFilesRoot && existsSync(userFilesRoot)) {
-    binds.push('--bind', userFilesRoot, '/workspace/shared/user-files')
-  }
-
-  const installedSkillsRoot = process.env.ANKOLE_AGENT_INSTALLED_SKILLS_ROOT
-  if (installedSkillsRoot && existsSync(installedSkillsRoot)) {
-    binds.push('--bind', installedSkillsRoot, '/workspace/shared/skills/agents')
-  }
-
-  const builtinSkillsRoot = process.env.ANKOLE_BUILTIN_SKILLS_ROOT
-  if (builtinSkillsRoot && existsSync(builtinSkillsRoot)) {
-    binds.push(
-      '--dir',
-      '/repo',
-      '--dir',
-      '/repo/app',
-      '--dir',
-      '/repo/app/library',
-      '--ro-bind',
-      builtinSkillsRoot,
-      '/repo/app/library/skills'
-    )
-  }
-
-  return binds
-}
-
-function readOnlySystemBinds(): string[] {
-  const directoryBinds = ['/usr', '/bin', '/lib', '/lib64', '/opt']
-    .filter(path => existsSync(path))
-    .flatMap(path => ['--ro-bind', path, path])
-
-  const fileBinds = ['/etc/hosts', '/etc/resolv.conf', '/etc/nsswitch.conf', '/etc/ssl', '/etc/ca-certificates']
-    .filter(path => existsSync(path))
-    .flatMap(path => ['--ro-bind', path, path])
-
-  return [...directoryBinds, ...fileBinds]
-}
-
-function sandboxWorkspacePath(workspaceRoot: string, hostPath: string): string {
-  const path = relative(workspaceRoot, hostPath)
-  return path ? `/workspace/${path}` : '/workspace'
 }
 
 async function readableToUtf8(stream: ReadableStream<Uint8Array> | null): Promise<string> {

@@ -22,40 +22,13 @@ defmodule Ankole.ActorRuntimeWorkerE2ETest do
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.AdapterContext
   alias Ankole.SignalsGateway.OutboxEntry
+  alias Ankole.Actors.ActorInputConsumption
 
   @base_time ~U[2026-06-24 08:00:00.000000Z]
   @e2e_timeout_ms 12_000
   @real_e2e_timeout_ms 600_000
   @long_lease_seconds 604_800
   @docker_image "ankole-agent-computer:0.1.0"
-
-  @tag timeout: 30_000
-  test "external Bun worker connects to RuntimeFabric and is admitted" do
-    pre_auth_token = "mock-provider-e2e-token-#{System.unique_integer([:positive])}"
-    worker_id = "mock-worker-#{System.unique_integer([:positive])}"
-    worker_instance_id = "#{worker_id}-instance"
-
-    {:ok, endpoint} =
-      Broker.start_router("tcp://127.0.0.1:*",
-        pre_auth_token: pre_auth_token,
-        poll_interval_ms: 1
-      )
-
-    on_exit(fn -> Broker.stop_router() end)
-
-    port =
-      start_external_worker!(
-        endpoint: endpoint,
-        pre_auth_token: pre_auth_token,
-        worker_id: worker_id,
-        worker_instance_id: worker_instance_id
-      )
-
-    on_exit(fn -> close_port(port) end)
-
-    assert {:ok, %AgentComputerWorker{worker_id: ^worker_id}} =
-             wait_for_worker_projection(worker_id, port, deadline())
-  end
 
   @tag timeout: 45_000
   test "Docker image worker connects to RuntimeFabric and is admitted" do
@@ -90,8 +63,8 @@ defmodule Ankole.ActorRuntimeWorkerE2ETest do
     assert_docker_image!()
 
     worker_id = "docker-rejected-worker-#{System.unique_integer([:positive])}"
-    assert {:ok, _auth_key} = WorkerAuthKeys.bootstrap_key(worker_id)
-    assert {:ok, _auth_key} = WorkerAuthKeys.disable(worker_id)
+    assert {:ok, auth_key} = committed_worker_auth_key(worker_id)
+    assert {:ok, _auth_key} = committed_disable_worker_auth_key(worker_id)
 
     {:ok, endpoint} =
       Broker.start_router("tcp://0.0.0.0:*",
@@ -105,7 +78,8 @@ defmodule Ankole.ActorRuntimeWorkerE2ETest do
       start_docker_worker!(
         endpoint: docker_host_endpoint(endpoint),
         worker_id: worker_id,
-        worker_instance_id: "#{worker_id}-instance"
+        worker_instance_id: "#{worker_id}-instance",
+        pre_auth_key: auth_key.pre_auth_key
       )
 
     on_exit(fn -> cleanup_docker_worker(container) end)
@@ -175,13 +149,15 @@ defmodule Ankole.ActorRuntimeWorkerE2ETest do
     assert {:ok, _profile} =
              ModelProfiles.put_model_profile(agent.uid, "primary", %{
                provider_id: "openrouter-e2e",
-               model: "google/gemini-3.5-flash"
+               model: "google/gemini-3.5-flash",
+               provider_options: %{"reasoning" => %{"effort" => "minimal", "exclude" => true}}
              })
 
     assert {:ok, _profile} =
              ModelProfiles.put_model_profile(agent.uid, "light", %{
                provider_id: "openrouter-e2e",
-               model: "openai/gpt-5.4-nano"
+               model: "openai/gpt-5.4-nano",
+               provider_options: %{"reasoning" => %{"effort" => "minimal", "exclude" => true}}
              })
 
     {:ok, binding} =
@@ -247,13 +223,14 @@ defmodule Ankole.ActorRuntimeWorkerE2ETest do
                [consumer]
              )
 
-    assert {:ok, %{send_outcome: "sent_or_queued"}} =
+    assert {:ok, %{send_outcome: "sent_or_queued", llm_turn: first_turn}} =
              ActorRuntime.process_ready_inputs_once(
                now: DateTime.add(@base_time, 1, :second),
                lease_seconds: @long_lease_seconds
              )
 
-    assert {:ok, %OutboxEntry{} = outbox} = wait_for_outbox(container, real_deadline())
+    assert {:ok, %OutboxEntry{} = outbox} =
+             wait_for_outbox(container, real_deadline(), first_turn.id)
 
     refute Repo.get(ActorInput, input.id)
     assert Repo.get!(LlmTurn, outbox.llm_turn_id).status == "succeeded"
@@ -288,16 +265,22 @@ defmodule Ankole.ActorRuntimeWorkerE2ETest do
                [consumer]
              )
 
-    assert {:ok, %{send_outcome: "sent_or_queued"}} =
+    assert {:ok, %{send_outcome: "sent_or_queued", llm_turn: rm_turn}} =
              ActorRuntime.process_ready_inputs_once(
                now: DateTime.add(@base_time, 3, :second),
                lease_seconds: @long_lease_seconds
              )
 
     assert {:ok, %OutboxEntry{} = rm_outbox} =
-             wait_for_outbox_for_input(container, rm_input.id, real_deadline())
+             wait_for_outbox_for_input(container, rm_input.id, real_deadline(), rm_turn.id)
 
-    assert rm_outbox.payload["text"] =~ "ANKOLE_E2E_RM_OK"
+    assert is_binary(rm_outbox.payload["text"])
+    assert String.trim(rm_outbox.payload["text"]) != ""
+
+    persisted_rm_turn = Repo.get!(LlmTurn, rm_outbox.llm_turn_id)
+
+    assert persisted_rm_turn.status == "succeeded"
+    assert command_tool_succeeded?(persisted_rm_turn.tool_results)
 
     active_overlay =
       AgentSkillOverlay
@@ -338,7 +321,12 @@ defmodule Ankole.ActorRuntimeWorkerE2ETest do
            } = Repo.get!(LlmTurn, compression_turn.id)
 
     assert {:ok, %OutboxEntry{} = compress_outbox} =
-             wait_for_outbox_for_input(container, compress_input.id, real_deadline())
+             wait_for_outbox_for_input(
+               container,
+               compress_input.id,
+               real_deadline(),
+               compression_turn.id
+             )
 
     assert compress_outbox.payload == %{"text" => "Conversation compressed."}
 
@@ -472,76 +460,34 @@ defmodule Ankole.ActorRuntimeWorkerE2ETest do
     result
   end
 
-  defp start_external_worker!(opts) do
-    assert_file!(Path.join(kernel_dir(), "ankole-kernel.node"))
-
-    workspace_root =
-      Path.join(System.tmp_dir!(), "ankole-worker-e2e-#{System.unique_integer([:positive])}")
-
-    shared_root = Path.join(workspace_root, "shared")
-    user_files_root = Path.join(shared_root, "user-files")
-    installed_skills_root = Path.join(shared_root, "skills/agents")
-    sessions_root = Path.join(workspace_root, ".sessions")
-
-    File.mkdir_p!(user_files_root)
-    File.mkdir_p!(installed_skills_root)
-    File.mkdir_p!(sessions_root)
-    on_exit(fn -> File.rm_rf(workspace_root) end)
-
-    env = [
-      {~c"ANKOLE_RUNTIME_FABRIC_ENDPOINT",
-       Keyword.fetch!(opts, :endpoint) |> String.to_charlist()},
-      {~c"ANKOLE_AGENT_COMPUTER_WORKER_PRE_AUTH_TOKEN",
-       Keyword.fetch!(opts, :pre_auth_token) |> String.to_charlist()},
-      {~c"ANKOLE_AGENT_COMPUTER_WORKER_ID",
-       Keyword.fetch!(opts, :worker_id) |> String.to_charlist()},
-      {~c"ANKOLE_AGENT_COMPUTER_WORKER_INSTANCE_ID",
-       Keyword.fetch!(opts, :worker_instance_id) |> String.to_charlist()},
-      {~c"ANKOLE_WORKSPACE_ROOT", workspace_root |> String.to_charlist()},
-      {~c"ANKOLE_WORKSPACE_SESSIONS_ROOT", sessions_root |> String.to_charlist()},
-      {~c"ANKOLE_SHARED_FS_ROOT", shared_root |> String.to_charlist()},
-      {~c"ANKOLE_USER_FILES_ROOT", user_files_root |> String.to_charlist()},
-      {~c"ANKOLE_AGENT_INSTALLED_SKILLS_ROOT", installed_skills_root |> String.to_charlist()},
-      {~c"ANKOLE_BUILTIN_SKILLS_ROOT",
-       Path.join([repo_root(), "app", "library", "skills"]) |> String.to_charlist()}
-    ]
-
-    Port.open({:spawn_executable, bun_path()}, [
-      :binary,
-      :exit_status,
-      :stderr_to_stdout,
-      {:args, ["src/main.ts"]},
-      {:cd, worker_dir()},
-      {:env, env}
-    ])
-  end
-
   defp start_docker_worker!(opts) do
     name = "ankole-worker-e2e-#{System.unique_integer([:positive])}"
     worker_id = Keyword.fetch!(opts, :worker_id)
-    pre_auth_key = worker_pre_auth_key!(worker_id)
+    pre_auth_key = Keyword.get(opts, :pre_auth_key) || worker_pre_auth_key!(worker_id)
 
     args =
       [
         "run",
         "--rm",
         "--name",
-        name,
-        "--add-host",
-        "host.docker.internal=host-gateway"
+        name
       ] ++
+        docker_agent_computer_runtime_args() ++
         docker_dev_agent_computer_mount_args() ++
         docker_dev_workspace_mount_args() ++
-        docker_env_args([
-          {"ANKOLE_RUNTIME_FABRIC_ENDPOINT", Keyword.fetch!(opts, :endpoint)},
-          {"ANKOLE_AGENT_COMPUTER_WORKER_PRE_AUTH_TOKEN", pre_auth_key},
-          {"ANKOLE_AGENT_COMPUTER_WORKER_ID", worker_id},
-          {"ANKOLE_AGENT_COMPUTER_WORKER_INSTANCE_ID", Keyword.fetch!(opts, :worker_instance_id)},
-          {"ANKOLE_SHARED_FS_ROOT", "/workspace/shared"},
-          {"ANKOLE_USER_FILES_ROOT", "/workspace/shared/user-files"},
-          {"ANKOLE_AGENT_INSTALLED_SKILLS_ROOT", "/workspace/shared/skills/agents"},
-          {"ANKOLE_BUILTIN_SKILLS_ROOT", "/repo/app/library/skills"}
-        ]) ++ [@docker_image]
+        docker_env_args(
+          [
+            {"ANKOLE_RUNTIME_FABRIC_ENDPOINT", Keyword.fetch!(opts, :endpoint)},
+            {"ANKOLE_AGENT_COMPUTER_WORKER_PRE_AUTH_TOKEN", pre_auth_key},
+            {"ANKOLE_AGENT_COMPUTER_WORKER_ID", worker_id},
+            {"ANKOLE_AGENT_COMPUTER_WORKER_INSTANCE_ID",
+             Keyword.fetch!(opts, :worker_instance_id)},
+            {"ANKOLE_SHARED_FS_ROOT", "/workspace/shared"},
+            {"ANKOLE_USER_FILES_ROOT", "/workspace/shared/user-files"},
+            {"ANKOLE_AGENT_INSTALLED_SKILLS_ROOT", "/workspace/shared/skills/agents"},
+            {"ANKOLE_BUILTIN_SKILLS_ROOT", "/repo/app/library/skills"}
+          ] ++ docker_worker_passthrough_env()
+        ) ++ [@docker_image]
 
     port =
       Port.open({:spawn_executable, docker_path()}, [
@@ -555,14 +501,20 @@ defmodule Ankole.ActorRuntimeWorkerE2ETest do
   end
 
   defp worker_pre_auth_key!(worker_id) do
-    case Repo.get(Ankole.ActorRuntime.Schemas.AgentComputerWorkerAuthKey, worker_id) do
-      %{pre_auth_key: pre_auth_key} ->
-        pre_auth_key
+    {:ok, auth_key} = committed_worker_auth_key(worker_id)
+    auth_key.pre_auth_key
+  end
 
-      nil ->
-        {:ok, auth_key} = WorkerAuthKeys.bootstrap_key(worker_id)
-        auth_key.pre_auth_key
-    end
+  defp committed_worker_auth_key(worker_id) do
+    Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
+      WorkerAuthKeys.bootstrap_key(worker_id)
+    end)
+  end
+
+  defp committed_disable_worker_auth_key(worker_id) do
+    Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
+      WorkerAuthKeys.disable(worker_id)
+    end)
   end
 
   defp wait_for_worker_projection(worker_id, port, deadline) do
@@ -602,26 +554,123 @@ defmodule Ankole.ActorRuntimeWorkerE2ETest do
     end
   end
 
-  defp wait_for_outbox(port, deadline) do
-    case Repo.one(OutboxEntry) do
+  defp wait_for_outbox(process, deadline, llm_turn_id) do
+    case outbox_by_turn(llm_turn_id) do
       %OutboxEntry{} = outbox ->
         {:ok, outbox}
 
       nil ->
-        receive_port_or_wait(port, deadline, fn -> wait_for_outbox(port, deadline) end)
+        flunk_if_terminal_without_outbox(process, llm_turn_id, "any outbox")
+
+        receive_port_or_wait(process, deadline, fn ->
+          wait_for_outbox(process, deadline, llm_turn_id)
+        end)
     end
   end
 
-  defp wait_for_outbox_for_input(process, actor_input_id, deadline) do
-    case Repo.get_by(OutboxEntry, source_actor_input_id: actor_input_id) do
+  defp wait_for_outbox_for_input(process, actor_input_id, deadline, llm_turn_id) do
+    case outbox_by_input(actor_input_id, llm_turn_id) do
       %OutboxEntry{} = outbox ->
         {:ok, outbox}
 
       nil ->
+        flunk_if_terminal_without_outbox(
+          process,
+          llm_turn_id,
+          "outbox for actor_input_id=#{actor_input_id}",
+          fn -> outbox_by_input(actor_input_id, llm_turn_id) end
+        )
+
         receive_port_or_wait(process, deadline, fn ->
-          wait_for_outbox_for_input(process, actor_input_id, deadline)
+          wait_for_outbox_for_input(process, actor_input_id, deadline, llm_turn_id)
         end)
     end
+  end
+
+  defp outbox_by_turn(nil), do: Repo.one(OutboxEntry)
+  defp outbox_by_turn(llm_turn_id), do: Repo.get_by(OutboxEntry, llm_turn_id: llm_turn_id)
+
+  defp outbox_by_input(actor_input_id, nil) do
+    Repo.get_by(OutboxEntry, source_actor_input_id: actor_input_id)
+  end
+
+  defp outbox_by_input(actor_input_id, llm_turn_id) do
+    Repo.get_by(OutboxEntry, source_actor_input_id: actor_input_id, llm_turn_id: llm_turn_id)
+  end
+
+  defp command_tool_succeeded?(tool_results) when is_list(tool_results) do
+    Enum.any?(tool_results, fn
+      %{
+        "tool_name" => "command",
+        "is_error" => false,
+        "result" => %{"details" => %{"exitCode" => 0}}
+      } ->
+        true
+
+      _result ->
+        false
+    end)
+  end
+
+  defp command_tool_succeeded?(_tool_results), do: false
+
+  defp flunk_if_terminal_without_outbox(process, llm_turn_id, expected),
+    do:
+      flunk_if_terminal_without_outbox(process, llm_turn_id, expected, fn ->
+        outbox_by_turn(llm_turn_id)
+      end)
+
+  defp flunk_if_terminal_without_outbox(_process, nil, _expected, _outbox_check), do: :ok
+
+  defp flunk_if_terminal_without_outbox(process, llm_turn_id, expected, outbox_check) do
+    case Repo.get(LlmTurn, llm_turn_id) do
+      %LlmTurn{status: "succeeded", response: response} ->
+        if outbox_check.() do
+          :ok
+        else
+          flunk_terminal_without_outbox(process, llm_turn_id, expected, response, "succeeded")
+        end
+
+      %LlmTurn{status: "failed", response: response} ->
+        flunk_terminal_without_outbox(process, llm_turn_id, expected, response, "failed")
+
+      _turn ->
+        :ok
+    end
+  end
+
+  defp flunk_terminal_without_outbox(process, llm_turn_id, expected, response, status) do
+    port = process_port(process)
+
+    flunk(
+      "turn #{status} without #{expected}: response=#{inspect(response)} durable_state=#{inspect(durable_commit_state(llm_turn_id))} #{inspect_process(process)} #{received_process_output(port)}"
+    )
+  end
+
+  defp durable_commit_state(llm_turn_id) do
+    %{
+      consumptions:
+        ActorInputConsumption
+        |> where([consumption], consumption.llm_turn_id == ^llm_turn_id)
+        |> Repo.all()
+        |> Enum.map(&Map.take(&1, [:actor_input_id, :provider_entry_id, :llm_turn_id])),
+      outboxes:
+        OutboxEntry
+        |> where([outbox], outbox.llm_turn_id == ^llm_turn_id)
+        |> Repo.all()
+        |> Enum.map(
+          &Map.take(&1, [
+            :outbound_key,
+            :source_actor_input_id,
+            :source_provider_entry_id,
+            :target_provider_entry_id,
+            :llm_turn_id,
+            :operation,
+            :status,
+            :payload
+          ])
+        )
+    }
   end
 
   defp wait_for_outbox_matching_or_turn_terminal(process, llm_turn_id, deadline, predicate)
@@ -633,17 +682,23 @@ defmodule Ankole.ActorRuntimeWorkerE2ETest do
       nil ->
         case Repo.get(LlmTurn, llm_turn_id) do
           %LlmTurn{status: "succeeded", response: response} ->
-            port = process_port(process)
+            case OutboxEntry |> Repo.all() |> Enum.find(predicate) do
+              %OutboxEntry{} = outbox ->
+                {:ok, outbox}
 
-            flunk(
-              "turn succeeded without matching outbox: response=#{inspect(response)} #{inspect_process(process)} #{received_process_output(port)}"
-            )
+              nil ->
+                port = process_port(process)
+
+                flunk(
+                  "turn succeeded without matching outbox: response=#{inspect(response)} durable_state=#{inspect(durable_commit_state(llm_turn_id))} #{inspect_process(process)} #{received_process_output(port)}"
+                )
+            end
 
           %LlmTurn{status: "failed", response: response} ->
             port = process_port(process)
 
             flunk(
-              "turn failed before matching outbox: response=#{inspect(response)} #{inspect_process(process)} #{received_process_output(port)}"
+              "turn failed before matching outbox: response=#{inspect(response)} durable_state=#{inspect(durable_commit_state(llm_turn_id))} #{inspect_process(process)} #{received_process_output(port)}"
             )
 
           _turn ->
@@ -658,9 +713,7 @@ defmodule Ankole.ActorRuntimeWorkerE2ETest do
     if System.monotonic_time(:millisecond) > deadline do
       port = process_port(process)
 
-      flunk(
-        "external worker e2e timed out: #{inspect_process(process)} #{received_process_output(port)}"
-      )
+      flunk("worker e2e timed out: #{inspect_process(process)} #{received_process_output(port)}")
     end
 
     port = process_port(process)
@@ -668,7 +721,7 @@ defmodule Ankole.ActorRuntimeWorkerE2ETest do
     receive do
       {^port, {:exit_status, status}} ->
         flunk(
-          "external worker exited before e2e completed: #{status} #{inspect_process(process)} #{received_process_output(port)}"
+          "worker exited before e2e completed: #{status} #{inspect_process(process)} #{received_process_output(port)}"
         )
 
       {^port, {:data, data}} ->
@@ -720,10 +773,9 @@ defmodule Ankole.ActorRuntimeWorkerE2ETest do
     args =
       [
         "run",
-        "--rm",
-        "--add-host",
-        "host.docker.internal=host-gateway"
+        "--rm"
       ] ++
+        docker_agent_computer_runtime_args() ++
         docker_dev_agent_computer_mount_args() ++
         docker_dev_workspace_mount_args() ++
         docker_env_args(env) ++ [@docker_image]
@@ -735,10 +787,41 @@ defmodule Ankole.ActorRuntimeWorkerE2ETest do
     Enum.flat_map(env, fn {key, value} -> ["-e", "#{key}=#{value}"] end)
   end
 
-  # Development-only fast path for the real worker e2e: the image still supplies
-  # OS packages, native binaries, and node_modules, but TS source changes can be
-  # exercised without rebuilding the image. Native/Rust or dependency changes
-  # still require rebuilding because those artifacts remain image-owned.
+  # Agent Computer is a Linux-container runtime. The command tool always enters
+  # bubblewrap; Docker must grant the kernel surface needed for strong bwrap
+  # instead of falling back to host execution. If these flags are unavailable, the
+  # worker startup probe may downgrade to weak bwrap and logs that explicitly.
+  defp docker_agent_computer_runtime_args do
+    [
+      "--cap-add",
+      "SYS_ADMIN",
+      "--security-opt",
+      "seccomp=unconfined",
+      "--security-opt",
+      "systempaths=unconfined",
+      "--add-host",
+      "host.docker.internal=host-gateway"
+    ]
+  end
+
+  defp docker_worker_passthrough_env do
+    [
+      "ANKOLE_LLM_TURN_TIMEOUT_MS",
+      "ANKOLE_LLM_COMPRESSION_TIMEOUT_MS",
+      "ANKOLE_LLM_AMBIENT_RECOGNIZER_TIMEOUT_MS"
+    ]
+    |> Enum.flat_map(fn key ->
+      case System.get_env(key) do
+        value when is_binary(value) and value != "" -> [{key, value}]
+        _value -> []
+      end
+    end)
+  end
+
+  # Development-only fast path for the real worker e2e. The worker process,
+  # Linux userspace packages, native binaries, node_modules, and tool sandboxing
+  # still come from the Agent Computer container; this mount only replaces the
+  # container's TS source tree to shorten edit/run feedback.
   defp docker_dev_agent_computer_mount_args do
     case System.get_env("ANKOLE_E2E_MOUNT_AGENT_COMPUTER_SRC") do
       "1" ->
@@ -750,9 +833,9 @@ defmodule Ankole.ActorRuntimeWorkerE2ETest do
     end
   end
 
-  # Optional test-only observability hook. Keeping /workspace on the host makes
-  # failed real-provider runs inspectable without changing the worker protocol
-  # or adding debugging fields to final proposals.
+  # E2E artifact mount. The worker, commands, and bubblewrap sandbox still run
+  # in the Linux container; this only makes /workspace contents inspectable from
+  # the host after a failed real-provider run.
   defp docker_dev_workspace_mount_args do
     case System.get_env("ANKOLE_E2E_HOST_WORKSPACE_ROOT") do
       nil ->
@@ -793,27 +876,11 @@ defmodule Ankole.ActorRuntimeWorkerE2ETest do
   defp deadline, do: System.monotonic_time(:millisecond) + @e2e_timeout_ms
   defp real_deadline, do: System.monotonic_time(:millisecond) + @real_e2e_timeout_ms
 
-  defp assert_file!(path) do
-    case File.exists?(path) do
-      true ->
-        :ok
-
-      false ->
-        flunk("missing #{path}; run `bun run build:bun` in app/kernel before this e2e test")
-    end
-  end
-
   defp repo_root, do: Path.expand("../../..", __DIR__)
-
-  defp bun_path do
-    System.find_executable("bun") || flunk("bun executable was not found on PATH")
-  end
 
   defp docker_path do
     System.find_executable("docker") || flunk("docker executable was not found on PATH")
   end
 
-  defp worker_dir, do: Path.expand("../../agent_computer", __DIR__)
-  defp kernel_dir, do: Path.expand("../../kernel", __DIR__)
   defp registry_name, do: :"mock_signal_provider_registry_#{System.unique_integer([:positive])}"
 end

@@ -8,23 +8,26 @@ import { createFileTransferState, fileTransferProtocol, handleFileTransferFrame 
 import { finalProposalEnvelope } from '../src/turn_envelopes'
 import { encodeEnvelope } from '../src/runtime_fabric'
 import { parseWorkerEnv, workerCapacityEnvelope, workerHeartbeatEnvelope, workerReadyEnvelope } from '../src/runtime'
+import { isRuntimeFabricBackpressure, reliableEnvelopeSender } from '../src/runtime_fabric_sender'
 import type { WorkerConfig } from '../src/runtime'
 
 describe('@ankole/agent-computer runtime', () => {
   it('parses worker env without actor-specific startup args', () => {
     expect(
-      parseWorkerEnv({
-        ANKOLE_RUNTIME_FABRIC_ENDPOINT: 'tcp://127.0.0.1:6010',
-        ANKOLE_AGENT_COMPUTER_WORKER_PRE_AUTH_TOKEN: 'secret',
-        ANKOLE_AGENT_COMPUTER_WORKER_ID: 'worker-a',
-        ANKOLE_AGENT_COMPUTER_WORKER_INSTANCE_ID: 'worker-a-1',
-        ANKOLE_WORKSPACE_ROOT: '/workspace',
-        ANKOLE_WORKSPACE_SESSIONS_ROOT: '/workspace/.sessions',
-        ANKOLE_SHARED_FS_ROOT: '/workspace/shared',
-        ANKOLE_USER_FILES_ROOT: '/workspace/shared/user-files',
-        ANKOLE_AGENT_INSTALLED_SKILLS_ROOT: '/workspace/shared/skills/agents',
-        ANKOLE_BUILTIN_SKILLS_ROOT: '/repo/app/library/skills'
-      })
+      parseWorkerEnv(
+        workerEnv({
+          ANKOLE_RUNTIME_FABRIC_ENDPOINT: 'tcp://127.0.0.1:6010',
+          ANKOLE_AGENT_COMPUTER_WORKER_PRE_AUTH_TOKEN: 'secret',
+          ANKOLE_AGENT_COMPUTER_WORKER_ID: 'worker-a',
+          ANKOLE_AGENT_COMPUTER_WORKER_INSTANCE_ID: 'worker-a-1',
+          ANKOLE_WORKSPACE_ROOT: '/workspace',
+          ANKOLE_WORKSPACE_SESSIONS_ROOT: '/workspace/.sessions',
+          ANKOLE_SHARED_FS_ROOT: '/workspace/shared',
+          ANKOLE_USER_FILES_ROOT: '/workspace/shared/user-files',
+          ANKOLE_AGENT_INSTALLED_SKILLS_ROOT: '/workspace/shared/skills/agents',
+          ANKOLE_BUILTIN_SKILLS_ROOT: '/repo/app/library/skills'
+        })
+      )
     ).toMatchObject({
       workerId: 'worker-a',
       workerInstanceId: 'worker-a-1',
@@ -34,39 +37,43 @@ describe('@ankole/agent-computer runtime', () => {
     })
 
     expect(() =>
-      parseWorkerEnv({
-        ANKOLE_RUNTIME_FABRIC_ENDPOINT: 'tcp://127.0.0.1:6010',
-        ANKOLE_AGENT_COMPUTER_WORKER_PRE_AUTH_TOKEN: 'secret',
-        ANKOLE_AGENT_COMPUTER_WORKER_ID: 'worker-a',
-        ANKOLE_AGENT_COMPUTER_WORKER_INSTANCE_ID: 'worker-a-1',
-        ANKOLE_AGENT_UID: 'agent-1'
-      })
+      parseWorkerEnv(
+        workerEnv({
+          ANKOLE_RUNTIME_FABRIC_ENDPOINT: 'tcp://127.0.0.1:6010',
+          ANKOLE_AGENT_COMPUTER_WORKER_PRE_AUTH_TOKEN: 'secret',
+          ANKOLE_AGENT_COMPUTER_WORKER_ID: 'worker-a',
+          ANKOLE_AGENT_COMPUTER_WORKER_INSTANCE_ID: 'worker-a-1',
+          ANKOLE_AGENT_UID: 'agent-1'
+        })
+      )
     ).toThrow(/must not be set/)
 
+    expect(() =>
+      parseWorkerEnv(
+        workerEnv({
+          ANKOLE_RUNTIME_FABRIC_ENDPOINT: 'tcp://127.0.0.1:6010',
+          ANKOLE_AGENT_COMPUTER_WORKER_PRE_AUTH_TOKEN: 'secret',
+          ANKOLE_AGENT_COMPUTER_WORKER_ID: 'worker-a',
+          ANKOLE_AGENT_COMPUTER_WORKER_INSTANCE_ID: 'worker-a-1',
+          DATABASE_URL: 'postgres://localhost/test'
+        })
+      )
+    ).toThrow(/DATABASE_URL/)
+  })
+
+  it('rejects worker startup outside the Agent Computer Docker image', () => {
     expect(() =>
       parseWorkerEnv({
         ANKOLE_RUNTIME_FABRIC_ENDPOINT: 'tcp://127.0.0.1:6010',
         ANKOLE_AGENT_COMPUTER_WORKER_PRE_AUTH_TOKEN: 'secret',
         ANKOLE_AGENT_COMPUTER_WORKER_ID: 'worker-a',
-        ANKOLE_AGENT_COMPUTER_WORKER_INSTANCE_ID: 'worker-a-1',
-        DATABASE_URL: 'postgres://localhost/test'
+        ANKOLE_AGENT_COMPUTER_WORKER_INSTANCE_ID: 'worker-a-1'
       })
-    ).toThrow(/DATABASE_URL/)
+    ).toThrow(/Docker image/)
   })
 
   it('emits worker.ready without actor authority fields', () => {
-    const config = {
-      endpoint: 'tcp://127.0.0.1:6010',
-      preAuthToken: 'secret',
-      workerId: 'worker-a',
-      workerInstanceId: 'worker-a-1',
-      workspaceRoot: '/workspace',
-      workspaceSessionsRoot: '/workspace/.sessions',
-      sharedFsRoot: '/workspace/shared',
-      userFilesRoot: '/workspace/shared/user-files',
-      agentInstalledSkillsRoot: '/workspace/shared/skills/agents',
-      builtinSkillsRoot: '/repo/app/library/skills'
-    }
+    const config = workerConfig()
     const ready = workerReadyEnvelope(config)
     const heartbeat = workerHeartbeatEnvelope(config, 123)
     const capacity = workerCapacityEnvelope(config)
@@ -87,6 +94,37 @@ describe('@ankole/agent-computer runtime', () => {
     expect(encodeEnvelope(capacity)).toBeInstanceOf(Buffer)
   })
 
+  it('retries transient RuntimeFabric backpressure without hiding permanent send errors', async () => {
+    const envelope = workerReadyEnvelope(workerConfig())
+    let attempts = 0
+
+    const sender = reliableEnvelopeSender(
+      () => {
+        attempts += 1
+        if (attempts < 3) {
+          throw new Error('backpressure')
+        }
+      },
+      { initialDelayMs: 1, maxDelayMs: 1, maxAttempts: 4 }
+    )
+
+    await sender(envelope)
+    expect(attempts).toBe(3)
+    expect(isRuntimeFabricBackpressure(new Error('backpressure'))).toBe(true)
+
+    let nonRetryAttempts = 0
+    const nonRetryingSender = reliableEnvelopeSender(
+      () => {
+        nonRetryAttempts += 1
+        throw new Error('socket_closed')
+      },
+      { initialDelayMs: 1, maxDelayMs: 1, maxAttempts: 4 }
+    )
+
+    await expect(nonRetryingSender(envelope)).rejects.toThrow('socket_closed')
+    expect(nonRetryAttempts).toBe(1)
+  })
+
   it('includes final proposal telemetry fields in durable envelopes', () => {
     const turn: ActorTurnRef = {
       actor: { agent_uid: 'agent-1', session_id: 'signal-channel:chat-1' },
@@ -104,7 +142,7 @@ describe('@ankole/agent-computer runtime', () => {
         usage_json: { input: 11, output: 7, totalTokens: 18 },
         provider_metadata_json: { response_id: 'resp_123', response_model: 'google/gemini-3.5-flash' },
         stop_reason: 'stop',
-        tool_results_json: [{ tool_call_id: 'call_1', tool_name: 'run_local_command', is_error: false }]
+        tool_results_json: [{ tool_call_id: 'call_1', tool_name: 'command', is_error: false }]
       },
       'turn-start-telemetry-1'
     )
@@ -114,7 +152,7 @@ describe('@ankole/agent-computer runtime', () => {
       usage_json: { input: 11, output: 7, totalTokens: 18 },
       provider_metadata_json: { response_id: 'resp_123', response_model: 'google/gemini-3.5-flash' },
       stop_reason: 'stop',
-      tool_results_json: [{ tool_call_id: 'call_1', tool_name: 'run_local_command', is_error: false }]
+      tool_results_json: [{ tool_call_id: 'call_1', tool_name: 'command', is_error: false }]
     })
     expect(envelope.correlation_id).toBe('turn-start-telemetry-1')
     expect(encodeEnvelope(envelope)).toBeInstanceOf(Buffer)
@@ -354,6 +392,28 @@ describe('@ankole/agent-computer runtime', () => {
     }
   })
 })
+
+function workerConfig(): WorkerConfig {
+  return {
+    endpoint: 'tcp://127.0.0.1:6010',
+    preAuthToken: 'secret',
+    workerId: 'worker-a',
+    workerInstanceId: 'worker-a-1',
+    workspaceRoot: '/workspace',
+    workspaceSessionsRoot: '/workspace/.sessions',
+    sharedFsRoot: '/workspace/shared',
+    userFilesRoot: '/workspace/shared/user-files',
+    agentInstalledSkillsRoot: '/workspace/shared/skills/agents',
+    builtinSkillsRoot: '/repo/app/library/skills'
+  }
+}
+
+function workerEnv(env: Record<string, string>): Record<string, string> {
+  return {
+    ANKOLE_AGENT_COMPUTER_CONTAINER: '1',
+    ...env
+  }
+}
 
 function workerConfigForRoot(root: string): WorkerConfig {
   return {

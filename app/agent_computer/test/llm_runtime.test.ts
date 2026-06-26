@@ -2,7 +2,10 @@ import { afterEach, describe, expect, it } from 'bun:test'
 import { mkdtempSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { runAgentLoop } from '../src/core'
 import type { TurnStart } from '../src/actor_lane'
+import type { Model } from '../src/llm/bullx'
+import type { LanguageModelV4, LanguageModelV4StreamPart } from '../src/llm/provider'
 import { runLlmTurnHandlers, runTextTurnLoop } from '../src/llm_runtime/text_turn_loop'
 import type { LlmProviderCredentialResponse, RuntimeConversationMessage, TurnRuntimeContext } from '../src/rpc_lane'
 
@@ -59,6 +62,29 @@ describe('@ankole/agent-computer LLM turn loop', () => {
     expect(serializedMessages.match(/Use one tool, then reply with OK\./g)).toHaveLength(1)
     expect(serializedMessages).toContain('Previous answer from durable transcript.')
     expect(JSON.stringify(body)).toContain('Old summary checkpoint.')
+  })
+
+  it('passes OpenRouter reasoning provider options through the streaming request', async () => {
+    const calls: Array<{ body: any }> = []
+    globalThis.fetch = (async (_url, init) => {
+      calls.push({ body: JSON.parse(String(init?.body)) })
+      return openAIStream([{ text: 'REASONING_OPTION_OK' }])
+    }) as typeof fetch
+
+    const start = turnStart('openrouter-main', 'google/gemini-3.5-flash')
+    const providerOptions = { reasoning: { effort: 'minimal', exclude: true } }
+
+    const reply = await runTextTurnLoop(start, {
+      workspaceRoot: tempWorkspace(),
+      runtimeContext: runtimeContext(start, []),
+      requestCredential: async request => ({
+        ...credential(request.request_id, 'openrouter', 'openrouter-main', 'google/gemini-3.5-flash'),
+        provider_options_json: providerOptions
+      })
+    })
+
+    expect(reply.reply?.text).toBe('REASONING_OPTION_OK')
+    expect(calls[0].body.reasoning).toEqual(providerOptions.reasoning)
   })
 
   it('renders actor input attachments into the model prompt', async () => {
@@ -120,7 +146,9 @@ describe('@ankole/agent-computer LLM turn loop', () => {
     const calls: Array<{ body: any }> = []
     globalThis.fetch = (async (_url, init) => {
       calls.push({ body: JSON.parse(String(init?.body)) })
-      return openAIJson('<analysis>scratch notes</analysis>\n\n## Active Task\n- compress the current context')
+      return openAIStream([
+        { text: '<analysis>scratch notes</analysis>\n\n## Active Task\n- compress the current context' }
+      ])
     }) as typeof fetch
 
     const workspaceRoot = tempWorkspace()
@@ -293,7 +321,7 @@ describe('@ankole/agent-computer LLM turn loop', () => {
     globalThis.fetch = (async (_url, init) => {
       calls.push({ body: JSON.parse(String(init?.body)) })
       if (calls.length === 1) {
-        return openAIJson('{"intervene":true,"reason":"The group is asking the agent."}')
+        return openAIStream([{ text: '{"intervene":true,"reason":"The group is asking the agent."}' }])
       }
       return openAIStream([{ text: 'AMBIENT_REPLY_OK' }])
     }) as typeof fetch
@@ -406,7 +434,7 @@ describe('@ankole/agent-computer LLM turn loop', () => {
     const calls: Array<{ body: any }> = []
     globalThis.fetch = (async (_url, init) => {
       calls.push({ body: JSON.parse(String(init?.body)) })
-      return openAIJson('{"should_intervene":true,"reason":"The group is asking the agent."}')
+      return openAIStream([{ text: '{"should_intervene":true,"reason":"The group is asking the agent."}' }])
     }) as typeof fetch
 
     const workspaceRoot = tempWorkspace()
@@ -455,6 +483,34 @@ describe('@ankole/agent-computer LLM turn loop', () => {
     expect(calls).toHaveLength(1)
   })
 
+  it('stops waiting when a provider stream ignores abort', async () => {
+    const controller = new AbortController()
+    const timer = setTimeout(() => {
+      controller.abort(new DOMException('provider stream test timeout', 'TimeoutError'))
+    }, 20)
+    timer.unref?.()
+
+    const produced = await runAgentLoop(
+      [{ role: 'user', content: [{ type: 'text', text: 'This stream never yields.' }], timestamp: Date.now() }],
+      {
+        systemPrompt: 'Return a short answer.',
+        messages: [],
+        tools: []
+      },
+      {
+        model: hangingStreamModel(),
+        convertToLlm: messages => messages.flatMap(message => (message.role === 'user' ? [message] : [])),
+        maxTurns: 1
+      },
+      () => {},
+      controller.signal
+    )
+
+    const latestAssistant = [...produced].reverse().find(message => message.role === 'assistant')
+    expect(latestAssistant?.stopReason).toBe('aborted')
+    expect(latestAssistant?.errorMessage).toContain('provider stream test timeout')
+  })
+
   it('rejects credentials that do not match the turn model ref', async () => {
     const start = turnStart('openrouter-main', 'z-ai/glm-5.2')
     await expect(
@@ -470,6 +526,46 @@ describe('@ankole/agent-computer LLM turn loop', () => {
 
 function tempWorkspace(): string {
   return mkdtempSync(join(tmpdir(), 'ankole-agent-computer-'))
+}
+
+function hangingStreamModel(): Model<any> {
+  const sdkModel = {
+    specificationVersion: 'v4',
+    provider: 'faux-hanging',
+    modelId: 'faux-hanging-model',
+    supportedUrls: {},
+    async doGenerate() {
+      return {
+        content: [],
+        finishReason: { unified: 'stop', raw: 'stop' },
+        usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+        warnings: []
+      }
+    },
+    async doStream() {
+      return {
+        stream: new ReadableStream<LanguageModelV4StreamPart>({
+          pull() {
+            return new Promise(() => {})
+          }
+        })
+      }
+    }
+  } as unknown as LanguageModelV4
+
+  return {
+    id: 'faux-hanging-model',
+    name: 'faux-hanging-model',
+    api: 'faux',
+    provider: 'faux-hanging',
+    baseUrl: 'faux://hanging',
+    reasoning: false,
+    input: ['text'],
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow: 128000,
+    maxTokens: 8192,
+    sdkModel
+  }
 }
 
 function turnStart(providerId: string, model: string, overrides: Partial<TurnStart> = {}): TurnStart {
@@ -578,18 +674,6 @@ function openAIStream(parts: StreamPart[]): Response {
   )
   chunks.push('data: [DONE]\n\n')
   return new Response(chunks.join(''), { headers: { 'content-type': 'text/event-stream' } })
-}
-
-function openAIJson(text: string): Response {
-  return new Response(
-    JSON.stringify({
-      id: 'chatcmpl-test',
-      model: 'test-model',
-      choices: [{ message: { role: 'assistant', content: text }, finish_reason: 'stop' }],
-      usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 }
-    }),
-    { headers: { 'content-type': 'application/json' } }
-  )
 }
 
 function sse(value: unknown): string {

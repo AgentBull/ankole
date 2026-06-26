@@ -11,8 +11,8 @@ defmodule Ankole.SignalsGateway.Commands do
   """
 
   # The only recognized commands. `steer` and `stop` reach a running actor;
-  # `new`/`compress`/`retry` manage the session. Output is currently a "stub" —
-  # the parser identifies intent; execution is wired up elsewhere.
+  # `new`/`compress`/`retry` manage the session. The parser only captures the
+  # human intent; execution state belongs to the durable actor runtime rows.
   @commands MapSet.new(["new", "compress", "retry", "steer", "stop"])
 
   @doc """
@@ -94,8 +94,7 @@ defmodule Ankole.SignalsGateway.Commands do
          %{
            "name" => name,
            "raw" => raw,
-           "argsText" => args_text,
-           "status" => "stub"
+           "argsText" => args_text
          }}
 
       false ->

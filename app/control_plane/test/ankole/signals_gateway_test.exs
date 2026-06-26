@@ -445,6 +445,7 @@ defmodule Ankole.SignalsGatewayTest do
       assert input.available_at == @base_time
       assert input.payload["type"] == "command.steer"
       assert input.payload["data"]["command"]["argsText"] == "be concise"
+      refute Map.has_key?(input.payload["data"]["command"], "status")
       assert ActorInputTypes.consumption_path("command.steer") == :addressed_im
     end
 
@@ -487,6 +488,7 @@ defmodule Ankole.SignalsGatewayTest do
 
       assert command["name"] == "retry"
       assert command["argsText"] == "12\nbecause it failed"
+      refute Map.has_key?(command, "status")
     end
 
     test "addressed IM inputs share readiness window by scope and read contiguous same-sender prefix" do

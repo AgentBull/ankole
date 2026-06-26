@@ -62,9 +62,9 @@ export function createCombinedAbortSignal(
   const timer = setTimeout(() => {
     controller.abort(new DOMException(`Timed out after ${timeoutMs}ms`, 'TimeoutError'))
   }, timeoutMs)
-  // `unref` keeps a pending timeout from holding the process open during shutdown;
-  // the optional-call guards runtimes where timer handles lack `unref`.
-  timer.unref?.()
+  // Keep this timer ref'ed. It is currently used as the worker's hard LLM turn
+  // deadline, so it must fire even when the only other activity is native
+  // ZMQ/fetch work that Bun may not count as a normal JS event-loop reference.
   // Source abort wins over the timeout: cancel the timer and forward the source's
   // reason so callers see the real cause rather than a synthetic TimeoutError.
   const onSourceAbort = (): void => {

@@ -881,14 +881,14 @@ looks like:
 {
   "name": "steer",
   "raw": "/steer be concise",
-  "argsText": "be concise",
-  "status": "stub"
+  "argsText": "be concise"
 }
 ```
 
-SignalsGateway does not implement undo, steering, retry, stop, or
+SignalsGateway does not execute undo, steering, retry, stop, or
 assistant-output recall semantics. ActorInput classifies the semantic ingress;
-the session actor runtime decides what the command means.
+the session actor runtime decides what the command means and records execution
+state in actor-runtime rows, not in the parsed command payload.
 
 `/steer` is a typed command event like `/new`, `/compress`, `/retry`, and
 `/stop`. The command remains `ActorInput(type = command.steer)` even when its

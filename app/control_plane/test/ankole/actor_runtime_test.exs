@@ -197,6 +197,129 @@ defmodule Ankole.ActorRuntimeTest do
       assert sent_outbox.provider_entry_id == "provider-pong-1"
     end
 
+    test "commits a provider outbox for each consecutive IM turn in one channel" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :ignore)
+      route = unique_route()
+
+      :ok = Broker.register_local_worker(route, self())
+      on_exit(fn -> Broker.unregister_local_worker(route) end)
+
+      assert {:ok, _worker} = admit_worker(route)
+
+      assert {:ok, %{actor_input: first_input}} =
+               SignalsGateway.emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{
+                   ingress_event_id:
+                     "evt-first-" <> Integer.to_string(System.unique_integer([:positive])),
+                   signal_channel_id: "lark:chat:two-turns",
+                   provider_entry_id: "msg-first",
+                   provider_thread_id: "thread-two-turns",
+                   text: "first request",
+                   explicit: true
+                 }),
+                 now: @base_time
+               )
+
+      assert {:ok, %{llm_turn: first_turn}} =
+               ActorRuntime.process_ready_inputs_once(
+                 now: DateTime.add(@base_time, 1, :second),
+                 lease_seconds: @long_lease_seconds
+               )
+
+      assert_receive {:actor_lane, first_envelope}
+      first_turn_ref = first_envelope["body"]["turn_start"]["turn"]
+
+      first_input_ids =
+        Enum.map(first_envelope["body"]["turn_start"]["inputs"], & &1["actor_input_id"])
+
+      assert first_input_ids == [first_input.id]
+
+      assert {:ok, [_delivery]} =
+               ActorRuntime.handle_turn_accepted(%{
+                 "turn_accepted" => %{
+                   "turn" => first_turn_ref,
+                   "accepted_actor_input_ids" => first_input_ids
+                 }
+               })
+
+      assert {:ok, %{status: :committed}} =
+               ActorRuntime.commit_final_proposal(%{
+                 "turn_final_proposal" => %{
+                   "turn" => first_turn_ref,
+                   "messages" => [],
+                   "reply" => %{"text" => "FIRST"}
+                 }
+               })
+
+      assert %OutboxEntry{payload: %{"text" => "FIRST"}} =
+               Repo.get_by!(OutboxEntry,
+                 source_actor_input_id: first_input.id,
+                 llm_turn_id: first_turn.id
+               )
+
+      assert {:ok, %{actor_input: second_input}} =
+               SignalsGateway.emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{
+                   ingress_event_id:
+                     "evt-second-" <>
+                       Integer.to_string(System.unique_integer([:positive])),
+                   signal_channel_id: "lark:chat:two-turns",
+                   provider_entry_id: "msg-second",
+                   provider_thread_id: "thread-two-turns",
+                   text: "second request",
+                   explicit: true,
+                   provider_time: DateTime.add(@base_time, 2, :second)
+                 }),
+                 now: DateTime.add(@base_time, 2, :second)
+               )
+
+      assert {:ok, %{llm_turn: second_turn}} =
+               ActorRuntime.process_ready_inputs_once(
+                 now: DateTime.add(@base_time, 3, :second),
+                 lease_seconds: @long_lease_seconds
+               )
+
+      assert_receive {:actor_lane, second_envelope}
+      second_turn_ref = second_envelope["body"]["turn_start"]["turn"]
+
+      second_input_ids =
+        Enum.map(second_envelope["body"]["turn_start"]["inputs"], & &1["actor_input_id"])
+
+      assert second_input_ids == [second_input.id]
+
+      assert {:ok, [_delivery]} =
+               ActorRuntime.handle_turn_accepted(%{
+                 "turn_accepted" => %{
+                   "turn" => second_turn_ref,
+                   "accepted_actor_input_ids" => second_input_ids
+                 }
+               })
+
+      assert {:ok, %{status: :committed}} =
+               ActorRuntime.commit_final_proposal(%{
+                 "turn_final_proposal" => %{
+                   "turn" => second_turn_ref,
+                   "messages" => [],
+                   "reply" => %{"text" => "SECOND"}
+                 }
+               })
+
+      assert %OutboxEntry{payload: %{"text" => "SECOND"}} =
+               Repo.get_by!(OutboxEntry,
+                 source_actor_input_id: second_input.id,
+                 llm_turn_id: second_turn.id
+               )
+
+      assert Repo.aggregate(ActorInputConsumption, :count) == 2
+      assert Repo.aggregate(OutboxEntry, :count) == 2
+      assert Repo.aggregate(ActorInputDelivery, :count) == 0
+    end
+
     test "commits final proposal reply attachments into transcript outbox and mirror" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
@@ -485,7 +608,7 @@ defmodule Ankole.ActorRuntimeTest do
                    "tool_results_json" => [
                      %{
                        "tool_call_id" => "call_1",
-                       "tool_name" => "run_local_command",
+                       "tool_name" => "command",
                        "args" => %{"cmd" => "printf ok"},
                        "is_error" => false,
                        "result" => %{
@@ -509,7 +632,7 @@ defmodule Ankole.ActorRuntimeTest do
       assert [
                %{
                  "tool_call_id" => "call_1",
-                 "tool_name" => "run_local_command",
+                 "tool_name" => "command",
                  "is_error" => false,
                  "result" => %{"content" => [%{"type" => "text", "text" => "ok"}]}
                }

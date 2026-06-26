@@ -30,8 +30,14 @@ import { rpcMethods, rpcRequestEnvelopeBody } from './rpc_lane'
 import { parseWorkerEnv, workerCapacityEnvelope, workerHeartbeatEnvelope, workerReadyEnvelope } from './runtime'
 import type { WorkerConfig } from './runtime'
 import { decodeEnvelope, type JsonObject } from './runtime_fabric'
+import {
+  isRuntimeFabricBackpressure,
+  reliableEnvelopeSender,
+  type ReliableEnvelopeSender
+} from './runtime_fabric_sender'
 import { prepareTurnWorkspace, verifyWorkerFilesystem } from './workspace'
 import { createFileTransferState, handleFileTransferFrame, isFileTransferFrame } from './file_transfer_lane'
+import { resolveBubblewrapSupport } from './tools/computer/bubblewrap'
 
 const heartbeatIntervalMs = 15_000
 const rpcTimeoutMs = 60_000
@@ -51,18 +57,14 @@ type RpcWaiter = {
 try {
   await runWorker()
 } catch (error) {
-  process.stderr.write(
-    `${JSON.stringify({
-      event: 'worker.error',
-      error: error instanceof Error ? error.message : String(error)
-    })}\n`
-  )
+  logWorkerEvent('worker.error', { error: error instanceof Error ? error.message : String(error) }, 'stderr')
   process.exit(1)
 }
 
 async function runWorker(): Promise<void> {
   const config = parseWorkerEnv()
   verifyWorkerFilesystem(config)
+  logBubblewrapSupport(config.workspaceRoot)
 
   const dealer = new kernel.RuntimeFabricDealer(
     config.endpoint,
@@ -70,7 +72,8 @@ async function runWorker(): Promise<void> {
     config.workerId,
     config.preAuthToken
   )
-  const rpcClient = new RuntimeRpcClient(envelope => dealer.sendEnvelope(envelope))
+  const sendEnvelope = reliableEnvelopeSender(envelope => dealer.sendEnvelope(envelope))
+  const rpcClient = new RuntimeRpcClient(sendEnvelope)
   const activeTurns = new Map<string, ActiveTurn>()
   const fileTransfers = createFileTransferState()
   let stopping = false
@@ -82,26 +85,26 @@ async function runWorker(): Promise<void> {
   }
 
   try {
-    dealer.sendEnvelope(workerReadyEnvelope(config, 1))
-    dealer.sendEnvelope(workerCapacityEnvelope(config, 1, 0))
-    process.stdout.write(
-      `${JSON.stringify({
-        event: 'worker.ready_sent',
-        endpoint: config.endpoint,
-        worker_id: config.workerId,
-        worker_instance_id: config.workerInstanceId
-      })}\n`
-    )
+    await sendEnvelope(workerReadyEnvelope(config, 1))
+    await sendEnvelope(workerCapacityEnvelope(config, 1, 0))
+    logWorkerEvent('worker.ready_sent', {
+      endpoint: config.endpoint,
+      worker_id: config.workerId,
+      worker_instance_id: config.workerInstanceId
+    })
 
     let nextHeartbeatAt = Date.now() + heartbeatIntervalMs
 
     while (!stopping) {
       if (Date.now() >= nextHeartbeatAt) {
-        dealer.sendEnvelope(workerHeartbeatEnvelope(config, Math.floor(performance.now()), activeTurns.size))
+        await sendHeartbeat(
+          sendEnvelope,
+          workerHeartbeatEnvelope(config, Math.floor(performance.now()), activeTurns.size)
+        )
         nextHeartbeatAt = Date.now() + heartbeatIntervalMs
       }
 
-      const frames = dealer.recvRaw(500)
+      const frames = await dealer.recvRawAsync(500)
       if (!frames) continue
 
       if (isFileTransferFrame(frames)) {
@@ -109,20 +112,67 @@ async function runWorker(): Promise<void> {
         continue
       }
 
-      if (!frames[0]) {
-        continue
-      }
+      if (!frames[0]) continue
       const envelope = decodeEnvelope(frames[0])
-      await handleEnvelope(config, dealer, rpcClient, activeTurns, envelope)
+      logWorkerEvent('worker.envelope_received', {
+        type: envelope.body.type,
+        message_id: envelope.message_id
+      })
+      await handleEnvelope(config, sendEnvelope, rpcClient, activeTurns, envelope)
     }
   } finally {
     dealer.stop()
   }
 }
 
+function logBubblewrapSupport(workspaceRoot: string): void {
+  const support = resolveBubblewrapSupport(workspaceRoot)
+  if (support.mode === 'strong') {
+    logWorkerEvent('worker.bubblewrap_ready', { mode: 'strong' })
+    return
+  }
+
+  logWorkerEvent(
+    'worker.bubblewrap_warning',
+    {
+      mode: 'weak',
+      strong_probe_error: support.strong.ok ? undefined : support.strong.reason,
+      message:
+        'Strong bubblewrap is unavailable; using weaker nested bubblewrap with the container procfs. Prefer Docker/Kubernetes settings that allow a fresh bwrap /proc mount.'
+    },
+    'stderr'
+  )
+}
+
+/**
+ * Sends heartbeat as best-effort liveness, not as a worker-fatal control fact.
+ *
+ * Capacity, ack, RPC, and final proposal sends still fail loudly after bounded
+ * retry. Heartbeat is different: it is periodically refreshed ephemeral state,
+ * and killing the worker because one heartbeat hit a full ZeroMQ pipe creates a
+ * worse failure mode than letting the control plane expire the lease if the pipe
+ * is actually broken.
+ */
+async function sendHeartbeat(sendEnvelope: ReliableEnvelopeSender, heartbeat: ActorLaneEnvelope): Promise<void> {
+  try {
+    await sendEnvelope(heartbeat)
+  } catch (error) {
+    if (!isRuntimeFabricBackpressure(error)) {
+      throw error
+    }
+
+    process.stderr.write(
+      `${JSON.stringify({
+        event: 'worker.heartbeat_skipped',
+        reason: 'backpressure'
+      })}\n`
+    )
+  }
+}
+
 async function handleEnvelope(
   config: WorkerConfig,
-  dealer: kernel.RuntimeFabricDealer,
+  sendEnvelope: ReliableEnvelopeSender,
   rpcClient: RuntimeRpcClient,
   activeTurns: Map<string, ActiveTurn>,
   envelope: ActorLaneEnvelope
@@ -137,28 +187,32 @@ async function handleEnvelope(
       return
 
     case 'turn_start':
-      return startTurn(config, dealer, rpcClient, activeTurns, envelope)
+      return startTurn(config, sendEnvelope, rpcClient, activeTurns, envelope)
 
     case 'mailbox_updated':
-      return handleMailboxUpdated(dealer, activeTurns, envelope)
+      return handleMailboxUpdated(sendEnvelope, activeTurns, envelope)
 
     default:
       return
   }
 }
 
-function startTurn(
+async function startTurn(
   config: WorkerConfig,
-  dealer: kernel.RuntimeFabricDealer,
+  sendEnvelope: ReliableEnvelopeSender,
   rpcClient: RuntimeRpcClient,
   activeTurns: Map<string, ActiveTurn>,
   envelope: ActorLaneEnvelope
-): void {
+): Promise<void> {
   const turnStart = turnStartFromEnvelope(envelope)
   const correlationId = envelope.message_id
+  logWorkerEvent('worker.turn_start_received', {
+    llm_turn_id: turnStart.turn.llm_turn_id,
+    input_count: turnStart.inputs.length
+  })
 
   if (activeTurns.size > 0) {
-    dealer.sendEnvelope(
+    await sendEnvelope(
       turnErrorEnvelope(turnStart.turn, 'worker_busy', 'worker already has an active turn', correlationId, {
         runtime: 'bun'
       })
@@ -173,35 +227,66 @@ function startTurn(
   }
   activeTurns.set(turnKey(turnStart.turn), active)
 
-  dealer.sendEnvelope(
+  await sendEnvelope(
     turnAcceptedEnvelope(
       turnStart.turn,
       turnStart.inputs.map(input => input.actor_input_id),
       correlationId
     )
   )
-  dealer.sendEnvelope(workerCapacityEnvelope(config, 0, 1))
+  await sendEnvelope(workerCapacityEnvelope(config, 0, 1))
 
-  void runActiveTurn(config, dealer, rpcClient, active)
-    .catch(error => {
-      dealer.sendEnvelope(
-        turnErrorEnvelope(
-          turnStart.turn,
-          'worker_turn_failed',
-          error instanceof Error ? error.message : String(error),
-          correlationId
-        )
+  void runActiveTurnTask(config, sendEnvelope, rpcClient, active, activeTurns).catch(error => {
+    process.stderr.write(
+      `${JSON.stringify({
+        event: 'worker.turn_completion_error',
+        llm_turn_id: turnStart.turn.llm_turn_id,
+        error: error instanceof Error ? error.message : String(error)
+      })}\n`
+    )
+  })
+}
+
+async function runActiveTurnTask(
+  config: WorkerConfig,
+  sendEnvelope: ReliableEnvelopeSender,
+  rpcClient: RuntimeRpcClient,
+  active: ActiveTurn,
+  activeTurns: Map<string, ActiveTurn>
+): Promise<void> {
+  const turnStart = active.turnStart
+
+  try {
+    await runActiveTurn(config, sendEnvelope, rpcClient, active)
+    logWorkerEvent('worker.turn_completed', {
+      llm_turn_id: turnStart.turn.llm_turn_id
+    })
+  } catch (error) {
+    await sendEnvelope(
+      turnErrorEnvelope(
+        turnStart.turn,
+        'worker_turn_failed',
+        error instanceof Error ? error.message : String(error),
+        active.correlationId
       )
-    })
-    .finally(() => {
-      activeTurns.delete(turnKey(turnStart.turn))
-      dealer.sendEnvelope(workerCapacityEnvelope(config, 1, 0))
-    })
+    )
+    logWorkerEvent(
+      'worker.turn_failed',
+      {
+        llm_turn_id: turnStart.turn.llm_turn_id,
+        error: error instanceof Error ? error.message : String(error)
+      },
+      'stderr'
+    )
+  } finally {
+    activeTurns.delete(turnKey(turnStart.turn))
+    await sendEnvelope(workerCapacityEnvelope(config, 1, 0))
+  }
 }
 
 async function runActiveTurn(
   config: WorkerConfig,
-  dealer: kernel.RuntimeFabricDealer,
+  sendEnvelope: ReliableEnvelopeSender,
   rpcClient: RuntimeRpcClient,
   active: ActiveTurn
 ): Promise<void> {
@@ -210,7 +295,13 @@ async function runActiveTurn(
     request_id: `turn-context-${crypto.randomUUID()}`,
     turn: turnStart.turn
   })
+  logWorkerEvent('worker.turn_context_resolved', {
+    llm_turn_id: turnStart.turn.llm_turn_id
+  })
   const workspaceRoot = prepareTurnWorkspace(config, turnStart, runtimeContext)
+  logWorkerEvent('worker.llm_turn_started', {
+    llm_turn_id: turnStart.turn.llm_turn_id
+  })
 
   const proposal = await runLlmTurnHandlers(turnStart, {
     workspaceRoot,
@@ -224,14 +315,28 @@ async function runActiveTurn(
     pollSteering: () => active.steeringUpdates.splice(0)
   })
 
-  dealer.sendEnvelope(finalProposalEnvelope(turnStart.turn, proposal, active.correlationId))
+  await sendEnvelope(finalProposalEnvelope(turnStart.turn, proposal, active.correlationId))
 }
 
-function handleMailboxUpdated(
-  dealer: kernel.RuntimeFabricDealer,
+function logWorkerEvent(
+  event: string,
+  fields: Record<string, unknown> = {},
+  stream: 'stdout' | 'stderr' = 'stdout'
+): void {
+  const line = `${JSON.stringify({ event, ...fields })}\n`
+  if (stream === 'stderr') {
+    process.stderr.write(line)
+    return
+  }
+
+  process.stdout.write(line)
+}
+
+async function handleMailboxUpdated(
+  sendEnvelope: ReliableEnvelopeSender,
   activeTurns: Map<string, ActiveTurn>,
   envelope: ActorLaneEnvelope
-): void {
+): Promise<void> {
   const update = mailboxUpdatedFromEnvelope(envelope)
   if (!update.turn || !Array.isArray(update.inputs) || update.inputs.length === 0) {
     return
@@ -241,7 +346,7 @@ function handleMailboxUpdated(
   if (!active) return
 
   active.steeringUpdates.push({ turn: update.turn, inputs: update.inputs })
-  dealer.sendEnvelope(
+  await sendEnvelope(
     turnAcceptedEnvelope(
       update.turn,
       update.inputs.map(input => input.actor_input_id),
@@ -324,9 +429,9 @@ async function clearSkillOverlay(
 class RuntimeRpcClient {
   private waiters = new Map<string, RpcWaiter>()
 
-  constructor(private readonly sendEnvelope: (envelope: ActorLaneEnvelope) => void) {}
+  constructor(private readonly sendEnvelope: ReliableEnvelopeSender) {}
 
-  request<M extends RpcMethod>(
+  async request<M extends RpcMethod>(
     method: M,
     payload: RpcPayloadByMethod[M],
     requestId: string
@@ -346,7 +451,7 @@ class RuntimeRpcClient {
     })
 
     try {
-      this.sendEnvelope({
+      await this.sendEnvelope({
         protocol_version: 1,
         message_id: `rpc-request-${crypto.randomUUID()}`,
         correlation_id: requestId,

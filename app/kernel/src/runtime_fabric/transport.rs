@@ -291,6 +291,13 @@ impl Drop for RouterHandle {
 
 #[derive(Clone)]
 pub struct DealerHandle {
+    inner: Arc<DealerHandleInner>,
+}
+
+// Async N-API receive tasks need to hold a temporary clone while JS continues
+// using the worker transport. The underlying DEALER must therefore be closed by
+// the last shared handle, not by every clone that leaves a native worker thread.
+struct DealerHandleInner {
     command_timeout: Duration,
     commands: mpsc::Sender<DealerCommand>,
     inbox: Arc<DealerInbox>,
@@ -355,7 +362,8 @@ impl DealerHandle {
     pub fn send_payload(&self, payload: Vec<u8>) -> Result<SendOutcome, TransportError> {
         let (reply_tx, reply_rx) = mpsc::channel();
 
-        self.commands
+        self.inner
+            .commands
             .send(DealerCommand::Send {
                 payload,
                 reply: reply_tx,
@@ -363,7 +371,7 @@ impl DealerHandle {
             .map_err(|_| TransportError::SocketClosed)?;
 
         reply_rx
-            .recv_timeout(self.command_timeout)
+            .recv_timeout(self.inner.command_timeout)
             .map_err(|_| TransportError::Timeout)?
     }
 
@@ -372,7 +380,8 @@ impl DealerHandle {
         validate_file_transfer_frames(&frames)?;
         let (reply_tx, reply_rx) = mpsc::channel();
 
-        self.commands
+        self.inner
+            .commands
             .send(DealerCommand::SendFileFrame {
                 frames,
                 reply: reply_tx,
@@ -380,7 +389,7 @@ impl DealerHandle {
             .map_err(|_| TransportError::SocketClosed)?;
 
         reply_rx
-            .recv_timeout(self.command_timeout)
+            .recv_timeout(self.inner.command_timeout)
             .map_err(|_| TransportError::Timeout)?
     }
 
@@ -389,24 +398,25 @@ impl DealerHandle {
     /// A timeout returns `Ok(None)` so the worker loop can also send heartbeats
     /// and observe shutdown signals.
     pub fn recv(&self, timeout: Duration) -> Result<Option<DealerEvent>, TransportError> {
-        self.inbox.recv(timeout)
+        self.inner.inbox.recv(timeout)
     }
 
     /// Stops the dealer thread and closes the worker transport.
     pub fn stop(&self) -> Result<(), TransportError> {
         let (reply_tx, reply_rx) = mpsc::channel();
 
-        self.commands
+        self.inner
+            .commands
             .send(DealerCommand::Stop { reply: reply_tx })
             .map_err(|_| TransportError::SocketClosed)?;
 
         reply_rx
-            .recv_timeout(self.command_timeout)
+            .recv_timeout(self.inner.command_timeout)
             .map_err(|_| TransportError::Timeout)?
     }
 }
 
-impl Drop for DealerHandle {
+impl Drop for DealerHandleInner {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::SeqCst);
         let (reply_tx, _reply_rx) = mpsc::channel();
@@ -598,10 +608,12 @@ pub fn start_dealer(config: DealerConfig) -> KernelResult<DealerHandle> {
         .map_err(KernelError::from)?;
 
     Ok(DealerHandle {
-        command_timeout,
-        commands: command_tx,
-        inbox,
-        stop,
+        inner: Arc::new(DealerHandleInner {
+            command_timeout,
+            commands: command_tx,
+            inbox,
+            stop,
+        }),
     })
 }
 
@@ -775,17 +787,11 @@ fn drain_dealer_commands(socket: &zmq::Socket, commands: &mpsc::Receiver<DealerC
     while let Ok(command) = commands.try_recv() {
         match command {
             DealerCommand::Send { payload, reply } => {
-                let outcome = socket
-                    .send_multipart(vec![payload], zmq::DONTWAIT)
-                    .map(|_| SendOutcome::SentOrQueued)
-                    .map_err(map_send_error);
+                let outcome = send_dealer_frames(socket, vec![payload]);
                 let _ = reply.send(outcome);
             }
             DealerCommand::SendFileFrame { frames, reply } => {
-                let outcome = socket
-                    .send_multipart(frames, zmq::DONTWAIT)
-                    .map(|_| SendOutcome::SentOrQueued)
-                    .map_err(map_send_error);
+                let outcome = send_dealer_frames(socket, frames);
                 let _ = reply.send(outcome);
             }
             DealerCommand::Stop { reply } => {
@@ -796,6 +802,21 @@ fn drain_dealer_commands(socket: &zmq::Socket, commands: &mpsc::Receiver<DealerC
     }
 
     true
+}
+
+// Worker-to-control sends are allowed to wait for the socket's bounded
+// `sndtimeo`. A freshly connected DEALER can otherwise report EAGAIN before the
+// ROUTER pipe is writable, which makes worker startup depend on a race. ROUTER
+// mandatory sends below stay non-blocking because actor delivery needs immediate
+// unknown-route/backpressure feedback.
+fn send_dealer_frames(
+    socket: &zmq::Socket,
+    frames: Vec<Vec<u8>>,
+) -> Result<SendOutcome, TransportError> {
+    socket
+        .send_multipart(frames, 0)
+        .map(|_| SendOutcome::SentOrQueued)
+        .map_err(map_send_error)
 }
 
 // Sends the ROUTER multipart frame shape: worker route identity followed by the
@@ -1406,6 +1427,11 @@ mod tests {
             command_timeout_ms: Some(1_000),
         })
         .expect("dealer starts");
+
+        {
+            let transient_recv_handle = dealer.clone();
+            drop(transient_recv_handle);
+        }
 
         dealer
             .send_envelope(worker_ready_envelope())

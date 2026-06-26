@@ -87,7 +87,8 @@ defmodule Ankole.AIAgent.ProviderSources do
       default_base_url: "https://openrouter.ai/api/v1",
       connection_option_keys:
         ~w(base_url headers query_params include_usage supports_structured_outputs),
-      runtime_provider_option_keys: ~w(user reasoningEffort textVerbosity strictJsonSchema),
+      runtime_provider_option_keys:
+        ~w(user reasoning reasoningEffort textVerbosity strictJsonSchema),
       credential_modes: ~w(api_key),
       model_catalog_policy: "provider_specific"
     },

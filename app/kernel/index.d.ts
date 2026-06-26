@@ -7,6 +7,7 @@ export declare class RuntimeFabricDealer {
   sendFileFrame(frames: Buffer[]): string
   recv(timeoutMs: number): Buffer | null
   recvRaw(timeoutMs: number): Buffer[] | null
+  recvRawAsync(timeoutMs: number): Promise<Buffer[] | null>
   stop(): boolean
 }
 export type JsRuntimeFabricDealer = RuntimeFabricDealer

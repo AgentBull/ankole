@@ -126,7 +126,7 @@ export interface BeforeLlmCallContext {
 
 /** Optional request option updates returned from `beforeLlmCall`. */
 export interface BeforeLlmCallResult {
-  /** Metadata attached to BullX-local provider observability for the immediately following request. */
+  /** Metadata attached to worker-side provider observability for the immediately following request. */
   metadata?: Record<string, unknown>
 }
 
@@ -208,7 +208,7 @@ export interface AgentLoopConfig extends SimpleStreamOptions {
    * Called after `transformContext` and `convertToLlm`, immediately before the provider request.
    *
    * This is the only point where the exact model-visible request shape is available.
-   * Return metadata to attach to BullX-local observability for the immediately following request.
+   * Return metadata to attach to worker-side observability for the immediately following request.
    */
   beforeLlmCall?: (
     context: BeforeLlmCallContext,

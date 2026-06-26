@@ -8,14 +8,18 @@ import type { FlexibleSchema } from './schema'
  */
 export function parseJsonEventStream<T>({
   stream,
-  schema
+  schema,
+  abortSignal
 }: {
   stream: ReadableStream<Uint8Array>
   schema: FlexibleSchema<T>
+  abortSignal?: AbortSignal
 }): ReadableStream<ParseResult<T>> {
+  const pipeOptions = abortSignal ? { signal: abortSignal } : undefined
+
   return stream
-    .pipeThrough(new TextDecoderStream())
-    .pipeThrough(new EventSourceParserStream())
+    .pipeThrough(new TextDecoderStream(), pipeOptions)
+    .pipeThrough(new EventSourceParserStream(), pipeOptions)
     .pipeThrough(
       new TransformStream<EventSourceMessage, ParseResult<T>>({
         async transform({ data }, controller) {
@@ -26,6 +30,7 @@ export function parseJsonEventStream<T>({
 
           controller.enqueue(await safeParseJSON({ text: data, schema }))
         }
-      })
+      }),
+      pipeOptions
     )
 }

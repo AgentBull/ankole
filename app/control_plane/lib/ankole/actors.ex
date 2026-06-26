@@ -421,9 +421,28 @@ defmodule Ankole.Actors do
       conflict_target: [:agent_uid, :binding_name, :outbound_key],
       returning: true
     )
+    |> outbox_insert_result(repo, attrs)
   end
 
   defp insert_outbox_intent(_repo, _actor_input, _attrs), do: {:error, :invalid_outbox_intent}
+
+  # A duplicate final proposal is a successful idempotent commit, but Ecto returns
+  # an empty struct when `on_conflict: :nothing` skipped the insert. Re-read the
+  # row so the consume transaction never treats a conflict placeholder as a real
+  # outbox entry.
+  defp outbox_insert_result({:ok, %OutboxEntry{agent_uid: nil}}, repo, attrs) do
+    case repo.get_by(OutboxEntry,
+           agent_uid: attrs.agent_uid,
+           binding_name: attrs.binding_name,
+           outbound_key: attrs.outbound_key
+         ) do
+      %OutboxEntry{} = entry -> {:ok, entry}
+      nil -> {:error, :outbox_entry_not_found}
+    end
+  end
+
+  defp outbox_insert_result({:ok, %OutboxEntry{} = entry}, _repo, _attrs), do: {:ok, entry}
+  defp outbox_insert_result({:error, _changeset} = error, _repo, _attrs), do: error
 
   # Deletes pending runtime projections when their source input is canceled.
   # These rows are not the durable AI-agent transcript; they only fence delivery.

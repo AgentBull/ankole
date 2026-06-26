@@ -574,7 +574,7 @@ class DefaultStreamObjectResult<PARTIAL, RESULT, ELEMENT_STREAM> implements Stre
       const startTimestampMs = now()
       const { stream, response, request } = await retry(() => model.doStream(callOptions))
 
-      self._request.resolve(request ?? {})
+      this._request.resolve(request ?? {})
 
       let warnings: SharedV4Warning[] | undefined
       let usage: LanguageModelUsage = createNullLanguageModelUsage()
@@ -603,7 +603,7 @@ class DefaultStreamObjectResult<PARTIAL, RESULT, ELEMENT_STREAM> implements Stre
 
       const transformedStream = stream.pipeThrough(new TransformStream(transformer)).pipeThrough(
         new TransformStream<string | ObjectStreamInputPart, ObjectStreamPart<PARTIAL>>({
-          async transform(chunk, controller): Promise<void> {
+          transform: async (chunk, controller): Promise<void> => {
             if (typeof chunk === 'object' && chunk.type === 'stream-start') {
               warnings = chunk.warnings
               return
@@ -684,14 +684,14 @@ class DefaultStreamObjectResult<PARTIAL, RESULT, ELEMENT_STREAM> implements Stre
                   model: model.modelId
                 })
 
-                self._usage.resolve(usage)
-                self._providerMetadata.resolve(providerMetadata)
-                self._warnings.resolve(warnings)
-                self._response.resolve({
+                this._usage.resolve(usage)
+                this._providerMetadata.resolve(providerMetadata)
+                this._warnings.resolve(warnings)
+                this._response.resolve({
                   ...fullResponse,
                   headers: response?.headers
                 })
-                self._finishReason.resolve(finishReason ?? 'other')
+                this._finishReason.resolve(finishReason ?? 'other')
 
                 try {
                   object = await parseAndValidateObjectResultWithRepair(accumulatedText, outputStrategy, repairText, {
@@ -699,10 +699,10 @@ class DefaultStreamObjectResult<PARTIAL, RESULT, ELEMENT_STREAM> implements Stre
                     usage,
                     finishReason
                   })
-                  self._object.resolve(object)
+                  this._object.resolve(object)
                 } catch (e) {
                   error = e
-                  self._object.reject(e)
+                  this._object.reject(e)
                 }
                 break
               }
@@ -714,7 +714,7 @@ class DefaultStreamObjectResult<PARTIAL, RESULT, ELEMENT_STREAM> implements Stre
             }
           },
 
-          async flush(controller) {
+          flush: async controller => {
             try {
               const finalUsage = usage ?? {
                 promptTokens: NaN,

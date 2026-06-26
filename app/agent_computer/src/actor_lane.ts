@@ -24,7 +24,7 @@ export type ActorTurnRef = {
  * Actor input payload delivered to the computer worker.
  *
  * The worker receives actor inputs, not pre-rendered LLM messages, because the
- * complete computer runtime owns the local AI loop and function calling.
+ * complete Agent Computer runtime owns the AI loop and function calling.
  */
 export type ActorInputEnvelope = {
   actor_input_id: string

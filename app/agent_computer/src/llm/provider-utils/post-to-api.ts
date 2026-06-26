@@ -115,7 +115,8 @@ export const postToApi = async <T>({
         errorInformation = await failedResponseHandler({
           response,
           url,
-          requestBodyValues: body.values
+          requestBodyValues: body.values,
+          abortSignal
         })
       } catch (error) {
         if (isAbortError(error) || APICallError.isInstance(error)) {
@@ -139,7 +140,8 @@ export const postToApi = async <T>({
       return await successfulResponseHandler({
         response,
         url,
-        requestBodyValues: body.values
+        requestBodyValues: body.values,
+        abortSignal
       })
     } catch (error) {
       if (error instanceof Error) {

@@ -185,23 +185,20 @@ impl JsRuntimeFabricDealer {
 
     #[napi(ts_return_type = "Buffer[] | null")]
     pub fn recv_raw(&self, timeout_ms: u32) -> Result<Option<Vec<Buffer>>> {
-        match self
-            .handle
-            .recv(Duration::from_millis(u64::from(timeout_ms)))
-            .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))?
-        {
-            Some(DealerEvent::Received(payload)) => Ok(Some(vec![Buffer::from(payload)])),
-            Some(DealerEvent::FileFrame(frames)) => Ok(Some(
-                frames
-                    .into_iter()
-                    .map(Buffer::from)
-                    .collect::<Vec<Buffer>>(),
-            )),
-            Some(DealerEvent::DecodeFailed(reason)) | Some(DealerEvent::SocketError(reason)) => {
-                Err(Error::new(Status::GenericFailure, reason))
-            }
-            None => Ok(None),
-        }
+        recv_raw_output(
+            self.handle
+                .recv(Duration::from_millis(u64::from(timeout_ms)))
+                .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))?,
+        )
+        .map_err(|error| Error::new(Status::GenericFailure, error))
+    }
+
+    #[napi(ts_return_type = "Promise<Buffer[] | null>")]
+    pub fn recv_raw_async(&self, timeout_ms: u32) -> AsyncTask<RecvRawTask> {
+        AsyncTask::new(RecvRawTask {
+            handle: self.handle.clone(),
+            timeout_ms,
+        })
     }
 
     #[napi]
@@ -210,6 +207,58 @@ impl JsRuntimeFabricDealer {
             .stop()
             .map(|_| true)
             .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))
+    }
+}
+
+pub struct RecvRawTask {
+    handle: DealerHandle,
+    timeout_ms: u32,
+}
+
+impl Task for RecvRawTask {
+    type Output = Option<RawDealerFrames>;
+    type JsValue = Option<Vec<Buffer>>;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        self.handle
+            .recv(Duration::from_millis(u64::from(self.timeout_ms)))
+            .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))
+            .and_then(|event| {
+                raw_dealer_frames(event).map_err(|error| Error::new(Status::GenericFailure, error))
+            })
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(output.map(raw_frames_to_buffers))
+    }
+}
+
+pub enum RawDealerFrames {
+    Envelope(Vec<u8>),
+    FileFrame(Vec<Vec<u8>>),
+}
+
+fn recv_raw_output(event: Option<DealerEvent>) -> std::result::Result<Option<Vec<Buffer>>, String> {
+    Ok(raw_dealer_frames(event)?.map(raw_frames_to_buffers))
+}
+
+fn raw_dealer_frames(
+    event: Option<DealerEvent>,
+) -> std::result::Result<Option<RawDealerFrames>, String> {
+    match event {
+        Some(DealerEvent::Received(payload)) => Ok(Some(RawDealerFrames::Envelope(payload))),
+        Some(DealerEvent::FileFrame(frames)) => Ok(Some(RawDealerFrames::FileFrame(frames))),
+        Some(DealerEvent::DecodeFailed(reason)) | Some(DealerEvent::SocketError(reason)) => {
+            Err(reason)
+        }
+        None => Ok(None),
+    }
+}
+
+fn raw_frames_to_buffers(frames: RawDealerFrames) -> Vec<Buffer> {
+    match frames {
+        RawDealerFrames::Envelope(payload) => vec![Buffer::from(payload)],
+        RawDealerFrames::FileFrame(frames) => frames.into_iter().map(Buffer::from).collect(),
     }
 }
 

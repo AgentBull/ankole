@@ -238,10 +238,10 @@ function model(
 }
 
 /**
- * Fallback Model for a custom id under a compatible provider. Defaults are deliberately
- * conservative because we know nothing about the model: reasoning is assumed true (callers can
- * still opt out per-call), text+image input, zero cost, and a modest 128k window / 8k output cap
- * so context-overflow handling has a sane bound to work against.
+ * Fallback model for a custom id under a compatible provider. Unknown models
+ * must not be treated as reasoning models: that silently changes latency, cost,
+ * and visible-output behavior for the main chat/tool loop. Operators can opt in
+ * through an explicit model profile once a provider/model is known to support it.
  */
 function syntheticModel(entry: LlmProviderCatalogEntry, id: string): Model {
   return {
@@ -250,7 +250,7 @@ function syntheticModel(entry: LlmProviderCatalogEntry, id: string): Model {
     api: entry.api,
     provider: entry.id,
     baseUrl: entry.baseUrl,
-    reasoning: true,
+    reasoning: false,
     input: ['text', 'image'],
     cost: zeroCost,
     contextWindow: 128000,

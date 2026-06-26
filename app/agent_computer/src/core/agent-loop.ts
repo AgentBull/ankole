@@ -595,7 +595,7 @@ async function streamAssistantResponse(
     // Drain the SDK's streamed parts, folding each into partialMessage. text/reasoning parts come as
     // start→delta→end triples (one block per id); tool-call, finish, abort, and error are terminal-ish
     // signals. Every branch ends with an emitUpdate so the UI sees incremental progress.
-    for await (const part of result.stream) {
+    for await (const part of readStreamWithAbort(result.stream, signal)) {
       switch (part.type) {
         case 'start':
           await emitStartOnce()
@@ -760,6 +760,67 @@ async function streamAssistantResponse(
   await emit({ type: 'message_end', message: partialMessage })
   return partialMessage
 }
+
+/**
+ * Reads a provider stream behind an explicit abort boundary.
+ *
+ * Fetch, SSE parsers, and TransformStream pipelines do not all abort promptly in
+ * the same way across Bun/provider combinations. The worker's invariant is
+ * stricter: once a turn signal aborts, the agent loop must stop and let the
+ * control plane persist a failed/cancelled turn instead of waiting forever for a
+ * provider stream to cooperate.
+ */
+async function* readStreamWithAbort<T>(stream: ReadableStream<T>, signal: AbortSignal | undefined): AsyncGenerator<T> {
+  const reader = stream.getReader()
+  let releaseLock = true
+
+  try {
+    while (true) {
+      const result = await readChunkWithAbort(reader, signal)
+      if (result.done) return
+      yield result.value
+    }
+  } catch (error) {
+    if (signal?.aborted) {
+      releaseLock = false
+      void reader.cancel(signal.reason).catch(() => {})
+    }
+    throw error
+  } finally {
+    if (releaseLock) {
+      reader.releaseLock()
+    }
+  }
+}
+
+async function readChunkWithAbort<T>(
+  reader: ReadableStreamDefaultReader<T>,
+  signal: AbortSignal | undefined
+): Promise<StreamReadResult<T>> {
+  if (!signal) return await reader.read()
+  if (signal.aborted) throw abortReason(signal)
+
+  let removeAbortListener = () => {}
+  const abortPromise = new Promise<never>((_resolve, reject) => {
+    const onAbort = () => reject(abortReason(signal))
+    removeAbortListener = () => signal.removeEventListener('abort', onAbort)
+    signal.addEventListener('abort', onAbort, { once: true })
+  })
+  const readPromise = reader.read()
+
+  try {
+    return await Promise.race([readPromise, abortPromise])
+  } finally {
+    removeAbortListener()
+    readPromise.catch(() => {})
+  }
+}
+
+function abortReason(signal: AbortSignal): unknown {
+  return signal.reason ?? new DOMException('The operation was aborted.', 'AbortError')
+}
+
+type StreamReadResult<T> = { done: true; value?: undefined } | { done: false; value: T }
 
 type AgentMessageUpdateEvent = Extract<AgentEvent, { type: 'message_update' }>['assistantMessageEvent']
 

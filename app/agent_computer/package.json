@@ -5,14 +5,14 @@
   "type": "module",
   "main": "./src/main.ts",
   "scripts": {
-    "dev": "bun --watch src/main.ts",
-    "start": "bun src/main.ts",
+    "dev": "sh -c 'echo \"Agent Computer worker runs only inside the Docker image; mount TS source into the container for edit/run feedback.\" >&2; exit 1'",
+    "start": "sh -c 'echo \"Agent Computer worker runs only inside the Docker image; use the control-plane Docker worker e2e or docker run.\" >&2; exit 1'",
     "build": "bun build src/main.ts --target bun --outdir dist",
     "type-check": "tsgo -p tsconfig.json --noEmit",
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check",
     "lint": "bun run fmt:check && bun run type-check",
-    "test": "bun test"
+    "test": "cd ../.. && docker run --rm --cap-add SYS_ADMIN --security-opt seccomp=unconfined --security-opt systempaths=unconfined -v \"$PWD/app/agent_computer/src:/repo/app/agent_computer/src:ro\" -v \"$PWD/app/agent_computer/test:/repo/app/agent_computer/test:ro\" ankole-agent-computer:0.1.0 bun test"
   },
   "dependencies": {
     "@ankole/kernel": "workspace:*",

@@ -82,18 +82,30 @@ bun run control-plane:setup
 bun run control-plane:dev
 bun run control-plane:test
 
-# Bun packages
-bun run agent-computer:dev
+# Agent Computer container image 和测试
+docker build -f app/agent_computer/Dockerfile -t ankole-agent-computer:0.1.0 .
 bun run agent-computer:test
+bun run agent-computer:type-check
+
+# 其它 Bun packages
 bun run webapps:build
 bun run feishu-openapi:test
 ```
+
+Agent Computer 是 Linux container runtime。强 bubblewrap command isolation
+需要 Docker 带 `--cap-add SYS_ADMIN`、`--security-opt seccomp=unconfined` 和
+`--security-opt systempaths=unconfined`，除非你提供等价的自定义 seccomp/profile
+配置。Kubernetes 的等价配置放在 Agent Computer container 的 `securityContext`：
+`capabilities.add: ["SYS_ADMIN"]`、对应 `seccompProfile` 和 `procMount: Unmasked`。
+如果强 bubblewrap 不可用，worker 可以降级到弱 bubblewrap（把容器已有 `/proc`
+bind 进 bwrap），并在启动时打 warning。它不会把 model-facing command fallback
+到无 sandbox 执行。
 
 仓库仍在快速移动时，优先使用 package-local validation：
 
 ```shell
 bun run --filter @ankole/control-plane test
-bun run --filter @ankole/agent-computer test
+bun run agent-computer:test
 bun run --filter @ankole/agent-computer type-check
 bun run --filter @ankole/webapps type-check
 bun run --filter @ankole/feishu-openapi test

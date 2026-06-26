@@ -4,9 +4,9 @@ import { createAnthropic } from '../llm/providers/anthropic'
 import { createGoogle } from '../llm/providers/google'
 import { createOpenAI } from '../llm/providers/openai'
 import { createOpenAICompatible } from '../llm/providers/openai-compatible'
+import { createCombinedAbortSignal } from '../common/async'
 import { getModel } from '../llm/catalog'
 import type { AssistantMessage, Message, Model } from '../llm/bullx'
-import { generateBullXText } from '../llm/bullx-generate'
 import type { ProviderOptions } from '../llm/provider-utils'
 import type { LanguageModel } from '../llm/types'
 import {
@@ -74,11 +74,14 @@ type TurnTelemetry = {
 }
 
 const TOOL_RESULT_MAX_CHARS = 12_000
+const TEXT_TURN_TIMEOUT_MS = positiveIntegerEnv('ANKOLE_LLM_TURN_TIMEOUT_MS', 180_000)
+const COMPRESSION_TURN_TIMEOUT_MS = positiveIntegerEnv('ANKOLE_LLM_COMPRESSION_TIMEOUT_MS', 90_000)
+const AMBIENT_RECOGNIZER_TIMEOUT_MS = positiveIntegerEnv('ANKOLE_LLM_AMBIENT_RECOGNIZER_TIMEOUT_MS', 45_000)
 
 /**
  * Dispatches one worker turn by ActorInput type. These are internal Agent
  * Computer handlers: ZMQ delivered only the event batch, while recognizers and
- * follow-up generation stay inside the local AI SDK runtime.
+ * follow-up generation stay inside the Agent Computer AI SDK runtime.
  */
 export async function runLlmTurnHandlers(turnStart: TurnStart, opts: TextTurnLoopOptions): Promise<FinalProposalBody> {
   if (isAmbientMayInterveneTurn(turnStart)) {
@@ -97,7 +100,7 @@ export async function runLlmTurnHandlers(turnStart: TurnStart, opts: TextTurnLoo
  *
  * The control plane delivers actor inputs and an opaque `model_ref`; the worker
  * resolves credentials over the parent protocol, builds the concrete BullX AI SDK
- * model locally, and lets BullX's reusable agent loop own tool-call/result turns.
+ * model inside Agent Computer, and lets BullX's reusable agent loop own tool-call/result turns.
  * This keeps credentials memory-only and keeps provider-specific behavior inside
  * the copied BullX LLM fork instead of hand-writing per-provider HTTP payloads.
  */
@@ -148,61 +151,70 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
     .filter(note => note.trim().length > 0)
     .join('\n\n')
 
-  const newMessages = await runAgentLoop(
-    prompts,
-    {
-      systemPrompt,
-      messages: [...conversation.messages, ...(opts.extraMessages ?? [])],
-      tools: [
-        createTodoTool(todoStore),
-        ...createComputerTools({
-          agentUid: turnStart.turn.actor.agent_uid,
-          conversationId: turnStart.turn.actor.session_id,
-          workspaceRoot: opts.workspaceRoot,
-          replyAttachmentStore
-        }),
-        ...createSkillTools(opts.workspaceRoot, {
-          turn: turnStart.turn,
-          enabledSkills: runtimeContext?.skills ?? [],
-          requestSkillOverlay: opts.requestSkillOverlay,
-          replaceSkillOverlay: opts.replaceSkillOverlay,
-          clearSkillOverlay: opts.clearSkillOverlay
-        })
-      ]
-    },
-    {
-      model,
-      convertToLlm: messages => messages.flatMap(message => (isLlmMessage(message) ? [message] : [])),
-      getSteeringMessages: async () => steeringMessages(turnStart, opts.pollSteering?.() ?? []),
-      toolExecution: 'parallel',
-      maxTurns: opts.maxSteps ?? 8,
-      nudgeOnEmptyAfterTools: true,
-      metadata: {
-        agent_uid: turnStart.turn.actor.agent_uid,
-        conversation_id: turnStart.turn.actor.session_id,
-        llm_turn_id: turnStart.turn.llm_turn_id,
-        profile: credential.profile,
-        provider_id: credential.provider_id,
-        provider_source: credential.provider_source
+  const turnTimeout = createCombinedAbortSignal(undefined, TEXT_TURN_TIMEOUT_MS)
+  try {
+    const newMessages = await runAgentLoop(
+      prompts,
+      {
+        systemPrompt,
+        messages: [...conversation.messages, ...(opts.extraMessages ?? [])],
+        tools: [
+          createTodoTool(todoStore),
+          ...createComputerTools({
+            agentUid: turnStart.turn.actor.agent_uid,
+            conversationId: turnStart.turn.actor.session_id,
+            workspaceRoot: opts.workspaceRoot,
+            replyAttachmentStore
+          }),
+          ...createSkillTools(opts.workspaceRoot, {
+            turn: turnStart.turn,
+            enabledSkills: runtimeContext?.skills ?? [],
+            requestSkillOverlay: opts.requestSkillOverlay,
+            replaceSkillOverlay: opts.replaceSkillOverlay,
+            clearSkillOverlay: opts.clearSkillOverlay
+          })
+        ]
       },
-      headers: model.headers,
-      providerOptions,
-      maxTokens: model.maxTokens > 0 ? model.maxTokens : undefined,
-      maxRetries: 2,
-      maxRetryDelayMs: 2_000
-    },
-    observeAgentEvent(telemetry)
-  )
-
-  const latest = latestAssistantMessage(newMessages)
-  if (latest?.stopReason === 'error') {
-    throw new Error(latest.errorMessage || 'LLM provider returned an error')
+      {
+        model,
+        convertToLlm: messages => messages.flatMap(message => (isLlmMessage(message) ? [message] : [])),
+        getSteeringMessages: async () => steeringMessages(turnStart, opts.pollSteering?.() ?? []),
+        toolExecution: 'parallel',
+        maxTurns: opts.maxSteps ?? 8,
+        nudgeOnEmptyAfterTools: true,
+        metadata: {
+          agent_uid: turnStart.turn.actor.agent_uid,
+          conversation_id: turnStart.turn.actor.session_id,
+          llm_turn_id: turnStart.turn.llm_turn_id,
+          profile: credential.profile,
+          provider_id: credential.provider_id,
+          provider_source: credential.provider_source
+        },
+        headers: model.headers,
+        providerOptions,
+        maxTokens: model.maxTokens > 0 ? model.maxTokens : undefined,
+        maxRetries: 2,
+        maxRetryDelayMs: 2_000,
+        timeoutMs: TEXT_TURN_TIMEOUT_MS
+      },
+      observeAgentEvent(telemetry),
+      turnTimeout.signal
+    )
+    const latest = latestAssistantMessage(newMessages)
+    if (latest?.stopReason === 'error' || latest?.stopReason === 'aborted') {
+      throw new Error(
+        latest.errorMessage ||
+          (latest.stopReason === 'aborted' ? 'LLM provider call aborted' : 'LLM provider returned an error')
+      )
+    }
+    const replyText = assistantText(latest)
+    if (!replyText) {
+      throw new Error(`LLM turn completed without visible assistant text: ${summarizeAgentMessages(newMessages)}`)
+    }
+    return finalProposalWithTelemetry(replyText, telemetry, replyAttachmentStore)
+  } finally {
+    turnTimeout.cleanup()
   }
-  const replyText = assistantText(latest)
-  if (!replyText) {
-    throw new Error(`LLM turn completed without visible assistant text: ${summarizeAgentMessages(newMessages)}`)
-  }
-  return finalProposalWithTelemetry(replyText, telemetry, replyAttachmentStore)
 }
 
 async function runAmbientMayInterveneHandler(
@@ -232,7 +244,8 @@ async function runAmbientMayInterveneHandler(
     agentProfile,
     turnStart,
     runtimeContext,
-    workspaceRoot: opts.workspaceRoot
+    workspaceRoot: opts.workspaceRoot,
+    timeoutMs: AMBIENT_RECOGNIZER_TIMEOUT_MS
   })
 
   if (!recognition.decision.intervene || !recognition.intervention) {
@@ -294,33 +307,55 @@ async function runCompressionTurn(turnStart: TurnStart, opts: TextTurnLoopOption
     previousSummary: lastNonEmpty(conversation.summaryCheckpoints)
   })
 
-  const response = await generateBullXText(
-    model,
-    {
-      systemPrompt: SUMMARIZATION_SYSTEM_PROMPT,
-      messages: [userMessage(prompt)]
-    },
-    {
-      headers: model.headers,
-      providerOptions,
-      maxTokens: model.maxTokens > 0 ? model.maxTokens : undefined,
-      maxRetries: 2,
-      maxRetryDelayMs: 2_000,
-      signal: undefined
+  const turnTimeout = createCombinedAbortSignal(undefined, COMPRESSION_TURN_TIMEOUT_MS)
+  try {
+    const newMessages = await runAgentLoop(
+      [userMessage(prompt)],
+      {
+        systemPrompt: SUMMARIZATION_SYSTEM_PROMPT,
+        messages: [],
+        tools: []
+      },
+      {
+        model,
+        convertToLlm: messages => messages.flatMap(message => (isLlmMessage(message) ? [message] : [])),
+        maxTurns: 1,
+        metadata: {
+          agent_uid: turnStart.turn.actor.agent_uid,
+          conversation_id: turnStart.turn.actor.session_id,
+          llm_turn_id: turnStart.turn.llm_turn_id,
+          profile: credential.profile,
+          provider_id: credential.provider_id,
+          provider_source: credential.provider_source,
+          purpose: 'compression'
+        },
+        headers: model.headers,
+        providerOptions,
+        maxTokens: model.maxTokens > 0 ? model.maxTokens : undefined,
+        maxRetries: 2,
+        maxRetryDelayMs: 2_000,
+        timeoutMs: COMPRESSION_TURN_TIMEOUT_MS
+      },
+      observeAgentEvent(telemetry),
+      turnTimeout.signal
+    )
+    const latest = latestAssistantMessage(newMessages)
+    if (latest?.stopReason === 'error' || latest?.stopReason === 'aborted') {
+      throw new Error(
+        latest.errorMessage ||
+          (latest.stopReason === 'aborted' ? 'LLM provider call aborted' : 'LLM provider returned an error')
+      )
     }
-  )
 
-  applyAssistantTelemetry(telemetry, response)
-  if (response.stopReason === 'error') {
-    throw new Error(response.errorMessage || 'LLM provider returned an error')
+    const summaryText = stripCompactionScratch(assistantText(latest))
+    if (!summaryText) {
+      throw new Error(`Compression turn completed without summary text: ${summarizeAgentMessages(newMessages)}`)
+    }
+
+    return finalProposalWithTelemetry(summaryText, telemetry)
+  } finally {
+    turnTimeout.cleanup()
   }
-
-  const summaryText = stripCompactionScratch(assistantText(response))
-  if (!summaryText) {
-    throw new Error(`Compression turn completed without summary text: ${summarizeAgentMessages([response])}`)
-  }
-
-  return finalProposalWithTelemetry(summaryText, telemetry)
 }
 
 async function resolveAgentProfile(turnStart: TurnStart, opts: TextTurnLoopOptions): Promise<AgentProfile> {
@@ -363,6 +398,19 @@ function isAmbientMayInterveneTurn(turnStart: TurnStart): boolean {
 
 function isCompressionTurn(turnStart: TurnStart): boolean {
   return turnStart.inputs.length > 0 && turnStart.inputs.every(input => input.type === 'command.compress')
+}
+
+/**
+ * Reads worker-process timing knobs once at module load. RuntimeFabric must not
+ * leave provider calls unbounded: a hung LLM call should become a durable failed
+ * turn, not an invisible in-flight worker task.
+ */
+function positiveIntegerEnv(name: string, fallback: number): number {
+  const raw = process.env[name]
+  if (!raw) return fallback
+
+  const value = Number.parseInt(raw, 10)
+  return Number.isFinite(value) && value > 0 ? value : fallback
 }
 
 function assertCredentialMatchesTurn(
@@ -475,7 +523,7 @@ function fallbackModel(providerKind: string, modelId: string): Model {
           : 'openai-completions',
     provider: providerKind,
     baseUrl: '',
-    reasoning: true,
+    reasoning: false,
     input: ['text', 'image'],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: 128000,

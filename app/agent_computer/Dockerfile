@@ -2,11 +2,20 @@ FROM oven/bun:1.3.14 AS build
 
 WORKDIR /repo
 
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends \
+ARG DEBIAN_FRONTEND=noninteractive
+ARG DEBIAN_MIRROR=http://deb.debian.org/debian
+ARG DEBIAN_SECURITY_MIRROR=http://deb.debian.org/debian-security
+
+RUN sed -i \
+    -e "s|http://deb.debian.org/debian-security|${DEBIAN_SECURITY_MIRROR}|g" \
+    -e "s|http://deb.debian.org/debian|${DEBIAN_MIRROR}|g" \
+    /etc/apt/sources.list.d/debian.sources \
+  && apt-get -o Acquire::Retries=5 update \
+  && apt-get -o Acquire::Retries=5 install -y --no-install-recommends \
     build-essential \
     ca-certificates \
     curl \
+    git \
     libzmq3-dev \
     pkg-config \
     protobuf-compiler \
@@ -16,16 +25,30 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
   | sh -s -- -y --profile minimal
 
 ENV PATH="/root/.cargo/bin:${PATH}"
+ENV CARGO_NET_RETRY=5
+ENV CARGO_HTTP_TIMEOUT=120
 
 COPY package.json bun.lock ./
 COPY app/kernel ./app/kernel
 COPY app/agent_computer ./app/agent_computer
 
-RUN bun install --no-save
+RUN set -eux; \
+  for attempt in 1 2 3; do \
+    if bun install --no-save; then exit 0; fi; \
+    rm -rf /root/.bun/install/cache /tmp/bun-*; \
+    sleep $((attempt * 5)); \
+  done; \
+  bun install --no-save
 
 WORKDIR /repo/app/agent_computer
 
-RUN bun install --no-save
+RUN set -eux; \
+  for attempt in 1 2 3; do \
+    if bun install --no-save; then exit 0; fi; \
+    rm -rf /root/.bun/install/cache /tmp/bun-*; \
+    sleep $((attempt * 5)); \
+  done; \
+  bun install --no-save
 
 WORKDIR /repo/app/kernel
 
@@ -35,10 +58,18 @@ FROM oven/bun:1.3.14
 
 WORKDIR /repo
 
+ARG DEBIAN_FRONTEND=noninteractive
+ARG DEBIAN_MIRROR=http://deb.debian.org/debian
+ARG DEBIAN_SECURITY_MIRROR=http://deb.debian.org/debian-security
+
 ENV PATH="/root/.local/bin:${PATH}"
 
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends \
+RUN sed -i \
+    -e "s|http://deb.debian.org/debian-security|${DEBIAN_SECURITY_MIRROR}|g" \
+    -e "s|http://deb.debian.org/debian|${DEBIAN_MIRROR}|g" \
+    /etc/apt/sources.list.d/debian.sources \
+  && apt-get -o Acquire::Retries=5 update \
+  && apt-get -o Acquire::Retries=5 install -y --no-install-recommends \
     bash \
     bubblewrap \
     ca-certificates \
@@ -149,11 +180,13 @@ COPY app/library ./app/library
 COPY app/agent_computer ./app/agent_computer
 COPY --from=build /repo/app/agent_computer/node_modules ./app/agent_computer/node_modules
 RUN chmod +x ./app/agent_computer/bin/ankole-browser \
-  && ln -sf /repo/app/agent_computer/bin/ankole-browser /usr/local/bin/ankole-browser
+  && ln -sf /repo/app/agent_computer/bin/ankole-browser /usr/local/bin/ankole-browser \
+  && printf '%s\n' 'ankole-agent-computer' > /etc/ankole-agent-computer-container
 
 WORKDIR /repo/app/agent_computer
 
 ENV NODE_ENV=production
+ENV ANKOLE_AGENT_COMPUTER_CONTAINER=1
 ENV ANKOLE_WORKSPACE_ROOT=/workspace
 ENV ANKOLE_SHARED_FS_ROOT=/workspace/shared
 ENV ANKOLE_USER_FILES_ROOT=/workspace/shared/user-files

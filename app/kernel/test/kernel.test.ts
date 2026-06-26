@@ -51,6 +51,7 @@ describe('@ankole/kernel', () => {
   it('declares RuntimeFabric raw file-transfer methods', () => {
     expect(kernel.RuntimeFabricDealer.prototype.sendFileFrame).toBeFunction()
     expect(kernel.RuntimeFabricDealer.prototype.recvRaw).toBeFunction()
+    expect(kernel.RuntimeFabricDealer.prototype.recvRawAsync).toBeFunction()
   })
 
   it('hashes and derives keys with shared BLAKE3 vectors', () => {
