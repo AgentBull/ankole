@@ -27,7 +27,6 @@ defmodule Ankole.ActorRuntime.Schemas.ActorSessionWorkerAssignment do
 
     field :session_id, :string
     field :worker_id, :string
-    field :worker_instance_id, :string
     field :transport_route, :string
     field :status, :string
     field :workspace_mount, :string
@@ -45,7 +44,6 @@ defmodule Ankole.ActorRuntime.Schemas.ActorSessionWorkerAssignment do
       :agent_uid,
       :session_id,
       :worker_id,
-      :worker_instance_id,
       :transport_route,
       :status,
       :workspace_mount,
@@ -57,7 +55,6 @@ defmodule Ankole.ActorRuntime.Schemas.ActorSessionWorkerAssignment do
       :agent_uid,
       :session_id,
       :worker_id,
-      :worker_instance_id,
       :transport_route,
       :status,
       :workspace_mount

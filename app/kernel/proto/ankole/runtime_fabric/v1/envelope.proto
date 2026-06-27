@@ -72,29 +72,24 @@ message Envelope {
 
 message AgentComputerWorkerReady {
   string worker_id = 1;
-  string worker_instance_id = 2;
   // Runtime and version are observability metadata. Scheduling assumes workers
   // are equivalent because they boot from the same image.
-  string runtime = 3;
-  string version = 4;
-  bytes capacity_json = 6;
-  reserved 5;
-  reserved 7 to 10;
+  string runtime = 2;
+  string version = 3;
+  bytes capacity_json = 4;
 }
 
 message AgentComputerWorkerHeartbeat {
   string worker_id = 1;
-  string worker_instance_id = 2;
-  int64 monotonic_ms = 3;
-  bytes load_json = 4;
+  int64 monotonic_ms = 2;
+  bytes load_json = 3;
 }
 
 message AgentComputerWorkerCapacity {
   string worker_id = 1;
-  string worker_instance_id = 2;
-  bytes capacity_json = 3;
-  bytes load_json = 4;
-  uint32 available_turn_slots = 5;
+  bytes capacity_json = 2;
+  bytes load_json = 3;
+  uint32 available_turn_slots = 4;
 }
 
 message ActorInputEnvelope {

@@ -52,8 +52,7 @@ The durable AuthZ domain belongs to the Elixir control plane and PostgreSQL.
 The control plane should own group/grant writes, root bootstrap, admin safety,
 and the public authorization facade.
 
-`app/kernel` should own shared native mechanisms where exact parity matters
-across host runtimes. For AuthZ, that means the pure rule-engine semantics:
+For AuthZ, the `app/kernel` boundary is the pure rule-engine semantics:
 
 - CEL validation and evaluation;
 - resource-pattern validation;
@@ -61,13 +60,6 @@ across host runtimes. For AuthZ, that means the pure rule-engine semantics:
 - computed group evaluation from a Principal snapshot;
 - grant evaluation from an explicit authorization snapshot;
 - batch decision evaluation for repeated checks over the same snapshot.
-
-Placement should bias toward the kernel whenever a behavior can be expressed as
-a deterministic function over explicit inputs without storage, network, runtime
-process state, or product lifecycle ownership. If the same validation,
-normalization, matcher, evaluator, or decision algorithm would otherwise be
-implemented in both Elixir and Bun, put the shared behavior in the Rust core
-first and expose it through bindings.
 
 The kernel must not own AuthZ product state. It should not read PostgreSQL,
 create groups, grant permissions, know setup sessions, decide who the first
@@ -78,9 +70,9 @@ kernel should not receive a database connection, table name, query builder,
 repository module, transaction handle, or storage-backed lazy lookup callback.
 
 Elixir and Bun should not grow separate implementations of AuthZ rule semantics.
-When a behavior needs to mean the same thing in both runtimes, the Rust core is
-the source of that behavior, with Rustler and napi-rs bindings translating host
-types and errors only.
+When AuthZ rule behavior needs to mean the same thing in both runtimes, the
+Rust core is the source of that behavior, with Rustler and napi-rs bindings
+translating host types and errors only.
 
 Bun runtimes may execute agent work, AI proxy calls, or integration code. When
 Bun needs an authorization decision, it should call the control-plane boundary

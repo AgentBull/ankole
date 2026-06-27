@@ -5,7 +5,7 @@ defmodule Ankole.I18n.Catalog do
   This GenServer is the single write point for runtime catalog state. AppConfigure
   stores the operator's selected locale id, but this module proves that the id is
   backed by a loaded locale file before writing it into Localize. Keeping that
-  split avoids a config engine that needs to know about release files.
+  split avoids a config engine that needs to know about catalog files.
   """
 
   use GenServer
@@ -45,7 +45,7 @@ defmodule Ankole.I18n.Catalog do
   @doc """
   Re-scans locale files and applies the effective default locale.
 
-  This is the heavier path for release/test changes where the TOML files
+  This is the heavier path for application/test changes where the TOML files
   themselves may have changed.
   """
   @spec reload_locales() :: :ok | {:error, term()}
@@ -99,7 +99,7 @@ defmodule Ankole.I18n.Catalog do
   end
 
   # The catalog is loaded from disk before replacing Resolver state. Locale files
-  # are release artifacts, so a parse/normalization failure should stop the
+  # are application artifacts, so a parse/normalization failure should stop the
   # reload instead of leaving a half-normalized catalog behind.
   defp load_catalog(dir) do
     locales = Loader.load_all(dir)
@@ -130,7 +130,7 @@ defmodule Ankole.I18n.Catalog do
   end
 
   # AppConfigure only promises a non-empty string. This is the enforcement point
-  # where that durable value must match the loaded release catalog.
+  # where that durable value must match the loaded application catalog.
   defp apply_config_default_locale do
     with {:ok, configured} <- Config.default_locale(),
          {:ok, tag} <- language_tag_for_loaded_locale(configured) do
@@ -180,8 +180,8 @@ defmodule Ankole.I18n.Catalog do
     end
   end
 
-  # Filenames are release-owned inputs. An invalid locale filename is a release
-  # bug, so the loader should fail loudly instead of silently skipping it.
+  # Filenames are application-owned inputs. An invalid locale filename is a
+  # catalog bug, so the loader should fail loudly instead of silently skipping it.
   defp language_tag_for_locale_id!(locale) do
     case Localize.LanguageTag.new(locale) do
       {:ok, %Localize.LanguageTag{cldr_locale_id: id} = tag} when is_atom(id) ->

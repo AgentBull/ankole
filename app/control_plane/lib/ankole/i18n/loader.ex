@@ -2,9 +2,9 @@ defmodule Ankole.I18n.Loader do
   @moduledoc """
   Loads TOML locale catalogs from disk.
 
-  The loader only deals with release-owned files and the stable mapping from a
-  filename to a locale id. It does not read AppConfigure or user input; runtime
-  availability is enforced later by `Ankole.I18n.Catalog`.
+  The loader only deals with application-owned files and the stable mapping from
+  a filename to a locale id. It does not read AppConfigure or user input;
+  runtime availability is enforced later by `Ankole.I18n.Catalog`.
   """
 
   alias Ankole.I18n.Normalizer
@@ -33,7 +33,7 @@ defmodule Ankole.I18n.Loader do
   Lists locale TOML files in stable order.
 
   A missing directory returns an empty list. Catalog startup can then use the
-  same degraded path as an empty release instead of forcing filesystem handling
+  same degraded path as an empty catalog instead of forcing filesystem handling
   into this small loader.
   """
   @spec list_toml_files(Path.t()) :: [Path.t()]
@@ -53,7 +53,7 @@ defmodule Ankole.I18n.Loader do
   @doc """
   Returns the locale id represented by a TOML filename.
 
-  Locale ids stay as strings so release filenames never create runtime atoms.
+  Locale ids stay as strings so catalog filenames never create runtime atoms.
   """
   @spec locale_id_from_path(Path.t()) :: String.t()
   def locale_id_from_path(path) do
@@ -61,7 +61,7 @@ defmodule Ankole.I18n.Loader do
   end
 
   # Parse errors include the source path because catalog problems are usually
-  # fixed by editing release files, not by changing runtime code.
+  # fixed by editing catalog files, not by changing runtime code.
   defp parse_file(path, spec) do
     raw = File.read!(path)
 

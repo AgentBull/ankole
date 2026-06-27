@@ -61,6 +61,7 @@ export type TextTurnLoopOptions = {
   runtimeContext?: TurnRuntimeContext
   agentProfile?: AgentProfile
   pollSteering?: () => TurnSteerUpdate[]
+  abortSignal?: AbortSignal
   maxSteps?: number
   extraMessages?: AgentMessage[]
 }
@@ -172,7 +173,7 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
     currentChannel: currentChannelFromTurnStart(turnStart)
   })
 
-  const turnTimeout = createCombinedAbortSignal(undefined, TEXT_TURN_TIMEOUT_MS)
+  const turnTimeout = createCombinedAbortSignal(opts.abortSignal, TEXT_TURN_TIMEOUT_MS)
   try {
     const newMessages = await runAgentLoop(
       prompts,
@@ -329,7 +330,7 @@ async function runCompressionTurn(turnStart: TurnStart, opts: TextTurnLoopOption
     previousChatHistory: lastNonEmpty(conversation.previousChatHistorySummaries)
   })
 
-  const turnTimeout = createCombinedAbortSignal(undefined, COMPRESSION_TURN_TIMEOUT_MS)
+  const turnTimeout = createCombinedAbortSignal(opts.abortSignal, COMPRESSION_TURN_TIMEOUT_MS)
   try {
     const newMessages = await runAgentLoop(
       [userMessage(prompt)],

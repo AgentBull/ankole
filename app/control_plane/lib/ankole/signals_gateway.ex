@@ -35,14 +35,15 @@ defmodule Ankole.SignalsGateway do
 
   alias Ecto.Adapters.SQL
   alias Ankole.ActorRuntime.ActivationManager
+  alias Ankole.ActorRuntime.TurnRetry
   alias Ankole.Actors
   alias Ankole.Actors.ActorInput
   alias Ankole.Principals
   alias Ankole.Repo
   alias Ankole.SignalsGateway.AmbientRecall
-  alias Ankole.SignalsGateway.ActorInputTypes
   alias Ankole.SignalsGateway.Commands
   alias Ankole.SignalsGateway.IngressPipeline
+  alias Ankole.SignalsGateway.InboundBatch
   alias Ankole.SignalsGateway.InputTombstone
   alias Ankole.SignalsGateway.JsonPayload
   alias Ankole.SignalsGateway.OutboxAdapter
@@ -59,14 +60,17 @@ defmodule Ankole.SignalsGateway do
   # an ordering guard, not a permanent record of the deletion.
   @tombstone_ttl_seconds 24 * 60 * 60
 
-  # Absolute ceiling on how long an ambient ("may_intervene") batch may keep
-  # sliding before the worker is forced to look. The 1.5s batch window slides
-  # forward on every new room message (see ambient_due_at/2); without a cap a
-  # continuously busy room could postpone recognition forever. 60s bounds the
-  # worst case: the agent will react to an active conversation within a minute
-  # even if people never stop typing. Paired with the AIAgent message-context
-  # budget, which is what consumes the observed-messages snapshot.
-  @ambient_hard_cap_ms 60_000
+  @addressed_text_window_ms 600
+  @addressed_attachment_window_ms 1_200
+  @addressed_long_text_window_ms 2_000
+  @addressed_long_text_threshold 3_000
+  @addressed_text_budget 4_000
+  @addressed_text_hard_cap 8_000
+  @addressed_max_entries 8
+  @ambient_batch_window_ms 15_000
+  # Ambient is intentionally slower than direct input: the recognizer is a
+  # token-spending intervention check, not the user's immediate reply path.
+  @ambient_hard_cap_ms 5 * 60 * 1_000
 
   @type ingress_result :: {:ok, map()} | {:error, term()}
 
@@ -436,6 +440,27 @@ defmodule Ankole.SignalsGateway do
   @spec signal_session_id(String.t()) :: String.t()
   def signal_session_id(signal_channel_id), do: "signal-channel:#{signal_channel_id}"
 
+  @doc """
+  Closes pending inbound IM batches whose quiet window has elapsed.
+
+  This is called by the actor activation poll before it scans ready
+  `actor_inputs`, so worker delivery still starts from ordinary ActorInput rows.
+  """
+  @spec finalize_due_inbound_batches(keyword()) :: {:ok, [map()]} | {:error, term()}
+  def finalize_due_inbound_batches(opts \\ []) do
+    now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
+    limit = Keyword.get(opts, :limit, 25)
+
+    InboundBatch
+    |> where([batch], batch.batch_state == "open")
+    |> where([batch], batch.available_at <= ^now)
+    |> order_by([batch], asc: batch.available_at, asc: batch.inserted_at)
+    |> limit(^limit)
+    |> Repo.all()
+    |> Enum.map(&finalize_inbound_batch(&1, now))
+    |> collect_results()
+  end
+
   # Only a result that actually produced new actor input (:accepted) wakes the
   # runtime. Filtered / recorded / ignored / mirror-only outcomes wrote nothing
   # the actor needs to run on, so they must NOT cost a wake-up — this is the hook
@@ -456,6 +481,7 @@ defmodule Ankole.SignalsGateway do
          :match <- IngressPipeline.filter(binding, fact) do
       binding
       |> accept_lifecycle(fact, kind, now)
+      |> TurnRetry.dispatch_retry_controls()
       |> wake_actor_runtime()
     else
       :no_match -> {:ok, %{status: :filtered}}
@@ -491,24 +517,21 @@ defmodule Ankole.SignalsGateway do
 
   # Delete/recall is the inverse of accept and does several things atomically:
   # 1) drop a tombstone so a re-delivered receive can't resurrect the entry,
-  # 2) remove the mirror row, 3) cancel any still-pending actor input for that
-  # entry (the agent shouldn't act on a retracted message), and 4) for input the
+  # 2) remove the source from any open inbound batch, 3) remove the mirror row,
+  # 4) cancel any still-pending actor input for that entry, and 5) for input the
   # agent ALREADY consumed, append a lifecycle "deleted/recalled" input that
-  # ActorRuntime consumes into an introspection note. Steps 3 and 4 are mutually
-  # exclusive per input: cancel what hasn't run, notify about what has.
+  # ActorRuntime consumes into an introspection note. Steps 2-4 cover work that
+  # has not committed yet; step 5 covers committed actor state.
   defp accept_lifecycle(binding, fact, kind, now) do
     Repo.transact(fn repo ->
       with {:ok, channel} <- upsert_channel(repo, fact, now),
            :ok <- lock_entry(repo, fact),
+           :ok <- lock_inbound_batch(repo, fact),
            {:ok, tombstone} <- upsert_tombstone(repo, fact, kind, now),
+           {:ok, updated_batches} <- remove_pending_inbound_entry(repo, fact, now),
            {deleted_count, _rows} <- delete_mirror_entry(repo, fact),
-           canceled_count <-
-             Actors.cancel_pending_inputs(
-               fact.agent_uid,
-               fact.binding_name,
-               fact.signal_channel_id,
-               fact.provider_entry_id
-             ),
+           {:ok, runtime_retractions} <-
+             TurnRetry.retract_source_entry_in_tx(repo, fact, kind, now),
            consumed_inputs <-
              Actors.consumed_inputs_for_entry(
                fact.agent_uid,
@@ -522,8 +545,11 @@ defmodule Ankole.SignalsGateway do
          %{
            status: :accepted,
            tombstone: tombstone,
+           updated_inbound_batches: length(updated_batches),
            deleted_mirror_entries: deleted_count,
-           canceled_actor_inputs: canceled_count,
+           canceled_actor_inputs: runtime_retractions.canceled_actor_inputs,
+           retried_actor_inputs: runtime_retractions.retried_actor_inputs,
+           runtime_retractions: runtime_retractions,
            lifecycle_inputs: lifecycle_inputs
          }}
       end
@@ -797,8 +823,18 @@ defmodule Ankole.SignalsGateway do
     end
   end
 
+  defp apply_entry_policy(repo, binding, fact, :ignore, now)
+       when fact.channel_kind == :im_group do
+    apply_im_entry_policy(repo, binding, fact, :ignore, nil, now)
+  end
+
   defp apply_entry_policy(_repo, _binding, _fact, :ignore, _now) do
     {:ok, %{status: :ignored}}
+  end
+
+  defp apply_entry_policy(repo, binding, fact, :record_only, now)
+       when fact.channel_kind in [:im_dm, :im_group] do
+    apply_im_entry_policy(repo, binding, fact, :record_only, nil, now)
   end
 
   defp apply_entry_policy(repo, _binding, fact, :record_only, now) do
@@ -808,17 +844,30 @@ defmodule Ankole.SignalsGateway do
     end
   end
 
-  # The full accept path: mirror the external fact (channel + entry) AND create
-  # actor input, then refresh batch readiness so this input coalesces with any
-  # sibling messages in the same debounce window. Mirror-before-input ordering
-  # means the actor input can reference a row that already exists.
+  # The direct accept path is for non-IM inputs and typed command events. IM text
+  # and attachment traffic has already been diverted into pending inbound batches.
+  defp apply_entry_policy(repo, binding, fact, {:actor_input, "im.message.addressed", nil}, now)
+       when fact.channel_kind in [:im_dm, :im_group] do
+    apply_im_entry_policy(repo, binding, fact, :ignore, "im.message.addressed", now)
+  end
+
+  defp apply_entry_policy(
+         repo,
+         binding,
+         fact,
+         {:actor_input, "im.message.may_intervene", nil},
+         now
+       )
+       when fact.channel_kind == :im_group do
+    apply_im_entry_policy(repo, binding, fact, :may_intervene, nil, now)
+  end
+
   defp apply_entry_policy(repo, binding, fact, {:actor_input, type, command_payload}, now) do
     fact = Map.put(fact, :command_payload, command_payload)
 
     with {:ok, channel} <- upsert_channel(repo, fact, now),
          {:ok, entry} <- mirror_receive_entry(repo, fact, now),
-         {:ok, actor_input} <- append_actor_input(binding, fact, type, channel, entry, now),
-         :ok <- refresh_batch_readiness(type, fact, actor_input) do
+         {:ok, actor_input} <- append_actor_input(binding, fact, type, channel, entry, now) do
       {:ok,
        %{
          status: :accepted,
@@ -828,6 +877,774 @@ defmodule Ankole.SignalsGateway do
        }}
     end
   end
+
+  defp apply_im_entry_policy(repo, binding, fact, policy, type, now) do
+    with :ok <- lock_inbound_batch(repo, fact),
+         {:ok, channel} <- upsert_channel(repo, fact, now),
+         {:ok, mirror_entry} <- maybe_mirror_im_entry(repo, fact, policy, type, now),
+         source_entry <- inbound_batch_entry(fact, mirror_entry, policy, type, now),
+         {:ok, result} <-
+           fact
+           |> open_inbound_batch(repo)
+           |> maybe_finalize_due_batch(repo, now)
+           |> route_inbound_batch_entry(
+             repo,
+             binding,
+             channel,
+             fact,
+             source_entry,
+             policy,
+             type,
+             now
+           ) do
+      result =
+        result
+        |> Map.put(:signal_channel, channel)
+        |> maybe_put_result(:signal_entry, mirror_entry)
+
+      {:ok, result}
+    end
+  end
+
+  defp maybe_put_result(result, _key, nil), do: result
+  defp maybe_put_result(result, key, value), do: Map.put(result, key, value)
+
+  defp maybe_mirror_im_entry(repo, fact, policy, type, now) do
+    case should_mirror_im_entry?(policy, type) do
+      true -> mirror_receive_entry(repo, fact, now)
+      false -> {:ok, nil}
+    end
+  end
+
+  defp should_mirror_im_entry?(_policy, "im.message.addressed"), do: true
+  defp should_mirror_im_entry?(:record_only, _type), do: true
+  defp should_mirror_im_entry?(:may_intervene, _type), do: true
+  defp should_mirror_im_entry?(_policy, _type), do: false
+
+  defp maybe_finalize_due_batch(nil, _repo, _now), do: {:ok, nil}
+
+  defp maybe_finalize_due_batch(%InboundBatch{available_at: available_at} = batch, repo, now) do
+    case DateTime.compare(available_at, now) do
+      :gt ->
+        {:ok, batch}
+
+      _ready ->
+        with {:ok, _result} <- finalize_inbound_batch_in_tx(repo, batch, now) do
+          {:ok, nil}
+        end
+    end
+  end
+
+  defp route_inbound_batch_entry(
+         {:ok, batch},
+         repo,
+         binding,
+         channel,
+         fact,
+         entry,
+         policy,
+         type,
+         now
+       ) do
+    route_inbound_batch_entry(batch, repo, binding, channel, fact, entry, policy, type, now)
+  end
+
+  defp route_inbound_batch_entry(
+         batch,
+         repo,
+         binding,
+         channel,
+         fact,
+         entry,
+         policy,
+         "im.message.addressed",
+         now
+       ) do
+    append_addressed_inbound_entry(batch, repo, binding, channel, fact, entry, policy, now)
+  end
+
+  defp route_inbound_batch_entry(batch, repo, binding, channel, fact, entry, policy, _type, now) do
+    append_neutral_inbound_entry(batch, repo, binding, channel, fact, entry, policy, now)
+  end
+
+  defp append_addressed_inbound_entry(nil, repo, _binding, _channel, fact, entry, policy, now)
+       when is_map(entry) do
+    create_inbound_batch(repo, fact, policy, "addressed", [entry], now)
+    |> inbound_result(:accepted)
+  end
+
+  defp append_addressed_inbound_entry(
+         %InboundBatch{mode: "addressed"} = batch,
+         repo,
+         binding,
+         channel,
+         fact,
+         entry,
+         policy,
+         now
+       ) do
+    cond do
+      batch.requester_sender_key == fact.sender_key and not non_bot_mention?(entry) and
+          not addressed_batch_full?(batch.entries, entry) ->
+        update_inbound_batch(batch, repo, [entry], now)
+        |> inbound_result(:accepted)
+
+      true ->
+        with {:ok, _closed} <- finalize_inbound_batch_in_tx(repo, batch, now),
+             {:ok, result} <-
+               append_addressed_inbound_entry(
+                 nil,
+                 repo,
+                 binding,
+                 channel,
+                 fact,
+                 entry,
+                 policy,
+                 now
+               ) do
+          {:ok, result}
+        end
+    end
+  end
+
+  defp append_addressed_inbound_entry(
+         %InboundBatch{mode: "neutral"} = batch,
+         repo,
+         binding,
+         channel,
+         fact,
+         entry,
+         policy,
+         now
+       ) do
+    {prefix, tail} = split_addressable_tail(batch.entries, fact.sender_key)
+
+    with {:ok, _closed_prefix} <- close_or_replace_neutral_prefix(repo, batch, prefix, tail, now),
+         {:ok, result} <-
+           append_addressed_inbound_entry(
+             nil,
+             repo,
+             binding,
+             channel,
+             fact,
+             tail ++ [entry],
+             policy,
+             now
+           ) do
+      {:ok, result}
+    end
+  end
+
+  defp append_addressed_inbound_entry(
+         nil,
+         repo,
+         _binding,
+         _channel,
+         fact,
+         entries,
+         policy,
+         now
+       )
+       when is_list(entries) do
+    create_inbound_batch(repo, fact, policy, "addressed", entries, now)
+    |> inbound_result(:accepted)
+  end
+
+  defp append_neutral_inbound_entry(nil, repo, _binding, _channel, fact, entry, policy, now) do
+    create_inbound_batch(repo, fact, policy, "neutral", [entry], now)
+    |> inbound_result(neutral_status(policy))
+  end
+
+  defp append_neutral_inbound_entry(
+         %InboundBatch{mode: "neutral"} = batch,
+         repo,
+         _binding,
+         _channel,
+         _fact,
+         entry,
+         policy,
+         now
+       ) do
+    batch
+    |> update_inbound_batch(repo, [entry], now)
+    |> inbound_result(neutral_status(policy))
+  end
+
+  defp append_neutral_inbound_entry(
+         %InboundBatch{mode: "addressed"} = batch,
+         repo,
+         binding,
+         channel,
+         fact,
+         entry,
+         policy,
+         now
+       ) do
+    cond do
+      batch.requester_sender_key == fact.sender_key and addressable_neutral_entry?(entry) and
+          not addressed_batch_full?(batch.entries, entry) ->
+        batch
+        |> update_inbound_batch(repo, [entry], now)
+        |> inbound_result(:accepted)
+
+      batch.requester_sender_key == fact.sender_key and addressable_neutral_entry?(entry) ->
+        with {:ok, _closed} <- finalize_inbound_batch_in_tx(repo, batch, now),
+             {:ok, result} <-
+               create_inbound_batch(repo, fact, policy, "addressed", [entry], now)
+               |> inbound_result(:accepted) do
+          {:ok, result}
+        end
+
+      true ->
+        with {:ok, _closed} <- finalize_inbound_batch_in_tx(repo, batch, now),
+             {:ok, result} <-
+               append_neutral_inbound_entry(nil, repo, binding, channel, fact, entry, policy, now) do
+          {:ok, result}
+        end
+    end
+  end
+
+  defp close_or_replace_neutral_prefix(repo, batch, [], _tail, now) do
+    cancel_inbound_batch(repo, batch, now, %{entries: []})
+  end
+
+  defp close_or_replace_neutral_prefix(repo, batch, prefix, [] = _tail, now) do
+    batch
+    |> InboundBatch.changeset(%{entries: prefix})
+    |> repo.update()
+    |> case do
+      {:ok, updated} -> finalize_inbound_batch_in_tx(repo, updated, now)
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp close_or_replace_neutral_prefix(repo, batch, prefix, tail, now) do
+    batch
+    |> InboundBatch.changeset(%{entries: prefix})
+    |> repo.update()
+    |> case do
+      {:ok, updated} -> finalize_inbound_batch_in_tx(repo, updated, now)
+      {:error, _reason} = error -> error
+    end
+    |> case do
+      {:ok, _closed} -> {:ok, tail}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp inbound_result({:ok, %InboundBatch{} = batch}, status) do
+    {:ok, %{status: status, inbound_batch: batch}}
+  end
+
+  defp inbound_result({:error, _reason} = error, _status), do: error
+
+  defp neutral_status(:record_only), do: :recorded
+  defp neutral_status(:may_intervene), do: :recorded
+  defp neutral_status(:ignore), do: :ignored
+
+  defp finalize_inbound_batch(%InboundBatch{} = batch, now) do
+    Repo.transact(fn repo ->
+      with :ok <- lock_inbound_batch(repo, batch),
+           %InboundBatch{} = fresh <- repo.get(InboundBatch, batch.id) do
+        case fresh.batch_state do
+          "open" -> finalize_inbound_batch_in_tx(repo, fresh, now)
+          _closed -> {:ok, %{status: :already_finalized, inbound_batch: fresh}}
+        end
+      else
+        nil -> {:ok, %{status: :missing}}
+        {:error, _reason} = error -> error
+      end
+    end)
+  end
+
+  defp finalize_inbound_batch_in_tx(repo, %InboundBatch{entries: []} = batch, now) do
+    cancel_inbound_batch(repo, batch, now)
+  end
+
+  defp finalize_inbound_batch_in_tx(repo, %InboundBatch{mode: "addressed"} = batch, now) do
+    with {:ok, actor_input} <- append_batch_actor_input(repo, batch, "im.message.addressed", now),
+         {:ok, closed} <-
+           batch
+           |> InboundBatch.changeset(%{
+             batch_state: "finalized",
+             outcome: "addressed",
+             finalized_at: now,
+             actor_input_id: actor_input.id,
+             batch_revision: batch.batch_revision + 1
+           })
+           |> repo.update() do
+      {:ok, %{status: :accepted, actor_input: actor_input, inbound_batch: closed}}
+    end
+  end
+
+  defp finalize_inbound_batch_in_tx(repo, %InboundBatch{mode: "neutral"} = batch, now) do
+    case batch.policy do
+      "may_intervene" ->
+        with {:ok, actor_input} <-
+               append_batch_actor_input(repo, batch, "im.message.may_intervene", now),
+             {:ok, closed} <-
+               batch
+               |> InboundBatch.changeset(%{
+                 batch_state: "finalized",
+                 outcome: "ambient",
+                 finalized_at: now,
+                 actor_input_id: actor_input.id,
+                 batch_revision: batch.batch_revision + 1
+               })
+               |> repo.update() do
+          {:ok, %{status: :accepted, actor_input: actor_input, inbound_batch: closed}}
+        end
+
+      _no_actor_input ->
+        with {:ok, closed} <-
+               batch
+               |> InboundBatch.changeset(%{
+                 batch_state: "finalized",
+                 outcome: "no_actor_input",
+                 finalized_at: now,
+                 batch_revision: batch.batch_revision + 1
+               })
+               |> repo.update() do
+          {:ok, %{status: :ignored, inbound_batch: closed}}
+        end
+    end
+  end
+
+  defp cancel_inbound_batch(repo, batch, now, extra_attrs \\ %{}) do
+    attrs =
+      %{
+        batch_state: "canceled",
+        outcome: "canceled",
+        finalized_at: now,
+        batch_revision: batch.batch_revision + 1
+      }
+      |> Map.merge(extra_attrs)
+
+    with {:ok, closed} <-
+           batch
+           |> InboundBatch.changeset(attrs)
+           |> repo.update() do
+      {:ok, %{status: :canceled, inbound_batch: closed}}
+    end
+  end
+
+  defp remove_pending_inbound_entry(repo, fact, now) do
+    fact
+    |> pending_inbound_batches_for_lifecycle(repo)
+    |> Enum.map(&remove_entry_from_inbound_batch(repo, &1, fact, now))
+    |> collect_results()
+    |> case do
+      {:ok, results} -> {:ok, Enum.reject(results, &is_nil/1)}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp pending_inbound_batches_for_lifecycle(fact, repo) do
+    InboundBatch
+    |> where([batch], batch.agent_uid == ^fact.agent_uid)
+    |> where([batch], batch.binding_name == ^fact.binding_name)
+    |> where([batch], batch.signal_channel_id == ^fact.signal_channel_id)
+    |> maybe_where_thread(fact.provider_thread_id)
+    |> where([batch], batch.batch_state == "open")
+    |> order_by([batch], asc: batch.inserted_at)
+    |> lock("FOR UPDATE")
+    |> repo.all()
+  end
+
+  defp maybe_where_thread(query, nil), do: query
+
+  defp maybe_where_thread(query, provider_thread_id) do
+    where(query, [batch], batch.provider_thread_id == ^thread_key(provider_thread_id))
+  end
+
+  defp remove_entry_from_inbound_batch(repo, %InboundBatch{} = batch, fact, now) do
+    entries = Enum.reject(batch.entries, &(&1["provider_entry_id"] == fact.provider_entry_id))
+
+    cond do
+      length(entries) == length(batch.entries) ->
+        {:ok, nil}
+
+      entries == [] ->
+        with {:ok, %{inbound_batch: closed}} <-
+               cancel_inbound_batch(repo, batch, now, %{entries: []}) do
+          {:ok, closed}
+        end
+
+      true ->
+        batch
+        |> InboundBatch.changeset(%{
+          entries: entries,
+          requester_sender_key: requester_sender_key(batch.mode, entries),
+          available_at: inbound_due_at(batch.mode, batch.policy, entries, batch, now),
+          hard_cap_at: inbound_hard_cap_at(batch.mode, batch.policy, batch, now),
+          batch_revision: batch.batch_revision + 1
+        })
+        |> repo.update()
+    end
+  end
+
+  defp append_batch_actor_input(repo, batch, type, now) do
+    with {:ok, binding} <- batch_binding(repo, batch),
+         {:ok, channel} <- batch_channel(repo, batch),
+         :ok <- mirror_unmirrored_batch_entries(repo, batch.entries, now) do
+      fact = batch_actor_fact(batch, type, now)
+      append_actor_input(binding, fact, type, channel, nil, now)
+    end
+  end
+
+  defp batch_binding(repo, %InboundBatch{} = batch) do
+    case repo.get_by(SignalBinding, agent_uid: batch.agent_uid, name: batch.binding_name) do
+      %SignalBinding{} = binding -> {:ok, binding}
+      nil -> {:error, :binding_not_found}
+    end
+  end
+
+  defp batch_channel(repo, %InboundBatch{} = batch) do
+    case repo.get(SignalChannel, batch.signal_channel_id) do
+      %SignalChannel{} = channel -> {:ok, channel}
+      nil -> {:error, :signal_channel_not_found}
+    end
+  end
+
+  defp create_inbound_batch(repo, fact, policy, mode, entries, now) do
+    policy = Atom.to_string(policy)
+
+    attrs = %{
+      agent_uid: fact.agent_uid,
+      binding_name: fact.binding_name,
+      session_id: Map.get(fact, :session_id) || signal_session_id(fact.signal_channel_id),
+      signal_channel_id: fact.signal_channel_id,
+      provider_thread_id: thread_key(fact.provider_thread_id),
+      batch_state: "open",
+      mode: mode,
+      policy: policy,
+      requester_sender_key: requester_sender_key(mode, entries),
+      entries: entries,
+      available_at: inbound_due_at(mode, policy, entries, nil, now),
+      hard_cap_at: inbound_hard_cap_at(mode, policy, nil, now)
+    }
+
+    %InboundBatch{}
+    |> InboundBatch.changeset(attrs)
+    |> repo.insert()
+  end
+
+  defp update_inbound_batch(%InboundBatch{} = batch, repo, new_entries, now) do
+    entries = batch.entries ++ new_entries
+
+    batch
+    |> InboundBatch.changeset(%{
+      entries: entries,
+      requester_sender_key: requester_sender_key(batch.mode, entries),
+      available_at: inbound_due_at(batch.mode, batch.policy, entries, batch, now),
+      hard_cap_at: inbound_hard_cap_at(batch.mode, batch.policy, batch, now)
+    })
+    |> repo.update()
+  end
+
+  defp open_inbound_batch(fact, repo) do
+    InboundBatch
+    |> where([batch], batch.agent_uid == ^fact.agent_uid)
+    |> where([batch], batch.binding_name == ^fact.binding_name)
+    |> where([batch], batch.signal_channel_id == ^fact.signal_channel_id)
+    |> where([batch], batch.provider_thread_id == ^thread_key(fact.provider_thread_id))
+    |> where([batch], batch.batch_state == "open")
+    |> order_by([batch], asc: batch.inserted_at)
+    |> limit(1)
+    |> repo.one()
+  end
+
+  defp inbound_batch_entry(fact, mirror_entry, policy, type, now) do
+    attrs = receive_entry_attrs(fact, now)
+
+    %{
+      "signal_channel_id" => fact.signal_channel_id,
+      "provider_entry_id" => fact.provider_entry_id,
+      "provider_thread_id" => fact.provider_thread_id,
+      "sender_key" => fact.sender_key,
+      "text" => fact.text,
+      "formatted_content" => fact.formatted_content,
+      "attachments" => fact.attachments,
+      "links" => fact.links,
+      "author" => fact.author,
+      "mentions" => fact.mentions,
+      "metadata" => signal_entry_metadata(fact),
+      "raw_payload" => fact.raw_payload,
+      "provider_time" => datetime_iso8601(fact.provider_time),
+      "sent_at" => datetime_iso8601(fact.provider_time) || DateTime.to_iso8601(now),
+      "document_id" => attrs.document_id,
+      "search_text" => attrs.search_text,
+      "metadata_text" => attrs.metadata_text,
+      "content_hash" => attrs.content_hash,
+      "explicit" => type == "im.message.addressed",
+      "policy" => Atom.to_string(policy),
+      "mirrored" => not is_nil(mirror_entry),
+      "addressable_neutral" => addressable_neutral_fact?(fact, type),
+      "non_bot_mention" => non_bot_mention?(fact),
+      "text_length" => text_length(fact.text)
+    }
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+    |> Map.new()
+  end
+
+  defp batch_actor_fact(%InboundBatch{} = batch, type, now) do
+    entries = batch.entries
+    last_entry = List.last(entries) || %{}
+
+    %{
+      agent_uid: batch.agent_uid,
+      binding_name: batch.binding_name,
+      session_id: batch.session_id,
+      ingress_event_id: "inbound-batch:#{batch.id}:#{batch.batch_revision + 1}",
+      signal_channel_id: batch.signal_channel_id,
+      provider_entry_id: last_entry["provider_entry_id"],
+      provider_thread_id: unthread_key(batch.provider_thread_id),
+      sender_key: batch.requester_sender_key,
+      text: merged_entry_text(entries),
+      attachments: merged_entry_list(entries, "attachments"),
+      links: merged_entry_list(entries, "links"),
+      author: last_entry["author"] || %{},
+      mentions: merged_entry_list(entries, "mentions"),
+      metadata: %{
+        "source" => "inbound_batch",
+        "batch_id" => batch.id,
+        "batch_revision" => batch.batch_revision + 1,
+        "source_provider_entry_ids" => Enum.map(entries, & &1["provider_entry_id"]),
+        "source_signal_entries" =>
+          Enum.map(entries, fn entry ->
+            %{
+              "signal_channel_id" => entry["signal_channel_id"],
+              "provider_entry_id" => entry["provider_entry_id"]
+            }
+          end)
+      },
+      raw_payload: %{},
+      provider_time: parse_datetime(last_entry["provider_time"]),
+      available_at: now,
+      finalized_batch_id: batch.id,
+      batch_entries: entries,
+      batch_outcome: type
+    }
+  end
+
+  defp mirror_unmirrored_batch_entries(repo, entries, now) do
+    entries
+    |> Enum.reject(& &1["mirrored"])
+    |> Enum.map(&mirror_batch_entry(repo, &1, now))
+    |> collect_results()
+    |> case do
+      {:ok, _entries} -> :ok
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp mirror_batch_entry(repo, entry, now) do
+    attrs = %{
+      signal_channel_id: entry["signal_channel_id"],
+      provider_entry_id: entry["provider_entry_id"],
+      text: entry["text"],
+      formatted_content: entry["formatted_content"] || %{},
+      attachments: entry["attachments"] || [],
+      links: entry["links"] || [],
+      author: entry["author"] || %{},
+      mentions: entry["mentions"] || [],
+      metadata: entry["metadata"] || %{},
+      raw_payload: entry["raw_payload"] || %{},
+      provider_time: parse_datetime(entry["provider_time"]),
+      fallback_visible_text: entry["text"],
+      reactions: %{},
+      raw_reaction_keys: %{},
+      document_id: entry["document_id"],
+      search_text: entry["search_text"],
+      metadata_text: entry["metadata_text"],
+      content_hash: entry["content_hash"],
+      first_seen_at: now,
+      last_seen_at: now
+    }
+
+    case repo.get_by(SignalEntry,
+           signal_channel_id: attrs.signal_channel_id,
+           provider_entry_id: attrs.provider_entry_id
+         ) do
+      %SignalEntry{} = existing ->
+        existing
+        |> SignalEntry.changeset(%{
+          attrs
+          | first_seen_at: existing.first_seen_at,
+            reactions: existing.reactions || %{},
+            raw_reaction_keys: existing.raw_reaction_keys || %{}
+        })
+        |> repo.update()
+
+      nil ->
+        %SignalEntry{}
+        |> SignalEntry.changeset(attrs)
+        |> repo.insert()
+    end
+  end
+
+  defp split_addressable_tail(entries, sender_key) do
+    {tail_reversed, prefix_reversed} =
+      entries
+      |> Enum.reverse()
+      |> Enum.split_while(fn entry ->
+        entry["sender_key"] == sender_key and addressable_neutral_entry?(entry)
+      end)
+
+    {Enum.reverse(prefix_reversed), Enum.reverse(tail_reversed)}
+  end
+
+  defp addressable_neutral_fact?(fact, type) do
+    type != "im.message.addressed" and fact.channel_kind == :im_group and
+      not non_bot_mention?(fact)
+  end
+
+  defp addressable_neutral_entry?(entry), do: entry["addressable_neutral"] == true
+
+  defp non_bot_mention?(%{} = entry) when is_map_key(entry, "non_bot_mention"),
+    do: entry["non_bot_mention"] == true
+
+  defp non_bot_mention?(fact) do
+    fact
+    |> Map.get(:mentions, [])
+    |> Enum.any?(fn mention -> structured_non_bot_mention?(mention, fact.agent_uid) end)
+  end
+
+  defp structured_non_bot_mention?(mention, agent_uid) when is_map(mention) do
+    structured? =
+      truthy?(fetch_value(mention, :structured)) ||
+        not is_nil(fetch_value(mention, :kind))
+
+    structured? and not structured_mention?(mention, agent_uid)
+  end
+
+  defp structured_non_bot_mention?(_mention, _agent_uid), do: false
+
+  defp addressed_batch_full?(entries, entry) do
+    length(entries) >= @addressed_max_entries or text_budget_full?(entries, entry)
+  end
+
+  defp text_budget_full?(entries, entry) do
+    current = entries_text_length(entries)
+    incoming = entry["text_length"] || text_length(entry["text"])
+    total = current + incoming
+
+    cond do
+      entries == [] -> false
+      total <= @addressed_text_budget -> false
+      long_text_continuation?(entries, entry) and total <= @addressed_text_hard_cap -> false
+      true -> true
+    end
+  end
+
+  defp long_text_continuation?(entries, entry) do
+    previous = List.last(entries) || %{}
+
+    (previous["text_length"] || 0) >= @addressed_long_text_threshold or
+      (entry["text_length"] || 0) >= @addressed_long_text_threshold
+  end
+
+  defp inbound_due_at("addressed", _policy, entries, _batch, now) do
+    DateTime.add(now, addressed_entry_window_ms(List.last(entries) || %{}), :millisecond)
+  end
+
+  defp inbound_due_at("neutral", "may_intervene", _entries, %InboundBatch{} = batch, now) do
+    min_datetime(DateTime.add(now, @ambient_batch_window_ms, :millisecond), batch.hard_cap_at)
+  end
+
+  defp inbound_due_at("neutral", "may_intervene", _entries, nil, now) do
+    DateTime.add(now, @ambient_batch_window_ms, :millisecond)
+  end
+
+  defp inbound_due_at("neutral", _policy, entries, _batch, now) do
+    DateTime.add(now, addressed_entry_window_ms(List.last(entries) || %{}), :millisecond)
+  end
+
+  defp inbound_hard_cap_at("neutral", "may_intervene", nil, now) do
+    DateTime.add(now, @ambient_hard_cap_ms, :millisecond)
+  end
+
+  defp inbound_hard_cap_at("neutral", "may_intervene", %InboundBatch{} = batch, _now),
+    do: batch.hard_cap_at
+
+  defp inbound_hard_cap_at(_mode, _policy, _batch, _now), do: nil
+
+  defp addressed_entry_window_ms(entry) do
+    cond do
+      (entry["text_length"] || 0) >= @addressed_long_text_threshold ->
+        @addressed_long_text_window_ms
+
+      entry_has_attachments?(entry) ->
+        @addressed_attachment_window_ms
+
+      true ->
+        @addressed_text_window_ms
+    end
+  end
+
+  defp entry_has_attachments?(entry) do
+    case entry["attachments"] do
+      [_ | _] -> true
+      _value -> false
+    end
+  end
+
+  defp requester_sender_key("addressed", entries) do
+    entries
+    |> List.last()
+    |> case do
+      %{} = entry -> entry["sender_key"]
+      _value -> nil
+    end
+  end
+
+  defp requester_sender_key(_mode, _entries), do: nil
+
+  defp merged_entry_text(entries) do
+    entries
+    |> Enum.map(& &1["text"])
+    |> Enum.filter(&is_binary/1)
+    |> Enum.reject(&(String.trim(&1) == ""))
+    |> Enum.join("\n")
+  end
+
+  defp merged_entry_list(entries, key) do
+    entries
+    |> Enum.flat_map(fn entry ->
+      case entry[key] do
+        values when is_list(values) -> values
+        _value -> []
+      end
+    end)
+  end
+
+  defp entries_text_length(entries) do
+    entries
+    |> Enum.map(fn entry -> entry["text_length"] || text_length(entry["text"]) end)
+    |> Enum.sum()
+  end
+
+  defp text_length(text) when is_binary(text), do: String.length(text)
+  defp text_length(_text), do: 0
+
+  defp thread_key(nil), do: ""
+  defp thread_key(value) when is_binary(value), do: value
+  defp thread_key(value), do: to_string(value)
+
+  defp unthread_key(""), do: nil
+  defp unthread_key(value), do: value
+
+  defp parse_datetime(nil), do: nil
+
+  defp parse_datetime(value) when is_binary(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, datetime, _offset} -> datetime
+      _error -> nil
+    end
+  end
+
+  defp parse_datetime(%DateTime{} = value), do: value
+  defp parse_datetime(_value), do: nil
 
   defp maybe_upsert_channel(_repo, %{signal_channel_id: nil}, _now), do: {:ok, nil}
   defp maybe_upsert_channel(repo, fact, now), do: upsert_channel(repo, fact, now)
@@ -982,7 +1799,12 @@ defmodule Ankole.SignalsGateway do
 
   defp append_actor_input(binding, fact, type, channel, entry, now) do
     session_id = Map.get(fact, :session_id) || signal_session_id(fact.signal_channel_id)
-    readiness = ActorInputTypes.readiness(type, actor_readiness_input(binding, fact), now)
+
+    available_at =
+      case Map.get(fact, :available_at) do
+        %DateTime{} = available_at -> available_at
+        _other -> now
+      end
 
     attrs = %{
       agent_uid: binding.agent_uid,
@@ -993,94 +1815,41 @@ defmodule Ankole.SignalsGateway do
       provider_thread_id: fact.provider_thread_id,
       provider_entry_id: fact.provider_entry_id,
       type: type,
-      available_at: readiness.available_at,
-      batch_scope: readiness.batch_scope,
-      sender_key: readiness.sender_key
+      available_at: available_at,
+      sender_key: Map.get(fact, :sender_key)
     }
 
     payload =
       binding
       |> actor_envelope(fact, type, channel, entry, now)
-      |> maybe_ambient_batch_payload(type, attrs, now)
+      |> maybe_ambient_batch_payload(type, attrs, fact, now)
 
     attrs = Map.put(attrs, :payload, payload)
 
-    # Ambient observation is special: instead of appending a new input per
-    # observed message, fold consecutive observations into a single open batch
-    # input so the agent gets one "here is what's happening in the room" wake-up,
-    # not one per message. Everything else appends a discrete input.
-    case type do
-      "im.message.may_intervene" -> append_or_merge_ambient_input(attrs, payload, now)
-      _type -> Actors.append_actor_input(attrs)
-    end
+    Actors.append_actor_input(attrs)
   end
 
-  # Three cases, in order:
-  #   1. We already created an input for this exact ingress_event_id → return it
-  #      (idempotent against duplicate delivery of the same event).
-  #   2. There is an OPEN ambient batch for this room → merge this observation in.
-  #   3. No open batch → start a new one.
-  defp append_or_merge_ambient_input(attrs, event_payload, now) do
-    case Repo.get_by(ActorInput,
-           agent_uid: attrs.agent_uid,
-           binding_name: attrs.binding_name,
-           ingress_event_id: attrs.ingress_event_id
-         ) do
-      %ActorInput{} = input ->
-        {:ok, input}
-
-      nil ->
-        case open_ambient_batch_input(attrs) do
-          %ActorInput{} = input -> merge_ambient_input(input, attrs, event_payload, now)
-          nil -> Actors.append_actor_input(attrs)
-        end
-    end
-  end
-
-  defp open_ambient_batch_input(attrs) do
-    ActorInput
-    |> where([input], input.agent_uid == ^attrs.agent_uid)
-    |> where([input], input.binding_name == ^attrs.binding_name)
-    |> where([input], input.session_id == ^attrs.session_id)
-    |> where([input], input.signal_channel_id == ^attrs.signal_channel_id)
-    |> where_provider_thread(attrs.provider_thread_id)
-    |> where([input], input.type == "im.message.may_intervene")
-    |> where([input], input.input_state == "open")
-    |> order_by([input], asc: input.broker_sequence)
-    |> limit(1)
-    |> Repo.one()
-  end
-
-  defp merge_ambient_input(%ActorInput{} = input, attrs, event_payload, now) do
-    payload = append_ambient_batch_event(input.payload || %{}, attrs, event_payload, now)
-
-    input
-    |> ActorInput.changeset(%{
-      available_at: attrs.available_at,
-      payload: payload
-    })
-    |> Repo.update()
-  end
-
-  defp maybe_ambient_batch_payload(payload, "im.message.may_intervene", attrs, now) do
-    refresh_ambient_batch_payload(payload, attrs, [ambient_batch_entry(payload)], now)
-  end
-
-  defp maybe_ambient_batch_payload(payload, _type, _attrs, _now), do: payload
-
-  defp append_ambient_batch_event(payload, attrs, event_payload, now) do
-    entries =
-      payload
-      |> get_in(["data", "entries"])
-      |> case do
-        values when is_list(values) -> values
-        _value -> [ambient_batch_entry(payload)]
-      end
-      |> Kernel.++([ambient_batch_entry(event_payload)])
-      |> Enum.uniq_by(& &1["provider_entry_id"])
-
+  defp maybe_ambient_batch_payload(
+         payload,
+         "im.message.may_intervene",
+         attrs,
+         %{finalized_batch_id: _batch_id, batch_entries: entries},
+         now
+       )
+       when is_list(entries) do
     refresh_ambient_batch_payload(payload, attrs, entries, now)
   end
+
+  defp maybe_ambient_batch_payload(
+         payload,
+         _type,
+         _attrs,
+         %{finalized_batch_id: _batch_id},
+         _now
+       ),
+       do: payload
+
+  defp maybe_ambient_batch_payload(payload, _type, _attrs, _fact, _now), do: payload
 
   defp refresh_ambient_batch_payload(payload, attrs, entries, now) do
     payload
@@ -1093,22 +1862,6 @@ defmodule Ankole.SignalsGateway do
       "last_provider_entry_id" => entries |> List.last() |> Map.get("provider_entry_id"),
       "updated_at" => DateTime.to_iso8601(now)
     })
-  end
-
-  defp ambient_batch_entry(payload) do
-    entry = get_in(payload, ["data", "entry"]) || %{}
-
-    %{
-      "signal_channel_id" => entry["signal_channel_id"],
-      "provider_entry_id" => entry["provider_entry_id"],
-      "provider_thread_id" => entry["provider_thread_id"],
-      "text" => entry["text"],
-      "author" => entry["author"],
-      "sent_at" => entry["provider_time"] || payload["time"],
-      "time" => entry["provider_time"] || payload["time"]
-    }
-    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
-    |> Map.new()
   end
 
   defp batch_entry_summary(entries) do
@@ -1129,77 +1882,6 @@ defmodule Ankole.SignalsGateway do
     |> Map.put_new("provider_thread_id", Map.get(fact, :provider_thread_id))
     |> Enum.reject(fn {_key, value} -> is_nil(value) end)
     |> Map.new()
-  end
-
-  defp actor_readiness_input(binding, fact) do
-    %{
-      binding_name: binding.name,
-      signal_channel_id: fact.signal_channel_id,
-      provider_thread_id: fact.provider_thread_id,
-      sender_key: Map.get(fact, :sender_key)
-    }
-  end
-
-  # When a new addressed message lands, push the whole open batch in this
-  # channel/thread to the latest message's `available_at`. That way a burst of
-  # rapid messages is consumed as one turn keyed to the LAST message, instead of
-  # the agent replying to the first and then again to each follow-up.
-  defp refresh_batch_readiness("im.message.addressed", fact, %ActorInput{} = actor_input) do
-    ActorInput
-    |> where([input], input.agent_uid == ^fact.agent_uid)
-    |> where([input], input.binding_name == ^fact.binding_name)
-    |> where([input], input.signal_channel_id == ^fact.signal_channel_id)
-    |> where_provider_thread(fact.provider_thread_id)
-    |> where([input], input.type == "im.message.addressed")
-    |> Repo.update_all(set: [available_at: actor_input.available_at])
-
-    :ok
-  end
-
-  defp refresh_batch_readiness("im.message.may_intervene", fact, %ActorInput{} = actor_input) do
-    due_at = ambient_due_at(fact, actor_input)
-
-    ActorInput
-    |> where([input], input.agent_uid == ^fact.agent_uid)
-    |> where([input], input.binding_name == ^fact.binding_name)
-    |> where([input], input.signal_channel_id == ^fact.signal_channel_id)
-    |> where_provider_thread(fact.provider_thread_id)
-    |> where([input], input.type == "im.message.may_intervene")
-    |> where([input], input.input_state == "open")
-    |> Repo.update_all(set: [available_at: due_at])
-
-    :ok
-  end
-
-  defp refresh_batch_readiness(_type, _fact, _actor_input), do: :ok
-
-  # Ambient debounce implemented entirely in Postgres (no Redis): each new room
-  # observation pushes the wake-up forward by the batch window (sliding), but the
-  # result is clamped so it can never be later than `oldest open input + 60s hard
-  # cap`. Net effect: a quiet room reacts ~1.5s after the last message, a room
-  # that never goes quiet still reacts within 60s of the first unprocessed
-  # message. The hard cap is what stops a busy room from starving recognition.
-  defp ambient_due_at(fact, %ActorInput{} = actor_input) do
-    oldest_inserted_at =
-      ActorInput
-      |> where([input], input.agent_uid == ^fact.agent_uid)
-      |> where([input], input.binding_name == ^fact.binding_name)
-      |> where([input], input.signal_channel_id == ^fact.signal_channel_id)
-      |> where_provider_thread(fact.provider_thread_id)
-      |> where([input], input.type == "im.message.may_intervene")
-      |> where([input], input.input_state == "open")
-      |> select([input], min(input.inserted_at))
-      |> Repo.one()
-
-    sliding_due_at = actor_input.available_at
-
-    hard_cap_at =
-      case oldest_inserted_at || actor_input.inserted_at do
-        %DateTime{} = inserted_at -> DateTime.add(inserted_at, @ambient_hard_cap_ms, :millisecond)
-        _value -> actor_input.available_at
-      end
-
-    min_datetime(sliding_due_at, hard_cap_at)
   end
 
   defp min_datetime(%DateTime{} = left, %DateTime{} = right) do
@@ -1223,6 +1905,7 @@ defmodule Ankole.SignalsGateway do
         },
         "channel" => channel_payload(channel),
         "entry" => entry_payload(entry || fact, fact),
+        "entries" => Map.get(fact, :batch_entries),
         "mentions" => Map.get(fact, :mentions),
         "raw" => Map.get(fact, :raw_payload),
         "command" => Map.get(fact, :command_payload),
@@ -1280,6 +1963,9 @@ defmodule Ankole.SignalsGateway do
       "provider_entry_id" => Map.get(fact, :provider_entry_id),
       "provider_thread_id" => Map.get(fact, :provider_thread_id),
       "text" => Map.get(fact, :text),
+      "attachments" => Map.get(fact, :attachments),
+      "links" => Map.get(fact, :links),
+      "author" => Map.get(fact, :author),
       "provider_time" => datetime_iso8601(Map.get(fact, :provider_time))
     }
     |> Enum.reject(fn {_key, value} -> is_nil(value) end)
@@ -1489,6 +2175,40 @@ defmodule Ankole.SignalsGateway do
     key =
       Enum.join(
         [fact.signal_channel_id, fact.provider_entry_id],
+        "|"
+      )
+
+    SQL.query!(repo, "SELECT pg_advisory_xact_lock(hashtext($1))", [key])
+    :ok
+  end
+
+  defp lock_inbound_batch(repo, %InboundBatch{} = batch) do
+    key =
+      Enum.join(
+        [
+          "inbound_batch",
+          batch.agent_uid,
+          batch.binding_name,
+          batch.signal_channel_id,
+          batch.provider_thread_id
+        ],
+        "|"
+      )
+
+    SQL.query!(repo, "SELECT pg_advisory_xact_lock(hashtext($1))", [key])
+    :ok
+  end
+
+  defp lock_inbound_batch(repo, fact) do
+    key =
+      Enum.join(
+        [
+          "inbound_batch",
+          fact.agent_uid,
+          fact.binding_name,
+          fact.signal_channel_id,
+          thread_key(fact.provider_thread_id)
+        ],
         "|"
       )
 
@@ -2363,14 +3083,6 @@ defmodule Ankole.SignalsGateway do
     do: :remove
 
   defp normalize_reaction_action(_value), do: :add
-
-  # A nil thread must match rows where the column IS NULL (not `= NULL`, which is
-  # never true in SQL), so the two clauses generate different WHERE fragments.
-  defp where_provider_thread(query, nil),
-    do: where(query, [input], is_nil(input.provider_thread_id))
-
-  defp where_provider_thread(query, provider_thread_id),
-    do: where(query, [input], input.provider_thread_id == ^provider_thread_id)
 
   # Provider/JSON booleans arrive as strings or ints, so accept the common truthy
   # encodings rather than only the literal `true`.

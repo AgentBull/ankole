@@ -216,6 +216,29 @@ defmodule Ankole.AppConfigureTest do
              AppConfigure.resolve(definition, agent_id: "agent-a")
   end
 
+  test "global scope definitions reject agent overrides", %{prefix: prefix} do
+    definition =
+      AppConfigure.define(
+        key: key(prefix, "global-only"),
+        encrypted: false,
+        scope: :global,
+        schema: Schema.string(),
+        default_value: "default"
+      )
+
+    assert :ok = AppConfigure.register_definitions([definition])
+
+    assert {:error, {:global_scope_only, _key}} =
+             AppConfigure.put_for_agent("agent-a", definition, "agent")
+
+    assert {:ok, "global"} = AppConfigure.put_global(definition, "global")
+
+    insert_row!("agent:agent-a", definition.key, %{"type" => "plaintext", "value" => "agent"})
+
+    assert {:ok, %{value: "global", source: :global, scope: "global"}} =
+             AppConfigure.resolve(definition, agent_id: "agent-a")
+  end
+
   test "invalid scoped rows stop fallback instead of inheriting global", %{prefix: prefix} do
     definition =
       AppConfigure.define(

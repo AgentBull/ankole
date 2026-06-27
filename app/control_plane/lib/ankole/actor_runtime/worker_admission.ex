@@ -5,16 +5,10 @@ defmodule Ankole.ActorRuntime.WorkerAdmission do
   Every worker lifecycle message (ready / heartbeat / capacity) lands here after
   the transport has authenticated the route, and gets projected into the durable
   `agent_computer_worker` table — the scheduler's single source of worker
-  liveness. Two invariants drive most of the logic in this module:
-
-    * Identity fencing: the message must come from the route+instance the worker
-      currently owns. A reconnected worker gets a fresh `worker_instance_id`, so
-      a stale connection (or an old process) can never refresh or keep alive a
-      projection that has moved on.
-    * Safe staleness: when a worker dies or its route breaks, its created/sent
-      deliveries are superseded and its assignments released, but the underlying
-      actor input rows stay open so the scheduler can simply retry them — worker
-      death never loses user-visible work.
+  liveness. Lifecycle messages must come from the authenticated worker id and
+  route the projection owns. When a worker dies or its route breaks, its
+  created/sent deliveries are superseded and its assignments released, but the
+  underlying actor input rows stay open so the scheduler can simply retry them.
   """
 
   import Ecto.Query, warn: false
@@ -33,7 +27,7 @@ defmodule Ankole.ActorRuntime.WorkerAdmission do
   Admits an authenticated worker-ready message.
 
   Worker readiness is accepted only from the route that the transport already
-  authenticated. The worker payload names the instance; the route proves where
+  authenticated. The worker payload names the process id; the route proves where
   replies should be sent.
   """
   @spec admit_worker_ready(map(), String.t() | map()) ::
@@ -68,20 +62,16 @@ defmodule Ankole.ActorRuntime.WorkerAdmission do
       |> Map.put(:last_worker_heartbeat_at, now)
       |> maybe_put(:transport_route, route)
 
-    # Upsert keyed on worker_id: a worker restarting under the same stable id
-    # overwrites its prior projection (new instance id, route, capacity, fresh
-    # lease) in one statement, rather than racing an insert against a delete of
-    # the old row. The replace list is every field a re-ready should refresh.
+    # Upsert keyed on worker_id so a repeated ready from the same process refreshes
+    # its route, capacity, and lease in one statement.
     Repo.transact(fn repo ->
-      with :ok <- worker_instance_available(repo, attrs),
-           :ok <- worker_route_available(repo, attrs) do
+      with :ok <- worker_route_available(repo, attrs) do
         %AgentComputerWorker{}
         |> AgentComputerWorker.changeset(attrs)
         |> repo.insert(
           on_conflict:
             {:replace,
              [
-               :worker_instance_id,
                :status,
                :version,
                :capacity,
@@ -106,7 +96,7 @@ defmodule Ankole.ActorRuntime.WorkerAdmission do
 
   A heartbeat renews the worker's lease (its `last_worker_heartbeat_at`), which is
   the clock the watchdog reads to decide staleness. It is accepted only if the
-  authenticated identity matches and the worker still owns its instance+route, so
+  authenticated identity matches and the worker still owns its route, so
   heartbeats from a previous process cannot keep a superseded worker alive.
   """
   @spec handle_worker_heartbeat(map(), String.t() | map()) ::
@@ -115,9 +105,8 @@ defmodule Ankole.ActorRuntime.WorkerAdmission do
       when is_map(worker_heartbeat) do
     with {:ok, auth} <- authenticated_route(authenticated_route),
          {:ok, worker_id} <- fetch_required_text(worker_heartbeat, "worker_id"),
-         :ok <- authenticated_worker_matches(auth, worker_id),
-         {:ok, worker_instance_id} <- fetch_required_text(worker_heartbeat, "worker_instance_id") do
-      update_worker_projection(worker_id, worker_instance_id, auth.route, %{
+         :ok <- authenticated_worker_matches(auth, worker_id) do
+      update_worker_projection(worker_id, auth.route, %{
         last_worker_heartbeat_at: DateTime.utc_now(:microsecond),
         load: fetch_map(worker_heartbeat, "load_json") || %{}
       })
@@ -136,8 +125,7 @@ defmodule Ankole.ActorRuntime.WorkerAdmission do
   def handle_worker_capacity(worker_capacity, authenticated_route) when is_map(worker_capacity) do
     with {:ok, auth} <- authenticated_route(authenticated_route),
          {:ok, worker_id} <- fetch_required_text(worker_capacity, "worker_id"),
-         :ok <- authenticated_worker_matches(auth, worker_id),
-         {:ok, worker_instance_id} <- fetch_required_text(worker_capacity, "worker_instance_id") do
+         :ok <- authenticated_worker_matches(auth, worker_id) do
       # Prefer the structured capacity map; fall back to the scalar
       # available_turn_slots field for older workers that don't send capacity_json.
       capacity =
@@ -151,7 +139,7 @@ defmodule Ankole.ActorRuntime.WorkerAdmission do
             %{"available_turn_slots" => fetch_int(worker_capacity, "available_turn_slots") || 0}
         end
 
-      update_worker_projection(worker_id, worker_instance_id, auth.route, %{
+      update_worker_projection(worker_id, auth.route, %{
         capacity: capacity,
         load: fetch_map(worker_capacity, "load_json") || %{},
         last_worker_heartbeat_at: DateTime.utc_now(:microsecond)
@@ -232,14 +220,13 @@ defmodule Ankole.ActorRuntime.WorkerAdmission do
     |> repo.delete_all()
   end
 
-  # Updates heartbeat and capacity only when the worker still owns both the
-  # instance id and transport route. This prevents an old connection from
-  # refreshing a projection after the worker has restarted.
-  defp update_worker_projection(worker_id, worker_instance_id, route, attrs) do
+  # Updates heartbeat and capacity only when the worker still owns the transport
+  # route. This prevents an old connection from refreshing a replaced projection.
+  defp update_worker_projection(worker_id, route, attrs) do
     Repo.transact(fn repo ->
       case repo.get_by(AgentComputerWorker, worker_id: worker_id) do
         %AgentComputerWorker{} = worker ->
-          with :ok <- worker_route_matches(worker, worker_instance_id, route) do
+          with :ok <- worker_route_matches(worker, route) do
             worker
             |> AgentComputerWorker.changeset(attrs)
             |> repo.update()
@@ -250,24 +237,6 @@ defmodule Ankole.ActorRuntime.WorkerAdmission do
       end
     end)
   end
-
-  # Ensures one live instance id cannot be claimed by two worker ids. A repeated
-  # ready from the same worker id is an update; a different worker id is stale or
-  # misconfigured.
-  defp worker_instance_available(repo, %{worker_id: worker_id, worker_instance_id: instance_id})
-       when is_binary(instance_id) do
-    AgentComputerWorker
-    |> where([worker], worker.worker_instance_id == ^instance_id)
-    |> where([worker], worker.worker_id != ^worker_id)
-    |> where([worker], worker.status in ^@stale_worker_statuses)
-    |> repo.exists?()
-    |> case do
-      true -> {:error, :duplicate_worker_instance}
-      false -> :ok
-    end
-  end
-
-  defp worker_instance_available(_repo, _attrs), do: :ok
 
   # Ensures a live transport route belongs to one worker projection. ROUTER
   # identities are the address used by delivery, so sharing them would break
@@ -287,13 +256,9 @@ defmodule Ankole.ActorRuntime.WorkerAdmission do
 
   defp worker_route_available(_repo, _attrs), do: :ok
 
-  # Verifies that a lifecycle message still belongs to the admitted worker
-  # instance. Heartbeats from a previous process must not keep new work alive.
-  defp worker_route_matches(%AgentComputerWorker{} = worker, worker_instance_id, route) do
+  # Verifies that a lifecycle message still belongs to the admitted route.
+  defp worker_route_matches(%AgentComputerWorker{} = worker, route) do
     cond do
-      worker.worker_instance_id != worker_instance_id ->
-        {:error, :stale_worker_instance}
-
       worker.transport_route != route ->
         {:error, :stale_transport_route}
 
@@ -342,7 +307,6 @@ defmodule Ankole.ActorRuntime.WorkerAdmission do
        ) do
     ActorInputDelivery
     |> where([delivery], delivery.worker_id == ^worker.worker_id)
-    |> where([delivery], delivery.worker_instance_id == ^worker.worker_instance_id)
     |> where([delivery], delivery.state in ["created", "sent"])
     |> repo.update_all(
       set: [
@@ -400,13 +364,11 @@ defmodule Ankole.ActorRuntime.WorkerAdmission do
   # version stay as observability metadata instead of becoming scheduling axes.
   defp worker_ready_attrs(worker_ready, route) do
     with {:ok, worker_id} <- fetch_required_text(worker_ready, "worker_id"),
-         {:ok, worker_instance_id} <- fetch_required_text(worker_ready, "worker_instance_id"),
          {:ok, runtime} <- fetch_required_text(worker_ready, "runtime"),
          {:ok, version} <- fetch_required_text(worker_ready, "version") do
       {:ok,
        %{
          worker_id: worker_id,
-         worker_instance_id: worker_instance_id,
          status: @ready_worker_status,
          version: version,
          capacity:

@@ -5,7 +5,7 @@ defmodule Ankole.I18n.Config do
   AppConfigure stores the operator-selected locale id as durable runtime
   configuration. It does not scan locale files. Catalog startup and reload own
   the stronger check that the stored id is actually available in the loaded
-  release catalog.
+  application catalog.
   """
 
   alias Ankole.AppConfigure
@@ -14,7 +14,7 @@ defmodule Ankole.I18n.Config do
 
   @default_locale "en-US"
   @default_locale_key "i18n.default_locale"
-  @default_locales_dir "priv/locales"
+  @default_locales_dir "../locales"
 
   @doc """
   Returns the declared AppConfigure definition for the default locale.
@@ -82,11 +82,13 @@ defmodule Ankole.I18n.Config do
   end
 
   @doc """
-  Returns the directory containing server-side locale catalogs.
+  Returns the directory containing shared locale catalogs.
 
-  Relative paths prefer the release application directory and fall back to the
-  current working directory. The fallback keeps local tests and source-tree runs
-  simple before a release layout exists.
+  The default points at `app/locales`, outside the Phoenix application, so
+  control-plane and webapp code can share the same catalog root. Relative paths
+  prefer the release application directory and fall back to the current working
+  directory. The fallback keeps local tests and source-tree runs simple before a
+  release layout exists.
   """
   @spec locales_dir() :: Path.t()
   def locales_dir do

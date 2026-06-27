@@ -12,6 +12,7 @@ defmodule Ankole.AppConfigure.Definition do
     :default_value,
     :description,
     :generator,
+    :scope,
     :encrypted,
     default?: false
   ]
@@ -23,7 +24,8 @@ defmodule Ankole.AppConfigure.Definition do
           default?: boolean(),
           default_value: term(),
           description: String.t() | nil,
-          generator: (-> term()) | nil
+          generator: (-> term()) | nil,
+          scope: :scoped | :global
         }
 
   @doc """
@@ -41,7 +43,8 @@ defmodule Ankole.AppConfigure.Definition do
          {:ok, encrypted} <- fetch_boolean(attrs, :encrypted),
          {:ok, default?, default_value} <- fetch_default(attrs, schema),
          {:ok, description} <- fetch_optional_string(attrs, :description),
-         {:ok, generator} <- fetch_optional_generator(attrs) do
+         {:ok, generator} <- fetch_optional_generator(attrs),
+         {:ok, scope} <- fetch_scope(attrs) do
       {:ok,
        %__MODULE__{
          key: key,
@@ -50,7 +53,8 @@ defmodule Ankole.AppConfigure.Definition do
          default?: default?,
          default_value: default_value,
          description: description,
-         generator: generator
+         generator: generator,
+         scope: scope
        }}
     end
   end
@@ -151,6 +155,16 @@ defmodule Ankole.AppConfigure.Definition do
       {:ok, nil} -> {:ok, nil}
       {:ok, _generator} -> {:error, :invalid_generator}
       :error -> {:ok, nil}
+    end
+  end
+
+  defp fetch_scope(attrs) do
+    case Map.fetch(attrs, :scope) do
+      {:ok, :global} -> {:ok, :global}
+      {:ok, :scoped} -> {:ok, :scoped}
+      {:ok, nil} -> {:ok, :scoped}
+      {:ok, _scope} -> {:error, :invalid_scope}
+      :error -> {:ok, :scoped}
     end
   end
 end

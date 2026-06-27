@@ -8,9 +8,10 @@ defmodule Ankole.AIAgent.ProviderRuntimeTest do
   alias Ankole.AIAgent.ModelProfiles
   alias Ankole.AIAgent.Schemas.Conversation
   alias Ankole.AIAgent.Schemas.LlmTurn
+  alias Ankole.AppConfigure
   alias Ankole.ActorRuntime.LlmCredentialBroker
   alias Ankole.ActorRuntime.RPCLane
-  alias Ankole.ActorRuntime.WorkerAuthKeys
+  alias Ankole.ActorRuntime.WorkerAuthKey
   alias Ankole.ActorRuntime.Schemas.ActorSessionActivation
   alias Ankole.ActorRuntime.Schemas.AgentComputerWorker
   alias Ankole.ActorRuntime.Schemas.ActorSessionWorkerAssignment
@@ -435,16 +436,19 @@ defmodule Ankole.AIAgent.ProviderRuntimeTest do
     assert disabled_error["code"] == "provider_disabled"
   end
 
-  test "worker auth keys are scoped to stable worker ids" do
-    assert {:ok, first} = WorkerAuthKeys.bootstrap_key("worker-one")
-    assert {:ok, same} = WorkerAuthKeys.bootstrap_key("worker-one")
-    assert {:ok, second} = WorkerAuthKeys.bootstrap_key("worker-two")
+  test "worker auth key is global AppConfigure state" do
+    definition = WorkerAuthKey.definition()
 
-    assert first.pre_auth_key == same.pre_auth_key
-    assert first.key_revision == same.key_revision
-    refute first.pre_auth_key == second.pre_auth_key
-    assert {:ok, _auth_key} = WorkerAuthKeys.verify("worker-one", first.pre_auth_key)
-    assert {:error, :invalid_worker_auth_key} = WorkerAuthKeys.verify("worker-one", "wrong")
+    assert {:ok, first} = WorkerAuthKey.ensure()
+    assert {:ok, same} = WorkerAuthKey.ensure()
+    assert first == same
+    assert {:ok, _uuid} = Ecto.UUID.cast(first)
+
+    assert {:ok, "tcp://:" <> rest} = WorkerAuthKey.runtime_fabric_url("tcp://control-plane:6010")
+    assert rest == URI.encode_www_form(first) <> "@control-plane:6010"
+
+    assert {:error, {:global_scope_only, _key}} =
+             AppConfigure.put_for_agent("agent-a", definition, "agent-specific")
   end
 
   defp assign_worker_route(agent_uid, session_id) do
@@ -454,7 +458,6 @@ defmodule Ankole.AIAgent.ProviderRuntimeTest do
 
     Repo.insert!(%AgentComputerWorker{
       worker_id: worker_id,
-      worker_instance_id: "#{worker_id}-1",
       status: "ready",
       version: "test",
       capacity: %{},
@@ -469,7 +472,6 @@ defmodule Ankole.AIAgent.ProviderRuntimeTest do
       agent_uid: agent_uid,
       session_id: session_id,
       worker_id: worker_id,
-      worker_instance_id: "#{worker_id}-1",
       transport_route: route,
       status: "assigned",
       assigned_at: now,
@@ -522,7 +524,6 @@ defmodule Ankole.AIAgent.ProviderRuntimeTest do
       lease_id: "lease-#{System.unique_integer([:positive])}",
       lease_expires_at: DateTime.add(now, 60, :second),
       assigned_worker_id: worker_id,
-      assigned_worker_instance_id: "#{worker_id}-1",
       current_llm_turn_id: llm_turn.id,
       revision: 0,
       started_at: now,

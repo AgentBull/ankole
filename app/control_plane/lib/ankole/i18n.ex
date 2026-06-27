@@ -111,8 +111,8 @@ defmodule Ankole.I18n do
   Sets the current process locale after validating it is loaded.
 
   Localize can negotiate language tags, but Ankole keeps locale ids tied to
-  release-owned catalog files. Validation here prevents a process from silently
-  switching to a locale that Ankole cannot render.
+  application-owned catalog files. Validation here prevents a process from
+  silently switching to a locale that Ankole cannot render.
   """
   @spec put_locale(locale()) :: {:ok, Localize.LanguageTag.t()} | {:error, Exception.t()}
   def put_locale(locale) do

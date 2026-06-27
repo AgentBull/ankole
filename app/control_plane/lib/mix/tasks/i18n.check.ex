@@ -6,7 +6,8 @@ defmodule Mix.Tasks.I18n.Check do
   The task validates that catalog files parse and normalize, that the source
   locale exists, that translated locales do not introduce source-unknown keys,
   and that translated MF2 messages use the same external input variables as the
-  source message.
+  source message. By default it checks the shared `app/locales` catalog root via
+  `../locales` from the control-plane package.
   """
 
   use Mix.Task
@@ -22,7 +23,7 @@ defmodule Mix.Tasks.I18n.Check do
         strict: [client_dir: :string, dir: :string]
       )
 
-    dir = Keyword.get(opts, :dir, "priv/locales")
+    dir = Keyword.get(opts, :dir, "../locales")
     client_dir = Keyword.get(opts, :client_dir, Path.join(dir, "client"))
     require_client_dir? = Keyword.has_key?(opts, :client_dir) or File.dir?(client_dir)
 

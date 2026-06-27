@@ -7,6 +7,8 @@ defmodule Ankole.ActorRuntime.FileTransferLaneTest do
   alias Ankole.ActorRuntime.Transport.Broker
   alias Ankole.Repo
 
+  @credit_window 4 * 1024 * 1024
+
   setup do
     route = "file-lane-test-#{System.unique_integer([:positive])}"
     route_auth = %{route: route, worker_id: "worker-file-test", key_revision: 1}
@@ -16,7 +18,7 @@ defmodule Ankole.ActorRuntime.FileTransferLaneTest do
     {:ok, route: route, route_auth: route_auth}
   end
 
-  test "stat list move and delete wait for worker responses", %{
+  test "stat list move and delete use typed worker-file frames", %{
     route: route,
     route_auth: route_auth
   } do
@@ -68,11 +70,11 @@ defmodule Ankole.ActorRuntime.FileTransferLaneTest do
             }} = FileTransferLane.delete(route, "user_files", "archive/message-1/hello.txt")
   end
 
-  test "put and get default to zstd raw binary chunks outside protobuf", %{
+  test "put and get transfer zstd DATA chunks under credit", %{
     route: route,
     route_auth: route_auth
   } do
-    {:ok, stored} = Agent.start_link(fn -> %{chunks: [], begin: nil} end)
+    {:ok, stored} = Agent.start_link(fn -> %{chunks: [], begin: nil, read_wire: nil} end)
 
     :ok =
       Broker.register_local_worker(route, fn {:file_transfer_lane, frames} ->
@@ -81,7 +83,7 @@ defmodule Ankole.ActorRuntime.FileTransferLaneTest do
 
     assert {:ok,
             %{
-              "command" => "PUT_COMMIT",
+              "command" => "WRITE_COMMITTED",
               "root" => "user_files",
               "relative_path" => "attachments/a.txt",
               "size" => 11,
@@ -98,12 +100,63 @@ defmodule Ankole.ActorRuntime.FileTransferLaneTest do
             %{
               "content" => "hello world",
               "begin" => %{
+                "command" => "READ_READY",
                 "root" => "user_files",
                 "relative_path" => "attachments/a.txt",
-                "original_size" => 11
+                "original_size" => 11,
+                "content_encoding" => "zstd"
               },
-              "end" => %{"chunks" => 1, "content_encoding" => "zstd"}
+              "end" => %{"command" => "READ_DONE", "chunks" => 1, "content_encoding" => "zstd"}
             }} = FileTransferLane.get(route, "user_files", "attachments/a.txt")
+  end
+
+  test "get rejects read terminators that do not match received DATA", %{
+    route: route,
+    route_auth: route_auth
+  } do
+    :ok =
+      Broker.register_local_worker(route, fn {:file_transfer_lane, frames} ->
+        respond_to_bad_read(route_auth, frames)
+      end)
+
+    assert {:error, :read_done_size_mismatch} =
+             FileTransferLane.get(route, "user_files", "attachments/a.txt")
+  end
+
+  test "put timeout asks worker to abort the incomplete scratch transfer", %{
+    route: route,
+    route_auth: route_auth
+  } do
+    parent = self()
+
+    :ok =
+      Broker.register_local_worker(route, fn {:file_transfer_lane, frames} ->
+        respond_to_stalled_put(route_auth, parent, frames)
+      end)
+
+    assert {:error, :timeout} =
+             FileTransferLane.put(route, "user_files", "attachments/slow.txt", "hello",
+               timeout: 20
+             )
+
+    assert_receive {:file_lane_aborted, _transfer_id}, 100
+  end
+
+  test "get timeout asks worker to abort the active read stream", %{
+    route: route,
+    route_auth: route_auth
+  } do
+    parent = self()
+
+    :ok =
+      Broker.register_local_worker(route, fn {:file_transfer_lane, frames} ->
+        respond_to_stalled_read(route_auth, parent, frames)
+      end)
+
+    assert {:error, :timeout} =
+             FileTransferLane.get(route, "user_files", "attachments/slow.txt", timeout: 20)
+
+    assert_receive {:file_lane_read_aborted, _transfer_id}, 100
   end
 
   test "ActorRuntime.put_worker_file chooses a ready worker route", %{
@@ -111,14 +164,14 @@ defmodule Ankole.ActorRuntime.FileTransferLaneTest do
     route_auth: route_auth
   } do
     insert_ready_worker!(route)
-    {:ok, stored} = Agent.start_link(fn -> %{chunks: [], begin: nil} end)
+    {:ok, stored} = Agent.start_link(fn -> %{chunks: [], begin: nil, read_wire: nil} end)
 
     :ok =
       Broker.register_local_worker(route, fn {:file_transfer_lane, frames} ->
         respond_to_put_get(route_auth, stored, frames)
       end)
 
-    assert {:ok, %{"command" => "PUT_COMMIT", "relative_path" => "inbox/a.txt"}} =
+    assert {:ok, %{"command" => "WRITE_COMMITTED", "relative_path" => "inbox/a.txt"}} =
              ActorRuntime.put_worker_file("user_files", "inbox/a.txt", "hello world")
 
     compressed =
@@ -127,50 +180,25 @@ defmodule Ankole.ActorRuntime.FileTransferLaneTest do
     assert zstd_decode!(compressed) == "hello world"
   end
 
-  test "put and get can explicitly use identity wire encoding", %{
-    route: route,
-    route_auth: route_auth
-  } do
-    {:ok, stored} = Agent.start_link(fn -> %{chunks: [], begin: nil} end)
-
-    :ok =
-      Broker.register_local_worker(route, fn {:file_transfer_lane, frames} ->
-        respond_to_put_get(route_auth, stored, frames)
-      end)
-
-    assert {:ok, %{"command" => "PUT_COMMIT", "size" => 11}} =
-             FileTransferLane.put(
-               route,
-               "user_files",
-               "attachments/a.txt",
-               "hello world",
-               content_encoding: "identity"
-             )
-
-    raw_content =
-      Agent.get(stored, fn state -> state.chunks |> Enum.reverse() |> IO.iodata_to_binary() end)
-
-    assert raw_content == "hello world"
-
-    assert {:ok, %{"content" => "hello world", "end" => %{"content_encoding" => "identity"}}} =
-             FileTransferLane.get(
-               route,
-               "user_files",
-               "attachments/a.txt",
-               content_encoding: "identity"
-             )
-  end
-
   test "responses from a different route do not satisfy a pending operation", %{
     route: route,
     route_auth: route_auth
   } do
     :ok =
       Broker.register_local_worker(route, fn {:file_transfer_lane,
-                                              [protocol, "STAT", transfer_id, _metadata]} ->
+                                              [protocol, "STAT", transfer_id, _path, _fingerprint]} ->
         FileTransferLane.handle_worker_frame(
           %{route_auth | route: "different-route"},
-          [protocol, "ACK", transfer_id, Torque.encode!(%{command: "STAT"})]
+          [
+            protocol,
+            "STAT_OK",
+            transfer_id,
+            "/user_files/inbox/message-1/hello.txt",
+            "file",
+            u64(4),
+            u64(1),
+            ""
+          ]
         )
       end)
 
@@ -188,145 +216,215 @@ defmodule Ankole.ActorRuntime.FileTransferLaneTest do
              )
   end
 
-  defp respond_to_filesystem_command(route_auth, [protocol, command, transfer_id, metadata_frame]) do
-    metadata = Torque.decode!(metadata_frame)
+  defp respond_to_filesystem_command(route_auth, [protocol, command, transfer_id | rest]) do
+    case {command, rest} do
+      {"STAT", [path, _fingerprint]} ->
+        FileTransferLane.handle_worker_frame(route_auth, [
+          protocol,
+          "STAT_OK",
+          transfer_id,
+          path,
+          "file",
+          u64(4),
+          u64(1_772_000_000_000),
+          "7b16fe7c3e492b87d9615265f0856cec"
+        ])
 
-    {response_command, payload} =
-      case command do
-        "STAT" ->
-          {"ACK",
-           %{
-             command: "STAT",
-             root: metadata["root"],
-             relative_path: metadata["relative_path"],
-             kind: "file",
-             size: 4,
-             modified_unix_ms: 1_772_000_000_000,
-             xxh3_128: "7b16fe7c3e492b87d9615265f0856cec"
-           }}
+      {"LIST", [path, recursive, _max_entries]} ->
+        FileTransferLane.handle_worker_frame(route_auth, [
+          protocol,
+          "LIST_OK",
+          transfer_id,
+          path,
+          recursive,
+          bool(false),
+          entries_frame([
+            %{
+              relative_path: "inbox/message-1/hello.txt",
+              kind: "file",
+              size: 4,
+              modified_unix_ms: 1_772_000_000_000
+            }
+          ])
+        ])
 
-        "LIST" ->
-          {"LIST_RESULT",
-           %{
-             command: "LIST",
-             root: metadata["root"],
-             relative_path: metadata["relative_path"],
-             recursive: metadata["recursive"],
-             entries: [
-               %{
-                 relative_path: "inbox/message-1/hello.txt",
-                 kind: "file",
-                 size: 4,
-                 modified_unix_ms: 1_772_000_000_000
-               }
-             ],
-             truncated: false
-           }}
+      {"MOVE", [from_path, to_path, _overwrite]} ->
+        FileTransferLane.handle_worker_frame(route_auth, [
+          protocol,
+          "MOVE_OK",
+          transfer_id,
+          from_path,
+          to_path
+        ])
 
-        "MOVE" ->
-          {"ACK",
-           %{
-             command: "MOVE",
-             root: metadata["root"],
-             from_relative_path: metadata["from_relative_path"],
-             to_relative_path: metadata["to_relative_path"],
-             moved: true
-           }}
-
-        "DELETE" ->
-          {"ACK",
-           %{
-             command: "DELETE",
-             root: metadata["root"],
-             relative_path: metadata["relative_path"],
-             deleted: true
-           }}
-      end
-
-    FileTransferLane.handle_worker_frame(route_auth, [
-      protocol,
-      response_command,
-      transfer_id,
-      Torque.encode!(payload)
-    ])
+      {"DELETE", [path, _recursive]} ->
+        FileTransferLane.handle_worker_frame(route_auth, [
+          protocol,
+          "DELETE_OK",
+          transfer_id,
+          path
+        ])
+    end
   end
 
   defp respond_to_put_get(route_auth, stored, [protocol, command, transfer_id | rest]) do
     case {command, rest} do
-      {"PUT_BEGIN", [metadata_frame]} ->
-        metadata = Torque.decode!(metadata_frame)
-        Agent.update(stored, &%{&1 | begin: metadata, chunks: []})
-        send_ack(route_auth, protocol, transfer_id, %{command: "PUT_BEGIN"})
-
-      {"PUT_CHUNK", [chunk_index, chunk]} ->
-        Agent.update(stored, &%{&1 | chunks: [chunk | &1.chunks]})
-
-        send_ack(route_auth, protocol, transfer_id, %{
-          command: "PUT_CHUNK",
-          chunk_index: String.to_integer(chunk_index)
-        })
-
-      {"PUT_COMMIT", []} ->
-        payload =
-          Agent.get(stored, fn state ->
-            wire_content = state.chunks |> Enum.reverse() |> IO.iodata_to_binary()
-
-            content =
-              decode_put_content!(wire_content, state.begin["content_encoding"] || "zstd")
-
-            %{
-              command: "PUT_COMMIT",
-              root: state.begin["root"],
-              relative_path: state.begin["relative_path"],
-              size: byte_size(content),
-              xxh3_128: "8db84f6b892cfa6bdad930c907ecb808"
-            }
-          end)
-
-        send_ack(route_auth, protocol, transfer_id, payload)
-
-      {"GET", [metadata_frame]} ->
-        metadata = Torque.decode!(metadata_frame)
-        content_encoding = metadata["content_encoding"] || "zstd"
-        content = encode_get_content!("hello world", content_encoding)
+      {"WRITE_OPEN", [path, original_size]} ->
+        Agent.update(
+          stored,
+          &%{&1 | begin: %{path: path, original_size: parse_u64!(original_size)}, chunks: []}
+        )
 
         FileTransferLane.handle_worker_frame(route_auth, [
           protocol,
-          "GET_BEGIN",
+          "WRITE_READY",
           transfer_id,
-          Torque.encode!(%{
-            root: metadata["root"],
-            relative_path: metadata["relative_path"],
-            original_size: 11,
-            content_encoding: content_encoding,
-            xxh3_128: "8db84f6b892cfa6bdad930c907ecb808"
-          })
+          u64(@credit_window)
         ])
 
+      {"DATA", [_sequence, _offset, _eof, chunk]} ->
+        Agent.update(stored, &%{&1 | chunks: [chunk | &1.chunks]})
+
         FileTransferLane.handle_worker_frame(route_auth, [
           protocol,
-          "GET_CHUNK",
+          "CREDIT",
           transfer_id,
-          "0",
+          u64(byte_size(chunk))
+        ])
+
+      {"WRITE_COMMIT", []} ->
+        {path, content} =
+          Agent.get(stored, fn state ->
+            wire_content = state.chunks |> Enum.reverse() |> IO.iodata_to_binary()
+            {state.begin.path, zstd_decode!(wire_content)}
+          end)
+
+        FileTransferLane.handle_worker_frame(route_auth, [
+          protocol,
+          "WRITE_COMMITTED",
+          transfer_id,
+          path,
+          u64(byte_size(content)),
+          "8db84f6b892cfa6bdad930c907ecb808"
+        ])
+
+      {"READ_OPEN", [path, _fingerprint]} ->
+        content = zstd_encode!("hello world")
+        Agent.update(stored, &%{&1 | read_wire: content})
+
+        FileTransferLane.handle_worker_frame(route_auth, [
+          protocol,
+          "READ_READY",
+          transfer_id,
+          path,
+          u64(11),
+          "8db84f6b892cfa6bdad930c907ecb808"
+        ])
+
+      {"CREDIT", [_credit]} ->
+        content = Agent.get(stored, & &1.read_wire)
+
+        FileTransferLane.handle_worker_frame(route_auth, [
+          protocol,
+          "DATA",
+          transfer_id,
+          u64(0),
+          u64(0),
+          bool(true),
           content
         ])
 
         FileTransferLane.handle_worker_frame(route_auth, [
           protocol,
-          "GET_END",
+          "READ_DONE",
           transfer_id,
-          Torque.encode!(%{chunks: 1, content_encoding: content_encoding})
+          u64(1),
+          u64(byte_size(content))
         ])
     end
   end
 
-  defp send_ack(route_auth, protocol, transfer_id, payload) do
-    FileTransferLane.handle_worker_frame(route_auth, [
-      protocol,
-      "ACK",
-      transfer_id,
-      Torque.encode!(payload)
-    ])
+  defp respond_to_bad_read(route_auth, [protocol, command, transfer_id | rest]) do
+    case {command, rest} do
+      {"READ_OPEN", [path, _fingerprint]} ->
+        content = zstd_encode!("hello world")
+
+        FileTransferLane.handle_worker_frame(route_auth, [
+          protocol,
+          "READ_READY",
+          transfer_id,
+          path,
+          u64(12),
+          ""
+        ])
+
+        FileTransferLane.handle_worker_frame(route_auth, [
+          protocol,
+          "DATA",
+          transfer_id,
+          u64(0),
+          u64(0),
+          bool(true),
+          content
+        ])
+
+        FileTransferLane.handle_worker_frame(route_auth, [
+          protocol,
+          "READ_DONE",
+          transfer_id,
+          u64(1),
+          u64(byte_size(content))
+        ])
+
+      {"CREDIT", [_credit]} ->
+        :ok
+    end
+  end
+
+  defp respond_to_stalled_put(route_auth, parent, [protocol, command, transfer_id | rest]) do
+    case {command, rest} do
+      {"WRITE_OPEN", [_path, _original_size]} ->
+        FileTransferLane.handle_worker_frame(route_auth, [
+          protocol,
+          "WRITE_READY",
+          transfer_id,
+          u64(@credit_window)
+        ])
+
+      {"DATA", [_sequence, _offset, _eof, chunk]} ->
+        FileTransferLane.handle_worker_frame(route_auth, [
+          protocol,
+          "CREDIT",
+          transfer_id,
+          u64(byte_size(chunk))
+        ])
+
+      {"WRITE_COMMIT", []} ->
+        :ok
+
+      {"WRITE_ABORT", []} ->
+        send(parent, {:file_lane_aborted, transfer_id})
+    end
+  end
+
+  defp respond_to_stalled_read(route_auth, parent, [protocol, command, transfer_id | rest]) do
+    case {command, rest} do
+      {"READ_OPEN", [path, _fingerprint]} ->
+        FileTransferLane.handle_worker_frame(route_auth, [
+          protocol,
+          "READ_READY",
+          transfer_id,
+          path,
+          u64(11),
+          ""
+        ])
+
+      {"CREDIT", [_credit]} ->
+        :ok
+
+      {"READ_ABORT", []} ->
+        send(parent, {:file_lane_read_aborted, transfer_id})
+    end
   end
 
   defp insert_ready_worker!(route) do
@@ -335,7 +433,6 @@ defmodule Ankole.ActorRuntime.FileTransferLaneTest do
 
     Repo.insert!(%AgentComputerWorker{
       worker_id: worker_id,
-      worker_instance_id: "#{worker_id}-instance",
       status: "ready",
       version: "test",
       capacity: %{},
@@ -347,14 +444,32 @@ defmodule Ankole.ActorRuntime.FileTransferLaneTest do
     })
   end
 
-  defp encode_get_content!(content, "identity"), do: content
-  defp encode_get_content!(content, "zstd"), do: zstd_encode!(content)
+  defp u64(value), do: <<value::unsigned-big-integer-size(64)>>
+  defp parse_u64!(<<value::unsigned-big-integer-size(64)>>), do: value
+  defp bool(true), do: <<1>>
+  defp bool(false), do: <<0>>
 
-  defp decode_put_content!(content, "identity"), do: content
-  defp decode_put_content!(content, "zstd"), do: zstd_decode!(content)
+  defp entries_frame(entries) do
+    [
+      <<length(entries)::unsigned-big-integer-size(32)>>,
+      Enum.map(entries, fn entry ->
+        [
+          sized_string(entry.relative_path),
+          sized_string(entry.kind),
+          u64(entry.size),
+          u64(entry.modified_unix_ms)
+        ]
+      end)
+    ]
+    |> IO.iodata_to_binary()
+  end
+
+  defp sized_string(value) do
+    value = IO.iodata_to_binary(value)
+    <<byte_size(value)::unsigned-big-integer-size(32), value::binary>>
+  end
 
   defp zstd_encode!(content), do: run_zstd!(["-q", "-c"], content, "zstd encode")
-
   defp zstd_decode!(content), do: run_zstd!(["-q", "-d", "-c"], content, "zstd decode")
 
   defp run_zstd!(args, content, label) do

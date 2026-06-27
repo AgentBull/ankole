@@ -184,6 +184,9 @@ of the current mainline.
 The Rust kernel is a business-runtime component, not merely a utility crate for
 NIF/N-API glue.
 
+`app/kernel` should own shared native mechanisms where exact parity matters
+across host runtimes.
+
 It is appropriate for Rust to own logic where Rust gives the system a better
 boundary:
 
@@ -191,7 +194,15 @@ boundary:
 - RuntimeFabric framing and protobuf validation;
 - ZAP/auth mechanics;
 - native performance-sensitive checks;
+- deterministic validators, normalizers, matchers, evaluators, or decision
+  algorithms that would otherwise need separate Elixir and Bun implementations;
 - protocol invariants shared by Elixir and Bun.
+
+Placement should bias toward the kernel when a behavior can be expressed as a
+deterministic function over explicit inputs without storage, network, runtime
+process state, or product lifecycle ownership. Shared behavior should live in
+the Rust core first, with Rustler and napi-rs bindings translating host types
+and errors only.
 
 The limit is also explicit: Rust should not become the PostgreSQL domain owner.
 Elixir owns durable control-plane semantics, schema changes, commits, and

@@ -183,7 +183,7 @@ defmodule Ankole.I18n.Resolver do
   # Fallback is deliberately explicit: requested locale, catalog-declared
   # fallback, Localize default, then hard English default. There is no implicit
   # BCP 47 parent walk yet because the current product story needs predictable
-  # release-owned fallback, not a general locale engine.
+  # catalog-owned fallback, not a general locale engine.
   defp build_chain(locale) do
     loaded = loaded()
 

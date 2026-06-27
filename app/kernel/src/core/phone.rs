@@ -5,7 +5,7 @@ use super::{KernelError, KernelResult};
 /// Parses and validates an international phone number, then returns E.164 text.
 pub fn phone_normalize_e164(phone: &str) -> KernelResult<String> {
     let parsed = PHONE_NUMBER_UTIL
-        .parse(phone)
+        .parse(phone, None)
         .map_err(|reason| KernelError::new(format!("invalid phone number: {reason}")))?;
 
     if !PHONE_NUMBER_UTIL.is_valid_number(&parsed) {

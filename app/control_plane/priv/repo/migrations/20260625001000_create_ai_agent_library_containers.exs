@@ -70,5 +70,50 @@ defmodule Ankole.Repo.Migrations.CreateAiAgentLibraryContainers do
     create constraint(:library_builtin_sync_state, :library_builtin_sync_state_metadata_object,
              check: "jsonb_typeof(metadata) = 'object'"
            )
+
+    comment_table(
+      :agent_library_container_entries,
+      "Per-agent library container entries materialized for worker-visible files."
+    )
+
+    comment_columns(:agent_library_container_entries, %{
+      agent_uid: "Agent principal that owns the library entry.",
+      path: "Agent-local library path exposed to the worker.",
+      source_kind: "Library source bucket such as mission, memory, system, or computer.",
+      content: "Text content stored for file-backed library entries.",
+      content_hash: "Hash of the stored content projection.",
+      metadata: "Library entry metadata outside the file content contract.",
+      deleted_at: "Soft-delete marker that removes the path from the active library view."
+    })
+
+    comment_table(:library_builtin_sync_state, "Sync checkpoints for built-in library content.")
+
+    comment_columns(:library_builtin_sync_state, %{
+      name: "Built-in content bundle or source name.",
+      content_hash: "Hash last observed for the built-in content source.",
+      synced_at: "Time the built-in content source was last synchronized.",
+      metadata: "Sync metadata outside the content hash contract."
+    })
   end
+
+  defp comment_table(table, comment) do
+    execute(
+      "COMMENT ON TABLE #{identifier(table)} IS #{literal(comment)}",
+      "COMMENT ON TABLE #{identifier(table)} IS NULL"
+    )
+  end
+
+  defp comment_columns(table, comments) do
+    Enum.each(comments, fn {column, comment} -> comment_column(table, column, comment) end)
+  end
+
+  defp comment_column(table, column, comment) do
+    execute(
+      "COMMENT ON COLUMN #{identifier(table)}.#{identifier(column)} IS #{literal(comment)}",
+      "COMMENT ON COLUMN #{identifier(table)}.#{identifier(column)} IS NULL"
+    )
+  end
+
+  defp identifier(value), do: "\"" <> String.replace(to_string(value), "\"", "\"\"") <> "\""
+  defp literal(value), do: "'" <> String.replace(value, "'", "''") <> "'"
 end

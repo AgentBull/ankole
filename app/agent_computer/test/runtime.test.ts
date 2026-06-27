@@ -7,70 +7,28 @@ import type { ActorTurnRef } from '../src/actor_lane'
 import { createFileTransferState, fileTransferProtocol, handleFileTransferFrame } from '../src/file_transfer_lane'
 import { finalProposalEnvelope } from '../src/turn_envelopes'
 import { encodeEnvelope } from '../src/runtime_fabric'
-import { parseWorkerEnv, workerCapacityEnvelope, workerHeartbeatEnvelope, workerReadyEnvelope } from '../src/runtime'
+import {
+  parseRuntimeFabricUrl,
+  workerCapacityEnvelope,
+  workerHeartbeatEnvelope,
+  workerReadyEnvelope
+} from '../src/runtime'
+import { handleWorkerRpcRequest, rpcMethods, type RpcRequest } from '../src/rpc_lane'
 import { isRuntimeFabricBackpressure, reliableEnvelopeSender } from '../src/runtime_fabric_sender'
 import type { WorkerConfig } from '../src/runtime'
 import { prepareTurnWorkspace } from '../src/workspace'
 
 describe('@ankole/agent-computer runtime', () => {
-  it('parses worker env without actor-specific startup args', () => {
-    expect(
-      parseWorkerEnv(
-        workerEnv({
-          ANKOLE_RUNTIME_FABRIC_ENDPOINT: 'tcp://127.0.0.1:6010',
-          ANKOLE_AGENT_COMPUTER_WORKER_PRE_AUTH_TOKEN: 'secret',
-          ANKOLE_AGENT_COMPUTER_WORKER_ID: 'worker-a',
-          ANKOLE_AGENT_COMPUTER_WORKER_INSTANCE_ID: 'worker-a-1',
-          ANKOLE_WORKSPACE_ROOT: '/workspace',
-          ANKOLE_WORKSPACE_SESSIONS_ROOT: '/workspace/.sessions',
-          ANKOLE_SHARED_FS_ROOT: '/workspace/shared',
-          ANKOLE_USER_FILES_ROOT: '/workspace/shared/user-files',
-          ANKOLE_AGENT_INSTALLED_SKILLS_ROOT: '/workspace/shared/skills/agents',
-          ANKOLE_BUILTIN_SKILLS_ROOT: '/repo/app/library/skills'
-        })
-      )
-    ).toMatchObject({
-      workerId: 'worker-a',
-      workerInstanceId: 'worker-a-1',
-      workspaceRoot: '/workspace',
-      workspaceSessionsRoot: '/workspace/.sessions',
-      sharedFsRoot: '/workspace/shared'
+  it('parses RuntimeFabric URL auth without embedding worker identity', () => {
+    expect(parseRuntimeFabricUrl('tcp://:secret@127.0.0.1:6010')).toMatchObject({
+      workerAuthKey: 'secret',
+      endpoint: 'tcp://127.0.0.1:6010'
     })
 
-    expect(() =>
-      parseWorkerEnv(
-        workerEnv({
-          ANKOLE_RUNTIME_FABRIC_ENDPOINT: 'tcp://127.0.0.1:6010',
-          ANKOLE_AGENT_COMPUTER_WORKER_PRE_AUTH_TOKEN: 'secret',
-          ANKOLE_AGENT_COMPUTER_WORKER_ID: 'worker-a',
-          ANKOLE_AGENT_COMPUTER_WORKER_INSTANCE_ID: 'worker-a-1',
-          ANKOLE_AGENT_UID: 'agent-1'
-        })
-      )
-    ).toThrow(/must not be set/)
+    expect(() => parseRuntimeFabricUrl('tcp://worker-a:secret@127.0.0.1:6010')).toThrow(/username/)
+    expect(() => parseRuntimeFabricUrl('tcp://127.0.0.1:6010')).toThrow(/worker auth key/)
 
-    expect(() =>
-      parseWorkerEnv(
-        workerEnv({
-          ANKOLE_RUNTIME_FABRIC_ENDPOINT: 'tcp://127.0.0.1:6010',
-          ANKOLE_AGENT_COMPUTER_WORKER_PRE_AUTH_TOKEN: 'secret',
-          ANKOLE_AGENT_COMPUTER_WORKER_ID: 'worker-a',
-          ANKOLE_AGENT_COMPUTER_WORKER_INSTANCE_ID: 'worker-a-1',
-          DATABASE_URL: 'postgres://localhost/test'
-        })
-      )
-    ).toThrow(/DATABASE_URL/)
-  })
-
-  it('rejects worker startup outside the Agent Computer Docker image', () => {
-    expect(() =>
-      parseWorkerEnv({
-        ANKOLE_RUNTIME_FABRIC_ENDPOINT: 'tcp://127.0.0.1:6010',
-        ANKOLE_AGENT_COMPUTER_WORKER_PRE_AUTH_TOKEN: 'secret',
-        ANKOLE_AGENT_COMPUTER_WORKER_ID: 'worker-a',
-        ANKOLE_AGENT_COMPUTER_WORKER_INSTANCE_ID: 'worker-a-1'
-      })
-    ).toThrow(/Docker image/)
+    expect(() => parseRuntimeFabricUrl('http://:secret@127.0.0.1:6010')).toThrow(/tcp/)
   })
 
   it('emits worker.ready without actor authority fields', () => {
@@ -152,6 +110,64 @@ describe('@ankole/agent-computer runtime', () => {
     expect(nonRetryAttempts).toBe(1)
   })
 
+  it('answers control-plane-initiated worker RPC requests', async () => {
+    const sent: ReturnType<typeof workerReadyEnvelope>[] = []
+    const request: RpcRequest = {
+      request_id: 'worker-rpc-1',
+      method: rpcMethods.workerRuntimeDescribe,
+      payload_json: {}
+    }
+
+    await handleWorkerRpcRequest(
+      workerConfig(),
+      async envelope => {
+        sent.push(envelope)
+      },
+      2,
+      request
+    )
+
+    expect(sent).toHaveLength(1)
+    expect(sent[0]!.lane).toBe('LANE_RPC')
+    expect(sent[0]!.correlation_id).toBe('worker-rpc-1')
+    expect(sent[0]!.body.type).toBe('rpc_response')
+    expect(sent[0]!.body.rpc_response).toMatchObject({
+      request_id: 'worker-rpc-1',
+      payload_json: {
+        worker_id: 'worker-a',
+        runtime: 'bun',
+        active_turns: 2
+      }
+    })
+    expect(encodeEnvelope(sent[0]!)).toBeInstanceOf(Buffer)
+  })
+
+  it('returns RPC errors for unknown worker methods', async () => {
+    const sent: ReturnType<typeof workerReadyEnvelope>[] = []
+
+    await handleWorkerRpcRequest(
+      workerConfig(),
+      async envelope => {
+        sent.push(envelope)
+      },
+      0,
+      {
+        request_id: 'worker-rpc-unknown',
+        method: 'worker.unknown',
+        payload_json: {}
+      }
+    )
+
+    expect(sent).toHaveLength(1)
+    expect(sent[0]!.body.type).toBe('rpc_error')
+    expect(sent[0]!.body.rpc_error).toMatchObject({
+      request_id: 'worker-rpc-unknown',
+      code: 'unknown_rpc_method',
+      details_json: { method: 'worker.unknown' }
+    })
+    expect(encodeEnvelope(sent[0]!)).toBeInstanceOf(Buffer)
+  })
+
   it('includes final proposal telemetry fields in durable envelopes', () => {
     const turn: ActorTurnRef = {
       actor: { agent_uid: 'agent-1', session_id: 'signal-channel:chat-1' },
@@ -185,7 +201,7 @@ describe('@ankole/agent-computer runtime', () => {
     expect(encodeEnvelope(envelope)).toBeInstanceOf(Buffer)
   })
 
-  it('handles worker file lane PUT and GET through root plus relative_path', async () => {
+  it('handles worker file lane WRITE and READ through zstd DATA credit', async () => {
     const root = mkdtempSync(join(tmpdir(), 'ankole-file-lane-'))
     const config = workerConfigForRoot(root)
     const sentFrames: Buffer[][] = []
@@ -204,59 +220,93 @@ describe('@ankole/agent-computer runtime', () => {
       mkdirSync(config.builtinSkillsRoot, { recursive: true })
 
       const state = createFileTransferState()
+      const plainText = 'hello zstd world'
+      const sourcePath = join(root, 'source.txt')
+      writeFileSync(sourcePath, plainText)
+      const compressed = spawnSync('zstd', ['-q', '-c', sourcePath])
+      expect(compressed.status).toBe(0)
+
       const transferId = 'transfer-1'
       await handleFileTransferFrame(config, sender, state, [
         fileTransferProtocol,
-        Buffer.from('PUT_BEGIN'),
+        Buffer.from('WRITE_OPEN'),
         Buffer.from(transferId),
-        Buffer.from(
-          JSON.stringify({
-            root: 'user_files',
-            relative_path: 'inbox/lark/message-1/hello.txt',
-            content_encoding: 'identity',
-            original_size: 11
-          })
-        )
+        Buffer.from('/user_files/inbox/lark/message-1/hello.txt'),
+        u64Frame(Buffer.byteLength(plainText))
       ])
+      expect(frameFor(sentFrames, transferId, 'WRITE_READY')[3]).toEqual(u64Frame(creditWindow))
+
       await handleFileTransferFrame(config, sender, state, [
         fileTransferProtocol,
-        Buffer.from('PUT_CHUNK'),
+        Buffer.from('DATA'),
         Buffer.from(transferId),
-        Buffer.from('0'),
-        Buffer.from('hello world')
+        u64Frame(0),
+        u64Frame(0),
+        boolFrame(true),
+        compressed.stdout
       ])
+      expect(frameFor(sentFrames, transferId, 'CREDIT')[3]).toEqual(u64Frame(compressed.stdout.byteLength))
+
       await handleFileTransferFrame(config, sender, state, [
         fileTransferProtocol,
-        Buffer.from('PUT_COMMIT'),
+        Buffer.from('WRITE_COMMIT'),
         Buffer.from(transferId)
       ])
 
-      expect(readFileSync(join(config.userFilesRoot, 'inbox/lark/message-1/hello.txt'), 'utf8')).toBe('hello world')
-      const putCommitAck = ackPayload(sentFrames, transferId, 'PUT_COMMIT')
-      expect(putCommitAck.xxh3_128).toMatch(/^[a-f0-9]{32}$/)
-      expect(JSON.stringify(putCommitAck)).not.toContain('sha256')
+      expect(readFileSync(join(config.userFilesRoot, 'inbox/lark/message-1/hello.txt'), 'utf8')).toBe(plainText)
+      const committed = frameFor(sentFrames, transferId, 'WRITE_COMMITTED')
+      expect(committed[3]?.toString('utf8')).toBe('/user_files/inbox/lark/message-1/hello.txt')
+      expect(readU64Frame(committed[4])).toBe(Buffer.byteLength(plainText))
+      expect(committed[5]?.toString('utf8')).toMatch(/^[a-f0-9]{32}$/)
 
       const getTransferId = 'transfer-2'
       await handleFileTransferFrame(config, sender, state, [
         fileTransferProtocol,
-        Buffer.from('GET'),
+        Buffer.from('READ_OPEN'),
         Buffer.from(getTransferId),
-        Buffer.from(
-          JSON.stringify({
-            root: 'user_files',
-            relative_path: 'inbox/lark/message-1/hello.txt',
-            content_encoding: 'identity'
-          })
-        )
+        Buffer.from('/user_files/inbox/lark/message-1/hello.txt'),
+        Buffer.from('xxh3_128')
+      ])
+      const readReady = frameFor(sentFrames, getTransferId, 'READ_READY')
+      expect(readReady[3]?.toString('utf8')).toBe('/user_files/inbox/lark/message-1/hello.txt')
+      expect(readU64Frame(readReady[4])).toBe(Buffer.byteLength(plainText))
+      await Bun.sleep(25)
+      expect(dataChunks(sentFrames, getTransferId)).toHaveLength(0)
+
+      await handleFileTransferFrame(config, sender, state, [
+        fileTransferProtocol,
+        Buffer.from('CREDIT'),
+        Buffer.from(getTransferId),
+        u64Frame(creditWindow)
       ])
 
-      const chunks = sentFrames
-        .filter(frames => frames[1]?.toString('utf8') === 'GET_CHUNK')
-        .map(frames => frames[4]?.toString('utf8') ?? '')
-        .join('')
-      expect(chunks).toBe('hello world')
-      const getBegin = payloadFor(sentFrames, getTransferId, 'GET_BEGIN')
-      expect(getBegin.xxh3_128).toBe(putCommitAck.xxh3_128)
+      const readDone = await waitForFrame(sentFrames, getTransferId, 'READ_DONE')
+      const getChunks = dataChunks(sentFrames, getTransferId)
+      const compressedGet = Buffer.concat(getChunks)
+      const decompressed = spawnSync('zstd', ['-q', '-d', '-c'], { input: compressedGet })
+      expect(decompressed.status).toBe(0)
+      expect(decompressed.stdout.toString('utf8')).toBe(plainText)
+      expect(readU64Frame(readDone[3])).toBe(getChunks.length)
+      expect(readU64Frame(readDone[4])).toBe(compressedGet.byteLength)
+
+      const abortTransferId = 'transfer-read-abort'
+      await handleFileTransferFrame(config, sender, state, [
+        fileTransferProtocol,
+        Buffer.from('READ_OPEN'),
+        Buffer.from(abortTransferId),
+        Buffer.from('/user_files/inbox/lark/message-1/hello.txt'),
+        Buffer.from('none')
+      ])
+      expect(frameFor(sentFrames, abortTransferId, 'READ_READY')[3]?.toString('utf8')).toBe(
+        '/user_files/inbox/lark/message-1/hello.txt'
+      )
+      expect(state.gets.has(abortTransferId)).toBe(true)
+      await handleFileTransferFrame(config, sender, state, [
+        fileTransferProtocol,
+        Buffer.from('READ_ABORT'),
+        Buffer.from(abortTransferId)
+      ])
+      expect(state.gets.has(abortTransferId)).toBe(false)
       expect(JSON.stringify(sentFrames)).not.toContain('object_key')
       expect(JSON.stringify(sentFrames)).not.toContain('sha256')
     } finally {
@@ -284,10 +334,13 @@ describe('@ankole/agent-computer runtime', () => {
         fileTransferProtocol,
         Buffer.from('LIST'),
         Buffer.from('list-1'),
-        Buffer.from(JSON.stringify({ root: 'user_files', relative_path: 'inbox', recursive: true }))
+        Buffer.from('/user_files/inbox'),
+        boolFrame(true),
+        u64Frame(1000)
       ])
-      const listPayload = payloadFor(sentFrames, 'list-1', 'LIST_RESULT')
-      expect(listPayload.entries).toContainEqual(
+      const listFrame = frameFor(sentFrames, 'list-1', 'LIST_OK')
+      const entries = decodeEntries(listFrame[6]!)
+      expect(entries).toContainEqual(
         expect.objectContaining({
           relative_path: 'inbox/lark/message-1/hello.txt',
           kind: 'file',
@@ -299,27 +352,18 @@ describe('@ankole/agent-computer runtime', () => {
         fileTransferProtocol,
         Buffer.from('STAT'),
         Buffer.from('stat-1'),
-        Buffer.from(
-          JSON.stringify({
-            root: 'user_files',
-            relative_path: 'inbox/lark/message-1/hello.txt',
-            fingerprint: 'xxh3_128'
-          })
-        )
+        Buffer.from('/user_files/inbox/lark/message-1/hello.txt'),
+        Buffer.from('xxh3_128')
       ])
-      expect(ackPayload(sentFrames, 'stat-1', 'STAT').xxh3_128).toMatch(/^[a-f0-9]{32}$/)
+      expect(frameFor(sentFrames, 'stat-1', 'STAT_OK')[7]?.toString('utf8')).toMatch(/^[a-f0-9]{32}$/)
 
       await handleFileTransferFrame(config, sender, state, [
         fileTransferProtocol,
         Buffer.from('MOVE'),
         Buffer.from('move-1'),
-        Buffer.from(
-          JSON.stringify({
-            root: 'user_files',
-            from_relative_path: 'inbox/lark/message-1/hello.txt',
-            to_relative_path: 'inbox/lark/message-1/renamed.txt'
-          })
-        )
+        Buffer.from('/user_files/inbox/lark/message-1/hello.txt'),
+        Buffer.from('/user_files/inbox/lark/message-1/renamed.txt'),
+        boolFrame(false)
       ])
       expect(existsSync(join(config.userFilesRoot, 'inbox/lark/message-1/hello.txt'))).toBe(false)
       expect(readFileSync(join(config.userFilesRoot, 'inbox/lark/message-1/renamed.txt'), 'utf8')).toBe('hello world')
@@ -328,92 +372,11 @@ describe('@ankole/agent-computer runtime', () => {
         fileTransferProtocol,
         Buffer.from('DELETE'),
         Buffer.from('delete-1'),
-        Buffer.from(JSON.stringify({ root: 'user_files', relative_path: 'inbox/lark/message-1/renamed.txt' }))
+        Buffer.from('/user_files/inbox/lark/message-1/renamed.txt'),
+        boolFrame(false)
       ])
       expect(existsSync(join(config.userFilesRoot, 'inbox/lark/message-1/renamed.txt'))).toBe(false)
       expect(JSON.stringify(sentFrames)).not.toContain('sha256')
-    } finally {
-      rmSync(root, { recursive: true, force: true })
-    }
-  })
-
-  it('handles worker file lane zstd wire encoding without changing stored bytes', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'ankole-file-lane-zstd-'))
-    const config = workerConfigForRoot(root)
-    const sentFrames: Buffer[][] = []
-    const sender = {
-      sendFileFrame(frames: Buffer[]) {
-        sentFrames.push(frames)
-        return 'sent_or_queued'
-      }
-    }
-
-    try {
-      mkdirSync(config.sharedFsRoot, { recursive: true })
-      mkdirSync(config.userFilesRoot, { recursive: true })
-      mkdirSync(config.agentInstalledSkillsRoot, { recursive: true })
-      mkdirSync(config.workspaceSessionsRoot, { recursive: true })
-      mkdirSync(config.builtinSkillsRoot, { recursive: true })
-
-      const plainText = 'hello zstd world'
-      const sourcePath = join(root, 'source.txt')
-      writeFileSync(sourcePath, plainText)
-      const compressed = spawnSync('zstd', ['-q', '-c', sourcePath])
-      expect(compressed.status).toBe(0)
-
-      const state = createFileTransferState()
-      const transferId = 'transfer-zstd-put'
-      await handleFileTransferFrame(config, sender, state, [
-        fileTransferProtocol,
-        Buffer.from('PUT_BEGIN'),
-        Buffer.from(transferId),
-        Buffer.from(
-          JSON.stringify({
-            root: 'user_files',
-            relative_path: 'inbox/lark/message-1/zstd.txt',
-            content_encoding: 'zstd',
-            original_size: Buffer.byteLength(plainText)
-          })
-        )
-      ])
-      await handleFileTransferFrame(config, sender, state, [
-        fileTransferProtocol,
-        Buffer.from('PUT_CHUNK'),
-        Buffer.from(transferId),
-        Buffer.from('0'),
-        compressed.stdout
-      ])
-      await handleFileTransferFrame(config, sender, state, [
-        fileTransferProtocol,
-        Buffer.from('PUT_COMMIT'),
-        Buffer.from(transferId)
-      ])
-
-      expect(readFileSync(join(config.userFilesRoot, 'inbox/lark/message-1/zstd.txt'), 'utf8')).toBe(plainText)
-
-      const getTransferId = 'transfer-zstd-get'
-      await handleFileTransferFrame(config, sender, state, [
-        fileTransferProtocol,
-        Buffer.from('GET'),
-        Buffer.from(getTransferId),
-        Buffer.from(
-          JSON.stringify({
-            root: 'user_files',
-            relative_path: 'inbox/lark/message-1/zstd.txt',
-            content_encoding: 'zstd'
-          })
-        )
-      ])
-
-      const compressedGet = Buffer.concat(
-        sentFrames
-          .filter(frames => frames[1]?.toString('utf8') === 'GET_CHUNK')
-          .filter(frames => frames[2]?.toString('utf8') === getTransferId)
-          .map(frames => frames[4] ?? Buffer.alloc(0))
-      )
-      const decompressed = spawnSync('zstd', ['-q', '-d', '-c'], { input: compressedGet })
-      expect(decompressed.status).toBe(0)
-      expect(decompressed.stdout.toString('utf8')).toBe(plainText)
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
@@ -423,9 +386,8 @@ describe('@ankole/agent-computer runtime', () => {
 function workerConfig(): WorkerConfig {
   return {
     endpoint: 'tcp://127.0.0.1:6010',
-    preAuthToken: 'secret',
+    workerAuthKey: 'secret',
     workerId: 'worker-a',
-    workerInstanceId: 'worker-a-1',
     workspaceRoot: '/workspace',
     workspaceSessionsRoot: '/workspace/.sessions',
     sharedFsRoot: '/workspace/shared',
@@ -435,19 +397,11 @@ function workerConfig(): WorkerConfig {
   }
 }
 
-function workerEnv(env: Record<string, string>): Record<string, string> {
-  return {
-    ANKOLE_AGENT_COMPUTER_CONTAINER: '1',
-    ...env
-  }
-}
-
 function workerConfigForRoot(root: string): WorkerConfig {
   return {
     endpoint: 'tcp://127.0.0.1:6010',
-    preAuthToken: 'secret',
+    workerAuthKey: 'secret',
     workerId: 'worker-a',
-    workerInstanceId: 'worker-a-1',
     workspaceRoot: join(root, 'workspace'),
     workspaceSessionsRoot: join(root, 'workspace/.sessions'),
     sharedFsRoot: join(root, 'shared'),
@@ -457,20 +411,85 @@ function workerConfigForRoot(root: string): WorkerConfig {
   }
 }
 
-function payloadFor(frames: Buffer[][], transferId: string, command: string): Record<string, any> {
+const creditWindow = 4 * 1024 * 1024
+
+function frameFor(frames: Buffer[][], transferId: string, command: string): Buffer[] {
   const frameSet = frames.find(
     frame => frame[1]?.toString('utf8') === command && frame[2]?.toString('utf8') === transferId
   )
   expect(frameSet, `missing ${command} for ${transferId}`).toBeTruthy()
-  return JSON.parse(frameSet![3]!.toString('utf8'))
+  return frameSet!
 }
 
-function ackPayload(frames: Buffer[][], transferId: string, command: string): Record<string, any> {
-  const payload = frames
-    .filter(frame => frame[1]?.toString('utf8') === 'ACK' && frame[2]?.toString('utf8') === transferId)
-    .map(frame => JSON.parse(frame[3]!.toString('utf8')))
-    .find(payload => payload.command === command)
-  expect(payload, `missing ${command} ACK for ${transferId}`).toBeTruthy()
-  expect(payload.command).toBe(command)
-  return payload
+async function waitForFrame(
+  frames: Buffer[][],
+  transferId: string,
+  command: string,
+  timeoutMs = 1000
+): Promise<Buffer[]> {
+  const deadline = Date.now() + timeoutMs
+
+  while (Date.now() < deadline) {
+    const matches = frames.filter(
+      frame => frame[1]?.toString('utf8') === command && frame[2]?.toString('utf8') === transferId
+    )
+    if (matches.length > 0) return matches.at(-1)!
+    await Bun.sleep(5)
+  }
+
+  throw new Error(`missing ${command} for ${transferId}`)
+}
+
+function dataChunks(frames: Buffer[][], transferId: string): Buffer[] {
+  return frames
+    .filter(frame => frame[1]?.toString('utf8') === 'DATA' && frame[2]?.toString('utf8') === transferId)
+    .map(frame => frame[6] ?? Buffer.alloc(0))
+}
+
+function u64Frame(value: number): Buffer {
+  const frame = Buffer.alloc(8)
+  frame.writeBigUInt64BE(BigInt(value))
+  return frame
+}
+
+function readU64Frame(frame: Buffer | undefined): number {
+  expect(frame).toBeTruthy()
+  return Number(frame!.readBigUInt64BE())
+}
+
+function boolFrame(value: boolean): Buffer {
+  return Buffer.from([value ? 1 : 0])
+}
+
+function decodeEntries(frame: Buffer): Array<Record<string, unknown>> {
+  let offset = 0
+  const count = frame.readUInt32BE(offset)
+  offset += 4
+  const entries: Array<Record<string, unknown>> = []
+
+  for (let index = 0; index < count; index += 1) {
+    const relativePath = readSizedString(frame, offset)
+    offset = relativePath.offset
+    const kind = readSizedString(frame, offset)
+    offset = kind.offset
+    const size = Number(frame.readBigUInt64BE(offset))
+    offset += 8
+    const modified = Number(frame.readBigUInt64BE(offset))
+    offset += 8
+    entries.push({
+      relative_path: relativePath.value,
+      kind: kind.value,
+      size,
+      modified_unix_ms: modified
+    })
+  }
+
+  return entries
+}
+
+function readSizedString(frame: Buffer, offset: number): { value: string; offset: number } {
+  const size = frame.readUInt32BE(offset)
+  const start = offset + 4
+  const end = start + size
+  return { value: frame.subarray(start, end).toString('utf8'), offset: end }
 }

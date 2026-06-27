@@ -93,7 +93,7 @@ defmodule Ankole.I18nTest do
   end
 
   describe "locale lifecycle" do
-    test "rejects locales that are not loaded from priv/locales" do
+    test "rejects locales that are not loaded from app/locales" do
       assert {:error, %ArgumentError{} = error} = I18n.put_locale("ja-JP")
       assert Exception.message(error) =~ "is not loaded"
     end
@@ -142,7 +142,7 @@ defmodule Ankole.I18nTest do
   end
 
   describe "available_locales/0" do
-    test "lists locales found under priv/locales" do
+    test "lists locales found under app/locales" do
       assert "en-US" in I18n.available_locales()
       assert "zh-Hans-CN" in I18n.available_locales()
     end

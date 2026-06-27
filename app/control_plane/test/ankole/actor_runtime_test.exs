@@ -14,6 +14,7 @@ defmodule Ankole.ActorRuntimeTest do
   alias Ankole.ActorRuntime.ActivationManager
   alias Ankole.ActorRuntime.OutboxDispatcher
   alias Ankole.ActorRuntime.Reconciler
+  alias Ankole.ActorRuntime.WorkerAuthKey
   alias Ankole.ActorRuntime.WorkerBootstrap
   alias Ankole.ActorRuntime.Schemas.ActorSessionActivation
   alias Ankole.ActorRuntime.Schemas.AgentComputerWorker
@@ -21,6 +22,7 @@ defmodule Ankole.ActorRuntimeTest do
   alias Ankole.ActorRuntime.Transport.Broker
   alias Ankole.Repo
   alias Ankole.SignalsGateway
+  alias Ankole.SignalsGateway.InboundBatch
   alias Ankole.SignalsGateway.OutboxEntry
   alias Ankole.SignalsGateway.SignalEntry
   alias Ankole.SystemConfig
@@ -58,7 +60,7 @@ defmodule Ankole.ActorRuntimeTest do
       assert {:ok, _worker} = admit_worker(route)
 
       assert {:ok, %{actor_input: input}} =
-               SignalsGateway.emit_entry(
+               emit_entry(
                  agent.uid,
                  "bot",
                  group_entry(%{text: "PING", explicit: true}),
@@ -125,7 +127,7 @@ defmodule Ankole.ActorRuntimeTest do
       assert {:ok, _worker} = admit_worker(route)
 
       assert {:ok, %{actor_input: input}} =
-               SignalsGateway.emit_entry(
+               emit_entry(
                  agent.uid,
                  "bot",
                  group_entry(%{text: "PING", explicit: true}),
@@ -210,7 +212,7 @@ defmodule Ankole.ActorRuntimeTest do
       assert {:ok, _worker} = admit_worker(route)
 
       assert {:ok, %{actor_input: first_input}} =
-               SignalsGateway.emit_entry(
+               emit_entry(
                  agent.uid,
                  "bot",
                  group_entry(%{
@@ -263,7 +265,7 @@ defmodule Ankole.ActorRuntimeTest do
                )
 
       assert {:ok, %{actor_input: second_input}} =
-               SignalsGateway.emit_entry(
+               emit_entry(
                  agent.uid,
                  "bot",
                  group_entry(%{
@@ -332,7 +334,7 @@ defmodule Ankole.ActorRuntimeTest do
 
       assert {:ok, _worker} = admit_worker(route)
 
-      assert {:ok, %{actor_input: first_input}} =
+      assert {:ok, %{inbound_batch: first_batch}} =
                SignalsGateway.emit_entry(
                  agent.uid,
                  "bot",
@@ -350,7 +352,7 @@ defmodule Ankole.ActorRuntimeTest do
 
       second_time = DateTime.add(@base_time, 100, :millisecond)
 
-      assert {:ok, %{actor_input: second_input}} =
+      assert {:ok, %{inbound_batch: second_batch}} =
                SignalsGateway.emit_entry(
                  agent.uid,
                  "bot",
@@ -366,6 +368,8 @@ defmodule Ankole.ActorRuntimeTest do
                  now: second_time
                )
 
+      assert first_batch.id == second_batch.id
+
       assert {:ok, %{llm_turn: llm_turn}} =
                ActorRuntime.process_ready_inputs_once(
                  now: DateTime.add(@base_time, 1, :second),
@@ -377,9 +381,12 @@ defmodule Ankole.ActorRuntimeTest do
       turn_ref = turn_start["turn"]
       input_ids = Enum.map(turn_start["inputs"], & &1["actor_input_id"])
 
-      assert input_ids == [first_input.id, second_input.id]
+      assert [actor_input_id] = input_ids
 
-      assert {:ok, [_first_delivery, _second_delivery]} =
+      assert [%{"payload_json" => payload}] = turn_start["inputs"]
+      assert get_in(payload, ["data", "entry", "text"]) == "first part\nsecond part"
+
+      assert {:ok, [_delivery]} =
                ActorRuntime.handle_turn_accepted(%{
                  "turn_accepted" => %{
                    "turn" => turn_ref,
@@ -404,10 +411,9 @@ defmodule Ankole.ActorRuntimeTest do
                payload: %{"text" => "ONE REPLY"}
              } = Repo.one!(from(outbox in OutboxEntry))
 
-      assert source_actor_input_id == second_input.id
+      assert source_actor_input_id == actor_input_id
       assert llm_turn_id == llm_turn.id
-      refute Repo.get_by(OutboxEntry, source_actor_input_id: first_input.id)
-      assert Repo.aggregate(ActorInputConsumption, :count) == 2
+      assert Repo.aggregate(ActorInputConsumption, :count) == 1
       assert Repo.aggregate(ActorInputDelivery, :count) == 0
     end
 
@@ -422,7 +428,7 @@ defmodule Ankole.ActorRuntimeTest do
       assert {:ok, _worker} = admit_worker(route)
 
       assert {:ok, %{actor_input: input}} =
-               SignalsGateway.emit_entry(
+               emit_entry(
                  agent.uid,
                  "bot",
                  group_entry(%{text: "Send the report", explicit: true}),
@@ -565,7 +571,7 @@ defmodule Ankole.ActorRuntimeTest do
       assert {:ok, _worker} = admit_worker(route)
 
       assert {:ok, %{actor_input: input}} =
-               SignalsGateway.emit_entry(
+               emit_entry(
                  agent.uid,
                  "bot",
                  group_entry(%{text: "Call a tool and answer", explicit: true}),
@@ -640,7 +646,7 @@ defmodule Ankole.ActorRuntimeTest do
       assert {:ok, _worker} = admit_worker(route)
 
       assert {:ok, _result} =
-               SignalsGateway.emit_entry(
+               emit_entry(
                  agent.uid,
                  "bot",
                  group_entry(%{text: "Use the tool and answer", explicit: true}),
@@ -741,7 +747,7 @@ defmodule Ankole.ActorRuntimeTest do
       assert {:ok, _worker} = admit_worker(route)
 
       assert {:ok, %{actor_input: input}} =
-               SignalsGateway.emit_entry(
+               emit_entry(
                  agent.uid,
                  "bot",
                  group_entry(%{text: "The deploy finished.", explicit: false}),
@@ -753,7 +759,7 @@ defmodule Ankole.ActorRuntimeTest do
 
       assert {:ok, %{send_outcome: "sent_or_queued", llm_turn: recognizer_turn}} =
                ActorRuntime.process_ready_inputs_once(
-                 now: DateTime.add(@base_time, 2, :second),
+                 now: DateTime.add(@base_time, 15, :second),
                  lease_seconds: @long_lease_seconds
                )
 
@@ -817,7 +823,7 @@ defmodule Ankole.ActorRuntimeTest do
       assert {:ok, _worker} = admit_worker(route)
 
       assert {:ok, %{actor_input: input}} =
-               SignalsGateway.emit_entry(
+               emit_entry(
                  agent.uid,
                  "bot",
                  group_entry(%{
@@ -829,7 +835,7 @@ defmodule Ankole.ActorRuntimeTest do
 
       assert {:ok, %{send_outcome: "sent_or_queued", llm_turn: ambient_turn}} =
                ActorRuntime.process_ready_inputs_once(
-                 now: DateTime.add(@base_time, 2, :second),
+                 now: DateTime.add(@base_time, 15, :second),
                  lease_seconds: @long_lease_seconds
                )
 
@@ -934,7 +940,7 @@ defmodule Ankole.ActorRuntimeTest do
       binding_fixture(agent.uid, "bot", :ignore)
 
       assert {:ok, %{actor_input: input}} =
-               SignalsGateway.emit_entry(
+               emit_entry(
                  agent.uid,
                  "bot",
                  group_entry(%{text: "/compress", explicit: true}),
@@ -974,7 +980,7 @@ defmodule Ankole.ActorRuntimeTest do
       assert {:ok, _worker} = admit_worker(route)
 
       assert {:ok, %{actor_input: _first_input}} =
-               SignalsGateway.emit_entry(
+               emit_entry(
                  agent.uid,
                  "bot",
                  group_entry(%{text: "old task", explicit: true}),
@@ -1011,7 +1017,7 @@ defmodule Ankole.ActorRuntimeTest do
                })
 
       assert {:ok, %{actor_input: new_input}} =
-               SignalsGateway.emit_entry(
+               emit_entry(
                  agent.uid,
                  "bot",
                  group_entry(%{text: "/new fresh task\nwith context", explicit: true}),
@@ -1091,7 +1097,7 @@ defmodule Ankole.ActorRuntimeTest do
       assert {:ok, _worker} = admit_worker(route)
 
       assert {:ok, %{actor_input: first_input}} =
-               SignalsGateway.emit_entry(
+               emit_entry(
                  agent.uid,
                  "bot",
                  group_entry(%{
@@ -1139,7 +1145,7 @@ defmodule Ankole.ActorRuntimeTest do
                )
 
       assert {:ok, %{actor_input: later_input}} =
-               SignalsGateway.emit_entry(
+               emit_entry(
                  agent.uid,
                  "bot",
                  group_entry(%{
@@ -1207,7 +1213,7 @@ defmodule Ankole.ActorRuntimeTest do
       assert {:ok, _worker} = admit_worker(route)
 
       assert {:ok, %{actor_input: _input}} =
-               SignalsGateway.emit_entry(
+               emit_entry(
                  agent.uid,
                  "bot",
                  group_entry(%{text: "PING", explicit: true}),
@@ -1243,7 +1249,7 @@ defmodule Ankole.ActorRuntimeTest do
                })
 
       assert {:ok, %{actor_input: compress_input}} =
-               SignalsGateway.emit_entry(
+               emit_entry(
                  agent.uid,
                  "bot",
                  group_entry(%{text: "/compress", explicit: true}),
@@ -1328,7 +1334,7 @@ defmodule Ankole.ActorRuntimeTest do
       assert {:ok, _worker} = admit_worker(route)
 
       assert {:ok, %{actor_input: _input}} =
-               SignalsGateway.emit_entry(
+               emit_entry(
                  agent.uid,
                  "bot",
                  group_entry(%{text: "PING", explicit: true}),
@@ -1364,7 +1370,7 @@ defmodule Ankole.ActorRuntimeTest do
                })
 
       assert {:ok, %{actor_input: retry_command}} =
-               SignalsGateway.emit_entry(
+               emit_entry(
                  agent.uid,
                  "bot",
                  group_entry(%{text: "/retry", explicit: true}),
@@ -1395,6 +1401,235 @@ defmodule Ankole.ActorRuntimeTest do
       assert retry_envelope["body"]["turn_start"]["turn"]["llm_turn_id"] == retry_turn.id
     end
 
+    test "retry command during active generation cancels the current turn and retries its input" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :ignore)
+      route = unique_route()
+
+      :ok = Broker.register_local_worker(route, self())
+      on_exit(fn -> Broker.unregister_local_worker(route) end)
+
+      assert {:ok, _worker} = admit_worker(route)
+
+      assert {:ok, %{actor_input: input}} =
+               emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{text: "PING", explicit: true}),
+                 now: @base_time
+               )
+
+      assert {:ok, %{llm_turn: first_turn}} =
+               ActorRuntime.process_ready_inputs_once(
+                 now: DateTime.add(@base_time, 1, :second),
+                 lease_seconds: @long_lease_seconds
+               )
+
+      assert_receive {:actor_lane, envelope}
+      turn_start = envelope["body"]["turn_start"]
+      turn_ref = turn_start["turn"]
+      input_ids = Enum.map(turn_start["inputs"], & &1["actor_input_id"])
+
+      assert {:ok, [_delivery]} =
+               ActorRuntime.handle_turn_accepted(%{
+                 "turn_accepted" => %{
+                   "turn" => turn_ref,
+                   "accepted_actor_input_ids" => input_ids
+                 }
+               })
+
+      assert {:ok, %{actor_input: retry_command}} =
+               emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{text: "/retry", explicit: true}),
+                 now: DateTime.add(@base_time, 2, :second)
+               )
+
+      assert {:ok, %{status: :command_consumed, retry_actor_inputs: [retry_input]}} =
+               ActorRuntime.process_ready_inputs_once(now: DateTime.add(@base_time, 3, :second))
+
+      assert retry_input.id == input.id
+      refute Repo.get(ActorInput, retry_command.id)
+
+      assert_receive {:actor_lane, retry_control}
+      assert retry_control["body"]["type"] == "turn_control"
+      assert retry_control["body"]["turn_control"]["command"] == "retry"
+      assert retry_control["body"]["turn_control"]["turn"]["llm_turn_id"] == first_turn.id
+      assert retry_control["body"]["turn_control"]["payload_json"]["reason"] == "command.retry"
+
+      assert %LlmTurn{status: "cancelled", response: %{"cancel_code" => "command.retry"}} =
+               Repo.get!(LlmTurn, first_turn.id)
+
+      assert %ActorInput{} = retried_input = Repo.get!(ActorInput, input.id)
+
+      assert get_in(retried_input.payload, ["data", "entry", "retry_of_llm_turn_id"]) ==
+               first_turn.id
+
+      assert {:error, :llm_turn_not_started} =
+               ActorRuntime.commit_final_proposal(%{
+                 "turn_final_proposal" => %{
+                   "turn" => turn_ref,
+                   "messages" => [],
+                   "reply" => %{"text" => "TOO LATE"}
+                 }
+               })
+
+      assert {:ok, %{send_outcome: "sent_or_queued", llm_turn: retry_turn}} =
+               ActorRuntime.process_ready_inputs_once(now: DateTime.add(@base_time, 4, :second))
+
+      assert retry_turn.kind == "retry_generation"
+      assert_receive {:actor_lane, retry_envelope}
+      assert [retry_turn_input] = retry_envelope["body"]["turn_start"]["inputs"]
+      assert retry_turn_input["actor_input_id"] == input.id
+      assert retry_turn_input["payload_json"]["data"]["entry"]["text"] == "PING"
+    end
+
+    test "retry command bypasses ordinary queued input while a generation is active" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :ignore)
+      route = unique_route()
+
+      :ok = Broker.register_local_worker(route, self())
+      on_exit(fn -> Broker.unregister_local_worker(route) end)
+
+      assert {:ok, _worker} = admit_worker(route)
+
+      assert {:ok, %{actor_input: input}} =
+               emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{text: "PING", explicit: true}),
+                 now: @base_time
+               )
+
+      assert {:ok, %{llm_turn: first_turn}} =
+               ActorRuntime.process_ready_inputs_once(
+                 now: DateTime.add(@base_time, 1, :second),
+                 lease_seconds: @long_lease_seconds
+               )
+
+      assert_receive {:actor_lane, envelope}
+      turn_start = envelope["body"]["turn_start"]
+      turn_ref = turn_start["turn"]
+      input_ids = Enum.map(turn_start["inputs"], & &1["actor_input_id"])
+
+      assert {:ok, [_delivery]} =
+               ActorRuntime.handle_turn_accepted(%{
+                 "turn_accepted" => %{
+                   "turn" => turn_ref,
+                   "accepted_actor_input_ids" => input_ids
+                 }
+               })
+
+      assert {:ok, %{actor_input: ordinary_input}} =
+               emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{
+                   ingress_event_id: "ordinary-before-retry",
+                   provider_entry_id: "ordinary-before-retry",
+                   text: "handle this after retry",
+                   explicit: true
+                 }),
+                 now: DateTime.add(@base_time, 2, :second)
+               )
+
+      assert {:ok, %{actor_input: retry_command}} =
+               emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{text: "/retry", explicit: true}),
+                 now: DateTime.add(@base_time, 3, :second)
+               )
+
+      assert ordinary_input.broker_sequence < retry_command.broker_sequence
+
+      assert {:ok, %{status: :command_consumed, retry_actor_inputs: [retry_input]}} =
+               ActorRuntime.process_ready_inputs_once(now: DateTime.add(@base_time, 4, :second))
+
+      assert retry_input.id == input.id
+      refute Repo.get(ActorInput, retry_command.id)
+      assert Repo.get!(ActorInput, ordinary_input.id).input_state == "open"
+
+      assert_receive {:actor_lane, retry_control}
+      assert retry_control["body"]["type"] == "turn_control"
+      assert retry_control["body"]["turn_control"]["command"] == "retry"
+
+      assert %LlmTurn{status: "cancelled"} = Repo.get!(LlmTurn, first_turn.id)
+
+      assert {:ok, %{send_outcome: "sent_or_queued", llm_turn: retry_turn}} =
+               ActorRuntime.process_ready_inputs_once(now: DateTime.add(@base_time, 5, :second))
+
+      assert retry_turn.kind == "retry_generation"
+      assert_receive {:actor_lane, retry_envelope}
+      assert [retry_turn_input] = retry_envelope["body"]["turn_start"]["inputs"]
+      assert retry_turn_input["actor_input_id"] == input.id
+      assert retry_turn_input["payload_json"]["data"]["entry"]["text"] == "PING"
+    end
+
+    test "retry command cancels an active turn even when no live delivery remains" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :ignore)
+      dead_route = unique_route()
+      live_route = unique_route()
+
+      assert {:ok, _worker} = admit_worker(dead_route)
+
+      assert {:ok, %{actor_input: input}} =
+               emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{text: "PING", explicit: true}),
+                 now: @base_time
+               )
+
+      assert {:ok, %{send_outcome: "unknown_route", llm_turn: first_turn}} =
+               ActorRuntime.process_ready_inputs_once(
+                 now: DateTime.add(@base_time, 1, :second),
+                 lease_seconds: @long_lease_seconds
+               )
+
+      assert %ActorInputDelivery{state: "send_failed"} =
+               Repo.one!(
+                 from(delivery in ActorInputDelivery,
+                   where: delivery.llm_turn_id == ^first_turn.id
+                 )
+               )
+
+      assert {:ok, %{actor_input: retry_command}} =
+               emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{text: "/retry", explicit: true}),
+                 now: DateTime.add(@base_time, 2, :second)
+               )
+
+      assert input.broker_sequence < retry_command.broker_sequence
+
+      assert {:ok, %{status: :command_consumed, retry_actor_inputs: [retry_input]}} =
+               ActorRuntime.process_ready_inputs_once(now: DateTime.add(@base_time, 3, :second))
+
+      assert retry_input.id == input.id
+      assert Repo.get!(LlmTurn, first_turn.id).status == "cancelled"
+      refute Repo.get(ActorInput, retry_command.id)
+
+      refute_receive {:actor_lane, _envelope}, 50
+
+      :ok = Broker.register_local_worker(live_route, self())
+      on_exit(fn -> Broker.unregister_local_worker(live_route) end)
+      assert {:ok, _worker} = admit_worker(live_route)
+
+      assert {:ok, %{send_outcome: "sent_or_queued", llm_turn: retry_turn}} =
+               ActorRuntime.process_ready_inputs_once(now: DateTime.add(@base_time, 4, :second))
+
+      assert retry_turn.kind == "retry_generation"
+      assert_receive {:actor_lane, retry_envelope}
+      assert [retry_turn_input] = retry_envelope["body"]["turn_start"]["inputs"]
+      assert retry_turn_input["actor_input_id"] == input.id
+      assert retry_turn_input["payload_json"]["data"]["entry"]["text"] == "PING"
+    end
+
     test "inactive steer command starts a generation with the steer args" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
@@ -1406,7 +1641,7 @@ defmodule Ankole.ActorRuntimeTest do
       assert {:ok, _worker} = admit_worker(route)
 
       assert {:ok, %{actor_input: steer_input}} =
-               SignalsGateway.emit_entry(
+               emit_entry(
                  agent.uid,
                  "bot",
                  group_entry(%{text: "/steer focus on risk", explicit: true}),
@@ -1441,7 +1676,7 @@ defmodule Ankole.ActorRuntimeTest do
       assert {:ok, _worker} = admit_worker(route)
 
       assert {:ok, %{actor_input: input}} =
-               SignalsGateway.emit_entry(
+               emit_entry(
                  agent.uid,
                  "bot",
                  group_entry(%{text: "PING", explicit: true}),
@@ -1469,7 +1704,7 @@ defmodule Ankole.ActorRuntimeTest do
                })
 
       assert {:ok, %{actor_input: steer_input}} =
-               SignalsGateway.emit_entry(
+               emit_entry(
                  agent.uid,
                  "bot",
                  group_entry(%{text: "/steer change course", explicit: true}),
@@ -1557,7 +1792,7 @@ defmodule Ankole.ActorRuntimeTest do
       assert {:ok, _worker} = admit_worker(route)
 
       assert {:ok, %{actor_input: input}} =
-               SignalsGateway.emit_entry(
+               emit_entry(
                  agent.uid,
                  "bot",
                  group_entry(%{text: "PING", explicit: true}),
@@ -1587,7 +1822,7 @@ defmodule Ankole.ActorRuntimeTest do
                })
 
       assert {:ok, %{actor_input: stop_input}} =
-               SignalsGateway.emit_entry(
+               emit_entry(
                  agent.uid,
                  "bot",
                  group_entry(%{text: "/stop", explicit: true}),
@@ -1642,7 +1877,7 @@ defmodule Ankole.ActorRuntimeTest do
       assert {:ok, _worker} = admit_worker(route)
 
       assert {:ok, %{status: :recorded}} =
-               SignalsGateway.emit_entry(
+               emit_entry(
                  agent.uid,
                  "bot",
                  group_entry(%{text: "PING", explicit: false}),
@@ -1665,7 +1900,7 @@ defmodule Ankole.ActorRuntimeTest do
       assert {:ok, _worker} = admit_worker(route)
 
       assert {:ok, %{actor_input: input}} =
-               SignalsGateway.emit_entry(
+               emit_entry(
                  agent.uid,
                  "bot",
                  group_entry(%{text: "PING", explicit: true}),
@@ -1685,7 +1920,7 @@ defmodule Ankole.ActorRuntimeTest do
       binding_fixture(agent.uid, "bot", :ignore)
 
       assert {:ok, %{actor_input: input}} =
-               SignalsGateway.emit_entry(
+               emit_entry(
                  agent.uid,
                  "bot",
                  group_entry(%{text: "PING", explicit: true}),
@@ -1710,7 +1945,7 @@ defmodule Ankole.ActorRuntimeTest do
       assert {:ok, _worker} = admit_worker(route)
 
       assert {:ok, %{actor_input: input}} =
-               SignalsGateway.emit_entry(
+               emit_entry(
                  agent.uid,
                  "bot",
                  group_entry(%{text: "PING", explicit: true}),
@@ -1738,7 +1973,7 @@ defmodule Ankole.ActorRuntimeTest do
       assert {:ok, _worker} = admit_worker(dead_route)
 
       assert {:ok, %{actor_input: input}} =
-               SignalsGateway.emit_entry(
+               emit_entry(
                  agent.uid,
                  "bot",
                  group_entry(%{text: "PING", explicit: true}),
@@ -1788,7 +2023,7 @@ defmodule Ankole.ActorRuntimeTest do
       assert {:ok, _worker} = admit_worker(dead_route)
 
       assert {:ok, %{actor_input: input}} =
-               SignalsGateway.emit_entry(
+               emit_entry(
                  agent.uid,
                  "bot",
                  group_entry(%{text: "PING", explicit: true}),
@@ -1861,7 +2096,6 @@ defmodule Ankole.ActorRuntimeTest do
                })
 
       assert assignment.worker_id == ready_worker.worker_id
-      assert assignment.worker_instance_id == ready_worker.worker_instance_id
       assert assignment.transport_route == ready_route
     end
 
@@ -1875,7 +2109,7 @@ defmodule Ankole.ActorRuntimeTest do
       assert {:ok, _worker} = admit_worker(route)
 
       assert {:ok, %{actor_input: input}} =
-               SignalsGateway.emit_entry(
+               emit_entry(
                  agent.uid,
                  "bot",
                  group_entry(%{text: "PING", explicit: true}),
@@ -1933,7 +2167,7 @@ defmodule Ankole.ActorRuntimeTest do
       assert {:ok, _worker} = admit_worker(route)
 
       assert {:ok, %{actor_input: input}} =
-               SignalsGateway.emit_entry(
+               emit_entry(
                  agent.uid,
                  "bot",
                  group_entry(%{text: "PING", explicit: true}),
@@ -1995,7 +2229,7 @@ defmodule Ankole.ActorRuntimeTest do
       assert {:ok, _worker} = admit_worker(route)
 
       assert {:ok, %{actor_input: _input}} =
-               SignalsGateway.emit_entry(
+               emit_entry(
                  agent.uid,
                  "bot",
                  group_entry(%{text: "PING", explicit: true}),
@@ -2060,7 +2294,7 @@ defmodule Ankole.ActorRuntimeTest do
       assert {:ok, _worker} = admit_worker(route)
 
       assert {:ok, %{actor_input: input}} =
-               SignalsGateway.emit_entry(
+               emit_entry(
                  agent.uid,
                  "bot",
                  group_entry(%{text: "PING", explicit: true}),
@@ -2099,7 +2333,11 @@ defmodule Ankole.ActorRuntimeTest do
                  now: DateTime.add(@base_time, 2, :second)
                )
 
-      assert {:error, :no_accepted_delivery} =
+      assert_receive {:actor_lane, retry_control}
+      assert retry_control["body"]["type"] == "turn_control"
+      assert retry_control["body"]["turn_control"]["command"] == "retry"
+
+      assert {:error, :llm_turn_not_started} =
                ActorRuntime.commit_final_proposal(%{
                  "turn_final_proposal" => %{
                    "turn" => turn_ref,
@@ -2108,7 +2346,7 @@ defmodule Ankole.ActorRuntimeTest do
                  }
                })
 
-      assert Repo.get!(LlmTurn, llm_turn.id).status == "started"
+      assert Repo.get!(LlmTurn, llm_turn.id).status == "cancelled"
       refute Repo.get(ActorInput, input.id)
 
       assert Repo.aggregate(from(message in Message, where: message.role == "assistant"), :count) ==
@@ -2116,6 +2354,131 @@ defmodule Ankole.ActorRuntimeTest do
 
       assert Repo.aggregate(ActorInputConsumption, :count) == 0
       assert Repo.aggregate(OutboxEntry, :count) == 0
+    end
+
+    test "recalling one entry from an in-flight merged batch retries the remaining batch" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :ignore)
+      route = unique_route()
+
+      :ok = Broker.register_local_worker(route, self())
+      on_exit(fn -> Broker.unregister_local_worker(route) end)
+      assert {:ok, _worker} = admit_worker(route)
+
+      alice = %{principal_uid: "alice", id: "provider-alice", display_name: "Alice"}
+
+      assert {:ok, %{inbound_batch: batch}} =
+               SignalsGateway.emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{
+                   explicit: true,
+                   ingress_event_id: "evt-batch-first",
+                   provider_entry_id: "msg-batch-first",
+                   author: alice,
+                   text: "first"
+                 }),
+                 now: @base_time
+               )
+
+      assert {:ok, %{inbound_batch: updated_batch}} =
+               SignalsGateway.emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{
+                   explicit: false,
+                   ingress_event_id: "evt-batch-second",
+                   provider_entry_id: "msg-batch-second",
+                   author: alice,
+                   text: "second"
+                 }),
+                 now: DateTime.add(@base_time, 100, :millisecond)
+               )
+
+      assert updated_batch.id == batch.id
+
+      assert {:ok, [%{actor_input: input}]} =
+               SignalsGateway.finalize_due_inbound_batches(
+                 now: DateTime.add(@base_time, 700, :millisecond)
+               )
+
+      original_ingress_event_id = input.ingress_event_id
+      assert get_in(input.payload, ["data", "entry", "text"]) == "first\nsecond"
+
+      assert {:ok, %{llm_turn: llm_turn}} =
+               ActorRuntime.process_ready_inputs_once(
+                 now: DateTime.add(@base_time, 1, :second),
+                 lease_seconds: @long_lease_seconds
+               )
+
+      assert_receive {:actor_lane, envelope}
+      turn_start = envelope["body"]["turn_start"]
+      turn_ref = turn_start["turn"]
+      input_ids = Enum.map(turn_start["inputs"], & &1["actor_input_id"])
+
+      assert {:ok, [_delivery]} =
+               ActorRuntime.handle_turn_accepted(%{
+                 "turn_accepted" => %{
+                   "turn" => turn_ref,
+                   "accepted_actor_input_ids" => input_ids
+                 }
+               })
+
+      assert {:ok, %{retried_actor_inputs: 1, canceled_actor_inputs: 0, lifecycle_inputs: []}} =
+               SignalsGateway.emit_entry_recalled(
+                 agent.uid,
+                 "bot",
+                 lifecycle_entry(%{
+                   ingress_event_id: "recall-batch-first",
+                   signal_channel_id: input.signal_channel_id,
+                   provider_entry_id: "msg-batch-first",
+                   provider_thread_id: input.provider_thread_id
+                 }),
+                 now: DateTime.add(@base_time, 2, :second)
+               )
+
+      assert_receive {:actor_lane, retry_control}
+      assert retry_control["body"]["type"] == "turn_control"
+      assert retry_control["body"]["turn_control"]["command"] == "retry"
+      assert retry_control["body"]["turn_control"]["payload_json"]["reason"] == "recalled"
+
+      assert Repo.get!(LlmTurn, llm_turn.id).status == "cancelled"
+
+      assert %Message{status: "retracted"} =
+               Repo.one!(
+                 from(message in Message,
+                   where: message.event_id == ^original_ingress_event_id
+                 )
+               )
+
+      assert %ActorInput{} = updated_input = Repo.get!(ActorInput, input.id)
+      assert updated_input.provider_entry_id == "msg-batch-second"
+      assert updated_input.ingress_event_id == "retry:#{input.id}:without:msg-batch-first"
+      assert get_in(updated_input.payload, ["data", "entry", "text"]) == "second"
+
+      assert [%{"provider_entry_id" => "msg-batch-second"}] =
+               get_in(updated_input.payload, ["data", "entries"])
+
+      assert get_in(updated_input.payload, ["data", "entry", "retry_of_llm_turn_id"]) ==
+               llm_turn.id
+
+      assert {:error, :llm_turn_not_started} =
+               ActorRuntime.commit_final_proposal(%{
+                 "turn_final_proposal" => %{
+                   "turn" => turn_ref,
+                   "messages" => [],
+                   "reply" => %{"text" => "TOO LATE"}
+                 }
+               })
+
+      assert {:ok, %{send_outcome: "sent_or_queued", llm_turn: retry_turn}} =
+               ActorRuntime.process_ready_inputs_once(now: DateTime.add(@base_time, 3, :second))
+
+      assert retry_turn.kind == "retry_generation"
+      assert_receive {:actor_lane, retry_envelope}
+      assert [retry_turn_input] = retry_envelope["body"]["turn_start"]["inputs"]
+      assert retry_turn_input["actor_input_id"] == input.id
+      assert retry_turn_input["payload_json"]["data"]["entry"]["text"] == "second"
     end
 
     test "historical recall records a lifecycle note without rewriting history or starting a turn" do
@@ -2128,7 +2491,7 @@ defmodule Ankole.ActorRuntimeTest do
       assert {:ok, _worker} = admit_worker(route)
 
       assert {:ok, %{actor_input: input}} =
-               SignalsGateway.emit_entry(
+               emit_entry(
                  agent.uid,
                  "bot",
                  group_entry(%{text: "old fact", explicit: true}),
@@ -2236,7 +2599,7 @@ defmodule Ankole.ActorRuntimeTest do
       )
 
       assert {:ok, %{actor_input: input}} =
-               SignalsGateway.emit_entry(
+               emit_entry(
                  agent.uid,
                  "bot",
                  group_entry(%{text: "PING", explicit: true}),
@@ -2336,7 +2699,7 @@ defmodule Ankole.ActorRuntimeTest do
       assert {:ok, _worker} = admit_worker(route)
 
       assert {:ok, %{actor_input: input}} =
-               SignalsGateway.emit_entry(
+               emit_entry(
                  agent.uid,
                  "bot",
                  group_entry(%{text: "PING", explicit: true}),
@@ -2388,7 +2751,7 @@ defmodule Ankole.ActorRuntimeTest do
       assert {:ok, _worker} = admit_worker(route)
 
       assert {:ok, %{actor_input: input}} =
-               SignalsGateway.emit_entry(
+               emit_entry(
                  agent.uid,
                  "bot",
                  group_entry(%{text: "PING", explicit: true}),
@@ -2419,7 +2782,7 @@ defmodule Ankole.ActorRuntimeTest do
       assert {:ok, _worker} = admit_worker(route)
 
       assert {:ok, %{actor_input: input}} =
-               SignalsGateway.emit_entry(
+               emit_entry(
                  agent.uid,
                  "bot",
                  group_entry(%{
@@ -2468,7 +2831,7 @@ defmodule Ankole.ActorRuntimeTest do
     test "broker uses ZeroMQ mandatory route outcome when router is running" do
       assert {:ok, endpoint} =
                Broker.start_router("tcp://127.0.0.1:*",
-                 pre_auth_token: "test-token",
+                 worker_auth_key: "test-token",
                  poll_interval_ms: 1
                )
 
@@ -2480,6 +2843,56 @@ defmodule Ankole.ActorRuntimeTest do
                Broker.send_mandatory("missing-worker", worker_ready_envelope())
     end
 
+    test "control plane can call a worker RPC method over the RPC lane" do
+      route = unique_route()
+      :ok = Broker.register_local_worker(route, self())
+      on_exit(fn -> Broker.unregister_local_worker(route) end)
+
+      task =
+        Task.async(fn ->
+          ActorRuntime.request_worker_rpc(
+            route,
+            "worker.runtime.describe",
+            %{"probe" => true},
+            timeout_ms: 200
+          )
+        end)
+
+      assert_receive {:actor_lane,
+                      %{
+                        "body" => %{
+                          "type" => "rpc_request",
+                          "rpc_request" => request
+                        }
+                      }},
+                     200
+
+      assert request["method"] == "worker.runtime.describe"
+      assert request["payload_json"] == %{"probe" => true}
+      request_id = request["request_id"]
+
+      send(
+        Broker,
+        {:runtime_fabric_router_received, route,
+         Torque.encode!(%{
+           "protocol_version" => 1,
+           "message_id" => "worker-rpc-response",
+           "correlation_id" => request_id,
+           "lane" => "LANE_RPC",
+           "durability" => "CONTROL_EPHEMERAL",
+           "body" => %{
+             "type" => "rpc_response",
+             "rpc_response" => %{
+               "request_id" => request_id,
+               "payload_json" => %{"runtime" => "bun", "active_turns" => 0}
+             }
+           }
+         })}
+      )
+
+      assert {:ok, %{"runtime" => "bun", "active_turns" => 0}} = Task.await(task, 500)
+    end
+
     test "worker heartbeat and capacity update only the authenticated worker projection" do
       route = unique_route()
       assert {:ok, worker} = admit_worker(route)
@@ -2488,7 +2901,6 @@ defmodule Ankole.ActorRuntimeTest do
                ActorRuntime.handle_worker_heartbeat(
                  %{
                    "worker_id" => worker.worker_id,
-                   "worker_instance_id" => worker.worker_instance_id,
                    "monotonic_ms" => 123,
                    "load_json" => %{"active_turns" => 1}
                  },
@@ -2501,7 +2913,6 @@ defmodule Ankole.ActorRuntimeTest do
                ActorRuntime.handle_worker_capacity(
                  %{
                    "worker_id" => worker.worker_id,
-                   "worker_instance_id" => worker.worker_instance_id,
                    "available_turn_slots" => 2,
                    "capacity_json" => %{"available_turn_slots" => 2},
                    "load_json" => %{"active_turns" => 0}
@@ -2515,8 +2926,7 @@ defmodule Ankole.ActorRuntimeTest do
       assert {:error, :stale_transport_route} =
                ActorRuntime.handle_worker_heartbeat(
                  %{
-                   "worker_id" => worker.worker_id,
-                   "worker_instance_id" => worker.worker_instance_id
+                   "worker_id" => worker.worker_id
                  },
                  %{authenticated?: true, transport_route: route <> "-stale"}
                )
@@ -2533,7 +2943,7 @@ defmodule Ankole.ActorRuntimeTest do
       assert {:ok, _worker} = admit_worker(route)
 
       assert {:ok, %{actor_input: input}} =
-               SignalsGateway.emit_entry(
+               emit_entry(
                  agent.uid,
                  "bot",
                  group_entry(%{text: "PING", explicit: true}),
@@ -2592,28 +3002,15 @@ defmodule Ankole.ActorRuntimeTest do
                Repo.get_by!(ActorInputDelivery, actor_input_id: input.id)
     end
 
-    test "worker admission rejects duplicate live instance and route ownership" do
+    test "worker admission rejects duplicate live route ownership" do
       route = unique_route()
       duplicate_route = unique_route()
       assert {:ok, worker} = admit_worker(route)
-
-      assert {:error, :duplicate_worker_instance} =
-               ActorRuntime.admit_worker_ready(
-                 %{
-                   worker_id: "other-worker-instance",
-                   worker_instance_id: worker.worker_instance_id,
-                   runtime: "bun",
-                   version: "test",
-                   capacity: %{"available_turn_slots" => 1}
-                 },
-                 %{authenticated?: true, transport_route: duplicate_route}
-               )
 
       assert {:error, :duplicate_worker_route} =
                ActorRuntime.admit_worker_ready(
                  %{
                    worker_id: "other-worker-route",
-                   worker_instance_id: "other-worker-route-instance",
                    runtime: "bun",
                    version: "test",
                    capacity: %{"available_turn_slots" => 1}
@@ -2625,7 +3022,6 @@ defmodule Ankole.ActorRuntimeTest do
                ActorRuntime.admit_worker_ready(
                  %{
                    worker_id: worker.worker_id,
-                   worker_instance_id: "refreshed-" <> worker.worker_instance_id,
                    runtime: "bun",
                    version: "test",
                    capacity: %{"available_turn_slots" => 2}
@@ -2634,8 +3030,8 @@ defmodule Ankole.ActorRuntimeTest do
                )
 
       assert refreshed_worker.worker_id == worker.worker_id
-      assert refreshed_worker.worker_instance_id == "refreshed-" <> worker.worker_instance_id
       assert refreshed_worker.transport_route == duplicate_route
+      assert refreshed_worker.capacity == %{"available_turn_slots" => 2}
     end
 
     test "worker admission requires runtime and version identity fields" do
@@ -2645,7 +3041,6 @@ defmodule Ankole.ActorRuntimeTest do
                ActorRuntime.admit_worker_ready(
                  %{
                    worker_id: "worker-missing-runtime",
-                   worker_instance_id: "worker-missing-runtime-instance",
                    version: "test",
                    capacity: %{"available_turn_slots" => 1}
                  },
@@ -2656,7 +3051,6 @@ defmodule Ankole.ActorRuntimeTest do
                ActorRuntime.admit_worker_ready(
                  %{
                    worker_id: "worker-missing-version",
-                   worker_instance_id: "worker-missing-version-instance",
                    runtime: "bun",
                    capacity: %{"available_turn_slots" => 1}
                  },
@@ -2670,51 +3064,54 @@ defmodule Ankole.ActorRuntimeTest do
       assert {:ok, command} =
                WorkerBootstrap.docker_run_command(
                  endpoint: "tcp://127.0.0.1:6010",
-                 worker_id: "worker-a",
-                 worker_instance_id: "worker-a-1"
+                 worker_id: "worker-a"
                )
 
       assert command =~ "docker run --rm"
-      assert command =~ "ANKOLE_RUNTIME_FABRIC_ENDPOINT"
+      assert command =~ "--cap-add SYS_ADMIN"
+      assert command =~ "--security-opt seccomp=unconfined"
+      assert command =~ "--security-opt systempaths=unconfined"
+      assert command =~ "--add-host host.docker.internal=host-gateway"
       refute command =~ "DATABASE_URL"
-      assert command =~ "ANKOLE_AGENT_COMPUTER_WORKER_ID"
-      assert command =~ "ANKOLE_AGENT_COMPUTER_WORKER_PRE_AUTH_TOKEN"
-      assert command =~ "ANKOLE_AGENT_COMPUTER_WORKER_INSTANCE_ID"
-      assert command =~ "ANKOLE_WORKSPACE_ROOT=/workspace"
-      assert command =~ "ANKOLE_WORKSPACE_SESSIONS_ROOT=/workspace/.sessions"
-      assert command =~ "ANKOLE_SHARED_FS_ROOT"
+      assert command =~ "WORKER_ID='worker-a'"
+      assert command =~ "RUNTIME_FABRIC_URL='tcp://:"
+      assert command =~ "@127.0.0.1:6010'"
+      refute command =~ "ANKOLE_RUNTIME_FABRIC_ENDPOINT"
+      refute command =~ "ANKOLE_AGENT_COMPUTER_WORKER_ID"
+      refute command =~ "ANKOLE_AGENT_COMPUTER_WORKER_PRE_AUTH_TOKEN"
+      refute command =~ "ANKOLE_AGENT_COMPUTER_WORKER_INSTANCE_ID"
+      refute command =~ "ANKOLE_WORKSPACE_ROOT"
+      refute command =~ "ANKOLE_WORKSPACE_SESSIONS_ROOT"
+      refute command =~ "ANKOLE_SHARED_FS_ROOT"
       assert command =~ "/workspace/shared"
-      assert command =~ "ANKOLE_USER_FILES_ROOT"
-      assert command =~ "/workspace/shared/user-files"
-      assert command =~ "ANKOLE_AGENT_INSTALLED_SKILLS_ROOT"
-      assert command =~ "/workspace/shared/skills/agents"
-      assert command =~ "ANKOLE_BUILTIN_SKILLS_ROOT"
-      assert command =~ "/repo/app/library/skills"
+      refute command =~ "ANKOLE_USER_FILES_ROOT"
+      assert command =~ "$PWD/.ankole-worker/shared/user-files"
+      refute command =~ "ANKOLE_AGENT_INSTALLED_SKILLS_ROOT"
+      assert command =~ "$PWD/.ankole-worker/shared/skills/agents"
+      refute command =~ "ANKOLE_BUILTIN_SKILLS_ROOT"
+      refute command =~ "/repo/app/library/skills"
       assert command =~ ":/workspace/shared"
       assert command =~ ":/workspace/.sessions"
       refute command =~ "ANKOLE_TIGERFS_MOUNT_ROOT"
       refute command =~ "--device /dev/fuse"
-      refute command =~ "--cap-add SYS_ADMIN"
       refute command =~ ":/workspace/library-containers"
       refute command =~ "ANKOLE_AGENT_UID"
       refute command =~ "--agent-uid"
     end
 
-    test "worker bootstrap creates a worker pre-auth key without exposing Postgres" do
+    test "worker bootstrap embeds the global worker auth key without exposing Postgres" do
       assert {:ok, command} =
                WorkerBootstrap.docker_run_command(
                  endpoint: "tcp://127.0.0.1:6010",
-                 worker_id: "worker-token",
-                 worker_instance_id: "worker-token-1"
+                 worker_id: "worker-token"
                )
 
-      assert command =~ "ANKOLE_AGENT_COMPUTER_WORKER_PRE_AUTH_TOKEN"
+      assert command =~ "RUNTIME_FABRIC_URL"
       refute command =~ "DATABASE_URL"
+      refute command =~ "ANKOLE_AGENT_COMPUTER_WORKER_PRE_AUTH_TOKEN"
 
-      assert auth_key =
-               Repo.get(Ankole.ActorRuntime.Schemas.AgentComputerWorkerAuthKey, "worker-token")
-
-      assert command =~ auth_key.pre_auth_key
+      assert {:ok, worker_auth_key} = WorkerAuthKey.ensure()
+      assert command =~ worker_auth_key
     end
   end
 
@@ -2723,7 +3120,6 @@ defmodule Ankole.ActorRuntimeTest do
       Map.merge(
         %{
           worker_id: "worker-" <> route,
-          worker_instance_id: "instance-" <> route,
           runtime: "bun",
           version: "test",
           capacity: %{"available_turn_slots" => 4}
@@ -2773,6 +3169,34 @@ defmodule Ankole.ActorRuntimeTest do
       })
 
     binding
+  end
+
+  defp emit_entry(agent_uid, binding_name, input, opts) do
+    with {:ok, result} <- SignalsGateway.emit_entry(agent_uid, binding_name, input, opts) do
+      {:ok, maybe_finalize_test_inbound_batch(result)}
+    end
+  end
+
+  defp maybe_finalize_test_inbound_batch(%{inbound_batch: %InboundBatch{} = batch} = result) do
+    with {:ok, finalized_results} <-
+           SignalsGateway.finalize_due_inbound_batches(now: batch.available_at),
+         %ActorInput{} = actor_input <- finalized_actor_input(finalized_results, batch.id) do
+      Map.put(result, :actor_input, actor_input)
+    else
+      _no_actor_input -> result
+    end
+  end
+
+  defp maybe_finalize_test_inbound_batch(result), do: result
+
+  defp finalized_actor_input(finalized_results, batch_id) do
+    Enum.find_value(finalized_results, fn
+      %{inbound_batch: %InboundBatch{id: ^batch_id}, actor_input: %ActorInput{} = input} ->
+        input
+
+      _result ->
+        nil
+    end)
   end
 
   defp group_entry(overrides) do
@@ -2851,7 +3275,6 @@ defmodule Ankole.ActorRuntimeTest do
         "type" => "worker_ready",
         "worker_ready" => %{
           "worker_id" => "worker-a",
-          "worker_instance_id" => "worker-a-1",
           "runtime" => "bun",
           "version" => "test"
         }

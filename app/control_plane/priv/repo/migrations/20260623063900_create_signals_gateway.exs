@@ -2,6 +2,8 @@ defmodule Ankole.Repo.Migrations.CreateSignalsGateway do
   use Ecto.Migration
 
   def change do
+    execute("CREATE EXTENSION IF NOT EXISTS pgcrypto", "")
+
     execute(
       """
       CREATE TYPE signal_channel_kind AS ENUM (
@@ -180,7 +182,7 @@ defmodule Ankole.Repo.Migrations.CreateSignalsGateway do
 
     create index(:signal_gateway_input_tombstones, [:tombstoned_until])
 
-    create table(:actor_mailbox, primary_key: false) do
+    create table(:actor_inputs, primary_key: false) do
       add :id, :uuid, primary_key: true
 
       add :agent_uid,
@@ -195,60 +197,87 @@ defmodule Ankole.Repo.Migrations.CreateSignalsGateway do
       add :provider_entry_id, :text
       add :type, :text, null: false
       add :available_at, :utc_datetime_usec, null: false
-      add :batch_scope, :map
+      add :broker_sequence, :bigint, null: false
+      add :input_state, :text, null: false, default: "open"
       add :sender_key, :text
       add :payload, :map, null: false
+      add :dead_letter_at, :utc_datetime_usec
 
       timestamps(type: :utc_datetime_usec)
     end
 
     create unique_index(
-             :actor_mailbox,
+             :actor_inputs,
              [:agent_uid, :binding_name, :ingress_event_id],
-             name: :actor_mailbox_signal_idempotency_index
+             name: :actor_inputs_signal_idempotency_index
            )
 
-    create index(:actor_mailbox, [:agent_uid, :session_id, :available_at],
-             name: :actor_mailbox_ready_index
+    create unique_index(:actor_inputs, [:agent_uid, :session_id, :broker_sequence],
+             name: :actor_inputs_actor_sequence_index
            )
 
     create index(
-             :actor_mailbox,
+             :actor_inputs,
+             [:agent_uid, :session_id, :input_state, :available_at, :broker_sequence],
+             name: :actor_inputs_ready_index
+           )
+
+    create index(
+             :actor_inputs,
              [:agent_uid, :binding_name, :signal_channel_id, :provider_entry_id],
-             name: :actor_mailbox_signal_entry_index
+             name: :actor_inputs_signal_entry_index
            )
 
-    create index(
-             :actor_mailbox,
-             [:agent_uid, :binding_name, :signal_channel_id, :provider_thread_id],
-             name: :actor_mailbox_batch_scope_index
-           )
-
-    create constraint(:actor_mailbox, :actor_mailbox_payload_object,
+    create constraint(:actor_inputs, :actor_inputs_payload_object,
              check: "jsonb_typeof(payload) = 'object'"
            )
 
-    create table(:actor_consumed_inputs, primary_key: false) do
+    create constraint(:actor_inputs, :actor_inputs_input_state_check,
+             check: "input_state IN ('open', 'dead_letter')"
+           )
+
+    create table(:actor_input_consumptions, primary_key: false) do
+      add :id, :uuid, primary_key: true, default: fragment("gen_random_uuid()")
+
       add :agent_uid,
           references(:principals, column: :uid, type: :text, on_delete: :delete_all),
-          primary_key: true
+          null: false
 
-      add :binding_name, :text, primary_key: true
-      add :ingress_event_id, :text, primary_key: true
+      add :actor_input_id, :uuid
+      add :binding_name, :text, null: false
+      add :ingress_event_id, :text, null: false
       add :session_id, :text, null: false
       add :signal_channel_id, :text
       add :provider_thread_id, :text
       add :provider_entry_id, :text
       add :type, :text, null: false
+      add :conversation_id, :uuid
+      add :user_message_id, :uuid
+      add :llm_turn_id, :uuid
+      add :activation_uid, :text
+      add :actor_epoch, :bigint
+      add :revision, :integer
       add :consumed_at, :utc_datetime_usec, null: false
 
       timestamps(type: :utc_datetime_usec)
     end
 
+    create unique_index(:actor_input_consumptions, [:agent_uid, :binding_name, :ingress_event_id],
+             name: :actor_input_consumptions_signal_idempotency_index
+           )
+
+    create unique_index(:actor_input_consumptions, [:actor_input_id],
+             name: :actor_input_consumptions_actor_input_id_index
+           )
+
+    create index(:actor_input_consumptions, [:llm_turn_id],
+             name: :actor_input_consumptions_llm_turn_id_index
+           )
+
     create index(
-             :actor_consumed_inputs,
+             :actor_input_consumptions,
              [:agent_uid, :binding_name, :signal_channel_id, :provider_entry_id],
-             name: :actor_consumed_inputs_signal_entry_index
+             name: :actor_input_consumptions_signal_entry_index
            )
 
     create table(:signal_gateway_outbox, primary_key: false) do
@@ -265,6 +294,9 @@ defmodule Ankole.Repo.Migrations.CreateSignalsGateway do
       add :source_provider_entry_id, :text
       add :target_provider_entry_id, :text
       add :provider_entry_id, :text
+      add :source_actor_input_id, :uuid
+      add :llm_turn_id, :uuid
+      add :assistant_message_id, :uuid
       add :payload, :map, null: false, default: %{}
       add :fallback_visible_text, :text
       add :idempotency_key, :text
@@ -282,6 +314,14 @@ defmodule Ankole.Repo.Migrations.CreateSignalsGateway do
     create index(:signal_gateway_outbox, [:status, :next_attempt_at])
     create index(:signal_gateway_outbox, [:signal_channel_id, :provider_entry_id])
 
+    create index(:signal_gateway_outbox, [:llm_turn_id],
+             name: :signal_gateway_outbox_llm_turn_id_index
+           )
+
+    create index(:signal_gateway_outbox, [:source_actor_input_id],
+             name: :signal_gateway_outbox_actor_input_id_index
+           )
+
     create constraint(:signal_gateway_outbox, :signal_gateway_outbox_payload_object,
              check: "jsonb_typeof(payload) = 'object'"
            )
@@ -297,5 +337,174 @@ defmodule Ankole.Repo.Migrations.CreateSignalsGateway do
     create constraint(:signal_gateway_outbox, :signal_gateway_outbox_attempts_non_negative,
              check: "attempt_count >= 0 AND max_attempts > 0"
            )
+
+    comment_table(
+      :signal_bindings,
+      "Per-agent SignalsGateway bindings to external input and output adapters."
+    )
+
+    comment_columns(:signal_bindings, %{
+      agent_uid: "Agent principal that owns the binding.",
+      name: "Agent-local binding name used in actor input and outbox keys.",
+      adapter: "SignalsGateway adapter that knows how to read and write the provider.",
+      config_ref: "Configuration reference used by the adapter at runtime.",
+      filters: "Adapter-neutral binding filters applied before actor delivery.",
+      unaddressed_group_message_policy:
+        "Policy for group messages that do not directly address the agent.",
+      enabled: "Whether this binding may accept or dispatch provider traffic.",
+      unavailable_reason: "Operator-visible reason why an enabled binding cannot currently run."
+    })
+
+    comment_table(:signal_channels, "Provider channels observed by SignalsGateway.")
+
+    comment_columns(:signal_channels, %{
+      id: "Stable Ankole channel id derived from provider channel identity.",
+      kind: "Channel category used for policy and rendering.",
+      reply_mode: "Whether replies target the whole channel or a specific entry.",
+      name: "Provider or operator supplied short channel name.",
+      title: "Provider or operator supplied channel title.",
+      visibility: "Provider visibility hint such as private, public, or shared.",
+      metadata: "Normalized provider channel facts outside the stable contract.",
+      raw_payload: "Last provider payload kept for recovery and adapter diagnostics.",
+      first_seen_at: "Time this channel was first observed by the gateway.",
+      last_seen_at: "Time this channel was most recently observed by the gateway."
+    })
+
+    comment_table(
+      :signal_entries,
+      "Provider entries mirrored for gateway policy, recall, and reply targeting."
+    )
+
+    comment_columns(:signal_entries, %{
+      signal_channel_id: "Channel that contains this provider entry.",
+      provider_entry_id: "Provider supplied entry or message identifier within the channel.",
+      text: "Plain text extracted from the provider entry when available.",
+      formatted_content: "Structured rich content normalized from the provider entry.",
+      attachments: "Provider attachments normalized for storage and worker handoff.",
+      links: "Links extracted or normalized from the entry.",
+      author: "Provider author facts for the entry.",
+      mentions: "Mention facts normalized from the entry.",
+      metadata: "Gateway-owned metadata outside the durable content contract.",
+      raw_payload: "Provider payload kept for adapter diagnostics and recovery.",
+      provider_time: "Timestamp assigned by the provider for the entry.",
+      fallback_visible_text: "Best effort text shown when structured content cannot be rendered.",
+      reactions: "Normalized reaction counts and actors.",
+      raw_reaction_keys: "Provider reaction keys retained before normalization.",
+      document_id: "Search and recall document id for this entry.",
+      search_text: "Text projection used for search and recall.",
+      metadata_text: "Metadata projection used for search and recall.",
+      content_hash: "Hash of the durable content projection.",
+      first_seen_at: "Time this entry was first observed by the gateway.",
+      last_seen_at: "Time this entry was most recently observed by the gateway."
+    })
+
+    comment_table(
+      :signal_gateway_input_tombstones,
+      "Temporary receive-side tombstones that suppress already-handled or deleted provider entries."
+    )
+
+    comment_columns(:signal_gateway_input_tombstones, %{
+      agent_uid: "Agent principal protected by the tombstone.",
+      binding_name: "Binding where the provider entry was observed.",
+      signal_channel_id: "Channel containing the tombstoned provider entry.",
+      provider_entry_id: "Provider entry suppressed until the tombstone expires.",
+      tombstoned_until: "Time after which this tombstone can be removed."
+    })
+
+    comment_table(:actor_inputs, "Durable actor-facing inputs waiting for one agent session.")
+
+    comment_columns(:actor_inputs, %{
+      agent_uid: "Agent principal that should consume the input.",
+      binding_name: "Ingress binding or internal source that produced the input.",
+      session_id: "Actor session queue that owns ordering for this input.",
+      ingress_event_id: "Idempotency key for the source event.",
+      signal_channel_id: "Provider channel tied to this input when it came from SignalsGateway.",
+      provider_thread_id: "Provider thread key used for batching and reply context.",
+      provider_entry_id: "Provider entry that produced this input when applicable.",
+      type: "Actor input type such as command, signal entry, or session lifecycle.",
+      available_at: "Earliest time this input may be delivered to the actor runtime.",
+      broker_sequence: "Monotonic per-agent-session sequence used for queue ordering.",
+      input_state: "Queue state for open or dead-lettered inputs.",
+      sender_key: "Provider sender key used by same-sender batching policy.",
+      payload: "CloudEvents-style actor input envelope consumed by the worker.",
+      dead_letter_at: "Time this input was marked undeliverable."
+    })
+
+    comment_table(
+      :actor_input_consumptions,
+      "Recovery-window facts showing actor inputs that reached durable actor state."
+    )
+
+    comment_columns(:actor_input_consumptions, %{
+      agent_uid: "Agent principal that consumed the input.",
+      actor_input_id: "Actor input row that was consumed before deletion.",
+      binding_name: "Source binding copied from the consumed input.",
+      ingress_event_id: "Source idempotency key copied from the consumed input.",
+      session_id: "Actor session that consumed the input.",
+      signal_channel_id: "Provider channel copied from the consumed input when applicable.",
+      provider_thread_id: "Provider thread copied from the consumed input when applicable.",
+      provider_entry_id: "Provider entry copied from the consumed input when applicable.",
+      type: "Actor input type that was consumed.",
+      conversation_id: "AI-agent conversation committed while consuming the input.",
+      user_message_id: "User or ambient message committed for this input.",
+      llm_turn_id: "LLM turn that consumed the input.",
+      activation_uid: "Runtime activation that committed the consumption.",
+      actor_epoch: "Actor epoch fence observed at commit time.",
+      revision: "Runtime revision fence observed at commit time.",
+      consumed_at: "Time the actor input reached durable actor state."
+    })
+
+    comment_table(
+      :signal_gateway_outbox,
+      "Durable provider-visible side-effect intents committed by actor turns."
+    )
+
+    comment_columns(:signal_gateway_outbox, %{
+      agent_uid: "Agent principal that owns the outbound side effect.",
+      binding_name: "Output binding that should dispatch the side effect.",
+      outbound_key: "Agent-provided idempotency key for the side effect.",
+      operation: "Provider-visible operation requested by the actor.",
+      status: "Dispatch state for retry and recovery.",
+      signal_channel_id: "Provider channel targeted by the side effect.",
+      provider_thread_id: "Provider thread targeted by the side effect.",
+      source_provider_entry_id: "Provider entry that the side effect replies from.",
+      target_provider_entry_id:
+        "Provider entry targeted by edit, delete, or reaction operations.",
+      provider_entry_id: "Provider id assigned to a successfully created outbound entry.",
+      source_actor_input_id: "Actor input that caused this side effect.",
+      llm_turn_id: "LLM turn that committed this side effect.",
+      assistant_message_id: "Assistant message represented by this side effect.",
+      payload: "Operation-specific payload to send through the adapter.",
+      fallback_visible_text: "Plain text rendering used when rich content needs a fallback.",
+      idempotency_key: "Provider-facing idempotency token when the adapter supports one.",
+      attempt_count: "Number of dispatch attempts already made.",
+      max_attempts: "Retry ceiling before the row stops scheduling attempts.",
+      last_attempted_at: "Time of the most recent dispatch attempt.",
+      last_error: "Last adapter or provider error captured for operators.",
+      platform_send_started_at: "Time the provider send call started for in-flight recovery.",
+      next_attempt_at: "Next time the dispatcher may retry a failed send.",
+      recovery_state: "Adapter breadcrumbs used to reconcile unknown send outcomes."
+    })
   end
+
+  defp comment_table(table, comment) do
+    execute(
+      "COMMENT ON TABLE #{identifier(table)} IS #{literal(comment)}",
+      "COMMENT ON TABLE #{identifier(table)} IS NULL"
+    )
+  end
+
+  defp comment_columns(table, comments) do
+    Enum.each(comments, fn {column, comment} -> comment_column(table, column, comment) end)
+  end
+
+  defp comment_column(table, column, comment) do
+    execute(
+      "COMMENT ON COLUMN #{identifier(table)}.#{identifier(column)} IS #{literal(comment)}",
+      "COMMENT ON COLUMN #{identifier(table)}.#{identifier(column)} IS NULL"
+    )
+  end
+
+  defp identifier(value), do: "\"" <> String.replace(to_string(value), "\"", "\"\"") <> "\""
+  defp literal(value), do: "'" <> String.replace(value, "'", "''") <> "'"
 end

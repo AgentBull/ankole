@@ -83,6 +83,32 @@ defmodule Ankole.ActorRuntime.TurnEnvelope do
     }
   end
 
+  @doc """
+  Builds a control envelope for an already-running turn.
+  """
+  def turn_control(turn_ref, command, payload \\ %{})
+      when is_binary(command) and is_map(payload) do
+    message_id = "turn-control-" <> Ecto.UUID.generate()
+
+    %{
+      "protocol_version" => 1,
+      "message_id" => message_id,
+      "correlation_id" => message_id,
+      "seq" => 0,
+      "lane" => "LANE_CONTROL",
+      "sent_at_unix_ms" => System.system_time(:millisecond),
+      "durability" => "CONTROL_DURABLE",
+      "body" => %{
+        "type" => "turn_control",
+        "turn_control" => %{
+          "turn" => turn_ref,
+          "command" => command,
+          "payload_json" => payload
+        }
+      }
+    }
+  end
+
   # ActorKey is a fence, not an agent profile. Display identity is resolved by
   # workers through RPCLane when a prompt actually needs it.
   defp actor_ref(actor_key) do

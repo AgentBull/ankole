@@ -18,7 +18,6 @@ defmodule Mix.Tasks.Ankole.ActorRuntime.WorkerBootstrap do
         strict: [
           endpoint: :string,
           worker_id: :string,
-          worker_instance_id: :string,
           image: :string,
           workspace_root: :string
         ]

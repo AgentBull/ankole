@@ -1,4 +1,5 @@
-import type { ActorLaneEnvelope, ActorTurnRef, JsonObject } from './actor_lane'
+import type { ActorTurnRef } from './actor_lane'
+import type { JsonObject, RuntimeFabricEnvelope } from './runtime_fabric'
 
 export type FinalProposalMessage = {
   role: string
@@ -37,7 +38,7 @@ export function turnAcceptedEnvelope(
   turn: ActorTurnRef,
   acceptedIds: string[],
   correlationId?: string
-): ActorLaneEnvelope {
+): RuntimeFabricEnvelope {
   return baseEnvelope(
     'turn-accepted',
     'LANE_TURN',
@@ -64,7 +65,7 @@ export function finalProposalEnvelope(
   turn: ActorTurnRef,
   proposal: string | FinalProposalBody,
   correlationId?: string
-): ActorLaneEnvelope {
+): RuntimeFabricEnvelope {
   const body = typeof proposal === 'string' ? visibleReplyProposal(proposal) : proposal
 
   return baseEnvelope(
@@ -93,7 +94,7 @@ export function turnErrorEnvelope(
   message: string,
   correlationId?: string,
   details: JsonObject = { runtime: 'bun' }
-): ActorLaneEnvelope {
+): RuntimeFabricEnvelope {
   return baseEnvelope(
     'turn-error',
     'LANE_TURN',
@@ -117,7 +118,7 @@ export function workerProgressEnvelope(
   summary = 'turn in progress',
   correlationId?: string,
   refs: JsonObject = {}
-): ActorLaneEnvelope {
+): RuntimeFabricEnvelope {
   return baseEnvelope(
     'worker-progress',
     'LANE_PROGRESS',
@@ -157,9 +158,9 @@ function baseEnvelope(
   messagePrefix: string,
   lane: string,
   durability: string,
-  body: ActorLaneEnvelope['body'],
+  body: RuntimeFabricEnvelope['body'],
   correlationId?: string
-): ActorLaneEnvelope {
+): RuntimeFabricEnvelope {
   const messageId = `${messagePrefix}-${crypto.randomUUID()}`
 
   return {

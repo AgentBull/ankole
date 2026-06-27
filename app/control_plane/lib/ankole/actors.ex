@@ -27,7 +27,6 @@ defmodule Ankole.Actors do
   alias Ecto.Adapters.SQL
   alias Ankole.Actors.ActorInput
   alias Ankole.Actors.ActorInputConsumption
-  alias Ankole.ActorRuntime.Schemas.ActorInputDelivery
   alias Ankole.Repo
   alias Ankole.SignalsGateway.InputTombstone
   alias Ankole.SignalsGateway.OutboxEntry
@@ -191,37 +190,6 @@ defmodule Ankole.Actors do
   end
 
   @doc """
-  Removes pending actor input rows for a provider entry.
-
-  This is used when a provider entry is deleted or tombstoned before the actor
-  consumes it. Runtime delivery projections are removed with the input so the
-  scheduler does not keep waiting on work that no longer exists.
-  """
-  @spec cancel_pending_inputs(String.t(), String.t(), String.t(), String.t()) :: non_neg_integer()
-  def cancel_pending_inputs(agent_uid, binding_name, signal_channel_id, provider_entry_id) do
-    input_ids =
-      ActorInput
-      |> where([input], input.agent_uid == ^agent_uid)
-      |> where([input], input.binding_name == ^binding_name)
-      |> where([input], input.signal_channel_id == ^signal_channel_id)
-      |> where([input], input.provider_entry_id == ^provider_entry_id)
-      |> select([input], input.id)
-      |> Repo.all()
-
-    {count, _rows} =
-      ActorInput
-      |> where([input], input.agent_uid == ^agent_uid)
-      |> where([input], input.binding_name == ^binding_name)
-      |> where([input], input.signal_channel_id == ^signal_channel_id)
-      |> where([input], input.provider_entry_id == ^provider_entry_id)
-      |> Repo.delete_all()
-
-    delete_delivery_projections(input_ids)
-
-    count
-  end
-
-  @doc """
   Returns consumed actor inputs for a provider entry.
   """
   @spec consumed_inputs_for_entry(String.t(), String.t(), String.t(), String.t()) :: [
@@ -283,24 +251,6 @@ defmodule Ankole.Actors do
     |> limit(^limit)
     |> select([input], %{agent_uid: input.agent_uid, session_id: input.session_id})
     |> Repo.all()
-  end
-
-  @doc """
-  Takes the contiguous same-sender prefix from already ordered ready rows.
-
-  This keeps a single turn aligned with one sender run. It preserves ordering
-  without forcing unrelated senders into the same local AI loop invocation.
-  """
-  @spec contiguous_same_sender_prefix([ActorInput.t()]) :: [ActorInput.t()]
-  def contiguous_same_sender_prefix([]), do: []
-
-  def contiguous_same_sender_prefix([%ActorInput{sender_key: nil} = input | _rest]), do: [input]
-
-  def contiguous_same_sender_prefix([%ActorInput{sender_key: sender_key} | _rest] = inputs) do
-    Enum.take_while(inputs, fn
-      %ActorInput{sender_key: ^sender_key} -> true
-      _input -> false
-    end)
   end
 
   # Accepts an explicit broker sequence for fixtures and replay tools. Normal
@@ -371,29 +321,45 @@ defmodule Ankole.Actors do
        ),
        do: :ok
 
-  defp reject_tombstoned_input(
-         _repo,
-         %ActorInput{provider_entry_id: nil},
-         _now
-       ),
-       do: :ok
-
   # Rejects consumption if the source provider entry was tombstoned after the
   # actor input was queued. This keeps local generation from replying to content
   # that has already been withdrawn.
   defp reject_tombstoned_input(repo, %ActorInput{} = input, now) do
-    InputTombstone
-    |> where([tombstone], tombstone.agent_uid == ^input.agent_uid)
-    |> where([tombstone], tombstone.binding_name == ^input.binding_name)
-    |> where([tombstone], tombstone.signal_channel_id == ^input.signal_channel_id)
-    |> where([tombstone], tombstone.provider_entry_id == ^input.provider_entry_id)
-    |> where([tombstone], tombstone.tombstoned_until > ^now)
-    |> repo.exists?()
-    |> case do
-      true -> {:error, :actor_input_canceled}
-      false -> :ok
+    provider_entry_ids = source_provider_entry_ids(input)
+
+    case provider_entry_ids do
+      [] ->
+        :ok
+
+      [_entry_id | _rest] ->
+        InputTombstone
+        |> where([tombstone], tombstone.agent_uid == ^input.agent_uid)
+        |> where([tombstone], tombstone.binding_name == ^input.binding_name)
+        |> where([tombstone], tombstone.signal_channel_id == ^input.signal_channel_id)
+        |> where([tombstone], tombstone.provider_entry_id in ^provider_entry_ids)
+        |> where([tombstone], tombstone.tombstoned_until > ^now)
+        |> repo.exists?()
+        |> case do
+          true -> {:error, :actor_input_canceled}
+          false -> :ok
+        end
     end
   end
+
+  defp source_provider_entry_ids(%ActorInput{} = input) do
+    [input.provider_entry_id | source_provider_entry_ids(input.payload)]
+    |> Enum.filter(&is_binary/1)
+    |> Enum.uniq()
+  end
+
+  defp source_provider_entry_ids(%{"data" => %{"entries" => entries}}) when is_list(entries) do
+    Enum.map(entries, fn
+      %{"provider_entry_id" => provider_entry_id} -> provider_entry_id
+      _entry -> nil
+    end)
+  end
+
+  defp source_provider_entry_ids(_payload), do: []
 
   # Copies the actor runtime fence into the consumption row. After the input row
   # is deleted, this row is the durable link from input to committed turn.
@@ -501,18 +467,6 @@ defmodule Ankole.Actors do
 
   defp outbox_insert_result({:ok, %OutboxEntry{} = entry}, _repo, _attrs), do: {:ok, entry}
   defp outbox_insert_result({:error, _changeset} = error, _repo, _attrs), do: error
-
-  # Deletes pending runtime projections when their source input is canceled.
-  # These rows are not the durable AI-agent transcript; they only fence delivery.
-  defp delete_delivery_projections([]), do: :ok
-
-  defp delete_delivery_projections(actor_input_ids) do
-    ActorInputDelivery
-    |> where([delivery], delivery.actor_input_id in ^actor_input_ids)
-    |> Repo.delete_all()
-
-    :ok
-  end
 
   defp collect_results(results) do
     Enum.reduce_while(results, {:ok, []}, fn

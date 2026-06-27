@@ -43,7 +43,6 @@ defmodule Ankole.ActorRuntime.Schemas.ActorSessionActivation do
     field :lease_expires_at, :utc_datetime_usec
     field :last_actor_heartbeat_at, :utc_datetime_usec
     field :assigned_worker_id, :string
-    field :assigned_worker_instance_id, :string
     field :current_llm_turn_id, Ecto.UUID
     # Bumped on every in-place steer/nudge of the live turn. A worker reply must
     # echo the current revision, so a reply built before a steer is rejected.
@@ -70,7 +69,6 @@ defmodule Ankole.ActorRuntime.Schemas.ActorSessionActivation do
       :lease_expires_at,
       :last_actor_heartbeat_at,
       :assigned_worker_id,
-      :assigned_worker_instance_id,
       :current_llm_turn_id,
       :revision,
       :started_at,
@@ -86,7 +84,6 @@ defmodule Ankole.ActorRuntime.Schemas.ActorSessionActivation do
       :controller_node,
       :lease_id,
       :assigned_worker_id,
-      :assigned_worker_instance_id,
       :stop_reason
     ])
     |> normalize_uid(:agent_uid)

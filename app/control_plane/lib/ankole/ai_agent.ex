@@ -184,6 +184,24 @@ defmodule Ankole.AIAgent do
   end
 
   @doc false
+  # Provider recall/delete can arrive after a turn has materialized its user
+  # input but before the worker commits a response. Mark those input messages out
+  # of active context so the retry sees only the replacement ActorInput.
+  def retract_turn_input_messages_in_tx(repo, %LlmTurn{input_message_ids: ids}, reason, now)
+      when is_list(ids) do
+    ids = Enum.filter(ids, &is_binary/1)
+
+    Message
+    |> where([message], message.id in ^ids)
+    |> lock("FOR UPDATE")
+    |> repo.all()
+    |> Enum.map(&retract_message(repo, &1, reason, now))
+    |> collect_results()
+  end
+
+  def retract_turn_input_messages_in_tx(_repo, _turn, _reason, _now), do: {:ok, []}
+
+  @doc false
   # Clears only the matching active generation lease. If a newer lease has been
   # installed, this older turn must not erase it.
   def clear_generation_in_tx(repo, %Conversation{} = conversation, lease_id) do
@@ -656,6 +674,30 @@ defmodule Ankole.AIAgent do
   defp cancel_code(reason) when is_binary(reason), do: reason
   defp cancel_code({reason, _details}) when is_atom(reason), do: Atom.to_string(reason)
   defp cancel_code(_reason), do: "turn_cancelled"
+
+  defp retract_message(repo, %Message{} = message, reason, now) do
+    metadata =
+      message.metadata
+      |> Kernel.||(%{})
+      |> Map.put("transcript_effect", "retracted")
+      |> Map.put("retracted_at", DateTime.to_iso8601(now))
+      |> Map.put("retract_reason", inspect(reason))
+
+    message
+    |> Message.changeset(%{status: "retracted", metadata: metadata})
+    |> repo.update()
+  end
+
+  defp collect_results(results) do
+    Enum.reduce_while(results, {:ok, []}, fn
+      {:ok, value}, {:ok, acc} -> {:cont, {:ok, [value | acc]}}
+      {:error, _reason} = error, _acc -> {:halt, error}
+    end)
+    |> case do
+      {:ok, values} -> {:ok, Enum.reverse(values)}
+      {:error, _reason} = error -> error
+    end
+  end
 
   defp blank?(nil), do: true
   defp blank?(""), do: true

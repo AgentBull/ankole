@@ -100,7 +100,9 @@ describe('@ankole/agent-computer LLM turn loop', () => {
     const userMessages = JSON.stringify(body.messages.filter((message: any) => message.role === 'user'))
     expect(userMessages.match(/<previous_chat_history>/g)).toHaveLength(1)
     expect(userMessages.match(/<agent_environment_info>/g)).toHaveLength(1)
-    expect(userMessages.indexOf('<previous_chat_history>')).toBeLessThan(userMessages.indexOf('<agent_environment_info>'))
+    expect(userMessages.indexOf('<previous_chat_history>')).toBeLessThan(
+      userMessages.indexOf('<agent_environment_info>')
+    )
     const providerUserMessage = body.messages.find(
       (message: any) => message.role === 'user' && JSON.stringify(message).includes('Use one tool, then reply with OK.')
     )

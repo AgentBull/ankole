@@ -4,109 +4,6 @@ defmodule Ankole.Repo.Migrations.CreateActorRuntimePingPong do
   def up do
     execute("CREATE EXTENSION IF NOT EXISTS pgcrypto", "")
 
-    rename table(:actor_mailbox), to: table(:actor_inputs)
-    rename table(:actor_consumed_inputs), to: table(:actor_input_consumptions)
-
-    execute(
-      "ALTER INDEX actor_mailbox_signal_idempotency_index RENAME TO actor_inputs_signal_idempotency_index",
-      "ALTER INDEX actor_inputs_signal_idempotency_index RENAME TO actor_mailbox_signal_idempotency_index"
-    )
-
-    execute(
-      "ALTER INDEX actor_mailbox_ready_index RENAME TO actor_inputs_ready_index_legacy",
-      "ALTER INDEX actor_inputs_ready_index_legacy RENAME TO actor_mailbox_ready_index"
-    )
-
-    execute(
-      "ALTER INDEX actor_mailbox_signal_entry_index RENAME TO actor_inputs_signal_entry_index",
-      "ALTER INDEX actor_inputs_signal_entry_index RENAME TO actor_mailbox_signal_entry_index"
-    )
-
-    execute(
-      "ALTER INDEX actor_mailbox_batch_scope_index RENAME TO actor_inputs_batch_scope_index",
-      "ALTER INDEX actor_inputs_batch_scope_index RENAME TO actor_mailbox_batch_scope_index"
-    )
-
-    execute(
-      "ALTER TABLE actor_inputs RENAME CONSTRAINT actor_mailbox_payload_object TO actor_inputs_payload_object",
-      "ALTER TABLE actor_inputs RENAME CONSTRAINT actor_inputs_payload_object TO actor_mailbox_payload_object"
-    )
-
-    alter table(:actor_inputs) do
-      add :broker_sequence, :bigint
-      add :input_state, :text, null: false, default: "open"
-      add :dead_letter_at, :utc_datetime_usec
-    end
-
-    execute("""
-    WITH numbered AS (
-      SELECT id,
-             row_number() OVER (
-               PARTITION BY agent_uid, session_id
-               ORDER BY inserted_at, id
-             ) AS seq
-      FROM actor_inputs
-    )
-    UPDATE actor_inputs
-    SET broker_sequence = numbered.seq
-    FROM numbered
-    WHERE actor_inputs.id = numbered.id
-    """)
-
-    alter table(:actor_inputs) do
-      modify :broker_sequence, :bigint, null: false
-    end
-
-    create unique_index(:actor_inputs, [:agent_uid, :session_id, :broker_sequence],
-             name: :actor_inputs_actor_sequence_index
-           )
-
-    create index(
-             :actor_inputs,
-             [:agent_uid, :session_id, :input_state, :available_at, :broker_sequence],
-             name: :actor_inputs_ready_index
-           )
-
-    create constraint(:actor_inputs, :actor_inputs_input_state_check,
-             check: "input_state IN ('open', 'dead_letter')"
-           )
-
-    execute("ALTER TABLE actor_input_consumptions DROP CONSTRAINT actor_consumed_inputs_pkey")
-
-    alter table(:actor_input_consumptions) do
-      add :id, :uuid, null: false, default: fragment("gen_random_uuid()")
-      add :actor_input_id, :uuid
-      add :conversation_id, :uuid
-      add :user_message_id, :uuid
-      add :llm_turn_id, :uuid
-      add :activation_uid, :text
-      add :actor_epoch, :bigint
-      add :revision, :integer
-    end
-
-    execute(
-      "ALTER TABLE actor_input_consumptions ADD PRIMARY KEY (id)",
-      "ALTER TABLE actor_input_consumptions DROP CONSTRAINT actor_input_consumptions_pkey"
-    )
-
-    create unique_index(:actor_input_consumptions, [:agent_uid, :binding_name, :ingress_event_id],
-             name: :actor_input_consumptions_signal_idempotency_index
-           )
-
-    create unique_index(:actor_input_consumptions, [:actor_input_id],
-             name: :actor_input_consumptions_actor_input_id_index
-           )
-
-    create index(:actor_input_consumptions, [:llm_turn_id],
-             name: :actor_input_consumptions_llm_turn_id_index
-           )
-
-    create index(
-             :actor_input_consumptions,
-             [:agent_uid, :binding_name, :signal_channel_id, :provider_entry_id],
-             name: :actor_input_consumptions_signal_entry_index
-           )
-
     create table(:ai_agent_conversations, primary_key: false) do
       add :id, :uuid, primary_key: true
 
@@ -174,7 +71,7 @@ defmodule Ankole.Repo.Migrations.CreateActorRuntimePingPong do
            )
 
     create constraint(:ai_agent_messages, :ai_agent_messages_status_check,
-             check: "status IN ('generating', 'complete')"
+             check: "status IN ('generating', 'complete', 'retracted')"
            )
 
     create constraint(:ai_agent_messages, :ai_agent_messages_content_array,
@@ -238,7 +135,7 @@ defmodule Ankole.Repo.Migrations.CreateActorRuntimePingPong do
            )
 
     create constraint(:ai_agent_llm_turns, :ai_agent_llm_turns_profile_check,
-             check: "profile IN ('primary', 'light', 'heavy')"
+             check: "profile IN ('primary', 'light', 'heavy', 'codex')"
            )
 
     create constraint(:ai_agent_llm_turns, :ai_agent_llm_turns_input_message_ids_array,
@@ -274,37 +171,10 @@ defmodule Ankole.Repo.Migrations.CreateActorRuntimePingPong do
            )
 
     create_unlogged_actor_runtime_tables()
-
-    alter table(:signal_gateway_outbox) do
-      add :source_actor_input_id, :uuid
-      add :llm_turn_id, :uuid
-      add :assistant_message_id, :uuid
-    end
-
-    create index(:signal_gateway_outbox, [:llm_turn_id],
-             name: :signal_gateway_outbox_llm_turn_id_index
-           )
-
-    create index(:signal_gateway_outbox, [:source_actor_input_id],
-             name: :signal_gateway_outbox_actor_input_id_index
-           )
+    comment_actor_runtime_tables()
   end
 
   def down do
-    drop index(:signal_gateway_outbox, [:source_actor_input_id],
-           name: :signal_gateway_outbox_actor_input_id_index
-         )
-
-    drop index(:signal_gateway_outbox, [:llm_turn_id],
-           name: :signal_gateway_outbox_llm_turn_id_index
-         )
-
-    alter table(:signal_gateway_outbox) do
-      remove :assistant_message_id
-      remove :llm_turn_id
-      remove :source_actor_input_id
-    end
-
     execute("DROP TABLE IF EXISTS actor_session_activations")
     execute("DROP TABLE IF EXISTS actor_session_worker_assignments")
     execute("DROP TABLE IF EXISTS agent_computer_workers")
@@ -313,58 +183,169 @@ defmodule Ankole.Repo.Migrations.CreateActorRuntimePingPong do
     drop table(:ai_agent_llm_turns)
     drop table(:ai_agent_messages)
     drop table(:ai_agent_conversations)
+  end
 
-    drop index(:actor_input_consumptions, [:llm_turn_id],
-           name: :actor_input_consumptions_llm_turn_id_index
-         )
+  defp comment_actor_runtime_tables do
+    comment_table(:ai_agent_conversations, "Durable AI-agent conversation threads per agent.")
 
-    drop index(:actor_input_consumptions, [:actor_input_id],
-           name: :actor_input_consumptions_actor_input_id_index
-         )
+    comment_columns(:ai_agent_conversations, %{
+      agent_uid: "Agent principal that owns the conversation.",
+      conversation_key: "Agent-local key used to identify the active conversation lane.",
+      ended_at: "Time the conversation was closed and excluded from active-key uniqueness.",
+      generation: "Current generation state used by the actor runtime.",
+      metadata: "Conversation metadata outside the stable message contract."
+    })
 
-    drop index(:actor_input_consumptions, [:agent_uid, :binding_name, :ingress_event_id],
-           name: :actor_input_consumptions_signal_idempotency_index
-         )
-
-    execute("ALTER TABLE actor_input_consumptions DROP CONSTRAINT actor_input_consumptions_pkey")
-
-    alter table(:actor_input_consumptions) do
-      remove :revision
-      remove :actor_epoch
-      remove :activation_uid
-      remove :llm_turn_id
-      remove :user_message_id
-      remove :conversation_id
-      remove :actor_input_id
-      remove :id
-    end
-
-    execute(
-      "ALTER TABLE actor_input_consumptions ADD PRIMARY KEY (agent_uid, binding_name, ingress_event_id)",
-      "ALTER TABLE actor_input_consumptions DROP CONSTRAINT actor_consumed_inputs_pkey"
+    comment_table(
+      :ai_agent_messages,
+      "Durable messages and summaries inside AI-agent conversations."
     )
 
-    drop constraint(:actor_inputs, :actor_inputs_input_state_check)
+    comment_columns(:ai_agent_messages, %{
+      agent_uid: "Agent principal that owns the message.",
+      conversation_id: "Conversation containing the message.",
+      role: "Conversation role such as user, assistant, tool, or ambient IM.",
+      kind: "Message kind such as normal, summary, introspection, or error.",
+      status: "Generation state, completion state, or provider-retracted input state.",
+      content: "Array-shaped message content consumed by worker and UI surfaces.",
+      covers_range: "Summary coverage range when this message compresses earlier messages.",
+      event_source: "External or internal event namespace that produced inbound messages.",
+      event_id: "Event id used with event_source for inbound idempotency.",
+      metadata: "Message metadata outside the stable content contract."
+    })
 
-    drop index(
-           :actor_inputs,
-           [:agent_uid, :session_id, :input_state, :available_at, :broker_sequence],
-           name: :actor_inputs_ready_index
-         )
+    comment_table(:ai_agent_llm_turns, "Durable records of LLM turns attempted by actor runtime.")
 
-    drop index(:actor_inputs, [:agent_uid, :session_id, :broker_sequence],
-           name: :actor_inputs_actor_sequence_index
-         )
+    comment_columns(:ai_agent_llm_turns, %{
+      agent_uid: "Agent principal that owns the LLM turn.",
+      conversation_id: "Conversation whose context was used for the turn.",
+      kind: "Runtime turn kind such as generation, compression, or scheduled task.",
+      status: "Terminal or in-flight state of the LLM turn.",
+      profile: "Agent model profile selected for the turn.",
+      provider: "Resolved LLM provider id used for the turn.",
+      model: "Resolved provider model id used for the turn.",
+      lease_id: "Runtime lease grouping streamed calls for one turn attempt.",
+      call_index: "Provider call sequence within the lease.",
+      branch_id: "Conversation branch written by the turn.",
+      parent_branch_id: "Parent branch used when retrying or forking generation.",
+      trigger_message_id: "Message that triggered the turn when there is one.",
+      trigger_event_id: "External or internal trigger event id.",
+      input_message_ids: "Ordered message ids supplied to the worker as context.",
+      request_context: "Runtime request envelope facts sent to the worker.",
+      request_refs: "Reference material requested by the worker for the turn.",
+      request_patches: "Patch proposals or request adjustments attached to the turn.",
+      response: "Provider or worker response captured for the turn.",
+      tool_results: "Tool result payloads produced during the turn.",
+      usage: "Token and cost usage reported by the provider or worker.",
+      provider_metadata: "Provider-specific metadata outside the stable turn contract.",
+      started_at: "Time the turn attempt started.",
+      completed_at: "Time the turn reached a terminal state."
+    })
 
-    alter table(:actor_inputs) do
-      remove :dead_letter_at
-      remove :input_state
-      remove :broker_sequence
-    end
+    comment_table(
+      :actor_input_deliveries,
+      "Volatile delivery attempts from actor inputs to workers."
+    )
 
-    rename table(:actor_input_consumptions), to: table(:actor_consumed_inputs)
-    rename table(:actor_inputs), to: table(:actor_mailbox)
+    comment_columns(:actor_input_deliveries, %{
+      actor_input_id: "Actor input row being delivered.",
+      agent_uid: "Agent principal that owns the input.",
+      session_id: "Actor session queue for the delivery.",
+      broker_sequence: "Per-session input sequence copied from actor_inputs.",
+      attempt_no: "Delivery attempt number for this actor input.",
+      delivery_batch_id: "Batch id shared by inputs sent together.",
+      actor_lane_message_id: "Transport message id sent over the actor lane.",
+      correlation_id: "Optional transport correlation id.",
+      activation_uid: "Runtime activation targeted by the delivery.",
+      actor_epoch: "Actor epoch fence used by the targeted activation.",
+      llm_turn_id: "LLM turn opened for this delivery.",
+      revision: "Runtime revision fence used by the targeted activation.",
+      worker_id: "Worker selected for the delivery.",
+      transport_route: "Actor transport route used for the delivery.",
+      state: "Delivery state from creation through send, acceptance, or supersession.",
+      send_outcome: "Transport outcome when the send did not cleanly succeed.",
+      sent_at: "Time the actor lane send was attempted.",
+      accepted_at: "Time the worker accepted the turn.",
+      failed_at: "Time the delivery failed before acceptance.",
+      superseded_at: "Time a newer delivery replaced this attempt.",
+      error: "Structured delivery error for diagnostics."
+    })
+
+    comment_table(
+      :agent_computer_workers,
+      "Volatile registry of connected Agent Computer workers."
+    )
+
+    comment_columns(:agent_computer_workers, %{
+      worker_id: "Worker process id authenticated by the control plane.",
+      status: "Worker availability state used by assignment policy.",
+      version: "Worker software version reported at admission.",
+      capacity: "Worker capacity advertisement.",
+      load: "Current worker load advertisement.",
+      transport_route: "Actor transport route proven for this worker connection.",
+      last_worker_heartbeat_at: "Most recent heartbeat time observed from the worker.",
+      started_at: "Worker-reported start time.",
+      stopped_at: "Time the worker was marked stopped.",
+      stop_reason: "Operator-visible reason for the stopped state.",
+      metadata: "Worker metadata outside the scheduler contract."
+    })
+
+    comment_table(
+      :actor_session_worker_assignments,
+      "Volatile mapping from actor sessions to assigned workers."
+    )
+
+    comment_columns(:actor_session_worker_assignments, %{
+      agent_uid: "Agent principal that owns the session.",
+      session_id: "Actor session assigned to the worker.",
+      worker_id: "Worker selected for the session.",
+      transport_route: "Actor transport route used for the session.",
+      status: "Assignment lifecycle state.",
+      workspace_mount: "Worker-visible workspace mount for the session.",
+      assigned_at: "Time the assignment was created.",
+      last_used_at: "Most recent time the assignment handled work.",
+      metadata: "Assignment metadata outside the scheduler contract."
+    })
+
+    comment_table(
+      :actor_session_activations,
+      "Volatile activation leases for live actor sessions."
+    )
+
+    comment_columns(:actor_session_activations, %{
+      activation_uid: "Stable activation identifier carried across worker messages.",
+      agent_uid: "Agent principal that owns the activation.",
+      session_id: "Actor session protected by the activation.",
+      actor_epoch: "Monotonic actor epoch fence for this session activation.",
+      status: "Activation lifecycle state.",
+      controller_node: "Control-plane node that owns the activation lease.",
+      lease_id: "Lease id proving current activation ownership.",
+      lease_expires_at: "Time the activation lease expires without renewal.",
+      last_actor_heartbeat_at: "Most recent actor heartbeat observed for the activation.",
+      assigned_worker_id: "Worker assigned to the activation.",
+      current_llm_turn_id: "LLM turn currently controlled by the activation.",
+      revision: "Revision fence advanced by activation state changes.",
+      started_at: "Time the activation started.",
+      stopped_at: "Time the activation stopped.",
+      stop_reason: "Operator-visible reason the activation stopped.",
+      metadata: "Activation metadata outside the runtime fencing contract."
+    })
   end
+
+  defp comment_table(table, comment) do
+    execute("COMMENT ON TABLE #{identifier(table)} IS #{literal(comment)}")
+  end
+
+  defp comment_columns(table, comments) do
+    Enum.each(comments, fn {column, comment} -> comment_column(table, column, comment) end)
+  end
+
+  defp comment_column(table, column, comment) do
+    execute("COMMENT ON COLUMN #{identifier(table)}.#{identifier(column)} IS #{literal(comment)}")
+  end
+
+  defp identifier(value), do: "\"" <> String.replace(to_string(value), "\"", "\"\"") <> "\""
+  defp literal(value), do: "'" <> String.replace(value, "'", "''") <> "'"
 
   defp create_unlogged_actor_runtime_tables do
     execute("""
@@ -383,7 +364,6 @@ defmodule Ankole.Repo.Migrations.CreateActorRuntimePingPong do
       llm_turn_id uuid NOT NULL,
       revision integer NOT NULL,
       worker_id text,
-      worker_instance_id text,
       transport_route text,
       state text NOT NULL DEFAULT 'created',
       send_outcome text,
@@ -428,14 +408,13 @@ defmodule Ankole.Repo.Migrations.CreateActorRuntimePingPong do
     )
 
     execute(
-      "CREATE INDEX actor_input_deliveries_worker_state_index ON actor_input_deliveries (worker_id, worker_instance_id, state)"
+      "CREATE INDEX actor_input_deliveries_worker_state_index ON actor_input_deliveries (worker_id, state)"
     )
 
     execute("""
     CREATE UNLOGGED TABLE agent_computer_workers (
       id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
       worker_id text NOT NULL,
-      worker_instance_id text NOT NULL,
       status text NOT NULL,
       version text,
       capacity jsonb NOT NULL DEFAULT '{}',
@@ -462,10 +441,6 @@ defmodule Ankole.Repo.Migrations.CreateActorRuntimePingPong do
     )
 
     execute(
-      "CREATE UNIQUE INDEX agent_computer_workers_instance_id_index ON agent_computer_workers (worker_instance_id)"
-    )
-
-    execute(
       "CREATE UNIQUE INDEX agent_computer_workers_transport_route_index ON agent_computer_workers (transport_route) WHERE transport_route IS NOT NULL"
     )
 
@@ -475,7 +450,6 @@ defmodule Ankole.Repo.Migrations.CreateActorRuntimePingPong do
       agent_uid text NOT NULL,
       session_id text NOT NULL,
       worker_id text NOT NULL,
-      worker_instance_id text,
       transport_route text,
       status text NOT NULL,
       workspace_mount text,
@@ -496,7 +470,7 @@ defmodule Ankole.Repo.Migrations.CreateActorRuntimePingPong do
     )
 
     execute(
-      "CREATE INDEX actor_session_worker_assignments_worker_index ON actor_session_worker_assignments (worker_id, worker_instance_id, status)"
+      "CREATE INDEX actor_session_worker_assignments_worker_index ON actor_session_worker_assignments (worker_id, status)"
     )
 
     execute("""
@@ -512,7 +486,6 @@ defmodule Ankole.Repo.Migrations.CreateActorRuntimePingPong do
       lease_expires_at timestamptz NOT NULL,
       last_actor_heartbeat_at timestamptz,
       assigned_worker_id text,
-      assigned_worker_instance_id text,
       current_llm_turn_id uuid,
       revision integer NOT NULL DEFAULT 0,
       started_at timestamptz NOT NULL,

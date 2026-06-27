@@ -13,7 +13,6 @@ defmodule Ankole.ActorRuntimeWorkerE2ETest do
   alias Ankole.Actors.ActorInput
   alias Ankole.ActorRuntime
   alias Ankole.ActorRuntime.Schemas.AgentComputerWorker
-  alias Ankole.ActorRuntime.WorkerAuthKeys
   alias Ankole.ActorRuntime.Transport.Broker
   alias Ankole.PluginFixtures.MockSignalProviderPlugin
   alias Ankole.Plugins.Registry, as: PluginRegistry
@@ -35,11 +34,11 @@ defmodule Ankole.ActorRuntimeWorkerE2ETest do
     assert_docker_image!()
 
     worker_id = "docker-worker-#{System.unique_integer([:positive])}"
-    worker_instance_id = "#{worker_id}-instance"
+    worker_auth_key = unique_worker_auth_key()
 
     {:ok, endpoint} =
       Broker.start_router("tcp://0.0.0.0:*",
-        worker_auth: :database,
+        worker_auth_key: worker_auth_key,
         poll_interval_ms: 1
       )
 
@@ -49,7 +48,7 @@ defmodule Ankole.ActorRuntimeWorkerE2ETest do
       start_docker_worker!(
         endpoint: docker_host_endpoint(endpoint),
         worker_id: worker_id,
-        worker_instance_id: worker_instance_id
+        worker_auth_key: worker_auth_key
       )
 
     on_exit(fn -> cleanup_docker_worker(container) end)
@@ -59,16 +58,15 @@ defmodule Ankole.ActorRuntimeWorkerE2ETest do
   end
 
   @tag timeout: 30_000
-  test "Docker image worker with disabled worker auth key is not admitted" do
+  test "Docker image worker with the wrong global worker auth key is not admitted" do
     assert_docker_image!()
 
     worker_id = "docker-rejected-worker-#{System.unique_integer([:positive])}"
-    assert {:ok, auth_key} = committed_worker_auth_key(worker_id)
-    assert {:ok, _auth_key} = committed_disable_worker_auth_key(worker_id)
+    worker_auth_key = unique_worker_auth_key()
 
     {:ok, endpoint} =
       Broker.start_router("tcp://0.0.0.0:*",
-        worker_auth: :database,
+        worker_auth_key: worker_auth_key,
         poll_interval_ms: 1
       )
 
@@ -78,8 +76,7 @@ defmodule Ankole.ActorRuntimeWorkerE2ETest do
       start_docker_worker!(
         endpoint: docker_host_endpoint(endpoint),
         worker_id: worker_id,
-        worker_instance_id: "#{worker_id}-instance",
-        pre_auth_key: auth_key.pre_auth_key
+        worker_auth_key: "wrong-" <> worker_auth_key
       )
 
     on_exit(fn -> cleanup_docker_worker(container) end)
@@ -98,14 +95,12 @@ defmodule Ankole.ActorRuntimeWorkerE2ETest do
 
     assert {output, status} =
              docker_run_worker_once([
-               {"ANKOLE_AGENT_COMPUTER_WORKER_ID", "worker-missing-env"},
-               {"ANKOLE_AGENT_COMPUTER_WORKER_INSTANCE_ID", "worker-missing-env-1"},
-               {"ANKOLE_AGENT_COMPUTER_WORKER_PRE_AUTH_TOKEN", "unused-test-secret"}
+               {"WORKER_ID", "worker-missing-env"}
              ])
 
     assert status != 0
     assert output =~ ~s("event":"worker.error")
-    assert output =~ "ANKOLE_RUNTIME_FABRIC_ENDPOINT is required"
+    assert output =~ "RUNTIME_FABRIC_URL is required"
   end
 
   test "Docker image worker rejects actor-specific startup env" do
@@ -113,10 +108,8 @@ defmodule Ankole.ActorRuntimeWorkerE2ETest do
 
     assert {output, status} =
              docker_run_worker_once([
-               {"ANKOLE_RUNTIME_FABRIC_ENDPOINT", "tcp://host.docker.internal:1"},
-               {"ANKOLE_AGENT_COMPUTER_WORKER_ID", "worker-actor-env"},
-               {"ANKOLE_AGENT_COMPUTER_WORKER_INSTANCE_ID", "worker-actor-env-1"},
-               {"ANKOLE_AGENT_COMPUTER_WORKER_PRE_AUTH_TOKEN", "unused-test-secret"},
+               {"RUNTIME_FABRIC_URL", "tcp://:unused-test-secret@host.docker.internal:1"},
+               {"WORKER_ID", "worker-actor-env"},
                {"ANKOLE_AGENT_UID", "agent-1"}
              ])
 
@@ -171,11 +164,11 @@ defmodule Ankole.ActorRuntimeWorkerE2ETest do
       })
 
     worker_id = "real-llm-worker-#{System.unique_integer([:positive])}"
-    worker_instance_id = "#{worker_id}-instance"
+    worker_auth_key = unique_worker_auth_key()
 
     {:ok, endpoint} =
       Broker.start_router("tcp://0.0.0.0:*",
-        worker_auth: :database,
+        worker_auth_key: worker_auth_key,
         poll_interval_ms: 1
       )
 
@@ -185,7 +178,7 @@ defmodule Ankole.ActorRuntimeWorkerE2ETest do
       start_docker_worker!(
         endpoint: docker_host_endpoint(endpoint),
         worker_id: worker_id,
-        worker_instance_id: worker_instance_id
+        worker_auth_key: worker_auth_key
       )
 
     on_exit(fn -> cleanup_docker_worker(container) end)
@@ -203,25 +196,26 @@ defmodule Ankole.ActorRuntimeWorkerE2ETest do
 
     consumer = adapter.ingress_module.chat_consumer(context, %{"provider" => "mock"})
 
-    assert {:ok, [%{status: :accepted, actor_input: input}]} =
-             adapter.ingress_module.handle_message_receive(
-               "mock.message.receive",
-               %{
-                 ingress_event_id: "mock-real-llm-event-1",
-                 signal_channel_id: "mock:chat:real-llm-e2e",
-                 provider_entry_id: "mock-real-llm-message-1",
-                 provider_thread_id: "mock-real-llm-thread",
-                 text: """
-                 You must call the skill_append tool before replying.
-                 Use skill_append with name exactly "nano-pdf" and content exactly "E2E overlay: ANKOLE_E2E_OK".
-                 After the tool result confirms the change, reply exactly ANKOLE_E2E_OK.
-                 """,
-                 explicit: true,
-                 now: @base_time,
-                 provider_time: @base_time
-               },
-               [consumer]
-             )
+    input =
+      adapter.ingress_module.handle_message_receive(
+        "mock.message.receive",
+        %{
+          ingress_event_id: "mock-real-llm-event-1",
+          signal_channel_id: "mock:chat:real-llm-e2e",
+          provider_entry_id: "mock-real-llm-message-1",
+          provider_thread_id: "mock-real-llm-thread",
+          text: """
+          You must call the skill_append tool before replying.
+          Use skill_append with name exactly "nano-pdf" and content exactly "E2E overlay: ANKOLE_E2E_OK".
+          After the tool result confirms the change, reply exactly ANKOLE_E2E_OK.
+          """,
+          explicit: true,
+          now: @base_time,
+          provider_time: @base_time
+        },
+        [consumer]
+      )
+      |> receive_actor_input!()
 
     assert {:ok, %{send_outcome: "sent_or_queued", llm_turn: first_turn}} =
              ActorRuntime.process_ready_inputs_once(
@@ -245,25 +239,26 @@ defmodule Ankole.ActorRuntimeWorkerE2ETest do
 
     assert content == "E2E overlay: ANKOLE_E2E_OK"
 
-    assert {:ok, [%{actor_input: rm_input}]} =
-             adapter.ingress_module.handle_message_receive(
-               "mock.message.receive",
-               %{
-                 ingress_event_id: "mock-real-llm-rm-overlay-file-1",
-                 signal_channel_id: "mock:chat:real-llm-e2e",
-                 provider_entry_id: "mock-real-llm-rm-overlay-file-message-1",
-                 provider_thread_id: "mock-real-llm-thread",
-                 text: """
-                 You must call the command tool before replying.
-                 Run exactly: rm -f /workspace/library-containers/skills/nano-pdf/AGENT_APPEND.md
-                 After the command succeeds, reply exactly ANKOLE_E2E_RM_OK.
-                 """,
-                 explicit: true,
-                 now: DateTime.add(@base_time, 2, :second),
-                 provider_time: DateTime.add(@base_time, 2, :second)
-               },
-               [consumer]
-             )
+    rm_input =
+      adapter.ingress_module.handle_message_receive(
+        "mock.message.receive",
+        %{
+          ingress_event_id: "mock-real-llm-rm-overlay-file-1",
+          signal_channel_id: "mock:chat:real-llm-e2e",
+          provider_entry_id: "mock-real-llm-rm-overlay-file-message-1",
+          provider_thread_id: "mock-real-llm-thread",
+          text: """
+          You must call the command tool before replying.
+          Run exactly: rm -f /workspace/library-containers/skills/nano-pdf/AGENT_APPEND.md
+          After the command succeeds, reply exactly ANKOLE_E2E_RM_OK.
+          """,
+          explicit: true,
+          now: DateTime.add(@base_time, 2, :second),
+          provider_time: DateTime.add(@base_time, 2, :second)
+        },
+        [consumer]
+      )
+      |> receive_actor_input!()
 
     assert {:ok, %{send_outcome: "sent_or_queued", llm_turn: rm_turn}} =
              ActorRuntime.process_ready_inputs_once(
@@ -292,21 +287,22 @@ defmodule Ankole.ActorRuntimeWorkerE2ETest do
     assert %AgentSkillOverlay{overlay_json: %{"text" => "E2E overlay: ANKOLE_E2E_OK"}} =
              active_overlay
 
-    assert {:ok, [%{actor_input: compress_input}]} =
-             adapter.ingress_module.handle_message_receive(
-               "mock.message.receive",
-               %{
-                 ingress_event_id: "mock-real-llm-compress-1",
-                 signal_channel_id: "mock:chat:real-llm-e2e",
-                 provider_entry_id: "mock-real-llm-compress-message-1",
-                 provider_thread_id: "mock-real-llm-thread",
-                 text: "/compress",
-                 explicit: true,
-                 now: DateTime.add(@base_time, 4, :second),
-                 provider_time: DateTime.add(@base_time, 4, :second)
-               },
-               [consumer]
-             )
+    compress_input =
+      adapter.ingress_module.handle_message_receive(
+        "mock.message.receive",
+        %{
+          ingress_event_id: "mock-real-llm-compress-1",
+          signal_channel_id: "mock:chat:real-llm-e2e",
+          provider_entry_id: "mock-real-llm-compress-message-1",
+          provider_thread_id: "mock-real-llm-thread",
+          text: "/compress",
+          explicit: true,
+          now: DateTime.add(@base_time, 4, :second),
+          provider_time: DateTime.add(@base_time, 4, :second)
+        },
+        [consumer]
+      )
+      |> receive_actor_input!()
 
     assert {:ok, %{send_outcome: "sent_or_queued", llm_turn: compression_turn}} =
              ActorRuntime.process_ready_inputs_once(
@@ -358,30 +354,31 @@ defmodule Ankole.ActorRuntimeWorkerE2ETest do
     ambient_consumer =
       adapter.ingress_module.chat_consumer(ambient_context, %{"provider" => "mock"})
 
-    assert {:ok, [%{actor_input: ambient_input}]} =
-             adapter.ingress_module.handle_message_receive(
-               "mock.message.receive",
-               %{
-                 ingress_event_id: "mock-real-llm-ambient-1",
-                 signal_channel_id: "mock:chat:real-llm-ambient-e2e",
-                 provider_entry_id: "mock-real-llm-ambient-message-1",
-                 provider_thread_id: "mock-real-llm-ambient-thread",
-                 text: """
-                 Could Real E2E Agent handle this concrete release handoff for the group?
-                 Please send one visible group reply with exactly ANKOLE_AMBIENT_OK so the release handoff is acknowledged.
-                 """,
-                 explicit: false,
-                 now: DateTime.add(@base_time, 6, :second),
-                 provider_time: DateTime.add(@base_time, 6, :second)
-               },
-               [ambient_consumer]
-             )
+    ambient_input =
+      adapter.ingress_module.handle_message_receive(
+        "mock.message.receive",
+        %{
+          ingress_event_id: "mock-real-llm-ambient-1",
+          signal_channel_id: "mock:chat:real-llm-ambient-e2e",
+          provider_entry_id: "mock-real-llm-ambient-message-1",
+          provider_thread_id: "mock-real-llm-ambient-thread",
+          text: """
+          Could Real E2E Agent handle this concrete release handoff for the group?
+          Please send one visible group reply with exactly ANKOLE_AMBIENT_OK so the release handoff is acknowledged.
+          """,
+          explicit: false,
+          now: DateTime.add(@base_time, 6, :second),
+          provider_time: DateTime.add(@base_time, 6, :second)
+        },
+        [ambient_consumer]
+      )
+      |> receive_actor_input!()
 
     assert ambient_input.type == "im.message.may_intervene"
 
     assert {:ok, %{send_outcome: "sent_or_queued", llm_turn: ambient_turn}} =
              ActorRuntime.process_ready_inputs_once(
-               now: DateTime.add(@base_time, 8, :second),
+               now: ambient_input.available_at,
                lease_seconds: @long_lease_seconds
              )
 
@@ -439,6 +436,26 @@ defmodule Ankole.ActorRuntimeWorkerE2ETest do
     Map.merge(declaration, %{ingress_module: ingress_module, outbox_module: outbox_module})
   end
 
+  defp receive_actor_input!({:ok, [%{status: :accepted, actor_input: %ActorInput{} = input}]}),
+    do: input
+
+  defp receive_actor_input!(
+         {:ok, [%{inbound_batch: %{id: batch_id, available_at: available_at}}]}
+       )
+       when is_binary(batch_id) do
+    assert %DateTime{} = available_at
+
+    assert {:ok, [%{status: :accepted, inbound_batch: %{id: ^batch_id}, actor_input: input}]} =
+             SignalsGateway.finalize_due_inbound_batches(now: available_at, limit: 1)
+
+    assert %ActorInput{} = input
+    input
+  end
+
+  defp receive_actor_input!(result) do
+    flunk("expected inbound message to produce an actor input, got: #{inspect(result)}")
+  end
+
   defp committed_agent_fixture! do
     uid =
       "agent-real-e2e-#{System.system_time(:nanosecond)}-#{System.unique_integer([:positive])}"
@@ -463,7 +480,12 @@ defmodule Ankole.ActorRuntimeWorkerE2ETest do
   defp start_docker_worker!(opts) do
     name = "ankole-worker-e2e-#{System.unique_integer([:positive])}"
     worker_id = Keyword.fetch!(opts, :worker_id)
-    pre_auth_key = Keyword.get(opts, :pre_auth_key) || worker_pre_auth_key!(worker_id)
+
+    runtime_fabric_url =
+      runtime_fabric_url!(
+        Keyword.fetch!(opts, :endpoint),
+        Keyword.fetch!(opts, :worker_auth_key)
+      )
 
     args =
       [
@@ -477,15 +499,8 @@ defmodule Ankole.ActorRuntimeWorkerE2ETest do
         docker_dev_workspace_mount_args() ++
         docker_env_args(
           [
-            {"ANKOLE_RUNTIME_FABRIC_ENDPOINT", Keyword.fetch!(opts, :endpoint)},
-            {"ANKOLE_AGENT_COMPUTER_WORKER_PRE_AUTH_TOKEN", pre_auth_key},
-            {"ANKOLE_AGENT_COMPUTER_WORKER_ID", worker_id},
-            {"ANKOLE_AGENT_COMPUTER_WORKER_INSTANCE_ID",
-             Keyword.fetch!(opts, :worker_instance_id)},
-            {"ANKOLE_SHARED_FS_ROOT", "/workspace/shared"},
-            {"ANKOLE_USER_FILES_ROOT", "/workspace/shared/user-files"},
-            {"ANKOLE_AGENT_INSTALLED_SKILLS_ROOT", "/workspace/shared/skills/agents"},
-            {"ANKOLE_BUILTIN_SKILLS_ROOT", "/repo/app/library/skills"}
+            {"WORKER_ID", worker_id},
+            {"RUNTIME_FABRIC_URL", runtime_fabric_url}
           ] ++ docker_worker_passthrough_env()
         ) ++ [@docker_image]
 
@@ -500,21 +515,12 @@ defmodule Ankole.ActorRuntimeWorkerE2ETest do
     %{kind: :docker, name: name, port: port, output: []}
   end
 
-  defp worker_pre_auth_key!(worker_id) do
-    {:ok, auth_key} = committed_worker_auth_key(worker_id)
-    auth_key.pre_auth_key
+  defp runtime_fabric_url!("tcp://" <> rest, worker_auth_key) do
+    "tcp://:#{URI.encode_www_form(worker_auth_key)}@#{rest}"
   end
 
-  defp committed_worker_auth_key(worker_id) do
-    Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
-      WorkerAuthKeys.bootstrap_key(worker_id)
-    end)
-  end
-
-  defp committed_disable_worker_auth_key(worker_id) do
-    Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
-      WorkerAuthKeys.disable(worker_id)
-    end)
+  defp unique_worker_auth_key do
+    "e2e-" <> Ecto.UUID.generate()
   end
 
   defp wait_for_worker_projection(worker_id, port, deadline) do

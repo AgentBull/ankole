@@ -195,7 +195,7 @@ defmodule Ankole.KernelTest do
   test "runtime fabric router maps mandatory unknown routes" do
     assert {:ok, router} =
              RuntimeFabric.router_start("tcp://127.0.0.1:*", self(),
-               pre_auth_token: "test-token",
+               worker_auth_key: "test-token",
                poll_interval_ms: 1
              )
 

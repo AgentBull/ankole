@@ -22,8 +22,9 @@ Only four concepts need to stay separate:
   effects. Gateway execution reads this same table, uses adapter capabilities,
   and mirrors only after provider success.
 
-Tombstones, idempotency keys, and micro-batch readiness are implementation state
-around those four concepts. They should not become new product-level objects.
+Tombstones, idempotency keys, and pending inbound batches are implementation
+state around those four concepts. They should not become new product-level
+objects.
 
 Provider raw payloads and event names can be retained through `raw_ref` or
 provider metadata, but they are not SignalsGateway's actor-facing event model.
@@ -43,6 +44,9 @@ explainable from these surfaces:
   for recall/search and future long-term memory.
 - `signal_gateway_input_tombstones`: short-lived delete/recall guards before a
   matching receive is accepted.
+- pending inbound batches: short-lived provider-message grouping state used to
+  decide whether IM traffic becomes addressed input, ambient input, or no actor
+  input at all.
 - `actor_inputs`: durable-until-consumed actor inputs for `{agent_uid,
   session_id}` actors.
 - `actor_input_consumptions`: recovery-window commit facts showing which
@@ -372,17 +376,31 @@ remain code-defined by SignalsGateway and the actor runtime.
 
 ## Core User Stories
 
-For a human IM message explicitly directed to an agent, SignalsGateway mirrors
-the visible entry, appends `im.message.addressed`, writes it to the channel's
-session `actor_inputs`, and later sends only explicit `signal_gateway_outbox`
-rows committed by the actor runtime. ActorRuntime owns publish/replay of ready
-input through the actor fabric.
+For IM traffic, SignalsGateway does not turn every provider message directly
+into an ActorInput. It first places provider messages into a short-lived inbound
+batch for the `(agent, binding, channel, provider_thread)` scope. When that
+batch closes, the gateway makes exactly one decision: append one
+`im.message.addressed` ActorInput, append one `im.message.may_intervene`
+ActorInput, or append no ActorInput. ActorRuntime and the worker should receive
+one already-formed semantic input, not a list of raw provider messages that they
+must re-batch.
 
-For IM group traffic that is not explicitly directed to the agent,
-`unaddressed_group_message_policy` decides whether the entry is ignored,
-mirrored only as `record_only`, or converted into `im.message.may_intervene`.
-Mention detection remains adapter-owned because only the adapter can know
-whether a provider event contained a real structured mention.
+For a human IM message explicitly directed to an agent, the resulting addressed
+batch represents one person's turn to the agent. Direct messages, structured
+group mentions of the bot, and matched clarify replies are addressed triggers.
+An addressed batch has one requester sender. The batch may include that sender's
+neutral same-turn messages before or after the trigger, plus attachments, but it
+must not absorb another sender's speech as part of the user's request.
+
+For IM group traffic that is not explicitly directed to the agent, the same
+pending batch can close as ambient observation, mirror-only history, or nothing.
+`unaddressed_group_message_policy = may_intervene` allows the closed neutral
+batch to become `im.message.may_intervene`. `record_only` mirrors the entries
+but creates no ActorInput. `ignore`/addressed-only group handling may keep a
+short wait-for-addressing buffer, but unaddressed messages that never become an
+addressed batch are not delivered to the actor. Mention detection remains
+adapter-owned because only the adapter can know whether a provider event
+contained a real structured mention.
 
 For a webhook event, the endpoint names the agent and binding, and the normalized
 channel id chooses the session actor. HTTP ack means the signal was durably
@@ -423,6 +441,117 @@ session. Real channel observations are different: an open ambient
 `im.message.may_intervene` batch may straddle the reset boundary because it is
 room context, not old session-local background work.
 
+## Inbound IM Batching
+
+Inbound IM batching is the place where provider-message bursts become actor
+inputs. It is not a worker concern. The worker receives one normal ActorInput
+whose `data.entry` already contains merged text and attachments. The optional
+`data.entries` list is provenance and lifecycle material; a worker must not need
+to read it to understand the user request or ambient observation.
+
+A pending inbound batch is keyed by the accepting route and provider
+conversation scope:
+
+```text
+{agent_uid, binding_name, signal_channel_id, provider_thread_id}
+```
+
+The key is thread-scoped, but the batch keeps the ordered provider entries and
+their sender-contiguous runs. Addressed upgrade is always scoped to a sender
+run, not to the whole room batch. This prevents a neutral multi-person room
+conversation from being converted into one person's user request just because a
+later message mentions the bot.
+
+Pending batch outcomes:
+
+- `im.message.addressed`: one requester sender's turn to the agent.
+- `im.message.may_intervene`: a neutral room/thread observation that policy lets
+  the agent inspect.
+- no ActorInput: mirror-only or ignored traffic whose batch never became
+  addressed.
+
+Addressed triggers:
+
+- any IM direct message;
+- a structured group mention or provider-native invocation of the bot;
+- a matched clarify reply from the actor runtime clarify registry.
+
+Neutral messages are group messages with no bot mention and no non-bot mention.
+They may be retained in the pending batch so a following addressed trigger can
+pull the sender's continuous same-turn context into an addressed batch. A
+neutral message that mentions another human is not safe to inherit into a bot
+request.
+
+Addressed batch rules:
+
+- A batch has one requester sender.
+- After a group sender opens addressed input, that same sender's neutral
+  follow-up, further bot mention, and attachments join the batch while it is
+  open.
+- If that same sender sends a message containing a non-bot structured mention,
+  close the current addressed batch first. The new message is routed again; if
+  it also mentions the bot, it may open a new addressed batch.
+- If another sender sends a message while an addressed batch is open, close the
+  addressed batch first. The other sender's message is routed from the start.
+- If a neutral multi-sender batch later receives a bot mention, only the final
+  matching sender-contiguous run can upgrade to addressed. Earlier runs close as
+  ambient or no-op according to policy.
+- Hitting the 8-message or normal text-budget boundary may split one human turn
+  into consecutive addressed batches, but the next same-sender continuation does
+  not become ambient just because the system limit forced the split.
+
+Addressed timing:
+
+- normal text waits 0.6 seconds after the last included provider message;
+- long text near 3000 characters waits 2 seconds, so client-split continuations
+  can arrive;
+- image, file, audio, and video messages wait 1.2 seconds so related
+  attachments can arrive together;
+- mixed messages use the longest applicable wait for the last provider message.
+
+Addressed size limits:
+
+- normal batches hold at most 8 provider messages;
+- normal accumulated text budget is 4000 characters;
+- a single provider message is never split or truncated to satisfy that budget;
+- long-text continuations may soft-exceed the normal text budget inside the long
+  text window, but implementation should still keep a defensive hard cap so one
+  burst cannot grow without bound;
+- attachments stay attached to their source provider entry and are not dropped
+  because text hit a budget.
+
+Ambient batch rules:
+
+- Only unaddressed group traffic can become ambient.
+- Only `unaddressed_group_message_policy = may_intervene` creates
+  `im.message.may_intervene` when a neutral batch closes.
+- `record_only` mirrors entries and closes without actor input.
+- `ignore`/addressed-only group traffic may keep a short wait-for-addressing
+  buffer, but if the batch closes without an addressed trigger, it creates no
+  long-lived mirror row and no ActorInput.
+- Ambient is room/thread context and may include multiple senders. It should not
+  be reinterpreted as one user's request.
+- Ambient should use a slower quiet window than addressed traffic. The default
+  v1 target is roughly 10-15 seconds of quiet, with a hard cap around 5 minutes
+  for busy rooms, so room-intervention checks do not burn tokens every minute in
+  active channels.
+- An addressed trigger has priority over an ambient timer. When a bot mention
+  arrives while a neutral batch is waiting, the gateway first splits the batch
+  into the sender run that can become addressed and the remaining neutral
+  observation that may close as ambient or no-op.
+
+Delete and recall while batching:
+
+- If the source provider entry is still only in a pending inbound batch, remove
+  it from the batch. Empty batches close without ActorInput. Non-empty batches
+  recompute outcome, merged entry text/attachments, reply anchor, and due time.
+- If the closed batch already produced an ActorInput that is in-flight but not
+  committed, abort the active delivery and retry the same logical batch revision
+  without the deleted/recalled entry. If nothing remains, abort without retry.
+- If the ActorInput already committed into actor state, do not rewrite history.
+  Append the normal `signal.entry.deleted` or `signal.entry.recalled` lifecycle
+  input.
+
 ## End-To-End Flow
 
 Ingress path:
@@ -437,7 +566,8 @@ adapter callback
   -> transaction:
        - tombstone check/update
        - mirror effect by signal_entry_key
-       - actor input effect by session_key / actor_input_idempotency_key
+       - pending inbound batch effect for IM entries
+       - actor input effect only when a batch closes or a non-IM input is direct
   -> return accepted, recorded, ignored, filtered, or error
   -> external layer may provider-ack after commit
   -> ActorRuntime may publish/replay ready actor input from the journal
@@ -602,7 +732,7 @@ Provider mirror time semantics are deliberately small:
 
 - `provider_time` is used only to prevent stale provider-backed IngressFacts
   from overwriting newer mirrored state.
-- `gateway_time` is used for tombstone TTLs, micro-batch readiness timers, retry
+- `gateway_time` is used for tombstone TTLs, pending batch timers, retry
   backoff, and first/last-seen bookkeeping.
 - `actor_time` belongs to actor runtime state and does not order provider
   mirroring.
@@ -622,10 +752,10 @@ Common cases:
 
 | Input case | Effects |
 | --- | --- |
-| Unaddressed IM group + `ignore` | Ack only |
-| Unaddressed IM group + `record_only` | Mirror entry, no ActorInput |
-| Unaddressed IM group + `may_intervene` | Mirror entry, append `im.message.may_intervene` |
-| DM or structured mention | Mirror entry, append `im.message.addressed` with its event-defined micro-batch readiness |
+| Unaddressed IM group + `ignore` / addressed-only | Short pending wait for an addressed trigger; if none arrives, no mirror row and no ActorInput |
+| Unaddressed IM group + `record_only` | Mirror entry, pending batch may later upgrade to addressed; otherwise no ActorInput |
+| Unaddressed IM group + `may_intervene` | Mirror entry, pending neutral batch closes as `im.message.may_intervene` unless it upgrades to addressed |
+| DM or structured mention | Mirror entry, pending batch closes as one `im.message.addressed` |
 | Webhook accepted for agent work | Mirror entry, append the source/event-defined ActorInput |
 | Webhook mirror-only | Mirror entry, no ActorInput |
 | Recognized visible command such as `/steer` | Mirror visible command entry, append `command.steer` under command admission |
@@ -645,10 +775,14 @@ transaction appends `actor_inputs`.
 Gateway behavior uses existing facts instead of writing a separate per-entry
 lifecycle table:
 
-- `ignore` writes no mirror row and no ActorInput.
+- `ignore`/addressed-only keeps only short pending batch state for unaddressed
+  IM group entries. If the batch never upgrades to addressed, it writes no
+  mirror row and no ActorInput.
 - `record_only` and other mirror-only receives write the mirror row and stop.
-- any provider-backed receive that appends ActorInput writes `actor_inputs`
-  before ack.
+- any provider-backed non-IM receive that appends ActorInput writes
+  `actor_inputs` before ack.
+- IM receives update or close pending inbound batches before ack; closed batches
+  that choose actor delivery write exactly one `actor_inputs` row.
 - actor commit records `actor_input_consumptions` in actor store while writing
   actor messages and any `signal_gateway_outbox` rows.
 - delete/recall refreshes the tombstone first, then checks `actor_inputs` and
@@ -675,10 +809,12 @@ application command, or provider-native bot invocation. Plain text containing
 `@` is not enough unless the adapter normalized it into a structured fact that
 the binding route treats as explicit.
 
-`may_intervene` appends or merges `ActorInput(type =
-im.message.may_intervene)`. The gateway may fold consecutive unaddressed
-observations for the same channel/thread into one open ambient batch so the
-actor judges a room scene instead of one isolated message.
+`may_intervene` allows a closed neutral inbound batch to create
+`ActorInput(type = im.message.may_intervene)`. The gateway folds unaddressed
+observations for the same channel/thread into a pending batch so the actor
+judges a room scene instead of one isolated message. If a later message in that
+pending batch explicitly addresses the bot, the addressed trigger takes
+priority and the eligible sender run closes as addressed instead.
 
 The same phrase appears at three levels with different meanings:
 `unaddressed_group_message_policy = may_intervene` is the binding policy;
@@ -736,11 +872,12 @@ Envelope fields:
 
 SignalsGateway writes only actor-facing inputs to `actor_inputs`:
 
-- `im.message.addressed`: explicit IM input, micro-batched by the default v1
-  readiness policy.
+- `im.message.addressed`: one closed addressed IM batch representing one
+  requester sender's turn to the agent. The worker sees one merged `data.entry`;
+  `data.entries` preserves provider-message provenance.
 - `im.message.may_intervene`: unaddressed IM group input that the binding lets
-  the agent inspect; consecutive observations for the same channel/thread may be
-  folded into one ambient batch.
+  the agent inspect; it is created only when a neutral pending batch closes
+  under `unaddressed_group_message_policy = may_intervene`.
 - webhook and action inputs: type is chosen by source/event definition code;
   binding policy decides whether that input is admitted, ignored, or mirror-only.
 - `command.*`: visible text command events. Individual command types choose their
@@ -769,6 +906,13 @@ and agent outbound effects are not ActorInputs. GitHub issues, pull requests,
 comments, and review comments should map into the same generic receive/delete
 shapes unless a provider-specific shape is truly required.
 
+For IM ActorInputs, `payload.data.entry` is the worker-facing snapshot:
+merged text, merged durable attachments, one reply anchor, and the channel/thread
+metadata the existing worker path expects. `payload.data.entries` is the ordered
+list of source provider entries. It is used for provenance, deletion/recall,
+reply-anchor recalculation, and debugging. It must not become the only place
+where the worker can understand the user input.
+
 ## Code Contracts Vs Stored State
 
 Some gateway behavior must be durable state because it crosses process crashes
@@ -794,8 +938,8 @@ Code contracts:
 
 - `ActorInput.type -> actor consumption path`, including `command.steer` using
   the addressed IM path;
-- per-ActorInput readiness function that decides whether this input participates
-  in micro-batching;
+- IM pending-batch finalization rules for addressed, ambient, and no-op
+  outcomes;
 - command parser and command admission for `/new`, `/compress`, `/retry`,
   `/steer`, and `/stop`;
 - public adapter context methods such as `emitEntry` and `emitAction`;
@@ -950,6 +1094,14 @@ assistant-output recall semantics. ActorInput classifies the semantic ingress;
 the session actor runtime decides what the command means and records execution
 state in actor-runtime rows, not in the parsed command payload.
 
+Command ActorInputs are direct inputs. They do not enter IM burst batching, and
+they do not rewrite broker sequence. When a generation is already running,
+ActorRuntime may select an explicit control command such as `/stop`, `/retry`,
+`/new`, `/steer`, or `/compress` ahead of earlier ordinary content inputs that
+cannot be delivered until the active turn finishes. That priority is a runtime
+scheduling rule, not a SignalsGateway queue rule: the actor input journal still
+keeps broker sequence as append order, and non-control content waits its turn.
+
 `/compress` asks the actor runtime to replace an older slice of chat history
 with a compressed transcript summary. That summary is previous chat history,
 not an environment fact and not a system-prompt rule. When later worker turns
@@ -1024,6 +1176,12 @@ Required logical actor input metadata:
 - optional `dead_letter_at`
 - `payload` as a minimal dispatch snapshot
 
+For closed IM batches, `provider_entry_id` is the reply anchor, normally the
+last source provider entry in the batch. It is not the full source set. The
+payload or adjacent runtime metadata must preserve all source provider entry ids
+and the logical batch revision so delete/recall can update pending or in-flight
+work without pretending each source message was a separate ActorInput.
+
 SignalsGateway must provide enough data for the actor store to assign
 `broker_sequence`, evaluate readiness, and later correlate delete/recall with
 the accepted input. It does not decide worker placement, actor epoch, ZeroMQ
@@ -1031,21 +1189,17 @@ route, send outcome, worker acceptance, or final turn commit. Those facts belong
 to `actor_input_deliveries`, `actor_session_activations`,
 `ai_agent_llm_turns`, and `actor_input_consumptions`.
 
-Micro-batched inputs also carry readiness grouping metadata:
-
-- `batch_scope`
-- `sender_key`
-
 The signal input idempotency key is `(agent_uid, binding_name,
 ingress_event_id)`. For provider-backed input, `ingress_event_id` normally
 comes from the normalized provider event id. For internal input, it comes from
 the configured source, such as a timer fire id.
 
-`sender_key` is the adapter-normalized stable sender identity used for
-same-sender micro-batching. It must prefer the normalized principal or platform
-subject when available, then fall back to the provider author id. Display names
-must not be used as sender identity. Direct inputs set `available_at = now` and
-do not need `batch_scope` or `sender_key`.
+`sender_key` is the adapter-normalized stable sender identity used inside
+pending IM batches and, for addressed batches, to identify the requester sender.
+It must prefer the normalized principal or platform subject when available, then
+fall back to the provider author id. Display names must not be used as sender
+identity. Direct non-IM inputs set `available_at = now` and do not need pending
+batch state.
 
 After the session actor successfully commits the turn, messages, and any
 `signal_gateway_outbox` rows that consume an actor input, that `actor_inputs`
@@ -1070,14 +1224,20 @@ source actor input has not been canceled by delete/recall after the actor read
 it. If the input was canceled, the commit is rejected as stale and must not write
 assistant/final actor messages or outbox rows for that input.
 
-Actor input readiness is generic but code-defined. Each ActorInput type has a
-runtime event definition with a small readiness function. If the function says
-"batchable" for a specific input, the gateway appends a normal actor input
-row, delays readiness through `available_at`, stores `batch_scope` and
-`sender_key`, and lets ready reads take a contiguous same-sender prefix. The
-default v1 event definitions micro-batch `im.message.addressed` and
-ambient-batch `im.message.may_intervene`. Webhook events, lifecycle events,
-command events, and action events are ready immediately by default.
+Actor input readiness is still code-defined, but IM batching is complete before
+the ActorInput is handed to ActorRuntime. `available_at` means "this already
+formed actor input may now be delivered"; it is not the mechanism that decides
+which provider messages belong together. The default v1 IM batching rules live
+in SignalsGateway's pending inbound batch finalizer. Webhook events, lifecycle
+events, command events, and action events are direct inputs and are ready
+immediately by default unless their event definition says otherwise.
+
+Runtime command readiness does not mean FIFO execution under an active
+generation. A control command that targets the active turn may be processed
+before earlier ordinary ready inputs so the user can stop, retry, steer, or roll
+the current generation without waiting for the blocked content queue. Once the
+active turn is fenced off or committed, ordinary inputs resume in broker
+sequence.
 
 The reset barrier is part of the `session.reset_due` runtime contract. If the
 session still has a live generation or live delivery when this input reaches the
@@ -1090,31 +1250,23 @@ session-local system work such as timer, cron, and exec notices when the reset
 rolls the session, but it should not discard or split ambient room observations
 solely because their batch spans the clock boundary.
 
-Micro-batching is represented by actor input readiness metadata, not by another
-durable queue. A micro-batched ActorInput row needs these readiness fields:
+Pending inbound batching is represented by short-lived gateway state, not by a
+set of already-created ActorInputs with synchronized `available_at` values. When
+the batch closes, the gateway writes at most one ActorInput for the closed
+portion. ActorRuntime should not re-batch addressed IM rows by reading a
+contiguous same-sender prefix; doing so would merge batches that SignalsGateway
+already split by user story.
 
-- `available_at`;
-- `batch_scope = {binding_name, signal_channel_id, provider_thread_id}`;
-- `sender_key`.
+The database may index pending batches by agent uid, binding name, signal
+channel id, and provider thread id. That index is only for batching and
+provider-delivery lookup; it is not a domain concept. The session boundary
+remains channel-level; thread scope affects batching and provider delivery.
 
-When a new micro-batched input is accepted, pending actor input rows with the
-same readiness scope get the same later `available_at`. When the actor runtime
-reads ready rows for publish/replay, it reads only the contiguous same-sender
-prefix:
-
-- `Alice, Alice, Alice` can become one actor turn input group.
-- `Alice, Bob, Alice` becomes three actor turn input groups.
-
-The database may index ready rows by agent uid, binding name, signal channel id,
-and provider thread id. That index is only for actor input journal reads; it is
-not a domain concept. The session boundary remains channel-level; thread scope
-only affects batching and provider delivery.
-
-In other words, micro-batching is a processing-time window:
+In other words, IM batching is an ingress-time classification window:
 
 ```text
-readiness rule = event-definition function plus short readiness window
-ready read rule = contiguous same-sender prefix
+provider entries -> pending inbound batch -> addressed | ambient | no actor input
+ActorInput.available_at -> delivery time for the already-formed input
 ```
 
 Delete/recall follows the facts already stored in `signal_entries`,
@@ -1137,7 +1289,9 @@ recreating a mirrored entry after the user deleted or recalled it.
 | `accepted receive + actor input still open` | Pending ActorInput exists in `actor_inputs` |
 | `accepted receive + actor store consumed input` | Original input reached actor state |
 | `mirror-only receive + delete/recall` | Refresh tombstone and update current provider mirror/search projection only |
+| `pending inbound batch + delete/recall` | Refresh tombstone, update current provider mirror/search projection when mirrored, remove the source entry from the pending batch, and recompute outcome |
 | `open actor input + delete/recall` | Refresh tombstone, update current provider mirror/search projection, cancel/remove open actor input |
+| `in-flight actor input + delete/recall` | Refresh tombstone, abort the active delivery, retry the same logical batch revision without the removed source entry when anything remains, and reject stale commits from the old revision |
 | `consumed actor input + delete/recall` | Refresh tombstone, update current provider mirror/search projection, append lifecycle ActorInput that becomes an introspection note |
 
 This distinction matters most for historical recall. If the original input is
@@ -1334,11 +1488,13 @@ and the adapter never fetches through an official API.
 The gateway user-story surface includes these contract cases:
 
 - `ignore` ignores non-mentioned IM group entries and does not update the
-  provider mirror.
+  provider mirror unless a short pending batch later upgrades the entry into an
+  addressed batch.
 - `record_only` mirrors unaddressed IM group entries and does not wake the
-  agent.
+  agent unless the same pending batch later upgrades an eligible sender run into
+  addressed input.
 - `may_intervene` mirrors unaddressed IM group entries and emits
-  `im.message.may_intervene`.
+  `im.message.may_intervene` only when the neutral batch closes as ambient.
 - Literal `@Agent` text is not a structured mention.
 - DM entries route as explicit input.
 - Structured group mentions route as explicit input even when
@@ -1350,12 +1506,22 @@ The gateway user-story surface includes these contract cases:
   receive provider-visible outbox reply.
 - Pending clarify can route a group reply to the agent without a mention only
   through the actor-runtime clarify lookup contract.
-- Consecutive same-sender explicit IM entries batch.
-- A different sender breaks the batch.
+- One closed addressed IM batch represents one requester sender's turn.
+- A neutral same-sender group message followed by a bot mention can become one
+  addressed batch.
+- If a neutral multi-sender batch later receives a bot mention, only the final
+  matching sender-contiguous run can upgrade to addressed; earlier runs close as
+  ambient or no-op.
+- A different sender breaks an open addressed batch.
+- A non-bot structured mention in an addressed follow-up closes the current
+  addressed batch before the new message is routed.
 - Same channel with different provider threads keeps the same session actor.
 - Different channels produce different session actors.
-- Recall/delete while an explicit receive is pending removes the pending actor
-  input.
+- Recall/delete while a receive is still in a pending inbound batch removes that
+  source entry from the batch and recomputes the batch outcome.
+- Recall/delete while a closed batch is in-flight aborts the active delivery and
+  retries the same logical batch without the removed source entry when anything
+  remains.
 - Every recall/delete creates or refreshes a tombstone so stale receives are
   ignored.
 - Recall/delete tombstones are scoped by signal channel.

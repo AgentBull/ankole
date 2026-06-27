@@ -2,34 +2,6 @@ defmodule Ankole.Repo.Migrations.CreateLlmProviderRuntime do
   use Ecto.Migration
 
   def up do
-    create table(:agent_computer_worker_auth_keys, primary_key: false) do
-      add :worker_id, :text, primary_key: true
-      add :pre_auth_key, :text, null: false
-      add :key_revision, :bigint, null: false, default: 1
-      add :disabled_at, :utc_datetime_usec
-      add :last_bootstrap_at, :utc_datetime_usec
-
-      timestamps(type: :utc_datetime_usec)
-    end
-
-    create constraint(
-             :agent_computer_worker_auth_keys,
-             :agent_computer_worker_auth_keys_worker_id_format,
-             check: "worker_id ~ '^[a-z][a-z0-9_-]{0,62}$'"
-           )
-
-    create constraint(
-             :agent_computer_worker_auth_keys,
-             :agent_computer_worker_auth_keys_pre_auth_key_present,
-             check: "pre_auth_key <> ''"
-           )
-
-    create constraint(
-             :agent_computer_worker_auth_keys,
-             :agent_computer_worker_auth_keys_revision_positive,
-             check: "key_revision > 0"
-           )
-
     create table(:llm_providers, primary_key: false) do
       add :provider_id, :text, primary_key: true
       add :provider_source, :text, null: false
@@ -73,23 +45,37 @@ defmodule Ankole.Repo.Migrations.CreateLlmProviderRuntime do
              where: "disabled_at IS NULL"
            )
 
-    drop constraint(:ai_agent_llm_turns, :ai_agent_llm_turns_profile_check)
+    comment_table(:llm_providers, "Operator-managed LLM provider connections.")
 
-    create constraint(:ai_agent_llm_turns, :ai_agent_llm_turns_profile_check,
-             check: "profile IN ('primary', 'light', 'heavy', 'codex')"
-           )
+    comment_columns(:llm_providers, %{
+      provider_id: "Stable provider id referenced by agent model profiles.",
+      provider_source: "Provider implementation family such as OpenRouter or OpenAI.",
+      base_url: "Optional provider API base URL override.",
+      encrypted_credential: "Encrypted provider credential stored by the control plane.",
+      credential_mode: "Credential presentation mode expected by the provider.",
+      connection_options: "Provider-specific options applied when resolving runtime credentials.",
+      disabled_at: "Time the provider was disabled and excluded from runtime resolution."
+    })
   end
 
   def down do
-    drop constraint(:ai_agent_llm_turns, :ai_agent_llm_turns_profile_check)
-
-    create constraint(:ai_agent_llm_turns, :ai_agent_llm_turns_profile_check,
-             check: "profile IN ('primary', 'light', 'heavy')"
-           )
-
     drop index(:llm_providers, [:provider_id], name: :llm_providers_active_index)
     drop index(:llm_providers, [:provider_source], name: :llm_providers_provider_source_index)
     drop table(:llm_providers)
-    drop table(:agent_computer_worker_auth_keys)
   end
+
+  defp comment_table(table, comment) do
+    execute("COMMENT ON TABLE #{identifier(table)} IS #{literal(comment)}")
+  end
+
+  defp comment_columns(table, comments) do
+    Enum.each(comments, fn {column, comment} -> comment_column(table, column, comment) end)
+  end
+
+  defp comment_column(table, column, comment) do
+    execute("COMMENT ON COLUMN #{identifier(table)}.#{identifier(column)} IS #{literal(comment)}")
+  end
+
+  defp identifier(value), do: "\"" <> String.replace(to_string(value), "\"", "\"\"") <> "\""
+  defp literal(value), do: "'" <> String.replace(value, "'", "''") <> "'"
 end

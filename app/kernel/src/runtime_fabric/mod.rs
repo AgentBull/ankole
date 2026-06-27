@@ -169,7 +169,6 @@ fn worker_ready_from_json(value: &Value) -> KernelResult<proto::AgentComputerWor
 
     Ok(proto::AgentComputerWorkerReady {
         worker_id: required_string(object, "worker_id")?,
-        worker_instance_id: required_string(object, "worker_instance_id")?,
         runtime: required_string(object, "runtime")?,
         version: required_string(object, "version")?,
         capacity_json: json_bytes(object.get("capacity_json"))?.unwrap_or_default(),
@@ -181,7 +180,6 @@ fn worker_heartbeat_from_json(value: &Value) -> KernelResult<proto::AgentCompute
 
     Ok(proto::AgentComputerWorkerHeartbeat {
         worker_id: required_string(object, "worker_id")?,
-        worker_instance_id: required_string(object, "worker_instance_id")?,
         monotonic_ms: optional_i64(object, "monotonic_ms")?.unwrap_or_default(),
         load_json: json_bytes(object.get("load_json"))?.unwrap_or_default(),
     })
@@ -192,7 +190,6 @@ fn worker_capacity_from_json(value: &Value) -> KernelResult<proto::AgentComputer
 
     Ok(proto::AgentComputerWorkerCapacity {
         worker_id: required_string(object, "worker_id")?,
-        worker_instance_id: required_string(object, "worker_instance_id")?,
         capacity_json: json_bytes(object.get("capacity_json"))?.unwrap_or_default(),
         load_json: json_bytes(object.get("load_json"))?.unwrap_or_default(),
         available_turn_slots: optional_u32(object, "available_turn_slots")?.unwrap_or_default(),
@@ -775,10 +772,6 @@ fn body_to_json(body: Option<&proto::envelope::Body>) -> KernelResult<Value> {
 fn worker_ready_to_json(payload: &proto::AgentComputerWorkerReady) -> KernelResult<Value> {
     Ok(json_object([
         ("worker_id", Value::from(payload.worker_id.clone())),
-        (
-            "worker_instance_id",
-            Value::from(payload.worker_instance_id.clone()),
-        ),
         ("runtime", Value::from(payload.runtime.clone())),
         ("version", Value::from(payload.version.clone())),
         ("capacity_json", bytes_to_json(&payload.capacity_json)?),
@@ -788,10 +781,6 @@ fn worker_ready_to_json(payload: &proto::AgentComputerWorkerReady) -> KernelResu
 fn worker_heartbeat_to_json(payload: &proto::AgentComputerWorkerHeartbeat) -> KernelResult<Value> {
     Ok(json_object([
         ("worker_id", Value::from(payload.worker_id.clone())),
-        (
-            "worker_instance_id",
-            Value::from(payload.worker_instance_id.clone()),
-        ),
         ("monotonic_ms", Value::from(payload.monotonic_ms)),
         ("load_json", bytes_to_json(&payload.load_json)?),
     ]))
@@ -800,10 +789,6 @@ fn worker_heartbeat_to_json(payload: &proto::AgentComputerWorkerHeartbeat) -> Ke
 fn worker_capacity_to_json(payload: &proto::AgentComputerWorkerCapacity) -> KernelResult<Value> {
     Ok(json_object([
         ("worker_id", Value::from(payload.worker_id.clone())),
-        (
-            "worker_instance_id",
-            Value::from(payload.worker_instance_id.clone()),
-        ),
         ("capacity_json", bytes_to_json(&payload.capacity_json)?),
         ("load_json", bytes_to_json(&payload.load_json)?),
         (
@@ -1529,7 +1514,6 @@ mod tests {
             "durability": "CONTROL_EPHEMERAL",
             "worker_ready": {
                 "worker_id": "worker-a",
-                "worker_instance_id": "instance-a",
                 "runtime": "bun",
                 "version": "0.1.0",
                 "capacity_json": {"turn_slots": 2}

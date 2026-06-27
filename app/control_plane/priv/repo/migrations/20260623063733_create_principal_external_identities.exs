@@ -81,5 +81,42 @@ defmodule Ankole.Repo.Migrations.CreatePrincipalExternalIdentities do
              :principal_external_identities_metadata_object,
              check: "jsonb_typeof(metadata) = 'object'"
            )
+
+    comment_table(
+      :principal_external_identities,
+      "External identity bindings that connect principals to providers, channels, and login subjects."
+    )
+
+    comment_columns(:principal_external_identities, %{
+      principal_uid: "Principal represented by this external identity.",
+      kind: "Identity shape: platform subject, channel actor, login subject, or outbound actor.",
+      provider: "Provider namespace for non-channel identities.",
+      adapter: "SignalsGateway adapter namespace for channel actor identities.",
+      channel_id: "Provider channel id when the identity belongs to a channel actor.",
+      external_id: "Provider supplied subject or actor identifier.",
+      verified_at: "Time this identity binding was last proven by the provider.",
+      metadata: "Provider-specific identity facts kept outside the stable contract."
+    })
   end
+
+  defp comment_table(table, comment) do
+    execute(
+      "COMMENT ON TABLE #{identifier(table)} IS #{literal(comment)}",
+      "COMMENT ON TABLE #{identifier(table)} IS NULL"
+    )
+  end
+
+  defp comment_columns(table, comments) do
+    Enum.each(comments, fn {column, comment} -> comment_column(table, column, comment) end)
+  end
+
+  defp comment_column(table, column, comment) do
+    execute(
+      "COMMENT ON COLUMN #{identifier(table)}.#{identifier(column)} IS #{literal(comment)}",
+      "COMMENT ON COLUMN #{identifier(table)}.#{identifier(column)} IS NULL"
+    )
+  end
+
+  defp identifier(value), do: "\"" <> String.replace(to_string(value), "\"", "\"\"") <> "\""
+  defp literal(value), do: "'" <> String.replace(value, "'", "''") <> "'"
 end

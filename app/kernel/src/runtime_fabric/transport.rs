@@ -30,11 +30,7 @@ pub struct RouterConfig {
     #[serde(default)]
     pub endpoint: String,
     #[serde(default)]
-    pub pre_auth_token: Option<String>,
-    #[serde(default)]
-    pub pre_auth_keys: Option<HashMap<String, WorkerAuthKeyConfig>>,
-    #[serde(default)]
-    pub worker_auth_database_url: Option<String>,
+    pub worker_auth_key: Option<String>,
     #[serde(default)]
     pub zap_domain: Option<String>,
     #[serde(default)]
@@ -55,7 +51,7 @@ pub struct RouterConfig {
 
 /// Configuration for one computer-worker DEALER socket.
 ///
-/// The DEALER identity is the worker instance route seen by the control plane.
+/// The DEALER identity is the worker connection route seen by the control plane.
 #[derive(Clone, Debug, Deserialize)]
 pub struct DealerConfig {
     pub endpoint: String,
@@ -98,17 +94,6 @@ pub enum RouterEvent {
     },
     SocketError {
         reason: String,
-    },
-}
-
-#[derive(Clone, Debug, Deserialize)]
-#[serde(untagged)]
-pub enum WorkerAuthKeyConfig {
-    Secret(String),
-    Versioned {
-        pre_auth_key: String,
-        #[serde(default)]
-        key_revision: Option<i64>,
     },
 }
 
@@ -462,25 +447,8 @@ impl RouterConfig {
 
     fn validate(&self) -> Result<(), TransportError> {
         validate_non_empty("endpoint", &self.endpoint)?;
-        if let Some(url) = &self.worker_auth_database_url {
-            validate_non_empty("worker_auth_database_url", url)?;
-        }
-        if let Some(keys) = &self.pre_auth_keys {
-            if keys.is_empty() {
-                return Err(TransportError::InvalidFrame(
-                    "pre_auth_keys must not be empty".into(),
-                ));
-            }
-
-            for (worker_id, key) in keys {
-                validate_non_empty("pre_auth_keys worker_id", worker_id)?;
-                validate_non_empty("pre_auth_keys pre_auth_key", key.pre_auth_key())?;
-                if key.key_revision() <= 0 {
-                    return Err(TransportError::InvalidFrame(
-                        "pre_auth_keys key_revision must be positive".into(),
-                    ));
-                }
-            }
+        if let Some(key) = &self.worker_auth_key {
+            validate_non_empty("worker_auth_key", key)?;
         }
         validate_optional_positive("sndhwm", self.sndhwm)?;
         validate_optional_positive("rcvhwm", self.rcvhwm)?;
@@ -534,50 +502,16 @@ impl DealerConfig {
     }
 }
 
-impl WorkerAuthKeyConfig {
-    fn pre_auth_key(&self) -> &str {
-        match self {
-            Self::Secret(secret) => secret,
-            Self::Versioned { pre_auth_key, .. } => pre_auth_key,
-        }
-    }
-
-    fn key_revision(&self) -> i64 {
-        match self {
-            Self::Secret(_) => 1,
-            Self::Versioned { key_revision, .. } => key_revision.unwrap_or(1),
-        }
-    }
-}
-
 #[derive(Clone, Debug)]
 enum ZapAuthConfig {
-    SharedSecret {
-        pre_auth_token: String,
-    },
-    StaticWorkerKeys {
-        keys: HashMap<String, WorkerAuthKeyConfig>,
-    },
-    Database {
-        database_url: String,
-    },
+    GlobalWorkerKey { worker_auth_key: String },
 }
 
 fn zap_auth_config(config: &RouterConfig) -> Option<ZapAuthConfig> {
-    if let Some(database_url) = &config.worker_auth_database_url {
-        return Some(ZapAuthConfig::Database {
-            database_url: database_url.clone(),
-        });
-    }
-
-    if let Some(keys) = &config.pre_auth_keys {
-        return Some(ZapAuthConfig::StaticWorkerKeys { keys: keys.clone() });
-    }
-
     config
-        .pre_auth_token
+        .worker_auth_key
         .clone()
-        .map(|pre_auth_token| ZapAuthConfig::SharedSecret { pre_auth_token })
+        .map(|worker_auth_key| ZapAuthConfig::GlobalWorkerKey { worker_auth_key })
 }
 
 /// Starts the control-plane ROUTER socket on its own thread.
@@ -1189,8 +1123,8 @@ fn run_zap_server(
 }
 
 // Implements the small ZAP response needed for PLAIN worker authentication.
-// In the database-backed mode the PLAIN username is the stable worker_id and
-// the password must match the active worker-scoped key row.
+// The PLAIN username is the worker process id; the password must match the
+// control-plane supplied global worker auth key.
 fn zap_response(
     domain: &str,
     auth: &ZapAuthConfig,
@@ -1256,55 +1190,12 @@ fn verify_zap_credentials(
     }
 
     match auth {
-        ZapAuthConfig::SharedSecret { pre_auth_token } => {
-            (password == pre_auth_token).then(|| AuthenticatedWorker {
+        ZapAuthConfig::GlobalWorkerKey { worker_auth_key } => {
+            (password == worker_auth_key).then(|| AuthenticatedWorker {
                 worker_id: username.to_string(),
                 key_revision: 1,
             })
         }
-        ZapAuthConfig::StaticWorkerKeys { keys } => keys.get(username).and_then(|key| {
-            (password == key.pre_auth_key()).then(|| AuthenticatedWorker {
-                worker_id: username.to_string(),
-                key_revision: key.key_revision(),
-            })
-        }),
-        ZapAuthConfig::Database { database_url } => {
-            verify_database_worker_key(database_url, username, password).ok()
-        }
-    }
-}
-
-fn verify_database_worker_key(
-    database_url: &str,
-    worker_id: &str,
-    password: &str,
-) -> Result<AuthenticatedWorker, TransportError> {
-    let mut client = postgres::Client::connect(database_url, postgres::NoTls).map_err(|error| {
-        TransportError::Zmq(format!("worker auth database connect failed: {error}"))
-    })?;
-
-    let row = client
-        .query_opt(
-            "select pre_auth_key, key_revision from agent_computer_worker_auth_keys where worker_id = $1 and disabled_at is null",
-            &[&worker_id],
-        )
-        .map_err(|error| TransportError::Zmq(format!("worker auth database query failed: {error}")))?;
-
-    match row {
-        Some(row) => {
-            let expected: String = row.get(0);
-            let key_revision: i64 = row.get(1);
-
-            if expected == password {
-                Ok(AuthenticatedWorker {
-                    worker_id: worker_id.to_string(),
-                    key_revision,
-                })
-            } else {
-                Err(TransportError::Zmq("invalid worker auth key".to_string()))
-            }
-        }
-        None => Err(TransportError::Zmq("worker auth key not found".to_string())),
     }
 }
 
@@ -1483,9 +1374,7 @@ mod tests {
         let router = start_router(
             RouterConfig {
                 endpoint: "tcp://127.0.0.1:*".to_string(),
-                pre_auth_token: Some("test-token".to_string()),
-                pre_auth_keys: None,
-                worker_auth_database_url: None,
+                worker_auth_key: Some("test-token".to_string()),
                 zap_domain: None,
                 sndhwm: None,
                 rcvhwm: None,
@@ -1552,9 +1441,13 @@ mod tests {
         dealer
             .send_file_frame(vec![
                 FILE_TRANSFER_PROTOCOL.to_vec(),
-                b"ACK".to_vec(),
+                b"STAT_OK".to_vec(),
                 b"transfer-a".to_vec(),
-                br#"{"ok":true}"#.to_vec(),
+                b"/user_files/inbox/a.txt".to_vec(),
+                b"file".to_vec(),
+                1_u64.to_be_bytes().to_vec(),
+                1_u64.to_be_bytes().to_vec(),
+                Vec::new(),
             ])
             .expect("file frame sends to router");
 
@@ -1570,7 +1463,7 @@ mod tests {
                 assert_eq!(authenticated_worker_id.as_deref(), Some("worker-a"));
                 assert_eq!(authenticated_key_revision, Some(1));
                 assert_eq!(frames[0], FILE_TRANSFER_PROTOCOL);
-                assert_eq!(frames[1], b"ACK");
+                assert_eq!(frames[1], b"STAT_OK");
                 assert_eq!(frames[2], b"transfer-a");
             }
             other => panic!("unexpected router event: {other:?}"),
@@ -1581,16 +1474,17 @@ mod tests {
                 "worker-instance-a",
                 vec![
                     FILE_TRANSFER_PROTOCOL.to_vec(),
-                    b"GET".to_vec(),
+                    b"READ_OPEN".to_vec(),
                     b"transfer-b".to_vec(),
-                    br#"{"root":"user_files","relative_path":"inbox/a.txt"}"#.to_vec(),
+                    b"/user_files/inbox/a.txt".to_vec(),
+                    b"xxh3_128".to_vec(),
                 ],
             )
             .expect("file frame sends to dealer");
 
         let frames = wait_for_dealer_file_frame(&dealer).expect("dealer file frame");
         assert_eq!(frames[0], FILE_TRANSFER_PROTOCOL);
-        assert_eq!(frames[1], b"GET");
+        assert_eq!(frames[1], b"READ_OPEN");
         assert_eq!(frames[2], b"transfer-b");
 
         let unknown = router
@@ -1640,7 +1534,6 @@ mod tests {
                 "type": "worker_ready",
                 "worker_ready": {
                     "worker_id": "worker-a",
-                    "worker_instance_id": "worker-instance-a",
                     "runtime": "bun",
                     "version": "test",
                     "capacity_json": {"available_turn_slots": 1}

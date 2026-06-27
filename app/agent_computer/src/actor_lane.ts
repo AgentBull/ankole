@@ -1,7 +1,6 @@
 import { isRecord, type JsonObject, type RuntimeFabricEnvelope } from './runtime_fabric'
 
 export type { JsonObject } from './runtime_fabric'
-export type ActorLaneEnvelope = RuntimeFabricEnvelope
 
 /**
  * Durable turn fence echoed by every worker reply.
@@ -52,6 +51,12 @@ export type MailboxUpdated = {
   reason?: string
 }
 
+export type TurnControl = {
+  turn?: ActorTurnRef
+  command?: string
+  payload_json?: JsonObject
+}
+
 export type TurnModelRef = {
   profile: string
   provider_id: string
@@ -61,7 +66,7 @@ export type TurnModelRef = {
 /**
  * Extracts a turn-start payload and fails fast on wrong envelope types.
  */
-export function turnStartFromEnvelope(envelope: ActorLaneEnvelope): TurnStart {
+export function turnStartFromEnvelope(envelope: RuntimeFabricEnvelope): TurnStart {
   if (envelope.body.type !== 'turn_start') {
     throw new Error(`expected turn_start envelope, got ${envelope.body.type}`)
   }
@@ -74,7 +79,7 @@ export function turnStartFromEnvelope(envelope: ActorLaneEnvelope): TurnStart {
   return turnStart as TurnStart
 }
 
-export function mailboxUpdatedFromEnvelope(envelope: ActorLaneEnvelope): MailboxUpdated {
+export function mailboxUpdatedFromEnvelope(envelope: RuntimeFabricEnvelope): MailboxUpdated {
   if (envelope.body.type !== 'mailbox_updated') {
     throw new Error(`expected mailbox_updated envelope, got ${envelope.body.type}`)
   }
@@ -85,4 +90,17 @@ export function mailboxUpdatedFromEnvelope(envelope: ActorLaneEnvelope): Mailbox
   }
 
   return mailboxUpdated as MailboxUpdated
+}
+
+export function turnControlFromEnvelope(envelope: RuntimeFabricEnvelope): TurnControl {
+  if (envelope.body.type !== 'turn_control') {
+    throw new Error(`expected turn_control envelope, got ${envelope.body.type}`)
+  }
+
+  const turnControl = envelope.body.turn_control
+  if (!isRecord(turnControl)) {
+    throw new Error('turn_control body is missing')
+  }
+
+  return turnControl as TurnControl
 }

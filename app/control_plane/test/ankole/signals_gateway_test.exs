@@ -12,6 +12,7 @@ defmodule Ankole.SignalsGatewayTest do
   alias Ankole.SignalsGateway.ActorInputTypes
   alias Ankole.SignalsGateway.AdapterContext
   alias Ankole.SignalsGateway.Commands
+  alias Ankole.SignalsGateway.InboundBatch
   alias Ankole.SignalsGateway.InputTombstone
   alias Ankole.SignalsGateway.OutboxEntry
   alias Ankole.SignalsGateway.SignalChannel
@@ -45,6 +46,25 @@ defmodule Ankole.SignalsGatewayTest do
     )
   end
 
+  defp emit_addressed_actor_input(agent_uid, binding_name, entry, now \\ @base_time) do
+    assert {:ok, %{status: :accepted, inbound_batch: batch}} =
+             SignalsGateway.emit_entry(agent_uid, binding_name, entry, now: now)
+
+    assert {:ok, results} =
+             SignalsGateway.finalize_due_inbound_batches(
+               now: DateTime.add(now, 600, :millisecond)
+             )
+
+    actor_input =
+      Enum.find_value(results, fn
+        %{actor_input: %ActorInput{} = input} -> input
+        _result -> nil
+      end)
+
+    assert %ActorInput{} = actor_input
+    %{inbound_batch: batch, actor_input: actor_input}
+  end
+
   describe "binding policy and actor handoff" do
     test "ignore skips unaddressed group entries without mirroring or waking" do
       %{principal: agent} = agent_fixture()
@@ -55,6 +75,7 @@ defmodule Ankole.SignalsGatewayTest do
 
       assert Repo.aggregate(SignalEntry, :count) == 0
       assert Repo.aggregate(ActorInput, :count) == 0
+      assert Repo.aggregate(InboundBatch, :count) == 1
     end
 
     test "record_only mirrors unaddressed group entries without actor input" do
@@ -68,37 +89,39 @@ defmodule Ankole.SignalsGatewayTest do
       assert entry.provider_entry_id == "msg-1"
       assert entry.search_text == "hello"
       assert Repo.aggregate(ActorInput, :count) == 0
+      assert Repo.aggregate(InboundBatch, :count) == 1
     end
 
-    test "may_intervene mirrors and appends a delayed ambient observation input" do
+    test "may_intervene mirrors and finalizes a delayed ambient observation input" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "lark-main", :may_intervene)
 
-      assert {:ok, %{status: :accepted, actor_input: input}} =
+      assert {:ok, %{status: :recorded, inbound_batch: batch}} =
                SignalsGateway.emit_entry(agent.uid, "lark-main", group_entry(), now: @base_time)
 
+      due_at = DateTime.add(@base_time, 15_000, :millisecond)
+
+      assert batch.available_at == due_at
+      assert Repo.aggregate(ActorInput, :count) == 0
+
+      assert {:ok, [%{status: :accepted, actor_input: input}]} =
+               SignalsGateway.finalize_due_inbound_batches(now: due_at)
+
       assert input.type == "im.message.may_intervene"
-      assert input.available_at == DateTime.add(@base_time, 1_500, :millisecond)
+      assert input.available_at == due_at
 
       assert [%{"speaker" => "Alice", "sent_at" => sent_at, "text" => "hello"}] =
                input.payload["data"]["observed_messages"]
 
       assert sent_at == DateTime.to_iso8601(@base_time)
-
-      assert input.batch_scope == %{
-               "binding_name" => "lark-main",
-               "signal_channel_id" => "lark:chat:group-a",
-               "provider_thread_id" => "thread-1"
-             }
-
-      assert input.sender_key == "ambient:lark-main:lark:chat:group-a:thread-1"
+      assert input.sender_key == nil
     end
 
-    test "may_intervene inputs in the same room and thread debounce as one ambient batch" do
+    test "may_intervene entries in the same room and thread finalize as one ambient input" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "lark-main", :may_intervene)
 
-      assert {:ok, %{actor_input: first}} =
+      assert {:ok, %{inbound_batch: first}} =
                SignalsGateway.emit_entry(
                  agent.uid,
                  "lark-main",
@@ -112,7 +135,7 @@ defmodule Ankole.SignalsGatewayTest do
 
       second_at = DateTime.add(@base_time, 500, :millisecond)
 
-      assert {:ok, %{actor_input: second}} =
+      assert {:ok, %{inbound_batch: second}} =
                SignalsGateway.emit_entry(
                  agent.uid,
                  "lark-main",
@@ -124,37 +147,39 @@ defmodule Ankole.SignalsGatewayTest do
                  now: second_at
                )
 
-      due_at = DateTime.add(second_at, 1_500, :millisecond)
-      merged = Repo.get!(ActorInput, first.id)
+      due_at = DateTime.add(second_at, 15_000, :millisecond)
+      merged = Repo.get!(InboundBatch, first.id)
 
       assert first.id == second.id
-      assert Repo.aggregate(ActorInput, :count) == 1
+      assert Repo.aggregate(ActorInput, :count) == 0
       assert merged.available_at == due_at
 
       assert [
                %{"provider_entry_id" => "msg-ambient-first", "text" => "first"},
                %{"provider_entry_id" => "msg-ambient-second", "text" => "second"}
-             ] = merged.payload["data"]["entries"]
+             ] = merged.entries
+
+      assert {:ok, [%{actor_input: input}]} =
+               SignalsGateway.finalize_due_inbound_batches(now: due_at)
 
       assert [
                %{"speaker" => "Alice", "text" => "first"},
                %{"speaker" => "Alice", "text" => "second"}
-             ] = merged.payload["data"]["observed_messages"]
+             ] = input.payload["data"]["observed_messages"]
 
       assert Actors.list_ready_inputs(
                agent.uid,
                SignalsGateway.signal_session_id("lark:chat:group-a"),
                due_at
              )
-             |> Actors.contiguous_same_sender_prefix()
-             |> Enum.map(& &1.id) == [first.id]
+             |> Enum.map(& &1.id) == [input.id]
     end
 
     test "DM and structured mentions are explicit even when group policy is ignore" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "lark-main", :ignore)
 
-      assert {:ok, %{actor_input: dm_input}} =
+      assert {:ok, %{inbound_batch: dm_batch}} =
                SignalsGateway.emit_entry(
                  agent.uid,
                  "lark-main",
@@ -168,9 +193,15 @@ defmodule Ankole.SignalsGatewayTest do
                  now: @base_time
                )
 
-      assert dm_input.type == "im.message.addressed"
+      assert {:ok, [%{actor_input: dm_input}]} =
+               SignalsGateway.finalize_due_inbound_batches(
+                 now: DateTime.add(@base_time, 600, :millisecond)
+               )
 
-      assert {:ok, %{actor_input: mention_input}} =
+      assert dm_input.type == "im.message.addressed"
+      assert dm_batch.mode == "addressed"
+
+      assert {:ok, %{inbound_batch: mention_batch}} =
                SignalsGateway.emit_entry(
                  agent.uid,
                  "lark-main",
@@ -183,14 +214,20 @@ defmodule Ankole.SignalsGatewayTest do
                  now: @base_time
                )
 
+      assert {:ok, [%{actor_input: mention_input}]} =
+               SignalsGateway.finalize_due_inbound_batches(
+                 now: DateTime.add(@base_time, 600, :millisecond)
+               )
+
       assert mention_input.type == "im.message.addressed"
+      assert mention_batch.mode == "addressed"
     end
 
     test "pending clarify lookup can route an unmentioned group reply as explicit input" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "lark-main", :ignore)
 
-      assert {:ok, %{status: :accepted, actor_input: input}} =
+      assert {:ok, %{status: :accepted, inbound_batch: batch}} =
                SignalsGateway.emit_entry(agent.uid, "lark-main", group_entry(),
                  now: @base_time,
                  clarify_lookup: fn _binding, fact ->
@@ -199,7 +236,13 @@ defmodule Ankole.SignalsGatewayTest do
                  end
                )
 
+      assert {:ok, [%{actor_input: input}]} =
+               SignalsGateway.finalize_due_inbound_batches(
+                 now: DateTime.add(@base_time, 600, :millisecond)
+               )
+
       assert input.type == "im.message.addressed"
+      assert batch.mode == "addressed"
       assert Repo.aggregate(ActorInput, :count) == 1
     end
 
@@ -242,18 +285,17 @@ defmodule Ankole.SignalsGatewayTest do
       assert Repo.aggregate(SignalEntry, :count) == 0
       assert Repo.aggregate(ActorInput, :count) == 0
 
-      assert {:ok, %{status: :accepted, actor_input: input}} =
-               SignalsGateway.emit_entry(
-                 agent.uid,
-                 "bot",
-                 group_entry(%{
-                   explicit: true,
-                   ingress_event_id: "evt-allowed",
-                   signal_channel_id: "lark:chat:allowed",
-                   provider_entry_id: "msg-allowed"
-                 }),
-                 now: @base_time
-               )
+      %{actor_input: input} =
+        emit_addressed_actor_input(
+          agent.uid,
+          "bot",
+          group_entry(%{
+            explicit: true,
+            ingress_event_id: "evt-allowed",
+            signal_channel_id: "lark:chat:allowed",
+            provider_entry_id: "msg-allowed"
+          })
+        )
 
       assert input.signal_channel_id == "lark:chat:allowed"
       assert Repo.aggregate(SignalEntry, :count) == 1
@@ -321,18 +363,17 @@ defmodule Ankole.SignalsGatewayTest do
         display_name: "Alice"
       )
 
-      assert {:ok, %{status: :accepted, actor_input: input}} =
-               SignalsGateway.emit_entry(
-                 agent.uid,
-                 "bot",
-                 group_entry(%{
-                   ingress_event_id: "evt-known-author",
-                   provider_entry_id: "msg-known-author",
-                   explicit: true,
-                   author: %{platform_subject: "ou_alice", display_name: "Alice"}
-                 }),
-                 now: @base_time
-               )
+      %{actor_input: input} =
+        emit_addressed_actor_input(
+          agent.uid,
+          "bot",
+          group_entry(%{
+            ingress_event_id: "evt-known-author",
+            provider_entry_id: "msg-known-author",
+            explicit: true,
+            author: %{platform_subject: "ou_alice", display_name: "Alice"}
+          })
+        )
 
       assert input.sender_key == "alice"
 
@@ -365,6 +406,12 @@ defmodule Ankole.SignalsGatewayTest do
                )
 
       assert Repo.aggregate(SignalEntry, :count) == 1
+
+      assert {:ok, [%{actor_input: _input_a}, %{actor_input: _input_b}]} =
+               SignalsGateway.finalize_due_inbound_batches(
+                 now: DateTime.add(@base_time, 2, :second)
+               )
+
       assert Repo.aggregate(ActorInput, :count) == 2
 
       assert Repo.aggregate(
@@ -403,7 +450,7 @@ defmodule Ankole.SignalsGatewayTest do
     end
   end
 
-  describe "commands and micro-batch readiness" do
+  describe "commands and inbound IM batching" do
     test "internal timer facts append actor input without provider mirror" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "internal:timers", :ignore, adapter: "internal")
@@ -455,28 +502,27 @@ defmodule Ankole.SignalsGatewayTest do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
 
-      assert {:ok, %{actor_input: undo_input}} =
-               SignalsGateway.emit_entry(
-                 agent.uid,
-                 "bot",
-                 group_entry(%{explicit: true, text: "/undo"}),
-                 now: @base_time
-               )
+      %{actor_input: undo_input} =
+        emit_addressed_actor_input(
+          agent.uid,
+          "bot",
+          group_entry(%{explicit: true, text: "/undo"})
+        )
 
       assert undo_input.type == "im.message.addressed"
 
-      assert {:ok, %{actor_input: full_width_input}} =
-               SignalsGateway.emit_entry(
-                 agent.uid,
-                 "bot",
-                 group_entry(%{
-                   explicit: true,
-                   ingress_event_id: "evt-full-width",
-                   provider_entry_id: "msg-full-width",
-                   text: "／steer"
-                 }),
-                 now: @base_time
-               )
+      %{actor_input: full_width_input} =
+        emit_addressed_actor_input(
+          agent.uid,
+          "bot",
+          group_entry(%{
+            explicit: true,
+            ingress_event_id: "evt-full-width",
+            provider_entry_id: "msg-full-width",
+            text: "／steer"
+          }),
+          DateTime.add(@base_time, 1, :second)
+        )
 
       assert full_width_input.type == "im.message.addressed"
     end
@@ -493,17 +539,17 @@ defmodule Ankole.SignalsGatewayTest do
       refute Map.has_key?(command, "status")
     end
 
-    test "addressed IM inputs share readiness window by scope and read contiguous same-sender prefix" do
+    test "addressed IM entries close as sender-scoped actor input batches" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
 
       alice = %{principal_uid: "alice", id: "provider-alice", display_name: "Alice"}
       bob = %{principal_uid: "bob", id: "provider-bob", display_name: "Bob"}
 
-      for {event_id, entry_id, author, offset} <- [
-            {"evt-a1", "msg-a1", alice, 0},
-            {"evt-a2", "msg-a2", alice, 100},
-            {"evt-b1", "msg-b1", bob, 200}
+      for {event_id, entry_id, author, offset, text} <- [
+            {"evt-a1", "msg-a1", alice, 0, "first"},
+            {"evt-a2", "msg-a2", alice, 100, "second"},
+            {"evt-b1", "msg-b1", bob, 200, "third"}
           ] do
         assert {:ok, %{status: :accepted}} =
                  SignalsGateway.emit_entry(
@@ -513,24 +559,193 @@ defmodule Ankole.SignalsGatewayTest do
                      explicit: true,
                      ingress_event_id: event_id,
                      provider_entry_id: entry_id,
-                     author: author
+                     author: author,
+                     text: text
                    }),
                    now: DateTime.add(@base_time, offset, :millisecond)
                  )
       end
+
+      assert Repo.aggregate(ActorInput, :count) == 1
 
       rows =
         ActorInput
         |> order_by([input], asc: input.inserted_at)
         |> Repo.all()
 
-      assert Enum.map(rows, & &1.sender_key) == ["alice", "alice", "bob"]
-      assert rows |> Enum.map(& &1.available_at) |> Enum.uniq() |> length() == 1
+      assert Enum.map(rows, & &1.sender_key) == ["alice"]
 
-      assert Actors.contiguous_same_sender_prefix(rows) |> Enum.map(& &1.provider_entry_id) == [
-               "msg-a1",
-               "msg-a2"
-             ]
+      [alice_input] = rows
+      assert alice_input.provider_entry_id == "msg-a2"
+      assert get_in(alice_input.payload, ["data", "entry", "text"]) == "first\nsecond"
+
+      assert [
+               %{"provider_entry_id" => "msg-a1", "text" => "first"},
+               %{"provider_entry_id" => "msg-a2", "text" => "second"}
+             ] = get_in(alice_input.payload, ["data", "entries"])
+
+      assert [%InboundBatch{mode: "addressed", requester_sender_key: "bob"} = bob_batch] =
+               InboundBatch
+               |> where([batch], batch.batch_state == "open")
+               |> Repo.all()
+
+      due_at = DateTime.add(@base_time, 800, :millisecond)
+
+      assert {:ok, [%{actor_input: bob_input}]} =
+               SignalsGateway.finalize_due_inbound_batches(now: due_at)
+
+      assert bob_input.provider_entry_id == "msg-b1"
+      assert bob_batch.id == Repo.get!(InboundBatch, bob_batch.id).id
+    end
+
+    test "neutral batch upgrades only the final same-sender run when bot is mentioned" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :ignore)
+
+      alice = %{principal_uid: "alice", id: "provider-alice", display_name: "Alice"}
+      bob = %{principal_uid: "bob", id: "provider-bob", display_name: "Bob"}
+
+      assert {:ok, %{status: :ignored}} =
+               SignalsGateway.emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{
+                   ingress_event_id: "evt-alice-neutral",
+                   provider_entry_id: "msg-alice-neutral",
+                   author: alice,
+                   text: "alice aside"
+                 }),
+                 now: @base_time
+               )
+
+      assert {:ok, %{status: :ignored}} =
+               SignalsGateway.emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{
+                   ingress_event_id: "evt-bob-neutral",
+                   provider_entry_id: "msg-bob-neutral",
+                   author: bob,
+                   text: "bob context"
+                 }),
+                 now: DateTime.add(@base_time, 100, :millisecond)
+               )
+
+      assert {:ok, %{status: :accepted, inbound_batch: addressed_batch}} =
+               SignalsGateway.emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{
+                   explicit: true,
+                   ingress_event_id: "evt-bob-mention",
+                   provider_entry_id: "msg-bob-mention",
+                   author: bob,
+                   text: "@Agent help",
+                   mentions: [%{kind: :agent, structured: true, agent_uid: agent.uid}]
+                 }),
+                 now: DateTime.add(@base_time, 200, :millisecond)
+               )
+
+      assert addressed_batch.mode == "addressed"
+      assert addressed_batch.requester_sender_key == "bob"
+
+      due_at = DateTime.add(@base_time, 800, :millisecond)
+
+      assert {:ok, [%{actor_input: input}]} =
+               SignalsGateway.finalize_due_inbound_batches(now: due_at)
+
+      assert get_in(input.payload, ["data", "entry", "text"]) == "bob context\n@Agent help"
+
+      assert [
+               %{"provider_entry_id" => "msg-bob-neutral"},
+               %{"provider_entry_id" => "msg-bob-mention"}
+             ] = get_in(input.payload, ["data", "entries"])
+
+      refute Repo.get_by(SignalEntry,
+               signal_channel_id: "lark:chat:group-a",
+               provider_entry_id: "msg-alice-neutral"
+             )
+    end
+
+    test "addressed text followed by attachment waits on the attachment window and merges" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :ignore)
+
+      assert {:ok, %{inbound_batch: first_batch}} =
+               SignalsGateway.emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{
+                   explicit: true,
+                   ingress_event_id: "evt-text",
+                   provider_entry_id: "msg-text",
+                   text: "look at this"
+                 }),
+                 now: @base_time
+               )
+
+      attachment_at = DateTime.add(@base_time, 500, :millisecond)
+
+      assert {:ok, %{inbound_batch: updated_batch}} =
+               SignalsGateway.emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{
+                   ingress_event_id: "evt-image",
+                   provider_entry_id: "msg-image",
+                   text: "image",
+                   attachments: [%{provider_ref: "lark:image:image-1", name: "chart.png"}]
+                 }),
+                 now: attachment_at
+               )
+
+      assert first_batch.id == updated_batch.id
+
+      assert Repo.get!(InboundBatch, first_batch.id).available_at ==
+               DateTime.add(attachment_at, 1_200, :millisecond)
+
+      assert {:ok, []} =
+               SignalsGateway.finalize_due_inbound_batches(
+                 now: DateTime.add(@base_time, 1_100, :millisecond)
+               )
+
+      assert {:ok, [%{actor_input: input}]} =
+               SignalsGateway.finalize_due_inbound_batches(
+                 now: DateTime.add(attachment_at, 1_200, :millisecond)
+               )
+
+      assert get_in(input.payload, ["data", "entry", "text"]) == "look at this\nimage"
+
+      assert [%{"provider_ref" => "lark:image:image-1", "name" => "chart.png"}] =
+               get_in(input.payload, ["data", "entry", "attachments"])
+    end
+
+    test "single addressed message over the normal text budget is not split" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :ignore)
+
+      long_text = String.duplicate("x", 4_500)
+
+      assert {:ok, %{inbound_batch: batch}} =
+               SignalsGateway.emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{
+                   explicit: true,
+                   text: long_text
+                 }),
+                 now: @base_time
+               )
+
+      assert [%{"text" => ^long_text}] = batch.entries
+
+      assert {:ok, [%{actor_input: input}]} =
+               SignalsGateway.finalize_due_inbound_batches(
+                 now: DateTime.add(@base_time, 2_000, :millisecond)
+               )
+
+      assert get_in(input.payload, ["data", "entry", "text"]) == long_text
+      assert [_one_entry] = get_in(input.payload, ["data", "entries"])
     end
   end
 
@@ -592,18 +807,19 @@ defmodule Ankole.SignalsGatewayTest do
       assert {:ok, :released} = Task.await(task, 1_000)
     end
 
-    test "delete while actor input is pending removes pending actor input without lifecycle wake" do
+    test "delete while inbound batch is pending removes source entry without lifecycle wake" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
 
-      assert {:ok, %{status: :accepted}} =
+      assert {:ok, %{status: :accepted, inbound_batch: batch}} =
                SignalsGateway.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
                  now: @base_time
                )
 
-      assert Repo.aggregate(ActorInput, :count) == 1
+      assert Repo.aggregate(ActorInput, :count) == 0
+      assert batch.batch_state == "open"
 
-      assert {:ok, %{canceled_actor_inputs: 1, lifecycle_inputs: []}} =
+      assert {:ok, %{updated_inbound_batches: 1, canceled_actor_inputs: 0, lifecycle_inputs: []}} =
                SignalsGateway.emit_entry_recalled(
                  agent.uid,
                  "bot",
@@ -613,16 +829,19 @@ defmodule Ankole.SignalsGatewayTest do
 
       assert Repo.aggregate(SignalEntry, :count) == 0
       assert Repo.aggregate(ActorInput, :count) == 0
+
+      assert %InboundBatch{batch_state: "canceled", outcome: "canceled", entries: entries} =
+               Repo.get!(InboundBatch, batch.id)
+
+      assert entries == []
     end
 
     test "delete after actor commit appends deterministic lifecycle input" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
 
-      assert {:ok, %{actor_input: original_input}} =
-               SignalsGateway.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
-                 now: @base_time
-               )
+      %{actor_input: original_input} =
+        emit_addressed_actor_input(agent.uid, "bot", group_entry(%{explicit: true}))
 
       assert {:ok, _consumed} =
                Actors.consume_actor_input(
@@ -649,10 +868,8 @@ defmodule Ankole.SignalsGatewayTest do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
 
-      assert {:ok, %{actor_input: original_input}} =
-               SignalsGateway.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
-                 now: @base_time
-               )
+      %{actor_input: original_input} =
+        emit_addressed_actor_input(agent.uid, "bot", group_entry(%{explicit: true}))
 
       assert {:ok, _} =
                SignalsGateway.emit_entry_recalled(
@@ -677,10 +894,8 @@ defmodule Ankole.SignalsGatewayTest do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
 
-      assert {:ok, %{actor_input: original_input}} =
-               SignalsGateway.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
-                 now: @base_time
-               )
+      %{actor_input: original_input} =
+        emit_addressed_actor_input(agent.uid, "bot", group_entry(%{explicit: true}))
 
       assert {:ok, _tombstone} =
                %InputTombstone{}
@@ -945,10 +1160,8 @@ defmodule Ankole.SignalsGatewayTest do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
 
-      assert {:ok, %{actor_input: input}} =
-               SignalsGateway.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
-                 now: @base_time
-               )
+      %{actor_input: input} =
+        emit_addressed_actor_input(agent.uid, "bot", group_entry(%{explicit: true}))
 
       assert {:ok, _consumed} =
                Actors.consume_actor_input(
@@ -983,10 +1196,8 @@ defmodule Ankole.SignalsGatewayTest do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
 
-      assert {:ok, %{actor_input: input}} =
-               SignalsGateway.emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
-                 now: @base_time
-               )
+      %{actor_input: input} =
+        emit_addressed_actor_input(agent.uid, "bot", group_entry(%{explicit: true}))
 
       assert {:error, :invalid_outbox_intent} =
                Actors.consume_actor_input(

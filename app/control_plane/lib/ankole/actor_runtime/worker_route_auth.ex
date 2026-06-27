@@ -45,11 +45,6 @@ defmodule Ankole.ActorRuntime.WorkerRouteAuth do
     |> where([assignment], assignment.agent_uid == ^String.downcase(agent_uid))
     |> where([assignment], assignment.session_id == ^session_id)
     |> where([assignment], assignment.worker_id == ^worker.worker_id)
-    |> where(
-      [assignment],
-      is_nil(assignment.worker_instance_id) or
-        assignment.worker_instance_id == ^worker.worker_instance_id
-    )
     |> where([assignment], assignment.status in ["assigned", "draining"])
     |> repo.one()
   end
@@ -62,11 +57,6 @@ defmodule Ankole.ActorRuntime.WorkerRouteAuth do
     |> where([activation], activation.actor_epoch == ^turn_ref.actor_epoch)
     |> where([activation], activation.current_llm_turn_id == ^turn_ref.llm_turn_id)
     |> where([activation], activation.assigned_worker_id == ^worker.worker_id)
-    |> where(
-      [activation],
-      is_nil(activation.assigned_worker_instance_id) or
-        activation.assigned_worker_instance_id == ^worker.worker_instance_id
-    )
     |> where([activation], activation.status in ["starting", "active", "draining"])
     |> repo.one()
   end

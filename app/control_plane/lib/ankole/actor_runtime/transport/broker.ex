@@ -34,11 +34,12 @@ defmodule Ankole.ActorRuntime.Transport.Broker do
   alias Ankole.ActorRuntime.FileTransferLane
   alias Ankole.ActorRuntime.RPCLane
   alias Ankole.ActorRuntime.WorkerAdmission
-  alias Ankole.ActorRuntime.WorkerAuthKeys
+  alias Ankole.ActorRuntime.WorkerAuthKey
   alias Ankole.ActorRuntime.WorkerRouteAuth
   alias Ankole.Kernel.RuntimeFabric
 
   @type handler :: (map() -> term()) | pid()
+  @default_rpc_timeout_ms 60_000
 
   @doc """
   Starts the broker.
@@ -112,6 +113,28 @@ defmodule Ankole.ActorRuntime.Transport.Broker do
   end
 
   @doc """
+  Sends a control-plane-originated RPC request to one worker route.
+
+  The RPC lane is bidirectional, but each call still has one caller, one callee,
+  and one `request_id`. This function owns the control-plane caller side and
+  resolves when the worker sends `rpc_response` or `rpc_error` back on the same
+  route.
+  """
+  @spec request_rpc(String.t(), String.t(), map(), keyword()) ::
+          {:ok, map()} | {:error, map() | term()}
+  def request_rpc(transport_route, method, payload \\ %{}, opts \\ [])
+      when is_binary(transport_route) and is_binary(method) and is_map(payload) and
+             is_list(opts) do
+    timeout_ms = Keyword.get(opts, :timeout_ms, @default_rpc_timeout_ms)
+
+    GenServer.call(
+      __MODULE__,
+      {:request_rpc, transport_route, method, payload, opts},
+      timeout_ms + 1_000
+    )
+  end
+
+  @doc """
   Sends one raw worker-file frame set to a transport route.
 
   This is intentionally separate from `send_mandatory/2`: actor/rpc envelopes
@@ -126,7 +149,7 @@ defmodule Ankole.ActorRuntime.Transport.Broker do
 
   @impl true
   def init(opts) do
-    state = %{local_routes: %{}, router: nil, router_endpoint: nil}
+    state = %{local_routes: %{}, router: nil, router_endpoint: nil, rpc_waiters: %{}}
 
     # Bind the ROUTER in a continuation, not inline in init/1: binding is a
     # blocking NIF call, and deferring it keeps the supervisor's start_link fast
@@ -178,16 +201,26 @@ defmodule Ankole.ActorRuntime.Transport.Broker do
 
   @impl true
   def handle_call({:send_mandatory, route, envelope}, _from, state) do
-    # Local routes win over the production ROUTER so a test handler can shadow a
-    # route. A locally dispatched envelope is always "sent": the handler runs
-    # in-process and cannot be lost on the wire.
-    case Map.fetch(state.local_routes, route) do
-      {:ok, handler} ->
-        dispatch(handler, envelope)
-        {:reply, {:ok, :sent_or_queued}, state}
+    {:reply, send_envelope_to_route(route, envelope, state), state}
+  end
 
-      :error ->
-        {:reply, router_send_mandatory(state.router, route, envelope), state}
+  @impl true
+  def handle_call({:request_rpc, route, method, payload, opts}, from, state) do
+    request_id = request_id(opts)
+    timeout_ms = Keyword.get(opts, :timeout_ms, @default_rpc_timeout_ms)
+    timer = Process.send_after(self(), {:rpc_request_timeout, request_id}, timeout_ms)
+    envelope = rpc_request_envelope(request_id, method, payload, timeout_ms)
+    waiter = %{from: from, route: route, method: method, timer: timer}
+    state = put_in(state, [:rpc_waiters, request_id], waiter)
+
+    case send_envelope_to_route(route, envelope, state) do
+      {:ok, :sent_or_queued} ->
+        {:noreply, state}
+
+      {:error, reason} ->
+        Process.cancel_timer(timer)
+        GenServer.reply(from, {:error, reason})
+        {:noreply, update_in(state.rpc_waiters, &Map.delete(&1, request_id))}
     end
   end
 
@@ -276,9 +309,22 @@ defmodule Ankole.ActorRuntime.Transport.Broker do
     {:noreply, state}
   end
 
+  @impl true
+  def handle_info({:rpc_request_timeout, request_id}, state) do
+    case Map.pop(state.rpc_waiters, request_id) do
+      {nil, _waiters} ->
+        {:noreply, state}
+
+      {waiter, waiters} ->
+        GenServer.reply(waiter.from, {:error, :timeout})
+        {:noreply, %{state | rpc_waiters: waiters}}
+    end
+  end
+
   # Entry point for every inbound envelope. RuntimeFabric owns the shared ROUTER
-  # route; the body type decides whether this is a bidirectional RPC request or
-  # an actor lane fact/event.
+  # route; worker-originated RPC requests are dispatched on the control-plane
+  # side, while worker RPC replies resolve pending control-plane callers. The
+  # remaining body types are actor lane facts/events.
   defp handle_router_received(
          route,
          authenticated_worker_id,
@@ -295,11 +341,18 @@ defmodule Ankole.ActorRuntime.Transport.Broker do
         |> RPCLane.handle_request(route)
         |> send_rpc_response(state.router, route)
 
+        {:noreply, state}
+
+      {:ok, route, %{"body" => %{"type" => "rpc_response"} = body}} ->
+        {:noreply, resolve_rpc_response(state, route, body["rpc_response"])}
+
+      {:ok, route, %{"body" => %{"type" => "rpc_error"} = body}} ->
+        {:noreply, resolve_rpc_error(state, route, body["rpc_error"])}
+
       decoded ->
         dispatch_router_envelope(decoded, authenticated_route)
+        {:noreply, state}
     end
-
-    {:noreply, state}
   end
 
   # Delivers to a local (test) route handler. A handler may be a 1-arity function
@@ -316,10 +369,24 @@ defmodule Ankole.ActorRuntime.Transport.Broker do
   defp dispatch_file_frame(handler, frames) when is_pid(handler),
     do: send(handler, {:file_transfer_lane, frames})
 
+  # Local routes win over the production ROUTER so a test handler can shadow a
+  # route. A locally dispatched envelope is always "sent": the handler runs
+  # in-process and cannot be lost on the wire.
+  defp send_envelope_to_route(route, envelope, state) do
+    case Map.fetch(state.local_routes, route) do
+      {:ok, handler} ->
+        dispatch(handler, envelope)
+        {:ok, :sent_or_queued}
+
+      :error ->
+        router_send_mandatory(state.router, route, envelope)
+    end
+  end
+
   # Starts the single production ROUTER owned by this broker. Keeping the socket
   # behind one GenServer makes route failure handling visible to ActorRuntime.
   defp start_router_in_state(endpoint, opts, %{router: nil} = state) do
-    opts = maybe_database_worker_auth(opts)
+    opts = put_worker_auth_key(opts)
 
     with {:ok, router} <- RuntimeFabric.router_start(endpoint, self(), opts),
          endpoint when is_binary(endpoint) <- RuntimeFabric.router_endpoint(router) do
@@ -358,12 +425,103 @@ defmodule Ankole.ActorRuntime.Transport.Broker do
     )
   end
 
+  defp resolve_rpc_response(state, route, response) when is_map(response) do
+    resolve_rpc_reply(state, route, response, fn payload -> {:ok, payload} end)
+  end
+
+  defp resolve_rpc_response(state, _route, _response), do: state
+
+  defp resolve_rpc_error(state, route, error) when is_map(error) do
+    resolve_rpc_reply(state, route, error, fn payload -> {:error, payload} end)
+  end
+
+  defp resolve_rpc_error(state, _route, _error), do: state
+
+  defp resolve_rpc_reply(state, route, reply, result_fun) do
+    request_id = text(reply, "request_id")
+
+    with request_id when is_binary(request_id) <- request_id,
+         %{route: ^route} = waiter <- Map.get(state.rpc_waiters, request_id) do
+      Process.cancel_timer(waiter.timer)
+      GenServer.reply(waiter.from, result_fun.(rpc_payload(reply)))
+      update_in(state.rpc_waiters, &Map.delete(&1, request_id))
+    else
+      %{route: other_route} ->
+        Logger.warning(
+          "runtime fabric rpc reply route mismatch request_id=#{inspect(request_id)} expected=#{inspect(other_route)} got=#{inspect(route)}"
+        )
+
+        state
+
+      _value ->
+        Logger.debug(
+          "ignored runtime fabric rpc reply without waiter route=#{inspect(route)} request_id=#{inspect(request_id)}"
+        )
+
+        state
+    end
+  end
+
   # Decodes the JSON host representation emitted by the native RuntimeFabric
   # transport. Protocol validation already happened in kernel encode/decode.
   defp decode_router_envelope(route, envelope_json) do
     {:ok, route, Torque.decode!(envelope_json)}
   rescue
     error -> {:error, route, Exception.message(error)}
+  end
+
+  defp rpc_request_envelope(request_id, method, payload, timeout_ms) do
+    %{
+      "protocol_version" => 1,
+      "message_id" => "rpc-request-#{Ecto.UUID.generate()}",
+      "correlation_id" => request_id,
+      "lane" => "LANE_RPC",
+      "durability" => "CONTROL_EPHEMERAL",
+      "body" => %{
+        "type" => "rpc_request",
+        "rpc_request" => %{
+          "request_id" => request_id,
+          "method" => method,
+          "deadline_unix_ms" => System.system_time(:millisecond) + timeout_ms,
+          "payload_json" => payload
+        }
+      }
+    }
+  end
+
+  defp rpc_payload(%{"payload_json" => payload}) when is_map(payload), do: payload
+  defp rpc_payload(%{"details_json" => details} = error) when is_map(details), do: error
+
+  defp rpc_payload(error = %{"code" => _code}) do
+    Map.put(error, "details_json", %{})
+  end
+
+  defp rpc_payload(_reply), do: %{}
+
+  defp request_id(opts) do
+    case Keyword.get(opts, :request_id) do
+      value when is_binary(value) ->
+        case String.trim(value) do
+          "" -> "rpc-#{Ecto.UUID.generate()}"
+          request_id -> request_id
+        end
+
+      _value ->
+        "rpc-#{Ecto.UUID.generate()}"
+    end
+  end
+
+  defp text(map, key) do
+    case Map.get(map, key) || Map.get(map, String.to_atom(key)) do
+      value when is_binary(value) ->
+        case String.trim(value) do
+          "" -> nil
+          text -> text
+        end
+
+      _value ->
+        nil
+    end
   end
 
   # Lifecycle envelopes are authenticated by the route they arrived on, then
@@ -478,31 +636,11 @@ defmodule Ankole.ActorRuntime.Transport.Broker do
   defp with_authorized_envelope({:ok, envelope}, handler), do: handler.(envelope)
   defp with_authorized_envelope({:error, _reason} = error, _handler), do: error
 
-  # Same ZAP-auth defaulting as the supervisor, applied here for callers that
-  # start the router directly via start_router/2 (e.g. tests) without going
-  # through the supervisor's config path. Unless the caller supplies its own
-  # credentials, point the native router at the Repo database so it can verify
-  # worker pre-auth keys.
-  defp maybe_database_worker_auth(opts) do
-    cond do
-      Keyword.has_key?(opts, :pre_auth_token) ->
-        Keyword.delete(opts, :worker_auth)
-
-      Keyword.has_key?(opts, :pre_auth_keys) ->
-        Keyword.delete(opts, :worker_auth)
-
-      Keyword.has_key?(opts, :worker_auth_database_url) ->
-        Keyword.delete(opts, :worker_auth)
-
-      Keyword.get(opts, :worker_auth, :database) == false ->
-        Keyword.delete(opts, :worker_auth)
-
-      true ->
-        opts
-        |> Keyword.delete(:worker_auth)
-        |> Keyword.put(:worker_auth_database_url, WorkerAuthKeys.database_url!())
-    end
-  end
+  # Same worker-auth defaulting as the supervisor, applied here for callers that
+  # start the router directly via start_router/2 without going through the
+  # supervisor's config path.
+  defp put_worker_auth_key(opts),
+    do: Keyword.put_new(opts, :worker_auth_key, WorkerAuthKey.ensure!())
 
   defp authenticated_route(route, authenticated_worker_id, authenticated_key_revision) do
     %{

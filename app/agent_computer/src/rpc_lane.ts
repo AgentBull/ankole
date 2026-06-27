@@ -1,5 +1,7 @@
-import type { JsonObject } from './runtime_fabric'
 import type { ActorTurnRef } from './actor_lane'
+import type { WorkerConfig } from './runtime'
+import type { JsonObject, RuntimeFabricEnvelope } from './runtime_fabric'
+import type { ReliableEnvelopeSender } from './runtime_fabric_sender'
 
 export const rpcMethods = {
   llmProviderResolveCredential: 'llm_provider.resolve_credential',
@@ -7,14 +9,15 @@ export const rpcMethods = {
   runtimeTurnContextResolve: 'runtime.turn_context.resolve',
   skillsOverlayResolve: 'skills.overlay.resolve',
   skillsOverlayReplace: 'skills.overlay.replace',
-  skillsOverlayClear: 'skills.overlay.clear'
+  skillsOverlayClear: 'skills.overlay.clear',
+  workerRuntimeDescribe: 'worker.runtime.describe'
 } as const
 
 export type RpcMethod = (typeof rpcMethods)[keyof typeof rpcMethods]
 
 export type RpcRequest = {
   request_id: string
-  method: RpcMethod
+  method: RpcMethod | string
   deadline_unix_ms?: number
   payload_json?: JsonObject
 }
@@ -141,6 +144,26 @@ export type LlmProviderCredentialRejected = {
   message?: string
 }
 
+export type WorkerRuntimeDescribeRequest = {
+  request_id: string
+}
+
+export type WorkerRuntimeDescribeResponse = {
+  request_id: string
+  worker_id: string
+  runtime: 'bun'
+  version: string
+  active_turns: number
+  workspace_roots: {
+    workspace: string
+    sessions: string
+    shared_fs: string
+    user_files: string
+    agent_installed_skills: string
+    builtin_skills: string
+  }
+}
+
 export type RpcPayloadByMethod = {
   [rpcMethods.llmProviderResolveCredential]: LlmProviderCredentialRequest
   [rpcMethods.agentProfileResolve]: AgentProfileRequest
@@ -148,6 +171,15 @@ export type RpcPayloadByMethod = {
   [rpcMethods.skillsOverlayResolve]: SkillOverlayRequest
   [rpcMethods.skillsOverlayReplace]: SkillOverlayReplaceRequest
   [rpcMethods.skillsOverlayClear]: SkillOverlayRequest
+  [rpcMethods.workerRuntimeDescribe]: WorkerRuntimeDescribeRequest
+}
+
+export const rpcTimeoutMs = 60_000
+
+type RpcWaiter = {
+  resolve: (response: RpcResponse | RpcError) => void
+  reject: (error: Error) => void
+  timeout: ReturnType<typeof setTimeout>
 }
 
 export function rpcRequestEnvelopeBody(request: RpcRequest): {
@@ -157,5 +189,146 @@ export function rpcRequestEnvelopeBody(request: RpcRequest): {
   return {
     type: 'rpc_request',
     rpc_request: request
+  }
+}
+
+export function rpcResponseEnvelopeBody(response: RpcResponse): {
+  type: 'rpc_response'
+  rpc_response: RpcResponse
+} {
+  return {
+    type: 'rpc_response',
+    rpc_response: response
+  }
+}
+
+export function rpcErrorEnvelopeBody(error: RpcError): {
+  type: 'rpc_error'
+  rpc_error: RpcError
+} {
+  return {
+    type: 'rpc_error',
+    rpc_error: error
+  }
+}
+
+export class RuntimeRpcClient {
+  private waiters = new Map<string, RpcWaiter>()
+
+  constructor(private readonly sendEnvelope: ReliableEnvelopeSender) {}
+
+  async request<M extends RpcMethod>(
+    method: M,
+    payload: RpcPayloadByMethod[M],
+    requestId: string
+  ): Promise<RpcResponse | RpcError> {
+    const request: RpcRequest = {
+      request_id: requestId,
+      method,
+      payload_json: payload as JsonObject
+    }
+
+    const promise = new Promise<RpcResponse | RpcError>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        this.waiters.delete(requestId)
+        reject(new Error(`RPC request timed out: ${method}`))
+      }, rpcTimeoutMs)
+      this.waiters.set(requestId, { resolve, reject, timeout })
+    })
+
+    try {
+      await this.sendEnvelope({
+        protocol_version: 1,
+        message_id: `rpc-request-${crypto.randomUUID()}`,
+        correlation_id: requestId,
+        lane: 'LANE_RPC',
+        durability: 'CONTROL_EPHEMERAL',
+        body: rpcRequestEnvelopeBody(request)
+      })
+    } catch (error) {
+      const waiter = this.waiters.get(requestId)
+      if (waiter) {
+        clearTimeout(waiter.timeout)
+        this.waiters.delete(requestId)
+      }
+      throw error
+    }
+
+    return promise
+  }
+
+  resolve(response: RpcResponse | RpcError): void {
+    const waiter = this.waiters.get(response.request_id)
+    if (!waiter) return
+
+    clearTimeout(waiter.timeout)
+    this.waiters.delete(response.request_id)
+    waiter.resolve(response)
+  }
+}
+
+export async function handleWorkerRpcRequest(
+  config: WorkerConfig,
+  sendEnvelope: ReliableEnvelopeSender,
+  activeTurns: number,
+  request: RpcRequest
+): Promise<void> {
+  await sendEnvelope(workerRpcReplyEnvelope(dispatchWorkerRpcRequest(config, activeTurns, request), request.request_id))
+}
+
+export function dispatchWorkerRpcRequest(
+  config: WorkerConfig,
+  activeTurns: number,
+  request: RpcRequest
+): RpcResponse | RpcError {
+  switch (request.method) {
+    case rpcMethods.workerRuntimeDescribe:
+      return {
+        request_id: request.request_id,
+        payload_json: describeWorkerRuntime(config, activeTurns, request)
+      }
+
+    default:
+      return {
+        request_id: request.request_id,
+        code: 'unknown_rpc_method',
+        message: `unknown worker RPC method: ${request.method}`,
+        details_json: {
+          method: request.method
+        }
+      }
+  }
+}
+
+function workerRpcReplyEnvelope(reply: RpcResponse | RpcError, requestId: string): RuntimeFabricEnvelope {
+  return {
+    protocol_version: 1,
+    message_id: `rpc-reply-${crypto.randomUUID()}`,
+    correlation_id: requestId,
+    lane: 'LANE_RPC',
+    durability: 'CONTROL_EPHEMERAL',
+    body: 'code' in reply ? rpcErrorEnvelopeBody(reply) : rpcResponseEnvelopeBody(reply)
+  }
+}
+
+function describeWorkerRuntime(
+  config: WorkerConfig,
+  activeTurns: number,
+  request: RpcRequest
+): WorkerRuntimeDescribeResponse {
+  return {
+    request_id: request.request_id,
+    worker_id: config.workerId,
+    runtime: 'bun',
+    version: '0.1.0',
+    active_turns: activeTurns,
+    workspace_roots: {
+      workspace: config.workspaceRoot,
+      sessions: config.workspaceSessionsRoot,
+      shared_fs: config.sharedFsRoot,
+      user_files: config.userFilesRoot,
+      agent_installed_skills: config.agentInstalledSkillsRoot,
+      builtin_skills: config.builtinSkillsRoot
+    }
   }
 }

@@ -65,9 +65,39 @@ defmodule Ankole.Repo.Migrations.UnifyAgentSkills do
         check: "length(btrim(content_hash)) > 0"
       )
     )
+
+    comment_table(:agent_skills, "Per-agent skill registry used by runtime skill discovery.")
+
+    comment_columns(:agent_skills, %{
+      agent_uid: "Agent principal that owns the skill registry row.",
+      skill_name: "Agent-visible skill name.",
+      source_kind: "Whether the skill comes from built-in repository content or installed files.",
+      relative_path: "Path to the skill entrypoint relative to its source root.",
+      enabled: "Whether the skill is currently enabled for the agent.",
+      default_enabled: "Default enablement from the source before agent overrides.",
+      description: "Short skill description shown to operators and workers.",
+      metadata: "Skill metadata outside the discovery contract.",
+      content_hash: "Hash of the skill entrypoint or synchronized source projection.",
+      synced_at: "Time this registry row was last synchronized from its source."
+    })
   end
 
   def down do
     raise "irreversible migration: agent_skills is the skill registry"
   end
+
+  defp comment_table(table, comment) do
+    execute("COMMENT ON TABLE #{identifier(table)} IS #{literal(comment)}")
+  end
+
+  defp comment_columns(table, comments) do
+    Enum.each(comments, fn {column, comment} -> comment_column(table, column, comment) end)
+  end
+
+  defp comment_column(table, column, comment) do
+    execute("COMMENT ON COLUMN #{identifier(table)}.#{identifier(column)} IS #{literal(comment)}")
+  end
+
+  defp identifier(value), do: "\"" <> String.replace(to_string(value), "\"", "\"\"") <> "\""
+  defp literal(value), do: "'" <> String.replace(value, "'", "''") <> "'"
 end

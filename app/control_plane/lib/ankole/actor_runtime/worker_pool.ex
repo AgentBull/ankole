@@ -61,17 +61,14 @@ defmodule Ankole.ActorRuntime.WorkerPool do
   Releases live assignments for a worker that is no longer usable.
 
   Called inside the worker-staleness transition (see `WorkerAdmission`) so that
-  marking a worker stale and detaching its actor sessions commit together. Fences
-  on `worker_instance_id` as well as `worker_id`, so a worker that has since
-  reconnected under a new instance keeps its current assignments. Returns the
-  Ecto `update_all` count tuple.
+  marking a worker stale and detaching its actor sessions commit together.
+  Returns the Ecto `update_all` count tuple.
   """
   @spec release_assignments_for_worker(module(), AgentComputerWorker.t()) ::
           {non_neg_integer(), nil | [term()]}
   def release_assignments_for_worker(repo, %AgentComputerWorker{} = worker) do
     ActorSessionWorkerAssignment
     |> where([assignment], assignment.worker_id == ^worker.worker_id)
-    |> where([assignment], assignment.worker_instance_id == ^worker.worker_instance_id)
     |> where([assignment], assignment.status in ["assigned", "draining"])
     |> repo.update_all(set: [status: "released", updated_at: DateTime.utc_now(:microsecond)])
   end
@@ -83,8 +80,8 @@ defmodule Ankole.ActorRuntime.WorkerPool do
     case live_assignment(repo, actor_key) do
       %ActorSessionWorkerAssignment{} = assignment ->
         case assignment_worker_available(repo, assignment) do
-          %AgentComputerWorker{} ->
-            touch_assignment(repo, assignment, now)
+          %AgentComputerWorker{} = worker ->
+            touch_assignment(repo, assignment, worker, now)
 
           nil ->
             with {:ok, _assignment} <- release_assignment(repo, assignment),
@@ -126,7 +123,6 @@ defmodule Ankole.ActorRuntime.WorkerPool do
   defp assignment_worker_available(repo, assignment) do
     AgentComputerWorker
     |> where([worker], worker.worker_id == ^assignment.worker_id)
-    |> where([worker], worker.worker_instance_id == ^assignment.worker_instance_id)
     |> where([worker], worker.status == ^@ready_worker_status)
     |> repo.one()
     |> case do
@@ -147,9 +143,12 @@ defmodule Ankole.ActorRuntime.WorkerPool do
     |> repo.update()
   end
 
-  defp touch_assignment(repo, assignment, now) do
+  defp touch_assignment(repo, assignment, worker, now) do
     assignment
-    |> ActorSessionWorkerAssignment.changeset(%{last_used_at: now})
+    |> ActorSessionWorkerAssignment.changeset(%{
+      last_used_at: now,
+      transport_route: worker.transport_route
+    })
     |> repo.update()
   end
 
@@ -184,16 +183,14 @@ defmodule Ankole.ActorRuntime.WorkerPool do
     end
   end
 
-  # Captures the route chosen for this actor session. Later delivery still
-  # fences on worker instance id so a reconnected worker cannot inherit old work
-  # just because it has the same logical worker id.
+  # Captures the route chosen for this actor session. Delivery and turn replies
+  # re-check the route so assignment remains a placement hint, not durable truth.
   defp insert_assignment(repo, actor_key, worker, now) do
     %ActorSessionWorkerAssignment{}
     |> ActorSessionWorkerAssignment.changeset(%{
       agent_uid: actor_key.agent_uid,
       session_id: actor_key.session_id,
       worker_id: worker.worker_id,
-      worker_instance_id: worker.worker_instance_id,
       transport_route: worker.transport_route,
       status: "assigned",
       assigned_at: now,
@@ -204,7 +201,7 @@ defmodule Ankole.ActorRuntime.WorkerPool do
   end
 
   defp worker_route(%AgentComputerWorker{} = worker) do
-    worker.transport_route || worker.worker_instance_id || worker.worker_id
+    worker.transport_route || worker.worker_id
   end
 
   defp normalize_actor_key(%{agent_uid: agent_uid, session_id: session_id}) do

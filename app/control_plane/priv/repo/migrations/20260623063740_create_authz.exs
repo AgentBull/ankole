@@ -172,5 +172,69 @@ defmodule Ankole.Repo.Migrations.CreateAuthz do
     create constraint(:permission_grants, :permission_grants_metadata_object,
              check: "jsonb_typeof(metadata) = 'object'"
            )
+
+    comment_table(:principal_groups, "Authorization groups that collect principals for grants.")
+
+    comment_columns(:principal_groups, %{
+      name: "Stable lowercase group name used by policy code and operators.",
+      display_name: "Human-readable group name for console and audit views.",
+      kind: "Whether membership is explicitly stored or computed from a condition.",
+      built_in: "Marks groups created by Ankole rather than by an operator.",
+      computed_condition: "Condition expression that defines computed membership.",
+      description: "Operator-facing explanation of the group purpose.",
+      metadata: "Group metadata that is useful but not part of authorization matching."
+    })
+
+    comment_table(:principal_group_memberships, "Explicit static group memberships.")
+
+    comment_columns(:principal_group_memberships, %{
+      principal_uid: "Principal that belongs to the group.",
+      group_id: "Group receiving the principal membership."
+    })
+
+    comment_table(
+      :principal_group_external_bindings,
+      "Provider group bindings that synchronize or imply Ankole group membership."
+    )
+
+    comment_columns(:principal_group_external_bindings, %{
+      provider: "External provider namespace for the group binding.",
+      external_id: "Provider supplied group identifier.",
+      group_id: "Ankole authorization group represented by the external group.",
+      metadata: "Provider-specific binding facts kept outside the stable contract."
+    })
+
+    comment_table(:permission_grants, "Principal or group grants over resource patterns.")
+
+    comment_columns(:permission_grants, %{
+      principal_uid: "Direct principal owner of the grant when the grant is not group-based.",
+      group_id: "Group owner of the grant when the grant is not direct to a principal.",
+      resource_pattern: "Resource pattern matched by the authorization engine.",
+      action: "Action name allowed by this grant.",
+      condition: "Condition expression that must evaluate true for the grant to apply.",
+      description: "Operator-facing explanation of why the grant exists.",
+      metadata: "Grant metadata that is not evaluated by the authorization engine."
+    })
   end
+
+  defp comment_table(table, comment) do
+    execute(
+      "COMMENT ON TABLE #{identifier(table)} IS #{literal(comment)}",
+      "COMMENT ON TABLE #{identifier(table)} IS NULL"
+    )
+  end
+
+  defp comment_columns(table, comments) do
+    Enum.each(comments, fn {column, comment} -> comment_column(table, column, comment) end)
+  end
+
+  defp comment_column(table, column, comment) do
+    execute(
+      "COMMENT ON COLUMN #{identifier(table)}.#{identifier(column)} IS #{literal(comment)}",
+      "COMMENT ON COLUMN #{identifier(table)}.#{identifier(column)} IS NULL"
+    )
+  end
+
+  defp identifier(value), do: "\"" <> String.replace(to_string(value), "\"", "\"\"") <> "\""
+  defp literal(value), do: "'" <> String.replace(value, "'", "''") <> "'"
 end

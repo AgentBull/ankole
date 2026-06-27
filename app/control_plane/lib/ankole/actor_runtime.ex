@@ -34,6 +34,7 @@ defmodule Ankole.ActorRuntime do
   alias Ankole.ActorRuntime.Schemas.ActorSessionWorkerAssignment
   alias Ankole.ActorRuntime.Schemas.AgentComputerWorker
   alias Ankole.ActorRuntime.TurnEnvelope
+  alias Ankole.ActorRuntime.TurnRetry
   alias Ankole.ActorRuntime.Transport.Broker
   alias Ankole.ActorRuntime.WorkerAdmission
   alias Ankole.ActorRuntime.WorkerPool
@@ -50,6 +51,7 @@ defmodule Ankole.ActorRuntime do
   # The "live" activation set: an activation owns its actor session while in one
   # of these statuses. `stopped`/`failed` are terminal and free the session.
   @live_activation_statuses ~w(starting active draining)
+  @active_control_command_types ~w(command.new command.stop command.retry command.steer command.compress)
   @activation_progress_lease_seconds 300
   @daily_reset_time ~T[04:30:00]
   @session_lifecycle_binding_name "control-plane:session-lifecycle"
@@ -127,6 +129,20 @@ defmodule Ankole.ActorRuntime do
     with {:ok, route} <- WorkerPool.file_worker_route() do
       FileTransferLane.get(route, root, relative_path, opts)
     end
+  end
+
+  @doc """
+  Calls one semantic RPC method on a worker route.
+
+  This is the control-plane caller side of the bidirectional RuntimeFabric RPC
+  lane. The caller chooses the worker route deliberately; worker-pool selection
+  remains separate from method dispatch.
+  """
+  @spec request_worker_rpc(String.t(), String.t(), map(), keyword()) ::
+          {:ok, map()} | {:error, map() | term()}
+  def request_worker_rpc(transport_route, method, payload \\ %{}, opts \\ [])
+      when is_binary(transport_route) and is_binary(method) and is_map(payload) do
+    Broker.request_rpc(transport_route, method, payload, opts)
   end
 
   @doc """
@@ -400,6 +416,7 @@ defmodule Ankole.ActorRuntime do
   @spec process_ready_inputs_once(keyword()) :: {:ok, map()} | {:error, term()}
   def process_ready_inputs_once(opts \\ []) do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
+    {:ok, _finalized_batches} = SignalsGateway.finalize_due_inbound_batches(now: now, limit: 1)
 
     case Actors.list_ready_actor_keys(now, 1) do
       [%{agent_uid: agent_uid, session_id: session_id}] ->
@@ -417,6 +434,9 @@ defmodule Ankole.ActorRuntime do
   def process_ready_inputs(opts \\ []) do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
     limit = Keyword.get(opts, :limit, 25)
+
+    {:ok, _finalized_batches} =
+      SignalsGateway.finalize_due_inbound_batches(now: now, limit: limit)
 
     now
     |> Actors.list_ready_actor_keys(limit)
@@ -475,10 +495,13 @@ defmodule Ankole.ActorRuntime do
   end
 
   @doc """
-  Starts the ready input prefix for one actor key.
+  Starts one ready input for an actor key.
 
-  The prefix rule keeps one actor turn aligned with the user-visible message
-  stream. Later senders stay queued until the current same-sender run is handled.
+  IM burst grouping is already resolved by SignalsGateway before ActorInput
+  creation. ActorRuntime must not merge multiple ready ActorInputs into one
+  worker turn just because they share a sender. While a generation is already
+  running, explicit control commands may pass ordinary content inputs that
+  cannot be delivered until the current turn ends.
   """
   @spec process_ready_inputs_for_actor(actor_key(), keyword()) :: {:ok, map()} | {:error, term()}
   def process_ready_inputs_for_actor(actor_key, opts \\ []) do
@@ -487,7 +510,7 @@ defmodule Ankole.ActorRuntime do
 
     actor_key.agent_uid
     |> Actors.list_ready_inputs(actor_key.session_id, now)
-    |> Actors.contiguous_same_sender_prefix()
+    |> select_ready_inputs_for_actor(actor_key)
     |> case do
       [] ->
         {:ok, %{status: :idle}}
@@ -546,6 +569,46 @@ defmodule Ankole.ActorRuntime do
     end)
   end
 
+  defp ready_input_head([]), do: []
+  defp ready_input_head([input | _rest]), do: [input]
+
+  defp select_ready_inputs_for_actor([], _actor_key), do: ready_input_head([])
+
+  defp select_ready_inputs_for_actor(inputs, actor_key) do
+    case active_generation_for_actor?(actor_key) do
+      true ->
+        case active_control_input(inputs) do
+          %ActorInput{} = input -> [input]
+          nil -> ready_input_head(inputs)
+        end
+
+      false ->
+        ready_input_head(inputs)
+    end
+  end
+
+  defp active_control_input(inputs) do
+    inputs
+    |> Enum.take_while(&(not hard_queue_barrier?(&1)))
+    |> Enum.find(&active_control_input?/1)
+  end
+
+  defp active_control_input?(%ActorInput{type: type}), do: type in @active_control_command_types
+  defp active_control_input?(_input), do: false
+
+  defp hard_queue_barrier?(%ActorInput{type: "session.reset_due"}), do: true
+  defp hard_queue_barrier?(_input), do: false
+
+  defp active_generation_for_actor?(actor_key) do
+    Conversation
+    |> where([conversation], conversation.agent_uid == ^actor_key.agent_uid)
+    |> where([conversation], conversation.conversation_key == ^actor_key.session_id)
+    |> where([conversation], is_nil(conversation.ended_at))
+    |> select([conversation], conversation.generation)
+    |> Repo.one()
+    |> conversation_has_active_generation?()
+  end
+
   # Sends the already persisted turn-start envelope after the transaction has
   # committed. A failed send invalidates the route and leaves delivery rows as
   # retryable runtime projections instead of rolling back the durable turn.
@@ -554,7 +617,7 @@ defmodule Ankole.ActorRuntime do
           %{assignment: assignment, envelope: envelope, deliveries: deliveries} =
             result}
        ) do
-    route = assignment.transport_route || assignment.worker_instance_id || assignment.worker_id
+    route = assignment.transport_route || assignment.worker_id
 
     case Broker.send_mandatory(route, envelope) do
       {:ok, :sent_or_queued} ->
@@ -680,7 +743,6 @@ defmodule Ankole.ActorRuntime do
       ingress_event_id: event_id,
       type: "session.reset_due",
       available_at: now,
-      batch_scope: nil,
       sender_key: nil,
       payload:
         session_reset_due_payload(
@@ -742,7 +804,7 @@ defmodule Ankole.ActorRuntime do
            turn_ref: turn_ref
          } = result
        ) do
-    route = assignment.transport_route || assignment.worker_instance_id || assignment.worker_id
+    route = assignment.transport_route || assignment.worker_id
     envelope = TurnEnvelope.mailbox_updated(turn_ref, [input])
 
     case Broker.send_mandatory(route, envelope) do
@@ -937,6 +999,7 @@ defmodule Ankole.ActorRuntime do
         {:error, _reason} = error -> error
       end
     end)
+    |> TurnRetry.dispatch_retry_controls()
     |> tap(fn
       {:ok, %{status: :command_consumed}} -> OutboxDispatcher.wake()
       _result -> :ok
@@ -989,15 +1052,24 @@ defmodule Ankole.ActorRuntime do
   end
 
   defp apply_runtime_command(repo, actor_key, %ActorInput{type: "command.retry"} = input, now) do
-    with {:ok, retry_input} <- append_retry_input(repo, actor_key, input, now),
-         {:ok, consumption} <- consume_command_without_feedback(repo, input, now) do
-      {:ok,
-       %{
-         status: :command_consumed,
-         command: input.type,
-         retry_actor_input: retry_input,
-         consumption: consumption
-       }}
+    case TurnRetry.retry_active_generation_in_tx(repo, actor_key, input, now) do
+      {:ok, :no_active_generation} ->
+        with {:ok, retry_input} <- append_retry_input(repo, actor_key, input, now),
+             {:ok, consumption} <- consume_command_without_feedback(repo, input, now) do
+          {:ok,
+           %{
+             status: :command_consumed,
+             command: input.type,
+             retry_actor_input: retry_input,
+             consumption: consumption
+           }}
+        end
+
+      {:ok, %{status: :command_consumed} = result} ->
+        {:ok, result}
+
+      {:error, _reason} = error ->
+        error
     end
   end
 
@@ -1082,7 +1154,7 @@ defmodule Ankole.ActorRuntime do
                  input,
                  activation,
                  llm_turn,
-                 assignment.transport_route || assignment.worker_instance_id,
+                 assignment.transport_route || assignment.worker_id,
                  assignment,
                  now
                ),
@@ -1163,7 +1235,6 @@ defmodule Ankole.ActorRuntime do
         provider_entry_id: command_input.provider_entry_id,
         type: "im.message.receive",
         available_at: now,
-        batch_scope: command_input.batch_scope || %{},
         sender_key: command_input.sender_key,
         payload: %{
           "type" => "im.message.receive",
@@ -1591,7 +1662,6 @@ defmodule Ankole.ActorRuntime do
       lease_id: "activation-lease-" <> Ecto.UUID.generate(),
       lease_expires_at: DateTime.add(now, lease_seconds, :second),
       assigned_worker_id: assignment.worker_id,
-      assigned_worker_instance_id: assignment.worker_instance_id,
       revision: 0,
       started_at: now,
       metadata: %{}
@@ -1603,8 +1673,7 @@ defmodule Ankole.ActorRuntime do
   # changing the actor epoch. Reassignment only needs a new epoch after a lease
   # failure, not after every scheduling pass.
   defp refresh_activation_assignment(repo, activation, assignment, now) do
-    case activation.assigned_worker_id == assignment.worker_id and
-           activation.assigned_worker_instance_id == assignment.worker_instance_id do
+    case activation.assigned_worker_id == assignment.worker_id do
       true ->
         {:ok, activation}
 
@@ -1612,7 +1681,6 @@ defmodule Ankole.ActorRuntime do
         activation
         |> ActorSessionActivation.changeset(%{
           assigned_worker_id: assignment.worker_id,
-          assigned_worker_instance_id: assignment.worker_instance_id,
           last_actor_heartbeat_at: now
         })
         |> repo.update()
@@ -1647,7 +1715,7 @@ defmodule Ankole.ActorRuntime do
         actor_input,
         activation,
         llm_turn,
-        assignment.transport_route || assignment.worker_instance_id,
+        assignment.transport_route || assignment.worker_id,
         assignment,
         now,
         batch
@@ -1692,7 +1760,6 @@ defmodule Ankole.ActorRuntime do
       llm_turn_id: llm_turn.id,
       revision: activation.revision,
       worker_id: Map.get(assignment, :worker_id),
-      worker_instance_id: Map.get(assignment, :worker_instance_id),
       transport_route: route,
       state: "created",
       error: %{},

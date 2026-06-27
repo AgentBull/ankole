@@ -13,7 +13,7 @@ defmodule Ankole.ActorRuntime.Supervisor do
 
   use Supervisor
 
-  alias Ankole.ActorRuntime.WorkerAuthKeys
+  alias Ankole.ActorRuntime.WorkerAuthKey
 
   @doc """
   Starts actor-runtime services.
@@ -25,6 +25,8 @@ defmodule Ankole.ActorRuntime.Supervisor do
 
   @impl true
   def init(opts) do
+    WorkerAuthKey.ensure!()
+
     runtime_opts = runtime_opts(opts)
 
     # The transport broker, directory, and dynamic supervisor are the core path:
@@ -126,7 +128,7 @@ defmodule Ankole.ActorRuntime.Supervisor do
   defp normalize_router_opts(value) when value in [nil, false, []], do: {:ok, nil}
 
   defp normalize_router_opts(endpoint) when is_binary(endpoint) and endpoint != "" do
-    router_opts_with_token(endpoint, [])
+    router_opts_with_auth_key(endpoint, [])
   end
 
   defp normalize_router_opts(opts) when is_list(opts) do
@@ -135,7 +137,7 @@ defmodule Ankole.ActorRuntime.Supervisor do
 
     case endpoint do
       endpoint when is_binary(endpoint) and endpoint != "" ->
-        router_opts_with_token(endpoint, opts)
+        router_opts_with_auth_key(endpoint, opts)
 
       _value ->
         {:error, :missing_endpoint}
@@ -144,36 +146,11 @@ defmodule Ankole.ActorRuntime.Supervisor do
 
   defp normalize_router_opts(_value), do: {:error, :invalid_router_config}
 
-  # Resolves how the native ROUTER will authenticate workers (ZAP). Caller-given
-  # credentials win in priority order: a pre-shared token, an explicit key list,
-  # or an explicit auth database URL. `worker_auth: false` disables ZAP entirely
-  # (test/dev only). The default — and the production path — is to point the
-  # router at the Repo's own database so it can verify worker pre-auth keys
-  # against the live `agent_computer_worker_auth_keys` table. The `:worker_auth`
-  # marker is internal and never forwarded to the native layer, so we drop it.
-  defp router_opts_with_token(endpoint, opts) do
-    opts =
-      cond do
-        valid_text?(Keyword.get(opts, :pre_auth_token)) ->
-          opts
-
-        Keyword.has_key?(opts, :pre_auth_keys) ->
-          opts
-
-        valid_text?(Keyword.get(opts, :worker_auth_database_url)) ->
-          opts
-
-        Keyword.get(opts, :worker_auth, :database) == false ->
-          Keyword.delete(opts, :worker_auth)
-
-        true ->
-          opts
-          |> Keyword.delete(:worker_auth)
-          |> Keyword.put(:worker_auth_database_url, WorkerAuthKeys.database_url!())
-      end
+  # Resolves the worker auth key before the native ROUTER starts. Rust receives
+  # only the current in-memory key; AppConfigure remains the durable owner.
+  defp router_opts_with_auth_key(endpoint, opts) do
+    opts = Keyword.put_new(opts, :worker_auth_key, WorkerAuthKey.ensure!())
 
     {:ok, Keyword.put(opts, :endpoint, endpoint)}
   end
-
-  defp valid_text?(value), do: is_binary(value) and value != ""
 end

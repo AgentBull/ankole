@@ -172,7 +172,8 @@ defmodule Ankole.AppConfigure do
   @spec put_for_agent(String.t(), Definition.t(), term()) :: {:ok, term()} | {:error, term()}
   def put_for_agent(agent_id, %Definition{} = definition, value) do
     with {:ok, scope} <- agent_scope(agent_id),
-         {:ok, registered} <- Registry.require_definition(definition) do
+         {:ok, registered} <- Registry.require_definition(definition),
+         :ok <- ensure_scope(registered, scope) do
       put(scope, registered.key, registered, value)
     end
   end
@@ -183,7 +184,8 @@ defmodule Ankole.AppConfigure do
   @spec put_for_agent_by_key(String.t(), String.t(), term()) :: {:ok, term()} | {:error, term()}
   def put_for_agent_by_key(agent_id, key, value) when is_binary(key) do
     with {:ok, scope} <- agent_scope(agent_id),
-         {:ok, registered} <- Registry.require_key(key) do
+         {:ok, registered} <- Registry.require_key(key),
+         :ok <- ensure_scope(registered, scope) do
       put(scope, key, registered, value)
     end
   end
@@ -219,7 +221,8 @@ defmodule Ankole.AppConfigure do
   @spec delete_for_agent(String.t(), Definition.t()) :: :ok | {:error, term()}
   def delete_for_agent(agent_id, %Definition{} = definition) do
     with {:ok, scope} <- agent_scope(agent_id),
-         {:ok, registered} <- Registry.require_definition(definition) do
+         {:ok, registered} <- Registry.require_definition(definition),
+         :ok <- ensure_scope(registered, scope) do
       delete(scope, registered.key)
     end
   end
@@ -230,7 +233,8 @@ defmodule Ankole.AppConfigure do
   @spec delete_for_agent_by_key(String.t(), String.t()) :: :ok | {:error, term()}
   def delete_for_agent_by_key(agent_id, key) when is_binary(key) do
     with {:ok, scope} <- agent_scope(agent_id),
-         {:ok, _registered} <- Registry.require_key(key) do
+         {:ok, registered} <- Registry.require_key(key),
+         :ok <- ensure_scope(registered, scope) do
       delete(scope, key)
     end
   end
@@ -320,6 +324,8 @@ defmodule Ankole.AppConfigure do
     |> resolve_scopes(definition, key)
   end
 
+  defp resolution_scopes(%{scope: :global}, _opts), do: [@global_scope]
+
   defp resolution_scopes(_definition, opts) do
     case Keyword.fetch(opts, :agent_id) do
       {:ok, agent_id} ->
@@ -395,7 +401,8 @@ defmodule Ankole.AppConfigure do
   # AppConfigure has no public refresh path. Runtime changes are expected to use
   # this write path, which persists first and then updates the local projection.
   defp put(scope, key, definition, value) do
-    with {:ok, envelope, parsed} <- Codec.dump(definition, scope, key, value),
+    with :ok <- ensure_scope(definition, scope),
+         {:ok, envelope, parsed} <- Codec.dump(definition, scope, key, value),
          :ok <- upsert_row(scope, key, envelope),
          :ok <- Cache.put_row(scope, key, envelope) do
       {:ok, parsed}
@@ -407,6 +414,7 @@ defmodule Ankole.AppConfigure do
     |> Enum.reduce_while({:ok, %{}}, fn
       {key, value}, {:ok, acc} when is_binary(key) ->
         with {:ok, registered} <- Registry.require_key(key),
+             :ok <- ensure_scope(registered, scope),
              {:ok, envelope, parsed} <- Codec.dump(registered, scope, key, value) do
           prepared = %{scope: scope, key: key, envelope: envelope, parsed: parsed}
           {:cont, {:ok, Map.put(acc, key, prepared)}}
@@ -499,6 +507,11 @@ defmodule Ankole.AppConfigure do
   defp definition_key(%Definition{key: key}), do: key
   defp definition_key(%PatternDefinition{id: id}), do: id
 
+  defp ensure_scope(%{scope: :global} = definition, scope) when scope != @global_scope,
+    do: {:error, {:global_scope_only, definition_key(definition)}}
+
+  defp ensure_scope(_definition, _scope), do: :ok
+
   defp editable_console_definition(key) do
     case Registry.classify_key(key) do
       {:ok, {:exact, definition}} ->
@@ -525,6 +538,7 @@ defmodule Ankole.AppConfigure do
       kind: "exact",
       description: definition.description,
       encrypted: definition.encrypted,
+      scope: Atom.to_string(definition.scope),
       editable: true,
       default_present: definition.default?,
       overridden: not is_nil(row)
@@ -546,6 +560,7 @@ defmodule Ankole.AppConfigure do
       pattern_id: definition.id,
       description: definition.description,
       encrypted: definition.encrypted,
+      scope: Atom.to_string(definition.scope),
       editable: true,
       default_present: definition.default?,
       overridden: not is_nil(row)
@@ -560,6 +575,7 @@ defmodule Ankole.AppConfigure do
       pattern: Regex.source(pattern.key_pattern),
       description: pattern.description,
       encrypted: pattern.encrypted,
+      scope: Atom.to_string(pattern.scope),
       editable: false,
       default_present: pattern.default?,
       overridden: false,

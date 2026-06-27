@@ -47,6 +47,7 @@ defmodule Ankole.AIAgent.MessageContext do
     |> where([message], message.conversation_id == ^conversation_id)
     |> where([message], message.role in ["user", "im_ambient"])
     |> where([message], message.kind in ["normal", "introspection"])
+    |> where([message], message.status == "complete")
     |> where([message], fragment("?->'transcript_effect' is null", message.metadata))
     |> order_by([message], asc: message.inserted_at, asc: message.id)
     |> select([message], %{metadata: message.metadata})

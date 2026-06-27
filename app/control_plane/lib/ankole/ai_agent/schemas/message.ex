@@ -31,9 +31,10 @@ defmodule Ankole.AIAgent.Schemas.Message do
   # history paths only treat `normal` (and sometimes `introspection`) rows as
   # real inbound scene facts.
   @kinds ~w(normal summary introspection error)
-  # A message is `generating` while its content is still being streamed in and
-  # `complete` once final; inbound user/ambient rows are written `complete`.
-  @statuses ~w(generating complete)
+  # A message is `generating` while its content is still being streamed in,
+  # `complete` once final, and `retracted` when the provider withdrew the input
+  # before the turn could commit.
+  @statuses ~w(generating complete retracted)
 
   schema "ai_agent_messages" do
     belongs_to :agent, Principal,

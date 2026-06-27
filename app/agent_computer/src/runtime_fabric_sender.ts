@@ -1,8 +1,8 @@
-import type { ActorLaneEnvelope } from './actor_lane'
+import type { RuntimeFabricEnvelope } from './runtime_fabric'
 
-export type EnvelopeTransport = (envelope: ActorLaneEnvelope) => void
+export type EnvelopeTransport = (envelope: RuntimeFabricEnvelope) => void
 
-export type ReliableEnvelopeSender = (envelope: ActorLaneEnvelope) => Promise<void>
+export type ReliableEnvelopeSender = (envelope: RuntimeFabricEnvelope) => Promise<void>
 
 type RetryOptions = {
   maxAttempts?: number

@@ -42,5 +42,39 @@ defmodule Ankole.Repo.Migrations.CreateAgentSkillOverlays do
         check: "length(btrim(content_hash)) > 0"
       )
     )
+
+    comment_table(
+      :agent_skill_overlays,
+      "Per-agent skill overlay documents authored after built-in sync."
+    )
+
+    comment_columns(:agent_skill_overlays, %{
+      agent_uid: "Agent principal that owns the overlay.",
+      skill_name: "Skill whose overlay is being customized.",
+      overlay_json: "Structured overlay content applied on top of the base skill.",
+      content_hash: "Hash of the overlay JSON projection.",
+      deleted_at: "Soft-delete marker that removes the overlay from the active skill view."
+    })
   end
+
+  defp comment_table(table, comment) do
+    execute(
+      "COMMENT ON TABLE #{identifier(table)} IS #{literal(comment)}",
+      "COMMENT ON TABLE #{identifier(table)} IS NULL"
+    )
+  end
+
+  defp comment_columns(table, comments) do
+    Enum.each(comments, fn {column, comment} -> comment_column(table, column, comment) end)
+  end
+
+  defp comment_column(table, column, comment) do
+    execute(
+      "COMMENT ON COLUMN #{identifier(table)}.#{identifier(column)} IS #{literal(comment)}",
+      "COMMENT ON COLUMN #{identifier(table)}.#{identifier(column)} IS NULL"
+    )
+  end
+
+  defp identifier(value), do: "\"" <> String.replace(to_string(value), "\"", "\"\"") <> "\""
+  defp literal(value), do: "'" <> String.replace(value, "'", "''") <> "'"
 end

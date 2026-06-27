@@ -53,7 +53,6 @@ defmodule Ankole.ActorRuntime.Schemas.ActorInputDelivery do
     field :llm_turn_id, Ecto.UUID
     field :revision, :integer
     field :worker_id, :string
-    field :worker_instance_id, :string
     field :transport_route, :string
     field :state, :string, default: "created"
     field :send_outcome, :string
@@ -83,7 +82,6 @@ defmodule Ankole.ActorRuntime.Schemas.ActorInputDelivery do
       :llm_turn_id,
       :revision,
       :worker_id,
-      :worker_instance_id,
       :transport_route,
       :state,
       :send_outcome,
@@ -100,7 +98,6 @@ defmodule Ankole.ActorRuntime.Schemas.ActorInputDelivery do
       :correlation_id,
       :activation_uid,
       :worker_id,
-      :worker_instance_id,
       :transport_route,
       :state,
       :send_outcome

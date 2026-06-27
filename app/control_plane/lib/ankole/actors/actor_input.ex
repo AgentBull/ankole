@@ -35,7 +35,6 @@ defmodule Ankole.Actors.ActorInput do
     field :available_at, :utc_datetime_usec
     field :broker_sequence, :integer
     field :input_state, :string, default: "open"
-    field :batch_scope, :map
     field :sender_key, :string
     field :payload, :map
     field :dead_letter_at, :utc_datetime_usec
@@ -58,7 +57,6 @@ defmodule Ankole.Actors.ActorInput do
       :available_at,
       :broker_sequence,
       :input_state,
-      :batch_scope,
       :sender_key,
       :payload,
       :dead_letter_at

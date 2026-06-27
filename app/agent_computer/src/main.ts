@@ -1,8 +1,8 @@
 import * as kernel from '../../kernel'
 import {
   mailboxUpdatedFromEnvelope,
+  turnControlFromEnvelope,
   turnStartFromEnvelope,
-  type ActorLaneEnvelope,
   type ActorTurnRef,
   type TurnStart,
   type TurnSteerUpdate
@@ -16,8 +16,6 @@ import type {
   LlmProviderCredentialRequest,
   LlmProviderCredentialResponse,
   RpcError,
-  RpcMethod,
-  RpcPayloadByMethod,
   RpcRequest,
   RpcResponse,
   SkillOverlayReplaceRequest,
@@ -26,10 +24,10 @@ import type {
   TurnContextRequest,
   TurnRuntimeContext
 } from './rpc_lane'
-import { rpcMethods, rpcRequestEnvelopeBody } from './rpc_lane'
+import { RuntimeRpcClient, handleWorkerRpcRequest, rpcMethods } from './rpc_lane'
 import { parseWorkerEnv, workerCapacityEnvelope, workerHeartbeatEnvelope, workerReadyEnvelope } from './runtime'
 import type { WorkerConfig } from './runtime'
-import { decodeEnvelope, type JsonObject } from './runtime_fabric'
+import { decodeEnvelope, type JsonObject, type RuntimeFabricEnvelope } from './runtime_fabric'
 import {
   isRuntimeFabricBackpressure,
   reliableEnvelopeSender,
@@ -40,18 +38,14 @@ import { createFileTransferState, handleFileTransferFrame, isFileTransferFrame }
 import { resolveBubblewrapSupport } from './tools/computer/bubblewrap'
 
 const heartbeatIntervalMs = 15_000
-const rpcTimeoutMs = 60_000
 
 type ActiveTurn = {
   turnStart: TurnStart
   correlationId: string
   steeringUpdates: TurnSteerUpdate[]
-}
-
-type RpcWaiter = {
-  resolve: (response: RpcResponse | RpcError) => void
-  reject: (error: Error) => void
-  timeout: ReturnType<typeof setTimeout>
+  abortController: AbortController
+  retryRequested: boolean
+  retryReason?: string
 }
 
 try {
@@ -66,12 +60,7 @@ async function runWorker(): Promise<void> {
   verifyWorkerFilesystem(config)
   logBubblewrapSupport(config.workspaceRoot)
 
-  const dealer = new kernel.RuntimeFabricDealer(
-    config.endpoint,
-    config.workerInstanceId,
-    config.workerId,
-    config.preAuthToken
-  )
+  const dealer = new kernel.RuntimeFabricDealer(config.endpoint, config.workerId, config.workerId, config.workerAuthKey)
   const sendEnvelope = reliableEnvelopeSender(envelope => dealer.sendEnvelope(envelope))
   const rpcClient = new RuntimeRpcClient(sendEnvelope)
   const activeTurns = new Map<string, ActiveTurn>()
@@ -89,8 +78,7 @@ async function runWorker(): Promise<void> {
     await sendEnvelope(workerCapacityEnvelope(config, 1, 0))
     logWorkerEvent('worker.ready_sent', {
       endpoint: config.endpoint,
-      worker_id: config.workerId,
-      worker_instance_id: config.workerInstanceId
+      worker_id: config.workerId
     })
 
     let nextHeartbeatAt = Date.now() + heartbeatIntervalMs
@@ -153,7 +141,7 @@ function logBubblewrapSupport(workspaceRoot: string): void {
  * worse failure mode than letting the control plane expire the lease if the pipe
  * is actually broken.
  */
-async function sendHeartbeat(sendEnvelope: ReliableEnvelopeSender, heartbeat: ActorLaneEnvelope): Promise<void> {
+async function sendHeartbeat(sendEnvelope: ReliableEnvelopeSender, heartbeat: RuntimeFabricEnvelope): Promise<void> {
   try {
     await sendEnvelope(heartbeat)
   } catch (error) {
@@ -175,7 +163,7 @@ async function handleEnvelope(
   sendEnvelope: ReliableEnvelopeSender,
   rpcClient: RuntimeRpcClient,
   activeTurns: Map<string, ActiveTurn>,
-  envelope: ActorLaneEnvelope
+  envelope: RuntimeFabricEnvelope
 ): Promise<void> {
   switch (envelope.body.type) {
     case 'rpc_response':
@@ -186,11 +174,17 @@ async function handleEnvelope(
       rpcClient.resolve(envelope.body.rpc_error as RpcError)
       return
 
+    case 'rpc_request':
+      return handleWorkerRpcRequest(config, sendEnvelope, activeTurns.size, envelope.body.rpc_request as RpcRequest)
+
     case 'turn_start':
       return startTurn(config, sendEnvelope, rpcClient, activeTurns, envelope)
 
     case 'mailbox_updated':
       return handleMailboxUpdated(sendEnvelope, activeTurns, envelope)
+
+    case 'turn_control':
+      return handleTurnControl(activeTurns, envelope)
 
     default:
       return
@@ -202,7 +196,7 @@ async function startTurn(
   sendEnvelope: ReliableEnvelopeSender,
   rpcClient: RuntimeRpcClient,
   activeTurns: Map<string, ActiveTurn>,
-  envelope: ActorLaneEnvelope
+  envelope: RuntimeFabricEnvelope
 ): Promise<void> {
   const turnStart = turnStartFromEnvelope(envelope)
   const correlationId = envelope.message_id
@@ -223,7 +217,9 @@ async function startTurn(
   const active: ActiveTurn = {
     turnStart,
     correlationId,
-    steeringUpdates: []
+    steeringUpdates: [],
+    abortController: new AbortController(),
+    retryRequested: false
   }
   activeTurns.set(turnKey(turnStart.turn), active)
 
@@ -258,18 +254,30 @@ async function runActiveTurnTask(
 
   try {
     await runActiveTurn(config, sendEnvelope, rpcClient, active)
+    if (active.retryRequested) {
+      logWorkerEvent('worker.turn_controlled_stop', {
+        llm_turn_id: turnStart.turn.llm_turn_id,
+        reason: active.retryReason ?? 'retry'
+      })
+      return
+    }
+
     logWorkerEvent('worker.turn_completed', {
       llm_turn_id: turnStart.turn.llm_turn_id
     })
   } catch (error) {
-    await sendEnvelope(
-      turnErrorEnvelope(
-        turnStart.turn,
-        'worker_turn_failed',
-        error instanceof Error ? error.message : String(error),
-        active.correlationId
-      )
-    )
+    if (active.retryRequested) {
+      logWorkerEvent('worker.turn_controlled_stop', {
+        llm_turn_id: turnStart.turn.llm_turn_id,
+        reason: active.retryReason ?? 'retry',
+        error: error instanceof Error ? error.message : String(error)
+      })
+      return
+    }
+
+    const message = error instanceof Error ? error.message : String(error)
+
+    await sendEnvelope(turnErrorEnvelope(turnStart.turn, 'worker_turn_failed', message, active.correlationId))
     logWorkerEvent(
       'worker.turn_failed',
       {
@@ -314,8 +322,11 @@ async function runActiveTurn(
     requestSkillOverlay: request => requestSkillOverlay(rpcClient, request),
     replaceSkillOverlay: request => replaceSkillOverlay(rpcClient, request),
     clearSkillOverlay: request => clearSkillOverlay(rpcClient, request),
-    pollSteering: () => active.steeringUpdates.splice(0)
+    pollSteering: () => active.steeringUpdates.splice(0),
+    abortSignal: active.abortController.signal
   })
+
+  if (active.retryRequested) return
 
   await sendEnvelope(finalProposalEnvelope(turnStart.turn, proposal, active.correlationId))
 }
@@ -337,7 +348,7 @@ function logWorkerEvent(
 async function handleMailboxUpdated(
   sendEnvelope: ReliableEnvelopeSender,
   activeTurns: Map<string, ActiveTurn>,
-  envelope: ActorLaneEnvelope
+  envelope: RuntimeFabricEnvelope
 ): Promise<void> {
   const update = mailboxUpdatedFromEnvelope(envelope)
   if (!update.turn || !Array.isArray(update.inputs) || update.inputs.length === 0) {
@@ -355,6 +366,18 @@ async function handleMailboxUpdated(
       envelope.message_id
     )
   )
+}
+
+async function handleTurnControl(activeTurns: Map<string, ActiveTurn>, envelope: RuntimeFabricEnvelope): Promise<void> {
+  const control = turnControlFromEnvelope(envelope)
+  if (!control.turn || control.command !== 'retry') return
+
+  const active = activeTurns.get(turnKey(control.turn))
+  if (!active) return
+
+  active.retryRequested = true
+  active.retryReason = stringFromDetails(control.payload_json, 'reason') ?? 'retry'
+  active.abortController.abort(new DOMException(active.retryReason, 'AbortError'))
 }
 
 async function requestCredential(
@@ -428,63 +451,9 @@ async function clearSkillOverlay(
   return response.payload_json as SkillOverlayResponse
 }
 
-class RuntimeRpcClient {
-  private waiters = new Map<string, RpcWaiter>()
-
-  constructor(private readonly sendEnvelope: ReliableEnvelopeSender) {}
-
-  async request<M extends RpcMethod>(
-    method: M,
-    payload: RpcPayloadByMethod[M],
-    requestId: string
-  ): Promise<RpcResponse | RpcError> {
-    const request: RpcRequest = {
-      request_id: requestId,
-      method,
-      payload_json: payload as JsonObject
-    }
-
-    const promise = new Promise<RpcResponse | RpcError>((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        this.waiters.delete(requestId)
-        reject(new Error(`RPC request timed out: ${method}`))
-      }, rpcTimeoutMs)
-      this.waiters.set(requestId, { resolve, reject, timeout })
-    })
-
-    try {
-      await this.sendEnvelope({
-        protocol_version: 1,
-        message_id: `rpc-request-${crypto.randomUUID()}`,
-        correlation_id: requestId,
-        lane: 'LANE_RPC',
-        durability: 'CONTROL_EPHEMERAL',
-        body: rpcRequestEnvelopeBody(request)
-      })
-    } catch (error) {
-      const waiter = this.waiters.get(requestId)
-      if (waiter) {
-        clearTimeout(waiter.timeout)
-        this.waiters.delete(requestId)
-      }
-      throw error
-    }
-
-    return promise
-  }
-
-  resolve(response: RpcResponse | RpcError): void {
-    const waiter = this.waiters.get(response.request_id)
-    if (!waiter) return
-
-    clearTimeout(waiter.timeout)
-    this.waiters.delete(response.request_id)
-    waiter.resolve(response)
-  }
-}
-
-function stringFromDetails(error: RpcError, key: string): string | undefined {
-  const value = error.details_json?.[key]
+function stringFromDetails(source: RpcError | JsonObject | undefined, key: string): string | undefined {
+  const details = (source && 'details_json' in source ? source.details_json : source) as JsonObject | undefined
+  const value = details?.[key]
   return typeof value === 'string' ? value : undefined
 }
 

@@ -27,5 +27,36 @@ defmodule Ankole.Repo.Migrations.CreateAgents do
     create constraint(:agents, :agents_role_present, check: "length(btrim(role)) > 0")
 
     create constraint(:agents, :agents_options_object, check: "jsonb_typeof(options) = 'object'")
+
+    comment_table(:agents, "Agent-only profile fields for principals that run work.")
+
+    comment_columns(:agents, %{
+      uid: "Principal uid this agent profile extends.",
+      type: "Agent subtype; currently all runtime agents are AI colleagues.",
+      role: "Human-authored role statement used to frame the agent identity.",
+      options: "Agent profile options that are not modeled as first-class columns.",
+      created_by_principal_uid: "Human or agent principal that created this agent."
+    })
   end
+
+  defp comment_table(table, comment) do
+    execute(
+      "COMMENT ON TABLE #{identifier(table)} IS #{literal(comment)}",
+      "COMMENT ON TABLE #{identifier(table)} IS NULL"
+    )
+  end
+
+  defp comment_columns(table, comments) do
+    Enum.each(comments, fn {column, comment} -> comment_column(table, column, comment) end)
+  end
+
+  defp comment_column(table, column, comment) do
+    execute(
+      "COMMENT ON COLUMN #{identifier(table)}.#{identifier(column)} IS #{literal(comment)}",
+      "COMMENT ON COLUMN #{identifier(table)}.#{identifier(column)} IS NULL"
+    )
+  end
+
+  defp identifier(value), do: "\"" <> String.replace(to_string(value), "\"", "\"\"") <> "\""
+  defp literal(value), do: "'" <> String.replace(value, "'", "''") <> "'"
 end

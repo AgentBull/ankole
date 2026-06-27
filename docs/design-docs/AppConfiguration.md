@@ -42,6 +42,8 @@ trusted plugins can change while the application is running.
 Typical AppConfigure values include:
 
 - default locale and other operator-visible product settings;
+- installation-wide generated secrets, such as
+  `runtime_fabric.worker_auth_key`;
 - LLM provider credentials and model preferences;
 - agent runtime limits and per-agent overrides;
 - plugin-owned setup values;
@@ -70,7 +72,9 @@ Each AppConfigure definition declares:
 - stable key, for example `i18n.default_locale` or `llm.openai.api_key`;
 - value schema;
 - whether the stored value is encrypted at rest;
+- whether the definition is scoped or global-only;
 - optional code default;
+- optional generator for owner-managed missing values;
 - optional description for setup and admin surfaces.
 
 Values are JSON-compatible: null, booleans, numbers, strings, arrays, and
@@ -108,6 +112,16 @@ This keeps global and per-agent configuration in one table while preserving a
 simple mental model: the same key can have one installation-wide value and zero
 or more agent-specific overrides.
 
+Definitions also declare whether agent overrides are allowed:
+
+- scoped definitions are the default. They can resolve from `agent:<agent_id>`
+  and fall back to `global`;
+- global-only definitions always resolve from `global`, even when the caller has
+  a current agent. Agent writes and deletes for those definitions are rejected.
+
+Global-only definitions are for installation-level facts that must not vary per
+agent, such as `runtime_fabric.worker_auth_key`.
+
 ## Resolution
 
 Effective reads use this fallback order:
@@ -118,6 +132,9 @@ Effective reads use this fallback order:
 
 If there is no current agent, the read starts at `global` and then falls back to
 the code default.
+
+For global-only definitions, effective reads skip the agent scope and use only
+`global`, then the code default.
 
 Fallback applies only to missing rows. A row that exists but cannot be
 decrypted, decoded, or validated is a storage error. It should not silently
@@ -180,10 +197,17 @@ The public read API should make the resolution context explicit:
 - `get_by_key(key, agent_id: id)` is reserved for registered pattern-backed
   keys.
 
+For global-only definitions, `agent_id` is ignored by the read path because the
+definition itself declares that only the installation-wide row is meaningful.
+
 Setup and console surfaces often need to show where a value came from. For those
 surfaces, the read result should include the effective source, such as
 `:agent`, `:global`, or `:default`. Runtime call sites that only need the value
 may use a value-only helper.
+
+Console projections should also expose the definition scope (`scoped` or
+`global`) so operators can tell whether a key may have agent-specific
+overrides.
 
 ## Write API
 
@@ -196,6 +220,10 @@ Writes always target one concrete scope:
 
 Deleting an agent row makes that agent inherit the global row. Deleting a global
 row makes all non-overridden agents inherit the code default, if one exists.
+
+For global-only definitions, agent writes and deletes fail before persistence.
+The owning subsystem may still write the global row through the normal global
+write path.
 
 Writes validate through the registered definition before touching PostgreSQL.
 Encrypted definitions serialize the JSON value, derive row-specific key material
@@ -252,6 +280,13 @@ is only persisted when an owning setup or write path accepts it.
 
 Generated defaults are not silently inserted during normal reads.
 
+Some subsystems need a durable generated secret before external processes can
+connect. In that case the owning subsystem should call the generator and persist
+the value through the normal AppConfigure write path during its own boot or
+setup flow. For example, the actor runtime ensures
+`runtime_fabric.worker_auth_key` exists before rendering worker bootstrap data
+or starting the RuntimeFabric router.
+
 ## Supervision
 
 `Ankole.AppConfigure.Cache` starts after `Ankole.Repo` and before subsystems that
@@ -268,10 +303,13 @@ configuration. It must not wait for AppConfigure.
 
 - Bootstrap configuration must not depend on Repo or AppConfigure.
 - AppConfigure must not read OS environment variables.
-- Every AppConfigure value resolves through current agent, global, then code
-  default.
+- Scoped definitions resolve through current agent, global, then code default.
+- Global-only definitions resolve only through global and code default.
 - Scope lives in `app_configure.scope`, not inside the key path.
+- Definition scope decides whether agent rows are allowed for a key.
 - Missing rows may inherit; invalid rows must fail visibly.
 - Secret values are stored encrypted in PostgreSQL.
 - Code defaults are effective values, not rows that need to be backfilled.
+- Generated values are persisted only by an owning setup or subsystem path, not
+  by passive reads.
 - Plugin settings use the same AppConfigure mechanism as core settings.

@@ -14,6 +14,7 @@ defmodule Ankole.AppConfigure.PatternDefinition do
     :default_value,
     :description,
     :generator,
+    :scope,
     :encrypted,
     default?: false
   ]
@@ -26,7 +27,8 @@ defmodule Ankole.AppConfigure.PatternDefinition do
           default?: boolean(),
           default_value: term(),
           description: String.t() | nil,
-          generator: (-> term()) | nil
+          generator: (-> term()) | nil,
+          scope: :scoped | :global
         }
 
   @doc """
@@ -52,7 +54,8 @@ defmodule Ankole.AppConfigure.PatternDefinition do
          default?: definition.default?,
          default_value: definition.default_value,
          description: definition.description,
-         generator: definition.generator
+         generator: definition.generator,
+         scope: definition.scope
        }}
     end
   end
@@ -98,7 +101,8 @@ defmodule Ankole.AppConfigure.PatternDefinition do
       default?: definition.default?,
       default_value: definition.default_value,
       description: definition.description,
-      generator: definition.generator
+      generator: definition.generator,
+      scope: definition.scope
     }
   end
 

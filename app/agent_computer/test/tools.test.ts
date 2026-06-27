@@ -203,15 +203,15 @@ describe('@ankole/agent-computer migrated tool semantics', () => {
 
   it('runs container commands asynchronously with scoped env and abort handling', async () => {
     const root = mkdtempSync(join(tmpdir(), 'ankole-computer-'))
-    const previousSecret = process.env.ANKOLE_AGENT_COMPUTER_WORKER_PRE_AUTH_TOKEN
+    const previousSecret = process.env.RUNTIME_FABRIC_URL
 
     try {
-      process.env.ANKOLE_AGENT_COMPUTER_WORKER_PRE_AUTH_TOKEN = 'secret-token'
+      process.env.RUNTIME_FABRIC_URL = 'tcp://:secret-token@control-plane:5555'
 
       const computer = createContainerComputer(root)
       const result = await computer.runCommand({
         cmd: 'bash',
-        args: ['-lc', 'printf "%s|%s" "${ANKOLE_AGENT_COMPUTER_WORKER_PRE_AUTH_TOKEN-unset}" "$FOO"'],
+        args: ['-lc', 'printf "%s|%s" "${RUNTIME_FABRIC_URL-unset}" "$FOO"'],
         env: { FOO: 'visible' }
       })
 
@@ -230,9 +230,9 @@ describe('@ankole/agent-computer migrated tool semantics', () => {
       expect(await aborted.output('stderr')).toBe('command aborted')
     } finally {
       if (previousSecret === undefined) {
-        delete process.env.ANKOLE_AGENT_COMPUTER_WORKER_PRE_AUTH_TOKEN
+        delete process.env.RUNTIME_FABRIC_URL
       } else {
-        process.env.ANKOLE_AGENT_COMPUTER_WORKER_PRE_AUTH_TOKEN = previousSecret
+        process.env.RUNTIME_FABRIC_URL = previousSecret
       }
       rmSync(root, { recursive: true, force: true })
     }
@@ -242,7 +242,7 @@ describe('@ankole/agent-computer migrated tool semantics', () => {
     const root = mkdtempSync(join(tmpdir(), 'ankole-computer-'))
     const bin = join(root, 'bin')
     const argsFile = join(root, 'bwrap-args.txt')
-    const previousSecret = process.env.ANKOLE_AGENT_COMPUTER_WORKER_PRE_AUTH_TOKEN
+    const previousSecret = process.env.RUNTIME_FABRIC_URL
 
     try {
       mkdirSync(bin, { recursive: true })
@@ -250,7 +250,7 @@ describe('@ankole/agent-computer migrated tool semantics', () => {
       writeFileSync(join(bin, 'bwrap'), '#!/bin/sh\nprintf "%s\\n" "$@" > "$BWRAP_ARGS_FILE"\nexit 0\n')
       chmodSync(join(bin, 'bwrap'), 0o755)
 
-      process.env.ANKOLE_AGENT_COMPUTER_WORKER_PRE_AUTH_TOKEN = 'secret-token'
+      process.env.RUNTIME_FABRIC_URL = 'tcp://:secret-token@control-plane:5555'
 
       const result = await createContainerComputer(root).runCommand({
         cmd: 'bash',
@@ -270,15 +270,15 @@ describe('@ankole/agent-computer migrated tool semantics', () => {
       expect(args).toContain('--clearenv')
       expect(args.slice(args.indexOf('--bind'), args.indexOf('--bind') + 3)).toEqual(['--bind', root, '/workspace'])
       expect(args.slice(args.indexOf('--chdir'), args.indexOf('--chdir') + 2)).toEqual(['--chdir', '/workspace/sub'])
-      expect(args).not.toContain('ANKOLE_AGENT_COMPUTER_WORKER_PRE_AUTH_TOKEN')
+      expect(args).not.toContain('RUNTIME_FABRIC_URL')
 
       const commandIndex = args.indexOf('timeout')
       expect(args.slice(commandIndex, commandIndex + 5)).toEqual(['timeout', '60s', 'bash', '-lc', 'printf ok'])
     } finally {
       if (previousSecret === undefined) {
-        delete process.env.ANKOLE_AGENT_COMPUTER_WORKER_PRE_AUTH_TOKEN
+        delete process.env.RUNTIME_FABRIC_URL
       } else {
-        process.env.ANKOLE_AGENT_COMPUTER_WORKER_PRE_AUTH_TOKEN = previousSecret
+        process.env.RUNTIME_FABRIC_URL = previousSecret
       }
 
       rmSync(root, { recursive: true, force: true })

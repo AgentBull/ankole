@@ -1,11 +1,10 @@
-import type { ActorLaneEnvelope } from './actor_lane'
 import { existsSync } from 'node:fs'
+import type { RuntimeFabricEnvelope } from './runtime_fabric'
 
 export type WorkerConfig = {
   endpoint: string
-  preAuthToken: string
+  workerAuthKey: string
   workerId: string
-  workerInstanceId: string
   workspaceRoot: string
   workspaceSessionsRoot: string
   sharedFsRoot: string
@@ -21,8 +20,7 @@ const defaultUserFilesRoot = '/workspace/shared/user-files'
 const defaultAgentInstalledSkillsRoot = '/workspace/shared/skills/agents'
 const defaultBuiltinSkillsRoot = '/repo/app/library/skills'
 const actorSpecificEnv = ['ANKOLE_AGENT_UID', 'ANKOLE_SESSION_ID', 'ANKOLE_ACTOR_EPOCH', 'ANKOLE_LLM_TURN_ID']
-const containerMarkerPath = '/etc/ankole-agent-computer-container'
-const containerMarkerEnv = 'ANKOLE_AGENT_COMPUTER_CONTAINER'
+const defaultContainerMarkerPath = '/etc/ankole-agent-computer-container'
 
 /**
  * Parses the worker process environment into the stable computer-worker config.
@@ -31,7 +29,7 @@ const containerMarkerEnv = 'ANKOLE_AGENT_COMPUTER_CONTAINER'
  * each `turn_start` envelope so the same image can serve any actor in the pool.
  */
 export function parseWorkerEnv(env: Record<string, string | undefined> = Bun.env): WorkerConfig {
-  assertContainerRuntime(env)
+  assertContainerRuntime(defaultContainerMarkerPath)
 
   if (env.DATABASE_URL) {
     throw new Error('DATABASE_URL must not be set on an agent computer worker')
@@ -44,16 +42,14 @@ export function parseWorkerEnv(env: Record<string, string | undefined> = Bun.env
   }
 
   return {
-    endpoint: requiredEnv(env, 'ANKOLE_RUNTIME_FABRIC_ENDPOINT'),
-    preAuthToken: requiredEnv(env, 'ANKOLE_AGENT_COMPUTER_WORKER_PRE_AUTH_TOKEN'),
-    workerId: requiredEnv(env, 'ANKOLE_AGENT_COMPUTER_WORKER_ID'),
-    workerInstanceId: requiredEnv(env, 'ANKOLE_AGENT_COMPUTER_WORKER_INSTANCE_ID'),
-    workspaceRoot: optionalEnv(env, 'ANKOLE_WORKSPACE_ROOT') ?? defaultWorkspaceRoot,
-    workspaceSessionsRoot: optionalEnv(env, 'ANKOLE_WORKSPACE_SESSIONS_ROOT') ?? defaultWorkspaceSessionsRoot,
-    sharedFsRoot: optionalEnv(env, 'ANKOLE_SHARED_FS_ROOT') ?? defaultSharedFsRoot,
-    userFilesRoot: optionalEnv(env, 'ANKOLE_USER_FILES_ROOT') ?? defaultUserFilesRoot,
-    agentInstalledSkillsRoot: optionalEnv(env, 'ANKOLE_AGENT_INSTALLED_SKILLS_ROOT') ?? defaultAgentInstalledSkillsRoot,
-    builtinSkillsRoot: optionalEnv(env, 'ANKOLE_BUILTIN_SKILLS_ROOT') ?? defaultBuiltinSkillsRoot
+    ...parseRuntimeFabricUrl(requiredEnv(env, 'RUNTIME_FABRIC_URL')),
+    workerId: requiredEnv(env, 'WORKER_ID'),
+    workspaceRoot: defaultWorkspaceRoot,
+    workspaceSessionsRoot: defaultWorkspaceSessionsRoot,
+    sharedFsRoot: defaultSharedFsRoot,
+    userFilesRoot: defaultUserFilesRoot,
+    agentInstalledSkillsRoot: defaultAgentInstalledSkillsRoot,
+    builtinSkillsRoot: defaultBuiltinSkillsRoot
   }
 }
 
@@ -66,13 +62,44 @@ export function parseWorkerEnv(env: Record<string, string | undefined> = Bun.env
  * host-Bun/non-Linux execution from an accidental partial mode into a startup
  * error.
  */
-function assertContainerRuntime(env: Record<string, string | undefined>): void {
+function assertContainerRuntime(containerMarkerPath: string): void {
   if (process.platform !== 'linux') {
     throw new Error('Agent Computer worker must run inside the Linux Docker image')
   }
 
-  if (env[containerMarkerEnv] !== '1' || !existsSync(containerMarkerPath)) {
+  if (!existsSync(containerMarkerPath)) {
     throw new Error('Agent Computer worker must run inside the Ankole Agent Computer Docker image')
+  }
+}
+
+export function parseRuntimeFabricUrl(value: string): Pick<WorkerConfig, 'endpoint' | 'workerAuthKey'> {
+  let url: URL
+
+  try {
+    url = new URL(value)
+  } catch (_error) {
+    throw new Error('RUNTIME_FABRIC_URL must be tcp://:worker_auth_key@host:port')
+  }
+
+  if (url.protocol !== 'tcp:') {
+    throw new Error('RUNTIME_FABRIC_URL must use tcp://')
+  }
+
+  if (url.username) {
+    throw new Error('RUNTIME_FABRIC_URL must not include a username; use WORKER_ID')
+  }
+
+  if (!url.password) {
+    throw new Error('RUNTIME_FABRIC_URL must include worker auth key as the URL password')
+  }
+
+  if (!url.hostname || !url.port || !['', '/'].includes(url.pathname) || url.search || url.hash) {
+    throw new Error('RUNTIME_FABRIC_URL must be tcp://:worker_auth_key@host:port')
+  }
+
+  return {
+    endpoint: `tcp://${url.host}`,
+    workerAuthKey: decodeURIComponent(url.password)
   }
 }
 
@@ -82,7 +109,7 @@ function assertContainerRuntime(env: Record<string, string | undefined>): void {
  * Runtime and version are observability metadata. They are not used as
  * feature negotiation because the worker pool is homogeneous by image.
  */
-export function workerReadyEnvelope(config: WorkerConfig, availableTurnSlots = 1): ActorLaneEnvelope {
+export function workerReadyEnvelope(config: WorkerConfig, availableTurnSlots = 1): RuntimeFabricEnvelope {
   return {
     protocol_version: 1,
     message_id: `worker-ready-${crypto.randomUUID()}`,
@@ -92,7 +119,6 @@ export function workerReadyEnvelope(config: WorkerConfig, availableTurnSlots = 1
       type: 'worker_ready',
       worker_ready: {
         worker_id: config.workerId,
-        worker_instance_id: config.workerInstanceId,
         runtime: 'bun',
         version: '0.1.0',
         capacity_json: {
@@ -104,16 +130,16 @@ export function workerReadyEnvelope(config: WorkerConfig, availableTurnSlots = 1
 }
 
 /**
- * Builds the periodic liveness envelope for the admitted worker instance.
+ * Builds the periodic liveness envelope for the admitted worker process.
  *
- * The control plane fences heartbeats by worker instance id and transport route,
- * so an old process cannot keep a restarted worker projection alive.
+ * The control plane fences heartbeats by worker id and transport route, so an
+ * old process cannot keep a replaced worker projection alive.
  */
 export function workerHeartbeatEnvelope(
   config: WorkerConfig,
   monotonicMs = Math.floor(performance.now()),
   activeTurns = 0
-): ActorLaneEnvelope {
+): RuntimeFabricEnvelope {
   return {
     protocol_version: 1,
     message_id: `worker-heartbeat-${crypto.randomUUID()}`,
@@ -123,7 +149,6 @@ export function workerHeartbeatEnvelope(
       type: 'worker_heartbeat',
       worker_heartbeat: {
         worker_id: config.workerId,
-        worker_instance_id: config.workerInstanceId,
         monotonic_ms: monotonicMs,
         load_json: {
           active_turns: activeTurns
@@ -143,7 +168,7 @@ export function workerCapacityEnvelope(
   config: WorkerConfig,
   availableTurnSlots = 1,
   activeTurns = 0
-): ActorLaneEnvelope {
+): RuntimeFabricEnvelope {
   return {
     protocol_version: 1,
     message_id: `worker-capacity-${crypto.randomUUID()}`,
@@ -153,7 +178,6 @@ export function workerCapacityEnvelope(
       type: 'worker_capacity',
       worker_capacity: {
         worker_id: config.workerId,
-        worker_instance_id: config.workerInstanceId,
         available_turn_slots: availableTurnSlots,
         capacity_json: {
           available_turn_slots: availableTurnSlots
@@ -173,9 +197,4 @@ function requiredEnv(env: Record<string, string | undefined>, key: string): stri
   }
 
   return value
-}
-
-function optionalEnv(env: Record<string, string | undefined>, key: string): string | undefined {
-  const value = env[key]?.trim()
-  return value || undefined
 }

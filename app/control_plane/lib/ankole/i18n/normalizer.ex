@@ -164,7 +164,7 @@ defmodule Ankole.I18n.Normalizer do
     raise Error, file: file, path: [@meta_key], reason: "meta table must be an object"
   end
 
-  # Metadata values stay strings because they map to release text such as locale
+  # Metadata values stay strings because they map to catalog text such as locale
   # ids and revisions. Other TOML types would invite implicit conversion rules.
   defp put_meta_entry(acc, "bcp47", value, _file) when is_binary(value),
     do: Map.put(acc, :bcp47, value)

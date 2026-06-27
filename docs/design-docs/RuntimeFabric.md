@@ -5,7 +5,7 @@ share worker transport and authentication, but they carry different kinds of
 traffic:
 
 - actor lane: turn lifecycle and live actor control;
-- rpc lane: worker requests for control-plane semantic state;
+- rpc lane: bidirectional bounded request/response calls for semantic methods;
 - worker file lane: read, write, list, move, and delete operations against a
   worker-owned filesystem.
 
@@ -143,20 +143,36 @@ treating the turn as delivered.
 ## Worker Authentication
 
 RuntimeFabric uses ZeroMQ ZAP with PLAIN for worker bootstrap authentication.
-The operator-facing concept is still one `pre auth token`; ZAP username/password
-are implementation details:
+Operators configure one global `worker_auth_key`; ZAP username/password are
+implementation details:
 
-- PLAIN username is the stable `worker_id`;
-- PLAIN password is the pre-auth key/token;
-- the control plane records the authenticated `worker_id` and `key_revision`
+- the control plane owns `runtime_fabric.worker_auth_key` in AppConfigure;
+- the AppConfigure definition is encrypted and global-scope only;
+- if the key is missing at startup, the control plane generates and persists a
+  UUID value;
+- PLAIN username is `WORKER_ID`;
+- PLAIN password is the worker auth key from `RUNTIME_FABRIC_URL`;
+- the control plane records the authenticated `worker_id` and key revision
   against the transport route;
 - lifecycle envelopes are admitted against that authenticated route identity.
 
-The router supports three auth sources:
+Worker startup needs only two worker identity/fabric environment variables:
 
-- database-backed worker auth keys, which is the normal control-plane path;
-- static per-worker keys, useful for focused tests or controlled bootstrap;
-- one shared secret, useful for narrow smoke tests.
+```text
+WORKER_ID=worker-a
+RUNTIME_FABRIC_URL=tcp://:worker_auth_key@control-plane:port
+```
+
+`RUNTIME_FABRIC_URL` carries the control-plane endpoint and the shared auth key.
+It does not carry a username; `WORKER_ID` stays separate so Docker Compose,
+Kubernetes, or an operator script can choose a stable process identity. The
+worker parses the URL into the ZeroMQ endpoint `tcp://control-plane:port` and
+the PLAIN password. The same global `worker_auth_key` may be used by many
+workers with different `WORKER_ID` values.
+
+There is no per-worker auth-key table in the mainline and Rust does not receive
+a database URL. Rust only receives the current in-memory worker auth key needed
+for ZAP verification.
 
 This is authentication for first-party workers on the runtime fabric. It is not
 a user authorization model, not a public-worker hardening story, and not a
@@ -166,8 +182,41 @@ and revisions.
 
 CURVE/TLS and public worker admission are not part of the current mainline.
 That keeps the v1 implementation tied to the actual deployment assumption:
-operator-launched Docker workers, private fabric endpoints, PG-backed worker
-keys, and control-plane-owned durability.
+operator-launched Docker workers, private fabric endpoints, an AppConfigure
+global worker key, and control-plane-owned durability.
+
+## Envelope Invariants
+
+The native protobuf codec validates invariants before a message crosses into
+normal Elixir or Bun handlers:
+
+- `protocol_version` must be `1`;
+- every envelope must have `message_id`, `lane`, `durability`, and exactly one
+  body;
+- body type fixes the allowed lane and durability class;
+- turn and rpc envelopes require `correlation_id`;
+- rpc `correlation_id` must equal `request_id`;
+- `turn_control` must remain a control envelope, not a second actor input
+  payload channel;
+- `worker_progress.kind` is limited to control-plane-visible progress classes.
+
+This is why host code keeps a JSON-shaped envelope map even though the wire
+format is protobuf. Elixir and Bun can build ergonomic maps, but Rust is the
+single protocol checker for both runtimes.
+
+The protobuf lane values are transport-level lanes shared by the whole
+RuntimeFabric connection. They are lower-level than the product lane names and
+are not subsections of the actor lane:
+
+- `LANE_CONTROL`: worker lifecycle, turn control, shutdown;
+- `LANE_TURN`: turn start, mailbox update, accepted inputs, final proposal, turn
+  error;
+- `LANE_PROGRESS`: worker progress observations;
+- `LANE_RPC`: request/response/error RPC envelopes handled by the RPC lane.
+
+The durability class is about control-plane replay/commit behavior, not ZeroMQ
+persistence. `CONTROL_REPLAYABLE` and `CONTROL_DURABLE` still require PG-backed
+facts; ZeroMQ never becomes the durable ledger.
 
 ## Actor Lane
 
@@ -180,9 +229,17 @@ Typical actor lane messages:
 - `turn_start`;
 - `turn_accepted`;
 - `mailbox_updated`;
+- `turn_control`;
 - `worker_progress`;
 - `turn_final_proposal`;
 - `turn_error`.
+
+`turn_control(command = "retry")` is a stop signal for a turn the control plane
+has already fenced in PostgreSQL. The worker should abort its local AI loop,
+drop any late proposal for that turn, and release capacity. It should not report
+the controlled stop as `turn_error`; `turn_error` remains reserved for worker
+execution failure that makes the input retryable through the normal failure
+path.
 
 Every turn message carries an `ActorTurnRef`. The control plane validates this
 turn fence against current database rows before accepting write effects. The
@@ -203,43 +260,17 @@ Final assistant output still returns as `turn_final_proposal`. The
 assistant message, updates turn status, and appends provider-visible outbox
 effects.
 
-### Envelope Invariants
-
-The native protobuf codec validates invariants before a message crosses into
-normal Elixir or Bun handlers:
-
-- `protocol_version` must be `1`;
-- every envelope must have `message_id`, `lane`, `durability`, and exactly one
-  body;
-- body type fixes the allowed lane and durability class;
-- turn and rpc envelopes require `correlation_id`;
-- rpc `correlation_id` must equal `request_id`;
-- `turn_control` with command `steer` must not smuggle steering payloads;
-- `worker_progress.kind` is limited to control-plane-visible progress classes.
-
-This is why host code keeps a JSON-shaped envelope map even though the wire
-format is protobuf. Elixir and Bun can build ergonomic maps, but Rust is the
-single protocol checker for both runtimes.
-
-The protobuf lane values are lower-level than the product lane names:
-
-- `LANE_CONTROL`: worker lifecycle, turn control, shutdown;
-- `LANE_TURN`: turn start, mailbox update, accepted inputs, final proposal, turn
-  error;
-- `LANE_PROGRESS`: worker progress observations;
-- `LANE_RPC`: request/response/error RPC envelopes.
-
-The durability class is about control-plane replay/commit behavior, not ZeroMQ
-persistence. `CONTROL_REPLAYABLE` and `CONTROL_DURABLE` still require PG-backed
-facts; ZeroMQ never becomes the durable ledger.
-
 ## RPC Lane
 
 The rpc lane also uses RuntimeFabric protobuf envelopes. Its body type is
 `rpc_request`, `rpc_response`, or `rpc_error`. Payloads are small JSON-compatible
 objects. Large file bytes do not belong in rpc payloads.
 
-The worker uses the rpc lane for PG semantic state:
+The rpc lane is request/response traffic for semantic methods. It is not tied
+to worker-owned files or actor-lane facts. Either side may initiate a bounded
+RPC call when it needs a method owned by the other side.
+
+The current worker-to-control-plane methods are mostly for PG semantic state:
 
 - `runtime.turn_context.resolve`: returns the batched turn context, including
   soul, mission, conversation window, enabled skills, and overlay digest;
@@ -247,6 +278,11 @@ The worker uses the rpc lane for PG semantic state:
 - `skills.overlay.replace`: replaces one overlay;
 - `skills.overlay.clear`: clears one overlay;
 - provider credential and profile resolution methods.
+
+The current control-plane-to-worker methods are worker-owned semantic methods:
+
+- `worker.runtime.describe`: returns worker process/runtime facts such as worker
+  identity, active turn count, and configured workspace roots.
 
 RPC requests that belong to a turn include `ActorTurnRef`. The server checks the
 route and turn fence at the method boundary. Read methods may accept the current
@@ -266,11 +302,25 @@ The worker's RPC client is in-process and request-id based. It sends
 `rpc_response` or `rpc_error`. The current timeout is `60s`, which is a worker
 runtime budget, not a database transaction budget.
 
+The control-plane RPC client is also request-id based. It sends `rpc_request`
+envelopes through the existing mandatory route send, stores a pending caller in
+the transport broker, and resolves that caller when the worker replies with
+`rpc_response` or `rpc_error` on the same route.
+
 ## Worker File Lane
 
 The worker file lane is RuntimeFabric's filesystem lane. It uses raw ZeroMQ
-multipart frames for file bytes and small JSON frames for file operations. It
-does not use protobuf and does not base64 encode file content.
+multipart frames, not protobuf, and it does not base64 encode file content.
+Frame roles are explicit:
+
+- protocol marker, command, and `transfer_id` are text frames;
+- numbers such as sequence, offset, byte credit, sizes, and timestamps are
+  unsigned big-endian binary integer frames;
+- booleans are one-byte frames;
+- paths are virtual worker-root paths such as
+  `/user_files/inbox/lark/message-1/image.png`;
+- directory listings use a compact typed binary table;
+- file content is carried only by `DATA` binary chunk frames.
 
 The protocol marker is:
 
@@ -284,29 +334,39 @@ The current frame shape is:
 [ANKOLE_FILE/1, COMMAND, transfer_id, ...]
 ```
 
-Commands are intentionally small:
+Transfer commands are intentionally small:
 
-- `PUT_BEGIN`: start writing a file;
-- `PUT_CHUNK`: append one binary chunk;
-- `PUT_COMMIT`: atomically publish the completed file;
-- `PUT_ABORT`: discard an incomplete write;
-- `GET`: stream a file back to the caller;
+- `WRITE_OPEN`: start writing one zstd stream to a scratch path;
+- `WRITE_READY`: worker accepted the scratch write and grants initial byte
+  credit;
+- `DATA`: one binary zstd chunk with sequence, wire offset, and eof flag;
+- `CREDIT`: receiver grants more bytes to the sender;
+- `WRITE_COMMIT`: ask the worker to decode, verify, and publish atomically;
+- `WRITE_COMMITTED`: final write result with size and optional XXH3
+  observation;
+- `WRITE_ABORT`: discard an incomplete write;
+- `READ_OPEN`: ask the worker to stream one file;
+- `READ_READY`: read metadata before chunks start;
+- `READ_DONE`: read terminator with chunk count and wire size;
+- `READ_ABORT`: stop an active read stream;
 - `STAT`: return file size, kind, mtime, and optional XXH3 observation;
+- `STAT_OK`: stat result;
 - `LIST`: list directory entries, optionally recursive and bounded;
+- `LIST_OK`: typed list result;
 - `MOVE`: move one file or directory within the same worker root;
+- `MOVE_OK`: move result;
 - `DELETE`: delete one file, or a directory only when explicitly recursive;
-- worker responses: `ACK`, `ERROR`, `GET_BEGIN`, `GET_CHUNK`, `GET_END`,
-  `LIST_RESULT`.
+- `DELETE_OK`: delete result;
+- `ERROR`: operation failure with code and message;
+- `RTFM`: malformed file-lane protocol command.
 
-Operation frames are JSON because operation data is small. File content is
-always a binary frame. A `PUT_BEGIN`, `GET`, `STAT`, `DELETE`, or `LIST`
-operation addresses a path with:
+There is no JSON metadata frame in the file lane. Small structured values are
+separate typed frames because ZeroMQ already gives the protocol multipart
+boundaries. File content is always a `DATA` binary chunk frame. A `WRITE_OPEN`,
+`READ_OPEN`, `STAT`, `DELETE`, or `LIST` operation addresses a path like:
 
-```json
-{
-  "root": "user_files",
-  "relative_path": "inbox/lark/message-1/image.png"
-}
+```text
+/user_files/inbox/lark/message-1/image.png
 ```
 
 Supported roots are worker filesystem roots, not S3 buckets:
@@ -319,8 +379,8 @@ worker to read or write file-like objects. It is not a technical decision to
 introduce S3 object keys, buckets, storage classes, presigned URLs, or a generic
 object-store abstraction.
 
-`MOVE` uses one root plus `from_relative_path` and `to_relative_path`. Cross-root
-moves are not part of the lane.
+`MOVE` uses two virtual paths and must stay inside the same worker root.
+Cross-root moves are not part of the lane.
 
 ### Worker File Implementation Notes
 
@@ -332,42 +392,41 @@ The supported roots are:
 - `ANKOLE_AGENT_INSTALLED_SKILLS_ROOT`, defaulting to
   `/workspace/shared/skills/agents`.
 
-Inbound `PUT` writes into a scratch directory under:
+Inbound `WRITE_OPEN` writes into a scratch directory under:
 
 ```text
 ANKOLE_SHARED_FS_ROOT/.ankole-file-transfer/<transfer_id>/
 ```
 
-The worker appends chunks in order, optionally verifies original size and
-then publishes with an atomic rename into the target path. `PUT_ABORT` removes
-the scratch directory. `GET` streams the file back in `1MiB` chunks. `STAT` and
-`GET_BEGIN` can return an XXH3 128-bit observation fingerprint. This fingerprint
-is for change detection and catalog observations, not security verification.
+The worker appends `DATA` chunks in sequence and verifies original size after
+zstd decode. `WRITE_COMMIT` decodes the scratch zstd stream into a final temp
+path and publishes with an atomic rename. `WRITE_ABORT` removes the scratch
+directory. `READ_OPEN` streams the file back as zstd `DATA` chunks under
+control-plane byte credit. `READ_ABORT` stops the worker-side read stream when
+the control-plane caller times out or cancels. `STAT` and `READ_READY` can return
+an XXH3 128-bit observation fingerprint. This fingerprint is for change
+detection and catalog observations, not security verification.
 
 The control-plane `FileTransferLane` owns only in-memory request/response
 correlation for the active operation. It does not add a durable worker-file
-state machine. That is a deliberate v1 limit: files are durable once written
-under the worker root and referenced from PG semantic rows; transient chunk
-exchange does not need its own PG-backed broker unless retry/resume requirements
-become real.
+state machine. Files are durable once written under the worker root and
+referenced from PG semantic rows; transient chunk exchange does not need its own
+PG-backed broker unless retry/resume requirements become real.
 
 ## Worker File Encoding
 
-The worker file lane uses transparent wire encoding:
+The worker file lane always uses zstd on the wire. There is no identity mode and
+no per-operation content-encoding negotiation.
 
-- `zstd`: the default; chunks form one zstd frame on the wire;
-- `identity`: an explicit debug/escape mode where bytes are transferred as-is.
-
-Stored files remain original bytes. For inbound `PUT` with `content_encoding:
-"zstd"`, the worker decodes the received zstd frame before the final rename. For
-outbound `GET` with `content_encoding: "zstd"`, the worker streams a zstd frame
-back to the control plane. If `content_encoding` is omitted, both sides treat it
-as `zstd`.
+Stored files remain original bytes. For inbound writes, the control plane sends
+one zstd stream split across `DATA` frames and the worker decodes that stream
+before the final rename. For outbound reads, the worker compresses the stored
+file into a zstd stream and returns that stream across `DATA` frames.
 
 This is a bandwidth optimization, not a storage model. The worker image and the
 control-plane runtime must provide `zstd` for high-level `put` and `get`.
 Missing support is a readiness/runtime error, not a reason to fall back to
-identity.
+another encoding.
 
 The reason for raw multipart plus default `zstd` is practical:
 

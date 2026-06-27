@@ -1,6 +1,6 @@
 import { xxh3File128Hex } from '@ankole/kernel'
-import { createReadStream, existsSync, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs'
-import { appendFile, copyFile, rename, unlink, writeFile } from 'node:fs/promises'
+import { existsSync, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs'
+import { appendFile, rename, unlink, writeFile } from 'node:fs/promises'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { spawn, spawnSync } from 'node:child_process'
 import { Buffer } from 'node:buffer'
@@ -9,9 +9,8 @@ import type { WorkerConfig } from './runtime'
 export const fileTransferProtocol = Buffer.from('ANKOLE_FILE/1')
 
 const chunkSize = 1024 * 1024
+const creditWindow = 4 * 1024 * 1024
 const transferScratchDir = '.ankole-file-transfer'
-const defaultContentEncoding: ContentEncoding = 'zstd'
-const supportedContentEncodings = new Set(['identity', 'zstd'])
 
 type FileFrameSender = {
   sendFileFrame(frames: Buffer[]): string
@@ -19,61 +18,50 @@ type FileFrameSender = {
 
 type PutTransfer = {
   transferId: string
-  root: FileRoot
-  relativePath: string
+  address: FileAddress
   targetPath: string
   tempDir: string
   payloadPath: string
-  contentEncoding: ContentEncoding
-  nextChunkIndex: number
-  bytesReceived: number
-  expectedOriginalSize?: number
+  nextSequence: number
+  nextOffset: number
+  expectedOriginalSize: number
+}
+
+type GetTransfer = {
+  transferId: string
+  address: FileAddress
+  filePath: string
+  process: ReturnType<typeof spawn>
+  stdout: NonNullable<ReturnType<typeof spawn>['stdout']>
+  pendingChunks: Buffer[]
+  bufferedBytes: number
+  nextSequence: number
+  nextOffset: number
+  credit: number
+  chunksSent: number
+  stdoutEnded: boolean
+  processClosed: boolean
+  exitCode: number | null
+  stderr: string
+  initialSize: number
+  initialMtimeMs: number
+  stable?: boolean
+  finished?: boolean
 }
 
 export type FileTransferState = {
   puts: Map<string, PutTransfer>
+  gets: Map<string, GetTransfer>
   fingerprints: Map<string, FingerprintCacheEntry>
 }
 
 type FileRoot = 'user_files' | 'agent_installed_skills'
-type ContentEncoding = 'identity' | 'zstd'
 type FingerprintMode = 'none' | 'xxh3_128'
 
 type FileAddress = {
   root: FileRoot
-  relative_path: string
-}
-
-type PutBeginMetadata = FileAddress & {
-  content_encoding?: ContentEncoding
-  original_size?: number
-}
-
-type GetMetadata = FileAddress & {
-  content_encoding?: ContentEncoding
-  fingerprint?: FingerprintMode
-}
-
-type StatMetadata = FileAddress & {
-  fingerprint?: FingerprintMode
-}
-
-type DeleteMetadata = FileAddress & {
-  recursive?: boolean
-}
-
-type MoveMetadata = {
-  root: FileRoot
-  from_relative_path: string
-  to_relative_path: string
-  overwrite?: boolean
-}
-
-type ListMetadata = {
-  root: FileRoot
-  relative_path?: string
-  recursive?: boolean
-  max_entries?: number
+  relativePath: string
+  virtualPath: string
 }
 
 type FingerprintCacheEntry = {
@@ -85,12 +73,12 @@ type FingerprintCacheEntry = {
 type ListEntry = {
   relative_path: string
   kind: 'file' | 'directory' | 'other'
-  size?: number
+  size: number
   modified_unix_ms: number
 }
 
 export function createFileTransferState(): FileTransferState {
-  return { puts: new Map(), fingerprints: new Map() }
+  return { puts: new Map(), gets: new Map(), fingerprints: new Map() }
 }
 
 export function isFileTransferFrame(frames: Buffer[]): boolean {
@@ -104,36 +92,45 @@ export async function handleFileTransferFrame(
   frames: Buffer[]
 ): Promise<void> {
   const transferId = textFrame(frames[2]) || 'unknown'
+  let command = 'unknown'
 
   try {
     if (!isFileTransferFrame(frames)) {
       throw new Error('invalid file-transfer protocol marker')
     }
 
-    const command = requiredTextFrame(frames[1], 'command')
+    command = requiredTextFrame(frames[1], 'command')
     switch (command) {
-      case 'PUT_BEGIN':
-        await handlePutBegin(config, sender, state, transferId, frames)
+      case 'WRITE_OPEN':
+        await handleWriteOpen(config, sender, state, transferId, frames)
         return
 
-      case 'PUT_CHUNK':
-        await handlePutChunk(sender, state, transferId, frames)
+      case 'DATA':
+        await handleData(sender, state, transferId, frames)
         return
 
-      case 'PUT_COMMIT':
-        await handlePutCommit(sender, state, transferId)
+      case 'WRITE_COMMIT':
+        await handleWriteCommit(sender, state, transferId)
         return
 
-      case 'PUT_ABORT':
-        handlePutAbort(sender, state, transferId)
+      case 'WRITE_ABORT':
+        handleWriteAbort(sender, state, transferId)
         return
 
-      case 'GET':
-        await handleGet(config, sender, state, transferId, frames)
+      case 'READ_OPEN':
+        handleReadOpen(config, sender, state, transferId, frames)
+        return
+
+      case 'READ_ABORT':
+        handleReadAbort(state, transferId)
+        return
+
+      case 'CREDIT':
+        sendReadData(sender, state, transferId, frames)
         return
 
       case 'STAT':
-        await handleStat(config, sender, state, transferId, frames)
+        handleStat(config, sender, state, transferId, frames)
         return
 
       case 'DELETE':
@@ -145,18 +142,21 @@ export async function handleFileTransferFrame(
         return
 
       case 'LIST':
-        await handleList(config, sender, transferId, frames)
+        handleList(config, sender, transferId, frames)
         return
 
       default:
         throw new Error(`unsupported file lane command: ${command}`)
     }
   } catch (error) {
-    sendError(sender, transferId, error instanceof Error ? error.message : String(error))
+    if (command === 'DATA') {
+      cleanupWriteTransfer(state, transferId)
+    }
+    sendError(sender, transferId, 'operation_failed', error instanceof Error ? error.message : String(error))
   }
 }
 
-async function handlePutBegin(
+async function handleWriteOpen(
   config: WorkerConfig,
   sender: FileFrameSender,
   state: FileTransferState,
@@ -167,167 +167,356 @@ async function handlePutBegin(
     throw new Error(`file transfer already exists: ${transferId}`)
   }
 
-  const metadata = parseMetadata<PutBeginMetadata>(frames[3], 'put metadata')
-  const contentEncoding = normalizeContentEncoding(metadata.content_encoding)
-  if (contentEncoding === 'zstd') assertZstdAvailable()
+  assertZstdAvailable()
+  const address = parseVirtualPathFrame(frames[3], 'write path')
+  const expectedOriginalSize = readU64Frame(frames[4], 'original_size')
+  const targetPath = resolveFileAddress(config, address)
+  const tempDir = scratchDirectoryFor(config, transferId)
+  const payloadPath = join(tempDir, 'payload.zst')
 
-  const targetPath = resolveFileAddress(config, metadata)
-  const tempDir = join(config.sharedFsRoot, transferScratchDir, safeTransferId(transferId))
-  const payloadPath = join(tempDir, contentEncoding === 'zstd' ? 'payload.zst' : 'payload.bin')
-
-  rmSync(tempDir, { recursive: true, force: true })
-  mkdirSync(tempDir, { recursive: true })
-  await writeFile(payloadPath, Buffer.alloc(0))
+  try {
+    rmSync(tempDir, { recursive: true, force: true })
+    mkdirSync(tempDir, { recursive: true })
+    await writeFile(payloadPath, Buffer.alloc(0))
+  } catch (error) {
+    rmSync(tempDir, { recursive: true, force: true })
+    throw error
+  }
 
   state.puts.set(transferId, {
     transferId,
-    root: metadata.root,
-    relativePath: metadata.relative_path,
+    address,
     targetPath,
     tempDir,
     payloadPath,
-    contentEncoding,
-    nextChunkIndex: 0,
-    bytesReceived: 0,
-    expectedOriginalSize: optionalNonNegativeInteger(metadata.original_size, 'original_size')
+    nextSequence: 0,
+    nextOffset: 0,
+    expectedOriginalSize
   })
 
-  sendAck(sender, transferId, { command: 'PUT_BEGIN', root: metadata.root, relative_path: metadata.relative_path })
+  try {
+    sendFrame(sender, ['WRITE_READY', transferId, u64Frame(creditWindow)])
+  } catch (error) {
+    cleanupWriteTransfer(state, transferId)
+    throw error
+  }
 }
 
-async function handlePutChunk(
+async function handleData(
   sender: FileFrameSender,
   state: FileTransferState,
   transferId: string,
   frames: Buffer[]
 ): Promise<void> {
   const transfer = getPutTransfer(state, transferId)
-  const chunkIndex = parseFrameInteger(frames[3], 'chunk_index')
-  const chunk = frames[4]
+  const sequence = readU64Frame(frames[3], 'sequence')
+  const offset = readU64Frame(frames[4], 'offset')
+  readBoolFrame(frames[5], 'eof')
+  const chunk = frames[6]
 
-  if (!chunk) {
-    throw new Error('PUT_CHUNK requires a binary chunk frame')
+  if (sequence !== transfer.nextSequence) {
+    throw new Error(`unexpected sequence ${sequence}, expected ${transfer.nextSequence}`)
   }
-  if (chunkIndex !== transfer.nextChunkIndex) {
-    throw new Error(`unexpected chunk_index ${chunkIndex}, expected ${transfer.nextChunkIndex}`)
+  if (offset !== transfer.nextOffset) {
+    throw new Error(`unexpected offset ${offset}, expected ${transfer.nextOffset}`)
+  }
+  if (!chunk) {
+    throw new Error('DATA requires a binary chunk frame')
   }
 
   await appendFile(transfer.payloadPath, chunk)
-  transfer.nextChunkIndex += 1
-  transfer.bytesReceived += chunk.byteLength
-  sendAck(sender, transferId, { command: 'PUT_CHUNK', chunk_index: chunkIndex })
+  transfer.nextSequence += 1
+  transfer.nextOffset += chunk.byteLength
+  sendFrame(sender, ['CREDIT', transferId, u64Frame(chunk.byteLength)])
 }
 
-async function handlePutCommit(sender: FileFrameSender, state: FileTransferState, transferId: string): Promise<void> {
+async function handleWriteCommit(sender: FileFrameSender, state: FileTransferState, transferId: string): Promise<void> {
   const transfer = getPutTransfer(state, transferId)
-  mkdirSync(dirname(transfer.targetPath), { recursive: true })
 
   const finalTempPath = `${transfer.targetPath}.ankole-transfer-${safeTransferId(transferId)}.tmp`
-  rmSync(finalTempPath, { force: true })
+  const decodedPath = join(transfer.tempDir, 'decoded')
+  let fingerprint: string
 
-  if (transfer.contentEncoding === 'zstd') {
+  try {
     assertZstdAvailable()
-    const result = spawnSync('zstd', ['-q', '-d', '-f', '-o', finalTempPath, transfer.payloadPath], {
+    rmSync(decodedPath, { force: true })
+    const result = spawnSync('zstd', ['-q', '-d', '-f', '-o', decodedPath, transfer.payloadPath], {
       encoding: 'utf8'
     })
     if (result.status !== 0) {
       throw new Error(`zstd decode failed: ${result.stderr || result.error?.message || 'unknown error'}`)
     }
-  } else {
-    await copyFile(transfer.payloadPath, finalTempPath)
+
+    await verifyFinalFile(decodedPath, transfer)
+    mkdirSync(dirname(transfer.targetPath), { recursive: true })
+    rmSync(finalTempPath, { force: true })
+    await rename(decodedPath, finalTempPath)
+    await rename(finalTempPath, transfer.targetPath)
+    fingerprint = fileFingerprint(state, transfer.address.root, transfer.address.relativePath, transfer.targetPath)
+    state.puts.delete(transferId)
+    rmSync(transfer.tempDir, { recursive: true, force: true })
+  } catch (error) {
+    removePathBestEffort(decodedPath)
+    removePathBestEffort(finalTempPath)
+    cleanupWriteTransfer(state, transferId)
+    throw error
   }
 
-  await verifyFinalFile(finalTempPath, transfer)
-  await rename(finalTempPath, transfer.targetPath)
-  const fingerprint = fileFingerprint(state, transfer.root, transfer.relativePath, transfer.targetPath)
-  state.puts.delete(transferId)
-  rmSync(transfer.tempDir, { recursive: true, force: true })
-
-  sendAck(sender, transferId, {
-    command: 'PUT_COMMIT',
-    root: transfer.root,
-    relative_path: transfer.relativePath,
-    size: statSync(transfer.targetPath).size,
-    xxh3_128: fingerprint
-  })
+  sendFrame(sender, [
+    'WRITE_COMMITTED',
+    transferId,
+    transfer.address.virtualPath,
+    u64Frame(statSync(transfer.targetPath).size),
+    fingerprint
+  ])
 }
 
-function handlePutAbort(sender: FileFrameSender, state: FileTransferState, transferId: string): void {
+function handleWriteAbort(sender: FileFrameSender, state: FileTransferState, transferId: string): void {
   const transfer = state.puts.get(transferId)
   if (transfer) {
     rmSync(transfer.tempDir, { recursive: true, force: true })
     state.puts.delete(transferId)
   }
 
-  sendAck(sender, transferId, { command: 'PUT_ABORT' })
+  sendFrame(sender, ['WRITE_ABORTED', transferId])
 }
 
-async function handleGet(
+function handleReadOpen(
   config: WorkerConfig,
   sender: FileFrameSender,
   state: FileTransferState,
   transferId: string,
   frames: Buffer[]
-): Promise<void> {
-  const metadata = parseMetadata<GetMetadata>(frames[3], 'get metadata')
-  const filePath = resolveFileAddress(config, metadata)
-  const contentEncoding = normalizeContentEncoding(metadata.content_encoding)
-  if (!existsSync(filePath) || !statSync(filePath).isFile()) {
-    throw new Error(`file does not exist: ${metadata.root}/${metadata.relative_path}`)
+): void {
+  if (state.gets.has(transferId)) {
+    throw new Error(`file transfer already exists: ${transferId}`)
   }
-  if (contentEncoding === 'zstd') assertZstdAvailable()
 
-  sendFrame(sender, [
-    'GET_BEGIN',
+  assertZstdAvailable()
+  const address = parseVirtualPathFrame(frames[3], 'read path')
+  const fingerprint = fingerprintMode(requiredTextFrame(frames[4], 'fingerprint'))
+  const filePath = resolveFileAddress(config, address)
+  if (!existsSync(filePath) || !statSync(filePath).isFile()) {
+    throw new Error(`file does not exist: ${address.virtualPath}`)
+  }
+
+  const stableStat = statSync(filePath)
+  const zstd = spawn('zstd', ['-q', '-c', filePath], { stdio: ['ignore', 'pipe', 'pipe'] })
+  const stdout = zstd.stdout
+  const stderr = zstd.stderr
+  if (!stdout || !stderr) {
+    zstd.kill('SIGTERM')
+    throw new Error('zstd encode pipes unavailable')
+  }
+  stdout.pause()
+
+  const transfer: GetTransfer = {
     transferId,
-    jsonFrame({
-      root: metadata.root,
-      relative_path: metadata.relative_path,
-      content_encoding: contentEncoding,
-      original_size: statSync(filePath).size,
-      xxh3_128:
-        fingerprintMode(metadata.fingerprint) === 'none'
-          ? undefined
-          : fileFingerprint(state, metadata.root, metadata.relative_path, filePath)
-    })
-  ])
+    address,
+    filePath,
+    process: zstd,
+    stdout,
+    pendingChunks: [],
+    bufferedBytes: 0,
+    nextSequence: 0,
+    nextOffset: 0,
+    credit: 0,
+    chunksSent: 0,
+    stdoutEnded: false,
+    processClosed: false,
+    exitCode: null,
+    stderr: '',
+    initialSize: stableStat.size,
+    initialMtimeMs: stableStat.mtimeMs
+  }
+  state.gets.set(transferId, transfer)
 
-  const chunks =
-    contentEncoding === 'zstd'
-      ? await streamZstdFile(sender, transferId, filePath)
-      : await streamIdentityFile(sender, transferId, filePath)
+  stdout.on('data', chunk => {
+    transfer.pendingChunks.push(Buffer.from(chunk))
+    transfer.bufferedBytes += chunk.byteLength
+    drainReadTransfer(sender, state, transfer)
+  })
+  stdout.on('end', () => {
+    transfer.stdoutEnded = true
+    drainReadTransfer(sender, state, transfer)
+  })
+  stderr.on('data', chunk => {
+    transfer.stderr += Buffer.from(chunk).toString('utf8')
+  })
+  zstd.on('error', error => {
+    finishReadTransferWithError(sender, state, transfer, `zstd encode failed: ${error.message}`)
+  })
+  zstd.on('close', code => {
+    transfer.processClosed = true
+    transfer.exitCode = code
+    if (code !== 0) {
+      finishReadTransferWithError(sender, state, transfer, `zstd encode failed: ${transfer.stderr.trim() || code}`)
+      return
+    }
+    drainReadTransfer(sender, state, transfer)
+  })
 
-  sendFrame(sender, ['GET_END', transferId, jsonFrame({ chunks, content_encoding: contentEncoding })])
+  try {
+    sendFrame(sender, [
+      'READ_READY',
+      transferId,
+      address.virtualPath,
+      u64Frame(stableStat.size),
+      fingerprint === 'none' ? '' : fileFingerprint(state, address.root, address.relativePath, filePath)
+    ])
+  } catch (error) {
+    handleReadAbort(state, transferId)
+    throw error
+  }
 }
 
-async function handleStat(
+function sendReadData(sender: FileFrameSender, state: FileTransferState, transferId: string, frames: Buffer[]): void {
+  const transfer = state.gets.get(transferId)
+  if (!transfer) {
+    throw new Error(`unknown read transfer: ${transferId}`)
+  }
+
+  transfer.credit += readU64Frame(frames[3], 'credit')
+  drainReadTransfer(sender, state, transfer)
+}
+
+function handleReadAbort(state: FileTransferState, transferId: string): void {
+  const transfer = state.gets.get(transferId)
+  if (!transfer) return
+
+  state.gets.delete(transferId)
+  transfer.finished = true
+  transfer.process.kill('SIGTERM')
+}
+
+function drainReadTransfer(sender: FileFrameSender, state: FileTransferState, transfer: GetTransfer): void {
+  if (transfer.finished) return
+
+  while (transfer.credit > 0) {
+    const terminal = transfer.stdoutEnded && transfer.processClosed && transfer.exitCode === 0
+    const sendableBytes = terminal ? transfer.bufferedBytes : Math.max(0, transfer.bufferedBytes - 1)
+    if (sendableBytes <= 0) break
+
+    const chunk = takeReadChunk(transfer, Math.min(chunkSize, transfer.credit, sendableBytes))
+    const eof = terminal && transfer.bufferedBytes === 0
+
+    sendFrame(sender, [
+      'DATA',
+      transfer.transferId,
+      u64Frame(transfer.nextSequence),
+      u64Frame(transfer.nextOffset),
+      boolFrame(eof),
+      chunk
+    ])
+
+    transfer.nextSequence += 1
+    transfer.nextOffset += chunk.byteLength
+    transfer.credit -= chunk.byteLength
+    transfer.chunksSent += 1
+  }
+
+  if (transfer.credit > 0 && !transfer.stdoutEnded) {
+    transfer.stdout.resume()
+  } else {
+    transfer.stdout.pause()
+  }
+
+  maybeFinishReadTransfer(sender, state, transfer)
+}
+
+function takeReadChunk(transfer: GetTransfer, size: number): Buffer {
+  const chunks: Buffer[] = []
+  let remaining = size
+
+  while (remaining > 0) {
+    const chunk = transfer.pendingChunks.shift()
+    if (!chunk) break
+
+    if (chunk.byteLength <= remaining) {
+      chunks.push(chunk)
+      remaining -= chunk.byteLength
+      transfer.bufferedBytes -= chunk.byteLength
+      continue
+    }
+
+    chunks.push(chunk.subarray(0, remaining))
+    transfer.pendingChunks.unshift(chunk.subarray(remaining))
+    transfer.bufferedBytes -= remaining
+    remaining = 0
+  }
+
+  return Buffer.concat(chunks)
+}
+
+function maybeFinishReadTransfer(sender: FileFrameSender, state: FileTransferState, transfer: GetTransfer): void {
+  if (
+    transfer.finished ||
+    !transfer.stdoutEnded ||
+    !transfer.processClosed ||
+    transfer.exitCode !== 0 ||
+    transfer.bufferedBytes > 0
+  ) {
+    return
+  }
+
+  if (!readSourceStillStable(transfer)) {
+    finishReadTransferWithError(sender, state, transfer, `file changed during read: ${transfer.address.virtualPath}`)
+    return
+  }
+
+  transfer.finished = true
+  state.gets.delete(transfer.transferId)
+  sendFrame(sender, ['READ_DONE', transfer.transferId, u64Frame(transfer.chunksSent), u64Frame(transfer.nextOffset)])
+}
+
+function readSourceStillStable(transfer: GetTransfer): boolean {
+  if (!existsSync(transfer.filePath)) return false
+  const current = statSync(transfer.filePath)
+  return current.isFile() && current.size === transfer.initialSize && current.mtimeMs === transfer.initialMtimeMs
+}
+
+function finishReadTransferWithError(
+  sender: FileFrameSender,
+  state: FileTransferState,
+  transfer: GetTransfer,
+  message: string
+): void {
+  if (transfer.finished) return
+
+  transfer.finished = true
+  state.gets.delete(transfer.transferId)
+  if (!transfer.process.killed && !transfer.processClosed) {
+    transfer.process.kill('SIGTERM')
+  }
+  sendError(sender, transfer.transferId, 'operation_failed', message)
+}
+
+function handleStat(
   config: WorkerConfig,
   sender: FileFrameSender,
   state: FileTransferState,
   transferId: string,
   frames: Buffer[]
-): Promise<void> {
-  const metadata = parseMetadata<StatMetadata>(frames[3], 'stat metadata')
-  const filePath = resolveFileAddress(config, metadata)
+): void {
+  const address = parseVirtualPathFrame(frames[3], 'stat path')
+  const fingerprint = fingerprintMode(requiredTextFrame(frames[4], 'fingerprint'))
+  const filePath = resolveFileAddress(config, address)
   if (!existsSync(filePath)) {
-    throw new Error(`path does not exist: ${metadata.root}/${metadata.relative_path}`)
+    throw new Error(`path does not exist: ${address.virtualPath}`)
   }
 
   const stat = statSync(filePath)
-  const payload: Record<string, unknown> = {
-    command: 'STAT',
-    root: metadata.root,
-    relative_path: metadata.relative_path,
-    kind: stat.isFile() ? 'file' : stat.isDirectory() ? 'directory' : 'other',
-    size: stat.size,
-    modified_unix_ms: Math.floor(stat.mtimeMs)
-  }
-
-  if (stat.isFile() && fingerprintMode(metadata.fingerprint) === 'xxh3_128') {
-    payload.xxh3_128 = fileFingerprint(state, metadata.root, metadata.relative_path, filePath)
-  }
-
-  sendAck(sender, transferId, payload)
+  sendFrame(sender, [
+    'STAT_OK',
+    transferId,
+    address.virtualPath,
+    stat.isFile() ? 'file' : stat.isDirectory() ? 'directory' : 'other',
+    u64Frame(stat.size),
+    u64Frame(Math.floor(stat.mtimeMs)),
+    stat.isFile() && fingerprint === 'xxh3_128'
+      ? fileFingerprint(state, address.root, address.relativePath, filePath)
+      : ''
+  ])
 }
 
 async function handleDelete(
@@ -337,30 +526,26 @@ async function handleDelete(
   transferId: string,
   frames: Buffer[]
 ): Promise<void> {
-  const metadata = parseMetadata<DeleteMetadata>(frames[3], 'delete metadata')
-  const filePath = resolveFileAddress(config, metadata)
+  const address = parseVirtualPathFrame(frames[3], 'delete path')
+  const recursive = readBoolFrame(frames[4], 'recursive')
+  const filePath = resolveFileAddress(config, address)
   if (!existsSync(filePath)) {
-    throw new Error(`path does not exist: ${metadata.root}/${metadata.relative_path}`)
+    throw new Error(`path does not exist: ${address.virtualPath}`)
   }
 
   const stat = statSync(filePath)
   if (stat.isDirectory()) {
-    if (metadata.recursive !== true) {
+    if (!recursive) {
       throw new Error('DELETE requires recursive=true for directories')
     }
     rmSync(filePath, { recursive: true, force: true })
-    forgetFingerprintTree(state, metadata.root, metadata.relative_path)
+    forgetFingerprintTree(state, address.root, address.relativePath)
   } else {
     await unlink(filePath)
-    forgetFingerprint(state, metadata.root, metadata.relative_path)
+    forgetFingerprint(state, address.root, address.relativePath)
   }
 
-  sendAck(sender, transferId, {
-    command: 'DELETE',
-    root: metadata.root,
-    relative_path: metadata.relative_path,
-    deleted: true
-  })
+  sendFrame(sender, ['DELETE_OK', transferId, address.virtualPath])
 }
 
 async function handleMove(
@@ -370,22 +555,22 @@ async function handleMove(
   transferId: string,
   frames: Buffer[]
 ): Promise<void> {
-  const metadata = parseMetadata<MoveMetadata>(frames[3], 'move metadata')
-  const fromPath = resolveFileAddress(config, {
-    root: metadata.root,
-    relative_path: metadata.from_relative_path
-  })
-  const toRelativePath = normalizeRelativePath(metadata.to_relative_path)
-  const toPath = resolveFileAddress(config, {
-    root: metadata.root,
-    relative_path: toRelativePath
-  })
+  const from = parseVirtualPathFrame(frames[3], 'from path')
+  const to = parseVirtualPathFrame(frames[4], 'to path')
+  const overwrite = readBoolFrame(frames[5], 'overwrite')
+
+  if (from.root !== to.root) {
+    throw new Error('MOVE must stay inside one worker root')
+  }
+
+  const fromPath = resolveFileAddress(config, from)
+  const toPath = resolveFileAddress(config, to)
 
   if (!existsSync(fromPath)) {
-    throw new Error(`path does not exist: ${metadata.root}/${metadata.from_relative_path}`)
+    throw new Error(`path does not exist: ${from.virtualPath}`)
   }
-  if (existsSync(toPath) && metadata.overwrite !== true) {
-    throw new Error(`target path already exists: ${metadata.root}/${toRelativePath}`)
+  if (existsSync(toPath) && !overwrite) {
+    throw new Error(`target path already exists: ${to.virtualPath}`)
   }
 
   mkdirSync(dirname(toPath), { recursive: true })
@@ -393,108 +578,85 @@ async function handleMove(
   const movingDirectory = statSync(fromPath).isDirectory()
   await rename(fromPath, toPath)
   if (movingDirectory) {
-    forgetFingerprintTree(state, metadata.root, metadata.from_relative_path)
-    forgetFingerprintTree(state, metadata.root, toRelativePath)
+    forgetFingerprintTree(state, from.root, from.relativePath)
+    forgetFingerprintTree(state, to.root, to.relativePath)
   } else {
-    forgetFingerprint(state, metadata.root, metadata.from_relative_path)
-    forgetFingerprint(state, metadata.root, toRelativePath)
+    forgetFingerprint(state, from.root, from.relativePath)
+    forgetFingerprint(state, to.root, to.relativePath)
   }
 
-  sendAck(sender, transferId, {
-    command: 'MOVE',
-    root: metadata.root,
-    from_relative_path: metadata.from_relative_path,
-    to_relative_path: toRelativePath,
-    moved: true
-  })
+  sendFrame(sender, ['MOVE_OK', transferId, from.virtualPath, to.virtualPath])
 }
 
-async function handleList(
-  config: WorkerConfig,
-  sender: FileFrameSender,
-  transferId: string,
-  frames: Buffer[]
-): Promise<void> {
-  const metadata = parseMetadata<ListMetadata>(frames[3], 'list metadata')
-  const relativePath = normalizeRelativePath(metadata.relative_path ?? '', { allowRoot: true })
-  const directoryPath = resolveFileAddress(
-    config,
-    {
-      root: metadata.root,
-      relative_path: relativePath
-    },
-    { allowRoot: true }
-  )
+function handleList(config: WorkerConfig, sender: FileFrameSender, transferId: string, frames: Buffer[]): void {
+  const address = parseVirtualPathFrame(frames[3], 'list path', { allowRoot: true })
+  const recursive = readBoolFrame(frames[4], 'recursive')
+  const maxEntries = boundedMaxEntries(readU64Frame(frames[5], 'max_entries'))
+  const directoryPath = resolveFileAddress(config, address, { allowRoot: true })
 
   if (!existsSync(directoryPath) || !statSync(directoryPath).isDirectory()) {
-    throw new Error(`directory does not exist: ${metadata.root}/${relativePath}`)
+    throw new Error(`directory does not exist: ${address.virtualPath}`)
   }
 
-  const maxEntries = boundedMaxEntries(metadata.max_entries)
-  const { entries, truncated } = listDirectory(directoryPath, relativePath, metadata.recursive === true, maxEntries)
+  const { entries, truncated } = listDirectory(directoryPath, address.relativePath, recursive, maxEntries)
 
   sendFrame(sender, [
-    'LIST_RESULT',
+    'LIST_OK',
     transferId,
-    jsonFrame({
-      command: 'LIST',
-      root: metadata.root,
-      relative_path: relativePath,
-      recursive: metadata.recursive === true,
-      entries,
-      truncated
-    })
+    address.virtualPath,
+    boolFrame(recursive),
+    boolFrame(truncated),
+    encodeEntries(entries)
   ])
-}
-
-async function streamIdentityFile(sender: FileFrameSender, transferId: string, filePath: string): Promise<number> {
-  let chunkIndex = 0
-  for await (const chunk of createReadStream(filePath, { highWaterMark: chunkSize })) {
-    sendFrame(sender, ['GET_CHUNK', transferId, Buffer.from(String(chunkIndex)), Buffer.from(chunk)])
-    chunkIndex += 1
-  }
-  return chunkIndex
-}
-
-async function streamZstdFile(sender: FileFrameSender, transferId: string, filePath: string): Promise<number> {
-  const child = spawn('zstd', ['-q', '-c', filePath], {
-    stdio: ['ignore', 'pipe', 'pipe']
-  })
-  let stderr = ''
-  child.stderr?.setEncoding('utf8')
-  child.stderr?.on('data', chunk => {
-    stderr += chunk
-  })
-
-  let chunkIndex = 0
-  for await (const chunk of child.stdout) {
-    sendFrame(sender, ['GET_CHUNK', transferId, Buffer.from(String(chunkIndex)), Buffer.from(chunk)])
-    chunkIndex += 1
-  }
-
-  await waitForSuccessfulExit(child, stderr, 'zstd encode')
-  return chunkIndex
 }
 
 async function verifyFinalFile(path: string, transfer: PutTransfer): Promise<void> {
   const stat = statSync(path)
-  if (transfer.expectedOriginalSize !== undefined && stat.size !== transfer.expectedOriginalSize) {
+  if (stat.size !== transfer.expectedOriginalSize) {
     throw new Error(`size mismatch after file transfer: expected ${transfer.expectedOriginalSize}, got ${stat.size}`)
   }
 }
 
 function resolveFileAddress(config: WorkerConfig, address: FileAddress, opts: { allowRoot?: boolean } = {}): string {
   const rootPath = rootPathFor(config, address.root)
-  const relativePath = normalizeRelativePath(address.relative_path, opts)
+  const relativePath = normalizeRelativePath(address.relativePath, opts)
   const resolvedRoot = resolve(rootPath)
   const resolvedPath = resolve(resolvedRoot, relativePath)
   const rel = relative(resolvedRoot, resolvedPath)
 
   if ((!opts.allowRoot && rel === '') || rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
-    throw new Error(`relative_path escapes root: ${address.relative_path}`)
+    throw new Error(`relative_path escapes root: ${address.relativePath}`)
   }
 
   return resolvedPath
+}
+
+function scratchDirectoryFor(config: WorkerConfig, transferId: string): string {
+  const scratchRoot = resolve(config.sharedFsRoot, transferScratchDir)
+  const tempDir = resolve(scratchRoot, safeTransferId(transferId))
+  const rel = relative(scratchRoot, tempDir)
+
+  if (rel === '' || rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
+    throw new Error(`transfer_id escapes scratch root: ${transferId}`)
+  }
+
+  return tempDir
+}
+
+function cleanupWriteTransfer(state: FileTransferState, transferId: string): void {
+  const transfer = state.puts.get(transferId)
+  if (!transfer) return
+
+  rmSync(transfer.tempDir, { recursive: true, force: true })
+  state.puts.delete(transferId)
+}
+
+function removePathBestEffort(path: string): void {
+  try {
+    rmSync(path, { force: true })
+  } catch {
+    // Parent-path conflicts can make best-effort temp cleanup itself fail.
+  }
 }
 
 function rootPathFor(config: WorkerConfig, root: string): string {
@@ -505,6 +667,29 @@ function rootPathFor(config: WorkerConfig, root: string): string {
       return config.agentInstalledSkillsRoot
     default:
       throw new Error(`unsupported file root: ${root}`)
+  }
+}
+
+function parseVirtualPathFrame(
+  frame: Buffer | undefined,
+  label: string,
+  opts: { allowRoot?: boolean } = {}
+): FileAddress {
+  const virtualPath = requiredTextFrame(frame, label)
+  if (!virtualPath.startsWith('/')) {
+    throw new Error(`${label} must be an absolute worker virtual path`)
+  }
+
+  const [root, ...segments] = virtualPath.slice(1).split('/')
+  if (root !== 'user_files' && root !== 'agent_installed_skills') {
+    throw new Error(`unsupported file root: ${root}`)
+  }
+
+  const relativePath = normalizeRelativePath(segments.join('/'), opts)
+  return {
+    root,
+    relativePath,
+    virtualPath: relativePath ? `/${root}/${relativePath}` : `/${root}`
   }
 }
 
@@ -528,39 +713,43 @@ function normalizeRelativePath(value: unknown, opts: { allowRoot?: boolean } = {
   return normalized
 }
 
-function normalizeContentEncoding(value: unknown): ContentEncoding {
-  const encoding = typeof value === 'string' && value.length > 0 ? value : defaultContentEncoding
-  if (!supportedContentEncodings.has(encoding)) {
-    throw new Error(`unsupported content_encoding: ${encoding}`)
-  }
-  return encoding as ContentEncoding
-}
-
 function fingerprintMode(value: unknown): FingerprintMode {
   if (value === undefined || value === null || value === '') return 'xxh3_128'
   if (value === 'none' || value === 'xxh3_128') return value
   throw new Error(`unsupported fingerprint: ${String(value)}`)
 }
 
-function parseMetadata<T>(frame: Buffer | undefined, label: string): T {
-  if (!frame) {
-    throw new Error(`${label} frame is required`)
+function readU64Frame(frame: Buffer | undefined, label: string): number {
+  if (!frame || frame.byteLength !== 8) {
+    throw new Error(`${label} must be a u64 frame`)
   }
 
-  const parsed = JSON.parse(frame.toString('utf8'))
-  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-    throw new Error(`${label} must be a JSON object`)
+  const value = frame.readBigUInt64BE()
+  if (value > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw new Error(`${label} exceeds JavaScript safe integer range`)
   }
-
-  return parsed as T
+  return Number(value)
 }
 
-function parseFrameInteger(frame: Buffer | undefined, label: string): number {
-  const text = requiredTextFrame(frame, label)
-  if (!/^(0|[1-9][0-9]*)$/.test(text)) {
-    throw new Error(`${label} must be a non-negative integer`)
+function u64Frame(value: number): Buffer {
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new Error(`invalid u64 value: ${value}`)
   }
-  return Number(text)
+
+  const frame = Buffer.alloc(8)
+  frame.writeBigUInt64BE(BigInt(value))
+  return frame
+}
+
+function readBoolFrame(frame: Buffer | undefined, label: string): boolean {
+  if (!frame || frame.byteLength !== 1 || (frame[0] !== 0 && frame[0] !== 1)) {
+    throw new Error(`${label} must be a bool frame`)
+  }
+  return frame[0] === 1
+}
+
+function boolFrame(value: boolean): Buffer {
+  return Buffer.from([value ? 1 : 0])
 }
 
 function requiredTextFrame(frame: Buffer | undefined, label: string): string {
@@ -576,19 +765,11 @@ function textFrame(frame: Buffer | undefined): string | undefined {
   return frame.toString('utf8')
 }
 
-function optionalNonNegativeInteger(value: unknown, label: string): number | undefined {
-  if (value === undefined || value === null) return undefined
-  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
-    throw new Error(`${label} must be a non-negative safe integer`)
-  }
-  return value
-}
-
 function safeTransferId(value: string): string {
-  if (!/^[a-zA-Z0-9._:-]{1,128}$/.test(value)) {
+  if (!/^[a-zA-Z0-9_-]{1,128}$/.test(value)) {
     throw new Error(`invalid transfer_id: ${value}`)
   }
-  return value.replaceAll(':', '_')
+  return value
 }
 
 function fileFingerprint(state: FileTransferState, root: FileRoot, relativePath: string, filePath: string): string {
@@ -621,11 +802,9 @@ function fingerprintCacheKey(root: FileRoot, relativePath: string): string {
   return `${root}:${normalizeRelativePath(relativePath)}`
 }
 
-function boundedMaxEntries(value: unknown): number {
-  if (value === undefined || value === null) return 1000
-  const maxEntries = optionalNonNegativeInteger(value, 'max_entries')
-  if (maxEntries === undefined || maxEntries < 1) throw new Error('max_entries must be positive')
-  return Math.min(maxEntries, 10_000)
+function boundedMaxEntries(value: number): number {
+  if (value < 1) throw new Error('max_entries must be positive')
+  return Math.min(value, 10_000)
 }
 
 function listDirectory(
@@ -653,7 +832,7 @@ function listDirectory(
       entries.push({
         relative_path: childRelativePath,
         kind,
-        size: entry.isFile() ? stat.size : undefined,
+        size: entry.isFile() ? stat.size : 0,
         modified_unix_ms: Math.floor(stat.mtimeMs)
       })
 
@@ -668,6 +847,34 @@ function listDirectory(
   return { entries, truncated }
 }
 
+function encodeEntries(entries: ListEntry[]): Buffer {
+  return Buffer.concat([u32Frame(entries.length), ...entries.flatMap(encodeEntry)])
+}
+
+function encodeEntry(entry: ListEntry): Buffer[] {
+  return [
+    sizedStringFrame(entry.relative_path),
+    sizedStringFrame(entry.kind),
+    u64Frame(entry.size),
+    u64Frame(entry.modified_unix_ms)
+  ]
+}
+
+function sizedStringFrame(value: string): Buffer {
+  const bytes = Buffer.from(value)
+  return Buffer.concat([u32Frame(bytes.byteLength), bytes])
+}
+
+function u32Frame(value: number): Buffer {
+  if (!Number.isSafeInteger(value) || value < 0 || value > 0xffffffff) {
+    throw new Error(`invalid u32 value: ${value}`)
+  }
+
+  const frame = Buffer.alloc(4)
+  frame.writeUInt32BE(value)
+  return frame
+}
+
 function assertZstdAvailable(): void {
   const result = spawnSync('zstd', ['--version'], { encoding: 'utf8' })
   if (result.status !== 0) {
@@ -675,12 +882,8 @@ function assertZstdAvailable(): void {
   }
 }
 
-function sendAck(sender: FileFrameSender, transferId: string, payload: Record<string, unknown>): void {
-  sendFrame(sender, ['ACK', transferId, jsonFrame(payload)])
-}
-
-function sendError(sender: FileFrameSender, transferId: string, message: string): void {
-  sendFrame(sender, ['ERROR', transferId, jsonFrame({ message })])
+function sendError(sender: FileFrameSender, transferId: string, code: string, message: string): void {
+  sendFrame(sender, ['ERROR', transferId, code, message])
 }
 
 function sendFrame(sender: FileFrameSender, parts: Array<string | Buffer>): void {
@@ -690,25 +893,10 @@ function sendFrame(sender: FileFrameSender, parts: Array<string | Buffer>): void
   ])
 }
 
-function jsonFrame(payload: Record<string, unknown>): Buffer {
-  return Buffer.from(JSON.stringify(payload))
-}
-
 function getPutTransfer(state: FileTransferState, transferId: string): PutTransfer {
   const transfer = state.puts.get(transferId)
   if (!transfer) {
     throw new Error(`unknown file transfer: ${transferId}`)
   }
   return transfer
-}
-
-async function waitForSuccessfulExit(child: ReturnType<typeof spawn>, stderr: string, label: string): Promise<void> {
-  const code = await new Promise<number | null>((resolve, reject) => {
-    child.once('error', reject)
-    child.once('close', resolve)
-  })
-
-  if (code !== 0) {
-    throw new Error(`${label} failed: ${stderr || `exit ${code}`}`)
-  }
 }

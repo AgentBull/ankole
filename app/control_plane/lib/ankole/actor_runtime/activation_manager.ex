@@ -9,6 +9,7 @@ defmodule Ankole.ActorRuntime.ActivationManager do
 
   alias Ankole.Actors
   alias Ankole.ActorRuntime.SessionController
+  alias Ankole.SignalsGateway
 
   # 500ms poll keeps recovery latency low without hammering the journal; the
   # `wake/0` cast handles the hot path, so this is mainly a safety net.
@@ -31,6 +32,9 @@ defmodule Ankole.ActorRuntime.ActivationManager do
   def run_once(opts \\ []) do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
     limit = Keyword.get(opts, :limit, @default_limit)
+
+    {:ok, _finalized_batches} =
+      SignalsGateway.finalize_due_inbound_batches(now: now, limit: limit)
 
     results =
       now

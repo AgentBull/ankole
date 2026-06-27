@@ -1,5 +1,5 @@
 import type { AgentMessage } from '../core'
-import type { TextContent } from '../llm'
+import type { TextContent, UserMessage } from '../llm'
 import type { JsonObject } from '../actor_lane'
 
 const MESSAGE_CONTEXT_METADATA_KEY = 'message_context'
@@ -27,7 +27,10 @@ export function prependEnvironmentInfoLinesToUserMessage(message: AgentMessage, 
   return upsertEnvironmentInfoPart(message, infoLines)
 }
 
-export function prependPreviousChatHistoryToUserMessage(message: AgentMessage, history: string | undefined): AgentMessage {
+export function prependPreviousChatHistoryToUserMessage(
+  message: AgentMessage,
+  history: string | undefined
+): AgentMessage {
   if (message.role !== 'user') return message
   const previousHistory = history?.trim()
   if (!previousHistory) return message
@@ -80,8 +83,7 @@ function renderPreviousChatHistoryBlock(history: string): string {
   return `${PREVIOUS_CHAT_HISTORY_OPEN}\n${history}\n${PREVIOUS_CHAT_HISTORY_CLOSE}`
 }
 
-function prependTextPartToUserMessage(message: AgentMessage, text: string): AgentMessage {
-  if (message.role !== 'user') return message
+function prependTextPartToUserMessage(message: UserMessage, text: string): UserMessage {
   const part: TextContent = { type: 'text', text }
   if (typeof message.content === 'string') {
     return { ...message, content: [part, { type: 'text', text: message.content }] }
@@ -89,7 +91,7 @@ function prependTextPartToUserMessage(message: AgentMessage, text: string): Agen
   return { ...message, content: [part, ...message.content] }
 }
 
-function upsertEnvironmentInfoPart(message: AgentMessage, lines: string[]): AgentMessage {
+function upsertEnvironmentInfoPart(message: UserMessage, lines: string[]): UserMessage {
   const part: TextContent = { type: 'text', text: renderAgentEnvironmentInfoBlock(lines) }
   if (typeof message.content === 'string') {
     return { ...message, content: [part, { type: 'text', text: message.content }] }
@@ -103,8 +105,7 @@ function upsertEnvironmentInfoPart(message: AgentMessage, lines: string[]): Agen
     return { ...message, content }
   }
 
-  const insertIndex =
-    content[0]?.type === 'text' && isPreviousChatHistoryBlock(content[0].text) ? 1 : 0
+  const insertIndex = content[0]?.type === 'text' && isPreviousChatHistoryBlock(content[0].text) ? 1 : 0
   content.splice(insertIndex, 0, part)
   return { ...message, content }
 }
