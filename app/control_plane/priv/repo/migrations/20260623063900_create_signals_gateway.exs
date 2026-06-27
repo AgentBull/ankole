@@ -2,8 +2,6 @@ defmodule Ankole.Repo.Migrations.CreateSignalsGateway do
   use Ecto.Migration
 
   def change do
-    execute("CREATE EXTENSION IF NOT EXISTS pgcrypto", "")
-
     execute(
       """
       CREATE TYPE signal_channel_kind AS ENUM (
@@ -197,7 +195,7 @@ defmodule Ankole.Repo.Migrations.CreateSignalsGateway do
       add :provider_entry_id, :text
       add :type, :text, null: false
       add :available_at, :utc_datetime_usec, null: false
-      add :broker_sequence, :bigint, null: false
+      add :live_queue_sequence, :bigint, null: false
       add :input_state, :text, null: false, default: "open"
       add :sender_key, :text
       add :payload, :map, null: false
@@ -212,13 +210,13 @@ defmodule Ankole.Repo.Migrations.CreateSignalsGateway do
              name: :actor_inputs_signal_idempotency_index
            )
 
-    create unique_index(:actor_inputs, [:agent_uid, :session_id, :broker_sequence],
-             name: :actor_inputs_actor_sequence_index
+    create unique_index(:actor_inputs, [:agent_uid, :session_id, :live_queue_sequence],
+             name: :actor_inputs_live_queue_sequence_index
            )
 
     create index(
              :actor_inputs,
-             [:agent_uid, :session_id, :input_state, :available_at, :broker_sequence],
+             [:agent_uid, :session_id, :input_state, :available_at, :live_queue_sequence],
              name: :actor_inputs_ready_index
            )
 
@@ -237,7 +235,7 @@ defmodule Ankole.Repo.Migrations.CreateSignalsGateway do
            )
 
     create table(:actor_input_consumptions, primary_key: false) do
-      add :id, :uuid, primary_key: true, default: fragment("gen_random_uuid()")
+      add :id, :uuid, primary_key: true
 
       add :agent_uid,
           references(:principals, column: :uid, type: :text, on_delete: :delete_all),
@@ -423,7 +421,7 @@ defmodule Ankole.Repo.Migrations.CreateSignalsGateway do
       provider_entry_id: "Provider entry that produced this input when applicable.",
       type: "Actor input type such as command, signal entry, or session lifecycle.",
       available_at: "Earliest time this input may be delivered to the actor runtime.",
-      broker_sequence: "Monotonic per-agent-session sequence used for queue ordering.",
+      live_queue_sequence: "Per-session sequence for ordering currently open actor inputs.",
       input_state: "Queue state for open or dead-lettered inputs.",
       sender_key: "Provider sender key used by same-sender batching policy.",
       payload: "CloudEvents-style actor input envelope consumed by the worker.",

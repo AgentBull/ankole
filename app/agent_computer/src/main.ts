@@ -10,19 +10,23 @@ import {
 import { runLlmTurnHandlers } from './llm_runtime/text_turn_loop'
 import { finalProposalEnvelope, turnAcceptedEnvelope, turnErrorEnvelope } from './turn_envelopes'
 import type {
-  AgentProfile,
-  AgentProfileRequest,
+  AgentConversationContext,
+  AgentConversationContextRequest,
+  ConversationHistoryRequest,
+  ConversationHistoryResponse,
+  ConversationSummaryCommitRequest,
+  ConversationSummaryCommitResponse,
   LlmProviderCredentialRejected,
   LlmProviderCredentialRequest,
   LlmProviderCredentialResponse,
   RpcError,
+  RpcMethod,
   RpcRequest,
   RpcResponse,
+  ScheduleRpcRequest,
   SkillOverlayReplaceRequest,
   SkillOverlayRequest,
-  SkillOverlayResponse,
-  TurnContextRequest,
-  TurnRuntimeContext
+  SkillOverlayResponse
 } from './rpc_lane'
 import { RuntimeRpcClient, handleWorkerRpcRequest, rpcMethods } from './rpc_lane'
 import { parseWorkerEnv, workerCapacityEnvelope, workerHeartbeatEnvelope, workerReadyEnvelope } from './runtime'
@@ -299,13 +303,6 @@ async function runActiveTurn(
   active: ActiveTurn
 ): Promise<void> {
   const turnStart = active.turnStart
-  const runtimeContext = await requestTurnContext(rpcClient, {
-    request_id: `turn-context-${crypto.randomUUID()}`,
-    turn: turnStart.turn
-  })
-  logWorkerEvent('worker.turn_context_resolved', {
-    llm_turn_id: turnStart.turn.llm_turn_id
-  })
   const workspaceRoot = prepareTurnWorkspace(config, turnStart)
   logWorkerEvent('worker.llm_turn_started', {
     llm_turn_id: turnStart.turn.llm_turn_id
@@ -315,10 +312,11 @@ async function runActiveTurn(
     workspaceRoot,
     builtinSkillsRoot: config.builtinSkillsRoot,
     agentInstalledSkillsRoot: config.agentInstalledSkillsRoot,
-    runtimeContext,
     requestCredential: request => requestCredential(rpcClient, request),
-    requestAgentProfile: request => requestAgentProfile(rpcClient, request),
-    requestTurnContext: request => requestTurnContext(rpcClient, request),
+    requestAgentConversationContext: request => requestAgentConversationContext(rpcClient, request),
+    requestConversationHistory: request => requestConversationHistory(rpcClient, request),
+    commitConversationSummary: request => commitConversationSummary(rpcClient, request),
+    requestScheduleRpc: (method, request) => requestScheduleRpc(rpcClient, method, request),
     requestSkillOverlay: request => requestSkillOverlay(rpcClient, request),
     replaceSkillOverlay: request => replaceSkillOverlay(rpcClient, request),
     clearSkillOverlay: request => clearSkillOverlay(rpcClient, request),
@@ -327,6 +325,7 @@ async function runActiveTurn(
   })
 
   if (active.retryRequested) return
+  if ('summaryCommitted' in proposal) return
 
   await sendEnvelope(finalProposalEnvelope(turnStart.turn, proposal, active.correlationId))
 }
@@ -399,23 +398,49 @@ async function requestCredential(
   return response.payload_json as LlmProviderCredentialResponse
 }
 
-async function requestAgentProfile(rpcClient: RuntimeRpcClient, request: AgentProfileRequest): Promise<AgentProfile> {
-  const response = await rpcClient.request(rpcMethods.agentProfileResolve, request, request.request_id)
+async function requestAgentConversationContext(
+  rpcClient: RuntimeRpcClient,
+  request: AgentConversationContextRequest
+): Promise<AgentConversationContext> {
+  const response = await rpcClient.request(rpcMethods.agentConversationContextResolve, request, request.request_id)
   if ('code' in response) {
-    throw new Error(`agent profile RPC failed: ${response.code} ${response.message ?? ''}`.trim())
+    throw new Error(`agent conversation context RPC failed: ${response.code} ${response.message ?? ''}`.trim())
   }
-  return response.payload_json as AgentProfile
+  return response.payload_json as AgentConversationContext
 }
 
-async function requestTurnContext(
+async function requestConversationHistory(
   rpcClient: RuntimeRpcClient,
-  request: TurnContextRequest
-): Promise<TurnRuntimeContext> {
-  const response = await rpcClient.request(rpcMethods.runtimeTurnContextResolve, request, request.request_id)
+  request: ConversationHistoryRequest
+): Promise<ConversationHistoryResponse> {
+  const response = await rpcClient.request(rpcMethods.conversationHistoryResolve, request, request.request_id)
   if ('code' in response) {
-    throw new Error(`turn context RPC failed: ${response.code} ${response.message ?? ''}`.trim())
+    throw new Error(`conversation history RPC failed: ${response.code} ${response.message ?? ''}`.trim())
   }
-  return response.payload_json as TurnRuntimeContext
+  return response.payload_json as ConversationHistoryResponse
+}
+
+async function commitConversationSummary(
+  rpcClient: RuntimeRpcClient,
+  request: ConversationSummaryCommitRequest
+): Promise<ConversationSummaryCommitResponse> {
+  const response = await rpcClient.request(rpcMethods.conversationSummaryCommit, request, request.request_id)
+  if ('code' in response) {
+    throw new Error(`conversation summary commit RPC failed: ${response.code} ${response.message ?? ''}`.trim())
+  }
+  return response.payload_json as ConversationSummaryCommitResponse
+}
+
+async function requestScheduleRpc(
+  rpcClient: RuntimeRpcClient,
+  method: RpcMethod,
+  request: ScheduleRpcRequest
+): Promise<JsonObject> {
+  const response = await rpcClient.request(method, request as never, request.request_id)
+  if ('code' in response) {
+    throw new Error(`schedule RPC failed: ${response.code} ${response.message ?? ''}`.trim())
+  }
+  return (response.payload_json ?? {}) as JsonObject
 }
 
 async function requestSkillOverlay(

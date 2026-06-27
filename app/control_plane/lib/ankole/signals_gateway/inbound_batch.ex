@@ -15,7 +15,7 @@ defmodule Ankole.SignalsGateway.InboundBatch do
   alias Ankole.SignalsGateway.SignalChannel
   alias Ankole.Types.JsonValue
 
-  @primary_key {:id, :binary_id, autogenerate: true}
+  @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
   @foreign_key_type :string
   @timestamps_opts [type: :utc_datetime_usec]
   @states ~w(open finalized canceled)

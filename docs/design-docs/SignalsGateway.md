@@ -17,7 +17,7 @@ Only four concepts need to stay separate:
 - `ActorInput`: the semantic input appended to `actor_inputs` for a session
   actor, such as `im.message.addressed`, `im.message.may_intervene`,
   `command.steer`, `timer.fired`, `session.reset_due`, or
-  `signal.entry.deleted`.
+  `signal.entry.removed`.
 - Outbox: the one durable table of actor-committed provider-visible side
   effects. Gateway execution reads this same table, uses adapter capabilities,
   and mirrors only after provider success.
@@ -42,7 +42,7 @@ explainable from these surfaces:
 - `signal_channels` and `signal_entries`: latest observed provider-visible or
   provider-delivered mirror. `signal_entries` is also the long-lived substrate
   for recall/search and future long-term memory.
-- `signal_gateway_input_tombstones`: short-lived delete/recall guards before a
+- `signal_gateway_input_tombstones`: short-lived provider-removal guards before a
   matching receive is accepted.
 - pending inbound batches: short-lived provider-message grouping state used to
   decide whether IM traffic becomes addressed input, ambient input, or no actor
@@ -105,7 +105,7 @@ identities and indexes, not extra product concepts.
 | `signal_channel_key` | `(signal_channel_id)` | One `signal_channels` row |
 | `signal_entry_key` | `(signal_channel_id, provider_entry_id)` | One `signal_entries` row |
 | `outbox_key` | `(agent_uid, binding_name, outbound_key)` | One provider-visible side-effect intent |
-| `actor_input_idempotency_key` | `(agent_uid, binding_name, ingress_event_id)` | Durable actor handoff idempotency |
+| `actor_input_idempotency_key` | `(agent_uid, binding_name, ingress_event_id)` | Live actor handoff idempotency |
 
 Consequences:
 
@@ -207,18 +207,39 @@ Each binding has:
 - optional `unaddressed_group_message_policy`: `ignore`, `record_only`, or
   `may_intervene` for IM-like group channels.
 
-`filters` is deliberately small in v1. The only supported shape is:
+`filters` is the first-party admission predicate for this binding. The supported
+shape is:
 
-```text
-{"eq": {"field_name": scalar_value}}
+```json
+{"cel": "signal.channel.id == 'lark:chat:allowed' && signal.entry.sender_key.startsWith('lark:user:')"}
 ```
 
-All `eq` conditions are ANDed. Fields must come from a code allowlist such as
-channel id, provider thread id, sender key, source event kind, or repository.
-Values must be JSON scalars. Regex, OR groups, scripts, priority, ordering, and
-arbitrary nested rules are not v1 user configuration. Future routing can grow
-below the same boundary, but current bindings only express deterministic exact
-admission.
+An empty object means accept every normalized fact for the binding. CEL runs
+against exactly two variables:
+
+- `binding`: the binding identity, such as adapter and binding name;
+- `signal`: the constructed `IngressFact` projection grouped into `channel`,
+  `entry`, `lifecycle`, `reaction`, `action`, `internal`, and `command` fields.
+
+The projection contains normalized, JSON-safe facts that adapters already handed
+to the gateway, including metadata, author, mentions, attachments, action/internal
+payloads, and provider-visible normalized ids. CEL may inspect provider-specific
+JSON when an adapter deliberately places it inside normalized action or internal
+payloads; this is still first-party in-memory ingress data, not a new external
+capability. CEL does not load database rows, Principal/AuthZ state, actor runtime
+state, provider I/O, or custom host-side-effect functions while evaluating.
+
+Parsed slash-command payloads are produced after admission routing, so they are
+not part of the CEL admission surface. Filters that need command-like admission
+should use the entry text, structured mention prefixes, or adapter metadata that
+already exists on the constructed fact.
+
+SignalsGateway uses the native kernel CEL evaluator with the standard CEL
+functions and macros available in the current runtime, including string
+predicates, regex `matches`, collection membership, and comprehensions such as
+`all`, `exists`, `filter`, and `map`. A malformed expression or a runtime error
+is a binding configuration error. The gateway must fail before mirror or actor
+input writes rather than silently accepting or partially recording the signal.
 
 A binding is not the provider channel and not the session actor. One binding may
 receive facts from many provider channels, and each `agent + signal_channel`
@@ -275,7 +296,7 @@ SignalsGateway owns:
 - binding and command admission policy, including group-message admission;
 - latest-state provider mirror updates for signal channels and entries;
 - signal-to-session mapping and `actor_inputs` construction;
-- short-lived tombstones for delete/recall;
+- short-lived tombstones for provider-removal races;
 - provider-visible outbox execution;
 - weak visible-output stream state for in-progress assistant output;
 - provider limitation boundaries that affect what can be mirrored or replied to.
@@ -284,8 +305,8 @@ SignalsGateway does not own:
 
 - session actor execution, turns, summaries, generation leases, checkpoint
   semantics, or command execution semantics;
-- the rule for whether a user recall/delete should also recall or delete prior
-  assistant output;
+- the rule for whether a user-side removal should also remove prior assistant
+  output;
 - Principal/AuthZ truth, except for exposing a host-owned bridge that adapters
   can call with observed platform-subject facts;
 - plugin discovery, plugin activation, or provider setup persistence;
@@ -300,8 +321,7 @@ SignalsGateway does not own:
 The public adapter-facing ingress API has concrete methods:
 
 - `emitEntry(input, options?)`
-- `emitEntryDeleted(input, options?)`
-- `emitEntryRecalled(input, options?)`
+- `emitEntryRemoved(input, options?)`
 - `emitReaction(input, options?)`
 - `emitAction(input, options?)`
 
@@ -318,13 +338,14 @@ It also exposes adapter logging and the adapter's display user name:
 Normalized IngressFacts include stable `ingress_event_id`, provider entry id
 when there is a provider entry, thread id when the provider has one, optional
 channel data, text, formatted content, attachments, links, mentions, author, raw
-payload reference, provider metadata, and provider observation time. For
-external providers, `ingress_event_id` is normally derived from the normalized
-provider event id. For internal facts, such as timers, it is derived from the
-source's fire id. Delete/recall facts include `provider_entry_id`, `thread_id`,
-`kind = deleted | recalled`, optional delete time, optional channel, optional
-entry snapshot, and raw payload reference. Reaction and action facts are typed
-separately.
+payload reference, provider metadata, and provider observation time. Adapters
+are responsible for supplying a unique, stable event id for `ingress_event_id`;
+for Feishu/Lark websocket events this is the provider `event_id`. Internal
+facts, such as timers, derive it from the source's fire id. Removal facts
+include `provider_entry_id`, `thread_id`,
+`kind = removed`, optional provider lifecycle kind such as `recalled`, optional
+removal time, optional channel, optional entry snapshot, and raw payload
+reference. Reaction and action facts are typed separately.
 
 When an inbound entry has attachments, materialization happens before mirroring
 and actor input append. Durable payloads must carry provider references,
@@ -335,8 +356,7 @@ input snapshot should see the same normalized attachment view.
 Core IngressFact kinds are intentionally small:
 
 - `entry.received`
-- `entry.deleted`
-- `entry.recalled`
+- `entry.removed`
 - `reaction.changed`
 - `action.invoked`
 - registered internal facts such as `timer.fired` and session lifecycle facts
@@ -344,7 +364,7 @@ Core IngressFact kinds are intentionally small:
 
 Visible text commands are command semantics carried by text-bearing
 `entry.received` IngressFacts. The visible entry is still mirrored and still
-participates in provider delete/recall behavior, but command classification
+participates in provider removal behavior, but command classification
 chooses `ActorInput(type = command.<name>)` during ingress planning. Commands
 are first-class ActorInput events. The actor-facing event identity stays
 `command.<name>`; sharing the addressed IM resolver does not change a command
@@ -352,7 +372,7 @@ event into `im.message.addressed`.
 
 Adapters declare capabilities instead of making the host guess behavior:
 
-- inbound: `entry_receive`, `entry_delete`, `entry_recall`, `reaction_add`,
+- inbound: `entry_receive`, `entry_removed`, `reaction_add`,
   `reaction_remove`, `action_event`, `modal_event`;
 - outbound: `post_entry`, `reply_entry`, `edit_entry`, `delete_entry`,
   `add_reaction`, `remove_reaction`, `divider`, `card`, `modal`, `streaming`,
@@ -413,9 +433,9 @@ written to the same actor input journal. The lifecycle event is a runtime note
 for future model context, not a new user request. The actor transcript may store
 that fact as an introspection row, but the worker must render it into the
 leading `<agent_environment_info>` block of the current or latest user message;
-it must not append the dynamic recall/delete fact to the system prompt.
-Historical transcript rows stay intact: a recalled older message explains why
-prior turns happened, and the recall/delete fact only tells later turns that the
+it must not append the dynamic removal fact to the system prompt.
+Historical transcript rows stay intact: a removed older message explains why
+prior turns happened, and the removal fact only tells later turns that the
 provider environment changed. SignalsGateway never infers deletion of prior
 assistant output.
 
@@ -540,17 +560,16 @@ Ambient batch rules:
   into the sender run that can become addressed and the remaining neutral
   observation that may close as ambient or no-op.
 
-Delete and recall while batching:
+Provider-side removal while batching:
 
 - If the source provider entry is still only in a pending inbound batch, remove
   it from the batch. Empty batches close without ActorInput. Non-empty batches
   recompute outcome, merged entry text/attachments, reply anchor, and due time.
 - If the closed batch already produced an ActorInput that is in-flight but not
   committed, abort the active delivery and retry the same logical batch revision
-  without the deleted/recalled entry. If nothing remains, abort without retry.
+  without the removed entry. If nothing remains, abort without retry.
 - If the ActorInput already committed into actor state, do not rewrite history.
-  Append the normal `signal.entry.deleted` or `signal.entry.recalled` lifecycle
-  input.
+  Append the normal `signal.entry.removed` lifecycle input.
 
 ## End-To-End Flow
 
@@ -561,7 +580,7 @@ adapter callback
   -> load binding by binding_key
   -> construct typed IngressFact
   -> validate durable JSON payloads
-  -> evaluate deterministic eq filters
+  -> evaluate CEL admission filter
   -> classify route, binding policy, and command admission
   -> transaction:
        - tombstone check/update
@@ -732,6 +751,8 @@ Provider mirror time semantics are deliberately small:
 
 - `provider_time` is used only to prevent stale provider-backed IngressFacts
   from overwriting newer mirrored state.
+- Provider time is not prompt `send_at`. Prompt-visible message time comes from
+  `ai_agent_messages.inserted_at` through `conversation.history.resolve`.
 - `gateway_time` is used for tombstone TTLs, pending batch timers, retry
   backoff, and first/last-seen bookkeeping.
 - `actor_time` belongs to actor runtime state and does not order provider
@@ -760,9 +781,9 @@ Common cases:
 | Webhook mirror-only | Mirror entry, no ActorInput |
 | Recognized visible command such as `/steer` | Mirror visible command entry, append `command.steer` under command admission |
 | Timer fired | Append `timer.fired` with explicit `session_id` |
-| Delete/recall before receive | Write tombstone so a late receive is dropped |
-| Delete/recall while actor input pending | Refresh tombstone, remove or redact current visible/searchable entry state, cancel/remove pending actor input |
-| Delete/recall after actor commit | Refresh tombstone, update current provider mirror/search projection, append `signal.entry.deleted` or `signal.entry.recalled` for a runtime introspection note; do not rewrite historical transcript |
+| Provider-side removal before receive | Write tombstone so a late receive is dropped |
+| Provider-side removal while actor input pending | Refresh tombstone, remove or redact current visible/searchable entry state, cancel/remove pending actor input |
+| Provider-side removal after actor commit | Refresh tombstone, update current provider mirror/search projection, append `signal.entry.removed` for a runtime introspection note; do not rewrite historical transcript |
 
 This is the only place where binding policy turns ingress facts into actor
 input. `record_only` means mirror effect only; it is not an event type and it
@@ -785,7 +806,7 @@ lifecycle table:
   that choose actor delivery write exactly one `actor_inputs` row.
 - actor commit records `actor_input_consumptions` in actor store while writing
   actor messages and any `signal_gateway_outbox` rows.
-- delete/recall refreshes the tombstone first, then checks `actor_inputs` and
+- provider-side removal refreshes the tombstone first, then checks `actor_inputs` and
   actor store state to decide whether to remove pending input, append a lifecycle
   ActorInput, or only update the mirror.
 
@@ -886,7 +907,7 @@ SignalsGateway writes only actor-facing inputs to `actor_inputs`:
 - `session.reset_due`: control-plane session lifecycle barrier. It is enqueued
   by scheduler/workflow code for a specific session and waits behind earlier
   actor work instead of interrupting it.
-- `signal.entry.deleted` / `signal.entry.recalled`: written only when the
+- `signal.entry.removed`: written only when the
   original input already reached actor state. ActorRuntime consumes it locally by
   appending an introspection/runtime note to the transcript and marking the
   lifecycle input consumed. It must not start a normal LLM turn, treat the event
@@ -896,7 +917,7 @@ SignalsGateway writes only actor-facing inputs to `actor_inputs`:
 Lifecycle ActorInputs are deterministic only at the state-transition boundary:
 the runtime decides whether to cancel pending work or write a lifecycle note.
 The note is how later LLM turns learn that a previously visible provider entry
-was deleted or recalled. When sent to a model, that note is message-local
+was removed. When sent to a model, that note is message-local
 environment information on the current/latest user message, not a system-prompt extension.
 `session.reset_due` is stricter session lifecycle: it does not materialize any
 user transcript message and does not invoke the LLM.
@@ -922,7 +943,7 @@ database-driven would create a second control plane without a user story.
 Stored state:
 
 - provider mirror rows: `signal_channels` and `signal_entries`;
-- short-lived tombstones for delete/recall races;
+- short-lived tombstones for provider-removal races;
 - `actor_inputs` rows until the actor consumes or compacts them;
 - `actor_input_consumptions` rows during the actor recovery / compaction window;
 - `signal_gateway_outbox` rows until provider-visible side effects resolve;
@@ -930,9 +951,9 @@ Stored state:
   and `unaddressed_group_message_policy`.
 
 SignalsGateway v1 does not store a separate processed-ingress-events table.
-Actor-input route redelivery is de-duped by `actor_inputs` while open and
-`actor_input_consumptions` during the recovery window. Mirror-only redelivery is
-de-duped by `signal_entries` using the adapter's stable provider entry key.
+Actor-input route redelivery is de-duped by open `actor_inputs` using the
+adapter-supplied `ingress_event_id`. Mirror-only redelivery is de-duped by
+`signal_entries` using the adapter's stable provider entry key.
 
 Code contracts:
 
@@ -974,9 +995,9 @@ TTL-like storage needs a resident cleanup path:
   recovery must not depend on them.
 
 `signal_entries` is deliberately absent from this TTL list. It is long-lived
-provider observation and memory/search substrate. Delete/recall may remove or
-redact content through explicit product/privacy semantics, but background
-runtime cleanup must not treat it like actor delivery state.
+provider observation and memory/search substrate. Provider-side removal may
+remove or redact content through explicit product/privacy semantics, but
+background runtime cleanup must not treat it like actor delivery state.
 
 ActorRuntime tables such as `actor_input_deliveries`,
 `actor_session_activations`, worker heartbeat projections, and sticky placement
@@ -1095,18 +1116,32 @@ the session actor runtime decides what the command means and records execution
 state in actor-runtime rows, not in the parsed command payload.
 
 Command ActorInputs are direct inputs. They do not enter IM burst batching, and
-they do not rewrite broker sequence. When a generation is already running,
-ActorRuntime may select an explicit control command such as `/stop`, `/retry`,
-`/new`, `/steer`, or `/compress` ahead of earlier ordinary content inputs that
-cannot be delivered until the active turn finishes. That priority is a runtime
+they do not rewrite live queue order. When a generation is already running,
+ActorRuntime uses the command runtime policy below. That priority is a runtime
 scheduling rule, not a SignalsGateway queue rule: the actor input journal still
-keeps broker sequence as append order, and non-control content waits its turn.
+keeps `live_queue_sequence` as open-queue append order.
 
-`/compress` asks the actor runtime to replace an older slice of chat history
-with a compressed transcript summary. That summary is previous chat history,
-not an environment fact and not a system-prompt rule. When later worker turns
-send it to a model, they render the latest compressed summary as
-`<previous_chat_history>` prepended to the current/latest user message.
+| Command | ActorInput type | Runtime policy | Executor |
+| --- | --- | --- | --- |
+| `/stop` | `command.stop` | `control_now`: cancel the active generation and send a control signal; it does not start a second turn | Control plane |
+| `/retry` | `command.retry` | `control_now`: cancel/retry the active generation; it does not start a second turn | Control plane |
+| `/new` | `command.new` | `control_now`: roll the session window, cancelling the active generation when needed | Control plane |
+| `/steer` | `command.steer` | `checkpoint_nudge`: stays in the actor input queue, and while a turn is active may be delivered to the worker as `mailbox_updated` for checkpoint consumption | Worker turn |
+| `/compress` | `command.compress` | `worker_turn`: stays in the actor input queue; when it reaches the head, the worker handles it as a compression turn | Worker turn using the `light` model profile |
+
+`/compress` asks the worker to replace an older prefix of chat history with a
+compressed transcript summary while keeping the recent tail verbatim. A visible entry may be `/compress` or
+`/compress <focus>`, and command admission turns it into
+`ActorInput(type = command.compress)`. The
+summary is previous chat history, not an environment fact and not a system
+prompt rule. When later worker turns send it to a model, they render the latest
+compressed summary as `<previous_chat_history>` and skip transcript rows covered
+by summary `covers_range`; recent tail rows are not included in `covers_range`
+and continue to render as normal transcript. The worker owns summarization and coverage
+selection; the control-plane RPC only validates and writes database rows because
+the worker does not connect to PostgreSQL directly. If `/steer` arrives while
+compression is running, it does not alter the already-running compression
+prompt; it is released for the next turn after the summary commits.
 
 `/steer` is a typed command event like `/new`, `/compress`, `/retry`, and
 `/stop`. The command remains `ActorInput(type = command.steer)` even when its
@@ -1118,8 +1153,8 @@ reference an already journaled actor input and must not carry an undurable
 provider payload. SignalsGateway must not model steering as a second control
 queue.
 
-`/undo` is not a command. If a user wants to retract input, the provider
-recall/delete lifecycle event is the supported path.
+`/undo` is not a command. If a user wants to retract input, the provider removal
+lifecycle event is the supported path.
 
 Command parsing trims leading bot mentions for mentioned commands, allows
 multi-line arguments, and normalizes full-width spaces and digits before
@@ -1150,7 +1185,7 @@ storage, or actor messages after commit.
 Consuming an actor input is the actor commit boundary. Worker acceptance over
 the actor fabric is a separate delivery fact in `actor_input_deliveries`, not
 the final actor-side commit. The actor store locks the `actor_inputs` row,
-rejects it if a delete/recall tombstone canceled the input, verifies the current
+rejects it if a provider-removal tombstone canceled the input, verifies the current
 delivery was accepted by the committing activation/epoch/turn, writes the
 `actor_input_consumptions` marker, inserts any actor-committed outbox intents,
 and marks or compacts the input in one transaction. There is no separate
@@ -1171,7 +1206,7 @@ Required logical actor input metadata:
 - optional `signal_channel_id`, `provider_thread_id`, `provider_entry_id`
 - `type`
 - `available_at`
-- `broker_sequence` or equivalent per-session input sequence
+- `live_queue_sequence` or equivalent per-session input sequence
 - `input_state`
 - optional `dead_letter_at`
 - `payload` as a minimal dispatch snapshot
@@ -1179,20 +1214,22 @@ Required logical actor input metadata:
 For closed IM batches, `provider_entry_id` is the reply anchor, normally the
 last source provider entry in the batch. It is not the full source set. The
 payload or adjacent runtime metadata must preserve all source provider entry ids
-and the logical batch revision so delete/recall can update pending or in-flight
+and the logical batch revision so provider-side removal can update pending or in-flight
 work without pretending each source message was a separate ActorInput.
 
 SignalsGateway must provide enough data for the actor store to assign
-`broker_sequence`, evaluate readiness, and later correlate delete/recall with
+`live_queue_sequence`, evaluate readiness, and later correlate provider-side removal with
 the accepted input. It does not decide worker placement, actor epoch, ZeroMQ
 route, send outcome, worker acceptance, or final turn commit. Those facts belong
 to `actor_input_deliveries`, `actor_session_activations`,
 `ai_agent_llm_turns`, and `actor_input_consumptions`.
 
 The signal input idempotency key is `(agent_uid, binding_name,
-ingress_event_id)`. For provider-backed input, `ingress_event_id` normally
-comes from the normalized provider event id. For internal input, it comes from
-the configured source, such as a timer fire id.
+ingress_event_id)`. For provider-backed input, the adapter must map the
+provider's stable event id to `ingress_event_id`; provider entry ids such as
+message ids are mirror/reply anchors, not event idempotency keys. For internal
+input, `ingress_event_id` comes from the configured source, such as a timer fire
+id.
 
 `sender_key` is the adapter-normalized stable sender identity used inside
 pending IM batches and, for addressed batches, to identify the requester sender.
@@ -1210,7 +1247,7 @@ beside `signal_entries` and actor messages.
 
 Before a consumed actor input row is deleted, archived, or compacted, the actor
 store must durably expose whether that input reached actor state.
-Delete/recall handling depends on this distinction: pending input can be
+Provider-side removal handling depends on this distinction: pending input can be
 removed, consumed input produces a lifecycle ActorInput, and mirror-only input
 only updates the provider mirror. The gateway asks actor store for this answer;
 it does not maintain a separate entry-lifecycle store. Long-term lifecycle
@@ -1220,7 +1257,7 @@ not indefinite retention of actor runtime delivery tables.
 The actor commit that consumes a signal-backed actor input must run in the same
 actor-store transaction as writing assistant/final actor messages and any
 `signal_gateway_outbox` rows produced by that turn. That commit must verify the
-source actor input has not been canceled by delete/recall after the actor read
+source actor input has not been canceled by provider-side removal after the actor read
 it. If the input was canceled, the commit is rejected as stale and must not write
 assistant/final actor messages or outbox rows for that input.
 
@@ -1269,32 +1306,33 @@ provider entries -> pending inbound batch -> addressed | ambient | no actor inpu
 ActorInput.available_at -> delivery time for the already-formed input
 ```
 
-Delete/recall follows the facts already stored in `signal_entries`,
+Provider-side removal follows the facts already stored in `signal_entries`,
 `signal_gateway_input_tombstones`, `actor_inputs`, recovery-window
 `actor_input_consumptions`, and actor messages with provider refs. It must not
 create a separate entry-lifecycle table.
 
-Delete and recall share the same lifecycle logic. The only difference is the
-lifecycle ActorInput type generated after actor state has already consumed the
-original input.
+Provider delete and recall share the same lifecycle logic. The provider's raw
+name may be retained as diagnostic metadata, but the lifecycle ActorInput type
+after actor state has already consumed the original input is always
+`signal.entry.removed`.
 
-Every delete/recall writes or refreshes the short-lived tombstone before
+Every provider-side removal writes or refreshes the short-lived tombstone before
 state-specific handling. This prevents provider retry or late receive from
-recreating a mirrored entry after the user deleted or recalled it.
+recreating a mirrored entry after the user removed it.
 
 | Transition | Effect |
 | --- | --- |
-| `unseen + delete/recall` | Write `tombstoned_until`; late receive is dropped |
+| `unseen + removal` | Write `tombstoned_until`; late receive is dropped |
 | `tombstoned_until + receive` | Drop receive, do not re-mirror, do not wake |
 | `accepted receive + actor input still open` | Pending ActorInput exists in `actor_inputs` |
 | `accepted receive + actor store consumed input` | Original input reached actor state |
-| `mirror-only receive + delete/recall` | Refresh tombstone and update current provider mirror/search projection only |
-| `pending inbound batch + delete/recall` | Refresh tombstone, update current provider mirror/search projection when mirrored, remove the source entry from the pending batch, and recompute outcome |
-| `open actor input + delete/recall` | Refresh tombstone, update current provider mirror/search projection, cancel/remove open actor input |
-| `in-flight actor input + delete/recall` | Refresh tombstone, abort the active delivery, retry the same logical batch revision without the removed source entry when anything remains, and reject stale commits from the old revision |
-| `consumed actor input + delete/recall` | Refresh tombstone, update current provider mirror/search projection, append lifecycle ActorInput that becomes an introspection note |
+| `mirror-only receive + removal` | Refresh tombstone and update current provider mirror/search projection only |
+| `pending inbound batch + removal` | Refresh tombstone, update current provider mirror/search projection when mirrored, remove the source entry from the pending batch, and recompute outcome |
+| `open actor input + removal` | Refresh tombstone, update current provider mirror/search projection, cancel/remove open actor input |
+| `in-flight actor input + removal` | Refresh tombstone, abort the active delivery, retry the same logical batch revision without the removed source entry when anything remains, and reject stale commits from the old revision |
+| `consumed actor input + removal` | Refresh tombstone, update current provider mirror/search projection, append lifecycle ActorInput that becomes an introspection note |
 
-This distinction matters most for historical recall. If the original input is
+This distinction matters most for historical removal. If the original input is
 still pending or is the trigger for an unfinished generation, cancellation can
 prevent new output from being based on withdrawn content. If the original input
 was already consumed in an older turn, the system must preserve transcript
@@ -1302,11 +1340,11 @@ causality: keep the old user and assistant rows, append a lifecycle note for
 future LLM context, render that note in the latest user message
 `<agent_environment_info>` block instead of the system prompt, and require an
 explicit later actor output intent before any provider-visible assistant message
-is recalled or deleted.
+is removed.
 
 `signal_gateway_input_tombstones` is the short-lived storage for the
 `tombstoned_until` state. Its primary key is `(agent_uid, binding_name,
-signal_channel_id, provider_entry_id)`, so a recall in one channel cannot
+signal_channel_id, provider_entry_id)`, so a removal in one channel cannot
 suppress a same-id entry in another channel. The receive and tombstone paths use
 a transaction-scoped advisory lock over `(agent_uid, binding_name,
 signal_channel_id, provider_entry_id)`; whichever side wins commits before the
@@ -1316,7 +1354,7 @@ other observes state.
 
 SignalsGateway executes only explicit `signal_gateway_outbox` rows committed by
 the Elixir control plane after a final proposal from the agent computer. It does
-not infer that a recalled user entry should recall or delete prior agent output.
+not infer that a removed user entry should remove prior agent output.
 The committed intent is the `signal_gateway_outbox` row itself; there is no
 second actor-outbox table that the gateway later copies from.
 
@@ -1393,7 +1431,7 @@ to fake provider mirror state before confirmed provider success.
 
 Final assistant-message truth belongs to the actor store. The session actor
 runtime owns turns, assistant messages, delivery metadata, summaries, and the
-rule for whether a user recall/delete should also delete bot output.
+rule for whether a user-side removal should also delete bot output.
 
 Redis visible-output streams are retained as weak progress only. They use agent,
 session, and stream identity, and are safe to lose. They may mirror ZeroMQ
@@ -1460,7 +1498,8 @@ Provider-visible behavior:
 - Message receive uses `im.message.receive_v1`. The adapter/binding route maps
   normalized receive IngressFacts to `im.message.addressed`,
   `im.message.may_intervene`, or `record_only` mirroring as configured.
-- Message recall uses `im.message.recalled_v1`. SignalsGateway updates current
+- Message recall uses Lark's `im.message.recalled_v1`, mapped to `entry_removed`.
+  SignalsGateway updates current
   provider mirror/search projection according to product/privacy policy and
   writes lifecycle only if the receive reached the actor.
 - Message edit has no official event as of June 6, 2026. Do not implement
@@ -1517,17 +1556,17 @@ The gateway user-story surface includes these contract cases:
   addressed batch before the new message is routed.
 - Same channel with different provider threads keeps the same session actor.
 - Different channels produce different session actors.
-- Recall/delete while a receive is still in a pending inbound batch removes that
+- Provider-side removal while a receive is still in a pending inbound batch removes that
   source entry from the batch and recomputes the batch outcome.
-- Recall/delete while a closed batch is in-flight aborts the active delivery and
+- Provider-side removal while a closed batch is in-flight aborts the active delivery and
   retries the same logical batch without the removed source entry when anything
   remains.
-- Every recall/delete creates or refreshes a tombstone so stale receives are
+- Every provider-side removal creates or refreshes a tombstone so stale receives are
   ignored.
-- Recall/delete tombstones are scoped by signal channel.
-- Recall/delete of a `record_only` entry updates the provider mirror but does not wake
+- Removal tombstones are scoped by signal channel.
+- Provider-side removal of a `record_only` entry updates the provider mirror but does not wake
   the agent.
-- Recall/delete of an entry already committed into actor state writes lifecycle
+- Provider-side removal of an entry already committed into actor state writes lifecycle
   input that ActorRuntime consumes into an introspection note; it does not start
   a normal LLM turn and does not delete agent output unless the actor commits a
   delete intent.
@@ -1538,11 +1577,11 @@ The gateway user-story surface includes these contract cases:
   the adapter has stable matching provider ids; actor input idempotency remains
   route-scoped, so mirror dedupe does not suppress an accepted ActorInput.
 - A consumed actor input row must leave a durable actor-store marker before
-  compaction so later recall/delete can distinguish consumed input from pending
+  compaction so later removal can distinguish consumed input from pending
   input.
-- Actor commit must reject an actor input canceled by recall/delete after the
+- Actor commit must reject an actor input canceled by provider-side removal after the
   actor read it.
-- GitHub-like webhook facts map to generic receive/delete shapes.
+- GitHub-like webhook facts map to generic receive/removal shapes.
 - Final outbound posts are mirrored only after provider success.
 - Provider outbound failure marks the outbox row failed while the accepted actor
   input remains durable.
@@ -1564,7 +1603,7 @@ The gateway user-story surface includes these contract cases:
 - Provider mirror identity is signal channel id plus provider-visible entry id,
   not agent uid or binding name.
 - Binding-channel observation is not a gateway identity.
-- Entry lifecycle is not a gateway identity; delete/recall behavior is derived
+- Entry lifecycle is not a gateway identity; provider-removal behavior is derived
   from tombstones, provider mirror, `actor_inputs`, and
   `actor_input_consumptions`.
 - Actor input idempotency identity is agent uid, binding name, and
@@ -1576,9 +1615,9 @@ The gateway user-story surface includes these contract cases:
   binding.
 - `ignore` does not mirror ignored IM group traffic.
 - Inbound edit events are not supported by the current gateway contract.
-- A provider delete/recall refreshes a tombstone and updates current provider
+- A provider-side removal refreshes a tombstone and updates current provider
   mirror/search projection, but does not rewrite actor transcript history or
-  recall agent output by itself.
+  remove agent output by itself.
 - Only explicit actor-committed `signal_gateway_outbox` rows create
   provider-visible side effects.
 - Provider send failure after final-proposal commit belongs to the outbox row,

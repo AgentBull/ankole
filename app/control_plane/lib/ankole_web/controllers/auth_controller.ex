@@ -115,7 +115,7 @@ defmodule AnkoleWeb.AuthController do
     return_to = WebSession.safe_return_to(params["return_to"])
 
     with {:ok, true} <- SetupConfig.completed?(),
-         {:ok, provider_id} <- Ankole.IdentityProviders.Config.normalize_provider_id(provider_id),
+         {:ok, provider_id} <- IdentityProviders.normalize_provider_id(provider_id),
          state <- WebSession.opaque_token(),
          redirect_uri <- IdentityProviders.oidc_redirect_uri(public_base_url(conn), provider_id),
          {:ok, authorization_url} <-

@@ -13,7 +13,7 @@ defmodule Ankole.ActorRuntime.Schemas.AgentComputerWorker do
 
   alias Ankole.SignalsGateway.JsonPayload
 
-  @primary_key {:id, :binary_id, autogenerate: true}
+  @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
   @timestamps_opts [type: :utc_datetime_usec]
   # `ready` workers can be assigned turns. `stale` is set by the watchdog when
   # heartbeats stop; the worker is no longer scheduled but its row lingers until

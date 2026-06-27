@@ -15,7 +15,7 @@ defmodule Ankole.AIAgent.Schemas.Message do
   alias Ankole.Principals.Principal
   alias Ankole.SignalsGateway.JsonPayload
 
-  @primary_key {:id, :binary_id, autogenerate: true}
+  @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
   @foreign_key_type :string
   @timestamps_opts [type: :utc_datetime_usec]
   # Roles map an inbound transcript row to where it belongs in the LLM

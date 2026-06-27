@@ -19,6 +19,7 @@ import { visibleReplyProposal, type FinalProposalBody } from '../turn_envelopes'
 import { createComputerTools } from '../tools/computer'
 import { createReplyAttachmentStore, type ReplyAttachmentStore } from '../tools/computer/reply-attachment-tool'
 import { createSkillTools } from '../tools/library/skill-tools'
+import { createScheduleTools, type ScheduleRpcRequester } from '../tools/schedule-tools'
 import { createTodoTool, TodoStore } from '../tools/todo-tool'
 import { runAmbientRecognizer } from './ambient_recognizer'
 import {
@@ -27,39 +28,51 @@ import {
   renderMessageWithContext
 } from './message_context'
 import type {
-  AgentProfile,
-  AgentProfileRequest,
+  AgentConversationContext,
+  AgentConversationContextRequest,
+  ConversationHistoryMessage,
+  ConversationHistoryRequest,
+  ConversationHistoryResponse,
+  ConversationSummaryCommitRequest,
+  ConversationSummaryCommitResponse,
   LlmProviderCredentialRejected,
   LlmProviderCredentialRequest,
   LlmProviderCredentialResponse,
   SkillOverlayReplaceRequest,
   SkillOverlayRequest,
-  SkillOverlayResponse,
-  TurnContextRequest,
-  TurnRuntimeContext
+  SkillOverlayResponse
 } from '../rpc_lane'
 
 export type CredentialRequester = (
   request: LlmProviderCredentialRequest
 ) => Promise<LlmProviderCredentialResponse | LlmProviderCredentialRejected>
 
-export type AgentProfileRequester = (request: AgentProfileRequest) => Promise<AgentProfile>
-export type TurnContextRequester = (request: TurnContextRequest) => Promise<TurnRuntimeContext>
+export type AgentConversationContextRequester = (
+  request: AgentConversationContextRequest
+) => Promise<AgentConversationContext>
+export type ConversationHistoryRequester = (request: ConversationHistoryRequest) => Promise<ConversationHistoryResponse>
+export type ConversationSummaryCommitter = (
+  request: ConversationSummaryCommitRequest
+) => Promise<ConversationSummaryCommitResponse>
 export type SkillOverlayRequester = (request: SkillOverlayRequest) => Promise<SkillOverlayResponse>
 export type SkillOverlayReplaceRequester = (request: SkillOverlayReplaceRequest) => Promise<SkillOverlayResponse>
+
+export type TurnHandlerResult = FinalProposalBody | { summaryCommitted: true }
 
 export type TextTurnLoopOptions = {
   workspaceRoot: string
   builtinSkillsRoot?: string
   agentInstalledSkillsRoot?: string
   requestCredential: CredentialRequester
-  requestAgentProfile?: AgentProfileRequester
-  requestTurnContext?: TurnContextRequester
+  requestAgentConversationContext?: AgentConversationContextRequester
+  requestConversationHistory?: ConversationHistoryRequester
+  commitConversationSummary?: ConversationSummaryCommitter
+  requestScheduleRpc?: ScheduleRpcRequester
   requestSkillOverlay?: SkillOverlayRequester
   replaceSkillOverlay?: SkillOverlayReplaceRequester
   clearSkillOverlay?: SkillOverlayRequester
-  runtimeContext?: TurnRuntimeContext
-  agentProfile?: AgentProfile
+  agentConversationContext?: AgentConversationContext
+  conversationHistory?: ConversationHistoryResponse
   pollSteering?: () => TurnSteerUpdate[]
   abortSignal?: AbortSignal
   maxSteps?: number
@@ -68,9 +81,15 @@ export type TextTurnLoopOptions = {
 
 type ConversationContext = {
   messages: AgentMessage[]
+  compressibleMessages: CompressibleConversationMessage[]
   materializedInputIds: Set<string>
   pendingUserEnvironmentInfoLines: string[]
   previousChatHistorySummaries: string[]
+}
+
+type CompressibleConversationMessage = {
+  id: string
+  message: AgentMessage
 }
 
 type TurnTelemetry = {
@@ -94,13 +113,15 @@ const TOOL_RESULT_MAX_CHARS = 12_000
 const TEXT_TURN_TIMEOUT_MS = positiveIntegerEnv('ANKOLE_LLM_TURN_TIMEOUT_MS', 180_000)
 const COMPRESSION_TURN_TIMEOUT_MS = positiveIntegerEnv('ANKOLE_LLM_COMPRESSION_TIMEOUT_MS', 90_000)
 const AMBIENT_RECOGNIZER_TIMEOUT_MS = positiveIntegerEnv('ANKOLE_LLM_AMBIENT_RECOGNIZER_TIMEOUT_MS', 45_000)
+const PROMPT_SEND_AT_GAP_MS = 60 * 60 * 1000
+const COMPRESSION_KEEP_RECENT_TOKENS = 20_000
 
 /**
  * Dispatches one worker turn by ActorInput type. These are internal Agent
  * Computer handlers: ZMQ delivered only the event batch, while recognizers and
  * follow-up generation stay inside the Agent Computer AI SDK runtime.
  */
-export async function runLlmTurnHandlers(turnStart: TurnStart, opts: TextTurnLoopOptions): Promise<FinalProposalBody> {
+export async function runLlmTurnHandlers(turnStart: TurnStart, opts: TextTurnLoopOptions): Promise<TurnHandlerResult> {
   if (isAmbientMayInterveneTurn(turnStart)) {
     return runAmbientMayInterveneHandler(turnStart, opts)
   }
@@ -145,10 +166,10 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
   const model = runtimeModelFromCredential(credential)
   const providerOptions = providerOptionsFromCredential(credential, model.provider)
   const telemetry = createTurnTelemetry(credential, model)
-  const agentProfile = opts.agentProfile ?? (await resolveAgentProfile(turnStart, opts))
-  const runtimeContext = await resolveTurnRuntimeContext(turnStart, opts)
+  const agentConversationContext = await resolveAgentConversationContext(turnStart, opts)
+  const history = await resolveConversationHistory(turnStart, opts, 'prompt')
 
-  const conversation = conversationContextFromRuntimeContext(runtimeContext, model)
+  const conversation = conversationContextFromHistory(history, model, agentConversationContext)
   const todoStore = new TodoStore()
   const replyAttachmentStore = createReplyAttachmentStore()
   const rawPrompts = turnStart.inputs
@@ -168,8 +189,7 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
   const systemPrompt = buildAgentSystemPrompt({
     workspaceRoot: opts.workspaceRoot,
     turnStart,
-    agentProfile,
-    runtimeContext,
+    agentConversationContext,
     currentChannel: currentChannelFromTurnStart(turnStart)
   })
 
@@ -188,9 +208,13 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
             workspaceRoot: opts.workspaceRoot,
             replyAttachmentStore
           }),
+          ...createScheduleTools({
+            turnStart,
+            requestScheduleRpc: opts.requestScheduleRpc
+          }),
           ...createSkillTools(opts.workspaceRoot, {
             turn: turnStart.turn,
-            enabledSkills: runtimeContext?.skills ?? [],
+            enabledSkills: agentConversationContext.skills ?? [],
             skillRoots: skillRootsFromOptions(opts),
             requestSkillOverlay: opts.requestSkillOverlay,
             replaceSkillOverlay: opts.replaceSkillOverlay,
@@ -231,6 +255,9 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
       )
     }
     const replyText = assistantText(latest)
+    if (scheduleSilentSuccessRequested(replyText) && scheduleSilentSuccessAllowed(turnStart)) {
+      return silentSuccessProposalWithTelemetry(telemetry)
+    }
     if (!replyText) {
       throw new Error(`LLM turn completed without visible assistant text: ${summarizeAgentMessages(newMessages)}`)
     }
@@ -258,15 +285,15 @@ async function runAmbientMayInterveneHandler(
   }
 
   const lightModel = runtimeModelFromCredential(lightCredential)
-  const agentProfile = opts.agentProfile ?? (await resolveAgentProfile(turnStart, opts))
-  const runtimeContext = await resolveTurnRuntimeContext(turnStart, opts)
+  const agentConversationContext = await resolveAgentConversationContext(turnStart, opts)
+  const history = await resolveConversationHistory(turnStart, opts, 'prompt')
   const recognition = await runAmbientRecognizer({
     headers: lightModel.headers ?? {},
     model: lightModel,
     providerOptions: providerOptionsFromCredential(lightCredential, lightModel.provider),
-    agentProfile,
+    agentConversationContext,
+    conversationHistory: history,
     turnStart,
-    runtimeContext,
     workspaceRoot: opts.workspaceRoot,
     timeoutMs: AMBIENT_RECOGNIZER_TIMEOUT_MS
   })
@@ -281,8 +308,8 @@ async function runAmbientMayInterveneHandler(
   )
   const replyProposal = await runTextTurnLoop(turnStart, {
     ...opts,
-    agentProfile,
-    runtimeContext,
+    agentConversationContext,
+    conversationHistory: history,
     extraMessages: [...(opts.extraMessages ?? []), interventionPrompt]
   })
   const replyText = replyProposal.reply?.text ?? ''
@@ -298,10 +325,16 @@ async function runAmbientMayInterveneHandler(
   }
 }
 
-async function runCompressionTurn(turnStart: TurnStart, opts: TextTurnLoopOptions): Promise<FinalProposalBody> {
-  const modelRef = turnStart.model_ref
-  if (!modelRef) {
-    throw new Error('Compression turn is missing a real model_ref')
+async function runCompressionTurn(turnStart: TurnStart, opts: TextTurnLoopOptions): Promise<TurnHandlerResult> {
+  const agentConversationContext = await resolveAgentConversationContext(turnStart, opts)
+  const history = await resolveConversationHistory(turnStart, opts, 'compression')
+  const conversation = conversationContextFromHistory(history, undefined, agentConversationContext, {
+    excludeActorInputIds: new Set(turnStart.inputs.map(input => input.actor_input_id))
+  })
+  const compaction = selectCompressionPrefix(conversation.compressibleMessages)
+
+  if (!compaction) {
+    return visibleReplyProposal('Conversation already fits in the active context.')
   }
 
   const credential = await opts.requestCredential({
@@ -309,23 +342,20 @@ async function runCompressionTurn(turnStart: TurnStart, opts: TextTurnLoopOption
     turn: turnStart.turn,
     agent_uid: turnStart.turn.actor.agent_uid,
     session_id: turnStart.turn.actor.session_id,
-    profile: modelRef.profile,
-    purpose: 'ai_turn'
+    profile: 'light',
+    purpose: 'compression'
   })
 
   if ('code' in credential) {
     throw new Error(`credential rejected: ${credential.code} ${credential.message ?? ''}`.trim())
   }
 
-  assertCredentialMatchesTurn(modelRef, credential)
-
   const model = runtimeModelFromCredential(credential)
   const providerOptions = providerOptionsFromCredential(credential, model.provider)
   const telemetry = createTurnTelemetry(credential, model)
-  const runtimeContext = await resolveTurnRuntimeContext(turnStart, opts)
-  const conversation = conversationContextFromRuntimeContext(runtimeContext, model)
+
   const prompt = buildCompactionHistoryUserPrompt({
-    conversationText: serializeConversationForCompression(conversation.messages),
+    conversationText: serializeConversationForCompression(compaction.messages),
     customInstructions: COMPACTION_FOCUS_INSTRUCTIONS,
     previousChatHistory: lastNonEmpty(conversation.previousChatHistorySummaries)
   })
@@ -375,39 +405,63 @@ async function runCompressionTurn(turnStart: TurnStart, opts: TextTurnLoopOption
       throw new Error(`Compression turn completed without summary text: ${summarizeAgentMessages(newMessages)}`)
     }
 
-    return finalProposalWithTelemetry(summaryText, telemetry)
+    if (!opts.commitConversationSummary) {
+      throw new Error('conversation summary commit RPC is required')
+    }
+
+    await opts.commitConversationSummary({
+      request_id: `conversation-summary-${crypto.randomUUID()}`,
+      turn: turnRefAfterSteeringDrain(turnStart, opts.pollSteering?.() ?? []),
+      summary: {
+        text: summaryText,
+        covered_message_ids: compaction.coveredMessageIds
+      },
+      ...(telemetry.usage ? { usage_json: telemetry.usage } : {}),
+      provider_metadata_json: telemetry.providerMetadata
+    })
+
+    return { summaryCommitted: true }
   } finally {
     turnTimeout.cleanup()
   }
 }
 
-async function resolveAgentProfile(turnStart: TurnStart, opts: TextTurnLoopOptions): Promise<AgentProfile> {
-  if (!opts.requestAgentProfile) {
-    return {
-      request_id: '',
-      agent_uid: turnStart.turn.actor.agent_uid,
-      display_name: turnStart.turn.actor.agent_uid,
-      role: undefined
-    }
+function turnRefAfterSteeringDrain(turnStart: TurnStart, updates: TurnSteerUpdate[]): TurnStart['turn'] {
+  for (const update of applicableSteeringUpdates(turnStart, updates)) {
+    turnStart.turn.revision = update.turn.revision
+  }
+  return turnStart.turn
+}
+
+async function resolveAgentConversationContext(
+  turnStart: TurnStart,
+  opts: TextTurnLoopOptions
+): Promise<AgentConversationContext> {
+  if (opts.agentConversationContext) return opts.agentConversationContext
+  if (!opts.requestAgentConversationContext) {
+    throw new Error('agent conversation context RPC is required')
   }
 
-  return await opts.requestAgentProfile({
-    request_id: `agent-profile-${crypto.randomUUID()}`,
-    turn: turnStart.turn,
-    agent_uid: turnStart.turn.actor.agent_uid,
-    session_id: turnStart.turn.actor.session_id
+  return await opts.requestAgentConversationContext({
+    request_id: `agent-conversation-context-${crypto.randomUUID()}`,
+    turn: turnStart.turn
   })
 }
 
-async function resolveTurnRuntimeContext(turnStart: TurnStart, opts: TextTurnLoopOptions): Promise<TurnRuntimeContext> {
-  if (opts.runtimeContext) return opts.runtimeContext
-  if (!opts.requestTurnContext) {
-    throw new Error('turn runtime context RPC is required')
+async function resolveConversationHistory(
+  turnStart: TurnStart,
+  opts: TextTurnLoopOptions,
+  purpose: ConversationHistoryRequest['purpose']
+): Promise<ConversationHistoryResponse> {
+  if (opts.conversationHistory && opts.conversationHistory.purpose === purpose) return opts.conversationHistory
+  if (!opts.requestConversationHistory) {
+    throw new Error('conversation history RPC is required')
   }
 
-  return await opts.requestTurnContext({
-    request_id: `turn-context-${crypto.randomUUID()}`,
-    turn: turnStart.turn
+  return await opts.requestConversationHistory({
+    request_id: `conversation-history-${crypto.randomUUID()}`,
+    turn: turnStart.turn,
+    purpose
   })
 }
 
@@ -582,16 +636,25 @@ function providerOptionsFromCredential(
   } as ProviderOptions
 }
 
-function conversationContextFromRuntimeContext(context: TurnRuntimeContext, model: Model): ConversationContext {
+function conversationContextFromHistory(
+  history: ConversationHistoryResponse,
+  model: Model | undefined,
+  context: AgentConversationContext,
+  opts: { excludeActorInputIds?: Set<string> } = {}
+): ConversationContext {
   const materializedInputIds = new Set<string>()
   const messages: AgentMessage[] = []
+  const compressibleMessages: CompressibleConversationMessage[] = []
   const pendingUserEnvironmentInfoLines: string[] = []
   const previousChatHistorySummaries: string[] = []
+  const coveredBySummaries = summaryCoveredMessageIds(history.messages ?? [])
+  let lastInjectedSendAtMs: number | undefined
 
-  for (const row of context.conversation?.messages ?? []) {
+  for (const row of history.messages ?? []) {
     const metadata = isRecord(row.metadata) ? (row.metadata as JsonObject) : {}
     const actorInputId = deepString(metadata, ['actor_input_id'])
     if (actorInputId) materializedInputIds.add(actorInputId)
+    if (actorInputId && opts.excludeActorInputIds?.has(actorInputId)) continue
 
     const kind = typeof row.kind === 'string' ? row.kind : 'normal'
     const text = storedContentText(row.content)
@@ -601,28 +664,145 @@ function conversationContextFromRuntimeContext(context: TurnRuntimeContext, mode
       previousChatHistorySummaries.push(text)
       continue
     }
+    if (typeof row.id === 'string' && coveredBySummaries.has(row.id)) continue
     if (kind === 'introspection' && row.role !== 'im_ambient') {
       pendingUserEnvironmentInfoLines.push(runtimeNoteEnvironmentInfoLine(text))
       continue
     }
+
+    const sendAtMs = parseTimeMs(row.created_at ?? undefined)
+    const injectSendAt =
+      shouldConsiderPromptSendAt(row) &&
+      row.created_at !== null &&
+      row.created_at !== undefined &&
+      sendAtMs !== undefined &&
+      (lastInjectedSendAtMs === undefined || sendAtMs - lastInjectedSendAtMs > PROMPT_SEND_AT_GAP_MS)
+    if (injectSendAt) lastInjectedSendAtMs = sendAtMs
 
     const message = storedConversationMessage(
       {
         role: row.role,
         kind,
         content: row.content,
-        metadata
+        metadata: promptMetadata(metadata, row.created_at ?? undefined, context, injectSendAt)
       },
       text,
       model
     )
-    if (message) messages.push(message)
+    if (message) {
+      messages.push(message)
+      if (typeof row.id === 'string' && kind !== 'introspection') {
+        compressibleMessages.push({ id: row.id, message })
+      }
+    }
   }
 
-  return { messages, materializedInputIds, pendingUserEnvironmentInfoLines, previousChatHistorySummaries }
+  return {
+    messages,
+    compressibleMessages,
+    materializedInputIds,
+    pendingUserEnvironmentInfoLines,
+    previousChatHistorySummaries
+  }
 }
 
-function storedConversationMessage(line: JsonObject, text: string, model: Model): AgentMessage | undefined {
+function selectCompressionPrefix(
+  entries: CompressibleConversationMessage[]
+): { messages: AgentMessage[]; coveredMessageIds: string[] } | undefined {
+  if (entries.length === 0) return undefined
+
+  let keptTokens = 0
+  let firstKeptIndex = entries.length
+
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    keptTokens += estimateCompressionTokens(entries[index]!.message)
+    firstKeptIndex = index
+    if (keptTokens >= COMPRESSION_KEEP_RECENT_TOKENS) break
+  }
+
+  while (firstKeptIndex < entries.length && entries[firstKeptIndex]?.message.role === 'toolResult') {
+    firstKeptIndex += 1
+  }
+
+  if (firstKeptIndex <= 0) return undefined
+
+  const prefix = entries.slice(0, firstKeptIndex)
+  if (prefix.length === 0) return undefined
+
+  return {
+    messages: prefix.map(entry => entry.message),
+    coveredMessageIds: prefix.map(entry => entry.id)
+  }
+}
+
+function estimateCompressionTokens(message: AgentMessage): number {
+  if (!isLlmMessage(message)) return 0
+
+  if (message.role === 'assistant') {
+    let chars = 0
+    for (const block of message.content) {
+      if (block.type === 'text') {
+        chars += block.text.length
+      } else if (block.type === 'thinking') {
+        continue
+      } else if (block.type === 'toolCall') {
+        chars += block.name.length + safeJsonStringify(block.arguments).length
+      }
+    }
+    return Math.ceil(chars / 4)
+  }
+
+  return Math.ceil(messageContentText(message.content).length / 4)
+}
+
+function summaryCoveredMessageIds(rows: ConversationHistoryMessage[]): Set<string> {
+  const ids = new Set<string>()
+  for (const row of rows) {
+    if (row.kind !== 'summary') continue
+    const coversRange = isRecord(row.covers_range) ? row.covers_range : {}
+    const messageIds = Array.isArray(coversRange.message_ids) ? coversRange.message_ids : []
+    for (const id of messageIds) {
+      if (typeof id === 'string' && id.trim()) ids.add(id)
+    }
+  }
+  return ids
+}
+
+function shouldConsiderPromptSendAt(row: ConversationHistoryMessage): boolean {
+  return row.role === 'user' || row.role === 'im_ambient'
+}
+
+function promptMetadata(
+  metadata: JsonObject,
+  sendAt: string | undefined,
+  context: AgentConversationContext,
+  injectSendAt: boolean
+): JsonObject {
+  const messageContext = recordArg(metadata, 'message_context') ?? {}
+  const oldTime = recordArg(messageContext, 'time') ?? {}
+  const time =
+    injectSendAt && sendAt
+      ? {
+          ...oldTime,
+          injected: true,
+          send_at: sendAt,
+          timezone: context.conversation?.timezone || undefined
+        }
+      : {
+          ...oldTime,
+          injected: false
+        }
+
+  return {
+    ...metadata,
+    message_context: {
+      ...messageContext,
+      time
+    }
+  }
+}
+
+function storedConversationMessage(line: JsonObject, text: string, model: Model | undefined): AgentMessage | undefined {
   const role = typeof line.role === 'string' ? line.role : 'user'
   if (role === 'assistant') {
     return assistantMessage(model, text)
@@ -758,16 +938,7 @@ function sourcePlatform(payload: JsonObject | undefined): string | undefined {
 }
 
 function steeringMessages(turnStart: TurnStart, updates: TurnSteerUpdate[]): AgentMessage[] {
-  const applicable = updates.filter(update => {
-    return (
-      update.turn.actor.agent_uid === turnStart.turn.actor.agent_uid &&
-      update.turn.actor.session_id === turnStart.turn.actor.session_id &&
-      update.turn.activation_uid === turnStart.turn.activation_uid &&
-      update.turn.actor_epoch === turnStart.turn.actor_epoch &&
-      update.turn.llm_turn_id === turnStart.turn.llm_turn_id &&
-      update.turn.revision > turnStart.turn.revision
-    )
-  })
+  const applicable = applicableSteeringUpdates(turnStart, updates)
 
   if (applicable.length === 0) return []
 
@@ -787,6 +958,19 @@ function steeringMessages(turnStart: TurnStart, updates: TurnSteerUpdate[]): Age
   return messages
 }
 
+function applicableSteeringUpdates(turnStart: TurnStart, updates: TurnSteerUpdate[]): TurnSteerUpdate[] {
+  return updates.filter(update => {
+    return (
+      update.turn.actor.agent_uid === turnStart.turn.actor.agent_uid &&
+      update.turn.actor.session_id === turnStart.turn.actor.session_id &&
+      update.turn.activation_uid === turnStart.turn.activation_uid &&
+      update.turn.actor_epoch === turnStart.turn.actor_epoch &&
+      update.turn.llm_turn_id === turnStart.turn.llm_turn_id &&
+      update.turn.revision > turnStart.turn.revision
+    )
+  })
+}
+
 function userMessage(text: string): Message {
   return {
     role: 'user',
@@ -795,13 +979,13 @@ function userMessage(text: string): Message {
   }
 }
 
-function assistantMessage(model: Model, text: string): AssistantMessage {
+function assistantMessage(model: Model | undefined, text: string): AssistantMessage {
   return {
     role: 'assistant',
     content: [{ type: 'text', text }],
-    api: model.api,
-    provider: model.provider,
-    model: model.id,
+    api: model?.api ?? 'unknown',
+    provider: model?.provider ?? 'unknown',
+    model: model?.id ?? 'unknown',
     usage: {
       input: 0,
       output: 0,
@@ -891,7 +1075,7 @@ function messageContentText(content: Message['content']): string {
   return content
     .map(block => (block.type === 'text' ? block.text : undefined))
     .filter((text): text is string => typeof text === 'string')
-    .join('')
+    .join('\n')
 }
 
 function truncateForSummary(text: string, maxChars: number): string {
@@ -900,9 +1084,15 @@ function truncateForSummary(text: string, maxChars: number): string {
   return `${text.slice(0, maxChars)}\n\n[... ${truncatedChars} more characters truncated]`
 }
 
+function parseTimeMs(value: string | undefined): number | undefined {
+  if (!value) return undefined
+  const parsed = new Date(value)
+  return Number.isNaN(parsed.getTime()) ? undefined : parsed.getTime()
+}
+
 function safeJsonStringify(value: unknown): string {
   try {
-    return JSON.stringify(value)
+    return JSON.stringify(value) ?? 'undefined'
   } catch {
     return String(value)
   }
@@ -920,6 +1110,7 @@ function createTurnTelemetry(credential: LlmProviderCredentialResponse, model: M
     providerMetadata: {
       provider_id: credential.provider_id,
       provider_source: credential.provider_source,
+      profile: credential.profile,
       model: credential.model,
       runtime_provider: model.provider
     },
@@ -984,6 +1175,26 @@ function finalProposalWithTelemetry(
   }
 }
 
+function silentSuccessProposalWithTelemetry(telemetry: TurnTelemetry): FinalProposalBody {
+  return {
+    messages: [],
+    reply: null,
+    silent_success: true,
+    ...(telemetry.usage ? { usage_json: telemetry.usage } : {}),
+    provider_metadata_json: telemetry.providerMetadata,
+    ...(telemetry.stopReason ? { stop_reason: telemetry.stopReason } : {}),
+    tool_results_json: telemetry.toolResults
+  }
+}
+
+function scheduleSilentSuccessRequested(text: string): boolean {
+  return text.trim().toLowerCase() === '<silent_success/>'
+}
+
+function scheduleSilentSuccessAllowed(turnStart: TurnStart): boolean {
+  return turnStart.request_context?.silent_success_allowed === true
+}
+
 function isAssistantMessage(message: AgentMessage): message is AssistantMessage {
   return isRecord(message) && message.role === 'assistant'
 }
@@ -1045,6 +1256,13 @@ function storedContentText(content: unknown): string {
 }
 
 function inputText(payload: JsonObject | undefined, fallbackType: string): string {
+  if (fallbackType === 'check_back_later.wakeup') {
+    return checkBackLaterInputText(payload)
+  }
+  if (fallbackType === 'cron.fire') {
+    return cronFireInputText(payload)
+  }
+
   const text = fallbackType.startsWith('command.')
     ? deepString(payload, ['data', 'command', 'argsText']) ||
       deepString(payload, ['data', 'entry', 'text']) ||
@@ -1056,6 +1274,38 @@ function inputText(payload: JsonObject | undefined, fallbackType: string): strin
   const attachments = attachmentText(payload)
   const base = text || `Handle actor input of type ${fallbackType}.`
   return attachments ? `${base}\n\nAttachments:\n${attachments}` : base
+}
+
+function checkBackLaterInputText(payload: JsonObject | undefined): string {
+  const wakePayload = objectPath(payload, ['data', 'wake_payload'])
+  const reason = stringArg(wakePayload, 'reason')
+  const check = stringArg(wakePayload, 'check')
+  const contextSummary = stringArg(wakePayload, 'context_summary')
+
+  return [
+    'Scheduled checkback wakeup.',
+    reason ? `Reason: ${reason}` : undefined,
+    check ? `Check: ${check}` : undefined,
+    contextSummary ? `Context: ${contextSummary}` : undefined
+  ]
+    .filter((line): line is string => Boolean(line))
+    .join('\n')
+}
+
+function cronFireInputText(payload: JsonObject | undefined): string {
+  const wakePayload = objectPath(payload, ['data', 'wake_payload'])
+  const scheduleName = stringArg(wakePayload, 'cron_schedule_name')
+  const trigger = stringArg(wakePayload, 'trigger')
+  const cronPayload = objectPath(wakePayload, ['payload'])
+
+  return [
+    'Recurring schedule fire.',
+    scheduleName ? `Schedule: ${scheduleName}` : undefined,
+    trigger ? `Trigger: ${trigger}` : undefined,
+    Object.keys(cronPayload).length > 0 ? `Payload: ${JSON.stringify(cronPayload)}` : undefined
+  ]
+    .filter((line): line is string => Boolean(line))
+    .join('\n')
 }
 
 function deepString(value: unknown, path: string[]): string | undefined {

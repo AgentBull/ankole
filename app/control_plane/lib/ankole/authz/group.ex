@@ -10,9 +10,8 @@ defmodule Ankole.AuthZ.Group do
   alias Ankole.AuthZ.ExternalBinding
   alias Ankole.AuthZ.Grant
   alias Ankole.AuthZ.Membership
-  alias Ankole.Kernel, as: AnkoleKernel
 
-  @primary_key {:id, :binary_id, autogenerate: false}
+  @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
   @foreign_key_type :binary_id
   @timestamps_opts [type: :utc_datetime_usec]
 
@@ -44,7 +43,6 @@ defmodule Ankole.AuthZ.Group do
       :description,
       :metadata
     ])
-    |> ensure_id()
     |> normalize_blank([:name, :display_name, :computed_condition, :description])
     |> normalize_name()
     |> validate_required([:name, :display_name, :kind, :built_in, :metadata])
@@ -56,13 +54,6 @@ defmodule Ankole.AuthZ.Group do
     |> check_constraint(:display_name, name: :principal_groups_display_name_present)
     |> check_constraint(:computed_condition, name: :principal_groups_computed_condition_by_kind)
     |> check_constraint(:metadata, name: :principal_groups_metadata_object)
-  end
-
-  defp ensure_id(changeset) do
-    case get_field(changeset, :id) do
-      nil -> put_change(changeset, :id, AnkoleKernel.gen_uuid_v7())
-      _id -> changeset
-    end
   end
 
   defp validate_kind_shape(changeset) do
@@ -91,7 +82,7 @@ defmodule Ankole.AuthZ.Group do
 
   defp validate_kernel_condition(value) when is_binary(value) do
     try do
-      case AnkoleKernel.authz_validate_condition(value) do
+      case Ankole.Kernel.authz_validate_condition(value) do
         true -> :ok
         {:error, reason} -> {:error, to_string(reason)}
         _other -> {:error, "is invalid"}

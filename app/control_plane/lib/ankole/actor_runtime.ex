@@ -39,6 +39,7 @@ defmodule Ankole.ActorRuntime do
   alias Ankole.ActorRuntime.WorkerAdmission
   alias Ankole.ActorRuntime.WorkerPool
   alias Ankole.Repo
+  alias Ankole.Schedule
   alias Ankole.SignalsGateway
   alias Ankole.SignalsGateway.ActorInputTypes
   alias Ankole.SystemConfig
@@ -51,7 +52,6 @@ defmodule Ankole.ActorRuntime do
   # The "live" activation set: an activation owns its actor session while in one
   # of these statuses. `stopped`/`failed` are terminal and free the session.
   @live_activation_statuses ~w(starting active draining)
-  @active_control_command_types ~w(command.new command.stop command.retry command.steer command.compress)
   @activation_progress_lease_seconds 300
   @daily_reset_time ~T[04:30:00]
   @session_lifecycle_binding_name "control-plane:session-lifecycle"
@@ -521,12 +521,8 @@ defmodule Ankole.ActorRuntime do
       [%ActorInput{type: "session.reset_due"} = input | _inputs] ->
         process_session_reset_due(actor_key, input, opts)
 
-      [%ActorInput{type: type} = input | _inputs]
-      when type in ["signal.entry.deleted", "signal.entry.recalled"] ->
+      [%ActorInput{type: "signal.entry.removed"} = input | _inputs] ->
         process_entry_lifecycle(actor_key, input, opts)
-
-      [%ActorInput{type: "command.compress"} = input | _inputs] ->
-        process_compress_command(actor_key, input, opts)
 
       [%ActorInput{type: type} = input | _inputs]
       when type in ["command.stop", "command.retry"] ->
@@ -534,6 +530,10 @@ defmodule Ankole.ActorRuntime do
 
       [%ActorInput{type: "command.steer"} = input | _inputs] ->
         process_steer_command(actor_key, input, opts)
+
+      [%ActorInput{type: type} = input | _inputs]
+      when type in ["check_back_later.wakeup", "cron.fire"] ->
+        process_scheduled_input(actor_key, input, opts)
 
       inputs ->
         start_llm_turn(actor_key, inputs, opts)
@@ -569,17 +569,25 @@ defmodule Ankole.ActorRuntime do
     end)
   end
 
-  defp ready_input_head([]), do: []
   defp ready_input_head([input | _rest]), do: [input]
 
-  defp select_ready_inputs_for_actor([], _actor_key), do: ready_input_head([])
+  defp select_ready_inputs_for_actor([], _actor_key), do: []
 
-  defp select_ready_inputs_for_actor(inputs, actor_key) do
+  defp select_ready_inputs_for_actor([first_input | _rest] = inputs, actor_key) do
     case active_generation_for_actor?(actor_key) do
       true ->
-        case active_control_input(inputs) do
-          %ActorInput{} = input -> [input]
-          nil -> ready_input_head(inputs)
+        cond do
+          input = live_turn_command_input(inputs) ->
+            [input]
+
+          hard_queue_barrier?(first_input) ->
+            [first_input]
+
+          live_delivery_for_session?(Repo, actor_key) ->
+            []
+
+          true ->
+            [first_input]
         end
 
       false ->
@@ -587,14 +595,17 @@ defmodule Ankole.ActorRuntime do
     end
   end
 
-  defp active_control_input(inputs) do
+  defp live_turn_command_input(inputs) do
     inputs
     |> Enum.take_while(&(not hard_queue_barrier?(&1)))
-    |> Enum.find(&active_control_input?/1)
+    |> Enum.find(&live_turn_command_input?/1)
   end
 
-  defp active_control_input?(%ActorInput{type: type}), do: type in @active_control_command_types
-  defp active_control_input?(_input), do: false
+  defp live_turn_command_input?(%ActorInput{type: type}) do
+    ActorInputTypes.command_runtime_policy(type) in [:control_now, :checkpoint_nudge]
+  end
+
+  defp live_turn_command_input?(_input), do: false
 
   defp hard_queue_barrier?(%ActorInput{type: "session.reset_due"}), do: true
   defp hard_queue_barrier?(_input), do: false
@@ -820,6 +831,7 @@ defmodule Ankole.ActorRuntime do
 
   defp process_session_reset_due(actor_key, %ActorInput{} = input, opts) do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
+    reset_at = reset_boundary_at(input, now)
 
     Repo.transact(fn repo ->
       with %ActorInput{} = input <- lock_actor_input(repo, input.id),
@@ -828,6 +840,8 @@ defmodule Ankole.ActorRuntime do
            {:ok, conversation} <-
              ensure_successor_conversation(repo, actor_key, closed_conversation),
            {:ok, stale_inputs} <- discard_stale_system_inputs_after_reset(repo, actor_key, input),
+           {:ok, cron_reset} <-
+             Schedule.cancel_due_cron_events_for_reset_in_tx(repo, actor_key, reset_at, now),
            {:ok, consumption} <-
              Actors.consume_session_lifecycle_input_in_tx(repo, input,
                conversation_id: closed_conversation && closed_conversation.id,
@@ -840,6 +854,7 @@ defmodule Ankole.ActorRuntime do
            closed_conversation: closed_conversation,
            conversation: conversation,
            stale_system_inputs: stale_inputs,
+           cron_reset: cron_reset,
            consumption: consumption
          }}
       else
@@ -855,6 +870,26 @@ defmodule Ankole.ActorRuntime do
     end)
   end
 
+  defp reset_boundary_at(%ActorInput{payload: payload, available_at: available_at}, fallback)
+       when is_map(payload) do
+    case get_in(payload, ["data", "reset", "boundary_at"]) do
+      boundary_at when is_binary(boundary_at) ->
+        case DateTime.from_iso8601(boundary_at) do
+          {:ok, datetime, _offset} ->
+            DateTime.shift_zone!(datetime, "Etc/UTC")
+
+          {:error, _reason} ->
+            available_at || fallback
+        end
+
+      _value ->
+        available_at || fallback
+    end
+  end
+
+  defp reset_boundary_at(%ActorInput{available_at: available_at}, fallback),
+    do: available_at || fallback
+
   defp process_entry_lifecycle(actor_key, %ActorInput{} = input, opts) do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
@@ -864,6 +899,17 @@ defmodule Ankole.ActorRuntime do
              AIAgent.ensure_conversation_in_tx(repo, actor_key.agent_uid, actor_key.session_id),
            %Conversation{} = conversation <- AIAgent.lock_conversation(repo, conversation.id),
            {:ok, message} <- insert_entry_lifecycle_introspection(repo, conversation, input, now),
+           {:ok, cancelled_checkbacks} <-
+             Schedule.cancel_checkbacks_for_provider_entry_in_tx(
+               repo,
+               %{
+                 "agent_uid" => input.agent_uid,
+                 "session_id" => input.session_id,
+                 "binding_name" => input.binding_name,
+                 "provider_entry_id" => input.provider_entry_id
+               },
+               now
+             ),
            {:ok, consumption} <-
              Actors.consume_entry_lifecycle_input_in_tx(repo, input,
                conversation_id: conversation.id,
@@ -875,6 +921,7 @@ defmodule Ankole.ActorRuntime do
            lifecycle_input: input,
            conversation: conversation,
            message: message,
+           cancelled_checkbacks: cancelled_checkbacks,
            consumption: consumption
          }}
       else
@@ -934,8 +981,8 @@ defmodule Ankole.ActorRuntime do
       |> where([input], input.agent_uid == ^actor_key.agent_uid)
       |> where([input], input.session_id == ^actor_key.session_id)
       |> where([input], input.input_state == "open")
-      |> where([input], input.broker_sequence > ^reset_input.broker_sequence)
-      |> order_by([input], asc: input.broker_sequence)
+      |> where([input], input.live_queue_sequence > ^reset_input.live_queue_sequence)
+      |> order_by([input], asc: input.live_queue_sequence)
       |> lock("FOR UPDATE")
       |> repo.all()
       |> Enum.filter(&ActorInputTypes.stale_after_session_reset?/1)
@@ -1006,39 +1053,6 @@ defmodule Ankole.ActorRuntime do
     end)
   end
 
-  defp process_compress_command(actor_key, %ActorInput{} = input, opts) do
-    now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
-
-    Repo.transact(fn repo ->
-      with %ActorInput{} = input <- lock_actor_input(repo, input.id),
-           {:ok, result} <- prepare_compress_command(repo, actor_key, input, now) do
-        {:ok, result}
-      else
-        nil -> {:ok, %{status: :idle}}
-        {:error, _reason} = error -> error
-      end
-    end)
-    |> case do
-      {:ok, %{status: :start_compression}} ->
-        start_llm_turn(
-          actor_key,
-          [input],
-          Keyword.merge(opts,
-            kind: "compression",
-            profile: "light",
-            input_messages: {:existing, []}
-          )
-        )
-
-      {:ok, %{status: :command_consumed}} = result ->
-        OutboxDispatcher.wake()
-        result
-
-      other ->
-        other
-    end
-  end
-
   defp apply_runtime_command(repo, actor_key, %ActorInput{type: "command.stop"} = input, now) do
     with :ok <- cancel_active_generation(repo, actor_key, input, now, "command.stop") do
       consume_command_feedback(repo, input, "Stopped.", now)
@@ -1077,21 +1091,6 @@ defmodule Ankole.ActorRuntime do
     consume_command_feedback(repo, input, "Steer requires instructions.", now)
   end
 
-  defp prepare_compress_command(repo, actor_key, %ActorInput{} = input, now) do
-    cond do
-      active_generation?(repo, actor_key) ->
-        consume_command_feedback(
-          repo,
-          input,
-          "A response is still running; stop it before compressing.",
-          now
-        )
-
-      true ->
-        prepare_idle_compression(repo, actor_key, input, now)
-    end
-  end
-
   defp process_steer_command(actor_key, %ActorInput{} = input, opts) do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
@@ -1126,6 +1125,68 @@ defmodule Ankole.ActorRuntime do
         end
     end
   end
+
+  defp process_scheduled_input(actor_key, %ActorInput{} = input, opts) do
+    start_llm_turn(actor_key, [input], scheduled_turn_opts(input, opts))
+  end
+
+  defp scheduled_turn_opts(%ActorInput{type: type} = input, opts) do
+    base_context = Keyword.get(opts, :request_context, %{})
+    schedule_context = scheduled_turn_context(input)
+
+    Keyword.merge(opts,
+      kind: scheduled_turn_kind(type),
+      request_context: Map.merge(base_context, schedule_context)
+    )
+  end
+
+  defp scheduled_turn_kind("check_back_later.wakeup"), do: "checkback_generation"
+  defp scheduled_turn_kind("cron.fire"), do: "scheduled_task"
+
+  defp scheduled_turn_context(%ActorInput{type: type} = input) do
+    data = actor_input_data(input)
+    wake_payload = map_value(data, "wake_payload") || %{}
+    delivery = map_value(wake_payload, "delivery") || %{}
+
+    %{
+      "turn_mode" => scheduled_turn_mode(type),
+      "schedule_origin" =>
+        reject_nil_values(%{
+          "actor_input_type" => type,
+          "actor_input_id" => input.id,
+          "scheduled_event_id" => map_text(data, "scheduled_event_id"),
+          "schedule_kind" => map_text(data, "schedule_kind"),
+          "due_at" => map_text(data, "due_at"),
+          "fired_at" => map_text(data, "fired_at"),
+          "timezone" => map_text(data, "timezone"),
+          "cron_schedule_id" => map_text(data, "cron_schedule_id"),
+          "cron_schedule_name" => map_text(wake_payload, "cron_schedule_name"),
+          "cron_fire_slot_at" => map_text(data, "cron_fire_slot_at"),
+          "trigger" => map_text(wake_payload, "trigger"),
+          "reply_route" => map_value(data, "reply_route") || %{},
+          "payload" => map_value(wake_payload, "payload") || %{},
+          "delivery" => delivery
+        }),
+      "silent_success_allowed" => schedule_silent_success_allowed?(type, wake_payload, delivery)
+    }
+  end
+
+  defp scheduled_turn_mode("check_back_later.wakeup"), do: "check_back_later"
+  defp scheduled_turn_mode("cron.fire"), do: "cron"
+
+  defp schedule_silent_success_allowed?("check_back_later.wakeup", _wake_payload, _delivery),
+    do: true
+
+  defp schedule_silent_success_allowed?("cron.fire", wake_payload, delivery) do
+    map_value(wake_payload, "quiet_success") == true or
+      map_value(delivery, "quiet_success") == true
+  end
+
+  defp actor_input_data(%ActorInput{payload: payload}) when is_map(payload) do
+    map_value(payload, "data") || %{}
+  end
+
+  defp actor_input_data(_input), do: %{}
 
   defp prepare_active_steer(repo, actor_key, %ActorInput{} = input, now) do
     case live_delivery_for_input?(repo, input.id) do
@@ -1282,21 +1343,6 @@ defmodule Ankole.ActorRuntime do
 
       nil ->
         {:error, :retry_source_not_found}
-    end
-  end
-
-  defp prepare_idle_compression(repo, actor_key, %ActorInput{} = input, now) do
-    case active_conversation_for_update(repo, actor_key) do
-      %Conversation{} ->
-        {:ok, %{status: :start_compression}}
-
-      nil ->
-        consume_command_feedback(
-          repo,
-          input,
-          "Conversation already fits in the active context.",
-          now
-        )
     end
   end
 
@@ -1467,7 +1513,7 @@ defmodule Ankole.ActorRuntime do
          %ActorInput{} = input,
          now
        ) do
-    lifecycle_kind = entry_lifecycle_kind(input)
+    lifecycle_kind = "removed"
 
     %Message{}
     |> Message.changeset(%{
@@ -1483,9 +1529,6 @@ defmodule Ankole.ActorRuntime do
     })
     |> repo.insert()
   end
-
-  defp entry_lifecycle_kind(%ActorInput{type: "signal.entry.deleted"}), do: "deleted"
-  defp entry_lifecycle_kind(%ActorInput{type: "signal.entry.recalled"}), do: "recalled"
 
   defp entry_lifecycle_note(%ActorInput{} = input, lifecycle_kind) do
     "The provider reported that a previously visible user entry was #{lifecycle_kind}. " <>
@@ -1509,13 +1552,23 @@ defmodule Ankole.ActorRuntime do
           "room_id" => input.signal_channel_id,
           "thread_id" => input.provider_thread_id || input.signal_channel_id
         }),
-      "lifecycle" => %{
-        "kind" => lifecycle_kind,
-        "source" => "signals_gateway",
-        "inserted_at" => DateTime.to_iso8601(now)
-      }
+      "lifecycle" =>
+        %{
+          "kind" => lifecycle_kind,
+          "provider_kind" => entry_lifecycle_provider_kind(input),
+          "source" => "signals_gateway",
+          "inserted_at" => DateTime.to_iso8601(now)
+        }
+        |> reject_nil_values()
     }
     |> reject_nil_values()
+  end
+
+  defp entry_lifecycle_provider_kind(%ActorInput{} = input) do
+    case get_in(input.payload || %{}, ["data", "lifecycle", "provider_kind"]) do
+      kind when is_binary(kind) and kind != "" -> kind
+      _other -> nil
+    end
   end
 
   defp reject_nil_values(map) do
@@ -1750,7 +1803,7 @@ defmodule Ankole.ActorRuntime do
       actor_input_id: actor_input.id,
       agent_uid: actor_input.agent_uid,
       session_id: actor_input.session_id,
-      broker_sequence: actor_input.broker_sequence,
+      live_queue_sequence: actor_input.live_queue_sequence,
       attempt_no: attempt_no,
       delivery_batch_id: batch.delivery_batch_id,
       actor_lane_message_id: batch.actor_lane_message_id,
@@ -2169,6 +2222,26 @@ defmodule Ankole.ActorRuntime do
   defp fetch_map(map, key) when is_map(map) do
     Map.get(map, key) || Map.get(map, String.to_atom(key))
   end
+
+  defp map_text(map, key) when is_map(map) do
+    case Map.get(map, key) || Map.get(map, String.to_atom(key)) do
+      value when is_binary(value) ->
+        case String.trim(value) do
+          "" -> nil
+          trimmed -> trimmed
+        end
+
+      _value ->
+        nil
+    end
+  end
+
+  defp map_text(_map, _key), do: nil
+
+  defp map_value(map, key) when is_map(map),
+    do: Map.get(map, key) || Map.get(map, String.to_atom(key))
+
+  defp map_value(_map, _key), do: nil
 
   defp fetch_list(map, key) when is_map(map) do
     case Map.get(map, key) || Map.get(map, String.to_atom(key)) do

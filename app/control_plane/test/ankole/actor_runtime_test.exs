@@ -14,6 +14,7 @@ defmodule Ankole.ActorRuntimeTest do
   alias Ankole.ActorRuntime.ActivationManager
   alias Ankole.ActorRuntime.OutboxDispatcher
   alias Ankole.ActorRuntime.Reconciler
+  alias Ankole.ActorRuntime.RPCLane
   alias Ankole.ActorRuntime.WorkerAuthKey
   alias Ankole.ActorRuntime.WorkerBootstrap
   alias Ankole.ActorRuntime.Schemas.ActorSessionActivation
@@ -117,6 +118,8 @@ defmodule Ankole.ActorRuntimeTest do
     end
 
     test "commits accepted PING input as assistant PONG and provider outbox" do
+      assert {:ok, "Asia/Shanghai"} = SystemConfig.put_timezone("Asia/Shanghai")
+
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
       route = unique_route()
@@ -140,6 +143,16 @@ defmodule Ankole.ActorRuntimeTest do
                  lease_seconds: @long_lease_seconds
                )
 
+      assert %Message{metadata: user_metadata} =
+               Repo.one!(
+                 from(message in Message,
+                   where: message.role == "user",
+                   where: message.event_id == ^input.ingress_event_id
+                 )
+               )
+
+      refute get_in(user_metadata, ["message_context", "time"])
+
       assert_receive {:actor_lane, envelope}
 
       turn_start = envelope["body"]["turn_start"]
@@ -147,6 +160,11 @@ defmodule Ankole.ActorRuntimeTest do
       input_ids = Enum.map(turn_start["inputs"], & &1["actor_input_id"])
 
       assert input_ids == [input.id]
+
+      assert turn_start["request_context"]["actor_key"] == %{
+               "agent_uid" => agent.uid,
+               "session_id" => input.session_id
+             }
 
       assert {:ok, [%ActorInputDelivery{state: "accepted"}]} =
                ActorRuntime.handle_turn_accepted(%{
@@ -545,6 +563,75 @@ defmodule Ankole.ActorRuntimeTest do
              ]
     end
 
+    test "preserves worker reply attachments through the RuntimeFabric user story" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :ignore)
+      worker_id = "worker-attachment-" <> Integer.to_string(System.unique_integer([:positive]))
+
+      assert {:ok, endpoint} =
+               Broker.start_router("tcp://127.0.0.1:*",
+                 worker_auth_key: "test-token",
+                 poll_interval_ms: 1
+               )
+
+      on_exit(fn -> Broker.stop_router() end)
+
+      worker_task =
+        Task.async(fn ->
+          System.cmd("bun", ["--eval", runtime_fabric_attachment_worker_script()],
+            cd: runtime_fabric_kernel_dir(),
+            env: [
+              {"ANKOLE_RF_ENDPOINT", endpoint},
+              {"ANKOLE_RF_IDENTITY", worker_id},
+              {"ANKOLE_RF_WORKER_ID", worker_id},
+              {"ANKOLE_RF_TOKEN", "test-token"}
+            ],
+            stderr_to_stdout: true
+          )
+        end)
+
+      on_exit(fn ->
+        if Process.alive?(worker_task.pid) do
+          Process.exit(worker_task.pid, :kill)
+        end
+      end)
+
+      assert %AgentComputerWorker{status: "ready", transport_route: ^worker_id} =
+               wait_for_worker(worker_id, worker_task)
+
+      assert {:ok, %{actor_input: input}} =
+               emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{text: "Send the report", explicit: true}),
+                 now: @base_time
+               )
+
+      assert {:ok, %{send_outcome: "sent_or_queued"}} =
+               ActorRuntime.process_ready_inputs_once(
+                 now: DateTime.add(@base_time, 1, :second),
+                 lease_seconds: @long_lease_seconds
+               )
+
+      assert {output, 0} = Task.await(worker_task, 5_000)
+      assert output =~ "worker-complete"
+
+      assert %OutboxEntry{payload: payload} = wait_for_attachment_outbox(input.id)
+
+      assert payload == %{
+               "text" => "Here is the report.",
+               "attachments" => [
+                 %{
+                   "agent_computer_path" => "/workspace/user-files/reports/a.txt",
+                   "user_files_relative_path" => "reports/a.txt",
+                   "name" => "report.txt",
+                   "mime_type" => "text/plain",
+                   "size" => 16
+                 }
+               ]
+             }
+    end
+
     test "real provider final proposal must include visible reply text" do
       %{principal: agent} = agent_fixture()
 
@@ -935,7 +1022,7 @@ defmodule Ankole.ActorRuntimeTest do
       assert Repo.aggregate(OutboxEntry, :count) == 1
     end
 
-    test "idle compress command is consumed as command feedback without transcript message" do
+    test "/compress is parsed as command.compress for the worker" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
 
@@ -948,24 +1035,13 @@ defmodule Ankole.ActorRuntimeTest do
                )
 
       assert input.type == "command.compress"
-
-      assert {:ok,
-              %{
-                status: :command_consumed,
-                feedback: "Conversation already fits in the active context."
-              }} =
-               ActorRuntime.process_ready_inputs_once(now: DateTime.add(@base_time, 1, :second))
-
-      refute Repo.get(ActorInput, input.id)
-
-      assert %ActorInputConsumption{type: "command.compress", llm_turn_id: nil} =
-               Repo.one!(ActorInputConsumption)
-
-      assert %OutboxEntry{
-               payload: %{"text" => "Conversation already fits in the active context."}
-             } =
-               Repo.one!(OutboxEntry)
-
+      assert input.payload["type"] == "command.compress"
+      assert get_in(input.payload, ["data", "entry", "text"]) == "/compress"
+      assert get_in(input.payload, ["data", "command", "name"]) == "compress"
+      assert get_in(input.payload, ["data", "command", "raw"]) == "/compress"
+      assert Repo.get(ActorInput, input.id)
+      assert Repo.aggregate(ActorInputConsumption, :count) == 0
+      assert Repo.aggregate(OutboxEntry, :count) == 0
       assert Repo.aggregate(Message, :count) == 0
     end
 
@@ -1202,7 +1278,7 @@ defmodule Ankole.ActorRuntimeTest do
       assert Enum.map(later_start["inputs"], & &1["actor_input_id"]) == [later_input.id]
     end
 
-    test "idle compress with history starts light compression turn and commits summary feedback" do
+    test "/compress starts a queued worker turn and summary commit RPC writes feedback" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
       route = unique_route()
@@ -1260,14 +1336,18 @@ defmodule Ankole.ActorRuntimeTest do
                ActorRuntime.process_ready_inputs_once(now: DateTime.add(@base_time, 3, :second))
 
       assert %LlmTurn{
-               kind: "compression",
+               kind: "generation",
                status: "started",
-               profile: "light",
-               input_message_ids: [],
+               profile: "primary",
+               input_message_ids: [compress_message_id],
                request_context: request_context
              } = Repo.get!(LlmTurn, compression_turn.id)
 
       refute Map.has_key?(request_context, "compression")
+
+      assert Repo.get!(Message, compress_message_id).content == [
+               %{"type" => "text", "text" => "/compress"}
+             ]
 
       assert_receive {:actor_lane, compression_envelope}
       compression_start = compression_envelope["body"]["turn_start"]
@@ -1275,12 +1355,13 @@ defmodule Ankole.ActorRuntimeTest do
       compression_input_ids = Enum.map(compression_start["inputs"], & &1["actor_input_id"])
 
       assert compression_ref["llm_turn_id"] == compression_turn.id
-      assert compression_start["model_ref"]["profile"] == "light"
-      assert [%{"payload_json" => compression_payload}] = compression_start["inputs"]
+      assert compression_start["model_ref"]["profile"] == "primary"
+
+      assert [%{"type" => "command.compress", "payload_json" => compression_payload}] =
+               compression_start["inputs"]
+
+      assert get_in(compression_payload, ["data", "entry", "text"]) == "/compress"
       assert get_in(compression_payload, ["data", "command", "name"]) == "compress"
-      assert get_in(compression_payload, ["data", "command", "argsText"]) == ""
-      assert get_in(compression_payload, ["data", "compression"]) == %{}
-      refute get_in(compression_payload, ["data", "internal", "text"])
 
       assert {:ok, [_delivery]} =
                ActorRuntime.handle_turn_accepted(%{
@@ -1290,23 +1371,152 @@ defmodule Ankole.ActorRuntimeTest do
                  }
                })
 
-      assert {:ok, %{status: :committed, assistant_message: summary_message}} =
-               ActorRuntime.commit_final_proposal(%{
-                 "turn_final_proposal" => %{
-                   "turn" => compression_ref,
-                   "messages" => [],
-                   "reply" => %{"text" => "Compressed summary for PING and PONG."}
+      covered_message_ids =
+        Message
+        |> where([message], message.conversation_id == ^compression_turn.conversation_id)
+        |> where([message], message.kind == "normal")
+        |> where([message], message.id != ^compress_message_id)
+        |> order_by([message], asc: message.inserted_at, asc: message.id)
+        |> select([message], message.id)
+        |> Repo.all()
+
+      assert {:ok, malformed_envelope} =
+               RPCLane.handle_request(
+                 %{
+                   "request_id" => "conversation-summary-malformed",
+                   "method" => "conversation.summary.commit",
+                   "payload_json" => %{
+                     "turn" => compression_ref
+                   }
+                 },
+                 route
+               )
+
+      assert get_in(malformed_envelope, ["body", "type"]) == "rpc_error"
+      assert get_in(malformed_envelope, ["body", "rpc_error", "code"]) == "summary_missing"
+
+      assert {:ok, invalid_cover_envelope} =
+               RPCLane.handle_request(
+                 %{
+                   "request_id" => "conversation-summary-bad-cover",
+                   "method" => "conversation.summary.commit",
+                   "payload_json" => %{
+                     "turn" => compression_ref,
+                     "summary" => %{
+                       "text" => "This should not commit.",
+                       "covered_message_ids" => [Ecto.UUID.generate()]
+                     }
+                   }
+                 },
+                 route
+               )
+
+      assert get_in(invalid_cover_envelope, ["body", "type"]) == "rpc_error"
+
+      assert get_in(invalid_cover_envelope, ["body", "rpc_error", "code"]) ==
+               "summary_covered_message_not_found"
+
+      assert Repo.get!(LlmTurn, compression_turn.id).status == "started"
+
+      refute Repo.exists?(
+               from(consumption in ActorInputConsumption,
+                 where: consumption.actor_input_id == ^compress_input.id
+               )
+             )
+
+      refute Repo.exists?(
+               from(message in Message,
+                 where: message.conversation_id == ^compression_turn.conversation_id,
+                 where: message.kind == "summary"
+               )
+             )
+
+      assert {:ok, %{actor_input: steer_input}} =
+               emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{text: "/steer keep the deployment details", explicit: true}),
+                 now: DateTime.add(@base_time, 4, :second)
+               )
+
+      assert {:ok,
+              %{
+                status: :active_steer_nudged,
+                send_outcome: "sent_or_queued",
+                turn_ref: steered_compression_ref,
+                delivery: steer_delivery
+              }} =
+               ActorRuntime.process_ready_inputs_once(now: DateTime.add(@base_time, 5, :second))
+
+      assert steered_compression_ref["llm_turn_id"] == compression_ref["llm_turn_id"]
+      assert steered_compression_ref["revision"] == compression_ref["revision"] + 1
+      assert Repo.get!(ActorInputDelivery, steer_delivery.id).state == "sent"
+
+      assert_receive {:actor_lane, mailbox_envelope}
+      assert mailbox_envelope["body"]["type"] == "mailbox_updated"
+      mailbox_update = mailbox_envelope["body"]["mailbox_updated"]
+      assert mailbox_update["turn"] == steered_compression_ref
+
+      assert [%{"actor_input_id" => steer_input_id, "payload_json" => steer_payload}] =
+               mailbox_update["inputs"]
+
+      assert steer_input_id == steer_input.id
+
+      assert get_in(steer_payload, ["data", "command", "argsText"]) ==
+               "keep the deployment details"
+
+      assert {:ok, [_delivery]} =
+               ActorRuntime.handle_turn_accepted(%{
+                 "turn_accepted" => %{
+                   "turn" => steered_compression_ref,
+                   "accepted_actor_input_ids" => [steer_input.id]
                  }
                })
 
+      assert Repo.get!(ActorInputDelivery, steer_delivery.id).state == "accepted"
+
+      assert {:ok, summary_envelope} =
+               RPCLane.handle_request(
+                 %{
+                   "request_id" => "conversation-summary-commit-1",
+                   "method" => "conversation.summary.commit",
+                   "payload_json" => %{
+                     "turn" => steered_compression_ref,
+                     "summary" => %{
+                       "text" => "Compressed summary for PING and PONG.",
+                       "covered_message_ids" => covered_message_ids
+                     },
+                     "usage_json" => %{"input_tokens" => 10},
+                     "provider_metadata_json" => %{
+                       "profile" => "light",
+                       "model" => "openai/gpt-5.4-nano",
+                       "runtime_provider" => "openrouter"
+                     }
+                   }
+                 },
+                 route
+               )
+
+      summary_payload = get_in(summary_envelope, ["body", "rpc_response", "payload_json"])
+      assert summary_payload["status"] == "committed"
+
       assert %Message{kind: "summary", content: [%{"text" => summary_text}]} =
-               Repo.get!(Message, summary_message.id)
+               Repo.get!(Message, summary_payload["summary_message_id"])
 
       assert summary_text == "Compressed summary for PING and PONG."
+      assert summary_payload["covered_message_ids"] == covered_message_ids
+
+      assert Repo.get!(Message, summary_payload["summary_message_id"]).covers_range["message_ids"] ==
+               covered_message_ids
+
       assert Repo.get!(LlmTurn, compression_turn.id).status == "succeeded"
+      assert Repo.get!(LlmTurn, compression_turn.id).provider_metadata["profile"] == "light"
       assert Repo.get!(LlmTurn, generation_turn.id).status == "succeeded"
 
-      assert %ActorInputConsumption{type: "command.compress", llm_turn_id: compression_turn_id} =
+      assert %ActorInputConsumption{
+               type: "command.compress",
+               llm_turn_id: compression_turn_id
+             } =
                Repo.one!(
                  from(consumption in ActorInputConsumption,
                    where: consumption.actor_input_id == ^compress_input.id
@@ -1321,6 +1531,71 @@ defmodule Ankole.ActorRuntimeTest do
                    where: outbox.source_actor_input_id == ^compress_input.id
                  )
                )
+
+      assert %ActorInput{input_state: "open"} = Repo.get!(ActorInput, steer_input.id)
+
+      refute Repo.exists?(
+               from(consumption in ActorInputConsumption,
+                 where: consumption.actor_input_id == ^steer_input.id
+               )
+             )
+
+      refute Repo.exists?(
+               from(delivery in ActorInputDelivery,
+                 where: delivery.actor_input_id == ^steer_input.id
+               )
+             )
+
+      assert {:ok, duplicate_envelope} =
+               RPCLane.handle_request(
+                 %{
+                   "request_id" => "conversation-summary-commit-duplicate",
+                   "method" => "conversation.summary.commit",
+                   "payload_json" => %{
+                     "turn" => steered_compression_ref,
+                     "summary" => %{
+                       "text" => "Compressed summary for PING and PONG.",
+                       "covered_message_ids" => covered_message_ids
+                     }
+                   }
+                 },
+                 route
+               )
+
+      duplicate_payload = get_in(duplicate_envelope, ["body", "rpc_response", "payload_json"])
+      assert duplicate_payload["status"] == "already_committed"
+      assert duplicate_payload["llm_turn_id"] == compression_turn.id
+      refute Map.has_key?(duplicate_payload, "summary_message_id")
+
+      assert Repo.aggregate(
+               from(message in Message,
+                 where: message.conversation_id == ^compression_turn.conversation_id,
+                 where: message.kind == "summary"
+               ),
+               :count
+             ) == 1
+
+      assert Repo.aggregate(
+               from(outbox in OutboxEntry,
+                 where: outbox.source_actor_input_id == ^compress_input.id
+               ),
+               :count
+             ) == 1
+
+      assert {:ok, %{send_outcome: "sent_or_queued", llm_turn: steer_turn}} =
+               ActorRuntime.process_ready_inputs_once(now: DateTime.add(@base_time, 6, :second))
+
+      assert_receive {:actor_lane, steer_envelope}
+      steer_start = steer_envelope["body"]["turn_start"]
+      assert Enum.map(steer_start["inputs"], & &1["actor_input_id"]) == [steer_input.id]
+
+      assert [%{"type" => "command.steer", "payload_json" => deferred_steer_payload}] =
+               steer_start["inputs"]
+
+      assert get_in(deferred_steer_payload, ["data", "command", "argsText"]) ==
+               "keep the deployment details"
+
+      assert steer_turn.conversation_id == compression_turn.conversation_id
     end
 
     test "retry command queues a retry generation without command feedback" do
@@ -1543,7 +1818,7 @@ defmodule Ankole.ActorRuntimeTest do
                  now: DateTime.add(@base_time, 3, :second)
                )
 
-      assert ordinary_input.broker_sequence < retry_command.broker_sequence
+      assert ordinary_input.live_queue_sequence < retry_command.live_queue_sequence
 
       assert {:ok, %{status: :command_consumed, retry_actor_inputs: [retry_input]}} =
                ActorRuntime.process_ready_inputs_once(now: DateTime.add(@base_time, 4, :second))
@@ -1605,7 +1880,7 @@ defmodule Ankole.ActorRuntimeTest do
                  now: DateTime.add(@base_time, 2, :second)
                )
 
-      assert input.broker_sequence < retry_command.broker_sequence
+      assert input.live_queue_sequence < retry_command.live_queue_sequence
 
       assert {:ok, %{status: :command_consumed, retry_actor_inputs: [retry_input]}} =
                ActorRuntime.process_ready_inputs_once(now: DateTime.add(@base_time, 3, :second))
@@ -1779,6 +2054,91 @@ defmodule Ankole.ActorRuntimeTest do
              ) == "ai_agent.command.steer"
 
       assert Repo.aggregate(LlmTurn, :count) == 1
+    end
+
+    test "active compress command waits for the current generation to finish" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :ignore)
+      route = unique_route()
+
+      :ok = Broker.register_local_worker(route, self())
+      on_exit(fn -> Broker.unregister_local_worker(route) end)
+
+      assert {:ok, _worker} = admit_worker(route)
+
+      assert {:ok, %{actor_input: input}} =
+               emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{text: "PING", explicit: true}),
+                 now: @base_time
+               )
+
+      assert {:ok, %{send_outcome: "sent_or_queued", llm_turn: active_turn}} =
+               ActorRuntime.process_ready_inputs_once(
+                 now: DateTime.add(@base_time, 1, :second),
+                 lease_seconds: @long_lease_seconds
+               )
+
+      assert_receive {:actor_lane, envelope}
+      turn_start = envelope["body"]["turn_start"]
+      turn_ref = turn_start["turn"]
+      input_ids = Enum.map(turn_start["inputs"], & &1["actor_input_id"])
+      assert input_ids == [input.id]
+
+      assert {:ok, [_delivery]} =
+               ActorRuntime.handle_turn_accepted(%{
+                 "turn_accepted" => %{
+                   "turn" => turn_ref,
+                   "accepted_actor_input_ids" => input_ids
+                 }
+               })
+
+      assert {:ok, %{actor_input: compress_input}} =
+               emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{text: "/compress release notes", explicit: true}),
+                 now: DateTime.add(@base_time, 2, :second)
+               )
+
+      assert compress_input.type == "command.compress"
+
+      assert {:ok, %{status: :idle}} =
+               ActorRuntime.process_ready_inputs_once(now: DateTime.add(@base_time, 3, :second))
+
+      refute_receive {:actor_lane, _envelope}, 50
+      assert Repo.get!(ActorInput, compress_input.id).input_state == "open"
+
+      refute Repo.exists?(
+               from(delivery in ActorInputDelivery,
+                 where: delivery.actor_input_id == ^compress_input.id
+               )
+             )
+
+      assert {:ok, %{status: :committed}} =
+               ActorRuntime.commit_final_proposal(%{
+                 "turn_final_proposal" => %{
+                   "turn" => turn_ref,
+                   "messages" => [],
+                   "reply" => %{"text" => "PONG"}
+                 }
+               })
+
+      refute Repo.get(ActorInput, input.id)
+      assert Repo.get!(LlmTurn, active_turn.id).status == "succeeded"
+
+      assert {:ok, %{send_outcome: "sent_or_queued", llm_turn: compression_turn}} =
+               ActorRuntime.process_ready_inputs_once(now: DateTime.add(@base_time, 4, :second))
+
+      assert_receive {:actor_lane, compression_envelope}
+      compression_start = compression_envelope["body"]["turn_start"]
+
+      assert [%{"type" => "command.compress", "actor_input_id" => actor_input_id}] =
+               compression_start["inputs"]
+
+      assert actor_input_id == compress_input.id
+      assert compression_start["turn"]["llm_turn_id"] == compression_turn.id
     end
 
     test "stop command cancels active generation and rejects late final proposal" do
@@ -2284,7 +2644,7 @@ defmodule Ankole.ActorRuntimeTest do
       assert DateTime.compare(activation.last_actor_heartbeat_at, now) == :eq
     end
 
-    test "recalled input rejects late final proposal without provider output" do
+    test "removed input rejects late final proposal without provider output" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
       route = unique_route()
@@ -2321,7 +2681,7 @@ defmodule Ankole.ActorRuntimeTest do
                })
 
       assert {:ok, %{canceled_actor_inputs: 1, lifecycle_inputs: []}} =
-               SignalsGateway.emit_entry_recalled(
+               SignalsGateway.emit_entry_removed(
                  agent.uid,
                  "bot",
                  lifecycle_entry(%{
@@ -2330,6 +2690,7 @@ defmodule Ankole.ActorRuntimeTest do
                    provider_entry_id: input.provider_entry_id,
                    provider_thread_id: input.provider_thread_id
                  }),
+                 provider_lifecycle_kind: :recalled,
                  now: DateTime.add(@base_time, 2, :second)
                )
 
@@ -2356,7 +2717,7 @@ defmodule Ankole.ActorRuntimeTest do
       assert Repo.aggregate(OutboxEntry, :count) == 0
     end
 
-    test "recalling one entry from an in-flight merged batch retries the remaining batch" do
+    test "removing one entry from an in-flight merged batch retries the remaining batch" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
       route = unique_route()
@@ -2425,7 +2786,7 @@ defmodule Ankole.ActorRuntimeTest do
                })
 
       assert {:ok, %{retried_actor_inputs: 1, canceled_actor_inputs: 0, lifecycle_inputs: []}} =
-               SignalsGateway.emit_entry_recalled(
+               SignalsGateway.emit_entry_removed(
                  agent.uid,
                  "bot",
                  lifecycle_entry(%{
@@ -2434,13 +2795,14 @@ defmodule Ankole.ActorRuntimeTest do
                    provider_entry_id: "msg-batch-first",
                    provider_thread_id: input.provider_thread_id
                  }),
+                 provider_lifecycle_kind: :recalled,
                  now: DateTime.add(@base_time, 2, :second)
                )
 
       assert_receive {:actor_lane, retry_control}
       assert retry_control["body"]["type"] == "turn_control"
       assert retry_control["body"]["turn_control"]["command"] == "retry"
-      assert retry_control["body"]["turn_control"]["payload_json"]["reason"] == "recalled"
+      assert retry_control["body"]["turn_control"]["payload_json"]["reason"] == "removed"
 
       assert Repo.get!(LlmTurn, llm_turn.id).status == "cancelled"
 
@@ -2481,7 +2843,7 @@ defmodule Ankole.ActorRuntimeTest do
       assert retry_turn_input["payload_json"]["data"]["entry"]["text"] == "second"
     end
 
-    test "historical recall records a lifecycle note without rewriting history or starting a turn" do
+    test "historical removal records a lifecycle note without rewriting history or starting a turn" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
       route = unique_route()
@@ -2527,7 +2889,7 @@ defmodule Ankole.ActorRuntimeTest do
                })
 
       assert {:ok, %{canceled_actor_inputs: 0, lifecycle_inputs: [lifecycle_input]}} =
-               SignalsGateway.emit_entry_recalled(
+               SignalsGateway.emit_entry_removed(
                  agent.uid,
                  "bot",
                  lifecycle_entry(%{
@@ -2536,6 +2898,7 @@ defmodule Ankole.ActorRuntimeTest do
                    provider_entry_id: input.provider_entry_id,
                    provider_thread_id: input.provider_thread_id
                  }),
+                 provider_lifecycle_kind: :recalled,
                  now: DateTime.add(@base_time, 2, :second)
                )
 
@@ -2576,10 +2939,11 @@ defmodule Ankole.ActorRuntimeTest do
       assert %Message{role: "user", kind: "introspection", content: [%{"text" => note}]} =
                lifecycle_note
 
-      assert note =~ "previously visible user entry was recalled"
+      assert note =~ "previously visible user entry was removed"
       assert note =~ input.provider_entry_id
       assert lifecycle_note.metadata["provider_entry_id"] == input.provider_entry_id
-      assert lifecycle_note.metadata["lifecycle"]["kind"] == "recalled"
+      assert lifecycle_note.metadata["lifecycle"]["kind"] == "removed"
+      assert lifecycle_note.metadata["lifecycle"]["provider_kind"] == "recalled"
     end
 
     test "watchdog supersedes stale unaccepted delivery and retries through another worker" do
@@ -3265,6 +3629,96 @@ defmodule Ankole.ActorRuntimeTest do
     :"#{prefix}_#{System.unique_integer([:positive])}"
   end
 
+  defp runtime_fabric_kernel_dir do
+    Path.expand("../../../kernel", __DIR__)
+  end
+
+  defp runtime_fabric_attachment_worker_script do
+    ~S"""
+    const endpoint = process.env.ANKOLE_RF_ENDPOINT
+    const identity = process.env.ANKOLE_RF_IDENTITY
+    const workerId = process.env.ANKOLE_RF_WORKER_ID
+    const token = process.env.ANKOLE_RF_TOKEN
+
+    for (const [name, value] of Object.entries({ endpoint, identity, workerId, token })) {
+      if (!value) throw new Error(`missing ${name}`)
+    }
+
+    const { RuntimeFabricDealer, runtimeFabricDecodeEnvelope } = await import('./index.js')
+    const dealer = new RuntimeFabricDealer(endpoint, identity, workerId, token)
+
+    function envelope(type, payload, lane, durability, correlationId = '') {
+      return {
+        protocol_version: 1,
+        message_id: `${type}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        correlation_id: correlationId,
+        lane,
+        sent_at_unix_ms: Date.now(),
+        durability,
+        body: {
+          type,
+          [type]: payload,
+        },
+      }
+    }
+
+    dealer.sendEnvelope(envelope('worker_ready', {
+      worker_id: workerId,
+      runtime: 'bun',
+      version: 'test',
+      capacity_json: { available_turn_slots: 1 },
+    }, 'LANE_CONTROL', 'CONTROL_EPHEMERAL'))
+
+    let turnEnvelope = null
+    const deadline = Date.now() + 4000
+
+    while (Date.now() < deadline) {
+      const payload = dealer.recv(100)
+      if (!payload) continue
+
+      const decoded = runtimeFabricDecodeEnvelope(payload)
+      if (decoded.body?.type === 'turn_start') {
+        turnEnvelope = decoded
+        break
+      }
+    }
+
+    if (!turnEnvelope) {
+      throw new Error('timed out waiting for turn_start')
+    }
+
+    const turnStart = turnEnvelope.body.turn_start
+    const turn = turnStart.turn
+    const acceptedIds = turnStart.inputs.map((input) => input.actor_input_id)
+
+    dealer.sendEnvelope(envelope('turn_accepted', {
+      turn,
+      accepted_actor_input_ids: acceptedIds,
+    }, 'LANE_TURN', 'CONTROL_REPLAYABLE', turnEnvelope.message_id))
+
+    dealer.sendEnvelope(envelope('turn_final_proposal', {
+      turn,
+      messages: [],
+      reply: {
+        text: 'Here is the report.',
+        content_json: [{ type: 'text', text: 'Here is the report.' }],
+        attachments: [{
+          agent_computer_path: '/workspace/user-files/reports/a.txt',
+          user_files_relative_path: 'reports/a.txt',
+          name: 'report.txt',
+          mime_type: 'text/plain',
+          size: 16,
+        }],
+      },
+      stop_reason: 'stop',
+      tool_results_json: [],
+    }, 'LANE_TURN', 'CONTROL_DURABLE', turnEnvelope.message_id))
+
+    dealer.stop()
+    console.log('worker-complete')
+    """
+  end
+
   defp worker_ready_envelope do
     %{
       "protocol_version" => 1,
@@ -3280,6 +3734,49 @@ defmodule Ankole.ActorRuntimeTest do
         }
       }
     }
+  end
+
+  defp wait_for_worker(worker_id, worker_task, attempts \\ 100)
+
+  defp wait_for_worker(worker_id, worker_task, attempts) when attempts > 0 do
+    case Repo.get_by(AgentComputerWorker, worker_id: worker_id) do
+      %AgentComputerWorker{} = worker ->
+        worker
+
+      nil ->
+        case Task.yield(worker_task, 0) do
+          {:ok, {output, status}} ->
+            flunk("runtime fabric worker exited before ready status=#{status}\n#{output}")
+
+          {:exit, reason} ->
+            flunk("runtime fabric worker exited before ready: #{inspect(reason)}")
+
+          nil ->
+            Process.sleep(10)
+            wait_for_worker(worker_id, worker_task, attempts - 1)
+        end
+    end
+  end
+
+  defp wait_for_worker(worker_id, _worker_task, 0) do
+    flunk("runtime fabric worker #{worker_id} was not admitted")
+  end
+
+  defp wait_for_attachment_outbox(actor_input_id, attempts \\ 100)
+
+  defp wait_for_attachment_outbox(actor_input_id, attempts) when attempts > 0 do
+    case Repo.get_by(OutboxEntry, source_actor_input_id: actor_input_id) do
+      %OutboxEntry{payload: %{"attachments" => [_ | _]}} = outbox ->
+        outbox
+
+      _value ->
+        Process.sleep(10)
+        wait_for_attachment_outbox(actor_input_id, attempts - 1)
+    end
+  end
+
+  defp wait_for_attachment_outbox(actor_input_id, 0) do
+    flunk("attachment outbox for actor input #{actor_input_id} was not committed")
   end
 
   defp wait_for_delivery_state(actor_input_id, state, attempts \\ 100)

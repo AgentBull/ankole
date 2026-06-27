@@ -19,17 +19,21 @@ describe('@ankole/agent-computer prompts', () => {
       const prompt = buildAgentSystemPrompt({
         workspaceRoot: root,
         turnStart: start,
-        agentProfile: {
-          request_id: 'agent-profile-1',
-          agent_uid: 'agent-1',
-          display_name: 'ReleaseBot',
-          role: 'Research Analyst'
-        },
-        runtimeContext: {
-          request_id: 'turn-context-1',
+        agentConversationContext: {
+          request_id: 'agent-conversation-context-1',
           agent_uid: 'agent-1',
           session_id: 'signal-channel:mock',
           turn: start.turn,
+          agent: {
+            display_name: 'ReleaseBot',
+            role: 'Research Analyst'
+          },
+          conversation: {
+            id: 'conversation-1',
+            key: 'signal-channel:mock',
+            started_at: '2026-06-24T00:00:00.000000Z',
+            timezone: 'Asia/Shanghai'
+          },
           soul: 'Use restrained, factual judgment.',
           mission: 'Handle document work end to end.',
           skills: [
@@ -39,8 +43,7 @@ describe('@ankole/agent-computer prompts', () => {
               category: 'productivity',
               metadata: {}
             }
-          ],
-          conversation: { messages: [] }
+          ]
         }
       })
 
@@ -61,7 +64,8 @@ describe('@ankole/agent-computer prompts', () => {
       expect(prompt).not.toContain('PostgreSQL client')
       expect(prompt).not.toContain('codex_delegate')
       expect(prompt).not.toContain('send_file')
-      expect(prompt).not.toContain('check_back_later')
+      expect(prompt).toContain('check_back_later')
+      expect(prompt).toContain('cron')
       expect(prompt).not.toContain('web_search')
       expect(prompt).not.toContain('web_extract')
       expect(prompt).not.toContain('terminal when')
@@ -95,6 +99,61 @@ describe('@ankole/agent-computer prompts', () => {
     expect(prompt).toContain('## Critical Context')
     expect(prompt).toContain('<analysis>')
     expect(prompt).toContain('Preserve verbatim')
+  })
+
+  it('describes schedule-origin quiet success only when the control plane allows it', () => {
+    const start = turnStart()
+    const prompt = buildAgentSystemPrompt({
+      workspaceRoot: tmpdir(),
+      turnStart: {
+        ...start,
+        request_context: {
+          turn_mode: 'checkback_generation',
+          silent_success_allowed: true,
+          schedule_origin: {
+            kind: 'check_back_later',
+            scheduled_event_id: 'schedule-event-1'
+          }
+        },
+        inputs: [
+          {
+            actor_input_id: 'schedule-input-1',
+            live_queue_sequence: 1,
+            type: 'check_back_later.wakeup',
+            ingress_event_id: 'schedule-event-1',
+            payload_json: {
+              data: {
+                reason: 'Follow up on deployment',
+                check: 'Ask whether deployment succeeded'
+              }
+            }
+          }
+        ]
+      },
+      agentConversationContext: {
+        request_id: 'agent-conversation-context-1',
+        agent_uid: 'agent-1',
+        session_id: 'signal-channel:mock',
+        turn: start.turn,
+        agent: {
+          display_name: 'ReleaseBot',
+          role: 'Research Analyst'
+        },
+        conversation: {
+          id: 'conversation-1',
+          key: 'signal-channel:mock',
+          started_at: '2026-06-24T00:00:00.000000Z',
+          timezone: 'Asia/Shanghai'
+        },
+        soul: '',
+        mission: '',
+        skills: []
+      }
+    })
+
+    expect(prompt).toContain('Schedule turn mode: checkback_generation')
+    expect(prompt).toContain('Schedule event ID: schedule-event-1')
+    expect(prompt).toContain('<silent_success/>')
   })
 })
 

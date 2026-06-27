@@ -108,6 +108,50 @@ defmodule AnkoleWeb.Router do
     delete "/agents/:agent_uid/model-profiles/:profile",
            LlmProviderController,
            :delete_model_profile
+
+    get "/agents/:agent_uid/sessions/:session_id/cron-schedules",
+        ScheduleController,
+        :index_cron
+
+    post "/agents/:agent_uid/sessions/:session_id/cron-schedules",
+         ScheduleController,
+         :create_cron
+
+    get "/agents/:agent_uid/sessions/:session_id/cron-schedules/:cron_schedule_id",
+        ScheduleController,
+        :show_cron
+
+    patch "/agents/:agent_uid/sessions/:session_id/cron-schedules/:cron_schedule_id",
+          ScheduleController,
+          :update_cron
+
+    post "/agents/:agent_uid/sessions/:session_id/cron-schedules/:cron_schedule_id/pause",
+         ScheduleController,
+         :pause_cron
+
+    post "/agents/:agent_uid/sessions/:session_id/cron-schedules/:cron_schedule_id/resume",
+         ScheduleController,
+         :resume_cron
+
+    delete "/agents/:agent_uid/sessions/:session_id/cron-schedules/:cron_schedule_id",
+           ScheduleController,
+           :remove_cron
+
+    post "/agents/:agent_uid/sessions/:session_id/cron-schedules/:cron_schedule_id/runs",
+         ScheduleController,
+         :run_cron
+
+    get "/agents/:agent_uid/sessions/:session_id/cron-schedules/:cron_schedule_id/runs",
+        ScheduleController,
+        :cron_runs
+
+    get "/agents/:agent_uid/sessions/:session_id/checkbacks",
+        ScheduleController,
+        :index_checkbacks
+
+    delete "/agents/:agent_uid/sessions/:session_id/checkbacks/:scheduled_event_id",
+           ScheduleController,
+           :cancel_checkback
   end
 
   # Browser-facing HTML. The `*path` catch-alls let each SPA own its own

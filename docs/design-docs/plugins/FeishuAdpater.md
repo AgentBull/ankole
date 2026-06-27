@@ -101,14 +101,15 @@ through `emit_action`. It is an explicit user action, not a fake text message.
 The default ActorInput type is `signal.action.invoked` unless the source maps it
 to a narrower code-defined type.
 
-A user recalls a message. The adapter emits a recall fact. SignalsGateway
+A user recalls a message. The adapter emits a removal fact with provider
+lifecycle kind `recalled`. SignalsGateway
 deletes the mirrored entry, refreshes the tombstone, removes pending actor input
 when possible, and writes lifecycle input only if the original input already
 reached actor state. That lifecycle input becomes a runtime note for later LLM
 context. The worker renders that note inside the current/latest user message
 `<agent_environment_info>` block, not as a system-prompt extension. It does not
 rewrite historical transcript rows. The adapter must not infer that prior
-assistant output should also be deleted.
+assistant output should also be removed.
 
 An admin also enables Lark login and directory sync. That uses the
 identity-provider adapter and Principals. It converges on the same
@@ -367,14 +368,14 @@ The chat adapter accepts these provider event families through
 The adapter declares inbound capabilities for:
 
 - `entry_receive`;
-- `entry_recall`;
+- `entry_removed`;
 - `reaction_add`;
 - `reaction_remove`;
 - `action_event`.
 
 Message receive normalizes:
 
-- `ingress_event_id` from the stable provider event/message identity;
+- `ingress_event_id` from Feishu/Lark websocket `event_id`;
 - `provider_entry_id` from Feishu/Lark message id;
 - `signal_channel_id` from chat id;
 - `provider_thread_id` from chat id plus root id;
@@ -405,6 +406,13 @@ Recognized visible commands are classified after explicit IM admission:
 - `/retry`
 - `/steer`
 - `/stop`
+
+`/compress` is a visible command event. It produces
+`ActorInput(type = command.compress)`. The control plane does not generate the
+summary; when the command reaches the worker, the worker uses the `light` model
+profile, reads history through RuntimeFabric RPC, summarizes the older prefix
+while keeping the recent tail verbatim, and commits the summary through
+`conversation.summary.commit`.
 
 For mentioned commands, the adapter or shared parser strips only a provider
 confirmed structured mention prefix before matching. Full-width spaces and
@@ -508,10 +516,14 @@ The normalized recall fact uses:
 - `provider_entry_id = message_id`;
 - `signal_channel_id = lark:<chat_id>`;
 - `provider_thread_id = lark:<chat_id>:<root_id or message_id>`;
-- lifecycle kind `recalled`;
+- lifecycle kind `removed`, with provider lifecycle kind `recalled`;
 - provider time from recall, update, or create time when available.
 
-The adapter submits the fact through `emit_entry_recalled`. It does not create
+That provider time is mirror/lifecycle ordering data. It is not prompt
+`send_at`; worker prompt time is derived from `ai_agent_messages.inserted_at`
+through `conversation.history.resolve`.
+
+The adapter submits the fact through `emit_entry_removed`. It does not create
 the tombstone or lifecycle ActorInput itself.
 
 SignalsGateway hard-deletes the mirrored entry because `signal_entries` is the
@@ -773,7 +785,7 @@ provider. That is a provider limitation, not a SignalsGateway queue failure.
 - Group-message policy is a SignalsGateway binding policy, not a Feishu-only
   rule.
 - Setup value `observe_all` maps to Ankole `record_only`, not to actor wakeup.
-- The adapter calls `emit_entry`, `emit_entry_recalled`, `emit_reaction`, and
+- The adapter calls `emit_entry`, `emit_entry_removed`, `emit_reaction`, and
   `emit_action`; it never creates ActorInput directly.
 - Platform subjects converge on `provider + user_id` whenever `user_id` exists.
 - `open_id` and `union_id` are metadata or fallback evidence, not the normal

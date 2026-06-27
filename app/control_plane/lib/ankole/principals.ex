@@ -144,22 +144,6 @@ defmodule Ankole.Principals do
   end
 
   @doc """
-  Updates Principal lifecycle status.
-  """
-  @spec update_principal_status(String.t(), :active | :disabled) :: principal_result()
-  def update_principal_status(uid, status) when status in [:active, :disabled] do
-    Repo.transact(fn repo ->
-      with {:ok, principal} <- fetch_principal_for_update(repo, uid) do
-        principal
-        |> Principal.status_changeset(%{status: status})
-        |> repo.update()
-      end
-    end)
-  end
-
-  def update_principal_status(_uid, _status), do: {:error, :invalid_status}
-
-  @doc """
   Soft-disables a Principal.
   """
   @spec disable_principal(String.t()) :: principal_result()

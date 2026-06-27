@@ -48,12 +48,12 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
   end
 
   @doc """
-  Handles a provider message-recall event for all chat consumers.
+  Handles a provider message-removal event for all chat consumers.
   """
-  @spec handle_message_recalled(String.t(), Event.t(), [map()]) ::
+  @spec handle_message_removed(String.t(), Event.t(), [map()]) ::
           {:ok, list()} | {:error, term()}
-  def handle_message_recalled(_event_type, %Event{} = event, consumers) do
-    dispatch_chat(consumers, &emit_message_recalled(&1, event))
+  def handle_message_removed(_event_type, %Event{} = event, consumers) do
+    dispatch_chat(consumers, &emit_message_removed(&1, event))
   end
 
   @doc """
@@ -185,7 +185,7 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
 
   defp emit_message_receive(consumer, event), do: emit_message_receive(consumer).(event)
 
-  defp emit_message_recalled(%{context: %AdapterContext{}} = consumer, %Event{} = event) do
+  defp emit_message_removed(%{context: %AdapterContext{}} = consumer, %Event{} = event) do
     content = event.content || %{}
     message = fetch_map(content, "message", content)
 
@@ -206,7 +206,9 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
         provider_time: provider_time(message, event)
       }
 
-      AdapterContext.emit_entry_recalled(consumer.context, input)
+      AdapterContext.emit_entry_removed(consumer.context, input,
+        provider_lifecycle_kind: :recalled
+      )
     end
   end
 

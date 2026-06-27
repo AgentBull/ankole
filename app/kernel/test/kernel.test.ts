@@ -18,6 +18,8 @@ describe('@ankole/kernel', () => {
       'authzMatchResourcePattern',
       'authzValidateCondition',
       'authzValidateResourcePattern',
+      'signalsGatewayFilterMatch',
+      'signalsGatewayValidateFilter',
       'anyAscii',
       'base58Decode',
       'base58Encode',
@@ -95,12 +97,43 @@ describe('@ankole/kernel', () => {
     expect(kernel.jwtDecodeHeader(token)).toMatchObject({ algorithm: 'HS256', key_id: 'test-key' })
   })
 
+  it('evaluates SignalsGateway CEL filters through the Bun bridge', () => {
+    const context = {
+      binding: { name: 'bot', adapter: 'lark' },
+      signal: {
+        kind: 'entry_received',
+        channel: { id: 'lark:chat:group-a', kind: 'im_group', reply_mode: 'entry' },
+        entry: {
+          id: 'msg-1',
+          sender_key: 'lark:user:alice',
+          text: 'hello from lark',
+          metadata: { repository: 'ankole' },
+        },
+      },
+    }
+
+    expect(kernel.signalsGatewayValidateFilter("signal.channel.id == 'lark:chat:group-a'")).toBe(true)
+    expect(
+      kernel.signalsGatewayFilterMatch(
+        "binding.name == 'bot' && signal.entry.sender_key.startsWith('lark:user:')",
+        context,
+      ),
+    ).toBe(true)
+    expect(kernel.signalsGatewayFilterMatch("signal.channel.kind == 'im_dm'", context)).toBe(false)
+
+    expect(() => kernel.signalsGatewayValidateFilter('signal.')).toThrow(/invalid signal filter/)
+    expect(() => kernel.signalsGatewayFilterMatch('signal.entry.text', context)).toThrow(/signal filter returned string/)
+    expect(() => kernel.signalsGatewayFilterMatch('signal.entry.missing', context)).toThrow(
+      /signal filter execution failed/,
+    )
+    expect(() => kernel.signalsGatewayFilterMatch('true', {})).toThrow(/signal filter context must include binding/)
+  })
+
   it('encodes and decodes RuntimeFabric protobuf envelopes', () => {
     const envelope = {
       protocol_version: 1,
       message_id: 'turn-start-1',
       correlation_id: 'corr-1',
-      seq: 1,
       lane: 'LANE_TURN',
       sent_at_unix_ms: 1782300000000,
       durability: 'CONTROL_REPLAYABLE',
@@ -111,7 +144,7 @@ describe('@ankole/kernel', () => {
           inputs: [
             {
               actor_input_id: 'input-1',
-              broker_sequence: 1,
+              live_queue_sequence: 1,
               type: 'im.message.addressed',
               ingress_event_id: 'event-1',
               provider_entry_id: 'message-1',
@@ -149,7 +182,7 @@ describe('@ankole/kernel', () => {
           inputs: [
             {
               actor_input_id: 'steer-1',
-              broker_sequence: 2,
+              live_queue_sequence: 2,
               type: 'command.steer',
               ingress_event_id: 'event-steer-1',
               payload_json: { data: { command: { argsText: 'change course' } } },
@@ -166,6 +199,46 @@ describe('@ankole/kernel', () => {
     expect(decoded.body.mailbox_updated.inputs[0].payload_json.data.command.argsText).toBe('change course')
   })
 
+  it('encodes and decodes RuntimeFabric final proposal reply attachments', () => {
+    const decoded = kernel.runtimeFabricDecodeEnvelope(
+      kernel.runtimeFabricEncodeEnvelope({
+        protocol_version: 1,
+        message_id: 'turn-final-1',
+        correlation_id: 'turn-start-1',
+        lane: 'LANE_TURN',
+        durability: 'CONTROL_DURABLE',
+        body: {
+          type: 'turn_final_proposal',
+          turn_final_proposal: {
+            turn: actorTurnRef(),
+            messages: [],
+            reply: {
+              text: 'Here is the report.',
+              content_json: [{ type: 'text', text: 'Here is the report.' }],
+              attachments: [
+                {
+                  agent_computer_path: '/workspace/user-files/reports/a.txt',
+                  user_files_relative_path: 'reports/a.txt',
+                  name: 'report.txt',
+                  mime_type: 'text/plain',
+                  size: 16,
+                },
+              ],
+            },
+          },
+        },
+      }),
+    )
+
+    expect(decoded.body.turn_final_proposal.reply.attachments[0]).toMatchObject({
+      agent_computer_path: '/workspace/user-files/reports/a.txt',
+      user_files_relative_path: 'reports/a.txt',
+      name: 'report.txt',
+      mime_type: 'text/plain',
+      size: 16,
+    })
+  })
+
   it('rejects profile fields on ActorKey', () => {
     expect(() =>
       kernel.runtimeFabricEncodeEnvelope({
@@ -174,15 +247,18 @@ describe('@ankole/kernel', () => {
         correlation_id: 'turn-start-profile',
         lane: 'LANE_TURN',
         durability: 'CONTROL_REPLAYABLE',
-        turn_start: {
-          turn: {
-            ...actorTurnRef(),
-            actor: {
-              ...actorTurnRef().actor,
-              display_name: 'ReleaseBot',
+        body: {
+          type: 'turn_start',
+          turn_start: {
+            turn: {
+              ...actorTurnRef(),
+              actor: {
+                ...actorTurnRef().actor,
+                display_name: 'ReleaseBot',
+              },
             },
+            inputs: [],
           },
-          inputs: [],
         },
       }),
     ).toThrow(/ActorKey must not carry display_name/)
@@ -191,24 +267,30 @@ describe('@ankole/kernel', () => {
   it('encodes and decodes RuntimeFabric RPC envelopes', () => {
     const encoded = kernel.runtimeFabricEncodeEnvelope({
       protocol_version: 1,
-      message_id: 'rpc-agent-profile-1',
-      correlation_id: 'rpc-agent-profile-1',
+      message_id: 'rpc-conversation-context-1',
+      correlation_id: 'rpc-conversation-context-1',
       lane: 'LANE_RPC',
       durability: 'CONTROL_EPHEMERAL',
       body: {
         type: 'rpc_request',
         rpc_request: {
-          request_id: 'rpc-agent-profile-1',
-          method: 'agent_profile.resolve',
+          request_id: 'rpc-conversation-context-1',
+          method: 'agent_conversation.context.resolve',
           payload_json: {
-            agent_uid: 'agent-1',
-            session_id: 'signal-channel:lark:dm:1',
+            turn: {
+              actor: {
+                agent_uid: 'agent-1',
+                session_id: 'signal-channel:lark:dm:1',
+              },
+            },
           },
         },
       },
     })
 
-    expect(kernel.runtimeFabricDecodeEnvelope(encoded).body.rpc_request.method).toBe('agent_profile.resolve')
+    expect(kernel.runtimeFabricDecodeEnvelope(encoded).body.rpc_request.method).toBe(
+      'agent_conversation.context.resolve',
+    )
   })
 
   it('rejects inline steer payloads in actor lane turn_control', () => {
@@ -219,10 +301,13 @@ describe('@ankole/kernel', () => {
         correlation_id: 'steer-1',
         lane: 'LANE_CONTROL',
         durability: 'CONTROL_DURABLE',
-        turn_control: {
-          turn: actorTurnRef(),
-          command: 'steer',
-          payload_json: { text: 'inline steer is not allowed' },
+        body: {
+          type: 'turn_control',
+          turn_control: {
+            turn: actorTurnRef(),
+            command: 'steer',
+            payload_json: { text: 'inline steer is not allowed' },
+          },
         },
       }),
     ).toThrow(/steer payload must be empty/)
@@ -235,16 +320,19 @@ describe('@ankole/kernel', () => {
         message_id: 'turn-start-wrong-lane',
         lane: 'LANE_CONTROL',
         durability: 'CONTROL_EPHEMERAL',
-        turn_start: {
-          turn: actorTurnRef(),
-          inputs: [
-            {
-              actor_input_id: 'input-1',
-              broker_sequence: 1,
-              type: 'im.message.addressed',
-              ingress_event_id: 'event-1',
-            },
-          ],
+        body: {
+          type: 'turn_start',
+          turn_start: {
+            turn: actorTurnRef(),
+            inputs: [
+              {
+                actor_input_id: 'input-1',
+                live_queue_sequence: 1,
+                type: 'im.message.addressed',
+                ingress_event_id: 'event-1',
+              },
+            ],
+          },
         },
       }),
     ).toThrow(/turn_start must use lane LANE_TURN/)

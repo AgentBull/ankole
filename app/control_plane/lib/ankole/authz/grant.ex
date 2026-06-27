@@ -8,10 +8,9 @@ defmodule Ankole.AuthZ.Grant do
   import Ecto.Changeset
 
   alias Ankole.AuthZ.Group
-  alias Ankole.Kernel, as: AnkoleKernel
   alias Ankole.Principals.Principal
 
-  @primary_key {:id, :binary_id, autogenerate: false}
+  @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
   @foreign_key_type :binary_id
   @timestamps_opts [type: :utc_datetime_usec]
 
@@ -44,7 +43,6 @@ defmodule Ankole.AuthZ.Grant do
       :description,
       :metadata
     ])
-    |> ensure_id()
     |> normalize_blank([
       :principal_uid,
       :group_id,
@@ -71,13 +69,6 @@ defmodule Ankole.AuthZ.Grant do
     |> check_constraint(:action, name: :permission_grants_action_no_colon)
     |> check_constraint(:condition, name: :permission_grants_condition_present)
     |> check_constraint(:metadata, name: :permission_grants_metadata_object)
-  end
-
-  defp ensure_id(changeset) do
-    case get_field(changeset, :id) do
-      nil -> put_change(changeset, :id, AnkoleKernel.gen_uuid_v7())
-      _id -> changeset
-    end
   end
 
   defp default_condition(changeset) do
@@ -125,7 +116,7 @@ defmodule Ankole.AuthZ.Grant do
 
   defp validate_kernel_pattern(value) when is_binary(value) do
     try do
-      case AnkoleKernel.authz_validate_resource_pattern(value) do
+      case Ankole.Kernel.authz_validate_resource_pattern(value) do
         true -> :ok
         {:error, reason} -> {:error, to_string(reason)}
         _other -> {:error, "is invalid"}
@@ -141,7 +132,7 @@ defmodule Ankole.AuthZ.Grant do
 
   defp validate_kernel_condition(value) when is_binary(value) do
     try do
-      case AnkoleKernel.authz_validate_condition(value) do
+      case Ankole.Kernel.authz_validate_condition(value) do
         true -> :ok
         {:error, reason} -> {:error, to_string(reason)}
         _other -> {:error, "is invalid"}

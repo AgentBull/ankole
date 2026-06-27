@@ -1,7 +1,7 @@
 //! Shared native kernel loaded by Bun through N-API and by Elixir through Rustler.
 //!
-//! The pure behavior lives in `core`; feature-gated modules only translate host
-//! runtime types, naming, and errors into that shared implementation.
+//! Shared behavior lives in `common`, `authz`, and `runtime_fabric`;
+//! feature-gated modules only translate host runtime types, naming, and errors.
 
 use mimalloc::MiMalloc;
 
@@ -12,13 +12,16 @@ use mimalloc::MiMalloc;
 static GLOBAL: MiMalloc = MiMalloc;
 
 #[cfg(any(test, feature = "embed", feature = "napi", feature = "nif"))]
-pub mod core;
+pub mod common;
 
 #[cfg(any(test, feature = "embed", feature = "napi", feature = "nif"))]
 pub mod authz;
 
 #[cfg(any(test, feature = "embed", feature = "napi", feature = "nif"))]
 pub mod runtime_fabric;
+
+#[cfg(any(test, feature = "embed", feature = "napi", feature = "nif"))]
+pub mod signals_gateway;
 
 #[cfg(feature = "napi")]
 mod napi_exports;

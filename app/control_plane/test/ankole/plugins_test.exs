@@ -9,7 +9,9 @@ defmodule Ankole.PluginsTest do
   alias Ankole.PluginFixtures.DuplicateAdapterPlugin
   alias Ankole.PluginFixtures.DuplicateAlphaPlugin
   alias Ankole.PluginFixtures.InvalidAdapterModulePlugin
+  alias Ankole.PluginFixtures.MissingRemovedCallbackPlugin
   alias Ankole.PluginFixtures.MissingIdentityCallbackPlugin
+  alias Ankole.PluginFixtures.UnknownSignalsInboundCapabilityPlugin
   alias Ankole.Plugins
   alias Ankole.Plugins.Config
   alias Ankole.Plugins.Discovery
@@ -108,6 +110,18 @@ defmodule Ankole.PluginsTest do
              {:invalid_adapter_declaration,
               {:missing_adapter_callback, MissingIdentityCallbackPlugin, :upsert_user, 2}}}} =
              Spec.from_module(MissingIdentityCallbackPlugin)
+
+    assert {:error,
+            {MissingRemovedCallbackPlugin,
+             {:invalid_adapter_declaration,
+              {:missing_adapter_callback, MissingRemovedCallbackPlugin, :handle_message_removed,
+               3}}}} =
+             Spec.from_module(MissingRemovedCallbackPlugin)
+
+    assert {:error,
+            {UnknownSignalsInboundCapabilityPlugin,
+             {:invalid_adapter_declaration, {:unknown_inbound_capability, "made_up"}}}} =
+             Spec.from_module(UnknownSignalsInboundCapabilityPlugin)
   end
 
   test "duplicate adapter declarations fail registry startup" do

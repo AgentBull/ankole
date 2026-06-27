@@ -6,15 +6,40 @@ defmodule Ankole.ActorRuntime.RPCLane do
   code that wraps those results as `rpc_response` or `rpc_error` envelopes.
   """
 
-  alias Ankole.ActorRuntime.AgentProfileBroker
+  alias Ankole.ActorRuntime.AgentConversationContextBroker
+  alias Ankole.ActorRuntime.ConversationHistoryBroker
+  alias Ankole.ActorRuntime.ConversationSummaryBroker
   alias Ankole.ActorRuntime.LlmCredentialBroker
   alias Ankole.ActorRuntime.SkillOverlayBroker
-  alias Ankole.ActorRuntime.TurnContextBroker
+  alias Ankole.ActorRuntime.WorkerRouteAuth
+  alias Ankole.Schedule.RPCBroker
 
   @method_handlers %{
     "llm_provider.resolve_credential" => {LlmCredentialBroker, :handle_request, []},
-    "agent_profile.resolve" => {AgentProfileBroker, :handle_request, []},
-    "runtime.turn_context.resolve" => {TurnContextBroker, :handle_request, []},
+    "agent_conversation.context.resolve" => {AgentConversationContextBroker, :handle_request, []},
+    "conversation.history.resolve" => {ConversationHistoryBroker, :handle_request, []},
+    "conversation.summary.commit" => {ConversationSummaryBroker, :handle_request, []},
+    "schedule.check_back_later.create" =>
+      {RPCBroker, :handle_request,
+       ["check_back_later.create", &WorkerRouteAuth.authorize_turn_route/3]},
+    "schedule.cron.list" =>
+      {RPCBroker, :handle_request, ["cron.list", &WorkerRouteAuth.authorize_turn_route/3]},
+    "schedule.cron.get" =>
+      {RPCBroker, :handle_request, ["cron.get", &WorkerRouteAuth.authorize_turn_route/3]},
+    "schedule.cron.runs" =>
+      {RPCBroker, :handle_request, ["cron.runs", &WorkerRouteAuth.authorize_turn_route/3]},
+    "schedule.cron.add" =>
+      {RPCBroker, :handle_request, ["cron.add", &WorkerRouteAuth.authorize_turn_route/3]},
+    "schedule.cron.update" =>
+      {RPCBroker, :handle_request, ["cron.update", &WorkerRouteAuth.authorize_turn_route/3]},
+    "schedule.cron.pause" =>
+      {RPCBroker, :handle_request, ["cron.pause", &WorkerRouteAuth.authorize_turn_route/3]},
+    "schedule.cron.resume" =>
+      {RPCBroker, :handle_request, ["cron.resume", &WorkerRouteAuth.authorize_turn_route/3]},
+    "schedule.cron.remove" =>
+      {RPCBroker, :handle_request, ["cron.remove", &WorkerRouteAuth.authorize_turn_route/3]},
+    "schedule.cron.run" =>
+      {RPCBroker, :handle_request, ["cron.run", &WorkerRouteAuth.authorize_turn_route/3]},
     "skills.overlay.resolve" => {SkillOverlayBroker, :handle_request, ["resolve"]},
     "skills.overlay.replace" => {SkillOverlayBroker, :handle_request, ["replace"]},
     "skills.overlay.clear" => {SkillOverlayBroker, :handle_request, ["clear"]}

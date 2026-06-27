@@ -52,6 +52,33 @@ defmodule Ankole.ActorRuntime.CommitCoordinator do
   end
 
   @doc """
+  Commits a worker-produced conversation summary.
+
+  The worker decides the summary text and the covered message ids. This function
+  only validates that the ids belong to the active conversation for the echoed
+  turn fence, then writes the summary row and completes the turn transactionally.
+  """
+  @spec commit_conversation_summary(map()) :: {:ok, map()} | {:error, term()}
+  def commit_conversation_summary(request) when is_map(request) do
+    turn_ref = fetch_map!(request, "turn")
+    now = DateTime.utc_now(:microsecond)
+
+    Repo.transact(fn repo ->
+      with %LlmTurn{} = llm_turn <- AIAgent.lock_turn(repo, fetch_turn_id(turn_ref)),
+           {:ok, result} <- commit_summary_in_tx(repo, llm_turn, turn_ref, request, now) do
+        {:ok, result}
+      else
+        nil -> {:error, :llm_turn_not_found}
+        {:error, _reason} = error -> error
+      end
+    end)
+    |> tap(fn
+      {:ok, %{status: :committed}} -> OutboxDispatcher.wake()
+      _result -> :ok
+    end)
+  end
+
+  @doc """
   Handles a worker turn.error envelope and releases the actor input for retry.
 
   A worker error fails the current AI-agent turn and supersedes runtime
@@ -153,7 +180,7 @@ defmodule Ankole.ActorRuntime.CommitCoordinator do
            AIAgent.clear_generation_in_tx(repo, conversation, llm_turn.lease_id) do
       {:ok,
        %{
-         status: commit_status(actor_inputs, assistant_message),
+         status: commit_status(llm_turn, actor_inputs, assistant_message),
          conversation: conversation,
          llm_turn: llm_turn,
          assistant_message: assistant_message,
@@ -165,6 +192,98 @@ defmodule Ankole.ActorRuntime.CommitCoordinator do
       {:error, _reason} = error -> error
     end
   end
+
+  defp commit_summary_in_tx(
+         _repo,
+         %LlmTurn{status: "succeeded"} = llm_turn,
+         _turn_ref,
+         _request,
+         _now
+       ) do
+    {:ok, %{status: :already_committed, llm_turn: llm_turn}}
+  end
+
+  defp commit_summary_in_tx(repo, %LlmTurn{} = llm_turn, turn_ref, request, now) do
+    with {:ok, summary} <- request_summary(request),
+         :ok <- require_turn_started(llm_turn),
+         %Conversation{} = conversation <-
+           AIAgent.lock_conversation(repo, llm_turn.conversation_id),
+         :ok <- conversation_matches_turn(conversation, llm_turn),
+         %ActorSessionActivation{} = activation <- activation_for_turn_ref(repo, turn_ref),
+         :ok <- activation_accepts_turn(activation, turn_ref, llm_turn, now),
+         {:ok, deliveries} <- accepted_deliveries(repo, turn_ref),
+         {:ok, actor_inputs} <- lock_delivered_actor_inputs(repo, deliveries),
+         {:ok, summary_actor_inputs, deferred_actor_inputs} <-
+           summary_commit_actor_inputs(actor_inputs),
+         {:ok, summary_text} <- summary_text(summary),
+         {:ok, covered_messages} <- summary_covered_messages(repo, conversation, summary),
+         {:ok, summary_message} <-
+           insert_summary_message(
+             repo,
+             conversation,
+             llm_turn,
+             summary_actor_inputs,
+             covered_messages,
+             summary_text,
+             now
+           ),
+         {:ok, llm_turn} <-
+           mark_llm_turn_succeeded(
+             repo,
+             llm_turn,
+             summary_proposal(request, summary_text, covered_messages),
+             summary_message,
+             [],
+             now
+           ),
+         {:ok, consumptions} <-
+           consume_summary_actor_inputs(
+             repo,
+             summary_actor_inputs,
+             conversation,
+             llm_turn,
+             activation,
+             summary_message,
+             now
+           ),
+         {_, _} <- delete_deliveries(repo, summary_actor_inputs),
+         {_, _} <- release_deferred_summary_deliveries(repo, deferred_actor_inputs),
+         {:ok, conversation} <-
+           AIAgent.clear_generation_in_tx(repo, conversation, llm_turn.lease_id) do
+      {:ok,
+       %{
+         status: :committed,
+         conversation: conversation,
+         llm_turn: llm_turn,
+         summary_message: summary_message,
+         covered_message_ids: Enum.map(covered_messages, & &1.id),
+         consumptions: consumptions
+       }}
+    else
+      nil -> {:error, :actor_runtime_fence_not_found}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp request_summary(request) do
+    case fetch_map(request, "summary") do
+      %{} = summary -> {:ok, summary}
+      _value -> {:error, :summary_missing}
+    end
+  end
+
+  defp summary_commit_actor_inputs(actor_inputs) do
+    {deferred, summary_inputs} =
+      Enum.split_with(actor_inputs, &defer_summary_actor_input?/1)
+
+    case summary_inputs do
+      [] -> {:error, :summary_actor_input_missing}
+      [_ | _] -> {:ok, summary_inputs, deferred}
+    end
+  end
+
+  defp defer_summary_actor_input?(%ActorInput{type: "command.steer"}), do: true
+  defp defer_summary_actor_input?(%ActorInput{}), do: false
 
   defp require_turn_started(%LlmTurn{status: "started"}), do: :ok
   defp require_turn_started(%LlmTurn{}), do: {:error, :llm_turn_not_started}
@@ -276,7 +395,7 @@ defmodule Ankole.ActorRuntime.CommitCoordinator do
       ActorInput
       |> where([input], input.id in ^input_ids)
       |> where([input], input.input_state == "open")
-      |> order_by([input], asc: input.broker_sequence)
+      |> order_by([input], asc: input.live_queue_sequence)
       |> lock("FOR UPDATE")
       |> repo.all()
 
@@ -345,41 +464,103 @@ defmodule Ankole.ActorRuntime.CommitCoordinator do
     collect_results(results)
   end
 
-  # Materializes a compression proposal as a conversation-local compressed
-  # previous-chat-history replacement. The provider-visible side effect for the
-  # command is a fixed command feedback row, not the summary body.
-  defp insert_assistant_message(
+  defp summary_text(summary) when is_map(summary) do
+    case fetch_text(summary, "text") do
+      text when is_binary(text) ->
+        case String.trim(text) do
+          "" -> {:error, :summary_text_missing}
+          trimmed -> {:ok, trimmed}
+        end
+
+      _value ->
+        {:error, :summary_text_missing}
+    end
+  end
+
+  defp summary_covered_messages(repo, %Conversation{} = conversation, summary) do
+    covered_message_ids =
+      summary
+      |> fetch_list("covered_message_ids")
+      |> Enum.filter(&is_binary/1)
+      |> Enum.uniq()
+
+    case covered_message_ids do
+      [] ->
+        {:error, :summary_covered_message_ids_missing}
+
+      ids ->
+        messages =
+          Message
+          |> where([message], message.conversation_id == ^conversation.id)
+          |> where([message], message.status == "complete")
+          |> where([message], message.id in ^ids)
+          |> order_by([message], asc: message.inserted_at, asc: message.id)
+          |> lock("FOR SHARE")
+          |> repo.all()
+
+        case MapSet.new(Enum.map(messages, & &1.id)) == MapSet.new(ids) do
+          true -> {:ok, messages}
+          false -> {:error, :summary_covered_message_not_found}
+        end
+    end
+  end
+
+  defp insert_summary_message(
          repo,
-         conversation,
-         %LlmTurn{kind: "compression"} = llm_turn,
-         proposal,
+         %Conversation{} = conversation,
+         %LlmTurn{} = llm_turn,
          actor_inputs,
+         covered_messages,
+         text,
          now
        ) do
-    input = List.first(actor_inputs)
-
-    with {:ok, text} <- proposal_reply_text(proposal, llm_turn) do
-      attrs = %{
-        agent_uid: conversation.agent_uid,
-        conversation_id: conversation.id,
-        role: "assistant",
-        kind: "summary",
-        status: "complete",
-        content: [%{"type" => "text", "text" => text}],
-        event_source: "ai_agent.command.compress",
-        event_id: input && input.ingress_event_id,
-        covers_range: compression_covers_range(llm_turn),
-        metadata: %{
-          "actor_input_ids" => Enum.map(actor_inputs, & &1.id),
-          "committed_at" => DateTime.to_iso8601(now),
-          "compression" => compression_metadata(llm_turn)
+    attrs = %{
+      agent_uid: conversation.agent_uid,
+      conversation_id: conversation.id,
+      role: "assistant",
+      kind: "summary",
+      status: "complete",
+      content: [%{"type" => "text", "text" => text}],
+      event_source: "agent_computer.conversation_summary",
+      event_id: llm_turn.id,
+      covers_range: summary_covers_range(covered_messages),
+      metadata: %{
+        "actor_input_ids" => Enum.map(actor_inputs, & &1.id),
+        "committed_at" => DateTime.to_iso8601(now),
+        "compression" => %{
+          "trigger" => "worker_command",
+          "llm_turn_ids" => [llm_turn.id],
+          "covered_message_ids" => Enum.map(covered_messages, & &1.id),
+          "strategy" => "worker_owned"
         }
       }
+    }
 
-      %Message{}
-      |> Message.changeset(attrs)
-      |> repo.insert()
-    end
+    %Message{}
+    |> Message.changeset(attrs)
+    |> repo.insert()
+  end
+
+  defp summary_covers_range([first | _] = messages) do
+    message_ids = Enum.map(messages, & &1.id)
+
+    %{
+      "first_message_id" => first.id,
+      "last_message_id" => List.last(message_ids),
+      "message_ids" => message_ids,
+      "message_count" => length(message_ids)
+    }
+  end
+
+  defp summary_proposal(request, text, covered_messages) do
+    %{
+      "summary" => %{
+        "text" => text,
+        "covered_message_ids" => Enum.map(covered_messages, & &1.id)
+      },
+      "usage_json" => fetch_map(request, "usage_json") || %{},
+      "provider_metadata_json" => fetch_map(request, "provider_metadata_json") || %{}
+    }
   end
 
   # Materializes the worker proposal as the assistant transcript message.
@@ -406,8 +587,13 @@ defmodule Ankole.ActorRuntime.CommitCoordinator do
   end
 
   defp maybe_insert_assistant_message(repo, conversation, llm_turn, proposal, actor_inputs, now) do
-    case {ambient_silence_allowed?(actor_inputs), fetch_map(proposal, "reply")} do
-      {true, nil} ->
+    case {ambient_silence_allowed?(actor_inputs),
+          schedule_silent_success_allowed?(proposal, llm_turn, actor_inputs),
+          fetch_map(proposal, "reply")} do
+      {true, _schedule, nil} ->
+        {:ok, nil}
+
+      {_ambient, true, nil} ->
         {:ok, nil}
 
       _other ->
@@ -435,7 +621,8 @@ defmodule Ankole.ActorRuntime.CommitCoordinator do
         insert_assistant_message(repo, conversation, llm_turn, proposal, actor_inputs, now)
 
       {:error, reason} when reason in [:proposal_reply_missing, :proposal_reply_text_missing] ->
-        case ambient_silence_allowed?(actor_inputs) do
+        case ambient_silence_allowed?(actor_inputs) or
+               schedule_silent_success_allowed?(proposal, llm_turn, actor_inputs) do
           true -> {:ok, nil}
           false -> {:error, reason}
         end
@@ -445,6 +632,24 @@ defmodule Ankole.ActorRuntime.CommitCoordinator do
   defp ambient_silence_allowed?(actor_inputs) do
     actor_inputs != [] and Enum.all?(actor_inputs, &(&1.type == "im.message.may_intervene"))
   end
+
+  defp schedule_silent_success_allowed?(proposal, %LlmTurn{} = llm_turn, actor_inputs) do
+    silent_success_requested?(proposal) and schedule_turn_silence_allowed?(llm_turn, actor_inputs)
+  end
+
+  defp silent_success_requested?(proposal) when is_map(proposal) do
+    fetch_value(proposal, "silent_success") == true or
+      get_in(fetch_map(proposal, "metadata_json") || %{}, ["silent_success"]) == true or
+      get_in(fetch_map(proposal, "response_json") || %{}, ["silent_success"]) == true
+  end
+
+  defp schedule_turn_silence_allowed?(%LlmTurn{request_context: context}, actor_inputs)
+       when is_map(context) do
+    context["silent_success_allowed"] == true and actor_inputs != [] and
+      Enum.all?(actor_inputs, &(&1.type in ["check_back_later.wakeup", "cron.fire"]))
+  end
+
+  defp schedule_turn_silence_allowed?(_llm_turn, _actor_inputs), do: false
 
   # Links the LLM turn to the committed assistant message. The worker proposal
   # is kept as response metadata, not as a second source of transcript truth.
@@ -463,6 +668,7 @@ defmodule Ankole.ActorRuntime.CommitCoordinator do
       }
       |> maybe_put_stop_reason(proposal)
       |> maybe_put_assistant_message_id(assistant_message)
+      |> maybe_put_silent_success(proposal, assistant_message)
 
     attrs =
       %{
@@ -484,6 +690,15 @@ defmodule Ankole.ActorRuntime.CommitCoordinator do
 
   defp maybe_put_assistant_message_id(response, nil), do: response
 
+  defp maybe_put_silent_success(response, proposal, nil) do
+    case silent_success_requested?(proposal) do
+      true -> Map.put(response, "silent_success", true)
+      false -> response
+    end
+  end
+
+  defp maybe_put_silent_success(response, _proposal, %Message{}), do: response
+
   defp maybe_put_stop_reason(response, proposal) do
     case fetch_text(proposal, "stop_reason") do
       value when is_binary(value) and value != "" -> Map.put(response, "stop_reason", value)
@@ -491,14 +706,20 @@ defmodule Ankole.ActorRuntime.CommitCoordinator do
     end
   end
 
-  defp commit_status(actor_inputs, nil) do
+  defp commit_status(llm_turn, actor_inputs, nil) do
     case ambient_silence_allowed?(actor_inputs) do
-      true -> :ambient_silent
-      false -> :committed
+      true ->
+        :ambient_silent
+
+      false ->
+        case schedule_turn_silence_allowed?(llm_turn, actor_inputs) do
+          true -> :schedule_silent
+          false -> :committed
+        end
     end
   end
 
-  defp commit_status(_actor_inputs, %Message{}), do: :committed
+  defp commit_status(_llm_turn, _actor_inputs, %Message{}), do: :committed
 
   # Consumes each accepted actor input only after the assistant message exists.
   # This is the point where the runtime turns queued user work into completed
@@ -534,6 +755,81 @@ defmodule Ankole.ActorRuntime.CommitCoordinator do
       )
     end)
     |> collect_results()
+  end
+
+  defp consume_summary_actor_inputs(
+         repo,
+         actor_inputs,
+         conversation,
+         llm_turn,
+         activation,
+         summary_message,
+         now
+       ) do
+    visible_reply_input_id = visible_reply_input_id(actor_inputs, summary_message, nil)
+
+    actor_inputs
+    |> Enum.map(fn actor_input ->
+      Actors.consume_actor_input_in_tx(repo, actor_input,
+        conversation_id: conversation.id,
+        llm_turn_id: llm_turn.id,
+        activation_uid: activation.activation_uid,
+        actor_epoch: activation.actor_epoch,
+        revision: activation.revision,
+        consumed_at: now,
+        outbox_intents:
+          summary_outbox_intents(
+            repo,
+            actor_input,
+            llm_turn,
+            summary_message,
+            visible_reply_input_id
+          )
+      )
+    end)
+    |> collect_results()
+  end
+
+  defp summary_outbox_intents(_repo, %ActorInput{signal_channel_id: nil}, _turn, _message, _id),
+    do: []
+
+  defp summary_outbox_intents(_repo, %ActorInput{provider_entry_id: nil}, _turn, _message, _id),
+    do: []
+
+  defp summary_outbox_intents(
+         _repo,
+         %ActorInput{id: id},
+         _turn,
+         _message,
+         visible_reply_input_id
+       )
+       when id != visible_reply_input_id,
+       do: []
+
+  defp summary_outbox_intents(
+         repo,
+         %ActorInput{} = actor_input,
+         %LlmTurn{} = llm_turn,
+         %Message{} = summary_message,
+         _visible_reply_input_id
+       ) do
+    operation = SignalsGateway.outbox_operation_for_actor_input(actor_input, repo)
+    operation_key = Atom.to_string(operation)
+    text = "Conversation compressed."
+
+    [
+      %{
+        outbound_key: "summary:#{llm_turn.id}:#{operation_key}:#{actor_input.id}",
+        operation: operation,
+        target_provider_entry_id: actor_input.provider_entry_id,
+        provider_thread_id: actor_input.provider_thread_id,
+        payload: %{"text" => text},
+        fallback_visible_text: text,
+        idempotency_key: "summary:#{operation_key}:#{llm_turn.id}:#{actor_input.id}",
+        llm_turn_id: llm_turn.id,
+        assistant_message_id: summary_message.id
+      }
+    ]
   end
 
   defp ambient_post_input_id(actor_inputs, %Message{}) do
@@ -579,7 +875,7 @@ defmodule Ankole.ActorRuntime.CommitCoordinator do
     {
       provider_time_sort_value(actor_input),
       datetime_sort_value(actor_input.available_at),
-      actor_input.broker_sequence || 0,
+      actor_input.live_queue_sequence || 0,
       actor_input.provider_entry_id || ""
     }
   end
@@ -650,28 +946,34 @@ defmodule Ankole.ActorRuntime.CommitCoordinator do
 
   defp outbox_intents(
          _repo,
+         %ActorInput{type: "cron.fire"} = actor_input,
+         %LlmTurn{} = llm_turn,
+         %Message{} = assistant_message,
+         _outbox_scope
+       ) do
+    [
+      %{
+        outbound_key: "cron:#{llm_turn.id}:post:#{actor_input.id}",
+        operation: :post,
+        target_provider_entry_id: nil,
+        provider_thread_id: actor_input.provider_thread_id,
+        payload: assistant_outbox_payload(assistant_message),
+        fallback_visible_text: assistant_text(assistant_message),
+        idempotency_key: "post:cron:#{llm_turn.id}:#{actor_input.id}",
+        llm_turn_id: llm_turn.id,
+        assistant_message_id: assistant_message.id
+      }
+    ]
+  end
+
+  defp outbox_intents(
+         _repo,
          %ActorInput{provider_entry_id: nil},
          _llm_turn,
          _assistant_message,
          _outbox_scope
        ),
        do: []
-
-  defp outbox_intents(
-         repo,
-         %ActorInput{type: "command.compress"} = actor_input,
-         %LlmTurn{kind: "compression"} = llm_turn,
-         %Message{} = assistant_message,
-         _outbox_scope
-       ) do
-    command_feedback_outbox_intents(
-      repo,
-      actor_input,
-      llm_turn,
-      assistant_message,
-      "Conversation compressed."
-    )
-  end
 
   defp outbox_intents(
          _repo,
@@ -720,31 +1022,6 @@ defmodule Ankole.ActorRuntime.CommitCoordinator do
     ]
   end
 
-  defp command_feedback_outbox_intents(
-         repo,
-         %ActorInput{} = actor_input,
-         %LlmTurn{} = llm_turn,
-         %Message{} = assistant_message,
-         text
-       ) do
-    operation = SignalsGateway.outbox_operation_for_actor_input(actor_input, repo)
-    command_name = String.replace_prefix(actor_input.type, "command.", "")
-
-    [
-      %{
-        outbound_key: "command:#{actor_input.id}:#{command_name}",
-        operation: operation,
-        target_provider_entry_id: actor_input.provider_entry_id,
-        provider_thread_id: actor_input.provider_thread_id,
-        payload: %{"text" => text},
-        fallback_visible_text: text,
-        idempotency_key: "command:#{actor_input.id}:#{command_name}",
-        llm_turn_id: llm_turn.id,
-        assistant_message_id: assistant_message.id
-      }
-    ]
-  end
-
   # Deletes delivery projections after the input has been consumed. At that
   # point the consumed-input row is the durable audit of this actor work.
   defp delete_deliveries(repo, actor_inputs) do
@@ -753,6 +1030,15 @@ defmodule Ankole.ActorRuntime.CommitCoordinator do
     ActorInputDelivery
     |> where([delivery], delivery.actor_input_id in ^input_ids)
     |> repo.delete_all()
+  end
+
+  # A /steer accepted during a worker-owned compression turn has no tool-result
+  # boundary to attach to. Keep the command input open so the scheduler can
+  # deliver it as the next user turn after compression commits.
+  defp release_deferred_summary_deliveries(_repo, []), do: {0, nil}
+
+  defp release_deferred_summary_deliveries(repo, actor_inputs) do
+    delete_deliveries(repo, actor_inputs)
   end
 
   defp activation_for_turn_ref(repo, turn_ref) do
@@ -977,6 +1263,7 @@ defmodule Ankole.ActorRuntime.CommitCoordinator do
       "reply" => fetch_map(proposal, "reply") || %{},
       "messages" => fetch_list(proposal, "messages")
     }
+    |> maybe_put("summary", fetch_map(proposal, "summary"))
   end
 
   defp proposal_usage(proposal, %LlmTurn{usage: usage}) do
@@ -997,29 +1284,6 @@ defmodule Ankole.ActorRuntime.CommitCoordinator do
       %{} = proposal_metadata -> Map.merge(provider_metadata, proposal_metadata)
       _value -> provider_metadata
     end
-  end
-
-  defp compression_covers_range(%LlmTurn{input_message_ids: [first_id | _] = message_ids}) do
-    %{
-      "first_message_id" => first_id,
-      "last_message_id" => List.last(message_ids)
-    }
-  end
-
-  defp compression_covers_range(_llm_turn), do: %{}
-
-  defp compression_metadata(%LlmTurn{} = llm_turn) do
-    compression = fetch_map(llm_turn.request_context || %{}, "compression") || %{}
-
-    %{
-      "trigger" => fetch_text(compression, "trigger") || "manual_command",
-      "llm_turn_ids" => [llm_turn.id],
-      "first_kept_message_id" => fetch_text(compression, "first_kept_message_id"),
-      "tokens_before" => Map.get(compression, "tokens_before"),
-      "strategy" => "light_model"
-    }
-    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
-    |> Map.new()
   end
 
   # Normalizes worker error payloads into the shape stored on failed turns and

@@ -46,6 +46,7 @@ defmodule Ankole.SignalsGateway.IngressFact do
     :sender_key,
     :gateway_time,
     :lifecycle_kind,
+    :provider_lifecycle_kind,
     :reaction_key,
     :actor_key,
     :action,

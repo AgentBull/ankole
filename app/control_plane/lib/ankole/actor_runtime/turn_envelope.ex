@@ -40,7 +40,6 @@ defmodule Ankole.ActorRuntime.TurnEnvelope do
       "protocol_version" => 1,
       "message_id" => message_id,
       "correlation_id" => message_id,
-      "seq" => 0,
       "lane" => "LANE_TURN",
       "sent_at_unix_ms" => System.system_time(:millisecond),
       "durability" => "CONTROL_REPLAYABLE",
@@ -49,7 +48,8 @@ defmodule Ankole.ActorRuntime.TurnEnvelope do
         "turn_start" => %{
           "turn" => turn_ref,
           "inputs" => Enum.map(actor_inputs, &actor_input_envelope(&1, llm_turn)),
-          "model_ref" => turn_model_ref(llm_turn)
+          "model_ref" => turn_model_ref(llm_turn),
+          "request_context" => llm_turn.request_context || %{}
         }
       }
     }
@@ -65,7 +65,6 @@ defmodule Ankole.ActorRuntime.TurnEnvelope do
       "protocol_version" => 1,
       "message_id" => message_id,
       "correlation_id" => message_id,
-      "seq" => 0,
       "lane" => "LANE_TURN",
       "sent_at_unix_ms" => System.system_time(:millisecond),
       "durability" => "CONTROL_EPHEMERAL",
@@ -94,7 +93,6 @@ defmodule Ankole.ActorRuntime.TurnEnvelope do
       "protocol_version" => 1,
       "message_id" => message_id,
       "correlation_id" => message_id,
-      "seq" => 0,
       "lane" => "LANE_CONTROL",
       "sent_at_unix_ms" => System.system_time(:millisecond),
       "durability" => "CONTROL_DURABLE",
@@ -127,40 +125,22 @@ defmodule Ankole.ActorRuntime.TurnEnvelope do
     }
   end
 
-  defp actor_input_envelope(%ActorInput{} = actor_input, %LlmTurn{kind: "compression"} = llm_turn) do
-    actor_input
-    |> actor_input_envelope()
-    |> Map.put("payload_json", compression_actor_input_payload(actor_input, llm_turn))
-  end
-
   defp actor_input_envelope(%ActorInput{} = actor_input, %LlmTurn{}),
     do: actor_input_envelope(actor_input)
 
   defp actor_input_envelope(%ActorInput{} = actor_input) do
     %{
       "actor_input_id" => actor_input.id,
-      "broker_sequence" => actor_input.broker_sequence,
+      "live_queue_sequence" => actor_input.live_queue_sequence,
       "type" => actor_input.type,
       "ingress_event_id" => actor_input.ingress_event_id,
+      "binding_name" => actor_input.binding_name,
+      "signal_channel_id" => actor_input.signal_channel_id,
+      "provider_thread_id" => actor_input.provider_thread_id,
       "provider_entry_id" => actor_input.provider_entry_id,
       "payload_json" => actor_input.payload
     }
     |> Enum.reject(fn {_key, value} -> is_nil(value) end)
     |> Map.new()
-  end
-
-  defp compression_actor_input_payload(%ActorInput{} = actor_input, %LlmTurn{} = llm_turn) do
-    compression = get_in(llm_turn.request_context || %{}, ["compression"]) || %{}
-
-    %{
-      "type" => actor_input.type,
-      "data" => %{
-        "command" => %{
-          "name" => "compress",
-          "argsText" => ""
-        },
-        "compression" => compression
-      }
-    }
   end
 end

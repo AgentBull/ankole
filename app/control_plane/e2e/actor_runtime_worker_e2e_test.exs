@@ -311,9 +311,9 @@ defmodule Ankole.ActorRuntimeWorkerE2ETest do
              )
 
     assert %LlmTurn{
-             kind: "compression",
-             profile: "light",
-             model: "openai/gpt-5.4-nano"
+             kind: "generation",
+             profile: "primary",
+             model: "google/gemini-3.5-flash"
            } = Repo.get!(LlmTurn, compression_turn.id)
 
     assert {:ok, %OutboxEntry{} = compress_outbox} =
@@ -326,11 +326,14 @@ defmodule Ankole.ActorRuntimeWorkerE2ETest do
 
     assert compress_outbox.payload == %{"text" => "Conversation compressed."}
 
+    compression_turn = Repo.get!(LlmTurn, compression_turn.id)
+    assert compression_turn.provider_metadata["profile"] == "light"
+
     assert %Message{kind: "summary"} =
              Message
              |> where([message], message.conversation_id == ^compression_turn.conversation_id)
              |> where([message], message.kind == "summary")
-             |> where([message], message.event_id == ^compress_input.ingress_event_id)
+             |> where([message], message.event_id == ^compression_turn.id)
              |> Repo.one()
 
     {:ok, ambient_binding} =

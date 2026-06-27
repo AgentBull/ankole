@@ -75,7 +75,7 @@ export declare function crc32Hex(input: Uint8Array | string, initialState?: numb
 /**
  * Derives a deterministic BLAKE3 sub-key for JS callers.
  *
- * `context` stays optional at the JS boundary, but the core always receives an
+ * `context` stays optional at the JS boundary, but the shared implementation always receives an
  * explicit `Option` so omitted and empty-string contexts remain distinguishable.
  */
 export declare function deriveKey(keySeed: string | Buffer, subKeyId: string, context?: string): string
@@ -115,6 +115,12 @@ export declare function runtimeFabricDecodeEnvelope(bytes: Buffer): any
 
 /** Encodes a RuntimeFabric v1 envelope into protobuf bytes. */
 export declare function runtimeFabricEncodeEnvelope(envelope: any): Buffer
+
+/** Evaluates a SignalsGateway CEL admission filter. */
+export declare function signalsGatewayFilterMatch(filterSource: string, context: any): boolean
+
+/** Returns whether a SignalsGateway CEL admission filter compiles. */
+export declare function signalsGatewayValidateFilter(filterSource: string): boolean
 
 /** Computes XXH3 128-bit over a JS string or Buffer. */
 export declare function xxh3_128_hex(data: string | Buffer): string

@@ -16,10 +16,7 @@ export type AppConfigurationDecryptionResponse = {
  */
 export type AppConfigurationDecryptionValue = {
   key: string
-  /**
-   * Any JSON-compatible value. AppConfigure validates the concrete key schema.
-   */
-  value: unknown
+  value: JsonValue
 }
 
 /**
@@ -37,11 +34,9 @@ export type AppConfigurationItem = {
   pattern?: string | null
   pattern_id?: string | null
   present: boolean
+  scope: 'scoped' | 'global'
   source: 'default' | 'global' | 'missing' | 'pattern' | 'error'
-  /**
-   * Any JSON-compatible value. AppConfigure validates the concrete key schema.
-   */
-  value?: unknown
+  value?: JsonValue
 }
 
 /**
@@ -62,10 +57,7 @@ export type AppConfigurationResponse = {
  * AppConfigurationUpdateRequest
  */
 export type AppConfigurationUpdateRequest = {
-  /**
-   * Any JSON-compatible value. AppConfigure validates the concrete key schema.
-   */
-  value: unknown
+  value: JsonValue
 }
 
 /**
@@ -92,6 +84,605 @@ export type ConsoleApiErrorDetail = {
 export type ConsoleApiErrorEnvelope = {
   error: ConsoleApiError
 }
+
+/**
+ * JsonValue
+ *
+ * Any JSON-compatible value. AppConfigure validates the concrete key schema.
+ */
+export type JsonValue = unknown
+
+/**
+ * LlmProviderCredentialProjection
+ */
+export type LlmProviderCredentialProjection = {
+  masked?: string | null
+  present: boolean
+}
+
+/**
+ * LlmProviderItem
+ */
+export type LlmProviderItem = {
+  base_url?: string | null
+  connection_options: {
+    [key: string]: unknown
+  }
+  credential: LlmProviderCredentialProjection
+  credential_mode: string
+  disabled_at?: string | null
+  provider_id: string
+  provider_source: string
+  source_metadata: {
+    [key: string]: unknown
+  }
+}
+
+/**
+ * LlmProviderListResponse
+ */
+export type LlmProviderListResponse = {
+  data: Array<LlmProviderItem>
+}
+
+/**
+ * LlmProviderResponse
+ */
+export type LlmProviderResponse = {
+  data: LlmProviderItem
+}
+
+/**
+ * LlmProviderSourceItem
+ */
+export type LlmProviderSourceItem = {
+  adapter_strategy: string
+  codex_compatible: boolean
+  connection_options: Array<string>
+  credential_modes: Array<string>
+  default_base_url: string
+  label: string
+  model_catalog_policy: string
+  provider_source: string
+  runtime_provider_options: Array<string>
+}
+
+/**
+ * LlmProviderSourceListResponse
+ */
+export type LlmProviderSourceListResponse = {
+  data: Array<LlmProviderSourceItem>
+}
+
+/**
+ * LlmProviderWriteRequest
+ */
+export type LlmProviderWriteRequest = {
+  base_url?: string | null
+  connection_options?: {
+    [key: string]: unknown
+  }
+  credential?: string | null
+  credential_mode?: string
+  provider_id?: string
+  provider_source?: string
+}
+
+/**
+ * ModelProfileResponse
+ */
+export type ModelProfileResponse = {
+  data: {
+    [key: string]: unknown
+  }
+}
+
+/**
+ * ModelProfileWriteRequest
+ */
+export type ModelProfileWriteRequest = {
+  model: string
+  provider_id: string
+  provider_options?: {
+    [key: string]: unknown
+  }
+}
+
+/**
+ * ModelProfilesResponse
+ */
+export type ModelProfilesResponse = {
+  data: {
+    [key: string]: unknown
+  }
+}
+
+/**
+ * ScheduleCronScheduleListResponse
+ */
+export type ScheduleCronScheduleListResponse = {
+  data: Array<JsonValue>
+}
+
+/**
+ * ScheduleCronScheduleResponse
+ */
+export type ScheduleCronScheduleResponse = {
+  data: JsonValue
+}
+
+/**
+ * ScheduleCronUpdateRequest
+ */
+export type ScheduleCronUpdateRequest = {
+  delivery?: JsonValue
+  failure_policy?: JsonValue
+  name?: string | null
+  payload?: JsonValue
+  schedule?: JsonValue
+  timezone?: string | null
+}
+
+/**
+ * ScheduleCronWriteRequest
+ */
+export type ScheduleCronWriteRequest = {
+  binding_name: string
+  delivery: JsonValue
+  failure_policy?: JsonValue
+  idempotency_key: string
+  name?: string | null
+  payload?: JsonValue
+  schedule: JsonValue
+  status?: 'active' | 'paused'
+  timezone?: string | null
+}
+
+/**
+ * ScheduleEventListResponse
+ */
+export type ScheduleEventListResponse = {
+  data: Array<JsonValue>
+}
+
+/**
+ * ScheduleEventResponse
+ */
+export type ScheduleEventResponse = {
+  data: JsonValue
+}
+
+export type AnkoleWebLlmProviderControllerIndexModelProfilesData = {
+  body?: never
+  path: {
+    agent_uid: string
+  }
+  query?: never
+  url: '/api/agents/{agent_uid}/model-profiles'
+}
+
+export type AnkoleWebLlmProviderControllerIndexModelProfilesErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Not found
+   */
+  404: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebLlmProviderControllerIndexModelProfilesError =
+  AnkoleWebLlmProviderControllerIndexModelProfilesErrors[keyof AnkoleWebLlmProviderControllerIndexModelProfilesErrors]
+
+export type AnkoleWebLlmProviderControllerIndexModelProfilesResponses = {
+  /**
+   * Model profiles
+   */
+  200: ModelProfilesResponse
+}
+
+export type AnkoleWebLlmProviderControllerIndexModelProfilesResponse =
+  AnkoleWebLlmProviderControllerIndexModelProfilesResponses[keyof AnkoleWebLlmProviderControllerIndexModelProfilesResponses]
+
+export type AnkoleWebLlmProviderControllerDeleteModelProfileData = {
+  body?: never
+  path: {
+    agent_uid: string
+    profile: string
+  }
+  query?: never
+  url: '/api/agents/{agent_uid}/model-profiles/{profile}'
+}
+
+export type AnkoleWebLlmProviderControllerDeleteModelProfileErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Not found
+   */
+  404: ConsoleApiErrorEnvelope
+  /**
+   * Profile cannot be cleared
+   */
+  422: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebLlmProviderControllerDeleteModelProfileError =
+  AnkoleWebLlmProviderControllerDeleteModelProfileErrors[keyof AnkoleWebLlmProviderControllerDeleteModelProfileErrors]
+
+export type AnkoleWebLlmProviderControllerDeleteModelProfileResponses = {
+  /**
+   * Model profile
+   */
+  200: ModelProfileResponse
+}
+
+export type AnkoleWebLlmProviderControllerDeleteModelProfileResponse =
+  AnkoleWebLlmProviderControllerDeleteModelProfileResponses[keyof AnkoleWebLlmProviderControllerDeleteModelProfileResponses]
+
+export type AnkoleWebLlmProviderControllerPutModelProfileData = {
+  /**
+   * Model profile
+   */
+  body: ModelProfileWriteRequest
+  path: {
+    agent_uid: string
+    profile: string
+  }
+  query?: never
+  url: '/api/agents/{agent_uid}/model-profiles/{profile}'
+}
+
+export type AnkoleWebLlmProviderControllerPutModelProfileErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Not found
+   */
+  404: ConsoleApiErrorEnvelope
+  /**
+   * Invalid model profile
+   */
+  422: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebLlmProviderControllerPutModelProfileError =
+  AnkoleWebLlmProviderControllerPutModelProfileErrors[keyof AnkoleWebLlmProviderControllerPutModelProfileErrors]
+
+export type AnkoleWebLlmProviderControllerPutModelProfileResponses = {
+  /**
+   * Model profile
+   */
+  200: ModelProfileResponse
+}
+
+export type AnkoleWebLlmProviderControllerPutModelProfileResponse =
+  AnkoleWebLlmProviderControllerPutModelProfileResponses[keyof AnkoleWebLlmProviderControllerPutModelProfileResponses]
+
+export type AnkoleWebScheduleControllerIndexCheckbacksData = {
+  body?: never
+  path: {
+    agent_uid: string
+    session_id: string
+  }
+  query?: never
+  url: '/api/agents/{agent_uid}/sessions/{session_id}/checkbacks'
+}
+
+export type AnkoleWebScheduleControllerIndexCheckbacksResponses = {
+  /**
+   * Scheduled events
+   */
+  200: ScheduleEventListResponse
+}
+
+export type AnkoleWebScheduleControllerIndexCheckbacksResponse =
+  AnkoleWebScheduleControllerIndexCheckbacksResponses[keyof AnkoleWebScheduleControllerIndexCheckbacksResponses]
+
+export type AnkoleWebScheduleControllerCancelCheckbackData = {
+  body?: never
+  path: {
+    agent_uid: string
+    session_id: string
+    scheduled_event_id: string
+  }
+  query?: never
+  url: '/api/agents/{agent_uid}/sessions/{session_id}/checkbacks/{scheduled_event_id}'
+}
+
+export type AnkoleWebScheduleControllerCancelCheckbackResponses = {
+  /**
+   * Scheduled event
+   */
+  200: ScheduleEventResponse
+}
+
+export type AnkoleWebScheduleControllerCancelCheckbackResponse =
+  AnkoleWebScheduleControllerCancelCheckbackResponses[keyof AnkoleWebScheduleControllerCancelCheckbackResponses]
+
+export type AnkoleWebScheduleControllerIndexCronData = {
+  body?: never
+  path: {
+    agent_uid: string
+    session_id: string
+  }
+  query?: never
+  url: '/api/agents/{agent_uid}/sessions/{session_id}/cron-schedules'
+}
+
+export type AnkoleWebScheduleControllerIndexCronErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebScheduleControllerIndexCronError =
+  AnkoleWebScheduleControllerIndexCronErrors[keyof AnkoleWebScheduleControllerIndexCronErrors]
+
+export type AnkoleWebScheduleControllerIndexCronResponses = {
+  /**
+   * Cron schedules
+   */
+  200: ScheduleCronScheduleListResponse
+}
+
+export type AnkoleWebScheduleControllerIndexCronResponse =
+  AnkoleWebScheduleControllerIndexCronResponses[keyof AnkoleWebScheduleControllerIndexCronResponses]
+
+export type AnkoleWebScheduleControllerCreateCronData = {
+  /**
+   * Cron schedule
+   */
+  body: ScheduleCronWriteRequest
+  path: {
+    agent_uid: string
+    session_id: string
+  }
+  query?: never
+  url: '/api/agents/{agent_uid}/sessions/{session_id}/cron-schedules'
+}
+
+export type AnkoleWebScheduleControllerCreateCronErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Invalid schedule
+   */
+  422: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebScheduleControllerCreateCronError =
+  AnkoleWebScheduleControllerCreateCronErrors[keyof AnkoleWebScheduleControllerCreateCronErrors]
+
+export type AnkoleWebScheduleControllerCreateCronResponses = {
+  /**
+   * Cron schedule
+   */
+  200: ScheduleCronScheduleResponse
+}
+
+export type AnkoleWebScheduleControllerCreateCronResponse =
+  AnkoleWebScheduleControllerCreateCronResponses[keyof AnkoleWebScheduleControllerCreateCronResponses]
+
+export type AnkoleWebScheduleControllerRemoveCronData = {
+  body?: never
+  path: {
+    agent_uid: string
+    session_id: string
+    cron_schedule_id: string
+  }
+  query?: never
+  url: '/api/agents/{agent_uid}/sessions/{session_id}/cron-schedules/{cron_schedule_id}'
+}
+
+export type AnkoleWebScheduleControllerRemoveCronResponses = {
+  /**
+   * Cron schedule
+   */
+  200: ScheduleCronScheduleResponse
+}
+
+export type AnkoleWebScheduleControllerRemoveCronResponse =
+  AnkoleWebScheduleControllerRemoveCronResponses[keyof AnkoleWebScheduleControllerRemoveCronResponses]
+
+export type AnkoleWebScheduleControllerShowCronData = {
+  body?: never
+  path: {
+    agent_uid: string
+    session_id: string
+    cron_schedule_id: string
+  }
+  query?: never
+  url: '/api/agents/{agent_uid}/sessions/{session_id}/cron-schedules/{cron_schedule_id}'
+}
+
+export type AnkoleWebScheduleControllerShowCronErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Not found
+   */
+  404: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebScheduleControllerShowCronError =
+  AnkoleWebScheduleControllerShowCronErrors[keyof AnkoleWebScheduleControllerShowCronErrors]
+
+export type AnkoleWebScheduleControllerShowCronResponses = {
+  /**
+   * Cron schedule
+   */
+  200: ScheduleCronScheduleResponse
+}
+
+export type AnkoleWebScheduleControllerShowCronResponse =
+  AnkoleWebScheduleControllerShowCronResponses[keyof AnkoleWebScheduleControllerShowCronResponses]
+
+export type AnkoleWebScheduleControllerUpdateCronData = {
+  /**
+   * Cron schedule update
+   */
+  body: ScheduleCronUpdateRequest
+  path: {
+    agent_uid: string
+    session_id: string
+    cron_schedule_id: string
+  }
+  query?: never
+  url: '/api/agents/{agent_uid}/sessions/{session_id}/cron-schedules/{cron_schedule_id}'
+}
+
+export type AnkoleWebScheduleControllerUpdateCronErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Not found
+   */
+  404: ConsoleApiErrorEnvelope
+  /**
+   * Invalid schedule
+   */
+  422: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebScheduleControllerUpdateCronError =
+  AnkoleWebScheduleControllerUpdateCronErrors[keyof AnkoleWebScheduleControllerUpdateCronErrors]
+
+export type AnkoleWebScheduleControllerUpdateCronResponses = {
+  /**
+   * Cron schedule
+   */
+  200: ScheduleCronScheduleResponse
+}
+
+export type AnkoleWebScheduleControllerUpdateCronResponse =
+  AnkoleWebScheduleControllerUpdateCronResponses[keyof AnkoleWebScheduleControllerUpdateCronResponses]
+
+export type AnkoleWebScheduleControllerPauseCronData = {
+  body?: never
+  path: {
+    agent_uid: string
+    session_id: string
+    cron_schedule_id: string
+  }
+  query?: never
+  url: '/api/agents/{agent_uid}/sessions/{session_id}/cron-schedules/{cron_schedule_id}/pause'
+}
+
+export type AnkoleWebScheduleControllerPauseCronResponses = {
+  /**
+   * Cron schedule
+   */
+  200: ScheduleCronScheduleResponse
+}
+
+export type AnkoleWebScheduleControllerPauseCronResponse =
+  AnkoleWebScheduleControllerPauseCronResponses[keyof AnkoleWebScheduleControllerPauseCronResponses]
+
+export type AnkoleWebScheduleControllerResumeCronData = {
+  body?: never
+  path: {
+    agent_uid: string
+    session_id: string
+    cron_schedule_id: string
+  }
+  query?: never
+  url: '/api/agents/{agent_uid}/sessions/{session_id}/cron-schedules/{cron_schedule_id}/resume'
+}
+
+export type AnkoleWebScheduleControllerResumeCronResponses = {
+  /**
+   * Cron schedule
+   */
+  200: ScheduleCronScheduleResponse
+}
+
+export type AnkoleWebScheduleControllerResumeCronResponse =
+  AnkoleWebScheduleControllerResumeCronResponses[keyof AnkoleWebScheduleControllerResumeCronResponses]
+
+export type AnkoleWebScheduleControllerCronRunsData = {
+  body?: never
+  path: {
+    agent_uid: string
+    session_id: string
+    cron_schedule_id: string
+  }
+  query?: {
+    limit?: number
+  }
+  url: '/api/agents/{agent_uid}/sessions/{session_id}/cron-schedules/{cron_schedule_id}/runs'
+}
+
+export type AnkoleWebScheduleControllerCronRunsResponses = {
+  /**
+   * Scheduled events
+   */
+  200: ScheduleEventListResponse
+}
+
+export type AnkoleWebScheduleControllerCronRunsResponse =
+  AnkoleWebScheduleControllerCronRunsResponses[keyof AnkoleWebScheduleControllerCronRunsResponses]
+
+export type AnkoleWebScheduleControllerRunCronData = {
+  body?: never
+  path: {
+    agent_uid: string
+    session_id: string
+    cron_schedule_id: string
+  }
+  query?: never
+  url: '/api/agents/{agent_uid}/sessions/{session_id}/cron-schedules/{cron_schedule_id}/runs'
+}
+
+export type AnkoleWebScheduleControllerRunCronResponses = {
+  /**
+   * Scheduled event
+   */
+  200: ScheduleEventResponse
+}
+
+export type AnkoleWebScheduleControllerRunCronResponse =
+  AnkoleWebScheduleControllerRunCronResponses[keyof AnkoleWebScheduleControllerRunCronResponses]
 
 export type AnkoleWebAppConfigurationControllerIndexData = {
   body?: never
@@ -290,3 +881,146 @@ export type AnkoleWebAppConfigurationControllerDecryptResponses = {
 
 export type AnkoleWebAppConfigurationControllerDecryptResponse =
   AnkoleWebAppConfigurationControllerDecryptResponses[keyof AnkoleWebAppConfigurationControllerDecryptResponses]
+
+export type AnkoleWebLlmProviderControllerSourcesData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/llm-provider-sources'
+}
+
+export type AnkoleWebLlmProviderControllerSourcesErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebLlmProviderControllerSourcesError =
+  AnkoleWebLlmProviderControllerSourcesErrors[keyof AnkoleWebLlmProviderControllerSourcesErrors]
+
+export type AnkoleWebLlmProviderControllerSourcesResponses = {
+  /**
+   * Provider sources
+   */
+  200: LlmProviderSourceListResponse
+}
+
+export type AnkoleWebLlmProviderControllerSourcesResponse =
+  AnkoleWebLlmProviderControllerSourcesResponses[keyof AnkoleWebLlmProviderControllerSourcesResponses]
+
+export type AnkoleWebLlmProviderControllerIndexData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/llm-providers'
+}
+
+export type AnkoleWebLlmProviderControllerIndexErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebLlmProviderControllerIndexError =
+  AnkoleWebLlmProviderControllerIndexErrors[keyof AnkoleWebLlmProviderControllerIndexErrors]
+
+export type AnkoleWebLlmProviderControllerIndexResponses = {
+  /**
+   * LLM providers
+   */
+  200: LlmProviderListResponse
+}
+
+export type AnkoleWebLlmProviderControllerIndexResponse =
+  AnkoleWebLlmProviderControllerIndexResponses[keyof AnkoleWebLlmProviderControllerIndexResponses]
+
+export type AnkoleWebLlmProviderControllerDeleteProviderData = {
+  body?: never
+  path: {
+    provider_id: string
+  }
+  query?: never
+  url: '/api/llm-providers/{provider_id}'
+}
+
+export type AnkoleWebLlmProviderControllerDeleteProviderErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Not found
+   */
+  404: ConsoleApiErrorEnvelope
+  /**
+   * Provider in use
+   */
+  422: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebLlmProviderControllerDeleteProviderError =
+  AnkoleWebLlmProviderControllerDeleteProviderErrors[keyof AnkoleWebLlmProviderControllerDeleteProviderErrors]
+
+export type AnkoleWebLlmProviderControllerDeleteProviderResponses = {
+  /**
+   * LLM provider
+   */
+  200: LlmProviderResponse
+}
+
+export type AnkoleWebLlmProviderControllerDeleteProviderResponse =
+  AnkoleWebLlmProviderControllerDeleteProviderResponses[keyof AnkoleWebLlmProviderControllerDeleteProviderResponses]
+
+export type AnkoleWebLlmProviderControllerPutProviderData = {
+  /**
+   * LLM provider
+   */
+  body: LlmProviderWriteRequest
+  path: {
+    provider_id: string
+  }
+  query?: never
+  url: '/api/llm-providers/{provider_id}'
+}
+
+export type AnkoleWebLlmProviderControllerPutProviderErrors = {
+  /**
+   * Unauthorized
+   */
+  401: ConsoleApiErrorEnvelope
+  /**
+   * Forbidden
+   */
+  403: ConsoleApiErrorEnvelope
+  /**
+   * Invalid provider
+   */
+  422: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebLlmProviderControllerPutProviderError =
+  AnkoleWebLlmProviderControllerPutProviderErrors[keyof AnkoleWebLlmProviderControllerPutProviderErrors]
+
+export type AnkoleWebLlmProviderControllerPutProviderResponses = {
+  /**
+   * LLM provider
+   */
+  200: LlmProviderResponse
+}
+
+export type AnkoleWebLlmProviderControllerPutProviderResponse =
+  AnkoleWebLlmProviderControllerPutProviderResponses[keyof AnkoleWebLlmProviderControllerPutProviderResponses]

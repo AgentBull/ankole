@@ -84,7 +84,7 @@ defmodule Ankole.Plugins.LarkAdapter do
         connection_supervisor: ConnectionSupervisor,
         inbound_capabilities: [
           "entry_receive",
-          "entry_recall",
+          "entry_removed",
           "reaction_add",
           "reaction_remove",
           "action_event"

@@ -52,18 +52,21 @@ That is the technical bet: actor model for long-lived work identity, OTP for fai
 
 ## Current Repository
 
-This repository is the early Ankole control-plane and runtime foundation. It is not yet a polished end-user distribution.
+This repository is the active Ankole control-plane and runtime workspace. It is still an engineering distribution, not a polished end-user release.
 
-- `app/control_plane` - Phoenix control plane for Principal/AuthZ, AppConfigure, plugins, SignalsGateway, setup, console, and web shell.
-- `app/kernel` - shared native foundation for runtime-neutral mechanisms such as crypto, hashing, identifiers, and policy helpers.
-- `app/agent_computer` - Bun + TypeScript Agent Computer runtime for the local LLM loop, tools, files, terminal state, and worker daemon.
-- `app/webapps` - Vite-powered frontend applications mounted by the Phoenix shell.
+- `app/control_plane` - Phoenix/OTP control plane for Principal/AuthZ, AppConfigure, setup, console, plugin registry, I18n, SignalsGateway, actor runtime, RuntimeFabric, and PostgreSQL-owned durable state.
+- `app/kernel` - shared Rust foundation loaded by Elixir and Bun for crypto, identifiers, phone/JWT helpers, AuthZ evaluation, protobuf envelopes, and ZeroMQ RuntimeFabric transport.
+- `app/agent_computer` - Bun + TypeScript Agent Computer worker for the local LLM loop, provider adapters, tools, skill loading, files, terminal state, and worker daemon.
+- `app/webapps` - Vite + React frontend applications for auth, setup, and console surfaces, built into the Phoenix static shell.
+- `app/library` - built-in agent skills and starter templates such as `MISSION.md` and `SOUL.md`.
+- `app/locales` - shared TOML translation catalogs consumed by the control plane and browser surfaces.
 - `libs/uikit` - shared UI primitives for Ankole webapps.
 - `libs/feishu_openapi` - local Lark/Feishu OpenAPI client library.
-- `plugins` and `internals/plugins` - trusted first-party Elixir plugins. Plugins are installation-global and default-on, with a global disable list.
-- `docs/design-docs` - current design documents for principal identity, authorization, configuration, signals, plugins, and provider adapters.
+- `internals/plugins` - private first-party provider/plugin code that is kept with the repo but not presented as the public plugin boundary.
+- `tools/devkit` - workspace automation for local services, app database helpers, code generation, and analysis.
+- `docs/design-docs` - current design documents for principal identity, authorization, configuration, I18n, plugins, RuntimeFabric, SignalsGateway, and provider adapters.
 
-SignalsGateway is the provider-ingress layer. It lets Ankole observe chats, webhooks, and provider events without confusing external source facts with agent execution. Signals become actor input; actor scheduling and execution stay in the runtime.
+RuntimeFabric is the live control-plane-to-worker fabric. It carries actor traffic, bounded RPC, and worker-file frames over ZeroMQ while PostgreSQL remains the source of durable replay, fences, reconciliation, and final commits. SignalsGateway is the provider-ingress layer: external chats, webhooks, and provider events become actor input without turning source facts into execution state.
 
 ## Development
 

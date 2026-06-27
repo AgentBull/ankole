@@ -13,7 +13,7 @@ defmodule Ankole.Actors.ActorInputConsumption do
 
   alias Ankole.Principals.Principal
 
-  @primary_key {:id, :binary_id, autogenerate: true}
+  @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
   @foreign_key_type :string
   @timestamps_opts [type: :utc_datetime_usec]
 

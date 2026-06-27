@@ -1,11 +1,11 @@
 defmodule Ankole.AIAgent.MessageContext do
   @moduledoc """
-  Builds the frozen `<message_context>` metadata stored on inbound transcript rows.
+  Builds scene metadata stored on inbound transcript rows.
 
-  The renderer in Agent Computer must be able to replay the exact context prefix a
-  message had when it was written. For that reason this module stores both the
-  raw scene facts and each sparse-injection decision in message metadata instead
-  of recomputing them from whatever the transcript looks like later.
+  Prompt-visible message time is not stored here. Agent Computer derives
+  `send_at` from `ai_agent_messages.inserted_at` when projecting history into a
+  model prompt. This module only preserves provider scene facts such as room,
+  speaker, actor, and runtime notes.
   """
 
   import Ecto.Query, warn: false
@@ -13,11 +13,6 @@ defmodule Ankole.AIAgent.MessageContext do
   alias Ankole.AIAgent.Schemas.Message
 
   @metadata_key "message_context"
-  # "Sparse injection": scene facts (time, room, actor) are rendered into the
-  # prompt only when they have changed since the model last saw them, to avoid
-  # repeating a timestamp/room banner on every message. Time re-injects only
-  # after a 1h gap; below that the previous time line is still considered fresh.
-  @time_context_gap_ms 60 * 60 * 1_000
   # Hard cap on any single injected context line (speaker, room, think). Bounds
   # how much untrusted chat metadata can bloat the frozen prompt prefix.
   @max_context_line_text 800
@@ -26,12 +21,10 @@ defmodule Ankole.AIAgent.MessageContext do
   @type input :: %{
           optional(:actor) => map() | nil,
           optional(:room) => map() | nil,
-          optional(:sent_at) => DateTime.t() | String.t() | nil,
           optional(:speaker) => String.t() | nil,
           optional(:speaker_role) => String.t() | nil,
           optional(:speaker_trigger) => String.t() | nil,
-          optional(:think) => String.t() | nil,
-          optional(:timezone) => String.t() | nil
+          optional(:think) => String.t() | nil
         }
 
   @doc """
@@ -55,27 +48,18 @@ defmodule Ankole.AIAgent.MessageContext do
   end
 
   @doc """
-  Computes frozen message-context metadata for one incoming message.
+  Computes message-context metadata for one incoming message.
 
-  Time, room, and inferred actor are sparse and compare against `history`.
+  Room and inferred actor are sparse and compare against `history`.
   Runtime-supplied speaker and think fields are always injected because they are
-  explicit control-plane facts, not facts inferred from the surrounding chat.
+  explicit system facts, not facts inferred from the surrounding chat.
   """
   @spec build(input(), [history_item()]) :: map()
   def build(input, history) when is_map(input) and is_list(history) do
-    sent_at = normalize_sent_at(value(input, :sent_at)) || DateTime.utc_now(:microsecond)
-    timezone = text(value(input, :timezone)) || "UTC"
     actor = actor_context(value(input, :actor))
     room = room_context(value(input, :room), actor.display_name)
 
-    %{
-      "time" => %{
-        "sent_at" => DateTime.to_iso8601(sent_at),
-        "injected" => should_inject_time?(sent_at, history),
-        "gap_ms" => @time_context_gap_ms,
-        "timezone" => timezone
-      }
-    }
+    %{}
     |> put_optional("room", room_metadata(room, history))
     |> put_optional("actor", actor_metadata(actor, room, history))
     |> put_optional("speaker", speaker_metadata(input))
@@ -153,21 +137,6 @@ defmodule Ankole.AIAgent.MessageContext do
     case normalize_context_line(value(input, :think)) do
       nil -> nil
       think -> %{"text" => think, "injected" => true}
-    end
-  end
-
-  defp should_inject_time?(sent_at, history) do
-    case find_last_context(history, fn context ->
-           context
-           |> map_value("time")
-           |> map_value("sent_at")
-           |> normalize_sent_at()
-         end) do
-      %DateTime{} = previous ->
-        DateTime.diff(sent_at, previous, :millisecond) >= @time_context_gap_ms
-
-      nil ->
-        false
     end
   end
 
@@ -266,17 +235,6 @@ defmodule Ankole.AIAgent.MessageContext do
         %{id: id, is_dm: is_dm, label: label, name: name}
     end
   end
-
-  defp normalize_sent_at(%DateTime{} = sent_at), do: sent_at
-
-  defp normalize_sent_at(value) when is_binary(value) do
-    case DateTime.from_iso8601(value) do
-      {:ok, sent_at, _offset} -> sent_at
-      _error -> nil
-    end
-  end
-
-  defp normalize_sent_at(_value), do: nil
 
   defp normalize_context_line(value) do
     value

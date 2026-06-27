@@ -15,7 +15,7 @@ defmodule Ankole.ActorRuntime.Schemas.ActorInputDelivery do
   alias Ankole.Principals.Principal
   alias Ankole.SignalsGateway.JsonPayload
 
-  @primary_key {:id, :binary_id, autogenerate: true}
+  @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
   @foreign_key_type :string
   @timestamps_opts [type: :utc_datetime_usec]
   # Delivery lifecycle. `created/sent/accepted` are the "live" set (a worker may
@@ -35,7 +35,7 @@ defmodule Ankole.ActorRuntime.Schemas.ActorInputDelivery do
       type: :string
 
     field :session_id, :string
-    field :broker_sequence, :integer
+    field :live_queue_sequence, :integer
     # Monotonic per-input attempt counter. A retry of the same actor input gets a
     # higher attempt_no, which keeps the per-input unique index from colliding.
     field :attempt_no, :integer
@@ -72,7 +72,7 @@ defmodule Ankole.ActorRuntime.Schemas.ActorInputDelivery do
       :actor_input_id,
       :agent_uid,
       :session_id,
-      :broker_sequence,
+      :live_queue_sequence,
       :attempt_no,
       :delivery_batch_id,
       :actor_lane_message_id,
@@ -107,7 +107,7 @@ defmodule Ankole.ActorRuntime.Schemas.ActorInputDelivery do
       :actor_input_id,
       :agent_uid,
       :session_id,
-      :broker_sequence,
+      :live_queue_sequence,
       :attempt_no,
       :delivery_batch_id,
       :actor_lane_message_id,
@@ -118,7 +118,7 @@ defmodule Ankole.ActorRuntime.Schemas.ActorInputDelivery do
       :state,
       :error
     ])
-    |> validate_number(:broker_sequence, greater_than: 0)
+    |> validate_number(:live_queue_sequence, greater_than: 0)
     |> validate_number(:attempt_no, greater_than: 0)
     |> validate_number(:actor_epoch, greater_than: 0)
     |> validate_number(:revision, greater_than_or_equal_to: 0)

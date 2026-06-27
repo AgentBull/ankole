@@ -7,7 +7,7 @@
 use prost::Message;
 use serde_json::{Map, Value};
 
-use crate::core::{KernelError, KernelResult};
+use crate::common::{KernelError, KernelResult};
 
 pub mod proto {
     include!(concat!(env!("OUT_DIR"), "/ankole.runtime_fabric.v1.rs"));
@@ -56,7 +56,6 @@ fn envelope_from_json(value: &Value) -> KernelResult<proto::Envelope> {
         protocol_version: optional_u32(object, "protocol_version")?.unwrap_or(PROTOCOL_VERSION),
         message_id: required_string(object, "message_id")?,
         correlation_id: optional_string(object, "correlation_id")?.unwrap_or_default(),
-        seq: optional_u64(object, "seq")?.unwrap_or_default(),
         lane: lane_from_json(required_value(object, "lane")?)? as i32,
         sent_at_unix_ms: optional_i64(object, "sent_at_unix_ms")?.unwrap_or_default(),
         durability: durability_from_json(required_value(object, "durability")?)? as i32,
@@ -64,14 +63,12 @@ fn envelope_from_json(value: &Value) -> KernelResult<proto::Envelope> {
     })
 }
 
-// Accepts both the typed host shape (`body.type + body[type]`) and the older
-// top-level body shape used by focused codec tests. Both paths still collapse
-// to exactly one protobuf oneof.
+// Accepts the canonical typed host shape: `body.type + body[type]`.
 fn body_from_json(object: &Map<String, Value>) -> KernelResult<proto::envelope::Body> {
     match object.get("body") {
         Some(Value::Object(body)) => typed_body_from_json(body),
         Some(_value) => Err(KernelError::new("body must be an object")),
-        None => top_level_body_from_json(object),
+        None => Err(KernelError::new("envelope body is required")),
     }
 }
 
@@ -80,36 +77,6 @@ fn typed_body_from_json(body: &Map<String, Value>) -> KernelResult<proto::envelo
     let payload = required_value(body, &body_type)?;
 
     named_body_from_json(&body_type, payload)
-}
-
-// Finds the single protobuf body when callers pass a top-level payload. This is
-// compatibility for host ergonomics, not a second wire format.
-fn top_level_body_from_json(object: &Map<String, Value>) -> KernelResult<proto::envelope::Body> {
-    let matches: Vec<(&str, &Value)> = [
-        "worker_ready",
-        "worker_heartbeat",
-        "worker_capacity",
-        "turn_start",
-        "mailbox_updated",
-        "turn_accepted",
-        "turn_control",
-        "worker_progress",
-        "turn_final_proposal",
-        "turn_error",
-        "control_shutdown",
-        "rpc_request",
-        "rpc_response",
-        "rpc_error",
-    ]
-    .into_iter()
-    .filter_map(|key| object.get(key).map(|value| (key, value)))
-    .collect();
-
-    match matches.as_slice() {
-        [(name, payload)] => named_body_from_json(name, payload),
-        [] => Err(KernelError::new("envelope body is required")),
-        _matches => Err(KernelError::new("envelope must contain exactly one body")),
-    }
 }
 
 fn named_body_from_json(name: &str, payload: &Value) -> KernelResult<proto::envelope::Body> {
@@ -355,7 +322,7 @@ fn actor_key_from_json(value: &Value) -> KernelResult<proto::ActorKey> {
 fn reject_actor_profile_field(object: &Map<String, Value>, field: &str) -> KernelResult<()> {
     if object.contains_key(field) {
         return Err(KernelError::new(format!(
-            "ActorKey must not carry {field}; resolve agent profile through RPCLane"
+            "ActorKey must not carry {field}; resolve display identity through RPCLane"
         )));
     }
 
@@ -384,7 +351,7 @@ fn actor_input_from_json(value: &Value) -> KernelResult<proto::ActorInputEnvelop
 
     Ok(proto::ActorInputEnvelope {
         actor_input_id: required_string(object, "actor_input_id")?,
-        broker_sequence: required_u64(object, "broker_sequence")?,
+        live_queue_sequence: required_u64(object, "live_queue_sequence")?,
         r#type: required_string(object, "type")?,
         ingress_event_id: required_string(object, "ingress_event_id")?,
         provider_entry_id: optional_string(object, "provider_entry_id")?.unwrap_or_default(),
@@ -415,6 +382,32 @@ fn proposed_reply_from_json(value: &Value) -> KernelResult<proto::ProposedReply>
     Ok(proto::ProposedReply {
         text: optional_string(object, "text")?.unwrap_or_default(),
         content_json: json_bytes(object.get("content_json"))?.unwrap_or_default(),
+        attachments: proposed_reply_attachments_from_json(object.get("attachments"))?,
+    })
+}
+
+fn proposed_reply_attachments_from_json(
+    value: Option<&Value>,
+) -> KernelResult<Vec<proto::ProposedReplyAttachment>> {
+    array(value, "attachments")?
+        .into_iter()
+        .map(proposed_reply_attachment_from_json)
+        .collect()
+}
+
+fn proposed_reply_attachment_from_json(
+    value: &Value,
+) -> KernelResult<proto::ProposedReplyAttachment> {
+    let object = object(value, "attachment")?;
+
+    Ok(proto::ProposedReplyAttachment {
+        agent_computer_path: optional_string(object, "agent_computer_path")?.unwrap_or_default(),
+        user_files_relative_path: optional_string(object, "user_files_relative_path")?
+            .unwrap_or_default(),
+        name: optional_string(object, "name")?.unwrap_or_default(),
+        mime_type: optional_string(object, "mime_type")?.unwrap_or_default(),
+        size: optional_u64(object, "size")?,
+        xxh3_128: optional_string(object, "xxh3_128")?.unwrap_or_default(),
     })
 }
 
@@ -448,6 +441,7 @@ fn validate_envelope(envelope: &proto::Envelope) -> KernelResult<()> {
 
     match &envelope.body {
         Some(body) => {
+            validate_body_required_fields(body)?;
             validate_body_semantics(body, lane, durability)?;
             validate_correlation_id(envelope, body)?;
 
@@ -478,34 +472,28 @@ fn validate_correlation_id(
     envelope: &proto::Envelope,
     body: &proto::envelope::Body,
 ) -> KernelResult<()> {
-    if !body_requires_correlation_id(body) {
+    let spec = body_spec(body);
+
+    if !spec.requires_correlation_id {
         return Ok(());
     }
 
     if envelope.correlation_id.trim().is_empty() {
         return Err(KernelError::new(format!(
             "{} requires correlation_id",
-            body_name(body)
+            spec.name
         )));
     }
 
     Ok(())
 }
 
-fn body_requires_correlation_id(body: &proto::envelope::Body) -> bool {
-    matches!(
-        body,
-        proto::envelope::Body::TurnStart(_)
-            | proto::envelope::Body::MailboxUpdated(_)
-            | proto::envelope::Body::TurnAccepted(_)
-            | proto::envelope::Body::TurnControl(_)
-            | proto::envelope::Body::WorkerProgress(_)
-            | proto::envelope::Body::TurnFinalProposal(_)
-            | proto::envelope::Body::TurnError(_)
-            | proto::envelope::Body::RpcRequest(_)
-            | proto::envelope::Body::RpcResponse(_)
-            | proto::envelope::Body::RpcError(_)
-    )
+#[derive(Clone, Copy)]
+struct BodySpec {
+    name: &'static str,
+    lane: proto::Lane,
+    durability: proto::DurabilityClass,
+    requires_correlation_id: bool,
 }
 
 // Keeps lane and durability tied to the body type. This prevents callers from
@@ -516,113 +504,312 @@ fn validate_body_semantics(
     lane: proto::Lane,
     durability: proto::DurabilityClass,
 ) -> KernelResult<()> {
-    let (body_name, expected_lane, expected_durability) = match body {
-        proto::envelope::Body::WorkerReady(_) => (
-            "worker_ready",
-            proto::Lane::Control,
-            proto::DurabilityClass::ControlEphemeral,
-        ),
-        proto::envelope::Body::WorkerHeartbeat(_) => (
-            "worker_heartbeat",
-            proto::Lane::Control,
-            proto::DurabilityClass::ControlEphemeral,
-        ),
-        proto::envelope::Body::WorkerCapacity(_) => (
-            "worker_capacity",
-            proto::Lane::Control,
-            proto::DurabilityClass::ControlEphemeral,
-        ),
-        proto::envelope::Body::TurnStart(_) => (
-            "turn_start",
-            proto::Lane::Turn,
-            proto::DurabilityClass::ControlReplayable,
-        ),
-        proto::envelope::Body::MailboxUpdated(_) => (
-            "mailbox_updated",
-            proto::Lane::Turn,
-            proto::DurabilityClass::ControlEphemeral,
-        ),
-        proto::envelope::Body::TurnAccepted(_) => (
-            "turn_accepted",
-            proto::Lane::Turn,
-            proto::DurabilityClass::ControlReplayable,
-        ),
-        proto::envelope::Body::TurnControl(_) => (
-            "turn_control",
-            proto::Lane::Control,
-            proto::DurabilityClass::ControlDurable,
-        ),
-        proto::envelope::Body::WorkerProgress(_) => (
-            "worker_progress",
-            proto::Lane::Progress,
-            proto::DurabilityClass::ControlEphemeral,
-        ),
-        proto::envelope::Body::TurnFinalProposal(_) => (
-            "turn_final_proposal",
-            proto::Lane::Turn,
-            proto::DurabilityClass::ControlDurable,
-        ),
-        proto::envelope::Body::TurnError(_) => (
-            "turn_error",
-            proto::Lane::Turn,
-            proto::DurabilityClass::ControlReplayable,
-        ),
-        proto::envelope::Body::ControlShutdown(_) => (
-            "control_shutdown",
-            proto::Lane::Control,
-            proto::DurabilityClass::ControlEphemeral,
-        ),
-        proto::envelope::Body::RpcRequest(_) => (
-            "rpc_request",
-            proto::Lane::Rpc,
-            proto::DurabilityClass::ControlEphemeral,
-        ),
-        proto::envelope::Body::RpcResponse(_) => (
-            "rpc_response",
-            proto::Lane::Rpc,
-            proto::DurabilityClass::ControlEphemeral,
-        ),
-        proto::envelope::Body::RpcError(_) => (
-            "rpc_error",
-            proto::Lane::Rpc,
-            proto::DurabilityClass::ControlEphemeral,
-        ),
-    };
+    let spec = body_spec(body);
 
-    if lane != expected_lane {
+    if lane != spec.lane {
         return Err(KernelError::new(format!(
-            "{body_name} must use lane {}",
-            lane_name(expected_lane)
+            "{} must use lane {}",
+            spec.name,
+            lane_name(spec.lane)
         )));
     }
 
-    if durability != expected_durability {
+    if durability != spec.durability {
         return Err(KernelError::new(format!(
-            "{body_name} must use durability {}",
-            durability_name(expected_durability)
+            "{} must use durability {}",
+            spec.name,
+            durability_name(spec.durability)
         )));
     }
 
     Ok(())
 }
 
-fn body_name(body: &proto::envelope::Body) -> &'static str {
+fn body_spec(body: &proto::envelope::Body) -> BodySpec {
+    // Exhaustive on purpose: a new body variant must force a lane, durability,
+    // and correlation decision instead of inheriting defaults.
     match body {
-        proto::envelope::Body::WorkerReady(_) => "worker_ready",
-        proto::envelope::Body::WorkerHeartbeat(_) => "worker_heartbeat",
-        proto::envelope::Body::WorkerCapacity(_) => "worker_capacity",
-        proto::envelope::Body::TurnStart(_) => "turn_start",
-        proto::envelope::Body::MailboxUpdated(_) => "mailbox_updated",
-        proto::envelope::Body::TurnAccepted(_) => "turn_accepted",
-        proto::envelope::Body::TurnControl(_) => "turn_control",
-        proto::envelope::Body::WorkerProgress(_) => "worker_progress",
-        proto::envelope::Body::TurnFinalProposal(_) => "turn_final_proposal",
-        proto::envelope::Body::TurnError(_) => "turn_error",
-        proto::envelope::Body::ControlShutdown(_) => "control_shutdown",
-        proto::envelope::Body::RpcRequest(_) => "rpc_request",
-        proto::envelope::Body::RpcResponse(_) => "rpc_response",
-        proto::envelope::Body::RpcError(_) => "rpc_error",
+        proto::envelope::Body::WorkerReady(_) => BodySpec {
+            name: "worker_ready",
+            lane: proto::Lane::Control,
+            durability: proto::DurabilityClass::ControlEphemeral,
+            requires_correlation_id: false,
+        },
+        proto::envelope::Body::WorkerHeartbeat(_) => BodySpec {
+            name: "worker_heartbeat",
+            lane: proto::Lane::Control,
+            durability: proto::DurabilityClass::ControlEphemeral,
+            requires_correlation_id: false,
+        },
+        proto::envelope::Body::WorkerCapacity(_) => BodySpec {
+            name: "worker_capacity",
+            lane: proto::Lane::Control,
+            durability: proto::DurabilityClass::ControlEphemeral,
+            requires_correlation_id: false,
+        },
+        proto::envelope::Body::TurnStart(_) => BodySpec {
+            name: "turn_start",
+            lane: proto::Lane::Turn,
+            durability: proto::DurabilityClass::ControlReplayable,
+            requires_correlation_id: true,
+        },
+        proto::envelope::Body::MailboxUpdated(_) => BodySpec {
+            name: "mailbox_updated",
+            lane: proto::Lane::Turn,
+            durability: proto::DurabilityClass::ControlEphemeral,
+            requires_correlation_id: true,
+        },
+        proto::envelope::Body::TurnAccepted(_) => BodySpec {
+            name: "turn_accepted",
+            lane: proto::Lane::Turn,
+            durability: proto::DurabilityClass::ControlReplayable,
+            requires_correlation_id: true,
+        },
+        proto::envelope::Body::TurnControl(_) => BodySpec {
+            name: "turn_control",
+            lane: proto::Lane::Control,
+            durability: proto::DurabilityClass::ControlDurable,
+            requires_correlation_id: true,
+        },
+        proto::envelope::Body::WorkerProgress(_) => BodySpec {
+            name: "worker_progress",
+            lane: proto::Lane::Progress,
+            durability: proto::DurabilityClass::ControlEphemeral,
+            requires_correlation_id: true,
+        },
+        proto::envelope::Body::TurnFinalProposal(_) => BodySpec {
+            name: "turn_final_proposal",
+            lane: proto::Lane::Turn,
+            durability: proto::DurabilityClass::ControlDurable,
+            requires_correlation_id: true,
+        },
+        proto::envelope::Body::TurnError(_) => BodySpec {
+            name: "turn_error",
+            lane: proto::Lane::Turn,
+            durability: proto::DurabilityClass::ControlReplayable,
+            requires_correlation_id: true,
+        },
+        proto::envelope::Body::ControlShutdown(_) => BodySpec {
+            name: "control_shutdown",
+            lane: proto::Lane::Control,
+            durability: proto::DurabilityClass::ControlEphemeral,
+            requires_correlation_id: false,
+        },
+        proto::envelope::Body::RpcRequest(_) => BodySpec {
+            name: "rpc_request",
+            lane: proto::Lane::Rpc,
+            durability: proto::DurabilityClass::ControlEphemeral,
+            requires_correlation_id: true,
+        },
+        proto::envelope::Body::RpcResponse(_) => BodySpec {
+            name: "rpc_response",
+            lane: proto::Lane::Rpc,
+            durability: proto::DurabilityClass::ControlEphemeral,
+            requires_correlation_id: true,
+        },
+        proto::envelope::Body::RpcError(_) => BodySpec {
+            name: "rpc_error",
+            lane: proto::Lane::Rpc,
+            durability: proto::DurabilityClass::ControlEphemeral,
+            requires_correlation_id: true,
+        },
     }
+}
+
+fn validate_body_required_fields(body: &proto::envelope::Body) -> KernelResult<()> {
+    match body {
+        proto::envelope::Body::WorkerReady(payload) => {
+            require_non_empty(&payload.worker_id, "worker_ready.worker_id")?;
+            require_non_empty(&payload.runtime, "worker_ready.runtime")?;
+            require_non_empty(&payload.version, "worker_ready.version")
+        }
+        proto::envelope::Body::WorkerHeartbeat(payload) => {
+            require_non_empty(&payload.worker_id, "worker_heartbeat.worker_id")
+        }
+        proto::envelope::Body::WorkerCapacity(payload) => {
+            require_non_empty(&payload.worker_id, "worker_capacity.worker_id")
+        }
+        proto::envelope::Body::TurnStart(payload) => {
+            validate_turn_ref(payload.turn.as_ref(), "turn_start.turn")?;
+            validate_actor_inputs(&payload.inputs, "turn_start.inputs")?;
+            validate_optional_model_ref(payload.model_ref.as_ref(), "turn_start.model_ref")
+        }
+        proto::envelope::Body::MailboxUpdated(payload) => {
+            validate_actor_key(payload.actor.as_ref(), "mailbox_updated.actor")?;
+            require_non_empty(&payload.activation_uid, "mailbox_updated.activation_uid")?;
+            require_positive_u64(payload.actor_epoch, "mailbox_updated.actor_epoch")?;
+            let turn = validate_turn_ref(payload.turn.as_ref(), "mailbox_updated.turn")?;
+            validate_mailbox_turn_mirror(payload, turn)?;
+            validate_actor_inputs(&payload.inputs, "mailbox_updated.inputs")
+        }
+        proto::envelope::Body::TurnAccepted(payload) => {
+            validate_turn_ref(payload.turn.as_ref(), "turn_accepted.turn")?;
+            validate_non_empty_strings(
+                &payload.accepted_actor_input_ids,
+                "turn_accepted.accepted_actor_input_ids",
+            )
+        }
+        proto::envelope::Body::TurnControl(payload) => {
+            validate_turn_ref(payload.turn.as_ref(), "turn_control.turn")?;
+            require_non_empty(&payload.command, "turn_control.command")
+        }
+        proto::envelope::Body::WorkerProgress(payload) => {
+            validate_turn_ref(payload.turn.as_ref(), "worker_progress.turn")?;
+            require_non_empty(&payload.kind, "worker_progress.kind")
+        }
+        proto::envelope::Body::TurnFinalProposal(payload) => {
+            validate_turn_ref(payload.turn.as_ref(), "turn_final_proposal.turn")?;
+            for (index, message) in payload.messages.iter().enumerate() {
+                require_non_empty(
+                    &message.role,
+                    &format!("turn_final_proposal.messages[{index}].role"),
+                )?;
+            }
+            validate_proposed_reply(payload.reply.as_ref(), "turn_final_proposal.reply")
+        }
+        proto::envelope::Body::TurnError(payload) => {
+            validate_turn_ref(payload.turn.as_ref(), "turn_error.turn")?;
+            require_non_empty(&payload.code, "turn_error.code")
+        }
+        proto::envelope::Body::ControlShutdown(_payload) => Ok(()),
+        proto::envelope::Body::RpcRequest(payload) => {
+            require_non_empty(&payload.request_id, "rpc_request.request_id")?;
+            require_non_empty(&payload.method, "rpc_request.method")
+        }
+        proto::envelope::Body::RpcResponse(payload) => {
+            require_non_empty(&payload.request_id, "rpc_response.request_id")
+        }
+        proto::envelope::Body::RpcError(payload) => {
+            require_non_empty(&payload.request_id, "rpc_error.request_id")?;
+            require_non_empty(&payload.code, "rpc_error.code")
+        }
+    }
+}
+
+fn validate_actor_inputs(inputs: &[proto::ActorInputEnvelope], field: &str) -> KernelResult<()> {
+    for (index, input) in inputs.iter().enumerate() {
+        require_non_empty(
+            &input.actor_input_id,
+            &format!("{field}[{index}].actor_input_id"),
+        )?;
+        require_positive_u64(
+            input.live_queue_sequence,
+            &format!("{field}[{index}].live_queue_sequence"),
+        )?;
+        require_non_empty(&input.r#type, &format!("{field}[{index}].type"))?;
+        require_non_empty(
+            &input.ingress_event_id,
+            &format!("{field}[{index}].ingress_event_id"),
+        )?;
+    }
+
+    Ok(())
+}
+
+fn validate_turn_ref<'a>(
+    turn: Option<&'a proto::ActorTurnRef>,
+    field: &str,
+) -> KernelResult<&'a proto::ActorTurnRef> {
+    let turn = turn.ok_or_else(|| KernelError::new(format!("{field} is required")))?;
+    validate_actor_key(turn.actor.as_ref(), &format!("{field}.actor"))?;
+    require_non_empty(&turn.activation_uid, &format!("{field}.activation_uid"))?;
+    require_positive_u64(turn.actor_epoch, &format!("{field}.actor_epoch"))?;
+    require_non_empty(&turn.llm_turn_id, &format!("{field}.llm_turn_id"))?;
+    Ok(turn)
+}
+
+fn validate_actor_key(actor: Option<&proto::ActorKey>, field: &str) -> KernelResult<()> {
+    let actor = actor.ok_or_else(|| KernelError::new(format!("{field} is required")))?;
+    require_non_empty(&actor.agent_uid, &format!("{field}.agent_uid"))?;
+    require_non_empty(&actor.session_id, &format!("{field}.session_id"))
+}
+
+fn validate_mailbox_turn_mirror(
+    mailbox: &proto::MailboxUpdated,
+    turn: &proto::ActorTurnRef,
+) -> KernelResult<()> {
+    if mailbox.actor.as_ref() != turn.actor.as_ref() {
+        return Err(KernelError::new(
+            "mailbox_updated actor must match mailbox_updated.turn.actor",
+        ));
+    }
+
+    if mailbox.activation_uid != turn.activation_uid {
+        return Err(KernelError::new(
+            "mailbox_updated activation_uid must match mailbox_updated.turn.activation_uid",
+        ));
+    }
+
+    if mailbox.actor_epoch != turn.actor_epoch {
+        return Err(KernelError::new(
+            "mailbox_updated actor_epoch must match mailbox_updated.turn.actor_epoch",
+        ));
+    }
+
+    Ok(())
+}
+
+fn validate_optional_model_ref(
+    model_ref: Option<&proto::TurnModelRef>,
+    field: &str,
+) -> KernelResult<()> {
+    if let Some(model_ref) = model_ref {
+        require_non_empty(&model_ref.profile, &format!("{field}.profile"))?;
+        require_non_empty(&model_ref.provider_id, &format!("{field}.provider_id"))?;
+        require_non_empty(&model_ref.model, &format!("{field}.model"))?;
+    }
+
+    Ok(())
+}
+
+fn validate_proposed_reply(reply: Option<&proto::ProposedReply>, field: &str) -> KernelResult<()> {
+    let reply = reply.ok_or_else(|| KernelError::new(format!("{field} is required")))?;
+    require_non_empty(&reply.text, &format!("{field}.text"))?;
+
+    for (index, attachment) in reply.attachments.iter().enumerate() {
+        validate_proposed_reply_attachment(attachment, &format!("{field}.attachments[{index}]"))?;
+    }
+
+    Ok(())
+}
+
+fn validate_proposed_reply_attachment(
+    attachment: &proto::ProposedReplyAttachment,
+    field: &str,
+) -> KernelResult<()> {
+    if attachment.agent_computer_path.trim().is_empty()
+        && attachment.user_files_relative_path.trim().is_empty()
+    {
+        return Err(KernelError::new(format!(
+            "{field} must include agent_computer_path or user_files_relative_path"
+        )));
+    }
+
+    Ok(())
+}
+
+fn validate_non_empty_strings(values: &[String], field: &str) -> KernelResult<()> {
+    for (index, value) in values.iter().enumerate() {
+        require_non_empty(value, &format!("{field}[{index}]"))?;
+    }
+
+    Ok(())
+}
+
+fn require_non_empty(value: &str, field: &str) -> KernelResult<()> {
+    if value.trim().is_empty() {
+        return Err(KernelError::new(format!("{field} is required")));
+    }
+
+    Ok(())
+}
+
+fn require_positive_u64(value: u64, field: &str) -> KernelResult<()> {
+    if value == 0 {
+        return Err(KernelError::new(format!("{field} must be greater than 0")));
+    }
+
+    Ok(())
 }
 
 // Steering must be journaled as actor input instead of hidden in a turn-control
@@ -702,7 +889,6 @@ fn envelope_to_json(envelope: &proto::Envelope) -> KernelResult<Value> {
         "correlation_id".into(),
         Value::from(envelope.correlation_id.clone()),
     );
-    object.insert("seq".into(), Value::from(envelope.seq));
     object.insert("lane".into(), Value::from(lane_to_json(envelope.lane)?));
     object.insert(
         "sent_at_unix_ms".into(),
@@ -977,7 +1163,10 @@ fn turn_model_ref_to_json(model_ref: Option<&proto::TurnModelRef>) -> KernelResu
 fn actor_input_to_json(input: &proto::ActorInputEnvelope) -> KernelResult<Value> {
     Ok(json_object([
         ("actor_input_id", Value::from(input.actor_input_id.clone())),
-        ("broker_sequence", Value::from(input.broker_sequence)),
+        (
+            "live_queue_sequence",
+            Value::from(input.live_queue_sequence),
+        ),
         ("type", Value::from(input.r#type.clone())),
         (
             "ingress_event_id",
@@ -1004,9 +1193,54 @@ fn proposed_reply_to_json(reply: Option<&proto::ProposedReply>) -> KernelResult<
         Some(reply) => Ok(json_object([
             ("text", Value::from(reply.text.clone())),
             ("content_json", bytes_to_json(&reply.content_json)?),
+            (
+                "attachments",
+                Value::Array(
+                    reply
+                        .attachments
+                        .iter()
+                        .map(proposed_reply_attachment_to_json)
+                        .collect::<KernelResult<Vec<_>>>()?,
+                ),
+            ),
         ])),
         None => Ok(Value::Null),
     }
+}
+
+fn proposed_reply_attachment_to_json(
+    attachment: &proto::ProposedReplyAttachment,
+) -> KernelResult<Value> {
+    let mut object = Map::new();
+    object.insert(
+        "agent_computer_path".into(),
+        Value::from(attachment.agent_computer_path.clone()),
+    );
+    object.insert(
+        "user_files_relative_path".into(),
+        Value::from(attachment.user_files_relative_path.clone()),
+    );
+
+    if !attachment.name.is_empty() {
+        object.insert("name".into(), Value::from(attachment.name.clone()));
+    }
+
+    if !attachment.mime_type.is_empty() {
+        object.insert(
+            "mime_type".into(),
+            Value::from(attachment.mime_type.clone()),
+        );
+    }
+
+    if let Some(size) = attachment.size {
+        object.insert("size".into(), Value::from(size));
+    }
+
+    if !attachment.xxh3_128.is_empty() {
+        object.insert("xxh3_128".into(), Value::from(attachment.xxh3_128.clone()));
+    }
+
+    Ok(Value::Object(object))
 }
 
 fn lane_from_json(value: &Value) -> KernelResult<proto::Lane> {
@@ -1030,11 +1264,8 @@ fn durability_from_json(value: &Value) -> KernelResult<proto::DurabilityClass> {
 
 fn lane_to_json(lane: i32) -> KernelResult<String> {
     match proto::Lane::try_from(lane).unwrap_or(proto::Lane::Unspecified) {
-        proto::Lane::Control => Ok("LANE_CONTROL".into()),
-        proto::Lane::Turn => Ok("LANE_TURN".into()),
-        proto::Lane::Progress => Ok("LANE_PROGRESS".into()),
-        proto::Lane::Rpc => Ok("LANE_RPC".into()),
         proto::Lane::Unspecified => Err(KernelError::new("lane must be specified")),
+        lane => Ok(lane_name(lane).to_string()),
     }
 }
 
@@ -1042,12 +1273,10 @@ fn durability_to_json(durability: i32) -> KernelResult<String> {
     match proto::DurabilityClass::try_from(durability)
         .unwrap_or(proto::DurabilityClass::DurabilityUnspecified)
     {
-        proto::DurabilityClass::ControlDurable => Ok("CONTROL_DURABLE".into()),
-        proto::DurabilityClass::ControlReplayable => Ok("CONTROL_REPLAYABLE".into()),
-        proto::DurabilityClass::ControlEphemeral => Ok("CONTROL_EPHEMERAL".into()),
         proto::DurabilityClass::DurabilityUnspecified => {
             Err(KernelError::new("durability must be specified"))
         }
+        durability => Ok(durability_name(durability).to_string()),
     }
 }
 
@@ -1190,7 +1419,6 @@ fn optional_message<T>(
 fn json_bytes(value: Option<&Value>) -> KernelResult<Option<Vec<u8>>> {
     match value {
         Some(Value::Null) | None => Ok(None),
-        Some(Value::String(text)) => Ok(Some(text.as_bytes().to_vec())),
         Some(value) => serde_json::to_vec(value)
             .map(Some)
             .map_err(|error| KernelError::new(format!("failed to encode JSON bytes: {error}"))),
@@ -1252,7 +1480,6 @@ mod tests {
             "protocol_version": 1,
             "message_id": "msg-1",
             "correlation_id": "corr-1",
-            "seq": 1,
             "lane": "LANE_TURN",
             "sent_at_unix_ms": 1782300000000_i64,
             "durability": "CONTROL_REPLAYABLE",
@@ -1262,7 +1489,7 @@ mod tests {
                     "turn": turn_ref(),
                     "inputs": [{
                         "actor_input_id": "input-1",
-                        "broker_sequence": 1,
+                        "live_queue_sequence": 1,
                         "type": "im.message.addressed",
                         "ingress_event_id": "event-1",
                         "provider_entry_id": "msg-1",
@@ -1296,7 +1523,7 @@ mod tests {
                     "turn": turn_ref(),
                     "inputs": [{
                         "actor_input_id": "steer-1",
-                        "broker_sequence": 2,
+                        "live_queue_sequence": 2,
                         "type": "command.steer",
                         "ingress_event_id": "event-steer-1",
                         "payload_json": {"data": {"command": {"argsText": "change course"}}}
@@ -1333,7 +1560,17 @@ mod tests {
                 "turn_final_proposal": {
                     "turn": turn_ref(),
                     "messages": [],
-                    "reply": {"text": "done"},
+                    "reply": {
+                        "text": "done",
+                        "attachments": [{
+                            "agent_computer_path": "/workspace/user-files/reports/a.txt",
+                            "user_files_relative_path": "reports/a.txt",
+                            "name": "report.txt",
+                            "mime_type": "text/plain",
+                            "size": 16,
+                            "xxh3_128": "abc123"
+                        }]
+                    },
                     "usage_json": {
                         "input": 11,
                         "output": 7,
@@ -1366,6 +1603,44 @@ mod tests {
         );
         assert_eq!(proposal["stop_reason"], "stop");
         assert_eq!(proposal["tool_results_json"][0]["tool_name"], "command");
+        assert_eq!(
+            proposal["reply"]["attachments"][0]["user_files_relative_path"],
+            "reports/a.txt"
+        );
+        assert_eq!(proposal["reply"]["attachments"][0]["size"], 16);
+    }
+
+    #[test]
+    fn json_byte_fields_preserve_json_strings() {
+        let envelope = json!({
+            "protocol_version": 1,
+            "message_id": "msg-1",
+            "correlation_id": "corr-1",
+            "lane": "LANE_TURN",
+            "sent_at_unix_ms": 1782300000000_i64,
+            "durability": "CONTROL_REPLAYABLE",
+            "body": {
+                "type": "turn_start",
+                "turn_start": {
+                    "turn": turn_ref(),
+                    "inputs": [{
+                        "actor_input_id": "input-1",
+                        "live_queue_sequence": 1,
+                        "type": "im.message.addressed",
+                        "ingress_event_id": "event-1",
+                        "payload_json": "null"
+                    }]
+                }
+            }
+        });
+
+        let encoded = encode_envelope_json(envelope).unwrap();
+        let decoded = decode_envelope_json(&encoded).unwrap();
+
+        assert_eq!(
+            decoded["body"]["turn_start"]["inputs"][0]["payload_json"],
+            "null"
+        );
     }
 
     #[test]
@@ -1376,10 +1651,13 @@ mod tests {
             "correlation_id": "steer-1",
             "lane": "LANE_CONTROL",
             "durability": "CONTROL_DURABLE",
-            "turn_control": {
-                "turn": turn_ref(),
-                "command": "steer",
-                "payload_json": {"text": "do not inline"}
+            "body": {
+                "type": "turn_control",
+                "turn_control": {
+                    "turn": turn_ref(),
+                    "command": "steer",
+                    "payload_json": {"text": "do not inline"}
+                }
             }
         });
 
@@ -1395,14 +1673,17 @@ mod tests {
             "message_id": "msg-1",
             "lane": "LANE_CONTROL",
             "durability": "CONTROL_EPHEMERAL",
-            "turn_start": {
-                "turn": turn_ref(),
-                "inputs": [{
-                    "actor_input_id": "input-1",
-                    "broker_sequence": 1,
-                    "type": "im.message.addressed",
-                    "ingress_event_id": "event-1"
-                }]
+            "body": {
+                "type": "turn_start",
+                "turn_start": {
+                    "turn": turn_ref(),
+                    "inputs": [{
+                        "actor_input_id": "input-1",
+                        "live_queue_sequence": 1,
+                        "type": "im.message.addressed",
+                        "ingress_event_id": "event-1"
+                    }]
+                }
             }
         });
 
@@ -1419,10 +1700,13 @@ mod tests {
             "correlation_id": "progress-1",
             "lane": "LANE_PROGRESS",
             "durability": "CONTROL_EPHEMERAL",
-            "worker_progress": {
-                "turn": turn_ref(),
-                "kind": "tool_call_chunk",
-                "summary": "internal AI SDK stream chunk"
+            "body": {
+                "type": "worker_progress",
+                "worker_progress": {
+                    "turn": turn_ref(),
+                    "kind": "tool_call_chunk",
+                    "summary": "internal AI SDK stream chunk"
+                }
             }
         });
 
@@ -1442,9 +1726,12 @@ mod tests {
             "correlation_id": "turn-start-1",
             "lane": "LANE_TURN",
             "durability": "CONTROL_REPLAYABLE",
-            "turn_start": {
-                "turn": turn,
-                "inputs": []
+            "body": {
+                "type": "turn_start",
+                "turn_start": {
+                    "turn": turn,
+                    "inputs": []
+                }
             }
         });
 
@@ -1457,17 +1744,24 @@ mod tests {
     fn round_trips_rpc_request() {
         let envelope = json!({
             "protocol_version": 1,
-            "message_id": "rpc-1",
-            "correlation_id": "rpc-1",
+            "message_id": "rpc-conversation-context-1",
+            "correlation_id": "rpc-conversation-context-1",
             "lane": "LANE_RPC",
             "durability": "CONTROL_EPHEMERAL",
-            "rpc_request": {
-                "request_id": "rpc-1",
-                "method": "agent_profile.resolve",
-                "deadline_unix_ms": 1782300001000_i64,
-                "payload_json": {
-                    "agent_uid": "agent-1",
-                    "session_id": "signal-channel:lark:dm:1"
+            "body": {
+                "type": "rpc_request",
+                "rpc_request": {
+                    "request_id": "rpc-conversation-context-1",
+                    "method": "agent_conversation.context.resolve",
+                    "deadline_unix_ms": 1782300001000_i64,
+                    "payload_json": {
+                        "turn": {
+                            "actor": {
+                                "agent_uid": "agent-1",
+                                "session_id": "signal-channel:lark:dm:1"
+                            }
+                        }
+                    }
                 }
             }
         });
@@ -1478,10 +1772,10 @@ mod tests {
         assert_eq!(decoded["body"]["type"], "rpc_request");
         assert_eq!(
             decoded["body"]["rpc_request"]["method"],
-            "agent_profile.resolve"
+            "agent_conversation.context.resolve"
         );
         assert_eq!(
-            decoded["body"]["rpc_request"]["payload_json"]["agent_uid"],
+            decoded["body"]["rpc_request"]["payload_json"]["turn"]["actor"]["agent_uid"],
             "agent-1"
         );
     }
@@ -1494,9 +1788,12 @@ mod tests {
             "correlation_id": "other",
             "lane": "LANE_RPC",
             "durability": "CONTROL_EPHEMERAL",
-            "rpc_response": {
-                "request_id": "rpc-1",
-                "payload_json": {"ok": true}
+            "body": {
+                "type": "rpc_response",
+                "rpc_response": {
+                    "request_id": "rpc-1",
+                    "payload_json": {"ok": true}
+                }
             }
         });
 
@@ -1512,11 +1809,14 @@ mod tests {
             "message_id": "ready-1",
             "lane": "LANE_CONTROL",
             "durability": "CONTROL_EPHEMERAL",
-            "worker_ready": {
-                "worker_id": "worker-a",
-                "runtime": "bun",
-                "version": "0.1.0",
-                "capacity_json": {"turn_slots": 2}
+            "body": {
+                "type": "worker_ready",
+                "worker_ready": {
+                    "worker_id": "worker-a",
+                    "runtime": "bun",
+                    "version": "0.1.0",
+                    "capacity_json": {"turn_slots": 2}
+                }
             }
         });
 
@@ -1529,6 +1829,65 @@ mod tests {
                 .get("capabilities")
                 .is_none()
         );
+    }
+
+    #[test]
+    fn rejects_top_level_body_shape() {
+        let envelope = json!({
+            "protocol_version": 1,
+            "message_id": "ready-1",
+            "lane": "LANE_CONTROL",
+            "durability": "CONTROL_EPHEMERAL",
+            "worker_ready": {
+                "worker_id": "worker-a",
+                "runtime": "bun",
+                "version": "0.1.0"
+            }
+        });
+
+        let error = encode_envelope_json(envelope).unwrap_err().to_string();
+
+        assert!(error.contains("envelope body is required"));
+    }
+
+    #[test]
+    fn rejects_decoded_protobuf_missing_required_nested_fields() {
+        let heartbeat = proto::Envelope {
+            protocol_version: 1,
+            message_id: "heartbeat-1".into(),
+            correlation_id: String::new(),
+            lane: proto::Lane::Control as i32,
+            sent_at_unix_ms: 0,
+            durability: proto::DurabilityClass::ControlEphemeral as i32,
+            body: Some(proto::envelope::Body::WorkerHeartbeat(
+                proto::AgentComputerWorkerHeartbeat::default(),
+            )),
+        };
+        let mut bytes = Vec::new();
+        heartbeat.encode(&mut bytes).unwrap();
+
+        let error = decode_envelope_json(&bytes).unwrap_err().to_string();
+
+        assert!(error.contains("worker_heartbeat.worker_id is required"));
+
+        let rpc_request = proto::Envelope {
+            protocol_version: 1,
+            message_id: "rpc-1".into(),
+            correlation_id: "rpc-1".into(),
+            lane: proto::Lane::Rpc as i32,
+            sent_at_unix_ms: 0,
+            durability: proto::DurabilityClass::ControlEphemeral as i32,
+            body: Some(proto::envelope::Body::RpcRequest(proto::RpcRequest {
+                request_id: "rpc-1".into(),
+                ..Default::default()
+            })),
+        };
+        let mut bytes = Vec::new();
+        rpc_request.encode(&mut bytes).unwrap();
+
+        let error = decode_envelope_json(&bytes).unwrap_err().to_string();
+
+        assert!(error.contains("rpc_request.method is required"));
     }
 
     fn turn_ref() -> Value {

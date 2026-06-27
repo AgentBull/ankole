@@ -44,6 +44,10 @@ defmodule AnkoleWeb.ApiSpec do
         %Tag{
           name: "LLM Runtime",
           description: "Operator-managed LLM provider and agent model profile configuration"
+        },
+        %Tag{
+          name: "Schedule",
+          description: "Operator-visible actor checkbacks and recurring schedules"
         }
       ]
     }

@@ -7,7 +7,7 @@ use serde_json::Value as JsonValue;
 
 use crate::authz::cel::{self, BoolEvalError};
 use crate::authz::resource_pattern::{normalize_resource_for_glob, resource_pattern_matcher};
-use crate::core::{KernelError, KernelResult};
+use crate::common::{KernelError, KernelResult};
 
 /// Single-action authorization snapshot supplied by the host runtime.
 ///
@@ -89,7 +89,6 @@ pub struct AuthzDecision {
     pub status: String,
     pub diagnostics: Vec<AuthzDiagnostic>,
     pub effective_group_ids: Vec<String>,
-    #[serde(default)]
     pub denied_action: Option<String>,
 }
 

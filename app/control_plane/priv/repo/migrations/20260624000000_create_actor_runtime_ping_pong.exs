@@ -2,8 +2,6 @@ defmodule Ankole.Repo.Migrations.CreateActorRuntimePingPong do
   use Ecto.Migration
 
   def up do
-    execute("CREATE EXTENSION IF NOT EXISTS pgcrypto", "")
-
     create table(:ai_agent_conversations, primary_key: false) do
       add :id, :uuid, primary_key: true
 
@@ -251,7 +249,7 @@ defmodule Ankole.Repo.Migrations.CreateActorRuntimePingPong do
       actor_input_id: "Actor input row being delivered.",
       agent_uid: "Agent principal that owns the input.",
       session_id: "Actor session queue for the delivery.",
-      broker_sequence: "Per-session input sequence copied from actor_inputs.",
+      live_queue_sequence: "Per-session input sequence copied from actor_inputs.",
       attempt_no: "Delivery attempt number for this actor input.",
       delivery_batch_id: "Batch id shared by inputs sent together.",
       actor_lane_message_id: "Transport message id sent over the actor lane.",
@@ -350,11 +348,11 @@ defmodule Ankole.Repo.Migrations.CreateActorRuntimePingPong do
   defp create_unlogged_actor_runtime_tables do
     execute("""
     CREATE UNLOGGED TABLE actor_input_deliveries (
-      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      id uuid PRIMARY KEY,
       actor_input_id uuid NOT NULL,
       agent_uid text NOT NULL,
       session_id text NOT NULL,
-      broker_sequence bigint NOT NULL,
+      live_queue_sequence bigint NOT NULL,
       attempt_no integer NOT NULL,
       delivery_batch_id uuid NOT NULL,
       actor_lane_message_id text NOT NULL,
@@ -400,7 +398,7 @@ defmodule Ankole.Repo.Migrations.CreateActorRuntimePingPong do
     )
 
     execute(
-      "CREATE INDEX actor_input_deliveries_actor_state_index ON actor_input_deliveries (agent_uid, session_id, state, broker_sequence)"
+      "CREATE INDEX actor_input_deliveries_actor_state_index ON actor_input_deliveries (agent_uid, session_id, state, live_queue_sequence)"
     )
 
     execute(
@@ -413,7 +411,7 @@ defmodule Ankole.Repo.Migrations.CreateActorRuntimePingPong do
 
     execute("""
     CREATE UNLOGGED TABLE agent_computer_workers (
-      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      id uuid PRIMARY KEY,
       worker_id text NOT NULL,
       status text NOT NULL,
       version text,
@@ -446,7 +444,7 @@ defmodule Ankole.Repo.Migrations.CreateActorRuntimePingPong do
 
     execute("""
     CREATE UNLOGGED TABLE actor_session_worker_assignments (
-      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      id uuid PRIMARY KEY,
       agent_uid text NOT NULL,
       session_id text NOT NULL,
       worker_id text NOT NULL,
@@ -475,7 +473,7 @@ defmodule Ankole.Repo.Migrations.CreateActorRuntimePingPong do
 
     execute("""
     CREATE UNLOGGED TABLE actor_session_activations (
-      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      id uuid PRIMARY KEY,
       activation_uid text NOT NULL,
       agent_uid text NOT NULL,
       session_id text NOT NULL,

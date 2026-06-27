@@ -24,14 +24,28 @@ defmodule Ankole.SignalsGateway.ActorInputTypes do
   def consumption_path("command.steer"), do: :addressed_im
   def consumption_path("im.message.may_intervene"), do: :may_intervene
   def consumption_path("session.reset_due"), do: :session_lifecycle
-  def consumption_path("signal.entry.deleted"), do: :lifecycle
-  def consumption_path("signal.entry.recalled"), do: :lifecycle
+  def consumption_path("signal.entry.removed"), do: :lifecycle
   def consumption_path("timer.fired"), do: :internal
+  def consumption_path("check_back_later.wakeup"), do: :direct
+  def consumption_path("cron.fire"), do: :direct
 
   def consumption_path(type) when is_binary(type) and binary_part(type, 0, 8) == "command.",
     do: :command
 
   def consumption_path(_type), do: :direct
+
+  @doc """
+  Returns how ActorRuntime should schedule a command input.
+  """
+  @spec command_runtime_policy(String.t()) ::
+          :control_now | :checkpoint_nudge | :worker_turn | :unknown
+  def command_runtime_policy("command.new"), do: :control_now
+  def command_runtime_policy("command.stop"), do: :control_now
+  def command_runtime_policy("command.retry"), do: :control_now
+  def command_runtime_policy("command.steer"), do: :checkpoint_nudge
+  def command_runtime_policy("command.compress"), do: :worker_turn
+  def command_runtime_policy("command." <> _name), do: :unknown
+  def command_runtime_policy(_type), do: :unknown
 
   @doc """
   Whether a still-open input belongs to old session-local system work after reset.

@@ -14,7 +14,7 @@ defmodule Ankole.AIAgent.Schemas.LlmTurn do
   alias Ankole.Principals.Principal
   alias Ankole.SignalsGateway.JsonPayload
 
-  @primary_key {:id, :binary_id, autogenerate: true}
+  @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
   @foreign_key_type :string
   @timestamps_opts [type: :utc_datetime_usec]
   # Why a turn exists, for transcript readability and retry accounting:

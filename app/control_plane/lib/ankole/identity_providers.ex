@@ -164,6 +164,12 @@ defmodule Ankole.IdentityProviders do
     String.trim_trailing(public_base_url, "/") <> oidc_callback_path(provider_id)
   end
 
+  @doc """
+  Normalizes a caller-supplied provider id at the public context boundary.
+  """
+  @spec normalize_provider_id(term()) :: {:ok, String.t()} | {:error, term()}
+  def normalize_provider_id(provider_id), do: Config.normalize_provider_id(provider_id)
+
   defp setup_adapters_for_plugin(plugin) do
     declarations =
       plugin.adapter_declarations

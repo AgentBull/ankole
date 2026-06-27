@@ -1,10 +1,10 @@
 /// Shared result type for host-neutral kernel code.
 pub type KernelResult<T> = Result<T, KernelError>;
 
-/// Carries a stable, host-neutral error message across the Rust core boundary.
+/// Carries a stable, host-neutral error message across native kernel modules.
 ///
 /// The JS and Elixir bindings translate this into their own error shapes. Keeping
-/// the core error as one string avoids leaking napi-rs or Rustler types into the
+/// the shared error as one string avoids leaking napi-rs or Rustler types into the
 /// shared implementation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KernelError {

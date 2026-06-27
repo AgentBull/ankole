@@ -2,15 +2,13 @@
   "components": {
     "responses": {},
     "schemas": {
-      "": {
-        "description": "Any JSON-compatible value. AppConfigure validates the concrete key schema.",
-        "nullable": true,
-        "x-struct": null,
-        "x-validate": null
-      },
       "AppConfigurationDecryptionResponse": {
         "additionalProperties": false,
-        "properties": { "data": { "$ref": "#/components/schemas/AppConfigurationDecryptionValue" } },
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/AppConfigurationDecryptionValue"
+          }
+        },
         "required": ["data"],
         "title": "AppConfigurationDecryptionResponse",
         "type": "object",
@@ -20,8 +18,14 @@
       "AppConfigurationDecryptionValue": {
         "additionalProperties": false,
         "properties": {
-          "key": { "type": "string", "x-struct": null, "x-validate": null },
-          "value": { "$ref": "#/components/schemas/" }
+          "key": {
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "value": {
+            "$ref": "#/components/schemas/JsonValue"
+          }
         },
         "required": ["key", "value"],
         "title": "AppConfigurationDecryptionValue",
@@ -32,31 +36,93 @@
       "AppConfigurationItem": {
         "additionalProperties": false,
         "properties": {
-          "default_present": { "type": "boolean", "x-struct": null, "x-validate": null },
-          "description": { "nullable": true, "type": "string", "x-struct": null, "x-validate": null },
-          "editable": { "type": "boolean", "x-struct": null, "x-validate": null },
-          "encrypted": { "type": "boolean", "x-struct": null, "x-validate": null },
-          "error": { "nullable": true, "type": "string", "x-struct": null, "x-validate": null },
-          "key": { "type": "string", "x-struct": null, "x-validate": null },
+          "default_present": {
+            "type": "boolean",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "description": {
+            "nullable": true,
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "editable": {
+            "type": "boolean",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "encrypted": {
+            "type": "boolean",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "error": {
+            "nullable": true,
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "key": {
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          },
           "kind": {
             "enum": ["exact", "pattern", "pattern_concrete"],
             "type": "string",
             "x-struct": null,
             "x-validate": null
           },
-          "overridden": { "type": "boolean", "x-struct": null, "x-validate": null },
-          "pattern": { "nullable": true, "type": "string", "x-struct": null, "x-validate": null },
-          "pattern_id": { "nullable": true, "type": "string", "x-struct": null, "x-validate": null },
-          "present": { "type": "boolean", "x-struct": null, "x-validate": null },
+          "overridden": {
+            "type": "boolean",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "pattern": {
+            "nullable": true,
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "pattern_id": {
+            "nullable": true,
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "present": {
+            "type": "boolean",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "scope": {
+            "enum": ["scoped", "global"],
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          },
           "source": {
             "enum": ["default", "global", "missing", "pattern", "error"],
             "type": "string",
             "x-struct": null,
             "x-validate": null
           },
-          "value": { "$ref": "#/components/schemas/" }
+          "value": {
+            "$ref": "#/components/schemas/JsonValue"
+          }
         },
-        "required": ["key", "kind", "encrypted", "editable", "default_present", "overridden", "present", "source"],
+        "required": [
+          "key",
+          "kind",
+          "encrypted",
+          "scope",
+          "editable",
+          "default_present",
+          "overridden",
+          "present",
+          "source"
+        ],
         "title": "AppConfigurationItem",
         "type": "object",
         "x-struct": null,
@@ -66,7 +132,9 @@
         "additionalProperties": false,
         "properties": {
           "data": {
-            "items": { "$ref": "#/components/schemas/AppConfigurationItem" },
+            "items": {
+              "$ref": "#/components/schemas/AppConfigurationItem"
+            },
             "type": "array",
             "x-struct": null,
             "x-validate": null
@@ -80,7 +148,11 @@
       },
       "AppConfigurationResponse": {
         "additionalProperties": false,
-        "properties": { "data": { "$ref": "#/components/schemas/AppConfigurationItem" } },
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/AppConfigurationItem"
+          }
+        },
         "required": ["data"],
         "title": "AppConfigurationResponse",
         "type": "object",
@@ -89,7 +161,11 @@
       },
       "AppConfigurationUpdateRequest": {
         "additionalProperties": false,
-        "properties": { "value": { "$ref": "#/components/schemas/" } },
+        "properties": {
+          "value": {
+            "$ref": "#/components/schemas/JsonValue"
+          }
+        },
         "required": ["value"],
         "title": "AppConfigurationUpdateRequest",
         "type": "object",
@@ -99,15 +175,25 @@
       "ConsoleApiError": {
         "additionalProperties": false,
         "properties": {
-          "code": { "type": "string", "x-struct": null, "x-validate": null },
+          "code": {
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          },
           "details": {
-            "items": { "$ref": "#/components/schemas/ConsoleApiErrorDetail" },
+            "items": {
+              "$ref": "#/components/schemas/ConsoleApiErrorDetail"
+            },
             "nullable": true,
             "type": "array",
             "x-struct": null,
             "x-validate": null
           },
-          "message": { "type": "string", "x-struct": null, "x-validate": null }
+          "message": {
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          }
         },
         "required": ["code", "message"],
         "title": "ConsoleApiError",
@@ -118,8 +204,17 @@
       "ConsoleApiErrorDetail": {
         "additionalProperties": true,
         "properties": {
-          "message": { "type": "string", "x-struct": null, "x-validate": null },
-          "path": { "nullable": true, "type": "string", "x-struct": null, "x-validate": null }
+          "message": {
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "path": {
+            "nullable": true,
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          }
         },
         "required": ["message"],
         "title": "ConsoleApiErrorDetail",
@@ -129,19 +224,1521 @@
       },
       "ConsoleApiErrorEnvelope": {
         "additionalProperties": false,
-        "properties": { "error": { "$ref": "#/components/schemas/ConsoleApiError" } },
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/ConsoleApiError"
+          }
+        },
         "required": ["error"],
         "title": "ConsoleApiErrorEnvelope",
         "type": "object",
         "x-struct": null,
         "x-validate": null
+      },
+      "JsonValue": {
+        "description": "Any JSON-compatible value. AppConfigure validates the concrete key schema.",
+        "nullable": true,
+        "title": "JsonValue",
+        "x-struct": null,
+        "x-validate": null
+      },
+      "LlmProviderCredentialProjection": {
+        "additionalProperties": false,
+        "properties": {
+          "masked": {
+            "nullable": true,
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "present": {
+            "type": "boolean",
+            "x-struct": null,
+            "x-validate": null
+          }
+        },
+        "required": ["present"],
+        "title": "LlmProviderCredentialProjection",
+        "type": "object",
+        "x-struct": null,
+        "x-validate": null
+      },
+      "LlmProviderItem": {
+        "additionalProperties": false,
+        "properties": {
+          "base_url": {
+            "nullable": true,
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "connection_options": {
+            "additionalProperties": true,
+            "type": "object",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "credential": {
+            "$ref": "#/components/schemas/LlmProviderCredentialProjection"
+          },
+          "credential_mode": {
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "disabled_at": {
+            "nullable": true,
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "provider_id": {
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "provider_source": {
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "source_metadata": {
+            "additionalProperties": true,
+            "type": "object",
+            "x-struct": null,
+            "x-validate": null
+          }
+        },
+        "required": [
+          "provider_id",
+          "provider_source",
+          "connection_options",
+          "credential_mode",
+          "credential",
+          "source_metadata"
+        ],
+        "title": "LlmProviderItem",
+        "type": "object",
+        "x-struct": null,
+        "x-validate": null
+      },
+      "LlmProviderListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/LlmProviderItem"
+            },
+            "type": "array",
+            "x-struct": null,
+            "x-validate": null
+          }
+        },
+        "required": ["data"],
+        "title": "LlmProviderListResponse",
+        "type": "object",
+        "x-struct": null,
+        "x-validate": null
+      },
+      "LlmProviderResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/LlmProviderItem"
+          }
+        },
+        "required": ["data"],
+        "title": "LlmProviderResponse",
+        "type": "object",
+        "x-struct": null,
+        "x-validate": null
+      },
+      "LlmProviderSourceItem": {
+        "additionalProperties": false,
+        "properties": {
+          "adapter_strategy": {
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "codex_compatible": {
+            "type": "boolean",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "connection_options": {
+            "items": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            },
+            "type": "array",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "credential_modes": {
+            "items": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            },
+            "type": "array",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "default_base_url": {
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "label": {
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "model_catalog_policy": {
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "provider_source": {
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "runtime_provider_options": {
+            "items": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            },
+            "type": "array",
+            "x-struct": null,
+            "x-validate": null
+          }
+        },
+        "required": [
+          "provider_source",
+          "label",
+          "codex_compatible",
+          "adapter_strategy",
+          "default_base_url",
+          "credential_modes",
+          "connection_options",
+          "runtime_provider_options",
+          "model_catalog_policy"
+        ],
+        "title": "LlmProviderSourceItem",
+        "type": "object",
+        "x-struct": null,
+        "x-validate": null
+      },
+      "LlmProviderSourceListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/LlmProviderSourceItem"
+            },
+            "type": "array",
+            "x-struct": null,
+            "x-validate": null
+          }
+        },
+        "required": ["data"],
+        "title": "LlmProviderSourceListResponse",
+        "type": "object",
+        "x-struct": null,
+        "x-validate": null
+      },
+      "LlmProviderWriteRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "base_url": {
+            "nullable": true,
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "connection_options": {
+            "additionalProperties": true,
+            "type": "object",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "credential": {
+            "nullable": true,
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "credential_mode": {
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "provider_id": {
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "provider_source": {
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          }
+        },
+        "title": "LlmProviderWriteRequest",
+        "type": "object",
+        "x-struct": null,
+        "x-validate": null
+      },
+      "ModelProfileResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "additionalProperties": true,
+            "type": "object",
+            "x-struct": null,
+            "x-validate": null
+          }
+        },
+        "required": ["data"],
+        "title": "ModelProfileResponse",
+        "type": "object",
+        "x-struct": null,
+        "x-validate": null
+      },
+      "ModelProfileWriteRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "model": {
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "provider_id": {
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "provider_options": {
+            "additionalProperties": true,
+            "type": "object",
+            "x-struct": null,
+            "x-validate": null
+          }
+        },
+        "required": ["provider_id", "model"],
+        "title": "ModelProfileWriteRequest",
+        "type": "object",
+        "x-struct": null,
+        "x-validate": null
+      },
+      "ModelProfilesResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "additionalProperties": true,
+            "type": "object",
+            "x-struct": null,
+            "x-validate": null
+          }
+        },
+        "required": ["data"],
+        "title": "ModelProfilesResponse",
+        "type": "object",
+        "x-struct": null,
+        "x-validate": null
+      },
+      "ScheduleCronScheduleListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "type": "array",
+            "x-struct": null,
+            "x-validate": null
+          }
+        },
+        "required": ["data"],
+        "title": "ScheduleCronScheduleListResponse",
+        "type": "object",
+        "x-struct": null,
+        "x-validate": null
+      },
+      "ScheduleCronScheduleResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/JsonValue"
+          }
+        },
+        "required": ["data"],
+        "title": "ScheduleCronScheduleResponse",
+        "type": "object",
+        "x-struct": null,
+        "x-validate": null
+      },
+      "ScheduleCronUpdateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "delivery": {
+            "$ref": "#/components/schemas/JsonValue"
+          },
+          "failure_policy": {
+            "$ref": "#/components/schemas/JsonValue"
+          },
+          "name": {
+            "nullable": true,
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "payload": {
+            "$ref": "#/components/schemas/JsonValue"
+          },
+          "schedule": {
+            "$ref": "#/components/schemas/JsonValue"
+          },
+          "timezone": {
+            "nullable": true,
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          }
+        },
+        "title": "ScheduleCronUpdateRequest",
+        "type": "object",
+        "x-struct": null,
+        "x-validate": null
+      },
+      "ScheduleCronWriteRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "binding_name": {
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "delivery": {
+            "$ref": "#/components/schemas/JsonValue"
+          },
+          "failure_policy": {
+            "$ref": "#/components/schemas/JsonValue"
+          },
+          "idempotency_key": {
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "name": {
+            "nullable": true,
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "payload": {
+            "$ref": "#/components/schemas/JsonValue"
+          },
+          "schedule": {
+            "$ref": "#/components/schemas/JsonValue"
+          },
+          "status": {
+            "enum": ["active", "paused"],
+            "nullable": true,
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          },
+          "timezone": {
+            "nullable": true,
+            "type": "string",
+            "x-struct": null,
+            "x-validate": null
+          }
+        },
+        "required": ["binding_name", "schedule", "delivery", "idempotency_key"],
+        "title": "ScheduleCronWriteRequest",
+        "type": "object",
+        "x-struct": null,
+        "x-validate": null
+      },
+      "ScheduleEventListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "type": "array",
+            "x-struct": null,
+            "x-validate": null
+          }
+        },
+        "required": ["data"],
+        "title": "ScheduleEventListResponse",
+        "type": "object",
+        "x-struct": null,
+        "x-validate": null
+      },
+      "ScheduleEventResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/JsonValue"
+          }
+        },
+        "required": ["data"],
+        "title": "ScheduleEventResponse",
+        "type": "object",
+        "x-struct": null,
+        "x-validate": null
       }
     },
-    "securitySchemes": { "consoleBearer": { "bearerFormat": "JWT", "scheme": "bearer", "type": "http" } }
+    "securitySchemes": {
+      "consoleBearer": {
+        "bearerFormat": "JWT",
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
   },
-  "info": { "title": "Ankole Console API", "version": "2026-06-24" },
+  "info": {
+    "title": "Ankole Console API",
+    "version": "2026-06-24"
+  },
   "openapi": "3.0.0",
   "paths": {
+    "/api/agents/{agent_uid}/model-profiles": {
+      "get": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.LlmProviderController.index_model_profiles",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "agent_uid",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelProfilesResponse"
+                }
+              }
+            },
+            "description": "Model profiles"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "consoleBearer": []
+          }
+        ],
+        "summary": "Read all model profiles for one agent",
+        "tags": ["LLM Runtime"]
+      }
+    },
+    "/api/agents/{agent_uid}/model-profiles/{profile}": {
+      "delete": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.LlmProviderController.delete_model_profile",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "agent_uid",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "profile",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelProfileResponse"
+                }
+              }
+            },
+            "description": "Model profile"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Profile cannot be cleared"
+          }
+        },
+        "security": [
+          {
+            "consoleBearer": []
+          }
+        ],
+        "summary": "Clear one optional model profile for an agent",
+        "tags": ["LLM Runtime"]
+      },
+      "put": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.LlmProviderController.put_model_profile",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "agent_uid",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "profile",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModelProfileWriteRequest"
+              }
+            }
+          },
+          "description": "Model profile",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelProfileResponse"
+                }
+              }
+            },
+            "description": "Model profile"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid model profile"
+          }
+        },
+        "security": [
+          {
+            "consoleBearer": []
+          }
+        ],
+        "summary": "Create or update one model profile for an agent",
+        "tags": ["LLM Runtime"]
+      }
+    },
+    "/api/agents/{agent_uid}/sessions/{session_id}/checkbacks": {
+      "get": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.ScheduleController.index_checkbacks",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "agent_uid",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduleEventListResponse"
+                }
+              }
+            },
+            "description": "Scheduled events"
+          }
+        },
+        "security": [
+          {
+            "consoleBearer": []
+          }
+        ],
+        "summary": "List checkback wakeups for one agent session",
+        "tags": ["Schedule"]
+      }
+    },
+    "/api/agents/{agent_uid}/sessions/{session_id}/checkbacks/{scheduled_event_id}": {
+      "delete": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.ScheduleController.cancel_checkback",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "agent_uid",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "scheduled_event_id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduleEventResponse"
+                }
+              }
+            },
+            "description": "Scheduled event"
+          }
+        },
+        "security": [
+          {
+            "consoleBearer": []
+          }
+        ],
+        "summary": "Cancel one pending checkback wakeup",
+        "tags": ["Schedule"]
+      }
+    },
+    "/api/agents/{agent_uid}/sessions/{session_id}/cron-schedules": {
+      "get": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.ScheduleController.index_cron",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "agent_uid",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduleCronScheduleListResponse"
+                }
+              }
+            },
+            "description": "Cron schedules"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          }
+        },
+        "security": [
+          {
+            "consoleBearer": []
+          }
+        ],
+        "summary": "List recurring schedules for one agent session",
+        "tags": ["Schedule"]
+      },
+      "post": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.ScheduleController.create_cron",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "agent_uid",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScheduleCronWriteRequest"
+              }
+            }
+          },
+          "description": "Cron schedule",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduleCronScheduleResponse"
+                }
+              }
+            },
+            "description": "Cron schedule"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid schedule"
+          }
+        },
+        "security": [
+          {
+            "consoleBearer": []
+          }
+        ],
+        "summary": "Create one recurring schedule",
+        "tags": ["Schedule"]
+      }
+    },
+    "/api/agents/{agent_uid}/sessions/{session_id}/cron-schedules/{cron_schedule_id}": {
+      "delete": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.ScheduleController.remove_cron",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "agent_uid",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "cron_schedule_id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduleCronScheduleResponse"
+                }
+              }
+            },
+            "description": "Cron schedule"
+          }
+        },
+        "security": [
+          {
+            "consoleBearer": []
+          }
+        ],
+        "summary": "Remove one recurring schedule",
+        "tags": ["Schedule"]
+      },
+      "get": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.ScheduleController.show_cron",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "agent_uid",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "cron_schedule_id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduleCronScheduleResponse"
+                }
+              }
+            },
+            "description": "Cron schedule"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "consoleBearer": []
+          }
+        ],
+        "summary": "Read one recurring schedule",
+        "tags": ["Schedule"]
+      },
+      "patch": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.ScheduleController.update_cron",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "agent_uid",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "cron_schedule_id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScheduleCronUpdateRequest"
+              }
+            }
+          },
+          "description": "Cron schedule update",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduleCronScheduleResponse"
+                }
+              }
+            },
+            "description": "Cron schedule"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid schedule"
+          }
+        },
+        "security": [
+          {
+            "consoleBearer": []
+          }
+        ],
+        "summary": "Update one recurring schedule",
+        "tags": ["Schedule"]
+      }
+    },
+    "/api/agents/{agent_uid}/sessions/{session_id}/cron-schedules/{cron_schedule_id}/pause": {
+      "post": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.ScheduleController.pause_cron",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "agent_uid",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "cron_schedule_id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduleCronScheduleResponse"
+                }
+              }
+            },
+            "description": "Cron schedule"
+          }
+        },
+        "security": [
+          {
+            "consoleBearer": []
+          }
+        ],
+        "summary": "Pause one recurring schedule",
+        "tags": ["Schedule"]
+      }
+    },
+    "/api/agents/{agent_uid}/sessions/{session_id}/cron-schedules/{cron_schedule_id}/resume": {
+      "post": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.ScheduleController.resume_cron",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "agent_uid",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "cron_schedule_id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduleCronScheduleResponse"
+                }
+              }
+            },
+            "description": "Cron schedule"
+          }
+        },
+        "security": [
+          {
+            "consoleBearer": []
+          }
+        ],
+        "summary": "Resume one recurring schedule",
+        "tags": ["Schedule"]
+      }
+    },
+    "/api/agents/{agent_uid}/sessions/{session_id}/cron-schedules/{cron_schedule_id}/runs": {
+      "get": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.ScheduleController.cron_runs",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "agent_uid",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "cron_schedule_id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          },
+          {
+            "description": "",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "x-struct": null,
+              "x-validate": null
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduleEventListResponse"
+                }
+              }
+            },
+            "description": "Scheduled events"
+          }
+        },
+        "security": [
+          {
+            "consoleBearer": []
+          }
+        ],
+        "summary": "List recent concrete fires for one recurring schedule",
+        "tags": ["Schedule"]
+      },
+      "post": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.ScheduleController.run_cron",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "agent_uid",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          },
+          {
+            "description": "",
+            "in": "path",
+            "name": "cron_schedule_id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduleEventResponse"
+                }
+              }
+            },
+            "description": "Scheduled event"
+          }
+        },
+        "security": [
+          {
+            "consoleBearer": []
+          }
+        ],
+        "summary": "Manually run one recurring schedule",
+        "tags": ["Schedule"]
+      }
+    },
     "/api/app-configurations": {
       "get": {
         "callbacks": {},
@@ -150,20 +1747,40 @@
         "responses": {
           "200": {
             "content": {
-              "application/json": { "schema": { "$ref": "#/components/schemas/AppConfigurationListResponse" } }
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppConfigurationListResponse"
+                }
+              }
             },
             "description": "AppConfigure entries"
           },
           "401": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
             "description": "Unauthorized"
           },
           "403": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
             "description": "Forbidden"
           }
         },
-        "security": [{ "consoleBearer": [] }],
+        "security": [
+          {
+            "consoleBearer": []
+          }
+        ],
         "summary": "List console-visible AppConfigure entries",
         "tags": ["AppConfigure"]
       }
@@ -178,34 +1795,70 @@
             "in": "path",
             "name": "key",
             "required": true,
-            "schema": { "type": "string", "x-struct": null, "x-validate": null }
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
           }
         ],
         "responses": {
           "200": {
             "content": {
-              "application/json": { "schema": { "$ref": "#/components/schemas/AppConfigurationResponse" } }
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppConfigurationResponse"
+                }
+              }
             },
             "description": "AppConfigure entry"
           },
           "401": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
             "description": "Unauthorized"
           },
           "403": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
             "description": "Forbidden"
           },
           "404": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
             "description": "Not found"
           },
           "422": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
             "description": "Not editable"
           }
         },
-        "security": [{ "consoleBearer": [] }],
+        "security": [
+          {
+            "consoleBearer": []
+          }
+        ],
         "summary": "Reset one global AppConfigure value",
         "tags": ["AppConfigure"]
       },
@@ -218,34 +1871,70 @@
             "in": "path",
             "name": "key",
             "required": true,
-            "schema": { "type": "string", "x-struct": null, "x-validate": null }
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
           }
         ],
         "responses": {
           "200": {
             "content": {
-              "application/json": { "schema": { "$ref": "#/components/schemas/AppConfigurationResponse" } }
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppConfigurationResponse"
+                }
+              }
             },
             "description": "AppConfigure entry"
           },
           "401": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
             "description": "Unauthorized"
           },
           "403": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
             "description": "Forbidden"
           },
           "404": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
             "description": "Not found"
           },
           "422": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
             "description": "Not editable"
           }
         },
-        "security": [{ "consoleBearer": [] }],
+        "security": [
+          {
+            "consoleBearer": []
+          }
+        ],
         "summary": "Read one console-editable AppConfigure entry",
         "tags": ["AppConfigure"]
       },
@@ -258,12 +1947,20 @@
             "in": "path",
             "name": "key",
             "required": true,
-            "schema": { "type": "string", "x-struct": null, "x-validate": null }
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
           }
         ],
         "requestBody": {
           "content": {
-            "application/json": { "schema": { "$ref": "#/components/schemas/AppConfigurationUpdateRequest" } }
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AppConfigurationUpdateRequest"
+              }
+            }
           },
           "description": "AppConfigure update",
           "required": true
@@ -271,28 +1968,60 @@
         "responses": {
           "200": {
             "content": {
-              "application/json": { "schema": { "$ref": "#/components/schemas/AppConfigurationResponse" } }
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppConfigurationResponse"
+                }
+              }
             },
             "description": "AppConfigure entry"
           },
           "401": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
             "description": "Unauthorized"
           },
           "403": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
             "description": "Forbidden"
           },
           "404": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
             "description": "Not found"
           },
           "422": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
             "description": "Invalid value"
           }
         },
-        "security": [{ "consoleBearer": [] }],
+        "security": [
+          {
+            "consoleBearer": []
+          }
+        ],
         "summary": "Store one global AppConfigure value",
         "tags": ["AppConfigure"]
       }
@@ -307,42 +2036,341 @@
             "in": "path",
             "name": "key",
             "required": true,
-            "schema": { "type": "string", "x-struct": null, "x-validate": null }
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
           }
         ],
         "responses": {
           "200": {
             "content": {
-              "application/json": { "schema": { "$ref": "#/components/schemas/AppConfigurationDecryptionResponse" } }
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppConfigurationDecryptionResponse"
+                }
+              }
             },
             "description": "Decrypted value"
           },
           "401": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
             "description": "Unauthorized"
           },
           "403": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
             "description": "Forbidden"
           },
           "404": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
             "description": "Not found"
           },
           "422": {
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConsoleApiErrorEnvelope" } } },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
             "description": "Not encrypted"
           }
         },
-        "security": [{ "consoleBearer": [] }],
+        "security": [
+          {
+            "consoleBearer": []
+          }
+        ],
         "summary": "Reveal one encrypted AppConfigure value on demand",
         "tags": ["AppConfigure"]
+      }
+    },
+    "/api/llm-provider-sources": {
+      "get": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.LlmProviderController.sources",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LlmProviderSourceListResponse"
+                }
+              }
+            },
+            "description": "Provider sources"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          }
+        },
+        "security": [
+          {
+            "consoleBearer": []
+          }
+        ],
+        "summary": "List first-party LLM provider sources",
+        "tags": ["LLM Runtime"]
+      }
+    },
+    "/api/llm-providers": {
+      "get": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.LlmProviderController.index",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LlmProviderListResponse"
+                }
+              }
+            },
+            "description": "LLM providers"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          }
+        },
+        "security": [
+          {
+            "consoleBearer": []
+          }
+        ],
+        "summary": "List configured LLM providers",
+        "tags": ["LLM Runtime"]
+      }
+    },
+    "/api/llm-providers/{provider_id}": {
+      "delete": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.LlmProviderController.delete_provider",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "provider_id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LlmProviderResponse"
+                }
+              }
+            },
+            "description": "LLM provider"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Provider in use"
+          }
+        },
+        "security": [
+          {
+            "consoleBearer": []
+          }
+        ],
+        "summary": "Disable one LLM provider",
+        "tags": ["LLM Runtime"]
+      },
+      "put": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.LlmProviderController.put_provider",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "provider_id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "x-struct": null,
+              "x-validate": null
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LlmProviderWriteRequest"
+              }
+            }
+          },
+          "description": "LLM provider",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LlmProviderResponse"
+                }
+              }
+            },
+            "description": "LLM provider"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid provider"
+          }
+        },
+        "security": [
+          {
+            "consoleBearer": []
+          }
+        ],
+        "summary": "Create or update one LLM provider",
+        "tags": ["LLM Runtime"]
       }
     }
   },
   "security": [],
-  "servers": [{ "url": "http://localhost:4000", "variables": {} }],
+  "servers": [
+    {
+      "url": "http://localhost:4000",
+      "variables": {}
+    }
+  ],
   "tags": [
-    { "description": "Registry-backed runtime configuration exposed to the web console", "name": "AppConfigure" }
+    {
+      "description": "Registry-backed runtime configuration exposed to the web console",
+      "name": "AppConfigure"
+    },
+    {
+      "description": "Operator-managed LLM provider and agent model profile configuration",
+      "name": "LLM Runtime"
+    },
+    {
+      "description": "Operator-visible actor checkbacks and recurring schedules",
+      "name": "Schedule"
+    }
   ]
 }

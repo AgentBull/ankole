@@ -102,17 +102,17 @@ defmodule AnkoleWeb.Assets do
   defp collect_manifest_css(chunk, manifest, seen) do
     chunk
     |> Map.get("imports", [])
-    |> Enum.reduce({Map.get(chunk, "css", []), seen}, fn key, {acc, seen} ->
+    |> Enum.reduce({Map.get(chunk, "css", []) |> Enum.reverse(), seen}, fn key, {acc, seen} ->
       with false <- MapSet.member?(seen, key),
            %{} = import_chunk <- Map.get(manifest, key) do
         seen = MapSet.put(seen, key)
         {css, seen} = collect_manifest_css(import_chunk, manifest, seen)
-        {acc ++ css, seen}
+        {Enum.reverse(css, acc), seen}
       else
         _missing_or_seen -> {acc, seen}
       end
     end)
-    |> then(fn {css, seen} -> {Enum.uniq(css), seen} end)
+    |> then(fn {css, seen} -> {css |> Enum.reverse() |> Enum.uniq(), seen} end)
   end
 
   # Same cycle-guarded walk, but collecting the JS files of imported chunks so
@@ -125,12 +125,12 @@ defmodule AnkoleWeb.Assets do
            %{"file" => file} = import_chunk <- Map.get(manifest, key) do
         seen = MapSet.put(seen, key)
         {nested_files, seen} = collect_manifest_import_files(import_chunk, manifest, seen)
-        {acc ++ [file | nested_files], seen}
+        {Enum.reverse([file | nested_files], acc), seen}
       else
         _missing_or_seen -> {acc, seen}
       end
     end)
-    |> then(fn {files, seen} -> {Enum.uniq(files), seen} end)
+    |> then(fn {files, seen} -> {files |> Enum.reverse() |> Enum.uniq(), seen} end)
   end
 
   defp manifest_path do

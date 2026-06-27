@@ -215,6 +215,14 @@ defmodule Ankole.ActorRuntime.FileTransferLane do
   def init(_opts), do: {:ok, %{pending: %{}}}
 
   @impl true
+  def format_status(status) do
+    case status do
+      %{state: state} -> %{status | state: redact_status_state(state)}
+      _status -> status
+    end
+  end
+
+  @impl true
   def handle_call({:request, route, transfer_id, frames, pending, timeout}, from, state) do
     case send_frames(route, frames) do
       {:ok, :sent_or_queued} ->
@@ -262,6 +270,35 @@ defmodule Ankole.ActorRuntime.FileTransferLane do
   defp simple_pending(route, expected_command) do
     %{mode: :simple, route: route, expected_command: expected_command}
   end
+
+  defp redact_status_state(%{pending: pending} = state) when is_map(pending) do
+    %{state | pending: Map.new(pending, fn {id, request} -> {id, redact_pending(request)} end)}
+  end
+
+  defp redact_status_state(state), do: state
+
+  defp redact_pending(%{mode: mode, route: route, expected_command: expected_command} = pending) do
+    pending
+    |> Map.take([:next_sequence, :next_offset, :credit, :commit_sent?, :eof?])
+    |> Map.merge(%{
+      mode: mode,
+      route: route,
+      expected_command: expected_command,
+      chunks: chunk_count(Map.get(pending, :chunks)),
+      read_begin: redacted_read_begin(Map.get(pending, :read_begin)),
+      from: :redacted,
+      timer: :redacted
+    })
+  end
+
+  defp redact_pending(pending) when is_map(pending), do: Map.take(pending, [:mode, :route])
+  defp redact_pending(_pending), do: :redacted
+
+  defp chunk_count(chunks) when is_list(chunks), do: length(chunks)
+  defp chunk_count(_chunks), do: 0
+
+  defp redacted_read_begin(nil), do: nil
+  defp redacted_read_begin(_read_begin), do: :redacted
 
   defp transfer_id(opts) do
     Keyword.get_lazy(opts, :transfer_id, fn ->

@@ -9,6 +9,7 @@ defmodule AnkoleWeb.SpaController do
   use AnkoleWeb, :controller
 
   alias Ankole.AdminAuth
+  alias Ankole.I18n
   alias Ankole.Setup.Config, as: SetupConfig
   alias AnkoleWeb.Session, as: WebSession
   alias AnkoleWeb.Assets
@@ -172,7 +173,7 @@ defmodule AnkoleWeb.SpaController do
   # still must emit a valid document, so fall back to a sane default rather than
   # failing the whole shell render over a presentation attribute.
   defp app_locale do
-    case Ankole.I18n.Config.default_locale() do
+    case I18n.configured_default_locale() do
       {:ok, locale} -> locale
       {:error, _reason} -> "en-US"
     end

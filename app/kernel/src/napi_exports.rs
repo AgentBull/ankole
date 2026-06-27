@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 use serde_json::Value as JsonValue;
@@ -7,19 +5,20 @@ use std::path::Path;
 use std::time::Duration;
 
 use crate::authz;
-use crate::core;
+use crate::common;
 use crate::runtime_fabric;
 use crate::runtime_fabric::transport::{DealerEvent, DealerHandle};
+use crate::signals_gateway;
 
-/// Converts a core error into the generic N-API error shape.
+/// Converts a common kernel error into the generic N-API error shape.
 ///
 /// The kernel does not define JS-specific error classes yet. Preserving the
 /// message keeps the public JS behavior aligned with the Elixir binding.
-fn napi_error(error: core::KernelError) -> Error {
+fn napi_error(error: common::KernelError) -> Error {
     Error::new(Status::GenericFailure, error.to_string())
 }
 
-/// Normalizes JS string-or-Buffer input into bytes for the shared Rust core.
+/// Normalizes JS string-or-Buffer input into bytes for shared Rust helpers.
 ///
 /// Strings become UTF-8 bytes. That mirrors how JavaScript already represents
 /// text and keeps binary-safe paths available through `Buffer`.
@@ -33,7 +32,7 @@ fn bytes_from_either(input: Either<String, Buffer>) -> Vec<u8> {
 /// Converts napi-rs optional string arguments into Rust `Option<String>`.
 ///
 /// napi-rs represents an omitted optional value as unit in this signature style,
-/// so the binding normalizes it before calling the host-neutral core function.
+/// so the binding normalizes it before calling the host-neutral implementation.
 fn optional_string(input: Either<String, ()>) -> Option<String> {
     match input {
         Either::A(value) => Some(value),
@@ -46,7 +45,7 @@ fn optional_string(input: Either<String, ()>) -> Option<String> {
 /// Returning a Buffer avoids forcing arbitrary plaintext bytes through UTF-8.
 #[napi]
 pub fn aead_decrypt(cipher: String, key: String) -> Result<Buffer> {
-    core::aead_decrypt(&cipher, &key)
+    common::aead_decrypt(&cipher, &key)
         .map(Buffer::from)
         .map_err(napi_error)
 }
@@ -54,7 +53,7 @@ pub fn aead_decrypt(cipher: String, key: String) -> Result<Buffer> {
 /// Encrypts a JS string or Buffer with the shared AEAD token format.
 #[napi]
 pub fn aead_encrypt(plain: Either<String, Buffer>, key: String) -> Result<String> {
-    core::aead_encrypt(&bytes_from_either(plain), &key).map_err(napi_error)
+    common::aead_encrypt(&bytes_from_either(plain), &key).map_err(napi_error)
 }
 
 /// Authorizes one exact action on one concrete resource.
@@ -75,6 +74,23 @@ pub fn authz_validate_condition(condition: String) -> Result<bool> {
     authz::validate_condition_source(&condition)
         .map(|_| true)
         .map_err(napi_error)
+}
+
+/// Returns whether a SignalsGateway CEL admission filter compiles.
+#[napi(js_name = "signalsGatewayValidateFilter")]
+pub fn js_signals_gateway_validate_filter(filter_source: String) -> Result<bool> {
+    signals_gateway::validate_filter_source(&filter_source)
+        .map(|_| true)
+        .map_err(napi_error)
+}
+
+/// Evaluates a SignalsGateway CEL admission filter.
+#[napi(
+    js_name = "signalsGatewayFilterMatch",
+    ts_args_type = "filterSource: string, context: any"
+)]
+pub fn js_signals_gateway_filter_match(filter_source: String, context: JsonValue) -> Result<bool> {
+    signals_gateway::evaluate_filter_json(&filter_source, context).map_err(napi_error)
 }
 
 /// Returns whether a resource pattern is valid.
@@ -132,13 +148,11 @@ impl JsRuntimeFabricDealer {
             identity,
             username,
             password,
-            sndhwm: None,
-            rcvhwm: None,
-            linger_ms: None,
-            sndtimeo_ms: None,
-            rcvtimeo_ms: None,
+            socket: Default::default(),
             poll_interval_ms: None,
             command_timeout_ms: None,
+            inbox_max_events: None,
+            inbox_max_bytes: None,
         };
 
         runtime_fabric::transport::start_dealer(config)
@@ -168,14 +182,13 @@ impl JsRuntimeFabricDealer {
     pub fn recv(&self, timeout_ms: u32) -> Result<Option<Buffer>> {
         match self
             .handle
-            .recv(Duration::from_millis(u64::from(timeout_ms)))
+            .recv_envelope(Duration::from_millis(u64::from(timeout_ms)))
             .map_err(|error| Error::new(Status::GenericFailure, error.to_string()))?
         {
             Some(DealerEvent::Received(payload)) => Ok(Some(Buffer::from(payload))),
-            Some(DealerEvent::FileFrame(_frames)) => Err(Error::new(
-                Status::GenericFailure,
-                "received worker file lane frame; use recvRaw".to_string(),
-            )),
+            Some(DealerEvent::FileFrame(_frames)) => {
+                unreachable!("recv_envelope filters file frames")
+            }
             Some(DealerEvent::DecodeFailed(reason)) | Some(DealerEvent::SocketError(reason)) => {
                 Err(Error::new(Status::GenericFailure, reason))
             }
@@ -265,13 +278,13 @@ fn raw_frames_to_buffers(frames: RawDealerFrames) -> Vec<Buffer> {
 /// Converts Unicode text into a best-effort ASCII representation for JS callers.
 #[napi(js_name = "anyAscii")]
 pub fn js_any_ascii(input: String) -> String {
-    core::any_ascii(&input)
+    common::any_ascii(&input)
 }
 
 /// Decodes Base58 text and returns the raw bytes as a Buffer.
 #[napi]
 pub fn base58_decode(input: String) -> Result<Buffer> {
-    core::base58_decode(&input)
+    common::base58_decode(&input)
         .map(Buffer::from)
         .map_err(napi_error)
 }
@@ -279,13 +292,13 @@ pub fn base58_decode(input: String) -> Result<Buffer> {
 /// Encodes a JS string or Buffer as Base58 text.
 #[napi]
 pub fn base58_encode(input: Either<String, Buffer>) -> String {
-    core::base58_encode(&bytes_from_either(input))
+    common::base58_encode(&bytes_from_either(input))
 }
 
 /// Decodes padding-free URL-safe Base64 and returns the raw bytes as a Buffer.
 #[napi(js_name = "base64UrlSafeDecode")]
 pub fn js_base64_url_safe_decode(input: String) -> Result<Buffer> {
-    core::base64_url_safe_decode(&input)
+    common::base64_url_safe_decode(&input)
         .map(Buffer::from)
         .map_err(napi_error)
 }
@@ -293,7 +306,7 @@ pub fn js_base64_url_safe_decode(input: String) -> Result<Buffer> {
 /// Encodes a JS string or Buffer with URL-safe Base64 and no padding.
 #[napi(js_name = "base64UrlSafeEncode")]
 pub fn js_base64_url_safe_encode(input: Either<String, Buffer>) -> String {
-    core::base64_url_safe_encode(&bytes_from_either(input))
+    common::base64_url_safe_encode(&bytes_from_either(input))
 }
 
 /// Hashes data with BLAKE3 and returns the digest in Base58 form.
@@ -304,7 +317,7 @@ pub fn js_base64_url_safe_encode(input: Either<String, Buffer>) -> String {
 pub fn bs58_hash(data: Either<String, Buffer>, salt: Either<String, ()>) -> Result<String> {
     let salt = optional_string(salt);
 
-    core::bs58_hash(&bytes_from_either(data), salt.as_deref()).map_err(napi_error)
+    common::bs58_hash(&bytes_from_either(data), salt.as_deref()).map_err(napi_error)
 }
 
 /// Computes CRC32 over a Buffer-like value or string.
@@ -314,30 +327,30 @@ pub fn bs58_hash(data: Either<String, Buffer>, salt: Either<String, ()>) -> Resu
 /// helper.
 #[napi]
 pub fn crc32(input: Either<&[u8], String>, initial_state: Option<u32>) -> u32 {
-    core::crc32(input.as_ref(), initial_state)
+    common::crc32(input.as_ref(), initial_state)
 }
 
 /// Computes CRC32 and formats it as lowercase hexadecimal text.
 #[napi]
 pub fn crc32_hex(input: Either<&[u8], String>, initial_state: Option<u32>) -> String {
-    core::crc32_hex(input.as_ref(), initial_state)
+    common::crc32_hex(input.as_ref(), initial_state)
 }
 
 /// Computes the non-cryptographic XXH3 128-bit observation fingerprint.
 #[napi(js_name = "xxh3File128Hex")]
 pub fn js_xxh3_file_128_hex(path: String) -> Result<String> {
-    core::xxh3_128_file_hex(Path::new(&path)).map_err(napi_error)
+    common::xxh3_128_file_hex(Path::new(&path)).map_err(napi_error)
 }
 
 /// Computes XXH3 128-bit over a JS string or Buffer.
 #[napi(js_name = "xxh3_128_hex", ts_args_type = "data: string | Buffer")]
 pub fn js_xxh3_128_hex(data: Either<String, Buffer>) -> String {
-    core::xxh3_128_hex(&bytes_from_either(data))
+    common::xxh3_128_hex(&bytes_from_either(data))
 }
 
 /// Derives a deterministic BLAKE3 sub-key for JS callers.
 ///
-/// `context` stays optional at the JS boundary, but the core always receives an
+/// `context` stays optional at the JS boundary, but the shared implementation always receives an
 /// explicit `Option` so omitted and empty-string contexts remain distinguishable.
 #[napi(ts_args_type = "keySeed: string | Buffer, subKeyId: string, context?: string")]
 pub fn derive_key(
@@ -347,7 +360,7 @@ pub fn derive_key(
 ) -> String {
     let extra_context = optional_string(extra_context);
 
-    core::derive_key(
+    common::derive_key(
         &bytes_from_either(key_seed),
         &sub_key_id,
         extra_context.as_deref(),
@@ -357,13 +370,13 @@ pub fn derive_key(
 /// Generates a random UUIDv4 encoded as lowercase Base36.
 #[napi(js_name = "genBase36UUID")]
 pub fn gen_base36_uuid() -> String {
-    core::gen_base36_uuid()
+    common::gen_base36_uuid()
 }
 
 /// Generates a random 32-byte hex key for kernel cryptographic helpers.
 #[napi]
 pub fn generate_key() -> String {
-    core::generate_key()
+    common::generate_key()
 }
 
 /// Hashes data with BLAKE3 and returns the digest as lowercase hex text.
@@ -371,22 +384,22 @@ pub fn generate_key() -> String {
 pub fn generic_hash(data: Either<String, Buffer>, salt: Either<String, ()>) -> Result<String> {
     let salt = optional_string(salt);
 
-    core::generic_hash(&bytes_from_either(data), salt.as_deref()).map_err(napi_error)
+    common::generic_hash(&bytes_from_either(data), salt.as_deref()).map_err(napi_error)
 }
 
 /// Parses and validates an international phone number, returning E.164 text.
 #[napi(js_name = "phoneNormalizeE164")]
 pub fn js_phone_normalize_e164(phone: String) -> Result<String> {
-    core::phone_normalize_e164(&phone).map_err(napi_error)
+    common::phone_normalize_e164(&phone).map_err(napi_error)
 }
 
 /// Decodes a JWT header without validating the token signature.
 #[napi(js_name = "jwtDecodeHeader", ts_return_type = "any")]
 pub fn js_jwt_decode_header(token: String) -> Result<JsonValue> {
-    core::jwt_decode_header_json(&token)
+    common::jwt_decode_header_json(&token)
         .and_then(|json| {
             serde_json::from_str(&json)
-                .map_err(|error| core::KernelError::new(format!("invalid header JSON: {error}")))
+                .map_err(|error| common::KernelError::new(format!("invalid header JSON: {error}")))
         })
         .map_err(napi_error)
 }
@@ -416,7 +429,7 @@ pub fn js_jwt_sign(
                 )
             })?;
 
-    core::jwt_sign_json(&claims_json, &bytes_from_either(key), &header_json).map_err(napi_error)
+    common::jwt_sign_json(&claims_json, &bytes_from_either(key), &header_json).map_err(napi_error)
 }
 
 /// Verifies a JWT with a string-or-buffer key and JSON validation options.
@@ -439,10 +452,10 @@ pub fn js_jwt_verify(
                 )
             })?;
 
-    core::jwt_verify_json(&token, &bytes_from_either(key), &validation_json)
+    common::jwt_verify_json(&token, &bytes_from_either(key), &validation_json)
         .and_then(|json| {
             serde_json::from_str(&json)
-                .map_err(|error| core::KernelError::new(format!("invalid claims JSON: {error}")))
+                .map_err(|error| common::KernelError::new(format!("invalid claims JSON: {error}")))
         })
         .map_err(napi_error)
 }
@@ -450,17 +463,17 @@ pub fn js_jwt_verify(
 /// Generates a random UUIDv4 encoded from raw UUID bytes as Base58.
 #[napi(js_name = "genShortUUID")]
 pub fn gen_short_uuid() -> String {
-    core::gen_short_uuid()
+    common::gen_short_uuid()
 }
 
 /// Generates a standard hyphenated UUIDv4 string.
 #[napi(js_name = "genUUID")]
 pub fn gen_uuid() -> String {
-    core::gen_uuid()
+    common::gen_uuid()
 }
 
 /// Generates a standard hyphenated UUIDv7 string.
 #[napi(js_name = "genUUIDv7")]
 pub fn gen_uuid_v7() -> String {
-    core::gen_uuid_v7()
+    common::gen_uuid_v7()
 }

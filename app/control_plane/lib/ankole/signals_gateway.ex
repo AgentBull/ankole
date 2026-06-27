@@ -10,15 +10,15 @@ defmodule Ankole.SignalsGateway do
 
   Three responsibilities live here, each with its own contract:
 
-    * Ingress (`emit_entry`/`emit_reaction`/`emit_action`/`emit_internal`/the
-      delete & recall lifecycle): construct a fact, apply binding filters, then
+    * Ingress (`emit_entry`/`emit_entry_removed`/`emit_reaction`/`emit_action`/
+      `emit_internal`): construct a fact, apply binding filters, then
       do the channel/entry mirror + actor-input append inside ONE Repo
       transaction. There is deliberately no stored ingress plan and no second
       queue — admission and effect happen in the request that received the
       signal, so a signal either fully lands or leaves no trace.
 
     * Tombstones: a short-lived guard (`InputTombstone`) so a late re-delivered
-      receive can't resurrect a message the human already deleted/recalled.
+      receive can't resurrect a message the human already removed.
 
     * Outbox (`commit_outbox`/`dispatch_outbox`/`dispatch_due_outbox`): the
       durable, idempotent, retried path that actually performs provider-visible
@@ -53,7 +53,7 @@ defmodule Ankole.SignalsGateway do
   alias Ankole.SignalsGateway.SignalChannel
   alias Ankole.SignalsGateway.SignalEntry
 
-  # How long a delete/recall blocks a re-delivered receive for the same entry.
+  # How long a provider-side removal blocks a re-delivered receive for the same entry.
   # 24h comfortably outlives any provider's redelivery/retry window while keeping
   # the guard transient — long enough that a straggler receive is caught, short
   # enough that the cleanup job keeps the table from growing without bound. It is
@@ -149,19 +149,22 @@ defmodule Ankole.SignalsGateway do
   end
 
   @doc """
-  Concrete adapter API for a provider entry delete.
-  """
-  @spec emit_entry_deleted(String.t(), String.t(), map(), keyword()) :: ingress_result()
-  def emit_entry_deleted(agent_uid, binding_name, input, options \\ []) do
-    emit_lifecycle(agent_uid, binding_name, input, :deleted, options)
-  end
+  Concrete adapter API for a provider entry removal.
 
-  @doc """
-  Concrete adapter API for a provider entry recall.
+  Provider-specific event names such as "delete" or "recall" are source facts,
+  not separate Ankole capabilities. They may be kept in
+  `options[:provider_lifecycle_kind]` for diagnostics, while the actor-facing
+  contract remains `signal.entry.removed`.
   """
-  @spec emit_entry_recalled(String.t(), String.t(), map(), keyword()) :: ingress_result()
-  def emit_entry_recalled(agent_uid, binding_name, input, options \\ []) do
-    emit_lifecycle(agent_uid, binding_name, input, :recalled, options)
+  @spec emit_entry_removed(String.t(), String.t(), map(), keyword()) :: ingress_result()
+  def emit_entry_removed(agent_uid, binding_name, input, options \\ []) do
+    provider_lifecycle_kind =
+      Keyword.get(options, :provider_lifecycle_kind) ||
+        fetch_value(input, :provider_lifecycle_kind)
+
+    provider_lifecycle_kind = normalize_provider_lifecycle_kind(provider_lifecycle_kind)
+
+    emit_lifecycle(agent_uid, binding_name, input, provider_lifecycle_kind, options)
   end
 
   @doc """
@@ -220,9 +223,9 @@ defmodule Ankole.SignalsGateway do
          :match <- IngressPipeline.filter(binding, fact) do
       Repo.transact(fn repo ->
         with {:ok, channel} <- maybe_upsert_channel(repo, fact, now),
-             {:ok, actor_input} <-
+             {:ok, append_result} <-
                append_actor_input(binding, fact, fact.actor_input_type, channel, nil, now) do
-          {:ok, %{status: :accepted, actor_input: actor_input, signal_channel: channel}}
+          {:ok, actor_input_append_result(append_result, %{signal_channel: channel})}
         end
       end)
       |> wake_actor_runtime()
@@ -249,9 +252,9 @@ defmodule Ankole.SignalsGateway do
            IngressPipeline.construct(:internal, binding, input, now, &normalize_internal_fact/3),
          :match <- IngressPipeline.filter(binding, fact) do
       Repo.transact(fn _repo ->
-        with {:ok, actor_input} <-
+        with {:ok, append_result} <-
                append_actor_input(binding, fact, fact.actor_input_type, nil, nil, now) do
-          {:ok, %{status: :accepted, actor_input: actor_input}}
+          {:ok, actor_input_append_result(append_result)}
         end
       end)
       |> wake_actor_runtime()
@@ -472,15 +475,15 @@ defmodule Ankole.SignalsGateway do
 
   defp wake_actor_runtime(result), do: result
 
-  defp emit_lifecycle(agent_uid, binding_name, input, kind, options) do
+  defp emit_lifecycle(agent_uid, binding_name, input, provider_lifecycle_kind, options) do
     now = Keyword.get(options, :now, DateTime.utc_now(:microsecond))
 
     with {:ok, binding} <- get_binding(agent_uid, binding_name),
-         constructor <- lifecycle_constructor(kind),
+         constructor <- lifecycle_constructor(provider_lifecycle_kind),
          {:ok, fact} <- IngressPipeline.construct(:lifecycle, binding, input, now, constructor),
          :match <- IngressPipeline.filter(binding, fact) do
       binding
-      |> accept_lifecycle(fact, kind, now)
+      |> accept_lifecycle(fact, now)
       |> TurnRetry.dispatch_retry_controls()
       |> wake_actor_runtime()
     else
@@ -492,7 +495,7 @@ defmodule Ankole.SignalsGateway do
   # Whole acceptance runs in one transaction behind the per-entry advisory lock,
   # so concurrent receives for the same message serialize and the
   # tombstone-check → mirror → actor-input sequence is atomic. The tombstone
-  # check comes first: if the human already deleted/recalled this entry, drop the
+  # check comes first: if the human already removed this entry, drop the
   # late receive before writing anything.
   defp accept_entry(binding, fact, options, now) do
     Repo.transact(fn repo ->
@@ -511,27 +514,29 @@ defmodule Ankole.SignalsGateway do
     end)
   end
 
-  defp lifecycle_constructor(kind) do
-    fn binding, input, now -> normalize_lifecycle_fact(binding, input, kind, now) end
+  defp lifecycle_constructor(provider_lifecycle_kind) do
+    fn binding, input, now ->
+      normalize_lifecycle_fact(binding, input, provider_lifecycle_kind, now)
+    end
   end
 
-  # Delete/recall is the inverse of accept and does several things atomically:
+  # Removal is the inverse of accept and does several things atomically:
   # 1) drop a tombstone so a re-delivered receive can't resurrect the entry,
   # 2) remove the source from any open inbound batch, 3) remove the mirror row,
   # 4) cancel any still-pending actor input for that entry, and 5) for input the
-  # agent ALREADY consumed, append a lifecycle "deleted/recalled" input that
+  # agent ALREADY consumed, append a lifecycle "removed" input that
   # ActorRuntime consumes into an introspection note. Steps 2-4 cover work that
   # has not committed yet; step 5 covers committed actor state.
-  defp accept_lifecycle(binding, fact, kind, now) do
+  defp accept_lifecycle(binding, fact, now) do
     Repo.transact(fn repo ->
       with {:ok, channel} <- upsert_channel(repo, fact, now),
            :ok <- lock_entry(repo, fact),
            :ok <- lock_inbound_batch(repo, fact),
-           {:ok, tombstone} <- upsert_tombstone(repo, fact, kind, now),
+           {:ok, tombstone} <- upsert_tombstone(repo, fact, now),
            {:ok, updated_batches} <- remove_pending_inbound_entry(repo, fact, now),
            {deleted_count, _rows} <- delete_mirror_entry(repo, fact),
            {:ok, runtime_retractions} <-
-             TurnRetry.retract_source_entry_in_tx(repo, fact, kind, now),
+             TurnRetry.retract_source_entry_in_tx(repo, fact, :removed, now),
            consumed_inputs <-
              Actors.consumed_inputs_for_entry(
                fact.agent_uid,
@@ -608,11 +613,18 @@ defmodule Ankole.SignalsGateway do
     end
   end
 
-  defp normalize_lifecycle_fact(%SignalBinding{} = binding, input, kind, now) do
+  defp normalize_lifecycle_fact(%SignalBinding{} = binding, input, provider_lifecycle_kind, now) do
     with {:ok, ingress_event_id} <- required_text(input, :ingress_event_id),
          {:ok, signal_channel_id} <- required_text(input, :signal_channel_id),
          {:ok, provider_entry_id} <- required_text(input, :provider_entry_id) do
       channel = fetch_map(input, :channel, %{})
+      metadata = fetch_map(input, :metadata, %{})
+
+      provider_lifecycle_kind =
+        provider_lifecycle_kind ||
+          metadata
+          |> fetch_value(:provider_lifecycle_kind)
+          |> normalize_provider_lifecycle_kind()
 
       {:ok,
        %{
@@ -637,10 +649,11 @@ defmodule Ankole.SignalsGateway do
            optional_text(channel, :visibility) || optional_text(input, :channel_visibility),
          channel_metadata: fetch_map(channel, :metadata, %{}),
          channel_raw_payload: fetch_map(channel, :raw_payload, fetch_map(channel, :raw, %{})),
-         metadata: fetch_map(input, :metadata, %{}),
+         metadata: metadata,
          raw_payload: fetch_map(input, :raw_payload, fetch_map(input, :raw, %{})),
          provider_time: fetch_datetime(input, :provider_time),
-         lifecycle_kind: kind,
+         lifecycle_kind: :removed,
+         provider_lifecycle_kind: provider_lifecycle_kind,
          gateway_time: now
        }}
     end
@@ -867,14 +880,12 @@ defmodule Ankole.SignalsGateway do
 
     with {:ok, channel} <- upsert_channel(repo, fact, now),
          {:ok, entry} <- mirror_receive_entry(repo, fact, now),
-         {:ok, actor_input} <- append_actor_input(binding, fact, type, channel, entry, now) do
+         {:ok, append_result} <- append_actor_input(binding, fact, type, channel, entry, now) do
       {:ok,
-       %{
-         status: :accepted,
+       actor_input_append_result(append_result, %{
          signal_channel: channel,
-         signal_entry: entry,
-         actor_input: actor_input
-       }}
+         signal_entry: entry
+       })}
     end
   end
 
@@ -904,6 +915,13 @@ defmodule Ankole.SignalsGateway do
 
       {:ok, result}
     end
+  end
+
+  defp actor_input_append_result(append_result, extra \\ %{})
+
+  defp actor_input_append_result(%ActorInput{} = actor_input, extra) do
+    extra
+    |> Map.merge(%{status: :accepted, actor_input: actor_input})
   end
 
   defp maybe_put_result(result, _key, nil), do: result
@@ -1162,37 +1180,18 @@ defmodule Ankole.SignalsGateway do
   end
 
   defp finalize_inbound_batch_in_tx(repo, %InboundBatch{mode: "addressed"} = batch, now) do
-    with {:ok, actor_input} <- append_batch_actor_input(repo, batch, "im.message.addressed", now),
-         {:ok, closed} <-
-           batch
-           |> InboundBatch.changeset(%{
-             batch_state: "finalized",
-             outcome: "addressed",
-             finalized_at: now,
-             actor_input_id: actor_input.id,
-             batch_revision: batch.batch_revision + 1
-           })
-           |> repo.update() do
-      {:ok, %{status: :accepted, actor_input: actor_input, inbound_batch: closed}}
+    with {:ok, append_result} <-
+           append_batch_actor_input(repo, batch, "im.message.addressed", now) do
+      finalize_batch_actor_input_append(repo, batch, now, "addressed", append_result)
     end
   end
 
   defp finalize_inbound_batch_in_tx(repo, %InboundBatch{mode: "neutral"} = batch, now) do
     case batch.policy do
       "may_intervene" ->
-        with {:ok, actor_input} <-
-               append_batch_actor_input(repo, batch, "im.message.may_intervene", now),
-             {:ok, closed} <-
-               batch
-               |> InboundBatch.changeset(%{
-                 batch_state: "finalized",
-                 outcome: "ambient",
-                 finalized_at: now,
-                 actor_input_id: actor_input.id,
-                 batch_revision: batch.batch_revision + 1
-               })
-               |> repo.update() do
-          {:ok, %{status: :accepted, actor_input: actor_input, inbound_batch: closed}}
+        with {:ok, append_result} <-
+               append_batch_actor_input(repo, batch, "im.message.may_intervene", now) do
+          finalize_batch_actor_input_append(repo, batch, now, "ambient", append_result)
         end
 
       _no_actor_input ->
@@ -1207,6 +1206,27 @@ defmodule Ankole.SignalsGateway do
                |> repo.update() do
           {:ok, %{status: :ignored, inbound_batch: closed}}
         end
+    end
+  end
+
+  defp finalize_batch_actor_input_append(
+         repo,
+         %InboundBatch{} = batch,
+         now,
+         outcome,
+         %ActorInput{} = actor_input
+       ) do
+    with {:ok, closed} <-
+           batch
+           |> InboundBatch.changeset(%{
+             batch_state: "finalized",
+             outcome: outcome,
+             finalized_at: now,
+             actor_input_id: actor_input.id,
+             batch_revision: batch.batch_revision + 1
+           })
+           |> repo.update() do
+      {:ok, %{status: :accepted, actor_input: actor_input, inbound_batch: closed}}
     end
   end
 
@@ -1910,7 +1930,8 @@ defmodule Ankole.SignalsGateway do
         "raw" => Map.get(fact, :raw_payload),
         "command" => Map.get(fact, :command_payload),
         "action" => Map.get(fact, :action),
-        "internal" => Map.get(fact, :internal)
+        "internal" => Map.get(fact, :internal),
+        "lifecycle" => lifecycle_payload(fact)
       }
       |> Enum.reject(fn {_key, value} -> is_nil(value) end)
       |> Map.new()
@@ -1940,6 +1961,18 @@ defmodule Ankole.SignalsGateway do
     |> Enum.reject(fn {_key, value} -> is_nil(value) end)
     |> Map.new()
   end
+
+  defp lifecycle_payload(%{lifecycle_kind: lifecycle_kind} = fact)
+       when not is_nil(lifecycle_kind) do
+    %{
+      "kind" => Atom.to_string(lifecycle_kind),
+      "provider_kind" => Map.get(fact, :provider_lifecycle_kind)
+    }
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+    |> Map.new()
+  end
+
+  defp lifecycle_payload(_fact), do: nil
 
   defp entry_payload(%SignalEntry{} = entry, fact) do
     %{
@@ -1996,11 +2029,8 @@ defmodule Ankole.SignalsGateway do
   defp datetime_iso8601(%DateTime{} = datetime), do: DateTime.to_iso8601(datetime)
   defp datetime_iso8601(_value), do: nil
 
-  # `_kind` (deleted vs recalled) does not change the guard — both block late
-  # redelivery identically — so it's ignored here; the distinction only matters
-  # for the lifecycle actor input. Re-tombstoning an entry simply refreshes the
-  # 24h window from `now`.
-  defp upsert_tombstone(repo, fact, _kind, now) do
+  # Re-tombstoning an entry simply refreshes the 24h window from `now`.
+  defp upsert_tombstone(repo, fact, now) do
     attrs = %{
       agent_uid: fact.agent_uid,
       binding_name: fact.binding_name,
@@ -2052,9 +2082,9 @@ defmodule Ankole.SignalsGateway do
     |> repo.delete_all()
   end
 
-  # Notify each session that already CONSUMED the now-deleted/recalled entry. We
+  # Notify each session that already CONSUMED the now-removed entry. We
   # can't undo what the agent did, but it should know the source message is gone,
-  # so we append a "deleted/recalled" input per affected session, stripped of the
+  # so we append a "removed" input per affected session, stripped of the
   # original content (no text/mentions/command). It is a tombstone notice, not a
   # re-delivery or user command. Sessions that never consumed the entry had their
   # pending input cancelled instead (see accept_lifecycle), so there's nothing to
@@ -2062,12 +2092,6 @@ defmodule Ankole.SignalsGateway do
   defp append_lifecycle_inputs(_binding, _fact, [], _channel, _now), do: {:ok, []}
 
   defp append_lifecycle_inputs(binding, fact, consumed_inputs, channel, now) do
-    type =
-      case fact.lifecycle_kind do
-        :deleted -> "signal.entry.deleted"
-        :recalled -> "signal.entry.recalled"
-      end
-
     consumed_inputs
     |> Enum.map(fn consumed_input ->
       lifecycle_fact =
@@ -2080,7 +2104,7 @@ defmodule Ankole.SignalsGateway do
         |> Map.put(:command_payload, nil)
         |> Map.put(:action, nil)
 
-      append_actor_input(binding, lifecycle_fact, type, channel, nil, now)
+      append_actor_input(binding, lifecycle_fact, "signal.entry.removed", channel, nil, now)
     end)
     |> collect_results()
   end
@@ -3003,6 +3027,23 @@ defmodule Ankole.SignalsGateway do
       {:error, _reason} = error -> error
     end
   end
+
+  defp normalize_provider_lifecycle_kind(nil), do: nil
+
+  defp normalize_provider_lifecycle_kind(kind) when is_atom(kind) do
+    kind
+    |> Atom.to_string()
+    |> normalize_provider_lifecycle_kind()
+  end
+
+  defp normalize_provider_lifecycle_kind(kind) when is_binary(kind) do
+    case String.trim(kind) do
+      "" -> nil
+      normalized -> normalized
+    end
+  end
+
+  defp normalize_provider_lifecycle_kind(_kind), do: nil
 
   defp fetch_value(map, key) when is_map(map),
     do: Map.get(map, key) || Map.get(map, Atom.to_string(key))

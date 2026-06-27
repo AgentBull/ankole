@@ -7,10 +7,9 @@ defmodule Ankole.Principals.ExternalIdentity do
 
   import Ecto.Changeset
 
-  alias Ankole.Kernel, as: AnkoleKernel
   alias Ankole.Principals.Principal
 
-  @primary_key {:id, :binary_id, autogenerate: false}
+  @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
   @foreign_key_type :string
   @timestamps_opts [type: :utc_datetime_usec]
 
@@ -48,7 +47,6 @@ defmodule Ankole.Principals.ExternalIdentity do
       :verified_at,
       :metadata
     ])
-    |> ensure_id()
     |> normalize_blank([:provider, :adapter, :channel_id, :external_id])
     |> normalize_uid(:principal_uid)
     |> validate_required([:principal_uid, :kind, :external_id, :metadata])
@@ -63,13 +61,6 @@ defmodule Ankole.Principals.ExternalIdentity do
     |> check_constraint(:kind, name: :principal_external_identities_shape)
     |> check_constraint(:provider, name: :principal_external_identities_provider_format)
     |> check_constraint(:metadata, name: :principal_external_identities_metadata_object)
-  end
-
-  defp ensure_id(changeset) do
-    case get_field(changeset, :id) do
-      nil -> put_change(changeset, :id, AnkoleKernel.gen_uuid_v7())
-      _id -> changeset
-    end
   end
 
   defp validate_kind_shape(changeset) do

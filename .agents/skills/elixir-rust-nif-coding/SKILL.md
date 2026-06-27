@@ -5,7 +5,7 @@ description: >
   the shared crate that Elixir loads via Rustler and Bun loads via N-API. Use when
   adding or changing native functions exposed to the BEAM: schedulers, binary and
   JSON bridging, ResourceArc handles, OwnedEnv messaging, and error translation,
-  in the thin-binding-over-pure-core style this crate uses.
+  in the thin-binding-over-host-neutral-modules style this crate uses.
 ---
 
 # Rust NIFs for the Ankole Kernel
@@ -17,20 +17,20 @@ description: >
 | Elixir / BEAM | Rustler | `src/nif_exports.rs` | `nif` |
 | Bun / Node | N-API (napi-rs) | `src/napi_exports.rs` | `napi` |
 
-The real behavior lives in **host-neutral core modules** — `core/`, `authz/`,
-`actor_bus/` — that know nothing about the BEAM or Node. Both binding layers stay
-thin: decode host values, keep binaries binary-safe, translate errors, and forward
-to the core. This skill covers the **Rustler (`nif`) side**.
+The real behavior lives in **host-neutral modules** — `common/`, `authz/`, and
+`runtime_fabric/` — that know nothing about the BEAM or Node. Both binding layers
+stay thin: decode host values, keep binaries binary-safe, translate errors, and
+forward to those modules. This skill covers the **Rustler (`nif`) side**.
 
-> Golden path for a new capability: implement and `cargo test` it in a core module,
-> then add a thin `#[rustler::nif]` wrapper, then the Elixir stub. The wrapper is
-> the smallest, last step — never put logic in it.
+> Golden path for a new capability: implement and `cargo test` it in the relevant
+> host-neutral module, then add a thin `#[rustler::nif]` wrapper, then the Elixir
+> stub. The wrapper is the smallest, last step — never put logic in it.
 
 ## Rules
 
-### 1. Keep bindings thin — behavior goes in `core`/`authz`/`actor_bus`
+### 1. Keep bindings thin — behavior goes in `common`/`authz`/`runtime_fabric`
 
-A function in `nif_exports.rs` should only decode terms, call **one** core
+A function in `nif_exports.rs` should only decode terms, call **one** host-neutral
 function, and map the error. This one anchor example exercises rules 1–5:
 
 ```rust
@@ -38,12 +38,12 @@ function, and map the error. This one anchor example exercises rules 1–5:
 pub fn aead_encrypt(plaintext: Term<'_>, key: Term<'_>) -> NifResult<String> {
     let plaintext = decode_binary(plaintext, "plaintext")?;
     let key = decode_string(key, "key")?;
-    core::aead_encrypt(plaintext.as_slice(), &key).map_err(error)
+    common::aead_encrypt(plaintext.as_slice(), &key).map_err(error)
 }
 ```
 
 If you find yourself writing business logic inside `#[rustler::nif]`, move it down
-into a core module.
+into a host-neutral module.
 
 ### 2. Pick the scheduler by cost
 
@@ -51,9 +51,9 @@ Normal-scheduler NIFs must finish in **<1 ms** or they stall the BEAM. In this
 crate:
 
 - `DirtyCpu` — crypto, hashing, encoding, JWT, authz (cost scales with payload)
-- `DirtyIo` — ZeroMQ socket work (`actor_bus_router_*`)
+- `DirtyIo` — ZeroMQ socket work (`runtime_fabric_router_*`)
 - normal scheduler — only trivially cheap calls (`gen_uuid`, `generate_key`,
-  `actor_bus_router_endpoint`)
+  `runtime_fabric_router_endpoint`)
 
 ### 3. Return `NifResult<T>`; never panic
 
@@ -64,13 +64,13 @@ type directly (`pub fn gen_uuid() -> String`).
 
 ### 4. Errors cross as string terms
 
-Core returns a plain `KernelError(String)`; the binding turns it into
+Host-neutral code returns a plain `KernelError(String)`; the binding turns it into
 `Error::Term(Box::new(message))` through two local helpers. No thiserror enums,
 custom atom errors, or `Encoder` impls at the boundary — one human-readable string
 is the contract.
 
 ```rust
-fn error(error: core::KernelError) -> Error { error_message(error.to_string()) }
+fn error(error: common::KernelError) -> Error { error_message(error.to_string()) }
 fn error_message(message: impl Into<String>) -> Error { Error::Term(Box::new(message.into())) }
 ```
 
@@ -105,7 +105,7 @@ fn binary_from_vec(bytes: Vec<u8>) -> NifResult<OwnedBinary> {
     binary.as_mut_slice().copy_from_slice(&bytes);
     Ok(binary)
 }
-// usage: core::aead_decrypt(&ct, &key).map_err(error).and_then(binary_from_vec)
+// usage: common::aead_decrypt(&ct, &key).map_err(error).and_then(binary_from_vec)
 ```
 
 ### 7. Bridge complex data as JSON, not derive macros
@@ -141,15 +141,15 @@ runtime (`Option::unwrap()` on `None`) because the type never registers. Keep th
 resource a plain newtype over a handle that owns its own thread/channels.
 
 ```rust
-pub struct ActorBusRouterResource(pub RouterHandle);
+pub struct RuntimeFabricRouterResource(pub RouterHandle);
 
 #[rustler::resource_impl]
-impl rustler::Resource for ActorBusRouterResource {}
+impl rustler::Resource for RuntimeFabricRouterResource {}
 
 #[rustler::nif(schedule = "DirtyIo")]
-pub fn actor_bus_router_start(/* ... */) -> NifResult<ResourceArc<ActorBusRouterResource>> {
-    let handle = actor_bus::transport::start_router(config, sink).map_err(error)?;
-    Ok(ResourceArc::new(ActorBusRouterResource(handle)))
+pub fn runtime_fabric_router_start(/* ... */) -> NifResult<ResourceArc<RuntimeFabricRouterResource>> {
+    let handle = runtime_fabric::transport::start_router(config, sink).map_err(error)?;
+    Ok(ResourceArc::new(RuntimeFabricRouterResource(handle)))
 }
 ```
 
@@ -157,21 +157,21 @@ pub fn actor_bus_router_start(/* ... */) -> NifResult<ResourceArc<ActorBusRouter
 
 Capture the owner `LocalPid`, build messages in an `OwnedEnv`, and tag them with
 `rustler::atoms!`. **Never** call `send_and_clear` from a BEAM-managed thread — it
-panics. Only the socket/worker threads the core owns may send.
+panics. Only Rust-owned socket/worker threads may send.
 
 ```rust
 mod atoms {
-    rustler::atoms! { actor_bus_router_received, actor_bus_router_socket_error }
+    rustler::atoms! { runtime_fabric_router_received, runtime_fabric_router_socket_error }
 }
 
 fn send_router_event(owner_pid: LocalPid, event: RouterEvent) {
     let mut env = OwnedEnv::new();
     let _ = env.send_and_clear(&owner_pid, |env| match event {
         RouterEvent::Received { transport_route, envelope_json, .. } => {
-            (atoms::actor_bus_router_received(), transport_route, envelope_json).encode(env)
+            (atoms::runtime_fabric_router_received(), transport_route, envelope_json).encode(env)
         }
         RouterEvent::SocketError { reason } => {
-            (atoms::actor_bus_router_socket_error(), reason).encode(env)
+            (atoms::runtime_fabric_router_socket_error(), reason).encode(env)
         }
     });
 }
@@ -190,11 +190,12 @@ shared type aliases (`result(value)`, `salt()`, the `*_json` shapes).
 def aead_encrypt(_plaintext, _key), do: :erlang.nif_error(:nif_not_loaded)
 ```
 
-### 11. Locking lives in the core, not the boundary — prefer `try_lock` + `OnceLock`
+### 11. Locking lives below the binding layer — prefer `try_lock` + `OnceLock`
 
-The NIF layer holds no locks. Core caches use `OnceLock<Mutex<HashMap<...>>>` with
-`try_lock().ok()` (std::sync, **not** parking_lot). Blocking `.lock()` can deadlock
-a dirty scheduler; a missed cache read is cheaper than a stall.
+The NIF layer holds no locks. Host-neutral caches use
+`OnceLock<Mutex<HashMap<...>>>` with `try_lock().ok()` (std::sync, **not**
+parking_lot). Blocking `.lock()` can deadlock a dirty scheduler; a missed cache
+read is cheaper than a stall.
 
 ```rust
 static CONDITION_CACHE: OnceLock<Mutex<HashMap<String, CachedCondition>>> = OnceLock::new();
@@ -218,7 +219,7 @@ nif  = ["dep:rustler"]
 [dependencies]
 rustler = { version = "0.38.0", optional = true }
 serde_json = "1"
-# ... core crates: blake3, jsonwebtoken, zmq, prost, uuid, ...
+# ... native crates: blake3, jsonwebtoken, zmq, prost, uuid, ...
 ```
 
 `src/lib.rs` gates the binding module; `nif_exports.rs` registers the NIFs:
@@ -249,8 +250,8 @@ use Rustler,
 
 ## Adding a NIF (checklist)
 
-1. **Core** — implement and `cargo test` the logic in the right
-   `core/`/`authz/`/`actor_bus/` module, returning `KernelResult<T>`.
+1. **Shared implementation** — implement and `cargo test` the logic in the right
+   `common/`/`authz/`/`runtime_fabric/` module, returning `KernelResult<T>`.
 2. **Wrapper** — add a thin `#[rustler::nif(schedule = ...)]` in `nif_exports.rs`
    that decodes terms and forwards.
 3. **Register** — add the function name to `rustler::init!(...)`. Forgetting this is
@@ -279,8 +280,8 @@ use Rustler,
 
 ## Testing
 
-- **Core logic** → Rust unit tests (`cargo test`) against the pure functions; this
-  is where coverage belongs.
+- **Shared logic** → Rust unit tests (`cargo test`) against the pure functions;
+  this is where coverage belongs.
 - **Boundary** → ExUnit calling `Ankole.Kernel.*`, asserting decode errors and
   round-trips through the JSON/binary bridges.
 

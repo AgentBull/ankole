@@ -270,11 +270,11 @@ defmodule Ankole.SignalsGatewayTest do
                SignalsGateway.emit_entry(agent.uid, "lark-main", group_entry(), now: @base_time)
     end
 
-    test "exact binding filters can admit or filter ingress before mirror and actor input writes" do
+    test "CEL binding filters can admit or filter ingress before mirror and actor input writes" do
       %{principal: agent} = agent_fixture()
 
       binding_fixture(agent.uid, "bot", :ignore,
-        filters: %{"eq" => %{"signal_channel_id" => "lark:chat:allowed"}}
+        filters: %{"cel" => "signal.channel.id == 'lark:chat:allowed'"}
       )
 
       assert {:ok, %{status: :filtered}} =
@@ -302,26 +302,73 @@ defmodule Ankole.SignalsGatewayTest do
       assert Repo.aggregate(ActorInput, :count) == 1
     end
 
-    test "unsupported or non-scalar binding filters fail before durable writes" do
+    test "CEL binding filters expose common CEL functions" do
       %{principal: agent} = agent_fixture()
 
-      binding_fixture(agent.uid, "unsupported", :ignore,
-        filters: %{"contains" => %{"signal_channel_id" => "x"}}
+      binding_fixture(agent.uid, "bot", :ignore,
+        filters: %{
+          "cel" =>
+            "signal.entry.sender_key.startsWith('lark:user:') && signal.entry.sender_key.matches('^lark:user:[a-z]+$') && signal.entry.text.contains('hello') && ['lark:chat:allowed'].contains(signal.channel.id)"
+        }
       )
 
-      assert {:error, :unsupported_binding_filter} =
-               SignalsGateway.emit_entry(agent.uid, "unsupported", group_entry(%{explicit: true}),
+      assert {:ok, %{status: :filtered}} =
+               SignalsGateway.emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{
+                   explicit: true,
+                   sender_key: "lark:user:bob",
+                   text: "goodbye",
+                   signal_channel_id: "lark:chat:allowed"
+                 }),
                  now: @base_time
                )
 
-      binding_fixture(agent.uid, "nonscalar", :ignore,
-        filters: %{"eq" => %{"signal_channel_id" => ["x"]}}
+      %{actor_input: input} =
+        emit_addressed_actor_input(
+          agent.uid,
+          "bot",
+          group_entry(%{
+            explicit: true,
+            sender_key: "lark:user:alice",
+            ingress_event_id: "evt-cel-functions",
+            signal_channel_id: "lark:chat:allowed",
+            provider_entry_id: "msg-cel-functions"
+          })
+        )
+
+      assert input.sender_key == "lark:user:alice"
+    end
+
+    test "invalid CEL filters fail before durable writes" do
+      %{principal: agent} = agent_fixture()
+
+      binding_fixture(agent.uid, "runtime-error", :ignore,
+        filters: %{"cel" => "signal.entry.missing == true"}
       )
 
-      assert {:error, :invalid_binding_filter_value} =
-               SignalsGateway.emit_entry(agent.uid, "nonscalar", group_entry(%{explicit: true}),
+      assert {:error, {:invalid_binding_filter, reason}} =
+               SignalsGateway.emit_entry(
+                 agent.uid,
+                 "runtime-error",
+                 group_entry(%{explicit: true}),
                  now: @base_time
                )
+
+      assert reason =~ "signal filter execution failed"
+
+      assert {:error, changeset} =
+               SignalsGateway.upsert_binding(%{
+                 agent_uid: agent.uid,
+                 name: "bad-shape",
+                 adapter: "lark",
+                 config_ref: "app-config://bad-shape",
+                 filters: %{"eq" => %{"signal_channel_id" => "x"}},
+                 unaddressed_group_message_policy: :ignore
+               })
+
+      assert %{filters: [_]} = errors_on(changeset)
 
       assert Repo.aggregate(SignalEntry, :count) == 0
       assert Repo.aggregate(ActorInput, :count) == 0
@@ -482,11 +529,33 @@ defmodule Ankole.SignalsGatewayTest do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
 
+      assert {:ok, %{actor_input: compress_input}} =
+               SignalsGateway.emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{explicit: true, text: "/compress release notes"}),
+                 now: @base_time
+               )
+
+      assert compress_input.type == "command.compress"
+      assert compress_input.payload["type"] == "command.compress"
+      assert compress_input.payload["data"]["command"]["argsText"] == "release notes"
+      assert ActorInputTypes.command_runtime_policy("command.compress") == :worker_turn
+      assert ActorInputTypes.command_runtime_policy("command.stop") == :control_now
+      assert ActorInputTypes.command_runtime_policy("command.retry") == :control_now
+      assert ActorInputTypes.command_runtime_policy("command.new") == :control_now
+      assert ActorInputTypes.command_runtime_policy("command.steer") == :checkpoint_nudge
+
       assert {:ok, %{actor_input: input}} =
                SignalsGateway.emit_entry(
                  agent.uid,
                  "bot",
-                 group_entry(%{explicit: true, text: "/steer be concise"}),
+                 group_entry(%{
+                   explicit: true,
+                   ingress_event_id: "evt-steer-1",
+                   provider_entry_id: "msg-steer-1",
+                   text: "/steer be concise"
+                 }),
                  now: @base_time
                )
 
@@ -749,13 +818,13 @@ defmodule Ankole.SignalsGatewayTest do
     end
   end
 
-  describe "delete and recall lifecycle" do
-    test "delete before receive writes tombstone and drops late receive" do
+  describe "entry removal lifecycle" do
+    test "removal before receive writes tombstone and drops late receive" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
 
       assert {:ok, %{status: :accepted}} =
-               SignalsGateway.emit_entry_deleted(
+               SignalsGateway.emit_entry_removed(
                  agent.uid,
                  "bot",
                  lifecycle_entry(%{ingress_event_id: "delete-1"}),
@@ -807,7 +876,7 @@ defmodule Ankole.SignalsGatewayTest do
       assert {:ok, :released} = Task.await(task, 1_000)
     end
 
-    test "delete while inbound batch is pending removes source entry without lifecycle wake" do
+    test "removal while inbound batch is pending removes source entry without lifecycle wake" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
 
@@ -820,7 +889,7 @@ defmodule Ankole.SignalsGatewayTest do
       assert batch.batch_state == "open"
 
       assert {:ok, %{updated_inbound_batches: 1, canceled_actor_inputs: 0, lifecycle_inputs: []}} =
-               SignalsGateway.emit_entry_recalled(
+               SignalsGateway.emit_entry_removed(
                  agent.uid,
                  "bot",
                  lifecycle_entry(%{ingress_event_id: "recall-1"}),
@@ -836,7 +905,7 @@ defmodule Ankole.SignalsGatewayTest do
       assert entries == []
     end
 
-    test "delete after actor commit appends deterministic lifecycle input" do
+    test "removal after actor commit appends deterministic lifecycle input" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
 
@@ -852,14 +921,14 @@ defmodule Ankole.SignalsGatewayTest do
                )
 
       assert {:ok, %{lifecycle_inputs: [lifecycle_input]}} =
-               SignalsGateway.emit_entry_deleted(
+               SignalsGateway.emit_entry_removed(
                  agent.uid,
                  "bot",
                  lifecycle_entry(%{ingress_event_id: "delete-consumed"}),
                  now: DateTime.add(@base_time, 2, :second)
                )
 
-      assert lifecycle_input.type == "signal.entry.deleted"
+      assert lifecycle_input.type == "signal.entry.removed"
       assert lifecycle_input.available_at == DateTime.add(@base_time, 2, :second)
       assert Repo.aggregate(SignalEntry, :count) == 0
     end
@@ -872,7 +941,7 @@ defmodule Ankole.SignalsGatewayTest do
         emit_addressed_actor_input(agent.uid, "bot", group_entry(%{explicit: true}))
 
       assert {:ok, _} =
-               SignalsGateway.emit_entry_recalled(
+               SignalsGateway.emit_entry_removed(
                  agent.uid,
                  "bot",
                  lifecycle_entry(%{ingress_event_id: "recall-before-commit"}),
@@ -919,7 +988,7 @@ defmodule Ankole.SignalsGatewayTest do
       assert Repo.aggregate(ActorInput, :count) == 1
     end
 
-    test "delete of record_only entry only updates mirror and tombstone" do
+    test "removal of record_only entry only updates mirror and tombstone" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :record_only)
 
@@ -927,7 +996,7 @@ defmodule Ankole.SignalsGatewayTest do
                SignalsGateway.emit_entry(agent.uid, "bot", group_entry(), now: @base_time)
 
       assert {:ok, %{canceled_actor_inputs: 0, lifecycle_inputs: []}} =
-               SignalsGateway.emit_entry_deleted(
+               SignalsGateway.emit_entry_removed(
                  agent.uid,
                  "bot",
                  lifecycle_entry(%{ingress_event_id: "delete-record-only"}),
@@ -1031,7 +1100,7 @@ defmodule Ankole.SignalsGatewayTest do
                )
 
       assert {:ok, _} =
-               SignalsGateway.emit_entry_deleted(
+               SignalsGateway.emit_entry_removed(
                  agent.uid,
                  "bot",
                  lifecycle_entry(%{
@@ -2046,7 +2115,7 @@ defmodule Ankole.SignalsGatewayTest do
       binding_fixture(agent.uid, "bot", :ignore)
 
       assert {:ok, _} =
-               SignalsGateway.emit_entry_deleted(
+               SignalsGateway.emit_entry_removed(
                  agent.uid,
                  "bot",
                  lifecycle_entry(%{ingress_event_id: "delete-expiring"}),

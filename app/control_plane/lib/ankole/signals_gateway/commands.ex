@@ -10,9 +10,6 @@ defmodule Ankole.SignalsGateway.Commands do
   text.
   """
 
-  # The only recognized commands. `steer` and `stop` reach a running actor;
-  # `new`/`compress`/`retry` manage the session. The parser only captures the
-  # human intent; execution state belongs to the durable actor runtime rows.
   @commands MapSet.new(["new", "compress", "retry", "steer", "stop"])
 
   @doc """

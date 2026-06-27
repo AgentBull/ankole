@@ -5,8 +5,19 @@ import type { ReliableEnvelopeSender } from './runtime_fabric_sender'
 
 export const rpcMethods = {
   llmProviderResolveCredential: 'llm_provider.resolve_credential',
-  agentProfileResolve: 'agent_profile.resolve',
-  runtimeTurnContextResolve: 'runtime.turn_context.resolve',
+  agentConversationContextResolve: 'agent_conversation.context.resolve',
+  conversationHistoryResolve: 'conversation.history.resolve',
+  conversationSummaryCommit: 'conversation.summary.commit',
+  scheduleCheckBackLaterCreate: 'schedule.check_back_later.create',
+  scheduleCronList: 'schedule.cron.list',
+  scheduleCronGet: 'schedule.cron.get',
+  scheduleCronRuns: 'schedule.cron.runs',
+  scheduleCronAdd: 'schedule.cron.add',
+  scheduleCronUpdate: 'schedule.cron.update',
+  scheduleCronPause: 'schedule.cron.pause',
+  scheduleCronResume: 'schedule.cron.resume',
+  scheduleCronRemove: 'schedule.cron.remove',
+  scheduleCronRun: 'schedule.cron.run',
   skillsOverlayResolve: 'skills.overlay.resolve',
   skillsOverlayReplace: 'skills.overlay.replace',
   skillsOverlayClear: 'skills.overlay.clear',
@@ -34,20 +45,6 @@ export type RpcError = {
   details_json?: JsonObject
 }
 
-export type AgentProfile = {
-  request_id: string
-  agent_uid: string
-  display_name: string
-  role?: string
-}
-
-export type AgentProfileRequest = {
-  request_id: string
-  turn: ActorTurnRef
-  agent_uid: string
-  session_id: string
-}
-
 export type RuntimeSkillSummary = {
   skill_name: string
   description?: string
@@ -61,32 +58,80 @@ export type RuntimeSkillSummary = {
   has_agent_overlay?: boolean
 }
 
-export type RuntimeConversationMessage = {
+export type ConversationHistoryMessage = {
   id?: string
   role?: string
   kind?: string
   content?: unknown
   metadata?: JsonObject
-  inserted_at?: string | null
+  created_at?: string | null
+  covers_range?: JsonObject | null
 }
 
-export type TurnRuntimeContext = {
+export type AgentConversationContext = {
   request_id: string
   agent_uid: string
   session_id: string
   turn: ActorTurnRef
+  agent?: {
+    display_name?: string
+    role?: string
+  }
+  conversation?: {
+    id?: string
+    key?: string
+    started_at?: string | null
+    timezone?: string | null
+  }
   soul?: string
   mission?: string
   skills?: RuntimeSkillSummary[]
-  conversation?: {
-    messages?: RuntimeConversationMessage[]
-  }
-  overlay_digest?: string
+  cache_key?: string
 }
 
-export type TurnContextRequest = {
+export type AgentConversationContextRequest = {
   request_id: string
   turn: ActorTurnRef
+}
+
+export type ConversationHistoryRequest = {
+  request_id: string
+  turn: ActorTurnRef
+  purpose: 'prompt' | 'compression'
+}
+
+export type ConversationHistoryResponse = {
+  request_id: string
+  agent_uid: string
+  session_id: string
+  conversation_id: string
+  conversation_started_at?: string | null
+  purpose: 'prompt' | 'compression'
+  messages: ConversationHistoryMessage[]
+}
+
+export type ConversationSummaryCommitRequest = {
+  request_id: string
+  turn: ActorTurnRef
+  summary: {
+    text: string
+    covered_message_ids: string[]
+  }
+  usage_json?: JsonObject
+  provider_metadata_json?: JsonObject
+}
+
+export type ConversationSummaryCommitResponse = {
+  request_id: string
+  status: string
+  llm_turn_id?: string
+  summary_message_id?: string
+  covered_message_ids?: string[]
+}
+
+export type ScheduleRpcRequest = JsonObject & {
+  request_id: string
+  turn_ref: ActorTurnRef
 }
 
 export type SkillOverlayRequest = {
@@ -116,7 +161,7 @@ export type LlmProviderCredentialRequest = {
   agent_uid: string
   session_id: string
   profile: string
-  purpose: 'ai_turn' | 'codex_subagent' | 'live_check'
+  purpose: 'ai_turn' | 'compression' | 'codex_subagent' | 'live_check'
 }
 
 export type LlmProviderCredentialResponse = {
@@ -166,8 +211,19 @@ export type WorkerRuntimeDescribeResponse = {
 
 export type RpcPayloadByMethod = {
   [rpcMethods.llmProviderResolveCredential]: LlmProviderCredentialRequest
-  [rpcMethods.agentProfileResolve]: AgentProfileRequest
-  [rpcMethods.runtimeTurnContextResolve]: TurnContextRequest
+  [rpcMethods.agentConversationContextResolve]: AgentConversationContextRequest
+  [rpcMethods.conversationHistoryResolve]: ConversationHistoryRequest
+  [rpcMethods.conversationSummaryCommit]: ConversationSummaryCommitRequest
+  [rpcMethods.scheduleCheckBackLaterCreate]: ScheduleRpcRequest
+  [rpcMethods.scheduleCronList]: ScheduleRpcRequest
+  [rpcMethods.scheduleCronGet]: ScheduleRpcRequest
+  [rpcMethods.scheduleCronRuns]: ScheduleRpcRequest
+  [rpcMethods.scheduleCronAdd]: ScheduleRpcRequest
+  [rpcMethods.scheduleCronUpdate]: ScheduleRpcRequest
+  [rpcMethods.scheduleCronPause]: ScheduleRpcRequest
+  [rpcMethods.scheduleCronResume]: ScheduleRpcRequest
+  [rpcMethods.scheduleCronRemove]: ScheduleRpcRequest
+  [rpcMethods.scheduleCronRun]: ScheduleRpcRequest
   [rpcMethods.skillsOverlayResolve]: SkillOverlayRequest
   [rpcMethods.skillsOverlayReplace]: SkillOverlayReplaceRequest
   [rpcMethods.skillsOverlayClear]: SkillOverlayRequest

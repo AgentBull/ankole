@@ -17,6 +17,7 @@ defmodule Ankole.Kernel do
   @type initial_crc32_state :: non_neg_integer() | nil
   @type authz_snapshot :: map()
   @type authz_decision :: map()
+  @type signals_gateway_filter_context :: map()
   @type runtime_fabric_envelope :: map()
   @type jwt_claims :: map()
   @type jwt_header :: map()
@@ -140,6 +141,31 @@ defmodule Ankole.Kernel do
   """
   @spec authz_validate_condition(String.t()) :: result(boolean())
   def authz_validate_condition(_condition), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
+  Returns `true` when a SignalsGateway CEL admission filter compiles.
+  """
+  @spec signals_gateway_validate_filter(String.t()) :: result(boolean())
+  def signals_gateway_validate_filter(_filter_source), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
+  Evaluates a SignalsGateway CEL admission filter against a normalized context.
+
+  The context must contain only the host-supplied `binding` and `signal`
+  variables. The native layer does not load database or runtime state while
+  evaluating the expression.
+  """
+  @spec signals_gateway_filter_match(String.t(), signals_gateway_filter_context()) ::
+          result(boolean())
+  def signals_gateway_filter_match(filter_source, context)
+      when is_binary(filter_source) and is_map(context) do
+    signals_gateway_filter_match_json(filter_source, Torque.encode!(context))
+  end
+
+  @doc false
+  @spec signals_gateway_filter_match_json(String.t(), String.t()) :: result(boolean())
+  def signals_gateway_filter_match_json(_filter_source, _context_json),
+    do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """
   Returns whether a resource pattern is valid.

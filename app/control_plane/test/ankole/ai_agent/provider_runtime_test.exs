@@ -203,32 +203,7 @@ defmodule Ankole.AIAgent.ProviderRuntimeTest do
     assert response["model"] == "z-ai/glm-5.2"
   end
 
-  test "runtime RPCLane resolves agent profile through generic rpc_response" do
-    %{principal: agent} = agent_fixture()
-    {route, turn} = assign_worker_route(agent.uid, "signal-channel:profile")
-
-    assert {:ok, envelope} =
-             RPCLane.handle_request(
-               %{
-                 "request_id" => "agent-profile-1",
-                 "method" => "agent_profile.resolve",
-                 "payload_json" => %{
-                   "turn" => turn,
-                   "agent_uid" => agent.uid,
-                   "session_id" => "signal-channel:profile"
-                 }
-               },
-               route
-             )
-
-    assert get_in(envelope, ["body", "type"]) == "rpc_response"
-    payload = get_in(envelope, ["body", "rpc_response", "payload_json"])
-    assert payload["agent_uid"] == agent.uid
-    assert payload["display_name"] == agent.display_name
-    assert payload["role"] == "Research Analyst"
-  end
-
-  test "runtime RPCLane resolves turn context and DB-backed skill overlays" do
+  test "runtime RPCLane resolves agent conversation context, history, and DB-backed skill overlays" do
     %{principal: agent} = agent_fixture()
     assert {:ok, %{skills: 3}} = Library.sync_agent_skills(agent.uid)
     {route, turn} = assign_worker_route(agent.uid, "signal-channel:context")
@@ -237,7 +212,7 @@ defmodule Ankole.AIAgent.ProviderRuntimeTest do
              RPCLane.handle_request(
                %{
                  "request_id" => "turn-context-1",
-                 "method" => "runtime.turn_context.resolve",
+                 "method" => "agent_conversation.context.resolve",
                  "payload_json" => %{"turn" => turn}
                },
                route
@@ -246,8 +221,29 @@ defmodule Ankole.AIAgent.ProviderRuntimeTest do
     context_payload = get_in(context_envelope, ["body", "rpc_response", "payload_json"])
     assert context_payload["agent_uid"] == agent.uid
     assert context_payload["session_id"] == "signal-channel:context"
+    assert context_payload["agent"]["display_name"] == agent.display_name
+    assert context_payload["agent"]["role"] == "Research Analyst"
+    assert context_payload["conversation"]["key"] == "signal-channel:context"
     assert is_binary(context_payload["soul"])
     assert Enum.any?(context_payload["skills"], &(&1["skill_name"] == "nano-pdf"))
+    refute Map.has_key?(context_payload, "request_context")
+    refute get_in(context_payload, ["conversation", "messages"])
+
+    assert {:ok, history_envelope} =
+             RPCLane.handle_request(
+               %{
+                 "request_id" => "conversation-history-1",
+                 "method" => "conversation.history.resolve",
+                 "payload_json" => %{"turn" => turn, "purpose" => "prompt"}
+               },
+               route
+             )
+
+    history_payload = get_in(history_envelope, ["body", "rpc_response", "payload_json"])
+    assert history_payload["agent_uid"] == agent.uid
+    assert history_payload["session_id"] == "signal-channel:context"
+    assert history_payload["purpose"] == "prompt"
+    assert history_payload["messages"] == []
 
     assert {:ok, replace_envelope} =
              RPCLane.handle_request(
@@ -293,7 +289,7 @@ defmodule Ankole.AIAgent.ProviderRuntimeTest do
     refute get_in(clear_envelope, ["body", "rpc_response", "payload_json", "has_overlay"])
   end
 
-  test "runtime RPCLane rejects turn context requests from an unassigned worker route" do
+  test "runtime RPCLane rejects agent conversation context requests from an unassigned worker route" do
     %{principal: target_agent} = agent_fixture()
     %{principal: other_agent} = agent_fixture()
 
@@ -307,7 +303,7 @@ defmodule Ankole.AIAgent.ProviderRuntimeTest do
              RPCLane.handle_request(
                %{
                  "request_id" => "turn-context-wrong-route",
-                 "method" => "runtime.turn_context.resolve",
+                 "method" => "agent_conversation.context.resolve",
                  "payload_json" => %{"turn" => target_turn}
                },
                other_route

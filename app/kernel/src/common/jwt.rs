@@ -4,7 +4,7 @@ use jsonwebtoken::{
 };
 use serde_json::{Map, Value};
 
-use crate::core::{KernelError, KernelResult};
+use crate::common::{KernelError, KernelResult};
 
 /// Signs arbitrary JSON claims with a JSON header description.
 pub fn jwt_sign_json(claims_json: &str, key: &[u8], header_json: &str) -> KernelResult<String> {

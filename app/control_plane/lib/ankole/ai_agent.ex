@@ -102,7 +102,7 @@ defmodule Ankole.AIAgent do
     lease_id = Keyword.get_lazy(opts, :lease_id, fn -> "lease-" <> Ecto.UUID.generate() end)
 
     with :ok <- reject_live_generation(conversation, now),
-         {:ok, user_messages} <- turn_input_messages(repo, conversation, actor_inputs, opts),
+         {:ok, user_messages} <- materialize_user_messages(repo, conversation, actor_inputs),
          {:ok, conversation} <-
            put_generation(
              repo,
@@ -184,7 +184,7 @@ defmodule Ankole.AIAgent do
   end
 
   @doc false
-  # Provider recall/delete can arrive after a turn has materialized its user
+  # Provider-side removal can arrive after a turn has materialized its user
   # input but before the worker commits a response. Mark those input messages out
   # of active context so the retry sees only the replacement ActorInput.
   def retract_turn_input_messages_in_tx(repo, %LlmTurn{input_message_ids: ids}, reason, now)
@@ -283,22 +283,6 @@ defmodule Ankole.AIAgent do
 
   defp generation_expired?(_generation, _now), do: false
 
-  # Materializes actor inputs into transcript messages before the worker turn is
-  # started. The local computer can then reason from transcript history while
-  # ActorRuntime still owns delivery state separately.
-  defp turn_input_messages(repo, conversation, actor_inputs, opts) do
-    case Keyword.get(opts, :input_messages, :materialize) do
-      :materialize ->
-        materialize_user_messages(repo, conversation, actor_inputs)
-
-      {:existing, messages} when is_list(messages) ->
-        {:ok, messages}
-
-      _value ->
-        {:error, :invalid_turn_input_messages}
-    end
-  end
-
   defp materialize_user_messages(repo, conversation, actor_inputs) do
     history = MessageContext.load_history(repo, conversation.id)
 
@@ -334,7 +318,7 @@ defmodule Ankole.AIAgent do
       kind: "normal",
       status: "complete",
       content: content_for_input(actor_input),
-      event_source: "signals_gateway:#{actor_input.binding_name}",
+      event_source: event_source_for_input(actor_input),
       event_id: actor_input.ingress_event_id,
       metadata: metadata_for_input(actor_input, history)
     }
@@ -551,7 +535,6 @@ defmodule Ankole.AIAgent do
   defp metadata_for_input(%ActorInput{} = actor_input, history) do
     actor = input_actor(actor_input)
     room = input_room(actor_input)
-    sent_at = input_sent_at(actor_input)
 
     metadata =
       %{
@@ -562,7 +545,7 @@ defmodule Ankole.AIAgent do
         "signal_channel_id" => actor_input.signal_channel_id,
         "provider_thread_id" => actor_input.provider_thread_id,
         "provider_entry_id" => actor_input.provider_entry_id,
-        "broker_sequence" => actor_input.broker_sequence,
+        "live_queue_sequence" => actor_input.live_queue_sequence,
         "actor" => empty_to_nil(actor),
         "provider_refs" =>
           empty_to_nil(%{
@@ -587,9 +570,7 @@ defmodule Ankole.AIAgent do
       MessageContext.build(
         %{
           actor: actor,
-          room: room,
-          sent_at: sent_at,
-          timezone: system_timezone()
+          room: room
         },
         history
       )
@@ -608,10 +589,6 @@ defmodule Ankole.AIAgent do
 
   defp input_room(_input), do: %{}
 
-  defp input_sent_at(%ActorInput{payload: %{"time" => time}}) when is_binary(time), do: time
-  defp input_sent_at(%ActorInput{available_at: %DateTime{} = available_at}), do: available_at
-  defp input_sent_at(_input), do: DateTime.utc_now(:microsecond)
-
   defp empty_to_nil(map) when is_map(map) do
     map
     |> Enum.reject(fn {_key, value} -> is_nil(value) end)
@@ -622,16 +599,10 @@ defmodule Ankole.AIAgent do
     end
   end
 
-  defp system_timezone do
-    Application.get_env(:ankole, :system_timezone) ||
-      System.get_env("ANKOLE_SYSTEM_TIMEZONE") ||
-      "UTC"
-  end
-
   defp actor_input_ref(%ActorInput{} = input) do
     %{
       "actor_input_id" => input.id,
-      "broker_sequence" => input.broker_sequence,
+      "live_queue_sequence" => input.live_queue_sequence,
       "type" => input.type,
       "ingress_event_id" => input.ingress_event_id,
       "provider_entry_id" => input.provider_entry_id
@@ -640,9 +611,52 @@ defmodule Ankole.AIAgent do
     |> Map.new()
   end
 
+  defp event_source_for_input(%ActorInput{type: "check_back_later.wakeup"}),
+    do: "schedule:check_back_later"
+
+  defp event_source_for_input(%ActorInput{type: "cron.fire"}), do: "schedule:cron"
+
+  defp event_source_for_input(%ActorInput{} = actor_input),
+    do: "signals_gateway:#{actor_input.binding_name}"
+
   # Reads text from the few ingress shapes currently produced by
   # SignalsGateway. This is intentionally narrow; richer provider parsing
   # belongs at the signal adapter boundary.
+  defp input_text(%ActorInput{type: "check_back_later.wakeup", payload: payload})
+       when is_map(payload) do
+    wake_payload = get_in(payload, ["data", "wake_payload"]) || %{}
+
+    [
+      "Scheduled checkback wakeup.",
+      text_line("Reason", wake_payload["reason"]),
+      text_line("Check", wake_payload["check"]),
+      text_line("Context", wake_payload["context_summary"])
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join("\n")
+  end
+
+  defp input_text(%ActorInput{type: "cron.fire", payload: payload}) when is_map(payload) do
+    wake_payload = get_in(payload, ["data", "wake_payload"]) || %{}
+    cron_payload = wake_payload["payload"] || %{}
+
+    [
+      "Recurring schedule fire.",
+      text_line("Schedule", wake_payload["cron_schedule_name"]),
+      text_line("Trigger", wake_payload["trigger"]),
+      map_line("Payload", cron_payload)
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join("\n")
+  end
+
+  defp input_text(%ActorInput{type: "command.compress", payload: payload})
+       when is_map(payload) do
+    get_in(payload, ["data", "command", "raw"]) ||
+      get_in(payload, ["data", "entry", "text"]) ||
+      get_in(payload, ["data", "command", "argsText"])
+  end
+
   defp input_text(%ActorInput{type: "command." <> _name, payload: payload})
        when is_map(payload) do
     get_in(payload, ["data", "command", "argsText"]) ||
@@ -659,6 +673,14 @@ defmodule Ankole.AIAgent do
   end
 
   defp input_text(_input), do: nil
+
+  defp text_line(_label, value) when not is_binary(value), do: nil
+  defp text_line(_label, ""), do: nil
+  defp text_line(label, value), do: "#{label}: #{value}"
+
+  defp map_line(_label, value) when map_size(value) == 0, do: nil
+  defp map_line(label, value) when is_map(value), do: "#{label}: #{Jason.encode!(value)}"
+  defp map_line(_label, _value), do: nil
 
   defp maybe_id(nil), do: nil
   defp maybe_id(%{id: id}), do: id

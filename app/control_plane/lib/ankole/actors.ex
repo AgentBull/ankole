@@ -6,9 +6,9 @@ defmodule Ankole.Actors do
   *consumes* them when a turn commits. The model is deliberately "queue + audit
   marker", not a log:
 
-    - Append is idempotent on the ingress key, and a per-session `broker_sequence`
-      (allocated under a Postgres advisory lock) gives the runtime one stable
-      ordered stream per actor session.
+    - Append is idempotent on the live queue ingress key. `live_queue_sequence`
+      is allocated under a Postgres advisory lock only for ordering currently
+      open inputs in one actor session.
     - On consume, the input row is *deleted* and an `ActorInputConsumption` marker
       is written in the same transaction. The marker is the durable link from
       provider ingress to the committed turn and the recovery-time guard against
@@ -31,15 +31,19 @@ defmodule Ankole.Actors do
   alias Ankole.SignalsGateway.InputTombstone
   alias Ankole.SignalsGateway.OutboxEntry
 
+  @type append_result ::
+          {:ok, ActorInput.t()}
+          | {:error, term()}
   @type actor_commit_result :: {:ok, ActorInputConsumption.t()} | {:error, term()}
 
   @doc """
   Appends an actor input, preserving route-scoped idempotency.
 
-  SignalsGateway may retry ingress delivery. The unique ingress key and broker
-  sequence let the actor runtime see one ordered input stream per actor session.
+  The unique ingress key covers open inputs. Provider redelivery after
+  consumption is a SignalsGateway ingress concern because adapters own the
+  provider event id used as `ingress_event_id`.
   """
-  @spec append_actor_input(map()) :: {:ok, ActorInput.t()} | {:error, term()}
+  @spec append_actor_input(map()) :: append_result()
   def append_actor_input(attrs) when is_map(attrs) do
     Repo.transact(fn repo ->
       append_actor_input_in_tx(repo, attrs)
@@ -47,9 +51,9 @@ defmodule Ankole.Actors do
   end
 
   @doc false
-  @spec append_actor_input_in_tx(module(), map()) :: {:ok, ActorInput.t()} | {:error, term()}
+  @spec append_actor_input_in_tx(module(), map()) :: append_result()
   def append_actor_input_in_tx(repo, attrs) when is_map(attrs) do
-    attrs = put_broker_sequence(repo, attrs)
+    attrs = put_live_queue_sequence(repo, attrs)
 
     %ActorInput{}
     |> ActorInput.changeset(attrs)
@@ -111,15 +115,15 @@ defmodule Ankole.Actors do
   @doc """
   Consumes a provider-entry lifecycle input without treating its tombstone as cancelation.
 
-  `signal.entry.deleted/recalled` rows exist because the provider entry was
-  tombstoned after earlier actor state already consumed it. Re-applying the
-  source-entry tombstone guard here would cancel the lifecycle notice itself.
+  `signal.entry.removed` rows exist because the provider entry was tombstoned
+  after earlier actor state already consumed it. Re-applying the source-entry
+  tombstone guard here would cancel the lifecycle notice itself.
   """
   @spec consume_entry_lifecycle_input_in_tx(module(), ActorInput.t(), keyword()) ::
           actor_commit_result()
   def consume_entry_lifecycle_input_in_tx(
         repo,
-        %ActorInput{type: "signal.entry." <> _name} = actor_input,
+        %ActorInput{type: "signal.entry.removed"} = actor_input,
         opts
       ) do
     opts =
@@ -221,7 +225,7 @@ defmodule Ankole.Actors do
       on: delivery.actor_input_id == input.id and delivery.state in ^delivery_states
     )
     |> where([_input, delivery], is_nil(delivery.id))
-    |> order_by([input], asc: input.broker_sequence)
+    |> order_by([input], asc: input.live_queue_sequence)
     |> Repo.all()
   end
 
@@ -253,16 +257,16 @@ defmodule Ankole.Actors do
     |> Repo.all()
   end
 
-  # Accepts an explicit broker sequence for fixtures and replay tools. Normal
-  # ingress lets the database assign the next per-actor sequence.
-  defp put_broker_sequence(_repo, %{broker_sequence: broker_sequence} = attrs)
-       when is_integer(broker_sequence),
+  # Accepts an explicit live queue sequence for fixtures and replay tools.
+  # Normal ingress assigns the next value among currently open inputs only.
+  defp put_live_queue_sequence(_repo, %{live_queue_sequence: live_queue_sequence} = attrs)
+       when is_integer(live_queue_sequence),
        do: attrs
 
-  # Serializes sequence allocation per actor session using a transaction-scoped
-  # advisory lock. This avoids a separate sequence table while preserving stable
-  # user-message order under concurrent ingress.
-  defp put_broker_sequence(repo, attrs) do
+  # Serializes live queue ordering per actor session using a transaction-scoped
+  # advisory lock. This is not a durable history sequence; consumed rows leave
+  # the queue, and the consumed marker owns commit recovery.
+  defp put_live_queue_sequence(repo, attrs) do
     agent_uid = Map.fetch!(attrs, :agent_uid)
     session_id = Map.fetch!(attrs, :session_id)
 
@@ -276,10 +280,10 @@ defmodule Ankole.Actors do
       ActorInput
       |> where([input], input.agent_uid == ^agent_uid)
       |> where([input], input.session_id == ^session_id)
-      |> select([input], coalesce(max(input.broker_sequence), 0) + 1)
+      |> select([input], coalesce(max(input.live_queue_sequence), 0) + 1)
       |> repo.one()
 
-    Map.put(attrs, :broker_sequence, next)
+    Map.put(attrs, :live_queue_sequence, next)
   end
 
   # The primary key is generated before insert, so an `on_conflict: :nothing`
@@ -288,18 +292,49 @@ defmodule Ankole.Actors do
   defp inserted_or_existing({:ok, %ActorInput{}}, repo, attrs), do: fetch_actor_input(repo, attrs)
   defp inserted_or_existing({:error, _changeset} = error, _repo, _attrs), do: error
 
-  defp fetch_actor_input(repo, %{
-         agent_uid: agent_uid,
-         binding_name: binding_name,
-         ingress_event_id: ingress_event_id
-       }) do
-    case repo.get_by(ActorInput,
-           agent_uid: agent_uid,
-           binding_name: binding_name,
-           ingress_event_id: ingress_event_id
-         ) do
-      %ActorInput{} = input -> {:ok, input}
-      nil -> {:error, :actor_input_not_found}
+  defp fetch_actor_input(repo, attrs) do
+    case idempotency_key(attrs) do
+      %{agent_uid: agent_uid, binding_name: binding_name, ingress_event_id: ingress_event_id} ->
+        case repo.get_by(ActorInput,
+               agent_uid: agent_uid,
+               binding_name: binding_name,
+               ingress_event_id: ingress_event_id
+             ) do
+          %ActorInput{} = input -> {:ok, input}
+          nil -> {:error, :actor_input_not_found}
+        end
+
+      nil ->
+        {:error, :actor_input_not_found}
+    end
+  end
+
+  defp idempotency_key(attrs) do
+    with agent_uid when is_binary(agent_uid) <- text_attr(attrs, :agent_uid),
+         binding_name when is_binary(binding_name) <- text_attr(attrs, :binding_name),
+         ingress_event_id when is_binary(ingress_event_id) <- text_attr(attrs, :ingress_event_id) do
+      %{
+        agent_uid: String.downcase(agent_uid),
+        binding_name: binding_name,
+        ingress_event_id: ingress_event_id
+      }
+    else
+      _value -> nil
+    end
+  end
+
+  defp text_attr(attrs, key) when is_map(attrs) do
+    value = Map.get(attrs, key) || Map.get(attrs, Atom.to_string(key))
+
+    case value do
+      value when is_binary(value) ->
+        case String.trim(value) do
+          "" -> nil
+          trimmed -> trimmed
+        end
+
+      _value ->
+        nil
     end
   end
 

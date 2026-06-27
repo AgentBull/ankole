@@ -14,7 +14,7 @@ defmodule Ankole.Actors.ActorInput do
   alias Ankole.Principals.Principal
   alias Ankole.SignalsGateway.JsonPayload
 
-  @primary_key {:id, :binary_id, autogenerate: true}
+  @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
   @foreign_key_type :string
   @timestamps_opts [type: :utc_datetime_usec]
   @states ~w(open dead_letter)
@@ -33,7 +33,7 @@ defmodule Ankole.Actors.ActorInput do
     field :provider_entry_id, :string
     field :type, :string
     field :available_at, :utc_datetime_usec
-    field :broker_sequence, :integer
+    field :live_queue_sequence, :integer
     field :input_state, :string, default: "open"
     field :sender_key, :string
     field :payload, :map
@@ -55,7 +55,7 @@ defmodule Ankole.Actors.ActorInput do
       :provider_entry_id,
       :type,
       :available_at,
-      :broker_sequence,
+      :live_queue_sequence,
       :input_state,
       :sender_key,
       :payload,
@@ -81,7 +81,7 @@ defmodule Ankole.Actors.ActorInput do
       :ingress_event_id,
       :type,
       :available_at,
-      :broker_sequence,
+      :live_queue_sequence,
       :input_state,
       :payload
     ])
@@ -91,8 +91,8 @@ defmodule Ankole.Actors.ActorInput do
     |> unique_constraint([:agent_uid, :binding_name, :ingress_event_id],
       name: :actor_inputs_signal_idempotency_index
     )
-    |> unique_constraint([:agent_uid, :session_id, :broker_sequence],
-      name: :actor_inputs_actor_sequence_index
+    |> unique_constraint([:agent_uid, :session_id, :live_queue_sequence],
+      name: :actor_inputs_live_queue_sequence_index
     )
     |> check_constraint(:payload, name: :actor_inputs_payload_object)
     |> check_constraint(:input_state, name: :actor_inputs_input_state_check)

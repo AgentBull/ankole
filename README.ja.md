@@ -52,18 +52,21 @@ Runtime は 5 つの technical bets に基づきます。
 
 ## 現在のリポジトリ
 
-このリポジトリは Ankole の初期 control-plane and runtime foundation です。まだ polished end-user distribution ではありません。
+このリポジトリは、現在アクティブな Ankole control-plane and runtime workspace です。まだ polished end-user release ではなく、engineering distribution の段階です。
 
-- `app/control_plane` - Principal/AuthZ、AppConfigure、plugins、SignalsGateway、setup、console、web shell のための Phoenix control plane。
-- `app/kernel` - crypto、hashing、identifier、policy helper など runtime-neutral mechanism のための shared native foundation。
-- `app/agent_computer` - local LLM loop、tools、files、terminal state、worker daemon を担う Bun + TypeScript Agent Computer runtime。
-- `app/webapps` - Phoenix shell から mount される Rspack-powered frontend applications。
+- `app/control_plane` - Principal/AuthZ、AppConfigure、setup、console、plugin registry、I18n、SignalsGateway、actor runtime、RuntimeFabric、PostgreSQL-owned durable state を担う Phoenix/OTP control plane。
+- `app/kernel` - Elixir と Bun が読み込む shared Rust foundation。crypto、identifier、phone/JWT helpers、AuthZ evaluation、protobuf envelopes、ZeroMQ RuntimeFabric transport を担います。
+- `app/agent_computer` - local LLM loop、provider adapters、tools、skill loading、files、terminal state、worker daemon を担う Bun + TypeScript Agent Computer worker。
+- `app/webapps` - auth、setup、console surfaces を提供し、Phoenix static shell に build される Vite + React frontend applications。
+- `app/library` - built-in agent skills と `MISSION.md`、`SOUL.md` などの starter templates。
+- `app/locales` - control plane と browser surfaces が共有する TOML translation catalogs。
 - `libs/uikit` - Ankole webapps で共有する UI primitives。
 - `libs/feishu_openapi` - local Lark/Feishu OpenAPI client library。
-- `plugins` と `internals/plugins` - trusted first-party Elixir plugins。Plugin は installation-global、default-on で、global disable list により無効化します。
-- `docs/design-docs` - principal identity、authorization、configuration、signals、plugins、provider adapters の現在の design docs。
+- `internals/plugins` - repo 内で管理する private first-party provider/plugin code。ただし public plugin boundary としては見せません。
+- `tools/devkit` - local services、app database helpers、code generation、analysis のための workspace automation。
+- `docs/design-docs` - principal identity、authorization、configuration、I18n、plugins、RuntimeFabric、SignalsGateway、provider adapters の現在の design docs。
 
-SignalsGateway は provider ingress layer です。Ankole が chat、webhook、provider event を観測しつつ、外部 source facts と agent execution を混同しないための層です。Signal は actor input になり、actor scheduling と execution は runtime に残ります。
+RuntimeFabric は control-plane から worker への live fabric です。ZeroMQ 上で actor traffic、bounded RPC、worker-file frames を運び、PostgreSQL が durable replay、fences、reconciliation、final commits の source of truth であり続けます。SignalsGateway は provider ingress layer です。外部 chat、webhook、provider event は actor input になりますが、external source facts を execution state と混同しません。
 
 ## 開発
 

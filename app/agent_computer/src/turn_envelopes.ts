@@ -25,6 +25,7 @@ export type FinalProposalAttachment = {
 export type FinalProposalBody = {
   messages?: FinalProposalMessage[]
   reply?: FinalProposalReply | null
+  silent_success?: boolean
   usage_json?: JsonObject
   provider_metadata_json?: JsonObject
   stop_reason?: string
@@ -78,6 +79,7 @@ export function finalProposalEnvelope(
         turn,
         messages: body.messages ?? [],
         ...(body.reply === null || body.reply === undefined ? {} : { reply: body.reply }),
+        ...(body.silent_success ? { silent_success: body.silent_success } : {}),
         ...(body.usage_json ? { usage_json: body.usage_json } : {}),
         ...(body.provider_metadata_json ? { provider_metadata_json: body.provider_metadata_json } : {}),
         ...(body.stop_reason ? { stop_reason: body.stop_reason } : {}),

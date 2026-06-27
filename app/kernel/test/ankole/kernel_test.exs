@@ -65,7 +65,6 @@ defmodule Ankole.KernelTest do
       protocol_version: 1,
       message_id: "turn-start-1",
       correlation_id: "corr-1",
-      seq: 1,
       lane: "LANE_TURN",
       sent_at_unix_ms: 1_782_300_000_000,
       durability: "CONTROL_REPLAYABLE",
@@ -76,7 +75,7 @@ defmodule Ankole.KernelTest do
           inputs: [
             %{
               actor_input_id: "input-1",
-              broker_sequence: 1,
+              live_queue_sequence: 1,
               type: "im.message.addressed",
               ingress_event_id: "event-1",
               provider_entry_id: "message-1",
@@ -115,9 +114,12 @@ defmodule Ankole.KernelTest do
                correlation_id: "turn-start-profile",
                lane: "LANE_TURN",
                durability: "CONTROL_REPLAYABLE",
-               turn_start: %{
-                 turn: put_in(actor_turn_ref(), [:actor, :display_name], "ReleaseBot"),
-                 inputs: []
+               body: %{
+                 type: "turn_start",
+                 turn_start: %{
+                   turn: put_in(actor_turn_ref(), [:actor, :display_name], "ReleaseBot"),
+                   inputs: []
+                 }
                }
              })
 
@@ -128,16 +130,18 @@ defmodule Ankole.KernelTest do
     encoded =
       RuntimeFabric.encode_envelope(%{
         protocol_version: 1,
-        message_id: "rpc-agent-profile",
-        correlation_id: "rpc-agent-profile",
+        message_id: "rpc-conversation-context",
+        correlation_id: "rpc-conversation-context",
         lane: "LANE_RPC",
         durability: "CONTROL_EPHEMERAL",
         body: %{
           type: "rpc_request",
           rpc_request: %{
-            request_id: "rpc-agent-profile",
-            method: "agent_profile.resolve",
-            payload_json: %{agent_uid: "agent-1", session_id: "signal-channel:lark:dm:1"}
+            request_id: "rpc-conversation-context",
+            method: "agent_conversation.context.resolve",
+            payload_json: %{
+              turn: %{actor: %{agent_uid: "agent-1", session_id: "signal-channel:lark:dm:1"}}
+            }
           }
         }
       })
@@ -145,10 +149,59 @@ defmodule Ankole.KernelTest do
     assert %{
              "body" => %{
                "type" => "rpc_request",
-               "rpc_request" => %{"method" => "agent_profile.resolve"}
+               "rpc_request" => %{"method" => "agent_conversation.context.resolve"}
              }
            } =
              RuntimeFabric.decode_envelope(encoded)
+  end
+
+  test "runtime fabric encodes and decodes final proposal reply attachments" do
+    encoded =
+      RuntimeFabric.encode_envelope(%{
+        protocol_version: 1,
+        message_id: "turn-final-1",
+        correlation_id: "turn-start-1",
+        lane: "LANE_TURN",
+        durability: "CONTROL_DURABLE",
+        body: %{
+          type: "turn_final_proposal",
+          turn_final_proposal: %{
+            turn: actor_turn_ref(),
+            messages: [],
+            reply: %{
+              text: "Here is the report.",
+              content_json: [%{type: "text", text: "Here is the report."}],
+              attachments: [
+                %{
+                  agent_computer_path: "/workspace/user-files/reports/a.txt",
+                  user_files_relative_path: "reports/a.txt",
+                  name: "report.txt",
+                  mime_type: "text/plain",
+                  size: 16
+                }
+              ]
+            }
+          }
+        }
+      })
+
+    assert %{
+             "body" => %{
+               "turn_final_proposal" => %{
+                 "reply" => %{
+                   "attachments" => [
+                     %{
+                       "agent_computer_path" => "/workspace/user-files/reports/a.txt",
+                       "user_files_relative_path" => "reports/a.txt",
+                       "name" => "report.txt",
+                       "mime_type" => "text/plain",
+                       "size" => 16
+                     }
+                   ]
+                 }
+               }
+             }
+           } = RuntimeFabric.decode_envelope(encoded)
   end
 
   test "runtime fabric turn_control steer payload must be journaled, not inline" do
@@ -159,10 +212,13 @@ defmodule Ankole.KernelTest do
                correlation_id: "steer-1",
                lane: "LANE_CONTROL",
                durability: "CONTROL_DURABLE",
-               turn_control: %{
-                 turn: actor_turn_ref(),
-                 command: "steer",
-                 payload_json: %{"text" => "inline steer is not allowed"}
+               body: %{
+                 type: "turn_control",
+                 turn_control: %{
+                   turn: actor_turn_ref(),
+                   command: "steer",
+                   payload_json: %{"text" => "inline steer is not allowed"}
+                 }
                }
              })
 
@@ -176,16 +232,19 @@ defmodule Ankole.KernelTest do
                message_id: "turn-start-wrong-lane",
                lane: "LANE_CONTROL",
                durability: "CONTROL_EPHEMERAL",
-               turn_start: %{
-                 turn: actor_turn_ref(),
-                 inputs: [
-                   %{
-                     actor_input_id: "input-1",
-                     broker_sequence: 1,
-                     type: "im.message.addressed",
-                     ingress_event_id: "event-1"
-                   }
-                 ]
+               body: %{
+                 type: "turn_start",
+                 turn_start: %{
+                   turn: actor_turn_ref(),
+                   inputs: [
+                     %{
+                       actor_input_id: "input-1",
+                       live_queue_sequence: 1,
+                       type: "im.message.addressed",
+                       ingress_event_id: "event-1"
+                     }
+                   ]
+                 }
                }
              })
 
@@ -247,6 +306,55 @@ defmodule Ankole.KernelTest do
     assert decision["status"] == "allow"
     assert decision["diagnostics"] == []
     assert decision["effectiveGroupIds"] == []
+  end
+
+  test "signals gateway CEL filters evaluate normalized contexts" do
+    context = %{
+      binding: %{name: "bot", adapter: "lark"},
+      signal: %{
+        kind: "entry_received",
+        channel: %{id: "lark:chat:group-a", kind: "im_group", reply_mode: "entry"},
+        entry: %{
+          id: "msg-1",
+          sender_key: "lark:user:alice",
+          text: "hello from lark",
+          metadata: %{repository: "ankole"}
+        }
+      }
+    }
+
+    assert NativeKernel.signals_gateway_validate_filter(
+             "signal.channel.id == 'lark:chat:group-a'"
+           )
+
+    assert NativeKernel.signals_gateway_filter_match(
+             "binding.name == 'bot' && signal.entry.sender_key.startsWith('lark:user:')",
+             context
+           )
+
+    assert NativeKernel.signals_gateway_filter_match(
+             "signal.entry.text.contains('hello') && signal.entry.sender_key.matches('^lark:user:[a-z]+$')",
+             context
+           )
+
+    assert NativeKernel.signals_gateway_filter_match(
+             "[1, 2, 3].all(n, n > 0) && ['a', 'bb', 'ccc'].filter(v, v.size() > 1).map(v, v.size()).exists(size, size == 3)",
+             context
+           )
+
+    refute NativeKernel.signals_gateway_filter_match("signal.channel.kind == 'im_dm'", context)
+
+    assert {:error, reason} =
+             NativeKernel.signals_gateway_filter_match("signal.entry.text", context)
+
+    assert reason =~ "signal filter returned string"
+
+    assert {:error, reason} =
+             NativeKernel.signals_gateway_filter_match("signal.entry.missing", context)
+
+    assert reason =~ "signal filter execution failed"
+    assert {:error, reason} = NativeKernel.signals_gateway_validate_filter("signal.")
+    assert reason =~ "invalid signal filter"
   end
 
   test "authz batch decisions report the first denied action" do
@@ -315,7 +423,6 @@ defmodule Ankole.KernelTest do
       protocol_version: 1,
       message_id: "turn-start-route-test",
       correlation_id: "turn-start-route-test",
-      seq: 0,
       lane: "LANE_TURN",
       durability: "CONTROL_REPLAYABLE",
       body: %{
@@ -325,7 +432,7 @@ defmodule Ankole.KernelTest do
           inputs: [
             %{
               actor_input_id: "input-1",
-              broker_sequence: 1,
+              live_queue_sequence: 1,
               type: "im.message.addressed",
               ingress_event_id: "event-1",
               payload_json: %{"text" => "PING"}

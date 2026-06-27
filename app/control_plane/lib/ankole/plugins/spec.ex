@@ -262,8 +262,8 @@ defmodule Ankole.Plugins.Spec do
   defp validate_signals_inbound_capability(module, "entry_receive"),
     do: validate_module_callback(module, :handle_message_receive, 3)
 
-  defp validate_signals_inbound_capability(module, "entry_recall"),
-    do: validate_module_callback(module, :handle_message_recalled, 3)
+  defp validate_signals_inbound_capability(module, "entry_removed"),
+    do: validate_module_callback(module, :handle_message_removed, 3)
 
   defp validate_signals_inbound_capability(module, "reaction_add"),
     do: validate_module_callback(module, :handle_reaction_created, 3)
@@ -274,7 +274,8 @@ defmodule Ankole.Plugins.Spec do
   defp validate_signals_inbound_capability(module, "action_event"),
     do: validate_module_callback(module, :handle_card_action, 3)
 
-  defp validate_signals_inbound_capability(_module, _capability), do: :ok
+  defp validate_signals_inbound_capability(_module, capability),
+    do: {:error, {:unknown_inbound_capability, capability}}
 
   defp validate_signals_outbox(declaration) do
     capabilities = declaration_list(declaration, :outbound_capabilities)

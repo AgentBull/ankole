@@ -38,7 +38,7 @@ defmodule Ankole.SignalsGateway.IngressPipeline do
   end
 
   @doc """
-  Applies v1 exact-match binding filters.
+  Applies binding admission filters.
   """
   @spec filter(SignalBinding.t(), IngressFact.t()) :: :match | :no_match | {:error, term()}
   def filter(%SignalBinding{filters: filters}, %IngressFact{} = fact) do

@@ -44,25 +44,15 @@ defmodule Ankole.SignalsGateway.AdapterContext do
   end
 
   @doc """
-  Emits a provider-entry deletion for this binding.
+  Emits a provider-entry removal for this binding.
 
-  Deletions can cancel pending actor input or schedule visible cleanup depending
-  on whether the actor already consumed the original entry.
+  Provider-specific delete or recall names collapse to the same Ankole lifecycle:
+  remove pending work when possible, or append one removed notice if the actor
+  already consumed the original entry.
   """
-  @spec emit_entry_deleted(t(), map(), keyword()) :: SignalsGateway.ingress_result()
-  def emit_entry_deleted(%__MODULE__{} = context, input, options \\ []) do
-    SignalsGateway.emit_entry_deleted(context.agent_uid, context.binding_name, input, options)
-  end
-
-  @doc """
-  Emits a provider-entry recall for this binding.
-
-  Recall is separate from deletion because some providers expose it as a
-  user-visible correction rather than a hard remove.
-  """
-  @spec emit_entry_recalled(t(), map(), keyword()) :: SignalsGateway.ingress_result()
-  def emit_entry_recalled(%__MODULE__{} = context, input, options \\ []) do
-    SignalsGateway.emit_entry_recalled(context.agent_uid, context.binding_name, input, options)
+  @spec emit_entry_removed(t(), map(), keyword()) :: SignalsGateway.ingress_result()
+  def emit_entry_removed(%__MODULE__{} = context, input, options \\ []) do
+    SignalsGateway.emit_entry_removed(context.agent_uid, context.binding_name, input, options)
   end
 
   @doc """

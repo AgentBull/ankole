@@ -6,7 +6,7 @@ import { streamObject, zodSchema, type Message, type Model } from '../llm'
 import { convertBullXMessagesToModelMessages } from '../llm/bullx-ai-sdk'
 import type { ProviderOptions } from '../llm/provider-utils'
 import { buildAmbientRecognizerSystemPrompt, buildAmbientRecognizerUserPrompt } from '../prompts/ambient_prompt'
-import type { AgentProfile, RuntimeConversationMessage, TurnRuntimeContext } from '../rpc_lane'
+import type { AgentConversationContext, ConversationHistoryMessage, ConversationHistoryResponse } from '../rpc_lane'
 
 type ConversationRow = {
   id: string
@@ -14,7 +14,7 @@ type ConversationRow = {
   kind: string
   content: unknown
   metadata: JsonObject
-  inserted_at?: string
+  created_at?: string
 }
 
 type SceneMessage = {
@@ -69,8 +69,8 @@ export async function runAmbientRecognizer(input: {
   headers: Record<string, string>
   model: Model
   providerOptions?: ProviderOptions
-  agentProfile?: AgentProfile
-  runtimeContext?: TurnRuntimeContext
+  agentConversationContext?: AgentConversationContext
+  conversationHistory?: ConversationHistoryResponse
   turnStart: TurnStart
   workspaceRoot: string
   timeoutMs?: number
@@ -79,7 +79,7 @@ export async function runAmbientRecognizer(input: {
     throw new Error(`LLM model ${input.model.provider}/${input.model.id} is missing an AI SDK model instance`)
   }
 
-  const rows = loadConversationRows(input.workspaceRoot, input.turnStart, input.runtimeContext)
+  const rows = loadConversationRows(input.conversationHistory)
   const currentBatch = currentAmbientBatch(rows, input.turnStart)
   if (currentBatch.length === 0) {
     return {
@@ -99,8 +99,8 @@ export async function runAmbientRecognizer(input: {
     .filter(row => row.role === 'im_ambient' && row.kind === 'normal')
     .slice(-MAX_RECOGNIZER_CONTEXT_ROWS)
 
-  const displayName = agentDisplayName(input.turnStart, input.agentProfile)
-  const timezone = batchTimezone(currentBatch) ?? 'UTC'
+  const displayName = agentDisplayName(input.turnStart, input.agentConversationContext)
+  const timezone = input.agentConversationContext?.conversation?.timezone || batchTimezone(currentBatch) || 'UTC'
   const channelContext = ambientChannelContext(currentBatch)
   const decisionInput = stringifyYaml(
     {
@@ -126,8 +126,8 @@ export async function runAmbientRecognizer(input: {
     channelLabel: stringPath(channelContext, ['label']),
     conversationId: input.turnStart.turn.actor.session_id,
     displayName,
-    mission: input.runtimeContext?.mission || '',
-    soul: input.runtimeContext?.soul || fallbackSoul(),
+    mission: input.agentConversationContext?.mission || '',
+    soul: input.agentConversationContext?.soul || fallbackSoul(),
     timezone
   })
   const messages: Message[] = [
@@ -165,14 +165,7 @@ export async function runAmbientRecognizer(input: {
       decision,
       ...(decision.intervene
         ? {
-            intervention: ambientIntervention(
-              input.turnStart,
-              currentBatch,
-              currentScene,
-              decision,
-              displayName,
-              timezone
-            )
+            intervention: ambientIntervention(input.turnStart, currentBatch, currentScene, decision, displayName)
           }
         : {})
     }
@@ -190,31 +183,27 @@ function normalizeAmbientRecognizerDecision(
   }
 }
 
-function agentDisplayName(turnStart: TurnStart, agentProfile?: AgentProfile): string {
-  const displayName = agentProfile?.display_name?.trim()
+function agentDisplayName(turnStart: TurnStart, context?: AgentConversationContext): string {
+  const displayName = context?.agent?.display_name?.trim()
   return displayName || turnStart.turn.actor.agent_uid
 }
 
-function loadConversationRows(
-  _workspaceRoot: string,
-  _turnStart: TurnStart,
-  runtimeContext?: TurnRuntimeContext
-): ConversationRow[] {
-  if (runtimeContext?.conversation?.messages) {
-    return runtimeContext.conversation.messages.map(conversationRowFromRuntime)
+function loadConversationRows(history?: ConversationHistoryResponse): ConversationRow[] {
+  if (history?.messages) {
+    return history.messages.map(conversationRowFromRuntime)
   }
 
-  throw new Error('ambient recognizer requires RuntimeFabric conversation context')
+  throw new Error('ambient recognizer requires conversation history')
 }
 
-function conversationRowFromRuntime(row: RuntimeConversationMessage): ConversationRow {
+function conversationRowFromRuntime(row: ConversationHistoryMessage): ConversationRow {
   return {
     id: row.id ?? '',
     role: row.role ?? 'user',
     kind: row.kind ?? 'normal',
     content: row.content,
     metadata: isRecord(row.metadata) ? row.metadata : {},
-    inserted_at: row.inserted_at ?? undefined
+    created_at: row.created_at ?? undefined
   }
 }
 
@@ -286,7 +275,7 @@ function currentAmbientBatchFromInputs(turnStart: TurnStart): ConversationRow[] 
                 })
               })
             }),
-            inserted_at: sentAt
+            created_at: sentAt
           } satisfies ConversationRow
         ]
       })
@@ -382,11 +371,9 @@ function ambientIntervention(
   currentBatch: ConversationRow[],
   currentScene: SceneMessage[],
   decision: AmbientRecognizerResult,
-  displayName: string,
-  timezone: string
+  displayName: string
 ): AmbientRecognition['intervention'] {
   const chatSegment = renderChatSegment(currentScene)
-  const now = new Date().toISOString()
   const reason = decision.reason || 'Recent group chat suggests the agent should respond.'
   const metadata: JsonObject = {
     kind: 'introspection',
@@ -399,7 +386,6 @@ function ambientIntervention(
       source_provider_entry_ids: currentScene.flatMap(row => (row.provider_entry_id ? [row.provider_entry_id] : []))
     },
     message_context: {
-      time: { injected: true, sent_at: now, timezone },
       room: ambientRoomContext(currentBatch),
       speaker: {
         injected: true,
@@ -534,7 +520,12 @@ function messageText(row: ConversationRow): string {
 }
 
 function chatMessageSentAt(row: ConversationRow): string {
-  return stringPath(row.metadata, ['message_context', 'time', 'sent_at']) ?? row.inserted_at ?? new Date().toISOString()
+  return (
+    row.created_at ??
+    stringPath(row.metadata, ['message_context', 'time', 'send_at']) ??
+    stringPath(row.metadata, ['message_context', 'time', 'sent_at']) ??
+    new Date().toISOString()
+  )
 }
 
 function chatMessageSpeaker(row: ConversationRow): string {

@@ -234,6 +234,19 @@ Typical actor lane messages:
 - `turn_final_proposal`;
 - `turn_error`.
 
+`turn_start` carries the current turn's delivery facts:
+
+- `turn`: the `ActorTurnRef` fence;
+- `inputs`: the accepted actor input envelopes;
+- `model_ref`: the control-plane-selected runtime model profile for ordinary
+  generation;
+- `request_context`: current-turn facts such as schedule origin, turn mode, and
+  `silent_success_allowed`.
+
+`request_context` is not conversation history and is not agent identity. Worker
+prompt construction reads durable transcript rows through RPC when it needs
+history.
+
 `turn_control(command = "retry")` is a stop signal for a turn the control plane
 has already fenced in PostgreSQL. The worker should abort its local AI loop,
 drop any late proposal for that turn, and release capacity. It should not report
@@ -272,8 +285,23 @@ RPC call when it needs a method owned by the other side.
 
 The current worker-to-control-plane methods are mostly for PG semantic state:
 
-- `runtime.turn_context.resolve`: returns the batched turn context, including
-  soul, mission, conversation window, enabled skills, and overlay digest;
+- `agent_conversation.context.resolve`: returns the current
+  `ai_agent_conversations` context: agent display facts, conversation id/key,
+  started time, timezone, soul, mission, enabled skills, and optional cache key.
+  It does not return request context or transcript messages;
+- `conversation.history.resolve`: returns complete active conversation
+  transcript rows for `purpose = "prompt"` or `purpose = "compression"`.
+  Each row carries `id`, `role`, `kind`, `content`, `metadata`, `created_at`,
+  and optional `covers_range`. `created_at` is `ai_agent_messages.inserted_at`;
+- `conversation.summary.commit`: commits a worker-produced `/compress` summary.
+  The worker supplies summary text and covered message ids for the older prefix
+  being folded; the recent tail remains normal transcript and is not covered by
+  the summary. The control plane validates the turn fence and that covered ids belong to the active
+  conversation, writes the summary row, consumes the `command.compress` actor
+  input, and appends fixed provider-visible feedback. Accepted `/steer` inputs
+  on the compression turn are released for the next turn instead of being
+  consumed by the summary commit. It does not generate summaries or choose
+  coverage;
 - `skills.overlay.resolve`: returns one agent/skill overlay;
 - `skills.overlay.replace`: replaces one overlay;
 - `skills.overlay.clear`: clears one overlay;
@@ -288,9 +316,10 @@ RPC requests that belong to a turn include `ActorTurnRef`. The server checks the
 route and turn fence at the method boundary. Read methods may accept the current
 live turn fence. Write methods must match the current revision.
 
-The rpc lane should stay coarse enough to avoid chatty PG access. A turn starts
-with one context resolve call. Skill overlays are resolved only when
-`skill_view` or `skill_append` needs them.
+The rpc lane should stay coarse enough to avoid chatty PG access. A normal text
+turn resolves agent conversation context once and history once before building
+the prompt. Skill overlays are resolved only when `skill_view` or
+`skill_append` needs them.
 
 The control-plane `RPCLane` is deliberately small. It dispatches methods and
 wraps handler results as `rpc_response` or `rpc_error`; method handlers own

@@ -10,8 +10,8 @@ const PREVIOUS_CHAT_HISTORY_CLOSE = '</previous_chat_history>'
 
 /**
  * Prepends persisted Ankole `<agent_environment_info>` as its own user text
- * part. The sparse-injection decisions were frozen when the control plane wrote
- * the message; this renderer only projects those decisions into the model view.
+ * part. The worker decides per-prompt sparse time injection from durable
+ * transcript rows; other scene facts come from message metadata.
  */
 export function renderMessageWithContext(message: AgentMessage, metadata: JsonObject): AgentMessage {
   if (message.role !== 'user') return message
@@ -52,8 +52,9 @@ export function renderMessageContextLines(metadata: JsonObject): string[] {
   const lines: string[] = []
 
   const time = objectValue(context.time)
-  if (time.injected === true && typeof time.sent_at === 'string') {
-    lines.push(`sent_at: ${formatTimestamp(time.sent_at, stringValue(time.timezone))}`)
+  const sendAt = stringValue(time.send_at) ?? stringValue(time.sent_at)
+  if (time.injected === true && sendAt) {
+    lines.push(`send_at: ${formatTimestamp(sendAt, stringValue(time.timezone))}`)
   }
 
   const room = objectValue(context.room)

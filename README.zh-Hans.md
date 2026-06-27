@@ -52,18 +52,21 @@ Runtime 建立在五个技术判断上：
 
 ## 当前仓库
 
-这个仓库是 Ankole 早期的 control-plane 和 runtime foundation，还不是打磨完成的终端用户发行版。
+这个仓库是 Ankole 当前活跃的 control-plane 和 runtime workspace，仍是工程发行形态，还不是打磨完成的终端用户发行版。
 
-- `app/control_plane` - Phoenix control plane，包含 Principal/AuthZ、AppConfigure、plugins、SignalsGateway、setup、console 和 web shell。
-- `app/kernel` - 共享 native foundation，承载 crypto、hashing、identifier、policy helper 等 runtime-neutral 机制。
-- `app/agent_computer` - Bun + TypeScript Agent Computer runtime，承载本地 LLM loop、tools、文件、terminal state 和 worker daemon。
-- `app/webapps` - 由 Phoenix shell 挂载的 Rspack frontend applications。
+- `app/control_plane` - Phoenix/OTP control plane，承载 Principal/AuthZ、AppConfigure、setup、console、plugin registry、I18n、SignalsGateway、actor runtime、RuntimeFabric 和 PostgreSQL 持久语义状态。
+- `app/kernel` - 被 Elixir 和 Bun 共同加载的 Rust foundation，承载 crypto、identifier、phone/JWT helper、AuthZ evaluator、protobuf envelope 和 ZeroMQ RuntimeFabric transport。
+- `app/agent_computer` - Bun + TypeScript Agent Computer worker，承载本地 LLM loop、provider adapters、tools、skill loading、文件、terminal state 和 worker daemon。
+- `app/webapps` - Vite + React frontend applications，提供 auth、setup、console surfaces，并构建进 Phoenix static shell。
+- `app/library` - 内置 agent skills 和 `MISSION.md`、`SOUL.md` 等 starter templates。
+- `app/locales` - control plane 和 browser surfaces 共用的 TOML translation catalogs。
 - `libs/uikit` - Ankole webapps 共用的 UI primitives。
 - `libs/feishu_openapi` - 本地 Lark/Feishu OpenAPI client library。
-- `plugins` 和 `internals/plugins` - 可信第一方 Elixir plugins。Plugin 是 installation-global、default-on 的，通过全局 disable list 关闭。
-- `docs/design-docs` - Principal identity、authorization、configuration、signals、plugins 和 provider adapters 的当前设计文档。
+- `internals/plugins` - 随仓库维护的私有第一方 provider/plugin code，但不作为公开 plugin boundary 呈现。
+- `tools/devkit` - local services、app database helpers、code generation 和 analysis 的 workspace automation。
+- `docs/design-docs` - Principal identity、authorization、configuration、I18n、plugins、RuntimeFabric、SignalsGateway 和 provider adapters 的当前设计文档。
 
-SignalsGateway 是 provider ingress layer。它让 Ankole 能观察 chat、webhook 和 provider event，同时不把外部来源事实和 agent execution 混在一起。Signal 会变成 actor input；actor scheduling 和 execution 留在 runtime 里。
+RuntimeFabric 是 control-plane 到 worker 的 live fabric。它通过 ZeroMQ 承载 actor traffic、bounded RPC 和 worker-file frames；PostgreSQL 仍然负责 durable replay、fence、reconciliation 和 final commit。SignalsGateway 是 provider ingress layer：外部 chat、webhook 和 provider event 会变成 actor input，但不会把外部来源事实误写成 execution state。
 
 ## 开发
 

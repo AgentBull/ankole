@@ -5,8 +5,8 @@ use std::io::Read;
 use std::path::Path;
 use xxhash_rust::xxh3::{Xxh3, xxh3_128};
 
-use crate::core::crypto::parse_hex_32;
-use crate::core::{KernelError, KernelResult};
+use crate::common::crypto::parse_hex_32;
+use crate::common::{KernelError, KernelResult};
 
 /// Converts Unicode text into a best-effort ASCII representation.
 ///

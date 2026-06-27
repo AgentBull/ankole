@@ -13,7 +13,7 @@ const config: KnipConfig = {
   ignoreWorkspaces: ['app/control_plane', 'libs/feishu_openapi'],
   workspaces: {
     'app/agent_computer': {
-      entry: ['src/browser_cli.ts', 'src/main.ts', 'src/turn_child.ts', 'test/**/*.ts'],
+      entry: ['src/browser_cli.ts', 'src/main.ts', 'test/**/*.ts'],
       project: ['src/**/*.ts', 'test/**/*.ts'],
       // The vendored AI SDK is intentionally excluded from current unused-file
       // gates. Its slimming is tracked separately and should not mask app-owned

@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use std::collections::{HashMap, VecDeque};
 use std::fmt;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -9,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use serde::Deserialize;
 
-use crate::core::{KernelError, KernelResult};
+use crate::common::{KernelError, KernelResult};
 use crate::runtime_fabric;
 
 const ZAP_ENDPOINT: &str = "inproc://zeromq.zap.01";
@@ -19,7 +17,23 @@ const DEFAULT_COMMAND_TIMEOUT_MS: u64 = 1_000;
 const DEFAULT_IO_TIMEOUT_MS: i32 = 1_000;
 const DEFAULT_HWM: i32 = 1_000;
 const DEFAULT_LINGER_MS: i32 = 0;
+const DEFAULT_DEALER_INBOX_MAX_EVENTS: usize = 1_024;
+const DEFAULT_DEALER_INBOX_MAX_BYTES: usize = 64 * 1024 * 1024;
 const FILE_TRANSFER_PROTOCOL: &[u8] = b"ANKOLE_FILE/1";
+
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct SocketOptions {
+    #[serde(default)]
+    pub sndhwm: Option<i32>,
+    #[serde(default)]
+    pub rcvhwm: Option<i32>,
+    #[serde(default)]
+    pub linger_ms: Option<i32>,
+    #[serde(default)]
+    pub sndtimeo_ms: Option<i32>,
+    #[serde(default)]
+    pub rcvtimeo_ms: Option<i32>,
+}
 
 /// Configuration for the control-plane ROUTER socket.
 ///
@@ -34,15 +48,8 @@ pub struct RouterConfig {
     #[serde(default)]
     pub zap_domain: Option<String>,
     #[serde(default)]
-    pub sndhwm: Option<i32>,
-    #[serde(default)]
-    pub rcvhwm: Option<i32>,
-    #[serde(default)]
-    pub linger_ms: Option<i32>,
-    #[serde(default)]
-    pub sndtimeo_ms: Option<i32>,
-    #[serde(default)]
-    pub rcvtimeo_ms: Option<i32>,
+    #[serde(flatten)]
+    pub socket: SocketOptions,
     #[serde(default)]
     pub poll_interval_ms: Option<u64>,
     #[serde(default)]
@@ -59,19 +66,16 @@ pub struct DealerConfig {
     pub username: String,
     pub password: String,
     #[serde(default)]
-    pub sndhwm: Option<i32>,
-    #[serde(default)]
-    pub rcvhwm: Option<i32>,
-    #[serde(default)]
-    pub linger_ms: Option<i32>,
-    #[serde(default)]
-    pub sndtimeo_ms: Option<i32>,
-    #[serde(default)]
-    pub rcvtimeo_ms: Option<i32>,
+    #[serde(flatten)]
+    pub socket: SocketOptions,
     #[serde(default)]
     pub poll_interval_ms: Option<u64>,
     #[serde(default)]
     pub command_timeout_ms: Option<u64>,
+    #[serde(default)]
+    pub inbox_max_events: Option<usize>,
+    #[serde(default)]
+    pub inbox_max_bytes: Option<usize>,
 }
 
 #[derive(Clone, Debug)]
@@ -130,6 +134,8 @@ pub enum TransportError {
     Backpressure,
     Timeout,
     SocketClosed,
+    InvalidConfig(String),
+    InvalidEnvelope(String),
     InvalidFrame(String),
     Zmq(String),
 }
@@ -141,6 +147,8 @@ impl fmt::Display for TransportError {
             Self::Backpressure => write!(f, "backpressure"),
             Self::Timeout => write!(f, "timeout"),
             Self::SocketClosed => write!(f, "socket_closed"),
+            Self::InvalidConfig(reason) => write!(f, "invalid_config: {reason}"),
+            Self::InvalidEnvelope(reason) => write!(f, "invalid_envelope: {reason}"),
             Self::InvalidFrame(reason) => write!(f, "invalid_frame: {reason}"),
             Self::Zmq(reason) => write!(f, "zmq: {reason}"),
         }
@@ -292,27 +300,52 @@ struct DealerHandleInner {
 struct DealerInbox {
     state: Mutex<DealerInboxState>,
     available: Condvar,
+    max_events: usize,
+    max_bytes: usize,
 }
 
 struct DealerInboxState {
     queue: VecDeque<DealerEvent>,
+    queued_bytes: usize,
     closed: bool,
 }
 
 impl DealerInbox {
-    fn new() -> Self {
+    fn new(max_events: usize, max_bytes: usize) -> Self {
         Self {
             state: Mutex::new(DealerInboxState {
                 queue: VecDeque::new(),
+                queued_bytes: 0,
                 closed: false,
             }),
             available: Condvar::new(),
+            max_events,
+            max_bytes,
         }
     }
 
     fn push(&self, event: DealerEvent) {
         if let Ok(mut state) = self.state.lock() {
             if !state.closed {
+                let event_size = dealer_event_size(&event);
+
+                if state.queue.len() >= self.max_events
+                    || state.queued_bytes.saturating_add(event_size) > self.max_bytes
+                {
+                    state.queue.clear();
+                    state.queued_bytes = 0;
+                    state.closed = true;
+                    let error = DealerEvent::SocketError(format!(
+                        "dealer inbox overflow: max_events={}, max_bytes={}",
+                        self.max_events, self.max_bytes
+                    ));
+                    state.queued_bytes = dealer_event_size(&error);
+                    state.queue.push_back(error);
+                    self.available.notify_all();
+                    return;
+                }
+
+                state.queued_bytes = state.queued_bytes.saturating_add(event_size);
                 state.queue.push_back(event);
                 self.available.notify_one();
             }
@@ -327,14 +360,32 @@ impl DealerInbox {
     }
 
     fn recv(&self, timeout: Duration) -> Result<Option<DealerEvent>, TransportError> {
+        self.recv_with_mode(timeout, DealerRecvMode::Any)
+    }
+
+    fn recv_envelope(&self, timeout: Duration) -> Result<Option<DealerEvent>, TransportError> {
+        self.recv_with_mode(timeout, DealerRecvMode::EnvelopeOnly)
+    }
+
+    fn recv_with_mode(
+        &self,
+        timeout: Duration,
+        mode: DealerRecvMode,
+    ) -> Result<Option<DealerEvent>, TransportError> {
         let mut state = self
             .state
             .lock()
             .map_err(|_| TransportError::SocketClosed)?;
 
         loop {
-            if let Some(event) = state.queue.pop_front() {
-                return Ok(Some(event));
+            match state.queue.front() {
+                Some(DealerEvent::FileFrame(_)) if mode == DealerRecvMode::EnvelopeOnly => {
+                    return Err(TransportError::InvalidFrame(
+                        "received worker file lane frame; use recvRaw".into(),
+                    ));
+                }
+                Some(_event) => return Ok(state.pop_front()),
+                None => {}
             }
 
             if state.closed {
@@ -352,6 +403,28 @@ impl DealerInbox {
                 return Ok(None);
             }
         }
+    }
+}
+
+impl DealerInboxState {
+    fn pop_front(&mut self) -> Option<DealerEvent> {
+        let event = self.queue.pop_front()?;
+        self.queued_bytes = self.queued_bytes.saturating_sub(dealer_event_size(&event));
+        Some(event)
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DealerRecvMode {
+    Any,
+    EnvelopeOnly,
+}
+
+fn dealer_event_size(event: &DealerEvent) -> usize {
+    match event {
+        DealerEvent::Received(payload) => payload.len(),
+        DealerEvent::FileFrame(frames) => frames.iter().map(Vec::len).sum(),
+        DealerEvent::DecodeFailed(reason) | DealerEvent::SocketError(reason) => reason.len(),
     }
 }
 
@@ -409,6 +482,15 @@ impl DealerHandle {
         self.inner.inbox.recv(timeout)
     }
 
+    /// Receives the next protobuf envelope without consuming worker-file frames.
+    ///
+    /// JS callers using `recv()` should not lose file-transfer data by accident;
+    /// if a file frame is at the head of the queue this returns an error and
+    /// leaves the frame available for `recvRaw`.
+    pub fn recv_envelope(&self, timeout: Duration) -> Result<Option<DealerEvent>, TransportError> {
+        self.inner.inbox.recv_envelope(timeout)
+    }
+
     /// Stops the dealer thread and closes the worker transport.
     pub fn stop(&self) -> Result<(), TransportError> {
         let (reply_tx, reply_rx) = mpsc::channel();
@@ -446,12 +528,13 @@ impl RouterConfig {
     }
 
     fn validate(&self) -> Result<(), TransportError> {
-        validate_non_empty("endpoint", &self.endpoint)?;
+        validate_config_non_empty("endpoint", &self.endpoint)?;
         if let Some(key) = &self.worker_auth_key {
-            validate_non_empty("worker_auth_key", key)?;
+            validate_config_non_empty("worker_auth_key", key)?;
         }
-        validate_optional_positive("sndhwm", self.sndhwm)?;
-        validate_optional_positive("rcvhwm", self.rcvhwm)?;
+        validate_socket_options(&self.socket)?;
+        validate_optional_positive_u64("poll_interval_ms", self.poll_interval_ms)?;
+        validate_optional_positive_u64("command_timeout_ms", self.command_timeout_ms)?;
         Ok(())
     }
 
@@ -481,12 +564,15 @@ impl DealerConfig {
     }
 
     fn validate(&self) -> Result<(), TransportError> {
-        validate_non_empty("endpoint", &self.endpoint)?;
-        validate_non_empty("identity", &self.identity)?;
-        validate_non_empty("username", &self.username)?;
-        validate_non_empty("password", &self.password)?;
-        validate_optional_positive("sndhwm", self.sndhwm)?;
-        validate_optional_positive("rcvhwm", self.rcvhwm)?;
+        validate_config_non_empty("endpoint", &self.endpoint)?;
+        validate_config_non_empty("identity", &self.identity)?;
+        validate_config_non_empty("username", &self.username)?;
+        validate_config_non_empty("password", &self.password)?;
+        validate_socket_options(&self.socket)?;
+        validate_optional_positive_u64("poll_interval_ms", self.poll_interval_ms)?;
+        validate_optional_positive_u64("command_timeout_ms", self.command_timeout_ms)?;
+        validate_optional_positive_usize("inbox_max_events", self.inbox_max_events)?;
+        validate_optional_positive_usize("inbox_max_bytes", self.inbox_max_bytes)?;
         Ok(())
     }
 
@@ -554,7 +640,14 @@ pub fn start_dealer(config: DealerConfig) -> KernelResult<DealerHandle> {
 
     let (command_tx, command_rx) = mpsc::channel();
     let (init_tx, init_rx) = mpsc::sync_channel(1);
-    let inbox = Arc::new(DealerInbox::new());
+    let inbox = Arc::new(DealerInbox::new(
+        config
+            .inbox_max_events
+            .unwrap_or(DEFAULT_DEALER_INBOX_MAX_EVENTS),
+        config
+            .inbox_max_bytes
+            .unwrap_or(DEFAULT_DEALER_INBOX_MAX_BYTES),
+    ));
     let thread_inbox = Arc::clone(&inbox);
     let stop = Arc::new(AtomicBool::new(false));
     let thread_stop = Arc::clone(&stop);
@@ -607,7 +700,7 @@ fn run_router(
 
     let socket_result = zap_guard.and_then(|zap| {
         let socket = context.socket(zmq::ROUTER).map_err(transport_error)?;
-        configure_common_socket(&socket, &config)?;
+        configure_common_socket(&socket, &config.socket)?;
         // Mandatory routing is the transport-level signal that a worker route
         // is gone. ActorRuntime turns that into stale worker state and
         // retryable delivery projections.
@@ -674,7 +767,7 @@ fn run_dealer(
         .socket(zmq::DEALER)
         .map_err(transport_error)
         .and_then(|socket| {
-            configure_common_socket(&socket, &config)?;
+            configure_common_socket(&socket, &config.socket)?;
             socket
                 .set_identity(config.identity.as_bytes())
                 .map_err(transport_error)?;
@@ -800,8 +893,8 @@ fn send_router_file_frame(
     route: String,
     frames: Vec<Vec<u8>>,
 ) -> Result<SendOutcome, TransportError> {
-    validate_file_transfer_frames(&frames)?;
-
+    // Frames are validated at the RouterHandle::send_file_frame entry point
+    // before crossing into the socket thread, mirroring the dealer send path.
     let mut routed_frames = Vec::with_capacity(frames.len() + 1);
     routed_frames.push(route.into_bytes());
     routed_frames.extend(frames);
@@ -975,7 +1068,7 @@ enum DealerInbound {
 // Parses ROUTER frames from DEALER workers. A leading empty delimiter is
 // tolerated so tests and proxies can use common multipart conventions.
 fn parse_router_frames(
-    frames: Vec<Vec<u8>>,
+    mut frames: Vec<Vec<u8>>,
 ) -> Result<RouterInbound, (Option<String>, TransportError)> {
     if frames.len() < 2 {
         return Err((
@@ -984,57 +1077,46 @@ fn parse_router_frames(
         ));
     }
 
-    let route = String::from_utf8(frames[0].clone()).map_err(|error| {
+    let route_frame = frames.remove(0);
+    let route = String::from_utf8(route_frame).map_err(|error| {
         (
             None,
             TransportError::InvalidFrame(format!("route identity must be UTF-8: {error}")),
         )
     })?;
-    let payload_index = if frames.len() >= 3 && frames[1].is_empty() {
-        2
-    } else {
-        1
-    };
 
-    if frames[payload_index].as_slice() == FILE_TRANSFER_PROTOCOL {
-        Ok(RouterInbound::FileFrame {
-            route,
-            frames: frames[payload_index..].to_vec(),
-        })
+    if frames.len() >= 2 && frames[0].is_empty() {
+        frames.remove(0);
+    }
+
+    if frames.first().map(Vec::as_slice) == Some(FILE_TRANSFER_PROTOCOL) {
+        Ok(RouterInbound::FileFrame { route, frames })
     } else {
-        Ok(RouterInbound::Envelope {
-            route,
-            payload: frames[payload_index].clone(),
-        })
+        let payload = frames.remove(0);
+        Ok(RouterInbound::Envelope { route, payload })
     }
 }
 
 // Parses worker-side frames. ROUTER sends usually arrive as one payload frame,
 // but delimiter and extra identity frames are tolerated for interoperability.
-fn parse_dealer_frames(frames: Vec<Vec<u8>>) -> Result<DealerInbound, TransportError> {
+fn parse_dealer_frames(mut frames: Vec<Vec<u8>>) -> Result<DealerInbound, TransportError> {
     if frames.is_empty() {
         return Err(TransportError::InvalidFrame(
             "dealer message must include a payload".into(),
         ));
     }
 
+    if frames.len() >= 2 && frames[0].is_empty() {
+        frames.remove(0);
+    } else if frames.len() >= 2 && frames[1].as_slice() == FILE_TRANSFER_PROTOCOL {
+        frames.remove(0);
+    }
+
     if frames[0].as_slice() == FILE_TRANSFER_PROTOCOL {
         return Ok(DealerInbound::FileFrame(frames));
     }
 
-    if frames.len() >= 2 && frames[0].is_empty() {
-        if frames[1].as_slice() == FILE_TRANSFER_PROTOCOL {
-            return Ok(DealerInbound::FileFrame(frames[1..].to_vec()));
-        }
-
-        return Ok(DealerInbound::Envelope(frames[1].clone()));
-    }
-
-    if frames.len() >= 2 && frames[1].as_slice() == FILE_TRANSFER_PROTOCOL {
-        return Ok(DealerInbound::FileFrame(frames[1..].to_vec()));
-    }
-
-    Ok(DealerInbound::Envelope(frames[0].clone()))
+    Ok(DealerInbound::Envelope(frames.remove(0)))
 }
 
 // Starts the inproc ZAP server used by ZeroMQ PLAIN auth. This is a pre-auth
@@ -1046,36 +1128,52 @@ fn start_zap_server(
     auth_routes: AuthenticatedRoutes,
     stop: Arc<AtomicBool>,
 ) -> Result<Option<ZapGuard>, TransportError> {
-    validate_non_empty("zap_domain", &domain)?;
+    validate_config_non_empty("zap_domain", &domain)?;
 
     let context = context.clone();
     let (init_tx, init_rx) = mpsc::sync_channel(1);
+    let thread_stop = Arc::clone(&stop);
 
     let handle = thread::Builder::new()
         .name("ankole-runtime-fabric-zap".to_string())
-        .spawn(move || run_zap_server(context, domain, auth, auth_routes, stop, init_tx))
+        .spawn(move || run_zap_server(context, domain, auth, auth_routes, thread_stop, init_tx))
         .map_err(|error| TransportError::Zmq(format!("failed to spawn ZAP thread: {error}")))?;
 
-    init_rx
-        .recv_timeout(Duration::from_secs(1))
-        .map_err(|_| TransportError::Timeout)?
-        .map(|_| {
-            Some(ZapGuard {
-                handle: Some(handle),
-            })
-        })
+    let init_result = match init_rx.recv_timeout(Duration::from_secs(1)) {
+        Ok(result) => result.map(|_| ()),
+        Err(_) => Err(TransportError::Timeout),
+    };
+
+    match init_result {
+        Ok(()) => Ok(Some(ZapGuard {
+            stop,
+            handle: Some(handle),
+        })),
+        Err(error) => {
+            stop.store(true, Ordering::SeqCst);
+            let _ = handle.join();
+            Err(error)
+        }
+    }
 }
 
 struct ZapGuard {
+    stop: Arc<AtomicBool>,
     handle: Option<thread::JoinHandle<()>>,
 }
 
 impl Drop for ZapGuard {
     fn drop(&mut self) {
+        self.stop.store(true, Ordering::SeqCst);
+
         if let Some(handle) = self.handle.take() {
             let start = Instant::now();
-            while !handle.is_finished() && start.elapsed() < Duration::from_millis(100) {
+            while !handle.is_finished() && start.elapsed() < Duration::from_millis(500) {
                 thread::sleep(Duration::from_millis(5));
+            }
+
+            if handle.is_finished() {
+                let _ = handle.join();
             }
         }
     }
@@ -1228,85 +1326,33 @@ fn frame_string(frame: Option<&Vec<u8>>) -> Option<String> {
     frame.and_then(|bytes| String::from_utf8(bytes.clone()).ok())
 }
 
-trait CommonSocketConfig {
-    fn sndhwm(&self) -> Option<i32>;
-    fn rcvhwm(&self) -> Option<i32>;
-    fn linger_ms(&self) -> Option<i32>;
-    fn sndtimeo_ms(&self) -> Option<i32>;
-    fn rcvtimeo_ms(&self) -> Option<i32>;
-}
-
-impl CommonSocketConfig for RouterConfig {
-    fn sndhwm(&self) -> Option<i32> {
-        self.sndhwm
-    }
-
-    fn rcvhwm(&self) -> Option<i32> {
-        self.rcvhwm
-    }
-
-    fn linger_ms(&self) -> Option<i32> {
-        self.linger_ms
-    }
-
-    fn sndtimeo_ms(&self) -> Option<i32> {
-        self.sndtimeo_ms
-    }
-
-    fn rcvtimeo_ms(&self) -> Option<i32> {
-        self.rcvtimeo_ms
-    }
-}
-
-impl CommonSocketConfig for DealerConfig {
-    fn sndhwm(&self) -> Option<i32> {
-        self.sndhwm
-    }
-
-    fn rcvhwm(&self) -> Option<i32> {
-        self.rcvhwm
-    }
-
-    fn linger_ms(&self) -> Option<i32> {
-        self.linger_ms
-    }
-
-    fn sndtimeo_ms(&self) -> Option<i32> {
-        self.sndtimeo_ms
-    }
-
-    fn rcvtimeo_ms(&self) -> Option<i32> {
-        self.rcvtimeo_ms
-    }
-}
-
 // Applies bounded queues and timeouts to both socket roles. Defaults favor
 // predictable shutdown and backpressure over unbounded buffering.
-fn configure_common_socket<T: CommonSocketConfig>(
+fn configure_common_socket(
     socket: &zmq::Socket,
-    config: &T,
+    options: &SocketOptions,
 ) -> Result<(), TransportError> {
     socket
-        .set_sndhwm(config.sndhwm().unwrap_or(DEFAULT_HWM))
+        .set_sndhwm(options.sndhwm.unwrap_or(DEFAULT_HWM))
         .map_err(transport_error)?;
     socket
-        .set_rcvhwm(config.rcvhwm().unwrap_or(DEFAULT_HWM))
+        .set_rcvhwm(options.rcvhwm.unwrap_or(DEFAULT_HWM))
         .map_err(transport_error)?;
     socket
-        .set_linger(config.linger_ms().unwrap_or(DEFAULT_LINGER_MS))
+        .set_linger(options.linger_ms.unwrap_or(DEFAULT_LINGER_MS))
         .map_err(transport_error)?;
     socket
-        .set_sndtimeo(config.sndtimeo_ms().unwrap_or(DEFAULT_IO_TIMEOUT_MS))
+        .set_sndtimeo(options.sndtimeo_ms.unwrap_or(DEFAULT_IO_TIMEOUT_MS))
         .map_err(transport_error)?;
     socket
-        .set_rcvtimeo(config.rcvtimeo_ms().unwrap_or(DEFAULT_IO_TIMEOUT_MS))
+        .set_rcvtimeo(options.rcvtimeo_ms.unwrap_or(DEFAULT_IO_TIMEOUT_MS))
         .map_err(transport_error)?;
     Ok(())
 }
 
-fn validate_non_empty(field: &str, value: &str) -> Result<(), TransportError> {
+fn validate_config_non_empty(field: &str, value: &str) -> Result<(), TransportError> {
     if value.trim().is_empty() {
-        Err(TransportError::InvalidFrame(format!(
+        Err(TransportError::InvalidConfig(format!(
             "{field} must not be empty"
         )))
     } else {
@@ -1328,7 +1374,49 @@ fn validate_file_transfer_frames(frames: &[Vec<u8>]) -> Result<(), TransportErro
 
 fn validate_optional_positive(field: &str, value: Option<i32>) -> Result<(), TransportError> {
     match value {
-        Some(value) if value <= 0 => Err(TransportError::InvalidFrame(format!(
+        Some(value) if value <= 0 => Err(TransportError::InvalidConfig(format!(
+            "{field} must be positive"
+        ))),
+        _ => Ok(()),
+    }
+}
+
+fn validate_socket_options(options: &SocketOptions) -> Result<(), TransportError> {
+    validate_optional_positive("sndhwm", options.sndhwm)?;
+    validate_optional_positive("rcvhwm", options.rcvhwm)?;
+    validate_optional_non_negative_or_infinite("linger_ms", options.linger_ms)?;
+    validate_optional_non_negative_or_infinite("sndtimeo_ms", options.sndtimeo_ms)?;
+    validate_optional_non_negative_or_infinite("rcvtimeo_ms", options.rcvtimeo_ms)?;
+    Ok(())
+}
+
+fn validate_optional_non_negative_or_infinite(
+    field: &str,
+    value: Option<i32>,
+) -> Result<(), TransportError> {
+    match value {
+        Some(value) if value < -1 => Err(TransportError::InvalidConfig(format!(
+            "{field} must be -1 or non-negative"
+        ))),
+        _ => Ok(()),
+    }
+}
+
+fn validate_optional_positive_u64(field: &str, value: Option<u64>) -> Result<(), TransportError> {
+    match value {
+        Some(0) => Err(TransportError::InvalidConfig(format!(
+            "{field} must be positive"
+        ))),
+        _ => Ok(()),
+    }
+}
+
+fn validate_optional_positive_usize(
+    field: &str,
+    value: Option<usize>,
+) -> Result<(), TransportError> {
+    match value {
+        Some(0) => Err(TransportError::InvalidConfig(format!(
             "{field} must be positive"
         ))),
         _ => Ok(()),
@@ -1351,7 +1439,7 @@ fn transport_error(error: zmq::Error) -> TransportError {
 
 impl From<KernelError> for TransportError {
     fn from(error: KernelError) -> Self {
-        TransportError::Zmq(error.to_string())
+        TransportError::InvalidEnvelope(error.to_string())
     }
 }
 
@@ -1359,6 +1447,78 @@ impl From<KernelError> for TransportError {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn validates_transport_config_bounds() {
+        let mut router = router_config();
+        router.poll_interval_ms = Some(0);
+        assert!(matches!(
+            router.validate(),
+            Err(TransportError::InvalidConfig(reason)) if reason.contains("poll_interval_ms")
+        ));
+
+        let mut router = router_config();
+        router.socket.linger_ms = Some(-2);
+        assert!(matches!(
+            router.validate(),
+            Err(TransportError::InvalidConfig(reason)) if reason.contains("linger_ms")
+        ));
+
+        let mut dealer = dealer_config("tcp://127.0.0.1:1");
+        dealer.inbox_max_events = Some(0);
+        assert!(matches!(
+            dealer.validate(),
+            Err(TransportError::InvalidConfig(reason)) if reason.contains("inbox_max_events")
+        ));
+
+        let mut router = router_config();
+        router.socket.sndtimeo_ms = Some(-1);
+        assert!(router.validate().is_ok());
+    }
+
+    #[test]
+    fn dealer_inbox_overflow_reports_error_and_closes() {
+        let inbox = DealerInbox::new(1, 1024);
+        inbox.push(DealerEvent::Received(vec![1, 2, 3]));
+        inbox.push(DealerEvent::Received(vec![4, 5, 6]));
+
+        match inbox
+            .recv(Duration::from_millis(1))
+            .expect("overflow event")
+        {
+            Some(DealerEvent::SocketError(reason)) => {
+                assert!(reason.contains("dealer inbox overflow"));
+            }
+            other => panic!("unexpected dealer event: {other:?}"),
+        }
+
+        assert!(matches!(
+            inbox.recv(Duration::from_millis(1)),
+            Err(TransportError::SocketClosed)
+        ));
+    }
+
+    #[test]
+    fn recv_envelope_does_not_consume_file_frames() {
+        let inbox = DealerInbox::new(8, 1024);
+        inbox.push(DealerEvent::FileFrame(vec![
+            FILE_TRANSFER_PROTOCOL.to_vec(),
+            b"READ_OPEN".to_vec(),
+        ]));
+
+        assert!(matches!(
+            inbox.recv_envelope(Duration::from_millis(1)),
+            Err(TransportError::InvalidFrame(reason)) if reason.contains("recvRaw")
+        ));
+
+        match inbox.recv(Duration::from_millis(1)).expect("raw recv") {
+            Some(DealerEvent::FileFrame(frames)) => {
+                assert_eq!(frames[0], FILE_TRANSFER_PROTOCOL);
+                assert_eq!(frames[1], b"READ_OPEN");
+            }
+            other => panic!("unexpected dealer event: {other:?}"),
+        }
+    }
 
     #[test]
     fn router_dealer_round_trip_with_plain_auth_and_mandatory_route() {
@@ -1371,37 +1531,9 @@ mod tests {
             available.notify_one();
         });
 
-        let router = start_router(
-            RouterConfig {
-                endpoint: "tcp://127.0.0.1:*".to_string(),
-                worker_auth_key: Some("test-token".to_string()),
-                zap_domain: None,
-                sndhwm: None,
-                rcvhwm: None,
-                linger_ms: None,
-                sndtimeo_ms: None,
-                rcvtimeo_ms: None,
-                poll_interval_ms: Some(1),
-                command_timeout_ms: Some(1_000),
-            },
-            sink,
-        )
-        .expect("router starts");
+        let router = start_router(router_config(), sink).expect("router starts");
 
-        let dealer = start_dealer(DealerConfig {
-            endpoint: router.endpoint().to_string(),
-            identity: "worker-instance-a".to_string(),
-            username: "worker-a".to_string(),
-            password: "test-token".to_string(),
-            sndhwm: None,
-            rcvhwm: None,
-            linger_ms: None,
-            sndtimeo_ms: None,
-            rcvtimeo_ms: None,
-            poll_interval_ms: Some(1),
-            command_timeout_ms: Some(1_000),
-        })
-        .expect("dealer starts");
+        let dealer = start_dealer(dealer_config(router.endpoint())).expect("dealer starts");
 
         {
             let transient_recv_handle = dealer.clone();
@@ -1496,6 +1628,31 @@ mod tests {
         router.stop().expect("router stops");
     }
 
+    fn router_config() -> RouterConfig {
+        RouterConfig {
+            endpoint: "tcp://127.0.0.1:*".to_string(),
+            worker_auth_key: Some("test-token".to_string()),
+            zap_domain: None,
+            socket: SocketOptions::default(),
+            poll_interval_ms: Some(1),
+            command_timeout_ms: Some(1_000),
+        }
+    }
+
+    fn dealer_config(endpoint: &str) -> DealerConfig {
+        DealerConfig {
+            endpoint: endpoint.to_string(),
+            identity: "worker-instance-a".to_string(),
+            username: "worker-a".to_string(),
+            password: "test-token".to_string(),
+            socket: SocketOptions::default(),
+            poll_interval_ms: Some(1),
+            command_timeout_ms: Some(1_000),
+            inbox_max_events: None,
+            inbox_max_bytes: None,
+        }
+    }
+
     fn wait_for_router_event(
         events: &Arc<(Mutex<VecDeque<RouterEvent>>, Condvar)>,
     ) -> Option<RouterEvent> {
@@ -1547,7 +1704,6 @@ mod tests {
             "protocol_version": 1,
             "message_id": "turn-start-test",
             "correlation_id": "turn-start-test",
-            "seq": 0,
             "lane": "LANE_TURN",
             "durability": "CONTROL_REPLAYABLE",
             "body": {
@@ -1565,7 +1721,7 @@ mod tests {
                     },
                     "inputs": [{
                         "actor_input_id": "00000000-0000-0000-0000-000000000002",
-                        "broker_sequence": 1,
+                        "live_queue_sequence": 1,
                         "type": "im.message.addressed",
                         "ingress_event_id": "event-a",
                         "payload_json": {"text": "PING"}

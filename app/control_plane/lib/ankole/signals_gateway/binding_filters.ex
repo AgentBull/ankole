@@ -1,157 +1,221 @@
 defmodule Ankole.SignalsGateway.BindingFilters do
   @moduledoc """
-  Deterministic v1 admission filters for signal bindings.
+  CEL admission filters for signal bindings.
 
-  v1 intentionally supports only exact equality over a small allowlist. This
-  keeps the user model explicit while leaving one stable place to grow future
-  rule routing.
-
-  Why only exact-match over a fixed field allowlist: an operator-authored filter
-  decides whether a provider event even enters the system, so it must be cheap,
-  total, and impossible to misuse. Regex / ranges / arbitrary field paths would
-  invite catastrophic-backtracking, atom exhaustion (see `fetch_field/2`), and
-  filters whose behavior nobody can predict from the binding config. Exact
-  equality on a curated set of normalized fields is auditable and good enough for
-  the v1 routing cases (which adapter, which channel kind, which event_type).
-  Anything richer is a deliberate future expansion that lives here.
+  A filter is first-party operator configuration, not untrusted script input.
+  The gateway's responsibility is narrower: build the normalized fact first,
+  evaluate CEL before any durable write, and fail closed when the persisted
+  filter is invalid. The native kernel owns CEL parsing and execution.
   """
 
   import Kernel, except: [match?: 2]
 
-  # The only fields a binding filter may key on. Two prefixes (`metadata.` and
-  # `channel_metadata.`) reach one level into the normalized JSON maps; every
-  # other entry is a top-level IngressFact field. Restricting the set keeps
-  # `String.to_existing_atom/1` in `fetch_field/2` safe and makes filters
-  # operator-auditable.
-  @allowed_fields MapSet.new([
-                    "adapter",
-                    "binding_name",
-                    "signal_channel_id",
-                    "provider_entry_id",
-                    "provider_thread_id",
-                    "channel_kind",
-                    "reply_mode",
-                    "sender_key",
-                    "actor_input_type",
-                    "action_id",
-                    "metadata.event_type",
-                    "metadata.event_kind",
-                    "metadata.repository",
-                    "channel_metadata.realm",
-                    "channel_metadata.repository"
-                  ])
+  alias Ankole.SignalsGateway.IngressFact
 
   @type result :: :match | :no_match | {:error, term()}
 
   @doc """
+  Validates the stored filter object shape and CEL syntax.
+  """
+  @spec validate_config(map() | nil) :: :ok | {:error, String.t()}
+  def validate_config(nil), do: :ok
+  def validate_config(filters) when filters == %{}, do: :ok
+
+  def validate_config(%{"cel" => source} = filters) when map_size(filters) == 1 do
+    validate_source(source)
+  end
+
+  def validate_config(%{cel: source} = filters) when map_size(filters) == 1 do
+    validate_source(source)
+  end
+
+  def validate_config(%{}), do: {:error, "must be empty or contain only cel"}
+  def validate_config(_filters), do: {:error, "must be a map"}
+
+  @doc """
   Evaluates binding filters against a constructed ingress fact.
   """
-  @spec match?(map() | nil, map()) :: result()
+  @spec match?(map() | nil, IngressFact.t()) :: result()
   def match?(filters, fact)
 
-  # No filter (or an empty object) means "accept everything for this binding" —
-  # an operator who configured no rules wants every event from the adapter.
-  def match?(nil, _fact), do: :match
-  def match?(filters, _fact) when filters == %{}, do: :match
+  def match?(nil, %IngressFact{}), do: :match
+  def match?(filters, %IngressFact{}) when filters == %{}, do: :match
 
-  # v1 grammar is a single `{"eq" => %{field => value}}` envelope (atom or string
-  # key, since filters arrive both from Ecto JSON and from in-code callers).
-  # `map_size == 1` forbids smuggling extra unrecognized top-level operators.
-  def match?(%{"eq" => eq_filters} = filters, fact) when map_size(filters) == 1 do
-    match_eq(eq_filters, fact)
+  def match?(%{"cel" => source} = filters, %IngressFact{} = fact) when map_size(filters) == 1 do
+    match_cel(source, fact)
   end
 
-  def match?(%{eq: eq_filters} = filters, fact) when map_size(filters) == 1 do
-    match_eq(eq_filters, fact)
+  def match?(%{cel: source} = filters, %IngressFact{} = fact) when map_size(filters) == 1 do
+    match_cel(source, fact)
   end
 
-  # A well-formed map that is not the `eq` envelope is a filter v1 cannot honor;
-  # a non-map is malformed config. Both fail closed (error, not silent match) so
-  # a broken binding is visible instead of quietly admitting everything.
-  def match?(%{} = _filters, _fact), do: {:error, :unsupported_binding_filter}
-  def match?(_filters, _fact), do: {:error, :invalid_binding_filter}
+  def match?(%{}, %IngressFact{}), do: {:error, {:invalid_binding_filter, "unsupported shape"}}
+  def match?(_filters, %IngressFact{}), do: {:error, {:invalid_binding_filter, "must be a map"}}
 
-  defp match_eq(filters, fact) when is_map(filters) and map_size(filters) == 0 do
-    match?(%{}, fact)
-  end
-
-  # All listed equalities must hold (AND). Short-circuit on the first miss or
-  # error so a bad field name fails fast rather than evaluating the rest.
-  defp match_eq(filters, fact) when is_map(filters) do
-    filters
-    |> Enum.map(fn {field, expected} -> match_field(field, expected, fact) end)
-    |> Enum.reduce_while(:match, fn
-      :match, :match -> {:cont, :match}
-      :no_match, :match -> {:halt, :no_match}
-      {:error, _reason} = error, :match -> {:halt, error}
-    end)
-  end
-
-  defp match_eq(_filters, _fact), do: {:error, :invalid_binding_filter}
-
-  # Both sides must be scalars: the operator-provided `expected` and the value
-  # pulled off the fact. Anything non-scalar (a nested map/list) is rejected as
-  # an invalid filter rather than compared structurally — v1 only does scalar
-  # equality.
-  defp match_field(field, expected, fact) do
-    with {:ok, field} <- normalize_field(field),
-         :ok <- allowed_field?(field),
-         :ok <- scalar?(expected),
-         {:ok, actual} <- fetch_field(fact, field),
-         :ok <- scalar?(actual) do
-      compare_scalar(actual, expected)
+  defp validate_source(source) when is_binary(source) do
+    if String.trim(source) == "" do
+      {:error, "cel must not be blank"}
+    else
+      validate_kernel_filter(source)
     end
   end
 
-  defp normalize_field(field) when is_atom(field), do: {:ok, Atom.to_string(field)}
-  defp normalize_field(field) when is_binary(field), do: {:ok, field}
-  defp normalize_field(_field), do: {:error, :invalid_binding_filter_field}
+  defp validate_source(_source), do: {:error, "cel must be a string"}
 
-  defp allowed_field?(field) do
-    case MapSet.member?(@allowed_fields, field) do
-      true -> :ok
-      false -> {:error, {:unsupported_binding_filter_field, field}}
+  defp match_cel(source, fact) when is_binary(source) do
+    case evaluate_kernel_filter(source, fact) do
+      {:ok, true} -> :match
+      {:ok, false} -> :no_match
+      {:error, reason} -> {:error, {:invalid_binding_filter, reason}}
     end
   end
 
-  defp fetch_field(fact, "metadata." <> key), do: fetch_nested(Map.get(fact, :metadata), key)
+  defp match_cel(_source, _fact), do: {:error, {:invalid_binding_filter, "cel must be a string"}}
 
-  defp fetch_field(fact, "channel_metadata." <> key),
-    do: fetch_nested(Map.get(fact, :channel_metadata), key)
-
-  # `to_existing_atom` (not `to_atom`) is the safety valve: filter field names
-  # are operator strings, and only IngressFact struct keys exist as atoms by the
-  # time this runs. An unknown name raises ArgumentError, which we convert into
-  # an unsupported-field error instead of minting a new atom from input.
-  defp fetch_field(fact, field) do
-    fact
-    |> Map.get(String.to_existing_atom(field))
-    |> normalize_actual()
-  rescue
-    ArgumentError -> {:error, {:unsupported_binding_filter_field, field}}
+  defp validate_kernel_filter(source) do
+    try do
+      case Ankole.Kernel.signals_gateway_validate_filter(source) do
+        true -> :ok
+        {:error, reason} -> {:error, to_string(reason)}
+        _other -> {:error, "is invalid"}
+      end
+    rescue
+      exception -> {:error, Exception.message(exception)}
+    catch
+      _kind, reason -> {:error, inspect(reason)}
+    end
   end
 
-  # Metadata maps are JSON-normalized to string keys, so the nested lookup uses
-  # the raw key string directly. A missing parent map yields nil (no match)
-  # rather than an error: the filter simply does not apply to this fact.
-  defp fetch_nested(%{} = map, key), do: map |> Map.get(key) |> normalize_actual()
-  defp fetch_nested(_map, _key), do: {:ok, nil}
+  defp evaluate_kernel_filter(source, fact) do
+    try do
+      case Ankole.Kernel.signals_gateway_filter_match(source, filter_context(fact)) do
+        true -> {:ok, true}
+        false -> {:ok, false}
+        {:error, reason} -> {:error, to_string(reason)}
+        _other -> {:error, "is invalid"}
+      end
+    rescue
+      exception -> {:error, Exception.message(exception)}
+    catch
+      _kind, reason -> {:error, inspect(reason)}
+    end
+  end
 
-  # Fact enum fields (channel_kind, reply_mode) are atoms; compare them as
-  # strings so a filter written as `"channel_kind" => "im_group"` matches.
-  defp normalize_actual(value) when is_atom(value), do: {:ok, Atom.to_string(value)}
-  defp normalize_actual(value), do: {:ok, value}
+  defp filter_context(%IngressFact{} = fact) do
+    %{
+      "binding" => %{
+        "name" => fact.binding_name,
+        "adapter" => fact.adapter
+      },
+      "signal" => %{
+        "kind" => json_value(fact.kind),
+        "agent_uid" => fact.agent_uid,
+        "ingress_event_id" => fact.ingress_event_id,
+        "gateway_time" => json_value(fact.gateway_time),
+        "channel" => channel_context(fact),
+        "entry" => entry_context(fact),
+        "lifecycle" => lifecycle_context(fact),
+        "reaction" => reaction_context(fact),
+        "action" => action_context(fact),
+        "internal" => internal_context(fact),
+        "command" => command_context(fact)
+      }
+    }
+  end
 
-  defp scalar?(value)
+  defp channel_context(fact) do
+    %{
+      "id" => fact.signal_channel_id,
+      "kind" => json_value(fact.channel_kind),
+      "reply_mode" => json_value(fact.reply_mode),
+      "name" => fact.channel_name,
+      "title" => fact.channel_title,
+      "visibility" => fact.channel_visibility,
+      "metadata" => json_value(fact.channel_metadata)
+    }
+  end
+
+  defp entry_context(fact) do
+    %{
+      "id" => fact.provider_entry_id,
+      "provider_entry_id" => fact.provider_entry_id,
+      "thread_id" => fact.provider_thread_id,
+      "provider_thread_id" => fact.provider_thread_id,
+      "sender_key" => fact.sender_key,
+      "actor_input_type" => fact.actor_input_type,
+      "text" => fact.text,
+      "formatted_content" => json_value(fact.formatted_content),
+      "attachments" => json_value(fact.attachments),
+      "links" => json_value(fact.links),
+      "author" => json_value(fact.author),
+      "mentions" => json_value(fact.mentions),
+      "metadata" => json_value(fact.metadata),
+      "provider_time" => json_value(fact.provider_time),
+      "explicit" => fact.explicit?,
+      "mirror_only" => fact.mirror_only?
+    }
+  end
+
+  defp lifecycle_context(fact) do
+    %{
+      "kind" => json_value(fact.lifecycle_kind),
+      "provider_kind" => json_value(fact.provider_lifecycle_kind)
+    }
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+    |> Map.new()
+  end
+
+  defp reaction_context(fact) do
+    %{
+      "key" => fact.reaction_key,
+      "raw_key" => fact.raw_reaction_key,
+      "actor_key" => fact.actor_key,
+      "action" => fact.action
+    }
+  end
+
+  defp action_context(fact) do
+    %{
+      "id" => fact.action_id,
+      "actor_key" => fact.actor_key,
+      "payload" => json_value(fact.action)
+    }
+  end
+
+  defp internal_context(fact) do
+    %{
+      "session_id" => fact.session_id,
+      "timer_id" => fact.timer_id,
+      "subject" => fact.internal_subject,
+      "payload" => json_value(fact.internal)
+    }
+  end
+
+  defp command_context(fact) do
+    %{
+      "prefixes" => json_value(fact.command_prefixes),
+      "payload" => json_value(fact.command_payload)
+    }
+  end
+
+  defp json_value(%DateTime{} = value), do: DateTime.to_iso8601(value)
+
+  defp json_value(%NaiveDateTime{} = value), do: NaiveDateTime.to_iso8601(value)
+
+  defp json_value(%{} = value) do
+    Map.new(value, fn {key, map_value} -> {json_key(key), json_value(map_value)} end)
+  end
+
+  defp json_value(value) when is_list(value), do: Enum.map(value, &json_value/1)
+  defp json_value(value) when is_atom(value), do: Atom.to_string(value)
+
+  defp json_value(value)
        when is_binary(value) or is_number(value) or is_boolean(value) or is_nil(value),
-       do: :ok
+       do: value
 
-  defp scalar?(_value), do: {:error, :invalid_binding_filter_value}
+  defp json_value(_value), do: nil
 
-  defp compare_scalar(actual, expected) do
-    case actual == expected do
-      true -> :match
-      false -> :no_match
-    end
-  end
+  defp json_key(key) when is_atom(key), do: Atom.to_string(key)
+  defp json_key(key) when is_binary(key), do: key
+  defp json_key(key), do: to_string(key)
 end

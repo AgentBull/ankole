@@ -5,7 +5,7 @@ defmodule Ankole.ActorRuntime.TurnRetry do
   Two user-visible events share the same runtime shape:
 
     * `/retry` while a generation is still running.
-    * provider recall/delete of one source entry inside an in-flight merged IM batch.
+    * provider-side removal of one source entry inside an in-flight merged IM batch.
 
   In both cases the control plane fences the old turn immediately, leaves or
   rewrites the actor input as retryable durable work, then sends the worker a

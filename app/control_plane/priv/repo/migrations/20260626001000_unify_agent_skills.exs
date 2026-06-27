@@ -3,7 +3,7 @@ defmodule Ankole.Repo.Migrations.UnifyAgentSkills do
 
   def up do
     create table(:agent_skills, primary_key: false) do
-      add(:id, :uuid, primary_key: true, default: fragment("gen_random_uuid()"))
+      add(:id, :uuid, primary_key: true)
 
       add(:agent_uid, references(:principals, column: :uid, type: :text, on_delete: :delete_all),
         null: false

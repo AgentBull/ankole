@@ -9,8 +9,10 @@ message ActorKey {
 }
 
 message ActorTurnRef {
-  // The control plane compares this full fence before accepting worker output.
-  // Route identity alone is not durable because workers can reconnect.
+  // The control plane checks this turn fence before accepting worker output.
+  // Actor identity, activation, epoch, and turn id identify the turn; revision is
+  // an exact acceptance guard for first delivery and a monotonic guard across
+  // later mailbox/retry updates.
   ActorKey actor = 1;
   string activation_uid = 2;
   uint64 actor_epoch = 3;
@@ -28,17 +30,22 @@ enum Lane {
 
 enum DurabilityClass {
   DURABILITY_UNSPECIFIED = 0;
+  // CONTROL_* means the control plane owns durable truth, replay, or ephemeral
+  // observability for this message. It is not a separate transport lane.
   CONTROL_DURABLE = 1;
   CONTROL_REPLAYABLE = 2;
   CONTROL_EPHEMERAL = 3;
 }
 
 message Envelope {
+  // Bump only when wire-compatibility changes. Additive fields keep version 1.
   uint32 protocol_version = 1;
   string message_id = 2;
   string correlation_id = 3;
-  uint64 seq = 4;
+  reserved 4;
   Lane lane = 5;
+  // Host wall-clock metadata for logs and metrics; not a replay or ordering
+  // fence.
   int64 sent_at_unix_ms = 6;
   DurabilityClass durability = 7;
 
@@ -81,6 +88,8 @@ message AgentComputerWorkerReady {
 
 message AgentComputerWorkerHeartbeat {
   string worker_id = 1;
+  // Worker-local monotonic timestamp for observability only. It must not be
+  // compared across workers or process restarts.
   int64 monotonic_ms = 2;
   bytes load_json = 3;
 }
@@ -96,7 +105,7 @@ message ActorInputEnvelope {
   // This references the durable actor input row; it is not a replacement for
   // the control-plane input journal.
   string actor_input_id = 1;
-  uint64 broker_sequence = 2;
+  uint64 live_queue_sequence = 2;
   string type = 3;
   string ingress_event_id = 4;
   string provider_entry_id = 5;
@@ -117,6 +126,8 @@ message TurnModelRef {
 }
 
 message MailboxUpdated {
+  // Actor fields mirror turn.actor/activation/epoch for flat consumers. The
+  // turn reference remains the authoritative fence for actor-lane handlers.
   ActorKey actor = 1;
   string activation_uid = 2;
   uint64 actor_epoch = 3;
@@ -154,6 +165,16 @@ message ProposedMessage {
 message ProposedReply {
   string text = 1;
   bytes content_json = 2;
+  repeated ProposedReplyAttachment attachments = 3;
+}
+
+message ProposedReplyAttachment {
+  string agent_computer_path = 1;
+  string user_files_relative_path = 2;
+  string name = 3;
+  string mime_type = 4;
+  optional uint64 size = 5;
+  string xxh3_128 = 6;
 }
 
 message TurnFinalProposal {

@@ -18,6 +18,7 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
     @impl OpenApiSpex.Schema
     def schema do
       %Schema{
+        title: "JsonValue",
         nullable: true,
         description: "Any JSON-compatible value. AppConfigure validates the concrete key schema."
       }
@@ -226,6 +227,124 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
         properties: %{
           data: AppConfigurationDecryptionValue
         },
+        required: [:data],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule ScheduleCronWriteRequest do
+    @moduledoc false
+
+    require OpenApiSpex
+
+    OpenApiSpex.schema(
+      %{
+        title: "ScheduleCronWriteRequest",
+        type: :object,
+        properties: %{
+          binding_name: %Schema{type: :string},
+          name: %Schema{type: :string, nullable: true},
+          status: %Schema{type: :string, enum: ["active", "paused"], nullable: true},
+          schedule: JsonValue,
+          timezone: %Schema{type: :string, nullable: true},
+          payload: JsonValue,
+          delivery: JsonValue,
+          idempotency_key: %Schema{type: :string},
+          failure_policy: JsonValue
+        },
+        required: [:binding_name, :schedule, :delivery, :idempotency_key],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule ScheduleCronUpdateRequest do
+    @moduledoc false
+
+    require OpenApiSpex
+
+    OpenApiSpex.schema(
+      %{
+        title: "ScheduleCronUpdateRequest",
+        type: :object,
+        properties: %{
+          name: %Schema{type: :string, nullable: true},
+          schedule: JsonValue,
+          timezone: %Schema{type: :string, nullable: true},
+          payload: JsonValue,
+          delivery: JsonValue,
+          failure_policy: JsonValue
+        },
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule ScheduleCronScheduleResponse do
+    @moduledoc false
+
+    require OpenApiSpex
+
+    OpenApiSpex.schema(
+      %{
+        title: "ScheduleCronScheduleResponse",
+        type: :object,
+        properties: %{data: JsonValue},
+        required: [:data],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule ScheduleCronScheduleListResponse do
+    @moduledoc false
+
+    require OpenApiSpex
+
+    OpenApiSpex.schema(
+      %{
+        title: "ScheduleCronScheduleListResponse",
+        type: :object,
+        properties: %{data: %Schema{type: :array, items: JsonValue}},
+        required: [:data],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule ScheduleEventResponse do
+    @moduledoc false
+
+    require OpenApiSpex
+
+    OpenApiSpex.schema(
+      %{
+        title: "ScheduleEventResponse",
+        type: :object,
+        properties: %{data: JsonValue},
+        required: [:data],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule ScheduleEventListResponse do
+    @moduledoc false
+
+    require OpenApiSpex
+
+    OpenApiSpex.schema(
+      %{
+        title: "ScheduleEventListResponse",
+        type: :object,
+        properties: %{data: %Schema{type: :array, items: JsonValue}},
         required: [:data],
         additionalProperties: false
       },

@@ -10,7 +10,7 @@ defmodule Ankole.AIAgent.Library.Schemas.AgentLibraryContainerEntry do
   alias Ankole.Principals.Principal
   alias Ankole.SignalsGateway.JsonPayload
 
-  @primary_key {:id, :binary_id, autogenerate: true}
+  @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
   @foreign_key_type :string
   @timestamps_opts [type: :utc_datetime_usec]
   # What kind of agent-owned file this row backs. `soul`/`mission` are the

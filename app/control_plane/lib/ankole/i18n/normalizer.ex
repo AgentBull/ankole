@@ -69,7 +69,7 @@ defmodule Ankole.I18n.Normalizer do
 
       false ->
         Enum.reduce(node, acc, fn {key, value}, next_acc ->
-          flatten(value, path ++ [to_segment(key, path, file)], next_acc, file)
+          flatten(value, [to_segment(key, display_path(path), file) | path], next_acc, file)
         end)
     end
   end
@@ -83,7 +83,7 @@ defmodule Ankole.I18n.Normalizer do
   defp flatten(other, path, _acc, file) do
     raise Error,
       file: file,
-      path: path,
+      path: display_path(path),
       reason:
         "unsupported leaf type #{inspect(other)}; expected a string or a rich-leaf table with __mf2__ = true"
   end
@@ -95,6 +95,7 @@ defmodule Ankole.I18n.Normalizer do
   # Duplicate dotted keys mean the source file is ambiguous. Failing at load time
   # is cheaper than letting the final map pick a winner by traversal order.
   defp put_message(acc, path, message, file) when is_binary(message) do
+    path = display_path(path)
     key = Enum.join(path, ".")
     canonical = canonical_message!(message, file, path)
 
@@ -151,6 +152,8 @@ defmodule Ankole.I18n.Normalizer do
   defp to_segment(key, path, file) do
     raise Error, file: file, path: path, reason: "non-string segment #{inspect(key)}"
   end
+
+  defp display_path(path), do: Enum.reverse(path)
 
   # Metadata is a small policy surface today. Keeping it as a table makes future
   # additions explicit and avoids mixing policy values with messages.

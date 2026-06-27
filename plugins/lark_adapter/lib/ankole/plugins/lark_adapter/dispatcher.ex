@@ -46,17 +46,36 @@ defmodule Ankole.Plugins.LarkAdapter.Dispatcher do
     opts
     |> Keyword.take([:verification_token, :encrypt_key, :client])
     |> FeishuDispatcher.new()
-    |> FeishuDispatcher.on(@message_receive, handler(consumers, &Inbound.handle_message_receive/3))
-    |> FeishuDispatcher.on(@message_recalled, handler(consumers, &Inbound.handle_message_recalled/3))
-    |> FeishuDispatcher.on(@reaction_created, handler(consumers, &Inbound.handle_reaction_created/3))
-    |> FeishuDispatcher.on(@reaction_deleted, handler(consumers, &Inbound.handle_reaction_deleted/3))
-    |> FeishuDispatcher.on_callback(@card_action, handler(consumers, &Inbound.handle_card_action/3))
+    |> FeishuDispatcher.on(
+      @message_receive,
+      handler(consumers, &Inbound.handle_message_receive/3)
+    )
+    |> FeishuDispatcher.on(
+      @message_recalled,
+      handler(consumers, &Inbound.handle_message_removed/3)
+    )
+    |> FeishuDispatcher.on(
+      @reaction_created,
+      handler(consumers, &Inbound.handle_reaction_created/3)
+    )
+    |> FeishuDispatcher.on(
+      @reaction_deleted,
+      handler(consumers, &Inbound.handle_reaction_deleted/3)
+    )
+    |> FeishuDispatcher.on_callback(
+      @card_action,
+      handler(consumers, &Inbound.handle_card_action/3)
+    )
     |> register_contact_handlers(consumers)
   end
 
   defp register_contact_handlers(dispatcher, consumers) do
     Enum.reduce(@contact_events, dispatcher, fn event_type, acc ->
-      FeishuDispatcher.on(acc, event_type, handler(consumers, &IdentityProvider.handle_contact_event/3))
+      FeishuDispatcher.on(
+        acc,
+        event_type,
+        handler(consumers, &IdentityProvider.handle_contact_event/3)
+      )
     end)
   end
 

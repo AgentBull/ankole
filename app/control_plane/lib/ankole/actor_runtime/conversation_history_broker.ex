@@ -1,11 +1,10 @@
-defmodule Ankole.ActorRuntime.TurnContextBroker do
+defmodule Ankole.ActorRuntime.ConversationHistoryBroker do
   @moduledoc """
-  Resolves the PG-backed semantic context a worker needs for one turn.
+  Resolves durable AI-agent conversation history for worker prompt projection.
   """
 
   import Ecto.Query, warn: false
 
-  alias Ankole.AIAgent.Library
   alias Ankole.AIAgent.Schemas.Conversation
   alias Ankole.AIAgent.Schemas.Message
   alias Ankole.ActorRuntime.WorkerRouteAuth
@@ -13,34 +12,25 @@ defmodule Ankole.ActorRuntime.TurnContextBroker do
 
   @spec handle_request(map(), String.t()) :: {:ok, map()} | {:error, map()}
   def handle_request(request, route) when is_map(request) and is_binary(route) do
-    request_id = text(request, "request_id") || "turn-context-#{Ecto.UUID.generate()}"
+    request_id = text(request, "request_id") || "conversation-history-#{Ecto.UUID.generate()}"
 
     with {:ok, turn} <- turn_ref(request),
          {agent_uid, session_id} <- actor_identity(turn),
          :ok <- WorkerRouteAuth.authorize_turn_route(turn, route, :read),
-         {:ok, soul} <- Library.get_soul(agent_uid),
-         {:ok, mission} <- Library.get_mission(agent_uid),
-         {:ok, skills} <- Library.skills_for_system_prompt(agent_uid) do
+         %Conversation{} = conversation <- active_conversation(agent_uid, session_id) do
       {:ok,
        %{
          "request_id" => request_id,
-         "agent_uid" => agent_uid,
-         "session_id" => session_id,
-         "turn" => turn,
-         "soul" => soul,
-         "mission" => mission,
-         "skills" => skills,
-         "conversation" => %{"messages" => conversation_messages(agent_uid, session_id)}
+         "agent_uid" => conversation.agent_uid,
+         "session_id" => conversation.conversation_key,
+         "conversation_id" => conversation.id,
+         "conversation_started_at" => datetime(conversation.inserted_at),
+         "purpose" => purpose(request),
+         "messages" => conversation_messages(conversation)
        }}
     else
-      {:error, reason} ->
-        {:error,
-         %{
-           "request_id" => request_id,
-           "code" => error_code(reason),
-           "message" => error_message(reason),
-           "details_json" => %{}
-         }}
+      nil -> error(request_id, :conversation_not_found)
+      {:error, reason} -> error(request_id, reason)
     end
   end
 
@@ -49,21 +39,24 @@ defmodule Ankole.ActorRuntime.TurnContextBroker do
       {:error,
        %{
          "request_id" => "",
-         "code" => "invalid_turn_context_request",
-         "message" => "invalid_turn_context_request",
+         "code" => "invalid_conversation_history_request",
+         "message" => "invalid_conversation_history_request",
          "details_json" => %{}
        }}
 
-  defp conversation_messages(agent_uid, session_id) do
+  defp active_conversation(agent_uid, session_id) do
+    Conversation
+    |> where([conversation], conversation.agent_uid == ^String.downcase(agent_uid))
+    |> where([conversation], conversation.conversation_key == ^session_id)
+    |> where([conversation], is_nil(conversation.ended_at))
+    |> Repo.one()
+  end
+
+  defp conversation_messages(%Conversation{} = conversation) do
     Message
-    |> join(:inner, [message], conversation in Conversation,
-      on: conversation.id == message.conversation_id
-    )
-    |> where([message, conversation], conversation.agent_uid == ^String.downcase(agent_uid))
-    |> where([message, conversation], conversation.conversation_key == ^session_id)
-    |> where([_message, conversation], is_nil(conversation.ended_at))
-    |> where([message, _conversation], message.status == "complete")
-    |> order_by([message, _conversation], asc: message.inserted_at, asc: message.id)
+    |> where([message], message.conversation_id == ^conversation.id)
+    |> where([message], message.status == "complete")
+    |> order_by([message], asc: message.inserted_at, asc: message.id)
     |> Repo.all()
     |> Enum.map(&message_payload/1)
   end
@@ -75,8 +68,18 @@ defmodule Ankole.ActorRuntime.TurnContextBroker do
       "kind" => message.kind,
       "content" => message.content,
       "metadata" => message.metadata || %{},
-      "inserted_at" => datetime(message.inserted_at)
+      "created_at" => datetime(message.inserted_at),
+      "covers_range" => message.covers_range
     }
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+    |> Map.new()
+  end
+
+  defp purpose(request) do
+    case text(request, "purpose") do
+      "compression" -> "compression"
+      _value -> "prompt"
+    end
   end
 
   defp turn_ref(%{"turn" => turn}) when is_map(turn), do: {:ok, turn}
@@ -109,8 +112,18 @@ defmodule Ankole.ActorRuntime.TurnContextBroker do
   defp datetime(%NaiveDateTime{} = value), do: NaiveDateTime.to_iso8601(value)
   defp datetime(_value), do: nil
 
+  defp error(request_id, reason) do
+    {:error,
+     %{
+       "request_id" => request_id,
+       "code" => error_code(reason),
+       "message" => error_message(reason),
+       "details_json" => %{}
+     }}
+  end
+
   defp error_code(reason) when is_atom(reason), do: Atom.to_string(reason)
-  defp error_code(_reason), do: "turn_context_request_failed"
+  defp error_code(_reason), do: "conversation_history_request_failed"
 
   defp error_message(reason) when is_atom(reason), do: Atom.to_string(reason)
   defp error_message(reason), do: inspect(reason)

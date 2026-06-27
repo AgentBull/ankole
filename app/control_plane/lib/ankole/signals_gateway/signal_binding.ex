@@ -16,6 +16,7 @@ defmodule Ankole.SignalsGateway.SignalBinding do
   import Ecto.Changeset
 
   alias Ankole.Principals.Principal
+  alias Ankole.SignalsGateway.BindingFilters
   alias Ankole.SignalsGateway.JsonPayload
 
   @primary_key false
@@ -32,8 +33,8 @@ defmodule Ankole.SignalsGateway.SignalBinding do
     field :name, :string, primary_key: true
     field :adapter, :string
     field :config_ref, :string
-    # v1 admission filter, stored as the `{"eq" => ...}` JSON object that
-    # BindingFilters understands; empty object means accept everything.
+    # CEL admission filter, stored as `{"cel" => expression}`; empty object
+    # means accept everything.
     field :filters, :map, default: %{}
 
     # What the agent does with a group message that does NOT explicitly address
@@ -79,12 +80,22 @@ defmodule Ankole.SignalsGateway.SignalBinding do
       :enabled
     ])
     |> JsonPayload.validate_map(:filters)
+    |> validate_filters(:filters)
     |> foreign_key_constraint(:agent_uid)
     |> unique_constraint([:agent_uid, :name], name: :signal_bindings_pkey)
     |> check_constraint(:name, name: :signal_bindings_name_present)
     |> check_constraint(:adapter, name: :signal_bindings_adapter_present)
     |> check_constraint(:config_ref, name: :signal_bindings_config_ref_present)
     |> check_constraint(:filters, name: :signal_bindings_filters_object)
+  end
+
+  defp validate_filters(changeset, field) do
+    validate_change(changeset, field, fn ^field, value ->
+      case BindingFilters.validate_config(value) do
+        :ok -> []
+        {:error, reason} -> [{field, reason}]
+      end
+    end)
   end
 
   defp normalize_blank(changeset, fields) when is_list(fields) do

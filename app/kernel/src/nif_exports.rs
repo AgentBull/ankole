@@ -1,8 +1,7 @@
-#![allow(dead_code)]
 //! Rustler binding layer for the Elixir runtime.
 //!
 //! These functions stay thin on purpose: they validate BEAM terms, preserve
-//! binary-safe values, and forward all real behavior to `core`.
+//! binary-safe values, and forward real behavior to host-neutral modules.
 
 use rustler::env::OwnedEnv;
 use rustler::types::binary::{Binary, OwnedBinary};
@@ -11,9 +10,10 @@ use serde_json::Value as JsonValue;
 use std::sync::Arc;
 
 use crate::authz;
-use crate::core;
+use crate::common;
 use crate::runtime_fabric;
 use crate::runtime_fabric::transport::{RouterEvent, RouterHandle};
+use crate::signals_gateway;
 
 mod atoms {
     rustler::atoms! {
@@ -42,7 +42,7 @@ pub fn aead_decrypt(ciphertext: Term<'_>, key: Term<'_>) -> NifResult<OwnedBinar
     let ciphertext = decode_string(ciphertext, "ciphertext")?;
     let key = decode_string(key, "key")?;
 
-    core::aead_decrypt(&ciphertext, &key)
+    common::aead_decrypt(&ciphertext, &key)
         .map_err(error)
         .and_then(binary_from_vec)
 }
@@ -53,7 +53,7 @@ pub fn aead_encrypt(plaintext: Term<'_>, key: Term<'_>) -> NifResult<String> {
     let plaintext = decode_binary(plaintext, "plaintext")?;
     let key = decode_string(key, "key")?;
 
-    core::aead_encrypt(plaintext.as_slice(), &key).map_err(error)
+    common::aead_encrypt(plaintext.as_slice(), &key).map_err(error)
 }
 
 /// Authorizes one exact action on one concrete resource from a JSON snapshot.
@@ -82,6 +82,28 @@ pub fn authz_validate_condition(condition: Term<'_>) -> NifResult<bool> {
     authz::validate_condition_source(&condition)
         .map(|_| true)
         .map_err(error)
+}
+
+/// Returns whether a SignalsGateway CEL admission filter compiles.
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn signals_gateway_validate_filter(filter_source: Term<'_>) -> NifResult<bool> {
+    let filter_source = decode_string(filter_source, "filter_source")?;
+
+    signals_gateway::validate_filter_source(&filter_source)
+        .map(|_| true)
+        .map_err(error)
+}
+
+/// Evaluates a SignalsGateway CEL admission filter from a JSON context.
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn signals_gateway_filter_match_json(
+    filter_source: Term<'_>,
+    context_json: Term<'_>,
+) -> NifResult<bool> {
+    let filter_source = decode_string(filter_source, "filter_source")?;
+    let context = decode_json(context_json, "context_json")?;
+
+    signals_gateway::evaluate_filter_json(&filter_source, context).map_err(error)
 }
 
 /// Returns whether a resource pattern is valid.
@@ -201,7 +223,7 @@ pub fn authz_match_resource_pattern(pattern: Term<'_>, resource: Term<'_>) -> Ni
 pub fn any_ascii(input: Term<'_>) -> NifResult<String> {
     let input = decode_string(input, "input")?;
 
-    Ok(core::any_ascii(&input))
+    Ok(common::any_ascii(&input))
 }
 
 /// Decodes Base58 text and returns a BEAM binary instead of a list of integers.
@@ -209,7 +231,7 @@ pub fn any_ascii(input: Term<'_>) -> NifResult<String> {
 pub fn base58_decode(input: Term<'_>) -> NifResult<OwnedBinary> {
     let input = decode_string(input, "input")?;
 
-    core::base58_decode(&input)
+    common::base58_decode(&input)
         .map_err(error)
         .and_then(binary_from_vec)
 }
@@ -219,7 +241,7 @@ pub fn base58_decode(input: Term<'_>) -> NifResult<OwnedBinary> {
 pub fn base58_encode(input: Term<'_>) -> NifResult<String> {
     let input = decode_binary(input, "input")?;
 
-    Ok(core::base58_encode(input.as_slice()))
+    Ok(common::base58_encode(input.as_slice()))
 }
 
 /// Decodes padding-free URL-safe Base64 and returns a BEAM binary.
@@ -227,7 +249,7 @@ pub fn base58_encode(input: Term<'_>) -> NifResult<String> {
 pub fn base64_url_safe_decode(input: Term<'_>) -> NifResult<OwnedBinary> {
     let input = decode_string(input, "input")?;
 
-    core::base64_url_safe_decode(&input)
+    common::base64_url_safe_decode(&input)
         .map_err(error)
         .and_then(binary_from_vec)
 }
@@ -237,7 +259,7 @@ pub fn base64_url_safe_decode(input: Term<'_>) -> NifResult<OwnedBinary> {
 pub fn base64_url_safe_encode(input: Term<'_>) -> NifResult<String> {
     let input = decode_binary(input, "input")?;
 
-    Ok(core::base64_url_safe_encode(input.as_slice()))
+    Ok(common::base64_url_safe_encode(input.as_slice()))
 }
 
 /// Hashes an Elixir binary with BLAKE3 and returns the digest in Base58 form.
@@ -246,7 +268,7 @@ pub fn bs58_hash(data: Term<'_>, salt: Term<'_>) -> NifResult<String> {
     let data = decode_binary(data, "data")?;
     let salt = decode_optional_string(salt, "salt")?;
 
-    core::bs58_hash(data.as_slice(), salt.as_deref()).map_err(error)
+    common::bs58_hash(data.as_slice(), salt.as_deref()).map_err(error)
 }
 
 /// Computes CRC32 over an Elixir binary, optionally continuing a prior state.
@@ -255,7 +277,7 @@ pub fn crc32(input: Term<'_>, initial_state: Term<'_>) -> NifResult<u32> {
     let input = decode_binary(input, "input")?;
     let initial_state = decode_optional_u32(initial_state, "initial_state")?;
 
-    Ok(core::crc32(input.as_slice(), initial_state))
+    Ok(common::crc32(input.as_slice(), initial_state))
 }
 
 /// Computes CRC32 and formats it as lowercase hexadecimal text.
@@ -264,7 +286,7 @@ pub fn crc32_hex(input: Term<'_>, initial_state: Term<'_>) -> NifResult<String> 
     let input = decode_binary(input, "input")?;
     let initial_state = decode_optional_u32(initial_state, "initial_state")?;
 
-    Ok(core::crc32_hex(input.as_slice(), initial_state))
+    Ok(common::crc32_hex(input.as_slice(), initial_state))
 }
 
 /// Computes the non-cryptographic XXH3 128-bit observation fingerprint.
@@ -272,7 +294,7 @@ pub fn crc32_hex(input: Term<'_>, initial_state: Term<'_>) -> NifResult<String> 
 pub fn xxh3_128_hex(input: Term<'_>) -> NifResult<String> {
     let input = decode_binary(input, "input")?;
 
-    Ok(core::xxh3_128_hex(input.as_slice()))
+    Ok(common::xxh3_128_hex(input.as_slice()))
 }
 
 /// Derives a deterministic BLAKE3 sub-key for Elixir callers.
@@ -289,7 +311,7 @@ pub fn derive_key(
     let sub_key_id = decode_string(sub_key_id, "sub_key_id")?;
     let extra_context = decode_optional_string(extra_context, "extra_context")?;
 
-    Ok(core::derive_key(
+    Ok(common::derive_key(
         key_seed.as_slice(),
         &sub_key_id,
         extra_context.as_deref(),
@@ -301,7 +323,7 @@ pub fn derive_key(
 pub fn jwt_decode_header_json(token: Term<'_>) -> NifResult<String> {
     let token = decode_string(token, "token")?;
 
-    core::jwt_decode_header_json(&token).map_err(error)
+    common::jwt_decode_header_json(&token).map_err(error)
 }
 
 /// Signs JSON claims with a JSON JWT header and binary key.
@@ -315,7 +337,7 @@ pub fn jwt_sign_json(
     let key = decode_binary(key, "key")?;
     let header_json = decode_string(header_json, "header_json")?;
 
-    core::jwt_sign_json(&claims_json, key.as_slice(), &header_json).map_err(error)
+    common::jwt_sign_json(&claims_json, key.as_slice(), &header_json).map_err(error)
 }
 
 /// Verifies a JWT with a binary key and JSON validation options.
@@ -329,19 +351,19 @@ pub fn jwt_verify_json(
     let key = decode_binary(key, "key")?;
     let validation_json = decode_string(validation_json, "validation_json")?;
 
-    core::jwt_verify_json(&token, key.as_slice(), &validation_json).map_err(error)
+    common::jwt_verify_json(&token, key.as_slice(), &validation_json).map_err(error)
 }
 
 /// Generates a random UUIDv4 encoded as lowercase Base36.
 #[rustler::nif]
 pub fn gen_base36_uuid() -> String {
-    core::gen_base36_uuid()
+    common::gen_base36_uuid()
 }
 
 /// Generates a random 32-byte hex key for kernel cryptographic helpers.
 #[rustler::nif]
 pub fn generate_key() -> String {
-    core::generate_key()
+    common::generate_key()
 }
 
 /// Hashes an Elixir binary with BLAKE3 and returns lowercase hexadecimal text.
@@ -350,7 +372,7 @@ pub fn generic_hash(data: Term<'_>, salt: Term<'_>) -> NifResult<String> {
     let data = decode_binary(data, "data")?;
     let salt = decode_optional_string(salt, "salt")?;
 
-    core::generic_hash(data.as_slice(), salt.as_deref()).map_err(error)
+    common::generic_hash(data.as_slice(), salt.as_deref()).map_err(error)
 }
 
 /// Parses and validates an international phone number, returning E.164 text.
@@ -358,25 +380,25 @@ pub fn generic_hash(data: Term<'_>, salt: Term<'_>) -> NifResult<String> {
 pub fn phone_normalize_e164(phone: Term<'_>) -> NifResult<String> {
     let phone = decode_string(phone, "phone")?;
 
-    core::phone_normalize_e164(&phone).map_err(error)
+    common::phone_normalize_e164(&phone).map_err(error)
 }
 
 /// Generates a random UUIDv4 encoded from raw UUID bytes as Base58.
 #[rustler::nif]
 pub fn gen_short_uuid() -> String {
-    core::gen_short_uuid()
+    common::gen_short_uuid()
 }
 
 /// Generates a standard hyphenated UUIDv4 string.
 #[rustler::nif]
 pub fn gen_uuid() -> String {
-    core::gen_uuid()
+    common::gen_uuid()
 }
 
 /// Generates a standard hyphenated UUIDv7 string.
 #[rustler::nif]
 pub fn gen_uuid_v7() -> String {
-    core::gen_uuid_v7()
+    common::gen_uuid_v7()
 }
 
 /// Copies Rust-owned bytes into an Elixir-owned binary.
@@ -449,7 +471,7 @@ fn encode_json(value: JsonValue) -> NifResult<String> {
 }
 
 /// Converts a host-neutral kernel error into Rustler's NIF error path.
-fn error(error: core::KernelError) -> Error {
+fn error(error: common::KernelError) -> Error {
     error_message(error.to_string())
 }
 
@@ -488,16 +510,17 @@ fn send_router_event(owner_pid: LocalPid, event: RouterEvent) {
         } => {
             let worker_id = authenticated_worker_id.unwrap_or_default();
             let key_revision = authenticated_key_revision.unwrap_or_default();
-            let frame_terms = encode_binary_frame_list(env, frames);
-
-            (
-                atoms::runtime_fabric_router_file_frame(),
-                transport_route,
-                worker_id,
-                key_revision,
-                frame_terms,
-            )
-                .encode(env)
+            match encode_binary_frame_list(env, frames) {
+                Ok(frame_terms) => (
+                    atoms::runtime_fabric_router_file_frame(),
+                    transport_route,
+                    worker_id,
+                    key_revision,
+                    frame_terms,
+                )
+                    .encode(env),
+                Err(reason) => (atoms::runtime_fabric_router_socket_error(), reason).encode(env),
+            }
         }
         RouterEvent::DecodeFailed {
             transport_route,
@@ -514,17 +537,19 @@ fn send_router_event(owner_pid: LocalPid, event: RouterEvent) {
     });
 }
 
-fn encode_binary_frame_list<'a>(env: Env<'a>, frames: Vec<Vec<u8>>) -> Term<'a> {
-    let terms: Vec<Term<'a>> = frames
-        .into_iter()
-        .filter_map(|frame| {
-            let mut binary = OwnedBinary::new(frame.len())?;
-            binary.as_mut_slice().copy_from_slice(&frame);
-            Some(binary.release(env).encode(env))
-        })
-        .collect();
+fn encode_binary_frame_list<'a>(env: Env<'a>, frames: Vec<Vec<u8>>) -> Result<Term<'a>, String> {
+    let mut terms: Vec<Term<'a>> = Vec::with_capacity(frames.len());
 
-    terms.encode(env)
+    for frame in frames {
+        let Some(mut binary) = OwnedBinary::new(frame.len()) else {
+            return Err("failed to allocate runtime fabric binary frame".to_string());
+        };
+
+        binary.as_mut_slice().copy_from_slice(&frame);
+        terms.push(binary.release(env).encode(env));
+    }
+
+    Ok(terms.encode(env))
 }
 
 rustler::init!("Elixir.Ankole.Kernel");

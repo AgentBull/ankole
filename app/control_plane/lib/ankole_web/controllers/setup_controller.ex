@@ -20,7 +20,7 @@ defmodule AnkoleWeb.SetupController do
   """
   def state(conn, _params) do
     with {:ok, completed?} <- SetupConfig.completed?(),
-         {:ok, current_locale} <- Ankole.I18n.Config.default_locale() do
+         {:ok, current_locale} <- I18n.configured_default_locale() do
       # `authenticated` is meaningful only while setup is incomplete: once setup is
       # done there is no setup session to hold, so it collapses to false and the
       # SPA stops offering setup steps.
@@ -157,7 +157,7 @@ defmodule AnkoleWeb.SetupController do
   """
   def oidc_authorization(conn, %{"provider_id" => provider_id}) do
     with :ok <- require_setup_session(conn),
-         {:ok, provider_id} <- Ankole.IdentityProviders.Config.normalize_provider_id(provider_id),
+         {:ok, provider_id} <- IdentityProviders.normalize_provider_id(provider_id),
          state <- WebSession.opaque_token(),
          redirect_uri <- IdentityProviders.oidc_redirect_uri(public_base_url(conn), provider_id),
          {:ok, authorization_url} <-

@@ -10,23 +10,21 @@
  * and finally the skill index.
  */
 import type { TurnStart } from '../actor_lane'
-import type { AgentProfile, RuntimeSkillSummary, TurnRuntimeContext } from '../rpc_lane'
+import type { AgentConversationContext, RuntimeSkillSummary } from '../rpc_lane'
 import { formatSkillsForSystemPrompt, type SkillPromptEntry } from './skills_prompt'
 
 export type BuildAgentSystemPromptOptions = {
   workspaceRoot: string
   turnStart: TurnStart
-  agentProfile?: AgentProfile
-  runtimeContext?: TurnRuntimeContext
-  timezone?: string
-  conversationStartedAt?: Date
+  agentConversationContext?: AgentConversationContext
   currentChannel?: CurrentChannelContext
 }
 
 /**
  * Describes where the conversation originated so the prompt can tell the model
- * what kind of surface it is acting on. Scheduled-task and checkback variants
- * from BullX are intentionally not exposed in this first Ankole main-chain pass.
+ * what kind of surface it is acting on. Schedule-origin turns are represented
+ * through RuntimeFabric request context rather than by pretending they are a
+ * provider-authored channel message.
  */
 export type CurrentChannelContext = {
   bindingName?: string
@@ -43,13 +41,13 @@ export type CurrentChannelContext = {
  * turn start.
  */
 export function buildAgentSystemPrompt(opts: BuildAgentSystemPromptOptions): string {
-  if (!opts.runtimeContext) {
-    throw new Error('runtime context is required to build the agent system prompt')
+  if (!opts.agentConversationContext) {
+    throw new Error('agent conversation context is required to build the agent system prompt')
   }
 
   const displayName = agentDisplayName(opts)
-  const soul = opts.runtimeContext.soul || fallbackSoul()
-  const mission = opts.runtimeContext.mission || ''
+  const soul = opts.agentConversationContext.soul || fallbackSoul()
+  const mission = opts.agentConversationContext.mission || ''
   const skills = skillsForSystemPrompt(opts)
   const skillPrompt = formatSkillsForSystemPrompt(skills)
 
@@ -79,7 +77,7 @@ function missionSection(mission: string): string {
  * identity, timezone, and optional channel/date information.
  */
 function runtimeContextSection(opts: BuildAgentSystemPromptOptions): string {
-  const timezone = opts.timezone ?? 'UTC'
+  const timezone = opts.agentConversationContext?.conversation?.timezone || 'UTC'
   const lines = [
     '<runtime_context>',
     `Agent UID: ${opts.turnStart.turn.actor.agent_uid}`,
@@ -92,24 +90,72 @@ function runtimeContextSection(opts: BuildAgentSystemPromptOptions): string {
   const role = agentRole(opts)
   if (role) lines.push(`Agent role: ${role}`)
 
-  if (opts.conversationStartedAt) {
-    lines.push(`Conversation started date: ${formatZonedDate(timezone, opts.conversationStartedAt)}`)
+  const startedAt = parseDate(opts.agentConversationContext?.conversation?.started_at)
+  if (startedAt) {
+    lines.push(`Conversation started date: ${formatZonedDate(timezone, startedAt)}`)
   }
   if (opts.currentChannel) {
     lines.push(`Conversation started channel: ${formatCurrentChannel(opts.currentChannel)}`)
   }
+  lines.push(...scheduleOriginLines(opts))
 
   lines.push('</runtime_context>')
   return lines.join('\n')
 }
 
+function scheduleOriginLines(opts: BuildAgentSystemPromptOptions): string[] {
+  const context = opts.turnStart.request_context
+  if (!isRecord(context)) return []
+  const origin = recordArg(context, 'schedule_origin')
+  if (!origin) return []
+
+  const lines = [
+    `Schedule turn mode: ${stringArg(context, 'turn_mode') ?? 'unknown'}`,
+    `Schedule event ID: ${stringArg(origin, 'scheduled_event_id') ?? 'unknown'}`,
+    `Schedule due at: ${stringArg(origin, 'due_at') ?? 'unknown'}`,
+    `Schedule fired at: ${stringArg(origin, 'fired_at') ?? 'unknown'}`,
+    `Schedule timezone: ${stringArg(origin, 'timezone') ?? 'unknown'}`
+  ]
+
+  const cronScheduleId = stringArg(origin, 'cron_schedule_id')
+  const cronScheduleName = stringArg(origin, 'cron_schedule_name')
+  if (cronScheduleId) lines.push(`Cron schedule ID: ${cronScheduleId}`)
+  if (cronScheduleName) lines.push(`Cron schedule name: ${cronScheduleName}`)
+  const payload = recordArg(origin, 'payload')
+  if (payload && Object.keys(payload).length > 0) lines.push(`Schedule payload: ${JSON.stringify(payload)}`)
+
+  const turnMode = stringArg(context, 'turn_mode')
+  lines.push('Schedule-origin context is system-managed wakeup context, not text written by a human user.')
+  if (turnMode === 'check_back_later') {
+    lines.push(
+      'This is a one-shot delayed self-wakeup scheduled earlier by the agent. It is not a live user message, heartbeat, cron, or recurring monitor.'
+    )
+  }
+  if (turnMode === 'cron') {
+    lines.push('This is a recurring scheduled task fire, not a live user message.')
+  }
+
+  if (context.silent_success_allowed === true) {
+    lines.push(
+      'This schedule-origin turn may finish quietly when no provider-visible update is useful. To do that, reply exactly <silent_success/> and nothing else.'
+    )
+  }
+  if (turnMode === 'cron') {
+    lines.push(
+      'For cron turns, Ankole owns configured delivery. Do not call messaging tools to send the same result to the configured target.'
+    )
+  }
+
+  return lines
+}
+
 function agentDisplayName(opts: BuildAgentSystemPromptOptions): string {
-  const displayName = opts.agentProfile?.display_name?.trim()
+  const displayName = opts.agentConversationContext?.agent?.display_name?.trim()
   return displayName || opts.turnStart.turn.actor.agent_uid
 }
 
 function agentRole(opts: BuildAgentSystemPromptOptions): string | undefined {
-  const role = opts.agentProfile?.role?.trim()
+  const role = opts.agentConversationContext?.agent?.role?.trim()
   return role || undefined
 }
 
@@ -141,6 +187,8 @@ Use \`command\` for stateless one-shot shell work.
 Use \`interactive_terminal\` for TTY/TUI programs, REPLs, and long-running interactive processes.
 Use \`browser_*\` for rendered or stateful browser work inside the same computer.
 Use \`reply_attachment\` when a file under /workspace/user-files should be sent as a native attachment in your final external reply.
+Use \`check_back_later\` for one delayed self-wakeup tied to the current provider route.
+Use \`cron\` for recurring schedules; it supports listing, adding, updating, pausing, resuming, removing, manual run, and run history.
 Use \`skill_view\` to load enabled skills and \`skill_append\` to replace this agent's DB-backed overlay for an enabled skill.
 Treat the computer as a trusted Ankole work environment with useful isolation boundaries, not as a hardened security sandbox.
 </about_computer>
@@ -154,7 +202,7 @@ Do not invent tools that are not present in the tool list for this run.
 }
 
 function skillsForSystemPrompt(opts: BuildAgentSystemPromptOptions): SkillPromptEntry[] {
-  return (opts.runtimeContext?.skills ?? []).map(skillPromptEntryFromRuntime).filter(isSkillPromptEntry)
+  return (opts.agentConversationContext?.skills ?? []).map(skillPromptEntryFromRuntime).filter(isSkillPromptEntry)
 }
 
 function skillPromptEntryFromRuntime(skill: RuntimeSkillSummary): SkillPromptEntry | null {
@@ -195,6 +243,28 @@ function formatCurrentChannel(channel: CurrentChannelContext): string {
 function platformLabel(platform: string | undefined, noun: string): string {
   const brand = platform === 'feishu' ? 'Feishu' : platform === 'lark' ? 'Lark' : platform
   return brand ? `${brand} ${noun}` : noun
+}
+
+type JsonRecord = Record<string, unknown>
+
+function recordArg(args: JsonRecord | undefined, key: string): JsonRecord | undefined {
+  const value = args?.[key]
+  return isRecord(value) ? value : undefined
+}
+
+function stringArg(args: JsonRecord | undefined, key: string): string | undefined {
+  const value = args?.[key]
+  return typeof value === 'string' && value.trim() !== '' ? value.trim() : undefined
+}
+
+function parseDate(value: string | null | undefined): Date | undefined {
+  if (!value) return undefined
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? undefined : date
+}
+
+function isRecord(value: unknown): value is JsonRecord {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 /**

@@ -142,3 +142,50 @@ Use `@pleisto/active-support` as the general-purpose utility library. It provide
 - For complex if/else logic, use its `match().with().exhaustive()` syntax.
 - For millisecond durations, use its exported `ms('24h')`-style functions to keep them semantic.
 
+## Cleanup and refactor rules
+For cleanup or refactor work, write the cleanup plan before modifying code.
+
+A cleanup plan must list:
+
+- Dead code to delete.
+
+- Duplicate logic to merge.
+
+- Existing utilities or patterns to reuse.
+
+- Tests or commands that prove behavior is preserved.
+
+- Risks to supervision, persistence, message flow, or public contracts.
+
+Prefer deleting obsolete code to wrapping it.
+
+Prefer moving code to inventing code.
+
+Prefer one clear boundary to many clever seams.
+
+Do not keep compatibility shims unless there is a real caller.
+
+Do not leave old names, old branches, old TODOs, or old comments behind after replacing behavior.
+
+When a refactor touches OTP structure, state which failure boundary changed.
+
+If no failure boundary changed, avoid changing the supervision tree.
+
+## Project guidelines
+
+- Treat one Ankole Installation as the product boundary. Do not add hidden SaaS tenant ids, tenant-scoped identity rules, or multi-tenant routing assumptions unless the task explicitly changes that model.
+- Keep Principal/AuthZ as the accountable subject and permission boundary. Principal UIDs are installation-wide lowercase subject keys; do not invent parallel user, agent, or external-subject models in Bun, plugins, or provider adapters.
+- Keep bootstrap configuration and AppConfigure separate. Environment variables are for process startup and infrastructure facts; operator-managed runtime settings, generated worker auth keys, provider credentials, plugin settings, and model preferences belong in declared `Ankole.AppConfigure` keys.
+- Match the existing persistence shape before adding schema. Principals use text `uid` keys, and provider mirrors/outbox rows may use domain or composite keys. When a row needs an opaque PostgreSQL UUID id, generate it in application code with `Ankole.Ecto.UUIDv7` for Ecto schemas or `Ankole.Kernel.gen_uuid_v7/0` for explicit row ids outside Ecto schema inserts; do not rely on PostgreSQL defaults such as `gen_random_uuid()`.
+- Prefer PostgreSQL-native modeling when it clarifies the domain: native enums mapped through `Ecto.Enum`, `jsonb` for declared payloads, range/interval/numeric types where they fit, and database constraints for invariants that must survive process crashes.
+- Keep SignalsGateway as the provider-ingress boundary: adapters produce ingress facts, provider mirror rows record observed external state, `actor_inputs` are the actor-facing handoff, and `signal_gateway_outbox` is the durable provider-visible side-effect path. Provider raw event names must not leak into runtime semantics when an `ActorInput.type` contract is needed.
+- Keep RuntimeFabric as live transport, not durable truth. ZeroMQ carries actor, RPC, and worker-file traffic with bounded routing/backpressure; PostgreSQL owns replay, fences, reconciliation, and final commits. If a fact matters after process death, journal or commit it in PostgreSQL.
+- Respect runtime ownership boundaries. Elixir owns PostgreSQL semantics, setup, supervision, AppConfigure, Principal/AuthZ facades, and actor commit authority. Rust kernel owns crypto, shared identifier helpers, AuthZ rule evaluation, protobuf validation, and ZeroMQ mechanics. Bun Agent Computer owns LLM loops, tools, MCP servers, terminal state, and worker-local filesystem behavior.
+- Worker code must not invent control-plane state. Reads or writes that affect PG-owned semantics go through RuntimeFabric RPC or an explicit control-plane API; process-local worker state must be rebuildable after restart.
+- Keep enabled skills and workspaces honest. Models may see `skill://enabled/...` references, but worker reads resolve from RuntimeFabric skill metadata, built-in image assets, managed shared skill storage, and PG skill overlays. Do not synthesize fake `/workspace/skills` or library-container paths.
+- Treat plugins as trusted first-party Elixir code discovered at boot. Do not add dynamic third-party plugin loading, marketplace isolation, hot activation, or plugin-owned config stores unless the plugin design docs are updated first.
+- Do not add dependencies unless the user explicitly requests or approves them. Reuse existing workspace packages, kernel bindings, Phoenix contexts, Bun utilities, and `@pleisto/active-support` helpers first.
+- Keep public contracts boring and named: Ecto schemas, context facades, AppConfigure definitions, plugin declarations, RuntimeFabric envelopes, actor inputs, signal bindings, outbox entries, and explicit TypeScript/Rust types are better than loose maps and freeform strings at subsystem boundaries.
+- Keep runtime and worker integration tests out of the default fast test path. Use package-local checks by default and dedicated Mix/Bun commands for Docker-backed Agent Computer or real-provider e2e flows.
+- Multiple coding agents may work in parallel on the same branch. Unrelated files or diffs in Git status are normal; do not revert or touch them unless your task explicitly requires it.
+- Verify outcomes before final claims. Do not say a bug is fixed, a feature works, or a migration is safe unless you ran the relevant command or clearly state what remains unverified.

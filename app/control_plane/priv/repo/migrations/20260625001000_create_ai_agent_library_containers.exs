@@ -2,10 +2,8 @@ defmodule Ankole.Repo.Migrations.CreateAiAgentLibraryContainers do
   use Ecto.Migration
 
   def change do
-    execute("CREATE EXTENSION IF NOT EXISTS pgcrypto", "")
-
     create table(:agent_library_container_entries, primary_key: false) do
-      add :id, :uuid, primary_key: true, default: fragment("gen_random_uuid()")
+      add :id, :uuid, primary_key: true
 
       add :agent_uid, references(:principals, column: :uid, type: :text, on_delete: :delete_all),
         null: false

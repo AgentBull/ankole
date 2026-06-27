@@ -53,6 +53,7 @@ defmodule Ankole.MixProject do
   # Type `mix help deps` for examples and options.
   defp deps do
     [
+      {:archdo, ">= 0.0.0", github: "BadBeta/archdo", only: [:dev, :test], runtime: false},
       {:phoenix, "~> 1.8.8"},
       {:phoenix_ecto, "~> 4.7"},
       {:ecto_sql, "~> 3.14"},

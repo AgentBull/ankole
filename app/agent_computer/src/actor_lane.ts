@@ -27,9 +27,12 @@ export type ActorTurnRef = {
  */
 export type ActorInputEnvelope = {
   actor_input_id: string
-  broker_sequence: number
+  live_queue_sequence: number
   type: string
   ingress_event_id: string
+  binding_name?: string
+  signal_channel_id?: string
+  provider_thread_id?: string
   provider_entry_id?: string
   payload_json?: JsonObject
 }
@@ -38,6 +41,7 @@ export type TurnStart = {
   turn: ActorTurnRef
   inputs: ActorInputEnvelope[]
   model_ref?: TurnModelRef | null
+  request_context?: JsonObject
 }
 
 export type TurnSteerUpdate = {

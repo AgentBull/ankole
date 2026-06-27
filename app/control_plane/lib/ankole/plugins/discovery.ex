@@ -56,7 +56,7 @@ defmodule Ankole.Plugins.Discovery do
     |> Enum.flat_map(&source_files/1)
     |> Enum.reduce_while({:ok, []}, fn file, {:ok, acc} ->
       case modules_from_file(file) do
-        {:ok, modules} -> {:cont, {:ok, modules ++ acc}}
+        {:ok, modules} -> {:cont, {:ok, Enum.reverse(modules, acc)}}
         {:error, reason} -> {:halt, {:error, reason}}
       end
     end)

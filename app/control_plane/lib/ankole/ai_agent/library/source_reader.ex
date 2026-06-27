@@ -273,21 +273,20 @@ defmodule Ankole.AIAgent.Library.SourceReader do
       |> Enum.sort()
       |> Enum.reject(&String.starts_with?(&1, "."))
       |> Enum.reduce_while({:ok, []}, fn entry, {:ok, acc} ->
-        child_relative = if relative == "", do: entry, else: relative <> "/" <> entry
+        child_relative = Path.join(relative, entry)
         child = Path.join(root, child_relative)
 
         cond do
           File.dir?(child) ->
             case read_text_files_recursive(root, child_relative) do
-              {:ok, files} -> {:cont, {:ok, acc ++ files}}
+              {:ok, files} -> {:cont, {:ok, Enum.reverse(files, acc)}}
               {:error, _reason} = error -> {:halt, error}
             end
 
           File.regular?(child) ->
             with {:ok, content} <- File.read(child),
                  {:ok, path} <- normalize_virtual_path(child_relative) do
-              {:cont,
-               {:ok, acc ++ [%{path: path, content: content, content_hash: hash(content)}]}}
+              {:cont, {:ok, [%{path: path, content: content, content_hash: hash(content)} | acc]}}
             else
               {:error, _reason} = error -> {:halt, error}
             end
@@ -296,6 +295,10 @@ defmodule Ankole.AIAgent.Library.SourceReader do
             {:cont, {:ok, acc}}
         end
       end)
+      |> case do
+        {:ok, files} -> {:ok, Enum.reverse(files)}
+        {:error, _reason} = error -> error
+      end
     end
   end
 
@@ -396,7 +399,7 @@ defmodule Ankole.AIAgent.Library.SourceReader do
 
           state == :inside and String.match?(line, ~r/^\s+-\s+(.+)\s*$/) ->
             [_, value] = Regex.run(~r/^\s+-\s+(.+)\s*$/, line)
-            {:inside, acc ++ [strip_quotes(String.trim(value))]}
+            {:inside, [strip_quotes(String.trim(value)) | acc]}
 
           state == :inside and String.match?(line, ~r/^\S/) ->
             {:after, acc}
@@ -406,7 +409,7 @@ defmodule Ankole.AIAgent.Library.SourceReader do
         end
       end)
 
-    values
+    Enum.reverse(values)
   end
 
   defp strip_quotes(value) do

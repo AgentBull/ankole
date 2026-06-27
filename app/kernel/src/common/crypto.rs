@@ -2,7 +2,7 @@ use chacha20poly1305::aead::{Aead, KeyInit};
 use chacha20poly1305::{Key, XChaCha20Poly1305, XNonce};
 use hex::{FromHex, ToHex};
 
-use crate::core::{KernelError, KernelResult, base64_url_safe_decode, base64_url_safe_encode};
+use crate::common::{KernelError, KernelResult, base64_url_safe_decode, base64_url_safe_encode};
 
 const AEAD_KEY_LEN: usize = 32;
 const AEAD_NONCE_LEN: usize = 24;

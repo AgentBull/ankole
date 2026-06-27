@@ -86,6 +86,15 @@ defmodule Ankole.I18n do
   defdelegate default_locale, to: Localize
 
   @doc """
+  Returns the configured default locale id.
+
+  Browser/setup surfaces need the persisted catalog id, while
+  `default_locale/0` returns Localize's process-wide language tag.
+  """
+  @spec configured_default_locale() :: {:ok, String.t()} | {:error, term()}
+  def configured_default_locale, do: Config.default_locale()
+
+  @doc """
   Persists and applies the application-wide default locale.
 
   The public write path validates against the currently loaded catalog before it

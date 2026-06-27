@@ -3,7 +3,7 @@ defmodule Ankole.Repo.Migrations.CreateSignalGatewayInboundBatches do
 
   def change do
     create table(:signal_gateway_inbound_batches, primary_key: false) do
-      add :id, :uuid, primary_key: true, default: fragment("gen_random_uuid()")
+      add :id, :uuid, primary_key: true
 
       add :agent_uid,
           references(:principals, column: :uid, type: :text, on_delete: :delete_all),
@@ -67,7 +67,7 @@ defmodule Ankole.Repo.Migrations.CreateSignalGatewayInboundBatches do
 
     create constraint(:signal_gateway_inbound_batches, :inbound_batches_outcome_check,
              check:
-               "outcome IS NULL OR outcome IN ('addressed', 'ambient', 'no_actor_input', 'canceled')"
+               "outcome IS NULL OR outcome IN ('addressed', 'ambient', 'no_actor_input', 'duplicate_consumed', 'canceled')"
            )
   end
 end

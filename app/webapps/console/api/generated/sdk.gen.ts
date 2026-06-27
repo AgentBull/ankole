@@ -17,7 +17,54 @@ import type {
   AnkoleWebAppConfigurationControllerShowResponses,
   AnkoleWebAppConfigurationControllerUpdateData,
   AnkoleWebAppConfigurationControllerUpdateErrors,
-  AnkoleWebAppConfigurationControllerUpdateResponses
+  AnkoleWebAppConfigurationControllerUpdateResponses,
+  AnkoleWebLlmProviderControllerDeleteModelProfileData,
+  AnkoleWebLlmProviderControllerDeleteModelProfileErrors,
+  AnkoleWebLlmProviderControllerDeleteModelProfileResponses,
+  AnkoleWebLlmProviderControllerDeleteProviderData,
+  AnkoleWebLlmProviderControllerDeleteProviderErrors,
+  AnkoleWebLlmProviderControllerDeleteProviderResponses,
+  AnkoleWebLlmProviderControllerIndexData,
+  AnkoleWebLlmProviderControllerIndexErrors,
+  AnkoleWebLlmProviderControllerIndexModelProfilesData,
+  AnkoleWebLlmProviderControllerIndexModelProfilesErrors,
+  AnkoleWebLlmProviderControllerIndexModelProfilesResponses,
+  AnkoleWebLlmProviderControllerIndexResponses,
+  AnkoleWebLlmProviderControllerPutModelProfileData,
+  AnkoleWebLlmProviderControllerPutModelProfileErrors,
+  AnkoleWebLlmProviderControllerPutModelProfileResponses,
+  AnkoleWebLlmProviderControllerPutProviderData,
+  AnkoleWebLlmProviderControllerPutProviderErrors,
+  AnkoleWebLlmProviderControllerPutProviderResponses,
+  AnkoleWebLlmProviderControllerSourcesData,
+  AnkoleWebLlmProviderControllerSourcesErrors,
+  AnkoleWebLlmProviderControllerSourcesResponses,
+  AnkoleWebScheduleControllerCancelCheckbackData,
+  AnkoleWebScheduleControllerCancelCheckbackResponses,
+  AnkoleWebScheduleControllerCreateCronData,
+  AnkoleWebScheduleControllerCreateCronErrors,
+  AnkoleWebScheduleControllerCreateCronResponses,
+  AnkoleWebScheduleControllerCronRunsData,
+  AnkoleWebScheduleControllerCronRunsResponses,
+  AnkoleWebScheduleControllerIndexCheckbacksData,
+  AnkoleWebScheduleControllerIndexCheckbacksResponses,
+  AnkoleWebScheduleControllerIndexCronData,
+  AnkoleWebScheduleControllerIndexCronErrors,
+  AnkoleWebScheduleControllerIndexCronResponses,
+  AnkoleWebScheduleControllerPauseCronData,
+  AnkoleWebScheduleControllerPauseCronResponses,
+  AnkoleWebScheduleControllerRemoveCronData,
+  AnkoleWebScheduleControllerRemoveCronResponses,
+  AnkoleWebScheduleControllerResumeCronData,
+  AnkoleWebScheduleControllerResumeCronResponses,
+  AnkoleWebScheduleControllerRunCronData,
+  AnkoleWebScheduleControllerRunCronResponses,
+  AnkoleWebScheduleControllerShowCronData,
+  AnkoleWebScheduleControllerShowCronErrors,
+  AnkoleWebScheduleControllerShowCronResponses,
+  AnkoleWebScheduleControllerUpdateCronData,
+  AnkoleWebScheduleControllerUpdateCronErrors,
+  AnkoleWebScheduleControllerUpdateCronResponses
 } from './types.gen'
 
 export type Options<
@@ -37,6 +84,242 @@ export type Options<
    */
   meta?: keyof ClientMeta extends never ? Record<string, unknown> : ClientMeta
 }
+
+/**
+ * Read all model profiles for one agent
+ */
+export const ankoleWebLlmProviderControllerIndexModelProfiles = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebLlmProviderControllerIndexModelProfilesData, ThrowOnError>
+): RequestResult<
+  AnkoleWebLlmProviderControllerIndexModelProfilesResponses,
+  AnkoleWebLlmProviderControllerIndexModelProfilesErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).get<
+    AnkoleWebLlmProviderControllerIndexModelProfilesResponses,
+    AnkoleWebLlmProviderControllerIndexModelProfilesErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/api/agents/{agent_uid}/model-profiles',
+    ...options
+  })
+
+/**
+ * Clear one optional model profile for an agent
+ */
+export const ankoleWebLlmProviderControllerDeleteModelProfile = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebLlmProviderControllerDeleteModelProfileData, ThrowOnError>
+): RequestResult<
+  AnkoleWebLlmProviderControllerDeleteModelProfileResponses,
+  AnkoleWebLlmProviderControllerDeleteModelProfileErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).delete<
+    AnkoleWebLlmProviderControllerDeleteModelProfileResponses,
+    AnkoleWebLlmProviderControllerDeleteModelProfileErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/api/agents/{agent_uid}/model-profiles/{profile}',
+    ...options
+  })
+
+/**
+ * Create or update one model profile for an agent
+ */
+export const ankoleWebLlmProviderControllerPutModelProfile = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebLlmProviderControllerPutModelProfileData, ThrowOnError>
+): RequestResult<
+  AnkoleWebLlmProviderControllerPutModelProfileResponses,
+  AnkoleWebLlmProviderControllerPutModelProfileErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).put<
+    AnkoleWebLlmProviderControllerPutModelProfileResponses,
+    AnkoleWebLlmProviderControllerPutModelProfileErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/api/agents/{agent_uid}/model-profiles/{profile}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
+  })
+
+/**
+ * List checkback wakeups for one agent session
+ */
+export const ankoleWebScheduleControllerIndexCheckbacks = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebScheduleControllerIndexCheckbacksData, ThrowOnError>
+): RequestResult<AnkoleWebScheduleControllerIndexCheckbacksResponses, unknown, ThrowOnError> =>
+  (options.client ?? client).get<AnkoleWebScheduleControllerIndexCheckbacksResponses, unknown, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/api/agents/{agent_uid}/sessions/{session_id}/checkbacks',
+    ...options
+  })
+
+/**
+ * Cancel one pending checkback wakeup
+ */
+export const ankoleWebScheduleControllerCancelCheckback = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebScheduleControllerCancelCheckbackData, ThrowOnError>
+): RequestResult<AnkoleWebScheduleControllerCancelCheckbackResponses, unknown, ThrowOnError> =>
+  (options.client ?? client).delete<AnkoleWebScheduleControllerCancelCheckbackResponses, unknown, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/api/agents/{agent_uid}/sessions/{session_id}/checkbacks/{scheduled_event_id}',
+    ...options
+  })
+
+/**
+ * List recurring schedules for one agent session
+ */
+export const ankoleWebScheduleControllerIndexCron = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebScheduleControllerIndexCronData, ThrowOnError>
+): RequestResult<
+  AnkoleWebScheduleControllerIndexCronResponses,
+  AnkoleWebScheduleControllerIndexCronErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).get<
+    AnkoleWebScheduleControllerIndexCronResponses,
+    AnkoleWebScheduleControllerIndexCronErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/api/agents/{agent_uid}/sessions/{session_id}/cron-schedules',
+    ...options
+  })
+
+/**
+ * Create one recurring schedule
+ */
+export const ankoleWebScheduleControllerCreateCron = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebScheduleControllerCreateCronData, ThrowOnError>
+): RequestResult<
+  AnkoleWebScheduleControllerCreateCronResponses,
+  AnkoleWebScheduleControllerCreateCronErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).post<
+    AnkoleWebScheduleControllerCreateCronResponses,
+    AnkoleWebScheduleControllerCreateCronErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/api/agents/{agent_uid}/sessions/{session_id}/cron-schedules',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
+  })
+
+/**
+ * Remove one recurring schedule
+ */
+export const ankoleWebScheduleControllerRemoveCron = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebScheduleControllerRemoveCronData, ThrowOnError>
+): RequestResult<AnkoleWebScheduleControllerRemoveCronResponses, unknown, ThrowOnError> =>
+  (options.client ?? client).delete<AnkoleWebScheduleControllerRemoveCronResponses, unknown, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/api/agents/{agent_uid}/sessions/{session_id}/cron-schedules/{cron_schedule_id}',
+    ...options
+  })
+
+/**
+ * Read one recurring schedule
+ */
+export const ankoleWebScheduleControllerShowCron = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebScheduleControllerShowCronData, ThrowOnError>
+): RequestResult<
+  AnkoleWebScheduleControllerShowCronResponses,
+  AnkoleWebScheduleControllerShowCronErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).get<
+    AnkoleWebScheduleControllerShowCronResponses,
+    AnkoleWebScheduleControllerShowCronErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/api/agents/{agent_uid}/sessions/{session_id}/cron-schedules/{cron_schedule_id}',
+    ...options
+  })
+
+/**
+ * Update one recurring schedule
+ */
+export const ankoleWebScheduleControllerUpdateCron = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebScheduleControllerUpdateCronData, ThrowOnError>
+): RequestResult<
+  AnkoleWebScheduleControllerUpdateCronResponses,
+  AnkoleWebScheduleControllerUpdateCronErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).patch<
+    AnkoleWebScheduleControllerUpdateCronResponses,
+    AnkoleWebScheduleControllerUpdateCronErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/api/agents/{agent_uid}/sessions/{session_id}/cron-schedules/{cron_schedule_id}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
+  })
+
+/**
+ * Pause one recurring schedule
+ */
+export const ankoleWebScheduleControllerPauseCron = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebScheduleControllerPauseCronData, ThrowOnError>
+): RequestResult<AnkoleWebScheduleControllerPauseCronResponses, unknown, ThrowOnError> =>
+  (options.client ?? client).post<AnkoleWebScheduleControllerPauseCronResponses, unknown, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/api/agents/{agent_uid}/sessions/{session_id}/cron-schedules/{cron_schedule_id}/pause',
+    ...options
+  })
+
+/**
+ * Resume one recurring schedule
+ */
+export const ankoleWebScheduleControllerResumeCron = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebScheduleControllerResumeCronData, ThrowOnError>
+): RequestResult<AnkoleWebScheduleControllerResumeCronResponses, unknown, ThrowOnError> =>
+  (options.client ?? client).post<AnkoleWebScheduleControllerResumeCronResponses, unknown, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/api/agents/{agent_uid}/sessions/{session_id}/cron-schedules/{cron_schedule_id}/resume',
+    ...options
+  })
+
+/**
+ * List recent concrete fires for one recurring schedule
+ */
+export const ankoleWebScheduleControllerCronRuns = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebScheduleControllerCronRunsData, ThrowOnError>
+): RequestResult<AnkoleWebScheduleControllerCronRunsResponses, unknown, ThrowOnError> =>
+  (options.client ?? client).get<AnkoleWebScheduleControllerCronRunsResponses, unknown, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/api/agents/{agent_uid}/sessions/{session_id}/cron-schedules/{cron_schedule_id}/runs',
+    ...options
+  })
+
+/**
+ * Manually run one recurring schedule
+ */
+export const ankoleWebScheduleControllerRunCron = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebScheduleControllerRunCronData, ThrowOnError>
+): RequestResult<AnkoleWebScheduleControllerRunCronResponses, unknown, ThrowOnError> =>
+  (options.client ?? client).post<AnkoleWebScheduleControllerRunCronResponses, unknown, ThrowOnError>({
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/api/agents/{agent_uid}/sessions/{session_id}/cron-schedules/{cron_schedule_id}/runs',
+    ...options
+  })
 
 /**
  * List console-visible AppConfigure entries
@@ -140,4 +423,88 @@ export const ankoleWebAppConfigurationControllerDecrypt = <ThrowOnError extends 
     security: [{ scheme: 'bearer', type: 'http' }],
     url: '/api/app-configurations/{key}/decryptions',
     ...options
+  })
+
+/**
+ * List first-party LLM provider sources
+ */
+export const ankoleWebLlmProviderControllerSources = <ThrowOnError extends boolean = false>(
+  options?: Options<AnkoleWebLlmProviderControllerSourcesData, ThrowOnError>
+): RequestResult<
+  AnkoleWebLlmProviderControllerSourcesResponses,
+  AnkoleWebLlmProviderControllerSourcesErrors,
+  ThrowOnError
+> =>
+  (options?.client ?? client).get<
+    AnkoleWebLlmProviderControllerSourcesResponses,
+    AnkoleWebLlmProviderControllerSourcesErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/api/llm-provider-sources',
+    ...options
+  })
+
+/**
+ * List configured LLM providers
+ */
+export const ankoleWebLlmProviderControllerIndex = <ThrowOnError extends boolean = false>(
+  options?: Options<AnkoleWebLlmProviderControllerIndexData, ThrowOnError>
+): RequestResult<
+  AnkoleWebLlmProviderControllerIndexResponses,
+  AnkoleWebLlmProviderControllerIndexErrors,
+  ThrowOnError
+> =>
+  (options?.client ?? client).get<
+    AnkoleWebLlmProviderControllerIndexResponses,
+    AnkoleWebLlmProviderControllerIndexErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/api/llm-providers',
+    ...options
+  })
+
+/**
+ * Disable one LLM provider
+ */
+export const ankoleWebLlmProviderControllerDeleteProvider = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebLlmProviderControllerDeleteProviderData, ThrowOnError>
+): RequestResult<
+  AnkoleWebLlmProviderControllerDeleteProviderResponses,
+  AnkoleWebLlmProviderControllerDeleteProviderErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).delete<
+    AnkoleWebLlmProviderControllerDeleteProviderResponses,
+    AnkoleWebLlmProviderControllerDeleteProviderErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/api/llm-providers/{provider_id}',
+    ...options
+  })
+
+/**
+ * Create or update one LLM provider
+ */
+export const ankoleWebLlmProviderControllerPutProvider = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebLlmProviderControllerPutProviderData, ThrowOnError>
+): RequestResult<
+  AnkoleWebLlmProviderControllerPutProviderResponses,
+  AnkoleWebLlmProviderControllerPutProviderErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).put<
+    AnkoleWebLlmProviderControllerPutProviderResponses,
+    AnkoleWebLlmProviderControllerPutProviderErrors,
+    ThrowOnError
+  >({
+    security: [{ scheme: 'bearer', type: 'http' }],
+    url: '/api/llm-providers/{provider_id}',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
   })

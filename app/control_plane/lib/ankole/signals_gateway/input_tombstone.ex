@@ -1,12 +1,12 @@
 defmodule Ankole.SignalsGateway.InputTombstone do
   @moduledoc """
-  Short-lived guard that prevents late receive redelivery after delete or recall.
+  Short-lived guard that prevents late receive redelivery after provider removal.
 
-  Problem it solves: providers do not order delete/recall against the original
+  Problem it solves: providers do not order removal events against the original
   receive. A "message deleted" event can race ahead of (or arrive interleaved
   with) a retried "message received" for the same entry, which would otherwise
   resurrect a message the human already retracted. When the gateway processes a
-  delete/recall it drops a tombstone keyed by
+  removal event it drops a tombstone keyed by
   `{agent_uid, binding_name, signal_channel_id, provider_entry_id}`; a later
   receive for that key is dropped while the tombstone is live (see
   `SignalsGateway.active_tombstone?/3`).

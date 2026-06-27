@@ -452,7 +452,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       assert reacted.raw_reaction_keys["thumbs_up"] == "THUMBSUP"
 
       assert {:ok, [%{deleted_mirror_entries: 1}]} =
-               Inbound.handle_message_recalled("im.message.recalled_v1", recall_event(), [
+               Inbound.handle_message_removed("im.message.recalled_v1", recall_event(), [
                  consumer
                ])
 

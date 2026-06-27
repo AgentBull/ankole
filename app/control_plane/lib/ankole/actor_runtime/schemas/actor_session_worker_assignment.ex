@@ -14,7 +14,7 @@ defmodule Ankole.ActorRuntime.Schemas.ActorSessionWorkerAssignment do
   alias Ankole.Principals.Principal
   alias Ankole.SignalsGateway.JsonPayload
 
-  @primary_key {:id, :binary_id, autogenerate: true}
+  @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
   @foreign_key_type :string
   @timestamps_opts [type: :utc_datetime_usec]
   @statuses ~w(assigned draining released)

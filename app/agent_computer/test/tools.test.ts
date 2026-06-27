@@ -4,7 +4,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { validateToolArguments } from '../src/llm'
 import { z } from 'zod'
+import type { TurnStart } from '../src/actor_lane'
 import type { AgentTool } from '../src/core'
+import { rpcMethods, type RpcMethod, type ScheduleRpcRequest } from '../src/rpc_lane'
 import { buildTool } from '../src/tools/build-tool'
 import { createBrowserTools } from '../src/tools/browser/browser-tools'
 import { createComputerTools } from '../src/tools/computer'
@@ -21,6 +23,7 @@ import { createPatchTool } from '../src/tools/computer/patch-tool'
 import { createReadFileTool } from '../src/tools/computer/read-file-tool'
 import { createReplyAttachmentStore, createReplyAttachmentTool } from '../src/tools/computer/reply-attachment-tool'
 import { createSkillTools } from '../src/tools/library/skill-tools'
+import { createScheduleTools } from '../src/tools/schedule-tools'
 import { TodoStore, createTodoTool } from '../src/tools/todo-tool'
 
 type LlmTool = Parameters<typeof validateToolArguments>[0]
@@ -448,6 +451,78 @@ describe('@ankole/agent-computer migrated tool semantics', () => {
     }
   })
 
+  it('schedule tools send RuntimeFabric RPC requests with the current provider reply route', async () => {
+    const calls: Array<{ method: RpcMethod; request: ScheduleRpcRequest }> = []
+    const start = turnStartWithProviderRoute()
+    const tools = createScheduleTools({
+      turnStart: start,
+      requestScheduleRpc: async (method, request) => {
+        calls.push({ method, request })
+        return { request_id: request.request_id, ok: true, method }
+      }
+    })
+
+    expect(tools.map(tool => tool.name)).toEqual(['check_back_later', 'cron'])
+
+    const checkBackLater = tools.find(tool => tool.name === 'check_back_later')!
+    const checkback = await checkBackLater.execute('checkback-call-1', {
+      reason: 'Deployment is still running.',
+      check: 'Ask whether the deployment completed cleanly.',
+      after: { value: 15, unit: 'minute' },
+      idempotency_key: 'idem-checkback'
+    })
+
+    expect(checkback.details).toMatchObject({ ok: true, method: rpcMethods.scheduleCheckBackLaterCreate })
+    expect(calls[0]).toMatchObject({
+      method: rpcMethods.scheduleCheckBackLaterCreate,
+      request: {
+        tool_call_id: 'checkback-call-1',
+        idempotency_key: 'idem-checkback',
+        schedule: { after: { value: 15, unit: 'minute' } },
+        reply_route: {
+          binding_name: 'mock-im',
+          signal_channel_id: 'channel-1',
+          provider_thread_id: 'thread-1',
+          provider_entry_id: 'entry-1'
+        }
+      }
+    })
+
+    const cronSchedule = tools.find(tool => tool.name === 'cron')!
+    await cronSchedule.execute('cron-call-1', {
+      action: 'add',
+      name: 'deployment follow-up',
+      schedule: {
+        kind: 'every',
+        every_ms: 3_600_000,
+        anchor_at: '2026-06-27T08:00:00.000Z'
+      },
+      payload: { check: 'deployment health' },
+      delivery: { quiet_success: true },
+      idempotency_key: 'idem-cron'
+    })
+
+    expect(calls[1]).toMatchObject({
+      method: rpcMethods.scheduleCronAdd,
+      request: {
+        binding_name: 'mock-im',
+        name: 'deployment follow-up',
+        idempotency_key: 'idem-cron',
+        schedule: {
+          kind: 'every',
+          every_ms: 3_600_000,
+          anchor_at: '2026-06-27T08:00:00.000Z'
+        },
+        payload: { check: 'deployment health' },
+        delivery: {
+          signal_channel_id: 'channel-1',
+          provider_thread_id: 'thread-1',
+          quiet_success: true
+        }
+      }
+    })
+  })
+
   it('reply_attachment records final reply files from /workspace/user-files only', async () => {
     const root = mkdtempSync(join(tmpdir(), 'ankole-reply-attachment-'))
 
@@ -644,6 +719,32 @@ function contextWithComputer(overrides: Partial<ContainerComputer>, workspaceRoo
     executionScopeId: 'signal-channel:test',
     getComputer: async () => computer,
     backgroundIds: new Set()
+  }
+}
+
+function turnStartWithProviderRoute(): TurnStart {
+  return {
+    turn: {
+      actor: { agent_uid: 'agent-1', session_id: 'signal-channel:test' },
+      activation_uid: 'activation-1',
+      actor_epoch: 1,
+      llm_turn_id: 'turn-1',
+      revision: 0
+    },
+    inputs: [
+      {
+        actor_input_id: 'input-1',
+        live_queue_sequence: 1,
+        type: 'im.message.created',
+        ingress_event_id: 'event-1',
+        binding_name: 'mock-im',
+        signal_channel_id: 'channel-1',
+        provider_thread_id: 'thread-1',
+        provider_entry_id: 'entry-1',
+        payload_json: { data: { entry: { text: 'check on this later' } } }
+      }
+    ],
+    model_ref: { profile: 'primary', provider_id: 'openrouter-main', model: 'z-ai/glm-5.2' }
   }
 }
 

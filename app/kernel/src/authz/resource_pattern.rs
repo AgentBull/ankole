@@ -1,6 +1,6 @@
 use globset::{GlobBuilder, GlobMatcher};
 
-use crate::core::{KernelError, KernelResult};
+use crate::common::{KernelError, KernelResult};
 
 /// Validates persisted resource-pattern syntax without matching a request.
 pub fn validate_pattern_source(pattern: &str) -> KernelResult<()> {

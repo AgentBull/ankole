@@ -1,7 +1,7 @@
 use cel::{Context, Program, Value as CelValue};
 use serde_json::Value as JsonValue;
 
-use crate::core::{KernelError, KernelResult};
+use crate::common::{KernelError, KernelResult};
 
 #[derive(Debug, Eq, PartialEq)]
 pub enum BoolEvalError {
