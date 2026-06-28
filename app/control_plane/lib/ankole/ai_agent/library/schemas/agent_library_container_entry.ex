@@ -35,7 +35,10 @@ defmodule Ankole.AIAgent.Library.Schemas.AgentLibraryContainerEntry do
     timestamps()
   end
 
-  @doc false
+  @doc """
+  Builds a changeset for agent library container entry rows.
+  """
+  @spec changeset(struct(), map()) :: Ecto.Changeset.t()
   def changeset(entry, attrs) do
     entry
     |> cast(attrs, [

@@ -31,7 +31,10 @@ defmodule Ankole.AuthZ.Grant do
     timestamps()
   end
 
-  @doc false
+  @doc """
+  Builds a changeset for authorization grant rows.
+  """
+  @spec changeset(struct(), map()) :: Ecto.Changeset.t()
   def changeset(grant, attrs) do
     grant
     |> cast(attrs, [

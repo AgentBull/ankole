@@ -28,7 +28,10 @@ defmodule Ankole.Principals.Principal do
     timestamps()
   end
 
-  @doc false
+  @doc """
+  Builds a changeset for principal rows.
+  """
+  @spec changeset(struct(), map()) :: Ecto.Changeset.t()
   def changeset(principal, attrs) do
     principal
     |> cast(attrs, [:uid, :type, :status, :display_name, :avatar_url])
@@ -40,14 +43,20 @@ defmodule Ankole.Principals.Principal do
     |> check_constraint(:uid, name: :principals_uid_lowercase)
   end
 
-  @doc false
+  @doc """
+  Builds a changeset for principal profile fields.
+  """
+  @spec profile_changeset(struct(), map()) :: Ecto.Changeset.t()
   def profile_changeset(principal, attrs) do
     principal
     |> cast(attrs, [:display_name, :avatar_url])
     |> normalize_blank([:display_name, :avatar_url])
   end
 
-  @doc false
+  @doc """
+  Builds a changeset for principal status fields.
+  """
+  @spec status_changeset(struct(), map()) :: Ecto.Changeset.t()
   def status_changeset(principal, attrs) do
     principal
     |> cast(attrs, [:status])

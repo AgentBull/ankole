@@ -181,7 +181,7 @@ function run(args: string[]): JsonObject {
   const result = spawnCapture(
     ['python3', '-c', source],
     workdir,
-    startUrl ? { BULLX_BROWSER_START_URL: startUrl, ANKOLE_BROWSER_START_URL: startUrl } : {}
+    startUrl ? { ANKOLE_BROWSER_START_URL: startUrl } : {}
   )
 
   return {

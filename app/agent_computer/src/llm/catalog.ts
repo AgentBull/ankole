@@ -5,7 +5,7 @@ import { createGoogleVertex } from './providers/google-vertex'
 import { createOpenAI } from './providers/openai'
 import { createOpenAICompatible } from './providers/openai-compatible'
 import type { LanguageModel } from './types'
-import type { Api, Model } from './bullx'
+import type { Api, Model } from './ankole'
 
 // Static catalog of the LLM providers/models Ankole ships with, plus the resolution helpers
 // the control plane uses to turn a (provider, modelId) pair from DB config into a callable

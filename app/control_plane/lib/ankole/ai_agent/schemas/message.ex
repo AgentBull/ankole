@@ -56,7 +56,10 @@ defmodule Ankole.AIAgent.Schemas.Message do
     timestamps()
   end
 
-  @doc false
+  @doc """
+  Builds a changeset for message rows.
+  """
+  @spec changeset(struct(), map()) :: Ecto.Changeset.t()
   def changeset(message, attrs) do
     message
     |> cast(attrs, [

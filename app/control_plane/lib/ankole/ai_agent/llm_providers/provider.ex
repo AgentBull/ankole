@@ -27,7 +27,10 @@ defmodule Ankole.AIAgent.LlmProviders.Provider do
     timestamps()
   end
 
-  @doc false
+  @doc """
+  Builds a changeset for LLM provider rows.
+  """
+  @spec changeset(struct(), map()) :: Ecto.Changeset.t()
   def changeset(provider, attrs) do
     provider
     |> cast(attrs, [

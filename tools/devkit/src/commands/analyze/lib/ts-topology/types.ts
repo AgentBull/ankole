@@ -1,5 +1,5 @@
-// Topology type definitions. Near-verbatim from openclaw; the one bullx edit is
-// the ConsumerScope union (bullx monorepo layout, not openclaw's).
+// Topology type definitions. Near-verbatim from openclaw; the Ankole edit is
+// the ConsumerScope union (Ankole monorepo layout, not openclaw's).
 
 import type ts from 'typescript'
 

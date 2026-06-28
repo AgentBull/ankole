@@ -7,22 +7,22 @@ import {
   type Message,
   type Model,
   type SimpleStreamOptions
-} from './bullx'
+} from './ankole'
 
-// The seam between Ankole's durable BullX shapes (bullx.ts) and the vendored AI SDK's
+// The seam between Ankole's durable transcript shapes (ankole.ts) and the vendored AI SDK's
 // per-call wire shapes. Everything here is pure translation, in BOTH directions:
-//  - outbound: BullX transcript -> AI SDK request (messages, provider options, reasoning)
-//  - inbound:  AI SDK result    -> BullX assistant message (stop reason, usage, cost)
+//  - outbound: Ankole transcript -> AI SDK request (messages, provider options, reasoning)
+//  - inbound:  AI SDK result    -> Ankole assistant message (stop reason, usage, cost)
 
 /**
- * Maps a BullX transcript onto the AI SDK request shape. The non-obvious renames:
- *  - BullX block `thinking` -> AI SDK `reasoning` content part.
- *  - BullX `toolCall` (fields id/name/arguments) -> AI SDK `tool-call` (toolCallId/toolName/input).
- *  - BullX role `toolResult` -> AI SDK role `tool`.
+ * Maps an Ankole transcript onto the AI SDK request shape. The non-obvious renames:
+ *  - Ankole block `thinking` -> AI SDK `reasoning` content part.
+ *  - Ankole `toolCall` (fields id/name/arguments) -> AI SDK `tool-call` (toolCallId/toolName/input).
+ *  - Ankole role `toolResult` -> AI SDK role `tool`.
  * Tool results are flattened to text: image blocks become an `[image:...]` placeholder because
  * the tool-result wire slot only carries text, and `isError` selects the SDK's error-text variant.
  */
-export function convertBullXMessagesToModelMessages(messages: Message[]): ModelMessage[] {
+export function convertAnkoleMessagesToModelMessages(messages: Message[]): ModelMessage[] {
   return messages.map(message => {
     if (message.role === 'user') {
       return {
@@ -33,7 +33,7 @@ export function convertBullXMessagesToModelMessages(messages: Message[]): ModelM
             : message.content.map(block =>
                 block.type === 'text'
                   ? { type: 'text' as const, text: block.text }
-                  : // BullX stores image bytes inline (base64) in `data`; the SDK image part wants
+                  : // Ankole stores image bytes inline (base64) in `data`; the SDK image part wants
                     // them under `image` with the mime type as `mediaType`.
                     { type: 'image' as const, image: block.data, mediaType: block.mimeType }
               )
@@ -78,12 +78,12 @@ export function convertBullXMessagesToModelMessages(messages: Message[]): ModelM
 }
 
 /**
- * Stamps a BullX assistant message with model provenance and safe defaults. Used both for
+ * Stamps an Ankole assistant message with model provenance and safe defaults. Used both for
  * the success path (with `extra` carrying real usage/responseId) and for error/abort paths
  * where there is no provider response at all. Usage defaults to a fresh copy of ZERO_USAGE
  * (cost included) so callers never alias the shared constant; `extra` can override any field.
  */
-export function createBullXAssistantMessage(
+export function createAnkoleAssistantMessage(
   model: Model<any>,
   stopReason: AssistantMessage['stopReason'],
   content: AssistantMessage['content'],
@@ -102,8 +102,8 @@ export function createBullXAssistantMessage(
   }
 }
 
-/** Collapses AI SDK finish reasons into the smaller BullX stop-reason set persisted by the agent runtime. */
-export function toBullXStopReason(reason: string): AssistantMessage['stopReason'] {
+/** Collapses AI SDK finish reasons into the smaller Ankole stop-reason set persisted by the agent runtime. */
+export function toAnkoleStopReason(reason: string): AssistantMessage['stopReason'] {
   if (reason === 'length') return 'length'
   if (reason === 'tool-calls') return 'toolUse'
   if (reason === 'error') return 'error'
@@ -113,17 +113,17 @@ export function toBullXStopReason(reason: string): AssistantMessage['stopReason'
 }
 
 /**
- * Folds the AI SDK's nested usage report into BullX's four flat token buckets and prices it.
+ * Folds the AI SDK's nested usage report into Ankole's four flat token buckets and prices it.
  *
  * Cache tokens come from `inputTokenDetails` (Anthropic cache-read/write, OpenAI cached input);
  * each missing field defaults to 0 because not every provider reports them. NOTE: `input` here
  * is the SDK's reported input count, which on cache-aware providers may already include cached
- * tokens — BullX records cacheRead/cacheWrite as separate line items and lets the per-bucket
+ * tokens — Ankole records cacheRead/cacheWrite as separate line items and lets the per-bucket
  * prices in the model sort out the billing, rather than trying to subtract them. `totalTokens`
  * falls back to input+output when the provider omits a grand total. Cost is computed in the same
  * pass via calculateCost so usage and cost are always consistent.
  */
-export function toBullXUsage(usage: LanguageModelUsage | undefined, model: Model<any>): AssistantMessage['usage'] {
+export function toAnkoleUsage(usage: LanguageModelUsage | undefined, model: Model<any>): AssistantMessage['usage'] {
   const input = usage?.inputTokens ?? 0
   const output = usage?.outputTokens ?? 0
   const cacheRead = usage?.inputTokenDetails?.cacheReadTokens ?? 0
@@ -143,7 +143,7 @@ export function toBullXUsage(usage: LanguageModelUsage | undefined, model: Model
 }
 
 /** Omits reasoning options for models that the catalog marks as non-reasoning capable. */
-export function resolveBullXReasoning(
+export function resolveAnkoleReasoning(
   model: Model<any>,
   options: SimpleStreamOptions
 ): SimpleStreamOptions['reasoning'] {
@@ -152,13 +152,13 @@ export function resolveBullXReasoning(
 }
 
 /**
- * Translates BullX's provider-neutral `cacheRetention` ('short'|'long') into each provider's
+ * Translates Ankole's provider-neutral `cacheRetention` ('short'|'long') into each provider's
  * own prompt-cache controls. Only OpenAI and Anthropic have explicit knobs here; every other
  * provider falls through and just keeps the caller's explicit options (caching, if any, is
  * implicit). Returns `explicitOptions` untouched when caching is off so we never fabricate a
  * provider-options object the caller didn't ask for.
  */
-export function createBullXProviderOptions(
+export function createAnkoleProviderOptions(
   model: Model<any>,
   options: SimpleStreamOptions
 ): ProviderOptions | undefined {
@@ -198,7 +198,7 @@ export function createBullXProviderOptions(
 
 /**
  * Deep-merges two provider-options maps one level into each provider's sub-object so
- * BullX's cache controls (`right`) and the caller's explicit options (`left`) coexist.
+ * Ankole's cache controls (`right`) and the caller's explicit options (`left`) coexist.
  * Precedence: `right` wins on key collisions, but only within the same provider — other
  * providers' settings are preserved untouched.
  */
@@ -229,7 +229,7 @@ function promptCacheKeyFromOptions(model: Model<any>, options: SimpleStreamOptio
   const conversationId =
     stringMetadata(options.metadata, 'conversation_id') ?? stringMetadata(options.metadata, 'cache_key')
   if (!conversationId) return undefined
-  return ['bullx', model.provider, model.id, conversationId].map(sanitizeCacheKeyPart).join(':')
+  return ['ankole', model.provider, model.id, conversationId].map(sanitizeCacheKeyPart).join(':')
 }
 
 /** Reads optional string metadata without accepting blank cache keys. */

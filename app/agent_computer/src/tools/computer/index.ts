@@ -17,7 +17,7 @@ export interface ComputerToolsBinding {
 /**
  * Builds the run-bound tool list for Ankole Agent Computer.
  *
- * BullX resolves a remote computer worker from the control plane. Ankole already
+ * Ankole resolves a remote computer worker from the control plane. Ankole already
  * runs the AI SDK loop inside Agent Computer, so this factory keeps the migrated
  * tool contracts but binds them to the container's `/workspace`.
  */

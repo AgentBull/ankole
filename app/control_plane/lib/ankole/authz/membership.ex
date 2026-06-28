@@ -25,7 +25,10 @@ defmodule Ankole.AuthZ.Membership do
     timestamps(updated_at: false)
   end
 
-  @doc false
+  @doc """
+  Builds a changeset for authorization membership rows.
+  """
+  @spec changeset(struct(), map()) :: Ecto.Changeset.t()
   def changeset(membership, attrs) do
     membership
     |> cast(attrs, [:group_id, :principal_uid])

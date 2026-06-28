@@ -148,5 +148,5 @@ python "$SCRIPT" restart-run-all --port 8888 --path scratch.ipynb --save-outputs
 
 - First execution after server start can timeout while the kernel initializes; retry once.
 - If the server returns 403, restart it with disabled token/password and `--ServerApp.disable_check_xsrf=True`.
-- If package imports fail, decide whether the package belongs in the system baseline or the per-agent env. Task-specific packages go in `/workspace/user-files/.bullx/python`.
+- If package imports fail, decide whether the package belongs in the system baseline or the per-agent env. Task-specific packages go in `/workspace/user-files/.ankole/python`.
 - `contents` reads the saved notebook file. Unsaved browser edits are not visible to hamelnb until saved.

@@ -59,8 +59,8 @@ touched package or the user explicitly asks.
 - Comments and docs should explain Ankole-specific meaning, boundary choices,
   failure modes, or operator-visible behavior. Do not teach generic Elixir,
   Phoenix, CRUD, or pattern matching in code comments.
-- Treat old BullX/BullX Agent code as reference material only. Ankole's current
-  code and docs are the source of truth.
+- Treat old project code as reference material only. Ankole's current code and
+  docs are the source of truth.
 
 ## Elixir Style
 

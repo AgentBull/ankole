@@ -17,7 +17,7 @@ def main() -> int:
         print("LibreOffice executable not found: install soffice/libreoffice in the computer image", file=sys.stderr)
         return 127
 
-    profile = Path(os.environ.get("SOFFICE_PROFILE", "/workspace/temp/.bullx/soffice"))
+    profile = Path(os.environ.get("SOFFICE_PROFILE", "/workspace/temp/.ankole/soffice"))
     profile.mkdir(parents=True, exist_ok=True)
     env = os.environ.copy()
     env.setdefault("HOME", "/workspace/temp")

@@ -1,4 +1,4 @@
-# postgres-for-bullx
+# postgres-for-ankole
 
 Ankole Agent development PostgreSQL image based on PostgreSQL 18.
 
@@ -10,7 +10,7 @@ Included extensions:
 Build locally:
 
 ```sh
-docker build -t postgres-for-bullx tools/devkit/postgres-for-bullx
+docker build -t postgres-for-ankole tools/devkit/postgres-for-ankole
 ```
 
 The image follows the usual Postgres container environment variables:

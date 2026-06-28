@@ -68,7 +68,10 @@ defmodule Ankole.AIAgent.Schemas.LlmTurn do
     timestamps()
   end
 
-  @doc false
+  @doc """
+  Builds a changeset for LLM turn rows.
+  """
+  @spec changeset(struct(), map()) :: Ecto.Changeset.t()
   def changeset(turn, attrs) do
     turn
     |> cast(attrs, [

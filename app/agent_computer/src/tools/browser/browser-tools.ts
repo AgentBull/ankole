@@ -85,7 +85,7 @@ const BrowserRunParams = z.object({
     .string()
     .url()
     .optional()
-    .describe('Optional start URL exposed to the script as BULLX_BROWSER_START_URL.'),
+    .describe('Optional start URL exposed to the script as ANKOLE_BROWSER_START_URL.'),
   timeout: z.number().int().min(1).max(1800).optional().describe('Max seconds to wait for the browser script.'),
   autoFetch: z.boolean().optional().describe('Allow this call to run camoufox fetch if the browser binary is missing.'),
   profileMode: BrowserProfileMode,

@@ -13,17 +13,17 @@
 import {
   type AssistantMessage,
   type Context,
-  convertBullXMessagesToModelMessages,
-  createBullXAssistantMessage,
-  createBullXProviderOptions,
+  convertAnkoleMessagesToModelMessages,
+  createAnkoleAssistantMessage,
+  createAnkoleProviderOptions,
   isStepCount,
   type Message,
-  resolveBullXReasoning,
+  resolveAnkoleReasoning,
   streamText,
   type ToolSet,
   type ToolResultMessage,
-  toBullXStopReason,
-  toBullXUsage,
+  toAnkoleStopReason,
+  toAnkoleUsage,
   validateToolArguments
 } from '@/llm'
 import type { LanguageModelUsage } from '@/llm'
@@ -470,7 +470,7 @@ async function streamAssistantResponse(
   // message_start/end) rather than throwing, so it flows through the same path as any other failure.
   const sdkModel = config.model.sdkModel
   if (!sdkModel) {
-    const message = createBullXAssistantMessage(config.model, 'error', [], {
+    const message = createAnkoleAssistantMessage(config.model, 'error', [], {
       errorMessage: `LLM model ${config.model.provider}/${config.model.id} is missing an AI SDK model instance`
     })
     context.messages.push(message)
@@ -479,12 +479,12 @@ async function streamAssistantResponse(
     return message
   }
 
-  const sdkMessages = convertBullXMessagesToModelMessages(llmMessages)
+  const sdkMessages = convertAnkoleMessagesToModelMessages(llmMessages)
   const sdkTools = createAiSdkTools(context.tools)
 
   // The message is rebuilt immutably (new object on every delta) rather than mutated, so each emitted
   // event carries an independent snapshot a subscriber can hold without it changing underneath.
-  let partialMessage = createBullXAssistantMessage(config.model, 'stop', [])
+  let partialMessage = createAnkoleAssistantMessage(config.model, 'stop', [])
   let addedPartial = false
   // The SDK reports usage/response id per finish-step; we keep the last one and apply it after the
   // stream drains, because a single turn can contain multiple steps and the last is authoritative.
@@ -548,12 +548,12 @@ async function streamAssistantResponse(
           stopWhen: isStepCount(1),
           maxOutputTokens: typeof config.maxTokens === 'number' && config.maxTokens > 0 ? config.maxTokens : undefined,
           temperature: config.temperature,
-          reasoning: resolveBullXReasoning(config.model, requestOptions),
+          reasoning: resolveAnkoleReasoning(config.model, requestOptions),
           maxRetries: config.maxRetries,
           timeout: config.timeoutMs,
           headers: config.headers,
           abortSignal: signal,
-          providerOptions: createBullXProviderOptions(config.model, requestOptions),
+          providerOptions: createAnkoleProviderOptions(config.model, requestOptions),
           onLanguageModelCallStart: async event => {
             await config.onPayload?.({ ...event, metadata }, config.model)
           }
@@ -674,8 +674,8 @@ async function streamAssistantResponse(
           // End of the whole stream: record the final stop reason and aggregate usage.
           partialMessage = {
             ...partialMessage,
-            stopReason: toBullXStopReason(part.finishReason),
-            usage: toBullXUsage(part.totalUsage, config.model)
+            stopReason: toAnkoleStopReason(part.finishReason),
+            usage: toAnkoleUsage(part.totalUsage, config.model)
           }
           break
         case 'abort':
@@ -706,9 +706,9 @@ async function streamAssistantResponse(
         ...partialMessage,
         responseId: lastFinishStep.responseId,
         responseModel: lastFinishStep.responseModel,
-        usage: toBullXUsage(lastFinishStep.usage, config.model),
+        usage: toAnkoleUsage(lastFinishStep.usage, config.model),
         stopReason: lastFinishStep.finishReason
-          ? toBullXStopReason(lastFinishStep.finishReason)
+          ? toAnkoleStopReason(lastFinishStep.finishReason)
           : partialMessage.stopReason
       }
     }
@@ -800,7 +800,7 @@ type StreamReadResult<T> = { done: true; value?: undefined } | { done: false; va
 type AgentMessageUpdateEvent = Extract<AgentEvent, { type: 'message_update' }>['assistantMessageEvent']
 
 // Projects AgentTools into the SDK's ToolSet shape, exposing only name/description/schema. The
-// `execute` function is deliberately omitted: tools are run by this loop (so the BullX hooks, redaction,
+// `execute` function is deliberately omitted: tools are run by this loop (so the Ankole hooks, redaction,
 // and permission gate apply), not by the SDK, which only needs the schema to advertise them to the model.
 function createAiSdkTools(tools: AgentTool<any>[] | undefined): ToolSet | undefined {
   if (!tools?.length) return undefined
@@ -1278,7 +1278,7 @@ function createToolResultMessage(finalized: FinalizedToolCallOutcome): ToolResul
   }
 }
 
-// Attaches a BullX-only `bullx_execution` provenance envelope to the result details so the recorder can
+// Attaches an Ankole-owned `ankole_execution` provenance envelope to the result details so the recorder can
 // see what actually ran: the call id/name, the validated `arguments`, and the model's `raw_arguments`
 // before any prepareArguments/validation. Non-object details are nested under `value` so the envelope
 // can still be added as a sibling key without clobbering the tool's own payload.
@@ -1289,9 +1289,9 @@ function withToolExecutionDetails(details: unknown, finalized: FinalizedToolCall
     arguments: finalized.args,
     raw_arguments: finalized.toolCall.arguments
   }
-  if (isPlainObject(details)) return { ...details, bullx_execution: execution }
-  if (details === undefined || details === null) return { bullx_execution: execution }
-  return { value: details, bullx_execution: execution }
+  if (isPlainObject(details)) return { ...details, ankole_execution: execution }
+  if (details === undefined || details === null) return { ankole_execution: execution }
+  return { value: details, ankole_execution: execution }
 }
 
 async function emitToolResultMessage(toolResultMessage: ToolResultMessage, emit: AgentEventSink): Promise<void> {

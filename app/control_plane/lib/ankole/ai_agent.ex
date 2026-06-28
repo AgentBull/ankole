@@ -29,7 +29,9 @@ defmodule Ankole.AIAgent do
     ensure_conversation_in_tx(repo, normalize_uid(agent_uid), session_id)
   end
 
-  @doc false
+  @doc """
+  Ensures the active conversation inside a caller-owned transaction.
+  """
   @spec ensure_conversation_in_tx(module(), String.t(), String.t()) ::
           {:ok, Conversation.t()} | {:error, term()}
   # Uses insert-then-refetch to tolerate concurrent first input for the same
@@ -89,7 +91,9 @@ defmodule Ankole.AIAgent do
     end)
   end
 
-  @doc false
+  @doc """
+  Starts the AI-agent side of a turn inside a caller-owned transaction.
+  """
   @spec start_llm_turn_in_tx(module(), Conversation.t(), [ActorInput.t()], keyword()) ::
           {:ok, map()} | {:error, term()}
   # Starts the AI-agent side before ActorRuntime sends anything to the worker.
@@ -154,7 +158,11 @@ defmodule Ankole.AIAgent do
     end)
   end
 
-  @doc false
+  @doc """
+  Marks a turn failed inside a caller-owned transaction.
+  """
+  @spec fail_turn_in_tx(module(), LlmTurn.t(), term(), DateTime.t()) ::
+          {:ok, LlmTurn.t()} | {:error, term()}
   # Failing a turn keeps the error on the durable turn response so watchdog and
   # operator views can explain why the actor input became retryable.
   def fail_turn_in_tx(repo, %LlmTurn{} = turn, reason, now) do
@@ -168,7 +176,11 @@ defmodule Ankole.AIAgent do
     |> repo.update()
   end
 
-  @doc false
+  @doc """
+  Marks a turn cancelled inside a caller-owned transaction.
+  """
+  @spec cancel_turn_in_tx(module(), LlmTurn.t(), term(), DateTime.t()) ::
+          {:ok, LlmTurn.t()} | {:error, term()}
   # A user-initiated cancellation is terminal but not an execution failure. Keep
   # the durable reason on the turn so retry/history views do not see an orphaned
   # `started` row after `/stop` or `/new` has fenced off the old generation lease.
@@ -183,7 +195,11 @@ defmodule Ankole.AIAgent do
     |> repo.update()
   end
 
-  @doc false
+  @doc """
+  Retracts materialized input messages from a live turn.
+  """
+  @spec retract_turn_input_messages_in_tx(module(), LlmTurn.t(), term(), DateTime.t()) ::
+          {:ok, [Message.t()]} | {:error, term()}
   # Provider-side removal can arrive after a turn has materialized its user
   # input but before the worker commits a response. Mark those input messages out
   # of active context so the retry sees only the replacement ActorInput.
@@ -201,7 +217,11 @@ defmodule Ankole.AIAgent do
 
   def retract_turn_input_messages_in_tx(_repo, _turn, _reason, _now), do: {:ok, []}
 
-  @doc false
+  @doc """
+  Clears a matching active generation lease inside a caller-owned transaction.
+  """
+  @spec clear_generation_in_tx(module(), Conversation.t(), String.t()) ::
+          {:ok, Conversation.t()} | {:error, term()}
   # Clears only the matching active generation lease. If a newer lease has been
   # installed, this older turn must not erase it.
   def clear_generation_in_tx(repo, %Conversation{} = conversation, lease_id) do
@@ -218,7 +238,10 @@ defmodule Ankole.AIAgent do
     end
   end
 
-  @doc false
+  @doc """
+  Locks a conversation row for update.
+  """
+  @spec lock_conversation(module(), term()) :: Conversation.t() | nil
   def lock_conversation(repo, conversation_id) do
     Conversation
     |> where([conversation], conversation.id == ^conversation_id)
@@ -226,7 +249,10 @@ defmodule Ankole.AIAgent do
     |> repo.one()
   end
 
-  @doc false
+  @doc """
+  Locks an LLM turn row for update.
+  """
+  @spec lock_turn(module(), term()) :: LlmTurn.t() | nil
   def lock_turn(repo, llm_turn_id) do
     LlmTurn
     |> where([turn], turn.id == ^llm_turn_id)

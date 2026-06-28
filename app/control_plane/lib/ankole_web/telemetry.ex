@@ -12,11 +12,13 @@ defmodule AnkoleWeb.Telemetry do
   @doc """
   Starts the telemetry supervisor.
   """
+  @spec start_link(term()) :: Supervisor.on_start()
   def start_link(arg) do
     Supervisor.start_link(__MODULE__, arg, name: __MODULE__)
   end
 
   @impl true
+  @spec init(term()) :: {:ok, tuple()} | :ignore
   def init(_arg) do
     children = [
       # Telemetry poller will execute the given period measurements
@@ -32,6 +34,7 @@ defmodule AnkoleWeb.Telemetry do
   @doc """
   Returns the metric definitions exposed by the control plane.
   """
+  @spec metrics() :: [Telemetry.Metrics.t()]
   def metrics do
     [
       # Phoenix Metrics
@@ -86,6 +89,12 @@ defmodule AnkoleWeb.Telemetry do
         unit: {:native, :millisecond},
         description:
           "The time the connection spent waiting before being checked out for the query"
+      ),
+
+      # Oban Worker Metrics
+      summary("ankole.oban.job.stop.duration",
+        tags: [:worker, :queue, :result],
+        unit: {:native, :millisecond}
       ),
 
       # VM Metrics

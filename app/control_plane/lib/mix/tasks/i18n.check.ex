@@ -18,6 +18,15 @@ defmodule Mix.Tasks.I18n.Check do
 
   @impl true
   def run(argv) do
+    metadata = %{task: __MODULE__}
+
+    :telemetry.span([:ankole, :mix_task], metadata, fn ->
+      result = do_run(argv)
+      {result, Map.put(metadata, :result, :ok)}
+    end)
+  end
+
+  defp do_run(argv) do
     {opts, _argv, _invalid} =
       OptionParser.parse(argv,
         strict: [client_dir: :string, dir: :string]

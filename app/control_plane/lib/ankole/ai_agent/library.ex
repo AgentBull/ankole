@@ -146,7 +146,9 @@ defmodule Ankole.AIAgent.Library do
     Repo.transact(fn repo -> seed_agent_library_in_tx(repo, agent_uid) end)
   end
 
-  @doc false
+  @doc """
+  Seeds writable library state inside a caller-owned transaction.
+  """
   @spec seed_agent_library_in_tx(module(), String.t()) :: :ok | {:error, term()}
   def seed_agent_library_in_tx(repo, agent_uid) do
     now = DateTime.utc_now(:microsecond)
@@ -669,10 +671,9 @@ defmodule Ankole.AIAgent.Library do
 
   defp reject_duplicate_observations(sources) do
     duplicates =
-      sources
-      |> Enum.frequencies_by(& &1.name)
-      |> Enum.filter(fn {_name, count} -> count > 1 end)
-      |> Enum.map(fn {name, _count} -> name end)
+      for {name, count} <- Enum.frequencies_by(sources, & &1.name),
+          count > 1,
+          do: name
 
     case duplicates do
       [] -> {:ok, sources}

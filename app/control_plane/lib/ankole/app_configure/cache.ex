@@ -77,7 +77,9 @@ defmodule Ankole.AppConfigure.Cache do
     GenServer.call(__MODULE__, {:load, scope, key})
   end
 
-  @doc false
+  @doc """
+  Clears the ETS projection for tests.
+  """
   @spec clear_for_test() :: :ok
   def clear_for_test do
     GenServer.call(__MODULE__, :clear_for_test)

@@ -21,7 +21,10 @@ defmodule Ankole.AIAgent.Library.Schemas.LibraryBuiltinSyncState do
     timestamps()
   end
 
-  @doc false
+  @doc """
+  Builds a changeset for library built-in sync state rows.
+  """
+  @spec changeset(struct(), map()) :: Ecto.Changeset.t()
   def changeset(state, attrs) do
     state
     |> cast(attrs, [:name, :content_hash, :synced_at, :metadata])

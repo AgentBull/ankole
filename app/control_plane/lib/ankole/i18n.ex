@@ -163,9 +163,9 @@ defmodule Ankole.I18n do
   @spec available_locales() :: [String.t()]
   def available_locales, do: Resolver.loaded_list()
 
-  @doc false
-  # Kept as a small helper because dotted-key scoping is shared by tests and
-  # future UI/IM call sites. It is not part of the user-facing I18n API.
+  @doc """
+  Applies an optional dotted-key scope to an I18n key.
+  """
   @spec apply_scope(String.t(), keyword()) :: String.t()
   def apply_scope(key, opts) do
     case Keyword.get(opts, :scope) do
@@ -174,10 +174,12 @@ defmodule Ankole.I18n do
     end
   end
 
-  @doc false
-  # Normalizes the few locale forms that can appear at call sites. Unknown option
-  # values fall back to the process locale so a bad optional value does not crash
-  # template rendering.
+  @doc """
+  Returns the normalized Ankole locale id from translation options.
+
+  Unknown option values fall back to the process locale so a bad optional value
+  does not crash template rendering.
+  """
   @spec locale_from_opts(keyword()) :: String.t()
   def locale_from_opts(opts) do
     case Keyword.get(opts, :locale) do
@@ -188,6 +190,17 @@ defmodule Ankole.I18n do
       _locale -> Resolver.language_tag_to_locale(Localize.get_locale())
     end
   end
+
+  @doc """
+  Returns the Ankole locale id for a locale value.
+
+  This is the public facade for rendering boundaries that need ids such as
+  `<html lang>` but should not depend on the catalog resolver internals.
+  """
+  @spec locale_id(locale()) :: String.t()
+  def locale_id(%Localize.LanguageTag{} = tag), do: locale_from_language_tag(tag)
+  def locale_id(locale) when is_atom(locale), do: Atom.to_string(locale)
+  def locale_id(locale) when is_binary(locale), do: locale
 
   # A leading dot means "relative to the supplied scope". This keeps the helper
   # compatible with legacy call sites without making scoped helpers a separate

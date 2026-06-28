@@ -3,7 +3,7 @@
 // Runner is rewritten for bun (knip-bun, local bin, no pnpm dlx); the
 // parse/compare/format core mirrors openclaw's check-deadcode-unused-files.mjs,
 // adapted to knip v6's `--files` compact output (`<path>: <path>` lines, no
-// section header) and bullx's top-level dirs.
+// section header) and Ankole's top-level dirs.
 
 import { repoRootPath, resolveLocalBin, runChildCaptured } from '../../utils'
 import { UNUSED_ALLOWLIST, UNUSED_KNIP_ARGS, UNUSED_REPO_PATH_PREFIX } from './config'

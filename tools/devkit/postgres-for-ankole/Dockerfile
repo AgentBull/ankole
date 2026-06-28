@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 FROM rockylinux/rockylinux:9.5
 
-LABEL org.opencontainers.image.title="postgres-for-bullx"
+LABEL org.opencontainers.image.title="postgres-for-ankole"
 LABEL org.opencontainers.image.description="PostgreSQL 18 image for Ankole Agent with pg_search and pgvector."
 
 COPY ./pgsql.repo /etc/yum.repos.d/

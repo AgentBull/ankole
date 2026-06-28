@@ -4,7 +4,7 @@
  * A skill is an SOP the model can pull in on demand, not something it runs. This
  * block is only an index, so the prompt tells the model to call `skill_view(name)`
  * when a listed skill covers work it is already about to do. The catalog can grow
- * large, so this module keeps BullX's hard size caps and graceful degradation:
+ * large, so this module keeps Ankole's hard size caps and graceful degradation:
  * first count-limit, then name-only compact mode, then prefix trimming.
  */
 export type SkillPromptEntry = {

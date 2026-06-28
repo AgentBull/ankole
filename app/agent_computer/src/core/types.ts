@@ -342,7 +342,7 @@ export type AgentToolUpdateCallback<T = any> = (partialResult: AgentToolResult<T
 export interface AgentTool<TParameters extends z.ZodType = z.ZodType, TDetails = any> {
   name: string
   description: string
-  /** Zod schema owned by BullX business code. */
+  /** Zod schema owned by Ankole business code. */
   schema: TParameters
   /** Human-readable label for UI display. */
   label: string
@@ -372,7 +372,7 @@ export interface AgentTool<TParameters extends z.ZodType = z.ZodType, TDetails =
   executionMode?: ToolExecutionMode
   /**
    * Declared (fail-closed) read-only hint — true means the tool only reads state.
-   * Bullx tool-layer metadata set via `buildTool`; not consumed by the AI SDK loop,
+   * Ankole tool-layer metadata set via `buildTool`; not consumed by the AI SDK loop,
    * reserved for the permission gate. Defaults to false (treated as a write).
    */
   isReadOnly?: boolean

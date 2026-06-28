@@ -52,7 +52,10 @@ defmodule Ankole.SignalsGateway.InputTombstone do
     timestamps()
   end
 
-  @doc false
+  @doc """
+  Builds a changeset for input tombstone rows.
+  """
+  @spec changeset(struct(), map()) :: Ecto.Changeset.t()
   def changeset(tombstone, attrs) do
     tombstone
     |> cast(attrs, [

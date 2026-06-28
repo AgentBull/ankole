@@ -142,7 +142,7 @@ type AnthropicLanguageModelConfig = {
   supportsStrictTools?: boolean
 }
 
-/** Implements the Anthropic Messages adapter used by BullX's Claude model profiles. */
+/** Implements the Anthropic Messages adapter used by Ankole's Claude model profiles. */
 export class AnthropicLanguageModel implements LanguageModelV4 {
   readonly specificationVersion = 'v4'
 
@@ -2476,7 +2476,7 @@ function hasWebTool20260209WithoutCodeExecution(tools: AnthropicTool[] | undefin
   return hasWebTool20260209 && !hasCodeExecutionTool
 }
 
-/** Maps BullX/AI SDK reasoning levels onto Anthropic thinking modes or token budgets. */
+/** Maps Ankole/AI SDK reasoning levels onto Anthropic thinking modes or token budgets. */
 function resolveAnthropicReasoningConfig({
   reasoning,
   supportsAdaptiveThinking,
@@ -2561,7 +2561,7 @@ function mapAnthropicResponseContextManagement(
     : null
 }
 
-/** Keeps provider stop details separate from BullX's smaller cross-provider stop-reason enum. */
+/** Keeps provider stop details separate from Ankole's smaller cross-provider stop-reason enum. */
 function mapAnthropicStopDetails(
   stopDetails: AnthropicStopDetails | null | undefined
 ): AnthropicMessageMetadata['stopDetails'] | undefined {

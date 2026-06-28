@@ -1,7 +1,7 @@
 // Tarjan strongly-connected-component detection over an import graph.
 // Ported verbatim from openclaw/scripts/lib/import-cycle-graph.ts — pure graph
 // algorithm, no project coupling. The resolver that decides which edges count
-// as runtime-value edges lives in ../cycles.ts (bullx-specific, alias-aware).
+// as runtime-value edges lives in ../cycles.ts (Ankole-specific, alias-aware).
 
 import { readdirSync, statSync } from 'node:fs'
 import path from 'node:path'

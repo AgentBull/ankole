@@ -49,7 +49,7 @@ defmodule Ankole.ActorRuntime.RPCLane do
   def handle_request(request, route) when is_map(request) and is_binary(route) do
     request_id = text(request, "request_id") || "rpc-#{Ecto.UUID.generate()}"
     method = text(request, "method") || ""
-    payload = request_payload(request) |> Map.put_new("request_id", request_id)
+    payload = Map.put_new(request_payload(request), "request_id", request_id)
 
     case dispatch_method(method, payload, route) do
       {:ok, response_payload} ->

@@ -31,7 +31,10 @@ defmodule Ankole.AIAgent.Schemas.Conversation do
     timestamps()
   end
 
-  @doc false
+  @doc """
+  Builds a changeset for conversation rows.
+  """
+  @spec changeset(struct(), map()) :: Ecto.Changeset.t()
   def changeset(conversation, attrs) do
     conversation
     |> cast(attrs, [:agent_uid, :conversation_key, :ended_at, :generation, :metadata])

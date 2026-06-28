@@ -24,6 +24,7 @@ defmodule Ankole.ActorRuntime.Supervisor do
   end
 
   @impl true
+  @spec init(keyword()) :: {:ok, tuple()} | :ignore
   def init(opts) do
     WorkerAuthKey.ensure!()
 

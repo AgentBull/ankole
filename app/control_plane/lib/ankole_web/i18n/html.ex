@@ -36,8 +36,7 @@ defmodule AnkoleWeb.I18n.HTML do
   """
   @spec lang() :: String.t()
   def lang do
-    Ankole.I18n.default_locale()
-    |> Ankole.I18n.Resolver.language_tag_to_locale()
+    Ankole.I18n.locale_id(Ankole.I18n.default_locale())
   end
 
   @doc """

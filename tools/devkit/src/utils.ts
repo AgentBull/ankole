@@ -118,17 +118,17 @@ export type StartComposeServicesArgs = {
 }
 
 /**
- * Bring up every service defined in the Compose file (Postgres, Redis, computer, ...).
+ * Bring up every service defined in the Compose file (Postgres, Redis, ...).
  * Shared by `external-services start` and the `app-db` commands so the two
  * start paths cannot drift and silently omit a service.
  */
 export async function startComposeServices({
-  pull = true,
+  pull = false,
   wait = true,
   waitTimeout = 60
 }: StartComposeServicesArgs = {}): Promise<void> {
   const args = ['up', '--detach', '--remove-orphans']
-  if (pull) args.push('--pull', 'always')
+  if (pull) args.push('--pull', 'missing')
   if (wait) args.push('--wait', '--wait-timeout', String(waitTimeout))
 
   await runCompose(args)
@@ -137,19 +137,19 @@ export async function startComposeServices({
 /**
  * Resolves the development database name used by app-db commands.
  *
- * The default still says `bullx_development` because the devkit currently keeps
- * compatibility with the inherited local database naming.
+ * Falls back to the local Ankole development database when no app env file
+ * supplies a `DATABASE_URL`.
  */
 export function resolveAppDatabaseName(explicitName?: string): string {
   if (explicitName) return validateDatabaseName(explicitName)
 
   const databaseUrl = loadAppEnvValue('DATABASE_URL')
-  if (!databaseUrl) return 'bullx_development'
+  if (!databaseUrl) return 'ankole_development'
 
   try {
     const parsed = new URL(databaseUrl)
     const databaseName = decodeURIComponent(parsed.pathname.replace(/^\//, ''))
-    return validateDatabaseName(databaseName || 'bullx_development')
+    return validateDatabaseName(databaseName || 'ankole_development')
   } catch {
     throw new Error(`Invalid DATABASE_URL in app env files: ${databaseUrl}`)
   }

@@ -29,7 +29,10 @@ defmodule Ankole.Principals.HumanUser do
     timestamps()
   end
 
-  @doc false
+  @doc """
+  Builds a changeset for human user profile rows.
+  """
+  @spec changeset(struct(), map()) :: Ecto.Changeset.t()
   def changeset(human_user, attrs) do
     human_user
     |> cast(attrs, [:principal_uid, :email, :mobile, :job_title])

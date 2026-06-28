@@ -40,7 +40,10 @@ defmodule Ankole.AIAgent.Library.Schemas.AgentSkill do
     timestamps()
   end
 
-  @doc false
+  @doc """
+  Builds a changeset for agent skill rows.
+  """
+  @spec changeset(struct(), map()) :: Ecto.Changeset.t()
   def changeset(skill, attrs) do
     skill
     |> cast(attrs, [

@@ -50,7 +50,9 @@ defmodule Ankole.Actors do
     end)
   end
 
-  @doc false
+  @doc """
+  Appends an actor input inside the caller-owned transaction.
+  """
   @spec append_actor_input_in_tx(module(), map()) :: append_result()
   def append_actor_input_in_tx(repo, attrs) when is_map(attrs) do
     attrs = put_live_queue_sequence(repo, attrs)

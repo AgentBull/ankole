@@ -42,7 +42,7 @@ export const Default: Story = {
     <SidebarProvider>
       <Sidebar>
         <SidebarHeader>
-          <div className="px-2 py-1.5 text-sm font-semibold tracking-widest uppercase">BullX</div>
+          <div className="px-2 py-1.5 text-sm font-semibold tracking-widest uppercase">Ankole</div>
         </SidebarHeader>
         <SidebarContent>
           <SidebarGroup>

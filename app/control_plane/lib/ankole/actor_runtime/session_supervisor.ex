@@ -39,6 +39,7 @@ defmodule Ankole.ActorRuntime.SessionSupervisor do
   end
 
   @impl true
+  @spec init(keyword()) :: {:ok, tuple()} | :ignore
   def init(_opts) do
     # :one_for_one — controllers are independent. One actor's crash must not
     # restart unrelated actors' controllers.

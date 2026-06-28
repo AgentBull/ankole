@@ -31,7 +31,10 @@ defmodule Ankole.AIAgent.Library.Schemas.AgentSkillOverlay do
     timestamps()
   end
 
-  @doc false
+  @doc """
+  Builds a changeset for agent skill overlay rows.
+  """
+  @spec changeset(struct(), map()) :: Ecto.Changeset.t()
   def changeset(overlay, attrs) do
     overlay
     |> cast(attrs, [:agent_uid, :skill_name, :overlay_json, :content_hash, :deleted_at])

@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { runAgentLoop } from '../src/core'
 import type { TurnStart } from '../src/actor_lane'
-import type { Message, Model } from '../src/llm/bullx'
+import type { Message, Model } from '../src/llm/ankole'
 import type { LanguageModelV4, LanguageModelV4StreamPart } from '../src/llm/provider'
 import { runLlmTurnHandlers, runTextTurnLoop } from '../src/llm_runtime/text_turn_loop'
 import {

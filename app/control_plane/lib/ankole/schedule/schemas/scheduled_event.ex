@@ -55,7 +55,10 @@ defmodule Ankole.Schedule.Schemas.ScheduledEvent do
     timestamps()
   end
 
-  @doc false
+  @doc """
+  Builds a changeset for scheduled event rows.
+  """
+  @spec changeset(struct(), map()) :: Ecto.Changeset.t()
   def changeset(event, attrs) do
     event
     |> cast(attrs, [

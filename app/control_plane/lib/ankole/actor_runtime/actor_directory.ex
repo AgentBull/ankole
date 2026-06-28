@@ -3,7 +3,10 @@ defmodule Ankole.ActorRuntime.ActorDirectory do
   Registry naming for per-actor session controllers.
   """
 
-  @doc false
+  @doc """
+  Returns the Registry child spec for actor session names.
+  """
+  @spec child_spec(term()) :: Supervisor.child_spec()
   def child_spec(_opts) do
     Registry.child_spec(keys: :unique, name: __MODULE__)
   end

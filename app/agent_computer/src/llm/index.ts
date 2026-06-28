@@ -1,6 +1,6 @@
 // Public entry point for the src/llm/ module. It flattens two layers into one import surface:
 // the vendored Vercel AI SDK (gateway, provider-utils, and the directory exports below) and
-// Ankole's first-party BullX layer (bullx*, catalog, testing). Consumers import from '@/llm'
+// Ankole's first-party runtime LLM layer (ankole*, catalog, testing). Consumers import from '@/llm'
 // and shouldn't need to know which half a symbol came from.
 
 // Side-effect import: installs AI SDK global shims; must run before anything else here.
@@ -51,7 +51,7 @@ export * from './ui-message-stream'
 export * from './upload-file'
 export * from './upload-skill'
 export * from './util'
-// --- Ankole's first-party BullX layer (everything above this line is the vendored AI SDK) ---
+// --- Ankole's first-party runtime LLM layer (everything above this line is the vendored AI SDK) ---
 export {
   ZERO_USAGE,
   calculateCost,
@@ -61,7 +61,7 @@ export {
   type Api,
   type AssistantMessage,
   type AssistantMessageEvent,
-  type BullXTool,
+  type AnkoleTool,
   type CacheRetention,
   type Context,
   type ImageContent,
@@ -81,7 +81,7 @@ export {
   type ToolResultMessage,
   type Usage,
   type UserMessage
-} from './bullx'
-export * from './bullx-ai-sdk'
+} from './ankole'
+export * from './ankole-ai-sdk'
 export * from './catalog'
 export * from './testing'

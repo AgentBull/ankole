@@ -38,7 +38,7 @@ export const Default: Story = {
           </div>
           <div className="grid gap-2">
             <Label htmlFor="sheet-email">Email</Label>
-            <Input id="sheet-email" type="email" defaultValue="jane@bullx.dev" />
+            <Input id="sheet-email" type="email" defaultValue="jane@ankole.dev" />
           </div>
         </div>
         <SheetFooter>

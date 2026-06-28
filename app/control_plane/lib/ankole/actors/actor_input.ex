@@ -42,7 +42,10 @@ defmodule Ankole.Actors.ActorInput do
     timestamps()
   end
 
-  @doc false
+  @doc """
+  Builds a changeset for actor input rows.
+  """
+  @spec changeset(struct(), map()) :: Ecto.Changeset.t()
   def changeset(input, attrs) do
     input
     |> cast(attrs, [

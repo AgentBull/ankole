@@ -20,7 +20,7 @@ export const WithInput: Story = {
   render: () => (
     <div className="flex w-72 flex-col gap-2">
       <Label htmlFor="user">Username</Label>
-      <Input id="user" placeholder="@bullx" />
+      <Input id="user" placeholder="@ankole" />
     </div>
   )
 }

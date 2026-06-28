@@ -31,7 +31,10 @@ defmodule Ankole.Principals.Agent do
     timestamps()
   end
 
-  @doc false
+  @doc """
+  Builds a changeset for agent principal profile rows.
+  """
+  @spec changeset(struct(), map()) :: Ecto.Changeset.t()
   def changeset(agent, attrs) do
     agent
     |> cast(attrs, [:uid, :type, :role, :options, :created_by_principal_uid])

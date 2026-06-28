@@ -65,7 +65,10 @@ defmodule Ankole.ActorRuntime.Schemas.ActorInputDelivery do
     timestamps()
   end
 
-  @doc false
+  @doc """
+  Builds a changeset for actor input delivery rows.
+  """
+  @spec changeset(struct(), map()) :: Ecto.Changeset.t()
   def changeset(delivery, attrs) do
     delivery
     |> cast(attrs, [

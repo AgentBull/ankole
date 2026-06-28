@@ -63,7 +63,7 @@ export const WithAvatar: Story = {
       </ItemMedia>
       <ItemContent>
         <ItemTitle>Jane Doe</ItemTitle>
-        <ItemDescription>jane@bullx.dev</ItemDescription>
+        <ItemDescription>jane@ankole.dev</ItemDescription>
       </ItemContent>
       <ItemActions>
         <Button size="sm" variant="outline">

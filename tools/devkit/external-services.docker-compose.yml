@@ -1,19 +1,21 @@
-name: bullx-agent-dev
+name: ankole-dev
 
 services:
   postgres:
-    image: ghcr.io/agentbull/postgres-for-bullx:main-latest
-    command: ["postgres", "-c", "max_connections=${BULLX_POSTGRES_MAX_CONNECTIONS:-300}"]
+    build:
+      context: ./postgres-for-ankole
+    image: postgres-for-ankole:dev
+    command: ["postgres", "-c", "max_connections=${ANKOLE_POSTGRES_MAX_CONNECTIONS:-300}"]
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: just4local-dev
-      POSTGRES_DB: bullx_development
+      POSTGRES_DB: ankole_development
     ports:
-      - "${BULLX_POSTGRES_PORT:-5433}:5432"
+      - "${ANKOLE_POSTGRES_PORT:-5433}:5432"
     volumes:
-      - postgres_for_bullx_data:/var/lib/pgsql/18/data
+      - postgres_for_ankole_data:/var/lib/pgsql/18/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d bullx_development"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ankole_development"]
       interval: 2s
       timeout: 5s
       retries: 30
@@ -22,7 +24,7 @@ services:
     image: redis:latest
     command: ["redis-server", "--appendonly", "yes"]
     ports:
-      - "${BULLX_REDIS_PORT:-6379}:6379"
+      - "${ANKOLE_REDIS_PORT:-6379}:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -31,36 +33,6 @@ services:
       timeout: 5s
       retries: 30
 
-  computer:
-    build:
-      context: ../../packages/computer
-      dockerfile: docker/Dockerfile
-    privileged: true
-    ports:
-      - "${BULLX_COMPUTER_PORT:-8787}:8787"
-    volumes:
-      - ../../var/computer-dev/user-files:/workspaces/user-files
-    tmpfs:
-      - /workspaces/workspace
-      - /workspaces/temp
-      - /workspaces/library-containers
-    environment:
-      BULLX_COMPUTER_WORKER_ID: dev
-      BULLX_COMPUTER_INSTANCE_ID: dev-local
-      BULLX_COMPUTER_BASE_URL: "https://localhost:${BULLX_COMPUTER_PORT:-8787}"
-      BULLX_COMPUTER_TOKEN: "${BULLX_COMPUTER_TOKEN:-local-dev-computer-token-change-me}"
-      BULLX_COMPUTER_WORKSPACE_ROOT: /workspaces/workspace
-      BULLX_COMPUTER_USER_FILES_ROOT: /workspaces/user-files
-      BULLX_COMPUTER_TEMP_ROOT: /workspaces/temp
-      BULLX_COMPUTER_LIBRARY_CONTAINERS_ROOT: /workspaces/library-containers
-      BULLX_COMPUTER_FEATURES: "bwrap,persistent-shell,tmux,tigerfs,python,jupyter,bun,browser"
-      DATABASE_URL: "postgres://postgres:just4local-dev@postgres:5432/bullx_development"
-    healthcheck:
-      test: ["CMD-SHELL", "test -f /tmp/bullx-computerd.ready"]
-      interval: 2s
-      timeout: 5s
-      retries: 30
-
 volumes:
-  postgres_for_bullx_data:
+  postgres_for_ankole_data:
   redis_data:

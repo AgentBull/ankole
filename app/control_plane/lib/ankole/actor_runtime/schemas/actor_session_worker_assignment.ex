@@ -37,7 +37,10 @@ defmodule Ankole.ActorRuntime.Schemas.ActorSessionWorkerAssignment do
     timestamps()
   end
 
-  @doc false
+  @doc """
+  Builds a changeset for actor session worker assignment rows.
+  """
+  @spec changeset(struct(), map()) :: Ecto.Changeset.t()
   def changeset(assignment, attrs) do
     assignment
     |> cast(attrs, [

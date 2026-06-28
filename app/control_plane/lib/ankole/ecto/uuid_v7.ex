@@ -13,18 +13,33 @@ defmodule Ankole.Ecto.UUIDv7 do
 
   @type t :: Ecto.UUID.t()
 
-  @doc false
+  @doc """
+  Returns the database storage type for Ankole UUIDv7 ids.
+  """
+  @spec type() :: :uuid
   def type, do: :uuid
 
-  @doc false
+  @doc """
+  Casts external UUID values using the standard Ecto UUID codec.
+  """
+  @spec cast(term()) :: {:ok, t()} | :error
   def cast(value), do: Ecto.UUID.cast(value)
 
-  @doc false
+  @doc """
+  Loads database UUID values using the standard Ecto UUID codec.
+  """
+  @spec load(term()) :: {:ok, t()} | :error
   def load(value), do: Ecto.UUID.load(value)
 
-  @doc false
+  @doc """
+  Dumps UUID values using the standard Ecto UUID codec.
+  """
+  @spec dump(term()) :: {:ok, Ecto.UUID.raw()} | :error
   def dump(value), do: Ecto.UUID.dump(value)
 
-  @doc false
+  @doc """
+  Generates a UUIDv7 value through the shared native kernel.
+  """
+  @spec autogenerate() :: t()
   def autogenerate, do: NativeKernel.gen_uuid_v7()
 end

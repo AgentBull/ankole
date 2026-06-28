@@ -53,7 +53,10 @@ defmodule Ankole.SignalsGateway.InboundBatch do
     timestamps()
   end
 
-  @doc false
+  @doc """
+  Builds a changeset for inbound batch rows.
+  """
+  @spec changeset(struct(), map()) :: Ecto.Changeset.t()
   def changeset(batch, attrs) do
     batch
     |> cast(attrs, [

@@ -39,7 +39,7 @@ const minimalDef = {
 } satisfies AgentTool<any, any>
 
 describe('@ankole/agent-computer migrated tool semantics', () => {
-  it('keeps BullX fail-closed defaults for declarative tools', () => {
+  it('keeps Ankole fail-closed defaults for declarative tools', () => {
     const tool = buildTool(minimalDef)
     expect(tool.executionMode).toBe('sequential')
     expect(tool.isReadOnly).toBe(false)
@@ -89,7 +89,7 @@ describe('@ankole/agent-computer migrated tool semantics', () => {
     ).toThrow()
   })
 
-  it('preserves BullX todo read, replace, merge, active snapshot, and caps', async () => {
+  it('preserves Ankole todo read, replace, merge, active snapshot, and caps', async () => {
     const store = new TodoStore()
     expect(store.read()).toEqual([])
 

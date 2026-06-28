@@ -3,7 +3,7 @@ defmodule Ankole.Plugins.LarkAdapter.Card do
   Rendering for provider-native and portable Lark card outbox payloads.
   """
 
-  @action_value_version "bullx.interactive_output.action.v1"
+  @action_value_version "ankole.interactive_output.action.v1"
 
   @doc """
   Selects the best card payload shape and renders portable interaction output.
@@ -64,7 +64,11 @@ defmodule Ankole.Plugins.LarkAdapter.Card do
 
   defp portable_card(output) do
     title = text_field(output, "title")
-    body = text_field(output, "body") || text_field(output, "text") || text_field(output, "fallback_visible_text")
+
+    body =
+      text_field(output, "body") || text_field(output, "text") ||
+        text_field(output, "fallback_visible_text")
+
     facts = list_field(output, "facts")
     choices = list_field(output, "choices")
     state = text_field(output, "state")
@@ -102,18 +106,30 @@ defmodule Ankole.Plugins.LarkAdapter.Card do
   defp state_element("expired", _output), do: %{"tag" => "markdown", "content" => "Expired"}
   defp state_element("cancelled", _output), do: %{"tag" => "markdown", "content" => "Cancelled"}
   defp state_element("superseded", _output), do: %{"tag" => "markdown", "content" => "Superseded"}
-  defp state_element(state, _output), do: %{"tag" => "markdown", "content" => escape_markdown(state)}
+
+  defp state_element(state, _output),
+    do: %{"tag" => "markdown", "content" => escape_markdown(state)}
 
   defp control_notice_payload(%{"control_notice" => notice}) when is_map(notice), do: notice
-  defp control_notice_payload(%{"kind" => "control_notice", "body" => body}) when is_map(body), do: body
-  defp control_notice_payload(%{"type" => "control_notice", "body" => body}) when is_map(body), do: body
+
+  defp control_notice_payload(%{"kind" => "control_notice", "body" => body}) when is_map(body),
+    do: body
+
+  defp control_notice_payload(%{"type" => "control_notice", "body" => body}) when is_map(body),
+    do: body
+
   defp control_notice_payload(%{"kind" => "control_notice"} = notice), do: notice
   defp control_notice_payload(%{"type" => "control_notice"} = notice), do: notice
   defp control_notice_payload(_payload), do: nil
 
   defp progress_notice_payload(%{"progress_notice" => notice}) when is_map(notice), do: notice
-  defp progress_notice_payload(%{"kind" => "progress_notice", "body" => body}) when is_map(body), do: body
-  defp progress_notice_payload(%{"type" => "progress_notice", "body" => body}) when is_map(body), do: body
+
+  defp progress_notice_payload(%{"kind" => "progress_notice", "body" => body}) when is_map(body),
+    do: body
+
+  defp progress_notice_payload(%{"type" => "progress_notice", "body" => body}) when is_map(body),
+    do: body
+
   defp progress_notice_payload(%{"kind" => "progress_notice"} = notice), do: notice
   defp progress_notice_payload(%{"type" => "progress_notice"} = notice), do: notice
   defp progress_notice_payload(_payload), do: nil
@@ -166,7 +182,11 @@ defmodule Ankole.Plugins.LarkAdapter.Card do
     Enum.map(facts, fn fact ->
       label = text_field(fact, "label") || ""
       value = text_field(fact, "value") || ""
-      %{"tag" => "markdown", "content" => "**#{escape_markdown(label)}** #{escape_markdown(value)}"}
+
+      %{
+        "tag" => "markdown",
+        "content" => "**#{escape_markdown(label)}** #{escape_markdown(value)}"
+      }
     end)
   end
 

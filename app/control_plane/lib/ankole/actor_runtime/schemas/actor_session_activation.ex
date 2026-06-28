@@ -55,7 +55,10 @@ defmodule Ankole.ActorRuntime.Schemas.ActorSessionActivation do
     timestamps()
   end
 
-  @doc false
+  @doc """
+  Builds a changeset for actor session activation rows.
+  """
+  @spec changeset(struct(), map()) :: Ecto.Changeset.t()
   def changeset(activation, attrs) do
     activation
     |> cast(attrs, [

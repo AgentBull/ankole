@@ -5,7 +5,7 @@
  *
  * This is a prompt-engineering artifact. Literal strings here are the contract
  * with the model; surrounding code only decides which blocks are present and in
- * what order. The ordering follows BullX's cache-friendly shape: slow-changing
+ * what order. The ordering follows Ankole's cache-friendly shape: slow-changing
  * identity/persona/mission first, then runtime facts, policies, tool routing,
  * and finally the skill index.
  */

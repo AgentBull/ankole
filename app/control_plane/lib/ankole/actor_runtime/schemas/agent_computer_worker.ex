@@ -36,7 +36,10 @@ defmodule Ankole.ActorRuntime.Schemas.AgentComputerWorker do
     timestamps()
   end
 
-  @doc false
+  @doc """
+  Builds a changeset for agent-computer worker rows.
+  """
+  @spec changeset(struct(), map()) :: Ecto.Changeset.t()
   def changeset(worker, attrs) do
     worker
     |> cast(attrs, [

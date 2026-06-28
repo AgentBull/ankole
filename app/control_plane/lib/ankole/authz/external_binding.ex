@@ -24,7 +24,10 @@ defmodule Ankole.AuthZ.ExternalBinding do
     timestamps()
   end
 
-  @doc false
+  @doc """
+  Builds a changeset for external authorization binding rows.
+  """
+  @spec changeset(struct(), map()) :: Ecto.Changeset.t()
   def changeset(binding, attrs) do
     binding
     |> cast(attrs, [:provider, :external_id, :group_id, :metadata])

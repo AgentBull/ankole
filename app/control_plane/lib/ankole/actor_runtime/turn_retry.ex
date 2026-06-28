@@ -26,7 +26,11 @@ defmodule Ankole.ActorRuntime.TurnRetry do
 
   @live_delivery_states ~w(created sent accepted)
 
-  @doc false
+  @doc """
+  Fences an active generation and marks its inputs retryable inside a transaction.
+  """
+  @spec retry_active_generation_in_tx(module(), map(), ActorInput.t(), DateTime.t()) ::
+          {:ok, map() | :no_active_generation} | {:error, term()}
   def retry_active_generation_in_tx(repo, actor_key, %ActorInput{} = command_input, now) do
     with %Conversation{} = conversation <- active_conversation_for_update(repo, actor_key),
          true <- active_generation?(conversation),
@@ -61,7 +65,11 @@ defmodule Ankole.ActorRuntime.TurnRetry do
     end
   end
 
-  @doc false
+  @doc """
+  Retracts one provider source entry from live actor input inside a transaction.
+  """
+  @spec retract_source_entry_in_tx(module(), map(), term(), DateTime.t()) ::
+          {:ok, map()} | {:error, term()}
   def retract_source_entry_in_tx(repo, fact, kind, now) do
     fact
     |> candidate_inputs_for_source_entry(repo)
@@ -84,7 +92,10 @@ defmodule Ankole.ActorRuntime.TurnRetry do
     end
   end
 
-  @doc false
+  @doc """
+  Dispatches best-effort retry controls described by a successful mutation result.
+  """
+  @spec dispatch_retry_controls({:ok, map()} | term()) :: {:ok, map()} | term()
   def dispatch_retry_controls({:ok, result}) when is_map(result) do
     controls = retry_controls_from_result(result)
 

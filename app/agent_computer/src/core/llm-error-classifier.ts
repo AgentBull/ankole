@@ -1,6 +1,6 @@
 // Maps a raw provider/SDK error (or even a bare error string) into a small, backend-independent
 // taxonomy that the runtime uses to decide retry, compaction, and user-facing wording. The provider
-// surface is deliberately wide: BullX talks to OpenAI, Anthropic, Bedrock, and OpenAI-compatible
+// surface is deliberately wide: Ankole talks to OpenAI, Anthropic, Bedrock, and OpenAI-compatible
 // gateways, each of which signals the same failure differently (HTTP status, an SDK `code` string, or
 // only a message). So every branch probes status + code + message and treats a hit on any of them as
 // the class. The branch order is significant — auth/rate-limit/timeout/server are checked before the

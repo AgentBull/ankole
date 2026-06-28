@@ -56,7 +56,10 @@ defmodule Ankole.SignalsGateway.SignalEntry do
     timestamps()
   end
 
-  @doc false
+  @doc """
+  Builds a changeset for signal entry rows.
+  """
+  @spec changeset(struct(), map()) :: Ecto.Changeset.t()
   def changeset(entry, attrs) do
     entry
     |> cast(attrs, [

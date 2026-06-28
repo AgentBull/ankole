@@ -5,11 +5,11 @@ import type {
   LanguageModelV4StreamPart,
   LanguageModelV4Usage
 } from './provider'
-import type { AssistantMessage, Model, ToolCall, Usage } from './bullx'
+import type { AssistantMessage, Model, ToolCall, Usage } from './ankole'
 
 // In-process FAKE LLM provider for tests. It lets a test script a sequence of canned
 // AssistantMessages and exposes them through a real AI SDK LanguageModelV4 instance, so the
-// whole BullX -> AI SDK -> BullX round trip (including streaming) can be exercised with zero
+// whole Ankole -> AI SDK -> Ankole round trip (including streaming) can be exercised with zero
 // network calls. The model's `api`/`provider` are the literal string 'faux'.
 
 /** One scripted turn: either a fixed AssistantMessage, or a function that can inspect the prompt/signal and decide. */
@@ -181,7 +181,7 @@ function createFauxSdkModel(
   }
 }
 
-/** Maps BullX content blocks to AI SDK content parts for the non-streaming path (thinking -> reasoning, toolCall -> tool-call with JSON-stringified args). */
+/** Maps Ankole content blocks to AI SDK content parts for the non-streaming path (thinking -> reasoning, toolCall -> tool-call with JSON-stringified args). */
 function responseContent(response: AssistantMessage): LanguageModelV4Content[] {
   return response.content.map(part => {
     if (part.type === 'text') return { type: 'text', text: part.text }
@@ -229,7 +229,7 @@ function streamParts(response: AssistantMessage): LanguageModelV4StreamPart[] {
   return parts
 }
 
-/** Inverse of toBullXStopReason: turns a BullX stop reason back into the SDK's finish-reason shape for the fake. */
+/** Inverse of toAnkoleStopReason: turns an Ankole stop reason back into the SDK's finish-reason shape for the fake. */
 function finishReason(response: AssistantMessage): LanguageModelV4FinishReason {
   if (response.stopReason === 'length') return { unified: 'length', raw: 'length' }
   if (response.stopReason === 'toolUse') return { unified: 'tool-calls', raw: 'tool-calls' }
@@ -238,9 +238,9 @@ function finishReason(response: AssistantMessage): LanguageModelV4FinishReason {
 }
 
 /**
- * Re-expands BullX's flat Usage into the SDK's nested usage shape. BullX's `input` is the full
+ * Re-expands Ankole's flat Usage into the SDK's nested usage shape. Ankole's `input` is the full
  * input count, so the SDK's `noCache` is derived by subtracting the cache buckets back out
- * (floored at 0). This is the mirror image of toBullXUsage, which flattens the SDK shape down.
+ * (floored at 0). This is the mirror image of toAnkoleUsage, which flattens the SDK shape down.
  */
 function v4Usage(usage: Usage): LanguageModelV4Usage {
   return {

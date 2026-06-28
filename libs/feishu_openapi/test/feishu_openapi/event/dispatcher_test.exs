@@ -177,7 +177,7 @@ defmodule FeishuOpenAPI.Event.DispatcherTest do
         "open_id" => "ou_user",
         "action" => %{
           "tag" => "button",
-          "value" => %{"bullx_action" => "clarify_answer", "choice_value" => "Beta"}
+          "value" => %{"ankole_action" => "clarify_answer", "choice_value" => "Beta"}
         }
       }
 

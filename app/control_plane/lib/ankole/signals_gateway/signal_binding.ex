@@ -55,7 +55,10 @@ defmodule Ankole.SignalsGateway.SignalBinding do
     timestamps()
   end
 
-  @doc false
+  @doc """
+  Builds a changeset for signal binding rows.
+  """
+  @spec changeset(struct(), map()) :: Ecto.Changeset.t()
   def changeset(binding, attrs) do
     binding
     |> cast(attrs, [

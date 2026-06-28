@@ -19,6 +19,8 @@ defmodule Ankole.AIAgent.Library.SourceReader do
   # agent still gets a usable (if minimal) persona rather than failing to seed.
   @fallback_soul "You are an Ankole AI colleague. Reply in plain text."
   @fallback_mission ""
+  @yaml_block_item_regex ~r/^\s+-\s+(.+)\s*$/
+  @yaml_block_end_regex ~r/^\S/
 
   @doc """
   Reads every allowlisted builtin skill bundle from disk.
@@ -391,18 +393,16 @@ defmodule Ankole.AIAgent.Library.SourceReader do
   end
 
   defp collect_yaml_block_list(lines, key) do
+    key_regex = Regex.compile!("^#{Regex.escape(key)}:\\s*$")
+
     {_state, values} =
       Enum.reduce(lines, {:before, []}, fn line, {state, acc} ->
         cond do
-          state == :before and String.match?(line, ~r/^#{Regex.escape(key)}:\s*$/) ->
+          state == :before and Regex.match?(key_regex, line) ->
             {:inside, acc}
 
-          state == :inside and String.match?(line, ~r/^\s+-\s+(.+)\s*$/) ->
-            [_, value] = Regex.run(~r/^\s+-\s+(.+)\s*$/, line)
-            {:inside, [strip_quotes(String.trim(value)) | acc]}
-
-          state == :inside and String.match?(line, ~r/^\S/) ->
-            {:after, acc}
+          state == :inside ->
+            collect_yaml_block_line(line, acc)
 
           true ->
             {state, acc}
@@ -410,6 +410,19 @@ defmodule Ankole.AIAgent.Library.SourceReader do
       end)
 
     Enum.reverse(values)
+  end
+
+  defp collect_yaml_block_line(line, acc) do
+    case Regex.run(@yaml_block_item_regex, line) do
+      [_, value] ->
+        {:inside, [strip_quotes(String.trim(value)) | acc]}
+
+      nil ->
+        case Regex.match?(@yaml_block_end_regex, line) do
+          true -> {:after, acc}
+          false -> {:inside, acc}
+        end
+    end
   end
 
   defp strip_quotes(value) do

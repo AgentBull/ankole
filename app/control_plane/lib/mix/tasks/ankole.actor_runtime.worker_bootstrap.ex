@@ -11,6 +11,15 @@ defmodule Mix.Tasks.Ankole.ActorRuntime.WorkerBootstrap do
 
   @impl Mix.Task
   def run(args) do
+    metadata = %{task: __MODULE__}
+
+    :telemetry.span([:ankole, :mix_task], metadata, fn ->
+      result = do_run(args)
+      {result, Map.put(metadata, :result, :ok)}
+    end)
+  end
+
+  defp do_run(args) do
     Mix.Task.run("app.start")
 
     {opts, _argv, invalid} =
@@ -33,10 +42,12 @@ defmodule Mix.Tasks.Ankole.ActorRuntime.WorkerBootstrap do
   end
 
   defp print_command(opts) do
-    with {:ok, command} <- WorkerBootstrap.docker_run_command(opts) do
-      Mix.shell().info(command)
-    else
-      {:error, reason} -> Mix.raise("failed to render worker bootstrap: #{inspect(reason)}")
+    case WorkerBootstrap.docker_run_command(opts) do
+      {:ok, command} ->
+        Mix.shell().info(command)
+
+      {:error, reason} ->
+        Mix.raise("failed to render worker bootstrap: #{inspect(reason)}")
     end
   end
 end

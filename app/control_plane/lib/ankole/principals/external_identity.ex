@@ -34,7 +34,10 @@ defmodule Ankole.Principals.ExternalIdentity do
     timestamps()
   end
 
-  @doc false
+  @doc """
+  Builds a changeset for external identity rows.
+  """
+  @spec changeset(struct(), map()) :: Ecto.Changeset.t()
   def changeset(external_identity, attrs) do
     external_identity
     |> cast(attrs, [

@@ -3,12 +3,13 @@ import type { LanguageModel } from './types'
 import type { ProviderOptions } from './provider-utils'
 import type { z } from 'zod'
 
-// "BullX" is Ankole's own LLM abstraction layer. It sits ON TOP of the vendored
-// Vercel AI SDK (everything else under src/llm/) and defines the provider-neutral,
-// durable shapes the agent runtime persists to the ledger: Message, AssistantMessage,
-// Usage, ToolCall, Model. The AI SDK speaks the per-call wire format (ModelMessage /
-// content parts); BullX speaks the format that survives across turns, recovery, and
-// audit. The translation between the two lives in bullx-ai-sdk.ts.
+// This module is Ankole's durable LLM abstraction layer. It sits ON TOP of the
+// vendored Vercel AI SDK (everything else under src/llm/) and defines the
+// provider-neutral shapes the agent runtime persists to the ledger: Message,
+// AssistantMessage, Usage, ToolCall, Model. The AI SDK speaks the per-call wire
+// format (ModelMessage / content parts); this module speaks the format that
+// survives across turns, recovery, and audit. The translation between the two
+// lives in ankole-ai-sdk.ts.
 
 /** Provider API dialect (e.g. 'openai-responses', 'anthropic-messages', 'openai-completions'); selects which AI SDK transport a model speaks. */
 export type Api = string
@@ -19,9 +20,9 @@ export type ThinkingLevel = 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
 export type ModelThinkingLevel = 'off' | ThinkingLevel
 /** Per-call reasoning request: 'none' opts out even on a reasoning-capable model. */
 export type ReasoningEffort = 'none' | ThinkingLevel
-/** Maps a BullX thinking level to the provider's own reasoning token/string (null = unsupported at that level). */
+/** Maps an Ankole thinking level to the provider's own reasoning token/string (null = unsupported at that level). */
 export type ThinkingLevelMap = Partial<Record<ModelThinkingLevel, string | null>>
-/** Provider-neutral prompt-cache request. 'short'/'long' map to per-provider TTLs in bullx-ai-sdk.ts; 'none' disables caching. */
+/** Provider-neutral prompt-cache request. 'short'/'long' map to per-provider TTLs in ankole-ai-sdk.ts; 'none' disables caching. */
 export type CacheRetention = 'none' | 'short' | 'long'
 
 export interface ProviderResponse {
@@ -29,7 +30,7 @@ export interface ProviderResponse {
   headers: Record<string, string>
 }
 
-/** Caller-supplied knobs for a single BullX LLM call, normalized away from any one provider's option names. */
+/** Caller-supplied knobs for a single Ankole LLM call, normalized away from any one provider's option names. */
 export interface StreamOptions {
   temperature?: number
   maxTokens?: number
@@ -43,10 +44,10 @@ export interface StreamOptions {
   maxRetries?: number
   maxRetryDelayMs?: number
   // Free-form trace context (e.g. conversation_id / cache_key). Drives prompt-cache key
-  // derivation in bullx-ai-sdk.ts so cache reuse never leaks across conversations.
+  // derivation in ankole-ai-sdk.ts so cache reuse never leaks across conversations.
   metadata?: Record<string, unknown>
   // Escape hatch: raw AI SDK provider options from the control plane, merged with (not
-  // overwritten by) BullX's own cache controls.
+  // overwritten by) Ankole's own cache controls.
   providerOptions?: ProviderOptions
 }
 
@@ -92,9 +93,9 @@ export interface ToolCall {
 }
 
 /**
- * Token accounting for one assistant turn, in BullX's normalized buckets.
+ * Token accounting for one assistant turn, in Ankole's normalized buckets.
  *
- * Providers report cache hits/misses inconsistently; BullX flattens them to four input
+ * Providers report cache hits/misses inconsistently; Ankole flattens them to four input
  * buckets so cost is comparable across providers:
  *  - input:      prompt tokens billed at full rate (provider's reported input count)
  *  - cacheRead:  prompt tokens served from a prompt cache (cheap; e.g. Anthropic cache-read,
@@ -131,7 +132,7 @@ export interface UserMessage {
 }
 
 /**
- * A persisted assistant turn. This is the durable record BullX writes to the ledger, so it
+ * A persisted assistant turn. This is the durable record Ankole writes to the ledger, so it
  * keeps provenance the wire format discards: which model/provider/api produced it, the
  * provider's response id (for support/debugging), token usage+cost, and why it stopped.
  * `model` is the requested model id; `responseModel` is what the provider actually served
@@ -170,25 +171,25 @@ export interface ToolResultMessage<TDetails = any> {
   timestamp: number
 }
 
-/** One entry in a durable BullX transcript. Note: BullX's role is 'toolResult'; the AI SDK wire role is 'tool'. */
+/** One entry in a durable Ankole transcript. Note: Ankole's role is 'toolResult'; the AI SDK wire role is 'tool'. */
 export type Message = UserMessage | AssistantMessage | ToolResultMessage
 
 /** A tool offered to the model: name + description for the prompt, plus a Zod schema used to validate the model's arguments. */
-export interface BullXTool<TParameters extends z.ZodType = z.ZodType> {
+export interface AnkoleTool<TParameters extends z.ZodType = z.ZodType> {
   name: string
   description: string
   schema: TParameters
 }
 
-/** Everything needed to make one BullX call: the system prompt, the transcript so far, and the tools in scope. */
+/** Everything needed to make one Ankole call: the system prompt, the transcript so far, and the tools in scope. */
 export interface Context {
   systemPrompt?: string
   messages: Message[]
-  tools?: BullXTool[]
+  tools?: AnkoleTool[]
 }
 
 /**
- * The streaming protocol BullX emits while an assistant turn is being produced.
+ * The streaming protocol Ankole emits while an assistant turn is being produced.
  * Every event carries `partial`: the assistant message accumulated so far (so a consumer
  * can render or checkpoint mid-stream). `contentIndex` is the slot in `partial.content`
  * the event applies to, letting interleaved text/thinking/tool-call blocks be tracked
@@ -210,7 +211,7 @@ export type AssistantMessageEvent =
   | { type: 'error'; reason: Extract<StopReason, 'aborted' | 'error'>; error: AssistantMessage }
 
 /**
- * Resolved metadata for one model BullX can call. Built from the catalog (see catalog.ts)
+ * Resolved metadata for one model Ankole can call. Built from the catalog (see catalog.ts)
  * and then enriched at request time once provider config is known.
  *
  * `cost` is per-token price in the same four buckets as Usage, so calculateCost() is a
@@ -264,7 +265,7 @@ export const ZERO_USAGE: Usage = {
 
 /**
  * Multiplies each token bucket by the model's per-token price to fill in `usage.cost`.
- * Runs after provider usage has been mapped into BullX's four buckets (see toBullXUsage).
+ * Runs after provider usage has been mapped into Ankole's four buckets (see toAnkoleUsage).
  * `total` is the plain sum of the four — cache reads/writes are already separate line items,
  * so it does NOT double-count them with `input`.
  */

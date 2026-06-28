@@ -16,8 +16,18 @@ defmodule Ankole.ActorRuntime.Jobs.FireScheduledEvent do
   alias Ankole.Schedule
 
   @impl Oban.Worker
-  def perform(%Oban.Job{args: %{"scheduled_event_id" => scheduled_event_id}})
-      when is_binary(scheduled_event_id) do
+  @spec perform(Oban.Job.t()) :: :ok | {:cancel, term()} | {:error, term()}
+  def perform(%Oban.Job{} = job) do
+    metadata = job_metadata(job)
+
+    :telemetry.span([:ankole, :oban, :job], metadata, fn ->
+      result = do_perform(job)
+      {result, Map.put(metadata, :result, result_status(result))}
+    end)
+  end
+
+  defp do_perform(%Oban.Job{args: %{"scheduled_event_id" => scheduled_event_id}})
+       when is_binary(scheduled_event_id) do
     case Schedule.fire_due_event(scheduled_event_id) do
       {:ok, %{status: :fired}} ->
         ActivationManager.wake()
@@ -37,5 +47,13 @@ defmodule Ankole.ActorRuntime.Jobs.FireScheduledEvent do
     end
   end
 
-  def perform(%Oban.Job{}), do: {:cancel, :missing_scheduled_event_id}
+  defp do_perform(%Oban.Job{}), do: {:cancel, :missing_scheduled_event_id}
+
+  defp job_metadata(%Oban.Job{} = job) do
+    %{worker: __MODULE__, queue: job.queue, job_id: job.id, attempt: job.attempt}
+  end
+
+  defp result_status(:ok), do: :ok
+  defp result_status({:cancel, _reason}), do: :cancel
+  defp result_status({:error, _reason}), do: :error
 end

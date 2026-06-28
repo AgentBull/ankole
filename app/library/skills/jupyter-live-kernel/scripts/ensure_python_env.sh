@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ENV_DIR="${BULLX_AGENT_PYTHON_ENV:-/workspace/user-files/.bullx/python}"
-PYTHON_VERSION="${BULLX_AGENT_PYTHON_VERSION:-3.12}"
+ENV_DIR="${ANKOLE_AGENT_PYTHON_ENV:-/workspace/user-files/.ankole/python}"
+PYTHON_VERSION="${ANKOLE_AGENT_PYTHON_VERSION:-3.12}"
 
 if [ ! -x "$ENV_DIR/bin/python" ]; then
   mkdir -p "$(dirname "$ENV_DIR")"

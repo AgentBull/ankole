@@ -1,6 +1,6 @@
-// `analyze smells` — bullx boundary / architecture-smell gate.
+// `analyze smells` — Ankole boundary / architecture-smell gate.
 //
-// Rules are bullx-specific (the OpenClaw smells don't apply); only the regex
+// Rules are Ankole-specific (the OpenClaw smells don't apply); only the regex
 // reference scanner is ported. Four rules:
 //   ① sdk must not re-export app/plugin internals
 //   ② plugin/** must not import app internals

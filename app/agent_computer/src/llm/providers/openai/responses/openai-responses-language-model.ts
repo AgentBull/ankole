@@ -93,7 +93,7 @@ function extractApprovalRequestIdToToolCallIdMapping(prompt: LanguageModelV4Prom
   return mapping
 }
 
-/** Implements the OpenAI Responses API adapter that BullX uses for first-class OpenAI reasoning models. */
+/** Implements the OpenAI Responses API adapter that Ankole uses for first-class OpenAI reasoning models. */
 export class OpenAIResponsesLanguageModel implements LanguageModelV4 {
   readonly specificationVersion = 'v4'
 

@@ -608,7 +608,7 @@ control id, selected option id, and provider-safe option value. The adapter does
 not collapse those values into display text.
 
 The portable action value version is
-`bullx.interactive_output.action.v1`. The card button name is the control id.
+`ankole.interactive_output.action.v1`. The card button name is the control id.
 The callback value must be the structured action object, not a localized label.
 An answered card renders every choice disabled, and the chosen option's visible
 text appends `(selected)`. State text should match Bun behavior:

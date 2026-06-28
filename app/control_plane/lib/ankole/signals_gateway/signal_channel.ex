@@ -41,7 +41,10 @@ defmodule Ankole.SignalsGateway.SignalChannel do
     timestamps()
   end
 
-  @doc false
+  @doc """
+  Builds a changeset for signal channel rows.
+  """
+  @spec changeset(struct(), map()) :: Ecto.Changeset.t()
   def changeset(channel, attrs) do
     channel
     |> cast(attrs, [

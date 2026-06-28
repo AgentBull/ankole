@@ -165,7 +165,7 @@ export async function runDuplicates(options: DuplicatesOptions = {}): Promise<Ch
     return infraResult('jscpd binary not found in node_modules/.bin (run `bun install`).')
   }
 
-  const reportDir = path.join(tmpdir(), `bullx-analyze-jscpd-${process.pid}`)
+  const reportDir = path.join(tmpdir(), `ankole-analyze-jscpd-${process.pid}`)
   const findings: DuplicateFinding[] = []
   try {
     for (const scan of DUP_SCANS) {

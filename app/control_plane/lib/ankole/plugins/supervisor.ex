@@ -21,6 +21,7 @@ defmodule Ankole.Plugins.Supervisor do
   end
 
   @impl true
+  @spec init(keyword()) :: {:ok, tuple()} | :ignore
   def init(opts) do
     registry = Keyword.get(opts, :registry, Ankole.Plugins.Registry)
     children = Ankole.Plugins.Registry.supervised_children(registry)

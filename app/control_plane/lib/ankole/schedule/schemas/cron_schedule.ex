@@ -39,7 +39,10 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
     timestamps()
   end
 
-  @doc false
+  @doc """
+  Builds a changeset for cron schedule rows.
+  """
+  @spec changeset(struct(), map()) :: Ecto.Changeset.t()
   def changeset(schedule, attrs) do
     schedule
     |> cast(attrs, [

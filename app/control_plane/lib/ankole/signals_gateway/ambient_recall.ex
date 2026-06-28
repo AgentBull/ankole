@@ -49,10 +49,12 @@ defmodule Ankole.SignalsGateway.AmbientRecall do
       end)
 
     signal_channel_id =
-      entries
-      |> Enum.map(& &1["signal_channel_id"])
-      |> Enum.find(&is_binary/1) ||
-        attrs.signal_channel_id
+      Enum.find_value(entries, attrs.signal_channel_id, fn entry ->
+        case entry["signal_channel_id"] do
+          channel_id when is_binary(channel_id) -> channel_id
+          _value -> false
+        end
+      end)
 
     case {signal_channel_id, times} do
       {channel_id, [_ | _]} when is_binary(channel_id) ->
@@ -97,8 +99,11 @@ defmodule Ankole.SignalsGateway.AmbientRecall do
     )
     |> limit(@ambient_recall_max_rows)
     |> Repo.all()
-    |> Enum.filter(&same_provider_thread?(&1, boundary.provider_thread_id))
-    |> Enum.map(&observed_message_from_signal_entry(&1, attrs.provider_thread_id))
+    |> then(fn entries ->
+      for entry <- entries,
+          same_provider_thread?(entry, boundary.provider_thread_id),
+          do: observed_message_from_signal_entry(entry, attrs.provider_thread_id)
+    end)
   end
 
   defp recall_conversation_observed_messages(attrs, boundary) do
@@ -111,8 +116,11 @@ defmodule Ankole.SignalsGateway.AmbientRecall do
       |> order_by([message], asc: message.inserted_at)
       |> limit(@ambient_recall_max_rows)
       |> Repo.all()
-      |> Enum.filter(&message_in_boundary?(&1, boundary))
-      |> Enum.map(&observed_message_from_conversation/1)
+      |> then(fn messages ->
+        for message <- messages,
+            message_in_boundary?(message, boundary),
+            do: observed_message_from_conversation(message)
+      end)
     else
       nil -> []
     end

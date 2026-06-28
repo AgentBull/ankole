@@ -12,13 +12,13 @@ export function externalServicesCommand(): Crust {
       cmd
         .meta({
           aliases: ['up'],
-          description: 'Start Postgres, Redis, and the dev computer worker.'
+          description: 'Start Postgres and Redis.'
         })
         .flags({
           pull: {
             type: 'boolean',
-            description: 'Pull latest service images before starting.',
-            default: true
+            description: 'Pull missing remote service images before starting.',
+            default: false
           },
           wait: {
             type: 'boolean',
@@ -40,14 +40,10 @@ export function externalServicesCommand(): Crust {
         )
     )
     .command('stop', cmd =>
-      cmd
-        .meta({ description: 'Stop Postgres, Redis, and the dev computer worker without removing containers.' })
-        .run(() => runCompose(['stop']))
+      cmd.meta({ description: 'Stop Postgres and Redis without removing containers.' }).run(() => runCompose(['stop']))
     )
     .command('restart', cmd =>
-      cmd
-        .meta({ description: 'Restart Postgres, Redis, and the dev computer worker.' })
-        .run(() => runCompose(['restart']))
+      cmd.meta({ description: 'Restart Postgres and Redis.' }).run(() => runCompose(['restart']))
     )
     .command('remove', cmd =>
       cmd

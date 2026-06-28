@@ -3,7 +3,7 @@ import { z } from 'zod/v4'
 import type { TurnStart, JsonObject } from '../actor_lane'
 import { createCombinedAbortSignal } from '../common/async'
 import { streamObject, zodSchema, type Message, type Model } from '../llm'
-import { convertBullXMessagesToModelMessages } from '../llm/bullx-ai-sdk'
+import { convertAnkoleMessagesToModelMessages } from '../llm/ankole-ai-sdk'
 import type { ProviderOptions } from '../llm/provider-utils'
 import { buildAmbientRecognizerSystemPrompt, buildAmbientRecognizerUserPrompt } from '../prompts/ambient_prompt'
 import type { AgentConversationContext, ConversationHistoryMessage, ConversationHistoryResponse } from '../rpc_lane'
@@ -142,7 +142,7 @@ export async function runAmbientRecognizer(input: {
     const response = streamObject({
       model: input.model.sdkModel,
       system: systemPrompt,
-      messages: convertBullXMessagesToModelMessages(messages),
+      messages: convertAnkoleMessagesToModelMessages(messages),
       schema: zodSchema(AmbientRecognizerDecisionSchema),
       schemaName: 'ambient_intervention_decision',
       schemaDescription: 'Decision on whether the agent should proactively speak in the observed IM room.',

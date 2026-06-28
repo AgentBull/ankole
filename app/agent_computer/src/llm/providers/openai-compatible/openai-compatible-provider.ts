@@ -109,7 +109,7 @@ export interface OpenAICompatibleProviderSettings {
 /**
  * Creates an OpenAI-compatible provider instance for configurable third-party LLM backends.
  *
- * BullX uses this for providers such as OpenRouter, xAI, Groq, and user-entered
+ * Ankole uses this for providers such as OpenRouter, xAI, Groq, and user-entered
  * compatible endpoints, so this factory is part of the core model-routing path.
  */
 export function createOpenAICompatible<

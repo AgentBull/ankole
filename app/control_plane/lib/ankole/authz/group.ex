@@ -31,7 +31,10 @@ defmodule Ankole.AuthZ.Group do
     timestamps()
   end
 
-  @doc false
+  @doc """
+  Builds a changeset for authorization group rows.
+  """
+  @spec changeset(struct(), map()) :: Ecto.Changeset.t()
   def changeset(group, attrs) do
     group
     |> cast(attrs, [
