@@ -128,7 +128,8 @@ type BaseTool<
    *
    * If not provided, the tool result will be sent as a JSON object.
    *
-   * This function is invoked on the server by `convertToModelMessages`, so ensure that you pass the same "tools" (ToolSet) to both "convertToModelMessages" and "streamText" (or other generation APIs).
+   * This function is invoked by server-side message conversion before generation, so ensure that the same
+   * tool set is used when building model messages and calling `streamText` or other generation APIs.
    */
   toModelOutput?: (options: {
     /**

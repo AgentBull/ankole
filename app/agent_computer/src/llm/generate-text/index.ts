@@ -66,7 +66,7 @@ export {
   type StreamTextOnErrorCallback,
   type StreamTextTransform
 } from './stream-text'
-export type { StreamTextResult, TextStreamPart, UIMessageStreamOptions } from './stream-text-result'
+export type { StreamTextResult, TextStreamPart } from './stream-text-result'
 export type {
   GenericToolApprovalFunction,
   SingleToolApprovalFunction,

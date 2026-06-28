@@ -40,6 +40,7 @@ export type OpenAIResponsesInputItem =
 
 export type OpenAIResponsesIncludeValue =
   | 'web_search_call.action.sources'
+  | 'web_search_call.results'
   | 'code_interpreter_call.outputs'
   | 'computer_call_output.output.image_url'
   | 'file_search_call.results'
@@ -516,9 +517,20 @@ export const openaiResponsesChunkSchema = lazySchema(() =>
           incomplete_details: z.object({ reason: z.string() }).nullish(),
           usage: z.object({
             input_tokens: z.number(),
-            input_tokens_details: z.object({ cached_tokens: z.number().nullish() }).nullish(),
+            input_tokens_details: z
+              .object({
+                cached_tokens: z.number().nullish(),
+                orchestration_input_tokens: z.number().nullish(),
+                orchestration_input_cached_tokens: z.number().nullish()
+              })
+              .nullish(),
             output_tokens: z.number(),
-            output_tokens_details: z.object({ reasoning_tokens: z.number().nullish() }).nullish()
+            output_tokens_details: z
+              .object({
+                reasoning_tokens: z.number().nullish(),
+                orchestration_output_tokens: z.number().nullish()
+              })
+              .nullish()
           }),
           service_tier: z.string().nullish()
         })
@@ -537,9 +549,20 @@ export const openaiResponsesChunkSchema = lazySchema(() =>
           usage: z
             .object({
               input_tokens: z.number(),
-              input_tokens_details: z.object({ cached_tokens: z.number().nullish() }).nullish(),
+              input_tokens_details: z
+                .object({
+                  cached_tokens: z.number().nullish(),
+                  orchestration_input_tokens: z.number().nullish(),
+                  orchestration_input_cached_tokens: z.number().nullish()
+                })
+                .nullish(),
               output_tokens: z.number(),
-              output_tokens_details: z.object({ reasoning_tokens: z.number().nullish() }).nullish()
+              output_tokens_details: z
+                .object({
+                  reasoning_tokens: z.number().nullish(),
+                  orchestration_output_tokens: z.number().nullish()
+                })
+                .nullish()
             })
             .nullish(),
           service_tier: z.string().nullish()
@@ -1385,9 +1408,20 @@ export const openaiResponsesResponseSchema = lazySchema(() =>
       usage: z
         .object({
           input_tokens: z.number(),
-          input_tokens_details: z.object({ cached_tokens: z.number().nullish() }).nullish(),
+          input_tokens_details: z
+            .object({
+              cached_tokens: z.number().nullish(),
+              orchestration_input_tokens: z.number().nullish(),
+              orchestration_input_cached_tokens: z.number().nullish()
+            })
+            .nullish(),
           output_tokens: z.number(),
-          output_tokens_details: z.object({ reasoning_tokens: z.number().nullish() }).nullish()
+          output_tokens_details: z
+            .object({
+              reasoning_tokens: z.number().nullish(),
+              orchestration_output_tokens: z.number().nullish()
+            })
+            .nullish()
         })
         .optional()
     })

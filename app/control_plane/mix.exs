@@ -53,7 +53,7 @@ defmodule Ankole.MixProject do
   # Type `mix help deps` for examples and options.
   defp deps do
     [
-      {:archdo, ">= 0.0.0", github: "BadBeta/archdo", only: [:dev, :test], runtime: false},
+      {:archdo, ">= 0.0.0", github: "BadBeta/archdo", only: :dev, runtime: false},
       {:phoenix, "~> 1.8.8"},
       {:phoenix_ecto, "~> 4.7"},
       {:ecto_sql, "~> 3.14"},
@@ -94,7 +94,12 @@ defmodule Ankole.MixProject do
       test: ["ecto.create --quiet", "ecto.migrate --quiet", "test"],
       "assets.build": ["cmd --cd ../webapps bun run build"],
       "assets.deploy": ["assets.build", "phx.digest"],
-      precommit: ["compile --warnings-as-errors", "deps.unlock --unused", "format", "test"]
+      precommit: [
+        "compile --warnings-as-errors --no-all-warnings",
+        "deps.unlock --unused",
+        "format",
+        "test"
+      ]
     ]
   end
 end

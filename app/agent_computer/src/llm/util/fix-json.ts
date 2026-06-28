@@ -4,6 +4,7 @@ type State =
   | 'FINISH'
   | 'INSIDE_STRING'
   | 'INSIDE_STRING_ESCAPE'
+  | 'INSIDE_STRING_UNICODE_ESCAPE'
   | 'INSIDE_LITERAL'
   | 'INSIDE_NUMBER'
   | 'INSIDE_OBJECT_START'
@@ -29,6 +30,11 @@ export function fixJson(input: string): string {
   const stack: State[] = ['ROOT']
   let lastValidIndex = -1
   let literalStart: number | null = null
+  let unicodeEscapeDigits = 0
+
+  function isHexDigit(char: string) {
+    return (char >= '0' && char <= '9') || (char >= 'A' && char <= 'F') || (char >= 'a' && char <= 'f')
+  }
 
   function processValueStart(char: string, i: number, swapState: State) {
     {
@@ -261,7 +267,26 @@ export function fixJson(input: string): string {
 
       case 'INSIDE_STRING_ESCAPE': {
         stack.pop()
-        lastValidIndex = i
+
+        if (char === 'u') {
+          unicodeEscapeDigits = 0
+          stack.push('INSIDE_STRING_UNICODE_ESCAPE')
+        } else {
+          lastValidIndex = i
+        }
+
+        break
+      }
+
+      case 'INSIDE_STRING_UNICODE_ESCAPE': {
+        if (isHexDigit(char)) {
+          unicodeEscapeDigits++
+
+          if (unicodeEscapeDigits === 4) {
+            stack.pop()
+            lastValidIndex = i
+          }
+        }
 
         break
       }

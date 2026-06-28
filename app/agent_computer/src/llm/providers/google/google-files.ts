@@ -207,12 +207,10 @@ const googleFileResponseSchema = lazySchema(() =>
 
 const googleFilesUploadOptionsSchema = lazySchema(() =>
   zodSchema(
-    z
-      .object({
-        displayName: z.string().nullish(),
-        pollIntervalMs: z.number().positive().nullish(),
-        pollTimeoutMs: z.number().positive().nullish()
-      })
-      .passthrough()
+    z.looseObject({
+      displayName: z.string().nullish(),
+      pollIntervalMs: z.number().positive().nullish(),
+      pollTimeoutMs: z.number().positive().nullish()
+    })
   )
 )

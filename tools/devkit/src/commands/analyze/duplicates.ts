@@ -5,7 +5,7 @@
 // (positional PATHs + --ignore-pattern, no --pattern; --gitignore default-on)
 // and the JSON report (`duplicates[]`) as the source of truth for the gate.
 
-import { mkdirSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { repoRootPath, resolveLocalBin, runChildCaptured } from '../../utils'
@@ -78,6 +78,7 @@ async function assertTargetCoverage(): Promise<string[]> {
     .split('\0')
     .filter(Boolean)
     .map(file => file.split(path.sep).join('/'))
+    .filter(file => existsSync(path.join(repoRootPath, file)))
     .filter(file => DUP_SOURCE_EXTENSIONS.has(path.extname(file)))
     .filter(file => !isCovered(file))
     .toSorted((left, right) => left.localeCompare(right))

@@ -419,7 +419,6 @@ export class GoogleInteractionsLanguageModel implements LanguageModelV4 {
     const url = `${this.config.baseURL}/interactions`
 
     const mergedHeaders = combineHeaders(
-      INTERACTIONS_API_REVISION_HEADER,
       this.config.headers ? await resolve(this.config.headers) : undefined,
       options.headers
     )
@@ -533,7 +532,6 @@ export class GoogleInteractionsLanguageModel implements LanguageModelV4 {
     const url = `${this.config.baseURL}/interactions`
 
     const mergedHeaders = combineHeaders(
-      INTERACTIONS_API_REVISION_HEADER,
       this.config.headers ? await resolve(this.config.headers) : undefined,
       options.headers
     )
@@ -696,15 +694,6 @@ export class GoogleInteractionsLanguageModel implements LanguageModelV4 {
       response: { headers: postHeaders }
     }
   }
-}
-
-/*
- * Pins the Interactions API revision the SDK targets. Sent on every request
- * the model issues so model-id calls, agent calls, polling, SSE reconnects,
- * and cancellation all hit the same schema.
- */
-const INTERACTIONS_API_REVISION_HEADER: Record<string, string> = {
-  'Api-Revision': '2026-05-20'
 }
 
 function pruneUndefined<T extends Record<string, unknown>>(obj: T): T {

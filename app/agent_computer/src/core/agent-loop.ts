@@ -540,7 +540,7 @@ async function streamAssistantResponse(
         }
         return streamText({
           model: sdkModel,
-          system: context.systemPrompt,
+          instructions: context.systemPrompt,
           messages: sdkMessages,
           tools: sdkTools,
           // Stop the SDK after a single step. This loop — not the SDK's own multi-step agent — owns the

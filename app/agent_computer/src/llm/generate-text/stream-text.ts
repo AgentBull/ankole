@@ -49,12 +49,6 @@ import type { LanguageModelRequestMetadata } from '../types'
 import type { CallWarning, FinishReason, LanguageModel, ToolChoice } from '../types/language-model'
 import type { ProviderMetadata } from '../types/provider-metadata'
 import { addLanguageModelUsage, createNullLanguageModelUsage, type LanguageModelUsage } from '../types/usage'
-import type { UIMessage } from '../ui'
-import { createUIMessageStreamResponse } from '../ui-message-stream/create-ui-message-stream-response'
-import { pipeUIMessageStreamToResponse } from '../ui-message-stream/pipe-ui-message-stream-to-response'
-import { toUIMessageStream as toUIMessageStreamHelper } from '../ui-message-stream/to-ui-message-stream'
-import type { InferUIMessageChunk } from '../ui-message-stream/ui-message-chunks'
-import type { UIMessageStreamResponseInit } from '../ui-message-stream/ui-message-stream-response-init'
 import { createAsyncIterableStream, type AsyncIterableStream } from '../util/async-iterable-stream'
 import type { Callback } from '../util/callback'
 import { consumeStream } from '../util/consume-stream'
@@ -91,12 +85,7 @@ import { createRestrictedTelemetryDispatcher } from './restricted-telemetry-disp
 import { DefaultStepResult, type StepResult, type StepResultPerformance } from './step-result'
 import { isStepCount, isStopConditionMet, type StopCondition } from './stop-condition'
 import { streamLanguageModelCall } from './stream-language-model-call'
-import type {
-  ConsumeStreamOptions,
-  StreamTextResult,
-  TextStreamPart,
-  UIMessageStreamOptions
-} from './stream-text-result'
+import type { ConsumeStreamOptions, StreamTextResult, TextStreamPart } from './stream-text-result'
 import { toResponseMessages } from './to-response-messages'
 import type { ToolApprovalConfiguration } from './tool-approval-configuration'
 import type { TypedToolCall } from './tool-call'
@@ -705,6 +694,12 @@ export function streamText<
 export type EnrichedStreamPart<TOOLS extends ToolSet, PARTIAL_OUTPUT> = {
   part: TextStreamPart<TOOLS>
   partialOutput: PARTIAL_OUTPUT | undefined
+}
+
+async function markPromiseAsHandled<T>(promise: Promise<T>): Promise<void> {
+  try {
+    await promise
+  } catch {}
 }
 
 function createOutputTransformStream<TOOLS extends ToolSet, OUTPUT extends Output>(
@@ -2234,12 +2229,17 @@ class DefaultStreamTextResult<
   }
 
   private rejectResultPromises(error: unknown) {
-    if (this._finishReason.isPending()) this._finishReason.reject(error)
-    if (this._rawFinishReason.isPending()) this._rawFinishReason.reject(error)
-    if (this._totalUsage.isPending()) this._totalUsage.reject(error)
-    if (this._steps.isPending()) this._steps.reject(error)
-    if (this._initialResponseMessages.isPending()) {
-      this._initialResponseMessages.reject(error)
+    this.rejectResultPromise({ delayedPromise: this._finishReason, error })
+    this.rejectResultPromise({ delayedPromise: this._rawFinishReason, error })
+    this.rejectResultPromise({ delayedPromise: this._totalUsage, error })
+    this.rejectResultPromise({ delayedPromise: this._steps, error })
+    this.rejectResultPromise({ delayedPromise: this._initialResponseMessages, error })
+  }
+
+  private rejectResultPromise<T>({ delayedPromise, error }: { delayedPromise: DelayedPromise<T>; error: unknown }) {
+    if (delayedPromise.isPending()) {
+      delayedPromise.reject(error)
+      markPromiseAsHandled(delayedPromise.promise)
     }
   }
 
@@ -2302,98 +2302,10 @@ class DefaultStreamTextResult<
     })
   }
 
-  toUIMessageStream<UI_MESSAGE extends UIMessage>({
-    originalMessages,
-    generateMessageId,
-    onFinish,
-    messageMetadata,
-    sendReasoning,
-    sendSources,
-    sendStart,
-    sendFinish,
-    onError
-  }: UIMessageStreamOptions<UI_MESSAGE> = {}): AsyncIterableStream<InferUIMessageChunk<UI_MESSAGE>> {
-    return createAsyncIterableStream(
-      toUIMessageStreamHelper({
-        stream: this.stream,
-        tools: this.tools,
-        originalMessages,
-        generateMessageId,
-        onFinish,
-        messageMetadata,
-        sendReasoning,
-        sendSources,
-        sendStart,
-        sendFinish,
-        onError
-      })
-    )
-  }
-
-  pipeUIMessageStreamToResponse<UI_MESSAGE extends UIMessage>(
-    response: ServerResponse,
-    {
-      originalMessages,
-      generateMessageId,
-      onFinish,
-      messageMetadata,
-      sendReasoning,
-      sendSources,
-      sendFinish,
-      sendStart,
-      onError,
-      ...init
-    }: UIMessageStreamResponseInit & UIMessageStreamOptions<UI_MESSAGE> = {}
-  ) {
-    pipeUIMessageStreamToResponse({
-      response,
-      stream: this.toUIMessageStream({
-        originalMessages,
-        generateMessageId,
-        onFinish,
-        messageMetadata,
-        sendReasoning,
-        sendSources,
-        sendFinish,
-        sendStart,
-        onError
-      }),
-      ...init
-    })
-  }
-
   pipeTextStreamToResponse(response: ServerResponse, init?: ResponseInit) {
     pipeTextStreamToResponse({
       response,
       stream: this.textStream,
-      ...init
-    })
-  }
-
-  toUIMessageStreamResponse<UI_MESSAGE extends UIMessage>({
-    originalMessages,
-    generateMessageId,
-    onFinish,
-    messageMetadata,
-    sendReasoning,
-    sendSources,
-    sendFinish,
-    sendStart,
-    onError,
-    ...init
-  }: UIMessageStreamResponseInit & UIMessageStreamOptions<UI_MESSAGE> = {}): Response {
-    return createUIMessageStreamResponse({
-      stream: this.toUIMessageStream({
-        originalMessages,
-        generateMessageId,
-        onFinish,
-        messageMetadata,
-        sendReasoning,
-        sendSources,
-        sendFinish,
-        sendStart,
-        onError
-      }),
       ...init
     })
   }

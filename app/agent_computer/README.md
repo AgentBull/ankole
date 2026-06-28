@@ -28,8 +28,8 @@ payloads, or final proposals.
 - Worker process lifecycle: connect to RuntimeFabric, announce readiness,
   heartbeat, advertise capacity, accept at most one active turn, and handle
   retry control.
-- LLM runtime: model/provider construction, prompt assembly, message shaping,
-  tool loops, ambient recognizer turns, and compression turns.
+- Core turn execution: model/provider construction, prompt assembly, message
+  shaping, tool loops, ambient recognizer turns, and compression turns.
 - Worker-local tools: `todo`, browser tools, `command`,
   `interactive_terminal`, `read_file`, `patch`, `reply_attachment`,
   `skill_view`, `skill_append`, `check_back_later`, and `cron`.
@@ -61,7 +61,7 @@ payloads, or final proposals.
 - `src/rpc_lane.ts` - worker/control-plane RPC contracts.
 - `src/file_transfer_lane.ts` - RuntimeFabric worker-file protocol.
 - `src/workspace.ts` - per-turn workspace preparation and readiness checks.
-- `src/llm_runtime/` - turn handlers, history shaping, compression, ambient
+- `src/core/turns/` - turn handlers, history shaping, compression, ambient
   recognition, scheduling integration, and telemetry.
 - `src/llm/` - Ankole's provider-neutral LLM abstraction plus provider
   adapters.

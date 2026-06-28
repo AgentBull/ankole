@@ -182,6 +182,12 @@ export class OpenAIResponsesLanguageModel implements LanguageModelV4 {
 
     const resolvedReasoningEffort =
       openaiOptions?.reasoningEffort ?? (isCustomReasoning(reasoning) ? reasoning : undefined)
+    const resolvedReasoningSummary =
+      openaiOptions?.reasoningSummary !== undefined
+        ? openaiOptions.reasoningSummary
+        : resolvedReasoningEffort != null && resolvedReasoningEffort !== 'none'
+          ? 'detailed'
+          : undefined
 
     const isReasoningModel = openaiOptions?.forceReasoning ?? modelCapabilities.isReasoningModel
 
@@ -346,13 +352,13 @@ export class OpenAIResponsesLanguageModel implements LanguageModelV4 {
 
       // model-specific settings:
       ...(isReasoningModel &&
-        (resolvedReasoningEffort != null || openaiOptions?.reasoningSummary != null) && {
+        (resolvedReasoningEffort != null || resolvedReasoningSummary != null) && {
           reasoning: {
             ...(resolvedReasoningEffort != null && {
               effort: resolvedReasoningEffort
             }),
-            ...(openaiOptions?.reasoningSummary != null && {
-              summary: openaiOptions.reasoningSummary
+            ...(resolvedReasoningSummary != null && {
+              summary: resolvedReasoningSummary
             })
           }
         })

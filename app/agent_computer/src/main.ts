@@ -7,7 +7,7 @@ import {
   type TurnStart,
   type TurnSteerUpdate
 } from './actor_lane'
-import { runLlmTurnHandlers } from './llm_runtime/text_turn_loop'
+import { runLlmTurnHandlers } from './core'
 import { finalProposalEnvelope, turnAcceptedEnvelope, turnErrorEnvelope } from './turn_envelopes'
 import type {
   AgentConversationContext,

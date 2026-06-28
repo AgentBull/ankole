@@ -1,5 +1,5 @@
 // Public entry point for the src/llm/ module. It flattens two layers into one import surface:
-// the vendored Vercel AI SDK (gateway, provider-utils, and the directory exports below) and
+// the vendored Vercel AI SDK core/provider utilities and the directory exports below, plus
 // Ankole's first-party runtime LLM layer (ankole*, catalog, testing). Consumers import from '@/llm'
 // and shouldn't need to know which half a symbol came from.
 
@@ -46,8 +46,6 @@ export * from './telemetry'
 export * from './text-stream'
 export * from './transcribe'
 export * from './types'
-export * from './ui'
-export * from './ui-message-stream'
 export * from './upload-file'
 export * from './upload-skill'
 export * from './util'

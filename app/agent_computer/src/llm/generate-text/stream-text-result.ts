@@ -1,15 +1,11 @@
 // @ts-nocheck
 import type { JSONObject } from '@/llm/provider'
-import type { Context, IdGenerator, ToolSet } from '@/llm/provider-utils'
+import type { Context, ToolSet } from '@/llm/provider-utils'
 import type { ServerResponse } from 'node:http'
 import type { CallWarning, FinishReason, LanguageModelRequestMetadata, ProviderMetadata } from '../types'
 import type { Source } from '../types/language-model'
 import type { LanguageModelResponseMetadata } from '../types/language-model-response-metadata'
 import type { LanguageModelUsage } from '../types/usage'
-import type { InferUIMessageChunk } from '../ui-message-stream/ui-message-chunks'
-import type { UIMessageStreamOnFinishCallback } from '../ui-message-stream/ui-message-stream-on-finish-callback'
-import type { UIMessageStreamResponseInit } from '../ui-message-stream/ui-message-stream-response-init'
-import type { InferUIMessageMetadata, UIMessage } from '../ui/ui-messages'
 import type { AsyncIterableStream } from '../util/async-iterable-stream'
 import type { ErrorHandler } from '../util/error-handler'
 import type { ContentPart } from './content-part'
@@ -25,66 +21,6 @@ import type { DynamicToolCall, StaticToolCall, TypedToolCall } from './tool-call
 import type { TypedToolError } from './tool-error'
 import type { StaticToolOutputDenied } from './tool-output-denied'
 import type { DynamicToolResult, StaticToolResult, TypedToolResult } from './tool-result'
-
-export type UIMessageStreamOptions<UI_MESSAGE extends UIMessage> = {
-  /**
-   * The original messages. If they are provided, persistence mode is assumed,
-   * and a message ID is provided for the response message.
-   */
-  originalMessages?: UI_MESSAGE[]
-
-  /**
-   * Generate a message ID for the response message.
-   *
-   * If not provided, no message ID will be set for the response message (unless
-   * the original messages are provided and the last message is an assistant message).
-   */
-  generateMessageId?: IdGenerator
-
-  onFinish?: UIMessageStreamOnFinishCallback<UI_MESSAGE>
-
-  /**
-   * Extracts message metadata that will be send to the client.
-   *
-   * Called on `start` and `finish` events.
-   */
-  messageMetadata?: (options: { part: TextStreamPart<ToolSet> }) => InferUIMessageMetadata<UI_MESSAGE> | undefined
-
-  /**
-   * Send reasoning parts to the client.
-   * Default to true.
-   */
-  sendReasoning?: boolean
-
-  /**
-   * Send source parts to the client.
-   * Default to false.
-   */
-  sendSources?: boolean
-
-  /**
-   * Send the finish event to the client.
-   * Set to false if you are using additional streamText calls
-   * that send additional data.
-   * Default to true.
-   */
-  sendFinish?: boolean
-
-  /**
-   * Send the message start event to the client.
-   * Set to false if you are using additional streamText calls
-   * and the message start event has already been sent.
-   * Default to true.
-   */
-  sendStart?: boolean
-
-  /**
-   * Process an error, e.g. to log it. Default to `() => 'An error occurred.'`.
-   *
-   * @returns error message to include in the data stream.
-   */
-  onError?: (error: unknown) => string
-}
 
 export type ConsumeStreamOptions = {
   onError?: ErrorHandler
@@ -330,31 +266,6 @@ export interface StreamTextResult<TOOLS extends ToolSet, RUNTIME_CONTEXT extends
   consumeStream(options?: ConsumeStreamOptions): PromiseLike<void>
 
   /**
-   * Converts the result to a UI message stream.
-   *
-   * @returns A UI message stream.
-   *
-   * @deprecated Use the standalone `toUIMessageStream` helper from
-   *   `'ai'` with `result.stream` instead. This method will be removed
-   *   in the next major release.
-   */
-  toUIMessageStream<UI_MESSAGE extends UIMessage>(
-    options?: UIMessageStreamOptions<UI_MESSAGE>
-  ): AsyncIterableStream<InferUIMessageChunk<UI_MESSAGE>>
-
-  /**
-   * Writes UI message stream output to a Node.js response-like object.
-   *
-   * @deprecated Use the standalone `toUIMessageStream` and
-   *   `pipeUIMessageStreamToResponse` helpers from `'ai'` with `result.stream`
-   *   instead. This method will be removed in the next major release.
-   */
-  pipeUIMessageStreamToResponse<UI_MESSAGE extends UIMessage>(
-    response: ServerResponse,
-    options?: UIMessageStreamResponseInit & UIMessageStreamOptions<UI_MESSAGE>
-  ): void
-
-  /**
    * Writes text delta output to a Node.js response-like object.
    * It sets a `Content-Type` header to `text/plain; charset=utf-8` and
    * writes each text delta as a separate chunk.
@@ -367,19 +278,6 @@ export interface StreamTextResult<TOOLS extends ToolSet, RUNTIME_CONTEXT extends
    *   instead. This method will be removed in the next major release.
    */
   pipeTextStreamToResponse(response: ServerResponse, init?: ResponseInit): void
-
-  /**
-   * Converts the result to a streamed response object with a stream data part stream.
-   *
-   * @returns A response object.
-   *
-   * @deprecated Use the standalone `toUIMessageStream` and
-   *   `createUIMessageStreamResponse` helpers from `'ai'` with `result.stream`
-   *   instead. This method will be removed in the next major release.
-   */
-  toUIMessageStreamResponse<UI_MESSAGE extends UIMessage>(
-    options?: UIMessageStreamResponseInit & UIMessageStreamOptions<UI_MESSAGE>
-  ): Response
 
   /**
    * Creates a simple text stream response.
