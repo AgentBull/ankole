@@ -27,8 +27,6 @@ export const CYCLE_SCAN_ROOTS = [
   'libs/uikit/src',
   'tools/devkit/src'
 ] as const
-// NOTE: app/agent_computer/src/llm is the vendored AI SDK and is intentionally
-// absent from current structure gates.
 
 /** Roots where the boundary/smell rules apply. */
 export const SMELL_SCAN_ROOTS = [
@@ -169,9 +167,6 @@ export const DUP_IGNORE_PATTERNS = [
   '**/*.test.tsx',
   '**/*.d.ts',
   '**/migrations/**',
-  'app/agent_computer/src/llm/**',
-  '**/llm/**',
-  'llm/**',
   'libs/uikit/src/stories/**'
 ] as const
 
@@ -216,7 +211,6 @@ export const DUP_SOURCE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.mjs', '.cj
  * or under one of these prefixes.
  */
 export const DUP_INTENTIONALLY_UNSCANNED = [
-  'app/agent_computer/src/llm/',
   'app/agent_computer/test/',
   'app/kernel/',
   'app/control_plane/',

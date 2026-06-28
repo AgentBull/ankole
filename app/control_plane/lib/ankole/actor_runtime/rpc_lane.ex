@@ -7,15 +7,16 @@ defmodule Ankole.ActorRuntime.RPCLane do
   """
 
   alias Ankole.ActorRuntime.AgentConversationContextBroker
+  alias Ankole.ActorRuntime.AIGatewayApiKeyBroker
   alias Ankole.ActorRuntime.ConversationHistoryBroker
   alias Ankole.ActorRuntime.ConversationSummaryBroker
-  alias Ankole.ActorRuntime.LlmCredentialBroker
   alias Ankole.ActorRuntime.SkillOverlayBroker
   alias Ankole.ActorRuntime.WorkerRouteAuth
   alias Ankole.Schedule.RPCBroker
 
   @method_handlers %{
-    "llm_provider.resolve_credential" => {LlmCredentialBroker, :handle_request, []},
+    "ai_gateway.api_key_for.create_or_find_by_agent" =>
+      {AIGatewayApiKeyBroker, :handle_request, []},
     "agent_conversation.context.resolve" => {AgentConversationContextBroker, :handle_request, []},
     "conversation.history.resolve" => {ConversationHistoryBroker, :handle_request, []},
     "conversation.summary.commit" => {ConversationSummaryBroker, :handle_request, []},

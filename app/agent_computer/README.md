@@ -63,8 +63,8 @@ payloads, or final proposals.
 - `src/workspace.ts` - per-turn workspace preparation and readiness checks.
 - `src/core/turns/` - turn handlers, history shaping, compression, ambient
   recognition, scheduling integration, and telemetry.
-- `src/llm/` - Ankole's provider-neutral LLM abstraction plus provider
-  adapters.
+- `src/ai-gateway-client/` - AIGateway client layer with the evolved AI SDK
+  core/provider utilities, OpenResponses adapter, and Ankole model contracts.
 - `src/tools/` - model-facing tools bound to the container workspace.
 - `src/prompts/` - system, ambient, skill, and compression prompts.
 - `test/` - package-local Bun tests. They are run inside the worker image.

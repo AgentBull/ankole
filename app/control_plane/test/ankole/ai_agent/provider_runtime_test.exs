@@ -4,7 +4,7 @@ defmodule Ankole.AIAgent.ProviderRuntimeTest do
   import Ankole.PrincipalsFixtures
 
   alias Ankole.AIAgent.Library
-  alias Ankole.AIAgent.LlmProviders
+  alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AIAgent.ModelProfiles
   alias Ankole.AIAgent.Schemas.Conversation
   alias Ankole.AIAgent.Schemas.LlmTurn
@@ -17,70 +17,173 @@ defmodule Ankole.AIAgent.ProviderRuntimeTest do
   alias Ankole.ActorRuntime.Schemas.ActorSessionWorkerAssignment
   alias Ankole.Repo
 
-  test "provider source projection uses provider_source vocabulary" do
-    sources = LlmProviders.list_provider_sources()
+  test "provider kind projection uses provider_kind vocabulary" do
+    kinds = ProviderConfigs.list_provider_kinds()
+    provider_kinds = Enum.map(kinds, & &1["provider_kind"])
 
-    assert Enum.map(sources, & &1["provider_source"]) == ~w(openrouter openai claude gemini)
-    refute sources |> List.first() |> Map.has_key?("provider_family")
-    assert Enum.find(sources, &(&1["provider_source"] == "openrouter"))["codex_compatible"]
+    assert "openrouter" in provider_kinds
+    assert "openai" in provider_kinds
+    assert "openai-compatible" in provider_kinds
+    assert "google_ai_studio_openai" in provider_kinds
+    assert "jina" in provider_kinds
+    assert "claude" in provider_kinds
+    assert "azure_openai" in provider_kinds
+    refute "gemini" in provider_kinds
+    refute kinds |> List.first() |> Map.has_key?("provider_family")
+    openrouter = Enum.find(kinds, &(&1["provider_kind"] == "openrouter"))
+    openai_compatible = Enum.find(kinds, &(&1["provider_kind"] == "openai-compatible"))
+    azure_openai = Enum.find(kinds, &(&1["provider_kind"] == "azure_openai"))
+
+    assert "llm" in openrouter["capabilities"]
+    assert "embedding" in openrouter["capabilities"]
+    assert "rerank" in openrouter["capabilities"]
+    assert openrouter["default_http_protocol"] == "http2"
+    assert "http_protocol" in openrouter["connection_options"]
+    assert openai_compatible["default_http_protocol"] == "http1"
+
+    assert is_nil(azure_openai["default_base_url"])
+    assert azure_openai["default_http_protocol"] == "http2"
   end
 
-  test "provider CRUD encrypts credentials and rejects secret headers" do
+  test "provider CRUD encrypts credentials and validates connection options" do
     assert {:error, {:secret_header, "Authorization"}} =
-             LlmProviders.create_provider(%{
+             ProviderConfigs.create_provider(%{
                provider_id: "bad-secret-header",
-               provider_source: "openrouter",
+               provider_kind: "openrouter",
                credential: "sk-test",
                connection_options: %{"headers" => %{"Authorization" => "Bearer leaked"}}
              })
 
+    assert {:error, :invalid_http_protocol} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "bad-http-protocol",
+               provider_kind: "openrouter",
+               credential: "sk-test",
+               connection_options: %{"http_protocol" => "http3"}
+             })
+
     assert {:ok, provider} =
-             LlmProviders.create_provider(%{
+             ProviderConfigs.create_provider(%{
                provider_id: "openrouter-main",
-               provider_source: "openrouter",
+               provider_kind: "openrouter",
                credential: "sk-test",
                connection_options: %{"include_usage" => true}
              })
 
     refute provider.encrypted_credential == "sk-test"
-    assert {:ok, "sk-test"} = LlmProviders.plaintext_credential(provider)
+    assert {:ok, "sk-test"} = ProviderConfigs.plaintext_credential(provider)
+    assert {:ok, connection} = ProviderConfigs.runtime_connection(provider)
+    assert connection["http_protocol"] == "http2"
 
-    assert {:ok, projection} = LlmProviders.get_provider("openrouter-main")
+    assert {:ok, projection} = ProviderConfigs.get_provider("openrouter-main")
     assert projection["credential"] == %{"present" => true, "masked" => "********"}
     refute inspect(projection) =~ "sk-test"
+
+    assert {:ok, compatible_provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "compatible-main",
+               provider_kind: "openai-compatible",
+               credential: "sk-test",
+               base_url: "https://compatible.test/v1",
+               connection_options: %{}
+             })
+
+    assert {:ok, compatible_connection} = ProviderConfigs.runtime_connection(compatible_provider)
+    assert compatible_connection["http_protocol"] == "http1"
+
+    assert {:ok, overridden_provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "compatible-http2",
+               provider_kind: "openai-compatible",
+               credential: "sk-test",
+               base_url: "https://compatible.test/v1",
+               connection_options: %{
+                 "http_protocol" => "http2"
+               }
+             })
+
+    assert {:ok, overridden_connection} = ProviderConfigs.runtime_connection(overridden_provider)
+    assert overridden_connection["http_protocol"] == "http2"
   end
 
   test "provider live_check performs a redacted operator-triggered provider call" do
     assert {:ok, _provider} =
-             LlmProviders.create_provider(%{
+             ProviderConfigs.create_provider(%{
                provider_id: "openrouter-main",
-               provider_source: "openrouter",
+               provider_kind: "openrouter",
                credential: "sk-test",
-               connection_options: %{"base_url" => "https://openrouter.ai/api/v1"}
+               base_url: "https://openrouter.ai/api/v1",
+               connection_options: %{}
              })
 
-    http_client = fn url, headers, timeout_ms ->
-      assert url == "https://openrouter.ai/api/v1/models"
-      assert {"authorization", "Bearer sk-test"} in headers
-      assert timeout_ms == 15_000
+    http_client = fn request ->
+      assert request.url == "https://openrouter.ai/api/v1/models"
+      assert {"authorization", "Bearer sk-test"} in request.headers
+      assert request.http_protocol == "http2"
+      assert request.timeout_ms == 15_000
       {:ok, %{"status" => "ok", "http_status" => 200}}
     end
 
     assert {:ok, result} =
-             LlmProviders.live_check_provider("openrouter-main", http_client: http_client)
+             ProviderConfigs.live_check_provider("openrouter-main", http_client: http_client)
 
     assert result["provider_id"] == "openrouter-main"
-    assert result["provider_source"] == "openrouter"
+    assert result["provider_kind"] == "openrouter"
     assert result["endpoint"] == "/models"
     assert result["status"] == "ok"
     refute inspect(result) =~ "sk-test"
   end
 
+  test "provider live_check uses provider-owned auth header rules" do
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "claude-oauth",
+               provider_kind: "claude",
+               credential_mode: "auth_token",
+               credential: "anthropic-token",
+               connection_options: %{}
+             })
+
+    http_client = fn request ->
+      assert request.url == "https://api.anthropic.com/v1/models"
+      assert {"authorization", "Bearer anthropic-token"} in request.headers
+      refute {"x-api-key", "anthropic-token"} in request.headers
+      assert {"anthropic-version", "2023-06-01"} in request.headers
+      {:ok, %{"status" => "ok", "http_status" => 200}}
+    end
+
+    assert {:ok, %{"provider_kind" => "claude", "endpoint" => "/v1/models"}} =
+             ProviderConfigs.live_check_provider("claude-oauth", http_client: http_client)
+  end
+
+  test "provider live_check uses Azure OpenAI model-list path and auth scheme" do
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "azure-live",
+               provider_kind: "azure_openai",
+               credential: "azure-key",
+               base_url: "https://ankole-test.openai.azure.com",
+               connection_options: %{"api_version" => "2025-04-01-preview"}
+             })
+
+    http_client = fn request ->
+      assert request.url ==
+               "https://ankole-test.openai.azure.com/openai/models?api-version=2025-04-01-preview"
+
+      assert {"api-key", "azure-key"} in request.headers
+      refute {"authorization", "Bearer azure-key"} in request.headers
+      {:ok, %{"status" => "ok", "http_status" => 200}}
+    end
+
+    assert {:ok, %{"provider_kind" => "azure_openai", "endpoint" => "/openai/models"}} =
+             ProviderConfigs.live_check_provider("azure-live", http_client: http_client)
+  end
+
   test "provider live_check rejects missing credentials before opening a network call" do
     assert {:ok, _provider} =
-             LlmProviders.create_provider(%{
+             ProviderConfigs.create_provider(%{
                provider_id: "openrouter-no-key",
-               provider_source: "openrouter",
+               provider_kind: "openrouter",
                connection_options: %{}
              })
 
@@ -89,25 +192,33 @@ defmodule Ankole.AIAgent.ProviderRuntimeTest do
     end
 
     assert {:error, :credential_missing} =
-             LlmProviders.live_check_provider("openrouter-no-key", http_client: http_client)
+             ProviderConfigs.live_check_provider("openrouter-no-key", http_client: http_client)
   end
 
-  test "model profiles validate provider references and codex compatibility" do
+  test "model profiles validate provider references and embedding/rerank capabilities" do
     %{principal: agent} = agent_fixture()
 
     assert {:ok, _provider} =
-             LlmProviders.create_provider(%{
+             ProviderConfigs.create_provider(%{
                provider_id: "openrouter-main",
-               provider_source: "openrouter",
+               provider_kind: "openrouter",
                credential: "sk-test",
                connection_options: %{}
              })
 
     assert {:ok, _provider} =
-             LlmProviders.create_provider(%{
+             ProviderConfigs.create_provider(%{
                provider_id: "claude-main",
-               provider_source: "claude",
+               provider_kind: "claude",
                credential: "sk-ant",
+               connection_options: %{}
+             })
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "jina-main",
+               provider_kind: "jina",
+               credential: "jina-key",
                connection_options: %{}
              })
 
@@ -124,22 +235,33 @@ defmodule Ankole.AIAgent.ProviderRuntimeTest do
     assert profile["provider_id"] == "openrouter-main"
     assert profile["provider_options"]["reasoning"] == %{"effort" => "minimal", "exclude" => true}
 
-    assert {:error, :codex_incompatible_provider_source} =
-             ModelProfiles.put_model_profile(agent.uid, "codex", %{
+    assert {:error, {:provider_kind_missing_capability, "embedding"}} =
+             ModelProfiles.put_model_profile(agent.uid, "embedding", %{
                provider_id: "claude-main",
                model: "claude-sonnet-4-5"
              })
 
-    assert {:ok, %{"available" => false}} = ModelProfiles.codex_capability(agent.uid)
+    assert {:ok, %{profile: embedding_profile}} =
+             ModelProfiles.put_model_profile(agent.uid, "embedding", %{
+               provider_id: "jina-main",
+               model: "jina-embeddings-v4"
+             })
+
+    assert embedding_profile["provider_id"] == "jina-main"
+
+    assert {:ok, runtime_profile} =
+             ModelProfiles.resolve_runtime_profile(agent.uid, "embedding")
+
+    assert runtime_profile["capability"] == "embedding"
   end
 
   test "model profiles validate source-specific provider options and provider delete guard lists references" do
     %{principal: agent} = agent_fixture()
 
     assert {:ok, _provider} =
-             LlmProviders.create_provider(%{
+             ProviderConfigs.create_provider(%{
                provider_id: "openrouter-main",
-               provider_source: "openrouter",
+               provider_kind: "openrouter",
                credential: "sk-test",
                connection_options: %{}
              })
@@ -159,7 +281,7 @@ defmodule Ankole.AIAgent.ProviderRuntimeTest do
              })
 
     assert {:error, {:provider_in_use, [reference]}} =
-             LlmProviders.delete_provider("openrouter-main")
+             ProviderConfigs.delete_provider("openrouter-main")
 
     assert reference == "#{agent.uid}:primary"
   end
@@ -168,11 +290,12 @@ defmodule Ankole.AIAgent.ProviderRuntimeTest do
     %{principal: agent} = agent_fixture()
 
     assert {:ok, _provider} =
-             LlmProviders.create_provider(%{
+             ProviderConfigs.create_provider(%{
                provider_id: "openrouter-main",
-               provider_source: "openrouter",
+               provider_kind: "openrouter",
                credential: "sk-test",
-               connection_options: %{"base_url" => "https://openrouter.ai/api/v1"}
+               base_url: "https://openrouter.ai/api/v1",
+               connection_options: %{}
              })
 
     assert {:ok, _profile} =
@@ -199,7 +322,7 @@ defmodule Ankole.AIAgent.ProviderRuntimeTest do
 
     assert response["credential"] == "sk-test"
     assert response["provider_id"] == "openrouter-main"
-    assert response["provider_source"] == "openrouter"
+    assert response["provider_kind"] == "openrouter"
     assert response["model"] == "z-ai/glm-5.2"
   end
 
@@ -346,11 +469,12 @@ defmodule Ankole.AIAgent.ProviderRuntimeTest do
     %{principal: other_agent} = agent_fixture()
 
     assert {:ok, _provider} =
-             LlmProviders.create_provider(%{
+             ProviderConfigs.create_provider(%{
                provider_id: "openrouter-live-check-target",
-               provider_source: "openrouter",
+               provider_kind: "openrouter",
                credential: "sk-target",
-               connection_options: %{"base_url" => "https://openrouter.ai/api/v1"}
+               base_url: "https://openrouter.ai/api/v1",
+               connection_options: %{}
              })
 
     assert {:ok, _profile} =
@@ -382,9 +506,9 @@ defmodule Ankole.AIAgent.ProviderRuntimeTest do
     %{principal: agent} = agent_fixture()
 
     assert {:ok, _provider} =
-             LlmProviders.create_provider(%{
+             ProviderConfigs.create_provider(%{
                provider_id: "openrouter-no-key",
-               provider_source: "openrouter",
+               provider_kind: "openrouter",
                connection_options: %{}
              })
 
@@ -412,7 +536,7 @@ defmodule Ankole.AIAgent.ProviderRuntimeTest do
     assert error["code"] == "credential_missing"
 
     assert {:ok, _provider} =
-             LlmProviders.update_provider("openrouter-no-key", %{
+             ProviderConfigs.update_provider("openrouter-no-key", %{
                disabled_at: DateTime.utc_now(:microsecond)
              })
 

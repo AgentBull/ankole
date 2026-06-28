@@ -12,7 +12,7 @@ defmodule AnkoleWeb.ConsolePolicyTest do
 
     conn = Plug.Conn.assign(conn, :current_principal_uid, human.principal.uid)
 
-    assert :ok = ConsolePolicy.authorize(conn, "llm_providers", "read")
-    assert {:error, :forbidden} = ConsolePolicy.authorize(conn, "llm_providers", "publish")
+    assert :ok = ConsolePolicy.authorize(conn, "ai_gateway_providers", "read")
+    assert {:error, :forbidden} = ConsolePolicy.authorize(conn, "ai_gateway_providers", "publish")
   end
 end

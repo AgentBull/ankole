@@ -1,5 +1,5 @@
 import type { AgentMessage } from '../types'
-import type { AssistantMessage, Message, Model } from '../../llm/ankole'
+import type { AssistantMessage, Message, Model } from '../../ai-gateway-client/ankole'
 import { TOOL_RESULT_MAX_CHARS } from './turn_config'
 import { isRecord, safeJsonStringify } from '../../common/json-utils'
 

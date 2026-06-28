@@ -2,6 +2,205 @@
   "components": {
     "responses": {},
     "schemas": {
+      "AIGatewayProviderCredentialProjection": {
+        "additionalProperties": false,
+        "properties": {
+          "masked": {
+            "nullable": true,
+            "type": "string"
+          },
+          "present": {
+            "type": "boolean"
+          }
+        },
+        "required": ["present"],
+        "title": "AIGatewayProviderCredentialProjection",
+        "type": "object"
+      },
+      "AIGatewayProviderItem": {
+        "additionalProperties": false,
+        "properties": {
+          "base_url": {
+            "nullable": true,
+            "type": "string"
+          },
+          "connection_options": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "credential": {
+            "$ref": "#/components/schemas/AIGatewayProviderCredentialProjection"
+          },
+          "credential_mode": {
+            "type": "string"
+          },
+          "disabled_at": {
+            "nullable": true,
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "provider_id": {
+            "type": "string"
+          },
+          "provider_kind": {
+            "type": "string"
+          },
+          "provider_metadata": {
+            "additionalProperties": true,
+            "type": "object"
+          }
+        },
+        "required": [
+          "id",
+          "provider_id",
+          "provider_kind",
+          "connection_options",
+          "credential_mode",
+          "credential",
+          "provider_metadata"
+        ],
+        "title": "AIGatewayProviderItem",
+        "type": "object"
+      },
+      "AIGatewayProviderKindItem": {
+        "additionalProperties": false,
+        "properties": {
+          "capabilities": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "connection_options": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "credential_modes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "default_base_url": {
+            "nullable": true,
+            "type": "string"
+          },
+          "default_http_protocol": {
+            "enum": ["http1", "http2"],
+            "type": "string"
+          },
+          "endpoint_modes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "label": {
+            "type": "string"
+          },
+          "model_catalog_policy": {
+            "type": "string"
+          },
+          "provider_kind": {
+            "type": "string"
+          },
+          "provider_strategy": {
+            "type": "string"
+          },
+          "runtime_provider_options": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "provider_kind",
+          "label",
+          "capabilities",
+          "endpoint_modes",
+          "provider_strategy",
+          "default_base_url",
+          "default_http_protocol",
+          "credential_modes",
+          "connection_options",
+          "runtime_provider_options",
+          "model_catalog_policy"
+        ],
+        "title": "AIGatewayProviderKindItem",
+        "type": "object"
+      },
+      "AIGatewayProviderKindListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/AIGatewayProviderKindItem"
+            },
+            "type": "array"
+          }
+        },
+        "required": ["data"],
+        "title": "AIGatewayProviderKindListResponse",
+        "type": "object"
+      },
+      "AIGatewayProviderListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/AIGatewayProviderItem"
+            },
+            "type": "array"
+          }
+        },
+        "required": ["data"],
+        "title": "AIGatewayProviderListResponse",
+        "type": "object"
+      },
+      "AIGatewayProviderResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/AIGatewayProviderItem"
+          }
+        },
+        "required": ["data"],
+        "title": "AIGatewayProviderResponse",
+        "type": "object"
+      },
+      "AIGatewayProviderWriteRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "base_url": {
+            "nullable": true,
+            "type": "string"
+          },
+          "connection_options": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "credential": {
+            "nullable": true,
+            "type": "string"
+          },
+          "credential_mode": {
+            "type": "string"
+          },
+          "provider_id": {
+            "type": "string"
+          },
+          "provider_kind": {
+            "type": "string"
+          }
+        },
+        "title": "AIGatewayProviderWriteRequest",
+        "type": "object"
+      },
       "AppConfigurationDecryptionResponse": {
         "additionalProperties": false,
         "properties": {
@@ -11,17 +210,13 @@
         },
         "required": ["data"],
         "title": "AppConfigurationDecryptionResponse",
-        "type": "object",
-        "x-struct": null,
-        "x-validate": null
+        "type": "object"
       },
       "AppConfigurationDecryptionValue": {
         "additionalProperties": false,
         "properties": {
           "key": {
-            "type": "string",
-            "x-struct": null,
-            "x-validate": null
+            "type": "string"
           },
           "value": {
             "$ref": "#/components/schemas/JsonValue"
@@ -29,84 +224,56 @@
         },
         "required": ["key", "value"],
         "title": "AppConfigurationDecryptionValue",
-        "type": "object",
-        "x-struct": null,
-        "x-validate": null
+        "type": "object"
       },
       "AppConfigurationItem": {
         "additionalProperties": false,
         "properties": {
           "default_present": {
-            "type": "boolean",
-            "x-struct": null,
-            "x-validate": null
+            "type": "boolean"
           },
           "description": {
             "nullable": true,
-            "type": "string",
-            "x-struct": null,
-            "x-validate": null
+            "type": "string"
           },
           "editable": {
-            "type": "boolean",
-            "x-struct": null,
-            "x-validate": null
+            "type": "boolean"
           },
           "encrypted": {
-            "type": "boolean",
-            "x-struct": null,
-            "x-validate": null
+            "type": "boolean"
           },
           "error": {
             "nullable": true,
-            "type": "string",
-            "x-struct": null,
-            "x-validate": null
+            "type": "string"
           },
           "key": {
-            "type": "string",
-            "x-struct": null,
-            "x-validate": null
+            "type": "string"
           },
           "kind": {
             "enum": ["exact", "pattern", "pattern_concrete"],
-            "type": "string",
-            "x-struct": null,
-            "x-validate": null
+            "type": "string"
           },
           "overridden": {
-            "type": "boolean",
-            "x-struct": null,
-            "x-validate": null
+            "type": "boolean"
           },
           "pattern": {
             "nullable": true,
-            "type": "string",
-            "x-struct": null,
-            "x-validate": null
+            "type": "string"
           },
           "pattern_id": {
             "nullable": true,
-            "type": "string",
-            "x-struct": null,
-            "x-validate": null
+            "type": "string"
           },
           "present": {
-            "type": "boolean",
-            "x-struct": null,
-            "x-validate": null
+            "type": "boolean"
           },
           "scope": {
             "enum": ["scoped", "global"],
-            "type": "string",
-            "x-struct": null,
-            "x-validate": null
+            "type": "string"
           },
           "source": {
             "enum": ["default", "global", "missing", "pattern", "error"],
-            "type": "string",
-            "x-struct": null,
-            "x-validate": null
+            "type": "string"
           },
           "value": {
             "$ref": "#/components/schemas/JsonValue"
@@ -124,9 +291,7 @@
           "source"
         ],
         "title": "AppConfigurationItem",
-        "type": "object",
-        "x-struct": null,
-        "x-validate": null
+        "type": "object"
       },
       "AppConfigurationListResponse": {
         "additionalProperties": false,
@@ -135,16 +300,12 @@
             "items": {
               "$ref": "#/components/schemas/AppConfigurationItem"
             },
-            "type": "array",
-            "x-struct": null,
-            "x-validate": null
+            "type": "array"
           }
         },
         "required": ["data"],
         "title": "AppConfigurationListResponse",
-        "type": "object",
-        "x-struct": null,
-        "x-validate": null
+        "type": "object"
       },
       "AppConfigurationResponse": {
         "additionalProperties": false,
@@ -155,9 +316,7 @@
         },
         "required": ["data"],
         "title": "AppConfigurationResponse",
-        "type": "object",
-        "x-struct": null,
-        "x-validate": null
+        "type": "object"
       },
       "AppConfigurationUpdateRequest": {
         "additionalProperties": false,
@@ -168,59 +327,43 @@
         },
         "required": ["value"],
         "title": "AppConfigurationUpdateRequest",
-        "type": "object",
-        "x-struct": null,
-        "x-validate": null
+        "type": "object"
       },
       "ConsoleApiError": {
         "additionalProperties": false,
         "properties": {
           "code": {
-            "type": "string",
-            "x-struct": null,
-            "x-validate": null
+            "type": "string"
           },
           "details": {
             "items": {
               "$ref": "#/components/schemas/ConsoleApiErrorDetail"
             },
             "nullable": true,
-            "type": "array",
-            "x-struct": null,
-            "x-validate": null
+            "type": "array"
           },
           "message": {
-            "type": "string",
-            "x-struct": null,
-            "x-validate": null
+            "type": "string"
           }
         },
         "required": ["code", "message"],
         "title": "ConsoleApiError",
-        "type": "object",
-        "x-struct": null,
-        "x-validate": null
+        "type": "object"
       },
       "ConsoleApiErrorDetail": {
         "additionalProperties": true,
         "properties": {
           "message": {
-            "type": "string",
-            "x-struct": null,
-            "x-validate": null
+            "type": "string"
           },
           "path": {
             "nullable": true,
-            "type": "string",
-            "x-struct": null,
-            "x-validate": null
+            "type": "string"
           }
         },
         "required": ["message"],
         "title": "ConsoleApiErrorDetail",
-        "type": "object",
-        "x-struct": null,
-        "x-validate": null
+        "type": "object"
       },
       "ConsoleApiErrorEnvelope": {
         "additionalProperties": false,
@@ -231,325 +374,54 @@
         },
         "required": ["error"],
         "title": "ConsoleApiErrorEnvelope",
-        "type": "object",
-        "x-struct": null,
-        "x-validate": null
+        "type": "object"
       },
       "JsonValue": {
         "description": "Any JSON-compatible value. AppConfigure validates the concrete key schema.",
         "nullable": true,
-        "title": "JsonValue",
-        "x-struct": null,
-        "x-validate": null
-      },
-      "LlmProviderCredentialProjection": {
-        "additionalProperties": false,
-        "properties": {
-          "masked": {
-            "nullable": true,
-            "type": "string",
-            "x-struct": null,
-            "x-validate": null
-          },
-          "present": {
-            "type": "boolean",
-            "x-struct": null,
-            "x-validate": null
-          }
-        },
-        "required": ["present"],
-        "title": "LlmProviderCredentialProjection",
-        "type": "object",
-        "x-struct": null,
-        "x-validate": null
-      },
-      "LlmProviderItem": {
-        "additionalProperties": false,
-        "properties": {
-          "base_url": {
-            "nullable": true,
-            "type": "string",
-            "x-struct": null,
-            "x-validate": null
-          },
-          "connection_options": {
-            "additionalProperties": true,
-            "type": "object",
-            "x-struct": null,
-            "x-validate": null
-          },
-          "credential": {
-            "$ref": "#/components/schemas/LlmProviderCredentialProjection"
-          },
-          "credential_mode": {
-            "type": "string",
-            "x-struct": null,
-            "x-validate": null
-          },
-          "disabled_at": {
-            "nullable": true,
-            "type": "string",
-            "x-struct": null,
-            "x-validate": null
-          },
-          "provider_id": {
-            "type": "string",
-            "x-struct": null,
-            "x-validate": null
-          },
-          "provider_source": {
-            "type": "string",
-            "x-struct": null,
-            "x-validate": null
-          },
-          "source_metadata": {
-            "additionalProperties": true,
-            "type": "object",
-            "x-struct": null,
-            "x-validate": null
-          }
-        },
-        "required": [
-          "provider_id",
-          "provider_source",
-          "connection_options",
-          "credential_mode",
-          "credential",
-          "source_metadata"
-        ],
-        "title": "LlmProviderItem",
-        "type": "object",
-        "x-struct": null,
-        "x-validate": null
-      },
-      "LlmProviderListResponse": {
-        "additionalProperties": false,
-        "properties": {
-          "data": {
-            "items": {
-              "$ref": "#/components/schemas/LlmProviderItem"
-            },
-            "type": "array",
-            "x-struct": null,
-            "x-validate": null
-          }
-        },
-        "required": ["data"],
-        "title": "LlmProviderListResponse",
-        "type": "object",
-        "x-struct": null,
-        "x-validate": null
-      },
-      "LlmProviderResponse": {
-        "additionalProperties": false,
-        "properties": {
-          "data": {
-            "$ref": "#/components/schemas/LlmProviderItem"
-          }
-        },
-        "required": ["data"],
-        "title": "LlmProviderResponse",
-        "type": "object",
-        "x-struct": null,
-        "x-validate": null
-      },
-      "LlmProviderSourceItem": {
-        "additionalProperties": false,
-        "properties": {
-          "adapter_strategy": {
-            "type": "string",
-            "x-struct": null,
-            "x-validate": null
-          },
-          "codex_compatible": {
-            "type": "boolean",
-            "x-struct": null,
-            "x-validate": null
-          },
-          "connection_options": {
-            "items": {
-              "type": "string",
-              "x-struct": null,
-              "x-validate": null
-            },
-            "type": "array",
-            "x-struct": null,
-            "x-validate": null
-          },
-          "credential_modes": {
-            "items": {
-              "type": "string",
-              "x-struct": null,
-              "x-validate": null
-            },
-            "type": "array",
-            "x-struct": null,
-            "x-validate": null
-          },
-          "default_base_url": {
-            "type": "string",
-            "x-struct": null,
-            "x-validate": null
-          },
-          "label": {
-            "type": "string",
-            "x-struct": null,
-            "x-validate": null
-          },
-          "model_catalog_policy": {
-            "type": "string",
-            "x-struct": null,
-            "x-validate": null
-          },
-          "provider_source": {
-            "type": "string",
-            "x-struct": null,
-            "x-validate": null
-          },
-          "runtime_provider_options": {
-            "items": {
-              "type": "string",
-              "x-struct": null,
-              "x-validate": null
-            },
-            "type": "array",
-            "x-struct": null,
-            "x-validate": null
-          }
-        },
-        "required": [
-          "provider_source",
-          "label",
-          "codex_compatible",
-          "adapter_strategy",
-          "default_base_url",
-          "credential_modes",
-          "connection_options",
-          "runtime_provider_options",
-          "model_catalog_policy"
-        ],
-        "title": "LlmProviderSourceItem",
-        "type": "object",
-        "x-struct": null,
-        "x-validate": null
-      },
-      "LlmProviderSourceListResponse": {
-        "additionalProperties": false,
-        "properties": {
-          "data": {
-            "items": {
-              "$ref": "#/components/schemas/LlmProviderSourceItem"
-            },
-            "type": "array",
-            "x-struct": null,
-            "x-validate": null
-          }
-        },
-        "required": ["data"],
-        "title": "LlmProviderSourceListResponse",
-        "type": "object",
-        "x-struct": null,
-        "x-validate": null
-      },
-      "LlmProviderWriteRequest": {
-        "additionalProperties": false,
-        "properties": {
-          "base_url": {
-            "nullable": true,
-            "type": "string",
-            "x-struct": null,
-            "x-validate": null
-          },
-          "connection_options": {
-            "additionalProperties": true,
-            "type": "object",
-            "x-struct": null,
-            "x-validate": null
-          },
-          "credential": {
-            "nullable": true,
-            "type": "string",
-            "x-struct": null,
-            "x-validate": null
-          },
-          "credential_mode": {
-            "type": "string",
-            "x-struct": null,
-            "x-validate": null
-          },
-          "provider_id": {
-            "type": "string",
-            "x-struct": null,
-            "x-validate": null
-          },
-          "provider_source": {
-            "type": "string",
-            "x-struct": null,
-            "x-validate": null
-          }
-        },
-        "title": "LlmProviderWriteRequest",
-        "type": "object",
-        "x-struct": null,
-        "x-validate": null
+        "title": "JsonValue"
       },
       "ModelProfileResponse": {
         "additionalProperties": false,
         "properties": {
           "data": {
             "additionalProperties": true,
-            "type": "object",
-            "x-struct": null,
-            "x-validate": null
+            "type": "object"
           }
         },
         "required": ["data"],
         "title": "ModelProfileResponse",
-        "type": "object",
-        "x-struct": null,
-        "x-validate": null
+        "type": "object"
       },
       "ModelProfileWriteRequest": {
         "additionalProperties": false,
         "properties": {
           "model": {
-            "type": "string",
-            "x-struct": null,
-            "x-validate": null
+            "type": "string"
           },
           "provider_id": {
-            "type": "string",
-            "x-struct": null,
-            "x-validate": null
+            "type": "string"
           },
           "provider_options": {
             "additionalProperties": true,
-            "type": "object",
-            "x-struct": null,
-            "x-validate": null
+            "type": "object"
           }
         },
         "required": ["provider_id", "model"],
         "title": "ModelProfileWriteRequest",
-        "type": "object",
-        "x-struct": null,
-        "x-validate": null
+        "type": "object"
       },
       "ModelProfilesResponse": {
         "additionalProperties": false,
         "properties": {
           "data": {
             "additionalProperties": true,
-            "type": "object",
-            "x-struct": null,
-            "x-validate": null
+            "type": "object"
           }
         },
         "required": ["data"],
         "title": "ModelProfilesResponse",
-        "type": "object",
-        "x-struct": null,
-        "x-validate": null
+        "type": "object"
       },
       "ScheduleCronScheduleListResponse": {
         "additionalProperties": false,
@@ -558,16 +430,12 @@
             "items": {
               "$ref": "#/components/schemas/JsonValue"
             },
-            "type": "array",
-            "x-struct": null,
-            "x-validate": null
+            "type": "array"
           }
         },
         "required": ["data"],
         "title": "ScheduleCronScheduleListResponse",
-        "type": "object",
-        "x-struct": null,
-        "x-validate": null
+        "type": "object"
       },
       "ScheduleCronScheduleResponse": {
         "additionalProperties": false,
@@ -578,9 +446,7 @@
         },
         "required": ["data"],
         "title": "ScheduleCronScheduleResponse",
-        "type": "object",
-        "x-struct": null,
-        "x-validate": null
+        "type": "object"
       },
       "ScheduleCronUpdateRequest": {
         "additionalProperties": false,
@@ -593,9 +459,7 @@
           },
           "name": {
             "nullable": true,
-            "type": "string",
-            "x-struct": null,
-            "x-validate": null
+            "type": "string"
           },
           "payload": {
             "$ref": "#/components/schemas/JsonValue"
@@ -605,23 +469,17 @@
           },
           "timezone": {
             "nullable": true,
-            "type": "string",
-            "x-struct": null,
-            "x-validate": null
+            "type": "string"
           }
         },
         "title": "ScheduleCronUpdateRequest",
-        "type": "object",
-        "x-struct": null,
-        "x-validate": null
+        "type": "object"
       },
       "ScheduleCronWriteRequest": {
         "additionalProperties": false,
         "properties": {
           "binding_name": {
-            "type": "string",
-            "x-struct": null,
-            "x-validate": null
+            "type": "string"
           },
           "delivery": {
             "$ref": "#/components/schemas/JsonValue"
@@ -630,15 +488,11 @@
             "$ref": "#/components/schemas/JsonValue"
           },
           "idempotency_key": {
-            "type": "string",
-            "x-struct": null,
-            "x-validate": null
+            "type": "string"
           },
           "name": {
             "nullable": true,
-            "type": "string",
-            "x-struct": null,
-            "x-validate": null
+            "type": "string"
           },
           "payload": {
             "$ref": "#/components/schemas/JsonValue"
@@ -649,22 +503,16 @@
           "status": {
             "enum": ["active", "paused"],
             "nullable": true,
-            "type": "string",
-            "x-struct": null,
-            "x-validate": null
+            "type": "string"
           },
           "timezone": {
             "nullable": true,
-            "type": "string",
-            "x-struct": null,
-            "x-validate": null
+            "type": "string"
           }
         },
         "required": ["binding_name", "schedule", "delivery", "idempotency_key"],
         "title": "ScheduleCronWriteRequest",
-        "type": "object",
-        "x-struct": null,
-        "x-validate": null
+        "type": "object"
       },
       "ScheduleEventListResponse": {
         "additionalProperties": false,
@@ -673,16 +521,12 @@
             "items": {
               "$ref": "#/components/schemas/JsonValue"
             },
-            "type": "array",
-            "x-struct": null,
-            "x-validate": null
+            "type": "array"
           }
         },
         "required": ["data"],
         "title": "ScheduleEventListResponse",
-        "type": "object",
-        "x-struct": null,
-        "x-validate": null
+        "type": "object"
       },
       "ScheduleEventResponse": {
         "additionalProperties": false,
@@ -693,12 +537,15 @@
         },
         "required": ["data"],
         "title": "ScheduleEventResponse",
-        "type": "object",
-        "x-struct": null,
-        "x-validate": null
+        "type": "object"
       }
     },
     "securitySchemes": {
+      "aiGatewayBearer": {
+        "bearerFormat": "JWT",
+        "scheme": "bearer",
+        "type": "http"
+      },
       "consoleBearer": {
         "bearerFormat": "JWT",
         "scheme": "bearer",
@@ -707,15 +554,15 @@
     }
   },
   "info": {
-    "title": "Ankole Console API",
+    "title": "Ankole API",
     "version": "2026-06-24"
   },
   "openapi": "3.0.0",
   "paths": {
-    "/api/agents/{agent_uid}/model-profiles": {
+    "/api/v1/agents/{agent_uid}/model-profiles": {
       "get": {
         "callbacks": {},
-        "operationId": "AnkoleWeb.LlmProviderController.index_model_profiles",
+        "operationId": "AnkoleWeb.AIGatewayProviderController.index_model_profiles",
         "parameters": [
           {
             "description": "",
@@ -723,9 +570,7 @@
             "name": "agent_uid",
             "required": true,
             "schema": {
-              "type": "string",
-              "x-struct": null,
-              "x-validate": null
+              "type": "string"
             }
           }
         ],
@@ -777,13 +622,13 @@
           }
         ],
         "summary": "Read all model profiles for one agent",
-        "tags": ["LLM Runtime"]
+        "tags": ["AIGateway"]
       }
     },
-    "/api/agents/{agent_uid}/model-profiles/{profile}": {
+    "/api/v1/agents/{agent_uid}/model-profiles/{profile}": {
       "delete": {
         "callbacks": {},
-        "operationId": "AnkoleWeb.LlmProviderController.delete_model_profile",
+        "operationId": "AnkoleWeb.AIGatewayProviderController.delete_model_profile",
         "parameters": [
           {
             "description": "",
@@ -791,9 +636,7 @@
             "name": "agent_uid",
             "required": true,
             "schema": {
-              "type": "string",
-              "x-struct": null,
-              "x-validate": null
+              "type": "string"
             }
           },
           {
@@ -802,9 +645,7 @@
             "name": "profile",
             "required": true,
             "schema": {
-              "type": "string",
-              "x-struct": null,
-              "x-validate": null
+              "type": "string"
             }
           }
         ],
@@ -866,11 +707,11 @@
           }
         ],
         "summary": "Clear one optional model profile for an agent",
-        "tags": ["LLM Runtime"]
+        "tags": ["AIGateway"]
       },
       "put": {
         "callbacks": {},
-        "operationId": "AnkoleWeb.LlmProviderController.put_model_profile",
+        "operationId": "AnkoleWeb.AIGatewayProviderController.put_model_profile",
         "parameters": [
           {
             "description": "",
@@ -878,9 +719,7 @@
             "name": "agent_uid",
             "required": true,
             "schema": {
-              "type": "string",
-              "x-struct": null,
-              "x-validate": null
+              "type": "string"
             }
           },
           {
@@ -889,9 +728,7 @@
             "name": "profile",
             "required": true,
             "schema": {
-              "type": "string",
-              "x-struct": null,
-              "x-validate": null
+              "type": "string"
             }
           }
         ],
@@ -964,10 +801,10 @@
           }
         ],
         "summary": "Create or update one model profile for an agent",
-        "tags": ["LLM Runtime"]
+        "tags": ["AIGateway"]
       }
     },
-    "/api/agents/{agent_uid}/sessions/{session_id}/checkbacks": {
+    "/api/v1/agents/{agent_uid}/sessions/{session_id}/checkbacks": {
       "get": {
         "callbacks": {},
         "operationId": "AnkoleWeb.ScheduleController.index_checkbacks",
@@ -978,9 +815,7 @@
             "name": "agent_uid",
             "required": true,
             "schema": {
-              "type": "string",
-              "x-struct": null,
-              "x-validate": null
+              "type": "string"
             }
           },
           {
@@ -989,9 +824,7 @@
             "name": "session_id",
             "required": true,
             "schema": {
-              "type": "string",
-              "x-struct": null,
-              "x-validate": null
+              "type": "string"
             }
           }
         ],
@@ -1016,7 +849,7 @@
         "tags": ["Schedule"]
       }
     },
-    "/api/agents/{agent_uid}/sessions/{session_id}/checkbacks/{scheduled_event_id}": {
+    "/api/v1/agents/{agent_uid}/sessions/{session_id}/checkbacks/{scheduled_event_id}": {
       "delete": {
         "callbacks": {},
         "operationId": "AnkoleWeb.ScheduleController.cancel_checkback",
@@ -1027,9 +860,7 @@
             "name": "agent_uid",
             "required": true,
             "schema": {
-              "type": "string",
-              "x-struct": null,
-              "x-validate": null
+              "type": "string"
             }
           },
           {
@@ -1038,9 +869,7 @@
             "name": "session_id",
             "required": true,
             "schema": {
-              "type": "string",
-              "x-struct": null,
-              "x-validate": null
+              "type": "string"
             }
           },
           {
@@ -1049,9 +878,7 @@
             "name": "scheduled_event_id",
             "required": true,
             "schema": {
-              "type": "string",
-              "x-struct": null,
-              "x-validate": null
+              "type": "string"
             }
           }
         ],
@@ -1076,7 +903,7 @@
         "tags": ["Schedule"]
       }
     },
-    "/api/agents/{agent_uid}/sessions/{session_id}/cron-schedules": {
+    "/api/v1/agents/{agent_uid}/sessions/{session_id}/cron-schedules": {
       "get": {
         "callbacks": {},
         "operationId": "AnkoleWeb.ScheduleController.index_cron",
@@ -1087,9 +914,7 @@
             "name": "agent_uid",
             "required": true,
             "schema": {
-              "type": "string",
-              "x-struct": null,
-              "x-validate": null
+              "type": "string"
             }
           },
           {
@@ -1098,9 +923,7 @@
             "name": "session_id",
             "required": true,
             "schema": {
-              "type": "string",
-              "x-struct": null,
-              "x-validate": null
+              "type": "string"
             }
           }
         ],
@@ -1154,9 +977,7 @@
             "name": "agent_uid",
             "required": true,
             "schema": {
-              "type": "string",
-              "x-struct": null,
-              "x-validate": null
+              "type": "string"
             }
           },
           {
@@ -1165,9 +986,7 @@
             "name": "session_id",
             "required": true,
             "schema": {
-              "type": "string",
-              "x-struct": null,
-              "x-validate": null
+              "type": "string"
             }
           }
         ],
@@ -1233,7 +1052,7 @@
         "tags": ["Schedule"]
       }
     },
-    "/api/agents/{agent_uid}/sessions/{session_id}/cron-schedules/{cron_schedule_id}": {
+    "/api/v1/agents/{agent_uid}/sessions/{session_id}/cron-schedules/{cron_schedule_id}": {
       "delete": {
         "callbacks": {},
         "operationId": "AnkoleWeb.ScheduleController.remove_cron",
@@ -1244,9 +1063,7 @@
             "name": "agent_uid",
             "required": true,
             "schema": {
-              "type": "string",
-              "x-struct": null,
-              "x-validate": null
+              "type": "string"
             }
           },
           {
@@ -1255,9 +1072,7 @@
             "name": "session_id",
             "required": true,
             "schema": {
-              "type": "string",
-              "x-struct": null,
-              "x-validate": null
+              "type": "string"
             }
           },
           {
@@ -1266,9 +1081,7 @@
             "name": "cron_schedule_id",
             "required": true,
             "schema": {
-              "type": "string",
-              "x-struct": null,
-              "x-validate": null
+              "type": "string"
             }
           }
         ],
@@ -1302,9 +1115,7 @@
             "name": "agent_uid",
             "required": true,
             "schema": {
-              "type": "string",
-              "x-struct": null,
-              "x-validate": null
+              "type": "string"
             }
           },
           {
@@ -1313,9 +1124,7 @@
             "name": "session_id",
             "required": true,
             "schema": {
-              "type": "string",
-              "x-struct": null,
-              "x-validate": null
+              "type": "string"
             }
           },
           {
@@ -1324,9 +1133,7 @@
             "name": "cron_schedule_id",
             "required": true,
             "schema": {
-              "type": "string",
-              "x-struct": null,
-              "x-validate": null
+              "type": "string"
             }
           }
         ],
@@ -1390,9 +1197,7 @@
             "name": "agent_uid",
             "required": true,
             "schema": {
-              "type": "string",
-              "x-struct": null,
-              "x-validate": null
+              "type": "string"
             }
           },
           {
@@ -1401,9 +1206,7 @@
             "name": "session_id",
             "required": true,
             "schema": {
-              "type": "string",
-              "x-struct": null,
-              "x-validate": null
+              "type": "string"
             }
           },
           {
@@ -1412,9 +1215,7 @@
             "name": "cron_schedule_id",
             "required": true,
             "schema": {
-              "type": "string",
-              "x-struct": null,
-              "x-validate": null
+              "type": "string"
             }
           }
         ],
@@ -1490,7 +1291,7 @@
         "tags": ["Schedule"]
       }
     },
-    "/api/agents/{agent_uid}/sessions/{session_id}/cron-schedules/{cron_schedule_id}/pause": {
+    "/api/v1/agents/{agent_uid}/sessions/{session_id}/cron-schedules/{cron_schedule_id}/pause": {
       "post": {
         "callbacks": {},
         "operationId": "AnkoleWeb.ScheduleController.pause_cron",
@@ -1501,9 +1302,7 @@
             "name": "agent_uid",
             "required": true,
             "schema": {
-              "type": "string",
-              "x-struct": null,
-              "x-validate": null
+              "type": "string"
             }
           },
           {
@@ -1512,9 +1311,7 @@
             "name": "session_id",
             "required": true,
             "schema": {
-              "type": "string",
-              "x-struct": null,
-              "x-validate": null
+              "type": "string"
             }
           },
           {
@@ -1523,9 +1320,7 @@
             "name": "cron_schedule_id",
             "required": true,
             "schema": {
-              "type": "string",
-              "x-struct": null,
-              "x-validate": null
+              "type": "string"
             }
           }
         ],
@@ -1550,7 +1345,7 @@
         "tags": ["Schedule"]
       }
     },
-    "/api/agents/{agent_uid}/sessions/{session_id}/cron-schedules/{cron_schedule_id}/resume": {
+    "/api/v1/agents/{agent_uid}/sessions/{session_id}/cron-schedules/{cron_schedule_id}/resume": {
       "post": {
         "callbacks": {},
         "operationId": "AnkoleWeb.ScheduleController.resume_cron",
@@ -1561,9 +1356,7 @@
             "name": "agent_uid",
             "required": true,
             "schema": {
-              "type": "string",
-              "x-struct": null,
-              "x-validate": null
+              "type": "string"
             }
           },
           {
@@ -1572,9 +1365,7 @@
             "name": "session_id",
             "required": true,
             "schema": {
-              "type": "string",
-              "x-struct": null,
-              "x-validate": null
+              "type": "string"
             }
           },
           {
@@ -1583,9 +1374,7 @@
             "name": "cron_schedule_id",
             "required": true,
             "schema": {
-              "type": "string",
-              "x-struct": null,
-              "x-validate": null
+              "type": "string"
             }
           }
         ],
@@ -1610,7 +1399,7 @@
         "tags": ["Schedule"]
       }
     },
-    "/api/agents/{agent_uid}/sessions/{session_id}/cron-schedules/{cron_schedule_id}/runs": {
+    "/api/v1/agents/{agent_uid}/sessions/{session_id}/cron-schedules/{cron_schedule_id}/runs": {
       "get": {
         "callbacks": {},
         "operationId": "AnkoleWeb.ScheduleController.cron_runs",
@@ -1621,9 +1410,7 @@
             "name": "agent_uid",
             "required": true,
             "schema": {
-              "type": "string",
-              "x-struct": null,
-              "x-validate": null
+              "type": "string"
             }
           },
           {
@@ -1632,9 +1419,7 @@
             "name": "session_id",
             "required": true,
             "schema": {
-              "type": "string",
-              "x-struct": null,
-              "x-validate": null
+              "type": "string"
             }
           },
           {
@@ -1643,9 +1428,7 @@
             "name": "cron_schedule_id",
             "required": true,
             "schema": {
-              "type": "string",
-              "x-struct": null,
-              "x-validate": null
+              "type": "string"
             }
           },
           {
@@ -1654,9 +1437,7 @@
             "name": "limit",
             "required": false,
             "schema": {
-              "type": "integer",
-              "x-struct": null,
-              "x-validate": null
+              "type": "integer"
             }
           }
         ],
@@ -1690,9 +1471,7 @@
             "name": "agent_uid",
             "required": true,
             "schema": {
-              "type": "string",
-              "x-struct": null,
-              "x-validate": null
+              "type": "string"
             }
           },
           {
@@ -1701,9 +1480,7 @@
             "name": "session_id",
             "required": true,
             "schema": {
-              "type": "string",
-              "x-struct": null,
-              "x-validate": null
+              "type": "string"
             }
           },
           {
@@ -1712,9 +1489,7 @@
             "name": "cron_schedule_id",
             "required": true,
             "schema": {
-              "type": "string",
-              "x-struct": null,
-              "x-validate": null
+              "type": "string"
             }
           }
         ],
@@ -1739,7 +1514,523 @@
         "tags": ["Schedule"]
       }
     },
-    "/api/app-configurations": {
+    "/api/v1/ai-gateway/embeddings": {
+      "post": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.AIGatewayController.embeddings",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "type": "object"
+              }
+            }
+          },
+          "description": "Embedding request",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Embedding response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "aiGatewayBearer": []
+          },
+          {
+            "consoleBearer": []
+          }
+        ],
+        "summary": "Create embeddings through AIGateway",
+        "tags": ["AIGateway"]
+      }
+    },
+    "/api/v1/ai-gateway/models": {
+      "get": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.AIGatewayController.models",
+        "parameters": [
+          {
+            "description": "Comma-separated output modalities or all",
+            "in": "query",
+            "name": "output_modalities",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Comma-separated input modalities",
+            "in": "query",
+            "name": "input_modalities",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Comma-separated supported request parameters",
+            "in": "query",
+            "name": "supported_parameters",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "OpenRouter-style sort key",
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Free-text selector search",
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Minimum context length",
+            "in": "query",
+            "name": "context",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Minimum prompt price",
+            "in": "query",
+            "name": "min_price",
+            "required": false,
+            "schema": {
+              "type": "number"
+            }
+          },
+          {
+            "description": "Maximum prompt price",
+            "in": "query",
+            "name": "max_price",
+            "required": false,
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OpenRouter-style model list"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "aiGatewayBearer": []
+          },
+          {
+            "consoleBearer": []
+          }
+        ],
+        "summary": "List AIGateway model selectors",
+        "tags": ["AIGateway"]
+      }
+    },
+    "/api/v1/ai-gateway/provider-kinds": {
+      "get": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.AIGatewayProviderController.provider_kinds",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AIGatewayProviderKindListResponse"
+                }
+              }
+            },
+            "description": "Provider kinds"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          }
+        },
+        "security": [
+          {
+            "consoleBearer": []
+          }
+        ],
+        "summary": "List AIGateway provider kinds",
+        "tags": ["AIGateway"]
+      }
+    },
+    "/api/v1/ai-gateway/providers": {
+      "get": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.AIGatewayProviderController.index",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AIGatewayProviderListResponse"
+                }
+              }
+            },
+            "description": "AIGateway providers"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          }
+        },
+        "security": [
+          {
+            "consoleBearer": []
+          }
+        ],
+        "summary": "List configured AIGateway providers",
+        "tags": ["AIGateway"]
+      }
+    },
+    "/api/v1/ai-gateway/providers/{provider_id}": {
+      "delete": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.AIGatewayProviderController.delete_provider",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "provider_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AIGatewayProviderResponse"
+                }
+              }
+            },
+            "description": "AIGateway provider"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Provider in use"
+          }
+        },
+        "security": [
+          {
+            "consoleBearer": []
+          }
+        ],
+        "summary": "Disable one AIGateway provider",
+        "tags": ["AIGateway"]
+      },
+      "put": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.AIGatewayProviderController.put_provider",
+        "parameters": [
+          {
+            "description": "",
+            "in": "path",
+            "name": "provider_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AIGatewayProviderWriteRequest"
+              }
+            }
+          },
+          "description": "AIGateway provider",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AIGatewayProviderResponse"
+                }
+              }
+            },
+            "description": "AIGateway provider"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid provider"
+          }
+        },
+        "security": [
+          {
+            "consoleBearer": []
+          }
+        ],
+        "summary": "Create or update one AIGateway provider",
+        "tags": ["AIGateway"]
+      }
+    },
+    "/api/v1/ai-gateway/rerank": {
+      "post": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.AIGatewayController.rerank",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "type": "object"
+              }
+            }
+          },
+          "description": "Rerank request",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Rerank response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "aiGatewayBearer": []
+          },
+          {
+            "consoleBearer": []
+          }
+        ],
+        "summary": "Create a rerank result through AIGateway",
+        "tags": ["AIGateway"]
+      }
+    },
+    "/api/v1/ai-gateway/responses": {
+      "post": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.AIGatewayController.responses",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": true,
+                "type": "object"
+              }
+            }
+          },
+          "description": "OpenResponses request",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OpenResponses response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "aiGatewayBearer": []
+          },
+          {
+            "consoleBearer": []
+          }
+        ],
+        "summary": "Create a stateless OpenResponses response",
+        "tags": ["AIGateway"]
+      }
+    },
+    "/api/v1/app-configurations": {
       "get": {
         "callbacks": {},
         "operationId": "AnkoleWeb.AppConfigurationController.index",
@@ -1785,7 +2076,7 @@
         "tags": ["AppConfigure"]
       }
     },
-    "/api/app-configurations/{key}": {
+    "/api/v1/app-configurations/{key}": {
       "delete": {
         "callbacks": {},
         "operationId": "AnkoleWeb.AppConfigurationController.delete",
@@ -1796,9 +2087,7 @@
             "name": "key",
             "required": true,
             "schema": {
-              "type": "string",
-              "x-struct": null,
-              "x-validate": null
+              "type": "string"
             }
           }
         ],
@@ -1872,9 +2161,7 @@
             "name": "key",
             "required": true,
             "schema": {
-              "type": "string",
-              "x-struct": null,
-              "x-validate": null
+              "type": "string"
             }
           }
         ],
@@ -1948,9 +2235,7 @@
             "name": "key",
             "required": true,
             "schema": {
-              "type": "string",
-              "x-struct": null,
-              "x-validate": null
+              "type": "string"
             }
           }
         ],
@@ -2026,7 +2311,7 @@
         "tags": ["AppConfigure"]
       }
     },
-    "/api/app-configurations/{key}/decryptions": {
+    "/api/v1/app-configurations/{key}/decryptions": {
       "post": {
         "callbacks": {},
         "operationId": "AnkoleWeb.AppConfigurationController.decrypt",
@@ -2037,9 +2322,7 @@
             "name": "key",
             "required": true,
             "schema": {
-              "type": "string",
-              "x-struct": null,
-              "x-validate": null
+              "type": "string"
             }
           }
         ],
@@ -2103,253 +2386,6 @@
         "summary": "Reveal one encrypted AppConfigure value on demand",
         "tags": ["AppConfigure"]
       }
-    },
-    "/api/llm-provider-sources": {
-      "get": {
-        "callbacks": {},
-        "operationId": "AnkoleWeb.LlmProviderController.sources",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/LlmProviderSourceListResponse"
-                }
-              }
-            },
-            "description": "Provider sources"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
-                }
-              }
-            },
-            "description": "Unauthorized"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
-                }
-              }
-            },
-            "description": "Forbidden"
-          }
-        },
-        "security": [
-          {
-            "consoleBearer": []
-          }
-        ],
-        "summary": "List first-party LLM provider sources",
-        "tags": ["LLM Runtime"]
-      }
-    },
-    "/api/llm-providers": {
-      "get": {
-        "callbacks": {},
-        "operationId": "AnkoleWeb.LlmProviderController.index",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/LlmProviderListResponse"
-                }
-              }
-            },
-            "description": "LLM providers"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
-                }
-              }
-            },
-            "description": "Unauthorized"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
-                }
-              }
-            },
-            "description": "Forbidden"
-          }
-        },
-        "security": [
-          {
-            "consoleBearer": []
-          }
-        ],
-        "summary": "List configured LLM providers",
-        "tags": ["LLM Runtime"]
-      }
-    },
-    "/api/llm-providers/{provider_id}": {
-      "delete": {
-        "callbacks": {},
-        "operationId": "AnkoleWeb.LlmProviderController.delete_provider",
-        "parameters": [
-          {
-            "description": "",
-            "in": "path",
-            "name": "provider_id",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "x-struct": null,
-              "x-validate": null
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/LlmProviderResponse"
-                }
-              }
-            },
-            "description": "LLM provider"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
-                }
-              }
-            },
-            "description": "Unauthorized"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
-                }
-              }
-            },
-            "description": "Forbidden"
-          },
-          "404": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
-                }
-              }
-            },
-            "description": "Not found"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
-                }
-              }
-            },
-            "description": "Provider in use"
-          }
-        },
-        "security": [
-          {
-            "consoleBearer": []
-          }
-        ],
-        "summary": "Disable one LLM provider",
-        "tags": ["LLM Runtime"]
-      },
-      "put": {
-        "callbacks": {},
-        "operationId": "AnkoleWeb.LlmProviderController.put_provider",
-        "parameters": [
-          {
-            "description": "",
-            "in": "path",
-            "name": "provider_id",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "x-struct": null,
-              "x-validate": null
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/LlmProviderWriteRequest"
-              }
-            }
-          },
-          "description": "LLM provider",
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/LlmProviderResponse"
-                }
-              }
-            },
-            "description": "LLM provider"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
-                }
-              }
-            },
-            "description": "Unauthorized"
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
-                }
-              }
-            },
-            "description": "Forbidden"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ConsoleApiErrorEnvelope"
-                }
-              }
-            },
-            "description": "Invalid provider"
-          }
-        },
-        "security": [
-          {
-            "consoleBearer": []
-          }
-        ],
-        "summary": "Create or update one LLM provider",
-        "tags": ["LLM Runtime"]
-      }
     }
   },
   "security": [],
@@ -2367,6 +2403,10 @@
     {
       "description": "Operator-managed LLM provider and agent model profile configuration",
       "name": "LLM Runtime"
+    },
+    {
+      "description": "Agent-authenticated AI provider gateway",
+      "name": "AIGateway"
     },
     {
       "description": "Operator-visible actor checkbacks and recurring schedules",

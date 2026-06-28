@@ -18,7 +18,7 @@ const config: KnipConfig = {
       // The vendored AI SDK is intentionally excluded from current unused-file
       // gates. Its slimming is tracked separately and should not mask app-owned
       // dead code.
-      ignore: ['src/llm/**']
+      ignore: ['src/ai-gateway-client/**']
     },
     'app/kernel': {
       entry: ['test/**/*.ts'],
@@ -46,7 +46,7 @@ const config: KnipConfig = {
     }
   },
   // var/ holds dev-worker runtime volumes (browser caches etc.), not source.
-  ignore: ['**/*.d.ts', 'var/**', 'internals/skills/**', 'app/agent_computer/src/llm/**'],
+  ignore: ['**/*.d.ts', 'var/**', 'internals/skills/**', 'app/agent_computer/src/ai-gateway-client/**'],
   ignoreBinaries: ['cargo', 'napi']
 }
 

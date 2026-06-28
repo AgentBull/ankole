@@ -1,12 +1,15 @@
 import { describe, expect, it } from 'bun:test'
-import { createJsonResponseHandler } from '../src/llm/provider-utils/response-handler'
-import type { FlexibleSchema } from '../src/llm/provider-utils/schema'
-import { createOpenAI } from '../src/llm/providers/openai'
+import { createJsonResponseHandler } from '../src/ai-gateway-client/provider-utils/response-handler'
+import type { FlexibleSchema } from '../src/ai-gateway-client/provider-utils/schema'
+import { OpenResponsesLanguageModel } from '../src/ai-gateway-client/ai-gateway-provider/responses/open-responses-language-model'
 
 describe('vendored AI SDK 7.0.4 core upgrade behavior', () => {
-  it('defaults OpenAI Responses reasoning summary when reasoning effort is set', async () => {
-    const openai = createOpenAI({ apiKey: 'test-key' })
-    const model = openai.responses('gpt-5')
+  it('defaults OpenResponses reasoning summary when reasoning effort is set', async () => {
+    const model = new OpenResponsesLanguageModel('gpt-5', {
+      provider: 'test.responses',
+      url: ({ path }) => `https://api.openai.test/v1${path}`,
+      headers: () => ({ authorization: 'Bearer test-key' })
+    })
     const { args } = await (model as any).getArgs({
       prompt: [{ role: 'user', content: [{ type: 'text', text: 'hello' }] }],
       reasoning: 'medium',

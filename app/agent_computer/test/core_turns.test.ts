@@ -4,14 +4,14 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { runAgentLoop, runLlmTurnHandlers, runTextTurnLoop } from '../src/core'
 import type { TurnStart } from '../src/actor_lane'
-import type { Message, Model } from '../src/llm/ankole'
-import type { LanguageModelV4, LanguageModelV4StreamPart } from '../src/llm/provider'
+import type { Message, Model } from '../src/ai-gateway-client/ankole'
+import type { LanguageModel, LanguageModelStreamPart } from '../src/ai-gateway-client/provider'
 import {
   rpcMethods,
   type AgentConversationContext,
+  type AIGatewayApiKeyResponse,
   type ConversationHistoryMessage,
   type ConversationHistoryResponse,
-  type LlmProviderCredentialResponse,
   type RpcMethod,
   type ScheduleRpcRequest
 } from '../src/rpc_lane'
@@ -88,13 +88,12 @@ describe('@ankole/agent-computer LLM turn loop', () => {
     const reply = await runTextTurnLoop(start, {
       workspaceRoot,
       ...runtimeFixtures(start, rows),
-      requestCredential: async request =>
-        credential(request.request_id, 'openrouter', 'openrouter-main', 'z-ai/glm-5.2')
+      requestAIGatewayApiKey: async request => aiGatewayApiKey(request.request_id)
     })
 
     expect(reply.reply?.text).toBe('HISTORY_OK')
     const body = calls[0].body
-    const serializedMessages = JSON.stringify(body.messages)
+    const serializedMessages = requestText(body)
     expect(serializedMessages.match(/Use one tool, then reply with OK\./g)).toHaveLength(1)
     expect(serializedMessages).toContain('Previous answer from durable transcript.')
     expect(serializedMessages).toContain('<previous_chat_history>')
@@ -105,24 +104,26 @@ describe('@ankole/agent-computer LLM turn loop', () => {
     expect(serializedMessages).toContain(
       'runtime_note: The provider reported that a previously visible user entry was removed.'
     )
-    const userMessages = JSON.stringify(body.messages.filter((message: any) => message.role === 'user'))
+    const userMessages = JSON.stringify(requestMessages(body).filter((message: any) => message.role === 'user'))
     expect(userMessages.match(/<previous_chat_history>/g)).toHaveLength(1)
     expect(userMessages.match(/<agent_environment_info>/g)).toHaveLength(1)
     expect(userMessages.indexOf('<previous_chat_history>')).toBeLessThan(
       userMessages.indexOf('<agent_environment_info>')
     )
-    const providerUserMessage = body.messages.find(
+    const providerUserMessage = requestMessages(body).find(
       (message: any) => message.role === 'user' && JSON.stringify(message).includes('Use one tool, then reply with OK.')
     )
     expect(Array.isArray(providerUserMessage?.content)).toBe(true)
     const userTextParts = providerUserMessage.content
-      .filter((part: any) => part.type === 'text')
+      .filter((part: any) => part.type === 'text' || part.type === 'input_text')
       .map((part: any) => part.text)
     expect(userTextParts).toHaveLength(3)
     expect(userTextParts[0]).toContain('<previous_chat_history>')
     expect(userTextParts[1]).toContain('<agent_environment_info>')
     expect(userTextParts[2]).toBe('Use one tool, then reply with OK.')
-    const systemMessages = JSON.stringify(body.messages.filter((message: any) => message.role === 'system'))
+    const systemMessages = JSON.stringify(
+      body.instructions ?? requestMessages(body).filter((message: any) => message.role === 'system')
+    )
     expect(systemMessages).not.toContain('previously visible user entry')
     expect(systemMessages).not.toContain('Latest compressed previous chat history.')
   })
@@ -181,12 +182,11 @@ describe('@ankole/agent-computer LLM turn loop', () => {
     const reply = await runTextTurnLoop(start, {
       workspaceRoot: tempWorkspace(),
       ...runtimeFixtures(start, rows),
-      requestCredential: async request =>
-        credential(request.request_id, 'openrouter', 'openrouter-main', 'z-ai/glm-5.2')
+      requestAIGatewayApiKey: async request => aiGatewayApiKey(request.request_id)
     })
 
     expect(reply.reply?.text).toBe('TIME_GAP_OK')
-    const serializedMessages = JSON.stringify(calls[0].body.messages)
+    const serializedMessages = requestText(calls[0].body)
     expect(serializedMessages.match(/send_at:/g) ?? []).toHaveLength(2)
     expect(serializedMessages).toContain('send_at: 2026-06-24 08:00:00 (Asia/Shanghai)')
     expect(serializedMessages).not.toContain('send_at: 2026-06-24 08:30:00 (Asia/Shanghai)')
@@ -243,39 +243,93 @@ describe('@ankole/agent-computer LLM turn loop', () => {
     const reply = await runTextTurnLoop(start, {
       workspaceRoot: tempWorkspace(),
       ...runtimeFixtures(start, rows),
-      requestCredential: async request =>
-        credential(request.request_id, 'openrouter', 'openrouter-main', 'z-ai/glm-5.2')
+      requestAIGatewayApiKey: async request => aiGatewayApiKey(request.request_id)
     })
 
     expect(reply.reply?.text).toBe('SUMMARY_REPLACEMENT_OK')
-    const serializedMessages = JSON.stringify(calls[0].body.messages)
+    const serializedMessages = requestText(calls[0].body)
     expect(serializedMessages).toContain('Compressed old release discussion.')
     expect(serializedMessages).toContain('Continue from the compressed release discussion.')
     expect(serializedMessages).not.toContain('Old verbose user detail that should be compressed away.')
     expect(serializedMessages).not.toContain('Old verbose assistant answer that should be compressed away.')
   })
 
-  it('passes OpenRouter reasoning provider options through the streaming request', async () => {
+  it('sends provider/model selectors to the AIGateway responses request', async () => {
     const calls: Array<{ body: any }> = []
     globalThis.fetch = (async (_url, init) => {
       calls.push({ body: JSON.parse(String(init?.body)) })
-      return openAIStream([{ text: 'REASONING_OPTION_OK' }])
+      return openAIStream([{ text: 'MODEL_SELECTOR_OK' }])
     }) as typeof fetch
 
     const start = turnStart('openrouter-main', 'google/gemini-3.5-flash')
-    const providerOptions = { reasoning: { effort: 'minimal', exclude: true } }
 
     const reply = await runTextTurnLoop(start, {
       workspaceRoot: tempWorkspace(),
       ...runtimeFixtures(start, []),
-      requestCredential: async request => ({
-        ...credential(request.request_id, 'openrouter', 'openrouter-main', 'google/gemini-3.5-flash'),
-        provider_options_json: providerOptions
-      })
+      requestAIGatewayApiKey: async request => aiGatewayApiKey(request.request_id)
     })
 
-    expect(reply.reply?.text).toBe('REASONING_OPTION_OK')
-    expect(calls[0].body.reasoning).toEqual(providerOptions.reasoning)
+    expect(reply.reply?.text).toBe('MODEL_SELECTOR_OK')
+    expect(calls[0].body.model).toBe('openrouter-main/google/gemini-3.5-flash')
+  })
+
+  it('uses agent model aliases as direct AIGateway selectors and fetches the key at turn start', async () => {
+    const calls: Array<{ body: any }> = []
+    const order: string[] = []
+    globalThis.fetch = (async (_url, init) => {
+      order.push('provider-http')
+      calls.push({ body: JSON.parse(String(init?.body)) })
+      return openAIStream([{ text: 'ALIAS_SELECTOR_OK' }])
+    }) as typeof fetch
+
+    const start = turnStart('ai_gateway', 'primary')
+
+    const reply = await runTextTurnLoop(start, {
+      workspaceRoot: tempWorkspace(),
+      requestAIGatewayApiKey: async request => {
+        order.push('ai-gateway-key')
+        return aiGatewayApiKey(request.request_id)
+      },
+      requestAgentConversationContext: async () => {
+        order.push('agent-context')
+        return agentConversationContext(start)
+      },
+      requestConversationHistory: async request => {
+        order.push('conversation-history')
+        return conversationHistory(start, [], request.purpose)
+      }
+    })
+
+    expect(reply.reply?.text).toBe('ALIAS_SELECTOR_OK')
+    expect(calls[0].body.model).toBe('primary')
+    expect(order).toEqual(['ai-gateway-key', 'agent-context', 'conversation-history', 'provider-http'])
+  })
+
+  it('refreshes an expired AIGateway API key before the provider HTTP request', async () => {
+    const seenAuthorizations: string[] = []
+    globalThis.fetch = (async (_url, init) => {
+      seenAuthorizations.push(new Headers(init?.headers).get('authorization') ?? '')
+      return openAIStream([{ text: 'REFRESHED_KEY_OK' }])
+    }) as typeof fetch
+
+    const start = turnStart('openrouter-main', 'z-ai/glm-5.2')
+    let keyRequests = 0
+
+    const reply = await runTextTurnLoop(start, {
+      workspaceRoot: tempWorkspace(),
+      ...runtimeFixtures(start, []),
+      requestAIGatewayApiKey: async request => {
+        keyRequests += 1
+        return aiGatewayApiKey(request.request_id, {
+          api_key: keyRequests === 1 ? 'expired-key' : 'fresh-key',
+          expires_at: Math.floor(Date.now() / 1000) + (keyRequests === 1 ? -10 : 30 * 24 * 60 * 60)
+        })
+      }
+    })
+
+    expect(reply.reply?.text).toBe('REFRESHED_KEY_OK')
+    expect(keyRequests).toBe(2)
+    expect(seenAuthorizations).toEqual(['Bearer fresh-key'])
   })
 
   it('renders actor input attachments into the model prompt', async () => {
@@ -320,12 +374,11 @@ describe('@ankole/agent-computer LLM turn loop', () => {
     const reply = await runTextTurnLoop(start, {
       workspaceRoot,
       ...runtimeFixtures(start, []),
-      requestCredential: async request =>
-        credential(request.request_id, 'openrouter', 'openrouter-main', 'z-ai/glm-5.2')
+      requestAIGatewayApiKey: async request => aiGatewayApiKey(request.request_id)
     })
 
     expect(reply.reply?.text).toBe('ATTACHMENT_OK')
-    const serializedMessages = JSON.stringify(calls[0].body.messages)
+    const serializedMessages = requestText(calls[0].body)
     expect(serializedMessages).toContain('Please inspect the attached files.')
     expect(serializedMessages).toContain('/workspace/user-files/inbox/message-1/invoice.pdf')
     expect(serializedMessages).toContain('lark:image:img_v3_abc')
@@ -432,8 +485,7 @@ describe('@ankole/agent-computer LLM turn loop', () => {
       workspaceRoot,
       agentConversationContext: agentConversationContext(start),
       conversationHistory: conversationHistory(start, rows, 'compression'),
-      requestCredential: async request =>
-        credential(request.request_id, 'openrouter', 'openrouter-light', 'openai/gpt-5.4-nano', 'light'),
+      requestAIGatewayApiKey: async request => aiGatewayApiKey(request.request_id),
       pollSteering: () => [
         {
           turn: { ...start.turn, revision: 1 },
@@ -469,18 +521,20 @@ describe('@ankole/agent-computer LLM turn loop', () => {
     expect(commits[0].turn.revision).toBe(1)
     expect(commits[0].provider_metadata_json).toMatchObject({
       profile: 'light',
-      provider_id: 'openrouter-light',
-      model: 'openai/gpt-5.4-nano'
+      provider_id: 'ai_gateway',
+      model: 'light',
+      runtime_provider: 'ai-gateway'
     })
     const body = calls[0].body
     const requestText = JSON.stringify(body)
-    expect(body.model).toBe('openai/gpt-5.4-nano')
+    expect(body.model).toBe('light')
     expect(body.tools).toBeUndefined()
-    expect(body.messages.some((message: any) => message.role === 'system')).toBe(true)
-    expect(body.messages.some((message: any) => message.role === 'user')).toBe(true)
-    const userPrompt = body.messages.find((message: any) => message.role === 'user')?.content ?? ''
+    expect(requestMessages(body).some((message: any) => message.role === 'user')).toBe(true)
+    const userPrompt = JSON.stringify(
+      requestMessages(body).find((message: any) => message.role === 'user')?.content ?? ''
+    )
     expect(requestText).toContain('You are a context summarization assistant')
-    expect(userPrompt).toContain('UPDATE "Completed Actions"')
+    expect(userPrompt).toMatch(/UPDATE \\"Completed Actions\\"/i)
     expect(userPrompt).toContain('<previous_chat_history>')
     expect(userPrompt).toContain('Previous compressed chat history.')
     expect(userPrompt).toContain('[User]:')
@@ -530,8 +584,7 @@ describe('@ankole/agent-computer LLM turn loop', () => {
     const proposal = await runLlmTurnHandlers(start, {
       workspaceRoot: tempWorkspace(),
       ...runtimeFixtures(start, []),
-      requestCredential: async request =>
-        credential(request.request_id, 'openrouter', 'openrouter-main', 'z-ai/glm-5.2'),
+      requestAIGatewayApiKey: async request => aiGatewayApiKey(request.request_id),
       commitConversationSummary: async request => {
         commits.push(request)
         throw new Error('summary commit should not run')
@@ -541,7 +594,7 @@ describe('@ankole/agent-computer LLM turn loop', () => {
     if ('summaryCommitted' in proposal) throw new Error('expected ordinary final proposal')
     expect(proposal.reply?.text).toBe('ORDINARY_COMPRESS_TEXT_OK')
     expect(commits).toHaveLength(0)
-    expect(JSON.stringify(calls[0].body.messages)).toContain('and also remember this detail')
+    expect(requestText(calls[0].body)).toContain('and also remember this detail')
   })
 
   it('does not treat untyped /compress text as a compression command', async () => {
@@ -571,8 +624,7 @@ describe('@ankole/agent-computer LLM turn loop', () => {
     const proposal = await runLlmTurnHandlers(start, {
       workspaceRoot: tempWorkspace(),
       ...runtimeFixtures(start, []),
-      requestCredential: async request =>
-        credential(request.request_id, 'openrouter', 'openrouter-main', 'z-ai/glm-5.2'),
+      requestAIGatewayApiKey: async request => aiGatewayApiKey(request.request_id),
       commitConversationSummary: async request => {
         commits.push(request)
         throw new Error('summary commit should not run')
@@ -582,7 +634,7 @@ describe('@ankole/agent-computer LLM turn loop', () => {
     if ('summaryCommitted' in proposal) throw new Error('expected ordinary final proposal')
     expect(proposal.reply?.text).toBe('UNTYPED_COMPRESS_TEXT_OK')
     expect(commits).toHaveLength(0)
-    expect(JSON.stringify(calls[0].body.messages)).toContain('/compress')
+    expect(requestText(calls[0].body)).toContain('/compress')
   })
 
   it('does not summarize when /compress would only cover the recent tail', async () => {
@@ -652,8 +704,8 @@ describe('@ankole/agent-computer LLM turn loop', () => {
         ],
         'compression'
       ),
-      requestCredential: async () => {
-        throw new Error('credential should not be requested for a no-op compression')
+      requestAIGatewayApiKey: async () => {
+        throw new Error('AIGateway API key should not be requested for a no-op compression')
       },
       commitConversationSummary: async request => {
         commits.push(request)
@@ -698,8 +750,7 @@ describe('@ankole/agent-computer LLM turn loop', () => {
     const reply = await runTextTurnLoop(start, {
       workspaceRoot: tempWorkspace(),
       ...runtimeFixtures(start, []),
-      requestCredential: async request =>
-        credential(request.request_id, 'openrouter', 'openrouter-main', 'z-ai/glm-5.2'),
+      requestAIGatewayApiKey: async request => aiGatewayApiKey(request.request_id),
       pollSteering: () => {
         if (delivered) return []
         delivered = true
@@ -780,8 +831,7 @@ describe('@ankole/agent-computer LLM turn loop', () => {
     const reply = await runTextTurnLoop(start, {
       workspaceRoot: tempWorkspace(),
       ...runtimeFixtures(start, []),
-      requestCredential: async request =>
-        credential(request.request_id, 'openrouter', 'openrouter-main', 'z-ai/glm-5.2'),
+      requestAIGatewayApiKey: async request => aiGatewayApiKey(request.request_id),
       requestScheduleRpc: async (method, request) => {
         scheduleCalls.push({ method, request })
         return {
@@ -841,8 +891,7 @@ describe('@ankole/agent-computer LLM turn loop', () => {
     const reply = await runTextTurnLoop(start, {
       workspaceRoot: tempWorkspace(),
       ...runtimeFixtures(start, []),
-      requestCredential: async request =>
-        credential(request.request_id, 'openrouter', 'openrouter-main', 'z-ai/glm-5.2')
+      requestAIGatewayApiKey: async request => aiGatewayApiKey(request.request_id)
     })
 
     expect(reply.silent_success).toBe(true)
@@ -902,12 +951,11 @@ describe('@ankole/agent-computer LLM turn loop', () => {
     const reply = await runTextTurnLoop(start, {
       workspaceRoot,
       ...runtimeFixtures(start, rows),
-      requestCredential: async request =>
-        credential(request.request_id, 'openrouter', 'openrouter-main', 'z-ai/glm-5.2')
+      requestAIGatewayApiKey: async request => aiGatewayApiKey(request.request_id)
     })
 
     expect(reply.reply?.text).toBe('AMBIENT_REPLY_OK')
-    const serializedMessages = JSON.stringify(calls[0].body.messages)
+    const serializedMessages = requestText(calls[0].body)
     expect(serializedMessages).toContain('<agent_environment_info>')
     expect(serializedMessages).toContain('Runtime intervention, not human-authored text.')
     expect(serializedMessages).toContain('release summary request')
@@ -1013,12 +1061,7 @@ describe('@ankole/agent-computer LLM turn loop', () => {
       await runLlmTurnHandlers(start, {
         workspaceRoot,
         ...runtimeFixtures(start, rows),
-        requestCredential: async request => {
-          if (request.profile === 'light') {
-            return credential(request.request_id, 'openrouter', 'openrouter-light', 'openai/gpt-5.4-nano', 'light')
-          }
-          return credential(request.request_id, 'openrouter', 'openrouter-main', 'z-ai/glm-5.2')
-        }
+        requestAIGatewayApiKey: async request => aiGatewayApiKey(request.request_id)
       })
     )
 
@@ -1027,16 +1070,15 @@ describe('@ankole/agent-computer LLM turn loop', () => {
     const proposedMetadata = proposedMessage?.metadata_json as any
     expect(proposedMessage?.role).toBe('im_ambient')
     expect(proposedMetadata?.control?.type).toBe('ambient_intervention')
-    expect(calls[0].body.model).toBe('openai/gpt-5.4-nano')
-    expect(calls[1].body.model).toBe('z-ai/glm-5.2')
-    expect(calls[0].body.response_format).toMatchObject({
+    expect(calls[0].body.model).toBe('light')
+    expect(calls[1].body.model).toBe('openrouter-main/z-ai/glm-5.2')
+    const recognizerFormat = calls[0].body.response_format ?? calls[0].body.text?.format
+    expect(recognizerFormat).toMatchObject({
       type: 'json_schema',
-      json_schema: {
-        name: 'ambient_intervention_decision'
-      }
+      name: 'ambient_intervention_decision'
     })
-    expect(calls[0].body.response_format.json_schema.schema.required).toEqual(['intervene', 'reason'])
-    const recognizerMessages = JSON.stringify(calls[0].body.messages)
+    expect(recognizerFormat.schema.required).toEqual(['intervene', 'reason'])
+    const recognizerMessages = requestText(calls[0].body)
     expect(recognizerMessages).toContain('decide_if_agent_should_visibly_reply_now')
     expect(recognizerMessages).toContain('Alice')
     expect(recognizerMessages).toContain('ReleaseBot')
@@ -1099,12 +1141,7 @@ describe('@ankole/agent-computer LLM turn loop', () => {
       runLlmTurnHandlers(start, {
         workspaceRoot,
         ...runtimeFixtures(start, rows),
-        requestCredential: async request => {
-          if (request.profile === 'light') {
-            return credential(request.request_id, 'openrouter', 'openrouter-light', 'openai/gpt-5.4-nano', 'light')
-          }
-          return credential(request.request_id, 'openrouter', 'openrouter-main', 'z-ai/glm-5.2')
-        }
+        requestAIGatewayApiKey: async request => aiGatewayApiKey(request.request_id)
       })
     ).rejects.toThrow(/No object generated|schema/i)
 
@@ -1216,8 +1253,7 @@ describe('@ankole/agent-computer LLM turn loop', () => {
       runTextTurnLoop(start, {
         workspaceRoot: tempWorkspace(),
         conversationHistory: conversationHistory(start, []),
-        requestCredential: async request =>
-          credential(request.request_id, 'openrouter', 'openrouter-main', 'z-ai/glm-5.2'),
+        requestAIGatewayApiKey: async request => aiGatewayApiKey(request.request_id),
         requestAgentConversationContext: async () => {
           throw new Error('agent conversation context RPC down')
         }
@@ -1225,29 +1261,40 @@ describe('@ankole/agent-computer LLM turn loop', () => {
     ).rejects.toThrow('agent conversation context RPC down')
   })
 
-  it('fails closed for unknown models under first-class providers', async () => {
+  it('does not reject raw provider models before AIGateway dispatch', async () => {
+    const calls: Array<{ body: any }> = []
+    globalThis.fetch = (async (_url, init) => {
+      calls.push({ body: JSON.parse(String(init?.body)) })
+      return openAIStream([{ text: 'RAW_MODEL_OK' }])
+    }) as typeof fetch
+
     const start = turnStart('openai-main', 'not-a-catalog-model')
 
-    await expect(
-      runTextTurnLoop(start, {
-        workspaceRoot: tempWorkspace(),
-        ...runtimeFixtures(start, []),
-        requestCredential: async request =>
-          credential(request.request_id, 'openai', 'openai-main', 'not-a-catalog-model')
-      })
-    ).rejects.toThrow('LLM model openai/not-a-catalog-model is not in the runtime catalog')
+    const reply = await runTextTurnLoop(start, {
+      workspaceRoot: tempWorkspace(),
+      ...runtimeFixtures(start, []),
+      requestAIGatewayApiKey: async request => aiGatewayApiKey(request.request_id)
+    })
+
+    expect(reply.reply?.text).toBe('RAW_MODEL_OK')
+    expect(calls[0].body.model).toBe('openai-main/not-a-catalog-model')
   })
 
-  it('rejects credentials that do not match the turn model ref', async () => {
+  it('fails closed when the AIGateway API key RPC rejects the actor', async () => {
     const start = turnStart('openrouter-main', 'z-ai/glm-5.2')
     await expect(
       runTextTurnLoop(start, {
         workspaceRoot: tempWorkspace(),
         ...runtimeFixtures(start, []),
-        requestCredential: async request =>
-          credential(request.request_id, 'openrouter', 'other-provider', 'z-ai/glm-5.2')
+        requestAIGatewayApiKey: async request => ({
+          request_id: request.request_id,
+          agent_uid: request.agent_uid,
+          session_id: request.session_id,
+          code: 'route_forbidden',
+          message: 'worker is not assigned to this actor'
+        })
       })
-    ).rejects.toThrow('credential response does not match turn model_ref')
+    ).rejects.toThrow('AIGateway API key rejected: route_forbidden worker is not assigned to this actor')
   })
 })
 
@@ -1257,8 +1304,8 @@ function assistantTranscriptMessage(
   return {
     role: 'assistant',
     content: [{ type: 'text', text: 'assistant text' }],
-    api: 'openai-completions',
-    provider: 'openrouter',
+    api: 'open-responses',
+    provider: 'ai-gateway',
     model: 'z-ai/glm-5.2',
     usage: {
       input: 0,
@@ -1285,7 +1332,6 @@ function tempWorkspace(): string {
 
 function hangingStreamModel(): Model<any> {
   const sdkModel = {
-    specificationVersion: 'v4',
     provider: 'faux-hanging',
     modelId: 'faux-hanging-model',
     supportedUrls: {},
@@ -1299,14 +1345,14 @@ function hangingStreamModel(): Model<any> {
     },
     async doStream() {
       return {
-        stream: new ReadableStream<LanguageModelV4StreamPart>({
+        stream: new ReadableStream<LanguageModelStreamPart>({
           pull() {
             return new Promise(() => {})
           }
         })
       }
     }
-  } as unknown as LanguageModelV4
+  } as unknown as LanguageModel
 
   return {
     id: 'faux-hanging-model',
@@ -1399,25 +1445,27 @@ function conversationHistory(
   }
 }
 
-function credential(
-  requestId: string,
-  providerSource: string,
-  providerId: string,
-  model: string,
-  profile = 'primary'
-): LlmProviderCredentialResponse {
+function aiGatewayApiKey(requestId: string, overrides: Partial<AIGatewayApiKeyResponse> = {}): AIGatewayApiKeyResponse {
   return {
     request_id: requestId,
     agent_uid: 'agent-1',
     session_id: 'signal-channel:test',
-    profile,
-    provider_id: providerId,
-    provider_source: providerSource,
-    model,
-    credential: 'test-key',
-    credential_mode: 'api_key',
-    base_url: 'https://openrouter.ai/api/v1'
+    api_key: 'test-ai-gateway-key',
+    token_type: 'Bearer',
+    expires_at: Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60,
+    expires_in: 30 * 24 * 60 * 60,
+    scope: 'ai_gateway',
+    base_url: 'https://control-plane.test/api/v1/ai-gateway',
+    ...overrides
   }
+}
+
+function requestMessages(body: any): any[] {
+  return body.input ?? body.messages ?? []
+}
+
+function requestText(body: any): string {
+  return JSON.stringify(requestMessages(body))
 }
 
 type StreamPart =
@@ -1432,58 +1480,111 @@ type StreamPart =
 
 function openAIStream(parts: StreamPart[]): Response {
   const chunks: string[] = []
-  let finishReason = 'stop'
+  let sequenceNumber = 1
+  let outputIndex = 0
+  chunks.push(
+    sse({
+      type: 'response.created',
+      response: {
+        id: 'resp-test',
+        created_at: 1_803_000_000,
+        model: 'test-model'
+      }
+    })
+  )
+
   for (const part of parts) {
     if ('text' in part) {
+      const itemId = `msg-test-${outputIndex}`
       chunks.push(
         sse({
-          id: 'chatcmpl-test',
-          model: 'test-model',
-          choices: [
-            {
-              delta: { role: 'assistant', content: part.text },
-              finish_reason: null
-            }
-          ]
+          type: 'response.output_item.added',
+          sequence_number: sequenceNumber++,
+          output_index: outputIndex,
+          item: { id: itemId, type: 'message', role: 'assistant', status: 'in_progress', content: [] }
+        })
+      )
+      chunks.push(
+        sse({
+          type: 'response.output_text.delta',
+          sequence_number: sequenceNumber++,
+          item_id: itemId,
+          output_index: outputIndex,
+          content_index: 0,
+          delta: part.text
+        })
+      )
+      chunks.push(
+        sse({
+          type: 'response.output_item.done',
+          sequence_number: sequenceNumber++,
+          output_index: outputIndex,
+          item: {
+            id: itemId,
+            type: 'message',
+            role: 'assistant',
+            status: 'completed',
+            content: [{ type: 'output_text', text: part.text, annotations: [] }]
+          }
         })
       )
     } else {
-      finishReason = 'tool_calls'
+      const itemId = `fc-test-${outputIndex}`
+      const input = JSON.stringify(part.toolCall.arguments)
       chunks.push(
         sse({
-          id: 'chatcmpl-test',
-          model: 'test-model',
-          choices: [
-            {
-              delta: {
-                role: 'assistant',
-                tool_calls: [
-                  {
-                    index: 0,
-                    id: part.toolCall.id,
-                    function: {
-                      name: part.toolCall.name,
-                      arguments: JSON.stringify(part.toolCall.arguments)
-                    }
-                  }
-                ]
-              },
-              finish_reason: null
-            }
-          ]
+          type: 'response.output_item.added',
+          sequence_number: sequenceNumber++,
+          output_index: outputIndex,
+          item: {
+            id: itemId,
+            type: 'function_call',
+            call_id: part.toolCall.id,
+            name: part.toolCall.name,
+            arguments: ''
+          }
+        })
+      )
+      chunks.push(
+        sse({
+          type: 'response.function_call_arguments.delta',
+          sequence_number: sequenceNumber++,
+          item_id: itemId,
+          output_index: outputIndex,
+          delta: input
+        })
+      )
+      chunks.push(
+        sse({
+          type: 'response.output_item.done',
+          sequence_number: sequenceNumber++,
+          output_index: outputIndex,
+          item: {
+            id: itemId,
+            type: 'function_call',
+            call_id: part.toolCall.id,
+            name: part.toolCall.name,
+            arguments: input,
+            status: 'completed'
+          }
         })
       )
     }
+    outputIndex += 1
   }
   chunks.push(
     sse({
-      id: 'chatcmpl-test',
-      model: 'test-model',
-      choices: [{ delta: {}, finish_reason: finishReason }],
-      usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 }
+      type: 'response.completed',
+      sequence_number: sequenceNumber++,
+      response: {
+        usage: {
+          input_tokens: 1,
+          output_tokens: 1,
+          total_tokens: 2
+        }
+      }
     })
   )
-  chunks.push('data: [DONE]\n\n')
   return new Response(chunks.join(''), {
     headers: { 'content-type': 'text/event-stream' }
   })

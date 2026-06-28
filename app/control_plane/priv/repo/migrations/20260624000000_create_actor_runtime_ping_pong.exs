@@ -133,7 +133,7 @@ defmodule Ankole.Repo.Migrations.CreateActorRuntimePingPong do
            )
 
     create constraint(:ai_agent_llm_turns, :ai_agent_llm_turns_profile_check,
-             check: "profile IN ('primary', 'light', 'heavy', 'codex')"
+             check: "profile IN ('primary', 'light', 'heavy', 'embedding', 'rerank')"
            )
 
     create constraint(:ai_agent_llm_turns, :ai_agent_llm_turns_input_message_ids_array,

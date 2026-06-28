@@ -4,7 +4,7 @@ import type { JsonObject, RuntimeFabricEnvelope } from './runtime_fabric'
 import type { ReliableEnvelopeSender } from './runtime_fabric_sender'
 
 export const rpcMethods = {
-  llmProviderResolveCredential: 'llm_provider.resolve_credential',
+  aiGatewayApiKeyForCreateOrFindByAgent: 'ai_gateway.api_key_for.create_or_find_by_agent',
   agentConversationContextResolve: 'agent_conversation.context.resolve',
   conversationHistoryResolve: 'conversation.history.resolve',
   conversationSummaryCommit: 'conversation.summary.commit',
@@ -155,36 +155,29 @@ export type SkillOverlayResponse = {
   content_hash?: string
 }
 
-export type LlmProviderCredentialRequest = {
+export type AIGatewayApiKeyRequest = {
   request_id: string
   turn: ActorTurnRef
   agent_uid: string
   session_id: string
-  profile: string
-  purpose: 'ai_turn' | 'compression' | 'codex_subagent' | 'live_check'
 }
 
-export type LlmProviderCredentialResponse = {
+export type AIGatewayApiKeyResponse = {
   request_id: string
   agent_uid: string
   session_id: string
-  profile: string
-  provider_id: string
-  provider_source: string
-  model: string
-  base_url?: string
-  connection_options_json?: JsonObject
-  provider_options_json?: JsonObject
-  credential: string
-  credential_mode: string
-  source_metadata_json?: JsonObject
+  api_key: string
+  token_type: 'Bearer' | string
+  expires_at: number
+  expires_in: number
+  scope: 'ai_gateway' | string
+  base_url: string
 }
 
-export type LlmProviderCredentialRejected = {
+export type AIGatewayApiKeyRejected = {
   request_id: string
   agent_uid: string
   session_id: string
-  profile: string
   code: string
   message?: string
 }
@@ -210,7 +203,7 @@ export type WorkerRuntimeDescribeResponse = {
 }
 
 export type RpcPayloadByMethod = {
-  [rpcMethods.llmProviderResolveCredential]: LlmProviderCredentialRequest
+  [rpcMethods.aiGatewayApiKeyForCreateOrFindByAgent]: AIGatewayApiKeyRequest
   [rpcMethods.agentConversationContextResolve]: AgentConversationContextRequest
   [rpcMethods.conversationHistoryResolve]: ConversationHistoryRequest
   [rpcMethods.conversationSummaryCommit]: ConversationSummaryCommitRequest

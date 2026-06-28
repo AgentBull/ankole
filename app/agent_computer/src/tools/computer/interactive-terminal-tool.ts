@@ -40,7 +40,7 @@ const InteractiveTerminalParams = z.object({
   command: z
     .string()
     .optional()
-    .describe("Command used by action=start. Defaults to 'bash'. Use this for TTY/TUI programs such as claude."),
+    .describe("Command used by action=start. Defaults to 'bash'. Use this for TTY/TUI programs such as claude code."),
   input: z.string().optional().describe('Text to send for action=send.'),
   keys: z
     .array(z.string())

@@ -33,7 +33,7 @@ defmodule Ankole.AIAgent.Schemas.LlmTurn do
   # `AIAgent.mark_turn_failed/3` records the error and releases the generation
   # lease so the inputs can be retried.
   @statuses ~w(started succeeded failed cancelled)
-  @profiles ~w(primary light heavy codex)
+  @profiles ~w(primary light heavy embedding rerank)
 
   schema "ai_agent_llm_turns" do
     belongs_to :agent, Principal,

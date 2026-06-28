@@ -235,6 +235,30 @@ defmodule Ankole.Plugins.Spec do
     end
   end
 
+  defp validate_known_adapter_contract("ai_gateway.provider", declaration) do
+    with {:ok, module} <- declaration_module(declaration, :module),
+         :ok <- validate_module_callback(module, :provider_id, 0),
+         :ok <- validate_module_callback(module, :label, 0),
+         :ok <- validate_module_callback(module, :capabilities, 0),
+         :ok <- validate_module_callback(module, :endpoint_modes, 0),
+         :ok <- validate_module_callback(module, :provider_strategy, 0),
+         :ok <- validate_module_callback(module, :default_base_url, 0),
+         :ok <- validate_module_callback(module, :default_http_protocol, 0),
+         :ok <- validate_module_callback(module, :credential_schemes, 0),
+         :ok <- validate_module_callback(module, :connection_option_keys, 0),
+         :ok <- validate_module_callback(module, :runtime_provider_option_keys, 0),
+         :ok <- validate_module_callback(module, :model_catalog_policy, 0),
+         :ok <- validate_module_callback(module, :build_response_request, 3),
+         :ok <- validate_module_callback(module, :normalize_response_body, 3),
+         :ok <- validate_module_callback(module, :put_headers, 2),
+         :ok <- validate_module_callback(module, :put_auth_headers, 2),
+         :ok <- validate_ai_gateway_provider_id(module, declaration),
+         :ok <- validate_ai_gateway_capabilities(module),
+         :ok <- validate_ai_gateway_http_protocol(module) do
+      :ok
+    end
+  end
+
   defp validate_known_adapter_contract(_contract_id, _declaration), do: :ok
 
   # A plugin opts into ingress by listing inbound capabilities; each capability
@@ -325,6 +349,38 @@ defmodule Ankole.Plugins.Spec do
     do: validate_module_callback(module, :sync_departments, 3)
 
   defp validate_identity_capability(_module, _capability), do: :ok
+
+  defp validate_ai_gateway_provider_id(module, declaration) do
+    with {:ok, declaration_id} <- declaration_text(declaration, :id) do
+      case module.provider_id() do
+        ^declaration_id -> :ok
+        module_id -> {:error, {:ai_gateway_provider_id_mismatch, declaration_id, module_id}}
+      end
+    end
+  end
+
+  defp validate_ai_gateway_capabilities(module) do
+    case module.capabilities() do
+      capabilities when is_list(capabilities) ->
+        case Enum.all?(capabilities, &(&1 in ["llm", "embedding", "rerank"])) do
+          true -> :ok
+          false -> {:error, {:invalid_ai_gateway_capabilities, module, capabilities}}
+        end
+
+      capabilities ->
+        {:error, {:invalid_ai_gateway_capabilities, module, capabilities}}
+    end
+  end
+
+  defp validate_ai_gateway_http_protocol(module) do
+    case module.default_http_protocol() do
+      protocol when protocol in ["http1", "http2"] ->
+        :ok
+
+      protocol ->
+        {:error, {:invalid_ai_gateway_http_protocol, module, protocol}}
+    end
+  end
 
   defp validate_contract_id(contract_id) do
     case Regex.match?(@contract_id_pattern, contract_id) do

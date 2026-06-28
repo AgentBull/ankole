@@ -17,6 +17,7 @@ defmodule AnkoleWeb.Router do
   #                  stateless, because only the same-origin SPAs call it.
   #   :openapi     — serves the spec document itself.
   #   :console_api — the stateless bearer-token REST API for the console.
+  #   :ai_gateway_api — agent/admin-scoped runtime AI API.
   pipeline :browser do
     plug :accepts, ["html"]
     plug :fetch_session
@@ -54,6 +55,14 @@ defmodule AnkoleWeb.Router do
     plug AnkoleWeb.Plugs.RequireConsoleAccessToken
   end
 
+  pipeline :ai_gateway_api do
+    # Runtime AI calls are stateless HTTP requests authenticated as either an
+    # agent-scoped AIGateway token or an active human admin console token.
+    plug :accepts, ["json"]
+    plug OpenApiSpex.Plug.PutApiSpec, module: AnkoleWeb.ApiSpec
+    plug AnkoleWeb.Plugs.RequireAIGatewayAccessToken
+  end
+
   # `/.internal-apis` is the private contract between the SPAs and the server —
   # the setup wizard and sign-in app drive these; they are not a public API.
   scope "/.internal-apis", AnkoleWeb do
@@ -83,13 +92,13 @@ defmodule AnkoleWeb.Router do
 
   # The spec document is public (no bearer token) so tooling can read it without
   # credentials; the API endpoints it describes still require one below.
-  scope "/api" do
+  scope "/api/v1" do
     pipe_through :openapi
 
     get "/openapi.json", OpenApiSpex.Plug.RenderSpec, []
   end
 
-  scope "/api", AnkoleWeb do
+  scope "/api/v1", AnkoleWeb do
     pipe_through :console_api
 
     get "/app-configurations", AppConfigurationController, :index
@@ -98,15 +107,18 @@ defmodule AnkoleWeb.Router do
     delete "/app-configurations/:key", AppConfigurationController, :delete
     post "/app-configurations/:key/decryptions", AppConfigurationController, :decrypt
 
-    get "/llm-provider-sources", LlmProviderController, :sources
-    get "/llm-providers", LlmProviderController, :index
-    put "/llm-providers/:provider_id", LlmProviderController, :put_provider
-    delete "/llm-providers/:provider_id", LlmProviderController, :delete_provider
-    get "/agents/:agent_uid/model-profiles", LlmProviderController, :index_model_profiles
-    put "/agents/:agent_uid/model-profiles/:profile", LlmProviderController, :put_model_profile
+    get "/ai-gateway/provider-kinds", AIGatewayProviderController, :provider_kinds
+    get "/ai-gateway/providers", AIGatewayProviderController, :index
+    put "/ai-gateway/providers/:provider_id", AIGatewayProviderController, :put_provider
+    delete "/ai-gateway/providers/:provider_id", AIGatewayProviderController, :delete_provider
+    get "/agents/:agent_uid/model-profiles", AIGatewayProviderController, :index_model_profiles
+
+    put "/agents/:agent_uid/model-profiles/:profile",
+        AIGatewayProviderController,
+        :put_model_profile
 
     delete "/agents/:agent_uid/model-profiles/:profile",
-           LlmProviderController,
+           AIGatewayProviderController,
            :delete_model_profile
 
     get "/agents/:agent_uid/sessions/:session_id/cron-schedules",
@@ -152,6 +164,16 @@ defmodule AnkoleWeb.Router do
     delete "/agents/:agent_uid/sessions/:session_id/checkbacks/:scheduled_event_id",
            ScheduleController,
            :cancel_checkback
+  end
+
+  scope "/api/v1/ai-gateway", AnkoleWeb do
+    pipe_through :ai_gateway_api
+
+    get "/models", AIGatewayController, :models
+    get "/responses", AIGatewayWebSocketController, :responses
+    post "/responses", AIGatewayController, :responses
+    post "/embeddings", AIGatewayController, :embeddings
+    post "/rerank", AIGatewayController, :rerank
   end
 
   # Browser-facing HTML. The `*path` catch-alls let each SPA own its own

@@ -2,7 +2,7 @@ import type { TurnStart } from '../../actor_lane'
 import type { FinalProposalBody } from '../../turn_envelopes'
 import { runAmbientRecognizer } from './ambient_recognizer'
 import { renderMessageWithContext } from './message_context'
-import { providerOptionsFromCredential, runtimeModelFromCredential } from './model_runtime'
+import { providerOptionsFromAIGateway, runtimeModelFromAIGatewayApiKey } from './model_runtime'
 import { runTextTurnLoop } from './text_turn'
 import { AMBIENT_RECOGNIZER_TIMEOUT_MS } from './turn_config'
 import { resolveAgentConversationContext, resolveConversationHistory } from './turn_context'
@@ -13,26 +13,31 @@ export async function runAmbientMayInterveneHandler(
   turnStart: TurnStart,
   opts: TextTurnLoopOptions
 ): Promise<FinalProposalBody> {
-  const lightCredential = await opts.requestCredential({
-    request_id: `llm-credential-${crypto.randomUUID()}`,
+  const apiKeyRequest = {
+    request_id: `ai-gateway-key-${crypto.randomUUID()}`,
     turn: turnStart.turn,
     agent_uid: turnStart.turn.actor.agent_uid,
-    session_id: turnStart.turn.actor.session_id,
-    profile: 'light',
-    purpose: 'ai_turn'
-  })
+    session_id: turnStart.turn.actor.session_id
+  }
+  const apiKey = await opts.requestAIGatewayApiKey(apiKeyRequest)
 
-  if ('code' in lightCredential) {
-    throw new Error(`credential rejected: ${lightCredential.code} ${lightCredential.message ?? ''}`.trim())
+  if ('code' in apiKey) {
+    throw new Error(`AIGateway API key rejected: ${apiKey.code} ${apiKey.message ?? ''}`.trim())
   }
 
-  const lightModel = runtimeModelFromCredential(lightCredential)
+  const lightModelRef = { profile: 'light', provider_id: 'ai_gateway', model: 'light' }
+  const lightModel = runtimeModelFromAIGatewayApiKey(lightModelRef, apiKey, 'light', () =>
+    opts.requestAIGatewayApiKey({
+      ...apiKeyRequest,
+      request_id: `ai-gateway-key-${crypto.randomUUID()}`
+    })
+  )
   const agentConversationContext = await resolveAgentConversationContext(turnStart, opts)
   const history = await resolveConversationHistory(turnStart, opts, 'prompt')
   const recognition = await runAmbientRecognizer({
     headers: lightModel.headers ?? {},
     model: lightModel,
-    providerOptions: providerOptionsFromCredential(lightCredential, lightModel.provider),
+    providerOptions: providerOptionsFromAIGateway(),
     agentConversationContext,
     conversationHistory: history,
     turnStart,

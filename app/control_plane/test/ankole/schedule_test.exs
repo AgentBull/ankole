@@ -1,7 +1,7 @@
 defmodule Ankole.ScheduleTest do
   use Ankole.DataCase, async: false
 
-  alias Ankole.AIAgent.LlmProviders
+  alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AIAgent.ModelProfiles
   alias Ankole.AIAgent.Schemas.LlmTurn
   alias Ankole.AIAgent.Schemas.Message
@@ -668,11 +668,12 @@ defmodule Ankole.ScheduleTest do
     provider_id = "schedule-test-" <> Ecto.UUID.generate()
 
     assert {:ok, _provider} =
-             LlmProviders.create_provider(%{
+             ProviderConfigs.create_provider(%{
                provider_id: provider_id,
-               provider_source: "openrouter",
+               provider_kind: "openrouter",
                credential: "sk-test",
-               connection_options: %{"base_url" => "https://openrouter.ai/api/v1"}
+               base_url: "https://openrouter.ai/api/v1",
+               connection_options: %{}
              })
 
     assert {:ok, _profile} =

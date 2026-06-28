@@ -75,11 +75,12 @@ defmodule Ankole.ActorRuntime.ProviderRuntimeTest do
       %{principal: agent} = agent_fixture()
 
       assert {:ok, _provider} =
-               LlmProviders.create_provider(%{
+               ProviderConfigs.create_provider(%{
                  provider_id: "openrouter-commit-guard",
-                 provider_source: "openrouter",
+                 provider_kind: "openrouter",
                  credential: "sk-test",
-                 connection_options: %{"base_url" => "https://openrouter.ai/api/v1"}
+                 base_url: "https://openrouter.ai/api/v1",
+                 connection_options: %{}
                })
 
       assert {:ok, _profile} =
@@ -150,11 +151,12 @@ defmodule Ankole.ActorRuntime.ProviderRuntimeTest do
       %{principal: agent} = agent_fixture()
 
       assert {:ok, _provider} =
-               LlmProviders.create_provider(%{
+               ProviderConfigs.create_provider(%{
                  provider_id: "openrouter-telemetry-commit",
-                 provider_source: "openrouter",
+                 provider_kind: "openrouter",
                  credential: "sk-test",
-                 connection_options: %{"base_url" => "https://openrouter.ai/api/v1"}
+                 base_url: "https://openrouter.ai/api/v1",
+                 connection_options: %{}
                })
 
       assert {:ok, _profile} =
@@ -223,7 +225,7 @@ defmodule Ankole.ActorRuntime.ProviderRuntimeTest do
                      }
                    },
                    "provider_metadata_json" => %{
-                     "provider_source" => "openrouter",
+                     "provider_kind" => "openrouter",
                      "response_id" => "resp_123",
                      "response_model" => "google/gemini-3.5-flash"
                    },
@@ -247,7 +249,7 @@ defmodule Ankole.ActorRuntime.ProviderRuntimeTest do
       assert persisted.usage["input"] == 11
       assert persisted.usage["totalTokens"] == 20
       assert persisted.provider_metadata["provider_id"] == "openrouter-telemetry-commit"
-      assert persisted.provider_metadata["provider_source"] == "openrouter"
+      assert persisted.provider_metadata["provider_kind"] == "openrouter"
       assert persisted.provider_metadata["response_id"] == "resp_123"
       assert persisted.provider_metadata["response_model"] == "google/gemini-3.5-flash"
       assert persisted.response["stop_reason"] == "stop"

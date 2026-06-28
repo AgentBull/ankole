@@ -17,21 +17,14 @@
   "dependencies": {
     "@ankole/kernel": "workspace:*",
     "@pleisto/active-support": "^1.5.9",
-    "@smithy/eventstream-codec": "^4.4.2",
-    "@smithy/util-utf8": "^4.4.2",
     "@standard-schema/spec": "^1.1.0",
     "@workflow/serde": "4.1.2",
-    "aws4fetch": "^1.0.20",
     "eventsource-parser": "^3.1.0",
-    "google-auth-library": "^10.9.0",
     "json-schema": "^0.4.0",
-    "yaml": "2.9.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@types/bun": "latest"
-  },
-  "peerDependencies": {
-    "typescript": "^5"
+    "@types/bun": "latest",
+    "@types/json-schema": "^7.0.15"
   }
 }

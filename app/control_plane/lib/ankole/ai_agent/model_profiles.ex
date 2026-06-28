@@ -1,25 +1,22 @@
 defmodule Ankole.AIAgent.ModelProfiles do
   @moduledoc """
-  Agent-scoped LLM model profile service.
+  Agent-scoped model profile service.
 
   Profiles live under `agents.options["ai_agent"]["models"]`; provider rows own
-  endpoint and credential details.
+  endpoint and credential details. LLM tiers and default embedding/rerank models
+  are all first-class profile slots.
   """
 
   import Ecto.Query, warn: false
 
-  alias Ankole.AIAgent.LlmProviders
-  alias Ankole.AIAgent.LlmProviders.Provider
-  alias Ankole.AIAgent.ProviderSources
+  alias Ankole.AIGateway.Providers
+  alias Ankole.AIGateway.ProviderConfigs
+  alias Ankole.AIGateway.ProviderConfigs.Provider
   alias Ankole.Principals
   alias Ankole.Principals.Agent
   alias Ankole.Repo
 
-  # Fixed slots an agent can bind a model to. `primary`/`light`/`heavy` are the
-  # everyday tiers and must be configured for the agent to run real turns;
-  # `codex` is optional and only meaningful on Codex-compatible provider sources,
-  # so a missing `codex` returns a typed error rather than blocking startup.
-  @profiles ~w(primary light heavy codex)
+  @profiles ~w(primary light heavy embedding rerank)
   @required_profiles ~w(primary light heavy)
 
   @type profile :: String.t()
@@ -29,6 +26,16 @@ defmodule Ankole.AIAgent.ModelProfiles do
   """
   @spec profiles() :: [String.t()]
   def profiles, do: @profiles
+
+  @doc """
+  Returns the capability served by a profile slot.
+  """
+  @spec profile_capability(profile()) :: {:ok, String.t()} | {:error, :invalid_model_profile}
+  def profile_capability(profile) when profile in @profiles do
+    {:ok, capability_for_profile(profile)}
+  end
+
+  def profile_capability(_profile), do: {:error, :invalid_model_profile}
 
   @doc """
   Reads all model profiles for an agent.
@@ -41,7 +48,7 @@ defmodule Ankole.AIAgent.ModelProfiles do
   end
 
   @doc """
-  Reads one model profile. Missing optional `codex` returns a typed error.
+  Reads one model profile.
   """
   @spec get_model_profile(String.t(), profile()) :: {:ok, map()} | {:error, term()}
   def get_model_profile(agent_uid, profile) do
@@ -82,54 +89,29 @@ defmodule Ankole.AIAgent.ModelProfiles do
   @spec resolve_runtime_profile(String.t(), profile()) :: {:ok, map()} | {:error, term()}
   def resolve_runtime_profile(agent_uid, profile) do
     with {:ok, profile} <- get_model_profile(agent_uid, profile),
-         {:ok, provider} <- LlmProviders.fetch_active_provider(profile["provider_id"]),
-         {:ok, source} <- ProviderSources.fetch(provider.provider_source),
-         :ok <- validate_profile_source(profile["profile"], provider),
+         {:ok, provider} <- ProviderConfigs.fetch_active_provider(profile["provider_id"]),
+         {:ok, provider_kind} <- Providers.fetch(provider.provider_kind),
+         :ok <- validate_profile_provider(profile["profile"], provider_kind),
          :ok <-
-           ProviderSources.validate_runtime_provider_options(
-             provider.provider_source,
+           Providers.validate_runtime_provider_options(
+             provider.provider_kind,
              profile["provider_options"] || %{}
            ),
-         {:ok, connection_options} <- LlmProviders.runtime_connection(provider) do
+         {:ok, connection_options} <- ProviderConfigs.runtime_connection(provider) do
       {:ok,
        %{
          "agent_uid" => normalize_uid!(agent_uid),
          "profile" => profile["profile"],
+         "capability" => capability_for_profile(profile["profile"]),
          "provider_id" => provider.provider_id,
-         "provider_source" => provider.provider_source,
+         "provider_kind" => provider.provider_kind,
          "model" => profile["model"],
          "connection_options" => connection_options,
          "provider_options" => profile["provider_options"] || %{},
          "credential_mode" => provider.credential_mode,
-         "source_metadata" => %{
-           "adapter" => source.adapter,
-           "adapter_strategy" => source.adapter_strategy,
-           "codex_compatible" => source.codex_compatible?
-         },
+         "provider_metadata" => provider_metadata(provider_kind),
          "provider" => provider
        }}
-    end
-  end
-
-  @doc """
-  Projects Codex capability for an agent.
-  """
-  @spec codex_capability(String.t()) :: {:ok, map()} | {:error, term()}
-  def codex_capability(agent_uid) do
-    case resolve_runtime_profile(agent_uid, "codex") do
-      {:ok, profile} ->
-        {:ok,
-         %{
-           "available" => true,
-           "provider_id" => profile["provider_id"],
-           "model" => profile["model"]
-         }}
-
-      {:error, :model_profile_not_configured} ->
-        {:ok, %{"available" => false, "reason" => "model_profile_not_configured"}}
-
-      {:error, reason} ->
-        {:ok, %{"available" => false, "reason" => inspect(reason)}}
     end
   end
 
@@ -164,11 +146,7 @@ defmodule Ankole.AIAgent.ModelProfiles do
     end
   end
 
-  defp profile_result(nil, "codex"), do: {:error, :model_profile_not_configured}
-
-  defp profile_result(nil, profile) when profile in @required_profiles,
-    do: {:error, :model_profile_not_configured}
-
+  defp profile_result(nil, _profile), do: {:error, :model_profile_not_configured}
   defp profile_result(%{} = attrs, profile), do: {:ok, Map.put(attrs, "profile", profile)}
   defp profile_result(_value, _profile), do: {:error, :invalid_model_profile}
 
@@ -183,17 +161,22 @@ defmodule Ankole.AIAgent.ModelProfiles do
 
   defp normalize_profile(_profile), do: {:error, :invalid_model_profile}
 
-  defp normalize_profile_attrs("codex", nil), do: {:ok, nil}
-  defp normalize_profile_attrs("codex", %{} = attrs) when map_size(attrs) == 0, do: {:ok, nil}
+  defp normalize_profile_attrs(profile, nil) when profile in @required_profiles,
+    do: {:error, :model_profile_required}
+
+  defp normalize_profile_attrs(_profile, nil), do: {:ok, nil}
+  defp normalize_profile_attrs(_profile, %{} = attrs) when map_size(attrs) == 0, do: {:ok, nil}
 
   defp normalize_profile_attrs(profile, attrs) when is_map(attrs) do
     attrs = normalize_external_attrs(attrs)
 
     with {:ok, provider_id} <- required_text(attrs, "provider_id"),
          {:ok, model} <- required_text(attrs, "model"),
-         {:ok, provider} <- LlmProviders.fetch_active_provider(provider_id),
-         :ok <- validate_profile_source(profile, provider),
-         provider_options <- Map.get(attrs, "provider_options", %{}),
+         {:ok, provider} <- ProviderConfigs.fetch_active_provider(provider_id),
+         {:ok, provider_kind} <- Providers.fetch(provider.provider_kind),
+         :ok <- validate_profile_provider(profile, provider_kind),
+         {:ok, provider_options} <-
+           normalize_provider_options(Map.get(attrs, "provider_options", %{})),
          :ok <- validate_provider_options(provider, provider_options) do
       {:ok,
        %{
@@ -204,27 +187,32 @@ defmodule Ankole.AIAgent.ModelProfiles do
     end
   end
 
-  defp normalize_profile_attrs(_profile, nil), do: {:error, :model_profile_required}
   defp normalize_profile_attrs(_profile, _attrs), do: {:error, :invalid_model_profile}
 
-  defp validate_profile_source("codex", %Provider{provider_source: source}) do
-    case ProviderSources.codex_compatible?(source) do
+  defp validate_profile_provider(profile, %Providers.Definition{} = provider_kind) do
+    capability = capability_for_profile(profile)
+
+    case Providers.supports_capability?(provider_kind, capability) do
       true -> :ok
-      false -> {:error, :codex_incompatible_provider_source}
+      false -> {:error, {:provider_kind_missing_capability, capability}}
     end
   end
 
-  defp validate_profile_source(_profile, %Provider{}), do: :ok
+  defp normalize_provider_options(options) when is_map(options), do: {:ok, options}
+  defp normalize_provider_options(_options), do: {:error, :invalid_provider_options}
 
-  defp validate_provider_options(%Provider{provider_source: source}, options)
+  defp validate_provider_options(%Provider{provider_kind: provider_kind}, options)
        when is_map(options),
-       do: ProviderSources.validate_runtime_provider_options(source, options)
+       do: Providers.validate_runtime_provider_options(provider_kind, options)
 
   defp validate_provider_options(_provider, _options), do: {:error, :invalid_provider_options}
 
-  defp put_profile_options(options, "codex", nil) do
-    {:ok, replace_models(options, &Map.delete(&1, "codex"))}
+  defp put_profile_options(options, profile, nil) when profile not in @required_profiles do
+    {:ok, replace_models(options, &Map.delete(&1, profile))}
   end
+
+  defp put_profile_options(_options, profile, nil) when profile in @required_profiles,
+    do: {:error, :model_profile_required}
 
   defp put_profile_options(options, profile, profile_attrs) do
     {:ok, replace_models(options, &Map.put(&1, profile, profile_attrs))}
@@ -264,6 +252,19 @@ defmodule Ankole.AIAgent.ModelProfiles do
       _value ->
         {:error, {:missing, key}}
     end
+  end
+
+  defp capability_for_profile("embedding"), do: "embedding"
+  defp capability_for_profile("rerank"), do: "rerank"
+  defp capability_for_profile(_profile), do: "llm"
+
+  defp provider_metadata(%Providers.Definition{} = provider_kind) do
+    %{
+      "provider_strategy" => provider_kind.provider_strategy,
+      "capabilities" => provider_kind.capabilities,
+      "endpoint_modes" => provider_kind.endpoint_modes,
+      "model_catalog_policy" => provider_kind.model_catalog_policy
+    }
   end
 
   defp normalize_uid!(uid) do

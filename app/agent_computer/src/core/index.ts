@@ -8,9 +8,9 @@ export type { AgentEventSink } from './agent-loop'
 export { runLlmTurnHandlers, runTextTurnLoop } from './turns/text_turn_loop'
 export type {
   AgentConversationContextRequester,
+  AIGatewayApiKeyRequester,
   ConversationHistoryRequester,
   ConversationSummaryCommitter,
-  CredentialRequester,
   SkillOverlayReplaceRequester,
   SkillOverlayRequester,
   TextTurnLoopOptions,

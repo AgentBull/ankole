@@ -198,7 +198,7 @@ reference, ingress policy, and optional admission filters for that route.
 Each binding has:
 
 - `name`: the public route key used by the provider callback surface, such as
-  `/api/agents/:agent_uid/signals/:binding_name`;
+  `/api/v1/agents/:agent_uid/signals/:binding_name`;
 - `adapter`: the registered adapter factory id;
 - `config_ref`: host-owned provider configuration or credential reference, not
   the secret payload itself;

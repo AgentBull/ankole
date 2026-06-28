@@ -12,13 +12,13 @@ import { finalProposalEnvelope, turnAcceptedEnvelope, turnErrorEnvelope } from '
 import type {
   AgentConversationContext,
   AgentConversationContextRequest,
+  AIGatewayApiKeyRejected,
+  AIGatewayApiKeyRequest,
+  AIGatewayApiKeyResponse,
   ConversationHistoryRequest,
   ConversationHistoryResponse,
   ConversationSummaryCommitRequest,
   ConversationSummaryCommitResponse,
-  LlmProviderCredentialRejected,
-  LlmProviderCredentialRequest,
-  LlmProviderCredentialResponse,
   RpcError,
   RpcMethod,
   RpcRequest,
@@ -42,6 +42,8 @@ import { createFileTransferState, handleFileTransferFrame, isFileTransferFrame }
 import { resolveBubblewrapSupport } from './tools/computer/bubblewrap'
 
 const heartbeatIntervalMs = 15_000
+const aiGatewayApiKeyRefreshSkewMs = 60_000
+const aiGatewayApiKeyCache = new Map<string, AIGatewayApiKeyResponse>()
 
 type ActiveTurn = {
   turnStart: TurnStart
@@ -312,7 +314,7 @@ async function runActiveTurn(
     workspaceRoot,
     builtinSkillsRoot: config.builtinSkillsRoot,
     agentInstalledSkillsRoot: config.agentInstalledSkillsRoot,
-    requestCredential: request => requestCredential(rpcClient, request),
+    requestAIGatewayApiKey: request => requestAIGatewayApiKey(rpcClient, request),
     requestAgentConversationContext: request => requestAgentConversationContext(rpcClient, request),
     requestConversationHistory: request => requestConversationHistory(rpcClient, request),
     commitConversationSummary: request => commitConversationSummary(rpcClient, request),
@@ -379,23 +381,34 @@ async function handleTurnControl(activeTurns: Map<string, ActiveTurn>, envelope:
   active.abortController.abort(new DOMException(active.retryReason, 'AbortError'))
 }
 
-async function requestCredential(
+async function requestAIGatewayApiKey(
   rpcClient: RuntimeRpcClient,
-  request: LlmProviderCredentialRequest
-): Promise<LlmProviderCredentialResponse | LlmProviderCredentialRejected> {
-  const response = await rpcClient.request(rpcMethods.llmProviderResolveCredential, request, request.request_id)
+  request: AIGatewayApiKeyRequest
+): Promise<AIGatewayApiKeyResponse | AIGatewayApiKeyRejected> {
+  const cacheKey = `${request.agent_uid}\n${request.session_id}`
+  const cached = aiGatewayApiKeyCache.get(cacheKey)
+  if (cached && cached.expires_at * 1000 > Date.now() + aiGatewayApiKeyRefreshSkewMs) {
+    return { ...cached, request_id: request.request_id }
+  }
+
+  const response = await rpcClient.request(
+    rpcMethods.aiGatewayApiKeyForCreateOrFindByAgent,
+    request,
+    request.request_id
+  )
   if ('code' in response) {
     return {
       request_id: request.request_id,
       agent_uid: stringFromDetails(response, 'agent_uid') || request.agent_uid,
       session_id: stringFromDetails(response, 'session_id') || request.session_id,
-      profile: stringFromDetails(response, 'profile') || request.profile,
       code: response.code,
       message: response.message
     }
   }
 
-  return response.payload_json as LlmProviderCredentialResponse
+  const apiKey = response.payload_json as AIGatewayApiKeyResponse
+  aiGatewayApiKeyCache.set(cacheKey, apiKey)
+  return apiKey
 }
 
 async function requestAgentConversationContext(

@@ -352,14 +352,14 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
     )
   end
 
-  defmodule LlmProviderCredentialProjection do
+  defmodule AIGatewayProviderCredentialProjection do
     @moduledoc false
 
     require OpenApiSpex
 
     OpenApiSpex.schema(
       %{
-        title: "LlmProviderCredentialProjection",
+        title: "AIGatewayProviderCredentialProjection",
         type: :object,
         properties: %{
           present: %Schema{type: :boolean},
@@ -372,32 +372,34 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
     )
   end
 
-  defmodule LlmProviderItem do
+  defmodule AIGatewayProviderItem do
     @moduledoc false
 
     require OpenApiSpex
 
     OpenApiSpex.schema(
       %{
-        title: "LlmProviderItem",
+        title: "AIGatewayProviderItem",
         type: :object,
         properties: %{
+          id: %Schema{type: :string},
           provider_id: %Schema{type: :string},
-          provider_source: %Schema{type: :string},
+          provider_kind: %Schema{type: :string},
           base_url: %Schema{type: :string, nullable: true},
           connection_options: %Schema{type: :object, additionalProperties: true},
           credential_mode: %Schema{type: :string},
           disabled_at: %Schema{type: :string, nullable: true},
-          credential: LlmProviderCredentialProjection,
-          source_metadata: %Schema{type: :object, additionalProperties: true}
+          credential: AIGatewayProviderCredentialProjection,
+          provider_metadata: %Schema{type: :object, additionalProperties: true}
         },
         required: [
+          :id,
           :provider_id,
-          :provider_source,
+          :provider_kind,
           :connection_options,
           :credential_mode,
           :credential,
-          :source_metadata
+          :provider_metadata
         ],
         additionalProperties: false
       },
@@ -405,17 +407,17 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
     )
   end
 
-  defmodule LlmProviderListResponse do
+  defmodule AIGatewayProviderListResponse do
     @moduledoc false
 
     require OpenApiSpex
 
     OpenApiSpex.schema(
       %{
-        title: "LlmProviderListResponse",
+        title: "AIGatewayProviderListResponse",
         type: :object,
         properties: %{
-          data: %Schema{type: :array, items: LlmProviderItem}
+          data: %Schema{type: :array, items: AIGatewayProviderItem}
         },
         required: [:data],
         additionalProperties: false
@@ -424,17 +426,17 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
     )
   end
 
-  defmodule LlmProviderResponse do
+  defmodule AIGatewayProviderResponse do
     @moduledoc false
 
     require OpenApiSpex
 
     OpenApiSpex.schema(
       %{
-        title: "LlmProviderResponse",
+        title: "AIGatewayProviderResponse",
         type: :object,
         properties: %{
-          data: LlmProviderItem
+          data: AIGatewayProviderItem
         },
         required: [:data],
         additionalProperties: false
@@ -443,18 +445,18 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
     )
   end
 
-  defmodule LlmProviderWriteRequest do
+  defmodule AIGatewayProviderWriteRequest do
     @moduledoc false
 
     require OpenApiSpex
 
     OpenApiSpex.schema(
       %{
-        title: "LlmProviderWriteRequest",
+        title: "AIGatewayProviderWriteRequest",
         type: :object,
         properties: %{
           provider_id: %Schema{type: :string},
-          provider_source: %Schema{type: :string},
+          provider_kind: %Schema{type: :string},
           base_url: %Schema{type: :string, nullable: true},
           credential: %Schema{type: :string, nullable: true},
           credential_mode: %Schema{type: :string},
@@ -466,32 +468,36 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
     )
   end
 
-  defmodule LlmProviderSourceItem do
+  defmodule AIGatewayProviderKindItem do
     @moduledoc false
 
     require OpenApiSpex
 
     OpenApiSpex.schema(
       %{
-        title: "LlmProviderSourceItem",
+        title: "AIGatewayProviderKindItem",
         type: :object,
         properties: %{
-          provider_source: %Schema{type: :string},
+          provider_kind: %Schema{type: :string},
           label: %Schema{type: :string},
-          codex_compatible: %Schema{type: :boolean},
-          adapter_strategy: %Schema{type: :string},
-          default_base_url: %Schema{type: :string},
+          capabilities: %Schema{type: :array, items: %Schema{type: :string}},
+          endpoint_modes: %Schema{type: :array, items: %Schema{type: :string}},
+          provider_strategy: %Schema{type: :string},
+          default_base_url: %Schema{type: :string, nullable: true},
+          default_http_protocol: %Schema{type: :string, enum: ["http1", "http2"]},
           credential_modes: %Schema{type: :array, items: %Schema{type: :string}},
           connection_options: %Schema{type: :array, items: %Schema{type: :string}},
           runtime_provider_options: %Schema{type: :array, items: %Schema{type: :string}},
           model_catalog_policy: %Schema{type: :string}
         },
         required: [
-          :provider_source,
+          :provider_kind,
           :label,
-          :codex_compatible,
-          :adapter_strategy,
+          :capabilities,
+          :endpoint_modes,
+          :provider_strategy,
           :default_base_url,
+          :default_http_protocol,
           :credential_modes,
           :connection_options,
           :runtime_provider_options,
@@ -503,17 +509,17 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
     )
   end
 
-  defmodule LlmProviderSourceListResponse do
+  defmodule AIGatewayProviderKindListResponse do
     @moduledoc false
 
     require OpenApiSpex
 
     OpenApiSpex.schema(
       %{
-        title: "LlmProviderSourceListResponse",
+        title: "AIGatewayProviderKindListResponse",
         type: :object,
         properties: %{
-          data: %Schema{type: :array, items: LlmProviderSourceItem}
+          data: %Schema{type: :array, items: AIGatewayProviderKindItem}
         },
         required: [:data],
         additionalProperties: false

@@ -5,7 +5,7 @@ defmodule Ankole.ActorRuntimeCase do
 
   import ExUnit.Assertions
 
-  alias Ankole.AIAgent.LlmProviders
+  alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AIAgent.ModelProfiles
   alias Ankole.AIAgent.Schemas.LlmTurn
   alias Ankole.Actors
@@ -27,7 +27,7 @@ defmodule Ankole.ActorRuntimeCase do
       import Ecto.Query, warn: false
       import Ankole.ActorRuntimeCase
 
-      alias Ankole.AIAgent.LlmProviders, warn: false
+      alias Ankole.AIGateway.ProviderConfigs, warn: false
       alias Ankole.AIAgent.ModelProfiles, warn: false
       alias Ankole.AIAgent.Schemas.Conversation, warn: false
       alias Ankole.AIAgent.Schemas.LlmTurn, warn: false
@@ -78,11 +78,12 @@ defmodule Ankole.ActorRuntimeCase do
     provider_id = "actor-runtime-test-" <> Ecto.UUID.generate()
 
     assert {:ok, _provider} =
-             LlmProviders.create_provider(%{
+             ProviderConfigs.create_provider(%{
                provider_id: provider_id,
-               provider_source: "openrouter",
+               provider_kind: "openrouter",
                credential: "sk-test",
-               connection_options: %{"base_url" => "https://openrouter.ai/api/v1"}
+               base_url: "https://openrouter.ai/api/v1",
+               connection_options: %{}
              })
 
     assert {:ok, _profile} =

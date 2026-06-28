@@ -1,14 +1,16 @@
 defmodule Ankole.ActorRuntime.LlmCredentialBroker do
   @moduledoc """
-  Handles worker runtime credential RPC requests.
+  Legacy worker runtime credential broker.
 
-  The broker re-resolves the agent model profile on the control-plane side. The
-  worker's `TurnStart` model ref is only a sanity hint, not the lookup key.
+  AIGateway v1 removed `ai_gateway_provider.resolve_credential` from the public
+  RuntimeFabric RPC method table. Keep this module only as temporary migration
+  code while older provider runtime tests and setup paths are unwound. Worker
+  code must use `ai_gateway.api_key_for.create_or_find_by_agent`.
   """
 
-  alias Ankole.AIAgent.LlmProviders
   alias Ankole.AIAgent.ModelProfiles
   alias Ankole.ActorRuntime.WorkerRouteAuth
+  alias Ankole.AIGateway.ProviderConfigs
 
   # Allowed credential request purposes. Every purpose is still bound to the
   # live worker assignment so provider credentials cannot be fetched from a
@@ -16,10 +18,9 @@ defmodule Ankole.ActorRuntime.LlmCredentialBroker do
   @purposes ~w(ai_turn codex_subagent live_check)
 
   @doc """
-  Resolves and returns LLM provider credentials for a worker's RPC request.
+  Resolves and returns LLM provider credentials for a legacy worker request.
 
-  Returns either the success payload for `llm_provider.resolve_credential` or a
-  method-level error. RPCLane owns the fabric envelope around that result.
+  Returns either the legacy success payload or a method-level error.
   """
   @spec handle_request(map(), String.t()) :: {:ok, map()} | {:error, map()}
   def handle_request(request, route) when is_map(request) and is_binary(route) do
@@ -36,7 +37,7 @@ defmodule Ankole.ActorRuntime.LlmCredentialBroker do
            {:ok, credential} <-
              runtime_profile
              |> Map.fetch!("provider")
-             |> LlmProviders.plaintext_credential(),
+             |> ProviderConfigs.plaintext_credential(),
            {:ok, connection_options} <- Map.fetch(runtime_profile, "connection_options") do
         {:ok, {session_id, runtime_profile, credential, connection_options}}
       end
@@ -109,14 +110,14 @@ defmodule Ankole.ActorRuntime.LlmCredentialBroker do
       "session_id" => session_id,
       "profile" => runtime_profile["profile"],
       "provider_id" => runtime_profile["provider_id"],
-      "provider_source" => runtime_profile["provider_source"],
+      "provider_kind" => runtime_profile["provider_kind"],
       "model" => runtime_profile["model"],
       "base_url" => connection_options["base_url"] || "",
       "connection_options_json" => connection_options,
       "provider_options_json" => runtime_profile["provider_options"] || %{},
       "credential" => credential,
       "credential_mode" => runtime_profile["credential_mode"],
-      "source_metadata_json" => runtime_profile["source_metadata"] || %{}
+      "provider_metadata_json" => runtime_profile["provider_metadata"] || %{}
     }
   end
 

@@ -1,6 +1,6 @@
 defmodule AnkoleWeb.ApiSpec do
   @moduledoc """
-  OpenAPI description for the stateless console REST API.
+  OpenAPI description for the versioned public REST API.
   """
 
   @behaviour OpenApiSpex.OpenApi
@@ -16,12 +16,12 @@ defmodule AnkoleWeb.ApiSpec do
   @impl OpenApiSpex.OpenApi
   def spec do
     # Paths are derived from the router's `operation/2` specs, so the document
-    # always tracks the actual console routes. `version` is date-stamped rather
-    # than semver — the console API is versioned by calendar date.
+    # always tracks the actual versioned routes. `version` is date-stamped rather
+    # than semver.
     %OpenApi{
       servers: [Server.from_endpoint(AnkoleWeb.Endpoint)],
       info: %Info{
-        title: "Ankole Console API",
+        title: "Ankole API",
         version: "2026-06-24"
       },
       paths: Paths.from_router(AnkoleWeb.Router),
@@ -30,6 +30,11 @@ defmodule AnkoleWeb.ApiSpec do
       components: %Components{
         securitySchemes: %{
           "consoleBearer" => %SecurityScheme{
+            type: "http",
+            scheme: "bearer",
+            bearerFormat: "JWT"
+          },
+          "aiGatewayBearer" => %SecurityScheme{
             type: "http",
             scheme: "bearer",
             bearerFormat: "JWT"
@@ -44,6 +49,10 @@ defmodule AnkoleWeb.ApiSpec do
         %Tag{
           name: "LLM Runtime",
           description: "Operator-managed LLM provider and agent model profile configuration"
+        },
+        %Tag{
+          name: "AIGateway",
+          description: "Agent-authenticated AI provider gateway"
         },
         %Tag{
           name: "Schedule",

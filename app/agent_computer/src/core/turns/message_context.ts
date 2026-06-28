@@ -1,5 +1,5 @@
 import type { AgentMessage } from '../types'
-import type { TextContent, UserMessage } from '../../llm'
+import type { TextContent, UserMessage } from '../../ai-gateway-client'
 import type { JsonObject } from '../../actor_lane'
 
 const MESSAGE_CONTEXT_METADATA_KEY = 'message_context'

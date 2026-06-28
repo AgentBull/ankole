@@ -9,7 +9,7 @@ import {
 } from '../../prompts/compression-prompt'
 import { visibleReplyProposal } from '../../turn_envelopes'
 import { conversationContextFromHistory, selectCompressionPrefix } from './conversation_history'
-import { providerOptionsFromCredential, runtimeModelFromCredential } from './model_runtime'
+import { providerOptionsFromAIGateway, runtimeModelFromAIGatewayApiKey } from './model_runtime'
 import { COMPRESSION_TURN_TIMEOUT_MS } from './turn_config'
 import { turnRefAfterSteeringDrain } from './turn_control'
 import { resolveAgentConversationContext, resolveConversationHistory } from './turn_context'
@@ -37,22 +37,27 @@ export async function runCompressionTurn(turnStart: TurnStart, opts: TextTurnLoo
     return visibleReplyProposal('Conversation already fits in the active context.')
   }
 
-  const credential = await opts.requestCredential({
-    request_id: `llm-credential-${crypto.randomUUID()}`,
+  const apiKeyRequest = {
+    request_id: `ai-gateway-key-${crypto.randomUUID()}`,
     turn: turnStart.turn,
     agent_uid: turnStart.turn.actor.agent_uid,
-    session_id: turnStart.turn.actor.session_id,
-    profile: 'light',
-    purpose: 'compression'
-  })
+    session_id: turnStart.turn.actor.session_id
+  }
+  const apiKey = await opts.requestAIGatewayApiKey(apiKeyRequest)
 
-  if ('code' in credential) {
-    throw new Error(`credential rejected: ${credential.code} ${credential.message ?? ''}`.trim())
+  if ('code' in apiKey) {
+    throw new Error(`AIGateway API key rejected: ${apiKey.code} ${apiKey.message ?? ''}`.trim())
   }
 
-  const model = runtimeModelFromCredential(credential)
-  const providerOptions = providerOptionsFromCredential(credential, model.provider)
-  const telemetry = createTurnTelemetry(credential, model)
+  const lightModelRef = { profile: 'light', provider_id: 'ai_gateway', model: 'light' }
+  const model = runtimeModelFromAIGatewayApiKey(lightModelRef, apiKey, 'light', () =>
+    opts.requestAIGatewayApiKey({
+      ...apiKeyRequest,
+      request_id: `ai-gateway-key-${crypto.randomUUID()}`
+    })
+  )
+  const providerOptions = providerOptionsFromAIGateway()
+  const telemetry = createTurnTelemetry(lightModelRef, model)
 
   const prompt = buildCompactionHistoryUserPrompt({
     conversationText: serializeConversationForCompression(compaction.messages),
@@ -77,9 +82,8 @@ export async function runCompressionTurn(turnStart: TurnStart, opts: TextTurnLoo
           agent_uid: turnStart.turn.actor.agent_uid,
           conversation_id: turnStart.turn.actor.session_id,
           llm_turn_id: turnStart.turn.llm_turn_id,
-          profile: credential.profile,
-          provider_id: credential.provider_id,
-          provider_source: credential.provider_source,
+          profile: lightModelRef.profile,
+          provider_id: lightModelRef.provider_id,
           purpose: 'compression'
         },
         headers: model.headers,

@@ -1,9 +1,0 @@
-// @ts-nocheck
-import type { SkillsV4UploadSkillResult } from '@/llm/provider'
-import type { ProviderReference } from '../types/provider-reference'
-import type { Warning } from '../types/warning'
-
-export type UploadSkillResult = Omit<SkillsV4UploadSkillResult, 'providerReference' | 'warnings'> & {
-  readonly providerReference: ProviderReference
-  readonly warnings: Warning[]
-}

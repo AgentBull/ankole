@@ -4,18 +4,22 @@ import { type DefaultError, queryOptions, type UseMutationOptions } from '@tanst
 
 import { client } from '../client.gen'
 import {
+  ankoleWebAiGatewayControllerEmbeddings,
+  ankoleWebAiGatewayControllerModels,
+  ankoleWebAiGatewayControllerRerank,
+  ankoleWebAiGatewayControllerResponses,
+  ankoleWebAiGatewayProviderControllerDeleteModelProfile,
+  ankoleWebAiGatewayProviderControllerDeleteProvider,
+  ankoleWebAiGatewayProviderControllerIndex,
+  ankoleWebAiGatewayProviderControllerIndexModelProfiles,
+  ankoleWebAiGatewayProviderControllerProviderKinds,
+  ankoleWebAiGatewayProviderControllerPutModelProfile,
+  ankoleWebAiGatewayProviderControllerPutProvider,
   ankoleWebAppConfigurationControllerDecrypt,
   ankoleWebAppConfigurationControllerDelete,
   ankoleWebAppConfigurationControllerIndex,
   ankoleWebAppConfigurationControllerShow,
   ankoleWebAppConfigurationControllerUpdate,
-  ankoleWebLlmProviderControllerDeleteModelProfile,
-  ankoleWebLlmProviderControllerDeleteProvider,
-  ankoleWebLlmProviderControllerIndex,
-  ankoleWebLlmProviderControllerIndexModelProfiles,
-  ankoleWebLlmProviderControllerPutModelProfile,
-  ankoleWebLlmProviderControllerPutProvider,
-  ankoleWebLlmProviderControllerSources,
   ankoleWebScheduleControllerCancelCheckback,
   ankoleWebScheduleControllerCreateCron,
   ankoleWebScheduleControllerCronRuns,
@@ -30,6 +34,39 @@ import {
   type Options
 } from '../sdk.gen'
 import type {
+  AnkoleWebAiGatewayControllerEmbeddingsData,
+  AnkoleWebAiGatewayControllerEmbeddingsError,
+  AnkoleWebAiGatewayControllerEmbeddingsResponse,
+  AnkoleWebAiGatewayControllerModelsData,
+  AnkoleWebAiGatewayControllerModelsError,
+  AnkoleWebAiGatewayControllerModelsResponse,
+  AnkoleWebAiGatewayControllerRerankData,
+  AnkoleWebAiGatewayControllerRerankError,
+  AnkoleWebAiGatewayControllerRerankResponse,
+  AnkoleWebAiGatewayControllerResponsesData,
+  AnkoleWebAiGatewayControllerResponsesError,
+  AnkoleWebAiGatewayControllerResponsesResponse,
+  AnkoleWebAiGatewayProviderControllerDeleteModelProfileData,
+  AnkoleWebAiGatewayProviderControllerDeleteModelProfileError,
+  AnkoleWebAiGatewayProviderControllerDeleteModelProfileResponse,
+  AnkoleWebAiGatewayProviderControllerDeleteProviderData,
+  AnkoleWebAiGatewayProviderControllerDeleteProviderError,
+  AnkoleWebAiGatewayProviderControllerDeleteProviderResponse,
+  AnkoleWebAiGatewayProviderControllerIndexData,
+  AnkoleWebAiGatewayProviderControllerIndexError,
+  AnkoleWebAiGatewayProviderControllerIndexModelProfilesData,
+  AnkoleWebAiGatewayProviderControllerIndexModelProfilesError,
+  AnkoleWebAiGatewayProviderControllerIndexModelProfilesResponse,
+  AnkoleWebAiGatewayProviderControllerIndexResponse,
+  AnkoleWebAiGatewayProviderControllerProviderKindsData,
+  AnkoleWebAiGatewayProviderControllerProviderKindsError,
+  AnkoleWebAiGatewayProviderControllerProviderKindsResponse,
+  AnkoleWebAiGatewayProviderControllerPutModelProfileData,
+  AnkoleWebAiGatewayProviderControllerPutModelProfileError,
+  AnkoleWebAiGatewayProviderControllerPutModelProfileResponse,
+  AnkoleWebAiGatewayProviderControllerPutProviderData,
+  AnkoleWebAiGatewayProviderControllerPutProviderError,
+  AnkoleWebAiGatewayProviderControllerPutProviderResponse,
   AnkoleWebAppConfigurationControllerDecryptData,
   AnkoleWebAppConfigurationControllerDecryptError,
   AnkoleWebAppConfigurationControllerDecryptResponse,
@@ -45,27 +82,6 @@ import type {
   AnkoleWebAppConfigurationControllerUpdateData,
   AnkoleWebAppConfigurationControllerUpdateError,
   AnkoleWebAppConfigurationControllerUpdateResponse,
-  AnkoleWebLlmProviderControllerDeleteModelProfileData,
-  AnkoleWebLlmProviderControllerDeleteModelProfileError,
-  AnkoleWebLlmProviderControllerDeleteModelProfileResponse,
-  AnkoleWebLlmProviderControllerDeleteProviderData,
-  AnkoleWebLlmProviderControllerDeleteProviderError,
-  AnkoleWebLlmProviderControllerDeleteProviderResponse,
-  AnkoleWebLlmProviderControllerIndexData,
-  AnkoleWebLlmProviderControllerIndexError,
-  AnkoleWebLlmProviderControllerIndexModelProfilesData,
-  AnkoleWebLlmProviderControllerIndexModelProfilesError,
-  AnkoleWebLlmProviderControllerIndexModelProfilesResponse,
-  AnkoleWebLlmProviderControllerIndexResponse,
-  AnkoleWebLlmProviderControllerPutModelProfileData,
-  AnkoleWebLlmProviderControllerPutModelProfileError,
-  AnkoleWebLlmProviderControllerPutModelProfileResponse,
-  AnkoleWebLlmProviderControllerPutProviderData,
-  AnkoleWebLlmProviderControllerPutProviderError,
-  AnkoleWebLlmProviderControllerPutProviderResponse,
-  AnkoleWebLlmProviderControllerSourcesData,
-  AnkoleWebLlmProviderControllerSourcesError,
-  AnkoleWebLlmProviderControllerSourcesResponse,
   AnkoleWebScheduleControllerCancelCheckbackData,
   AnkoleWebScheduleControllerCancelCheckbackResponse,
   AnkoleWebScheduleControllerCreateCronData,
@@ -133,24 +149,24 @@ const createQueryKey = <TOptions extends Options>(
   return [params]
 }
 
-export const ankoleWebLlmProviderControllerIndexModelProfilesQueryKey = (
-  options: Options<AnkoleWebLlmProviderControllerIndexModelProfilesData>
-) => createQueryKey('ankoleWebLlmProviderControllerIndexModelProfiles', options)
+export const ankoleWebAiGatewayProviderControllerIndexModelProfilesQueryKey = (
+  options: Options<AnkoleWebAiGatewayProviderControllerIndexModelProfilesData>
+) => createQueryKey('ankoleWebAiGatewayProviderControllerIndexModelProfiles', options)
 
 /**
  * Read all model profiles for one agent
  */
-export const ankoleWebLlmProviderControllerIndexModelProfilesOptions = (
-  options: Options<AnkoleWebLlmProviderControllerIndexModelProfilesData>
+export const ankoleWebAiGatewayProviderControllerIndexModelProfilesOptions = (
+  options: Options<AnkoleWebAiGatewayProviderControllerIndexModelProfilesData>
 ) =>
   queryOptions<
-    AnkoleWebLlmProviderControllerIndexModelProfilesResponse,
-    AnkoleWebLlmProviderControllerIndexModelProfilesError,
-    AnkoleWebLlmProviderControllerIndexModelProfilesResponse,
-    ReturnType<typeof ankoleWebLlmProviderControllerIndexModelProfilesQueryKey>
+    AnkoleWebAiGatewayProviderControllerIndexModelProfilesResponse,
+    AnkoleWebAiGatewayProviderControllerIndexModelProfilesError,
+    AnkoleWebAiGatewayProviderControllerIndexModelProfilesResponse,
+    ReturnType<typeof ankoleWebAiGatewayProviderControllerIndexModelProfilesQueryKey>
   >({
     queryFn: async ({ queryKey, signal }) => {
-      const { data } = await ankoleWebLlmProviderControllerIndexModelProfiles({
+      const { data } = await ankoleWebAiGatewayProviderControllerIndexModelProfiles({
         ...options,
         ...queryKey[0],
         signal,
@@ -158,26 +174,26 @@ export const ankoleWebLlmProviderControllerIndexModelProfilesOptions = (
       })
       return data
     },
-    queryKey: ankoleWebLlmProviderControllerIndexModelProfilesQueryKey(options)
+    queryKey: ankoleWebAiGatewayProviderControllerIndexModelProfilesQueryKey(options)
   })
 
 /**
  * Clear one optional model profile for an agent
  */
-export const ankoleWebLlmProviderControllerDeleteModelProfileMutation = (
-  options?: Partial<Options<AnkoleWebLlmProviderControllerDeleteModelProfileData>>
+export const ankoleWebAiGatewayProviderControllerDeleteModelProfileMutation = (
+  options?: Partial<Options<AnkoleWebAiGatewayProviderControllerDeleteModelProfileData>>
 ): UseMutationOptions<
-  AnkoleWebLlmProviderControllerDeleteModelProfileResponse,
-  AnkoleWebLlmProviderControllerDeleteModelProfileError,
-  Options<AnkoleWebLlmProviderControllerDeleteModelProfileData>
+  AnkoleWebAiGatewayProviderControllerDeleteModelProfileResponse,
+  AnkoleWebAiGatewayProviderControllerDeleteModelProfileError,
+  Options<AnkoleWebAiGatewayProviderControllerDeleteModelProfileData>
 > => {
   const mutationOptions: UseMutationOptions<
-    AnkoleWebLlmProviderControllerDeleteModelProfileResponse,
-    AnkoleWebLlmProviderControllerDeleteModelProfileError,
-    Options<AnkoleWebLlmProviderControllerDeleteModelProfileData>
+    AnkoleWebAiGatewayProviderControllerDeleteModelProfileResponse,
+    AnkoleWebAiGatewayProviderControllerDeleteModelProfileError,
+    Options<AnkoleWebAiGatewayProviderControllerDeleteModelProfileData>
   > = {
     mutationFn: async fnOptions => {
-      const { data } = await ankoleWebLlmProviderControllerDeleteModelProfile({
+      const { data } = await ankoleWebAiGatewayProviderControllerDeleteModelProfile({
         ...options,
         ...fnOptions,
         throwOnError: true
@@ -191,20 +207,20 @@ export const ankoleWebLlmProviderControllerDeleteModelProfileMutation = (
 /**
  * Create or update one model profile for an agent
  */
-export const ankoleWebLlmProviderControllerPutModelProfileMutation = (
-  options?: Partial<Options<AnkoleWebLlmProviderControllerPutModelProfileData>>
+export const ankoleWebAiGatewayProviderControllerPutModelProfileMutation = (
+  options?: Partial<Options<AnkoleWebAiGatewayProviderControllerPutModelProfileData>>
 ): UseMutationOptions<
-  AnkoleWebLlmProviderControllerPutModelProfileResponse,
-  AnkoleWebLlmProviderControllerPutModelProfileError,
-  Options<AnkoleWebLlmProviderControllerPutModelProfileData>
+  AnkoleWebAiGatewayProviderControllerPutModelProfileResponse,
+  AnkoleWebAiGatewayProviderControllerPutModelProfileError,
+  Options<AnkoleWebAiGatewayProviderControllerPutModelProfileData>
 > => {
   const mutationOptions: UseMutationOptions<
-    AnkoleWebLlmProviderControllerPutModelProfileResponse,
-    AnkoleWebLlmProviderControllerPutModelProfileError,
-    Options<AnkoleWebLlmProviderControllerPutModelProfileData>
+    AnkoleWebAiGatewayProviderControllerPutModelProfileResponse,
+    AnkoleWebAiGatewayProviderControllerPutModelProfileError,
+    Options<AnkoleWebAiGatewayProviderControllerPutModelProfileData>
   > = {
     mutationFn: async fnOptions => {
-      const { data } = await ankoleWebLlmProviderControllerPutModelProfile({
+      const { data } = await ankoleWebAiGatewayProviderControllerPutModelProfile({
         ...options,
         ...fnOptions,
         throwOnError: true
@@ -512,6 +528,222 @@ export const ankoleWebScheduleControllerRunCronMutation = (
   return mutationOptions
 }
 
+/**
+ * Create embeddings through AIGateway
+ */
+export const ankoleWebAiGatewayControllerEmbeddingsMutation = (
+  options?: Partial<Options<AnkoleWebAiGatewayControllerEmbeddingsData>>
+): UseMutationOptions<
+  AnkoleWebAiGatewayControllerEmbeddingsResponse,
+  AnkoleWebAiGatewayControllerEmbeddingsError,
+  Options<AnkoleWebAiGatewayControllerEmbeddingsData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebAiGatewayControllerEmbeddingsResponse,
+    AnkoleWebAiGatewayControllerEmbeddingsError,
+    Options<AnkoleWebAiGatewayControllerEmbeddingsData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebAiGatewayControllerEmbeddings({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+export const ankoleWebAiGatewayControllerModelsQueryKey = (options?: Options<AnkoleWebAiGatewayControllerModelsData>) =>
+  createQueryKey('ankoleWebAiGatewayControllerModels', options)
+
+/**
+ * List AIGateway model selectors
+ */
+export const ankoleWebAiGatewayControllerModelsOptions = (options?: Options<AnkoleWebAiGatewayControllerModelsData>) =>
+  queryOptions<
+    AnkoleWebAiGatewayControllerModelsResponse,
+    AnkoleWebAiGatewayControllerModelsError,
+    AnkoleWebAiGatewayControllerModelsResponse,
+    ReturnType<typeof ankoleWebAiGatewayControllerModelsQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebAiGatewayControllerModels({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebAiGatewayControllerModelsQueryKey(options)
+  })
+
+export const ankoleWebAiGatewayProviderControllerProviderKindsQueryKey = (
+  options?: Options<AnkoleWebAiGatewayProviderControllerProviderKindsData>
+) => createQueryKey('ankoleWebAiGatewayProviderControllerProviderKinds', options)
+
+/**
+ * List AIGateway provider kinds
+ */
+export const ankoleWebAiGatewayProviderControllerProviderKindsOptions = (
+  options?: Options<AnkoleWebAiGatewayProviderControllerProviderKindsData>
+) =>
+  queryOptions<
+    AnkoleWebAiGatewayProviderControllerProviderKindsResponse,
+    AnkoleWebAiGatewayProviderControllerProviderKindsError,
+    AnkoleWebAiGatewayProviderControllerProviderKindsResponse,
+    ReturnType<typeof ankoleWebAiGatewayProviderControllerProviderKindsQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebAiGatewayProviderControllerProviderKinds({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebAiGatewayProviderControllerProviderKindsQueryKey(options)
+  })
+
+export const ankoleWebAiGatewayProviderControllerIndexQueryKey = (
+  options?: Options<AnkoleWebAiGatewayProviderControllerIndexData>
+) => createQueryKey('ankoleWebAiGatewayProviderControllerIndex', options)
+
+/**
+ * List configured AIGateway providers
+ */
+export const ankoleWebAiGatewayProviderControllerIndexOptions = (
+  options?: Options<AnkoleWebAiGatewayProviderControllerIndexData>
+) =>
+  queryOptions<
+    AnkoleWebAiGatewayProviderControllerIndexResponse,
+    AnkoleWebAiGatewayProviderControllerIndexError,
+    AnkoleWebAiGatewayProviderControllerIndexResponse,
+    ReturnType<typeof ankoleWebAiGatewayProviderControllerIndexQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await ankoleWebAiGatewayProviderControllerIndex({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: ankoleWebAiGatewayProviderControllerIndexQueryKey(options)
+  })
+
+/**
+ * Disable one AIGateway provider
+ */
+export const ankoleWebAiGatewayProviderControllerDeleteProviderMutation = (
+  options?: Partial<Options<AnkoleWebAiGatewayProviderControllerDeleteProviderData>>
+): UseMutationOptions<
+  AnkoleWebAiGatewayProviderControllerDeleteProviderResponse,
+  AnkoleWebAiGatewayProviderControllerDeleteProviderError,
+  Options<AnkoleWebAiGatewayProviderControllerDeleteProviderData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebAiGatewayProviderControllerDeleteProviderResponse,
+    AnkoleWebAiGatewayProviderControllerDeleteProviderError,
+    Options<AnkoleWebAiGatewayProviderControllerDeleteProviderData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebAiGatewayProviderControllerDeleteProvider({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * Create or update one AIGateway provider
+ */
+export const ankoleWebAiGatewayProviderControllerPutProviderMutation = (
+  options?: Partial<Options<AnkoleWebAiGatewayProviderControllerPutProviderData>>
+): UseMutationOptions<
+  AnkoleWebAiGatewayProviderControllerPutProviderResponse,
+  AnkoleWebAiGatewayProviderControllerPutProviderError,
+  Options<AnkoleWebAiGatewayProviderControllerPutProviderData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebAiGatewayProviderControllerPutProviderResponse,
+    AnkoleWebAiGatewayProviderControllerPutProviderError,
+    Options<AnkoleWebAiGatewayProviderControllerPutProviderData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebAiGatewayProviderControllerPutProvider({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * Create a rerank result through AIGateway
+ */
+export const ankoleWebAiGatewayControllerRerankMutation = (
+  options?: Partial<Options<AnkoleWebAiGatewayControllerRerankData>>
+): UseMutationOptions<
+  AnkoleWebAiGatewayControllerRerankResponse,
+  AnkoleWebAiGatewayControllerRerankError,
+  Options<AnkoleWebAiGatewayControllerRerankData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebAiGatewayControllerRerankResponse,
+    AnkoleWebAiGatewayControllerRerankError,
+    Options<AnkoleWebAiGatewayControllerRerankData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebAiGatewayControllerRerank({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * Create a stateless OpenResponses response
+ */
+export const ankoleWebAiGatewayControllerResponsesMutation = (
+  options?: Partial<Options<AnkoleWebAiGatewayControllerResponsesData>>
+): UseMutationOptions<
+  AnkoleWebAiGatewayControllerResponsesResponse,
+  AnkoleWebAiGatewayControllerResponsesError,
+  Options<AnkoleWebAiGatewayControllerResponsesData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebAiGatewayControllerResponsesResponse,
+    AnkoleWebAiGatewayControllerResponsesError,
+    Options<AnkoleWebAiGatewayControllerResponsesData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebAiGatewayControllerResponses({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
 export const ankoleWebAppConfigurationControllerIndexQueryKey = (
   options?: Options<AnkoleWebAppConfigurationControllerIndexData>
 ) => createQueryKey('ankoleWebAppConfigurationControllerIndex', options)
@@ -639,116 +871,6 @@ export const ankoleWebAppConfigurationControllerDecryptMutation = (
   > = {
     mutationFn: async fnOptions => {
       const { data } = await ankoleWebAppConfigurationControllerDecrypt({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
-export const ankoleWebLlmProviderControllerSourcesQueryKey = (
-  options?: Options<AnkoleWebLlmProviderControllerSourcesData>
-) => createQueryKey('ankoleWebLlmProviderControllerSources', options)
-
-/**
- * List first-party LLM provider sources
- */
-export const ankoleWebLlmProviderControllerSourcesOptions = (
-  options?: Options<AnkoleWebLlmProviderControllerSourcesData>
-) =>
-  queryOptions<
-    AnkoleWebLlmProviderControllerSourcesResponse,
-    AnkoleWebLlmProviderControllerSourcesError,
-    AnkoleWebLlmProviderControllerSourcesResponse,
-    ReturnType<typeof ankoleWebLlmProviderControllerSourcesQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await ankoleWebLlmProviderControllerSources({
-        ...options,
-        ...queryKey[0],
-        signal,
-        throwOnError: true
-      })
-      return data
-    },
-    queryKey: ankoleWebLlmProviderControllerSourcesQueryKey(options)
-  })
-
-export const ankoleWebLlmProviderControllerIndexQueryKey = (
-  options?: Options<AnkoleWebLlmProviderControllerIndexData>
-) => createQueryKey('ankoleWebLlmProviderControllerIndex', options)
-
-/**
- * List configured LLM providers
- */
-export const ankoleWebLlmProviderControllerIndexOptions = (
-  options?: Options<AnkoleWebLlmProviderControllerIndexData>
-) =>
-  queryOptions<
-    AnkoleWebLlmProviderControllerIndexResponse,
-    AnkoleWebLlmProviderControllerIndexError,
-    AnkoleWebLlmProviderControllerIndexResponse,
-    ReturnType<typeof ankoleWebLlmProviderControllerIndexQueryKey>
-  >({
-    queryFn: async ({ queryKey, signal }) => {
-      const { data } = await ankoleWebLlmProviderControllerIndex({
-        ...options,
-        ...queryKey[0],
-        signal,
-        throwOnError: true
-      })
-      return data
-    },
-    queryKey: ankoleWebLlmProviderControllerIndexQueryKey(options)
-  })
-
-/**
- * Disable one LLM provider
- */
-export const ankoleWebLlmProviderControllerDeleteProviderMutation = (
-  options?: Partial<Options<AnkoleWebLlmProviderControllerDeleteProviderData>>
-): UseMutationOptions<
-  AnkoleWebLlmProviderControllerDeleteProviderResponse,
-  AnkoleWebLlmProviderControllerDeleteProviderError,
-  Options<AnkoleWebLlmProviderControllerDeleteProviderData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebLlmProviderControllerDeleteProviderResponse,
-    AnkoleWebLlmProviderControllerDeleteProviderError,
-    Options<AnkoleWebLlmProviderControllerDeleteProviderData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebLlmProviderControllerDeleteProvider({
-        ...options,
-        ...fnOptions,
-        throwOnError: true
-      })
-      return data
-    }
-  }
-  return mutationOptions
-}
-
-/**
- * Create or update one LLM provider
- */
-export const ankoleWebLlmProviderControllerPutProviderMutation = (
-  options?: Partial<Options<AnkoleWebLlmProviderControllerPutProviderData>>
-): UseMutationOptions<
-  AnkoleWebLlmProviderControllerPutProviderResponse,
-  AnkoleWebLlmProviderControllerPutProviderError,
-  Options<AnkoleWebLlmProviderControllerPutProviderData>
-> => {
-  const mutationOptions: UseMutationOptions<
-    AnkoleWebLlmProviderControllerPutProviderResponse,
-    AnkoleWebLlmProviderControllerPutProviderError,
-    Options<AnkoleWebLlmProviderControllerPutProviderData>
-  > = {
-    mutationFn: async fnOptions => {
-      const { data } = await ankoleWebLlmProviderControllerPutProvider({
         ...options,
         ...fnOptions,
         throwOnError: true

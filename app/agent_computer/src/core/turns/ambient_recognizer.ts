@@ -1,10 +1,10 @@
-import { stringify as stringifyYaml } from 'yaml'
+import { YAML } from 'bun'
 import { z } from 'zod/v4'
 import type { TurnStart, JsonObject } from '../../actor_lane'
 import { createCombinedAbortSignal } from '../../common/async'
-import { streamObject, zodSchema, type Message, type Model } from '../../llm'
-import { convertAnkoleMessagesToModelMessages } from '../../llm/ankole-ai-sdk'
-import type { ProviderOptions } from '../../llm/provider-utils'
+import { Output, streamText, zodSchema, type Message, type Model } from '../../ai-gateway-client'
+import { convertAnkoleMessagesToModelMessages } from '../../ai-gateway-client/ankole-ai-sdk'
+import type { ProviderOptions } from '../../ai-gateway-client/provider-utils'
 import { buildAmbientRecognizerSystemPrompt, buildAmbientRecognizerUserPrompt } from '../../prompts/ambient_prompt'
 import type { AgentConversationContext, ConversationHistoryMessage, ConversationHistoryResponse } from '../../rpc_lane'
 
@@ -102,24 +102,21 @@ export async function runAmbientRecognizer(input: {
   const displayName = agentDisplayName(input.turnStart, input.agentConversationContext)
   const timezone = input.agentConversationContext?.conversation?.timezone || batchTimezone(currentBatch) || 'UTC'
   const channelContext = ambientChannelContext(currentBatch)
-  const decisionInput = stringifyYaml(
-    {
-      decision_task: 'decide_if_agent_should_visibly_reply_now',
-      agent: {
-        display_name: displayName,
-        uid: input.turnStart.turn.actor.agent_uid
-      },
-      runtime_context: rejectUndefined({
-        channel: channelContext,
-        conversation_id: input.turnStart.turn.actor.session_id,
-        timezone
-      }),
-      current_observed_messages: scenePromptRecords(currentScene, 'observed_room_message'),
-      recent_visible_transcript: recentSceneTranscript.map(row => promptRecord(row)),
-      earlier_observed_messages_since_last_reply: ambientRecall.map(row => promptRecord(row, 'observed_human'))
+  const decisionInput = YAML.stringify({
+    decision_task: 'decide_if_agent_should_visibly_reply_now',
+    agent: {
+      display_name: displayName,
+      uid: input.turnStart.turn.actor.agent_uid
     },
-    { lineWidth: 0 }
-  ).trim()
+    runtime_context: rejectUndefined({
+      channel: channelContext,
+      conversation_id: input.turnStart.turn.actor.session_id,
+      timezone
+    }),
+    current_observed_messages: scenePromptRecords(currentScene, 'observed_room_message'),
+    recent_visible_transcript: recentSceneTranscript.map(row => promptRecord(row)),
+    earlier_observed_messages_since_last_reply: ambientRecall.map(row => promptRecord(row, 'observed_human'))
+  }).trim()
 
   const systemPrompt = buildAmbientRecognizerSystemPrompt({
     agentUid: input.turnStart.turn.actor.agent_uid,
@@ -139,13 +136,15 @@ export async function runAmbientRecognizer(input: {
   ]
   const turnTimeout = createCombinedAbortSignal(undefined, input.timeoutMs ?? DEFAULT_AMBIENT_RECOGNIZER_TIMEOUT_MS)
   try {
-    const response = streamObject({
+    const response = streamText({
       model: input.model.sdkModel,
       instructions: systemPrompt,
       messages: convertAnkoleMessagesToModelMessages(messages),
-      schema: zodSchema(AmbientRecognizerDecisionSchema),
-      schemaName: 'ambient_intervention_decision',
-      schemaDescription: 'Decision on whether the agent should proactively speak in the observed IM room.',
+      output: Output.object({
+        schema: zodSchema(AmbientRecognizerDecisionSchema),
+        name: 'ambient_intervention_decision',
+        description: 'Decision on whether the agent should proactively speak in the observed IM room.'
+      }),
       headers: input.headers,
       providerOptions: input.providerOptions,
       maxOutputTokens: 512,
@@ -153,14 +152,14 @@ export async function runAmbientRecognizer(input: {
       abortSignal: turnTimeout.signal
     })
 
-    // streamObject is pull-driven: drain the stream so the final schema-validated
-    // object promise resolves. The recognizer only needs the final decision today,
-    // but the provider call itself must remain streaming.
+    // Structured output parsing is pull-driven: drain the stream so the final
+    // schema-validated output promise resolves. The recognizer only needs the
+    // final decision today, but the provider call itself must remain streaming.
     for await (const _part of response.fullStream) {
       // Intentionally empty.
     }
 
-    const decision = normalizeAmbientRecognizerDecision(await response.object)
+    const decision = normalizeAmbientRecognizerDecision(await response.output)
     return {
       decision,
       ...(decision.intervene
@@ -428,7 +427,7 @@ function renderChatSegment(rows: SceneMessage[]): string {
       })
     )
   }
-  return ['<chat_segment format="yaml">', stringifyYaml(payload, { lineWidth: 0 }).trim(), '</chat_segment>'].join('\n')
+  return ['<chat_segment format="yaml">', YAML.stringify(payload).trim(), '</chat_segment>'].join('\n')
 }
 
 function ambientRoomContext(rows: ConversationRow[]): JsonObject {

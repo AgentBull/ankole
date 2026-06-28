@@ -482,15 +482,14 @@ defmodule Ankole.AIAgent do
         {:ok,
          %{
            profile: runtime_profile["profile"],
-           provider: runtime_profile["provider_source"],
+           provider: runtime_profile["provider_kind"],
            provider_id: runtime_profile["provider_id"],
            model: runtime_profile["model"],
            provider_metadata: %{
              "provider_id" => runtime_profile["provider_id"],
-             "provider_source" => runtime_profile["provider_source"],
-             "adapter" => get_in(runtime_profile, ["source_metadata", "adapter"]),
-             "adapter_strategy" =>
-               get_in(runtime_profile, ["source_metadata", "adapter_strategy"])
+             "provider_kind" => runtime_profile["provider_kind"],
+             "provider_strategy" =>
+               get_in(runtime_profile, ["provider_metadata", "provider_strategy"])
            }
          }}
 

@@ -1,7 +1,6 @@
-import type { JsonObject, TurnStart } from '../../actor_lane'
+import type { JsonObject, TurnModelRef, TurnStart } from '../../actor_lane'
 import type { AgentEvent, AgentMessage } from '../types'
-import type { AssistantMessage, Model } from '../../llm/ankole'
-import type { LlmProviderCredentialResponse } from '../../rpc_lane'
+import type { AssistantMessage, Model } from '../../ai-gateway-client/ankole'
 import type { ReplyAttachmentStore } from '../../tools/computer/reply-attachment-tool'
 import { visibleReplyProposal, type FinalProposalBody } from '../../turn_envelopes'
 import { isRecord, jsonObject, jsonValue } from '../../common/json-utils'
@@ -13,13 +12,13 @@ export type TurnTelemetry = {
   toolResults: unknown[]
 }
 
-export function createTurnTelemetry(credential: LlmProviderCredentialResponse, model: Model): TurnTelemetry {
+export function createTurnTelemetry(modelRef: TurnModelRef, model: Model): TurnTelemetry {
   return {
     providerMetadata: {
-      provider_id: credential.provider_id,
-      provider_source: credential.provider_source,
-      profile: credential.profile,
-      model: credential.model,
+      provider_id: modelRef.provider_id,
+      ...(modelRef.provider_source ? { provider_source: modelRef.provider_source } : {}),
+      profile: modelRef.profile,
+      model: modelRef.model,
       runtime_provider: model.provider
     },
     toolResults: []

@@ -121,6 +121,8 @@ defmodule Ankole.ActorRuntime.TurnEnvelope do
       "profile" => llm_turn.profile,
       "provider_id" =>
         get_in(llm_turn.provider_metadata || %{}, ["provider_id"]) || llm_turn.provider,
+      "provider_kind" =>
+        get_in(llm_turn.provider_metadata || %{}, ["provider_kind"]) || llm_turn.provider,
       "model" => llm_turn.model
     }
   end

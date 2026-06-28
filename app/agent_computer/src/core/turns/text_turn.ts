@@ -16,7 +16,11 @@ import {
   conversationContextFromHistory,
   inputAlreadyMaterialized
 } from './conversation_history'
-import { assertCredentialMatchesTurn, providerOptionsFromCredential, runtimeModelFromCredential } from './model_runtime'
+import {
+  assertAIGatewayApiKeyMatchesTurn,
+  providerOptionsFromAIGateway,
+  runtimeModelFromAIGatewayApiKey
+} from './model_runtime'
 import {
   assistantText,
   isLlmMessage,
@@ -42,10 +46,9 @@ import {
  * Runs one Ankole text turn inside Agent Computer.
  *
  * The control plane delivers actor inputs and an opaque `model_ref`; the worker
- * resolves credentials over the parent protocol, builds the concrete AI SDK
- * model inside Agent Computer, and lets Ankole's reusable agent loop own tool-call/result turns.
- * This keeps credentials memory-only and keeps provider-specific behavior inside
- * the migrated LLM adapter layer instead of hand-writing per-provider HTTP payloads.
+ * resolves an agent-scoped AIGateway API key over RuntimeFabric, builds one
+ * local Responses API client, and lets the control plane own provider dispatch.
+ * The worker keeps only the AIGateway key in memory.
  */
 export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOptions): Promise<FinalProposalBody> {
   const modelRef = turnStart.model_ref
@@ -53,24 +56,28 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
     throw new Error('LLM turn is missing a real model_ref')
   }
 
-  const credential = await opts.requestCredential({
-    request_id: `llm-credential-${crypto.randomUUID()}`,
+  const apiKeyRequest = {
+    request_id: `ai-gateway-key-${crypto.randomUUID()}`,
     turn: turnStart.turn,
     agent_uid: turnStart.turn.actor.agent_uid,
-    session_id: turnStart.turn.actor.session_id,
-    profile: modelRef.profile,
-    purpose: 'ai_turn'
-  })
+    session_id: turnStart.turn.actor.session_id
+  }
+  const apiKey = await opts.requestAIGatewayApiKey(apiKeyRequest)
 
-  if ('code' in credential) {
-    throw new Error(`credential rejected: ${credential.code} ${credential.message ?? ''}`.trim())
+  if ('code' in apiKey) {
+    throw new Error(`AIGateway API key rejected: ${apiKey.code} ${apiKey.message ?? ''}`.trim())
   }
 
-  assertCredentialMatchesTurn(modelRef, credential)
+  assertAIGatewayApiKeyMatchesTurn(turnStart, apiKey)
 
-  const model = runtimeModelFromCredential(credential)
-  const providerOptions = providerOptionsFromCredential(credential, model.provider)
-  const telemetry = createTurnTelemetry(credential, model)
+  const model = runtimeModelFromAIGatewayApiKey(modelRef, apiKey, undefined, () =>
+    opts.requestAIGatewayApiKey({
+      ...apiKeyRequest,
+      request_id: `ai-gateway-key-${crypto.randomUUID()}`
+    })
+  )
+  const providerOptions = providerOptionsFromAIGateway()
+  const telemetry = createTurnTelemetry(modelRef, model)
   const agentConversationContext = await resolveAgentConversationContext(turnStart, opts)
   const history = await resolveConversationHistory(turnStart, opts, 'prompt')
 
@@ -138,9 +145,9 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
           agent_uid: turnStart.turn.actor.agent_uid,
           conversation_id: turnStart.turn.actor.session_id,
           llm_turn_id: turnStart.turn.llm_turn_id,
-          profile: credential.profile,
-          provider_id: credential.provider_id,
-          provider_source: credential.provider_source
+          profile: modelRef.profile,
+          provider_id: modelRef.provider_id,
+          ...(modelRef.provider_source ? { provider_source: modelRef.provider_source } : {})
         },
         headers: model.headers,
         providerOptions,

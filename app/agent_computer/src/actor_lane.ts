@@ -64,6 +64,7 @@ export type TurnControl = {
 export type TurnModelRef = {
   profile: string
   provider_id: string
+  provider_source?: string
   model: string
 }
 

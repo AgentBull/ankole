@@ -305,7 +305,8 @@ The current worker-to-control-plane methods are mostly for PG semantic state:
 - `skills.overlay.resolve`: returns one agent/skill overlay;
 - `skills.overlay.replace`: replaces one overlay;
 - `skills.overlay.clear`: clears one overlay;
-- provider credential and profile resolution methods.
+- `ai_gateway.api_key_for.create_or_find_by_agent`: returns an agent-scoped
+  AIGateway API key for the turn's actor.
 
 The current control-plane-to-worker methods are worker-owned semantic methods:
 

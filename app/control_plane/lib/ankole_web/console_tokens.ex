@@ -3,7 +3,7 @@ defmodule AnkoleWeb.ConsoleTokens do
   JWT token bridge for the browser console API.
 
   The cookie admin session remains the login root. These JWTs are short-lived
-  bearer credentials derived from that session so `/api/*` can stay stateless
+  bearer credentials derived from that session so `/api/v1/*` can stay stateless
   and separate from browser-session JSON endpoints.
   """
 

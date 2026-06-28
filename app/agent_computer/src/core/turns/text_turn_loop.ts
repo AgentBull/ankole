@@ -7,9 +7,9 @@ import type { TextTurnLoopOptions, TurnHandlerResult } from './turn_options'
 
 export type {
   AgentConversationContextRequester,
+  AIGatewayApiKeyRequester,
   ConversationHistoryRequester,
   ConversationSummaryCommitter,
-  CredentialRequester,
   SkillOverlayReplaceRequester,
   SkillOverlayRequester,
   TextTurnLoopOptions,

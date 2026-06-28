@@ -6,9 +6,9 @@ import type {
   ConversationHistoryResponse,
   ConversationSummaryCommitRequest,
   ConversationSummaryCommitResponse,
-  LlmProviderCredentialRejected,
-  LlmProviderCredentialRequest,
-  LlmProviderCredentialResponse,
+  AIGatewayApiKeyRejected,
+  AIGatewayApiKeyRequest,
+  AIGatewayApiKeyResponse,
   SkillOverlayReplaceRequest,
   SkillOverlayRequest,
   SkillOverlayResponse
@@ -17,9 +17,9 @@ import type { ScheduleRpcRequester } from '../../tools/schedule-tools'
 import type { FinalProposalBody } from '../../turn_envelopes'
 import type { TurnSteerUpdate } from '../../actor_lane'
 
-export type CredentialRequester = (
-  request: LlmProviderCredentialRequest
-) => Promise<LlmProviderCredentialResponse | LlmProviderCredentialRejected>
+export type AIGatewayApiKeyRequester = (
+  request: AIGatewayApiKeyRequest
+) => Promise<AIGatewayApiKeyResponse | AIGatewayApiKeyRejected>
 
 export type AgentConversationContextRequester = (
   request: AgentConversationContextRequest
@@ -37,7 +37,7 @@ export type TextTurnLoopOptions = {
   workspaceRoot: string
   builtinSkillsRoot?: string
   agentInstalledSkillsRoot?: string
-  requestCredential: CredentialRequester
+  requestAIGatewayApiKey: AIGatewayApiKeyRequester
   requestAgentConversationContext?: AgentConversationContextRequester
   requestConversationHistory?: ConversationHistoryRequester
   commitConversationSummary?: ConversationSummaryCommitter

@@ -25,8 +25,8 @@ import {
   toAnkoleStopReason,
   toAnkoleUsage,
   validateToolArguments
-} from '@/llm'
-import type { LanguageModelUsage } from '@/llm'
+} from '@/ai-gateway-client'
+import type { LanguageModelUsage } from '@/ai-gateway-client'
 import { isPlainObject } from '@pleisto/active-support'
 import { withRetry } from '@/common/async'
 import { redactJsonValue, redactSensitiveText } from '@/security/redact'

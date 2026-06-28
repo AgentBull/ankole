@@ -1,6 +1,6 @@
 import type { ActorInputEnvelope, JsonObject } from '../../actor_lane'
 import type { AgentMessage } from '../types'
-import type { Message, Model } from '../../llm/ankole'
+import type { Message, Model } from '../../ai-gateway-client/ankole'
 import {
   prependEnvironmentInfoLinesToUserMessage,
   prependPreviousChatHistoryToUserMessage,

@@ -164,9 +164,10 @@ credentials are different.
 The accepted boundary is:
 
 - durable provider metadata and model profile wiring may live in PostgreSQL;
-- live secrets are requested by the worker when needed;
-- credential handoff happens over RuntimeFabric/ZMQ RPC;
-- worker-side credentials remain memory-only;
+- external provider secrets stay in the control plane;
+- workers request an agent-scoped AIGateway API key over RuntimeFabric/ZMQ RPC
+  when needed;
+- worker-side AIGateway credentials remain memory-only;
 - secrets must not be written into workspace files, shared files, skill
   overlays, progress payloads, proposals, or logs.
 
@@ -315,7 +316,7 @@ pipeline itself is the task.
 
 Worker/runtime e2e tests are intentionally separate from the default test suite.
 They require real runtime dependencies such as Docker, the Agent Computer image,
-RuntimeFabric, and sometimes real provider credentials.
+RuntimeFabric, AIGateway configuration, and sometimes real provider access.
 
 The normal rule is:
 
