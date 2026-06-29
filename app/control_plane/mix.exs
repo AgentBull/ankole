@@ -28,7 +28,9 @@ defmodule Ankole.MixProject do
     [
       preferred_envs: [
         precommit: :test,
-        "e2e.actor_runtime_worker": :test
+        "e2e.ai_gateway_real_provider": :test,
+        "e2e.actor_runtime_worker": :test,
+        "e2e.lark_agent_docker_worker_chaos": :test
       ]
     ]
   end
@@ -90,6 +92,16 @@ defmodule Ankole.MixProject do
         "ecto.create --quiet",
         "ecto.migrate --quiet",
         "test e2e/actor_runtime_worker_e2e_test.exs --trace"
+      ],
+      "e2e.ai_gateway_real_provider": [
+        "ecto.create --quiet",
+        "ecto.migrate --quiet",
+        "run tools/e2e/ai_gateway_real_provider_e2e.exs"
+      ],
+      "e2e.lark_agent_docker_worker_chaos": [
+        "ecto.create --quiet",
+        "ecto.migrate --quiet",
+        "test tools/e2e/lark_agent_docker_worker_chaos_e2e_test.exs --trace"
       ],
       test: ["ecto.create --quiet", "ecto.migrate --quiet", "test"],
       "assets.build": ["cmd --cd ../webapps bun run build"],

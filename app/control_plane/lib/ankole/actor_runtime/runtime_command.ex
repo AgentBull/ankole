@@ -28,13 +28,25 @@ defmodule Ankole.ActorRuntime.RuntimeCommand do
         process_runtime_command(actor_key, input, opts)
 
       _args ->
-        with {:ok, _result} <-
+        with {:ok, rollover} <-
                Repo.transact(fn repo ->
-                 with :ok <- end_active_conversation(repo, actor_key, input, now) do
-                   {:ok, %{status: :conversation_rolled_over}}
+                 with {:ok, stop_controls} <- end_active_conversation(repo, actor_key, input, now) do
+                   {:ok, %{status: :conversation_rolled_over, stop_controls: stop_controls}}
                  end
-               end) do
-          TurnLifecycle.start_llm_turn(actor_key, [input], opts)
+               end)
+               |> dispatch_stop_controls() do
+          case TurnLifecycle.start_llm_turn(actor_key, [input], opts) do
+            {:error, :no_worker_available} ->
+              {:ok,
+               %{
+                 status: :waiting_for_worker,
+                 command: input.type,
+                 stop_control_outcomes: Map.get(rollover, :stop_control_outcomes, [])
+               }}
+
+            other ->
+              other
+          end
         end
     end
   end
@@ -52,6 +64,7 @@ defmodule Ankole.ActorRuntime.RuntimeCommand do
       end
     end)
     |> TurnRetry.dispatch_retry_controls()
+    |> dispatch_stop_controls()
     |> tap(fn
       {:ok, %{status: :command_consumed}} -> OutboxDispatcher.wake()
       _result -> :ok
@@ -59,14 +72,18 @@ defmodule Ankole.ActorRuntime.RuntimeCommand do
   end
 
   defp apply_runtime_command(repo, actor_key, %ActorInput{type: "command.stop"} = input, now) do
-    with :ok <- cancel_active_generation(repo, actor_key, input, now, "command.stop") do
-      consume_command_feedback(repo, input, "Stopped.", now)
+    with {:ok, stop_controls} <-
+           cancel_active_generation(repo, actor_key, input, now, "command.stop"),
+         {:ok, result} <- consume_command_feedback(repo, input, "Stopped.", now) do
+      {:ok, Map.put(result, :stop_controls, stop_controls)}
     end
   end
 
   defp apply_runtime_command(repo, actor_key, %ActorInput{type: "command.new"} = input, now) do
-    with :ok <- end_active_conversation(repo, actor_key, input, now) do
-      consume_command_feedback(repo, input, "Started a new conversation.", now)
+    with {:ok, stop_controls} <- end_active_conversation(repo, actor_key, input, now),
+         {:ok, result} <-
+           consume_command_feedback(repo, input, "Started a new conversation.", now) do
+      {:ok, Map.put(result, :stop_controls, stop_controls)}
     end
   end
 
@@ -335,6 +352,10 @@ defmodule Ankole.ActorRuntime.RuntimeCommand do
       %Conversation{} = conversation ->
         lease_id = TurnLifecycle.generation_lease_id(conversation.generation || %{})
         generation = TurnLifecycle.cancel_generation(conversation.generation || %{}, now, reason)
+        live_deliveries = live_deliveries_for_generation(repo, conversation, lease_id)
+
+        stop_controls =
+          Enum.map(live_deliveries, &stop_control_for_delivery(actor_key, &1, reason))
 
         with {:ok, conversation} <-
                conversation
@@ -348,20 +369,129 @@ defmodule Ankole.ActorRuntime.RuntimeCommand do
                  now,
                  reason
                ),
+             {:ok, _consumptions} <-
+               consume_cancelled_turn_inputs(repo, live_deliveries, now),
              {:ok, _message} <-
                insert_command_introspection(repo, conversation, input, now, "Generation stopped.") do
-          :ok
+          {:ok, stop_controls}
         end
 
       nil ->
-        :ok
+        {:ok, []}
     end
+  end
+
+  # `/stop` fences the durable turn immediately, but the worker may still be
+  # blocked in an upstream stream or tool call. The stop control is deliberately
+  # best-effort and sent after commit: stale worker output is already fenced by
+  # the DB, while a delivered control saves provider tokens and releases worker
+  # capacity quickly.
+  defp dispatch_stop_controls({:ok, result}) when is_map(result) do
+    outcomes =
+      result
+      |> Map.get(:stop_controls, [])
+      |> Enum.uniq_by(&{&1.route, &1.turn_ref})
+      |> Enum.map(&dispatch_stop_control/1)
+
+    {:ok, Map.put(result, :stop_control_outcomes, outcomes)}
+  end
+
+  defp dispatch_stop_controls(other), do: other
+
+  defp dispatch_stop_control(%{route: route, turn_ref: turn_ref, reason: reason} = control) do
+    envelope = TurnEnvelope.turn_control(turn_ref, "stop", %{"reason" => reason})
+
+    case Broker.send_mandatory(route, envelope) do
+      {:ok, :sent_or_queued} ->
+        Map.put(control, :send_outcome, "sent_or_queued")
+
+      {:error, reason} ->
+        WorkerAdmission.mark_route_unusable(route, reason)
+        control |> Map.put(:send_outcome, Atom.to_string(reason)) |> Map.put(:send_error, reason)
+    end
+  end
+
+  defp live_deliveries_for_generation(_repo, _conversation, nil), do: []
+
+  defp live_deliveries_for_generation(repo, %Conversation{} = conversation, lease_id) do
+    case started_turn_for_lease(repo, conversation, lease_id) do
+      %LlmTurn{} = turn ->
+        live_deliveries_for_turn(turn, repo)
+
+      nil ->
+        []
+    end
+  end
+
+  defp consume_cancelled_turn_inputs(repo, deliveries, now) when is_list(deliveries) do
+    deliveries
+    |> Enum.uniq_by(& &1.actor_input_id)
+    |> Enum.reduce_while({:ok, []}, fn delivery, {:ok, consumptions} ->
+      case TurnLifecycle.lock_actor_input(repo, delivery.actor_input_id) do
+        %ActorInput{} = input ->
+          opts = [
+            consumed_at: now,
+            llm_turn_id: delivery.llm_turn_id,
+            activation_uid: delivery.activation_uid,
+            actor_epoch: delivery.actor_epoch,
+            revision: delivery.revision
+          ]
+
+          case Actors.consume_actor_input_in_tx(repo, input, opts) do
+            {:ok, consumption} -> {:cont, {:ok, [consumption | consumptions]}}
+            {:error, reason} -> {:halt, {:error, reason}}
+          end
+
+        nil ->
+          {:cont, {:ok, consumptions}}
+      end
+    end)
+  end
+
+  defp live_deliveries_for_turn(%LlmTurn{} = turn, repo) do
+    from(delivery in Ankole.ActorRuntime.Schemas.ActorInputDelivery,
+      where: delivery.llm_turn_id == ^turn.id,
+      where: delivery.state in ["created", "sent", "accepted"],
+      lock: "FOR UPDATE"
+    )
+    |> repo.all()
+  end
+
+  defp stop_control_for_delivery(actor_key, delivery, reason) do
+    %{
+      route: delivery.transport_route || delivery.worker_id,
+      reason: reason,
+      turn_ref: %{
+        "actor" => %{
+          "agent_uid" => actor_key.agent_uid,
+          "session_id" => actor_key.session_id
+        },
+        "activation_uid" => delivery.activation_uid,
+        "actor_epoch" => delivery.actor_epoch,
+        "llm_turn_id" => delivery.llm_turn_id,
+        "revision" => delivery.revision
+      }
+    }
+  end
+
+  defp started_turn_for_lease(repo, %Conversation{} = conversation, lease_id) do
+    LlmTurn
+    |> where([turn], turn.conversation_id == ^conversation.id)
+    |> where([turn], turn.lease_id == ^lease_id)
+    |> where([turn], turn.status == "started")
+    |> order_by([turn], asc: turn.call_index)
+    |> lock("FOR UPDATE")
+    |> repo.one()
   end
 
   defp end_active_conversation(repo, actor_key, %ActorInput{} = input, now) do
     case TurnLifecycle.active_conversation_for_update(repo, actor_key) do
       %Conversation{} = conversation ->
         lease_id = TurnLifecycle.generation_lease_id(conversation.generation || %{})
+        live_deliveries = live_deliveries_for_generation(repo, conversation, lease_id)
+
+        stop_controls =
+          Enum.map(live_deliveries, &stop_control_for_delivery(actor_key, &1, "command.new"))
 
         generation =
           TurnLifecycle.cancel_generation(conversation.generation || %{}, now, "command.new")
@@ -378,6 +508,8 @@ defmodule Ankole.ActorRuntime.RuntimeCommand do
                  now,
                  "command.new"
                ),
+             {:ok, _consumptions} <-
+               consume_cancelled_turn_inputs(repo, live_deliveries, now),
              {:ok, _message} <-
                insert_command_introspection(
                  repo,
@@ -386,11 +518,11 @@ defmodule Ankole.ActorRuntime.RuntimeCommand do
                  now,
                  "Conversation window closed."
                ) do
-          :ok
+          {:ok, stop_controls}
         end
 
       nil ->
-        :ok
+        {:ok, []}
     end
   end
 

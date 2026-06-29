@@ -108,7 +108,7 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
              {:ok, text} <- message_text(message),
              {:ok, attachments} <- attachments(message),
              :ok <- material_message?(text, attachments),
-             {:ok, mentions} <- mentions(message),
+             {:ok, mentions} <- mentions(message, consumer),
              provider_time <- provider_time(message, event),
              channel_kind <- channel_kind(message),
              signal_channel_id <- signal_channel_id(chat_id),
@@ -148,7 +148,7 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
              attachments: attachments,
              mentions: mentions,
              structured_mention_prefixes: mention_prefixes(mentions),
-             explicit: explicit?(channel_kind, mentions),
+             explicit: explicit?(channel_kind, mentions, consumer),
              author: author,
              sender_key: author["principal_uid"] || author["id"],
              metadata: %{
@@ -431,16 +431,16 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
   defp download_type("image"), do: "image"
   defp download_type(_type), do: "file"
 
-  defp mentions(message) do
+  defp mentions(message, consumer) do
     mentions =
       message
       |> fetch_list("mentions")
-      |> Enum.map(&normalize_mention/1)
+      |> Enum.map(&normalize_mention(&1, consumer))
 
     {:ok, mentions}
   end
 
-  defp normalize_mention(mention) when is_map(mention) do
+  defp normalize_mention(mention, consumer) when is_map(mention) do
     id = fetch_map(mention, "id", %{})
 
     %{
@@ -452,10 +452,34 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
       "open_id" => optional_text(id, "open_id"),
       "user_id" => optional_text(id, "user_id")
     }
+    |> mark_local_bot_mention(consumer)
     |> compact_map()
   end
 
-  defp normalize_mention(_mention), do: %{"kind" => "bot", "structured" => true}
+  defp normalize_mention(_mention, consumer) do
+    %{"kind" => "bot", "structured" => true}
+    |> mark_local_bot_mention(consumer)
+    |> compact_map()
+  end
+
+  # Lark events can contain mentions for another bot in the same group. When
+  # the binding knows this app's bot identity, only a matching mention should
+  # mark the message as addressed for this agent. Without configured ids we keep
+  # the older generic behavior: any structured bot mention belongs to the binding.
+  defp mark_local_bot_mention(mention, %{config: config, context: %AdapterContext{} = context}) do
+    cond do
+      not bot_identity_configured?(config) ->
+        mention
+
+      mention_targets_configured_bot?(mention, config) ->
+        Map.put(mention, "agent_uid", context.agent_uid)
+
+      true ->
+        Map.put(mention, "targets_current_agent", false)
+    end
+  end
+
+  defp mark_local_bot_mention(mention, _consumer), do: mention
 
   defp maybe_backfill_attachments(
          [_ | _] = attachments,
@@ -599,9 +623,46 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
   defp formatted_content(nil), do: %{}
   defp formatted_content(text), do: %{"format" => "markdown", "body" => text}
 
-  defp explicit?(:im_dm, _mentions), do: true
-  defp explicit?(:im_group, [_ | _]), do: true
-  defp explicit?(_kind, _mentions), do: false
+  defp explicit?(:im_dm, _mentions, _consumer), do: true
+
+  defp explicit?(:im_group, mentions, consumer),
+    do: Enum.any?(mentions, &mention_targets_current_binding?(&1, consumer))
+
+  defp mention_targets_current_binding?(mention, %{
+         config: config,
+         context: %AdapterContext{} = context
+       })
+       when is_map(mention) do
+    case optional_text(mention, "agent_uid") do
+      nil -> not bot_identity_configured?(config)
+      agent_uid -> agent_uid == context.agent_uid
+    end
+  end
+
+  defp mention_targets_current_binding?(mention, _consumer) when is_map(mention), do: true
+  defp mention_targets_current_binding?(_mention, _consumer), do: false
+
+  defp bot_identity_configured?(config) when is_map(config),
+    do: present_text?(Map.get(config, "botOpenId")) or present_text?(Map.get(config, "botUserId"))
+
+  defp bot_identity_configured?(_config), do: false
+
+  defp mention_targets_configured_bot?(mention, config) when is_map(mention) and is_map(config) do
+    matches_optional_id?(mention["open_id"], Map.get(config, "botOpenId")) or
+      matches_optional_id?(mention["user_id"], Map.get(config, "botUserId")) or
+      matches_optional_id?(mention["id"], Map.get(config, "botUserId")) or
+      matches_optional_id?(mention["id"], Map.get(config, "botOpenId"))
+  end
+
+  defp mention_targets_configured_bot?(_mention, _config), do: false
+
+  defp matches_optional_id?(value, expected) when is_binary(value) and is_binary(expected),
+    do: String.trim(value) != "" and value == expected
+
+  defp matches_optional_id?(_value, _expected), do: false
+
+  defp present_text?(value) when is_binary(value), do: String.trim(value) != ""
+  defp present_text?(_value), do: false
 
   defp channel_kind(message) do
     case optional_text(message, "chat_type") do

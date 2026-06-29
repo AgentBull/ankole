@@ -52,6 +52,36 @@ defmodule Ankole.AIGateway.CredentialTest do
     assert claims["sub"] == agent.uid
   end
 
+  test "RuntimeFabric RPC returns the configured worker-facing AIGateway base URL" do
+    put_ai_gateway_broker_env!(
+      worker_facing_base_url: "http://host.docker.internal:49321/api/v1/ai-gateway/"
+    )
+
+    %{principal: agent} = agent_fixture()
+    session_id = "signal-channel:ai-gateway-worker-url"
+    {route, turn} = assign_worker_route(agent.uid, session_id)
+
+    assert {:ok, envelope} =
+             RPCLane.handle_request(
+               %{
+                 "request_id" => "ai-gateway-worker-url",
+                 "method" => "ai_gateway.api_key_for.create_or_find_by_agent",
+                 "payload_json" => %{
+                   "request_id" => "ai-gateway-worker-url",
+                   "turn" => turn,
+                   "agent_uid" => agent.uid,
+                   "session_id" => session_id
+                 }
+               },
+               route
+             )
+
+    response = get_in(envelope, ["body", "rpc_response", "payload_json"])
+
+    assert response["base_url"] ==
+             "http://host.docker.internal:49321/api/v1/ai-gateway"
+  end
+
   test "RuntimeFabric no longer exposes provider credential resolution as a public RPC" do
     %{principal: agent} = agent_fixture()
     {route, turn} = assign_worker_route(agent.uid, "signal-channel:no-provider-secret-rpc")
@@ -74,5 +104,20 @@ defmodule Ankole.AIGateway.CredentialTest do
 
     assert get_in(envelope, ["body", "type"]) == "rpc_error"
     assert get_in(envelope, ["body", "rpc_error", "code"]) == "unknown_rpc_method"
+  end
+
+  defp put_ai_gateway_broker_env!(config) do
+    old_env = Application.fetch_env(:ankole, Ankole.ActorRuntime.AIGatewayApiKeyBroker)
+    Application.put_env(:ankole, Ankole.ActorRuntime.AIGatewayApiKeyBroker, config)
+
+    on_exit(fn ->
+      case old_env do
+        {:ok, value} ->
+          Application.put_env(:ankole, Ankole.ActorRuntime.AIGatewayApiKeyBroker, value)
+
+        :error ->
+          Application.delete_env(:ankole, Ankole.ActorRuntime.AIGatewayApiKeyBroker)
+      end
+    end)
   end
 end

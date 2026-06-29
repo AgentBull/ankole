@@ -64,6 +64,8 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
          {:ok, platform_subject_namespace} <-
            optional_string(value, "platformSubjectNamespace", "lark-main"),
          {:ok, user_name} <- optional_string(value, "userName", "Lark / Feishu"),
+         {:ok, bot_open_id} <- optional_string(value, "botOpenId", nil),
+         {:ok, bot_user_id} <- optional_string(value, "botUserId", nil),
          {:ok, streaming_enabled} <- optional_boolean(value, "streamingEnabled", true),
          {:ok, stream_update_interval_ms} <-
            integer_between(value, "streamUpdateIntervalMs", 800, 100, 60_000),
@@ -77,6 +79,8 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
          "group_message_mode" => group_message_mode,
          "platformSubjectNamespace" => platform_subject_namespace,
          "userName" => user_name,
+         "botOpenId" => bot_open_id,
+         "botUserId" => bot_user_id,
          "streamingEnabled" => streaming_enabled,
          "streamUpdateIntervalMs" => stream_update_interval_ms,
          "streamBufferThreshold" => stream_buffer_threshold

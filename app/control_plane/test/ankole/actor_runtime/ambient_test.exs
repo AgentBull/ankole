@@ -25,7 +25,7 @@ defmodule Ankole.ActorRuntime.AmbientTest do
 
       assert {:ok, %{send_outcome: "sent_or_queued", llm_turn: recognizer_turn}} =
                ActorRuntime.process_ready_inputs_once(
-                 now: DateTime.add(@base_time, 15, :second),
+                 now: DateTime.add(@base_time, 15_001, :millisecond),
                  lease_seconds: @long_lease_seconds
                )
 
@@ -101,7 +101,7 @@ defmodule Ankole.ActorRuntime.AmbientTest do
 
       assert {:ok, %{send_outcome: "sent_or_queued", llm_turn: ambient_turn}} =
                ActorRuntime.process_ready_inputs_once(
-                 now: DateTime.add(@base_time, 15, :second),
+                 now: DateTime.add(@base_time, 15_001, :millisecond),
                  lease_seconds: @long_lease_seconds
                )
 

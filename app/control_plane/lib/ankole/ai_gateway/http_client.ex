@@ -11,6 +11,8 @@ defmodule Ankole.AIGateway.HttpClient do
   alias Ankole.AIGateway.HttpProtocol
 
   @default_timeout_ms 60_000
+  @http2_pool_warmup_delay_ms 250
+  @http2_pool_warmup_retries 20
 
   @doc """
   Returns the non-streaming HTTP client configured for this call.
@@ -65,7 +67,9 @@ defmodule Ankole.AIGateway.HttpClient do
              headers: Enum.to_list(headers),
              body: encoded,
              decode_body: false,
-             retry: false,
+             retry: &retry_http2_pool_warmup/2,
+             retry_log_level: false,
+             max_retries: @http2_pool_warmup_retries,
              receive_timeout: timeout_ms,
              connect_options: [protocols: protocols, timeout: timeout_ms]
            ) do
@@ -95,15 +99,20 @@ defmodule Ankole.AIGateway.HttpClient do
     with {:ok, encoded} <- Ankole.JSON.encode(body),
          {:ok, protocols} <- HttpProtocol.finch_protocols(request.http_protocol),
          {:ok, response} <-
-           Req.post(
-             url: url,
-             headers: Enum.to_list(headers),
-             body: encoded,
-             into: :self,
-             decode_body: false,
-             retry: false,
-             receive_timeout: timeout_ms,
-             connect_options: [protocols: protocols, timeout: timeout_ms]
+           stream_req_post_with_pool_warmup_retry(
+             [
+               url: url,
+               headers: Enum.to_list(headers),
+               body: encoded,
+               into: :self,
+               decode_body: false,
+               retry: &retry_http2_pool_warmup/2,
+               retry_log_level: false,
+               max_retries: @http2_pool_warmup_retries,
+               receive_timeout: timeout_ms,
+               connect_options: [protocols: protocols, timeout: timeout_ms]
+             ],
+             @http2_pool_warmup_retries
            ) do
       case response.status do
         status when status in 200..299 ->
@@ -127,6 +136,35 @@ defmodule Ankole.AIGateway.HttpClient do
   end
 
   defp decode_response_body(body), do: %{"raw_body" => inspect(body)}
+
+  # Finch can report `:pool_not_available` while a dynamic HTTP/2 pool is still
+  # being registered. Retrying only these pre-request pool states avoids
+  # replaying provider calls after an upstream may already have processed them.
+  defp retry_http2_pool_warmup(
+         _request,
+         %Req.HTTPError{protocol: :http2, reason: reason}
+       )
+       when reason in [:pool_not_available, :unprocessed],
+       do: {:delay, @http2_pool_warmup_delay_ms}
+
+  defp retry_http2_pool_warmup(_request, _response_or_exception), do: false
+
+  # Finch documents that synchronous requests retry dynamic-pool startup
+  # internally, while async_request/3 does not. Req's `into: :self` path uses
+  # async_request/3 and can raise before any request leaves this process. Retrying
+  # only that pre-request `:pool_not_available` state keeps streaming calls from
+  # failing during HTTP/2 pool warm-up without replaying provider-side work.
+  defp stream_req_post_with_pool_warmup_retry(options, attempts_left) do
+    Req.post(options)
+  rescue
+    error in Finch.Error ->
+      if attempts_left > 0 and error.reason == :pool_not_available do
+        Process.sleep(@http2_pool_warmup_delay_ms)
+        stream_req_post_with_pool_warmup_retry(options, attempts_left - 1)
+      else
+        {:error, error}
+      end
+  end
 
   # Req returns an enumerable body when `into: :self` is used. The reduce keeps
   # the caller-owned stream state explicit and lets parser errors halt early.

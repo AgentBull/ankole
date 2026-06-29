@@ -148,22 +148,48 @@ function runtimeWorkspaceBinds(): string[] {
     binds.push('--bind', installedSkillsRoot, '/workspace/shared/skills/agents')
   }
 
+  const agentComputerDir = process.env.ANKOLE_AGENT_COMPUTER_BUN_WORKDIR
+  if (agentComputerDir && browserCliRuntimePresent(agentComputerDir)) {
+    // `ankole-browser` is installed in the image as a symlink under
+    // /usr/local/bin. The symlink target lives in the Agent Computer app tree,
+    // so the sandbox must expose only the tiny read-only runtime needed by that
+    // CLI. Without this bind, browser tools fail inside bwrap with exit 127
+    // even though the command exists in the outer worker container.
+    pushDirs(binds, parentDirs(agentComputerDir))
+    binds.push('--ro-bind', `${agentComputerDir}/bin`, `${agentComputerDir}/bin`)
+    binds.push('--ro-bind', `${agentComputerDir}/src`, `${agentComputerDir}/src`)
+  }
+
   const builtinSkillsRoot = process.env.ANKOLE_BUILTIN_SKILLS_ROOT
   if (builtinSkillsRoot && existsSync(builtinSkillsRoot)) {
-    binds.push(
-      '--dir',
-      '/repo',
-      '--dir',
-      '/repo/app',
-      '--dir',
-      '/repo/app/library',
-      '--ro-bind',
-      builtinSkillsRoot,
-      '/repo/app/library/skills'
-    )
+    pushDirs(binds, ['/repo', '/repo/app', '/repo/app/library'])
+    binds.push('--ro-bind', builtinSkillsRoot, '/repo/app/library/skills')
   }
 
   return binds
+}
+
+function browserCliRuntimePresent(agentComputerDir: string): boolean {
+  return existsSync(`${agentComputerDir}/bin/ankole-browser`) && existsSync(`${agentComputerDir}/src/browser_cli.ts`)
+}
+
+function parentDirs(path: string): string[] {
+  const parts = path.split('/').filter(Boolean)
+  let current = ''
+  return parts.map(part => {
+    current = `${current}/${part}`
+    return current
+  })
+}
+
+function pushDirs(args: string[], dirs: string[]): void {
+  for (const dir of dirs) {
+    if (!hasArgPair(args, '--dir', dir)) args.push('--dir', dir)
+  }
+}
+
+function hasArgPair(args: string[], flag: string, value: string): boolean {
+  return args.some((arg, index) => arg === flag && args[index + 1] === value)
 }
 
 function readOnlySystemBinds(): string[] {
@@ -171,7 +197,15 @@ function readOnlySystemBinds(): string[] {
     .filter(path => existsSync(path))
     .flatMap(path => ['--ro-bind', path, path])
 
-  const fileBinds = ['/etc/hosts', '/etc/resolv.conf', '/etc/nsswitch.conf', '/etc/ssl', '/etc/ca-certificates']
+  const fileBinds = [
+    '/etc/hosts',
+    '/etc/resolv.conf',
+    '/etc/nsswitch.conf',
+    '/etc/ssl',
+    '/etc/ca-certificates',
+    '/etc/chromium',
+    '/etc/chromium.d'
+  ]
     .filter(path => existsSync(path))
     .flatMap(path => ['--ro-bind', path, path])
 

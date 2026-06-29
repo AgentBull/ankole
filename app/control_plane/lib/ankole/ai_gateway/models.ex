@@ -8,13 +8,14 @@ defmodule Ankole.AIGateway.Models do
   """
 
   alias Ankole.AIAgent.ModelProfiles
+  alias Ankole.AIGateway.ModelSelectors
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AIGateway.Providers
   alias Ankole.Principals
   alias Ankole.Principals.Agent
 
   @base_supported_parameters ~w(
-    temperature top_p max_tokens max_output_tokens tools tool_choice metadata
+    temperature top_p max_tokens max_output_tokens response_format tools tool_choice metadata
     reasoning reasoningEffort text textVerbosity
   )
 
@@ -59,8 +60,17 @@ defmodule Ankole.AIGateway.Models do
         profiles
         |> Enum.flat_map(fn {profile, attrs} ->
           case ModelProfiles.profile_capability(profile) do
-            {:ok, capability} -> selector_entries(agent_uid, capability, profile, attrs, opts)
-            {:error, _reason} -> []
+            {:ok, capability} ->
+              selector_entries(
+                agent_uid,
+                capability,
+                ModelSelectors.public_selector(capability, profile),
+                attrs,
+                opts
+              )
+
+            {:error, _reason} ->
+              []
           end
         end)
 

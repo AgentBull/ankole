@@ -64,6 +64,8 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       assert chat["domain"] == "feishu"
       assert chat["group_message_mode"] == "observe_all"
       assert chat["platformSubjectNamespace"] == "lark-main"
+      assert chat["botOpenId"] == nil
+      assert chat["botUserId"] == nil
       assert chat["streamingEnabled"] == true
 
       assert {:ok, identity} =
@@ -714,13 +716,15 @@ defmodule Ankole.Plugins.LarkAdapterTest do
     )
   end
 
-  defp chat_config do
+  defp chat_config(overrides \\ %{}) do
     {:ok, config} =
-      Config.validate_chat_config(%{
+      %{
         "appId" => "cli_test",
         "appSecret" => "secret",
         "platformSubjectNamespace" => "lark-main"
-      })
+      }
+      |> Map.merge(overrides)
+      |> Config.validate_chat_config()
 
     config
   end

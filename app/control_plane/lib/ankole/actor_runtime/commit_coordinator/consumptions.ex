@@ -159,12 +159,16 @@ defmodule Ankole.ActorRuntime.CommitCoordinator.Consumptions do
 
   defp reply_target_sort_key(%ActorInput{} = actor_input) do
     {
+      reply_target_priority(actor_input),
       provider_time_sort_value(actor_input),
       datetime_sort_value(actor_input.available_at),
       actor_input.live_queue_sequence || 0,
       actor_input.provider_entry_id || ""
     }
   end
+
+  defp reply_target_priority(%ActorInput{type: "command.steer"}), do: 0
+  defp reply_target_priority(%ActorInput{}), do: 1
 
   defp provider_time_sort_value(%ActorInput{payload: payload}) when is_map(payload) do
     payload
@@ -253,15 +257,6 @@ defmodule Ankole.ActorRuntime.CommitCoordinator.Consumptions do
   defp outbox_intents(
          _repo,
          %ActorInput{provider_entry_id: nil},
-         _llm_turn,
-         _assistant_message,
-         _outbox_scope
-       ),
-       do: []
-
-  defp outbox_intents(
-         _repo,
-         %ActorInput{type: "command.steer"},
          _llm_turn,
          _assistant_message,
          _outbox_scope

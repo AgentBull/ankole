@@ -143,6 +143,8 @@ defmodule Ankole.Plugins.LarkAdapter do
         default: "lark-main"
       ),
       field("userName", "Output display name", :string, default: "Lark / Feishu"),
+      field("botOpenId", "Bot open_id", :string, []),
+      field("botUserId", "Bot user_id", :string, []),
       field("streamingEnabled", "Streaming cards", :boolean, default: true),
       field("streamUpdateIntervalMs", "Streaming update interval", :integer, default: 800),
       field("streamBufferThreshold", "Streaming buffer threshold", :integer, default: 24)

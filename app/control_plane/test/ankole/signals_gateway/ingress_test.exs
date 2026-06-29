@@ -127,6 +127,71 @@ defmodule Ankole.SignalsGatewayIngressTest do
              |> Enum.map(& &1.id) == [input.id]
     end
 
+    test "may_intervene batch removal drops only the recalled source entry" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "lark-main", :may_intervene)
+
+      assert {:ok, %{inbound_batch: first}} =
+               SignalsGateway.emit_entry(
+                 agent.uid,
+                 "lark-main",
+                 group_entry(%{
+                   ingress_event_id: "evt-ambient-remove-first",
+                   provider_entry_id: "msg-ambient-remove-first",
+                   text: "first"
+                 }),
+                 now: @base_time
+               )
+
+      second_at = DateTime.add(@base_time, 250, :millisecond)
+
+      assert {:ok, %{inbound_batch: second}} =
+               SignalsGateway.emit_entry(
+                 agent.uid,
+                 "lark-main",
+                 group_entry(%{
+                   ingress_event_id: "evt-ambient-remove-second",
+                   provider_entry_id: "msg-ambient-remove-second",
+                   text: "second"
+                 }),
+                 now: second_at
+               )
+
+      assert first.id == second.id
+
+      assert {:ok, %{updated_inbound_batches: 1, lifecycle_inputs: []}} =
+               SignalsGateway.emit_entry_removed(
+                 agent.uid,
+                 "lark-main",
+                 lifecycle_entry(%{
+                   ingress_event_id: "recall-ambient-remove-first",
+                   provider_entry_id: "msg-ambient-remove-first"
+                 }),
+                 now: DateTime.add(@base_time, 500, :millisecond)
+               )
+
+      updated = Repo.get!(InboundBatch, first.id)
+
+      assert [%{"provider_entry_id" => "msg-ambient-remove-second", "text" => "second"}] =
+               updated.entries
+
+      due_at = updated.available_at
+
+      assert {:ok, [%{actor_input: input}]} =
+               SignalsGateway.finalize_due_inbound_batches(now: due_at)
+
+      assert input.type == "im.message.may_intervene"
+
+      assert [%{"provider_entry_id" => "msg-ambient-remove-second", "text" => "second"}] =
+               get_in(input.payload, ["data", "observed_messages"])
+
+      assert %InboundBatch{
+               batch_state: "finalized",
+               entries: [%{"provider_entry_id" => "msg-ambient-remove-second"}],
+               outcome: "ambient"
+             } = Repo.get!(InboundBatch, first.id)
+    end
+
     test "DM and structured mentions are explicit even when group policy is ignore" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "lark-main", :ignore)

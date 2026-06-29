@@ -4,7 +4,7 @@ Ankole takes the security of our software products and services seriously. If yo
 
 ## Supported Versions
 
-Use this section to tell people about which versions of your project are currently being supported with security updates.
+Ankole is still in early engineering distribution. Only the latest `main` line receives security updates.
 
 | Version | Supported          |
 | ------- | ------------------ |
@@ -25,7 +25,7 @@ Ankole reserves the right to make a final decision regarding the severity of a r
 
 **Please do not report security vulnerabilities through public GitHub issues.**
 
-Instead, please report them to `sre@agentbull.cn` to report any security vulnerabilities. If possible, encrypt your message with our PGP key;
+Instead, please report them to `sre@agentbull.cn`. If possible, encrypt your message with our PGP key:
 
 ```base64
 -----BEGIN PGP PUBLIC KEY BLOCK-----

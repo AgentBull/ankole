@@ -3,10 +3,20 @@ defmodule Ankole.ActorRuntimeWorkerE2ETest do
 
   import Ecto.Query
   import ExUnit.Assertions
+  import Ankole.ActorRuntimeWorkerE2E.DockerWorker
+
+  import Ankole.ActorRuntimeWorkerE2E.Scenarios,
+    only: [
+      checkback_by_idempotency!: 2,
+      command_tool_succeeded?: 1,
+      cron_event_for_schedule!: 1,
+      cron_schedule_by_idempotency!: 2,
+      seed_compression_history!: 2,
+      tool_result_succeeded?: 2
+    ]
 
   alias Ankole.AIAgent.Library
   alias Ankole.AIAgent.Library.Schemas.AgentSkillOverlay
-  alias Ankole.AIAgent.LlmProviders
   alias Ankole.AIAgent.ModelProfiles
   alias Ankole.AIAgent.Schemas.LlmTurn
   alias Ankole.AIAgent.Schemas.Message
@@ -14,6 +24,7 @@ defmodule Ankole.ActorRuntimeWorkerE2ETest do
   alias Ankole.ActorRuntime
   alias Ankole.ActorRuntime.Schemas.AgentComputerWorker
   alias Ankole.ActorRuntime.Transport.Broker
+  alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.PluginFixtures.MockSignalProviderPlugin
   alias Ankole.Plugins.Registry, as: PluginRegistry
   alias Ankole.Principals
@@ -27,7 +38,6 @@ defmodule Ankole.ActorRuntimeWorkerE2ETest do
   @e2e_timeout_ms 12_000
   @real_e2e_timeout_ms 600_000
   @long_lease_seconds 604_800
-  @docker_image "ankole-agent-computer:0.1.0"
 
   @tag timeout: 45_000
   test "Docker image worker connects to RuntimeFabric and is admitted" do
@@ -126,17 +136,19 @@ defmodule Ankole.ActorRuntimeWorkerE2ETest do
 
     openrouter_api_key =
       System.get_env("OPENROUTER_API_KEY") ||
-        flunk("OPENROUTER_API_KEY is required for real provider e2e")
+        System.get_env("OPEN_ROUTER_API_KEY") ||
+        flunk("OPENROUTER_API_KEY or OPEN_ROUTER_API_KEY is required for real provider e2e")
 
     %{principal: agent} = committed_agent_fixture!()
     adapter = mock_provider_adapter()
 
     assert {:ok, _provider} =
-             LlmProviders.create_provider(%{
+             ProviderConfigs.create_provider(%{
                provider_id: "openrouter-e2e",
-               provider_source: "openrouter",
+               provider_kind: "openrouter",
                credential: openrouter_api_key,
-               connection_options: %{"base_url" => "https://openrouter.ai/api/v1"}
+               base_url: "https://openrouter.ai/api/v1",
+               connection_options: %{}
              })
 
     assert {:ok, _profile} =
@@ -173,6 +185,7 @@ defmodule Ankole.ActorRuntimeWorkerE2ETest do
       )
 
     on_exit(fn -> Broker.stop_router() end)
+    start_ai_gateway_test_http_server!()
 
     container =
       start_docker_worker!(
@@ -205,9 +218,9 @@ defmodule Ankole.ActorRuntimeWorkerE2ETest do
           provider_entry_id: "mock-real-llm-message-1",
           provider_thread_id: "mock-real-llm-thread",
           text: """
-          You must call the skill_append tool before replying.
-          Use skill_append with name exactly "nano-pdf" and content exactly "E2E overlay: ANKOLE_E2E_OK".
-          After the tool result confirms the change, reply exactly ANKOLE_E2E_OK.
+          This is a two-step tool test.
+          Step 1: If you have not yet received a skill_append tool result in this conversation, call skill_append exactly once with name exactly "nano-pdf" and content exactly "E2E overlay: ANKOLE_E2E_OK".
+          Step 2: After the first successful skill_append tool result is visible, do not call any more tools. Reply exactly ANKOLE_E2E_OK.
           """,
           explicit: true,
           now: @base_time,
@@ -248,9 +261,9 @@ defmodule Ankole.ActorRuntimeWorkerE2ETest do
           provider_entry_id: "mock-real-llm-rm-overlay-file-message-1",
           provider_thread_id: "mock-real-llm-thread",
           text: """
-          You must call the command tool before replying.
-          Run exactly: rm -f /workspace/library-containers/skills/nano-pdf/AGENT_APPEND.md
-          After the command succeeds, reply exactly ANKOLE_E2E_RM_OK.
+          This is a two-step command test.
+          Step 1: If you have not yet received a command tool result for this request, call the command tool exactly once. Run exactly: rm -f /workspace/library-containers/skills/nano-pdf/AGENT_APPEND.md
+          Step 2: After the first successful command tool result is visible, do not call any more tools. Reply exactly ANKOLE_E2E_RM_OK.
           """,
           explicit: true,
           now: DateTime.add(@base_time, 2, :second),
@@ -286,6 +299,9 @@ defmodule Ankole.ActorRuntimeWorkerE2ETest do
 
     assert %AgentSkillOverlay{overlay_json: %{"text" => "E2E overlay: ANKOLE_E2E_OK"}} =
              active_overlay
+
+    compressed_seed_message_ids =
+      seed_compression_history!(agent.uid, persisted_rm_turn.conversation_id)
 
     compress_input =
       adapter.ingress_module.handle_message_receive(
@@ -329,12 +345,123 @@ defmodule Ankole.ActorRuntimeWorkerE2ETest do
     compression_turn = Repo.get!(LlmTurn, compression_turn.id)
     assert compression_turn.provider_metadata["profile"] == "light"
 
-    assert %Message{kind: "summary"} =
+    assert %Message{kind: "summary", covers_range: %{"message_ids" => covered_message_ids}} =
              Message
              |> where([message], message.conversation_id == ^compression_turn.conversation_id)
              |> where([message], message.kind == "summary")
              |> where([message], message.event_id == ^compression_turn.id)
              |> Repo.one()
+
+    assert Enum.any?(compressed_seed_message_ids, &(&1 in covered_message_ids))
+
+    checkback_input =
+      adapter.ingress_module.handle_message_receive(
+        "mock.message.receive",
+        %{
+          ingress_event_id: "mock-real-llm-checkback-1",
+          signal_channel_id: "mock:chat:real-llm-e2e",
+          provider_entry_id: "mock-real-llm-checkback-message-1",
+          provider_thread_id: "mock-real-llm-thread",
+          text: """
+          This is a two-step check_back_later test.
+          Step 1: If you have not yet received a check_back_later tool result for this request, call check_back_later exactly once with reason exactly "E2E checkback", check exactly "Confirm ANKOLE_E2E_CHECKBACK_OK", after value 5 and unit "minute", and idempotency_key exactly "ankole-real-e2e-checkback-1".
+          Step 2: After the first successful check_back_later tool result is visible, do not call any more tools. Reply exactly ANKOLE_E2E_CHECKBACK_OK.
+          """,
+          explicit: true,
+          now: DateTime.add(@base_time, 6, :second),
+          provider_time: DateTime.add(@base_time, 6, :second)
+        },
+        [consumer]
+      )
+      |> receive_actor_input!()
+
+    assert {:ok, %{send_outcome: "sent_or_queued", llm_turn: checkback_turn}} =
+             ActorRuntime.process_ready_inputs_once(
+               now: DateTime.add(@base_time, 7, :second),
+               lease_seconds: @long_lease_seconds
+             )
+
+    assert {:ok, %OutboxEntry{} = checkback_outbox} =
+             wait_for_outbox_for_input(
+               container,
+               checkback_input.id,
+               real_deadline(),
+               checkback_turn.id
+             )
+
+    persisted_checkback_turn = Repo.get!(LlmTurn, checkback_turn.id)
+    assert persisted_checkback_turn.status == "succeeded"
+    assert tool_result_succeeded?(persisted_checkback_turn.tool_results, "check_back_later")
+    assert checkback_outbox.payload["text"] =~ "ANKOLE_E2E_CHECKBACK_OK"
+
+    checkback = checkback_by_idempotency!(agent.uid, "ankole-real-e2e-checkback-1")
+    assert checkback.status == "scheduled"
+    assert checkback.binding_name == binding.name
+    assert checkback.source_actor_input_id == checkback_input.id
+    assert checkback.source_llm_turn_id == checkback_turn.id
+    assert checkback.signal_channel_id == "mock:chat:real-llm-e2e"
+    assert checkback.provider_thread_id == "mock-real-llm-thread"
+    assert checkback.provider_entry_id == "mock-real-llm-checkback-message-1"
+    assert checkback.wake_payload["reason"] == "E2E checkback"
+    assert checkback.wake_payload["check"] == "Confirm ANKOLE_E2E_CHECKBACK_OK"
+    assert DateTime.diff(checkback.due_at, checkback.requested_at, :second) in 295..305
+
+    cron_anchor_at =
+      DateTime.utc_now()
+      |> DateTime.add(10, :minute)
+      |> DateTime.truncate(:second)
+      |> DateTime.to_iso8601()
+
+    cron_input =
+      adapter.ingress_module.handle_message_receive(
+        "mock.message.receive",
+        %{
+          ingress_event_id: "mock-real-llm-cron-1",
+          signal_channel_id: "mock:chat:real-llm-e2e",
+          provider_entry_id: "mock-real-llm-cron-message-1",
+          provider_thread_id: "mock-real-llm-thread",
+          text: """
+          This is a two-step cron tool test.
+          Step 1: If you have not yet received a cron tool result for this request, call cron exactly once with action "add", name exactly "ankole-real-e2e-cron", schedule kind "every", every_ms 60000, anchor_at exactly "#{cron_anchor_at}", payload object {"task":"ANKOLE_E2E_CRON_OK"}, and idempotency_key exactly "ankole-real-e2e-cron-1".
+          Step 2: After the first successful cron tool result is visible, do not call any more tools. Reply exactly ANKOLE_E2E_CRON_OK.
+          """,
+          explicit: true,
+          now: DateTime.add(@base_time, 8, :second),
+          provider_time: DateTime.add(@base_time, 8, :second)
+        },
+        [consumer]
+      )
+      |> receive_actor_input!()
+
+    assert {:ok, %{send_outcome: "sent_or_queued", llm_turn: cron_turn}} =
+             ActorRuntime.process_ready_inputs_once(
+               now: DateTime.add(@base_time, 9, :second),
+               lease_seconds: @long_lease_seconds
+             )
+
+    assert {:ok, %OutboxEntry{} = cron_outbox} =
+             wait_for_outbox_for_input(container, cron_input.id, real_deadline(), cron_turn.id)
+
+    persisted_cron_turn = Repo.get!(LlmTurn, cron_turn.id)
+    assert persisted_cron_turn.status == "succeeded"
+    assert tool_result_succeeded?(persisted_cron_turn.tool_results, "cron")
+    assert cron_outbox.payload["text"] =~ "ANKOLE_E2E_CRON_OK"
+
+    cron_schedule = cron_schedule_by_idempotency!(agent.uid, "ankole-real-e2e-cron-1")
+    assert cron_schedule.status == "active"
+    assert cron_schedule.binding_name == binding.name
+    assert cron_schedule.name == "ankole-real-e2e-cron"
+    assert cron_schedule.schedule["kind"] == "every"
+    assert cron_schedule.schedule["every_ms"] == 60_000
+    assert cron_schedule.payload == %{"task" => "ANKOLE_E2E_CRON_OK"}
+    assert cron_schedule.delivery["signal_channel_id"] == "mock:chat:real-llm-e2e"
+    assert cron_schedule.delivery["provider_thread_id"] == "mock-real-llm-thread"
+
+    cron_event = cron_event_for_schedule!(cron_schedule.id)
+    assert cron_event.status == "scheduled"
+    assert cron_event.signal_channel_id == "mock:chat:real-llm-e2e"
+    assert cron_event.provider_thread_id == "mock-real-llm-thread"
+    assert cron_event.wake_payload["payload"] == %{"task" => "ANKOLE_E2E_CRON_OK"}
 
     {:ok, ambient_binding} =
       SignalsGateway.upsert_binding(%{
@@ -370,8 +497,8 @@ defmodule Ankole.ActorRuntimeWorkerE2ETest do
           Please send one visible group reply with exactly ANKOLE_AMBIENT_OK so the release handoff is acknowledged.
           """,
           explicit: false,
-          now: DateTime.add(@base_time, 6, :second),
-          provider_time: DateTime.add(@base_time, 6, :second)
+          now: DateTime.add(@base_time, 10, :second),
+          provider_time: DateTime.add(@base_time, 10, :second)
         },
         [ambient_consumer]
       )
@@ -480,48 +607,6 @@ defmodule Ankole.ActorRuntimeWorkerE2ETest do
     result
   end
 
-  defp start_docker_worker!(opts) do
-    name = "ankole-worker-e2e-#{System.unique_integer([:positive])}"
-    worker_id = Keyword.fetch!(opts, :worker_id)
-
-    runtime_fabric_url =
-      runtime_fabric_url!(
-        Keyword.fetch!(opts, :endpoint),
-        Keyword.fetch!(opts, :worker_auth_key)
-      )
-
-    args =
-      [
-        "run",
-        "--rm",
-        "--name",
-        name
-      ] ++
-        docker_agent_computer_runtime_args() ++
-        docker_dev_agent_computer_mount_args() ++
-        docker_dev_workspace_mount_args() ++
-        docker_env_args(
-          [
-            {"WORKER_ID", worker_id},
-            {"RUNTIME_FABRIC_URL", runtime_fabric_url}
-          ] ++ docker_worker_passthrough_env()
-        ) ++ [@docker_image]
-
-    port =
-      Port.open({:spawn_executable, docker_path()}, [
-        :binary,
-        :exit_status,
-        :stderr_to_stdout,
-        {:args, args}
-      ])
-
-    %{kind: :docker, name: name, port: port, output: []}
-  end
-
-  defp runtime_fabric_url!("tcp://" <> rest, worker_auth_key) do
-    "tcp://:#{URI.encode_www_form(worker_auth_key)}@#{rest}"
-  end
-
   defp unique_worker_auth_key do
     "e2e-" <> Ecto.UUID.generate()
   end
@@ -606,22 +691,6 @@ defmodule Ankole.ActorRuntimeWorkerE2ETest do
   defp outbox_by_input(actor_input_id, llm_turn_id) do
     Repo.get_by(OutboxEntry, source_actor_input_id: actor_input_id, llm_turn_id: llm_turn_id)
   end
-
-  defp command_tool_succeeded?(tool_results) when is_list(tool_results) do
-    Enum.any?(tool_results, fn
-      %{
-        "tool_name" => "command",
-        "is_error" => false,
-        "result" => %{"details" => %{"exitCode" => 0}}
-      } ->
-        true
-
-      _result ->
-        false
-    end)
-  end
-
-  defp command_tool_succeeded?(_tool_results), do: false
 
   defp flunk_if_terminal_without_outbox(process, llm_turn_id, expected),
     do:
@@ -765,131 +834,41 @@ defmodule Ankole.ActorRuntimeWorkerE2ETest do
     end
   end
 
-  defp close_port(port) when is_port(port) do
-    if Port.info(port) do
-      Port.close(port)
-    end
+  defp start_ai_gateway_test_http_server! do
+    server =
+      start_supervised!(
+        {Bandit,
+         plug: AnkoleWeb.Endpoint, scheme: :http, ip: {0, 0, 0, 0}, port: 0, startup_log: false}
+      )
+
+    {:ok, {_ip, port}} = ThousandIsland.listener_info(server)
+
+    # The Docker worker cannot use the host process' `Endpoint.url/0` because
+    # localhost would resolve inside the container. The broker setting is scoped
+    # to this async:false e2e and points the worker at the real Phoenix endpoint
+    # exposed on the Docker host.
+    put_ai_gateway_broker_env!(
+      worker_facing_base_url: "http://host.docker.internal:#{port}/api/v1/ai-gateway"
+    )
   end
 
-  defp close_port(_port), do: :ok
+  defp put_ai_gateway_broker_env!(config) do
+    old_env = Application.fetch_env(:ankole, Ankole.ActorRuntime.AIGatewayApiKeyBroker)
+    Application.put_env(:ankole, Ankole.ActorRuntime.AIGatewayApiKeyBroker, config)
 
-  defp cleanup_docker_worker(%{name: name, port: port}) do
-    System.cmd(docker_path(), ["rm", "-f", name], stderr_to_stdout: true)
-    close_port(port)
-  end
+    on_exit(fn ->
+      case old_env do
+        {:ok, value} ->
+          Application.put_env(:ankole, Ankole.ActorRuntime.AIGatewayApiKeyBroker, value)
 
-  defp docker_run_worker_once(env) do
-    args =
-      [
-        "run",
-        "--rm"
-      ] ++
-        docker_agent_computer_runtime_args() ++
-        docker_dev_agent_computer_mount_args() ++
-        docker_dev_workspace_mount_args() ++
-        docker_env_args(env) ++ [@docker_image]
-
-    System.cmd(docker_path(), args, stderr_to_stdout: true)
-  end
-
-  defp docker_env_args(env) do
-    Enum.flat_map(env, fn {key, value} -> ["-e", "#{key}=#{value}"] end)
-  end
-
-  # Agent Computer is a Linux-container runtime. The command tool always enters
-  # bubblewrap; Docker must grant the kernel surface needed for strong bwrap
-  # instead of falling back to host execution. If these flags are unavailable, the
-  # worker startup probe may downgrade to weak bwrap and logs that explicitly.
-  defp docker_agent_computer_runtime_args do
-    [
-      "--cap-add",
-      "SYS_ADMIN",
-      "--security-opt",
-      "seccomp=unconfined",
-      "--security-opt",
-      "systempaths=unconfined",
-      "--add-host",
-      "host.docker.internal=host-gateway"
-    ]
-  end
-
-  defp docker_worker_passthrough_env do
-    [
-      "ANKOLE_LLM_TURN_TIMEOUT_MS",
-      "ANKOLE_LLM_COMPRESSION_TIMEOUT_MS",
-      "ANKOLE_LLM_AMBIENT_RECOGNIZER_TIMEOUT_MS"
-    ]
-    |> Enum.flat_map(fn key ->
-      case System.get_env(key) do
-        value when is_binary(value) and value != "" -> [{key, value}]
-        _value -> []
+        :error ->
+          Application.delete_env(:ankole, Ankole.ActorRuntime.AIGatewayApiKeyBroker)
       end
     end)
   end
 
-  # Development-only fast path for the real worker e2e. The worker process,
-  # Linux userspace packages, native binaries, node_modules, and tool sandboxing
-  # still come from the Agent Computer container; this mount only replaces the
-  # container's TS source tree to shorten edit/run feedback.
-  defp docker_dev_agent_computer_mount_args do
-    case System.get_env("ANKOLE_E2E_MOUNT_AGENT_COMPUTER_SRC") do
-      "1" ->
-        src = Path.join([repo_root(), "app", "agent_computer", "src"])
-        ["-v", "#{src}:/repo/app/agent_computer/src:ro"]
-
-      _value ->
-        []
-    end
-  end
-
-  # E2E artifact mount. The worker, commands, and bubblewrap sandbox still run
-  # in the Linux container; this only makes /workspace contents inspectable from
-  # the host after a failed real-provider run.
-  defp docker_dev_workspace_mount_args do
-    case System.get_env("ANKOLE_E2E_HOST_WORKSPACE_ROOT") do
-      nil ->
-        []
-
-      "" ->
-        []
-
-      host_root ->
-        File.mkdir_p!(host_root)
-        File.mkdir_p!(Path.join(host_root, "shared/user-files"))
-        File.mkdir_p!(Path.join(host_root, "shared/skills/agents"))
-        File.mkdir_p!(Path.join(host_root, ".sessions"))
-        ["-v", "#{Path.expand(host_root)}:/workspace"]
-    end
-  end
-
-  defp docker_host_endpoint(endpoint) do
-    case URI.parse(endpoint) do
-      %URI{scheme: "tcp", port: port} when is_integer(port) ->
-        "tcp://host.docker.internal:#{port}"
-
-      _uri ->
-        flunk("unexpected router endpoint for Docker worker: #{endpoint}")
-    end
-  end
-
-  defp assert_docker_image! do
-    case System.cmd(docker_path(), ["image", "inspect", @docker_image], stderr_to_stdout: true) do
-      {_output, 0} ->
-        :ok
-
-      {output, status} ->
-        flunk("missing Docker image #{@docker_image}, status=#{status}, output=#{output}")
-    end
-  end
-
   defp deadline, do: System.monotonic_time(:millisecond) + @e2e_timeout_ms
   defp real_deadline, do: System.monotonic_time(:millisecond) + @real_e2e_timeout_ms
-
-  defp repo_root, do: Path.expand("../../..", __DIR__)
-
-  defp docker_path do
-    System.find_executable("docker") || flunk("docker executable was not found on PATH")
-  end
 
   defp registry_name, do: :"mock_signal_provider_registry_#{System.unique_integer([:positive])}"
 end

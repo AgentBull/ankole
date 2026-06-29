@@ -303,5 +303,128 @@ defmodule Ankole.ActorRuntime.EntryLifecycleTest do
       assert lifecycle_note.metadata["lifecycle"]["kind"] == "removed"
       assert lifecycle_note.metadata["lifecycle"]["provider_kind"] == "recalled"
     end
+
+    test "removing an entry from an ended conversation does not annotate the new conversation" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :ignore)
+      route = unique_route()
+
+      :ok = Broker.register_local_worker(route, self())
+      on_exit(fn -> Broker.unregister_local_worker(route) end)
+      assert {:ok, _worker} = admit_worker(route)
+
+      assert {:ok, %{actor_input: old_input}} =
+               emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{text: "old task", explicit: true}),
+                 now: @base_time
+               )
+
+      assert {:ok, %{llm_turn: old_turn}} =
+               ActorRuntime.process_ready_inputs_once(
+                 now: DateTime.add(@base_time, 1, :second),
+                 lease_seconds: @long_lease_seconds
+               )
+
+      assert_receive {:actor_lane, old_envelope}
+      old_start = old_envelope["body"]["turn_start"]
+      old_ref = old_start["turn"]
+      old_input_ids = Enum.map(old_start["inputs"], & &1["actor_input_id"])
+
+      assert {:ok, [_delivery]} =
+               ActorRuntime.handle_turn_accepted(%{
+                 "turn_accepted" => %{
+                   "turn" => old_ref,
+                   "accepted_actor_input_ids" => old_input_ids
+                 }
+               })
+
+      assert {:ok, %{status: :committed}} =
+               ActorRuntime.commit_final_proposal(%{
+                 "turn_final_proposal" => %{
+                   "turn" => old_ref,
+                   "messages" => [],
+                   "reply" => %{"text" => "old answer"}
+                 }
+               })
+
+      assert {:ok, %{actor_input: new_input}} =
+               emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{text: "/new fresh task", explicit: true}),
+                 now: DateTime.add(@base_time, 2, :second)
+               )
+
+      assert {:ok, %{send_outcome: "sent_or_queued", llm_turn: new_turn}} =
+               ActorRuntime.process_ready_inputs_once(now: DateTime.add(@base_time, 3, :second))
+
+      assert_receive {:actor_lane, new_envelope}
+      new_start = new_envelope["body"]["turn_start"]
+      new_ref = new_start["turn"]
+      new_input_ids = Enum.map(new_start["inputs"], & &1["actor_input_id"])
+
+      assert new_input.id in new_input_ids
+      assert new_turn.conversation_id != old_turn.conversation_id
+      assert Repo.get!(Conversation, old_turn.conversation_id).ended_at
+
+      assert {:ok, [_delivery]} =
+               ActorRuntime.handle_turn_accepted(%{
+                 "turn_accepted" => %{
+                   "turn" => new_ref,
+                   "accepted_actor_input_ids" => new_input_ids
+                 }
+               })
+
+      assert {:ok, %{status: :committed}} =
+               ActorRuntime.commit_final_proposal(%{
+                 "turn_final_proposal" => %{
+                   "turn" => new_ref,
+                   "messages" => [],
+                   "reply" => %{"text" => "new answer"}
+                 }
+               })
+
+      message_count_before_recall = Repo.aggregate(Message, :count)
+      turn_count_before_recall = Repo.aggregate(LlmTurn, :count)
+      outbox_count_before_recall = Repo.aggregate(OutboxEntry, :count)
+
+      assert {:ok, %{canceled_actor_inputs: 0, lifecycle_inputs: [lifecycle_input]}} =
+               SignalsGateway.emit_entry_removed(
+                 agent.uid,
+                 "bot",
+                 lifecycle_entry(%{
+                   ingress_event_id: "recall-old-after-new",
+                   signal_channel_id: old_input.signal_channel_id,
+                   provider_entry_id: old_input.provider_entry_id,
+                   provider_thread_id: old_input.provider_thread_id
+                 }),
+                 provider_lifecycle_kind: :recalled,
+                 now: DateTime.add(@base_time, 4, :second)
+               )
+
+      assert {:ok,
+              %{
+                status: :entry_lifecycle_ignored,
+                lifecycle_input: processed_input,
+                consumption: lifecycle_consumption
+              }} =
+               ActorRuntime.process_ready_inputs_once(now: DateTime.add(@base_time, 5, :second))
+
+      assert processed_input.id == lifecycle_input.id
+      assert lifecycle_consumption.conversation_id == old_turn.conversation_id
+      refute Repo.get(ActorInput, lifecycle_input.id)
+      refute_receive {:actor_lane, _envelope}, 100
+
+      assert Repo.aggregate(Message, :count) == message_count_before_recall
+      assert Repo.aggregate(LlmTurn, :count) == turn_count_before_recall
+      assert Repo.aggregate(OutboxEntry, :count) == outbox_count_before_recall
+
+      refute Repo.get_by(Message,
+               conversation_id: new_turn.conversation_id,
+               event_id: "recall-old-after-new"
+             )
+    end
   end
 end

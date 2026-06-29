@@ -1,0 +1,4 @@
+# GitHub Linguist overrides.
+app/webapps/openapi/** linguist-generated
+app/webapps/**/generated/** linguist-generated
+app/library/skills/** linguist-vendored

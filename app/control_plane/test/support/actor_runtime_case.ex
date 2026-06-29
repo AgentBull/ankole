@@ -373,7 +373,9 @@ defmodule Ankole.ActorRuntimeCase do
 
   defp maybe_finalize_test_inbound_batch(%{inbound_batch: %InboundBatch{} = batch} = result) do
     with {:ok, finalized_results} <-
-           SignalsGateway.finalize_due_inbound_batches(now: batch.available_at),
+           SignalsGateway.finalize_due_inbound_batches(
+             now: DateTime.add(batch.available_at, 1, :microsecond)
+           ),
          %ActorInput{} = actor_input <- finalized_actor_input(finalized_results, batch.id) do
       Map.put(result, :actor_input, actor_input)
     else

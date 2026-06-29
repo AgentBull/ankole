@@ -5,6 +5,8 @@ defmodule Ankole.AIGateway.Providers.Claude do
   Claude is a real adapter, not an OpenAI-compatible pass-through. Requests are
   converted from the AIGateway Responses-style body to Anthropic Messages, and
   Anthropic SSE events are converted back into the Responses event vocabulary.
+  `messages_path` exists for Anthropic-compatible routers whose base URL already
+  includes the API version, such as OpenRouter's `/api/v1/messages` endpoint.
   """
 
   @behaviour Ankole.AIGateway.Provider
@@ -40,7 +42,7 @@ defmodule Ankole.AIGateway.Providers.Claude do
 
   @impl true
   def connection_option_keys,
-    do: ~w(http_protocol auth_mode headers anthropic_version anthropic_beta)
+    do: ~w(http_protocol auth_mode headers anthropic_version anthropic_beta messages_path)
 
   @impl true
   def runtime_provider_option_keys,

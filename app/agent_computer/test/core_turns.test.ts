@@ -1087,6 +1087,92 @@ describe('@ankole/agent-computer LLM turn loop', () => {
     expect(recognizerMessages).not.toContain('08:01')
   })
 
+  it('keeps ambient may-intervene silent when light recognition says not to reply', async () => {
+    const calls: Array<{ body: any }> = []
+    globalThis.fetch = (async (_url, init) => {
+      calls.push({ body: JSON.parse(String(init?.body)) })
+      return openAIStream([
+        {
+          text: '{"intervene":false,"reason":"The group already handled it."}'
+        }
+      ])
+    }) as typeof fetch
+
+    const workspaceRoot = tempWorkspace()
+    const start = turnStart('openrouter-main', 'z-ai/glm-5.2', {
+      inputs: [
+        {
+          actor_input_id: 'ambient-input-1',
+          live_queue_sequence: 1,
+          type: 'im.message.may_intervene',
+          ingress_event_id: 'evt-ambient-1',
+          payload_json: {
+            data: {
+              entry: { text: 'FYI only: deploy finished.' },
+              observed_messages: [
+                {
+                  id: 'signal:msg-ambient-1',
+                  role: 'ambient_human',
+                  kind: 'normal',
+                  speaker: 'Alice',
+                  sent_at: '2026-06-24T08:00:00.000000Z',
+                  text: 'FYI only: deploy finished.',
+                  signal_channel_id: 'lark:chat:group-a',
+                  provider_entry_id: 'msg-ambient-1'
+                }
+              ]
+            }
+          }
+        }
+      ],
+      model_ref: {
+        profile: 'primary',
+        provider_id: 'openrouter-main',
+        model: 'z-ai/glm-5.2'
+      }
+    })
+    const rows = [
+      {
+        id: 'ambient-current',
+        role: 'im_ambient',
+        kind: 'normal',
+        content: [{ type: 'text', text: 'FYI only: deploy finished.' }],
+        metadata: {
+          actor_input_id: 'ambient-input-1',
+          signal_channel_id: 'lark:chat:group-a',
+          provider_thread_id: 'thread-1',
+          provider_entry_id: 'msg-ambient-1',
+          message_context: {
+            time: {
+              sent_at: '2026-06-24T08:00:00.000000Z',
+              timezone: 'Asia/Shanghai'
+            },
+            actor: { display_name: 'Alice' },
+            room: {
+              label: 'group chat "Ops"',
+              id: 'lark:chat:group-a',
+              is_dm: false
+            }
+          }
+        },
+        created_at: '2026-06-24T08:00:00.000000Z'
+      }
+    ]
+
+    const proposal = expectFinalProposal(
+      await runLlmTurnHandlers(start, {
+        workspaceRoot,
+        ...runtimeFixtures(start, rows),
+        requestAIGatewayApiKey: async request => aiGatewayApiKey(request.request_id)
+      })
+    )
+
+    expect(proposal.messages).toEqual([])
+    expect(proposal.reply).toBeNull()
+    expect(calls).toHaveLength(1)
+    expect(calls[0].body.model).toBe('light')
+  })
+
   it('rejects ambient recognizer aliases instead of repairing them in worker code', async () => {
     const calls: Array<{ body: any }> = []
     globalThis.fetch = (async (_url, init) => {

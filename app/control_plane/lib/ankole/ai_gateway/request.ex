@@ -113,8 +113,18 @@ defmodule Ankole.AIGateway.Request do
       |> Map.put("stream", stream?)
       |> Map.put("messages", anthropic_messages(Map.get(public_request, "input")))
 
+    # Anthropic's official base URL is the account root, so the default path is
+    # `v1/messages`. Anthropic-compatible routers such as OpenRouter may expose
+    # the same wire contract under a versioned base URL like `/api/v1`, where the
+    # path must be just `messages`. Keeping this as a provider connection option
+    # avoids hard-coding router-specific URL rules in the Claude adapter.
+    path =
+      runtime
+      |> get_in(["connection_options", "messages_path"])
+      |> anthropic_messages_path()
+
     with {:ok, upstream_request} <-
-           build_json_request(runtime, "v1/messages", body, response_mode: "anthropic_messages") do
+           build_json_request(runtime, path, body, response_mode: "anthropic_messages") do
       {:ok, Map.put(upstream_request, :public_request, public_request)}
     end
   end
@@ -326,12 +336,13 @@ defmodule Ankole.AIGateway.Request do
     |> maybe_put("service_tier", Map.get(request, "service_tier"))
     |> maybe_put("user", Map.get(request, "user"))
     |> maybe_put("top_logprobs", Map.get(request, "top_logprobs"))
+    |> maybe_put("response_format", chat_response_format(request))
     |> maybe_put(
       "max_tokens",
       Map.get(request, "max_output_tokens") || Map.get(request, "max_tokens")
     )
-    |> maybe_put("tools", Map.get(request, "tools"))
-    |> maybe_put("tool_choice", Map.get(request, "tool_choice"))
+    |> maybe_put("tools", chat_tools(Map.get(request, "tools")))
+    |> maybe_put("tool_choice", chat_tool_choice(Map.get(request, "tool_choice")))
     |> maybe_put("metadata", Map.get(request, "metadata"))
     |> maybe_put("stream_options", chat_stream_options(request, stream?))
     |> Map.put("model", model)
@@ -351,6 +362,29 @@ defmodule Ankole.AIGateway.Request do
   end
 
   defp chat_stream_options(_request, false), do: nil
+
+  # Responses asks for structured output under `text.format`, while Chat
+  # Completions expects `response_format`. Keeping this translation in the
+  # adapter prevents worker callers from knowing which upstream API family a
+  # provider uses.
+  defp chat_response_format(%{"response_format" => response_format}) when is_map(response_format),
+    do: response_format
+
+  defp chat_response_format(%{"text" => %{"format" => %{"type" => "json_schema"} = format}}) do
+    json_schema =
+      %{}
+      |> maybe_put("name", Map.get(format, "name") || "response")
+      |> maybe_put("description", Map.get(format, "description"))
+      |> maybe_put("schema", Map.get(format, "schema"))
+      |> maybe_put("strict", Map.get(format, "strict"))
+
+    %{"type" => "json_schema", "json_schema" => json_schema}
+  end
+
+  defp chat_response_format(%{"text" => %{"format" => %{"type" => "json_object"}}}),
+    do: %{"type" => "json_object"}
+
+  defp chat_response_format(_request), do: nil
 
   defp chat_messages(request) do
     system_messages =
@@ -428,6 +462,47 @@ defmodule Ankole.AIGateway.Request do
   defp chat_image_url_part(image_url),
     do: %{"type" => "text", "text" => inspect(image_url)}
 
+  # The public gateway follows the Responses tool shape, while Chat Completions
+  # nests function details under `function`. Without this conversion real
+  # OpenAI-compatible routers reject tool calls even though mock tests can pass.
+  defp chat_tools(tools) when is_list(tools) do
+    Enum.flat_map(tools, fn
+      %{"type" => "function", "function" => function} = tool when is_map(function) ->
+        [%{"type" => "function", "function" => chat_function_tool(function, tool)}]
+
+      %{"type" => "function"} = tool ->
+        [%{"type" => "function", "function" => chat_function_tool(tool, tool)}]
+
+      tool when is_map(tool) ->
+        [tool]
+
+      _tool ->
+        []
+    end)
+  end
+
+  defp chat_tools(_tools), do: nil
+
+  defp chat_function_tool(function, tool) do
+    %{}
+    |> maybe_put("name", Map.get(function, "name"))
+    |> maybe_put("description", Map.get(function, "description"))
+    |> maybe_put(
+      "parameters",
+      Map.get(function, "parameters") || Map.get(function, "input_schema") ||
+        %{"type" => "object"}
+    )
+    |> maybe_put("strict", Map.get(function, "strict") || Map.get(tool, "strict"))
+  end
+
+  defp chat_tool_choice(%{"type" => "function", "function" => %{"name" => _name}} = choice),
+    do: choice
+
+  defp chat_tool_choice(%{"type" => "function", "name" => name}) when is_binary(name),
+    do: %{"type" => "function", "function" => %{"name" => name}}
+
+  defp chat_tool_choice(choice), do: choice
+
   defp append_query_params(url, params) when is_map(params) and map_size(params) > 0 do
     encoded = URI.encode_query(params)
     separator = if String.contains?(url, "?"), do: "&", else: "?"
@@ -476,6 +551,15 @@ defmodule Ankole.AIGateway.Request do
 
   defp anthropic_messages(_input), do: []
 
+  defp anthropic_messages_path(path) when is_binary(path) do
+    case String.trim(path) do
+      "" -> "v1/messages"
+      path -> path
+    end
+  end
+
+  defp anthropic_messages_path(_path), do: "v1/messages"
+
   defp anthropic_role("assistant"), do: "assistant"
   defp anthropic_role(_role), do: "user"
 
@@ -511,6 +595,15 @@ defmodule Ankole.AIGateway.Request do
             "name" => to_string(Map.get(function, "name")),
             "description" => Map.get(function, "description") || "",
             "input_schema" => Map.get(function, "parameters") || %{"type" => "object"}
+          }
+        ]
+
+      %{"type" => "function", "name" => name} = tool ->
+        [
+          %{
+            "name" => to_string(name),
+            "description" => Map.get(tool, "description") || "",
+            "input_schema" => Map.get(tool, "parameters") || %{"type" => "object"}
           }
         ]
 

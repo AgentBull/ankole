@@ -261,7 +261,7 @@ fn validate_body_required_fields(body: &proto::envelope::Body) -> KernelResult<(
                     &format!("turn_final_proposal.messages[{index}].role"),
                 )?;
             }
-            validate_proposed_reply(payload.reply.as_ref(), "turn_final_proposal.reply")
+            validate_optional_proposed_reply(payload.reply.as_ref(), "turn_final_proposal.reply")
         }
         proto::envelope::Body::TurnError(payload) => {
             validate_turn_ref(payload.turn.as_ref(), "turn_error.turn")?;
@@ -358,8 +358,14 @@ fn validate_optional_model_ref(
     Ok(())
 }
 
-fn validate_proposed_reply(reply: Option<&proto::ProposedReply>, field: &str) -> KernelResult<()> {
-    let reply = reply.ok_or_else(|| KernelError::new(format!("{field} is required")))?;
+fn validate_optional_proposed_reply(
+    reply: Option<&proto::ProposedReply>,
+    field: &str,
+) -> KernelResult<()> {
+    let Some(reply) = reply else {
+        return Ok(());
+    };
+
     require_non_empty(&reply.text, &format!("{field}.text"))?;
 
     for (index, attachment) in reply.attachments.iter().enumerate() {

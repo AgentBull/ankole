@@ -7,6 +7,7 @@
     "config/**/*.{heex,ex,exs}",
     "e2e/**/*.{heex,ex,exs}",
     "test/**/*.{heex,ex,exs}",
+    "tools/**/*.{heex,ex,exs}",
     "priv/*/seeds.exs"
   ]
 ]

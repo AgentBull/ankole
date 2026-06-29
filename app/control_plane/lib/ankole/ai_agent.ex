@@ -11,6 +11,7 @@ defmodule Ankole.AIAgent do
   alias Ankole.AIAgent.MessageContext
   alias Ankole.AIAgent.ModelProfiles
   alias Ankole.Actors.ActorInput
+  alias Ankole.JSON
   alias Ankole.Repo
 
   @type actor_key :: %{agent_uid: String.t(), session_id: String.t()}
@@ -553,7 +554,9 @@ defmodule Ankole.AIAgent do
   defp role_for_input(_input), do: "user"
 
   defp content_for_input(%ActorInput{} = actor_input) do
-    text = input_text(actor_input) || ""
+    attachments = input_attachments(actor_input)
+    text = input_text_with_attachments(input_text(actor_input), attachments)
+
     [%{"type" => "text", "text" => text}]
   end
 
@@ -699,12 +702,131 @@ defmodule Ankole.AIAgent do
 
   defp input_text(_input), do: nil
 
+  defp input_text_with_attachments(text, []) when is_binary(text), do: text
+  defp input_text_with_attachments(_text, []), do: ""
+
+  defp input_text_with_attachments(text, attachments) do
+    # Worker history uses the transcript row as the materialization fence for an
+    # ActorInput. If an attachment-only input stored an empty text part, the
+    # worker would skip both history and the current prompt. The visible summary
+    # keeps the transcript readable; the active ActorInput payload remains the
+    # source of structured attachment facts for worker execution.
+    base =
+      case text do
+        value when is_binary(value) and value != "" -> value
+        _value -> "Received attachments."
+      end
+
+    [base, "", "Attachments:", attachment_summary(attachments)]
+    |> List.flatten()
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join("\n")
+  end
+
+  defp input_attachments(%ActorInput{payload: payload}) when is_map(payload) do
+    case get_in(payload, ["data", "entry", "attachments"]) do
+      attachments when is_list(attachments) ->
+        attachments
+        |> Enum.filter(&json_map?/1)
+        |> Enum.map(&Map.delete(&1, "type"))
+
+      _attachments ->
+        []
+    end
+  end
+
+  defp input_attachments(_input), do: []
+
+  defp json_map?(value) when is_map(value) do
+    not is_struct(value) and Enum.all?(value, fn {key, _nested} -> is_binary(key) end)
+  end
+
+  defp json_map?(_value), do: false
+
+  defp attachment_summary(attachments) do
+    attachments
+    |> Enum.with_index(1)
+    |> Enum.map(fn {attachment, index} -> attachment_line(attachment, index) end)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp attachment_line(attachment, index) do
+    name = first_attachment_text(attachment, ["name", "filename", "file_name", "title"])
+
+    resource_type =
+      first_attachment_text(attachment, [
+        "resource_type",
+        "mime_type",
+        "content_type",
+        "download_type"
+      ])
+
+    path = first_attachment_text(attachment, ["agent_computer_path", "file_path", "path"])
+
+    reference =
+      first_attachment_text(attachment, [
+        "provider_ref",
+        "provider_file_id",
+        "provider_uri",
+        "blob_ref",
+        "storage_ref"
+      ])
+
+    size = first_attachment_number(attachment, ["size", "size_bytes", "bytes"])
+
+    details =
+      []
+      |> maybe_detail("type", resource_type)
+      |> maybe_detail("size", size)
+
+    details =
+      case {path, reference} do
+        {value, _reference} when is_binary(value) ->
+          maybe_detail(details, "path", value)
+
+        {nil, value} when is_binary(value) ->
+          details
+          |> maybe_detail("provider_ref", value)
+          |> maybe_detail("not_materialized_in_workspace", true)
+
+        _value ->
+          details
+      end
+
+    case {name, details} do
+      {nil, []} -> nil
+      {value, []} -> "- #{value || "attachment #{index}"}"
+      {value, values} -> "- #{value || "attachment #{index}"}: #{Enum.join(values, ", ")}"
+    end
+  end
+
+  defp first_attachment_text(map, keys) do
+    Enum.find_value(keys, fn key ->
+      case map[key] do
+        value when is_binary(value) and value != "" -> value
+        _value -> nil
+      end
+    end)
+  end
+
+  defp first_attachment_number(map, keys) do
+    Enum.find_value(keys, fn key ->
+      case map[key] do
+        value when is_integer(value) or is_float(value) -> value
+        _value -> nil
+      end
+    end)
+  end
+
+  defp maybe_detail(details, _key, nil), do: details
+  defp maybe_detail(details, key, value), do: details ++ ["#{key}=#{value}"]
+
   defp text_line(_label, value) when not is_binary(value), do: nil
   defp text_line(_label, ""), do: nil
   defp text_line(label, value), do: "#{label}: #{value}"
 
   defp map_line(_label, value) when map_size(value) == 0, do: nil
-  defp map_line(label, value) when is_map(value), do: "#{label}: #{Jason.encode!(value)}"
+  defp map_line(label, value) when is_map(value), do: "#{label}: #{JSON.encode!(value)}"
   defp map_line(_label, _value), do: nil
 
   defp maybe_id(nil), do: nil

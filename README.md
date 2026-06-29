@@ -1,16 +1,26 @@
 # Ankole - Open AgentOS for Shared AI Colleagues
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-red.svg?logo=apache&label=License)](LICENSE)
+![Status](https://img.shields.io/badge/status-early_engineering_distribution-yellow)
+![Runtime](https://img.shields.io/badge/runtime-Bun%20%2B%20Phoenix%2FOTP%20%2B%20Rust-blue)
 
 [简体中文](./README.zh-Hans.md) | [日本語](./README.ja.md)
 
-Ankole is an open-source, self-hosted AgentOS for shared AI colleagues.
+**Ankole is a self-hosted AgentOS for shared AI colleagues.**
 
-The goal is to move AI work out of a private chat box and into the places where work already happens: channels, repositories, schedules, dashboards, internal systems, and long-running project context. An Ankole agent is meant to have its own identity, memory, permissions, tools, workspace, and responsibility boundary.
+It moves AI work out of a private chat box and into the places where work already happens: channels, repositories, schedules, dashboards, internal systems, and long-running project context. An Ankole agent has its own identity, memory, permissions, tools, workspace, and responsibility boundary — so it can **own ongoing work**, not just answer a one-off message.
 
 [Claude Tag](https://claude.com/product/tag) is a useful public reference point: tag an AI into a Slack thread, let it read the shared context, use organization tools, remember channel context, and follow up when work takes time. Ankole targets the broader open version of that pattern: not only Slack, not only Claude, not only one agent, and not vendor-owned context.
 
 Ankole is for work that needs an owner, not just an answer. A good Ankole role has a visible result: code merged, a report shipped, a customer issue handled, an alert triaged, a market change noticed, or a backlog worked down.
+
+## How Ankole is different
+
+- **Shared by default, not private chat.** Agents join team-visible channels and provider contexts; multiple humans can observe, steer, and continue the same work.
+- **Durable identity, not a prompt convention.** Humans and agents are Principals with permission grants and audit trails, so authorization is a runtime concern.
+- **Long-running actor sessions, not request/response.** Sessions wake, receive signals, checkpoint, stream progress, hibernate, and recover with context.
+- **Operator-owned context, not vendor-hosted.** Memory, configuration, credentials, and audit live in your infrastructure on a self-hosted installation.
+- **Live control plus durable truth, not one or the other.** ZeroMQ RuntimeFabric carries live actor/worker/RPC traffic while PostgreSQL remains the source of replay, fences, and final commits.
 
 ## What Ankole Adds
 
@@ -49,6 +59,45 @@ The runtime is built around five technical bets:
 For users and operators, the promise is simple: agents can work for hours or days, receive new input while running, fail independently, recover with context, and keep their side effects accountable. A longer version of the runtime argument is in [Why OTP Is a Better Runtime for Multi-Agent Orchestration](https://ding.ee/en-US/why-otp-is-a-better-runtime-for-multi-agent-orchestration/).
 
 That is the technical bet: actor model for long-lived work identity, OTP for failure semantics, ZeroMQ for live activation, and Agent Computer for local execution. Ankole is closer to a distributed operating system for AI work than a chatbot backend.
+
+## Architecture
+
+```mermaid
+flowchart LR
+  Providers["Chats / webhooks / schedules"] --> SG["SignalsGateway"]
+  Console["Web UI / operator APIs"] --> CP["Control Plane<br/>Phoenix / OTP"]
+
+  SG --> CP
+  CP --> PG[("PostgreSQL<br/>durable truth")]
+  CP --> Redis[("Redis<br/>local dev service")]
+
+  CP <-->|"RuntimeFabric<br/>live routing"| Worker["Agent Computer<br/>Bun / TypeScript worker"]
+
+  Worker --> Tools["Tools<br/>browser / terminal / files / model calls"]
+  CP --> Kernel["Rust Kernel<br/>AuthZ / runtime primitives"]
+```
+
+At a high level:
+
+- **SignalsGateway** accepts provider ingress and normalizes it into actor inputs.
+- **Control Plane** owns durable state, actor orchestration, configuration, identity, and authorization.
+- **RuntimeFabric** connects actors, workers, and RPC lanes for live execution over ZeroMQ while PostgreSQL remains the durable source of replay, fences, reconciliation, and final commits.
+- **Agent Computer** executes turns and tools in an isolated worker container.
+- **PostgreSQL** remains the durable record for accepted inputs, state, fences, and final commits.
+
+## Current Status
+
+Ankole is an early engineering distribution, not a polished end-user product or hosted SaaS.
+
+| Area | Status |
+| --- | --- |
+| Control plane | Phoenix/OTP application under `app/control_plane`. Owns durable state, configuration, actor orchestration, Principal/AuthZ, and APIs. |
+| Agent Computer | Bun/TypeScript worker runtime under `app/agent_computer`. Runs the agent loop and local tools inside an isolated Linux worker image; not a standalone CLI. |
+| Kernel | Rust crate under `app/kernel`, loaded by Elixir (Rustler) and Bun (N-API) for crypto, identifiers, AuthZ evaluation, and ZeroMQ transport. |
+| Frontend | Vite + React surfaces under `app/webapps`, built into the Phoenix static shell. |
+| Local services | PostgreSQL and Redis are provided through the devkit Docker Compose setup. |
+| Design docs | Architecture and runtime design documents live under `docs/design-docs`. |
+| Public API stability | Internal APIs are still evolving. Expect breaking changes between releases. |
 
 ## Current Repository
 
@@ -114,6 +163,13 @@ bun run agent-computer:test
 bun run --filter @ankole/agent-computer type-check
 bun run --filter @ankole/webapps type-check
 bun run --filter @ankole/feishu-openapi test
+```
+
+Once the control plane is running, the worker bootstrap helper renders the Docker command used to start an external Agent Computer worker against the local RuntimeFabric endpoint:
+
+```shell
+cd app/control_plane
+mix ankole.actor_runtime.worker_bootstrap --endpoint tcp://127.0.0.1:6010 --worker-id worker-a
 ```
 
 Production bootstrap configuration uses standard infrastructure names such as `DATABASE_URL`, `SECRET_KEY_BASE`, and `REDIS_URL`. Runtime application configuration belongs in Ankole's PostgreSQL-backed AppConfigure surface rather than process-local environment variables.

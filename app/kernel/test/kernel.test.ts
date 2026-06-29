@@ -239,6 +239,28 @@ describe('@ankole/kernel', () => {
     })
   })
 
+  it('encodes and decodes RuntimeFabric silent final proposals without a reply', () => {
+    const decoded = kernel.runtimeFabricDecodeEnvelope(
+      kernel.runtimeFabricEncodeEnvelope({
+        protocol_version: 1,
+        message_id: 'turn-final-silent-1',
+        correlation_id: 'turn-start-1',
+        lane: 'LANE_TURN',
+        durability: 'CONTROL_DURABLE',
+        body: {
+          type: 'turn_final_proposal',
+          turn_final_proposal: {
+            turn: actorTurnRef(),
+            messages: [],
+          },
+        },
+      }),
+    )
+
+    expect(decoded.body.type).toBe('turn_final_proposal')
+    expect(decoded.body.turn_final_proposal.reply).toBeNull()
+  })
+
   it('rejects profile fields on ActorKey', () => {
     expect(() =>
       kernel.runtimeFabricEncodeEnvelope({

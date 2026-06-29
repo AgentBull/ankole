@@ -8,45 +8,55 @@ Thank you for your interest in contributing to Ankole! We welcome bug reports, f
 
 ### Prerequisites
 
-- **Bun `1.3.14`** — the version is pinned via `packageManager` in `package.json`; CI uses the same. Bun is the package manager, test runner, and bundler for the whole monorepo.
-- **Docker** — used to run local PostgreSQL and Redis through the devkit Compose file. (You can also point the app at your own Postgres/Redis via `app/.env.local`.)
-- **Rust toolchain** (stable, with `clippy` and `rustfmt`) — only needed if you touch the native packages (`packages/native-addons`, `packages/computer`).
+- **Bun `1.3.14`** — pinned via `packageManager` in `package.json`; CI uses the same. Bun is the package manager, test runner, and bundler for the TypeScript/Bun workspaces, and the entry point for control-plane scripts.
+- **Elixir / Erlang (OTP)** — required for the Phoenix control plane under `app/control_plane`.
+- **Rust toolchain** (stable, with `clippy` and `rustfmt`) — required for the native kernel under `app/kernel`, which is loaded by Elixir (Rustler) and Bun (N-API).
+- **Docker** — used to run local PostgreSQL and Redis through the devkit Compose file, and to build/run the Agent Computer worker image.
 
 ### First run
 
 ```sh
-bun install             # install deps; also wires git hooks via core.hooksPath
-bun run services:start  # start local Postgres + Redis (Docker Compose)
-bun run db:create       # create the app database
-bun run db:migrate:up   # apply Drizzle migrations
-bun run dev             # start the app with hot reload
+bun install              # install deps; also sets core.hooksPath via the prepare script
+bun run services:start   # start local PostgreSQL + Redis (devkit Docker Compose)
+bun run control-plane:setup   # mix setup: deps.get + ecto.create + ecto.migrate + seeds
+bun run control-plane:dev     # start the Phoenix control plane with hot reload
 ```
 
-Default local ports (from `app/.env.development`): Postgres `localhost:5433`, Redis `localhost:6379`. To wipe and recreate a local database, run `bun run db:rebuild --yes`.
+The control plane owns durable state through Ecto migrations under `app/control_plane/priv/repo/migrations`. To drop, recreate, and migrate the local database, run `bun run control-plane -- ecto.reset`. The devkit Compose file lives at `tools/devkit/external-services.docker-compose.yml`.
 
 ### Git hooks
 
-`bun install` points `core.hooksPath` at `.githooks/` (via the root `prepare` script) — there is no separate install step. The `pre-commit` hook auto-formats staged TypeScript/JSON files with `oxfmt` and re-stages them, so commits always land formatted. It deliberately does **not** run the full gate — run that yourself before pushing (see below).
+`bun install` runs the root `prepare` script, which points `core.hooksPath` at `.githooks/` when that tree is present. There is no separate install step, and the script intentionally no-ops if `.githooks/` is absent, so a missing hook tree does not break installs. If a `pre-commit` hook is present there, it auto-formats staged files and re-stages them; it deliberately does **not** run the full gate — run that yourself before pushing (see below).
 
 ### Checks before you push
 
 These mirror what CI enforces and are runnable locally:
 
 ```sh
-bun run lint        # oxlint + per-workspace lint
-bun run type-check  # tsc across all workspaces (via turbo)
-bun run fmt:check   # oxfmt formatting check
+bun run lint        # oxlint + per-workspace lint (incl. mix format --check-formatted for the control plane)
+bun run type-check  # turbo run type-check across workspaces
+bun run fmt:check   # oxfmt formatting check (and cargo fmt --check / mix format for kernel)
 bun run analyze     # kit static analysis: smells, unused, duplicates, cycles, topology
-bun run test        # bun test across all workspaces (via turbo)
+bun run test        # turbo run test across workspaces (incl. mix test for the control plane)
 ```
 
-`bun run fmt` formats in place. CI runs the static gates above; if you changed Rust, it also runs `cargo fmt --check` and `cargo clippy` in `packages/native-addons`, so run those locally too.
+`bun run fmt` formats in place. CI runs the static gates above. If you changed Rust in `app/kernel`, also run `cargo fmt --check` and `cargo clippy` locally; if you changed Elixir, run `mix format --check-formatted` and `MIX_ENV=test mix compile --warnings-as-errors`.
+
+Per-workspace commands let you run a single package's gate without turbo fan-out:
+
+```sh
+bun run agent-computer:test        # requires the built worker Docker image
+bun run agent-computer:type-check
+bun run webapps:build              # Vite + React frontend build
+bun run feishu-openapi:test
+bun run control-plane:test        # mix test
+```
 
 Heavier end-to-end checks are available but not part of the default gate:
 
 ```sh
-bun run test:computer:e2e  # computer/browser runtime end-to-end
-bun run test:llm-e2e       # live LLM end-to-end
+bun run agent-computer:e2e        # control-plane-side worker runtime end-to-end (Docker-backed)
+bun run --filter @ankole/control-plane e2e:actor-runtime-worker
 ```
 
 ### Repository toolkit (`kit`)
@@ -57,30 +67,32 @@ Most repo chores go through the devkit, exposed as `bun run kit`:
 bun run kit --help          # list all commands
 bun run services:status     # local services state
 bun run workspace:update    # regenerate the VS Code workspace file
-bun run db:rebuild --yes    # drop, recreate, and migrate the app database
+bun run analyze all          # static analysis across the workspaces
 ```
 
 The Compose file lives at `tools/devkit/external-services.docker-compose.yml`.
 
 ## Architecture overview
 
-Ankole runs as a single Bun + TypeScript application (`app/`, an Elysia backend with a React operator UI) backed by PostgreSQL, with performance-sensitive helpers in Rust. Before contributing to a specific area, read [`AGENTS.md`](AGENTS.md) for coding conventions and the *Zen of Ankole* (symlinked as `CLAUDE.md`); [`README.md`](README.md) has the fuller architecture narrative.
+Ankole runs as three cooperating layers: a Phoenix/OTP control plane (`app/control_plane`) that owns durable state and runtime authority, a Bun + TypeScript Agent Computer worker (`app/agent_computer`) that executes agent turns inside a Linux container, and a shared Rust kernel (`app/kernel`) loaded by Elixir (Rustler) and Bun (N-API) for crypto, identifiers, AuthZ evaluation, and ZeroMQ RuntimeFabric transport. Before contributing to a specific area, read [`AGENTS.md`](AGENTS.md) for coding conventions and the *Zen of Ankole* (symlinked as `CLAUDE.md`); [`README.md`](README.md) has the fuller architecture narrative.
 
-The backend is organized into subsystems under `app/src/`:
+The control plane is organized into subsystems under `app/control_plane/lib/ankole/`:
 
 | Subsystem | Location | Concern |
 | --- | --- | --- |
-| SignalsGateway | `app/control_plane/lib/ankole/signals_gateway/` | Multi-transport ingress and egress; Postgres input and outbox projections |
-| AIAgent | `app/src/ai-agent/` | Agent conversations, messages, summaries, and LLM turns |
-| LLM providers | `app/src/llm-providers/` | LLM provider integrations and configuration |
-| Principals | `app/src/principals/` | Principal identity, group membership, and permission grants |
-| Scheduler | `app/src/scheduler/` | Scheduled and long-running work |
-| Computer | `app/src/computer/` | Browser and computer runtime control |
-| Console / Setup | `app/src/console/`, `app/src/setup/` | Operator API and UI; first-admin bootstrap and provider/channel configuration |
-| Plugins | `app/src/plugins/` | Plugin host and integration surface |
-| Core / Config / Common | `app/src/core/`, `config/`, `common/` | Composition root, configuration, and shared contracts (incl. `common/db-schema`) |
+| SignalsGateway | `signals_gateway/` | Multi-transport ingress and egress; Postgres input and outbox projections |
+| Actor Runtime | `actor_runtime/` | Actor sessions, turn lifecycle, worker admission, RuntimeFabric transport, recovery |
+| AI Gateway | `ai_gateway/` | Model/provider requests, responses, credential brokering |
+| AI Agent | `ai_agent/` | Agent conversations, messages, summaries, and turns |
+| Principals | `principals/` | Principal identity, groups, external identities, and permission grants |
+| AuthZ | `authz/` | Authorization rule evaluation and policy |
+| AppConfigure | `app_configure/` | Operator-managed runtime application configuration |
+| I18n | `i18n/` | Translation catalogs and locale handling |
+| Plugins | `plugins/` | Plugin host and integration surface |
+| Setup | `setup/` | First-admin bootstrap and provider/channel configuration |
+| Schedule | `schedule/` | Scheduled and long-running work |
 
-PostgreSQL is the system of record for all durable state. Process-local state is considered ephemeral.
+PostgreSQL is the system of record for all durable state. Process-local worker state is considered ephemeral and rebuildable after restart. The frontend surfaces live under `app/webapps` (Vite + React) and are built into the Phoenix static shell.
 
 ## Design docs and agent-assisted development
 
@@ -93,17 +105,17 @@ A significant or cross-subsystem change should come with a design doc (new or up
 
 ## Project structure
 
-- `app/` — the Ankole application.
-  - `app/src/` — backend subsystems (see the table above).
-  - `app/webui/` — React + Tailwind operator UI.
-  - `app/db/` — Drizzle migrations and snapshots (generate with `bun run db:migrate:gen`).
-  - `app/library/` — bundled skills and templates.
-  - `app/scripts/` — build and end-to-end scripts.
-- `packages/` — workspace packages: `computer` (browser/computer runtime), `native-addons` (Rust/NAPI helpers), `sdk` (plugin SDK).
-- `plugin/` — first-party plugins (e.g. `lark-adapter`).
-- `tools/devkit/` — the `kit` repository toolkit.
+- `app/control_plane` — Phoenix/OTP control plane; subsystems live under `lib/ankole/`, Ecto migrations under `priv/repo/migrations/`.
+- `app/agent_computer` — Bun + TypeScript Agent Computer worker; runs only inside its Docker image (see `app/agent_computer/README.md`).
+- `app/kernel` — shared Rust crate loaded via Rustler (Elixir) and N-API (Bun).
+- `app/webapps` — Vite + React frontend surfaces built into the Phoenix static shell.
+- `app/library` — built-in agent skills and starter templates (`MISSION.md`, `SOUL.md`).
+- `app/locales` — shared TOML translation catalogs.
+- `libs/uikit`, `libs/feishu_openapi` — shared UI primitives and the local Lark/Feishu OpenAPI client.
+- `plugins/` — first-party plugins (e.g. `lark_adapter`).
+- `tools/devkit` — the `kit` repository toolkit and local-services Compose file.
 - `docs/design-docs/` — design intent documents.
-- `internals/` — private ignored tree for the AgentBull team, used to test Ankole against real-world scenarios. It is not tracked in this repository; you can safely ignore it.
+- `internals/` — private first-party tree for provider/plugin code and real-world scenario testing; it is not the public plugin boundary.
 
 ## Submitting a pull request
 

@@ -180,12 +180,22 @@ defmodule AnkoleWeb.AIGatewayController do
   end
 
   defp stream_error_event(reason) do
-    {_status, code, message} = error_tuple(reason)
+    {status, code, message} = error_tuple(reason)
 
     %{
       "type" => "error",
+      "status" => status,
+      # The downstream worker validates streamed chunks against the Responses
+      # event schema before it decides whether a stream failed before output.
+      # Without a sequence number this nested error shape is treated as an
+      # unknown chunk, which turns an upstream 429/5xx into a successful empty
+      # assistant message instead of a retryable stream-creation failure.
+      "sequence_number" => 0,
       "error" => %{
-        "type" => "invalid_request_error",
+        # A streaming response has already committed HTTP 200. Carrying the
+        # error family in the Responses error frame lets clients preserve retry
+        # semantics for upstream rate limits and provider faults.
+        "type" => stream_error_type(status, code),
         "code" => code,
         "message" => message,
         "param" => nil
@@ -247,6 +257,13 @@ defmodule AnkoleWeb.AIGatewayController do
     do: {422, Atom.to_string(reason), Atom.to_string(reason)}
 
   defp error_tuple(reason), do: {422, "ai_gateway_request_failed", inspect(reason)}
+
+  defp stream_error_type(429, _code), do: "rate_limit_error"
+  defp stream_error_type(401, _code), do: "authentication_error"
+  defp stream_error_type(403, _code), do: "permission_error"
+  defp stream_error_type(404, _code), do: "not_found_error"
+  defp stream_error_type(status, _code) when status >= 500, do: "api_error"
+  defp stream_error_type(_status, _code), do: "invalid_request_error"
 
   defp upstream_public_status(status) when status in 400..499, do: status
   defp upstream_public_status(_status), do: 502

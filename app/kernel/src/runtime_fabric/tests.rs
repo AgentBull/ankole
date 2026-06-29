@@ -139,6 +139,30 @@ fn round_trips_turn_final_proposal_telemetry() {
 }
 
 #[test]
+fn round_trips_turn_final_proposal_without_reply_for_silent_commit() {
+    let envelope = json!({
+        "protocol_version": 1,
+        "message_id": "turn-final-silent-1",
+        "correlation_id": "turn-start-1",
+        "lane": "LANE_TURN",
+        "durability": "CONTROL_DURABLE",
+        "body": {
+            "type": "turn_final_proposal",
+            "turn_final_proposal": {
+                "turn": turn_ref(),
+                "messages": []
+            }
+        }
+    });
+
+    let encoded = encode_envelope_json(envelope).unwrap();
+    let decoded = decode_envelope_json(&encoded).unwrap();
+
+    assert_eq!(decoded["body"]["type"], "turn_final_proposal");
+    assert!(decoded["body"]["turn_final_proposal"]["reply"].is_null());
+}
+
+#[test]
 fn json_byte_fields_preserve_json_strings() {
     let envelope = json!({
         "protocol_version": 1,

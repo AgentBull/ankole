@@ -99,6 +99,137 @@ defmodule Ankole.ActorRuntime.ConversationCommandTest do
       assert get_in(payload, ["data", "command", "argsText"]) == "fresh task\nwith context"
     end
 
+    test "new command with args stops an active generation before starting the next window" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :ignore)
+      route = unique_route()
+
+      :ok = Broker.register_local_worker(route, self())
+      on_exit(fn -> Broker.unregister_local_worker(route) end)
+
+      assert {:ok, _worker} = admit_worker(route)
+
+      assert {:ok, %{actor_input: old_input}} =
+               emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{text: "old active task", explicit: true}),
+                 now: @base_time
+               )
+
+      assert {:ok, %{llm_turn: old_turn}} =
+               ActorRuntime.process_ready_inputs_once(
+                 now: DateTime.add(@base_time, 1, :second),
+                 lease_seconds: @long_lease_seconds
+               )
+
+      assert_receive {:actor_lane, old_envelope}
+      old_start = old_envelope["body"]["turn_start"]
+      old_turn_ref = old_start["turn"]
+      old_input_ids = Enum.map(old_start["inputs"], & &1["actor_input_id"])
+
+      assert {:ok, [_delivery]} =
+               ActorRuntime.handle_turn_accepted(%{
+                 "turn_accepted" => %{
+                   "turn" => old_turn_ref,
+                   "accepted_actor_input_ids" => old_input_ids
+                 }
+               })
+
+      assert {:ok, %{actor_input: new_input}} =
+               emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{text: "/new fresh active task", explicit: true}),
+                 now: DateTime.add(@base_time, 2, :second)
+               )
+
+      assert {:ok, %{send_outcome: "sent_or_queued", llm_turn: new_turn}} =
+               ActorRuntime.process_ready_inputs_once(now: DateTime.add(@base_time, 3, :second))
+
+      assert_receive {:actor_lane, stop_control}
+      assert stop_control["body"]["type"] == "turn_control"
+      assert stop_control["body"]["turn_control"]["command"] == "stop"
+
+      assert stop_control["body"]["turn_control"]["turn"]["llm_turn_id"] ==
+               old_turn_ref["llm_turn_id"]
+
+      assert stop_control["body"]["turn_control"]["payload_json"]["reason"] == "command.new"
+
+      assert_receive {:actor_lane, new_envelope}
+      new_start = new_envelope["body"]["turn_start"]
+
+      assert [%{"actor_input_id" => new_input_id, "payload_json" => payload}] =
+               new_start["inputs"]
+
+      assert new_input_id == new_input.id
+      assert get_in(payload, ["data", "command", "argsText"]) == "fresh active task"
+
+      assert new_turn.conversation_id != old_turn.conversation_id
+      assert Repo.get!(Conversation, old_turn.conversation_id).ended_at
+      assert Repo.get!(LlmTurn, old_turn.id).status == "cancelled"
+      refute Repo.get(ActorInput, old_input.id)
+      assert Repo.get!(ActorInput, new_input.id).input_state == "open"
+    end
+
+    test "new command with args waits for a worker and is retried as an open input" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :ignore)
+
+      assert {:ok, old_conversation} =
+               Ankole.AIAgent.ensure_conversation(agent.uid, "signal-channel:lark:chat:group-a")
+
+      assert {:ok, %{actor_input: new_input}} =
+               emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{text: "/new fresh task after worker returns", explicit: true}),
+                 now: @base_time
+               )
+
+      assert {:ok,
+              %{
+                status: :waiting_for_worker,
+                command: "command.new",
+                stop_control_outcomes: []
+              }} =
+               ActorRuntime.process_ready_inputs_once(now: DateTime.add(@base_time, 1, :second))
+
+      assert Repo.get!(ActorInput, new_input.id).input_state == "open"
+      assert Repo.get!(Conversation, old_conversation.id).ended_at
+      assert Repo.aggregate(LlmTurn, :count) == 0
+      assert Repo.aggregate(ActorInputDelivery, :count) == 0
+
+      refute Repo.exists?(
+               from(message in Message,
+                 where: message.metadata["actor_input_id"] == ^new_input.id,
+                 where: message.role == "user"
+               )
+             )
+
+      route = unique_route()
+      :ok = Broker.register_local_worker(route, self())
+      on_exit(fn -> Broker.unregister_local_worker(route) end)
+      assert {:ok, _worker} = admit_worker(route)
+
+      assert {:ok, %{send_outcome: "sent_or_queued", llm_turn: next_turn}} =
+               ActorRuntime.process_ready_inputs_once(now: DateTime.add(@base_time, 2, :second))
+
+      assert next_turn.conversation_id != old_conversation.id
+
+      assert %Message{role: "user", content: [%{"text" => "fresh task after worker returns"}]} =
+               Repo.one!(
+                 from(message in Message,
+                   where: message.metadata["actor_input_id"] == ^new_input.id,
+                   where: message.role == "user"
+                 )
+               )
+
+      assert_receive {:actor_lane, next_envelope}
+      assert [%{"payload_json" => payload}] = next_envelope["body"]["turn_start"]["inputs"]
+      assert get_in(payload, ["data", "command", "argsText"]) == "fresh task after worker returns"
+    end
+
     test "/compress starts a queued worker turn and summary commit RPC writes feedback" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)

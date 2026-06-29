@@ -112,6 +112,100 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
              )
   end
 
+  test "responses reject 2xx upstream bodies that are not JSON objects" do
+    %{principal: agent} = agent_fixture()
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "openrouter-invalid-upstream-body",
+               provider_kind: "openrouter",
+               credential: "sk-openrouter",
+               base_url: "https://openrouter.ai/api/v1",
+               connection_options: %{}
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "openrouter-invalid-upstream-body",
+               model: "openai/gpt-5.5"
+             })
+
+    assert {:error, {:invalid_upstream_response, %{body: ["not", "a", "map"], status: 200}}} =
+             AIGateway.create_response(
+               agent.uid,
+               %{"model" => "primary", "input" => "hello"},
+               http_client: fn _request ->
+                 {:ok, %{status: 200, body: ["not", "a", "map"]}}
+               end
+             )
+  end
+
+  test "chat completions providers receive Responses text.format as response_format" do
+    %{principal: agent} = agent_fixture()
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "openrouter-json-schema",
+               provider_kind: "openrouter",
+               credential: "sk-openrouter",
+               base_url: "https://openrouter.ai/api/v1",
+               connection_options: %{}
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "openrouter-json-schema",
+               model: "openai/gpt-5.5"
+             })
+
+    schema = %{
+      "type" => "object",
+      "properties" => %{"answer" => %{"type" => "string"}},
+      "required" => ["answer"],
+      "additionalProperties" => false
+    }
+
+    assert {:ok, %{body: body}} =
+             AIGateway.create_response(
+               agent.uid,
+               %{
+                 "model" => "primary",
+                 "input" => "return json",
+                 "text" => %{
+                   "format" => %{
+                     "type" => "json_schema",
+                     "name" => "ambient_intervention_decision",
+                     "description" => "Decision schema",
+                     "strict" => true,
+                     "schema" => schema
+                   }
+                 }
+               },
+               http_client: fn request ->
+                 assert request.url == "https://openrouter.ai/api/v1/chat/completions"
+
+                 assert request.body["response_format"] == %{
+                          "type" => "json_schema",
+                          "json_schema" => %{
+                            "name" => "ambient_intervention_decision",
+                            "description" => "Decision schema",
+                            "strict" => true,
+                            "schema" => schema
+                          }
+                        }
+
+                 {:ok,
+                  %{
+                    status: 200,
+                    body: chat_completion_body(request.body["model"], ~s({"answer":"ok"}))
+                  }}
+               end
+             )
+
+    assert get_in(body, ["output", Access.at(0), "content", Access.at(0), "text"]) ==
+             ~s({"answer":"ok"})
+  end
+
   test "chat completions dispatch preserves user multimodal image_url content" do
     %{principal: agent} = agent_fixture()
 
@@ -430,6 +524,62 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
              "hello claude"
 
     assert body["usage"]["total_tokens"] == 5
+  end
+
+  test "claude provider can target OpenRouter anthropic-compatible messages endpoint" do
+    %{principal: agent} = agent_fixture()
+
+    assert {:ok, _provider} =
+             ProviderConfigs.create_provider(%{
+               provider_id: "claude-openrouter-compatible",
+               provider_kind: "claude",
+               credential: "sk-openrouter",
+               base_url: "https://openrouter.ai/api/v1",
+               connection_options: %{
+                 "auth_mode" => "auth_token",
+                 "messages_path" => "messages"
+               }
+             })
+
+    assert {:ok, _profile} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "claude-openrouter-compatible",
+               model: "anthropic/claude-sonnet-4.5"
+             })
+
+    assert {:ok, %{body: body}} =
+             AIGateway.create_response(
+               agent.uid,
+               %{
+                 "model" => "primary",
+                 "input" => "hello",
+                 "max_output_tokens" => 32
+               },
+               http_client: fn request ->
+                 assert request.url == "https://openrouter.ai/api/v1/messages"
+                 assert request.headers["authorization"] == "Bearer sk-openrouter"
+                 refute Map.has_key?(request.headers, "x-api-key")
+                 assert request.headers["anthropic-version"] == "2023-06-01"
+                 assert request.body["model"] == "anthropic/claude-sonnet-4.5"
+                 assert request.body["max_tokens"] == 32
+
+                 {:ok,
+                  %{
+                    status: 200,
+                    body: %{
+                      "id" => "msg_openrouter_claude",
+                      "model" => request.body["model"],
+                      "content" => [%{"type" => "text", "text" => "hello via openrouter"}],
+                      "usage" => %{"input_tokens" => 2, "output_tokens" => 3}
+                    }
+                  }}
+               end
+             )
+
+    assert body["model"] == "anthropic/claude-sonnet-4.5"
+
+    assert get_in(body, ["output", Access.at(0), "content", Access.at(0), "text"]) ==
+             "hello via openrouter"
   end
 
   test "azure openai provider supports deployment api-key auth and v1 bearer responses" do

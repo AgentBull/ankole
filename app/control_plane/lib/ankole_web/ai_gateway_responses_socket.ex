@@ -216,6 +216,10 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
   defp error_event(status, code, message, param \\ nil) do
     %{
       "type" => "error",
+      # Local WebSocket validation errors happen before any model output exists.
+      # Sequence 0 keeps the frame compatible with the Responses stream schema
+      # used by clients that share their SSE and WebSocket event decoders.
+      "sequence_number" => 0,
       "status" => status,
       "error" => %{
         "type" => "invalid_request_error",

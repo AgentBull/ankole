@@ -52,6 +52,9 @@ type ActiveTurn = {
   abortController: AbortController
   retryRequested: boolean
   retryReason?: string
+  controlledStopRequested: boolean
+  controlledStopCommand?: string
+  controlledStopReason?: string
 }
 
 try {
@@ -225,7 +228,8 @@ async function startTurn(
     correlationId,
     steeringUpdates: [],
     abortController: new AbortController(),
-    retryRequested: false
+    retryRequested: false,
+    controlledStopRequested: false
   }
   activeTurns.set(turnKey(turnStart.turn), active)
 
@@ -260,10 +264,11 @@ async function runActiveTurnTask(
 
   try {
     await runActiveTurn(config, sendEnvelope, rpcClient, active)
-    if (active.retryRequested) {
+    if (active.controlledStopRequested) {
       logWorkerEvent('worker.turn_controlled_stop', {
         llm_turn_id: turnStart.turn.llm_turn_id,
-        reason: active.retryReason ?? 'retry'
+        command: active.controlledStopCommand ?? 'unknown',
+        reason: active.controlledStopReason ?? 'controlled_stop'
       })
       return
     }
@@ -272,10 +277,11 @@ async function runActiveTurnTask(
       llm_turn_id: turnStart.turn.llm_turn_id
     })
   } catch (error) {
-    if (active.retryRequested) {
+    if (active.controlledStopRequested) {
       logWorkerEvent('worker.turn_controlled_stop', {
         llm_turn_id: turnStart.turn.llm_turn_id,
-        reason: active.retryReason ?? 'retry',
+        command: active.controlledStopCommand ?? 'unknown',
+        reason: active.controlledStopReason ?? 'controlled_stop',
         error: error instanceof Error ? error.message : String(error)
       })
       return
@@ -326,7 +332,7 @@ async function runActiveTurn(
     abortSignal: active.abortController.signal
   })
 
-  if (active.retryRequested) return
+  if (active.controlledStopRequested) return
   if ('summaryCommitted' in proposal) return
 
   await sendEnvelope(finalProposalEnvelope(turnStart.turn, proposal, active.correlationId))
@@ -371,14 +377,22 @@ async function handleMailboxUpdated(
 
 async function handleTurnControl(activeTurns: Map<string, ActiveTurn>, envelope: RuntimeFabricEnvelope): Promise<void> {
   const control = turnControlFromEnvelope(envelope)
-  if (!control.turn || control.command !== 'retry') return
+  if (!control.turn || (control.command !== 'retry' && control.command !== 'stop')) return
 
   const active = activeTurns.get(turnKey(control.turn))
   if (!active) return
 
-  active.retryRequested = true
-  active.retryReason = stringFromDetails(control.payload_json, 'reason') ?? 'retry'
-  active.abortController.abort(new DOMException(active.retryReason, 'AbortError'))
+  const reason = stringFromDetails(control.payload_json, 'reason') ?? control.command
+  active.controlledStopRequested = true
+  active.controlledStopCommand = control.command
+  active.controlledStopReason = reason
+
+  if (control.command === 'retry') {
+    active.retryRequested = true
+    active.retryReason = reason
+  }
+
+  active.abortController.abort(new DOMException(reason, 'AbortError'))
 }
 
 async function requestAIGatewayApiKey(

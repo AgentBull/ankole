@@ -308,6 +308,60 @@ describe('@ankole/agent-computer migrated tool semantics', () => {
     expect(weak.slice(procBindIndex, procBindIndex + 3)).toEqual(['--ro-bind', '/proc', '/proc'])
   })
 
+  it('binds the browser CLI runtime into bubblewrap', () => {
+    const root = mkdtempSync(join(tmpdir(), 'ankole-browser-bwrap-'))
+    const appDir = join(root, 'agent-computer')
+    const previousAppDir = process.env.ANKOLE_AGENT_COMPUTER_BUN_WORKDIR
+
+    try {
+      mkdirSync(join(appDir, 'bin'), { recursive: true })
+      mkdirSync(join(appDir, 'src'), { recursive: true })
+      writeFileSync(join(appDir, 'bin', 'ankole-browser'), '#!/bin/sh\n')
+      writeFileSync(join(appDir, 'src', 'browser_cli.ts'), 'console.log("ok")\n')
+      process.env.ANKOLE_AGENT_COMPUTER_BUN_WORKDIR = appDir
+
+      const args = bubblewrapArgv(
+        {
+          workspaceRoot: root,
+          cwd: root,
+          env: { PATH: '/usr/local/bin:/usr/bin:/bin', HOME: '/workspace' },
+          commandArgv: ['ankole-browser', 'doctor']
+        },
+        'strong'
+      )
+
+      const binBind = args.findIndex((arg, index) => arg === '--ro-bind' && args[index + 1] === join(appDir, 'bin'))
+      const srcBind = args.findIndex((arg, index) => arg === '--ro-bind' && args[index + 1] === join(appDir, 'src'))
+      expect(args.slice(binBind, binBind + 3)).toEqual(['--ro-bind', join(appDir, 'bin'), join(appDir, 'bin')])
+      expect(args.slice(srcBind, srcBind + 3)).toEqual(['--ro-bind', join(appDir, 'src'), join(appDir, 'src')])
+    } finally {
+      if (previousAppDir === undefined) {
+        delete process.env.ANKOLE_AGENT_COMPUTER_BUN_WORKDIR
+      } else {
+        process.env.ANKOLE_AGENT_COMPUTER_BUN_WORKDIR = previousAppDir
+      }
+
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('binds Chromium config directories when the image provides them', () => {
+    const args = bubblewrapArgv(
+      {
+        workspaceRoot: '/workspace',
+        cwd: '/workspace',
+        env: { PATH: '/usr/local/bin:/usr/bin:/bin', HOME: '/workspace' },
+        commandArgv: ['chromium', '--version']
+      },
+      'strong'
+    )
+
+    if (existsSync('/etc/chromium.d')) {
+      const index = args.findIndex((arg, argIndex) => arg === '--ro-bind' && args[argIndex + 1] === '/etc/chromium.d')
+      expect(args.slice(index, index + 3)).toEqual(['--ro-bind', '/etc/chromium.d', '/etc/chromium.d'])
+    }
+  })
+
   it('read_file returns numbered text and does not throw for missing files', async () => {
     const reads: unknown[] = []
     const context = contextWithComputer({

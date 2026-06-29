@@ -322,6 +322,12 @@ The response includes:
 - `agent_uid`;
 - AIGateway base URL.
 
+The base URL is worker-facing, not merely `Endpoint.url/0`. Local Docker worker
+e2e runs the worker inside a container, where host `localhost` would point back
+to the container. The control plane may therefore return an explicitly
+configured URL such as `http://host.docker.internal:<port>/api/v1/ai-gateway`
+without changing the public Phoenix endpoint URL.
+
 Workers keep the key only in memory. In the current actor-agnostic worker pool,
 process startup has no agent identity, so the executable v1 rule is: fetch the
 agent's AIGateway key immediately at turn start before any provider HTTP request.

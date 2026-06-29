@@ -1,0 +1,108 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+CONTROL_PLANE_DIR="$ROOT_DIR/app/control_plane"
+
+if [[ -f "$HOME/.kiex/elixirs/elixir-1.20.1-29.env" ]]; then
+  # Keep the one-command entrypoint consistent with the Elixir version used by
+  # the rest of the Ankole control-plane checks on this machine.
+  # shellcheck disable=SC1090
+  source "$HOME/.kiex/elixirs/elixir-1.20.1-29.env"
+fi
+
+usage() {
+  cat <<'EOF'
+Usage: tools/e2e [--local|--real-provider|--all] [--providers=name[,name]]
+
+Runs heavy control-plane E2E checks from one entrypoint.
+
+Modes:
+  --local          Runs Docker-worker Lark chaos only. This is the default.
+  --real-provider Runs AI Gateway real-provider smoke checks only.
+  --all           Runs local checks, then AI Gateway providers available in env.
+
+Provider names for --real-provider:
+  openrouter,jina,google,claude_openrouter,available
+
+Examples:
+  tools/e2e
+  tools/e2e --all
+  tools/e2e --real-provider --providers=openrouter,jina
+EOF
+}
+
+mode="local"
+providers="available"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --local)
+      mode="local"
+      shift
+      ;;
+    --real-provider)
+      mode="real-provider"
+      shift
+      ;;
+    --all)
+      mode="all"
+      shift
+      ;;
+    --providers=*)
+      providers="${1#--providers=}"
+      shift
+      ;;
+    --providers)
+      providers="${2:?--providers requires a value}"
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown argument: $1" >&2
+      usage >&2
+      exit 64
+      ;;
+  esac
+done
+
+run_local() {
+  (
+    cd "$CONTROL_PLANE_DIR"
+    mix e2e.lark_agent_docker_worker_chaos
+  )
+}
+
+run_real_provider() {
+  (
+    cd "$CONTROL_PLANE_DIR"
+    mix e2e.ai_gateway_real_provider -- --providers="$providers"
+  )
+}
+
+has_real_provider_env() {
+  [[ -n "${OPENROUTER_API_KEY:-}" ]] ||
+    [[ -n "${OPEN_ROUTER_API_KEY:-}" ]] ||
+    [[ -n "${JINA_API_KEY:-}" ]] ||
+    [[ -n "${GOOGLE_AI_STUDIO_API_KEY:-}" ]]
+}
+
+case "$mode" in
+  local)
+    run_local
+    ;;
+  real-provider)
+    run_real_provider
+    ;;
+  all)
+    run_local
+    if has_real_provider_env; then
+      run_real_provider
+    else
+      echo "Skipping AI Gateway real-provider E2E: no provider API keys are present."
+    fi
+    ;;
+esac

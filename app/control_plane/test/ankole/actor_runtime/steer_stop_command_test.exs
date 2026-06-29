@@ -143,6 +143,15 @@ defmodule Ankole.ActorRuntime.SteerStopCommandTest do
       assert Repo.aggregate(ActorInputConsumption, :count) == 2
       assert Repo.aggregate(ActorInputDelivery, :count) == 0
 
+      assert %OutboxEntry{
+               source_actor_input_id: source_actor_input_id,
+               source_provider_entry_id: source_provider_entry_id,
+               payload: %{"text" => "PONG"}
+             } = Repo.one!(from(outbox in OutboxEntry))
+
+      assert source_actor_input_id == input.id
+      assert source_provider_entry_id == input.provider_entry_id
+
       assert Repo.one!(
                from(message in Message,
                  where: message.kind == "introspection",
@@ -288,9 +297,24 @@ defmodule Ankole.ActorRuntime.SteerStopCommandTest do
 
       assert stop_input.type == "command.stop"
 
-      assert {:ok, %{status: :command_consumed, feedback: "Stopped."}} =
+      assert {:ok,
+              %{
+                status: :command_consumed,
+                feedback: "Stopped.",
+                stop_control_outcomes: [%{send_outcome: "sent_or_queued"}]
+              }} =
                ActorRuntime.process_ready_inputs_once(now: DateTime.add(@base_time, 3, :second))
 
+      assert_receive {:actor_lane, stop_control}
+      assert stop_control["body"]["type"] == "turn_control"
+      assert stop_control["body"]["turn_control"]["command"] == "stop"
+
+      assert stop_control["body"]["turn_control"]["turn"]["llm_turn_id"] ==
+               turn_ref["llm_turn_id"]
+
+      assert stop_control["body"]["turn_control"]["payload_json"]["reason"] == "command.stop"
+
+      refute Repo.get(ActorInput, input.id)
       refute Repo.get(ActorInput, stop_input.id)
 
       assert %LlmTurn{

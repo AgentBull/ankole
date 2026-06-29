@@ -9,21 +9,18 @@ defmodule Ankole.AIGateway.Resolver do
   """
 
   alias Ankole.AIAgent.ModelProfiles
+  alias Ankole.AIGateway.ModelSelectors
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AIGateway.Providers
   alias Ankole.Principals
 
   @llm_aliases ~w(primary light heavy)
-  @default_profiles %{
-    "embedding" => "embedding",
-    "rerank" => "rerank"
-  }
 
   @doc """
   Resolves the request `model` field for one agent and capability.
 
   LLM aliases use named profiles such as `primary`. Embedding and rerank accept
-  `default`, their first-class default profile names, or explicit
+  `default`, explicit default bindings such as `embedding.default`, or explicit
   `provider_id/model` selectors.
   """
   @spec resolve_request_model(String.t(), String.t(), map()) :: {:ok, map()} | {:error, term()}
@@ -44,7 +41,7 @@ defmodule Ankole.AIGateway.Resolver do
         resolve_provider_model(agent_uid, capability, selector, provider_id, model)
 
       :error ->
-        with {:ok, profile} <- default_profile_selector(capability, selector) do
+        with {:ok, profile} <- ModelSelectors.default_profile(capability, selector) do
           resolve_profile_model(agent_uid, capability, selector, profile)
         end
     end
@@ -133,17 +130,6 @@ defmodule Ankole.AIGateway.Resolver do
     case String.split(selector, "/", parts: 2) do
       [provider_id, model] when provider_id != "" and model != "" -> {:ok, provider_id, model}
       _parts -> :error
-    end
-  end
-
-  defp default_profile_selector(capability, "default"),
-    do: {:ok, Map.fetch!(@default_profiles, capability)}
-
-  defp default_profile_selector(capability, selector) do
-    case Map.fetch(@default_profiles, capability) do
-      {:ok, ^selector} -> {:ok, selector}
-      {:ok, _profile} -> {:error, {:unknown_model_selector, capability, selector}}
-      :error -> {:error, {:unknown_model_selector, capability, selector}}
     end
   end
 

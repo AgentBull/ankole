@@ -81,8 +81,38 @@ defmodule Ankole.ActorRuntime.AIGatewayApiKeyBroker do
       "expires_at" => token.expires_at,
       "expires_in" => token.expires_in,
       "scope" => token.scope,
-      "base_url" => Endpoint.url() <> "/api/v1/ai-gateway"
+      "base_url" => worker_facing_base_url()
     }
+  end
+
+  # The URL in this payload is consumed by the Agent Computer worker, not by a
+  # browser or another control-plane process. In Docker e2e, `Endpoint.url/0`
+  # points at localhost from the host VM, while the worker container must call
+  # `host.docker.internal`. Keeping this as an explicit worker-facing setting
+  # avoids leaking container networking details into the Phoenix endpoint config.
+  defp worker_facing_base_url do
+    configured =
+      :ankole
+      |> Application.get_env(__MODULE__, [])
+      |> Keyword.get(:worker_facing_base_url)
+
+    case configured do
+      nil ->
+        Endpoint.url() <> "/api/v1/ai-gateway"
+
+      value when is_binary(value) ->
+        value = String.trim(value)
+
+        if value == "" do
+          Endpoint.url() <> "/api/v1/ai-gateway"
+        else
+          String.trim_trailing(value, "/")
+        end
+
+      value ->
+        raise ArgumentError,
+              "expected :worker_facing_base_url for #{inspect(__MODULE__)} to be a string, got: #{inspect(value)}"
+    end
   end
 
   defp error_payload(request_id, agent_uid, session_id, reason) do

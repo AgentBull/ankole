@@ -189,6 +189,65 @@ defmodule Ankole.ActorRuntime.CoreCommitTest do
       assert sent_outbox.provider_entry_id == "provider-pong-1"
     end
 
+    test "materializes attachment-only input as readable transcript content" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :ignore)
+      route = unique_route()
+
+      attachment = %{
+        "storage_ref" => "lark:file:file_1",
+        "provider" => "lark",
+        "source_message_id" => "om_file_1",
+        "file_key" => "file_1",
+        "download_type" => "file",
+        "content_type" => "application/pdf",
+        "name" => "deck.pdf",
+        "size" => 2048
+      }
+
+      :ok = Broker.register_local_worker(route, self())
+      on_exit(fn -> Broker.unregister_local_worker(route) end)
+
+      assert {:ok, _worker} = admit_worker(route)
+
+      assert {:ok, %{actor_input: input}} =
+               emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{text: nil, attachments: [attachment], explicit: true}),
+                 now: @base_time
+               )
+
+      assert {:ok, %{send_outcome: "sent_or_queued"}} =
+               ActorRuntime.process_ready_inputs_once(
+                 now: DateTime.add(input.available_at, 1, :second),
+                 lease_seconds: @long_lease_seconds
+               )
+
+      assert %Message{content: [text_part]} =
+               Repo.one!(
+                 from(message in Message,
+                   where: message.role == "user",
+                   where: message.event_id == ^input.ingress_event_id
+                 )
+               )
+
+      assert text_part["type"] == "text"
+      assert text_part["text"] =~ "Received attachments."
+      assert text_part["text"] =~ "deck.pdf"
+      assert text_part["text"] =~ "type=application/pdf"
+      assert text_part["text"] =~ "size=2048"
+      assert text_part["text"] =~ "provider_ref=lark:file:file_1"
+      assert text_part["text"] =~ "not_materialized_in_workspace=true"
+
+      assert_receive {:actor_lane, envelope}, 2_000
+      assert [delivered_input] = envelope["body"]["turn_start"]["inputs"]
+
+      assert get_in(delivered_input, ["payload_json", "data", "entry", "attachments"]) == [
+               attachment
+             ]
+    end
+
     test "commits a provider outbox for each consecutive IM turn in one channel" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)
