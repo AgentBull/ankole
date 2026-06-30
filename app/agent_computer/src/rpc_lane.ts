@@ -129,6 +129,12 @@ export type ConversationSummaryCommitResponse = {
   covered_message_ids?: string[]
 }
 
+export type ConversationSummaryCommitRejected = {
+  request_id: string
+  code: string
+  message?: string
+}
+
 export type ScheduleRpcRequest = JsonObject & {
   request_id: string
   turn_ref: ActorTurnRef
@@ -157,15 +163,12 @@ export type SkillOverlayResponse = {
 
 export type AIGatewayApiKeyRequest = {
   request_id: string
-  turn: ActorTurnRef
   agent_uid: string
-  session_id: string
 }
 
 export type AIGatewayApiKeyResponse = {
   request_id: string
   agent_uid: string
-  session_id: string
   api_key: string
   token_type: 'Bearer' | string
   expires_at: number
@@ -177,7 +180,6 @@ export type AIGatewayApiKeyResponse = {
 export type AIGatewayApiKeyRejected = {
   request_id: string
   agent_uid: string
-  session_id: string
   code: string
   message?: string
 }

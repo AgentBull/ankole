@@ -94,7 +94,7 @@ defmodule Ankole.ActorRuntime.FileTransferLaneTest do
       Agent.get(stored, fn state -> state.chunks |> Enum.reverse() |> IO.iodata_to_binary() end)
 
     refute compressed == "hello world"
-    assert zstd_decode!(compressed) == "hello world"
+    assert Agent.get(stored, fn state -> zstd_decode_chunks!(state.chunks) end) == "hello world"
 
     assert {:ok,
             %{
@@ -108,6 +108,36 @@ defmodule Ankole.ActorRuntime.FileTransferLaneTest do
               },
               "end" => %{"command" => "READ_DONE", "chunks" => 1, "content_encoding" => "zstd"}
             }} = FileTransferLane.get(route, "user_files", "attachments/a.txt")
+  end
+
+  test "put and get preserve byte order across multiple compressed DATA chunks", %{
+    route: route,
+    route_auth: route_auth
+  } do
+    # Span more than one 2 MiB block so chunk ordering is exercised on both
+    # write (control plane compresses per block) and read (worker compresses
+    # per block). AAAAAA...BBBB... marker pattern catches any reversal.
+    block_a = String.duplicate("A", 2 * 1024 * 1024)
+    block_b = String.duplicate("B", 2 * 1024 * 1024)
+    content = block_a <> block_b
+    {:ok, stored} = Agent.start_link(fn -> %{chunks: [], begin: nil, read_wire: nil} end)
+
+    :ok =
+      Broker.register_local_worker(route, fn {:file_transfer_lane, frames} ->
+        respond_to_put_get_large(route_auth, stored, content, frames)
+      end)
+
+    assert {:ok, %{"size" => size}} =
+             FileTransferLane.put(route, "user_files", "attachments/large.bin", content)
+
+    assert size == byte_size(content)
+
+    assert Agent.get(stored, fn state -> length(state.chunks) end) >= 2
+
+    assert Agent.get(stored, fn state -> zstd_decode_chunks!(state.chunks) end) == content
+
+    assert {:ok, %{"content" => ^content}} =
+             FileTransferLane.get(route, "user_files", "attachments/large.bin")
   end
 
   test "get rejects read terminators that do not match received DATA", %{
@@ -177,7 +207,8 @@ defmodule Ankole.ActorRuntime.FileTransferLaneTest do
     compressed =
       Agent.get(stored, fn state -> state.chunks |> Enum.reverse() |> IO.iodata_to_binary() end)
 
-    assert zstd_decode!(compressed) == "hello world"
+    refute compressed == "hello world"
+    assert Agent.get(stored, fn state -> zstd_decode_chunks!(state.chunks) end) == "hello world"
   end
 
   test "responses from a different route do not satisfy a pending operation", %{
@@ -295,8 +326,7 @@ defmodule Ankole.ActorRuntime.FileTransferLaneTest do
       {"WRITE_COMMIT", []} ->
         {path, content} =
           Agent.get(stored, fn state ->
-            wire_content = state.chunks |> Enum.reverse() |> IO.iodata_to_binary()
-            {state.begin.path, zstd_decode!(wire_content)}
+            {state.begin.path, zstd_decode_chunks!(state.chunks)}
           end)
 
         FileTransferLane.handle_worker_frame(route_auth, [
@@ -341,6 +371,131 @@ defmodule Ankole.ActorRuntime.FileTransferLaneTest do
           u64(1),
           u64(byte_size(content))
         ])
+    end
+  end
+
+  defp respond_to_put_get_large(route_auth, stored, content, [
+         protocol,
+         command,
+         transfer_id | rest
+       ]) do
+    case {command, rest} do
+      {"WRITE_OPEN", [path, original_size]} ->
+        Agent.update(
+          stored,
+          &%{&1 | begin: %{path: path, original_size: parse_u64!(original_size)}, chunks: []}
+        )
+
+        FileTransferLane.handle_worker_frame(route_auth, [
+          protocol,
+          "WRITE_READY",
+          transfer_id,
+          u64(@credit_window)
+        ])
+
+      {"DATA", [_sequence, _offset, _eof, chunk]} ->
+        Agent.update(stored, &%{&1 | chunks: [chunk | &1.chunks]})
+
+        FileTransferLane.handle_worker_frame(route_auth, [
+          protocol,
+          "CREDIT",
+          transfer_id,
+          u64(byte_size(chunk))
+        ])
+
+      {"WRITE_COMMIT", []} ->
+        {path, decoded} =
+          Agent.get(stored, fn state ->
+            {state.begin.path, zstd_decode_chunks!(state.chunks)}
+          end)
+
+        chunk_count = Agent.get(stored, fn state -> length(state.chunks) end)
+        ^chunk_count = 2
+
+        # Sanity: the worker-side decode recovers exactly the original content.
+        ^decoded = content
+
+        {path, decoded} =
+          Agent.get(stored, fn state ->
+            {state.begin.path, zstd_decode_chunks!(state.chunks)}
+          end)
+
+        chunk_count = Agent.get(stored, fn state -> length(state.chunks) end)
+        ^chunk_count = 2
+
+        # Sanity: the worker-side decode recovers exactly the original content.
+        ^decoded = content
+
+        FileTransferLane.handle_worker_frame(route_auth, [
+          protocol,
+          "WRITE_COMMITTED",
+          transfer_id,
+          path,
+          u64(byte_size(decoded)),
+          "8db84f6b892cfa6bdad930c907ecb808"
+        ])
+
+      {"READ_OPEN", [path, _fingerprint]} ->
+        # Compress content into one independent zstd frame per 2 MiB block and
+        # send them back across DATA frames, mirroring the real worker.
+        wire_chunks =
+          content
+          |> chunk_string(2 * 1024 * 1024)
+          |> Enum.map(&zstd_encode!/1)
+
+        Agent.update(stored, &%{&1 | read_wire: wire_chunks})
+
+        FileTransferLane.handle_worker_frame(route_auth, [
+          protocol,
+          "READ_READY",
+          transfer_id,
+          path,
+          u64(byte_size(content)),
+          "8db84f6b892cfa6bdad930c907ecb808"
+        ])
+
+      {"CREDIT", [_credit]} ->
+        wire_chunks = Agent.get(stored, & &1.read_wire)
+
+        {data_frames, final_offset, chunk_count} =
+          Enum.reduce(wire_chunks, {[], 0, 0}, fn chunk, {frames, offset, seq} ->
+            eof = chunk == List.last(wire_chunks)
+
+            frame =
+              [protocol, "DATA", transfer_id, u64(seq), u64(offset), bool(eof), chunk]
+
+            {[frame | frames], offset + byte_size(chunk), seq + 1}
+          end)
+
+        Enum.each(
+          Enum.reverse(data_frames),
+          &FileTransferLane.handle_worker_frame(route_auth, &1)
+        )
+
+        FileTransferLane.handle_worker_frame(route_auth, [
+          protocol,
+          "READ_DONE",
+          transfer_id,
+          u64(chunk_count),
+          u64(final_offset)
+        ])
+    end
+  end
+
+  defp chunk_string(content, size) do
+    chunk_string(content, size, [])
+  end
+
+  defp chunk_string(<<>>, _size, acc), do: Enum.reverse(acc)
+
+  defp chunk_string(content, size, acc) do
+    case byte_size(content) do
+      n when n <= size ->
+        Enum.reverse([content | acc])
+
+      _ ->
+        <<chunk::binary-size(^size), rest::binary>> = content
+        chunk_string(rest, size, [chunk | acc])
     end
   end
 
@@ -469,25 +624,20 @@ defmodule Ankole.ActorRuntime.FileTransferLaneTest do
     <<byte_size(value)::unsigned-big-integer-size(32), value::binary>>
   end
 
-  defp zstd_encode!(content), do: run_zstd!(["-q", "-c"], content, "zstd encode")
-  defp zstd_decode!(content), do: run_zstd!(["-q", "-d", "-c"], content, "zstd decode")
+  defp zstd_encode!(content) do
+    compressed = Ankole.Kernel.zstd_compress_block(content, 3)
+    true = is_binary(compressed)
+    compressed
+  end
 
-  defp run_zstd!(args, content, label) do
-    path =
-      Path.join(
-        System.tmp_dir!(),
-        "ankole-file-lane-test-zstd-#{System.unique_integer([:positive])}"
-      )
-
-    try do
-      File.write!(path, content)
-
-      case System.cmd("zstd", args ++ [path], stderr_to_stdout: true) do
-        {output, 0} -> output
-        {output, status} -> flunk("#{label} failed with status #{status}: #{output}")
-      end
-    after
-      File.rm(path)
-    end
+  defp zstd_decode_chunks!(chunks) do
+    # `chunks` is stored newest-first; iterate in stored order and prepend each
+    # decoded block to recover the original oldest-first concatenation.
+    Enum.reduce(chunks, [], fn chunk, acc ->
+      decoded = Ankole.Kernel.zstd_decompress_block(chunk, 2 * 1024 * 1024)
+      true = is_binary(decoded)
+      [decoded | acc]
+    end)
+    |> IO.iodata_to_binary()
   end
 end

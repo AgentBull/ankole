@@ -59,13 +59,13 @@ pub fn aead_encrypt(plain: Either<String, Buffer>, key: String) -> Result<String
 /// Authorizes one exact action on one concrete resource.
 #[napi(ts_args_type = "snapshot: any", ts_return_type = "any")]
 pub fn authz_authorize(snapshot: JsonValue) -> Result<JsonValue> {
-    authz::authorize_json(snapshot).map_err(napi_error)
+    authz::authorize_value(snapshot).map_err(napi_error)
 }
 
 /// Authorizes every requested action against the same concrete resource.
 #[napi(ts_args_type = "snapshot: any", ts_return_type = "any")]
 pub fn authz_authorize_all(snapshot: JsonValue) -> Result<JsonValue> {
-    authz::authorize_all_json(snapshot).map_err(napi_error)
+    authz::authorize_all_value(snapshot).map_err(napi_error)
 }
 
 /// Returns whether a CEL authorization condition compiles.
@@ -90,7 +90,7 @@ pub fn js_signals_gateway_validate_filter(filter_source: String) -> Result<bool>
     ts_args_type = "filterSource: string, context: any"
 )]
 pub fn js_signals_gateway_filter_match(filter_source: String, context: JsonValue) -> Result<bool> {
-    signals_gateway::evaluate_filter_json(&filter_source, context).map_err(napi_error)
+    signals_gateway::evaluate_filter(&filter_source, context).map_err(napi_error)
 }
 
 /// Returns whether a resource pattern is valid.
@@ -113,7 +113,7 @@ pub fn authz_match_resource_pattern(pattern: String, resource: String) -> Result
     ts_args_type = "envelope: any"
 )]
 pub fn js_runtime_fabric_encode_envelope(envelope: JsonValue) -> Result<Buffer> {
-    runtime_fabric::encode_envelope_json(envelope)
+    runtime_fabric::encode_envelope(envelope)
         .map(Buffer::from)
         .map_err(napi_error)
 }
@@ -125,7 +125,7 @@ pub fn js_runtime_fabric_encode_envelope(envelope: JsonValue) -> Result<Buffer> 
     ts_return_type = "any"
 )]
 pub fn js_runtime_fabric_decode_envelope(bytes: Buffer) -> Result<JsonValue> {
-    runtime_fabric::decode_envelope_json(bytes.as_ref()).map_err(napi_error)
+    runtime_fabric::decode_envelope(bytes.as_ref()).map_err(napi_error)
 }
 
 /// Bun/Node DEALER-side RuntimeFabric client.
@@ -348,6 +348,67 @@ pub fn js_xxh3_128_hex(data: Either<String, Buffer>) -> String {
     common::xxh3_128_hex(&bytes_from_either(data))
 }
 
+/// Compresses one worker-file lane block into a self-contained zstd frame.
+///
+/// Runs on a libuv worker thread so the JS event loop is not blocked while a
+/// block is being compressed. `level` follows the zstd CLI scale (1..=22).
+#[napi(js_name = "zstdCompressBlock", ts_return_type = "Promise<Buffer>")]
+pub fn js_zstd_compress_block(data: Buffer, level: i32) -> AsyncTask<ZstdCompressTask> {
+    AsyncTask::new(ZstdCompressTask {
+        input: data.to_vec(),
+        level,
+    })
+}
+
+/// Decompresses one worker-file lane zstd frame with a hard output bound.
+///
+/// `max_out` rejects oversized payloads, capping zip-bomb exposure at one block.
+/// Runs on a libuv worker thread so the JS event loop is not blocked.
+#[napi(js_name = "zstdDecompressBlock", ts_return_type = "Promise<Buffer>")]
+pub fn js_zstd_decompress_block(data: Buffer, max_out: u32) -> AsyncTask<ZstdDecompressTask> {
+    AsyncTask::new(ZstdDecompressTask {
+        input: data.to_vec(),
+        max_out: u64::from(max_out),
+    })
+}
+
+pub struct ZstdCompressTask {
+    input: Vec<u8>,
+    level: i32,
+}
+
+impl Task for ZstdCompressTask {
+    type Output = Vec<u8>;
+    type JsValue = Buffer;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        common::zstd_compress_block(&self.input, self.level).map_err(napi_error)
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(Buffer::from(output))
+    }
+}
+
+pub struct ZstdDecompressTask {
+    input: Vec<u8>,
+    max_out: u64,
+}
+
+impl Task for ZstdDecompressTask {
+    type Output = Vec<u8>;
+    type JsValue = Buffer;
+
+    fn compute(&mut self) -> Result<Self::Output> {
+        let max_out = usize::try_from(self.max_out).unwrap_or(usize::MAX);
+        common::zstd_decompress_block(&self.input, max_out).map_err(napi_error)
+    }
+
+    fn resolve(&mut self, _env: Env, output: Self::Output) -> Result<Self::JsValue> {
+        Ok(Buffer::from(output))
+    }
+}
+
 /// Derives a deterministic BLAKE3 sub-key for JS callers.
 ///
 /// `context` stays optional at the JS boundary, but the shared implementation always receives an
@@ -396,7 +457,7 @@ pub fn js_phone_normalize_e164(phone: String) -> Result<String> {
 /// Decodes a JWT header without validating the token signature.
 #[napi(js_name = "jwtDecodeHeader", ts_return_type = "any")]
 pub fn js_jwt_decode_header(token: String) -> Result<JsonValue> {
-    common::jwt_decode_header_json(&token)
+    common::jwt_decode_header(&token)
         .and_then(|json| {
             serde_json::from_str(&json)
                 .map_err(|error| common::KernelError::new(format!("invalid header JSON: {error}")))
@@ -429,7 +490,7 @@ pub fn js_jwt_sign(
                 )
             })?;
 
-    common::jwt_sign_json(&claims_json, &bytes_from_either(key), &header_json).map_err(napi_error)
+    common::jwt_sign(&claims_json, &bytes_from_either(key), &header_json).map_err(napi_error)
 }
 
 /// Verifies a JWT with a string-or-buffer key and JSON validation options.
@@ -452,7 +513,7 @@ pub fn js_jwt_verify(
                 )
             })?;
 
-    common::jwt_verify_json(&token, &bytes_from_either(key), &validation_json)
+    common::jwt_verify(&token, &bytes_from_either(key), &validation_json)
         .and_then(|json| {
             serde_json::from_str(&json)
                 .map_err(|error| common::KernelError::new(format!("invalid claims JSON: {error}")))

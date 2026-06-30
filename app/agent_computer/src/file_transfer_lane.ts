@@ -1,15 +1,15 @@
-import { xxh3File128Hex } from '@ankole/kernel'
-import { existsSync, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs'
+import { xxh3File128Hex, zstdCompressBlock, zstdDecompressBlock } from '@ankole/kernel'
+import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readSync, rmSync, statSync } from 'node:fs'
 import { appendFile, rename, unlink, writeFile } from 'node:fs/promises'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
-import { spawn, spawnSync } from 'node:child_process'
 import { Buffer } from 'node:buffer'
 import type { WorkerConfig } from './runtime'
 
 export const fileTransferProtocol = Buffer.from('ANKOLE_FILE/1')
 
-const chunkSize = 1024 * 1024
+const chunkSize = 2 * 1024 * 1024
 const creditWindow = 4 * 1024 * 1024
+const zstdLevel = 3
 const transferScratchDir = '.ankole-file-transfer'
 
 type FileFrameSender = {
@@ -21,31 +21,27 @@ type PutTransfer = {
   address: FileAddress
   targetPath: string
   tempDir: string
-  payloadPath: string
+  decodedPath: string
   nextSequence: number
   nextOffset: number
   expectedOriginalSize: number
+  decodedSize: number
 }
 
 type GetTransfer = {
   transferId: string
   address: FileAddress
   filePath: string
-  process: ReturnType<typeof spawn>
-  stdout: NonNullable<ReturnType<typeof spawn>['stdout']>
-  pendingChunks: Buffer[]
-  bufferedBytes: number
+  fd: number
+  fileSize: number
+  readOffset: number
   nextSequence: number
   nextOffset: number
   credit: number
   chunksSent: number
-  stdoutEnded: boolean
-  processClosed: boolean
-  exitCode: number | null
-  stderr: string
   initialSize: number
   initialMtimeMs: number
-  stable?: boolean
+  draining: boolean
   finished?: boolean
 }
 
@@ -167,17 +163,16 @@ async function handleWriteOpen(
     throw new Error(`file transfer already exists: ${transferId}`)
   }
 
-  assertZstdAvailable()
   const address = parseVirtualPathFrame(frames[3], 'write path')
   const expectedOriginalSize = readU64Frame(frames[4], 'original_size')
   const targetPath = resolveFileAddress(config, address)
   const tempDir = scratchDirectoryFor(config, transferId)
-  const payloadPath = join(tempDir, 'payload.zst')
+  const decodedPath = join(tempDir, 'decoded')
 
   try {
     rmSync(tempDir, { recursive: true, force: true })
     mkdirSync(tempDir, { recursive: true })
-    await writeFile(payloadPath, Buffer.alloc(0))
+    await writeFile(decodedPath, Buffer.alloc(0))
   } catch (error) {
     rmSync(tempDir, { recursive: true, force: true })
     throw error
@@ -188,10 +183,11 @@ async function handleWriteOpen(
     address,
     targetPath,
     tempDir,
-    payloadPath,
+    decodedPath,
     nextSequence: 0,
     nextOffset: 0,
-    expectedOriginalSize
+    expectedOriginalSize,
+    decodedSize: 0
   })
 
   try {
@@ -224,9 +220,11 @@ async function handleData(
     throw new Error('DATA requires a binary chunk frame')
   }
 
-  await appendFile(transfer.payloadPath, chunk)
+  const decoded = await zstdDecompressBlock(chunk, chunkSize)
+  await appendFile(transfer.decodedPath, decoded)
   transfer.nextSequence += 1
   transfer.nextOffset += chunk.byteLength
+  transfer.decodedSize += decoded.byteLength
   sendFrame(sender, ['CREDIT', transferId, u64Frame(chunk.byteLength)])
 }
 
@@ -234,29 +232,23 @@ async function handleWriteCommit(sender: FileFrameSender, state: FileTransferSta
   const transfer = getPutTransfer(state, transferId)
 
   const finalTempPath = `${transfer.targetPath}.ankole-transfer-${safeTransferId(transferId)}.tmp`
-  const decodedPath = join(transfer.tempDir, 'decoded')
   let fingerprint: string
 
   try {
-    assertZstdAvailable()
-    rmSync(decodedPath, { force: true })
-    const result = spawnSync('zstd', ['-q', '-d', '-f', '-o', decodedPath, transfer.payloadPath], {
-      encoding: 'utf8'
-    })
-    if (result.status !== 0) {
-      throw new Error(`zstd decode failed: ${result.stderr || result.error?.message || 'unknown error'}`)
+    if (transfer.decodedSize !== transfer.expectedOriginalSize) {
+      throw new Error(
+        `size mismatch after file transfer: expected ${transfer.expectedOriginalSize}, got ${transfer.decodedSize}`
+      )
     }
 
-    await verifyFinalFile(decodedPath, transfer)
     mkdirSync(dirname(transfer.targetPath), { recursive: true })
     rmSync(finalTempPath, { force: true })
-    await rename(decodedPath, finalTempPath)
+    await rename(transfer.decodedPath, finalTempPath)
     await rename(finalTempPath, transfer.targetPath)
     fingerprint = fileFingerprint(state, transfer.address.root, transfer.address.relativePath, transfer.targetPath)
     state.puts.delete(transferId)
     rmSync(transfer.tempDir, { recursive: true, force: true })
   } catch (error) {
-    removePathBestEffort(decodedPath)
     removePathBestEffort(finalTempPath)
     cleanupWriteTransfer(state, transferId)
     throw error
@@ -292,7 +284,6 @@ function handleReadOpen(
     throw new Error(`file transfer already exists: ${transferId}`)
   }
 
-  assertZstdAvailable()
   const address = parseVirtualPathFrame(frames[3], 'read path')
   const fingerprint = fingerprintMode(requiredTextFrame(frames[4], 'fingerprint'))
   const filePath = resolveFileAddress(config, address)
@@ -301,60 +292,24 @@ function handleReadOpen(
   }
 
   const stableStat = statSync(filePath)
-  const zstd = spawn('zstd', ['-q', '-c', filePath], { stdio: ['ignore', 'pipe', 'pipe'] })
-  const stdout = zstd.stdout
-  const stderr = zstd.stderr
-  if (!stdout || !stderr) {
-    zstd.kill('SIGTERM')
-    throw new Error('zstd encode pipes unavailable')
-  }
-  stdout.pause()
+  const fd = openSync(filePath, 'r')
 
   const transfer: GetTransfer = {
     transferId,
     address,
     filePath,
-    process: zstd,
-    stdout,
-    pendingChunks: [],
-    bufferedBytes: 0,
+    fd,
+    fileSize: stableStat.size,
+    readOffset: 0,
     nextSequence: 0,
     nextOffset: 0,
     credit: 0,
     chunksSent: 0,
-    stdoutEnded: false,
-    processClosed: false,
-    exitCode: null,
-    stderr: '',
     initialSize: stableStat.size,
-    initialMtimeMs: stableStat.mtimeMs
+    initialMtimeMs: stableStat.mtimeMs,
+    draining: false
   }
   state.gets.set(transferId, transfer)
-
-  stdout.on('data', chunk => {
-    transfer.pendingChunks.push(Buffer.from(chunk))
-    transfer.bufferedBytes += chunk.byteLength
-    drainReadTransfer(sender, state, transfer)
-  })
-  stdout.on('end', () => {
-    transfer.stdoutEnded = true
-    drainReadTransfer(sender, state, transfer)
-  })
-  stderr.on('data', chunk => {
-    transfer.stderr += Buffer.from(chunk).toString('utf8')
-  })
-  zstd.on('error', error => {
-    finishReadTransferWithError(sender, state, transfer, `zstd encode failed: ${error.message}`)
-  })
-  zstd.on('close', code => {
-    transfer.processClosed = true
-    transfer.exitCode = code
-    if (code !== 0) {
-      finishReadTransferWithError(sender, state, transfer, `zstd encode failed: ${transfer.stderr.trim() || code}`)
-      return
-    }
-    drainReadTransfer(sender, state, transfer)
-  })
 
   try {
     sendFrame(sender, [
@@ -377,85 +332,97 @@ function sendReadData(sender: FileFrameSender, state: FileTransferState, transfe
   }
 
   transfer.credit += readU64Frame(frames[3], 'credit')
-  drainReadTransfer(sender, state, transfer)
+  void drainReadTransfer(sender, state, transfer)
 }
 
 function handleReadAbort(state: FileTransferState, transferId: string): void {
   const transfer = state.gets.get(transferId)
   if (!transfer) return
 
+  closeTransferFile(transfer)
   state.gets.delete(transferId)
   transfer.finished = true
-  transfer.process.kill('SIGTERM')
 }
 
-function drainReadTransfer(sender: FileFrameSender, state: FileTransferState, transfer: GetTransfer): void {
-  if (transfer.finished) return
+async function drainReadTransfer(
+  sender: FileFrameSender,
+  state: FileTransferState,
+  transfer: GetTransfer
+): Promise<void> {
+  if (transfer.finished || transfer.draining) return
 
-  while (transfer.credit > 0) {
-    const terminal = transfer.stdoutEnded && transfer.processClosed && transfer.exitCode === 0
-    const sendableBytes = terminal ? transfer.bufferedBytes : Math.max(0, transfer.bufferedBytes - 1)
-    if (sendableBytes <= 0) break
+  transfer.draining = true
+  try {
+    // Credit is a wire-byte budget. A block's compressed size is only known after
+    // compression, so an incompressible block can overshoot the budget and drive
+    // credit negative by up to one block. The control plane returns CREDIT equal
+    // to each received chunk's wire size, so credit recovers on the next drain.
+    // EOF chunks never receive a top-up, so finishing must not depend on credit.
+    while (transfer.credit > 0 && transfer.readOffset < transfer.fileSize && !transfer.finished) {
+      const bytesToRead = Math.min(chunkSize, transfer.credit, transfer.fileSize - transfer.readOffset)
+      const block = readTransferBlock(transfer, bytesToRead)
+      if (!block) break
 
-    const chunk = takeReadChunk(transfer, Math.min(chunkSize, transfer.credit, sendableBytes))
-    const eof = terminal && transfer.bufferedBytes === 0
+      let compressed: Buffer
+      try {
+        compressed = await zstdCompressBlock(block, zstdLevel)
+      } catch (error) {
+        finishReadTransferWithError(
+          sender,
+          state,
+          transfer,
+          `zstd encode failed: ${error instanceof Error ? error.message : String(error)}`
+        )
+        return
+      }
 
-    sendFrame(sender, [
-      'DATA',
-      transfer.transferId,
-      u64Frame(transfer.nextSequence),
-      u64Frame(transfer.nextOffset),
-      boolFrame(eof),
-      chunk
-    ])
+      const eof = transfer.readOffset === transfer.fileSize
+      sendFrame(sender, [
+        'DATA',
+        transfer.transferId,
+        u64Frame(transfer.nextSequence),
+        u64Frame(transfer.nextOffset),
+        boolFrame(eof),
+        compressed
+      ])
 
-    transfer.nextSequence += 1
-    transfer.nextOffset += chunk.byteLength
-    transfer.credit -= chunk.byteLength
-    transfer.chunksSent += 1
-  }
-
-  if (transfer.credit > 0 && !transfer.stdoutEnded) {
-    transfer.stdout.resume()
-  } else {
-    transfer.stdout.pause()
-  }
-
-  maybeFinishReadTransfer(sender, state, transfer)
-}
-
-function takeReadChunk(transfer: GetTransfer, size: number): Buffer {
-  const chunks: Buffer[] = []
-  let remaining = size
-
-  while (remaining > 0) {
-    const chunk = transfer.pendingChunks.shift()
-    if (!chunk) break
-
-    if (chunk.byteLength <= remaining) {
-      chunks.push(chunk)
-      remaining -= chunk.byteLength
-      transfer.bufferedBytes -= chunk.byteLength
-      continue
+      transfer.nextSequence += 1
+      transfer.nextOffset += compressed.byteLength
+      transfer.credit -= compressed.byteLength
+      transfer.chunksSent += 1
     }
 
-    chunks.push(chunk.subarray(0, remaining))
-    transfer.pendingChunks.unshift(chunk.subarray(remaining))
-    transfer.bufferedBytes -= remaining
-    remaining = 0
+    maybeFinishReadTransfer(sender, state, transfer)
+  } finally {
+    transfer.draining = false
+    // Credit may have arrived while this drain was in flight (sendReadData would
+    // have bailed on `draining`). Re-kick if there is still work to do.
+    if (!transfer.finished && transfer.credit > 0 && transfer.readOffset < transfer.fileSize) {
+      void drainReadTransfer(sender, state, transfer)
+    }
+  }
+}
+
+function readTransferBlock(transfer: GetTransfer, size: number): Buffer | null {
+  const buffer = Buffer.alloc(size)
+  let totalRead = 0
+  while (totalRead < size) {
+    let bytesRead: number
+    try {
+      bytesRead = readSync(transfer.fd, buffer, totalRead, size - totalRead, transfer.readOffset)
+    } catch {
+      return null
+    }
+    if (bytesRead === 0) break
+    totalRead += bytesRead
+    transfer.readOffset += bytesRead
   }
 
-  return Buffer.concat(chunks)
+  return totalRead === 0 ? null : buffer.subarray(0, totalRead)
 }
 
 function maybeFinishReadTransfer(sender: FileFrameSender, state: FileTransferState, transfer: GetTransfer): void {
-  if (
-    transfer.finished ||
-    !transfer.stdoutEnded ||
-    !transfer.processClosed ||
-    transfer.exitCode !== 0 ||
-    transfer.bufferedBytes > 0
-  ) {
+  if (transfer.finished || transfer.readOffset < transfer.fileSize) {
     return
   }
 
@@ -465,6 +432,7 @@ function maybeFinishReadTransfer(sender: FileFrameSender, state: FileTransferSta
   }
 
   transfer.finished = true
+  closeTransferFile(transfer)
   state.gets.delete(transfer.transferId)
   sendFrame(sender, ['READ_DONE', transfer.transferId, u64Frame(transfer.chunksSent), u64Frame(transfer.nextOffset)])
 }
@@ -473,6 +441,17 @@ function readSourceStillStable(transfer: GetTransfer): boolean {
   if (!existsSync(transfer.filePath)) return false
   const current = statSync(transfer.filePath)
   return current.isFile() && current.size === transfer.initialSize && current.mtimeMs === transfer.initialMtimeMs
+}
+
+function closeTransferFile(transfer: GetTransfer): void {
+  if (transfer.fd !== -1) {
+    try {
+      closeSync(transfer.fd)
+    } catch {
+      // Best-effort close; the transfer is ending either way.
+    }
+    transfer.fd = -1
+  }
 }
 
 function finishReadTransferWithError(
@@ -484,10 +463,8 @@ function finishReadTransferWithError(
   if (transfer.finished) return
 
   transfer.finished = true
+  closeTransferFile(transfer)
   state.gets.delete(transfer.transferId)
-  if (!transfer.process.killed && !transfer.processClosed) {
-    transfer.process.kill('SIGTERM')
-  }
   sendError(sender, transfer.transferId, 'operation_failed', message)
 }
 
@@ -608,13 +585,6 @@ function handleList(config: WorkerConfig, sender: FileFrameSender, transferId: s
     boolFrame(truncated),
     encodeEntries(entries)
   ])
-}
-
-async function verifyFinalFile(path: string, transfer: PutTransfer): Promise<void> {
-  const stat = statSync(path)
-  if (stat.size !== transfer.expectedOriginalSize) {
-    throw new Error(`size mismatch after file transfer: expected ${transfer.expectedOriginalSize}, got ${stat.size}`)
-  }
 }
 
 function resolveFileAddress(config: WorkerConfig, address: FileAddress, opts: { allowRoot?: boolean } = {}): string {
@@ -873,13 +843,6 @@ function u32Frame(value: number): Buffer {
   const frame = Buffer.alloc(4)
   frame.writeUInt32BE(value)
   return frame
-}
-
-function assertZstdAvailable(): void {
-  const result = spawnSync('zstd', ['--version'], { encoding: 'utf8' })
-  if (result.status !== 0) {
-    throw new Error(`zstd is required for file transfer: ${result.stderr || result.error?.message || 'not found'}`)
-  }
 }
 
 function sendError(sender: FileFrameSender, transferId: string, code: string, message: string): void {

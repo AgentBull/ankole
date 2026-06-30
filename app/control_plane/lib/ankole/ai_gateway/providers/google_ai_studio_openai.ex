@@ -1,96 +1,143 @@
 defmodule Ankole.AIGateway.Providers.GoogleAIStudioOpenAI do
   @moduledoc """
-  Provider implementation for Google AI Studio's OpenAI-compatible endpoint.
-
-  This provider uses Google's documented `/v1beta/openai` compatibility surface.
-  It is separate from a future native Gemini provider because the native Gemini
-  API has different request, stream, and auth details.
+  Google AI Studio OpenAI-compatible provider.
   """
 
-  @behaviour Ankole.AIGateway.Provider
+  use Ankole.AIGateway.ProviderDSL
 
-  alias Ankole.AIGateway.Providers.OpenAICompatible
-  alias Ankole.AIGateway.Request
+  alias Ankole.AIGateway.ReasoningEffort
+  alias Ankole.AIGateway.UniversalAIRequest
 
-  @impl true
-  def provider_id, do: "google_ai_studio_openai"
+  @reasoning_effort_map %{
+    "low" => "low",
+    "medium" => "medium",
+    "high" => "high"
+  }
 
-  @impl true
-  def label, do: "Google AI Studio OpenAI Compatibility"
+  provider "google_ai_studio_openai" do
+    label(%{
+      "default" => "Google AI Studio OpenAI Compatibility",
+      "zh-Hans-CN" => "Google AI Studio OpenAI 兼容"
+    })
 
-  @impl true
-  def capabilities, do: ["llm"]
+    base_url("https://generativelanguage.googleapis.com/v1beta/openai")
 
-  @impl true
-  def endpoint_modes, do: ["chat_completions"]
+    setting(:api_key, encrypted: true)
+    setting(:headers, type: :map)
+    setting(:query_params, type: :map)
 
-  @impl true
-  def provider_strategy, do: "openai_compatible_chat_completions"
+    setting(:user, scope: :request)
+    setting(:reasoningEffort, scope: :request)
+    setting(:textVerbosity, scope: :request)
+    setting(:strictJsonSchema, scope: :request)
+    setting(:taskType, scope: :request)
+    setting(:title, scope: :request)
+    setting(:outputDimensionality, scope: :request)
+    setting(:autoTruncate, scope: :request)
 
-  @impl true
-  def default_base_url, do: "https://generativelanguage.googleapis.com/v1beta/openai"
+    language_model do
+      upstream(:sse)
+      api_resolver(:openai_chat_completions)
+      prepare(:prepare_language_model)
+    end
 
-  @impl true
-  def default_http_protocol, do: "http2"
-
-  @impl true
-  def credential_schemes, do: ["api_key", "bearer"]
-
-  @impl true
-  def connection_option_keys, do: ~w(http_protocol headers query_params)
-
-  @impl true
-  def runtime_provider_option_keys, do: ~w(user reasoningEffort textVerbosity strictJsonSchema)
-
-  @impl true
-  def model_catalog_policy, do: "known_or_custom"
-
-  @impl true
-  def response_endpoint_mode(_runtime), do: "chat_completions"
-
-  @impl true
-  def build_response_request(runtime, request, opts) do
-    stream? = Keyword.get(opts, :stream?, false)
-
-    with {:ok, request} <-
-           Request.build_openai_compatible_response_request(
-             runtime,
-             request,
-             "chat_completions",
-             stream?: stream?
-           ) do
-      {:ok, maybe_stream_request(request, stream?)}
+    embedding_model do
+      upstream(:json)
+      api_resolver(:google_embeddings)
+      prepare(:prepare_embedding_model)
     end
   end
 
-  @impl true
-  def normalize_response_body(runtime, upstream_request, upstream_response),
-    do: OpenAICompatible.normalize_response_body(runtime, upstream_request, upstream_response)
+  @doc """
+  Builds a Google AI Studio OpenAI-compatible chat request.
 
-  @impl true
-  def put_headers(headers, _runtime),
-    do: Map.put_new(headers, "x-goog-api-client", "ankole-ai-gateway/0.1")
-
-  @impl true
-  def put_auth_headers(headers, runtime), do: OpenAICompatible.put_auth_headers(headers, runtime)
-
-  @impl true
-  def stream_init(runtime, upstream_request),
-    do: OpenAICompatible.stream_init(runtime, upstream_request)
-
-  @impl true
-  def decode_stream_message(runtime, upstream_request, state, message),
-    do: OpenAICompatible.decode_stream_message(runtime, upstream_request, state, message)
-
-  @impl true
-  def finish_stream(runtime, upstream_request, state),
-    do: OpenAICompatible.finish_stream(runtime, upstream_request, state)
-
-  defp maybe_stream_request(request, false), do: request
-
-  defp maybe_stream_request(request, true) do
-    request
-    |> put_in([:headers, "accept"], "text/event-stream")
-    |> Map.put(:stream?, true)
+  The chat endpoint speaks OpenAI-compatible Chat Completions, so the provider
+  only adds Google's client/auth headers before the shared OpenAI resolver runs
+  in Rust.
+  """
+  def prepare_language_model(ctx) do
+    ctx
+    |> UniversalAIRequest.new("chat/completions", :openai_chat_completions)
+    |> UniversalAIRequest.put_new_header("x-goog-api-client", "ankole-ai-gateway/0.1")
+    |> UniversalAIRequest.bearer_auth()
+    |> ReasoningEffort.put_provider_options(ctx, map: @reasoning_effort_map)
   end
+
+  @doc """
+  Builds a Google native embeddings request.
+
+  Google embeddings use the official Gemini embeddings API, not the OpenAI
+  compatibility path. The absolute URL makes that native endpoint explicit while
+  the Rust `google_embeddings` resolver handles the different response shape.
+  """
+  def prepare_embedding_model(ctx) do
+    with {:ok, url} <- google_embedding_url(ctx) do
+      ctx
+      |> UniversalAIRequest.new(url, :google_embeddings)
+      |> UniversalAIRequest.put_new_header("x-goog-api-client", "ankole-ai-gateway/0.1")
+      |> UniversalAIRequest.api_key_header("x-goog-api-key")
+    end
+  end
+
+  @doc """
+  Checks Google AI Studio connectivity through the native Gemini model catalog endpoint.
+  """
+  @impl true
+  def check_connection(ctx) when is_map(ctx) do
+    credential = ctx.settings[:api_key] || ""
+
+    with {:ok, %{"status" => status, "body" => body}} when status in 200..299 <-
+           UniversalAIRequest.raw_get(
+             ctx,
+             "https://generativelanguage.googleapis.com/v1beta/models?key=#{URI.encode_www_form(credential)}",
+             headers: []
+           ) do
+      {:ok, body}
+    else
+      {:ok, %{"status" => status, "body" => body}} ->
+        {:error, {:provider_connection_check_failed, status, body}}
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  # The official embeddings API uses `embedContent` for one input and
+  # `batchEmbedContents` for multiple text inputs. Token vectors are not treated
+  # as batches because they are one already-tokenized input.
+  defp google_embedding_url(ctx) do
+    model = ctx.model || ""
+
+    cond do
+      String.trim(model) == "" ->
+        {:error, :missing_model}
+
+      true ->
+        method =
+          if batch_embedding_input?(ctx.request["input"]),
+            do: "batchEmbedContents",
+            else: "embedContent"
+
+        {:ok, "#{google_native_base_url(ctx)}/#{google_model_path(model)}:#{method}"}
+    end
+  end
+
+  # The provider's chat base URL points at `/openai`; native Gemini endpoints
+  # live beside that prefix.
+  defp google_native_base_url(ctx) do
+    ctx.settings[:base_url]
+    |> to_string()
+    |> String.trim_trailing("/")
+    |> String.replace_suffix("/openai", "")
+  end
+
+  defp google_model_path("models/" <> _rest = model), do: model
+  defp google_model_path(model), do: "models/#{model}"
+
+  defp batch_embedding_input?(input) when is_list(input) and input != [],
+    do: not token_vector?(input)
+
+  defp batch_embedding_input?(_input), do: false
+
+  defp token_vector?(input), do: Enum.all?(input, &is_integer/1)
 end

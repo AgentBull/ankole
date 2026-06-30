@@ -12,6 +12,7 @@ temp/*
 _build/
 deps/
 app/ai_proxy/dist/
+app/control_plane/priv/static/**/*.gz
 app/control_plane/priv/static/assets/
 app/control_plane/priv/static/cache_manifest.json
 

@@ -1,4 +1,4 @@
-import type { ModelMessage, ProviderOptions } from './provider-utils'
+import type { ModelMessage, ProviderOptions, ToolResultOutput } from './provider-utils'
 import type { LanguageModelUsage } from './types'
 import {
   calculateCost,
@@ -6,7 +6,8 @@ import {
   type AssistantMessage,
   type Message,
   type Model,
-  type SimpleStreamOptions
+  type SimpleStreamOptions,
+  type ToolResultMessage
 } from './ankole'
 
 // The seam between Ankole's durable transcript shapes (ankole.ts) and the vendored AI SDK's
@@ -19,8 +20,8 @@ import {
  *  - Ankole block `thinking` -> AI SDK `reasoning` content part.
  *  - Ankole `toolCall` (fields id/name/arguments) -> AI SDK `tool-call` (toolCallId/toolName/input).
  *  - Ankole role `toolResult` -> AI SDK role `tool`.
- * Tool results are flattened to text: image blocks become an `[image:...]` placeholder because
- * the tool-result wire slot only carries text, and `isError` selects the SDK's error-text variant.
+ * Tool-result image blocks use the SDK's multipart `content` output so Responses-capable providers
+ * can receive them as `input_image`; errors stay text-only because the SDK has no error-content part.
  */
 export function convertAnkoleMessagesToModelMessages(messages: Message[]): ModelMessage[] {
   return messages.map(message => {
@@ -57,10 +58,6 @@ export function convertAnkoleMessagesToModelMessages(messages: Message[]): Model
       }
     }
 
-    // toolResult: join all content blocks into a single text payload (images degraded to a tag).
-    const text = message.content
-      .map(block => (block.type === 'text' ? block.text : `[image:${block.mimeType}]`))
-      .join('\n')
     return {
       role: 'tool',
       content: [
@@ -68,13 +65,38 @@ export function convertAnkoleMessagesToModelMessages(messages: Message[]): Model
           type: 'tool-result',
           toolCallId: message.toolCallId,
           toolName: message.toolName,
-          output: message.isError
-            ? { type: 'error-text' as const, value: text }
-            : { type: 'text' as const, value: text }
+          output: toolResultOutput(message)
         }
       ]
     }
   })
+}
+
+function toolResultOutput(message: ToolResultMessage): ToolResultOutput {
+  if (message.isError) {
+    return { type: 'error-text' as const, value: toolResultTextFallback(message.content) }
+  }
+
+  if (!message.content.some(block => block.type === 'image')) {
+    return { type: 'text' as const, value: toolResultTextFallback(message.content) }
+  }
+
+  return {
+    type: 'content' as const,
+    value: message.content.map(block =>
+      block.type === 'text'
+        ? { type: 'text' as const, text: block.text }
+        : {
+            type: 'file' as const,
+            mediaType: block.mimeType,
+            data: { type: 'data' as const, data: block.data }
+          }
+    )
+  }
+}
+
+function toolResultTextFallback(messageContent: ToolResultMessage['content']): string {
+  return messageContent.map(block => (block.type === 'text' ? block.text : `[image:${block.mimeType}]`)).join('\n')
 }
 
 /**

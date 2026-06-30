@@ -7,7 +7,7 @@ use crate::common::{KernelError, KernelResult};
 use crate::runtime_fabric;
 
 use super::auth::{
-    AuthenticatedRouteState, AuthenticatedRoutes, authenticated_envelope_route,
+    AuthenticatedRouteState, AuthenticatedRoutes, ZapErrorSink, authenticated_envelope_route,
     authenticated_route, start_zap_server, zap_auth_config,
 };
 use super::config::{RouterConfig, configure_common_socket};
@@ -56,7 +56,7 @@ impl RouterHandle {
         envelope_json: serde_json::Value,
     ) -> Result<SendOutcome, TransportError> {
         let payload =
-            runtime_fabric::encode_envelope_json(envelope_json).map_err(TransportError::from)?;
+            runtime_fabric::encode_envelope(envelope_json).map_err(TransportError::from)?;
         let (reply_tx, reply_rx) = mpsc::channel();
 
         self.commands
@@ -165,12 +165,17 @@ fn run_router(
     let auth_routes = Arc::new(Mutex::new(AuthenticatedRouteState::default()));
     let zap_auth = zap_auth_config(&config);
     let requires_auth = zap_auth.is_some();
+    let zap_error_sink: ZapErrorSink = {
+        let sink = Arc::clone(&sink);
+        Arc::new(move |reason| sink(RouterEvent::SocketError { reason }))
+    };
     let zap_guard = match zap_auth {
         Some(auth) => start_zap_server(
             &context,
             config.zap_domain(),
             auth,
             Arc::clone(&auth_routes),
+            zap_error_sink,
             zap_stop,
         ),
         None => Ok(None),
@@ -300,7 +305,7 @@ fn emit_router_frames(
 ) {
     match parse_router_frames(frames) {
         Ok(RouterInbound::Envelope { route, payload }) => {
-            match runtime_fabric::decode_envelope_json(&payload) {
+            match runtime_fabric::decode_envelope(&payload) {
                 Ok(envelope_json) => {
                     let auth = if requires_auth {
                         match authenticated_envelope_route(auth_routes, &route, &envelope_json) {

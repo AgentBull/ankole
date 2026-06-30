@@ -2,29 +2,28 @@ defmodule Ankole.AIGateway.ProviderConfigs do
   @moduledoc """
   CRUD and projection service for operator-configured AIGateway providers.
 
-  A provider row holds a provider kind, an endpoint override, connection options,
-  and an encrypted credential. Plaintext credentials only ever leave through
-  `plaintext_credential/1` (for the broker) and the live-check path; every
-  console/API shape goes through `projection/1`, which masks the secret.
+  A provider row holds a provider kind, an endpoint override, plain connection
+  options, and encrypted provider options. Plaintext encrypted options only
+  leave through provider request construction and the live-check path; every
+  console/API shape goes through `projection/1`, which masks encrypted values.
   """
 
   import Ecto.Query, warn: false
 
-  alias Ankole.AIGateway.Providers
-  alias Ankole.AIGateway.HttpProtocol
+  alias Ecto.Adapters.SQL
+
   alias Ankole.AIGateway.ProviderConfigs.Crypto
   alias Ankole.AIGateway.ProviderConfigs.Provider
-  alias Ankole.Principals.Agent
+  alias Ankole.AIGateway.Providers
   alias Ankole.Repo
 
-  # Sentinel distinguishing "caller did not mention the credential" (preserve it)
-  # from "caller passed nil/blank" (clear it). A plain nil cannot express that
-  # difference, so writes use this marker as the default.
-  @credential_omitted :__ankole_credential_omitted__
   # Operator live-checks hit a third-party endpoint; cap both connect and read so
   # a slow or hanging provider cannot stall the Console request.
   @live_check_timeout_ms 15_000
 
+  @typedoc """
+  Common result shape for provider-row writes and fetches.
+  """
   @type provider_result :: {:ok, Provider.t()} | {:error, term()}
 
   @doc """
@@ -36,7 +35,7 @@ defmodule Ankole.AIGateway.ProviderConfigs do
   end
 
   @doc """
-  Lists configured provider projections without plaintext credentials.
+  Lists configured provider projections without plaintext encrypted options.
   """
   @spec list_providers() :: [map()]
   def list_providers do
@@ -110,13 +109,13 @@ defmodule Ankole.AIGateway.ProviderConfigs do
   end
 
   @doc """
-  Updates provider metadata and optionally its credential.
+  Updates provider metadata and optionally its encrypted options.
 
-  Credential write semantics:
+  Encrypted option write semantics:
 
-  - omitted: preserve existing credential
-  - `nil` or blank: clear credential
-  - non-empty string: replace credential
+  - omitted: preserve existing encrypted option
+  - `nil` or blank: clear that encrypted option
+  - any other JSON-compatible value: replace that encrypted option
   """
   @spec update_provider(String.t(), map()) :: provider_result()
   def update_provider(provider_id, attrs) when is_map(attrs) do
@@ -175,49 +174,74 @@ defmodule Ankole.AIGateway.ProviderConfigs do
   Performs an operator-triggered live provider check.
 
   This intentionally sits outside ordinary turn execution: it decrypts the
-  provider credential just long enough to call the provider's model-list
+  encrypted provider options just long enough to call the provider's connection
   endpoint, then returns a redacted result suitable for Console/API display.
   """
   @spec live_check_provider(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def live_check_provider(provider_id, opts \\ [])
 
   def live_check_provider(provider_id, opts) when is_binary(provider_id) do
-    http_client = Keyword.get(opts, :http_client, &http_get/1)
-    timeout_ms = Keyword.get(opts, :timeout_ms, @live_check_timeout_ms)
-
     with {:ok, %Provider{} = provider} <- fetch_active_provider(provider_id),
-         {:ok, credential} <- plaintext_credential(provider),
-         {:ok, connection} <- runtime_connection(provider),
-         {:ok, request} <- live_check_request(provider, connection, credential),
-         request <- Map.put(request, :timeout_ms, timeout_ms),
-         {:ok, result} <- call_live_check_client(http_client, request) do
+         {:ok, _result} <- provider_connection_check(provider, opts) do
       {:ok,
-       Map.merge(result, %{
+       %{
+         "status" => "ok",
          "provider_id" => provider.provider_id,
          "provider_kind" => provider.provider_kind,
-         "checked_at" => DateTime.utc_now(:microsecond) |> DateTime.to_iso8601(),
-         "endpoint" => request.endpoint
-       })}
+         "checked_at" => DateTime.utc_now(:microsecond) |> DateTime.to_iso8601()
+       }}
+    else
+      {:error, {:provider_connection_check_failed, status, body}} when is_integer(status) ->
+        {:error,
+         {:provider_live_check_failed,
+          %{
+            "http_status" => status,
+            "reason" => "upstream_error",
+            "body" => truncate_body(body)
+          }}}
+
+      {:error, :provider_connection_check_not_supported} = error ->
+        error
+
+      {:error, reason}
+      when reason in [
+             :provider_disabled,
+             :missing_base_url,
+             :unknown_ai_gateway_provider
+           ] ->
+        {:error, reason}
+
+      {:error, reason} ->
+        {:error, {:provider_live_check_failed, reason}}
     end
   end
 
   def live_check_provider(_provider_id, _opts), do: {:error, :not_found}
 
   @doc """
-  Decrypts a provider credential for the credential broker.
+  Returns decrypted encrypted options for runtime request dispatch or live-checks.
   """
-  @spec plaintext_credential(Provider.t()) :: {:ok, String.t()} | {:error, term()}
-  def plaintext_credential(%Provider{id: id, encrypted_credential: encrypted})
-      when is_binary(id) and is_binary(encrypted) do
-    Crypto.unseal(encrypted, id)
+  @spec plaintext_encrypted_options(Provider.t()) :: {:ok, map()} | {:error, term()}
+  def plaintext_encrypted_options(%Provider{id: id, encrypted_options: encrypted_options})
+      when is_binary(id) and is_map(encrypted_options) do
+    Enum.reduce_while(encrypted_options, {:ok, %{}}, fn
+      {key, ciphertext}, {:ok, acc} when is_binary(key) and is_binary(ciphertext) ->
+        case Crypto.unseal(ciphertext, id, key) do
+          {:ok, value} -> {:cont, {:ok, Map.put(acc, key, value)}}
+          {:error, reason} -> {:halt, {:error, {:encrypted_option_decrypt_failed, key, reason}}}
+        end
+
+      {key, _ciphertext}, {:ok, _acc} ->
+        {:halt, {:error, {:invalid_encrypted_option, key}}}
+    end)
   end
 
-  def plaintext_credential(%Provider{}), do: {:error, :credential_missing}
+  def plaintext_encrypted_options(%Provider{}), do: {:ok, %{}}
 
   @doc """
   Returns a runtime-safe connection config for one provider.
 
-  The provider row may omit `base_url` and `http_protocol` when the provider
+  The provider row may omit `base_url` and `transport` when the provider
   implementation has safe defaults. The returned map is the single shape used by
   provider dispatch, live-checks, and model catalog projections.
   """
@@ -229,16 +253,12 @@ defmodule Ankole.AIGateway.ProviderConfigs do
              provider.provider_kind,
              provider.connection_options || %{}
            ),
+         {:ok, encrypted_options} <- plaintext_encrypted_options(provider),
          {:ok, base_url} <- runtime_base_url(provider, provider_kind) do
-      http_protocol = Map.get(options, "http_protocol") || provider_kind.default_http_protocol
-
-      connection =
-        options
-        |> Map.delete("http_protocol")
-        |> Map.put("base_url", base_url)
-        |> Map.put("http_protocol", http_protocol)
-
-      {:ok, connection}
+      {:ok,
+       options
+       |> Map.merge(encrypted_options)
+       |> Map.put("base_url", base_url)}
     end
   end
 
@@ -253,31 +273,21 @@ defmodule Ankole.AIGateway.ProviderConfigs do
       "provider_kind" => provider.provider_kind,
       "base_url" => provider.base_url,
       "connection_options" => provider.connection_options || %{},
-      "credential_mode" => provider.credential_mode,
+      "encrypted_options" => encrypted_options_projection(provider),
       "disabled_at" => provider.disabled_at && DateTime.to_iso8601(provider.disabled_at),
-      "credential" => %{
-        "present" => is_binary(provider.encrypted_credential),
-        "masked" => credential_mask(provider.encrypted_credential)
-      },
       "provider_metadata" => provider_metadata(provider.provider_kind)
     }
   end
 
-  # Write normalization happens before the changeset because credential handling
-  # depends on whether the caller omitted the field, cleared it, or supplied a
-  # new secret. A normal changeset cannot distinguish those states cleanly.
+  # Write normalization happens before the changeset because encrypted option
+  # handling depends on per-provider setting metadata.
   defp provider_attrs_for_write(attrs, %Provider{} = provider) do
     attrs = normalize_external_attrs(attrs)
-    credential = Map.get(attrs, "credential", @credential_omitted)
 
-    attrs =
-      attrs
-      |> Map.delete("credential")
-      |> maybe_preserve_credential(provider)
-
-    with {:ok, attrs} <- reject_provider_id_change(attrs, provider),
-         {:ok, attrs} <- apply_credential(attrs, provider, credential),
-         {:ok, attrs} <- normalize_connection_options(attrs, provider) do
+    with :ok <- reject_credential_field(attrs),
+         {:ok, attrs} <- reject_provider_id_change(attrs, provider),
+         {:ok, attrs} <- normalize_connection_options(attrs, provider),
+         {:ok, attrs} <- apply_encrypted_options(attrs, provider) do
       {:ok, attrs}
     end
   end
@@ -289,11 +299,15 @@ defmodule Ankole.AIGateway.ProviderConfigs do
     end)
   end
 
-  defp maybe_preserve_credential(attrs, %Provider{encrypted_credential: encrypted})
-       when is_binary(encrypted),
-       do: Map.put_new(attrs, "encrypted_credential", encrypted)
-
-  defp maybe_preserve_credential(attrs, _provider), do: attrs
+  # The old singular `credential` field is intentionally rejected. Credentials
+  # are now ordinary provider options with encrypted storage metadata, so keeping
+  # the old field would create two semantic centers for the same data.
+  defp reject_credential_field(attrs) do
+    case Map.has_key?(attrs, "credential") do
+      true -> {:error, :credential_field_removed}
+      false -> :ok
+    end
+  end
 
   defp reject_provider_id_change(attrs, %Provider{provider_id: nil}), do: {:ok, attrs}
 
@@ -310,25 +324,26 @@ defmodule Ankole.AIGateway.ProviderConfigs do
     end
   end
 
-  defp apply_credential(attrs, _provider, @credential_omitted), do: {:ok, attrs}
+  # Only options declared as encrypted connection settings are sealed. Other
+  # options remain in `connection_options`, which lets providers define arbitrary
+  # JSON-compatible configuration without a hardcoded credential mode system.
+  defp apply_encrypted_options(attrs, %Provider{id: row_id} = provider) when is_binary(row_id) do
+    provider_kind = Map.get(attrs, "provider_kind") || provider_kind(provider)
+    options = Map.get(attrs, "connection_options", %{})
 
-  defp apply_credential(attrs, _provider, credential) when credential in [nil, ""],
-    do: {:ok, Map.put(attrs, "encrypted_credential", nil)}
+    with {:ok, encrypted_keys} <- encrypted_option_keys(provider_kind),
+         {:ok, encrypted_options} <-
+           seal_encrypted_options(provider, row_id, options, encrypted_keys) do
+      plain_options = Map.drop(options, encrypted_keys)
 
-  defp apply_credential(attrs, %Provider{id: row_id}, credential)
-       when is_binary(credential) and is_binary(row_id) do
-    case String.trim(credential) do
-      "" ->
-        {:ok, Map.put(attrs, "encrypted_credential", nil)}
-
-      credential ->
-        with {:ok, encrypted} <- Crypto.seal(credential, row_id) do
-          {:ok, Map.put(attrs, "encrypted_credential", encrypted)}
-        end
+      {:ok,
+       attrs
+       |> Map.put("connection_options", plain_options)
+       |> Map.put("encrypted_options", encrypted_options)}
     end
   end
 
-  defp apply_credential(_attrs, _provider, _credential), do: {:error, :invalid_credential}
+  defp apply_encrypted_options(_attrs, _provider), do: {:error, :invalid_provider_id}
 
   defp normalize_connection_options(attrs, provider) do
     provider_kind = Map.get(attrs, "provider_kind") || provider_kind(provider)
@@ -340,11 +355,45 @@ defmodule Ankole.AIGateway.ProviderConfigs do
     end
   end
 
+  defp encrypted_option_keys(provider_kind) do
+    with {:ok, definition} <- Providers.fetch(provider_kind) do
+      keys =
+        definition.settings
+        |> Enum.filter(&(&1.encrypted? and &1.scope == :connection))
+        |> Enum.map(&Atom.to_string(&1.key))
+
+      {:ok, keys}
+    end
+  end
+
+  # Omitted encrypted options are preserved during updates. Operators can clear
+  # a stored secret explicitly with nil or an empty string, which avoids forcing
+  # every edit form to resend secret values.
+  defp seal_encrypted_options(provider, row_id, options, encrypted_keys) do
+    Enum.reduce_while(encrypted_keys, {:ok, encrypted_options(provider)}, fn key, {:ok, acc} ->
+      cond do
+        not Map.has_key?(options, key) ->
+          {:cont, {:ok, acc}}
+
+        encrypted_option_clear?(Map.get(options, key)) ->
+          {:cont, {:ok, Map.delete(acc, key)}}
+
+        true ->
+          case Crypto.seal(Map.fetch!(options, key), row_id, key) do
+            {:ok, encrypted} -> {:cont, {:ok, Map.put(acc, key, encrypted)}}
+            {:error, reason} -> {:halt, {:error, {:encrypted_option_seal_failed, key, reason}}}
+          end
+      end
+    end)
+  end
+
+  defp encrypted_option_clear?(value), do: value in [nil, ""]
+
   defp runtime_base_url(%Provider{base_url: base_url}, _provider_kind)
        when is_binary(base_url) and base_url != "",
        do: {:ok, base_url}
 
-  defp runtime_base_url(_provider, %{default_base_url: base_url})
+  defp runtime_base_url(_provider, %{base_url: base_url})
        when is_binary(base_url) and base_url != "",
        do: {:ok, base_url}
 
@@ -360,27 +409,34 @@ defmodule Ankole.AIGateway.ProviderConfigs do
   # Finds every agent model profile still pointing at this provider, returned as
   # "agent_uid:profile" labels. A non-empty list blocks the disable so an
   # operator cannot silently break agents that depend on the provider; profiles
-  # live inside each agent's `options` JSON, so this scans agents rather than a
-  # dedicated join table.
+  # live inside each agent's `options` JSON, so the database filters and expands
+  # only matching JSONB profile entries.
   defp provider_references(repo, provider_id) do
-    Agent
-    |> select([agent], {agent.uid, agent.options})
-    |> repo.all()
-    |> Enum.flat_map(fn {agent_uid, options} ->
-      options
-      |> get_in(["ai_agent", "models"])
-      |> profile_references(agent_uid, provider_id)
-    end)
-    |> Enum.sort()
-  end
+    %{rows: rows} =
+      SQL.query!(
+        repo,
+        """
+        SELECT agent.uid || ':' || profile.key AS reference
+        FROM agents AS agent
+        CROSS JOIN LATERAL jsonb_each(
+          CASE
+            WHEN jsonb_typeof(agent.options #> '{ai_agent,models}') = 'object'
+              THEN agent.options #> '{ai_agent,models}'
+            ELSE '{}'::jsonb
+          END
+        ) AS profile(key, value)
+        WHERE jsonb_path_query_array(
+          agent.options,
+          'lax $.ai_agent.models.*.provider_id'::jsonpath
+        ) @> jsonb_build_array($1::text)
+          AND profile.value @> jsonb_build_object('provider_id', $1::text)
+        ORDER BY reference
+        """,
+        [provider_id]
+      )
 
-  defp profile_references(models, agent_uid, provider_id) when is_map(models) do
-    for {profile, %{"provider_id" => ^provider_id}} <- models do
-      "#{agent_uid}:#{profile}"
-    end
+    Enum.map(rows, fn [reference] -> reference end)
   end
-
-  defp profile_references(_models, _agent_uid, _provider_id), do: []
 
   defp provider_kind(%Provider{provider_kind: provider_kind}), do: provider_kind
   defp provider_kind(_provider), do: nil
@@ -390,195 +446,79 @@ defmodule Ankole.AIGateway.ProviderConfigs do
 
   defp connection_options(_provider), do: %{}
 
+  defp encrypted_options(%Provider{encrypted_options: options}) when is_map(options),
+    do: options
+
+  defp encrypted_options(_provider), do: %{}
+
+  # API projections expose presence only. The actual plaintext is only read for
+  # runtime request preparation and live provider checks.
+  defp encrypted_options_projection(%Provider{} = provider) do
+    provider
+    |> encrypted_options()
+    |> Map.new(fn {key, value} ->
+      {key, %{"present" => is_binary(value), "masked" => encrypted_option_mask(value)}}
+    end)
+  end
+
+  # Provider metadata is attached to configured rows so Console can render the
+  # accepted options and capabilities without querying the registry separately.
   defp provider_metadata(provider_kind) do
     case Providers.fetch(provider_kind) do
       {:ok, provider_kind} ->
-        %{
-          "provider_strategy" => provider_kind.provider_strategy,
-          "capabilities" => provider_kind.capabilities,
-          "endpoint_modes" => provider_kind.endpoint_modes,
-          "model_catalog_policy" => provider_kind.model_catalog_policy
-        }
+        provider_kind
+        |> Providers.projection()
+        |> Map.take([
+          "capabilities",
+          "capability_specs",
+          "settings"
+        ])
 
       {:error, _reason} ->
         %{}
     end
   end
 
-  # Live-checks are intentionally provider-owned. A simple `/models` endpoint is
-  # enough for OpenAI-compatible APIs, but Azure and Claude need distinct paths
-  # and auth headers. Keeping this here avoids teaching Console about providers.
-  defp live_check_request(
-         %Provider{provider_kind: provider_kind} = provider,
-         connection,
-         credential
-       )
-       when provider_kind in [
-              "openrouter",
-              "openai",
-              "openai-compatible",
-              "google_ai_studio_openai"
-            ] do
-    {:ok,
-     %{
-       url: endpoint_url(connection, "models"),
-       endpoint: "/models",
-       http_protocol: Map.fetch!(connection, "http_protocol"),
-       headers: live_check_headers(provider, connection, credential)
-     }}
-  end
-
-  defp live_check_request(
-         %Provider{provider_kind: "azure_openai"} = provider,
-         connection,
-         credential
-       ) do
-    {path, endpoint} = azure_live_check_path(connection)
-
-    {:ok,
-     %{
-       url: endpoint_url(connection, path),
-       endpoint: endpoint,
-       http_protocol: Map.fetch!(connection, "http_protocol"),
-       headers: live_check_headers(provider, connection, credential)
-     }}
-  end
-
-  defp live_check_request(%Provider{provider_kind: "claude"} = provider, connection, credential) do
-    {:ok,
-     %{
-       url: endpoint_url(connection, "v1/models"),
-       endpoint: "/v1/models",
-       http_protocol: Map.fetch!(connection, "http_protocol"),
-       headers: live_check_headers(provider, connection, credential)
-     }}
-  end
-
-  defp live_check_request(_provider, _connection, _credential),
-    do: {:error, :unsupported_provider_kind}
-
-  defp endpoint_url(connection, path) do
-    base_url =
-      connection
-      |> Map.fetch!("base_url")
-      |> String.trim_trailing("/")
-
-    "#{base_url}/#{path}"
-  end
-
-  # Azure OpenAI accepts both account-root endpoints and `/openai` or
-  # `/openai/v1` base URLs. The model-list path follows the same family choice
-  # as request dispatch so live-checks do not pass while real calls fail.
-  defp azure_live_check_path(connection) do
-    base_url = Map.get(connection, "base_url", "") |> to_string()
-    api_version = Map.get(connection, "api_version") || "2025-04-01-preview"
-    query = "?api-version=#{URI.encode_www_form(api_version)}"
-
-    cond do
-      azure_v1_base_url?(base_url) ->
-        {"models", "/models"}
-
-      azure_openai_base_url?(base_url) ->
-        {"models#{query}", "/models"}
-
-      true ->
-        {"openai/models#{query}", "/openai/models"}
-    end
-  end
-
-  defp azure_v1_base_url?(base_url) do
-    case URI.parse(base_url) do
-      %URI{path: path} when is_binary(path) -> String.contains?(path, "/openai/v1")
-      _uri -> false
-    end
-  end
-
-  defp azure_openai_base_url?(base_url) do
-    case URI.parse(base_url) do
-      %URI{path: path} when is_binary(path) ->
-        path
-        |> String.split("/", trim: true)
-        |> Enum.member?("openai")
-
-      _uri ->
-        false
-    end
-  end
-
-  defp connection_headers(connection) do
-    connection
-    |> Map.get("headers", %{})
-    |> Map.new(fn {name, value} -> {to_string(name), to_string(value)} end)
-  end
-
-  # Reuses provider auth/header callbacks for live-checks so a provider with
-  # non-bearer auth cannot accidentally work in turns but fail in Console.
-  defp live_check_headers(provider, connection, credential) do
-    runtime = %{
-      "provider_kind" => provider.provider_kind,
-      "connection_options" => connection,
-      "credential_mode" => provider.credential_mode,
-      "credential" => credential
-    }
-
-    case Providers.module_for_runtime(runtime) do
-      {:ok, module} ->
-        connection
-        |> connection_headers()
-        |> module.put_headers(runtime)
-        |> module.put_auth_headers(runtime)
-        |> Map.to_list()
-
-      {:error, _reason} ->
-        connection_headers(connection) |> Map.to_list()
-    end
-  end
-
-  defp call_live_check_client(http_client, request) when is_function(http_client, 1) do
-    http_client.(request)
-  end
-
-  defp call_live_check_client(http_client, request) when is_function(http_client, 3) do
-    http_client.(request.url, request.headers, request.timeout_ms)
-  end
-
-  defp http_get(%{url: url, headers: headers, timeout_ms: timeout_ms} = request) do
-    # Keep Req as transport only. Provider live checks do not decode response
-    # JSON, and all JSON work in the AI gateway path goes through Ankole.JSON.
-    with {:ok, protocols} <- HttpProtocol.finch_protocols(request.http_protocol),
-         {:ok, response} <-
-           Req.get(
-             url: url,
-             headers: headers,
-             decode_body: false,
-             retry: false,
-             receive_timeout: timeout_ms,
-             connect_options: [protocols: protocols, timeout: timeout_ms]
-           ) do
-      case response.status do
-        status when status in 200..299 ->
-          {:ok, %{"status" => "ok", "http_status" => status}}
-
-        status ->
-          {:error,
-           {:provider_live_check_failed,
-            %{
-              "http_status" => status,
-              "reason" => "upstream_error",
-              "body" => truncate_body(response.body)
-            }}}
+  # Connection checks are optional provider hooks, not model metadata sources.
+  defp provider_connection_check(%Provider{} = provider, opts) do
+    with {:ok, context} <- provider_connection_check_context(provider, opts),
+         {:ok, definition} <- Providers.fetch(provider.provider_kind) do
+      case function_exported?(definition.module, :check_connection, 1) do
+        true -> apply(definition.module, :check_connection, [context])
+        false -> {:error, :provider_connection_check_not_supported}
       end
-    else
-      {:error, :invalid_http_protocol} ->
-        {:error, :invalid_http_protocol}
-
-      {:error, reason} ->
-        {:error, {:provider_live_check_failed, reason}}
     end
   end
 
-  defp credential_mask(value) when is_binary(value), do: "********"
-  defp credential_mask(_value), do: nil
+  # The live-check context intentionally looks like a small prepare context but
+  # keeps `http_client` injectable for tests and live-check diagnostics.
+  defp provider_connection_check_context(%Provider{} = provider, opts) do
+    timeout_ms = Keyword.get(opts, :timeout_ms, @live_check_timeout_ms)
+    capability = Keyword.get(opts, :capability, "llm")
+
+    with {:ok, connection} <- runtime_connection(provider) do
+      {:ok,
+       %{
+         provider_id: provider.provider_id,
+         provider_kind: provider.provider_kind,
+         capability: capability,
+         connection: connection,
+         settings: atomize_keys(connection),
+         timeout_ms: timeout_ms,
+         http_client: Keyword.get(opts, :http_client)
+       }}
+    end
+  end
+
+  defp atomize_keys(map) when is_map(map) do
+    Map.new(map, fn
+      {key, value} when is_binary(key) -> {String.to_atom(key), value}
+      {key, value} -> {key, value}
+    end)
+  end
+
+  defp encrypted_option_mask(value) when is_binary(value), do: "********"
+  defp encrypted_option_mask(_value), do: nil
 
   defp truncate_body(body) when is_binary(body), do: String.slice(body, 0, 2_000)
   defp truncate_body(body), do: inspect(body)

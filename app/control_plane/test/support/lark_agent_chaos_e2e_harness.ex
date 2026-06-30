@@ -65,11 +65,11 @@ defmodule Ankole.LarkAgentChaos.E2E.Harness do
              ProviderConfigs.create_provider(%{
                provider_id: provider_id,
                provider_kind: "openai-compatible",
-               credential: "sk-fake-chaos",
                # Provider upstream calls originate from host-side AIGateway, not
                # from the Docker worker, so localhost is correct here.
                base_url: "http://127.0.0.1:#{fake_llm_port}",
                connection_options: %{
+                 "api_key" => "sk-fake-chaos",
                  "include_usage" => true,
                  "supports_structured_outputs" => true
                }
@@ -139,9 +139,9 @@ defmodule Ankole.LarkAgentChaos.E2E.Harness do
              ProviderConfigs.create_provider(%{
                provider_id: provider_id,
                provider_kind: "openai-compatible",
-               credential: "sk-fake-chaos-secondary",
                base_url: "http://127.0.0.1:#{fake_llm_port}",
                connection_options: %{
+                 "api_key" => "sk-fake-chaos-secondary",
                  "include_usage" => true,
                  "supports_structured_outputs" => true
                }
@@ -187,9 +187,8 @@ defmodule Ankole.LarkAgentChaos.E2E.Harness do
              ProviderConfigs.create_provider(%{
                provider_id: provider_id,
                provider_kind: "openrouter",
-               credential: openrouter_api_key,
                base_url: "https://openrouter.ai/api/v1",
-               connection_options: %{}
+               connection_options: %{"api_key" => openrouter_api_key}
              })
 
     for {profile, model} <- [

@@ -110,6 +110,13 @@ export interface AgentLoopTurnUpdate {
 
 export interface PrepareNextTurnContext extends ShouldStopAfterTurnContext {}
 
+export interface EmptyResponseFallbackContext extends ShouldStopAfterTurnContext {
+  /** Number of empty-response retries already attempted before fallback is considered. */
+  emptyRetryCount: number
+  /** Model that produced the empty response. */
+  model: Model<any>
+}
+
 /** Context passed after AgentMessage[] has been converted to the exact provider-bound LLM context. */
 export interface BeforeLlmCallContext {
   /** Agent-level context before provider conversion. */
@@ -202,6 +209,15 @@ export interface AgentLoopConfig extends SimpleStreamOptions {
    */
   prepareNextTurn?: (
     context: PrepareNextTurnContext
+  ) => AgentLoopTurnUpdate | undefined | Promise<AgentLoopTurnUpdate | undefined>
+
+  /**
+   * Called after an empty assistant response has exhausted local retries.
+   * Return a replacement model/context to continue with a configured fallback, or
+   * undefined when no fallback is available.
+   */
+  activateFallbackOnEmpty?: (
+    context: EmptyResponseFallbackContext
   ) => AgentLoopTurnUpdate | undefined | Promise<AgentLoopTurnUpdate | undefined>
 
   /**

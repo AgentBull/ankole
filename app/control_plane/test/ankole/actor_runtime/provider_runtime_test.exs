@@ -71,16 +71,17 @@ defmodule Ankole.ActorRuntime.ProviderRuntimeTest do
              }
     end
 
-    test "real provider final proposal must include visible reply text" do
+    test "provider-routed final proposal must include visible reply text" do
       %{principal: agent} = agent_fixture()
 
       assert {:ok, _provider} =
                ProviderConfigs.create_provider(%{
                  provider_id: "openrouter-commit-guard",
                  provider_kind: "openrouter",
-                 credential: "sk-test",
                  base_url: "https://openrouter.ai/api/v1",
-                 connection_options: %{}
+                 connection_options: %{
+                   "api_key" => "sk-test"
+                 }
                })
 
       assert {:ok, _profile} =
@@ -147,16 +148,17 @@ defmodule Ankole.ActorRuntime.ProviderRuntimeTest do
       assert Repo.aggregate(OutboxEntry, :count) == 0
     end
 
-    test "commits final proposal telemetry for real provider turns" do
+    test "commits final proposal telemetry for provider-routed turns" do
       %{principal: agent} = agent_fixture()
 
       assert {:ok, _provider} =
                ProviderConfigs.create_provider(%{
                  provider_id: "openrouter-telemetry-commit",
                  provider_kind: "openrouter",
-                 credential: "sk-test",
                  base_url: "https://openrouter.ai/api/v1",
-                 connection_options: %{}
+                 connection_options: %{
+                   "api_key" => "sk-test"
+                 }
                })
 
       assert {:ok, _profile} =

@@ -2,7 +2,7 @@
   "components": {
     "responses": {},
     "schemas": {
-      "AIGatewayProviderCredentialProjection": {
+      "AIGatewayProviderEncryptedOptionProjection": {
         "additionalProperties": false,
         "properties": {
           "masked": {
@@ -14,7 +14,14 @@
           }
         },
         "required": ["present"],
-        "title": "AIGatewayProviderCredentialProjection",
+        "title": "AIGatewayProviderEncryptedOptionProjection",
+        "type": "object"
+      },
+      "AIGatewayProviderEncryptedOptionsProjection": {
+        "additionalProperties": {
+          "$ref": "#/components/schemas/AIGatewayProviderEncryptedOptionProjection"
+        },
+        "title": "AIGatewayProviderEncryptedOptionsProjection",
         "type": "object"
       },
       "AIGatewayProviderItem": {
@@ -28,15 +35,12 @@
             "additionalProperties": true,
             "type": "object"
           },
-          "credential": {
-            "$ref": "#/components/schemas/AIGatewayProviderCredentialProjection"
-          },
-          "credential_mode": {
-            "type": "string"
-          },
           "disabled_at": {
             "nullable": true,
             "type": "string"
+          },
+          "encrypted_options": {
+            "$ref": "#/components/schemas/AIGatewayProviderEncryptedOptionsProjection"
           },
           "id": {
             "type": "string"
@@ -57,8 +61,7 @@
           "provider_id",
           "provider_kind",
           "connection_options",
-          "credential_mode",
-          "credential",
+          "encrypted_options",
           "provider_metadata"
         ],
         "title": "AIGatewayProviderItem",
@@ -73,13 +76,14 @@
             },
             "type": "array"
           },
-          "connection_options": {
+          "capability_specs": {
             "items": {
-              "type": "string"
+              "additionalProperties": true,
+              "type": "object"
             },
             "type": "array"
           },
-          "credential_modes": {
+          "connection_options": {
             "items": {
               "type": "string"
             },
@@ -89,31 +93,25 @@
             "nullable": true,
             "type": "string"
           },
-          "default_http_protocol": {
-            "enum": ["http1", "http2"],
-            "type": "string"
-          },
-          "endpoint_modes": {
-            "items": {
+          "label": {
+            "additionalProperties": {
               "type": "string"
             },
-            "type": "array"
-          },
-          "label": {
-            "type": "string"
-          },
-          "model_catalog_policy": {
-            "type": "string"
+            "type": "object"
           },
           "provider_kind": {
-            "type": "string"
-          },
-          "provider_strategy": {
             "type": "string"
           },
           "runtime_provider_options": {
             "items": {
               "type": "string"
+            },
+            "type": "array"
+          },
+          "settings": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
             },
             "type": "array"
           }
@@ -122,14 +120,11 @@
           "provider_kind",
           "label",
           "capabilities",
-          "endpoint_modes",
-          "provider_strategy",
           "default_base_url",
-          "default_http_protocol",
-          "credential_modes",
+          "settings",
+          "capability_specs",
           "connection_options",
-          "runtime_provider_options",
-          "model_catalog_policy"
+          "runtime_provider_options"
         ],
         "title": "AIGatewayProviderKindItem",
         "type": "object"
@@ -183,13 +178,6 @@
           "connection_options": {
             "additionalProperties": true,
             "type": "object"
-          },
-          "credential": {
-            "nullable": true,
-            "type": "string"
-          },
-          "credential_mode": {
-            "type": "string"
           },
           "provider_id": {
             "type": "string"
@@ -329,6 +317,17 @@
         "title": "AppConfigurationUpdateRequest",
         "type": "object"
       },
+      "AuthSessionDeleteResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          }
+        },
+        "required": ["ok"],
+        "title": "AuthSessionDeleteResponse",
+        "type": "object"
+      },
       "ConsoleApiError": {
         "additionalProperties": false,
         "properties": {
@@ -376,6 +375,47 @@
         "title": "ConsoleApiErrorEnvelope",
         "type": "object"
       },
+      "ConsoleTokenRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "grant_type": {
+            "type": "string"
+          },
+          "refresh_token": {
+            "type": "string"
+          }
+        },
+        "required": ["grant_type"],
+        "title": "ConsoleTokenRequest",
+        "type": "object"
+      },
+      "ConsoleTokenResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "access_token": {
+            "type": "string"
+          },
+          "expires_in": {
+            "type": "integer"
+          },
+          "refresh_token": {
+            "type": "string"
+          },
+          "refresh_token_expires_in": {
+            "type": "integer"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "token_type": {
+            "enum": ["Bearer"],
+            "type": "string"
+          }
+        },
+        "required": ["access_token", "expires_in", "refresh_token", "refresh_token_expires_in", "scope", "token_type"],
+        "title": "ConsoleTokenResponse",
+        "type": "object"
+      },
       "JsonValue": {
         "description": "Any JSON-compatible value. AppConfigure validates the concrete key schema.",
         "nullable": true,
@@ -421,6 +461,20 @@
         },
         "required": ["data"],
         "title": "ModelProfilesResponse",
+        "type": "object"
+      },
+      "OAuthErrorResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "error": {
+            "type": "string"
+          },
+          "error_description": {
+            "type": "string"
+          }
+        },
+        "required": ["error", "error_description"],
+        "title": "OAuthErrorResponse",
         "type": "object"
       },
       "ScheduleCronScheduleListResponse": {
@@ -559,6 +613,79 @@
   },
   "openapi": "3.0.0",
   "paths": {
+    "/.internal-apis/oauth/token": {
+      "post": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.AuthController.oauth_token",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConsoleTokenRequest"
+              }
+            }
+          },
+          "description": "Token grant",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsoleTokenResponse"
+                }
+              }
+            },
+            "description": "Console tokens"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OAuthErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid token grant"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OAuthErrorResponse"
+                }
+              }
+            },
+            "description": "Inactive browser session"
+          }
+        },
+        "summary": "Exchange a browser admin session or refresh token for console bearer tokens",
+        "tags": ["Auth"]
+      }
+    },
+    "/.internal-apis/session": {
+      "delete": {
+        "callbacks": {},
+        "operationId": "AnkoleWeb.AuthController.delete_session",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthSessionDeleteResponse"
+                }
+              }
+            },
+            "description": "Deleted session"
+          }
+        },
+        "summary": "Clear the current browser admin session",
+        "tags": ["Auth"]
+      }
+    },
     "/api/v1/agents/{agent_uid}/model-profiles": {
       "get": {
         "callbacks": {},
@@ -2396,6 +2523,10 @@
     }
   ],
   "tags": [
+    {
+      "description": "Session-backed console authentication endpoints",
+      "name": "Auth"
+    },
     {
       "description": "Registry-backed runtime configuration exposed to the web console",
       "name": "AppConfigure"

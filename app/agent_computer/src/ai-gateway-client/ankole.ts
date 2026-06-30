@@ -214,10 +214,10 @@ export type AssistantMessageEvent =
  * Resolved metadata for one model Ankole can call. Built from control-plane AIGateway
  * resolution and then enriched at request time once the agent-scoped gateway key is known.
  *
- * `cost` is per-token price in the same four buckets as Usage, so calculateCost() is a
- * straight multiply. `sdkModel` is the concrete AI SDK LanguageModel instance created for
- * the AIGateway selector. A model with no `sdkModel` cannot be called — generate/stream
- * short-circuit to an error.
+ * `cost`, `contextWindow`, `maxTokens`, and `reasoning` are present only when the
+ * control plane has supplied those facts. `sdkModel` is the concrete AI SDK
+ * LanguageModel instance created for the AIGateway selector. A model with no
+ * `sdkModel` cannot be called — generate/stream short-circuit to an error.
  */
 export interface Model<TApi extends Api = Api> {
   id: string
@@ -225,17 +225,17 @@ export interface Model<TApi extends Api = Api> {
   api: TApi
   provider: Provider
   baseUrl: string
-  reasoning: boolean
+  reasoning?: boolean
   thinkingLevelMap?: ThinkingLevelMap
   input: ('text' | 'image')[]
-  cost: {
+  cost?: {
     input: number
     output: number
     cacheRead: number
     cacheWrite: number
   }
-  contextWindow: number
-  maxTokens: number
+  contextWindow?: number
+  maxTokens?: number
   headers?: Record<string, string>
   // Provider-specific compatibility flags (e.g. quirks for OpenAI-compatible endpoints).
   compat?: Record<string, unknown>
@@ -270,16 +270,18 @@ export const ZERO_USAGE: Usage = {
  * so it does NOT double-count them with `input`.
  */
 export function calculateCost(model: Model<any>, usage: Usage): Usage['cost'] {
+  const cost = model.cost ?? ZERO_USAGE.cost
+
   return {
-    input: usage.input * model.cost.input,
-    output: usage.output * model.cost.output,
-    cacheRead: usage.cacheRead * model.cost.cacheRead,
-    cacheWrite: usage.cacheWrite * model.cost.cacheWrite,
+    input: usage.input * cost.input,
+    output: usage.output * cost.output,
+    cacheRead: usage.cacheRead * cost.cacheRead,
+    cacheWrite: usage.cacheWrite * cost.cacheWrite,
     total:
-      usage.input * model.cost.input +
-      usage.output * model.cost.output +
-      usage.cacheRead * model.cost.cacheRead +
-      usage.cacheWrite * model.cost.cacheWrite
+      usage.input * cost.input +
+      usage.output * cost.output +
+      usage.cacheRead * cost.cacheRead +
+      usage.cacheWrite * cost.cacheWrite
   }
 }
 
@@ -290,10 +292,13 @@ export function validateToolArguments(
   },
   toolCall: ToolCall
 ): any {
-  // Duck-typed on `.parse` rather than instanceof ZodType so it tolerates tools whose schema
-  // is absent or non-Zod; in that case the raw arguments pass through unvalidated.
-  if (typeof tool.schema?.parse === 'function') return tool.schema.parse(toolCall.arguments)
-  return toolCall.arguments
+  // Every Ankole tool declares a zod schema (AgentTool.schema). A missing or non-zod schema is a
+  // programming error, not a tolerated case: fail closed rather than passing unvalidated model
+  // arguments into tool execution. The agent loop catches this throw and surfaces it as a tool error.
+  if (typeof tool.schema?.parse !== 'function') {
+    throw new Error(`Tool "${toolCall.name}" has no zod schema; refusing to run with unvalidated arguments`)
+  }
+  return tool.schema.parse(toolCall.arguments)
 }
 
 /**

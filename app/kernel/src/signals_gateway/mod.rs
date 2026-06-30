@@ -23,8 +23,8 @@ pub fn validate_filter_source(source: &str) -> KernelResult<()> {
     compile_filter(source).map(|_| ())
 }
 
-/// Evaluates a SignalsGateway CEL filter against a host-supplied JSON context.
-pub fn evaluate_filter_json(source: &str, context_json: JsonValue) -> KernelResult<bool> {
+/// Evaluates a SignalsGateway CEL filter against a host-supplied context.
+pub fn evaluate_filter(source: &str, context_json: JsonValue) -> KernelResult<bool> {
     let program = cached_filter_program(source)?;
     let context = build_filter_context(context_json)?;
 
@@ -137,10 +137,10 @@ mod tests {
     fn evaluates_boolean_filters() {
         let context = filter_context();
 
-        assert!(evaluate_filter_json("true", context.clone()).unwrap());
-        assert!(!evaluate_filter_json("false", context.clone()).unwrap());
+        assert!(evaluate_filter("true", context.clone()).unwrap());
+        assert!(!evaluate_filter("false", context.clone()).unwrap());
         assert!(
-            evaluate_filter_json(
+            evaluate_filter(
                 "binding.name == 'bot' && signal.channel.id == 'lark:chat:group-a'",
                 context
             )
@@ -160,7 +160,7 @@ mod tests {
               && ['a', 'bb', 'ccc'].filter(v, v.size() > 1).map(v, v.size()).exists(size, size == 3)
         "#;
 
-        assert!(evaluate_filter_json(expression, context).unwrap());
+        assert!(evaluate_filter(expression, context).unwrap());
     }
 
     #[test]
@@ -169,11 +169,10 @@ mod tests {
         assert!(validate_filter_source(" ").is_err());
 
         let context = filter_context();
-        let non_bool = evaluate_filter_json("signal.entry.text", context.clone()).unwrap_err();
+        let non_bool = evaluate_filter("signal.entry.text", context.clone()).unwrap_err();
         assert!(non_bool.to_string().contains("returned string"));
 
-        let missing_path =
-            evaluate_filter_json("signal.entry.missing == true", context).unwrap_err();
+        let missing_path = evaluate_filter("signal.entry.missing == true", context).unwrap_err();
         assert!(
             missing_path
                 .to_string()
@@ -183,10 +182,10 @@ mod tests {
 
     #[test]
     fn rejects_malformed_filter_contexts() {
-        let missing_binding = evaluate_filter_json("true", json!({"signal": {}})).unwrap_err();
+        let missing_binding = evaluate_filter("true", json!({"signal": {}})).unwrap_err();
         assert!(missing_binding.to_string().contains("must include binding"));
 
-        let invalid_signal = evaluate_filter_json(
+        let invalid_signal = evaluate_filter(
             "true",
             json!({
                 "binding": {},

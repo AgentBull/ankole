@@ -12,6 +12,7 @@
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check",
     "lint": "bun run fmt:check && bun run type-check",
+    "//test": "Docker-only: the worker tool tests need the bubblewrap (bwrap) sandbox, which is absent on the host, so a bare 'bun test' fails the container-command cases. Requires the prebuilt ankole-agent-computer image; for full runtime coverage use the control-plane Docker worker e2e.",
     "test": "cd ../.. && docker run --rm --cap-add SYS_ADMIN --security-opt seccomp=unconfined --security-opt systempaths=unconfined -v \"$PWD/app/agent_computer/src:/repo/app/agent_computer/src:ro\" -v \"$PWD/app/agent_computer/test:/repo/app/agent_computer/test:ro\" ankole-agent-computer:0.1.0 bun test"
   },
   "dependencies": {

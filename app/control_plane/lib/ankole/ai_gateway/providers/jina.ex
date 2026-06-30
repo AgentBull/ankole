@@ -1,92 +1,58 @@
 defmodule Ankole.AIGateway.Providers.Jina do
   @moduledoc """
-  Provider implementation for Jina embedding and rerank APIs.
-
-  Jina is not an LLM provider in v1. It participates in the same provider
-  registry so embeddings and rerank share credential storage, model resolution,
-  and HTTP transport with LLM providers.
+  Jina embedding and rerank provider.
   """
 
-  @behaviour Ankole.AIGateway.Provider
+  use Ankole.AIGateway.ProviderDSL
 
-  alias Ankole.AIGateway.Embeddings
-  alias Ankole.AIGateway.Providers.OpenAICompatible
-  alias Ankole.AIGateway.Request
-  alias Ankole.AIGateway.Rerank
+  alias Ankole.AIGateway.UniversalAIRequest
 
-  @impl true
-  def provider_id, do: "jina"
+  provider :jina do
+    label(%{"default" => "Jina AI", "zh-Hans-CN" => "Jina AI"})
+    base_url("https://api.jina.ai/v1")
 
-  @impl true
-  def label, do: "Jina AI"
+    setting(:api_key, encrypted: true)
+    setting(:headers, type: :map)
+    setting(:query_params, type: :map)
 
-  @impl true
-  def capabilities, do: ["embedding", "rerank"]
+    setting(:embedding_type, scope: :request)
+    setting(:task, scope: :request)
+    setting(:dimensions, scope: :request)
+    setting(:normalized, scope: :request)
+    setting(:late_chunking, scope: :request)
+    setting(:truncate, scope: :request)
+    setting(:return_multivector, scope: :request)
+    setting(:return_documents, scope: :request)
+    setting(:top_n, scope: :request)
 
-  @impl true
-  def endpoint_modes, do: ["embeddings", "rerank"]
+    embedding_model do
+      upstream(:json)
+      api_resolver(:jina_embeddings)
+      prepare(:prepare_embedding_model)
+    end
 
-  @impl true
-  def provider_strategy, do: "embedding_rerank"
+    rerank_model do
+      upstream(:json)
+      api_resolver(:jina_rerank)
+      prepare(:prepare_rerank_model)
+    end
+  end
 
-  @impl true
-  def default_base_url, do: "https://api.jina.ai/v1"
+  def prepare_embedding_model(ctx) do
+    ctx
+    |> UniversalAIRequest.new("embeddings", :jina_embeddings)
+    |> UniversalAIRequest.bearer_auth()
+  end
 
-  @impl true
-  def default_http_protocol, do: "http2"
+  @doc """
+  Builds a Jina rerank request.
 
-  @impl true
-  def credential_schemes, do: ["api_key", "bearer"]
-
-  @impl true
-  def connection_option_keys, do: ~w(http_protocol headers query_params)
-
-  @impl true
-  def runtime_provider_option_keys,
-    do:
-      ~w(embedding_type task dimensions normalized late_chunking truncate return_multivector return_documents top_n)
-
-  @impl true
-  def model_catalog_policy, do: "provider_specific"
-
-  @impl true
-  def response_endpoint_mode(_runtime), do: "unsupported"
-
-  @impl true
-  def build_response_request(_runtime, _request, _opts),
-    do: {:error, {:unsupported_capability, "llm"}}
-
-  @impl true
-  def normalize_response_body(_runtime, _upstream_request, _upstream_response),
-    do: {:error, {:unsupported_capability, "llm"}}
-
-  @impl true
-  def build_embeddings_request(runtime, request),
-    do:
-      Request.build_json_request(runtime, "embeddings", request,
-        inject_model?: true,
-        merge_provider_options?: true
-      )
-
-  @impl true
-  def normalize_embeddings_body(runtime, _upstream_request, upstream_response),
-    do: Embeddings.normalize_body(runtime, upstream_response)
-
-  @impl true
-  def build_rerank_request(runtime, request),
-    do:
-      Request.build_json_request(runtime, "rerank", request,
-        inject_model?: true,
-        merge_provider_options?: true
-      )
-
-  @impl true
-  def normalize_rerank_body(runtime, upstream_request, upstream_response),
-    do: Rerank.normalize_body(runtime, upstream_request.body, upstream_response)
-
-  @impl true
-  def put_headers(headers, _runtime), do: headers
-
-  @impl true
-  def put_auth_headers(headers, runtime), do: OpenAICompatible.put_auth_headers(headers, runtime)
+  Jina rerank has its own request options and response fields, so it uses a
+  provider-specific resolver instead of the OpenRouter rerank resolver.
+  """
+  def prepare_rerank_model(ctx) do
+    ctx
+    |> UniversalAIRequest.new("rerank", :jina_rerank)
+    |> UniversalAIRequest.bearer_auth()
+  end
 end

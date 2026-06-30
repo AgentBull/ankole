@@ -197,7 +197,8 @@ boundary:
 - native performance-sensitive checks;
 - deterministic validators, normalizers, matchers, evaluators, or decision
   algorithms that would otherwise need separate Elixir and Bun implementations;
-- protocol invariants shared by Elixir and Bun.
+- protocol invariants shared by Elixir and Bun, including the worker-file lane
+  zstd block codec (compress/decompress one independent frame per `DATA` chunk).
 
 Placement should bias toward the kernel when a behavior can be expressed as a
 deterministic function over explicit inputs without storage, network, runtime

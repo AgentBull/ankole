@@ -8,13 +8,42 @@ defmodule AnkoleWeb.AuthController do
   """
 
   use AnkoleWeb, :controller
+  use OpenApiSpex.ControllerSpecs
 
   alias Ankole.AdminAuth
   alias Ankole.AuthZ
   alias Ankole.IdentityProviders
   alias Ankole.Setup.Config, as: SetupConfig
   alias AnkoleWeb.ConsoleTokens
+  alias AnkoleWeb.Schemas.ConsoleApi.AuthSessionDeleteResponse
+  alias AnkoleWeb.Schemas.ConsoleApi.ConsoleTokenRequest
+  alias AnkoleWeb.Schemas.ConsoleApi.ConsoleTokenResponse
+  alias AnkoleWeb.Schemas.ConsoleApi.OAuthErrorResponse
   alias AnkoleWeb.Session, as: WebSession
+
+  tags(["Auth"])
+
+  operation(:session, false)
+  operation(:identity_providers, false)
+  operation(:oidc_authorization, false)
+  operation(:oidc_callback, false)
+
+  operation(:delete_session,
+    summary: "Clear the current browser admin session",
+    responses: [
+      ok: {"Deleted session", "application/json", AuthSessionDeleteResponse}
+    ]
+  )
+
+  operation(:oauth_token,
+    summary: "Exchange a browser admin session or refresh token for console bearer tokens",
+    request_body: {"Token grant", "application/json", ConsoleTokenRequest, required: true},
+    responses: [
+      ok: {"Console tokens", "application/json", ConsoleTokenResponse},
+      bad_request: {"Invalid token grant", "application/json", OAuthErrorResponse},
+      unauthorized: {"Inactive browser session", "application/json", OAuthErrorResponse}
+    ]
+  )
 
   @doc """
   Introspects the current admin session.

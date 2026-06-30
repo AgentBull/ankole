@@ -10,6 +10,7 @@ defmodule Ankole.ActorRuntime.RuntimeCommand do
   alias Ankole.Actors
   alias Ankole.Actors.ActorInput
   alias Ankole.ActorRuntime.OutboxDispatcher
+  alias Ankole.ActorRuntime.Schemas.ActorInputDelivery
   alias Ankole.ActorRuntime.Schemas.ActorSessionActivation
   alias Ankole.ActorRuntime.Schemas.ActorSessionWorkerAssignment
   alias Ankole.ActorRuntime.TurnEnvelope
@@ -225,9 +226,8 @@ defmodule Ankole.ActorRuntime.RuntimeCommand do
   end
 
   defp consume_command_feedback(repo, %ActorInput{} = input, text, now) do
-    outbox_intents = command_feedback_outbox_intents(repo, input, text)
-
-    with {:ok, consumption} <-
+    with {:ok, outbox_intents} <- command_feedback_outbox_intents(repo, input, text),
+         {:ok, consumption} <-
            Actors.consume_command_input_in_tx(repo, input,
              consumed_at: now,
              outbox_intents: outbox_intents
@@ -249,24 +249,29 @@ defmodule Ankole.ActorRuntime.RuntimeCommand do
     )
   end
 
-  defp command_feedback_outbox_intents(_repo, %ActorInput{signal_channel_id: nil}, _text), do: []
-  defp command_feedback_outbox_intents(_repo, %ActorInput{provider_entry_id: nil}, _text), do: []
+  defp command_feedback_outbox_intents(_repo, %ActorInput{signal_channel_id: nil}, _text),
+    do: {:ok, []}
+
+  defp command_feedback_outbox_intents(_repo, %ActorInput{provider_entry_id: nil}, _text),
+    do: {:ok, []}
 
   defp command_feedback_outbox_intents(repo, %ActorInput{} = input, text) do
-    operation = SignalsGateway.outbox_operation_for_actor_input(input, repo)
-    command_name = String.replace_prefix(input.type, "command.", "")
+    with {:ok, operation} <- SignalsGateway.outbox_operation_for_actor_input(input, repo) do
+      command_name = String.replace_prefix(input.type, "command.", "")
 
-    [
-      %{
-        outbound_key: "command:#{input.id}:#{command_name}",
-        operation: operation,
-        target_provider_entry_id: input.provider_entry_id,
-        provider_thread_id: input.provider_thread_id,
-        payload: %{"text" => text},
-        fallback_visible_text: text,
-        idempotency_key: "command:#{input.id}:#{command_name}"
-      }
-    ]
+      {:ok,
+       [
+         %{
+           outbound_key: "command:#{input.id}:#{command_name}",
+           operation: operation,
+           target_provider_entry_id: input.provider_entry_id,
+           provider_thread_id: input.provider_thread_id,
+           payload: %{"text" => text},
+           fallback_visible_text: text,
+           idempotency_key: "command:#{input.id}:#{command_name}"
+         }
+       ]}
+    end
   end
 
   defp append_retry_input(repo, actor_key, %ActorInput{} = command_input, now) do
@@ -414,7 +419,7 @@ defmodule Ankole.ActorRuntime.RuntimeCommand do
   defp live_deliveries_for_generation(_repo, _conversation, nil), do: []
 
   defp live_deliveries_for_generation(repo, %Conversation{} = conversation, lease_id) do
-    case started_turn_for_lease(repo, conversation, lease_id) do
+    case AIAgent.started_turn_for_lease(repo, conversation, lease_id) do
       %LlmTurn{} = turn ->
         live_deliveries_for_turn(turn, repo)
 
@@ -451,7 +456,7 @@ defmodule Ankole.ActorRuntime.RuntimeCommand do
   defp live_deliveries_for_turn(%LlmTurn{} = turn, repo) do
     from(delivery in Ankole.ActorRuntime.Schemas.ActorInputDelivery,
       where: delivery.llm_turn_id == ^turn.id,
-      where: delivery.state in ["created", "sent", "accepted"],
+      where: delivery.state in ^ActorInputDelivery.live_states(),
       lock: "FOR UPDATE"
     )
     |> repo.all()
@@ -472,16 +477,6 @@ defmodule Ankole.ActorRuntime.RuntimeCommand do
         "revision" => delivery.revision
       }
     }
-  end
-
-  defp started_turn_for_lease(repo, %Conversation{} = conversation, lease_id) do
-    LlmTurn
-    |> where([turn], turn.conversation_id == ^conversation.id)
-    |> where([turn], turn.lease_id == ^lease_id)
-    |> where([turn], turn.status == "started")
-    |> order_by([turn], asc: turn.call_index)
-    |> lock("FOR UPDATE")
-    |> repo.one()
   end
 
   defp end_active_conversation(repo, actor_key, %ActorInput{} = input, now) do

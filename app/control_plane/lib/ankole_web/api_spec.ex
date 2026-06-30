@@ -1,6 +1,6 @@
 defmodule AnkoleWeb.ApiSpec do
   @moduledoc """
-  OpenAPI description for the versioned public REST API.
+  OpenAPI description for the console SPA's generated client.
   """
 
   @behaviour OpenApiSpex.OpenApi
@@ -42,6 +42,10 @@ defmodule AnkoleWeb.ApiSpec do
         }
       },
       tags: [
+        %Tag{
+          name: "Auth",
+          description: "Session-backed console authentication endpoints"
+        },
         %Tag{
           name: "AppConfigure",
           description: "Registry-backed runtime configuration exposed to the web console"

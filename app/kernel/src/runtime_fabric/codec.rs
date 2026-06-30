@@ -12,7 +12,7 @@ use super::{
 /// Hosts use JSON maps because both Elixir and Bun can build them cheaply. The
 /// kernel still owns protobuf encoding and semantic validation so all hosts see
 /// the same protocol errors.
-pub fn encode_envelope_json(envelope: Value) -> KernelResult<Vec<u8>> {
+pub fn encode_envelope(envelope: Value) -> KernelResult<Vec<u8>> {
     let envelope = envelope_from_json(&envelope)?;
     validate_envelope(&envelope)?;
 
@@ -29,7 +29,7 @@ pub fn encode_envelope_json(envelope: Value) -> KernelResult<Vec<u8>> {
 /// The returned JSON shape matches the control-plane envelope contract, not the
 /// generated prost structs. That keeps native bindings thin and avoids leaking
 /// Rust-specific protobuf details into Elixir or Bun code.
-pub fn decode_envelope_json(bytes: &[u8]) -> KernelResult<Value> {
+pub fn decode_envelope(bytes: &[u8]) -> KernelResult<Value> {
     let envelope = proto::Envelope::decode(bytes).map_err(|error| {
         KernelError::new(format!("failed to decode runtime fabric envelope: {error}"))
     })?;

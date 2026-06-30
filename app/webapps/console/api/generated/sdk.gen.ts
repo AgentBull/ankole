@@ -51,6 +51,11 @@ import type {
   AnkoleWebAppConfigurationControllerUpdateData,
   AnkoleWebAppConfigurationControllerUpdateErrors,
   AnkoleWebAppConfigurationControllerUpdateResponses,
+  AnkoleWebAuthControllerDeleteSessionData,
+  AnkoleWebAuthControllerDeleteSessionResponses,
+  AnkoleWebAuthControllerOauthTokenData,
+  AnkoleWebAuthControllerOauthTokenErrors,
+  AnkoleWebAuthControllerOauthTokenResponses,
   AnkoleWebScheduleControllerCancelCheckbackData,
   AnkoleWebScheduleControllerCancelCheckbackResponses,
   AnkoleWebScheduleControllerCreateCronData,
@@ -96,6 +101,36 @@ export type Options<
    */
   meta?: keyof ClientMeta extends never ? Record<string, unknown> : ClientMeta
 }
+
+/**
+ * Exchange a browser admin session or refresh token for console bearer tokens
+ */
+export const ankoleWebAuthControllerOauthToken = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebAuthControllerOauthTokenData, ThrowOnError>
+): RequestResult<AnkoleWebAuthControllerOauthTokenResponses, AnkoleWebAuthControllerOauthTokenErrors, ThrowOnError> =>
+  (options.client ?? client).post<
+    AnkoleWebAuthControllerOauthTokenResponses,
+    AnkoleWebAuthControllerOauthTokenErrors,
+    ThrowOnError
+  >({
+    url: '/.internal-apis/oauth/token',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
+  })
+
+/**
+ * Clear the current browser admin session
+ */
+export const ankoleWebAuthControllerDeleteSession = <ThrowOnError extends boolean = false>(
+  options?: Options<AnkoleWebAuthControllerDeleteSessionData, ThrowOnError>
+): RequestResult<AnkoleWebAuthControllerDeleteSessionResponses, unknown, ThrowOnError> =>
+  (options?.client ?? client).delete<AnkoleWebAuthControllerDeleteSessionResponses, unknown, ThrowOnError>({
+    url: '/.internal-apis/session',
+    ...options
+  })
 
 /**
  * Read all model profiles for one agent

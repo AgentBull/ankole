@@ -3,24 +3,35 @@
 //! These functions stay thin on purpose: they validate BEAM terms, preserve
 //! binary-safe values, and forward real behavior to host-neutral modules.
 
-use rustler::env::OwnedEnv;
+use rustler::env::{OwnedEnv, SavedTerm};
+use rustler::types::atom as rustler_atom;
 use rustler::types::binary::{Binary, OwnedBinary};
-use rustler::{Encoder, Env, Error, LocalPid, NifResult, ResourceArc, Term};
+use rustler::{Encoder, Env, Error, LocalPid, Monitor, NifResult, ResourceArc, Term};
 use serde_json::Value as JsonValue;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use crate::authz;
 use crate::common;
 use crate::runtime_fabric;
 use crate::runtime_fabric::transport::{RouterEvent, RouterHandle};
 use crate::signals_gateway;
+use crate::universal_ai_client;
 
 mod atoms {
     rustler::atoms! {
+        ok,
         runtime_fabric_router_received,
         runtime_fabric_router_file_frame,
         runtime_fabric_router_decode_failed,
         runtime_fabric_router_socket_error,
+        universal_ai_client,
+        ready,
+        chunk,
+        sse,
+        websocket_text,
+        done,
+        error,
+        aborted,
     }
 }
 
@@ -32,6 +43,49 @@ pub struct RuntimeFabricRouterResource(pub RouterHandle);
 
 #[rustler::resource_impl]
 impl rustler::Resource for RuntimeFabricRouterResource {}
+
+/// Owns a native UniversalAIClient stream task across BEAM demand calls.
+pub struct UniversalAIClientStreamResource(pub universal_ai_client::StreamHandle);
+
+impl std::panic::RefUnwindSafe for UniversalAIClientStreamResource {}
+impl std::panic::UnwindSafe for UniversalAIClientStreamResource {}
+
+#[rustler::resource_impl]
+impl rustler::Resource for UniversalAIClientStreamResource {
+    const IMPLEMENTS_DESTRUCTOR: bool = true;
+    const IMPLEMENTS_DOWN: bool = true;
+
+    fn destructor(self, _env: Env<'_>) {
+        let _ = self.0.cancel();
+    }
+
+    fn down<'a>(&'a self, _env: Env<'a>, _pid: LocalPid, _monitor: Monitor) {
+        let _ = self.0.cancel();
+    }
+}
+
+/// Holds the Elixir stream ref in an owned environment so Rust-owned async tasks
+/// can tag messages without keeping a BEAM scheduler thread occupied.
+struct BeamStreamRef {
+    env: OwnedEnv,
+    term: SavedTerm,
+}
+
+impl BeamStreamRef {
+    fn new(term: Term<'_>) -> Self {
+        let env = OwnedEnv::new();
+        Self {
+            term: env.save(term),
+            env,
+        }
+    }
+}
+
+impl Encoder for BeamStreamRef {
+    fn encode<'a>(&self, dest: Env<'a>) -> Term<'a> {
+        self.env.run(|env| self.term.load(env).in_env(dest))
+    }
+}
 
 /// Decrypts an AEAD token for Elixir callers and returns a BEAM binary.
 ///
@@ -56,20 +110,20 @@ pub fn aead_encrypt(plaintext: Term<'_>, key: Term<'_>) -> NifResult<String> {
     common::aead_encrypt(plaintext.as_slice(), &key).map_err(error)
 }
 
-/// Authorizes one exact action on one concrete resource from a JSON snapshot.
+/// Authorizes one exact action on one concrete resource from an encoded snapshot.
 #[rustler::nif(schedule = "DirtyCpu")]
-pub fn authz_authorize_json(snapshot_json: Term<'_>) -> NifResult<String> {
-    let snapshot = decode_json(snapshot_json, "snapshot_json")?;
-    let decision = authz::authorize_json(snapshot).map_err(error)?;
+pub fn authz_authorize_nif(snapshot: Term<'_>) -> NifResult<String> {
+    let snapshot = decode_json(snapshot, "snapshot")?;
+    let decision = authz::authorize_value(snapshot).map_err(error)?;
 
     encode_json(decision)
 }
 
-/// Authorizes every requested action against the same resource from a JSON snapshot.
+/// Authorizes every requested action against the same resource from an encoded snapshot.
 #[rustler::nif(schedule = "DirtyCpu")]
-pub fn authz_authorize_all_json(snapshot_json: Term<'_>) -> NifResult<String> {
-    let snapshot = decode_json(snapshot_json, "snapshot_json")?;
-    let decision = authz::authorize_all_json(snapshot).map_err(error)?;
+pub fn authz_authorize_all_nif(snapshot: Term<'_>) -> NifResult<String> {
+    let snapshot = decode_json(snapshot, "snapshot")?;
+    let decision = authz::authorize_all_value(snapshot).map_err(error)?;
 
     encode_json(decision)
 }
@@ -94,16 +148,16 @@ pub fn signals_gateway_validate_filter(filter_source: Term<'_>) -> NifResult<boo
         .map_err(error)
 }
 
-/// Evaluates a SignalsGateway CEL admission filter from a JSON context.
+/// Evaluates a SignalsGateway CEL admission filter from an encoded context.
 #[rustler::nif(schedule = "DirtyCpu")]
-pub fn signals_gateway_filter_match_json(
+pub fn signals_gateway_filter_match_nif(
     filter_source: Term<'_>,
-    context_json: Term<'_>,
+    context: Term<'_>,
 ) -> NifResult<bool> {
     let filter_source = decode_string(filter_source, "filter_source")?;
-    let context = decode_json(context_json, "context_json")?;
+    let context = decode_json(context, "context")?;
 
-    signals_gateway::evaluate_filter_json(&filter_source, context).map_err(error)
+    signals_gateway::evaluate_filter(&filter_source, context).map_err(error)
 }
 
 /// Returns whether a resource pattern is valid.
@@ -116,22 +170,21 @@ pub fn authz_validate_resource_pattern(pattern: Term<'_>) -> NifResult<bool> {
         .map_err(error)
 }
 
-/// Encodes a RuntimeFabric v1 envelope JSON map as protobuf bytes.
+/// Encodes a RuntimeFabric v1 envelope map as protobuf bytes.
 #[rustler::nif(schedule = "DirtyCpu")]
-pub fn runtime_fabric_encode_envelope_json(envelope_json: Term<'_>) -> NifResult<OwnedBinary> {
-    let envelope = decode_json(envelope_json, "envelope_json")?;
+pub fn runtime_fabric_encode_envelope_nif(envelope: Term<'_>) -> NifResult<OwnedBinary> {
+    let envelope = decode_json(envelope, "envelope")?;
 
-    runtime_fabric::encode_envelope_json(envelope)
+    runtime_fabric::encode_envelope(envelope)
         .map_err(error)
         .and_then(binary_from_vec)
 }
 
-/// Decodes RuntimeFabric v1 protobuf bytes into the host JSON envelope shape.
+/// Decodes RuntimeFabric v1 protobuf bytes into the host envelope shape.
 #[rustler::nif(schedule = "DirtyCpu")]
-pub fn runtime_fabric_decode_envelope_json(envelope_bytes: Term<'_>) -> NifResult<String> {
+pub fn runtime_fabric_decode_envelope_nif(envelope_bytes: Term<'_>) -> NifResult<String> {
     let envelope_bytes = decode_binary(envelope_bytes, "envelope_bytes")?;
-    let envelope =
-        runtime_fabric::decode_envelope_json(envelope_bytes.as_slice()).map_err(error)?;
+    let envelope = runtime_fabric::decode_envelope(envelope_bytes.as_slice()).map_err(error)?;
 
     encode_json(envelope)
 }
@@ -207,6 +260,92 @@ pub fn runtime_fabric_router_stop(
         .stop()
         .map(|_| true)
         .map_err(|error| error_message(error.to_string()))
+}
+
+/// Opens a native UniversalAIClient stream from a prepared request spec.
+#[rustler::nif(schedule = "DirtyIo")]
+pub fn universal_ai_client_open_nif<'a>(
+    env: Env<'a>,
+    encoded_spec: Term<'a>,
+    owner_pid: LocalPid,
+    stream_ref: Term<'a>,
+) -> NifResult<Term<'a>> {
+    let encoded_spec = decode_string(encoded_spec, "encoded_spec")?;
+    let stream_ref = Arc::new(Mutex::new(BeamStreamRef::new(stream_ref)));
+    let sink = {
+        let stream_ref = Arc::clone(&stream_ref);
+        Arc::new(move |event| {
+            send_universal_ai_client_event(owner_pid, Arc::clone(&stream_ref), event)
+        })
+    };
+
+    match universal_ai_client::start_stream(&encoded_spec, sink) {
+        Ok(handle) => {
+            let resource = ResourceArc::new(UniversalAIClientStreamResource(handle));
+            let _ = resource.monitor(Some(env), &owner_pid);
+            Ok((atoms::ok(), resource).encode(env))
+        }
+        Err(reason) => Ok((
+            atoms::error(),
+            encode_json_value(
+                env,
+                &serde_json::json!({
+                    "code": "stream_open_failed",
+                    "stage": "open",
+                    "message": reason.to_string()
+                }),
+            ),
+        )
+            .encode(env)),
+    }
+}
+
+/// Grants downstream chunk credit to a native UniversalAIClient stream.
+#[rustler::nif]
+pub fn universal_ai_client_read_nif(
+    stream: ResourceArc<UniversalAIClientStreamResource>,
+    count: Term<'_>,
+) -> NifResult<rustler::Atom> {
+    let count = decode_u64(count, "count")?;
+    stream.0.read(count).map_err(error)?;
+    Ok(atoms::ok())
+}
+
+/// Cancels a native UniversalAIClient stream.
+#[rustler::nif]
+pub fn universal_ai_client_cancel_nif(
+    stream: ResourceArc<UniversalAIClientStreamResource>,
+) -> NifResult<rustler::Atom> {
+    stream.0.cancel().map_err(error)?;
+    Ok(atoms::ok())
+}
+
+/// Sends one non-streaming UniversalAIClient model request.
+#[rustler::nif(schedule = "DirtyIo")]
+pub fn universal_ai_client_model_request_nif<'a>(
+    env: Env<'a>,
+    encoded_spec: Term<'a>,
+) -> NifResult<Term<'a>> {
+    let encoded_spec = decode_string(encoded_spec, "encoded_spec")?;
+
+    match universal_ai_client::send_model_request(&encoded_spec) {
+        Ok(response) => Ok((atoms::ok(), encode_json_value(env, &response)).encode(env)),
+        Err(reason) => Ok((atoms::error(), encode_json_value(env, &reason.to_json())).encode(env)),
+    }
+}
+
+/// Sends one raw UniversalAIClient HTTP request without model normalization.
+#[rustler::nif(schedule = "DirtyIo")]
+pub fn universal_ai_client_raw_request_nif<'a>(
+    env: Env<'a>,
+    encoded_spec: Term<'a>,
+) -> NifResult<Term<'a>> {
+    let encoded_spec = decode_string(encoded_spec, "encoded_spec")?;
+
+    match universal_ai_client::send_raw_request(&encoded_spec) {
+        Ok(response) => Ok((atoms::ok(), encode_json_value(env, &response)).encode(env)),
+        Err(reason) => Ok((atoms::error(), encode_json_value(env, &reason.to_json())).encode(env)),
+    }
 }
 
 /// Returns whether a resource pattern matches a concrete resource key.
@@ -289,12 +428,43 @@ pub fn crc32_hex(input: Term<'_>, initial_state: Term<'_>) -> NifResult<String> 
     Ok(common::crc32_hex(input.as_slice(), initial_state))
 }
 
-/// Computes the non-cryptographic XXH3 128-bit observation fingerprint.
+/// Computes the non-cryptological XXH3 128-bit observation fingerprint.
 #[rustler::nif(schedule = "DirtyCpu")]
 pub fn xxh3_128_hex(input: Term<'_>) -> NifResult<String> {
     let input = decode_binary(input, "input")?;
 
     Ok(common::xxh3_128_hex(input.as_slice()))
+}
+
+/// Compresses one worker-file lane block into a self-contained zstd frame.
+///
+/// Each call produces one independent frame, so the wire is a concatenation of
+/// frames that a receiver can decompress per chunk. `level` follows the zstd
+/// CLI scale and is not negotiated on the wire.
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn zstd_compress_block(input: Term<'_>, level: Term<'_>) -> NifResult<OwnedBinary> {
+    let input = decode_binary(input, "input")?;
+    let level = decode_i32(level, "level")?;
+
+    common::zstd_compress_block(input.as_slice(), level)
+        .map_err(error)
+        .and_then(binary_from_vec)
+}
+
+/// Decompresses one worker-file lane zstd frame with a hard output bound.
+///
+/// `max_out` rejects oversized payloads, capping zip-bomb exposure at one block.
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn zstd_decompress_block(input: Term<'_>, max_out: Term<'_>) -> NifResult<OwnedBinary> {
+    let input = decode_binary(input, "input")?;
+    let max_out = decode_u64(max_out, "max_out")?;
+
+    common::zstd_decompress_block(
+        input.as_slice(),
+        usize::try_from(max_out).unwrap_or(usize::MAX),
+    )
+    .map_err(error)
+    .and_then(binary_from_vec)
 }
 
 /// Derives a deterministic BLAKE3 sub-key for Elixir callers.
@@ -320,38 +490,30 @@ pub fn derive_key(
 
 /// Decodes a JWT header without validating the token signature.
 #[rustler::nif(schedule = "DirtyCpu")]
-pub fn jwt_decode_header_json(token: Term<'_>) -> NifResult<String> {
+pub fn jwt_decode_header_nif(token: Term<'_>) -> NifResult<String> {
     let token = decode_string(token, "token")?;
 
-    common::jwt_decode_header_json(&token).map_err(error)
+    common::jwt_decode_header(&token).map_err(error)
 }
 
-/// Signs JSON claims with a JSON JWT header and binary key.
+/// Signs claims with a JWT header and binary key.
 #[rustler::nif(schedule = "DirtyCpu")]
-pub fn jwt_sign_json(
-    claims_json: Term<'_>,
-    key: Term<'_>,
-    header_json: Term<'_>,
-) -> NifResult<String> {
-    let claims_json = decode_string(claims_json, "claims_json")?;
+pub fn jwt_sign_nif(claims: Term<'_>, key: Term<'_>, header: Term<'_>) -> NifResult<String> {
+    let claims = decode_string(claims, "claims")?;
     let key = decode_binary(key, "key")?;
-    let header_json = decode_string(header_json, "header_json")?;
+    let header = decode_string(header, "header")?;
 
-    common::jwt_sign_json(&claims_json, key.as_slice(), &header_json).map_err(error)
+    common::jwt_sign(&claims, key.as_slice(), &header).map_err(error)
 }
 
-/// Verifies a JWT with a binary key and JSON validation options.
+/// Verifies a JWT with a binary key and validation options.
 #[rustler::nif(schedule = "DirtyCpu")]
-pub fn jwt_verify_json(
-    token: Term<'_>,
-    key: Term<'_>,
-    validation_json: Term<'_>,
-) -> NifResult<String> {
+pub fn jwt_verify_nif(token: Term<'_>, key: Term<'_>, validation: Term<'_>) -> NifResult<String> {
     let token = decode_string(token, "token")?;
     let key = decode_binary(key, "key")?;
-    let validation_json = decode_string(validation_json, "validation_json")?;
+    let validation = decode_string(validation, "validation")?;
 
-    common::jwt_verify_json(&token, key.as_slice(), &validation_json).map_err(error)
+    common::jwt_verify(&token, key.as_slice(), &validation).map_err(error)
 }
 
 /// Generates a random UUIDv4 encoded as lowercase Base36.
@@ -458,6 +620,18 @@ fn decode_optional_u32(term: Term<'_>, field: &str) -> NifResult<Option<u32>> {
         .map_err(|_| error_message(format!("{field} must be a non-negative integer or nil")))
 }
 
+/// Decodes a non-negative 64-bit integer.
+fn decode_u64(term: Term<'_>, field: &str) -> NifResult<u64> {
+    term.decode()
+        .map_err(|_| error_message(format!("{field} must be a non-negative integer")))
+}
+
+/// Decodes a signed 32-bit integer.
+fn decode_i32(term: Term<'_>, field: &str) -> NifResult<i32> {
+    term.decode()
+        .map_err(|_| error_message(format!("{field} must be an integer")))
+}
+
 /// Decodes an Elixir string and reports the field name on failure.
 fn decode_string(term: Term<'_>, field: &str) -> NifResult<String> {
     term.decode()
@@ -535,6 +709,124 @@ fn send_router_event(owner_pid: LocalPid, event: RouterEvent) {
             (atoms::runtime_fabric_router_socket_error(), reason).encode(env)
         }
     });
+}
+
+fn send_universal_ai_client_event(
+    owner_pid: LocalPid,
+    stream_ref: Arc<Mutex<BeamStreamRef>>,
+    event: universal_ai_client::StreamEvent,
+) {
+    let mut env = OwnedEnv::new();
+
+    let _ = env.send_and_clear(&owner_pid, |env| {
+        let stream_ref = stream_ref
+            .lock()
+            .map(|stream_ref| stream_ref.encode(env))
+            .unwrap_or_else(|_| "stream_ref_unavailable".encode(env));
+
+        match event {
+            universal_ai_client::StreamEvent::Ready(meta) => (
+                atoms::universal_ai_client(),
+                stream_ref,
+                atoms::ready(),
+                encode_json_value(env, &meta),
+            )
+                .encode(env),
+            universal_ai_client::StreamEvent::Chunk { seq, kind, bytes } => {
+                match binary_term(env, bytes) {
+                    Ok(binary) => (
+                        atoms::universal_ai_client(),
+                        stream_ref,
+                        atoms::chunk(),
+                        seq,
+                        downstream_kind_atom(kind),
+                        binary,
+                    )
+                        .encode(env),
+                    Err(reason) => (
+                        atoms::universal_ai_client(),
+                        stream_ref,
+                        atoms::error(),
+                        encode_json_value(
+                            env,
+                            &serde_json::json!({
+                                "code": "chunk_encoding_failed",
+                                "stage": "beam",
+                                "message": reason
+                            }),
+                        ),
+                    )
+                        .encode(env),
+                }
+            }
+            universal_ai_client::StreamEvent::Done(summary) => (
+                atoms::universal_ai_client(),
+                stream_ref,
+                atoms::done(),
+                encode_json_value(env, &summary),
+            )
+                .encode(env),
+            universal_ai_client::StreamEvent::Error(error) => (
+                atoms::universal_ai_client(),
+                stream_ref,
+                atoms::error(),
+                encode_json_value(env, &error),
+            )
+                .encode(env),
+            universal_ai_client::StreamEvent::Aborted => {
+                (atoms::universal_ai_client(), stream_ref, atoms::aborted()).encode(env)
+            }
+        }
+    });
+}
+
+fn downstream_kind_atom(kind: universal_ai_client::DownstreamKind) -> rustler::Atom {
+    match kind {
+        universal_ai_client::DownstreamKind::Sse => atoms::sse(),
+        universal_ai_client::DownstreamKind::WebsocketText => atoms::websocket_text(),
+    }
+}
+
+fn binary_term<'a>(env: Env<'a>, bytes: Vec<u8>) -> Result<Term<'a>, String> {
+    let Some(mut binary) = OwnedBinary::new(bytes.len()) else {
+        return Err("failed to allocate universal AI client chunk binary".to_string());
+    };
+
+    binary.as_mut_slice().copy_from_slice(&bytes);
+    Ok(binary.release(env).encode(env))
+}
+
+fn encode_json_value<'a>(env: Env<'a>, value: &JsonValue) -> Term<'a> {
+    match value {
+        JsonValue::Null => rustler_atom::nil().encode(env),
+        JsonValue::Bool(value) => value.encode(env),
+        JsonValue::Number(number) => {
+            if let Some(value) = number.as_i64() {
+                value.encode(env)
+            } else if let Some(value) = number.as_u64() {
+                value.encode(env)
+            } else if let Some(value) = number.as_f64() {
+                value.encode(env)
+            } else {
+                rustler_atom::nil().encode(env)
+            }
+        }
+        JsonValue::String(value) => value.encode(env),
+        JsonValue::Array(values) => values
+            .iter()
+            .map(|value| encode_json_value(env, value))
+            .collect::<Vec<_>>()
+            .encode(env),
+        JsonValue::Object(values) => {
+            let mut map = Term::map_new(env);
+            for (key, value) in values {
+                map = map
+                    .map_put(key.as_str(), encode_json_value(env, value))
+                    .unwrap_or(map);
+            }
+            map
+        }
+    }
 }
 
 fn encode_binary_frame_list<'a>(env: Env<'a>, frames: Vec<Vec<u8>>) -> Result<Term<'a>, String> {

@@ -7,7 +7,7 @@ use serde_json::{Map, Value};
 use crate::common::{KernelError, KernelResult};
 
 /// Signs arbitrary JSON claims with a JSON header description.
-pub fn jwt_sign_json(claims_json: &str, key: &[u8], header_json: &str) -> KernelResult<String> {
+pub fn jwt_sign(claims_json: &str, key: &[u8], header_json: &str) -> KernelResult<String> {
     let claims = decode_json_object(claims_json, "claims")?;
     let header = jwt_header_from_json(header_json)?;
 
@@ -16,7 +16,7 @@ pub fn jwt_sign_json(claims_json: &str, key: &[u8], header_json: &str) -> Kernel
 }
 
 /// Verifies a JWT and returns its decoded claims as a JSON object string.
-pub fn jwt_verify_json(token: &str, key: &[u8], validation_json: &str) -> KernelResult<String> {
+pub fn jwt_verify(token: &str, key: &[u8], validation_json: &str) -> KernelResult<String> {
     let validation = jwt_validation_from_json(validation_json)?;
 
     decode::<Value>(token, &DecodingKey::from_secret(key), &validation)
@@ -25,7 +25,7 @@ pub fn jwt_verify_json(token: &str, key: &[u8], validation_json: &str) -> Kernel
 }
 
 /// Decodes the JWT header without validating the signature.
-pub fn jwt_decode_header_json(token: &str) -> KernelResult<String> {
+pub fn jwt_decode_header(token: &str) -> KernelResult<String> {
     decode_header(token)
         .map_err(|error| KernelError::new(format!("jwt header decode failed: {error}")))
         .map(header_json)
@@ -100,7 +100,7 @@ fn jwt_validation_from_json(input: &str) -> KernelResult<Validation> {
 
     if matches!(bool_field(&value, "validate_signature")?, Some(false)) {
         return Err(KernelError::new(
-            "validate_signature=false is not supported by jwt_verify_json",
+            "validate_signature=false is not supported by jwt_verify",
         ));
     }
 

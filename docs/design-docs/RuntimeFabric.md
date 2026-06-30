@@ -306,7 +306,7 @@ The current worker-to-control-plane methods are mostly for PG semantic state:
 - `skills.overlay.replace`: replaces one overlay;
 - `skills.overlay.clear`: clears one overlay;
 - `ai_gateway.api_key_for.create_or_find_by_agent`: returns an agent-scoped
-  AIGateway API key for the turn's actor.
+  AIGateway API key for the request's explicit `agent_uid`.
 
 The current control-plane-to-worker methods are worker-owned semantic methods:
 
@@ -366,12 +366,14 @@ The current frame shape is:
 
 Transfer commands are intentionally small:
 
-- `WRITE_OPEN`: start writing one zstd stream to a scratch path;
+- `WRITE_OPEN`: start writing a file as a sequence of 2 MiB zstd frames;
 - `WRITE_READY`: worker accepted the scratch write and grants initial byte
   credit;
-- `DATA`: one binary zstd chunk with sequence, wire offset, and eof flag;
+- `DATA`: one independent zstd frame (one 2 MiB logical block) with sequence,
+  wire offset, and eof flag;
 - `CREDIT`: receiver grants more bytes to the sender;
-- `WRITE_COMMIT`: ask the worker to decode, verify, and publish atomically;
+- `WRITE_COMMIT`: ask the worker to verify the decoded bytes and publish
+  atomically;
 - `WRITE_COMMITTED`: final write result with size and optional XXH3
   observation;
 - `WRITE_ABORT`: discard an incomplete write;
@@ -428,14 +430,15 @@ Inbound `WRITE_OPEN` writes into a scratch directory under:
 ANKOLE_SHARED_FS_ROOT/.ankole-file-transfer/<transfer_id>/
 ```
 
-The worker appends `DATA` chunks in sequence and verifies original size after
-zstd decode. `WRITE_COMMIT` decodes the scratch zstd stream into a final temp
-path and publishes with an atomic rename. `WRITE_ABORT` removes the scratch
-directory. `READ_OPEN` streams the file back as zstd `DATA` chunks under
-control-plane byte credit. `READ_ABORT` stops the worker-side read stream when
-the control-plane caller times out or cancels. `STAT` and `READ_READY` can return
-an XXH3 128-bit observation fingerprint. This fingerprint is for change
-detection and catalog observations, not security verification.
+The worker decompresses each `DATA` chunk (one independent zstd frame) in
+isolation and appends the original bytes to a scratch file, verifying the total
+decoded size. `WRITE_COMMIT` publishes the scratch file with an atomic rename.
+`WRITE_ABORT` removes the scratch directory. `READ_OPEN` streams the file back
+as one zstd frame per 2 MiB block under control-plane byte credit. `READ_ABORT`
+stops the worker-side read when the control-plane caller times out or cancels.
+`STAT` and `READ_READY` can return an XXH3 128-bit observation fingerprint. This
+fingerprint is for change detection and catalog observations, not security
+verification.
 
 The control-plane `FileTransferLane` owns only in-memory request/response
 correlation for the active operation. It does not add a durable worker-file
@@ -448,23 +451,30 @@ PG-backed broker unless retry/resume requirements become real.
 The worker file lane always uses zstd on the wire. There is no identity mode and
 no per-operation content-encoding negotiation.
 
-Stored files remain original bytes. For inbound writes, the control plane sends
-one zstd stream split across `DATA` frames and the worker decodes that stream
-before the final rename. For outbound reads, the worker compresses the stored
-file into a zstd stream and returns that stream across `DATA` frames.
+Stored files remain original bytes. Each `DATA` frame carries one independent
+zstd frame over one 2 MiB logical block. For inbound writes, the control plane
+splits the payload into 2 MiB blocks, compresses each block into a self-contained
+zstd frame, and sends one frame per `DATA` chunk; the worker decompresses each
+chunk in isolation and appends the original bytes before the final rename. For
+outbound reads, the worker compresses each 2 MiB block of the stored file into an
+independent zstd frame and returns one frame per `DATA` chunk.
 
-This is a bandwidth optimization, not a storage model. The worker image and the
-control-plane runtime must provide `zstd` for high-level `put` and `get`.
-Missing support is a readiness/runtime error, not a reason to fall back to
-another encoding.
+This is a bandwidth optimization, not a storage model. zstd compression and
+decompression live in the Rust kernel and are exposed to both hosts through
+Rustler (Elixir, scheduled as `DirtyCpu`) and napi-rs (Bun, as async tasks on a
+libuv worker thread). The worker image and the control-plane runtime no longer
+require an external `zstd` binary; missing kernel support is a readiness error,
+not a reason to fall back to another encoding.
 
 The reason for raw multipart plus default `zstd` is practical:
 
 - binary frames avoid JSON/base64 expansion and extra copies;
 - protobuf remains reserved for small semantic envelopes;
 - zstd never changes the stored bytes;
-- failed zstd availability is a worker readiness/runtime issue, not a fallback
-  storage format.
+- per-block decoding bounds decompressed size at one block (≤ 2 MiB), which
+  removes the unbounded expansion surface a single-stream decoder had;
+- failed zstd availability is a kernel readiness issue, not a fallback storage
+  format.
 
 ## Files And Actor Turns
 

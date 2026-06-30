@@ -119,3 +119,74 @@ defmodule Ankole.PluginFixtures.UnknownSignalsInboundCapabilityPlugin do
   def chat_consumer(_context, _config, _opts), do: %{}
   def handle_message_receive(_event_type, _event, _consumers), do: {:ok, []}
 end
+
+defmodule Ankole.PluginFixtures.MissingAIGatewayProviderDefinitionPlugin do
+  @moduledoc false
+
+  @behaviour Ankole.Plugins.Plugin
+
+  @impl true
+  def plugin_id, do: "missing-ai-gateway-provider-definition"
+
+  @impl true
+  def api_version, do: 1
+
+  @impl true
+  def adapter_declarations do
+    [
+      %{
+        contract_id: "ai_gateway.provider",
+        id: "missing-provider-definition",
+        module: __MODULE__
+      }
+    ]
+  end
+end
+
+defmodule Ankole.PluginFixtures.MissingAIGatewayEmbeddingPreparePlugin do
+  @moduledoc false
+
+  @behaviour Ankole.Plugins.Plugin
+
+  @impl true
+  def plugin_id, do: "missing-ai-gateway-embedding-prepare"
+
+  @impl true
+  def api_version, do: 1
+
+  @impl true
+  def adapter_declarations do
+    [
+      %{
+        contract_id: "ai_gateway.provider",
+        id: "missing-embedding-prepare",
+        module: __MODULE__
+      }
+    ]
+  end
+
+  def provider_definition do
+    %Ankole.AIGateway.ProviderDefinition{
+      provider_kind: "missing-embedding-prepare",
+      label: %{"default" => "Missing Embedding Prepare"},
+      module: __MODULE__,
+      base_url: "https://example.test",
+      capabilities: [
+        %Ankole.AIGateway.ProviderDefinition.Capability{
+          kind: :language_model,
+          upstream: :sse,
+          api_resolver: :openai_responses,
+          prepare: :prepare_language_model
+        },
+        %Ankole.AIGateway.ProviderDefinition.Capability{
+          kind: :embedding_model,
+          upstream: :json,
+          api_resolver: :openai_embeddings,
+          prepare: :prepare_embedding_model
+        }
+      ]
+    }
+  end
+
+  def prepare_language_model(_ctx), do: %{}
+end

@@ -6,6 +6,7 @@ import type {
   ConversationHistoryResponse,
   ConversationSummaryCommitRequest,
   ConversationSummaryCommitResponse,
+  ConversationSummaryCommitRejected,
   AIGatewayApiKeyRejected,
   AIGatewayApiKeyRequest,
   AIGatewayApiKeyResponse,
@@ -27,11 +28,11 @@ export type AgentConversationContextRequester = (
 export type ConversationHistoryRequester = (request: ConversationHistoryRequest) => Promise<ConversationHistoryResponse>
 export type ConversationSummaryCommitter = (
   request: ConversationSummaryCommitRequest
-) => Promise<ConversationSummaryCommitResponse>
+) => Promise<ConversationSummaryCommitResponse | ConversationSummaryCommitRejected>
 export type SkillOverlayRequester = (request: SkillOverlayRequest) => Promise<SkillOverlayResponse>
 export type SkillOverlayReplaceRequester = (request: SkillOverlayReplaceRequest) => Promise<SkillOverlayResponse>
 
-export type TurnHandlerResult = FinalProposalBody | { summaryCommitted: true }
+export type TurnHandlerResult = FinalProposalBody | { summaryCommitted: boolean }
 
 export type TextTurnLoopOptions = {
   workspaceRoot: string

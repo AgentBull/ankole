@@ -2,7 +2,7 @@
 //
 // Ported (min-change) from openclaw's check-duplicates.mjs: the git-ls-files
 // coverage assertion and multi-scan loop. Reworked for jscpd v5's Rust CLI
-// (positional PATHs + --ignore-pattern, no --pattern; --gitignore default-on)
+// (positional PATHs + --ignore globs; --gitignore default-on)
 // and the JSON report (`duplicates[]`) as the source of truth for the gate.
 
 import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
@@ -50,6 +50,8 @@ interface JscpdDuplicate {
   format: string
 }
 
+const declarationSourcePattern = /\.d\.[cm]?ts$/
+
 function infraResult(message: string): CheckResult {
   return {
     check: 'duplicates',
@@ -79,6 +81,7 @@ async function assertTargetCoverage(): Promise<string[]> {
     .filter(Boolean)
     .map(file => file.split(path.sep).join('/'))
     .filter(file => existsSync(path.join(repoRootPath, file)))
+    .filter(file => !declarationSourcePattern.test(file))
     .filter(file => DUP_SOURCE_EXTENSIONS.has(path.extname(file)))
     .filter(file => !isCovered(file))
     .toSorted((left, right) => left.localeCompare(right))
@@ -104,7 +107,7 @@ async function runScan(
       String(minLines),
       '--min-tokens',
       String(minTokens),
-      '--ignore-pattern',
+      '--ignore',
       DUP_IGNORE_PATTERNS.join(','),
       '--reporters',
       'json',

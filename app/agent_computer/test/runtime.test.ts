@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { spawnSync } from 'node:child_process'
+import { zstdCompressBlock, zstdDecompressBlock } from '@ankole/kernel'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { ActorTurnRef } from '../src/actor_lane'
@@ -223,8 +223,7 @@ describe('@ankole/agent-computer runtime', () => {
       const plainText = 'hello zstd world'
       const sourcePath = join(root, 'source.txt')
       writeFileSync(sourcePath, plainText)
-      const compressed = spawnSync('zstd', ['-q', '-c', sourcePath])
-      expect(compressed.status).toBe(0)
+      const compressed = await zstdCompressBlock(Buffer.from(plainText), 3)
 
       const transferId = 'transfer-1'
       await handleFileTransferFrame(config, sender, state, [
@@ -243,9 +242,9 @@ describe('@ankole/agent-computer runtime', () => {
         u64Frame(0),
         u64Frame(0),
         boolFrame(true),
-        compressed.stdout
+        compressed
       ])
-      expect(frameFor(sentFrames, transferId, 'CREDIT')[3]).toEqual(u64Frame(compressed.stdout.byteLength))
+      expect(frameFor(sentFrames, transferId, 'CREDIT')[3]).toEqual(u64Frame(compressed.byteLength))
 
       await handleFileTransferFrame(config, sender, state, [
         fileTransferProtocol,
@@ -282,12 +281,12 @@ describe('@ankole/agent-computer runtime', () => {
 
       const readDone = await waitForFrame(sentFrames, getTransferId, 'READ_DONE')
       const getChunks = dataChunks(sentFrames, getTransferId)
-      const compressedGet = Buffer.concat(getChunks)
-      const decompressed = spawnSync('zstd', ['-q', '-d', '-c'], { input: compressedGet })
-      expect(decompressed.status).toBe(0)
-      expect(decompressed.stdout.toString('utf8')).toBe(plainText)
+      const decompressed = Buffer.concat(
+        await Promise.all(getChunks.map(chunk => zstdDecompressBlock(chunk, 2 * 1024 * 1024)))
+      )
+      expect(decompressed.toString('utf8')).toBe(plainText)
       expect(readU64Frame(readDone[3])).toBe(getChunks.length)
-      expect(readU64Frame(readDone[4])).toBe(compressedGet.byteLength)
+      expect(readU64Frame(readDone[4])).toBe(Buffer.concat(getChunks).byteLength)
 
       const abortTransferId = 'transfer-read-abort'
       await handleFileTransferFrame(config, sender, state, [

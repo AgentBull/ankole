@@ -5,11 +5,18 @@ export type ClientOptions = {
 }
 
 /**
- * AIGatewayProviderCredentialProjection
+ * AIGatewayProviderEncryptedOptionProjection
  */
-export type AiGatewayProviderCredentialProjection = {
+export type AiGatewayProviderEncryptedOptionProjection = {
   masked?: string | null
   present: boolean
+}
+
+/**
+ * AIGatewayProviderEncryptedOptionsProjection
+ */
+export type AiGatewayProviderEncryptedOptionsProjection = {
+  [key: string]: AiGatewayProviderEncryptedOptionProjection
 }
 
 /**
@@ -20,9 +27,8 @@ export type AiGatewayProviderItem = {
   connection_options: {
     [key: string]: unknown
   }
-  credential: AiGatewayProviderCredentialProjection
-  credential_mode: string
   disabled_at?: string | null
+  encrypted_options: AiGatewayProviderEncryptedOptionsProjection
   id: string
   provider_id: string
   provider_kind: string
@@ -36,16 +42,19 @@ export type AiGatewayProviderItem = {
  */
 export type AiGatewayProviderKindItem = {
   capabilities: Array<string>
+  capability_specs: Array<{
+    [key: string]: unknown
+  }>
   connection_options: Array<string>
-  credential_modes: Array<string>
   default_base_url: string | null
-  default_http_protocol: 'http1' | 'http2'
-  endpoint_modes: Array<string>
-  label: string
-  model_catalog_policy: string
+  label: {
+    [key: string]: string
+  }
   provider_kind: string
-  provider_strategy: string
   runtime_provider_options: Array<string>
+  settings: Array<{
+    [key: string]: unknown
+  }>
 }
 
 /**
@@ -77,8 +86,6 @@ export type AiGatewayProviderWriteRequest = {
   connection_options?: {
     [key: string]: unknown
   }
-  credential?: string | null
-  credential_mode?: string
   provider_id?: string
   provider_kind?: string
 }
@@ -140,6 +147,13 @@ export type AppConfigurationUpdateRequest = {
 }
 
 /**
+ * AuthSessionDeleteResponse
+ */
+export type AuthSessionDeleteResponse = {
+  ok: boolean
+}
+
+/**
  * ConsoleApiError
  */
 export type ConsoleApiError = {
@@ -162,6 +176,26 @@ export type ConsoleApiErrorDetail = {
  */
 export type ConsoleApiErrorEnvelope = {
   error: ConsoleApiError
+}
+
+/**
+ * ConsoleTokenRequest
+ */
+export type ConsoleTokenRequest = {
+  grant_type: string
+  refresh_token?: string
+}
+
+/**
+ * ConsoleTokenResponse
+ */
+export type ConsoleTokenResponse = {
+  access_token: string
+  expires_in: number
+  refresh_token: string
+  refresh_token_expires_in: number
+  scope: string
+  token_type: 'Bearer'
 }
 
 /**
@@ -198,6 +232,14 @@ export type ModelProfilesResponse = {
   data: {
     [key: string]: unknown
   }
+}
+
+/**
+ * OAuthErrorResponse
+ */
+export type OAuthErrorResponse = {
+  error: string
+  error_description: string
 }
 
 /**
@@ -254,6 +296,57 @@ export type ScheduleEventListResponse = {
 export type ScheduleEventResponse = {
   data: JsonValue
 }
+
+export type AnkoleWebAuthControllerOauthTokenData = {
+  /**
+   * Token grant
+   */
+  body: ConsoleTokenRequest
+  path?: never
+  query?: never
+  url: '/.internal-apis/oauth/token'
+}
+
+export type AnkoleWebAuthControllerOauthTokenErrors = {
+  /**
+   * Invalid token grant
+   */
+  400: OAuthErrorResponse
+  /**
+   * Inactive browser session
+   */
+  401: OAuthErrorResponse
+}
+
+export type AnkoleWebAuthControllerOauthTokenError =
+  AnkoleWebAuthControllerOauthTokenErrors[keyof AnkoleWebAuthControllerOauthTokenErrors]
+
+export type AnkoleWebAuthControllerOauthTokenResponses = {
+  /**
+   * Console tokens
+   */
+  200: ConsoleTokenResponse
+}
+
+export type AnkoleWebAuthControllerOauthTokenResponse =
+  AnkoleWebAuthControllerOauthTokenResponses[keyof AnkoleWebAuthControllerOauthTokenResponses]
+
+export type AnkoleWebAuthControllerDeleteSessionData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/.internal-apis/session'
+}
+
+export type AnkoleWebAuthControllerDeleteSessionResponses = {
+  /**
+   * Deleted session
+   */
+  200: AuthSessionDeleteResponse
+}
+
+export type AnkoleWebAuthControllerDeleteSessionResponse =
+  AnkoleWebAuthControllerDeleteSessionResponses[keyof AnkoleWebAuthControllerDeleteSessionResponses]
 
 export type AnkoleWebAiGatewayProviderControllerIndexModelProfilesData = {
   body?: never

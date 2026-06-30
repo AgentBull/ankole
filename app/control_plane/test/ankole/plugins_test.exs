@@ -11,6 +11,8 @@ defmodule Ankole.PluginsTest do
   alias Ankole.PluginFixtures.InvalidAdapterModulePlugin
   alias Ankole.PluginFixtures.MissingRemovedCallbackPlugin
   alias Ankole.PluginFixtures.MissingIdentityCallbackPlugin
+  alias Ankole.PluginFixtures.MissingAIGatewayEmbeddingPreparePlugin
+  alias Ankole.PluginFixtures.MissingAIGatewayProviderDefinitionPlugin
   alias Ankole.PluginFixtures.UnknownSignalsInboundCapabilityPlugin
   alias Ankole.Plugins
   alias Ankole.Plugins.Config
@@ -122,6 +124,20 @@ defmodule Ankole.PluginsTest do
             {UnknownSignalsInboundCapabilityPlugin,
              {:invalid_adapter_declaration, {:unknown_inbound_capability, "made_up"}}}} =
              Spec.from_module(UnknownSignalsInboundCapabilityPlugin)
+
+    assert {:error,
+            {MissingAIGatewayProviderDefinitionPlugin,
+             {:invalid_adapter_declaration,
+              {:missing_adapter_callback, MissingAIGatewayProviderDefinitionPlugin,
+               :provider_definition, 0}}}} =
+             Spec.from_module(MissingAIGatewayProviderDefinitionPlugin)
+
+    assert {:error,
+            {MissingAIGatewayEmbeddingPreparePlugin,
+             {:invalid_adapter_declaration,
+              {:missing_adapter_callback, MissingAIGatewayEmbeddingPreparePlugin,
+               :prepare_embedding_model, 1}}}} =
+             Spec.from_module(MissingAIGatewayEmbeddingPreparePlugin)
   end
 
   test "duplicate adapter declarations fail registry startup" do

@@ -19,6 +19,7 @@ import type {
   ConversationHistoryResponse,
   ConversationSummaryCommitRequest,
   ConversationSummaryCommitResponse,
+  ConversationSummaryCommitRejected,
   RpcError,
   RpcMethod,
   RpcRequest,
@@ -399,7 +400,7 @@ async function requestAIGatewayApiKey(
   rpcClient: RuntimeRpcClient,
   request: AIGatewayApiKeyRequest
 ): Promise<AIGatewayApiKeyResponse | AIGatewayApiKeyRejected> {
-  const cacheKey = `${request.agent_uid}\n${request.session_id}`
+  const cacheKey = request.agent_uid
   const cached = aiGatewayApiKeyCache.get(cacheKey)
   if (cached && cached.expires_at * 1000 > Date.now() + aiGatewayApiKeyRefreshSkewMs) {
     return { ...cached, request_id: request.request_id }
@@ -414,7 +415,6 @@ async function requestAIGatewayApiKey(
     return {
       request_id: request.request_id,
       agent_uid: stringFromDetails(response, 'agent_uid') || request.agent_uid,
-      session_id: stringFromDetails(response, 'session_id') || request.session_id,
       code: response.code,
       message: response.message
     }
@@ -450,10 +450,13 @@ async function requestConversationHistory(
 async function commitConversationSummary(
   rpcClient: RuntimeRpcClient,
   request: ConversationSummaryCommitRequest
-): Promise<ConversationSummaryCommitResponse> {
+): Promise<ConversationSummaryCommitResponse | ConversationSummaryCommitRejected> {
   const response = await rpcClient.request(rpcMethods.conversationSummaryCommit, request, request.request_id)
   if ('code' in response) {
-    throw new Error(`conversation summary commit RPC failed: ${response.code} ${response.message ?? ''}`.trim())
+    // A fence/stale/lease/conversation-ended rejection is an expected outcome, not an infra
+    // failure: surface it as a typed rejection so the compression turn can treat it as a no-op
+    // instead of failing the whole turn (mirrors the AIGateway API key rejection contract).
+    return { request_id: request.request_id, code: response.code, message: response.message }
   }
   return response.payload_json as ConversationSummaryCommitResponse
 }

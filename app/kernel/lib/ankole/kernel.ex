@@ -23,6 +23,7 @@ defmodule Ankole.Kernel do
   @type jwt_header :: map()
   @type jwt_validation :: map()
   @type runtime_fabric_router :: reference()
+  @type universal_ai_client_stream :: reference()
 
   @doc """
   Decrypts a compact AEAD token produced by `aead_encrypt/2`.
@@ -53,7 +54,7 @@ defmodule Ankole.Kernel do
   def authz_authorize(snapshot) when is_map(snapshot) do
     snapshot
     |> Torque.encode!()
-    |> authz_authorize_json()
+    |> authz_authorize_nif()
     |> Torque.decode!()
   end
 
@@ -64,17 +65,15 @@ defmodule Ankole.Kernel do
   def authz_authorize_all(snapshot) when is_map(snapshot) do
     snapshot
     |> Torque.encode!()
-    |> authz_authorize_all_json()
+    |> authz_authorize_all_nif()
     |> Torque.decode!()
   end
 
-  @doc false
-  @spec authz_authorize_json(String.t()) :: result(String.t())
-  def authz_authorize_json(_snapshot_json), do: :erlang.nif_error(:nif_not_loaded)
+  @spec authz_authorize_nif(String.t()) :: result(String.t())
+  defp authz_authorize_nif(_snapshot), do: :erlang.nif_error(:nif_not_loaded)
 
-  @doc false
-  @spec authz_authorize_all_json(String.t()) :: result(String.t())
-  def authz_authorize_all_json(_snapshot_json), do: :erlang.nif_error(:nif_not_loaded)
+  @spec authz_authorize_all_nif(String.t()) :: result(String.t())
+  defp authz_authorize_all_nif(_snapshot), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """
   Encodes a RuntimeFabric v1 envelope as protobuf bytes.
@@ -87,12 +86,11 @@ defmodule Ankole.Kernel do
   def runtime_fabric_encode_envelope(envelope) when is_map(envelope) do
     envelope
     |> Torque.encode!()
-    |> runtime_fabric_encode_envelope_json()
+    |> runtime_fabric_encode_envelope_nif()
   end
 
-  @doc false
-  @spec runtime_fabric_encode_envelope_json(String.t()) :: result(binary())
-  def runtime_fabric_encode_envelope_json(_envelope_json),
+  @spec runtime_fabric_encode_envelope_nif(String.t()) :: result(binary())
+  defp runtime_fabric_encode_envelope_nif(_envelope),
     do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """
@@ -101,13 +99,12 @@ defmodule Ankole.Kernel do
   @spec runtime_fabric_decode_envelope(binary()) :: result(runtime_fabric_envelope())
   def runtime_fabric_decode_envelope(envelope_bytes) when is_binary(envelope_bytes) do
     envelope_bytes
-    |> runtime_fabric_decode_envelope_json()
+    |> runtime_fabric_decode_envelope_nif()
     |> decode_json_result()
   end
 
-  @doc false
-  @spec runtime_fabric_decode_envelope_json(binary()) :: result(String.t())
-  def runtime_fabric_decode_envelope_json(_envelope_bytes),
+  @spec runtime_fabric_decode_envelope_nif(binary()) :: result(String.t())
+  defp runtime_fabric_decode_envelope_nif(_envelope_bytes),
     do: :erlang.nif_error(:nif_not_loaded)
 
   @doc false
@@ -136,6 +133,29 @@ defmodule Ankole.Kernel do
   @spec runtime_fabric_router_stop(runtime_fabric_router()) :: result(boolean())
   def runtime_fabric_router_stop(_router), do: :erlang.nif_error(:nif_not_loaded)
 
+  @doc false
+  @spec universal_ai_client_open_nif(String.t(), pid(), reference()) ::
+          {:ok, universal_ai_client_stream()} | {:error, map()}
+  def universal_ai_client_open_nif(_encoded_spec, _owner_pid, _stream_ref),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc false
+  @spec universal_ai_client_read_nif(universal_ai_client_stream(), non_neg_integer()) ::
+          result(:ok)
+  def universal_ai_client_read_nif(_stream, _count), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc false
+  @spec universal_ai_client_cancel_nif(universal_ai_client_stream()) :: result(:ok)
+  def universal_ai_client_cancel_nif(_stream), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc false
+  @spec universal_ai_client_model_request_nif(String.t()) :: {:ok, map()} | {:error, map()}
+  def universal_ai_client_model_request_nif(_encoded_spec), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc false
+  @spec universal_ai_client_raw_request_nif(String.t()) :: {:ok, map()} | {:error, map()}
+  def universal_ai_client_raw_request_nif(_encoded_spec), do: :erlang.nif_error(:nif_not_loaded)
+
   @doc """
   Returns `true` when a CEL authorization condition compiles.
   """
@@ -159,12 +179,11 @@ defmodule Ankole.Kernel do
           result(boolean())
   def signals_gateway_filter_match(filter_source, context)
       when is_binary(filter_source) and is_map(context) do
-    signals_gateway_filter_match_json(filter_source, Torque.encode!(context))
+    signals_gateway_filter_match_nif(filter_source, Torque.encode!(context))
   end
 
-  @doc false
-  @spec signals_gateway_filter_match_json(String.t(), String.t()) :: result(boolean())
-  def signals_gateway_filter_match_json(_filter_source, _context_json),
+  @spec signals_gateway_filter_match_nif(String.t(), String.t()) :: result(boolean())
+  defp signals_gateway_filter_match_nif(_filter_source, _context),
     do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """
@@ -249,6 +268,24 @@ defmodule Ankole.Kernel do
   def xxh3_128_hex(_input), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """
+  Compresses one worker-file lane block into a self-contained zstd frame.
+
+  The wire is a concatenation of independent frames, one per `DATA` chunk, so a
+  receiver decompresses each chunk in isolation. `level` follows the zstd CLI
+  scale (1..=22).
+  """
+  @spec zstd_compress_block(binary(), integer()) :: result(binary())
+  def zstd_compress_block(_input, _level), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
+  Decompresses one worker-file lane zstd frame with a hard output bound.
+
+  `max_out` rejects oversized payloads, capping zip-bomb exposure at one block.
+  """
+  @spec zstd_decompress_block(binary(), non_neg_integer()) :: result(binary())
+  def zstd_decompress_block(_input, _max_out), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
   Derives a deterministic BLAKE3 sub-key from a seed and labeled context.
 
   `sub_key_id` names the logical key being derived. `extra_context` separates
@@ -264,13 +301,12 @@ defmodule Ankole.Kernel do
   @spec jwt_decode_header(String.t()) :: result(jwt_header())
   def jwt_decode_header(token) when is_binary(token) do
     token
-    |> jwt_decode_header_json()
+    |> jwt_decode_header_nif()
     |> decode_json_result()
   end
 
-  @doc false
-  @spec jwt_decode_header_json(String.t()) :: result(String.t())
-  def jwt_decode_header_json(_token), do: :erlang.nif_error(:nif_not_loaded)
+  @spec jwt_decode_header_nif(String.t()) :: result(String.t())
+  defp jwt_decode_header_nif(_token), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """
   Signs JSON-compatible JWT claims with the provided key and header options.
@@ -278,12 +314,11 @@ defmodule Ankole.Kernel do
   @spec jwt_sign(jwt_claims(), binary(), jwt_header()) :: result(String.t())
   def jwt_sign(claims, key, header \\ %{})
       when is_map(claims) and is_binary(key) and is_map(header) do
-    jwt_sign_json(Torque.encode!(claims), key, Torque.encode!(header))
+    jwt_sign_nif(Torque.encode!(claims), key, Torque.encode!(header))
   end
 
-  @doc false
-  @spec jwt_sign_json(String.t(), binary(), String.t()) :: result(String.t())
-  def jwt_sign_json(_claims_json, _key, _header_json), do: :erlang.nif_error(:nif_not_loaded)
+  @spec jwt_sign_nif(String.t(), binary(), String.t()) :: result(String.t())
+  defp jwt_sign_nif(_claims, _key, _header), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """
   Verifies a JWT and returns its JSON-compatible claims.
@@ -292,13 +327,12 @@ defmodule Ankole.Kernel do
   def jwt_verify(token, key, validation \\ %{})
       when is_binary(token) and is_binary(key) and is_map(validation) do
     token
-    |> jwt_verify_json(key, Torque.encode!(validation))
+    |> jwt_verify_nif(key, Torque.encode!(validation))
     |> decode_json_result()
   end
 
-  @doc false
-  @spec jwt_verify_json(String.t(), binary(), String.t()) :: result(String.t())
-  def jwt_verify_json(_token, _key, _validation_json), do: :erlang.nif_error(:nif_not_loaded)
+  @spec jwt_verify_nif(String.t(), binary(), String.t()) :: result(String.t())
+  defp jwt_verify_nif(_token, _key, _validation), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """
   Generates a random UUIDv4 encoded as lowercase Base36 text.

@@ -7,9 +7,11 @@ defmodule AnkoleWeb.AIGatewayController do
   use OpenApiSpex.ControllerSpecs
 
   alias Ankole.AIGateway
+  alias Ankole.Kernel.UniversalAIClient
   alias OpenApiSpex.Schema
 
   @json_object %Schema{type: :object, additionalProperties: true}
+  @native_stream_receive_timeout_ms 61_000
 
   tags(["AIGateway"])
   security([%{"aiGatewayBearer" => []}, %{"consoleBearer" => []}])
@@ -144,63 +146,56 @@ defmodule AnkoleWeb.AIGatewayController do
   end
 
   defp stream_response(conn, subject_uid, request) do
-    conn =
-      conn
-      |> put_resp_header("content-type", "text/event-stream")
-      |> put_resp_header("cache-control", "no-cache")
-      |> send_chunked(200)
+    case AIGateway.open_sse_stream(subject_uid, request) do
+      {:ok, stream, _meta} ->
+        conn =
+          conn
+          |> put_resp_header("content-type", "text/event-stream")
+          |> put_resp_header("cache-control", "no-cache")
+          |> send_chunked(200)
 
-    case AIGateway.stream_response(subject_uid, request, conn, &sse_emit/2, []) do
-      {:ok, _response, conn} ->
-        chunk_or_keep(conn, "data: [DONE]\n\n")
+        stream_native_sse_chunks(conn, stream)
 
       {:error, reason} ->
-        event = stream_error_event(reason)
-        conn = chunk_or_keep(conn, sse_chunk(event))
-        chunk_or_keep(conn, "data: [DONE]\n\n")
+        error(conn, reason)
     end
   end
 
-  defp sse_emit(event, conn) do
-    case Plug.Conn.chunk(conn, sse_chunk(event)) do
-      {:ok, conn} -> {:ok, conn}
-      {:error, reason} -> {:error, reason}
+  defp stream_native_sse_chunks(conn, stream) do
+    case UniversalAIClient.read(stream, 1) do
+      :ok ->
+        receive do
+          {:universal_ai_client, ref, :chunk, _seq, :sse, chunk} when ref == stream.ref ->
+            case Plug.Conn.chunk(conn, chunk) do
+              {:ok, conn} ->
+                stream_native_sse_chunks(conn, stream)
+
+              {:error, _reason} ->
+                _ = UniversalAIClient.cancel(stream)
+                conn
+            end
+
+          {:universal_ai_client, ref, :chunk, _seq, _kind, _chunk} when ref == stream.ref ->
+            _ = UniversalAIClient.cancel(stream)
+            conn
+
+          {:universal_ai_client, ref, :done, _summary} when ref == stream.ref ->
+            conn
+
+          {:universal_ai_client, ref, :error, _error} when ref == stream.ref ->
+            conn
+
+          {:universal_ai_client, ref, :aborted} when ref == stream.ref ->
+            conn
+        after
+          @native_stream_receive_timeout_ms ->
+            _ = UniversalAIClient.cancel(stream)
+            conn
+        end
+
+      {:error, _reason} ->
+        conn
     end
-  end
-
-  defp chunk_or_keep(conn, chunk) do
-    case Plug.Conn.chunk(conn, chunk) do
-      {:ok, conn} -> conn
-      {:error, _reason} -> conn
-    end
-  end
-
-  defp sse_chunk(%{"type" => type} = event) do
-    "event: #{type}\ndata: #{Ankole.JSON.encode!(event)}\n\n"
-  end
-
-  defp stream_error_event(reason) do
-    {status, code, message} = error_tuple(reason)
-
-    %{
-      "type" => "error",
-      "status" => status,
-      # The downstream worker validates streamed chunks against the Responses
-      # event schema before it decides whether a stream failed before output.
-      # Without a sequence number this nested error shape is treated as an
-      # unknown chunk, which turns an upstream 429/5xx into a successful empty
-      # assistant message instead of a retryable stream-creation failure.
-      "sequence_number" => 0,
-      "error" => %{
-        # A streaming response has already committed HTTP 200. Carrying the
-        # error family in the Responses error frame lets clients preserve retry
-        # semantics for upstream rate limits and provider faults.
-        "type" => stream_error_type(status, code),
-        "code" => code,
-        "message" => message,
-        "param" => nil
-      }
-    }
   end
 
   defp error(conn, reason) do
@@ -226,9 +221,6 @@ defmodule AnkoleWeb.AIGatewayController do
   defp error_tuple(:invalid_request_body),
     do: {400, "invalid_request_body", "JSON object body required"}
 
-  defp error_tuple(:credential_missing),
-    do: {422, "credential_missing", "provider credential is missing"}
-
   defp error_tuple(:provider_disabled), do: {422, "provider_disabled", "provider is disabled"}
   defp error_tuple(:not_found), do: {404, "not_found", "resource not found"}
   defp error_tuple(:agent_not_found), do: {404, "agent_not_found", "agent not found"}
@@ -242,13 +234,13 @@ defmodule AnkoleWeb.AIGatewayController do
   defp error_tuple({:unsupported_capability, capability}),
     do: {422, "unsupported_capability", "provider does not support #{capability}"}
 
-  defp error_tuple({:upstream_request_failed, reason}),
-    do: {502, "upstream_request_failed", inspect(reason)}
-
   defp error_tuple({:upstream_response_failed, status, body}) when is_integer(status),
     do:
       {upstream_public_status(status), "upstream_response_failed",
        upstream_error_message(status, body)}
+
+  defp error_tuple({:invalid_upstream_response, status, body}) when is_integer(status),
+    do: {422, "invalid_upstream_response", inspect(%{status: status, body: body})}
 
   defp error_tuple({reason, details}) when is_atom(reason),
     do: {422, Atom.to_string(reason), inspect(details)}
@@ -257,13 +249,6 @@ defmodule AnkoleWeb.AIGatewayController do
     do: {422, Atom.to_string(reason), Atom.to_string(reason)}
 
   defp error_tuple(reason), do: {422, "ai_gateway_request_failed", inspect(reason)}
-
-  defp stream_error_type(429, _code), do: "rate_limit_error"
-  defp stream_error_type(401, _code), do: "authentication_error"
-  defp stream_error_type(403, _code), do: "permission_error"
-  defp stream_error_type(404, _code), do: "not_found_error"
-  defp stream_error_type(status, _code) when status >= 500, do: "api_error"
-  defp stream_error_type(_status, _code), do: "invalid_request_error"
 
   defp upstream_public_status(status) when status in 400..499, do: status
   defp upstream_public_status(_status), do: 502

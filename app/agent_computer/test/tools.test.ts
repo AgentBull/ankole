@@ -89,6 +89,19 @@ describe('@ankole/agent-computer migrated tool semantics', () => {
     ).toThrow()
   })
 
+  it('throws when a tool has no zod schema instead of passing arguments through unvalidated', () => {
+    const schemaless = { name: 'schemaless', label: 'Schemaless', description: 'no schema' } as unknown as LlmTool
+
+    expect(() =>
+      validateToolArguments(schemaless, {
+        type: 'toolCall',
+        id: 'tc_3',
+        name: 'schemaless',
+        arguments: { anything: 'goes' }
+      })
+    ).toThrow(/no zod schema/)
+  })
+
   it('preserves Ankole todo read, replace, merge, active snapshot, and caps', async () => {
     const store = new TodoStore()
     expect(store.read()).toEqual([])
@@ -160,8 +173,7 @@ describe('@ankole/agent-computer migrated tool semantics', () => {
         agentUid: 'agent-1',
         workspaceRoot: root,
         executionScopeId: 'signal-channel:test',
-        getComputer: async () => computer,
-        backgroundIds: new Set()
+        getComputer: async () => computer
       }
       const tool = createCommandTool(context)
 
@@ -174,7 +186,10 @@ describe('@ankole/agent-computer migrated tool semantics', () => {
 
       expect(backgroundId.startsWith('bg-')).toBe(true)
       expect(started.content[0]!.type === 'text' ? started.content[0]!.text : '').toContain('status=running')
-      expect(context.backgroundIds.has(backgroundId)).toBe(true)
+
+      const listedAfterStart = await tool.execute('command-bg-list', { action: 'list' })
+      const listedStartText = listedAfterStart.content[0]!.type === 'text' ? listedAfterStart.content[0]!.text : ''
+      expect(listedStartText).toContain(`background_id=${backgroundId}`)
 
       let statusText = ''
       for (let attempt = 0; attempt < 20; attempt += 1) {
@@ -198,7 +213,11 @@ describe('@ankole/agent-computer migrated tool semantics', () => {
       const killedText = killed.content[0]!.type === 'text' ? killed.content[0]!.text : ''
       expect(killedText).toContain(`background_id=${backgroundId}`)
       expect(killedText).toContain('status=killed')
-      expect(context.backgroundIds.has(backgroundId)).toBe(false)
+
+      const listedAfterKill = await tool.execute('command-bg-list', { action: 'list' })
+      const listedKillText = listedAfterKill.content[0]!.type === 'text' ? listedAfterKill.content[0]!.text : ''
+      expect(listedKillText).toContain(`background_id=${backgroundId}`)
+      expect(listedKillText).toContain('status=killed')
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
@@ -739,6 +758,9 @@ function contextWithComputer(overrides: Partial<ContainerComputer>, workspaceRoo
       },
       kill(id) {
         return Promise.resolve(id === 'missing' ? null : backgroundSnapshot(id, 'killed', ''))
+      },
+      list() {
+        return Promise.resolve([])
       }
     },
     readFileToBuffer() {
@@ -771,8 +793,7 @@ function contextWithComputer(overrides: Partial<ContainerComputer>, workspaceRoo
     agentUid: 'agent-1',
     workspaceRoot: workspaceRoot ?? '/workspace',
     executionScopeId: 'signal-channel:test',
-    getComputer: async () => computer,
-    backgroundIds: new Set()
+    getComputer: async () => computer
   }
 }
 

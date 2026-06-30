@@ -27,8 +27,7 @@ export function createComputerTools(binding: ComputerToolsBinding): AgentTool<an
     agentUid: binding.agentUid,
     workspaceRoot: binding.workspaceRoot,
     executionScopeId: binding.conversationId ?? binding.agentUid,
-    getComputer: async () => computer,
-    backgroundIds: new Set()
+    getComputer: async () => computer
   }
 
   return [

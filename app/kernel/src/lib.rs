@@ -11,7 +11,13 @@ use mimalloc::MiMalloc;
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
-#[cfg(any(test, feature = "embed", feature = "napi", feature = "nif"))]
+#[cfg(any(
+    test,
+    feature = "embed",
+    feature = "napi",
+    feature = "nif",
+    feature = "universal_ai_client"
+))]
 pub mod common;
 
 #[cfg(any(test, feature = "embed", feature = "napi", feature = "nif"))]
@@ -22,6 +28,9 @@ pub mod runtime_fabric;
 
 #[cfg(any(test, feature = "embed", feature = "napi", feature = "nif"))]
 pub mod signals_gateway;
+
+#[cfg(feature = "universal_ai_client")]
+pub mod universal_ai_client;
 
 #[cfg(feature = "napi")]
 mod napi_exports;

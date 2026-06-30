@@ -81,9 +81,10 @@ defmodule Ankole.ActorRuntimeCase do
              ProviderConfigs.create_provider(%{
                provider_id: provider_id,
                provider_kind: "openrouter",
-               credential: "sk-test",
                base_url: "https://openrouter.ai/api/v1",
-               connection_options: %{}
+               connection_options: %{
+                 "api_key" => "sk-test"
+               }
              })
 
     assert {:ok, _profile} =

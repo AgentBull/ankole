@@ -261,6 +261,24 @@ defmodule Ankole.AIAgent do
     |> repo.one()
   end
 
+  @doc """
+  Locks the in-flight (`started`) turn that owns a conversation generation lease.
+
+  Orders by `call_index` and locks `FOR UPDATE` so the stop, retry, and reuse
+  paths all serialize on the same in-flight turn row instead of each module
+  re-deriving the same query.
+  """
+  @spec started_turn_for_lease(module(), Conversation.t(), String.t()) :: LlmTurn.t() | nil
+  def started_turn_for_lease(repo, %Conversation{} = conversation, lease_id) do
+    LlmTurn
+    |> where([turn], turn.conversation_id == ^conversation.id)
+    |> where([turn], turn.lease_id == ^lease_id)
+    |> where([turn], turn.status == "started")
+    |> order_by([turn], asc: turn.call_index)
+    |> lock("FOR UPDATE")
+    |> repo.one()
+  end
+
   defp active_conversation(repo, agent_uid, session_id) do
     Conversation
     |> where([conversation], conversation.agent_uid == ^agent_uid)
@@ -488,9 +506,7 @@ defmodule Ankole.AIAgent do
            model: runtime_profile["model"],
            provider_metadata: %{
              "provider_id" => runtime_profile["provider_id"],
-             "provider_kind" => runtime_profile["provider_kind"],
-             "provider_strategy" =>
-               get_in(runtime_profile, ["provider_metadata", "provider_strategy"])
+             "provider_kind" => runtime_profile["provider_kind"]
            }
          }}
 

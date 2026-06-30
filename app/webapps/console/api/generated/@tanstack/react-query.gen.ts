@@ -20,6 +20,8 @@ import {
   ankoleWebAppConfigurationControllerIndex,
   ankoleWebAppConfigurationControllerShow,
   ankoleWebAppConfigurationControllerUpdate,
+  ankoleWebAuthControllerDeleteSession,
+  ankoleWebAuthControllerOauthToken,
   ankoleWebScheduleControllerCancelCheckback,
   ankoleWebScheduleControllerCreateCron,
   ankoleWebScheduleControllerCronRuns,
@@ -82,6 +84,11 @@ import type {
   AnkoleWebAppConfigurationControllerUpdateData,
   AnkoleWebAppConfigurationControllerUpdateError,
   AnkoleWebAppConfigurationControllerUpdateResponse,
+  AnkoleWebAuthControllerDeleteSessionData,
+  AnkoleWebAuthControllerDeleteSessionResponse,
+  AnkoleWebAuthControllerOauthTokenData,
+  AnkoleWebAuthControllerOauthTokenError,
+  AnkoleWebAuthControllerOauthTokenResponse,
   AnkoleWebScheduleControllerCancelCheckbackData,
   AnkoleWebScheduleControllerCancelCheckbackResponse,
   AnkoleWebScheduleControllerCreateCronData,
@@ -109,6 +116,60 @@ import type {
   AnkoleWebScheduleControllerUpdateCronError,
   AnkoleWebScheduleControllerUpdateCronResponse
 } from '../types.gen'
+
+/**
+ * Exchange a browser admin session or refresh token for console bearer tokens
+ */
+export const ankoleWebAuthControllerOauthTokenMutation = (
+  options?: Partial<Options<AnkoleWebAuthControllerOauthTokenData>>
+): UseMutationOptions<
+  AnkoleWebAuthControllerOauthTokenResponse,
+  AnkoleWebAuthControllerOauthTokenError,
+  Options<AnkoleWebAuthControllerOauthTokenData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebAuthControllerOauthTokenResponse,
+    AnkoleWebAuthControllerOauthTokenError,
+    Options<AnkoleWebAuthControllerOauthTokenData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebAuthControllerOauthToken({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
+
+/**
+ * Clear the current browser admin session
+ */
+export const ankoleWebAuthControllerDeleteSessionMutation = (
+  options?: Partial<Options<AnkoleWebAuthControllerDeleteSessionData>>
+): UseMutationOptions<
+  AnkoleWebAuthControllerDeleteSessionResponse,
+  DefaultError,
+  Options<AnkoleWebAuthControllerDeleteSessionData>
+> => {
+  const mutationOptions: UseMutationOptions<
+    AnkoleWebAuthControllerDeleteSessionResponse,
+    DefaultError,
+    Options<AnkoleWebAuthControllerDeleteSessionData>
+  > = {
+    mutationFn: async fnOptions => {
+      const { data } = await ankoleWebAuthControllerDeleteSession({
+        ...options,
+        ...fnOptions,
+        throwOnError: true
+      })
+      return data
+    }
+  }
+  return mutationOptions
+}
 
 export type QueryKey<TOptions extends Options> = [
   Pick<TOptions, 'baseUrl' | 'body' | 'headers' | 'path' | 'query'> & {

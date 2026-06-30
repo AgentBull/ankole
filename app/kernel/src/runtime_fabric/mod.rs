@@ -19,6 +19,6 @@ pub mod proto {
 
 pub mod transport;
 
-pub use codec::{decode_envelope_json, encode_envelope_json};
+pub use codec::{decode_envelope, encode_envelope};
 
 const PROTOCOL_VERSION: u32 = 1;

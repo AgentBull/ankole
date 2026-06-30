@@ -43,6 +43,7 @@ export interface ContainerComputer {
     }): Promise<BackgroundCommandSnapshot>
     status(id: string, opts?: { signal?: AbortSignal }): Promise<BackgroundCommandSnapshot | null>
     kill(id: string, opts?: { signal?: AbortSignal }): Promise<BackgroundCommandSnapshot | null>
+    list(opts?: { signal?: AbortSignal }): Promise<BackgroundCommandSnapshot[]>
   }
   readFileToBuffer(input: { path: string; cwd?: string }, opts?: { signal?: AbortSignal }): Promise<Buffer | null>
   fs: {
@@ -72,7 +73,7 @@ export interface ContainerComputer {
   }
 }
 
-/** Shared per-run state for the computer tools (workspace root + background ids). */
+/** Shared per-run state for the computer tools (workspace root + execution scope). */
 export interface ComputerToolContext {
   /** Current Ankole Agent UID; used to namespace browser/session artifacts. */
   agentUid: string
@@ -86,8 +87,6 @@ export interface ComputerToolContext {
   executionScopeId: string
   /** Resolve-or-create the agent's container computer facade (memoized for the run). */
   getComputer: (signal?: AbortSignal) => Promise<ContainerComputer>
-  /** Command ids started by command(background=true) during this run. */
-  backgroundIds: Set<string>
 }
 
 type MutableBackgroundCommand = {
@@ -104,7 +103,22 @@ type MutableBackgroundCommand = {
 }
 
 const BACKGROUND_OUTPUT_MAX_CHARS = 200_000
+// Cap on tracked background commands. Once exceeded, finished (non-running) entries are evicted
+// oldest-first so a long-lived worker that starts many background commands does not grow the
+// registry without bound. Running commands are never evicted.
+const BACKGROUND_COMMANDS_MAX = 64
 const backgroundCommands = new Map<string, MutableBackgroundCommand>()
+
+function evictFinishedBackgroundCommands(): void {
+  if (backgroundCommands.size <= BACKGROUND_COMMANDS_MAX) return
+  const finished = Array.from(backgroundCommands.values())
+    .filter(command => command.status !== 'running')
+    .sort((a, b) => (a.endedAtUnixMs ?? 0) - (b.endedAtUnixMs ?? 0))
+  for (const command of finished) {
+    if (backgroundCommands.size <= BACKGROUND_COMMANDS_MAX) break
+    backgroundCommands.delete(command.id)
+  }
+}
 
 /**
  * Builds the container Computer facade over the mounted Ankole workspace.
@@ -154,6 +168,9 @@ export function createContainerComputer(workspaceRoot: string): ContainerCompute
           command.process.kill()
         }
         return Promise.resolve(commandSnapshot(command))
+      },
+      list() {
+        return Promise.resolve(Array.from(backgroundCommands.values()).map(commandSnapshot))
       }
     },
     async readFileToBuffer(input) {
@@ -398,6 +415,7 @@ async function startBackgroundCommand(
   }
 
   backgroundCommands.set(id, command)
+  evictFinishedBackgroundCommands()
   collectBackgroundStream(proc.stdout, chunk => {
     command.stdout = appendBounded(command.stdout, chunk)
   })
@@ -465,7 +483,7 @@ function appendBounded(current: string, chunk: string): string {
 
 function commandEnv(inputEnv: Record<string, string> | undefined): Record<string, string> {
   const env: Record<string, string> = {
-    PATH: process.env.PATH ?? '/usr/local/bin:/usr/bin:/bin',
+    PATH: commandPath(process.env.PATH),
     HOME: process.env.HOME ?? '/workspace',
     LANG: process.env.LANG ?? 'C.UTF-8',
     TERM: process.env.TERM ?? 'xterm-256color',
@@ -477,6 +495,12 @@ function commandEnv(inputEnv: Record<string, string> | undefined): Record<string
   }
 
   return env
+}
+
+function commandPath(path: string | undefined): string {
+  const required = ['/usr/local/bin', '/usr/bin', '/bin']
+  const current = path?.split(':').filter(Boolean) ?? []
+  return [...required, ...current.filter(entry => !required.includes(entry))].join(':')
 }
 
 async function readableToUtf8(stream: ReadableStream<Uint8Array> | null): Promise<string> {

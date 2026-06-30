@@ -119,6 +119,39 @@ Prefer behavior that can be explained to an operator.
 
 Prefer guarantees that the system can actually keep.
 
+## Reward-hacking guardrails
+
+The recurring failure mode is objective substitution: replacing the real task with a cheaper proxy such as "the test passes", "the diff is small", "the local API looks clean", "this abstraction is more flexible", or "the happy path demos". Treat that as a bug, not as progress.
+
+When work feels blocked, do not change the goal to the cheapest passing local result. Stop and identify whether the blocker is a real design problem, a missing dependency, an invalid test, or a misunderstanding of the existing boundary.
+
+### New feature notes
+
+- Implement the requested real path first. Do not replace a required SDK, upstream implementation, Rust NIF, UI flow, provider protocol, or e2e path with a hand-written shortcut unless the user explicitly changes the task.
+- Do not add a second abstraction layer on top of an abstraction that already owns the domain. If a provider, DSL, facade, or runtime envelope already expresses the contract, extend or simplify that contract instead of inserting a middle layer "for flexibility".
+- Do not build a simplified clone of a complex dependency when the task requires migrating, vendoring, or adapting that dependency. Clone or inspect the real upstream first, then make the smallest intentional adaptation.
+- Keep the first version honest. Because Ankole has not released a public compatibility contract yet, do not add compatibility shims, legacy branches, old names, or fallback paths without a real current caller.
+- Do not let technical correctness swamp the business core. Permission chains, validation engines, configuration systems, and audit machinery must stay proportional to the feature's actual guarantee.
+- If the bottom-level design looks wrong, address that design before optimizing individual functions. Local polish on a bad boundary is still bad architecture.
+
+### Refactor notes
+
+- Refactors must reduce global complexity, not merely improve the file currently in view. Check for duplicated concepts, impedance between modules, zombie code, compatibility residue, and boundary drift before declaring the refactor done.
+- Prefer deleting the wrong semantic center over wrapping it. A facade that preserves the old mistake is not a cleanup.
+- Split large files by high-cohesion responsibilities and stable public entrypoints. Do not create many thin files that only add delegation layers.
+- Preserve real ownership boundaries. Elixir, Rust, and Bun responsibilities must not be moved just because one side is easier to test or edit.
+- Do not keep defensive branches for states the current design cannot produce. If a branch exists only for imagined future flexibility, remove it or make the future requirement explicit.
+- After moving code, search for old names, stale comments, compatibility paths, and unused helpers. Leaving them behind counts as unfinished refactoring.
+
+### Test-fix notes
+
+- A failing test is evidence. Do not make it pass by bypassing the production path, weakening assertions, changing the test to match a broken implementation, or moving behavior across ownership boundaries.
+- Unit tests, integration tests, and e2e tests must exercise the same boundary they claim to protect. A UI flow cannot be replaced by a CLI helper; an Elixir-to-Rust NIF path cannot be replaced by direct Elixir HTTP; a real provider smoke path cannot be replaced by a local fake unless the test explicitly says it is fake.
+- If a test is wrong, explain why it is wrong before changing it. The explanation must name the real contract and the source file or design doc that owns that contract.
+- Do not soften integration tests to avoid setup cost. Fix the setup, isolate the package-local command, or mark the remaining blocker as external and unverified.
+- Do not rename public functions with suffixes such as `_json` or add wrapper names just to make a boundary leak look intentional. Public names should describe domain semantics; codec details belong at internal edges.
+- When tests are blocked by design drift, stop treating the failure as a test maintenance task. First repair the design boundary, then update the tests to prove that boundary.
+
 ## Bun
 
 Default to using Bun instead of Node.js.

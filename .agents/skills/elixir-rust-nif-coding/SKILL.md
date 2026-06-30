@@ -1,11 +1,12 @@
 ---
 name: rust-nif
 description: >
-  Writing Rust NIFs with Rustler for the Ankole native kernel (`app/kernel`) —
-  the shared crate that Elixir loads via Rustler and Bun loads via N-API. Use when
-  adding or changing native functions exposed to the BEAM: schedulers, binary and
-  JSON bridging, ResourceArc handles, OwnedEnv messaging, and error translation,
-  in the thin-binding-over-host-neutral-modules style this crate uses.
+  Writing or changing the Rustler binding layer for Ankole native kernel
+  functions. Use only when adding, renaming, removing, or changing NIF exports,
+  Elixir NIF stubs, Rustler resource/event delivery code, scheduler choices, or
+  BEAM boundary argument/return encoding. Do not use merely because Elixir calls
+  an existing native function, or because host-neutral Rust code under
+  `app/kernel/src/*` is being changed without touching the Rustler/NIF boundary.
 ---
 
 # Rust NIFs for the Ankole Kernel

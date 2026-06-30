@@ -76,7 +76,8 @@ defmodule Ankole.SignalsGateway do
   @doc """
   Chooses the provider-visible reply operation for an actor input.
   """
-  @spec outbox_operation_for_actor_input(ActorInput.t(), module()) :: atom()
+  @spec outbox_operation_for_actor_input(ActorInput.t(), module()) ::
+          {:ok, atom()} | {:error, term()}
   defdelegate outbox_operation_for_actor_input(actor_input, repo \\ Ankole.Repo), to: Outbox
 
   @doc """

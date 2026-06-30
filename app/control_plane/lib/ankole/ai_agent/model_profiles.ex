@@ -3,7 +3,7 @@ defmodule Ankole.AIAgent.ModelProfiles do
   Agent-scoped model profile service.
 
   Profiles live under `agents.options["ai_agent"]["models"]`; provider rows own
-  endpoint and credential details. LLM tiers and default embedding/rerank models
+  endpoint and encrypted option details. LLM tiers and default embedding/rerank models
   are all first-class profile slots.
   """
 
@@ -12,6 +12,7 @@ defmodule Ankole.AIAgent.ModelProfiles do
   alias Ankole.AIGateway.Providers
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AIGateway.ProviderConfigs.Provider
+  alias Ankole.AIGateway.Resolver
   alias Ankole.Principals
   alias Ankole.Principals.Agent
   alias Ankole.Repo
@@ -88,30 +89,10 @@ defmodule Ankole.AIAgent.ModelProfiles do
   """
   @spec resolve_runtime_profile(String.t(), profile()) :: {:ok, map()} | {:error, term()}
   def resolve_runtime_profile(agent_uid, profile) do
-    with {:ok, profile} <- get_model_profile(agent_uid, profile),
-         {:ok, provider} <- ProviderConfigs.fetch_active_provider(profile["provider_id"]),
-         {:ok, provider_kind} <- Providers.fetch(provider.provider_kind),
-         :ok <- validate_profile_provider(profile["profile"], provider_kind),
-         :ok <-
-           Providers.validate_runtime_provider_options(
-             provider.provider_kind,
-             profile["provider_options"] || %{}
-           ),
-         {:ok, connection_options} <- ProviderConfigs.runtime_connection(provider) do
-      {:ok,
-       %{
-         "agent_uid" => normalize_uid!(agent_uid),
-         "profile" => profile["profile"],
-         "capability" => capability_for_profile(profile["profile"]),
-         "provider_id" => provider.provider_id,
-         "provider_kind" => provider.provider_kind,
-         "model" => profile["model"],
-         "connection_options" => connection_options,
-         "provider_options" => profile["provider_options"] || %{},
-         "credential_mode" => provider.credential_mode,
-         "provider_metadata" => provider_metadata(provider_kind),
-         "provider" => provider
-       }}
+    with {:ok, profile} <- normalize_profile(profile),
+         {:ok, capability} <- profile_capability(profile) do
+      selector = Ankole.AIGateway.ModelSelectors.public_selector(capability, profile)
+      Resolver.resolve_request_model(agent_uid, capability, %{"model" => selector})
     end
   end
 
@@ -189,7 +170,7 @@ defmodule Ankole.AIAgent.ModelProfiles do
 
   defp normalize_profile_attrs(_profile, _attrs), do: {:error, :invalid_model_profile}
 
-  defp validate_profile_provider(profile, %Providers.Definition{} = provider_kind) do
+  defp validate_profile_provider(profile, %Ankole.AIGateway.ProviderDefinition{} = provider_kind) do
     capability = capability_for_profile(profile)
 
     case Providers.supports_capability?(provider_kind, capability) do
@@ -257,15 +238,6 @@ defmodule Ankole.AIAgent.ModelProfiles do
   defp capability_for_profile("embedding"), do: "embedding"
   defp capability_for_profile("rerank"), do: "rerank"
   defp capability_for_profile(_profile), do: "llm"
-
-  defp provider_metadata(%Providers.Definition{} = provider_kind) do
-    %{
-      "provider_strategy" => provider_kind.provider_strategy,
-      "capabilities" => provider_kind.capabilities,
-      "endpoint_modes" => provider_kind.endpoint_modes,
-      "model_catalog_policy" => provider_kind.model_catalog_policy
-    }
-  end
 
   defp normalize_uid!(uid) do
     {:ok, uid} = Principals.normalize_uid(uid)

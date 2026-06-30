@@ -22,6 +22,10 @@ defmodule Ankole.ActorRuntime.Schemas.ActorInputDelivery do
   # still act on the turn); `send_failed/superseded` are terminal and ignorable.
   # The runtime treats the live set as the fence that blocks re-sending an input.
   @states ~w(created sent send_failed accepted superseded)
+  # The "live" subset of @states: a worker may still act on the turn. Centralized
+  # here (exposed via live_states/0) so every runtime query and guard reads one
+  # definition instead of re-listing the set or hardcoding the literal.
+  @live_states ~w(created sent accepted)
   # Transport-level outcome of the ZeroMQ send, kept separate from `state` so an
   # operator can tell *why* a send failed (route gone, backpressure, timeout, …).
   @send_outcomes ~w(sent_or_queued unknown_route backpressure timeout socket_closed)
@@ -137,6 +141,13 @@ defmodule Ankole.ActorRuntime.Schemas.ActorInputDelivery do
     # most one in-flight worker turn, so two workers never answer the same input.
     |> unique_constraint([:actor_input_id], name: :actor_input_deliveries_live_actor_input_index)
   end
+
+  @doc """
+  Delivery states that count as "live": a worker may still be acting on the turn,
+  so the runtime treats them as the fence that blocks re-sending an actor input.
+  """
+  @spec live_states() :: [String.t()]
+  def live_states, do: @live_states
 
   defp normalize_blank(changeset, fields) when is_list(fields) do
     Enum.reduce(fields, changeset, &normalize_blank(&2, &1))

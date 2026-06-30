@@ -16,6 +16,59 @@ defmodule Ankole.SignalsGatewayOutboxCommitTest do
   @base_time ~U[2026-06-23 08:00:00.000000Z]
 
   describe "outbox commit and adapter normalization" do
+    test "operation selection reports missing routes instead of inventing reply or post" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :ignore)
+
+      %{actor_input: input} =
+        emit_addressed_actor_input(agent.uid, "bot", group_entry(%{explicit: true}))
+
+      assert {:ok, :reply} = SignalsGateway.outbox_operation_for_actor_input(input)
+
+      assert {:error, {:signal_channel_not_found, "missing-channel"}} =
+               SignalsGateway.outbox_operation_for_actor_input(%{
+                 input
+                 | signal_channel_id: "missing-channel"
+               })
+
+      assert {:error, {:signal_binding_not_found, agent.uid, "missing-bot"}} =
+               SignalsGateway.outbox_operation_for_actor_input(%{
+                 input
+                 | binding_name: "missing-bot"
+               })
+
+      binding_fixture(agent.uid, "bad-adapter", :ignore, adapter: "missing-adapter")
+
+      assert {:error, {:outbox_adapter_not_found, "missing-adapter"}} =
+               SignalsGateway.outbox_operation_for_actor_input(%{
+                 input
+                 | binding_name: "bad-adapter"
+               })
+    end
+
+    test "operation selection rejects channels that do not allow provider replies" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "webhook", :ignore)
+
+      assert {:ok, _result} =
+               SignalsGateway.emit_entry(
+                 agent.uid,
+                 "webhook",
+                 webhook_entry(%{actor_input_type: "webhook.received"}),
+                 now: @base_time
+               )
+
+      input = %ActorInput{
+        agent_uid: agent.uid,
+        binding_name: "webhook",
+        signal_channel_id: "webhook:incident-1",
+        provider_entry_id: "hook-1"
+      }
+
+      assert {:error, :outbox_reply_not_supported} =
+               SignalsGateway.outbox_operation_for_actor_input(input)
+    end
+
     test "actor consume can commit outbox intents in the same transaction" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)

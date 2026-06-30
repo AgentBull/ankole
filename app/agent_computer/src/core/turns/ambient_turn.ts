@@ -2,7 +2,7 @@ import type { TurnStart } from '../../actor_lane'
 import type { FinalProposalBody } from '../../turn_envelopes'
 import { runAmbientRecognizer } from './ambient_recognizer'
 import { renderMessageWithContext } from './message_context'
-import { providerOptionsFromAIGateway, runtimeModelFromAIGatewayApiKey } from './model_runtime'
+import { runtimeModelFromAIGatewayApiKey } from './model_runtime'
 import { runTextTurnLoop } from './text_turn'
 import { AMBIENT_RECOGNIZER_TIMEOUT_MS } from './turn_config'
 import { resolveAgentConversationContext, resolveConversationHistory } from './turn_context'
@@ -15,9 +15,7 @@ export async function runAmbientMayInterveneHandler(
 ): Promise<FinalProposalBody> {
   const apiKeyRequest = {
     request_id: `ai-gateway-key-${crypto.randomUUID()}`,
-    turn: turnStart.turn,
-    agent_uid: turnStart.turn.actor.agent_uid,
-    session_id: turnStart.turn.actor.session_id
+    agent_uid: turnStart.turn.actor.agent_uid
   }
   const apiKey = await opts.requestAIGatewayApiKey(apiKeyRequest)
 
@@ -37,7 +35,6 @@ export async function runAmbientMayInterveneHandler(
   const recognition = await runAmbientRecognizer({
     headers: lightModel.headers ?? {},
     model: lightModel,
-    providerOptions: providerOptionsFromAIGateway(),
     agentConversationContext,
     conversationHistory: history,
     turnStart,

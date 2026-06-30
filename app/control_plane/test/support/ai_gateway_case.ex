@@ -25,6 +25,90 @@ defmodule Ankole.AIGatewayCase do
     end
   end
 
+  defmodule UpstreamPlug do
+    @moduledoc false
+
+    import Plug.Conn
+
+    def init(opts), do: opts
+
+    def call(conn, opts) do
+      handler = Keyword.fetch!(opts, :handler)
+      {:ok, body, conn} = read_body(conn)
+      request = request_map(conn, body)
+
+      request
+      |> handler.()
+      |> send_upstream_response(conn)
+    end
+
+    defp request_map(conn, ""), do: request_map(conn, nil)
+
+    defp request_map(conn, body) when is_binary(body) do
+      request_map(conn, Ankole.JSON.decode!(body))
+    end
+
+    defp request_map(conn, body) do
+      %{
+        method: conn.method |> String.downcase() |> String.to_atom(),
+        url: request_url(conn),
+        path: String.trim_leading(conn.request_path, "/"),
+        request_path: conn.request_path,
+        query_string: conn.query_string,
+        headers: Map.new(conn.req_headers),
+        body: body
+      }
+    end
+
+    defp send_upstream_response({:json, status, body}, conn) do
+      conn
+      |> put_resp_content_type("application/json")
+      |> send_resp(status, Ankole.JSON.encode!(body))
+    end
+
+    defp send_upstream_response({:raw, status, content_type, body}, conn) do
+      conn
+      |> put_resp_content_type(content_type)
+      |> send_resp(status, body)
+    end
+
+    defp send_upstream_response({:sse, status, events}, conn) do
+      send_upstream_response({:sse, status, events, true}, conn)
+    end
+
+    defp send_upstream_response({:sse, status, events, done?}, conn) do
+      conn =
+        conn
+        |> put_resp_content_type("text/event-stream")
+        |> send_chunked(status)
+
+      conn =
+        Enum.reduce(events, conn, fn event, conn ->
+          {:ok, conn} = Plug.Conn.chunk(conn, "data: #{Ankole.JSON.encode!(event)}\n\n")
+          conn
+        end)
+
+      if done? do
+        {:ok, conn} = Plug.Conn.chunk(conn, "data: [DONE]\n\n")
+        conn
+      else
+        conn
+      end
+    end
+  end
+
+  @doc false
+  def start_upstream_server(handler) when is_function(handler, 1) do
+    server =
+      ExUnit.Callbacks.start_supervised!(
+        {Bandit,
+         plug: {UpstreamPlug, handler: handler}, scheme: :http, ip: {127, 0, 0, 1}, port: 0}
+      )
+
+    {:ok, {_ip, port}} = ThousandIsland.listener_info(server)
+    "http://127.0.0.1:#{port}"
+  end
+
   @doc false
   def chat_completion_body(model, content) do
     %{

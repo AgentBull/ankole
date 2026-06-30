@@ -18,7 +18,6 @@ defmodule Ankole.ActorRuntime.TurnLifecycle do
   alias Ankole.ActorRuntime.WorkerPool
   alias Ankole.Repo
 
-  @live_delivery_states ~w(created sent accepted)
   @live_activation_statuses ~w(starting active draining)
   @activation_progress_lease_seconds 300
 
@@ -85,39 +84,6 @@ defmodule Ankole.ActorRuntime.TurnLifecycle do
   end
 
   @doc """
-  Creates a delivery attempt for one actor input.
-
-  This public helper is used by tests and recovery paths that already know the
-  turn reference. The normal runtime path creates a whole batch before sending
-  one `turn_start` envelope.
-  """
-  @spec create_input_delivery(Ecto.UUID.t(), map(), String.t() | nil) ::
-          {:ok, ActorInputDelivery.t()} | {:error, term()}
-  def create_input_delivery(actor_input_id, turn_ref, route) do
-    Repo.transact(fn repo ->
-      with %ActorInput{} = actor_input <- lock_actor_input(repo, actor_input_id),
-           %ActorSessionActivation{} = activation <-
-             activation_for_turn_ref(repo, turn_ref),
-           %LlmTurn{} = llm_turn <- AIAgent.lock_turn(repo, fetch_turn_id(turn_ref)),
-           {:ok, delivery} <-
-             create_input_delivery_in_tx(
-               repo,
-               actor_input,
-               activation,
-               llm_turn,
-               route,
-               %{},
-               DateTime.utc_now(:microsecond)
-             ) do
-        {:ok, delivery}
-      else
-        nil -> {:error, :actor_runtime_fence_not_found}
-        {:error, _reason} = error -> error
-      end
-    end)
-  end
-
-  @doc """
   Marks a delivery sent.
   """
   @spec mark_delivery_sent(Ecto.UUID.t(), String.t() | atom()) ::
@@ -141,27 +107,6 @@ defmodule Ankole.ActorRuntime.TurnLifecycle do
 
         nil ->
           {:error, :delivery_not_found}
-      end
-    end)
-  end
-
-  @doc """
-  Marks a delivery accepted by a matching worker turn.accepted message.
-  """
-  @spec mark_delivery_accepted(Ecto.UUID.t(), map()) ::
-          {:ok, ActorInputDelivery.t()} | {:error, term()}
-  def mark_delivery_accepted(delivery_id, turn_ref) do
-    now = DateTime.utc_now(:microsecond)
-
-    Repo.transact(fn repo ->
-      with %ActorInputDelivery{} = delivery <- lock_delivery(repo, delivery_id),
-           :ok <- delivery_matches_turn_ref(delivery, turn_ref) do
-        delivery
-        |> ActorInputDelivery.changeset(%{state: "accepted", accepted_at: now})
-        |> repo.update()
-      else
-        nil -> {:error, :delivery_not_found}
-        {:error, _reason} = error -> error
       end
     end)
   end
@@ -292,7 +237,7 @@ defmodule Ankole.ActorRuntime.TurnLifecycle do
     ActorInputDelivery
     |> where([delivery], delivery.agent_uid == ^actor_key.agent_uid)
     |> where([delivery], delivery.session_id == ^actor_key.session_id)
-    |> where([delivery], delivery.state in ^@live_delivery_states)
+    |> where([delivery], delivery.state in ^ActorInputDelivery.live_states())
     |> repo.exists?()
   end
 
@@ -311,7 +256,7 @@ defmodule Ankole.ActorRuntime.TurnLifecycle do
       do: conversation_has_active_generation?(generation)
 
   def conversation_has_active_generation?(generation) when is_map(generation),
-    do: is_binary(generation["lease_id"]) and is_nil(generation["cancelled_at"])
+    do: Conversation.generation_active?(generation)
 
   def conversation_has_active_generation?(_generation), do: false
 
@@ -336,7 +281,7 @@ defmodule Ankole.ActorRuntime.TurnLifecycle do
   def live_delivery_for_input?(repo, actor_input_id) do
     ActorInputDelivery
     |> where([delivery], delivery.actor_input_id == ^actor_input_id)
-    |> where([delivery], delivery.state in ^@live_delivery_states)
+    |> where([delivery], delivery.state in ^ActorInputDelivery.live_states())
     |> repo.exists?()
   end
 
@@ -381,7 +326,7 @@ defmodule Ankole.ActorRuntime.TurnLifecycle do
   def cancel_started_turn_for_lease(_repo, _conversation, nil, _now, _reason), do: {:ok, nil}
 
   def cancel_started_turn_for_lease(repo, %Conversation{} = conversation, lease_id, now, reason) do
-    case started_turn_for_lease(repo, conversation, lease_id) do
+    case AIAgent.started_turn_for_lease(repo, conversation, lease_id) do
       %LlmTurn{} = turn ->
         with {:ok, cancelled_turn} <- AIAgent.cancel_turn_in_tx(repo, turn, reason, now),
              {_count, _rows} <- supersede_turn_deliveries_by_id(turn.id, repo, now, reason) do
@@ -635,7 +580,7 @@ defmodule Ankole.ActorRuntime.TurnLifecycle do
     lease_id = generation["lease_id"]
 
     with lease_id when is_binary(lease_id) and lease_id != "" <- lease_id,
-         %LlmTurn{} = llm_turn <- started_turn_for_lease(repo, conversation, lease_id),
+         %LlmTurn{} = llm_turn <- AIAgent.started_turn_for_lease(repo, conversation, lease_id),
          false <- turn_has_live_delivery?(repo, llm_turn.id),
          user_messages <- messages_for_turn(repo, llm_turn) do
       {:ok,
@@ -654,20 +599,10 @@ defmodule Ankole.ActorRuntime.TurnLifecycle do
 
   defp reuse_started_turn_in_tx(_repo, _conversation), do: {:error, :active_turn_exists}
 
-  defp started_turn_for_lease(repo, conversation, lease_id) do
-    LlmTurn
-    |> where([turn], turn.conversation_id == ^conversation.id)
-    |> where([turn], turn.lease_id == ^lease_id)
-    |> where([turn], turn.status == "started")
-    |> order_by([turn], asc: turn.call_index)
-    |> lock("FOR UPDATE")
-    |> repo.one()
-  end
-
   defp turn_has_live_delivery?(repo, llm_turn_id) do
     ActorInputDelivery
     |> where([delivery], delivery.llm_turn_id == ^llm_turn_id)
-    |> where([delivery], delivery.state in ^@live_delivery_states)
+    |> where([delivery], delivery.state in ^ActorInputDelivery.live_states())
     |> repo.exists?()
   end
 
@@ -856,7 +791,7 @@ defmodule Ankole.ActorRuntime.TurnLifecycle do
   def supersede_turn_deliveries_by_id(llm_turn_id, repo, now, reason) do
     ActorInputDelivery
     |> where([delivery], delivery.llm_turn_id == ^llm_turn_id)
-    |> where([delivery], delivery.state in ^@live_delivery_states)
+    |> where([delivery], delivery.state in ^ActorInputDelivery.live_states())
     |> repo.update_all(
       set: [
         state: "superseded",
@@ -878,7 +813,7 @@ defmodule Ankole.ActorRuntime.TurnLifecycle do
     delivery_exists =
       ActorInputDelivery
       |> where([delivery], delivery.llm_turn_id == ^llm_turn_id)
-      |> where([delivery], delivery.state in ^@live_delivery_states)
+      |> where([delivery], delivery.state in ^ActorInputDelivery.live_states())
       |> repo.exists?()
 
     activation_exists and delivery_exists

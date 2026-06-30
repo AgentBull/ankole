@@ -19,7 +19,8 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
       MIX_ENV=test OPEN_ROUTER_API_KEY=... mix e2e.ai_gateway_real_provider -- --providers=openrouter
       MIX_ENV=test mix run tools/e2e/ai_gateway_real_provider_e2e.exs -- --list
 
-  Provider names are `openrouter`, `jina`, `google`, and `claude_openrouter`.
+  Provider names are `openrouter`, `jina`, `google`, `claude_openrouter`, and
+  `claude_direct`.
   Use `--providers=available` to run the groups whose required API keys are
   present in the environment.
   """
@@ -28,8 +29,9 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
   import Plug.Conn
 
   @endpoint AnkoleWeb.Endpoint
-  @provider_names [:openrouter, :jina, :google, :claude_openrouter]
+  @provider_names [:openrouter, :jina, :google, :claude_openrouter, :claude_direct]
   @results_path Path.expand("../../tmp/ai_gateway_real_provider_e2e_results.jsonl", __DIR__)
+  @concurrency_timeout_ms 90_000
 
   alias Ankole.AIAgent.ModelProfiles
   alias Ankole.AIGateway
@@ -76,8 +78,16 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
 
     Environment:
       OPENROUTER_API_KEY or OPEN_ROUTER_API_KEY   OpenRouter and Claude-through-OpenRouter
+      AI_GATEWAY_E2E_OPENROUTER_MODEL             OpenRouter LLM model override
+      AI_GATEWAY_E2E_OPENROUTER_EMBEDDING_MODEL   OpenRouter embedding model override
+      AI_GATEWAY_E2E_OPENROUTER_RERANK_MODEL      OpenRouter rerank model override
+      AI_GATEWAY_E2E_OPENROUTER_CLAUDE_MODEL      OpenRouter Claude Messages model override
       JINA_API_KEY                                Jina embeddings and rerank
       GOOGLE_AI_STUDIO_API_KEY                    Google AI Studio OpenAI-compatible API
+      ANTHROPIC_AUTH_TOKEN                        Claude-compatible direct auth token
+      ANTHROPIC_BASE_URL                          Claude-compatible direct base URL
+      AI_GATEWAY_E2E_CLAUDE_MODEL                 Claude-compatible direct model override
+      AI_GATEWAY_E2E_CONCURRENCY                  Concurrent case max concurrency, default 6
     """)
   end
 
@@ -111,6 +121,7 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
   defp provider_name!("jina"), do: :jina
   defp provider_name!("google"), do: :google
   defp provider_name!("claude_openrouter"), do: :claude_openrouter
+  defp provider_name!("claude_direct"), do: :claude_direct
 
   defp provider_name!(name) do
     raise "unknown provider group #{inspect(name)}; expected #{Enum.join(@provider_names, ", ")}"
@@ -132,6 +143,7 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
 
   defp credential_env_names(:openrouter), do: ["OPENROUTER_API_KEY", "OPEN_ROUTER_API_KEY"]
   defp credential_env_names(:claude_openrouter), do: ["OPENROUTER_API_KEY", "OPEN_ROUTER_API_KEY"]
+  defp credential_env_names(:claude_direct), do: ["ANTHROPIC_AUTH_TOKEN"]
   defp credential_env_names(:jina), do: ["JINA_API_KEY"]
   defp credential_env_names(:google), do: ["GOOGLE_AI_STUDIO_API_KEY"]
 
@@ -144,18 +156,27 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
       :jina, setup -> setup_jina(setup, credentials.jina)
       :google, setup -> setup_google(setup, credentials.google)
       :claude_openrouter, setup -> setup_claude_openrouter(setup, credentials.claude_openrouter)
+      :claude_direct, setup -> setup_claude_direct(setup, credentials.claude_direct)
     end)
   end
 
   defp setup_openrouter(%{suffix: suffix} = setup, credential) do
     provider_id = "e2e-openrouter-#{suffix}"
+    llm_model = System.get_env("AI_GATEWAY_E2E_OPENROUTER_MODEL") || "openai/gpt-5.4-nano"
+
+    embedding_model =
+      System.get_env("AI_GATEWAY_E2E_OPENROUTER_EMBEDDING_MODEL") ||
+        "perplexity/pplx-embed-v1-0.6b"
+
+    rerank_model =
+      System.get_env("AI_GATEWAY_E2E_OPENROUTER_RERANK_MODEL") ||
+        "nvidia/llama-nemotron-rerank-vl-1b-v2:free"
 
     create_provider!(%{
       provider_id: provider_id,
       provider_kind: "openrouter",
-      credential: credential,
       base_url: "https://openrouter.ai/api/v1",
-      connection_options: %{}
+      connection_options: %{"api_key" => credential}
     })
 
     agent =
@@ -166,11 +187,11 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
             "models" => %{
               "embedding" => %{
                 "provider_id" => provider_id,
-                "model" => "perplexity/pplx-embed-v1-0.6b"
+                "model" => embedding_model
               },
               "rerank" => %{
                 "provider_id" => provider_id,
-                "model" => "nvidia/llama-nemotron-rerank-vl-1b-v2:free"
+                "model" => rerank_model
               }
             }
           }
@@ -179,12 +200,15 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
 
     put_profile!(agent.uid, "primary", %{
       provider_id: provider_id,
-      model: "openai/gpt-5.4-nano"
+      model: llm_model
     })
 
     setup
     |> Map.put(:openrouter_provider, provider_id)
     |> Map.put(:openrouter_agent, agent)
+    |> Map.put(:openrouter_llm_model, llm_model)
+    |> Map.put(:openrouter_embedding_model, embedding_model)
+    |> Map.put(:openrouter_rerank_model, rerank_model)
   end
 
   defp setup_jina(%{suffix: suffix} = setup, credential) do
@@ -193,12 +217,14 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
     create_provider!(%{
       provider_id: provider_id,
       provider_kind: "jina",
-      credential: credential,
       base_url: "https://api.jina.ai/v1",
-      # Product defaults still prefer HTTP/2 for first-class providers. This
-      # live smoke row pins Jina to HTTP/1 because Finch can hit the dynamic-pool
-      # h2/h1 edge described in https://github.com/sneako/finch/issues/265.
-      connection_options: %{"http_protocol" => "http1"}
+      # Product defaults still prefer native HTTP/2 transport for first-class
+      # providers. This live smoke row pins Jina to HTTP/1 because Jina's edge
+      # has historically been more predictable over HTTP/1.1 for this probe.
+      connection_options: %{
+        "api_key" => credential,
+        "transport" => %{"http_versions" => ["h1"], "compression" => ["zstd", "br", "gzip"]}
+      }
     })
 
     agent =
@@ -229,9 +255,8 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
     create_provider!(%{
       provider_id: provider_id,
       provider_kind: "google_ai_studio_openai",
-      credential: credential,
       base_url: "https://generativelanguage.googleapis.com/v1beta/openai",
-      connection_options: %{}
+      connection_options: %{"api_key" => credential}
     })
 
     agent = create_agent!("e2e-google-agent-#{suffix}", %{})
@@ -247,12 +272,16 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
   defp setup_claude_openrouter(%{suffix: suffix} = setup, credential) do
     provider_id = "e2e-claude-openrouter-#{suffix}"
 
+    model =
+      System.get_env("AI_GATEWAY_E2E_OPENROUTER_CLAUDE_MODEL") ||
+        "anthropic/claude-sonnet-4.5"
+
     create_provider!(%{
       provider_id: provider_id,
       provider_kind: "claude",
-      credential: credential,
       base_url: "https://openrouter.ai/api/v1",
       connection_options: %{
+        "api_key" => credential,
         "auth_mode" => "auth_token",
         "messages_path" => "messages"
       }
@@ -262,19 +291,56 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
 
     put_profile!(agent.uid, "primary", %{
       provider_id: provider_id,
-      model: "anthropic/claude-sonnet-4.5"
+      model: model
     })
 
-    Map.put(setup, :claude_openrouter_agent, agent)
+    setup
+    |> Map.put(:claude_openrouter_agent, agent)
+    |> Map.put(:claude_openrouter_model, model)
+  end
+
+  defp setup_claude_direct(%{suffix: suffix} = setup, credential) do
+    provider_id = "e2e-claude-direct-#{suffix}"
+    base_url = System.get_env("ANTHROPIC_BASE_URL") || "https://api.anthropic.com"
+    model = System.get_env("AI_GATEWAY_E2E_CLAUDE_MODEL") || "claude-haiku-4-5-20251001"
+
+    create_provider!(%{
+      provider_id: provider_id,
+      provider_kind: "claude",
+      base_url: base_url,
+      connection_options: %{
+        "api_key" => credential,
+        "auth_mode" => "auth_token",
+        "messages_path" => System.get_env("ANTHROPIC_MESSAGES_PATH") || "v1/messages"
+      }
+    })
+
+    agent = create_agent!("e2e-claude-direct-agent-#{suffix}", %{})
+
+    put_profile!(agent.uid, "primary", %{
+      provider_id: provider_id,
+      model: model
+    })
+
+    setup
+    |> Map.put(:claude_direct_agent, agent)
+    |> Map.put(:claude_direct_model, model)
   end
 
   defp fake_setup(:openrouter) do
-    %{openrouter_provider: "fake-openrouter", openrouter_agent: %{uid: "fake-openrouter-agent"}}
+    %{
+      openrouter_provider: "fake-openrouter",
+      openrouter_agent: %{uid: "fake-openrouter-agent"},
+      openrouter_llm_model: "fake-openrouter-model",
+      openrouter_embedding_model: "fake-openrouter-embedding-model",
+      openrouter_rerank_model: "fake-openrouter-rerank-model"
+    }
   end
 
   defp fake_setup(:jina), do: %{jina_agent: %{uid: "fake-jina-agent"}}
   defp fake_setup(:google), do: %{google_agent: %{uid: "fake-google-agent"}}
   defp fake_setup(:claude_openrouter), do: %{claude_openrouter_agent: %{uid: "fake-claude-agent"}}
+  defp fake_setup(:claude_direct), do: %{claude_direct_agent: %{uid: "fake-claude-direct-agent"}}
 
   defp cases(setup, image) do
     []
@@ -282,19 +348,26 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
     |> add_jina_cases(setup)
     |> add_google_cases(setup, image)
     |> add_claude_openrouter_cases(setup)
+    |> add_claude_direct_cases(setup)
     |> Enum.reverse()
   end
 
   defp add_openrouter_cases(
          cases,
-         %{openrouter_agent: agent, openrouter_provider: provider},
+         %{
+           openrouter_agent: agent,
+           openrouter_provider: provider,
+           openrouter_llm_model: llm_model,
+           openrouter_embedding_model: embedding_model,
+           openrouter_rerank_model: rerank_model
+         },
          image
        ) do
     [
       {"openrouter.models_http_agent_catalog", fn -> case_models_http(agent) end},
       {"openrouter.llm_alias_direct_text", fn -> case_llm_direct(agent, "primary") end},
       {"openrouter.llm_explicit_direct_text",
-       fn -> case_llm_direct(agent, "#{provider}/openai/gpt-5.4-nano") end},
+       fn -> case_llm_direct(agent, "#{provider}/#{llm_model}") end},
       {"openrouter.llm_http_json", fn -> case_llm_http_json(agent) end},
       {"openrouter.llm_structured_json", fn -> case_llm_structured_json(agent) end},
       {"openrouter.llm_http_sse", fn -> case_llm_http_sse(agent) end},
@@ -309,7 +382,20 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
        end},
       {"openrouter.embedding_multimodal",
        fn -> case_embedding_multimodal(agent, "embedding.default", image) end},
-      {"openrouter.rerank_text_structured", fn -> case_rerank(agent, "rerank.default", true) end}
+      {"openrouter.rerank_text_structured", fn -> case_rerank(agent, "rerank.default", true) end},
+      {"openrouter.concurrent_multi_agent_mixed",
+       fn ->
+         case_openrouter_concurrent_multi_agent(
+           provider,
+           llm_model,
+           embedding_model,
+           rerank_model
+         )
+       end},
+      {"openrouter.chaos_mixed_success_and_expected_failures",
+       fn ->
+         case_openrouter_chaos_mixed(provider, llm_model, embedding_model, rerank_model, image)
+       end}
       | cases
     ]
   end
@@ -339,7 +425,8 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
   defp add_google_cases(cases, %{google_agent: agent}, image) do
     [
       {"google_ai_studio.llm_text", fn -> case_llm_direct(agent, "primary") end},
-      {"google_ai_studio.llm_multimodal", fn -> case_llm_multimodal(agent, "primary", image) end}
+      {"google_ai_studio.llm_multimodal", fn -> case_llm_multimodal(agent, "primary", image) end},
+      {"google_ai_studio.concurrent_llm_text", fn -> case_google_concurrent_llm(agent) end}
       | cases
     ]
   end
@@ -347,10 +434,24 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
   defp add_google_cases(cases, _setup, _image), do: cases
 
   defp add_claude_openrouter_cases(cases, %{claude_openrouter_agent: agent}) do
-    [{"claude_openrouter.messages_text", fn -> case_llm_direct(agent, "primary") end} | cases]
+    [
+      {"claude_openrouter.messages_text", fn -> case_llm_direct(agent, "primary") end},
+      {"claude_openrouter.messages_sse", fn -> case_llm_http_sse(agent) end}
+      | cases
+    ]
   end
 
   defp add_claude_openrouter_cases(cases, _setup), do: cases
+
+  defp add_claude_direct_cases(cases, %{claude_direct_agent: agent}) do
+    [
+      {"claude_direct.messages_text", fn -> case_llm_direct(agent, "primary") end},
+      {"claude_direct.messages_sse", fn -> case_llm_http_sse(agent) end}
+      | cases
+    ]
+  end
+
+  defp add_claude_direct_cases(cases, _setup), do: cases
 
   defp case_models_http(agent) do
     conn =
@@ -492,6 +593,7 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
       AIGateway.create_response(agent.uid, %{
         "model" => "primary",
         "input" => "Use the tool to look up the weather for Shanghai.",
+        "extra_body" => %{"enable_thinking" => false},
         "max_output_tokens" => 120,
         "temperature" => 0,
         "tools" => [
@@ -508,7 +610,7 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
             "strict" => true
           }
         ],
-        "tool_choice" => %{"type" => "function", "name" => "get_weather"}
+        "tool_choice" => "auto"
       })
 
     call =
@@ -654,12 +756,196 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
     %{count: length(results), model: response.body["model"], top_index: hd(results)["index"]}
   end
 
+  defp case_openrouter_concurrent_multi_agent(provider, llm_model, embedding_model, rerank_model) do
+    suffix = unique_suffix()
+
+    agents =
+      for index <- 1..4 do
+        agent = create_agent!("e2e-openrouter-concurrent-#{suffix}-#{index}", %{})
+
+        put_profile!(agent.uid, "primary", %{provider_id: provider, model: llm_model})
+        put_profile!(agent.uid, "embedding", %{provider_id: provider, model: embedding_model})
+        put_profile!(agent.uid, "rerank", %{provider_id: provider, model: rerank_model})
+
+        {index, agent}
+      end
+
+    jobs =
+      agents
+      |> Enum.flat_map(fn {index, agent} ->
+        [
+          {"agent#{index}.llm_json", fn -> case_llm_direct(agent, "primary") end},
+          {"agent#{index}.llm_sse", fn -> case_llm_http_sse(agent) end}
+        ]
+      end)
+      |> Kernel.++([
+        {"embedding.batch",
+         fn ->
+           {_index, agent} = hd(agents)
+           case_embedding(agent, "embedding.default", ["concurrent query", "concurrent passage"])
+         end},
+        {"rerank.structured",
+         fn ->
+           {_index, agent} = List.last(agents)
+           case_rerank(agent, "rerank.default", true)
+         end}
+      ])
+
+    summarize_concurrent_results(run_concurrent!(jobs))
+  end
+
+  defp case_openrouter_chaos_mixed(provider, llm_model, embedding_model, rerank_model, image) do
+    suffix = unique_suffix()
+    agent = create_agent!("e2e-openrouter-chaos-#{suffix}", %{})
+
+    put_profile!(agent.uid, "primary", %{provider_id: provider, model: llm_model})
+    put_profile!(agent.uid, "embedding", %{provider_id: provider, model: embedding_model})
+    put_profile!(agent.uid, "rerank", %{provider_id: provider, model: rerank_model})
+
+    invalid_model = "#{provider}/ankole-invalid-model-#{suffix}"
+
+    jobs = [
+      {"good.llm_json", fn -> case_llm_direct(agent, "primary") end},
+      {"good.llm_sse", fn -> case_llm_http_sse(agent) end},
+      {"good.embedding",
+       fn -> case_embedding(agent, "embedding.default", ["chaos query", "chaos passage"]) end},
+      {"good.rerank", fn -> case_rerank(agent, "rerank.default", true) end},
+      {"expected_failure.invalid_model",
+       fn ->
+         expect_upstream_failure(fn ->
+           AIGateway.create_response(agent.uid, %{
+             "model" => invalid_model,
+             "input" => "This request should fail at the provider.",
+             "max_output_tokens" => 16,
+             "temperature" => 0
+           })
+         end)
+       end},
+      {"expected_failure.embedding_image_or_provider_support",
+       fn ->
+         case_embedding_multimodal(agent, "embedding.default", image)
+       end}
+    ]
+
+    results = run_concurrent!(jobs)
+
+    results
+    |> summarize_concurrent_results()
+    |> Map.put(:expected_failure_count, expected_failure_count(results))
+  end
+
+  defp case_google_concurrent_llm(agent) do
+    jobs =
+      for index <- 1..4 do
+        {"google.llm_text.#{index}", fn -> case_llm_direct(agent, "primary") end}
+      end
+
+    summarize_concurrent_results(
+      run_concurrent!(jobs, max_concurrency: min(4, concurrency_limit()))
+    )
+  end
+
+  defp run_concurrent!(jobs, opts \\ []) do
+    max_concurrency =
+      opts
+      |> Keyword.get(:max_concurrency, concurrency_limit())
+      |> min(length(jobs))
+
+    jobs
+    |> Task.async_stream(
+      fn {label, fun} ->
+        started_at = System.monotonic_time(:millisecond)
+
+        try do
+          summary = fun.()
+          {:ok, label, elapsed_ms(started_at), summary}
+        rescue
+          exception ->
+            {:error, label, elapsed_ms(started_at),
+             Exception.format(:error, exception, __STACKTRACE__)}
+        catch
+          kind, reason ->
+            {:error, label, elapsed_ms(started_at), "#{inspect(kind)} #{inspect(reason)}"}
+        end
+      end,
+      max_concurrency: max_concurrency,
+      on_timeout: :kill_task,
+      ordered: false,
+      timeout: @concurrency_timeout_ms
+    )
+    |> Enum.map(fn
+      {:ok, {:ok, label, duration_ms, summary}} ->
+        %{label: label, duration_ms: duration_ms, summary: summary}
+
+      {:ok, {:error, label, duration_ms, error}} ->
+        raise "concurrent job #{label} failed after #{duration_ms}ms: #{error}"
+
+      {:exit, reason} ->
+        raise "concurrent job exited: #{inspect(reason)}"
+    end)
+  end
+
+  defp summarize_concurrent_results(results) do
+    %{
+      count: length(results),
+      labels: results |> Enum.map(& &1.label) |> Enum.sort(),
+      max_duration_ms: results |> Enum.map(& &1.duration_ms) |> Enum.max(fn -> 0 end)
+    }
+  end
+
+  defp expect_upstream_failure(fun) do
+    case fun.() do
+      {:error, {:upstream_response_failed, status, body}} when status in 400..499 ->
+        %{
+          outcome: "expected_upstream_failure",
+          status: status,
+          error_keys: upstream_error_keys(body)
+        }
+
+      {:ok, response} ->
+        raise "expected upstream failure, got successful response #{inspect(response.body)}"
+
+      {:error, reason} ->
+        raise "expected upstream 4xx failure, got #{inspect(reason)}"
+    end
+  end
+
+  defp expected_failure_count(results) do
+    Enum.count(results, fn %{summary: summary} ->
+      case summary do
+        %{outcome: "expected_upstream_failure"} -> true
+        %{outcome: "provider_rejected_unsupported_image_input"} -> true
+        _summary -> false
+      end
+    end)
+  end
+
+  defp upstream_error_keys(%{"error" => error}) when is_map(error),
+    do: error |> Map.keys() |> Enum.sort()
+
+  defp upstream_error_keys(error) when is_map(error), do: error |> Map.keys() |> Enum.sort()
+  defp upstream_error_keys(_error), do: []
+
+  defp concurrency_limit do
+    case System.get_env("AI_GATEWAY_E2E_CONCURRENCY") do
+      value when is_binary(value) ->
+        case Integer.parse(value) do
+          {integer, ""} when integer > 0 -> integer
+          _value -> 6
+        end
+
+      _value ->
+        6
+    end
+  end
+
   defp run_case(name, fun, credentials) do
     started_at = System.monotonic_time(:millisecond)
 
     record =
       try do
-        %{case: name, duration_ms: elapsed_ms(started_at), status: "pass", summary: fun.()}
+        summary = fun.()
+        %{case: name, duration_ms: elapsed_ms(started_at), status: "pass", summary: summary}
       rescue
         exception ->
           %{
@@ -801,17 +1087,17 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
   defp embedding_dimensions(_value), do: 0
 
   defp deterministic_image_data_url do
-    # A tiny generated image avoids depending on local Downloads contents while
-    # still proving that data-url image parts survive the gateway/provider path.
+    # A tiny generated image avoids depending on local Downloads contents. Some
+    # multimodal providers reject 1x1 images, so keep this above common minimums.
     data =
       Base.decode64!(
-        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII="
+        "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAFklEQVR42mP4TyFgGDVg1IBRA4aLAQBdePwurSGpXgAAAABJRU5ErkJggg=="
       )
 
     %{
       bytes: byte_size(data),
       data_url: "data:image/png;base64,#{Base.encode64(data)}",
-      source: "generated-1x1-png"
+      source: "generated-16x16-png"
     }
   end
 

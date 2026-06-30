@@ -185,7 +185,7 @@ impl DealerHandle {
         envelope_json: serde_json::Value,
     ) -> Result<SendOutcome, TransportError> {
         let payload =
-            runtime_fabric::encode_envelope_json(envelope_json).map_err(TransportError::from)?;
+            runtime_fabric::encode_envelope(envelope_json).map_err(TransportError::from)?;
         self.send_payload(payload)
     }
 

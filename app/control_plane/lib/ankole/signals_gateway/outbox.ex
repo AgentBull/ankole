@@ -58,24 +58,23 @@ defmodule Ankole.SignalsGateway.Outbox do
 
   Decides whether the agent's reply should be a threaded `:reply` to the
   triggering entry or a top-level `:post`, based on the channel's reply_mode and
-  the adapter's declared capabilities. Falls back to a safe operation when the
-  channel/binding can't be resolved, so a reply is never silently dropped.
+  the adapter's declared capabilities. Missing route state is returned as an
+  error so a provider-visible side effect is never committed to an invented
+  route.
   """
-  @spec outbox_operation_for_actor_input(ActorInput.t(), module()) :: atom()
+  @spec outbox_operation_for_actor_input(ActorInput.t(), module()) ::
+          {:ok, atom()} | {:error, term()}
   def outbox_operation_for_actor_input(%ActorInput{} = actor_input, repo \\ Repo) do
-    with %SignalChannel{} = channel <- repo.get(SignalChannel, actor_input.signal_channel_id),
-         %SignalBinding{} = binding <-
-           repo.get_by(SignalBinding,
-             agent_uid: actor_input.agent_uid,
-             name: actor_input.binding_name
+    with {:ok, channel} <- outbox_route_channel(repo, actor_input),
+         {:ok, binding} <- outbox_route_binding(repo, actor_input),
+         {:ok, capabilities} <- adapter_outbound_capabilities(binding.adapter),
+         {:ok, operation} <-
+           choose_outbox_operation(
+             channel,
+             capabilities,
+             actor_input
            ) do
-      choose_outbox_operation(
-        channel,
-        adapter_outbound_capabilities(binding.adapter),
-        actor_input
-      )
-    else
-      _value -> fallback_outbox_operation(actor_input)
+      {:ok, operation}
     end
   end
 
@@ -229,20 +228,23 @@ defmodule Ankole.SignalsGateway.Outbox do
          %ActorInput{provider_entry_id: provider_entry_id}
        )
        when is_binary(provider_entry_id) do
-    case MapSet.member?(capabilities, "reply_entry") do
-      true -> :reply
-      false -> post_or_fallback(capabilities, :reply)
-    end
+    {:ok,
+     case MapSet.member?(capabilities, "reply_entry") do
+       true -> :reply
+       false -> post_or_fallback(capabilities, :reply)
+     end}
   end
 
-  defp choose_outbox_operation(%SignalChannel{reply_mode: mode}, capabilities, actor_input)
+  defp choose_outbox_operation(%SignalChannel{reply_mode: mode}, capabilities, _actor_input)
        when mode in [:channel, :entry] do
-    post_or_fallback(capabilities, fallback_outbox_operation(actor_input))
+    {:ok, post_or_fallback(capabilities, :post)}
   end
 
-  defp choose_outbox_operation(_channel, _capabilities, actor_input) do
-    fallback_outbox_operation(actor_input)
-  end
+  defp choose_outbox_operation(%SignalChannel{reply_mode: :none}, _capabilities, _actor_input),
+    do: {:error, :outbox_reply_not_supported}
+
+  defp choose_outbox_operation(_channel, _capabilities, _actor_input),
+    do: {:error, :outbox_reply_mode_unknown}
 
   defp post_or_fallback(capabilities, fallback) do
     case MapSet.member?(capabilities, "post_entry") do
@@ -251,16 +253,33 @@ defmodule Ankole.SignalsGateway.Outbox do
     end
   end
 
-  defp fallback_outbox_operation(%ActorInput{provider_entry_id: provider_entry_id})
-       when is_binary(provider_entry_id),
-       do: :reply
+  defp outbox_route_channel(_repo, %ActorInput{signal_channel_id: nil}),
+    do: {:error, :signal_channel_id_missing}
 
-  defp fallback_outbox_operation(_actor_input), do: :post
+  defp outbox_route_channel(repo, %ActorInput{signal_channel_id: signal_channel_id}) do
+    case repo.get(SignalChannel, signal_channel_id) do
+      %SignalChannel{} = channel -> {:ok, channel}
+      nil -> {:error, {:signal_channel_not_found, signal_channel_id}}
+    end
+  end
+
+  defp outbox_route_binding(repo, %ActorInput{} = actor_input) do
+    case repo.get_by(SignalBinding,
+           agent_uid: actor_input.agent_uid,
+           name: actor_input.binding_name
+         ) do
+      %SignalBinding{} = binding ->
+        {:ok, binding}
+
+      nil ->
+        {:error, {:signal_binding_not_found, actor_input.agent_uid, actor_input.binding_name}}
+    end
+  end
 
   defp adapter_outbound_capabilities(adapter_id) when is_binary(adapter_id) do
     case Process.whereis(Ankole.Plugins.Registry) do
       nil ->
-        MapSet.new()
+        {:error, :plugins_registry_unavailable}
 
       _pid ->
         "signals_gateway.adapter"
@@ -270,17 +289,19 @@ defmodule Ankole.SignalsGateway.Outbox do
         end)
         |> case do
           nil ->
-            MapSet.new()
+            {:error, {:outbox_adapter_not_found, adapter_id}}
 
           declaration ->
-            MapSet.new(
-              declaration[:outbound_capabilities] || declaration["outbound_capabilities"] || []
-            )
+            {:ok,
+             MapSet.new(
+               declaration[:outbound_capabilities] || declaration["outbound_capabilities"] || []
+             )}
         end
     end
   end
 
-  defp adapter_outbound_capabilities(_adapter_id), do: MapSet.new()
+  defp adapter_outbound_capabilities(adapter_id),
+    do: {:error, {:outbox_adapter_not_found, adapter_id}}
 
   defp fetch_outbox_for_update(repo, agent_uid, binding_name, outbound_key) do
     OutboxEntry

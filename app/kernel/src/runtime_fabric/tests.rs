@@ -27,8 +27,8 @@ fn round_trips_turn_start() {
         }
     });
 
-    let encoded = encode_envelope_json(envelope).unwrap();
-    let decoded = decode_envelope_json(&encoded).unwrap();
+    let encoded = encode_envelope(envelope).unwrap();
+    let decoded = decode_envelope(&encoded).unwrap();
 
     assert_eq!(decoded["body"]["type"], "turn_start");
     assert_eq!(
@@ -61,8 +61,8 @@ fn round_trips_mailbox_updated_with_turn_inputs() {
         }
     });
 
-    let encoded = encode_envelope_json(envelope).unwrap();
-    let decoded = decode_envelope_json(&encoded).unwrap();
+    let encoded = encode_envelope(envelope).unwrap();
+    let decoded = decode_envelope(&encoded).unwrap();
 
     assert_eq!(decoded["body"]["type"], "mailbox_updated");
     assert_eq!(
@@ -118,8 +118,8 @@ fn round_trips_turn_final_proposal_telemetry() {
         }
     });
 
-    let encoded = encode_envelope_json(envelope).unwrap();
-    let decoded = decode_envelope_json(&encoded).unwrap();
+    let encoded = encode_envelope(envelope).unwrap();
+    let decoded = decode_envelope(&encoded).unwrap();
     let proposal = &decoded["body"]["turn_final_proposal"];
 
     assert_eq!(decoded["body"]["type"], "turn_final_proposal");
@@ -155,8 +155,8 @@ fn round_trips_turn_final_proposal_without_reply_for_silent_commit() {
         }
     });
 
-    let encoded = encode_envelope_json(envelope).unwrap();
-    let decoded = decode_envelope_json(&encoded).unwrap();
+    let encoded = encode_envelope(envelope).unwrap();
+    let decoded = decode_envelope(&encoded).unwrap();
 
     assert_eq!(decoded["body"]["type"], "turn_final_proposal");
     assert!(decoded["body"]["turn_final_proposal"]["reply"].is_null());
@@ -186,8 +186,8 @@ fn json_byte_fields_preserve_json_strings() {
         }
     });
 
-    let encoded = encode_envelope_json(envelope).unwrap();
-    let decoded = decode_envelope_json(&encoded).unwrap();
+    let encoded = encode_envelope(envelope).unwrap();
+    let decoded = decode_envelope(&encoded).unwrap();
 
     assert_eq!(
         decoded["body"]["turn_start"]["inputs"][0]["payload_json"],
@@ -213,7 +213,7 @@ fn rejects_steer_with_inline_payload() {
         }
     });
 
-    let error = encode_envelope_json(envelope).unwrap_err().to_string();
+    let error = encode_envelope(envelope).unwrap_err().to_string();
 
     assert!(error.contains("steer payload must be empty"));
 }
@@ -239,7 +239,7 @@ fn rejects_turn_start_with_wrong_lane_or_durability() {
         }
     });
 
-    let error = encode_envelope_json(envelope).unwrap_err().to_string();
+    let error = encode_envelope(envelope).unwrap_err().to_string();
 
     assert!(error.contains("turn_start must use lane LANE_TURN"));
 }
@@ -262,7 +262,7 @@ fn rejects_worker_progress_internal_event_kinds() {
         }
     });
 
-    let error = encode_envelope_json(envelope).unwrap_err().to_string();
+    let error = encode_envelope(envelope).unwrap_err().to_string();
 
     assert!(error.contains("worker_progress kind"));
 }
@@ -287,7 +287,7 @@ fn rejects_actor_key_profile_fields() {
         }
     });
 
-    let error = encode_envelope_json(envelope).unwrap_err().to_string();
+    let error = encode_envelope(envelope).unwrap_err().to_string();
 
     assert!(error.contains("ActorKey must not carry display_name"));
 }
@@ -318,8 +318,8 @@ fn round_trips_rpc_request() {
         }
     });
 
-    let encoded = encode_envelope_json(envelope).unwrap();
-    let decoded = decode_envelope_json(&encoded).unwrap();
+    let encoded = encode_envelope(envelope).unwrap();
+    let decoded = decode_envelope(&encoded).unwrap();
 
     assert_eq!(decoded["body"]["type"], "rpc_request");
     assert_eq!(
@@ -349,7 +349,7 @@ fn rejects_rpc_correlation_mismatch() {
         }
     });
 
-    let error = encode_envelope_json(envelope).unwrap_err().to_string();
+    let error = encode_envelope(envelope).unwrap_err().to_string();
 
     assert!(error.contains("correlation_id must equal request_id"));
 }
@@ -372,8 +372,8 @@ fn worker_ready_does_not_require_actor_fields() {
         }
     });
 
-    let encoded = encode_envelope_json(envelope).unwrap();
-    let decoded = decode_envelope_json(&encoded).unwrap();
+    let encoded = encode_envelope(envelope).unwrap();
+    let decoded = decode_envelope(&encoded).unwrap();
 
     assert_eq!(decoded["body"]["type"], "worker_ready");
     assert!(
@@ -397,7 +397,7 @@ fn rejects_top_level_body_shape() {
         }
     });
 
-    let error = encode_envelope_json(envelope).unwrap_err().to_string();
+    let error = encode_envelope(envelope).unwrap_err().to_string();
 
     assert!(error.contains("envelope body is required"));
 }
@@ -418,7 +418,7 @@ fn rejects_decoded_protobuf_missing_required_nested_fields() {
     let mut bytes = Vec::new();
     heartbeat.encode(&mut bytes).unwrap();
 
-    let error = decode_envelope_json(&bytes).unwrap_err().to_string();
+    let error = decode_envelope(&bytes).unwrap_err().to_string();
 
     assert!(error.contains("worker_heartbeat.worker_id is required"));
 
@@ -437,7 +437,7 @@ fn rejects_decoded_protobuf_missing_required_nested_fields() {
     let mut bytes = Vec::new();
     rpc_request.encode(&mut bytes).unwrap();
 
-    let error = decode_envelope_json(&bytes).unwrap_err().to_string();
+    let error = decode_envelope(&bytes).unwrap_err().to_string();
 
     assert!(error.contains("rpc_request.method is required"));
 }

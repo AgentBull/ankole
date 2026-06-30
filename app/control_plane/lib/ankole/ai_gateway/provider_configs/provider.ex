@@ -1,6 +1,6 @@
 defmodule Ankole.AIGateway.ProviderConfigs.Provider do
   @moduledoc """
-  Operator-configured AIGateway provider endpoint and encrypted credential row.
+  Operator-configured AIGateway provider endpoint and encrypted option row.
   """
 
   use Ecto.Schema
@@ -15,13 +15,12 @@ defmodule Ankole.AIGateway.ProviderConfigs.Provider do
   @slug_format ~r/\A[a-z][a-z0-9_-]{0,62}\z/
 
   schema "ai_gateway_providers" do
-    field :provider_id, :string
-    field :provider_kind, :string
-    field :base_url, :string
-    field :encrypted_credential, :string
-    field :credential_mode, :string, default: "api_key"
-    field :connection_options, :map, default: %{}
-    field :disabled_at, :utc_datetime_usec
+    field(:provider_id, :string)
+    field(:provider_kind, :string)
+    field(:base_url, :string)
+    field(:encrypted_options, :map, default: %{})
+    field(:connection_options, :map, default: %{})
+    field(:disabled_at, :utc_datetime_usec)
 
     timestamps()
   end
@@ -30,9 +29,8 @@ defmodule Ankole.AIGateway.ProviderConfigs.Provider do
   Builds a changeset for AIGateway provider rows.
 
   PostgreSQL only enforces slug/object shape for extensible fields such as
-  `provider_kind` and `credential_mode`. The selected provider implementation
-  performs the semantic validation so plugins can add provider kinds without a
-  database migration.
+  `provider_kind`. The selected provider implementation performs the semantic
+  validation so plugins can add provider kinds without a database migration.
   """
   @spec changeset(struct(), map()) :: Ecto.Changeset.t()
   def changeset(provider, attrs) do
@@ -41,32 +39,29 @@ defmodule Ankole.AIGateway.ProviderConfigs.Provider do
       :provider_id,
       :provider_kind,
       :base_url,
-      :encrypted_credential,
-      :credential_mode,
+      :encrypted_options,
       :connection_options,
       :disabled_at
     ])
-    |> normalize_blank([:provider_id, :provider_kind, :base_url, :encrypted_credential])
-    |> normalize_lower([:provider_id, :provider_kind, :credential_mode])
-    |> validate_required([:provider_id, :provider_kind, :credential_mode, :connection_options])
+    |> normalize_blank([:provider_id, :provider_kind, :base_url])
+    |> normalize_lower([:provider_id, :provider_kind])
+    |> validate_required([:provider_id, :provider_kind, :connection_options, :encrypted_options])
     |> validate_format(:provider_id, @slug_format)
     |> validate_format(:provider_kind, @slug_format)
-    |> validate_format(:credential_mode, @slug_format)
     |> validate_base_url()
     |> validate_provider_kind()
     |> validate_connection_options()
-    |> validate_credential_mode()
     |> JsonPayload.validate_map(:connection_options, allow_datetime: false)
+    |> JsonPayload.validate_map(:encrypted_options, allow_datetime: false)
     |> unique_constraint(:provider_id, name: :ai_gateway_providers_provider_id_index)
     |> check_constraint(:provider_id, name: :ai_gateway_providers_provider_id_format)
     |> check_constraint(:provider_kind, name: :ai_gateway_providers_provider_kind_format)
-    |> check_constraint(:credential_mode, name: :ai_gateway_providers_credential_mode_format)
     |> check_constraint(:base_url, name: :ai_gateway_providers_base_url_present)
-    |> check_constraint(:encrypted_credential,
-      name: :ai_gateway_providers_encrypted_credential_present
-    )
     |> check_constraint(:connection_options,
       name: :ai_gateway_providers_connection_options_object
+    )
+    |> check_constraint(:encrypted_options,
+      name: :ai_gateway_providers_encrypted_options_object
     )
   end
 
@@ -107,17 +102,8 @@ defmodule Ankole.AIGateway.ProviderConfigs.Provider do
     end)
   end
 
-  defp validate_credential_mode(changeset) do
-    validate_change(changeset, :credential_mode, fn :credential_mode, mode ->
-      provider_kind = get_field(changeset, :provider_kind)
-
-      case Providers.validate_credential_mode(provider_kind, mode) do
-        :ok -> []
-        {:error, reason} -> [credential_mode: inspect(reason)]
-      end
-    end)
-  end
-
+  # Blank strings from forms are stored as nil so database constraints and
+  # runtime fallback logic see the same absence value.
   defp normalize_blank(changeset, fields) when is_list(fields) do
     Enum.reduce(fields, changeset, fn field, changeset -> normalize_blank(changeset, field) end)
   end
@@ -135,6 +121,9 @@ defmodule Ankole.AIGateway.ProviderConfigs.Provider do
     end)
   end
 
+  # Provider ids are operator-facing stable slugs. Lowercasing them at the
+  # changeset boundary keeps model selectors case-insensitive without adding
+  # alternate lookup paths.
   defp normalize_lower(changeset, fields) when is_list(fields) do
     Enum.reduce(fields, changeset, fn field, changeset -> normalize_lower(changeset, field) end)
   end

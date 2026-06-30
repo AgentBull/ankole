@@ -1,14 +1,6 @@
-import { apiDelete, apiPost } from '../../common/api'
 import { client } from './generated/client.gen'
-
-type TokenResponse = {
-  access_token: string
-  expires_in: number
-  refresh_token: string
-  refresh_token_expires_in: number
-  scope: string
-  token_type: 'Bearer'
-}
+import { ankoleWebAuthControllerDeleteSession, ankoleWebAuthControllerOauthToken } from './generated/sdk.gen'
+import type { ConsoleTokenResponse } from './generated/types.gen'
 
 type TokenState = {
   accessExpiresAt: number
@@ -30,6 +22,7 @@ export function configureConsoleApiClient() {
   client.setConfig({
     auth: () => ensureAccessToken(),
     baseUrl: window.location.origin,
+    credentials: 'same-origin',
     fetch: consoleApiFetch as typeof fetch
   })
 }
@@ -43,7 +36,10 @@ export function clearConsoleTokens() {
 /** Ends the browser admin session and removes in-memory bearer credentials. */
 export async function logoutConsoleSession() {
   clearConsoleTokens()
-  await apiDelete('/.internal-apis/session')
+  await ankoleWebAuthControllerDeleteSession({
+    headers: consoleSessionHeaders(),
+    throwOnError: true
+  })
 }
 
 async function ensureAccessToken(): Promise<string> {
@@ -90,23 +86,31 @@ async function runTokenRequest(factory: () => Promise<TokenState>): Promise<Toke
 }
 
 async function exchangeBrowserSession(): Promise<TokenState> {
-  const response = await apiPost<TokenResponse>('/.internal-apis/oauth/token', {
-    grant_type: browserSessionGrant
+  const { data } = await ankoleWebAuthControllerOauthToken({
+    body: {
+      grant_type: browserSessionGrant
+    },
+    headers: consoleSessionHeaders(),
+    throwOnError: true
   })
 
-  return tokenState(response)
+  return tokenState(data)
 }
 
 async function refreshTokens(refreshToken: string): Promise<TokenState> {
-  const response = await apiPost<TokenResponse>('/.internal-apis/oauth/token', {
-    grant_type: 'refresh_token',
-    refresh_token: refreshToken
+  const { data } = await ankoleWebAuthControllerOauthToken({
+    body: {
+      grant_type: 'refresh_token',
+      refresh_token: refreshToken
+    },
+    headers: consoleSessionHeaders(),
+    throwOnError: true
   })
 
-  return tokenState(response)
+  return tokenState(data)
 }
 
-function tokenState(response: TokenResponse): TokenState {
+function tokenState(response: ConsoleTokenResponse): TokenState {
   const now = Date.now()
 
   return {
@@ -127,12 +131,24 @@ async function consoleApiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
   const request = new Request(input, init)
   const retrySource = request.clone()
   const response = await fetch(request)
+  const authorization = request.headers.get('authorization') ?? ''
 
-  if (response.status !== 401) return response
+  if (response.status !== 401 || !authorization.toLowerCase().startsWith('bearer ')) {
+    return response
+  }
 
   const accessToken = await forceRefreshAccessToken()
   const retryHeaders = new Headers(retrySource.headers)
   retryHeaders.set('authorization', `Bearer ${accessToken}`)
 
   return fetch(new Request(retrySource, { headers: retryHeaders }))
+}
+
+function consoleSessionHeaders(): Record<string, string> {
+  const headers: Record<string, string> = { accept: 'application/json' }
+  const csrfToken = document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.content
+
+  if (csrfToken) headers['x-csrf-token'] = csrfToken
+
+  return headers
 }

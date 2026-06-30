@@ -176,8 +176,8 @@ pub fn authorize_all(snapshot: AuthzBatchSnapshot) -> KernelResult<AuthzDecision
     Ok(decision("allow", diagnostics, effective_group_ids, None))
 }
 
-/// Decodes, evaluates, and encodes a single-action snapshot as JSON values.
-pub fn authorize_json(snapshot: JsonValue) -> KernelResult<JsonValue> {
+/// Decodes, evaluates, and encodes a single-action snapshot as host values.
+pub fn authorize_value(snapshot: JsonValue) -> KernelResult<JsonValue> {
     let snapshot: AuthzSnapshot = serde_json::from_value(snapshot)
         .map_err(|reason| KernelError::new(format!("invalid authz snapshot: {reason}")))?;
     let decision = authorize(snapshot)?;
@@ -186,8 +186,8 @@ pub fn authorize_json(snapshot: JsonValue) -> KernelResult<JsonValue> {
         .map_err(|reason| KernelError::new(format!("failed to encode authz decision: {reason}")))
 }
 
-/// Decodes, evaluates, and encodes a batch-action snapshot as JSON values.
-pub fn authorize_all_json(snapshot: JsonValue) -> KernelResult<JsonValue> {
+/// Decodes, evaluates, and encodes a batch-action snapshot as host values.
+pub fn authorize_all_value(snapshot: JsonValue) -> KernelResult<JsonValue> {
     let snapshot: AuthzBatchSnapshot = serde_json::from_value(snapshot)
         .map_err(|reason| KernelError::new(format!("invalid authz batch snapshot: {reason}")))?;
     let decision = authorize_all(snapshot)?;

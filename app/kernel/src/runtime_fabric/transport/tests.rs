@@ -130,7 +130,7 @@ fn router_dealer_round_trip_with_plain_auth_and_mandatory_route() {
         .expect("turn.start sends");
 
     let payload = wait_for_dealer_payload(&dealer).expect("dealer payload");
-    let envelope = runtime_fabric::decode_envelope_json(&payload).expect("turn.start decodes");
+    let envelope = runtime_fabric::decode_envelope(&payload).expect("turn.start decodes");
     assert_eq!(envelope["body"]["type"], "turn_start");
 
     dealer

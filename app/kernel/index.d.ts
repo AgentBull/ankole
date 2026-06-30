@@ -127,3 +127,19 @@ export declare function xxh3_128_hex(data: string | Buffer): string
 
 /** Computes the non-cryptographic XXH3 128-bit observation fingerprint. */
 export declare function xxh3File128Hex(path: string): string
+
+/**
+ * Compresses one worker-file lane block into a self-contained zstd frame.
+ *
+ * Runs on a libuv worker thread so the JS event loop is not blocked while a
+ * block is being compressed. `level` follows the zstd CLI scale (1..=22).
+ */
+export declare function zstdCompressBlock(data: Buffer, level: number): Promise<Buffer>
+
+/**
+ * Decompresses one worker-file lane zstd frame with a hard output bound.
+ *
+ * `max_out` rejects oversized payloads, capping zip-bomb exposure at one block.
+ * Runs on a libuv worker thread so the JS event loop is not blocked.
+ */
+export declare function zstdDecompressBlock(data: Buffer, maxOut: number): Promise<Buffer>

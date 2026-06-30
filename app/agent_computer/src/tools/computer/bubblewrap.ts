@@ -81,10 +81,6 @@ export function bubblewrapArgv(input: BubblewrapArgvInput, mode?: BubblewrapMode
   ]
 }
 
-export function resetBubblewrapSupportCacheForTest(): void {
-  cachedSupport = undefined
-}
-
 function probeBubblewrapMode(mode: BubblewrapMode, workspaceRoot: string): ProbeResult {
   const argv = bubblewrapArgv(
     {

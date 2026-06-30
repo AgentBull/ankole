@@ -2,10 +2,14 @@ import { afterEach, describe, expect, it } from 'bun:test'
 import { mkdtempSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { runAgentLoop, runLlmTurnHandlers, runTextTurnLoop } from '../src/core'
+import { z } from 'zod'
+import { runAgentLoop, runLlmTurnHandlers, runTextTurnLoop, type AgentTool } from '../src/core'
 import type { TurnStart } from '../src/actor_lane'
 import type { Message, Model } from '../src/ai-gateway-client/ankole'
 import type { LanguageModel, LanguageModelStreamPart } from '../src/ai-gateway-client/provider'
+import { fauxAssistantMessage, fauxToolCall, registerFauxProvider } from '../src/ai-gateway-client/testing'
+import { runtimeModelFromAIGatewayApiKey } from '../src/core/turns/model_runtime'
+import { createTurnTelemetry, observeAgentEvent } from '../src/core/turns/turn_telemetry'
 import {
   rpcMethods,
   type AgentConversationContext,
@@ -332,6 +336,116 @@ describe('@ankole/agent-computer LLM turn loop', () => {
     expect(seenAuthorizations).toEqual(['Bearer fresh-key'])
   })
 
+  it('refetches the AIGateway API key and retries once when the provider returns 401', async () => {
+    const seenAuthorizations: string[] = []
+    let httpCalls = 0
+    globalThis.fetch = (async (_url, init) => {
+      seenAuthorizations.push(new Headers(init?.headers).get('authorization') ?? '')
+      httpCalls += 1
+      // First attempt: the worker key was revoked server-side before its stated expiry -> 401.
+      if (httpCalls === 1) {
+        return new Response('{"error":"revoked"}', {
+          status: 401,
+          headers: { 'content-type': 'application/json' }
+        })
+      }
+      return openAIStream([{ text: 'RECOVERED_AFTER_401' }])
+    }) as typeof fetch
+
+    const start = turnStart('openrouter-main', 'z-ai/glm-5.2')
+    let keyRequests = 0
+
+    const reply = await runTextTurnLoop(start, {
+      workspaceRoot: tempWorkspace(),
+      ...runtimeFixtures(start, []),
+      requestAIGatewayApiKey: async request => {
+        keyRequests += 1
+        return aiGatewayApiKey(request.request_id, {
+          api_key: keyRequests === 1 ? 'revoked-key' : 'rotated-key'
+        })
+      }
+    })
+
+    expect(reply.reply?.text).toBe('RECOVERED_AFTER_401')
+    // Initial fetch at turn start, then exactly one reactive refetch triggered by the 401.
+    expect(keyRequests).toBe(2)
+    expect(seenAuthorizations).toEqual(['Bearer revoked-key', 'Bearer rotated-key'])
+  })
+
+  it('retries a provider 503 then succeeds', async () => {
+    let httpCalls = 0
+    globalThis.fetch = (async (_url, _init) => {
+      httpCalls += 1
+      if (httpCalls === 1) return openAIErrorResponse(503, { retryAfter: '0' })
+      return openAIStream([{ text: 'RECOVERED_AFTER_503' }])
+    }) as typeof fetch
+
+    const start = turnStart('openrouter-main', 'z-ai/glm-5.2')
+    const reply = await runTextTurnLoop(start, {
+      workspaceRoot: tempWorkspace(),
+      ...runtimeFixtures(start, []),
+      requestAIGatewayApiKey: async request => aiGatewayApiKey(request.request_id)
+    })
+
+    expect(reply.reply?.text).toBe('RECOVERED_AFTER_503')
+    expect(httpCalls).toBe(2)
+  })
+
+  it('does not retry a provider 400 and surfaces it as a failed turn', async () => {
+    let httpCalls = 0
+    globalThis.fetch = (async (_url, _init) => {
+      httpCalls += 1
+      return openAIErrorResponse(400, { code: 'invalid_request_error' })
+    }) as typeof fetch
+
+    const start = turnStart('openrouter-main', 'z-ai/glm-5.2')
+    await expect(
+      runTextTurnLoop(start, {
+        workspaceRoot: tempWorkspace(),
+        ...runtimeFixtures(start, []),
+        requestAIGatewayApiKey: async request => aiGatewayApiKey(request.request_id)
+      })
+    ).rejects.toThrow()
+    expect(httpCalls).toBe(1)
+  })
+
+  it('retries a pre-output rate-limit error frame (HTTP 200 then error) then succeeds', async () => {
+    let httpCalls = 0
+    globalThis.fetch = (async (_url, _init) => {
+      httpCalls += 1
+      if (httpCalls === 1) return openAIStreamFailedFrame({ message: 'rate limited', code: 'rate_limit_exceeded' })
+      return openAIStream([{ text: 'RECOVERED_AFTER_FRAME' }])
+    }) as typeof fetch
+
+    const start = turnStart('openrouter-main', 'z-ai/glm-5.2')
+    const reply = await runTextTurnLoop(start, {
+      workspaceRoot: tempWorkspace(),
+      ...runtimeFixtures(start, []),
+      requestAIGatewayApiKey: async request => aiGatewayApiKey(request.request_id)
+    })
+
+    expect(reply.reply?.text).toBe('RECOVERED_AFTER_FRAME')
+    expect(httpCalls).toBe(2)
+  })
+
+  it('does not retry a pre-output invalid-request error frame and surfaces it as a failed turn', async () => {
+    let httpCalls = 0
+    globalThis.fetch = (async (_url, _init) => {
+      httpCalls += 1
+      return openAIStreamFailedFrame({ message: 'bad request', code: 'invalid_request_error' })
+    }) as typeof fetch
+
+    const start = turnStart('openrouter-main', 'z-ai/glm-5.2')
+    await expect(
+      runTextTurnLoop(start, {
+        workspaceRoot: tempWorkspace(),
+        ...runtimeFixtures(start, []),
+        requestAIGatewayApiKey: async request => aiGatewayApiKey(request.request_id)
+      })
+    ).rejects.toThrow()
+    expect(httpCalls).toBe(1)
+  })
+
   it('renders actor input attachments into the model prompt', async () => {
     const calls: Array<{ body: any }> = []
     globalThis.fetch = (async (_url, init) => {
@@ -548,6 +662,101 @@ describe('@ankole/agent-computer LLM turn loop', () => {
     expect(userPrompt).toContain('<analysis>')
     expect(requestText).not.toContain('Agent UID:')
     expect(requestText).not.toContain('skill_view(name)')
+  })
+
+  it('treats a rejected conversation summary commit as a recoverable no-op without failing the turn', async () => {
+    const commits: any[] = []
+    globalThis.fetch = (async (_url, _init) =>
+      openAIStream([{ text: '## Active Task\n- compress the current context' }])) as typeof fetch
+
+    const workspaceRoot = tempWorkspace()
+    const start = turnStart('openrouter-main', 'z-ai/glm-5.2', {
+      inputs: [
+        {
+          actor_input_id: 'compress-1',
+          live_queue_sequence: 2,
+          type: 'command.compress',
+          ingress_event_id: 'event-compress',
+          payload_json: {
+            data: {
+              entry: { text: '/compress release notes' },
+              command: { name: 'compress', raw: '/compress release notes', argsText: 'release notes' }
+            }
+          }
+        }
+      ],
+      model_ref: { profile: 'primary', provider_id: 'openrouter-main', model: 'z-ai/glm-5.2' }
+    })
+    const recentTail = 'RECENT tail should stay out of compression. '.repeat(2_500)
+    const rows = [
+      {
+        id: 'msg-summary',
+        role: 'assistant',
+        kind: 'summary',
+        content: [{ type: 'text', text: 'Previous compressed chat history.' }],
+        metadata: {},
+        created_at: '2026-06-23T23:59:00.000000Z'
+      },
+      {
+        id: 'msg-user',
+        role: 'user',
+        kind: 'normal',
+        content: [{ type: 'text', text: 'PING from /Users/ding/Projects/ankole' }],
+        metadata: { actor_input_id: 'input-ping' },
+        created_at: '2026-06-24T00:00:00.000000Z'
+      },
+      {
+        id: 'msg-assistant',
+        role: 'assistant',
+        kind: 'normal',
+        content: [{ type: 'text', text: 'PONG with function_name and error_id=abc-123' }],
+        metadata: {},
+        created_at: '2026-06-24T00:01:00.000000Z'
+      },
+      {
+        id: 'msg-recent-user',
+        role: 'user',
+        kind: 'normal',
+        content: [{ type: 'text', text: recentTail }],
+        metadata: { actor_input_id: 'input-recent' },
+        created_at: '2026-06-24T00:02:00.000000Z'
+      },
+      {
+        id: 'msg-recent-assistant',
+        role: 'assistant',
+        kind: 'normal',
+        content: [{ type: 'text', text: 'Recent answer kept verbatim after compression.' }],
+        metadata: {},
+        created_at: '2026-06-24T00:03:00.000000Z'
+      },
+      {
+        id: 'msg-compress-command',
+        role: 'user',
+        kind: 'normal',
+        content: [{ type: 'text', text: '/compress release notes' }],
+        metadata: { actor_input_id: 'compress-1' },
+        created_at: '2026-06-24T00:04:00.000000Z'
+      }
+    ]
+
+    const proposal = await runLlmTurnHandlers(start, {
+      workspaceRoot,
+      agentConversationContext: agentConversationContext(start),
+      conversationHistory: conversationHistory(start, rows, 'compression'),
+      requestAIGatewayApiKey: async request => aiGatewayApiKey(request.request_id),
+      pollSteering: () => [],
+      // The control plane refused the commit on a stale fence (a concurrent change moved the
+      // generation on). The worker must treat this as a benign no-op, not a turn failure.
+      commitConversationSummary: async request => {
+        commits.push(request)
+        return { request_id: request.request_id, code: 'stale_revision', message: 'stale_revision' }
+      }
+    })
+
+    // The summary is an optimization, not durable truth: the turn completes (no throw), attempts
+    // exactly one commit, and reports it was not committed instead of failing the whole turn.
+    expect(commits).toHaveLength(1)
+    expect(proposal).toEqual({ summaryCommitted: false })
   })
 
   it('does not treat a merged multi-entry addressed batch as a /compress command', async () => {
@@ -780,6 +989,298 @@ describe('@ankole/agent-computer LLM turn loop', () => {
     const secondBody = JSON.stringify(calls[1].body)
     expect(secondBody).toContain('Runtime note')
     expect(secondBody).toContain('switch to the steered answer')
+  })
+
+  it('nudges empty post-tool responses to continue without asking for a final-answer summary', async () => {
+    const calls: Array<{ body: any }> = []
+    globalThis.fetch = (async (_url, init) => {
+      calls.push({ body: JSON.parse(String(init?.body)) })
+      if (calls.length === 1) {
+        return openAIStream([
+          {
+            toolCall: {
+              id: 'empty-after-tool-call-1',
+              name: 'todo',
+              arguments: {
+                todos: [{ id: 't1', content: 'inspect tool result', status: 'in_progress' }]
+              }
+            }
+          }
+        ])
+      }
+      if (calls.length === 2) return openAIStream([])
+      return openAIStream([{ text: 'CONTINUED_AFTER_EMPTY_TOOL_REPLY' }])
+    }) as typeof fetch
+
+    const start = turnStart('openrouter-main', 'z-ai/glm-5.2')
+    const reply = await runTextTurnLoop(start, {
+      workspaceRoot: tempWorkspace(),
+      ...runtimeFixtures(start, []),
+      requestAIGatewayApiKey: async request => aiGatewayApiKey(request.request_id)
+    })
+
+    expect(reply.reply?.text).toBe('CONTINUED_AFTER_EMPTY_TOOL_REPLY')
+    expect(calls).toHaveLength(3)
+    const nudgeRequest = requestText(calls[2].body)
+    expect(nudgeRequest).toContain('Please process the tool results above and continue with the task.')
+    expect(nudgeRequest).not.toContain('give your final answer')
+    expect(nudgeRequest).not.toContain('Summarize what you accomplished')
+  })
+
+  it('retries empty final responses before accepting later visible content', async () => {
+    const provider = registerFauxProvider({
+      provider: 'faux-empty-retry',
+      models: [{ id: 'empty-retry-model' }]
+    })
+    let calls = 0
+    provider.setResponses([
+      () => {
+        calls += 1
+        return fauxAssistantMessage('')
+      },
+      () => {
+        calls += 1
+        return fauxAssistantMessage('')
+      },
+      () => {
+        calls += 1
+        return fauxAssistantMessage('')
+      },
+      () => {
+        calls += 1
+        return fauxAssistantMessage('VISIBLE_AFTER_EMPTY_RETRIES')
+      }
+    ])
+
+    try {
+      const produced = await runAgentLoop(
+        [userPrompt('Retry empty responses.')],
+        { systemPrompt: 'Return visible text.', messages: [], tools: [] },
+        {
+          model: provider.getModel('empty-retry-model')!,
+          convertToLlm: passThroughLlmMessages,
+          maxTurns: 8
+        },
+        () => {}
+      )
+
+      expect(calls).toBe(4)
+      expect(latestAssistantText(produced)).toBe('VISIBLE_AFTER_EMPTY_RETRIES')
+      expect(JSON.stringify(produced)).not.toContain('(empty)')
+    } finally {
+      provider.unregister()
+    }
+  })
+
+  it('switches to a configured fallback after empty retries are exhausted', async () => {
+    const primary = registerFauxProvider({
+      provider: 'faux-empty-primary',
+      models: [{ id: 'empty-primary-model' }]
+    })
+    const fallback = registerFauxProvider({
+      provider: 'faux-empty-fallback',
+      models: [{ id: 'empty-fallback-model' }]
+    })
+    let primaryCalls = 0
+    let fallbackCalls = 0
+    let fallbackActivations = 0
+    primary.setResponses([
+      () => {
+        primaryCalls += 1
+        return fauxAssistantMessage('')
+      }
+    ])
+    fallback.setResponses([
+      () => {
+        fallbackCalls += 1
+        return fauxAssistantMessage('VISIBLE_FROM_FALLBACK')
+      }
+    ])
+
+    try {
+      const produced = await runAgentLoop(
+        [userPrompt('Use fallback after empty responses.')],
+        { systemPrompt: 'Return visible text.', messages: [], tools: [] },
+        {
+          model: primary.getModel('empty-primary-model')!,
+          convertToLlm: passThroughLlmMessages,
+          maxTurns: 8,
+          activateFallbackOnEmpty: () => {
+            fallbackActivations += 1
+            return { model: fallback.getModel('empty-fallback-model')! }
+          }
+        },
+        () => {}
+      )
+
+      expect(primaryCalls).toBe(4)
+      expect(fallbackActivations).toBe(1)
+      expect(fallbackCalls).toBe(1)
+      expect(latestAssistantText(produced)).toBe('VISIBLE_FROM_FALLBACK')
+    } finally {
+      primary.unregister()
+      fallback.unregister()
+    }
+  })
+
+  it('continues after thinking-only responses before visible text arrives', async () => {
+    const provider = registerFauxProvider({
+      provider: 'faux-thinking-prefill',
+      models: [{ id: 'thinking-prefill-model' }]
+    })
+    let calls = 0
+    provider.setResponses([
+      () => {
+        calls += 1
+        return fauxAssistantMessage([{ type: 'thinking', thinking: 'private reasoning only' }])
+      },
+      () => {
+        calls += 1
+        return fauxAssistantMessage('VISIBLE_AFTER_THINKING_PREFILL')
+      }
+    ])
+
+    try {
+      const produced = await runAgentLoop(
+        [userPrompt('Continue after thinking only.')],
+        { systemPrompt: 'Return visible text.', messages: [], tools: [] },
+        {
+          model: provider.getModel('thinking-prefill-model')!,
+          convertToLlm: passThroughLlmMessages,
+          maxTurns: 8
+        },
+        () => {}
+      )
+
+      expect(calls).toBe(2)
+      expect(latestAssistantText(produced)).toBe('VISIBLE_AFTER_THINKING_PREFILL')
+      expect(JSON.stringify(produced)).not.toContain('private reasoning only')
+    } finally {
+      provider.unregister()
+    }
+  })
+
+  it('decodes a streamed OpenResponses reasoning summary into a thinking block', async () => {
+    globalThis.fetch = (async (_url, _init) =>
+      openAIStream([{ reasoning: 'STEP_BY_STEP_REASONING' }, { text: 'FINAL_VISIBLE_ANSWER' }])) as typeof fetch
+
+    const model = runtimeModelFromAIGatewayApiKey(
+      { profile: 'primary', provider_id: 'openrouter-main', model: 'z-ai/glm-5.2' },
+      aiGatewayApiKey('reasoning-decode-1')
+    )
+
+    const produced = await runAgentLoop(
+      [userPrompt('Think, then answer.')],
+      { systemPrompt: 'Reason first, then reply.', messages: [], tools: [] },
+      { model, convertToLlm: passThroughLlmMessages, maxTurns: 4 },
+      () => {}
+    )
+
+    // OpenResponses reasoning SSE must decode end-to-end (SSE -> doStream reasoning parts ->
+    // agent-loop) into a thinking block on the assistant message, alongside the visible text.
+    const assistant = [...produced].reverse().find((message: any) => message.role === 'assistant') as any
+    const thinking = assistant?.content?.find((block: any) => block.type === 'thinking')
+    expect(thinking?.thinking).toBe('STEP_BY_STEP_REASONING')
+    expect(latestAssistantText(produced)).toBe('FINAL_VISIBLE_ANSWER')
+  })
+
+  it('keeps raw tool results in the model transcript instead of redacting the main chain', async () => {
+    const secret = 'sk-toolsecret123456789'
+    const calls: Array<{ body: any }> = []
+    globalThis.fetch = (async (_url, init) => {
+      calls.push({ body: JSON.parse(String(init?.body)) })
+      if (calls.length === 1) {
+        return openAIStream([
+          {
+            toolCall: {
+              id: 'secret-call-1',
+              name: 'secret_echo',
+              arguments: {}
+            }
+          }
+        ])
+      }
+      return openAIStream([{ text: 'SAW_RAW_TOOL_RESULT' }])
+    }) as typeof fetch
+
+    const modelRef = { profile: 'primary', provider_id: 'openrouter-main', model: 'z-ai/glm-5.2' }
+    const model = runtimeModelFromAIGatewayApiKey(modelRef, aiGatewayApiKey('raw-tool-result-1'))
+    const produced = await runAgentLoop(
+      [userPrompt('Call the secret echo tool.')],
+      { systemPrompt: 'Call the tool, then answer.', messages: [], tools: [secretEchoTool(secret)] },
+      { model, convertToLlm: passThroughLlmMessages, maxTurns: 4 },
+      () => {}
+    )
+
+    expect(latestAssistantText(produced)).toBe('SAW_RAW_TOOL_RESULT')
+    expect(JSON.stringify(produced)).toContain(secret)
+    expect(JSON.stringify(calls[1].body)).toContain(secret)
+  })
+
+  it('keeps tool result text unredacted when writing worker telemetry', () => {
+    const secret = 'sk-telemetrysecret123456789'
+    const modelRef = { profile: 'primary', provider_id: 'openrouter-main', model: 'z-ai/glm-5.2' }
+    const model = runtimeModelFromAIGatewayApiKey(modelRef, aiGatewayApiKey('raw-telemetry-1'))
+    const telemetry = createTurnTelemetry(modelRef, model)
+    const observe = observeAgentEvent(telemetry)
+
+    observe({
+      type: 'tool_execution_end',
+      toolCallId: 'secret-call-1',
+      toolName: 'secret_echo',
+      args: {},
+      result: {
+        content: [{ type: 'text', text: `token=${secret}` }],
+        details: { apiKey: secret }
+      },
+      isError: false
+    })
+
+    const serialized = JSON.stringify(telemetry.toolResults)
+    expect(serialized).toContain(secret)
+    expect(serialized).toContain(`token=${secret}`)
+  })
+
+  it('uses prior assistant content when housekeeping tools are followed by an empty response', async () => {
+    const provider = registerFauxProvider({
+      provider: 'faux-housekeeping-empty',
+      models: [{ id: 'housekeeping-empty-model' }]
+    })
+    let calls = 0
+    provider.setResponses([
+      () => {
+        calls += 1
+        return fauxAssistantMessage([{ type: 'text', text: 'EARLIER_VISIBLE_REPLY' }, fauxToolCall('todo')])
+      },
+      () => {
+        calls += 1
+        return fauxAssistantMessage('')
+      }
+    ])
+
+    try {
+      const produced = await runAgentLoop(
+        [userPrompt('Answer and update todo.')],
+        {
+          systemPrompt: 'Answer and call todo as post-response housekeeping.',
+          messages: [],
+          tools: [noopTodoTool()]
+        },
+        {
+          model: provider.getModel('housekeeping-empty-model')!,
+          convertToLlm: passThroughLlmMessages,
+          maxTurns: 8,
+          nudgeOnEmptyAfterTools: true
+        },
+        () => {}
+      )
+
+      expect(calls).toBe(2)
+      expect(latestAssistantText(produced)).toBe('EARLIER_VISIBLE_REPLY')
+      expect(JSON.stringify(produced)).not.toContain('Please process the tool results above')
+    } finally {
+      provider.unregister()
+    }
   })
 
   it('lets a mocked model schedule a checkback through RuntimeFabric before replying', async () => {
@@ -1366,6 +1867,20 @@ describe('@ankole/agent-computer LLM turn loop', () => {
     expect(calls[0].body.model).toBe('openai-main/not-a-catalog-model')
   })
 
+  it('does not fabricate gateway model capability metadata from a scoped API key', () => {
+    const model = runtimeModelFromAIGatewayApiKey(
+      { profile: 'primary', provider_id: 'openrouter-main', model: 'z-ai/glm-5.2' },
+      aiGatewayApiKey('metadata-1')
+    )
+
+    expect(model.id).toBe('openrouter-main/z-ai/glm-5.2')
+    expect(model.provider).toBe('ai-gateway')
+    expect(model.contextWindow).toBeUndefined()
+    expect(model.maxTokens).toBeUndefined()
+    expect(model.cost).toBeUndefined()
+    expect(model.reasoning).toBeUndefined()
+  })
+
   it('fails closed when the AIGateway API key RPC rejects the actor', async () => {
     const start = turnStart('openrouter-main', 'z-ai/glm-5.2')
     await expect(
@@ -1375,7 +1890,6 @@ describe('@ankole/agent-computer LLM turn loop', () => {
         requestAIGatewayApiKey: async request => ({
           request_id: request.request_id,
           agent_uid: request.agent_uid,
-          session_id: request.session_id,
           code: 'route_forbidden',
           message: 'worker is not assigned to this actor'
         })
@@ -1410,6 +1924,60 @@ function assistantTranscriptMessage(
 function expectFinalProposal(result: Awaited<ReturnType<typeof runLlmTurnHandlers>>): any {
   if ('summaryCommitted' in result) throw new Error('expected ordinary final proposal')
   return result
+}
+
+function userPrompt(text: string): Message {
+  return {
+    role: 'user',
+    content: [{ type: 'text', text }],
+    timestamp: Date.now()
+  }
+}
+
+function passThroughLlmMessages(messages: any[]): Message[] {
+  return messages.flatMap(message =>
+    message.role === 'user' || message.role === 'assistant' || message.role === 'toolResult' ? [message] : []
+  )
+}
+
+function latestAssistantText(messages: any[]): string {
+  const latest = [...messages].reverse().find(message => message.role === 'assistant')
+  if (!latest) return ''
+  return latest.content
+    .map((block: any) => (block.type === 'text' ? block.text : undefined))
+    .filter((text: any): text is string => typeof text === 'string')
+    .join('\n')
+    .trim()
+}
+
+function noopTodoTool(): AgentTool<any, { ok: boolean }> {
+  return {
+    name: 'todo',
+    label: 'Todo',
+    description: 'Record todo state.',
+    schema: z.object({}),
+    async execute() {
+      return {
+        content: [{ type: 'text', text: 'todo ok' }],
+        details: { ok: true }
+      }
+    }
+  }
+}
+
+function secretEchoTool(secret: string): AgentTool<any, { apiKey: string }> {
+  return {
+    name: 'secret_echo',
+    label: 'Secret Echo',
+    description: 'Returns a secret-looking value for transcript boundary tests.',
+    schema: z.object({}),
+    async execute() {
+      return {
+        content: [{ type: 'text', text: `token=${secret}` }],
+        details: { apiKey: secret }
+      }
+    }
+  }
 }
 
 function tempWorkspace(): string {
@@ -1535,7 +2103,6 @@ function aiGatewayApiKey(requestId: string, overrides: Partial<AIGatewayApiKeyRe
   return {
     request_id: requestId,
     agent_uid: 'agent-1',
-    session_id: 'signal-channel:test',
     api_key: 'test-ai-gateway-key',
     token_type: 'Bearer',
     expires_at: Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60,
@@ -1556,6 +2123,7 @@ function requestText(body: any): string {
 
 type StreamPart =
   | { text: string }
+  | { reasoning: string }
   | {
       toolCall: {
         id: string
@@ -1611,6 +2179,39 @@ function openAIStream(parts: StreamPart[]): Response {
             role: 'assistant',
             status: 'completed',
             content: [{ type: 'output_text', text: part.text, annotations: [] }]
+          }
+        })
+      )
+    } else if ('reasoning' in part) {
+      const itemId = `reason-test-${outputIndex}`
+      chunks.push(
+        sse({
+          type: 'response.output_item.added',
+          sequence_number: sequenceNumber++,
+          output_index: outputIndex,
+          item: { id: itemId, type: 'reasoning', encrypted_content: `enc-${itemId}`, summary: [] }
+        })
+      )
+      chunks.push(
+        sse({
+          type: 'response.reasoning_summary_text.delta',
+          sequence_number: sequenceNumber++,
+          item_id: itemId,
+          output_index: outputIndex,
+          summary_index: 0,
+          delta: part.reasoning
+        })
+      )
+      chunks.push(
+        sse({
+          type: 'response.output_item.done',
+          sequence_number: sequenceNumber++,
+          output_index: outputIndex,
+          item: {
+            id: itemId,
+            type: 'reasoning',
+            encrypted_content: `enc-${itemId}`,
+            summary: [{ type: 'summary_text', text: part.reasoning }]
           }
         })
       )
@@ -1674,6 +2275,29 @@ function openAIStream(parts: StreamPart[]): Response {
   return new Response(chunks.join(''), {
     headers: { 'content-type': 'text/event-stream' }
   })
+}
+
+function openAIErrorResponse(
+  status: number,
+  opts?: { code?: string; message?: string; retryAfter?: string }
+): Response {
+  const headers: Record<string, string> = { 'content-type': 'application/json' }
+  if (opts?.retryAfter !== undefined) headers['retry-after'] = opts.retryAfter
+  return new Response(
+    JSON.stringify({ error: { message: opts?.message ?? `status ${status}`, type: 'error', code: opts?.code } }),
+    { status, headers }
+  )
+}
+
+// HTTP 200 SSE that emits a `response.failed` error frame before any output item. Exercises
+// throwIfOpenResponsesStreamErrorBeforeOutput -> getStatusCode (code -> HTTP status) inside the
+// retry wrapper, i.e. the "HTTP 200 then provider error" path.
+function openAIStreamFailedFrame(error: { message: string; code?: string }): Response {
+  const chunks = [
+    sse({ type: 'response.created', response: { id: 'resp-err', created_at: 1, model: 'test-model' } }),
+    sse({ type: 'response.failed', sequence_number: 1, response: { error } })
+  ]
+  return new Response(chunks.join(''), { headers: { 'content-type': 'text/event-stream' } })
 }
 
 function sse(value: unknown): string {

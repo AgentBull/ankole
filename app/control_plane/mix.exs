@@ -4,7 +4,7 @@ defmodule Ankole.MixProject do
   def project do
     [
       app: :ankole,
-      version: "0.1.0",
+      version: "0.1.1",
       elixir: "~> 1.20",
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
@@ -70,6 +70,7 @@ defmodule Ankole.MixProject do
       {:toml_elixir, "~> 3.1"},
       {:tzdata, "~> 1.1"},
       {:torque, "~> 0.2.4"},
+      {:llm_db, "~> 2026.6"},
       {:ankole_kernel, path: "../kernel"},
       {:feishu_openapi, path: "../../libs/feishu_openapi"},
       {:dns_cluster, "~> 0.2"},

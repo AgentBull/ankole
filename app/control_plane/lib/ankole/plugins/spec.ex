@@ -237,24 +237,8 @@ defmodule Ankole.Plugins.Spec do
 
   defp validate_known_adapter_contract("ai_gateway.provider", declaration) do
     with {:ok, module} <- declaration_module(declaration, :module),
-         :ok <- validate_module_callback(module, :provider_id, 0),
-         :ok <- validate_module_callback(module, :label, 0),
-         :ok <- validate_module_callback(module, :capabilities, 0),
-         :ok <- validate_module_callback(module, :endpoint_modes, 0),
-         :ok <- validate_module_callback(module, :provider_strategy, 0),
-         :ok <- validate_module_callback(module, :default_base_url, 0),
-         :ok <- validate_module_callback(module, :default_http_protocol, 0),
-         :ok <- validate_module_callback(module, :credential_schemes, 0),
-         :ok <- validate_module_callback(module, :connection_option_keys, 0),
-         :ok <- validate_module_callback(module, :runtime_provider_option_keys, 0),
-         :ok <- validate_module_callback(module, :model_catalog_policy, 0),
-         :ok <- validate_module_callback(module, :build_response_request, 3),
-         :ok <- validate_module_callback(module, :normalize_response_body, 3),
-         :ok <- validate_module_callback(module, :put_headers, 2),
-         :ok <- validate_module_callback(module, :put_auth_headers, 2),
-         :ok <- validate_ai_gateway_provider_id(module, declaration),
-         :ok <- validate_ai_gateway_capabilities(module),
-         :ok <- validate_ai_gateway_http_protocol(module) do
+         :ok <- validate_module_callback(module, :provider_definition, 0),
+         :ok <- validate_ai_gateway_provider_definition(module, declaration) do
       :ok
     end
   end
@@ -350,36 +334,49 @@ defmodule Ankole.Plugins.Spec do
 
   defp validate_identity_capability(_module, _capability), do: :ok
 
-  defp validate_ai_gateway_provider_id(module, declaration) do
+  defp validate_ai_gateway_provider_definition(module, declaration) do
+    definition = module.provider_definition()
+
+    with :ok <- validate_ai_gateway_provider_id(definition, declaration),
+         :ok <- validate_ai_gateway_capabilities(definition),
+         :ok <- validate_ai_gateway_prepare_callbacks(module, definition) do
+      :ok
+    end
+  end
+
+  defp validate_ai_gateway_provider_id(%{provider_kind: provider_kind}, declaration) do
     with {:ok, declaration_id} <- declaration_text(declaration, :id) do
-      case module.provider_id() do
+      case provider_kind do
         ^declaration_id -> :ok
         module_id -> {:error, {:ai_gateway_provider_id_mismatch, declaration_id, module_id}}
       end
     end
   end
 
-  defp validate_ai_gateway_capabilities(module) do
-    case module.capabilities() do
-      capabilities when is_list(capabilities) ->
-        case Enum.all?(capabilities, &(&1 in ["llm", "embedding", "rerank"])) do
-          true -> :ok
-          false -> {:error, {:invalid_ai_gateway_capabilities, module, capabilities}}
-        end
-
-      capabilities ->
-        {:error, {:invalid_ai_gateway_capabilities, module, capabilities}}
+  defp validate_ai_gateway_capabilities(%{capabilities: capabilities})
+       when is_list(capabilities) do
+    case Enum.all?(capabilities, &valid_ai_gateway_capability?/1) do
+      true -> :ok
+      false -> {:error, {:invalid_ai_gateway_capabilities, capabilities}}
     end
   end
 
-  defp validate_ai_gateway_http_protocol(module) do
-    case module.default_http_protocol() do
-      protocol when protocol in ["http1", "http2"] ->
-        :ok
+  defp validate_ai_gateway_capabilities(%{capabilities: capabilities}),
+    do: {:error, {:invalid_ai_gateway_capabilities, capabilities}}
 
-      protocol ->
-        {:error, {:invalid_ai_gateway_http_protocol, module, protocol}}
-    end
+  defp valid_ai_gateway_capability?(%Ankole.AIGateway.ProviderDefinition.Capability{kind: kind})
+       when kind in [:language_model, :embedding_model, :rerank_model],
+       do: true
+
+  defp valid_ai_gateway_capability?(_capability), do: false
+
+  defp validate_ai_gateway_prepare_callbacks(module, %{capabilities: capabilities}) do
+    Enum.reduce_while(capabilities, :ok, fn capability, :ok ->
+      case validate_module_callback(module, capability.prepare, 1) do
+        :ok -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
   end
 
   defp validate_contract_id(contract_id) do

@@ -6,49 +6,19 @@
 // Scan roots & source extensions
 // ---------------------------------------------------------------------------
 
-/** Source roots scanned for import cycles (repo-root-relative, POSIX). */
-export const CYCLE_SCAN_ROOTS = [
-  'app/agent_computer/src/actor_lane.ts',
-  'app/agent_computer/src/browser_cli.ts',
-  'app/agent_computer/src/common',
-  'app/agent_computer/src/core',
-  'app/agent_computer/src/file_transfer_lane.ts',
-  'app/agent_computer/src/main.ts',
-  'app/agent_computer/src/prompts',
-  'app/agent_computer/src/rpc_lane.ts',
-  'app/agent_computer/src/runtime.ts',
-  'app/agent_computer/src/runtime_fabric.ts',
-  'app/agent_computer/src/runtime_fabric_sender.ts',
-  'app/agent_computer/src/security',
-  'app/agent_computer/src/tools',
-  'app/agent_computer/src/turn_envelopes.ts',
-  'app/agent_computer/src/workspace.ts',
+/** TypeScript production roots where import/boundary checks are meaningful. */
+export const TYPESCRIPT_ARCHITECTURE_SCAN_ROOTS = [
+  'app/agent_computer/src',
   'app/webapps',
   'libs/uikit/src',
   'tools/devkit/src'
 ] as const
 
+/** Source roots scanned for import cycles (repo-root-relative, POSIX). */
+export const CYCLE_SCAN_ROOTS = TYPESCRIPT_ARCHITECTURE_SCAN_ROOTS
+
 /** Roots where the boundary/smell rules apply. */
-export const SMELL_SCAN_ROOTS = [
-  'app/agent_computer/src/actor_lane.ts',
-  'app/agent_computer/src/browser_cli.ts',
-  'app/agent_computer/src/common',
-  'app/agent_computer/src/core',
-  'app/agent_computer/src/file_transfer_lane.ts',
-  'app/agent_computer/src/main.ts',
-  'app/agent_computer/src/prompts',
-  'app/agent_computer/src/rpc_lane.ts',
-  'app/agent_computer/src/runtime.ts',
-  'app/agent_computer/src/runtime_fabric.ts',
-  'app/agent_computer/src/runtime_fabric_sender.ts',
-  'app/agent_computer/src/security',
-  'app/agent_computer/src/tools',
-  'app/agent_computer/src/turn_envelopes.ts',
-  'app/agent_computer/src/workspace.ts',
-  'app/webapps',
-  'libs/uikit/src',
-  'tools/devkit/src'
-] as const
+export const SMELL_SCAN_ROOTS = TYPESCRIPT_ARCHITECTURE_SCAN_ROOTS
 
 export const CYCLE_SOURCE_EXTENSIONS = ['.ts', '.tsx', '.mts', '.cts', '.js', '.mjs', '.cjs'] as const
 
@@ -151,10 +121,10 @@ export const UNUSED_ALLOWLIST: UnusedAllowEntry[] = [
 // duplicates: jscpd v5
 // ---------------------------------------------------------------------------
 
-export const DUP_FORMATS = 'typescript,tsx,javascript,jsx'
+export const DUP_FORMATS = 'typescript,tsx,javascript,jsx,elixir,rust'
 export const DUP_THRESHOLDS = { minLines: 50, minTokens: 300 } as const
 
-/** Glob patterns excluded from duplicate scanning (jscpd --ignore-pattern). */
+/** Glob patterns excluded from duplicate scanning (jscpd --ignore). */
 export const DUP_IGNORE_PATTERNS = [
   '**/node_modules/**',
   '**/dist/**',
@@ -163,10 +133,15 @@ export const DUP_IGNORE_PATTERNS = [
   '**/.turbo/**',
   '**/coverage/**',
   '**/.artifacts/**',
+  '**/_build/**',
+  '**/deps/**',
   '**/*.test.ts',
   '**/*.test.tsx',
   '**/*.d.ts',
   '**/migrations/**',
+  'app/control_plane/lib/ankole/ai_gateway/**',
+  'app/control_plane/lib/ankole_web/ai_gateway_*.ex',
+  'app/control_plane/lib/ankole_web/controllers/ai_gateway_*.ex',
   'libs/uikit/src/stories/**'
 ] as const
 
@@ -180,30 +155,24 @@ export const DUP_SCANS: DupScan[] = [
   {
     name: 'cross-module',
     paths: [
-      'app/agent_computer/src/actor_lane.ts',
-      'app/agent_computer/src/browser_cli.ts',
-      'app/agent_computer/src/common',
-      'app/agent_computer/src/core',
-      'app/agent_computer/src/file_transfer_lane.ts',
-      'app/agent_computer/src/main.ts',
-      'app/agent_computer/src/prompts',
-      'app/agent_computer/src/rpc_lane.ts',
-      'app/agent_computer/src/runtime.ts',
-      'app/agent_computer/src/runtime_fabric.ts',
-      'app/agent_computer/src/runtime_fabric_sender.ts',
-      'app/agent_computer/src/security',
-      'app/agent_computer/src/tools',
-      'app/agent_computer/src/turn_envelopes.ts',
-      'app/agent_computer/src/workspace.ts',
+      'app/agent_computer/src',
+      'app/control_plane/lib',
+      'app/kernel/build.rs',
+      'app/kernel/index.js',
+      'app/kernel/lib',
+      'app/kernel/main.js',
+      'app/kernel/src',
       'app/webapps',
+      'libs/feishu_openapi/lib',
       'libs/uikit/src',
+      'plugins',
       'tools/devkit/src'
     ]
   }
 ]
 
 /** Tracked source extensions used by the --coverage-only assertion. */
-export const DUP_SOURCE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.mjs', '.cjs'])
+export const DUP_SOURCE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.mjs', '.cjs', '.ex', '.rs'])
 
 /**
  * Top-level source areas deliberately NOT duplicate-scanned (so --coverage-only
@@ -212,11 +181,19 @@ export const DUP_SOURCE_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.mjs', '.cj
  */
 export const DUP_INTENTIONALLY_UNSCANNED = [
   'app/agent_computer/test/',
-  'app/kernel/',
-  'app/control_plane/',
-  'libs/feishu_openapi/',
+  'app/control_plane/config/',
+  'app/control_plane/e2e/',
+  'app/control_plane/lib/ankole/ai_gateway.ex',
+  'app/control_plane/lib/ankole/ai_gateway/',
+  'app/control_plane/lib/ankole_web/ai_gateway_tokens.ex',
+  'app/control_plane/lib/ankole_web/ai_gateway_responses_socket.ex',
+  'app/control_plane/lib/ankole_web/controllers/ai_gateway_controller.ex',
+  'app/control_plane/lib/ankole_web/controllers/ai_gateway_provider_controller.ex',
+  'app/control_plane/lib/ankole_web/controllers/ai_gateway_web_socket_controller.ex',
+  'app/control_plane/test/',
+  'app/kernel/test/',
+  'libs/feishu_openapi/test/',
   'libs/uikit/src/stories/',
-  'plugins/',
   'internals/',
   'knip.config.ts'
 ] as const
@@ -251,7 +228,7 @@ export const DEFAULT_TOPOLOGY_SCOPE = 'agent-computer-core'
  * topology is report-only; add scopes here only when a public surface is stable
  * enough for unused exports to fail CI.
  */
-export const TOPOLOGY_GATED_SCOPES = [] as const
+export const TOPOLOGY_GATED_SCOPES = ['agent-computer-core', 'agent-computer-tools'] as const
 
 export interface TopologyUnusedAllowEntry {
   scope: string

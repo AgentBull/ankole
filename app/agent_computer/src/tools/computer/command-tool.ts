@@ -7,9 +7,11 @@ import { truncateOutput } from './format'
 const CommandParams = z
   .object({
     action: z
-      .enum(['run', 'status', 'kill'])
+      .enum(['run', 'status', 'kill', 'list'])
       .optional()
-      .describe('Action to perform. Omit or use run to execute a command; use status/kill with backgroundId.'),
+      .describe(
+        'Action to perform. Omit or use run to execute a command; use status/kill with backgroundId; use list to show all background commands.'
+      ),
     command: z.string().min(1).optional().describe('Shell command to execute. Required for action=run.'),
     background: z
       .boolean()
@@ -65,13 +67,27 @@ export function createCommandTool(context: ComputerToolContext): AgentTool<typeo
     name: 'command',
     label: 'Command',
     description:
-      'Execute one stateless, non-interactive shell command in the computer. Use this for builds, installs, git, rg/find searches, package managers, scripts, network checks, and one-shot commands that should not depend on persistent cd/export/alias state. Set background=true for long-running non-interactive commands such as dev servers, then poll with action=status and stop with action=kill using the returned backgroundId. Do not use cat/head/tail to read files; use read_file. Do not use sed/awk/perl/python scripts or heredocs to edit files; use patch. Use interactive_terminal for direct TTY/TUI programs, REPLs, installers, and troubleshooting interactive CLIs.',
+      'Execute one stateless, non-interactive shell command in the computer. Use this for builds, installs, git, rg/find searches, package managers, scripts, network checks, and one-shot commands that should not depend on persistent cd/export/alias state. Set background=true for long-running non-interactive commands such as dev servers, then poll with action=status, list all with action=list, and stop with action=kill using the returned backgroundId. Do not use cat/head/tail to read files; use read_file. Do not use sed/awk/perl/python scripts or heredocs to edit files; use patch. Use interactive_terminal for direct TTY/TUI programs, REPLs, installers, and troubleshooting interactive CLIs.',
     schema: CommandParams,
     executionMode: 'sequential',
     isDestructive: true,
     async execute(_toolCallId, params, signal): Promise<AgentToolResult<CommandDetails>> {
       const computer = await context.getComputer(signal)
       const action = params.action ?? 'run'
+
+      if (action === 'list') {
+        const snapshots = await computer.backgroundCommands.list({ signal })
+        if (snapshots.length === 0) {
+          return { content: [{ type: 'text', text: 'no background commands' }], details: {} }
+        }
+        const lines = snapshots.map(snapshot => {
+          const parts = [`background_id=${snapshot.id}`, `status=${snapshot.status}`]
+          if (snapshot.exitCode !== undefined) parts.push(`exit_code=${snapshot.exitCode}`)
+          parts.push(`command=${snapshot.command}`)
+          return parts.join(' ')
+        })
+        return { content: [{ type: 'text', text: lines.join('\n') }], details: {} }
+      }
 
       if (action === 'status' || action === 'kill') {
         const backgroundId = params.backgroundId!
@@ -87,13 +103,14 @@ export function createCommandTool(context: ComputerToolContext): AgentTool<typeo
           }
         }
 
-        if (action === 'kill') context.backgroundIds.delete(backgroundId)
         return backgroundResult(snapshot)
       }
 
-      // `-lc` runs a login shell so PATH and profile-provided tooling are present, matching what a
-      // user typing the command would get. `timeout` is the worker-side execution budget in
-      // seconds (default 60), passed as ms; the worker kills the process when it elapses.
+      // `-lc` runs a login shell so any profile sourced inside the sandbox is applied. The sandbox
+      // starts from bubblewrap `--clearenv`: only a fixed set of vars (PATH/HOME/LANG/TERM/
+      // ANKOLE_WORKSPACE_ROOT, plus validated caller env) is injected, so this is the sandbox
+      // environment, not the host user's. `timeout` is the worker-side execution budget in seconds
+      // (default 60), passed as ms; the worker kills the process when it elapses.
       const timeoutSeconds = params.timeout ?? (params.background ? 1800 : 60)
       const runInput = {
         cmd: 'bash',
@@ -106,7 +123,6 @@ export function createCommandTool(context: ComputerToolContext): AgentTool<typeo
 
       if (params.background) {
         const snapshot = await computer.backgroundCommands.start(runInput)
-        context.backgroundIds.add(snapshot.id)
         return backgroundResult(snapshot)
       }
 

@@ -14,8 +14,9 @@ defmodule Ankole.ActorRuntime.FileTransferLane do
   alias Ankole.ActorRuntime.Transport.Broker
 
   @protocol "ANKOLE_FILE/1"
-  @chunk_size 1024 * 1024
+  @chunk_size 2 * 1024 * 1024
   @credit_window 4 * 1024 * 1024
+  @zstd_level 3
   @default_timeout 120_000
   @roots ~w(user_files agent_installed_skills)
 
@@ -45,9 +46,8 @@ defmodule Ankole.ActorRuntime.FileTransferLane do
     content = IO.iodata_to_binary(content)
 
     with {:ok, path} <- virtual_path(root, relative_path),
-         {:ok, wire_content} <- encode_wire_content(content) do
+         {:ok, chunks} <- compress_chunks(content) do
       transfer_id = transfer_id(opts)
-      chunks = binary_chunks(wire_content)
 
       pending = %{
         mode: :write,
@@ -89,7 +89,16 @@ defmodule Ankole.ActorRuntime.FileTransferLane do
       }
 
       frames = [[@protocol, "READ_OPEN", transfer_id, path, fingerprint]]
-      request(route, transfer_id, frames, pending, opts)
+
+      # Decompression (and the decompressed-size check) run here in the CALLER process,
+      # symmetric with put/5's caller-side compress_chunks: the lane GenServer only accumulates
+      # and protocol-validates the compressed frames, so a large read never blocks the shared
+      # file-lane process on zstd.
+      with {:ok, raw} <- request(route, transfer_id, frames, pending, opts),
+           {:ok, content} <- decompress_chunks(raw["chunks"]),
+           :ok <- validate_read_content(raw["begin"], content) do
+        {:ok, %{"content" => content, "begin" => raw["begin"], "end" => raw["end"]}}
+      end
     end
   end
 
@@ -490,15 +499,11 @@ defmodule Ankole.ActorRuntime.FileTransferLane do
        ) do
     with {:ok, chunks} <- parse_u64(chunks_frame),
          {:ok, wire_size} <- parse_u64(wire_size_frame),
-         wire_content <-
-           pending.chunks
-           |> Enum.reverse()
-           |> IO.iodata_to_binary(),
-         {:ok, content} <-
-           decode_wire_content(wire_content),
-         :ok <- validate_read_done(pending, chunks, wire_size, content) do
+         :ok <- validate_read_done(pending, chunks, wire_size) do
+      # Reply the compressed chunks (newest-first) and let the caller decompress, keeping zstd off
+      # the shared lane GenServer. The decompressed-size check moves caller-side with the chunks.
       reply = %{
-        "content" => content,
+        "chunks" => pending.chunks,
         "begin" => pending.read_begin,
         "end" => %{
           "command" => "READ_DONE",
@@ -628,9 +633,10 @@ defmodule Ankole.ActorRuntime.FileTransferLane do
     state
   end
 
-  defp validate_read_done(pending, chunks, wire_size, content) do
-    expected_size = get_in(pending.read_begin || %{}, ["original_size"])
-
+  # Protocol-level READ_DONE checks that need only the accumulated pending state. The
+  # decompressed-content size check runs caller-side in validate_read_content/2 so the lane
+  # GenServer never decompresses.
+  defp validate_read_done(pending, chunks, wire_size) do
     cond do
       pending.read_begin == nil ->
         {:error, :missing_read_ready}
@@ -644,11 +650,18 @@ defmodule Ankole.ActorRuntime.FileTransferLane do
       Map.get(pending, :eof?) != true ->
         {:error, :read_done_before_eof}
 
-      byte_size(content) != expected_size ->
-        {:error, :read_done_size_mismatch}
-
       true ->
         :ok
+    end
+  end
+
+  defp validate_read_content(read_begin, content) do
+    expected_size = get_in(read_begin || %{}, ["original_size"])
+
+    if byte_size(content) == expected_size do
+      :ok
+    else
+      {:error, :read_done_size_mismatch}
     end
   end
 
@@ -785,28 +798,33 @@ defmodule Ankole.ActorRuntime.FileTransferLane do
     end
   end
 
-  defp encode_wire_content(content), do: run_zstd(["-q", "-c"], content, "zstd encode")
-
-  defp decode_wire_content(content), do: run_zstd(["-q", "-d", "-c"], content, "zstd decode")
-
-  defp run_zstd(args, input, label) do
-    path =
-      Path.join(System.tmp_dir!(), "ankole-file-lane-zstd-#{System.unique_integer([:positive])}")
-
-    try do
-      with :ok <- File.write(path, input) do
-        case System.cmd("zstd", args ++ [path], stderr_to_stdout: true) do
-          {output, 0} ->
-            {:ok, output}
-
-          {output, status} ->
-            {:error, "#{label} failed with status #{status}: #{String.trim(output)}"}
-        end
+  defp compress_chunks(content) do
+    content
+    |> binary_chunks()
+    |> Enum.reduce_while({:ok, []}, fn chunk, {:ok, acc} ->
+      case Ankole.Kernel.zstd_compress_block(chunk, @zstd_level) do
+        compressed when is_binary(compressed) -> {:cont, {:ok, [compressed | acc]}}
+        {:error, reason} -> {:halt, {:error, reason}}
       end
-    rescue
-      error -> {:error, "#{label} failed: #{Exception.message(error)}"}
-    after
-      File.rm(path)
+    end)
+    |> case do
+      {:ok, acc} -> {:ok, Enum.reverse(acc)}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp decompress_chunks(chunks) do
+    # `chunks` is stored newest-first (prepended on each DATA frame), so iterating
+    # in stored order and prepending each decoded block yields oldest-first order.
+    Enum.reduce_while(chunks, {:ok, []}, fn chunk, {:ok, acc} ->
+      case Ankole.Kernel.zstd_decompress_block(chunk, @chunk_size) do
+        decoded when is_binary(decoded) -> {:cont, {:ok, [decoded | acc]}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+    |> case do
+      {:ok, acc} -> {:ok, IO.iodata_to_binary(acc)}
+      {:error, _reason} = error -> error
     end
   end
 

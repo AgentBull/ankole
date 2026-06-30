@@ -189,6 +189,68 @@ defmodule Ankole.ActorRuntime.CoreCommitTest do
       assert sent_outbox.provider_entry_id == "provider-pong-1"
     end
 
+    test "final proposal fails and rolls back when the outbox route disappeared" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :ignore)
+      route = unique_route()
+
+      :ok = Broker.register_local_worker(route, self())
+      on_exit(fn -> Broker.unregister_local_worker(route) end)
+
+      assert {:ok, _worker} = admit_worker(route)
+
+      assert {:ok, %{actor_input: input}} =
+               emit_entry(
+                 agent.uid,
+                 "bot",
+                 group_entry(%{text: "PING", explicit: true}),
+                 now: @base_time
+               )
+
+      assert {:ok, %{send_outcome: "sent_or_queued", llm_turn: llm_turn}} =
+               ActorRuntime.process_ready_inputs_once(
+                 now: DateTime.add(@base_time, 1, :second),
+                 lease_seconds: @long_lease_seconds
+               )
+
+      assert_receive {:actor_lane, envelope}
+      turn_start = envelope["body"]["turn_start"]
+      turn_ref = turn_start["turn"]
+      input_ids = Enum.map(turn_start["inputs"], & &1["actor_input_id"])
+
+      assert {:ok, [_delivery]} =
+               ActorRuntime.handle_turn_accepted(%{
+                 "turn_accepted" => %{
+                   "turn" => turn_ref,
+                   "accepted_actor_input_ids" => input_ids
+                 }
+               })
+
+      Repo.delete_all(
+        from(entry in SignalEntry, where: entry.signal_channel_id == ^input.signal_channel_id)
+      )
+
+      Repo.delete_all(
+        from(channel in Ankole.SignalsGateway.SignalChannel,
+          where: channel.id == ^input.signal_channel_id
+        )
+      )
+
+      assert {:error, {:signal_channel_not_found, "lark:chat:group-a"}} =
+               ActorRuntime.commit_final_proposal(%{
+                 "turn_final_proposal" => %{
+                   "turn" => turn_ref,
+                   "messages" => [],
+                   "reply" => %{"text" => "PONG"}
+                 }
+               })
+
+      assert Repo.get!(ActorInput, input.id)
+      assert Repo.aggregate(ActorInputConsumption, :count) == 0
+      assert Repo.aggregate(OutboxEntry, :count) == 0
+      refute Repo.get!(LlmTurn, llm_turn.id).status == "succeeded"
+    end
+
     test "materializes attachment-only input as readable transcript content" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :ignore)

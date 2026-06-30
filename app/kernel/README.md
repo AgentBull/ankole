@@ -19,11 +19,17 @@ The current shared surface is:
   helpers, phone normalization, and other host-neutral primitives.
 - `authz/` - snapshot-only authorization evaluation, CEL condition validation,
   and resource-pattern validation and matching.
-- `runtime_fabric/` - RuntimeFabric v1 protobuf envelope validation and codec
-  for actor and RPC traffic.
-- `runtime_fabric/transport.rs` - Rust-owned ZeroMQ ROUTER/DEALER socket loops,
-  ZAP/PLAIN worker authentication, mandatory routing, backpressure and route
-  errors, and raw worker-file multipart frames.
+- `runtime_fabric/` - RuntimeFabric v1 envelope codec and validation, including
+  JSON-shaped host maps, protobuf bytes, lanes, durability classes, correlation
+  rules, and turn/control/progress/RPC body semantics.
+- `runtime_fabric/transport/` - Rust-owned ZeroMQ ROUTER/DEALER transport split
+  across auth, config, router, dealer, and framing modules, including ZAP/PLAIN
+  worker authentication, mandatory route sends, bounded socket options, route
+  and decode errors, and raw `ANKOLE_FILE/1` worker-file multipart frames.
+- `universal_ai_client/` - feature-gated native async streaming client for
+  prepared AI provider requests, including upstream HTTP SSE/EventStream and
+  WebSocket transport, provider response normalization, downstream SSE/WebSocket
+  chunk encoding, demand credit, and cancellation.
 
 ## Identifier Generation
 
@@ -58,6 +64,12 @@ Host runtimes provide complete inputs:
   plane.
 - Worker-file frames are live transport bytes. File and skill semantics stay in
   the host runtime and durable stores.
+- UniversalAIClient receives provider endpoint/header/transport specs plus the
+  public model request. The kernel owns model request body encoding, raw HTTP
+  execution, the live streaming data plane, API protocol normalization,
+  downstream-ready SSE or WebSocket text chunks, demand credit, cancellation,
+  and timeout handling. Provider selection, credentials, endpoint choice,
+  transcript commits, and policy stay in the host runtime and durable stores.
 
 ## Architecture
 
@@ -71,6 +83,10 @@ Host runtimes provide complete inputs:
 The host-neutral modules are compiled for tests and for both binding features.
 The binding files decode host values, preserve binary and JSON boundaries,
 translate errors, and forward to the shared modules.
+
+`universal_ai_client` is feature-gated separately and currently enabled by the
+Rustler/NIF build. Keep one-sided exports explicit in the binding layer until
+another host needs the same API.
 
 Binding layers may use host-native naming and types, but they must not introduce
 different behavior. Complex maps cross as JSON-shaped values (`Torque` on

@@ -250,7 +250,7 @@ defmodule Ankole.AIAgent.Library do
     do: {:error, :invalid_overlay}
 
   @doc """
-  Backward-compatible tool entry: replaces the DB overlay text.
+  Worker `skill_append` tool entry: replaces the agent's DB overlay text for a skill.
   """
   @spec skill_append(String.t(), String.t(), String.t(), keyword()) ::
           {:ok, AgentSkillOverlay.t()} | {:error, term()}

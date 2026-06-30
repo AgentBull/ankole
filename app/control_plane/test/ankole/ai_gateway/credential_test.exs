@@ -18,10 +18,8 @@ defmodule Ankole.AIGateway.CredentialTest do
     assert claims["exp"] == api_key.expires_at
   end
 
-  test "RuntimeFabric RPC returns an agent AIGateway API key and no provider credential" do
+  test "RuntimeFabric RPC returns an agent AIGateway API key from explicit agent uid" do
     %{principal: agent} = agent_fixture()
-    session_id = "signal-channel:ai-gateway-rpc"
-    {route, turn} = assign_worker_route(agent.uid, session_id)
 
     assert {:ok, envelope} =
              RPCLane.handle_request(
@@ -30,18 +28,16 @@ defmodule Ankole.AIGateway.CredentialTest do
                  "method" => "ai_gateway.api_key_for.create_or_find_by_agent",
                  "payload_json" => %{
                    "request_id" => "ai-gateway-key-1",
-                   "turn" => turn,
-                   "agent_uid" => agent.uid,
-                   "session_id" => session_id
+                   "agent_uid" => agent.uid
                  }
                },
-               route
+               "trusted-worker-route"
              )
 
     response = get_in(envelope, ["body", "rpc_response", "payload_json"])
     assert response["request_id"] == "ai-gateway-key-1"
     assert response["agent_uid"] == agent.uid
-    assert response["session_id"] == session_id
+    refute Map.has_key?(response, "session_id")
     assert response["token_type"] == "Bearer"
     assert response["scope"] == "ai_gateway"
     assert response["expires_in"] == 30 * 24 * 60 * 60
@@ -58,8 +54,6 @@ defmodule Ankole.AIGateway.CredentialTest do
     )
 
     %{principal: agent} = agent_fixture()
-    session_id = "signal-channel:ai-gateway-worker-url"
-    {route, turn} = assign_worker_route(agent.uid, session_id)
 
     assert {:ok, envelope} =
              RPCLane.handle_request(
@@ -68,18 +62,35 @@ defmodule Ankole.AIGateway.CredentialTest do
                  "method" => "ai_gateway.api_key_for.create_or_find_by_agent",
                  "payload_json" => %{
                    "request_id" => "ai-gateway-worker-url",
-                   "turn" => turn,
-                   "agent_uid" => agent.uid,
-                   "session_id" => session_id
+                   "agent_uid" => agent.uid
                  }
                },
-               route
+               "trusted-worker-route"
              )
 
     response = get_in(envelope, ["body", "rpc_response", "payload_json"])
 
     assert response["base_url"] ==
              "http://host.docker.internal:49321/api/v1/ai-gateway"
+  end
+
+  test "RuntimeFabric RPC requires the agent uid for an agent-scoped AIGateway API key" do
+    assert {:ok, envelope} =
+             RPCLane.handle_request(
+               %{
+                 "request_id" => "missing-agent-uid",
+                 "method" => "ai_gateway.api_key_for.create_or_find_by_agent",
+                 "payload_json" => %{
+                   "request_id" => "missing-agent-uid",
+                   "session_id" => "signal-channel:ignored"
+                 }
+               },
+               "trusted-worker-route"
+             )
+
+    assert get_in(envelope, ["body", "type"]) == "rpc_error"
+    assert get_in(envelope, ["body", "rpc_error", "code"]) == "missing_agent_uid"
+    assert get_in(envelope, ["body", "rpc_error", "details_json"]) == %{"agent_uid" => ""}
   end
 
   test "RuntimeFabric no longer exposes provider credential resolution as a public RPC" do

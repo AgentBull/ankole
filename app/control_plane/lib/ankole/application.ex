@@ -29,6 +29,7 @@ defmodule Ankole.Application do
       {Ankole.Plugins.Registry, name: Ankole.Plugins.Registry},
       {Ankole.Plugins.Supervisor, registry: Ankole.Plugins.Registry},
       Ankole.ActorRuntime.Supervisor,
+      Ankole.AIGateway.ModelMetadata.Cache,
       Ankole.I18n.Catalog,
       {DNSCluster, query: Application.get_env(:ankole, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: Ankole.PubSub},

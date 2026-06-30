@@ -85,6 +85,96 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
     )
   end
 
+  defmodule AuthSessionDeleteResponse do
+    @moduledoc false
+
+    require OpenApiSpex
+
+    OpenApiSpex.schema(
+      %{
+        title: "AuthSessionDeleteResponse",
+        type: :object,
+        properties: %{
+          ok: %Schema{type: :boolean}
+        },
+        required: [:ok],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule ConsoleTokenRequest do
+    @moduledoc false
+
+    require OpenApiSpex
+
+    OpenApiSpex.schema(
+      %{
+        title: "ConsoleTokenRequest",
+        type: :object,
+        properties: %{
+          grant_type: %Schema{type: :string},
+          refresh_token: %Schema{type: :string}
+        },
+        required: [:grant_type],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule ConsoleTokenResponse do
+    @moduledoc false
+
+    require OpenApiSpex
+
+    OpenApiSpex.schema(
+      %{
+        title: "ConsoleTokenResponse",
+        type: :object,
+        properties: %{
+          access_token: %Schema{type: :string},
+          expires_in: %Schema{type: :integer},
+          refresh_token: %Schema{type: :string},
+          refresh_token_expires_in: %Schema{type: :integer},
+          scope: %Schema{type: :string},
+          token_type: %Schema{type: :string, enum: ["Bearer"]}
+        },
+        required: [
+          :access_token,
+          :expires_in,
+          :refresh_token,
+          :refresh_token_expires_in,
+          :scope,
+          :token_type
+        ],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule OAuthErrorResponse do
+    @moduledoc false
+
+    require OpenApiSpex
+
+    OpenApiSpex.schema(
+      %{
+        title: "OAuthErrorResponse",
+        type: :object,
+        properties: %{
+          error: %Schema{type: :string},
+          error_description: %Schema{type: :string}
+        },
+        required: [:error, :error_description],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
   defmodule AppConfigurationItem do
     @moduledoc false
 
@@ -352,14 +442,14 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
     )
   end
 
-  defmodule AIGatewayProviderCredentialProjection do
+  defmodule AIGatewayProviderEncryptedOptionProjection do
     @moduledoc false
 
     require OpenApiSpex
 
     OpenApiSpex.schema(
       %{
-        title: "AIGatewayProviderCredentialProjection",
+        title: "AIGatewayProviderEncryptedOptionProjection",
         type: :object,
         properties: %{
           present: %Schema{type: :boolean},
@@ -367,6 +457,21 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
         },
         required: [:present],
         additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule AIGatewayProviderEncryptedOptionsProjection do
+    @moduledoc false
+
+    require OpenApiSpex
+
+    OpenApiSpex.schema(
+      %{
+        title: "AIGatewayProviderEncryptedOptionsProjection",
+        type: :object,
+        additionalProperties: AIGatewayProviderEncryptedOptionProjection
       },
       struct?: false
     )
@@ -387,9 +492,8 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
           provider_kind: %Schema{type: :string},
           base_url: %Schema{type: :string, nullable: true},
           connection_options: %Schema{type: :object, additionalProperties: true},
-          credential_mode: %Schema{type: :string},
+          encrypted_options: AIGatewayProviderEncryptedOptionsProjection,
           disabled_at: %Schema{type: :string, nullable: true},
-          credential: AIGatewayProviderCredentialProjection,
           provider_metadata: %Schema{type: :object, additionalProperties: true}
         },
         required: [
@@ -397,8 +501,7 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
           :provider_id,
           :provider_kind,
           :connection_options,
-          :credential_mode,
-          :credential,
+          :encrypted_options,
           :provider_metadata
         ],
         additionalProperties: false
@@ -458,8 +561,6 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
           provider_id: %Schema{type: :string},
           provider_kind: %Schema{type: :string},
           base_url: %Schema{type: :string, nullable: true},
-          credential: %Schema{type: :string, nullable: true},
-          credential_mode: %Schema{type: :string},
           connection_options: %Schema{type: :object, additionalProperties: true}
         },
         additionalProperties: false
@@ -479,29 +580,29 @@ defmodule AnkoleWeb.Schemas.ConsoleApi do
         type: :object,
         properties: %{
           provider_kind: %Schema{type: :string},
-          label: %Schema{type: :string},
+          label: %Schema{type: :object, additionalProperties: %Schema{type: :string}},
           capabilities: %Schema{type: :array, items: %Schema{type: :string}},
-          endpoint_modes: %Schema{type: :array, items: %Schema{type: :string}},
-          provider_strategy: %Schema{type: :string},
           default_base_url: %Schema{type: :string, nullable: true},
-          default_http_protocol: %Schema{type: :string, enum: ["http1", "http2"]},
-          credential_modes: %Schema{type: :array, items: %Schema{type: :string}},
+          settings: %Schema{
+            type: :array,
+            items: %Schema{type: :object, additionalProperties: true}
+          },
+          capability_specs: %Schema{
+            type: :array,
+            items: %Schema{type: :object, additionalProperties: true}
+          },
           connection_options: %Schema{type: :array, items: %Schema{type: :string}},
-          runtime_provider_options: %Schema{type: :array, items: %Schema{type: :string}},
-          model_catalog_policy: %Schema{type: :string}
+          runtime_provider_options: %Schema{type: :array, items: %Schema{type: :string}}
         },
         required: [
           :provider_kind,
           :label,
           :capabilities,
-          :endpoint_modes,
-          :provider_strategy,
           :default_base_url,
-          :default_http_protocol,
-          :credential_modes,
+          :settings,
+          :capability_specs,
           :connection_options,
-          :runtime_provider_options,
-          :model_catalog_policy
+          :runtime_provider_options
         ],
         additionalProperties: false
       },

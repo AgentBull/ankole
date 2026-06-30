@@ -49,10 +49,11 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
     assert "llm" in openrouter["capabilities"]
     assert "embedding" in openrouter["capabilities"]
     assert "rerank" in openrouter["capabilities"]
-    assert openrouter["default_http_protocol"] == "http2"
-    assert openai_compatible["default_http_protocol"] == "http1"
+
+    assert "transport" in openai_compatible["connection_options"]
     assert is_nil(azure_openai["default_base_url"])
-    assert azure_openai["default_http_protocol"] == "http2"
+    assert "transport" in azure_openai["connection_options"]
+    refute Map.has_key?(openrouter, "default_transport")
 
     refute Enum.any?(sources, &(&1["provider_kind"] == "gemini"))
 
@@ -61,15 +62,16 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
       |> recycle_api()
       |> put(~p"/api/v1/ai-gateway/providers/openrouter-main", %{
         "provider_kind" => "openrouter",
-        "credential" => "sk-test",
-        "connection_options" => %{"include_usage" => true}
+        "connection_options" => %{"api_key" => "sk-test", "include_usage" => true}
       })
 
     assert %{
              "data" => %{
                "provider_id" => "openrouter-main",
                "provider_kind" => "openrouter",
-               "credential" => %{"present" => true, "masked" => "********"}
+               "encrypted_options" => %{
+                 "api_key" => %{"present" => true, "masked" => "********"}
+               }
              }
            } = json_response(conn, 200)
 

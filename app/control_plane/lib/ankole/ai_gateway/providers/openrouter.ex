@@ -1,139 +1,162 @@
 defmodule Ankole.AIGateway.Providers.OpenRouter do
   @moduledoc """
-  Provider implementation for OpenRouter.
-
-  OpenRouter is modeled as an OpenAI-compatible provider with provider-owned
-  defaults: a concrete base URL, HTTP/2, attribution headers, LLM dispatch via
-  Chat Completions, and first-class embedding/rerank endpoints.
+  OpenRouter provider backed by its OpenAI-compatible API surface.
+  https://openrouter.ai/docs/api/reference/overview
   """
 
-  @behaviour Ankole.AIGateway.Provider
+  use Ankole.AIGateway.ProviderDSL
 
-  alias Ankole.AIGateway.Embeddings
-  alias Ankole.AIGateway.Providers.OpenAICompatible
-  alias Ankole.AIGateway.Request
-  alias Ankole.AIGateway.Rerank
+  alias Ankole.AIGateway.ReasoningEffort
+  alias Ankole.AIGateway.UniversalAIRequest
 
   @default_referer "https://github.com/agentbull/ankole"
   @default_title "Ankole"
 
-  @impl true
-  def provider_id, do: "openrouter"
+  provider :openrouter do
+    label(%{"default" => "OpenRouter", "zh-Hans-CN" => "OpenRouter"})
+    base_url("https://openrouter.ai/api/v1")
 
-  @impl true
-  def label, do: "OpenRouter"
+    setting(:api_key, encrypted: true)
+    setting(:headers, type: :map)
+    setting(:query_params, type: :map)
+    setting(:include_usage, type: :boolean)
+    setting(:supports_structured_outputs, type: :boolean)
+    setting(:app_referer, default: @default_referer)
+    setting(:app_title, default: @default_title)
+    setting(:referer)
+    setting(:title)
 
-  @impl true
-  def capabilities, do: ["llm", "embedding", "rerank"]
+    setting(:user, scope: :request)
+    setting(:reasoning, scope: :request)
+    setting(:reasoningEffort, scope: :request)
+    setting(:textVerbosity, scope: :request)
+    setting(:strictJsonSchema, scope: :request)
 
-  @impl true
-  def endpoint_modes, do: ["chat_completions", "embeddings", "rerank"]
+    language_model do
+      upstream(:sse)
+      api_resolver(:openai_chat_completions)
+      prepare(:prepare_language_model)
+    end
 
-  @impl true
-  def provider_strategy, do: "openai_compatible_chat_completions"
+    embedding_model do
+      upstream(:json)
+      api_resolver(:openrouter_embeddings)
+      prepare(:prepare_embedding_model)
+    end
 
-  @impl true
-  def default_base_url, do: "https://openrouter.ai/api/v1"
-
-  @impl true
-  def default_http_protocol, do: "http2"
-
-  @impl true
-  def credential_schemes, do: ["api_key", "bearer"]
-
-  @impl true
-  def connection_option_keys,
-    do:
-      ~w(http_protocol headers query_params include_usage supports_structured_outputs app_referer app_title referer title)
-
-  @impl true
-  def runtime_provider_option_keys,
-    do: ~w(user reasoning reasoningEffort textVerbosity strictJsonSchema)
-
-  @impl true
-  def model_catalog_policy, do: "provider_specific"
-
-  @impl true
-  def response_endpoint_mode(_runtime), do: "chat_completions"
-
-  @impl true
-  def build_response_request(runtime, request, opts) do
-    stream? = Keyword.get(opts, :stream?, false)
-
-    with {:ok, request} <-
-           Request.build_openai_compatible_response_request(
-             runtime,
-             request,
-             "chat_completions",
-             stream?: stream?
-           ) do
-      {:ok, maybe_stream_request(request, stream?)}
+    rerank_model do
+      upstream(:json)
+      api_resolver(:openrouter_rerank)
+      prepare(:prepare_rerank_model)
     end
   end
 
-  @impl true
-  def normalize_response_body(runtime, upstream_request, upstream_response),
-    do: OpenAICompatible.normalize_response_body(runtime, upstream_request, upstream_response)
+  @doc """
+  Builds an OpenRouter chat-completions request.
 
-  @impl true
-  def build_embeddings_request(runtime, request),
-    do:
-      Request.build_json_request(runtime, "embeddings", request,
-        inject_model?: true,
-        merge_provider_options?: true
-      )
-
-  @impl true
-  def normalize_embeddings_body(runtime, _upstream_request, upstream_response),
-    do: Embeddings.normalize_body(runtime, upstream_response)
-
-  @impl true
-  def build_rerank_request(runtime, request),
-    do:
-      Request.build_json_request(runtime, "rerank", request,
-        inject_model?: true,
-        merge_provider_options?: true
-      )
-
-  @impl true
-  def normalize_rerank_body(runtime, upstream_request, upstream_response),
-    do: Rerank.normalize_body(runtime, upstream_request.body, upstream_response)
-
-  @impl true
-  def put_headers(headers, %{"connection_options" => options}) do
-    # OpenRouter uses attribution headers for app identity. Defaults keep local
-    # setup usable, while connection options allow operator branding later.
-    referer = Map.get(options, "app_referer") || Map.get(options, "referer") || @default_referer
-    title = Map.get(options, "app_title") || Map.get(options, "title") || @default_title
-
-    headers
-    |> Map.put_new("HTTP-Referer", referer)
-    |> Map.put_new("X-Title", title)
-    |> Map.put_new("X-OpenRouter-Title", title)
+  OpenRouter exposes an OpenAI-compatible chat surface, so this provider only
+  adds OpenRouter attribution headers before the native OpenAI resolver handles
+  the response.
+  """
+  def prepare_language_model(ctx) do
+    ctx
+    |> UniversalAIRequest.new("chat/completions", :openai_chat_completions)
+    |> common_headers(ctx)
+    |> UniversalAIRequest.bearer_auth()
+    |> ReasoningEffort.put_provider_options(ctx, skip_if_present: ["reasoning"])
   end
 
-  def put_headers(headers, _runtime), do: put_headers(headers, %{"connection_options" => %{}})
+  @doc """
+  Builds an OpenRouter embeddings request.
+
+  OpenRouter has its own embedding catalog and response contract, even though
+  it is close to the OpenAI embedding shape.
+  """
+  def prepare_embedding_model(ctx) do
+    ctx
+    |> UniversalAIRequest.new("embeddings", :openrouter_embeddings)
+    |> common_headers(ctx)
+    |> UniversalAIRequest.bearer_auth()
+  end
+
+  @doc """
+  Builds an OpenRouter rerank request.
+
+  OpenRouter rerank returns OpenRouter-style result metadata such as generated
+  ids and search-unit usage.
+  """
+  def prepare_rerank_model(ctx) do
+    ctx
+    |> UniversalAIRequest.new("rerank", :openrouter_rerank)
+    |> common_headers(ctx)
+    |> UniversalAIRequest.bearer_auth()
+  end
 
   @impl true
-  def put_auth_headers(headers, runtime), do: OpenAICompatible.put_auth_headers(headers, runtime)
+  def models_metadata_source(ctx) when is_map(ctx) do
+    headers =
+      ctx
+      |> UniversalAIRequest.raw_headers()
+      |> common_headers(ctx)
+      |> UniversalAIRequest.bearer_auth(ctx.settings[:api_key])
 
+    {:ok,
+     {:openrouter,
+      %{
+        ctx: ctx,
+        path: "models?output_modalities=all",
+        headers: headers,
+        cache_key: "models?output_modalities=all"
+      }}}
+  end
+
+  @doc """
+  Checks OpenRouter connectivity through a provider-owned model catalog endpoint.
+  """
   @impl true
-  def stream_init(runtime, upstream_request),
-    do: OpenAICompatible.stream_init(runtime, upstream_request)
+  def check_connection(ctx) when is_map(ctx) do
+    path =
+      case Map.get(ctx, :capability) || Map.get(ctx, "capability") do
+        capability when capability in ["embedding", :embedding, :embedding_model] ->
+          "embeddings/models"
 
-  @impl true
-  def decode_stream_message(runtime, upstream_request, state, message),
-    do: OpenAICompatible.decode_stream_message(runtime, upstream_request, state, message)
+        _capability ->
+          "models"
+      end
 
-  @impl true
-  def finish_stream(runtime, upstream_request, state),
-    do: OpenAICompatible.finish_stream(runtime, upstream_request, state)
+    headers =
+      ctx
+      |> UniversalAIRequest.raw_headers()
+      |> common_headers(ctx)
+      |> UniversalAIRequest.bearer_auth(ctx.settings[:api_key])
 
-  defp maybe_stream_request(request, false), do: request
+    with {:ok, %{"status" => status, "body" => body}} when status in 200..299 <-
+           UniversalAIRequest.raw_get(ctx, path, headers: headers) do
+      {:ok, body}
+    else
+      {:ok, %{"status" => status, "body" => body}} ->
+        {:error, {:provider_connection_check_failed, status, body}}
 
-  defp maybe_stream_request(request, true) do
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  # OpenRouter recommends attribution headers. `put_new` keeps explicit runtime
+  # headers authoritative when an installation wants to override these defaults.
+  defp common_headers(request, ctx) do
+    {referer, title} = attribution(ctx)
+
     request
-    |> put_in([:headers, "accept"], "text/event-stream")
-    |> Map.put(:stream?, true)
+    |> UniversalAIRequest.put_new_header("HTTP-Referer", referer)
+    |> UniversalAIRequest.put_new_header("X-Title", title)
+    |> UniversalAIRequest.put_new_header("X-OpenRouter-Title", title)
+  end
+
+  defp attribution(ctx) do
+    {
+      ctx.settings[:app_referer] || ctx.settings[:referer] || @default_referer,
+      ctx.settings[:app_title] || ctx.settings[:title] || @default_title
+    }
   end
 end

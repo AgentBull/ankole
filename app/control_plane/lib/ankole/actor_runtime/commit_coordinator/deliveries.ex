@@ -8,8 +8,6 @@ defmodule Ankole.ActorRuntime.CommitCoordinator.Deliveries do
   alias Ankole.ActorRuntime.CommitCoordinator.Payload
   alias Ankole.ActorRuntime.Schemas.ActorInputDelivery
 
-  @live_delivery_states ~w(created sent accepted)
-
   def accepted(repo, turn_ref) do
     llm_turn_id = Payload.fetch_turn_id(turn_ref)
 
@@ -74,7 +72,7 @@ defmodule Ankole.ActorRuntime.CommitCoordinator.Deliveries do
   defp supersede_turn_by_id(llm_turn_id, repo, now, reason) do
     ActorInputDelivery
     |> where([delivery], delivery.llm_turn_id == ^llm_turn_id)
-    |> where([delivery], delivery.state in ^@live_delivery_states)
+    |> where([delivery], delivery.state in ^ActorInputDelivery.live_states())
     |> repo.update_all(
       set: [
         state: "superseded",

@@ -16,11 +16,7 @@ import {
   conversationContextFromHistory,
   inputAlreadyMaterialized
 } from './conversation_history'
-import {
-  assertAIGatewayApiKeyMatchesTurn,
-  providerOptionsFromAIGateway,
-  runtimeModelFromAIGatewayApiKey
-} from './model_runtime'
+import { assertAIGatewayApiKeyMatchesTurn, runtimeModelFromAIGatewayApiKey } from './model_runtime'
 import {
   assistantText,
   isLlmMessage,
@@ -58,9 +54,7 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
 
   const apiKeyRequest = {
     request_id: `ai-gateway-key-${crypto.randomUUID()}`,
-    turn: turnStart.turn,
-    agent_uid: turnStart.turn.actor.agent_uid,
-    session_id: turnStart.turn.actor.session_id
+    agent_uid: turnStart.turn.actor.agent_uid
   }
   const apiKey = await opts.requestAIGatewayApiKey(apiKeyRequest)
 
@@ -76,7 +70,6 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
       request_id: `ai-gateway-key-${crypto.randomUUID()}`
     })
   )
-  const providerOptions = providerOptionsFromAIGateway()
   const telemetry = createTurnTelemetry(modelRef, model)
   const agentConversationContext = await resolveAgentConversationContext(turnStart, opts)
   const history = await resolveConversationHistory(turnStart, opts, 'prompt')
@@ -150,8 +143,7 @@ export async function runTextTurnLoop(turnStart: TurnStart, opts: TextTurnLoopOp
           ...(modelRef.provider_source ? { provider_source: modelRef.provider_source } : {})
         },
         headers: model.headers,
-        providerOptions,
-        maxTokens: model.maxTokens > 0 ? model.maxTokens : undefined,
+        maxTokens: typeof model.maxTokens === 'number' && model.maxTokens > 0 ? model.maxTokens : undefined,
         maxRetries: 2,
         maxRetryDelayMs: 2_000,
         timeoutMs: TEXT_TURN_TIMEOUT_MS

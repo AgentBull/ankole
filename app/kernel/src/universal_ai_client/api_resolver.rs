@@ -1,0 +1,11 @@
+include!("api_resolver/core.rs");
+include!("api_resolver/openai_responses.rs");
+include!("api_resolver/openai_chat.rs");
+include!("api_resolver/anthropic.rs");
+include!("api_resolver/google_gemini.rs");
+include!("api_resolver/aws_bedrock_converse.rs");
+include!("api_resolver/embeddings.rs");
+include!("api_resolver/google_embeddings.rs");
+include!("api_resolver/rerank.rs");
+include!("api_resolver/standard.rs");
+include!("api_resolver/tests.rs");

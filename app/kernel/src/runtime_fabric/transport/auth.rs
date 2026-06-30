@@ -22,6 +22,7 @@ pub(super) struct AuthenticatedRouteState {
 }
 
 pub(super) type AuthenticatedRoutes = Arc<Mutex<AuthenticatedRouteState>>;
+pub(super) type ZapErrorSink = Arc<dyn Fn(String) + Send + Sync + 'static>;
 
 #[derive(Clone, Debug)]
 pub(super) enum ZapAuthConfig {
@@ -110,6 +111,7 @@ pub(super) fn start_zap_server(
     domain: String,
     auth: ZapAuthConfig,
     auth_routes: AuthenticatedRoutes,
+    error_sink: ZapErrorSink,
     stop: Arc<AtomicBool>,
 ) -> Result<Option<ZapGuard>, TransportError> {
     validate_config_non_empty("zap_domain", &domain)?;
@@ -120,7 +122,17 @@ pub(super) fn start_zap_server(
 
     let handle = thread::Builder::new()
         .name("ankole-runtime-fabric-zap".to_string())
-        .spawn(move || run_zap_server(context, domain, auth, auth_routes, thread_stop, init_tx))
+        .spawn(move || {
+            run_zap_server(
+                context,
+                domain,
+                auth,
+                auth_routes,
+                error_sink,
+                thread_stop,
+                init_tx,
+            )
+        })
         .map_err(|error| TransportError::Zmq(format!("failed to spawn ZAP thread: {error}")))?;
 
     let init_result = match init_rx.recv_timeout(Duration::from_secs(1)) {
@@ -168,6 +180,7 @@ fn run_zap_server(
     domain: String,
     auth: ZapAuthConfig,
     auth_routes: AuthenticatedRoutes,
+    error_sink: ZapErrorSink,
     stop: Arc<AtomicBool>,
     init: mpsc::SyncSender<Result<(), TransportError>>,
 ) {
@@ -199,7 +212,11 @@ fn run_zap_server(
             }
             Err(zmq::Error::EAGAIN) => {}
             Err(zmq::Error::ETERM) => break,
-            Err(_) => {}
+            Err(error) => {
+                error_sink(format!("zap auth socket error: {error}"));
+                stop.store(true, Ordering::SeqCst);
+                break;
+            }
         }
     }
 }

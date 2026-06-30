@@ -29,16 +29,18 @@ defmodule Ankole.ActorRuntime.CommitCoordinator.Consumptions do
 
     actor_inputs
     |> Enum.map(fn actor_input ->
-      Actors.consume_actor_input_in_tx(repo, actor_input,
-        conversation_id: conversation.id,
-        llm_turn_id: llm_turn.id,
-        activation_uid: activation.activation_uid,
-        actor_epoch: activation.actor_epoch,
-        revision: activation.revision,
-        consumed_at: now,
-        outbox_intents:
-          outbox_intents(repo, actor_input, llm_turn, assistant_message, outbox_scope)
-      )
+      with {:ok, outbox_intents} <-
+             outbox_intents(repo, actor_input, llm_turn, assistant_message, outbox_scope) do
+        Actors.consume_actor_input_in_tx(repo, actor_input,
+          conversation_id: conversation.id,
+          llm_turn_id: llm_turn.id,
+          activation_uid: activation.activation_uid,
+          actor_epoch: activation.actor_epoch,
+          revision: activation.revision,
+          consumed_at: now,
+          outbox_intents: outbox_intents
+        )
+      end
     end)
     |> Payload.collect_results()
   end
@@ -56,31 +58,33 @@ defmodule Ankole.ActorRuntime.CommitCoordinator.Consumptions do
 
     actor_inputs
     |> Enum.map(fn actor_input ->
-      Actors.consume_actor_input_in_tx(repo, actor_input,
-        conversation_id: conversation.id,
-        llm_turn_id: llm_turn.id,
-        activation_uid: activation.activation_uid,
-        actor_epoch: activation.actor_epoch,
-        revision: activation.revision,
-        consumed_at: now,
-        outbox_intents:
-          summary_outbox_intents(
-            repo,
-            actor_input,
-            llm_turn,
-            summary_message,
-            visible_reply_input_id
-          )
-      )
+      with {:ok, outbox_intents} <-
+             summary_outbox_intents(
+               repo,
+               actor_input,
+               llm_turn,
+               summary_message,
+               visible_reply_input_id
+             ) do
+        Actors.consume_actor_input_in_tx(repo, actor_input,
+          conversation_id: conversation.id,
+          llm_turn_id: llm_turn.id,
+          activation_uid: activation.activation_uid,
+          actor_epoch: activation.actor_epoch,
+          revision: activation.revision,
+          consumed_at: now,
+          outbox_intents: outbox_intents
+        )
+      end
     end)
     |> Payload.collect_results()
   end
 
   defp summary_outbox_intents(_repo, %ActorInput{signal_channel_id: nil}, _turn, _message, _id),
-    do: []
+    do: {:ok, []}
 
   defp summary_outbox_intents(_repo, %ActorInput{provider_entry_id: nil}, _turn, _message, _id),
-    do: []
+    do: {:ok, []}
 
   defp summary_outbox_intents(
          _repo,
@@ -90,7 +94,7 @@ defmodule Ankole.ActorRuntime.CommitCoordinator.Consumptions do
          visible_reply_input_id
        )
        when id != visible_reply_input_id,
-       do: []
+       do: {:ok, []}
 
   defp summary_outbox_intents(
          repo,
@@ -99,23 +103,25 @@ defmodule Ankole.ActorRuntime.CommitCoordinator.Consumptions do
          %Message{} = summary_message,
          _visible_reply_input_id
        ) do
-    operation = SignalsGateway.outbox_operation_for_actor_input(actor_input, repo)
-    operation_key = Atom.to_string(operation)
-    text = "Conversation compressed."
+    with {:ok, operation} <- SignalsGateway.outbox_operation_for_actor_input(actor_input, repo) do
+      operation_key = Atom.to_string(operation)
+      text = "Conversation compressed."
 
-    [
-      %{
-        outbound_key: "summary:#{llm_turn.id}:#{operation_key}:#{actor_input.id}",
-        operation: operation,
-        target_provider_entry_id: actor_input.provider_entry_id,
-        provider_thread_id: actor_input.provider_thread_id,
-        payload: %{"text" => text},
-        fallback_visible_text: text,
-        idempotency_key: "summary:#{operation_key}:#{llm_turn.id}:#{actor_input.id}",
-        llm_turn_id: llm_turn.id,
-        assistant_message_id: summary_message.id
-      }
-    ]
+      {:ok,
+       [
+         %{
+           outbound_key: "summary:#{llm_turn.id}:#{operation_key}:#{actor_input.id}",
+           operation: operation,
+           target_provider_entry_id: actor_input.provider_entry_id,
+           provider_thread_id: actor_input.provider_thread_id,
+           payload: %{"text" => text},
+           fallback_visible_text: text,
+           idempotency_key: "summary:#{operation_key}:#{llm_turn.id}:#{actor_input.id}",
+           llm_turn_id: llm_turn.id,
+           assistant_message_id: summary_message.id
+         }
+       ]}
+    end
   end
 
   defp ambient_post_input_id(actor_inputs, %Message{}) do
@@ -190,7 +196,7 @@ defmodule Ankole.ActorRuntime.CommitCoordinator.Consumptions do
   defp datetime_sort_value(%DateTime{} = datetime), do: DateTime.to_unix(datetime, :microsecond)
   defp datetime_sort_value(_value), do: 0
 
-  defp outbox_intents(_repo, _actor_input, _llm_turn, nil, _outbox_scope), do: []
+  defp outbox_intents(_repo, _actor_input, _llm_turn, nil, _outbox_scope), do: {:ok, []}
 
   defp outbox_intents(
          _repo,
@@ -199,7 +205,7 @@ defmodule Ankole.ActorRuntime.CommitCoordinator.Consumptions do
          _assistant_message,
          _outbox_scope
        ),
-       do: []
+       do: {:ok, []}
 
   defp outbox_intents(
          _repo,
@@ -208,19 +214,20 @@ defmodule Ankole.ActorRuntime.CommitCoordinator.Consumptions do
          %Message{} = assistant_message,
          %{ambient_post_input_id: id}
        ) do
-    [
-      %{
-        outbound_key: "ambient:#{llm_turn.id}:#{actor_input.signal_channel_id}",
-        operation: :post,
-        target_provider_entry_id: nil,
-        provider_thread_id: actor_input.provider_thread_id,
-        payload: assistant_outbox_payload(assistant_message),
-        fallback_visible_text: assistant_text(assistant_message),
-        idempotency_key: "post:ambient:#{llm_turn.id}:#{actor_input.signal_channel_id}",
-        llm_turn_id: llm_turn.id,
-        assistant_message_id: assistant_message.id
-      }
-    ]
+    {:ok,
+     [
+       %{
+         outbound_key: "ambient:#{llm_turn.id}:#{actor_input.signal_channel_id}",
+         operation: :post,
+         target_provider_entry_id: nil,
+         provider_thread_id: actor_input.provider_thread_id,
+         payload: assistant_outbox_payload(assistant_message),
+         fallback_visible_text: assistant_text(assistant_message),
+         idempotency_key: "post:ambient:#{llm_turn.id}:#{actor_input.signal_channel_id}",
+         llm_turn_id: llm_turn.id,
+         assistant_message_id: assistant_message.id
+       }
+     ]}
   end
 
   defp outbox_intents(
@@ -230,7 +237,7 @@ defmodule Ankole.ActorRuntime.CommitCoordinator.Consumptions do
          _assistant_message,
          _outbox_scope
        ),
-       do: []
+       do: {:ok, []}
 
   defp outbox_intents(
          _repo,
@@ -239,19 +246,20 @@ defmodule Ankole.ActorRuntime.CommitCoordinator.Consumptions do
          %Message{} = assistant_message,
          _outbox_scope
        ) do
-    [
-      %{
-        outbound_key: "cron:#{llm_turn.id}:post:#{actor_input.id}",
-        operation: :post,
-        target_provider_entry_id: nil,
-        provider_thread_id: actor_input.provider_thread_id,
-        payload: assistant_outbox_payload(assistant_message),
-        fallback_visible_text: assistant_text(assistant_message),
-        idempotency_key: "post:cron:#{llm_turn.id}:#{actor_input.id}",
-        llm_turn_id: llm_turn.id,
-        assistant_message_id: assistant_message.id
-      }
-    ]
+    {:ok,
+     [
+       %{
+         outbound_key: "cron:#{llm_turn.id}:post:#{actor_input.id}",
+         operation: :post,
+         target_provider_entry_id: nil,
+         provider_thread_id: actor_input.provider_thread_id,
+         payload: assistant_outbox_payload(assistant_message),
+         fallback_visible_text: assistant_text(assistant_message),
+         idempotency_key: "post:cron:#{llm_turn.id}:#{actor_input.id}",
+         llm_turn_id: llm_turn.id,
+         assistant_message_id: assistant_message.id
+       }
+     ]}
   end
 
   defp outbox_intents(
@@ -261,7 +269,7 @@ defmodule Ankole.ActorRuntime.CommitCoordinator.Consumptions do
          _assistant_message,
          _outbox_scope
        ),
-       do: []
+       do: {:ok, []}
 
   defp outbox_intents(
          _repo,
@@ -271,7 +279,7 @@ defmodule Ankole.ActorRuntime.CommitCoordinator.Consumptions do
          %{visible_reply_input_id: visible_reply_input_id}
        )
        when id != visible_reply_input_id,
-       do: []
+       do: {:ok, []}
 
   defp outbox_intents(
          repo,
@@ -280,22 +288,24 @@ defmodule Ankole.ActorRuntime.CommitCoordinator.Consumptions do
          %Message{} = assistant_message,
          _outbox_scope
        ) do
-    operation = SignalsGateway.outbox_operation_for_actor_input(actor_input, repo)
-    operation_key = Atom.to_string(operation)
+    with {:ok, operation} <- SignalsGateway.outbox_operation_for_actor_input(actor_input, repo) do
+      operation_key = Atom.to_string(operation)
 
-    [
-      %{
-        outbound_key: "llm-turn:#{llm_turn.id}:#{operation_key}:#{actor_input.id}",
-        operation: operation,
-        target_provider_entry_id: actor_input.provider_entry_id,
-        provider_thread_id: actor_input.provider_thread_id,
-        payload: assistant_outbox_payload(assistant_message),
-        fallback_visible_text: assistant_text(assistant_message),
-        idempotency_key: "#{operation_key}:#{llm_turn.id}:#{actor_input.id}",
-        llm_turn_id: llm_turn.id,
-        assistant_message_id: assistant_message.id
-      }
-    ]
+      {:ok,
+       [
+         %{
+           outbound_key: "llm-turn:#{llm_turn.id}:#{operation_key}:#{actor_input.id}",
+           operation: operation,
+           target_provider_entry_id: actor_input.provider_entry_id,
+           provider_thread_id: actor_input.provider_thread_id,
+           payload: assistant_outbox_payload(assistant_message),
+           fallback_visible_text: assistant_text(assistant_message),
+           idempotency_key: "#{operation_key}:#{llm_turn.id}:#{actor_input.id}",
+           llm_turn_id: llm_turn.id,
+           assistant_message_id: assistant_message.id
+         }
+       ]}
+    end
   end
 
   defp assistant_outbox_payload(%Message{} = message) do

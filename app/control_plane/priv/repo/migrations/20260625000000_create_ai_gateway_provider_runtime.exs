@@ -7,8 +7,7 @@ defmodule Ankole.Repo.Migrations.CreateAIGatewayProviderRuntime do
       add :provider_id, :text, null: false
       add :provider_kind, :text, null: false
       add :base_url, :text
-      add :encrypted_credential, :text
-      add :credential_mode, :text, null: false, default: "api_key"
+      add :encrypted_options, :map, null: false, default: %{}
       add :connection_options, :map, null: false, default: %{}
       add :disabled_at, :utc_datetime_usec
 
@@ -23,22 +22,16 @@ defmodule Ankole.Repo.Migrations.CreateAIGatewayProviderRuntime do
              check: "provider_kind ~ '^[a-z][a-z0-9_-]{0,62}$'"
            )
 
-    create constraint(:ai_gateway_providers, :ai_gateway_providers_credential_mode_format,
-             check: "credential_mode ~ '^[a-z][a-z0-9_-]{0,62}$'"
-           )
-
     create constraint(:ai_gateway_providers, :ai_gateway_providers_base_url_present,
              check: "base_url IS NULL OR base_url <> ''"
            )
 
-    create constraint(
-             :ai_gateway_providers,
-             :ai_gateway_providers_encrypted_credential_present,
-             check: "encrypted_credential IS NULL OR encrypted_credential <> ''"
-           )
-
     create constraint(:ai_gateway_providers, :ai_gateway_providers_connection_options_object,
              check: "jsonb_typeof(connection_options) = 'object'"
+           )
+
+    create constraint(:ai_gateway_providers, :ai_gateway_providers_encrypted_options_object,
+             check: "jsonb_typeof(encrypted_options) = 'object'"
            )
 
     create unique_index(:ai_gateway_providers, [:provider_id],
@@ -57,12 +50,11 @@ defmodule Ankole.Repo.Migrations.CreateAIGatewayProviderRuntime do
     comment_table(:ai_gateway_providers, "Operator-managed AIGateway provider connections.")
 
     comment_columns(:ai_gateway_providers, %{
-      id: "Opaque UUIDv7 row id used as the provider credential encryption context.",
+      id: "Opaque UUIDv7 row id used as the provider encrypted option context.",
       provider_id: "Stable operator-facing provider id referenced by model profiles.",
       provider_kind: "Provider kind module id such as OpenRouter, OpenAI, Claude, or Jina.",
       base_url: "Optional provider API base URL override.",
-      encrypted_credential: "Encrypted provider credential stored by the control plane.",
-      credential_mode: "Credential presentation mode expected by the provider kind.",
+      encrypted_options: "Encrypted provider-kind-specific options stored by the control plane.",
       connection_options:
         "Provider-kind-specific connection options used during runtime resolution.",
       disabled_at: "Time the provider was disabled and excluded from runtime resolution."

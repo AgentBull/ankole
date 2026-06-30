@@ -2,29 +2,23 @@ defmodule Ankole.AIGateway.Models do
   @moduledoc """
   Projects configured AIGateway model bindings as an OpenRouter-style catalog.
 
-  The catalog is configuration-backed rather than a live upstream proxy. This
-  keeps model visibility tied to Ankole provider rows and agent model profiles,
-  which is the same truth used by runtime dispatch.
+  The catalog lists metadata for every active configured provider row and adds
+  agent-local aliases for agent credentials. The response shape follows
+  OpenRouter, but model ids use Ankole selectors.
   """
 
   alias Ankole.AIAgent.ModelProfiles
+  alias Ankole.AIGateway.ModelMetadata
   alias Ankole.AIGateway.ModelSelectors
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AIGateway.Providers
-  alias Ankole.Principals
-  alias Ankole.Principals.Agent
-
-  @base_supported_parameters ~w(
-    temperature top_p max_tokens max_output_tokens response_format tools tool_choice metadata
-    reasoning reasoningEffort text textVerbosity
-  )
 
   @doc """
   Lists model selectors visible to one subject.
 
-  Agents see their own aliases and explicit provider/model selectors. Admin
-  humans see explicit selectors across active agents, which is useful for
-  Console inspection without exposing agent aliases as global names.
+  Agents see every explicit provider/model selector plus their own aliases.
+  Admin humans see only explicit provider/model selectors because aliases are
+  agent-local names and collide across agents.
   """
   @spec list_models(String.t(), String.t(), map()) :: {:ok, map()}
   def list_models(subject_uid, subject_type, params \\ %{})
@@ -34,7 +28,6 @@ defmodule Ankole.AIGateway.Models do
     models =
       subject_uid
       |> subject_model_entries(subject_type)
-      |> Enum.uniq_by(& &1["id"])
       |> filter_model_entries(params)
       |> sort_model_entries(params)
 
@@ -42,19 +35,28 @@ defmodule Ankole.AIGateway.Models do
   end
 
   defp subject_model_entries(subject_uid, "agent") do
-    agent_profile_entries(subject_uid, include_aliases?: true)
+    explicit_provider_entries() ++ agent_alias_entries(subject_uid)
   end
 
   defp subject_model_entries(_subject_uid, "admin_human") do
-    Principals.list_active_agents()
-    |> Enum.flat_map(fn %{agent: %Agent{uid: agent_uid}} ->
-      agent_profile_entries(agent_uid, include_aliases?: false)
-    end)
+    explicit_provider_entries()
   end
 
   defp subject_model_entries(_subject_uid, _subject_type), do: []
 
-  defp agent_profile_entries(agent_uid, opts) do
+  defp explicit_provider_entries do
+    ProviderConfigs.list_active_providers()
+    |> Enum.flat_map(fn provider ->
+      {:ok, models} = ModelMetadata.list_provider_model_metadata(provider)
+
+      Enum.map(models, fn metadata ->
+        selector = "#{provider.provider_id}/#{metadata["id"]}"
+        ModelMetadata.openrouter_entry(metadata, selector, selector)
+      end)
+    end)
+  end
+
+  defp agent_alias_entries(agent_uid) do
     case ModelProfiles.get_model_profiles(agent_uid) do
       {:ok, profiles} ->
         profiles
@@ -62,11 +64,9 @@ defmodule Ankole.AIGateway.Models do
           case ModelProfiles.profile_capability(profile) do
             {:ok, capability} ->
               selector_entries(
-                agent_uid,
                 capability,
                 ModelSelectors.public_selector(capability, profile),
-                attrs,
-                opts
+                attrs
               )
 
             {:error, _reason} ->
@@ -79,119 +79,21 @@ defmodule Ankole.AIGateway.Models do
     end
   end
 
-  defp selector_entries(_agent_uid, capability, alias_selector, attrs, opts)
-       when is_map(attrs) do
+  defp selector_entries(capability, alias_selector, attrs) when is_map(attrs) do
     with %{"provider_id" => provider_id, "model" => model} when is_binary(model) <- attrs,
          {:ok, provider} <- ProviderConfigs.fetch_active_provider(provider_id),
          {:ok, provider_kind} <- Providers.fetch(provider.provider_kind),
-         :ok <- Providers.ensure_capability_supported(provider_kind, capability) do
+         :ok <- Providers.ensure_capability_supported(provider_kind, capability),
+         {:ok, metadata} <- ModelMetadata.model_metadata(provider, model, capability: capability) do
       explicit_selector = "#{provider.provider_id}/#{model}"
 
-      [model_entry(alias_selector, explicit_selector, capability, provider_kind, model)]
-      |> maybe_add_explicit_entry(explicit_selector, capability, provider_kind, model, opts)
+      [ModelMetadata.openrouter_entry(metadata, alias_selector, explicit_selector)]
     else
       _reason -> []
     end
   end
 
-  defp selector_entries(_agent_uid, _capability, _alias_selector, _attrs, _opts), do: []
-
-  # The public `/models` contract must support both alias selectors (`primary`)
-  # and explicit selectors (`provider/model`). Agent-facing calls get both;
-  # admin catalog calls skip aliases because aliases are agent-local names.
-  defp maybe_add_explicit_entry(
-         entries,
-         explicit_selector,
-         capability,
-         provider_kind,
-         model,
-         opts
-       ) do
-    explicit_entry =
-      model_entry(explicit_selector, explicit_selector, capability, provider_kind, model)
-
-    case Keyword.get(opts, :include_aliases?, true) do
-      true -> [explicit_entry | entries]
-      false -> [explicit_entry]
-    end
-  end
-
-  defp model_entry(selector, canonical_slug, capability, provider_kind, model) do
-    architecture = architecture(capability)
-
-    %{
-      "id" => selector,
-      "canonical_slug" => canonical_slug,
-      "name" => model_name(selector, model),
-      "description" => "#{provider_kind.label} #{capability} model #{model}.",
-      "created" => 0,
-      "architecture" => architecture,
-      "pricing" => zero_pricing(),
-      "context_length" => 0,
-      "top_provider" => %{
-        "is_moderated" => false,
-        "context_length" => 0,
-        "max_completion_tokens" => nil
-      },
-      "supported_parameters" => supported_parameters(capability, provider_kind),
-      "default_parameters" => nil,
-      "per_request_limits" => nil,
-      "supported_voices" => nil,
-      "expiration_date" => nil,
-      "knowledge_cutoff" => nil,
-      "links" => %{}
-    }
-  end
-
-  defp model_name(selector, model) do
-    case selector == model or String.ends_with?(selector, "/#{model}") do
-      true -> model
-      false -> selector
-    end
-  end
-
-  defp architecture("embedding") do
-    %{
-      "input_modalities" => ["text"],
-      "output_modalities" => ["embeddings"],
-      "modality" => "text->embeddings",
-      "instruct_type" => nil,
-      "tokenizer" => nil
-    }
-  end
-
-  defp architecture(_capability) do
-    %{
-      "input_modalities" => ["text"],
-      "output_modalities" => ["text"],
-      "modality" => "text->text",
-      "instruct_type" => nil,
-      "tokenizer" => nil
-    }
-  end
-
-  defp zero_pricing do
-    %{
-      "prompt" => "0",
-      "completion" => "0",
-      "request" => "0",
-      "image" => "0"
-    }
-  end
-
-  defp supported_parameters("embedding", provider_kind) do
-    Enum.uniq(
-      ["input", "dimensions", "encoding_format"] ++ provider_kind.runtime_provider_option_keys
-    )
-  end
-
-  defp supported_parameters("rerank", provider_kind) do
-    Enum.uniq(["query", "documents", "top_n"] ++ provider_kind.runtime_provider_option_keys)
-  end
-
-  defp supported_parameters(_capability, provider_kind) do
-    Enum.uniq(@base_supported_parameters ++ provider_kind.runtime_provider_option_keys)
-  end
+  defp selector_entries(_capability, _alias_selector, _attrs), do: []
 
   # The filters mirror OpenRouter query parameters but operate on the local
   # configured catalog. Unknown upstream-specific details stay at safe defaults.
@@ -253,7 +155,7 @@ defmodule Ankole.AIGateway.Models do
   defp filter_by_context(entries, %{"context" => value}) do
     case integer_filter(value) do
       {:ok, minimum} ->
-        Enum.filter(entries, &(Map.get(&1, "context_length", 0) >= minimum))
+        Enum.filter(entries, &(context_length(&1) >= minimum))
 
       :error ->
         entries
@@ -268,6 +170,8 @@ defmodule Ankole.AIGateway.Models do
     |> filter_by_price_bound(Map.get(params, "max_price"), :max)
   end
 
+  # OpenRouter-compatible filters should be forgiving. Invalid numeric filters
+  # are ignored so a bad query parameter does not hide the whole local catalog.
   defp filter_by_price_bound(entries, nil, _bound), do: entries
 
   defp filter_by_price_bound(entries, value, bound) do
@@ -288,7 +192,7 @@ defmodule Ankole.AIGateway.Models do
   end
 
   defp sort_model_entries(entries, %{"sort" => "context-high-to-low"}) do
-    Enum.sort_by(entries, &Map.get(&1, "context_length", 0), :desc)
+    Enum.sort_by(entries, &context_length/1, :desc)
   end
 
   defp sort_model_entries(entries, %{"sort" => "pricing-low-to-high"}) do
@@ -353,4 +257,11 @@ defmodule Ankole.AIGateway.Models do
 
   defp price_value(value) when is_number(value), do: value / 1
   defp price_value(_value), do: 0.0
+
+  defp context_length(entry) do
+    case Map.get(entry, "context_length") do
+      value when is_integer(value) -> value
+      _value -> 0
+    end
+  end
 end

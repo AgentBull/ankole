@@ -1,11 +1,23 @@
 defmodule Ankole.KernelTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias Ankole.Kernel.RuntimeFabric
+  alias Ankole.Kernel.UniversalAIClient
   alias Ankole.Kernel, as: NativeKernel
 
   @aead_key "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
   @aead_ciphertext "vveE4WxRjp0KO8YVx7o09aQ5_q9ZzqX2.gb1S9PmqEp_5UuejAzvKErXrdE4-sQ"
+
+  test "encoded bridge helpers are not exported as public kernel functions" do
+    refute function_exported?(NativeKernel, :authz_authorize_json, 1)
+    refute function_exported?(NativeKernel, :authz_authorize_all_json, 1)
+    refute function_exported?(NativeKernel, :runtime_fabric_encode_envelope_json, 1)
+    refute function_exported?(NativeKernel, :runtime_fabric_decode_envelope_json, 1)
+    refute function_exported?(NativeKernel, :signals_gateway_filter_match_json, 2)
+    refute function_exported?(NativeKernel, :jwt_decode_header_json, 1)
+    refute function_exported?(NativeKernel, :jwt_sign_json, 3)
+    refute function_exported?(NativeKernel, :jwt_verify_json, 3)
+  end
 
   test "hash helpers use the shared BLAKE3 vectors" do
     assert NativeKernel.generic_hash("bullx") ==
@@ -404,6 +416,381 @@ defmodule Ankole.KernelTest do
     assert NativeKernel.gen_base36_uuid() =~ ~r/\A[0-9a-z]+\z/
     assert NativeKernel.gen_short_uuid() =~ ~r/\A[1-9A-HJ-NP-Za-km-z]+\z/
   end
+
+  test "universal AI client sends raw HTTP requests" do
+    {:ok, url} = start_http_json_server(%{"ok" => true, "value" => 42})
+
+    assert {:ok,
+            %{
+              "status" => 200,
+              "body" => %{"ok" => true, "value" => 42},
+              "http_version" => "http/1.1",
+              "http_negotiation" => "h1_only"
+            }} =
+             UniversalAIClient.raw_post(%{
+               url: url,
+               headers: [{"content-type", "application/json"}],
+               body: ~s({"hello":"world"}),
+               timeout: %{connect_ms: 500, first_byte_ms: 500, idle_ms: 500, total_ms: nil},
+               transport: %{http_versions: [:h1], compression: []}
+             })
+
+    assert_receive {:http_json_server_request, request}, 1_000
+    assert request =~ "POST /json HTTP/1.1"
+    assert request =~ ~s({"hello":"world"})
+  end
+
+  test "universal AI client caps slow-drip non-stream response bodies" do
+    {:ok, url} =
+      start_slow_chunked_json_server(["{", ~s("ok"), ":", "true", ",", ~s("slow"), ":", "true"],
+        delay_ms: 25
+      )
+
+    assert {:error,
+            %{
+              "code" => "total_timeout",
+              "stage" => "read",
+              "message" => "upstream response body total timeout"
+            }} =
+             UniversalAIClient.raw_post(%{
+               url: url,
+               headers: [{"content-type", "application/json"}],
+               body: ~s({"hello":"world"}),
+               timeout: %{connect_ms: 500, first_byte_ms: 500, idle_ms: 500, total_ms: 80},
+               transport: %{http_versions: [:h1], compression: []}
+             })
+
+    assert_receive {:http_slow_json_server_request, request}, 1_000
+    assert request =~ "POST /json HTTP/1.1"
+  end
+
+  test "universal AI client model_request builds model body natively" do
+    {:ok, url} = start_http_json_server(%{"id" => "resp_test", "status" => "completed"})
+
+    assert {:ok, %{"status" => 200, "body" => %{"id" => "resp_test", "model" => "test-model"}}} =
+             UniversalAIClient.model_request(%{
+               api_resolver: :openai_responses,
+               upstream: %{
+                 method: "POST",
+                 url: url,
+                 headers: [{"content-type", "application/json"}],
+                 timeout: %{connect_ms: 500, first_byte_ms: 500, idle_ms: 500, total_ms: nil},
+                 transport: %{http_versions: [:h1], compression: []}
+               },
+               response_context: %{model: "test-model", request: %{"input" => "hello"}}
+             })
+
+    assert_receive {:http_json_server_request, request}, 1_000
+    assert request =~ "POST /json HTTP/1.1"
+    assert request =~ ~s("model":"test-model")
+    assert request =~ ~s("input":"hello")
+  end
+
+  test "universal AI client waits for ready and demand before sending SSE chunks" do
+    {:ok, url} =
+      start_http_sse_server([
+        "event: response.created\ndata: {\"type\":\"response.created\"}\n\n",
+        "event: response.completed\ndata: {\"type\":\"response.completed\"}\n\n",
+        "data: [DONE]\n\n"
+      ])
+
+    {:ok, stream} =
+      UniversalAIClient.open(%{
+        api_resolver: :openai_responses,
+        upstream: %{
+          kind: :http_sse,
+          method: "POST",
+          url: url,
+          headers: [{"content-type", "application/json"}],
+          body: ~s({"stream":true}),
+          timeout: %{connect_ms: 500, first_byte_ms: 500, idle_ms: 500, total_ms: nil},
+          transport: %{http_versions: [:h1], compression: []}
+        },
+        downstream: :sse,
+        response_context: %{model: "test-model", request: %{"input" => "hello"}}
+      })
+
+    assert_receive {:universal_ai_client, ref, :ready,
+                    %{"downstream_kind" => "sse", "status" => 200}},
+                   1_000
+
+    assert ref == stream.ref
+    refute_receive {:universal_ai_client, ^ref, :chunk, _, _, _}, 100
+
+    assert :ok = UniversalAIClient.read(stream, 1)
+
+    assert_receive {:universal_ai_client, ^ref, :chunk, 1, :sse, chunk}, 1_000
+    assert is_binary(chunk)
+    assert chunk =~ "event: response.created\n"
+    assert chunk =~ "\"type\":\"response.created\""
+    assert chunk =~ "\"sequence_number\":0"
+
+    refute_receive {:universal_ai_client, ^ref, :chunk, 2, :sse, _}, 100
+
+    assert :ok = UniversalAIClient.read(stream, 1)
+    assert_receive {:universal_ai_client, ^ref, :chunk, 2, :sse, done_chunk}, 1_000
+    assert done_chunk =~ "event: response.completed\n"
+
+    assert :ok = UniversalAIClient.read(stream, 1)
+    assert_receive {:universal_ai_client, ^ref, :chunk, 3, :sse, sentinel}, 1_000
+    assert sentinel == "data: [DONE]\n\n"
+
+    assert_receive {:universal_ai_client, ^ref, :done, %{"reason" => "provider_terminal"}}, 1_000
+  end
+
+  test "universal AI client reports pre-ready provider status without chunks" do
+    {:ok, url} =
+      start_http_sse_server(
+        [
+          ~s({"error":{"message":"provider rejected"}})
+        ],
+        status: 429
+      )
+
+    {:ok, stream} =
+      UniversalAIClient.open(%{
+        api_resolver: :openai_responses,
+        upstream: %{
+          kind: :http_sse,
+          method: "POST",
+          url: url,
+          headers: [{"content-type", "application/json"}],
+          body: ~s({"stream":true}),
+          timeout: %{connect_ms: 500, first_byte_ms: 500, idle_ms: 500, total_ms: nil},
+          transport: %{http_versions: [:h1], compression: []}
+        },
+        downstream: :sse,
+        response_context: %{model: "test-model", request: %{}}
+      })
+
+    ref = stream.ref
+
+    assert_receive {:universal_ai_client, ^ref, :error,
+                    %{
+                      "code" => "provider_status_rejected",
+                      "provider_status" => 429
+                    }},
+                   1_000
+
+    refute_receive {:universal_ai_client, ^ref, :ready, _meta}, 100
+    refute_receive {:universal_ai_client, ^ref, :chunk, _, _, _}, 100
+  end
+
+  test "universal AI client sends protocol error chunk before terminal error after ready" do
+    {:ok, url} =
+      start_http_sse_server([
+        "data: {not-json}\n\n"
+      ])
+
+    {:ok, stream} =
+      UniversalAIClient.open(%{
+        api_resolver: :openai_responses,
+        upstream: %{
+          kind: :http_sse,
+          method: "POST",
+          url: url,
+          headers: [{"content-type", "application/json"}],
+          body: ~s({"stream":true}),
+          timeout: %{connect_ms: 500, first_byte_ms: 500, idle_ms: 500, total_ms: nil},
+          transport: %{http_versions: [:h1], compression: []}
+        },
+        downstream: :sse,
+        response_context: %{model: "test-model", request: %{}}
+      })
+
+    assert_receive {:universal_ai_client, ref, :ready, _meta}, 1_000
+    assert :ok = UniversalAIClient.read(stream, 3)
+
+    assert_receive {:universal_ai_client, ^ref, :chunk, 1, :sse, chunk}, 1_000
+    assert chunk =~ "event: error\n"
+    assert chunk =~ "\"code\":\"invalid_provider_event\""
+
+    assert_receive {:universal_ai_client, ^ref, :chunk, 2, :sse, failed}, 1_000
+    assert failed =~ "event: response.failed\n"
+    assert failed =~ "\"status\":\"failed\""
+
+    assert_receive {:universal_ai_client, ^ref, :chunk, 3, :sse, sentinel}, 1_000
+    assert sentinel == "data: [DONE]\n\n"
+
+    assert_receive {:universal_ai_client, ^ref, :error,
+                    %{"code" => "invalid_provider_event", "stage" => "api_resolver"}},
+                   1_000
+
+    assert stream.ref == ref
+  end
+
+  test "universal AI client cancel stops a ready stream" do
+    {:ok, url} = start_http_sse_server([], keep_open?: true)
+
+    {:ok, stream} =
+      UniversalAIClient.open(%{
+        api_resolver: :openai_responses,
+        upstream: %{
+          kind: :http_sse,
+          method: "GET",
+          url: url,
+          headers: [],
+          body: nil,
+          timeout: %{connect_ms: 500, first_byte_ms: 500, idle_ms: 5_000, total_ms: nil},
+          transport: %{http_versions: [:h1], compression: []}
+        },
+        downstream: :sse,
+        response_context: %{model: "test-model", request: %{}}
+      })
+
+    assert_receive {:universal_ai_client, ref, :ready, _meta}, 1_000
+    assert :ok = UniversalAIClient.cancel(stream)
+    assert_receive {:universal_ai_client, ^ref, :aborted}, 1_000
+  end
+
+  defp start_http_sse_server(chunks, opts \\ []) do
+    {:ok, listen_socket} =
+      :gen_tcp.listen(0, [:binary, active: false, packet: :raw, reuseaddr: true])
+
+    {:ok, {_address, port}} = :inet.sockname(listen_socket)
+    test_pid = self()
+    keep_open? = Keyword.get(opts, :keep_open?, false)
+    status = Keyword.get(opts, :status, 200)
+
+    server_pid =
+      spawn_link(fn ->
+        {:ok, socket} = :gen_tcp.accept(listen_socket)
+        _ = :gen_tcp.recv(socket, 0, 1_000)
+
+        :ok =
+          :gen_tcp.send(socket, [
+            "HTTP/1.1 #{status} #{status_reason(status)}\r\n",
+            "content-type: text/event-stream\r\n",
+            "transfer-encoding: chunked\r\n",
+            "\r\n"
+          ])
+
+        Enum.each(chunks, fn chunk ->
+          payload = IO.iodata_to_binary(chunk)
+
+          :ok =
+            :gen_tcp.send(socket, [
+              Integer.to_string(byte_size(payload), 16),
+              "\r\n",
+              payload,
+              "\r\n"
+            ])
+        end)
+
+        if keep_open? do
+          receive do
+            :stop -> :ok
+          after
+            5_000 -> :ok
+          end
+        else
+          :ok = :gen_tcp.send(socket, "0\r\n\r\n")
+        end
+
+        :gen_tcp.close(socket)
+        :gen_tcp.close(listen_socket)
+        send(test_pid, {:http_sse_server_done, self()})
+      end)
+
+    on_exit(fn ->
+      send(server_pid, :stop)
+      :gen_tcp.close(listen_socket)
+    end)
+
+    {:ok, "http://127.0.0.1:#{port}/stream"}
+  end
+
+  defp start_http_json_server(response_body) do
+    {:ok, listen_socket} =
+      :gen_tcp.listen(0, [:binary, active: false, packet: :raw, reuseaddr: true])
+
+    {:ok, {_address, port}} = :inet.sockname(listen_socket)
+    test_pid = self()
+
+    server_pid =
+      spawn_link(fn ->
+        {:ok, socket} = :gen_tcp.accept(listen_socket)
+        {:ok, request} = :gen_tcp.recv(socket, 0, 1_000)
+        body = Torque.encode!(response_body)
+
+        :ok =
+          :gen_tcp.send(socket, [
+            "HTTP/1.1 200 OK\r\n",
+            "content-type: application/json\r\n",
+            "content-length: #{byte_size(body)}\r\n",
+            "\r\n",
+            body
+          ])
+
+        :gen_tcp.close(socket)
+        :gen_tcp.close(listen_socket)
+        send(test_pid, {:http_json_server_request, request})
+      end)
+
+    on_exit(fn ->
+      send(server_pid, :stop)
+      :gen_tcp.close(listen_socket)
+    end)
+
+    {:ok, "http://127.0.0.1:#{port}/json"}
+  end
+
+  defp start_slow_chunked_json_server(chunks, opts) do
+    delay_ms = Keyword.fetch!(opts, :delay_ms)
+
+    {:ok, listen_socket} =
+      :gen_tcp.listen(0, [:binary, active: false, packet: :raw, reuseaddr: true])
+
+    {:ok, {_address, port}} = :inet.sockname(listen_socket)
+    test_pid = self()
+
+    server_pid =
+      spawn_link(fn ->
+        {:ok, socket} = :gen_tcp.accept(listen_socket)
+        {:ok, request} = :gen_tcp.recv(socket, 0, 1_000)
+
+        :ok =
+          :gen_tcp.send(socket, [
+            "HTTP/1.1 200 OK\r\n",
+            "content-type: application/json\r\n",
+            "transfer-encoding: chunked\r\n",
+            "\r\n"
+          ])
+
+        Enum.reduce_while(chunks, :ok, fn chunk, :ok ->
+          payload = IO.iodata_to_binary(chunk)
+
+          case :gen_tcp.send(socket, [
+                 Integer.to_string(byte_size(payload), 16),
+                 "\r\n",
+                 payload,
+                 "\r\n"
+               ]) do
+            :ok ->
+              :timer.sleep(delay_ms)
+              {:cont, :ok}
+
+            {:error, _reason} ->
+              {:halt, :closed}
+          end
+        end)
+
+        :gen_tcp.close(socket)
+        :gen_tcp.close(listen_socket)
+        send(test_pid, {:http_slow_json_server_request, request})
+      end)
+
+    on_exit(fn ->
+      send(server_pid, :stop)
+      :gen_tcp.close(listen_socket)
+    end)
+
+    {:ok, "http://127.0.0.1:#{port}/json"}
+  end
+
+  defp status_reason(200), do: "OK"
+  defp status_reason(429), do: "Too Many Requests"
+  defp status_reason(_status), do: "Status"
 
   defp actor_turn_ref do
     %{

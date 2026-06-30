@@ -9,7 +9,7 @@ import {
 } from '../../prompts/compression-prompt'
 import { visibleReplyProposal } from '../../turn_envelopes'
 import { conversationContextFromHistory, selectCompressionPrefix } from './conversation_history'
-import { providerOptionsFromAIGateway, runtimeModelFromAIGatewayApiKey } from './model_runtime'
+import { runtimeModelFromAIGatewayApiKey } from './model_runtime'
 import { COMPRESSION_TURN_TIMEOUT_MS } from './turn_config'
 import { turnRefAfterSteeringDrain } from './turn_control'
 import { resolveAgentConversationContext, resolveConversationHistory } from './turn_context'
@@ -39,9 +39,7 @@ export async function runCompressionTurn(turnStart: TurnStart, opts: TextTurnLoo
 
   const apiKeyRequest = {
     request_id: `ai-gateway-key-${crypto.randomUUID()}`,
-    turn: turnStart.turn,
-    agent_uid: turnStart.turn.actor.agent_uid,
-    session_id: turnStart.turn.actor.session_id
+    agent_uid: turnStart.turn.actor.agent_uid
   }
   const apiKey = await opts.requestAIGatewayApiKey(apiKeyRequest)
 
@@ -56,7 +54,6 @@ export async function runCompressionTurn(turnStart: TurnStart, opts: TextTurnLoo
       request_id: `ai-gateway-key-${crypto.randomUUID()}`
     })
   )
-  const providerOptions = providerOptionsFromAIGateway()
   const telemetry = createTurnTelemetry(lightModelRef, model)
 
   const prompt = buildCompactionHistoryUserPrompt({
@@ -87,8 +84,7 @@ export async function runCompressionTurn(turnStart: TurnStart, opts: TextTurnLoo
           purpose: 'compression'
         },
         headers: model.headers,
-        providerOptions,
-        maxTokens: model.maxTokens > 0 ? model.maxTokens : undefined,
+        maxTokens: typeof model.maxTokens === 'number' && model.maxTokens > 0 ? model.maxTokens : undefined,
         maxRetries: 2,
         maxRetryDelayMs: 2_000,
         timeoutMs: COMPRESSION_TURN_TIMEOUT_MS
@@ -113,7 +109,7 @@ export async function runCompressionTurn(turnStart: TurnStart, opts: TextTurnLoo
       throw new Error('conversation summary commit RPC is required')
     }
 
-    await opts.commitConversationSummary({
+    const commitResult = await opts.commitConversationSummary({
       request_id: `conversation-summary-${crypto.randomUUID()}`,
       turn: turnRefAfterSteeringDrain(turnStart, opts.pollSteering?.() ?? []),
       summary: {
@@ -123,6 +119,15 @@ export async function runCompressionTurn(turnStart: TurnStart, opts: TextTurnLoo
       ...(telemetry.usage ? { usage_json: telemetry.usage } : {}),
       provider_metadata_json: telemetry.providerMetadata
     })
+
+    if ('code' in commitResult) {
+      // The control plane refused the summary commit (stale fence, lease mismatch, concurrent
+      // change, or conversation ended). The summary is an optimization, not durable truth — the
+      // un-compressed transcript still lives in PostgreSQL and the next turn rebuilds context from
+      // it — so do NOT fail the turn. Record the rejection and complete as a benign no-op.
+      console.warn(`conversation summary commit rejected: ${commitResult.code} ${commitResult.message ?? ''}`.trim())
+      return { summaryCommitted: false }
+    }
 
     return { summaryCommitted: true }
   } finally {

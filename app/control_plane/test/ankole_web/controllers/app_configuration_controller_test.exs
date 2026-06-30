@@ -33,15 +33,18 @@ defmodule AnkoleWeb.AppConfigurationControllerTest do
     assert %{"error" => %{"code" => "invalid_token"}} = json_response(conn, 401)
   end
 
-  test "OpenAPI JSON is public and scoped to versioned public API routes", %{conn: conn} do
+  test "OpenAPI JSON includes console REST and SPA auth routes for generated clients", %{
+    conn: conn
+  } do
     conn = get(conn, ~p"/api/v1/openapi.json")
     paths = json_response(conn, 200)["paths"]
 
+    assert Map.has_key?(paths, "/.internal-apis/oauth/token")
+    assert Map.has_key?(paths, "/.internal-apis/session")
     assert Map.has_key?(paths, "/api/v1/app-configurations")
     assert Map.has_key?(paths, "/api/v1/app-configurations/{key}")
     assert Map.has_key?(paths, "/api/v1/app-configurations/{key}/decryptions")
     assert Map.has_key?(paths, "/api/v1/ai-gateway/models")
-    refute Enum.any?(Map.keys(paths), &String.starts_with?(&1, "/.internal-apis"))
   end
 
   test "unversioned public API paths are not registered", %{conn: conn} do

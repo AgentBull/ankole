@@ -57,6 +57,19 @@ defmodule Ankole.AIAgent.Schemas.Conversation do
     |> check_constraint(:metadata, name: :ai_agent_conversations_metadata_object)
   end
 
+  @doc """
+  True when a conversation generation lease is live: it has a lease id and has not
+  been cancelled. Single source of the "is a turn still running" predicate shared
+  by the actor-runtime turn-lifecycle and retry paths.
+  """
+  @spec generation_active?(term()) :: boolean()
+  def generation_active?(%__MODULE__{generation: generation}), do: generation_active?(generation)
+
+  def generation_active?(generation) when is_map(generation),
+    do: is_binary(generation["lease_id"]) and is_nil(generation["cancelled_at"])
+
+  def generation_active?(_generation), do: false
+
   defp normalize_blank(changeset, fields) when is_list(fields) do
     Enum.reduce(fields, changeset, &normalize_blank(&2, &1))
   end

@@ -24,8 +24,6 @@ defmodule Ankole.ActorRuntime.TurnRetry do
   alias Ankole.ActorRuntime.TurnEnvelope
   alias Ankole.ActorRuntime.WorkerAdmission
 
-  @live_delivery_states ~w(created sent accepted)
-
   @doc """
   Fences an active generation and marks its inputs retryable inside a transaction.
   """
@@ -139,22 +137,14 @@ defmodule Ankole.ActorRuntime.TurnRetry do
   end
 
   defp active_generation?(%Conversation{generation: generation}) when is_map(generation) do
-    is_binary(generation["lease_id"]) and is_nil(generation["cancelled_at"])
+    Conversation.generation_active?(generation)
   end
 
   defp active_generation?(_conversation), do: false
 
   defp started_turn_for_generation(repo, %Conversation{generation: generation} = conversation)
        when is_map(generation) do
-    lease_id = generation["lease_id"]
-
-    LlmTurn
-    |> where([turn], turn.conversation_id == ^conversation.id)
-    |> where([turn], turn.lease_id == ^lease_id)
-    |> where([turn], turn.status == "started")
-    |> order_by([turn], asc: turn.call_index)
-    |> lock("FOR UPDATE")
-    |> repo.one()
+    AIAgent.started_turn_for_lease(repo, conversation, generation["lease_id"])
   end
 
   defp deliveries_for_turn(repo, llm_turn_id) do
@@ -167,7 +157,7 @@ defmodule Ankole.ActorRuntime.TurnRetry do
   defp live_deliveries_for_input(repo, %ActorInput{} = input) do
     ActorInputDelivery
     |> where([delivery], delivery.actor_input_id == ^input.id)
-    |> where([delivery], delivery.state in ^@live_delivery_states)
+    |> where([delivery], delivery.state in ^ActorInputDelivery.live_states())
     |> lock("FOR UPDATE")
     |> repo.all()
   end
@@ -489,7 +479,7 @@ defmodule Ankole.ActorRuntime.TurnRetry do
   defp supersede_turn_deliveries(repo, llm_turn_id, now, reason) do
     ActorInputDelivery
     |> where([delivery], delivery.llm_turn_id == ^llm_turn_id)
-    |> where([delivery], delivery.state in ^@live_delivery_states)
+    |> where([delivery], delivery.state in ^ActorInputDelivery.live_states())
     |> repo.update_all(
       set: [
         state: "superseded",
@@ -514,7 +504,7 @@ defmodule Ankole.ActorRuntime.TurnRetry do
   end
 
   defp live_deliveries(deliveries) do
-    Enum.filter(deliveries, &(&1.state in @live_delivery_states))
+    Enum.filter(deliveries, &(&1.state in ActorInputDelivery.live_states()))
   end
 
   defp retry_actor_input_ids(%LlmTurn{} = turn, deliveries) do

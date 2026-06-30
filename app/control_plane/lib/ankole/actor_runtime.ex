@@ -121,26 +121,12 @@ defmodule Ankole.ActorRuntime do
   defdelegate start_llm_turn(actor_key, actor_inputs, opts \\ []), to: TurnLifecycle
 
   @doc """
-  Creates a delivery attempt for one actor input.
-  """
-  @spec create_input_delivery(Ecto.UUID.t(), map(), String.t() | nil) ::
-          {:ok, ActorInputDelivery.t()} | {:error, term()}
-  defdelegate create_input_delivery(actor_input_id, turn_ref, route), to: TurnLifecycle
-
-  @doc """
   Marks a delivery sent.
   """
   @spec mark_delivery_sent(Ecto.UUID.t(), String.t() | atom()) ::
           {:ok, ActorInputDelivery.t()} | {:error, term()}
   defdelegate mark_delivery_sent(delivery_id, send_outcome \\ "sent_or_queued"),
     to: TurnLifecycle
-
-  @doc """
-  Marks a delivery accepted by a matching worker turn.accepted message.
-  """
-  @spec mark_delivery_accepted(Ecto.UUID.t(), map()) ::
-          {:ok, ActorInputDelivery.t()} | {:error, term()}
-  defdelegate mark_delivery_accepted(delivery_id, turn_ref), to: TurnLifecycle
 
   @doc """
   Marks a delivery transport failure.

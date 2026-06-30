@@ -146,9 +146,8 @@ defmodule Ankole.ActorRuntimeWorkerE2ETest do
              ProviderConfigs.create_provider(%{
                provider_id: "openrouter-e2e",
                provider_kind: "openrouter",
-               credential: openrouter_api_key,
                base_url: "https://openrouter.ai/api/v1",
-               connection_options: %{}
+               connection_options: %{"api_key" => openrouter_api_key}
              })
 
     assert {:ok, _profile} =

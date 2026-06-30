@@ -29,13 +29,13 @@ import {
 import type { LanguageModelUsage } from '@/ai-gateway-client'
 import { isPlainObject } from '@pleisto/active-support'
 import { withRetry } from '@/common/async'
-import { redactJsonValue, redactSensitiveText } from '@/security/redact'
 import { isRetryableLlmError } from './llm-error-classifier'
 import type {
   AgentContext,
   AgentEvent,
   AgentLoopConfig,
   AgentMessage,
+  AgentLoopTurnUpdate,
   AgentTool,
   AgentToolCall,
   AgentToolResult
@@ -50,10 +50,12 @@ const MAX_TURNS_GRACE_PROMPT =
   'Summarize what you accomplished, mark anything still unfinished or blocked, and give your best final answer now.'
 
 // One-shot nudge for the `nudgeOnEmptyAfterTools` path: an empty reply right after tool results is
-// usually a model hiccup, so we prod it to actually use those results rather than ending the run.
+// usually a model hiccup, so we prod it to keep processing those results rather than ending the run.
 const EMPTY_AFTER_TOOL_NUDGE_TEXT =
   'You just executed tool calls but returned an empty response. ' +
-  'Process the tool results above and either continue with the task or give your final answer.'
+  'Please process the tool results above and continue with the task.'
+const EMPTY_RESPONSE_SENTINEL = '(empty)'
+const HOUSEKEEPING_TOOL_NAMES = new Set(['todo', 'skill_append', 'check_back_later', 'cron', 'reply_attachment'])
 
 /**
  * Validates the provider-bound message list at the send boundary.
@@ -98,7 +100,12 @@ function validateProviderTranscript(messages: Message[]): Message[] {
 function assertNonEmptyAssistant(message: AssistantMessage): void {
   const hasToolCall = message.content.some(block => block.type === 'toolCall')
   const hasText = message.content.some(block => block.type === 'text' && block.text.trim().length > 0)
-  if (!hasToolCall && !hasText) {
+  const hasThinking = message.content.some(
+    block =>
+      block.type === 'thinking' &&
+      (block.thinking.trim().length > 0 || Boolean(block.thinkingSignature || block.redacted))
+  )
+  if (!hasToolCall && !hasText && !hasThinking) {
     throw new Error('provider transcript has empty assistant message')
   }
 }
@@ -146,7 +153,8 @@ export async function runAgentLoop(
  *   2. the assistant turn ends in `error`/`aborted` → stop immediately;
  *   3. `shouldStopAfterTurn` returns true → graceful caller-requested stop;
  *   4. the model emits no tool calls, and there are no steering and no follow-up messages → natural end.
- * `config` and `currentContext` are reassigned mid-run by `prepareNextTurn`, so they are `let`, not const.
+ * `config` and `currentContext` are `let` because the optional `prepareNextTurn` hook may swap
+ * them between turns; no caller supplies that hook today, so in practice they stay fixed.
  */
 async function runLoop(
   initialContext: AgentContext,
@@ -166,11 +174,17 @@ async function runLoop(
   // - turnCount: counts model turns against the maxTurns budget.
   // - prevTurnHadToolResults: gates the empty-after-tools nudge (only an empty reply *following* tools
   //   is suspicious).
-  // - nudgedAfterEmpty: one-shot latch so the nudge fires at most once per run.
+  // - postToolEmptyRetried: one-shot latch per tool round so the post-tool empty nudge does not loop.
+  // - emptyContentRetries/thinkingPrefillRetries: Hermes-aligned recovery counters for empty/thinking-only
+  //   assistant turns.
   // - retriedPreToolAssistantError: one-shot latch for the very-first-turn transient-error retry below.
   let turnCount = 0
   let prevTurnHadToolResults = false
-  let nudgedAfterEmpty = false
+  let postToolEmptyRetried = false
+  let emptyContentRetries = 0
+  let thinkingPrefillRetries = 0
+  let lastContentWithTools: string | undefined
+  let lastContentToolsAllHousekeeping = false
   let retriedPreToolAssistantError = false
 
   // Outer loop: one iteration per "the model has stopped" point. Re-runs only when a follow-up message
@@ -244,21 +258,105 @@ async function runLoop(
       // Tool calls the model wants run this turn. Empty means the model is trying to answer/finish.
       const toolCalls = message.content.filter(c => c.type === 'toolCall')
 
+      if (toolCalls.length > 0) {
+        const visibleText = assistantVisibleText(message)
+        if (visibleText) {
+          lastContentWithTools = visibleText
+          lastContentToolsAllHousekeeping = toolCalls.every(toolCall => isHousekeepingToolName(toolCall.name))
+        }
+        const removedPrefill = dropInternalScaffoldingBeforeMessage(currentContext.messages, newMessages, message)
+        if (removedPrefill) {
+          thinkingPrefillRetries = 0
+          emptyContentRetries = 0
+        }
+      }
+
       // An empty assistant reply right after tool results is almost always a model
-      // hiccup, not task completion. Nudge it to continue exactly once instead of
-      // ending the run silently.
-      if (
-        config.nudgeOnEmptyAfterTools &&
-        !nudgedAfterEmpty &&
-        prevTurnHadToolResults &&
-        toolCalls.length === 0 &&
-        !assistantHasAnswerText(message)
-      ) {
-        nudgedAfterEmpty = true
-        prevTurnHadToolResults = false
-        await emit({ type: 'turn_end', message, toolResults: [] })
-        pendingMessages = [emptyAfterToolNudgeMessage()]
-        continue
+      // hiccup, not task completion. Match Hermes' recovery order:
+      // housekeeping-content fallback → one post-tool nudge → thinking prefill → empty retries/fallback.
+      if (toolCalls.length === 0 && !assistantHasAnswerText(message)) {
+        const hasInlineThinking = assistantHasInlineThinking(message)
+        const hasStructuredThinking = assistantHasStructuredThinking(message)
+
+        if (prevTurnHadToolResults && lastContentWithTools && lastContentToolsAllHousekeeping) {
+          currentContext.messages.splice(contextLengthBeforeAssistant)
+          if (newMessages[newMessages.length - 1] === message) newMessages.pop()
+          lastContentWithTools = undefined
+          lastContentToolsAllHousekeeping = false
+          emptyContentRetries = 0
+          await emit({ type: 'turn_end', message, toolResults: [] })
+          await emit({ type: 'agent_end', messages: newMessages })
+          return
+        }
+
+        if (config.nudgeOnEmptyAfterTools && prevTurnHadToolResults && !postToolEmptyRetried && !hasInlineThinking) {
+          postToolEmptyRetried = true
+          prevTurnHadToolResults = false
+          lastContentWithTools = undefined
+          lastContentToolsAllHousekeeping = false
+          const syntheticEmpty = syntheticEmptyAssistantMessage(message)
+          currentContext.messages.splice(
+            contextLengthBeforeAssistant,
+            currentContext.messages.length - contextLengthBeforeAssistant,
+            syntheticEmpty
+          )
+          if (newMessages[newMessages.length - 1] === message) newMessages[newMessages.length - 1] = syntheticEmpty
+          await emit({ type: 'turn_end', message: syntheticEmpty, toolResults: [] })
+          pendingMessages = [emptyAfterToolNudgeMessage()]
+          continue
+        }
+
+        if (hasStructuredThinking && thinkingPrefillRetries < 2) {
+          thinkingPrefillRetries += 1
+          markInternalScaffolding(message, '_thinking_prefill')
+          await emit({ type: 'turn_end', message, toolResults: [] })
+          continue
+        }
+
+        const prefillExhausted = hasStructuredThinking && thinkingPrefillRetries >= 2
+        const trulyEmpty = !assistantVisibleText(message)
+        if (trulyEmpty && (!hasStructuredThinking || prefillExhausted) && emptyContentRetries < 3) {
+          emptyContentRetries += 1
+          currentContext.messages.splice(contextLengthBeforeAssistant)
+          if (newMessages[newMessages.length - 1] === message) newMessages.pop()
+          await emit({ type: 'turn_end', message, toolResults: [] })
+          continue
+        }
+
+        if (trulyEmpty) {
+          const fallbackSnapshot = await activateFallbackOnEmpty(
+            config,
+            currentContext,
+            newMessages,
+            message,
+            contextLengthBeforeAssistant,
+            emptyContentRetries
+          )
+          if (fallbackSnapshot) {
+            currentContext.messages.splice(contextLengthBeforeAssistant)
+            if (newMessages[newMessages.length - 1] === message) newMessages.pop()
+            currentContext = fallbackSnapshot.context ?? currentContext
+            config = {
+              ...config,
+              model: fallbackSnapshot.model ?? config.model,
+              reasoning:
+                fallbackSnapshot.thinkingLevel === undefined
+                  ? config.reasoning
+                  : fallbackSnapshot.thinkingLevel === 'off'
+                    ? undefined
+                    : fallbackSnapshot.thinkingLevel
+            }
+            emptyContentRetries = 0
+            thinkingPrefillRetries = 0
+            postToolEmptyRetried = false
+            await emit({ type: 'turn_end', message, toolResults: [] })
+            continue
+          }
+        }
+      } else if (toolCalls.length === 0) {
+        emptyContentRetries = 0
+        thinkingPrefillRetries = 0
+        dropInternalScaffoldingBeforeMessage(currentContext.messages, newMessages, message)
       }
 
       // Default to stopping after this turn; only a tool batch that produced results and did not ask to
@@ -271,6 +369,7 @@ async function runLoop(
         // `terminate` is set when every result in the batch opted to end (via afterToolCall/tool hint);
         // that short-circuits the next model turn so the run can stop on a tool's say-so.
         hasMoreToolCalls = !executedToolBatch.terminate
+        postToolEmptyRetried = false
 
         for (const result of toolResults) {
           currentContext.messages.push(result)
@@ -281,8 +380,9 @@ async function runLoop(
 
       await emit({ type: 'turn_end', message, toolResults })
 
-      // Let the caller swap the context, model, or thinking level before the next turn (used for
-      // mid-run compaction and model/effort changes). Returning undefined keeps everything as-is.
+      // Optional hook: lets a caller swap the context, model, or thinking level before the next
+      // turn. No caller supplies it today (compaction runs as its own turn, not through this hook),
+      // so `prepareNextTurn?.()` resolves to undefined and everything stays as-is.
       const nextTurnContext = {
         message,
         toolResults,
@@ -342,7 +442,112 @@ async function runLoop(
 
 /** True when the assistant produced at least one non-empty visible text block. */
 function assistantHasAnswerText(message: AssistantMessage): boolean {
-  return message.content.some(block => block.type === 'text' && block.text.trim().length > 0)
+  return assistantVisibleText(message).length > 0
+}
+
+function assistantVisibleText(message: AssistantMessage): string {
+  return message.content
+    .map(block => (block.type === 'text' ? stripInlineThinking(block.text) : undefined))
+    .filter((text): text is string => typeof text === 'string' && text.trim().length > 0)
+    .join('\n')
+    .trim()
+}
+
+function assistantHasStructuredThinking(message: AssistantMessage): boolean {
+  return message.content.some(block => {
+    if (block.type === 'thinking') {
+      return block.thinking.trim().length > 0 || Boolean(block.thinkingSignature || block.redacted)
+    }
+    return block.type === 'text' && hasInlineThinking(block.text)
+  })
+}
+
+function assistantHasInlineThinking(message: AssistantMessage): boolean {
+  return message.content.some(block => block.type === 'text' && hasInlineThinking(block.text))
+}
+
+function hasInlineThinking(text: string): boolean {
+  return /<(think|thinking|reasoning)>/i.test(text)
+}
+
+function stripInlineThinking(text: string): string {
+  return text.replace(/<(think|thinking|reasoning)>[\s\S]*?(?:<\/\1>|$)/gi, '').trim()
+}
+
+function isHousekeepingToolName(name: string): boolean {
+  return HOUSEKEEPING_TOOL_NAMES.has(name)
+}
+
+function syntheticEmptyAssistantMessage(message: AssistantMessage): AssistantMessage {
+  return markInternalScaffolding(
+    {
+      ...message,
+      content: [{ type: 'text', text: EMPTY_RESPONSE_SENTINEL }]
+    },
+    '_empty_recovery_synthetic'
+  )
+}
+
+type InternalScaffoldingFlag = '_thinking_prefill' | '_empty_recovery_synthetic' | '_empty_terminal_sentinel'
+type InternalScaffoldingMessage = AgentMessage & Partial<Record<InternalScaffoldingFlag, true>>
+
+function markInternalScaffolding<T extends AgentMessage>(message: T, flag: InternalScaffoldingFlag): T {
+  ;(message as InternalScaffoldingMessage)[flag] = true
+  return message
+}
+
+function isInternalScaffolding(message: AgentMessage | undefined): boolean {
+  if (!message || typeof message !== 'object') return false
+  const record = message as InternalScaffoldingMessage
+  return Boolean(record._thinking_prefill || record._empty_recovery_synthetic || record._empty_terminal_sentinel)
+}
+
+function dropInternalScaffoldingBeforeMessage(
+  contextMessages: AgentMessage[],
+  newMessages: AgentMessage[],
+  anchor: AgentMessage
+): boolean {
+  const removedFromContext = dropInternalScaffoldingBeforeAnchor(contextMessages, anchor)
+  const removedFromNewMessages = dropInternalScaffoldingBeforeAnchor(newMessages, anchor)
+  return removedFromContext || removedFromNewMessages
+}
+
+function dropInternalScaffoldingBeforeAnchor(messages: AgentMessage[], anchor: AgentMessage): boolean {
+  const anchorIndex = messages.lastIndexOf(anchor)
+  if (anchorIndex <= 0) return false
+  let removed = false
+  let cursor = anchorIndex - 1
+  while (cursor >= 0 && isInternalScaffolding(messages[cursor])) {
+    messages.splice(cursor, 1)
+    removed = true
+    cursor -= 1
+  }
+  return removed
+}
+
+async function activateFallbackOnEmpty(
+  config: AgentLoopConfig,
+  currentContext: AgentContext,
+  newMessages: AgentMessage[],
+  message: AssistantMessage,
+  contextLengthBeforeAssistant: number,
+  emptyRetryCount: number
+): Promise<AgentLoopTurnUpdate | undefined> {
+  if (!config.activateFallbackOnEmpty) return undefined
+  const contextWithoutEmpty = {
+    ...currentContext,
+    messages: currentContext.messages.slice(0, contextLengthBeforeAssistant)
+  }
+  const newMessagesWithoutEmpty =
+    newMessages[newMessages.length - 1] === message ? newMessages.slice(0, -1) : newMessages
+  return await config.activateFallbackOnEmpty({
+    message,
+    toolResults: [],
+    context: contextWithoutEmpty,
+    newMessages: newMessagesWithoutEmpty,
+    emptyRetryCount,
+    model: config.model
+  })
 }
 
 /**
@@ -380,7 +585,10 @@ async function sleepBeforePreToolAssistantRetry(maxRetryDelayMs: number | undefi
 }
 
 function emptyAfterToolNudgeMessage(): AgentMessage {
-  return { role: 'user', content: [{ type: 'text', text: EMPTY_AFTER_TOOL_NUDGE_TEXT }], timestamp: Date.now() }
+  return markInternalScaffolding(
+    { role: 'user', content: [{ type: 'text', text: EMPTY_AFTER_TOOL_NUDGE_TEXT }], timestamp: Date.now() },
+    '_empty_recovery_synthetic'
+  )
 }
 
 /**
@@ -800,7 +1008,7 @@ type StreamReadResult<T> = { done: true; value?: undefined } | { done: false; va
 type AgentMessageUpdateEvent = Extract<AgentEvent, { type: 'message_update' }>['assistantMessageEvent']
 
 // Projects AgentTools into the SDK's ToolSet shape, exposing only name/description/schema. The
-// `execute` function is deliberately omitted: tools are run by this loop (so the Ankole hooks, redaction,
+// `execute` function is deliberately omitted: tools are run by this loop (so the Ankole hooks
 // and permission gate apply), not by the SDK, which only needs the schema to advertise them to the model.
 function createAiSdkTools(tools: AgentTool<any>[] | undefined): ToolSet | undefined {
   if (!tools?.length) return undefined
@@ -1184,12 +1392,11 @@ async function executePreparedToolCall(
 }
 
 /**
- * Applies the `afterToolCall` hook (if any) and redacts the result before it becomes a message.
+ * Applies the `afterToolCall` hook, if any.
  *
  * The hook can override `content`/`details`/`isError`/`terminate` field-by-field — each provided field
  * replaces the original wholesale (no deep merge), omitted fields pass through. A hook that itself
- * throws is converted into an error result rather than failing the batch. Redaction runs last so even
- * hook-substituted content is scrubbed before reaching logs/UI/the model.
+ * throws is converted into an error result rather than failing the batch.
  */
 async function finalizeExecutedToolCall(
   currentContext: AgentContext,
@@ -1229,22 +1436,11 @@ async function finalizeExecutedToolCall(
     }
   }
 
-  result = redactToolResult(result)
   return {
     args: prepared.args,
     toolCall: prepared.toolCall,
     result,
     isError
-  }
-}
-
-function redactToolResult(result: AgentToolResult<any>): AgentToolResult<any> {
-  return {
-    ...result,
-    content: result.content.map(block =>
-      block.type === 'text' ? { ...block, text: redactSensitiveText(block.text) } : block
-    ),
-    details: redactJsonValue(result.details)
   }
 }
 

@@ -4,7 +4,6 @@ import type { TurnStart, JsonObject } from '../../actor_lane'
 import { createCombinedAbortSignal } from '../../common/async'
 import { Output, streamText, zodSchema, type Message, type Model } from '../../ai-gateway-client'
 import { convertAnkoleMessagesToModelMessages } from '../../ai-gateway-client/ankole-ai-sdk'
-import type { ProviderOptions } from '../../ai-gateway-client/provider-utils'
 import { buildAmbientRecognizerSystemPrompt, buildAmbientRecognizerUserPrompt } from '../../prompts/ambient_prompt'
 import type { AgentConversationContext, ConversationHistoryMessage, ConversationHistoryResponse } from '../../rpc_lane'
 
@@ -68,7 +67,6 @@ const DEFAULT_AMBIENT_RECOGNIZER_TIMEOUT_MS = 45_000
 export async function runAmbientRecognizer(input: {
   headers: Record<string, string>
   model: Model
-  providerOptions?: ProviderOptions
   agentConversationContext?: AgentConversationContext
   conversationHistory?: ConversationHistoryResponse
   turnStart: TurnStart
@@ -146,7 +144,6 @@ export async function runAmbientRecognizer(input: {
         description: 'Decision on whether the agent should proactively speak in the observed IM room.'
       }),
       headers: input.headers,
-      providerOptions: input.providerOptions,
       maxOutputTokens: 512,
       maxRetries: 2,
       abortSignal: turnTimeout.signal
